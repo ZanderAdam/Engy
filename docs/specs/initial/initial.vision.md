@@ -89,7 +89,9 @@ Agent completes task → diff appears in viewer
   → you approve → agent auto-commits, pushes, creates PR
 ```
 
-**Auto-commit on approval.** When you approve diffs, the agent handles the commit automatically — staging files, generating a commit message from the task/group/plan context. You shouldn't have to write a commit message every time an agent's work passes review. The option to manually commit is still there (via the terminal), but the default path after "approve" is automated.
+**Pre-commit gate.** Workspaces can configure a pre-commit command (e.g. `yarn blt` — build, lint, test) in workspace settings. This runs automatically after the agent completes work, before committing. If it fails, the agent tries to fix the issues. If the agent can't fix them, it notifies the user. This is a local CI gate — catches issues before they even hit the PR. The agent also runs tests organically during task execution (like any developer would), but the configured command is the enforced gate. You don't rely on the agent remembering to test — the system forces it.
+
+**Auto-commit on approval.** When you approve diffs and the pre-commit gate passes, the agent handles the commit automatically — staging files, generating a commit message from the task/group/plan context. You shouldn't have to write a commit message every time an agent's work passes review. The option to manually commit is still there (via the terminal), but the default path after "approve" is automated.
 
 **PR lifecycle.** After committing, the agent pushes and creates a PR via `gh` CLI — generating the title and description from the spec, plan, and task context. No GitHub UI integration needed; the agent has all the context to produce a good PR description and handles it directly.
 
@@ -226,6 +228,7 @@ Settings follow the navigation hierarchy: **global settings** (Home page) and **
 **Workspace settings** (accessible from the workspace page header):
 
 - Repo directories — add/remove repos and subdirectories. Supports monorepo subdirectory scoping.
+- Pre-commit command — configurable command (e.g. `yarn blt`) that gates all commits. Runs automatically before agent commits.
 - Agent configuration — model preferences, tool access, MCP server configuration for async agents
 - Notification overrides — workspace-specific notification preferences
 - Terminal defaults — default context, startup behavior

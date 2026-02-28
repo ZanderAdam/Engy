@@ -133,7 +133,7 @@ Workspaces ordered by last interaction. Clicking a workspace navigates to the Wo
 
 Entered by clicking a workspace from Home. Top-level tabs organize workspace content.
 
-**Workspace settings** (⚙️ in the workspace header) — repo directories (add/remove, monorepo subdirectory scoping), agent configuration (model, tools, MCP servers), notification overrides, terminal defaults. The settings icon is context-aware: on the Home page it opens global settings, on a workspace page it opens that workspace's settings.
+**Workspace settings** (⚙️ in the workspace header) — repo directories (add/remove, monorepo subdirectory scoping), pre-commit command (e.g. `yarn blt` — enforced gate before all commits), agent configuration (model, tools, MCP servers), notification overrides, terminal defaults. The settings icon is context-aware: on the Home page it opens global settings, on a workspace page it opens that workspace's settings.
 
 ### Tabs
 
