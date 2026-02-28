@@ -18,6 +18,18 @@ Engy is the **single environment** for the entire development lifecycle. An engi
 
 Multi-user collaboration is a future concern. The git-backed knowledge layer makes it *possible* (push/pull, branching), but the vision doesn't address concurrent writes, access control, or conflict resolution between users. When that time comes, the architecture should support it without a rewrite, but it's not a design constraint today.
 
+### Two AI Runtimes
+
+Engy has two distinct AI runtimes serving different interaction patterns:
+
+**Claude Code CLI (xterm) — synchronous, interactive.** The terminal panel on every page is Claude Code CLI rendered in an xterm terminal. The user is present and driving. This powers spec authoring, planning, ad-hoc queries, manual feedback, system doc updates — anything where you're actively working with the AI in real-time. Same approach as Engy 1.
+
+**Claude Agent SDK via Mastra — asynchronous, autonomous.** Background agent work is built on the Claude Agent SDK, orchestrated by Mastra. These agents run without a live terminal session. You kick off a task group or a spec research task, the agent executes autonomously, results appear when it's done. Mastra provides the orchestration layer: agent lifecycle management, tool coordination, workflows, and memory integration.
+
+The two runtimes connect at the feedback boundary. When you review diffs or context files and leave comments, that feedback routes to the appropriate target: the live terminal session (if you're actively co-working with the CLI) or an async agent (which Mastra resumes with your feedback as new context). The diff viewer and content editor don't care which runtime produced the work — the review interface is the same.
+
+This split keeps the interactive experience snappy (Claude Code CLI is optimized for conversational back-and-forth) while the heavy lifting runs in the background (Agent SDK agents are optimized for autonomous multi-step execution). Mastra is the uniform orchestration layer beneath the async agents — an agent researching OAuth providers for a spec context file uses the same Mastra infrastructure as an agent implementing the auth endpoint during project execution.
+
 ## Spec-Driven Development
 
 Engy embraces spec-driven development (SDD) — the paradigm where specs are the primary artifact, driving AI agent implementation. The core loop: **Specify → Plan → Tasks → Implement**.
@@ -34,9 +46,9 @@ Engy extends SDD with two things most SDD tools lack:
 
 Engy has two interaction surfaces that work together on every page of the app:
 
-### The Terminal Panel (Claude Code)
+### The Terminal Panel (Claude Code CLI)
 
-The right side of the app hosts an embedded Claude Code terminal. This is the primary way users *do things* in Engy. It's not a secondary feature or a power-user escape hatch — it's the action layer for the entire workflow.
+The right side of the app hosts Claude Code CLI in an xterm terminal. This is the primary way users *do things* in Engy. It's not a secondary feature or a power-user escape hatch — it's the action layer for the entire workflow. This is the synchronous, interactive runtime — you type, it responds, you iterate in real-time.
 
 The terminal is **context-aware**. It knows what page you're on, what project is active, what task is selected. When you're viewing a spec, the terminal has that spec's context loaded. When you're in a project, it has the project's tasks and plan. When you're reviewing diffs, it has the diff context. The terminal adapts to wherever you are in the app.
 
@@ -44,8 +56,8 @@ Every stage of the SDD loop is driven through the terminal via **Claude Code ski
 
 - **Spec authoring:** "Help me write a spec for auth revamp" — the skill reads system docs and workspace memories for context, asks clarifying questions, drafts the spec and context files, iterates with you until it's right.
 - **Planning:** "Plan this spec" — the skill reads the spec + context, proposes milestones/groups/tasks, you iterate in the terminal, the plan materializes in SQLite.
-- **Execution monitoring:** The terminal shows what the agent is doing during task execution. You can intervene, redirect, ask questions mid-execution.
-- **Review feedback:** When reviewing diffs, you can give feedback directly in the terminal and it routes to the right agent session.
+- **Execution monitoring:** The terminal can show status of background agents (Agent SDK via Mastra). For interactive work, you see output in real-time and can intervene, redirect, ask questions mid-execution.
+- **Review feedback:** When reviewing diffs, you can give feedback directly in the terminal. For async agent output, feedback routes to the Mastra-managed agent session that produced the work.
 - **System doc updates:** "Update system docs for this project" — the skill reads completed tasks and proposes diffs.
 - **Memory management:** "What do we know about auth?" — the skill searches workspace and repo memories, surfaces relevant context.
 - **Ad-hoc work:** Quick bugs, one-off tasks, questions about the codebase — the terminal handles ambient work that doesn't warrant a project.
@@ -72,7 +84,29 @@ Agent completes task → diff appears in viewer
   → feedback routes to the agent session (with file, line, and comment context)
   → agent revises in the same worktree
   → updated diff appears
-  → you approve → commit through the diff viewer
+  → you approve → agent auto-commits, pushes, creates PR
+```
+
+**Auto-commit on approval.** When you approve diffs, the agent handles the commit automatically — staging files, generating a commit message from the task/group/plan context. You shouldn't have to write a commit message every time an agent's work passes review. The option to manually commit is still there (via the terminal), but the default path after "approve" is automated.
+
+**PR lifecycle.** After committing, the agent pushes and creates a PR via `gh` CLI — generating the title and description from the spec, plan, and task context. No GitHub UI integration needed; the agent has all the context to produce a good PR description and handles it directly.
+
+**PR monitoring.** Once a PR is open, Engy polls its status — CI results, reviewer comments, review requests. When something needs attention, Engy dispatches the agent or notifies the user:
+
+- **CI failure:** Agent reads the failure logs, diagnoses the issue, fixes, pushes. Straightforward CI fixes (linting, type errors, missing deps) can be handled autonomously. The agent has full context from the original work since the session is still active.
+- **Reviewer comments:** Agent pulls comments back into the diff viewer. Comments appear alongside your local review comments — the agent session doesn't care where the feedback originated. The agent addresses feedback, pushes updates.
+- **Review requests / approvals:** Status surfaces in the notification system and the task group's status in the project view.
+
+The agent can handle multiple rounds of CI fix → push → re-run without user intervention. If the agent can't resolve a CI failure or a reviewer comment requires a judgment call, it notifies the user and stalls until you weigh in (via the diff viewer or terminal). The full cycle:
+
+```text
+You approve diffs → agent auto-commits (contextual message)
+  → agent pushes, creates PR via gh (description from plan context)
+  → Engy polls PR status
+  → CI fails → agent reads logs, fixes, pushes → CI re-runs
+  → reviewer comments → agent pulls back, addresses, pushes
+  → agent can't resolve → notifies user, stalls
+  → all checks pass, approved → PR merged
 ```
 
 The diff viewer is used for **all** commits, not just agent-produced code. If you make manual changes in a worktree, they show up in the diff viewer too. It's the single commit interface.
@@ -87,17 +121,22 @@ The app layout on any page:
 ┌─────────────────────────────────┬──────────────────────┐
 │                                 │                      │
 │   Main Content Area             │   Terminal Panel     │
-│   (dashboard / spec browser /   │   (Claude Code)      │
-│    project view / diff viewer)  │                      │
+│   (dashboard / spec browser /   │   (Claude Code CLI   │
+│    project view / diff viewer)  │    in xterm)         │
+│                                 │                      │
 │                                 │   Context-aware,     │
 │                                 │   always available    │
+│                                 │                      │
+│   Async agents (Agent SDK via   │                      │
+│   Mastra) run in background —   │                      │
+│   results surface here          │                      │
 │                                 │                      │
 └─────────────────────────────────┴──────────────────────┘
 ```
 
 The main content area changes based on where you are. The terminal persists. Context flows from the main area to the terminal automatically — if you click on a spec, the terminal knows you're looking at that spec. If you click on a task, the terminal has that task's context.
 
-The diff viewer occupies the main content area when reviewing changes. The terminal stays open beside it for feedback that needs more nuance than a line comment — "rethink this whole approach" or "can you explain why you did it this way?"
+The diff viewer occupies the main content area when reviewing changes — whether those changes came from the terminal (interactive) or from an async agent (background). The terminal stays open beside it for feedback that needs more nuance than a line comment — "rethink this whole approach" or "can you explain why you did it this way?" For async agent output, comments in the diff viewer route back to the Mastra-orchestrated agent session, which resumes with your feedback as new context.
 
 ### The Content Editor
 
@@ -122,6 +161,8 @@ Notification triggers:
 
 - **Agent needs input.** A task group's agent session hit a decision point or blocker and needs human guidance. This is the most urgent notification — the agent is stalled until you respond.
 - **Task group ready for review.** An agent session completed all tasks in a group. Diffs are in the diff viewer awaiting your review.
+- **CI failure (unresolvable).** An agent attempted to fix a CI failure on a PR but couldn't resolve it autonomously. Needs human intervention — links to the diff viewer with failure context.
+- **PR review received.** External reviewer commented or requested changes on a PR. Agent is addressing it, but you may want to monitor.
 - **Milestone completed.** All task groups in a milestone have been merged. Progress update.
 - **Project ready for completion.** All milestones done. Memory distillation and system doc update review are pending.
 - **System doc update proposed.** A completion workflow has generated diffs for system docs. Needs review in the diff viewer.
@@ -156,8 +197,18 @@ A workspace owns:
 - **Shared docs** — Coding conventions, style guides, runbooks. Organizational knowledge true across all projects.
 - **Specs** — Pre-project thinking spaces with supporting context. The input that drives projects.
 - **Memory** — Workspace-level persistent knowledge (patterns, learnings, conventions).
-- **Unscoped tasks** — Ambient work that doesn't belong to a specific project (quick bugs, one-off tasks). These live in SQLite alongside project tasks, just without a project reference.
+- **Default project** — A permanent project for ambient work: quick bugs, one-off tasks, workspace-level work. Auto-created with the workspace, can't be deleted or completed. See below.
 - **Projects** — Ephemeral execution scopes (see below).
+
+### Default Project (the workspace scratchpad)
+
+Every workspace has a **Default project** — auto-created when the workspace is created, can't be deleted or completed. It's the home for ambient work that doesn't belong to a spec-driven project: quick bugs, one-off tasks, exploratory work, workspace-level maintenance.
+
+The Default project uses the same task system as everything else, but with a simpler structure: flat task list with dependencies, no milestones, no task groups (same shape as spec tasks). Both `ai` and `human` task types work here. It has its own terminal context, and shows up first in the workspace overview.
+
+**Per-task completion.** Unlike regular projects (which batch their completion step), the Default project handles completion at the individual task level. When a task is marked done, the agent evaluates whether it produced anything worth capturing — a memory promotion or a system doc update. If it did, you get the same review flow: proposed system doc diffs in the diff viewer, memory promotion prompts. If not (most quick tasks), you dismiss and move on. This prevents valuable work from getting lost in a project that never "completes."
+
+The Default project's tasks are the natural fit for the Eisenhower matrix view — your personal prioritization board for non-project work.
 
 ### System Docs (the living source of truth)
 
@@ -166,15 +217,22 @@ The `system/` directory is the canonical description of what the system actually
 ```text
 .engy/
   system/
-    overview.md               # high-level architecture
-    authentication.md         # "Auth uses JWT, refresh tokens rotate on use..."
-    task-management.md
-    api.md
-    database.md
-    deployment.md
+    overview.md                 # the map — links to all sections, high-level summary
+    features/                   # BDD-style behavior docs (what the system does)
+      authentication.md         # "Auth uses JWT, refresh tokens rotate on use..."
+      task-management.md
+      notifications.md
+    technical/                  # architecture and infrastructure (how the system works)
+      api.md
+      database.md
+      deployment.md
 ```
 
-Each file is the canonical truth for that domain. The directory structure IS the context scoping — an agent working on an auth spec reads `system/authentication.md` and maybe `system/api.md`, not the whole system.
+The directory is organized into two sections. `features/` contains BDD-style behavior documents — each file describes what a feature does, its rules, and its edge cases from the user's perspective. `technical/` contains architecture and infrastructure documents — schemas, API surface, deployment topology, the structural decisions that cut across features.
+
+`overview.md` sits at the root as the index. It's the entry point for any agent or human trying to understand the system — a high-level summary with links into the relevant feature and technical docs. When a new system doc file is created (proposed by a skill during project completion), it goes into whichever section fits. The overview is updated to reference it.
+
+The directory structure IS the context scoping — an agent working on an auth spec reads `system/features/authentication.md` and maybe `system/technical/api.md`, not the whole system.
 
 **The feedback loop:**
 
@@ -222,6 +280,20 @@ Specs live at the workspace level, not inside projects. A spec is a directory co
 
 The spec directory is self-contained — everything an agent needs to understand the proposed change lives here, including supporting research, benchmarks, and notes.
 
+#### Spec Tasks (research and preparation)
+
+Specs have tasks — the same task system used by projects, just scoped to a spec instead. Spec tasks live in SQLite (same `tasks` table, with `specId` set instead of `projectId`) and use the same UI: task list, dependency graph, same agent loop.
+
+Most spec tasks are research that produces context files. "Investigate OAuth providers" → agent researches, writes `context/oauth-providers.md`, you review it in the content editor, send feedback, agent revises. Same loop as project execution — AI tasks spin up agent sessions via Mastra, produce output, you review, give feedback, it routes back to the same session.
+
+Human spec tasks work the same way: "Talk to backend team about rate limiting requirements" is a checkbox. Mixed dependencies are natural — a human task to gather requirements might block an AI research task that analyzes them.
+
+No milestones, no task groups. Spec tasks are a flat list with dependencies. The dependency graph still renders — nodes and edges don't need milestones or groups. This keeps spec-time lightweight while giving you the same visibility into what's blocking, what's running, and what's done.
+
+The spec-writing flow becomes: you create a spec (via the terminal or UI), the spec-writing skill proposes research tasks ("benchmark current auth latency," "review competitor OAuth flows," "pull relevant Slack threads"), you adjust the list, kick off AI tasks, context files accumulate as tasks complete, and the spec gets richer. The spec can't move to Ready until all its tasks are done or explicitly dropped — you don't review a spec that's still missing its research.
+
+Agent sessions for spec tasks work identically to project task sessions. The only difference is the output target: context files in the spec's `context/` directory instead of code changes in a worktree.
+
 #### Vision Specs (foundational references)
 
 Not every spec becomes a project. A **vision spec** is a foundational document that captures the big-picture design for a system or major initiative. It's too large to execute as a single project — instead, it serves as the shared reference that child specs are carved from.
@@ -249,7 +321,7 @@ The numerical prefix establishes build order — earlier specs can't depend on l
 
 Child specs reference the vision for context but scope themselves to one buildable chunk. Each child becomes one project. The vision stays frozen as a historical artifact — the system docs that evolve from completed projects become the living truth, and the vision becomes the record of original intent.
 
-**Spec authoring** happens through the terminal. You open the spec browser (or start from the dashboard), and use the Claude Code spec-writing skill. The skill reads system docs and workspace memories for context, helps you research and draft, creates the spec file and context directory, and iterates with you until the spec is ready. The spec browser in the main content area shows you the rendered result as you work.
+**Spec authoring** happens through the terminal. You open the spec browser (or start from the dashboard), and use the Claude Code spec-writing skill. The skill reads system docs and workspace memories for context, creates the spec file and context directory, and proposes research tasks. AI research tasks execute via Mastra agent sessions — producing context files that you review and refine. The spec browser in the main content area shows the rendered spec and its task list. The dependency graph view shows what research is in progress, what's blocked, and what's done.
 
 **Spec lifecycle (buildable specs):**
 
@@ -257,8 +329,8 @@ Child specs reference the vision for context but scope themselves to one buildab
 Draft → Ready → Approved → Active (project exists) → Completed
 ```
 
-- **Draft:** Under active research and writing via the terminal. Mutable.
-- **Ready:** Author considers it complete, ready for review. Reviewers (human or AI) read the spec in the content editor and leave inline comments, which route to the terminal session for revision.
+- **Draft:** Under active research and writing via the terminal. Mutable. Spec tasks (research, preparation) execute during this phase — AI agents produce context files, human tasks track manual research. The spec can't move to Ready until all tasks are done or dropped.
+- **Ready:** Author considers it complete, ready for review. All research tasks are finished and context files are in place. Reviewers (human or AI) read the spec in the content editor and leave inline comments, which route to the terminal session for revision.
 - **Approved:** Reviewed and approved. Ready to become a project.
 - **Active:** A project has been created from this spec. The spec freezes — it becomes a historical record of intent. Changes to scope during execution are captured in plan content within the project, not by editing the spec.
 - **Completed:** The project completed and was deleted. The spec remains as the permanent record of what was intended. This is one of the few artifacts that survives a project — the others being promoted memories and system doc updates.
@@ -311,9 +383,9 @@ This is the key insight: **a project is a process, not an artifact.** It runs, p
 
 ### Agent Sessions
 
-An **Agent Session** is a persistent, resumable Claude Code session tied to a task group. It's the execution context for AI-driven work.
+An **Agent Session** is a persistent, resumable agent instance built on the **Claude Agent SDK** and orchestrated by **Mastra**. This is the asynchronous runtime — distinct from the Claude Code CLI terminal. Agent sessions run in the background without a live terminal; results surface in the diff viewer or content editor when ready.
 
-When a task group becomes Active, an agent session is created (or resumed if one already exists for that group). The session has:
+Sessions can be tied to either a **task group** (project execution) or an individual **spec task** (spec research). For project work, a session is created when a task group becomes Active (or resumed if one already exists for that group). For spec research, a session is created per AI task — each research task gets its own session since spec tasks don't have groups. In both cases, the session has:
 
 - **Full context:** The spec, the plan, the task descriptions, workspace memories, repo memories, system docs — everything the agent needs.
 - **Worktree access:** The session operates in the task group's worktree(s).
@@ -328,8 +400,12 @@ Task group becomes Active → session created/resumed
   → produces diffs (visible in diff viewer)
   → receives feedback from diff viewer comments
   → revises and re-produces diffs
-  → user approves and commits via diff viewer
-Task group moves to Review/Merged → session becomes inactive
+  → user approves → agent auto-commits, pushes, creates PR
+  → Engy polls PR status
+  → CI failure → agent dispatched to fix, push, re-run
+  → reviewer comments → agent addresses, pushes
+  → all checks pass, approved → PR merged
+Task group moves to Merged → session becomes inactive
 Task group cleaned up → session data discarded
 ```
 
@@ -350,14 +426,25 @@ Why this granularity:
 **Task group lifecycle:**
 
 ```text
-Planned → Active → Review → Merged → Cleaned Up
+Planned → Active → Review → PR Open → Merged → Cleaned Up
+                ↕
+             Paused
+                ↓
+             Stopped → (Restart) → Active
 ```
 
 - **Planned:** Group exists in the plan. No worktree yet. Tasks are defined but not started.
 - **Active:** Worktree created, branch created, agent session running. Tasks execute sequentially within the session. Diffs appear in the diff viewer as work progresses.
-- **Review:** All tasks in the group are complete. Diffs are in the diff viewer awaiting review. The user reviews, comments (feedback routes to the agent session), agent revises, user approves, commits through the diff viewer.
-- **Merged:** Committed and pushed. Work is in the target branch. PR created on remote if applicable.
+- **Paused:** Agent session suspended, worktree preserved, current task stays "in progress." Can resume with full context. Useful for reprioritizing or "I need to think about this."
+- **Stopped:** Agent session killed, worktree preserved with current changes. Tasks revert to Planned. Can restart with a new session, optionally with notes ("use X approach instead") that become context for the new session. Useful for "this approach is wrong, start over."
+- **Review:** All tasks in the group are complete. Diffs are in the diff viewer awaiting review. The user reviews, comments (feedback routes to the agent session), agent revises. On approval, the agent auto-commits with a contextual message, pushes, and creates a PR via `gh` (title and description generated from spec/plan/task context).
+- **PR Open:** PR is live on the remote. Engy actively monitors: polls CI status, reviewer comments, and review state. On CI failure, the agent is dispatched to read logs, diagnose, fix, and push — autonomously for straightforward issues. Reviewer comments are pulled into the diff viewer and addressed by the agent. If the agent can't resolve something, it notifies the user. This is an active state, not a passive wait.
+- **Merged:** PR merged (from Engy or the remote). Work is in the target branch.
 - **Cleaned Up:** Worktree deleted, branch cleaned up (if merged). Agent session discarded. Terminal state.
+
+**Group controls:** Every active group has controls: **Pause** (suspend session), **Stop** (kill session), **Resume** (resume paused session), **Restart** (create new session for stopped group). Controls are available from the project overview's active agents panel, the dependency graph, the swimlane board, the PR tab, and task detail views. Controls operate on the group level — pausing a group pauses the agent session, which stops the currently executing task.
+
+**Execution visibility:** Each AI task within a group exposes an execution log — a real-time stream from the Mastra agent session showing what the agent is doing, tool calls, errors, retries, and resolution status. The log is accessible from the task detail view (Content | Log tabs). This gives three levels of zoom: project overview (which agents are running), dependency graph (which tasks are done/running/waiting), and task detail log (what the agent is actually doing right now).
 
 **Failure handling:**
 
@@ -439,7 +526,7 @@ SQLite holds **execution state** — things that are transient by nature. Tasks,
 
 ### File-Based Entities
 
-**System docs** (`system/*.md`) — Markdown files. The canonical description of the current system. Updated through the diff viewer when projects complete.
+**System docs** (`system/`) — Markdown files organized into `features/` (BDD-style behavior docs) and `technical/` (architecture and infrastructure), with `overview.md` as the index. Updated through the diff viewer when projects complete.
 
 **Specs** (`specs/{slug}/`) — Directories containing `spec.md` plus a `context/` subdirectory with supporting research. Self-contained. Status tracked in `spec.md` frontmatter. Authored via the terminal.
 
@@ -449,13 +536,13 @@ SQLite holds **execution state** — things that are transient by nature. Tasks,
 
 ### Database Entities
 
-**Projects** — Name/slug, status, timestamps, spec reference. Created when a spec is approved. Deleted when completion process finishes.
+**Projects** — Name/slug, status, timestamps, spec reference, `isDefault` flag. Regular projects are created when a spec is approved and deleted when completion finishes. The Default project (`isDefault: true`) is auto-created with the workspace and is permanent — it can't be deleted or completed.
 
 **Milestones** — Title, project reference, status, ordering.
 
-**Task Groups** — Group name, milestone reference, status (Planned → Active → Review → Merged → Cleaned Up), repos list.
+**Task Groups** — Group name, milestone reference, status (Planned / Active / Paused / Stopped / Review / PR Open / Merged / Cleaned Up), repos list.
 
-**Tasks** — Title, description, status, type (`ai` or `human`), milestone reference, group reference, dependencies, importance/urgency. Project reference is nullable — null means unscoped workspace task. The planning agent sets the type at creation: pure execution work is `ai`, anything requiring human judgment or action is `human`.
+**Tasks** — Title, description, status, type (`ai` or `human`), milestone reference, group reference, dependencies, importance/urgency. Has nullable `projectId` and nullable `specId` — a task belongs to one scope: project tasks have `projectId` set (including the Default project), spec tasks have `specId` set. Default project tasks and spec tasks have no milestone or group reference (flat list with dependencies only). The planning agent sets the type at creation: pure execution work is `ai`, anything requiring human judgment or action is `human`.
 
 **Agent Sessions** — Session ID, task group reference, session state/context, status (active/inactive/discarded). The persistent context that enables feedback routing from the diff viewer.
 
@@ -496,7 +583,7 @@ The split mirrors the storage architecture:
 MCP tools include:
 
 - **Project management:** `createProject`, `getProject`, `updateProjectStatus`, `deleteProject`
-- **Task management:** `createTask`, `updateTask`, `getTasks`, `getTasksByGroup`
+- **Task management:** `createTask`, `updateTask`, `getTasks`, `getTasksByGroup`, `getTasksBySpec`
 - **Memory:** `createFleetingMemory`, `promoteMemory`, `searchMemories`
 - **Planning:** `createMilestone`, `createTaskGroup`, `getPlan`
 - **Search:** `search` (queries ChromaDB), `getDocument` (reads file content)
@@ -599,10 +686,12 @@ Pick up Task Group A (T150, T151, T152) in Milestone 1
   → create worktree: engy-api/worktrees/auth-revamp-token-refresh
   → create branch: auth-revamp/token-refresh
   → agent session executes tasks sequentially in the worktree
-  → each task produces commits (visible in diff viewer)
+  → each task produces diffs (visible in diff viewer)
   → user reviews diffs, provides feedback → routes to agent session
-  → agent revises → user approves → commits via diff viewer
-  → group complete → worktree cleaned up
+  → agent revises → user approves
+  → agent auto-commits, pushes, creates PR via gh
+  → external PR comments pulled back → agent addresses
+  → PR merged → worktree cleaned up
 ```
 
 **Multi-repo task groups:**
@@ -613,8 +702,9 @@ Task Group: "Wire refresh flow e2e"
   → worktree in each repo
   → agent session works across both
   → diffs from both repos appear together in diff viewer
-  → group completes → commits in each repo, coordinated
-  → all pushed → all worktrees cleaned up
+  → user approves → agent auto-commits in each repo, coordinated
+  → agent pushes, creates PRs for each repo
+  → all PRs merged → all worktrees cleaned up
 ```
 
 The workspace defines which repos are available by default. The task group declares which repos it touches — including repos outside the workspace when needed. Worktrees are lazy: spun up when a group becomes Active, torn down when it reaches Cleaned Up.
@@ -638,7 +728,15 @@ SYSTEM DOC (current state) + WORKSPACE MEMORY (files)
   ↓
   │  Terminal: spec-writing skill reads context
   ↓
-SPEC (proposed change, with context/ dir — files)
+SPEC DRAFTING (proposed change — files)
+  ↓
+  ├── spec tasks created (research + preparation)
+  ├── AI tasks: agent sessions research, produce context/ files
+  ├── human tasks: manual research, conversations, decisions
+  ├── user reviews context files, sends feedback → routes to agent sessions
+  ├── spec text refined as research completes
+  ↓
+SPEC READY → REVIEWED → APPROVED
   ↓
   │  Terminal: user approves, triggers project creation
   ↓
@@ -653,7 +751,10 @@ EXECUTE (runner picks up task groups)
   ├── tasks execute sequentially within sessions
   ├── diffs flow to diff viewer as work progresses
   ├── user reviews diffs, comments route to agent sessions
-  ├── agents revise, user approves, commits via diff viewer
+  ├── agents revise, user approves
+  ├── agent auto-commits, pushes, creates PR via gh
+  ├── external PR comments pulled back → agent addresses feedback
+  ├── PR merged
   ├── fleeting memories accumulate in SQLite
   ↓
 COMPLETE
@@ -732,20 +833,20 @@ With ephemeral projects, tracking active work becomes natural:
 
 ```text
 Workspace: engy
+  Default:            3 active tasks
   Active Projects:
     auth-revamp     ██████░░░░ 60%  (3/5 milestones)
     ci-overhaul     ██░░░░░░░░ 20%  (1/5 milestones)
     plan-mode       █████████░ 90%  (4/5 milestones)
 
   Specs in Progress: 2
-  Unscoped Tasks: 5
 ```
 
-Progress is derived from milestones. A milestone is complete when all its task groups have reached Merged or Cleaned Up state. Project progress = completed milestones / total milestones.
+Progress is derived from milestones. A milestone is complete when all its task groups have reached Merged or Cleaned Up state. Project progress = completed milestones / total milestones. The Default project shows active task count instead of milestone progress (since it has no milestones).
 
 At a glance: what's in flight, what's stalled, what's done. No "Archived: 147 projects" clutter — completed projects are gone. Their value lives in the system docs and memories. WIP limits become visible — if three projects are active and none are progressing, that's a signal to focus.
 
-Clicking into any project from the dashboard opens the dependency graph view with the terminal already contextualized — ready to work. Unscoped tasks are accessible from the dashboard via the Eisenhower matrix — your personal prioritization board for ambient work that doesn't belong to a project.
+Clicking into any project from the dashboard opens the dependency graph view with the terminal already contextualized — ready to work. Clicking the Default project opens the Eisenhower matrix — your personal prioritization board for ambient work.
 
 ---
 
@@ -788,12 +889,15 @@ The file layer is lean — only permanent knowledge:
 .engy/
   workspace.yaml              # repos, config, workspace metadata
   system/                     # living source of truth (current state)
-    overview.md
-    authentication.md
-    task-management.md
-    api.md
-    database.md
-    deployment.md
+    overview.md               # the map — links to all sections
+    features/                 # BDD-style behavior docs
+      authentication.md
+      task-management.md
+      notifications.md
+    technical/                # architecture and infrastructure
+      api.md
+      database.md
+      deployment.md
   specs/                      # pre-project thinking (proposed changes)
     initial/                  # vision spec — foundational reference, never becomes a project
       spec.md
@@ -838,8 +942,6 @@ That's it. No project directories. No task files. No archived project trees. The
 **Database as single point of failure for active work.** Active projects exist only in SQLite. Standard database reliability practices apply (WAL mode, backups). Loss of the database loses active project state — but not completed work, which has already been extracted to files and git. Optionally, the SQLite file can live inside `.engy/` and be periodically committed for backup.
 
 **Repo memory in multi-workspace future.** The current design stores repo memories in `.engy/memory/` with a `repo` field. This works for single-workspace. For multi-workspace, the question of where repo memories canonically live needs revisiting.
-
-**Unscoped task lifecycle.** Unscoped tasks (quick bugs, one-off work) live in SQLite without a project. They don't go through the full project lifecycle. How do they eventually get cleaned up? Manual deletion, or an age-based sweep, or just accept that the unscoped task list needs periodic grooming.
 
 **ChromaDB rebuild cost.** Full reindex with embedding regeneration is the slowest recovery operation. Since it now only indexes files + current database content (not hundreds of archived task files), this should be significantly faster than a file-heavy architecture. But large memory collections with long content could still take time.
 
