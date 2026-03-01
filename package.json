@@ -4,14 +4,15 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
-    "lint": "turbo run lint",
+    "lint": "turbo run lint:eslint && knip && jscpd",
     "test": "turbo run test",
-    "blt": "turbo run build lint test"
+    "blt": "turbo run build lint:eslint test && knip && jscpd"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^9.39.3",
     "jscpd": "^4.0.5",
+    "knip": "^5.85.0",
     "prettier": "^3.4.0",
     "turbo": "^2.4.0",
     "typescript": "^5.7.0",

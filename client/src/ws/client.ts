@@ -11,7 +11,7 @@ const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
 const JITTER_FACTOR = 0.2;
 
-export interface WsClientOptions {
+interface WsClientOptions {
   serverUrl: string;
   onWorkspacesSync: (message: WorkspacesSyncMessage) => void;
 }

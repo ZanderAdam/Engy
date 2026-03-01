@@ -2,7 +2,7 @@ import { watch, type FSWatcher } from 'chokidar';
 
 const DEBOUNCE_MS = 300;
 
-export interface WatchedWorkspace {
+interface WatchedWorkspace {
   slug: string;
   repos: string[];
 }

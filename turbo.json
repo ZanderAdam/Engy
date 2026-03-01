@@ -9,7 +9,7 @@
       "dependsOn": ["^build"],
       "outputs": [".next/**", "dist/**"]
     },
-    "lint": {
+    "lint:eslint": {
       "dependsOn": ["^build"]
     },
     "test": {

@@ -13,4 +13,5 @@ export const appRouter = router({
   task: taskRouter,
 });
 
+/** @public Used by tRPC client setup */
 export type AppRouter = typeof appRouter;

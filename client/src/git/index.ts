@@ -1,11 +1,11 @@
 import { simpleGit } from 'simple-git';
 
-export interface BranchInfo {
+interface BranchInfo {
   current: string;
   isDetached: boolean;
 }
 
-export interface FileStatus {
+interface FileStatus {
   path: string;
   status: string;
 }

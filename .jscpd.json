@@ -1,0 +1,18 @@
+{
+  "gitignore": true,
+  "reporters": ["console"],
+  "threshold": 3,
+  "minLines": 10,
+  "minTokens": 100,
+  "ignore": [
+    "**/.engy/**",
+    "**/.claude/**",
+    "**/.pnpm-store/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/.next/**",
+    "**/.turbo/**",
+    "**/eslint.config.mjs",
+    "**/migrations/**"
+  ]
+}

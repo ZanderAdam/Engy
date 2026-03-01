@@ -1,16 +1,27 @@
 {
+  "ignore": [".claude/**"],
+  "ignoreDependencies": ["prettier"],
   "workspaces": {
     "web": {
-      "entry": ["server.ts", "src/app/**/*.{ts,tsx}"],
+      "entry": ["src/app/**/*.{ts,tsx}", "src/**/test-helpers.ts", "src/lib/utils.ts"],
       "project": ["**/*.{ts,tsx}"],
-      "ignore": ["src/server/db/migrations/**"]
+      "ignoreDependencies": [
+        "postcss",
+        "tailwindcss",
+        "@remixicon/react",
+        "@tanstack/react-query",
+        "@trpc/client",
+        "@trpc/next",
+        "@trpc/react-query",
+        "class-variance-authority",
+        "radix-ui",
+        "tw-animate-css"
+      ]
     },
     "client": {
-      "entry": ["src/index.ts"],
       "project": ["**/*.{ts,tsx}"]
     },
     "common": {
-      "entry": ["src/index.ts"],
       "project": ["**/*.{ts,tsx}"]
     }
   }

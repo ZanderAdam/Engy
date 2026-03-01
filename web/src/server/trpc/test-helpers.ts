@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import * as schema from '../db/schema';
-import * as clientModule from '../db/client';
+import { resetDb } from '../db/client';
 import { resetAppState, getAppState, type AppState } from './context';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,7 +23,7 @@ export function setupTestDb(): TestContext {
   const dbPath = path.join(tmpDir, 'engy.db');
 
   process.env.ENGY_DIR = tmpDir;
-  (clientModule as { resetDb: () => void }).resetDb();
+  resetDb();
   resetAppState();
 
   const sqlite = new Database(dbPath);
@@ -41,7 +41,7 @@ export function setupTestDb(): TestContext {
       sqlite.close();
       fs.rmSync(tmpDir, { recursive: true, force: true });
       delete process.env.ENGY_DIR;
-      (clientModule as { resetDb: () => void }).resetDb();
+      resetDb();
       resetAppState();
     },
   };
