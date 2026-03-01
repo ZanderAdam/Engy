@@ -57,6 +57,7 @@ describe('WebSocket Server', () => {
       daemon: null,
       fileChanges: new Map(),
       pendingValidations: new Map(),
+      specLastChanged: new Map(),
     };
     const result = await startServer(state);
     server = result.server;

@@ -5,11 +5,11 @@
     "web": {
       "entry": ["src/app/**/*.{ts,tsx}", "src/**/test-helpers.ts", "src/lib/utils.ts"],
       "project": ["**/*.{ts,tsx}"],
-      "ignore": ["src/components/ui/**"],
+      "ignore": ["src/components/ui/**", "src/components/tree-view.tsx"],
       "ignoreDependencies": [
         "postcss",
-        "tailwindcss",
-        "tw-animate-css"
+        "tw-animate-css",
+        "@blocknote/core"
       ]
     },
     "client": {
