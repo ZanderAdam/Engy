@@ -1,17 +1,16 @@
 import type { AppState } from '../trpc/context';
 
 const DEBOUNCE_MS = 300;
-const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function handleSpecFileChange(workspaceSlug: string, state: AppState): void {
-  const existing = debounceTimers.get(workspaceSlug);
+  const existing = state.specDebounceTimers.get(workspaceSlug);
   if (existing) clearTimeout(existing);
 
-  debounceTimers.set(
+  state.specDebounceTimers.set(
     workspaceSlug,
     setTimeout(() => {
       state.specLastChanged.set(workspaceSlug, Date.now());
-      debounceTimers.delete(workspaceSlug);
+      state.specDebounceTimers.delete(workspaceSlug);
     }, DEBOUNCE_MS),
   );
 }
@@ -20,9 +19,9 @@ export function getSpecLastChanged(workspaceSlug: string, state: AppState): numb
   return state.specLastChanged.get(workspaceSlug) ?? null;
 }
 
-export function clearDebounceTimers(): void {
-  for (const timer of debounceTimers.values()) {
+export function clearDebounceTimers(state: AppState): void {
+  for (const timer of state.specDebounceTimers.values()) {
     clearTimeout(timer);
   }
-  debounceTimers.clear();
+  state.specDebounceTimers.clear();
 }

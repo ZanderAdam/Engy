@@ -24,9 +24,12 @@ interface SpecContent {
   body: string;
   contextFiles: string[];
   raw: Record<string, unknown>;
+  editorJson: unknown[] | null;
 }
 
 type Workspace = { slug: string; docsDir: string | null };
+
+const MAX_SLUG_LENGTH = 50;
 
 const BUILDABLE_TRANSITIONS: Record<string, string[]> = {
   draft: ['ready'],
@@ -71,10 +74,7 @@ export function listSpecs(workspace: Workspace): SpecTreeNode[] {
     const { frontmatter } = parseFrontmatter(content);
 
     const contextDir = path.join(dir, entry.name, 'context');
-    let contextFiles: string[] = [];
-    if (fs.existsSync(contextDir)) {
-      contextFiles = fs.readdirSync(contextDir).sort();
-    }
+    const contextFiles = fs.existsSync(contextDir) ? fs.readdirSync(contextDir).sort() : [];
 
     results.push({
       name: entry.name,
@@ -102,14 +102,16 @@ export function createSpec(
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/_+/g, '_')
-      .replace(/^_|_$/g, '');
+      .replace(/^_|_$/g, '')
+      .slice(0, MAX_SLUG_LENGTH);
     dirName = `${prefix}_${slug}`;
   } else {
     dirName = title
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
+      .replace(/^-|-$/g, '')
+      .slice(0, MAX_SLUG_LENGTH);
   }
 
   const specDir = path.join(dir, dirName);
@@ -136,18 +138,25 @@ export function getSpec(workspace: Workspace, specSlug: string): SpecContent {
   const { frontmatter, body, raw } = parseFrontmatter(content);
 
   const contextDir = path.join(specDir, 'context');
-  let contextFiles: string[] = [];
-  if (fs.existsSync(contextDir)) {
-    contextFiles = fs.readdirSync(contextDir).sort();
+  const contextFiles = fs.existsSync(contextDir) ? fs.readdirSync(contextDir).sort() : [];
+
+  const editorJsonPath = path.join(specDir, 'spec.editor.json');
+  let editorJson: unknown[] | null = null;
+  if (fs.existsSync(editorJsonPath)) {
+    try {
+      editorJson = JSON.parse(fs.readFileSync(editorJsonPath, 'utf-8'));
+    } catch {
+      // Corrupted JSON — fall back to markdown
+    }
   }
 
-  return { frontmatter, body, contextFiles, raw };
+  return { frontmatter, body, contextFiles, raw, editorJson };
 }
 
 export function updateSpec(
   workspace: Workspace,
   specSlug: string,
-  updates: { title?: string; status?: SpecStatus; body?: string },
+  updates: { title?: string; status?: SpecStatus; body?: string; editorJson?: unknown[] },
 ): SpecFrontmatter {
   const dir = specsDir(workspace);
   const specDir = validatePath(dir, specSlug);
@@ -173,6 +182,11 @@ export function updateSpec(
   const newBody = updates.body ?? body;
   fs.writeFileSync(specMdPath, serializeFrontmatter(newFrontmatter, newBody, raw));
 
+  if (updates.editorJson) {
+    const editorJsonPath = path.join(specDir, 'spec.editor.json');
+    fs.writeFileSync(editorJsonPath, JSON.stringify(updates.editorJson));
+  }
+
   return newFrontmatter;
 }
 
@@ -184,20 +198,23 @@ export function deleteSpec(workspace: Workspace, specSlug: string): void {
     throw new Error(`Spec "${specSlug}" not found`);
   }
 
-  // Cascade-delete tasks with matching specId
+  // Delete tasks first (reversible), then filesystem (hard to reverse)
   const db = getDb();
-  const matchingTasks = db.select().from(tasks).where(eq(tasks.specId, specSlug)).all();
-  if (matchingTasks.length > 0) {
-    console.warn(`[spec] Deleting ${matchingTasks.length} tasks associated with spec "${specSlug}"`);
-    db.delete(tasks).where(eq(tasks.specId, specSlug)).run();
-  }
+  db.delete(tasks).where(eq(tasks.specId, specSlug)).run();
 
-  fs.rmSync(specDir, { recursive: true, force: true });
+  try {
+    fs.rmSync(specDir, { recursive: true, force: true });
+  } catch (e) {
+    // Compensating action: re-create tasks would be complex, but at least the
+    // spec directory still exists so the user can retry deletion
+    throw new Error(`Failed to remove spec directory: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 export function listContextFiles(workspace: Workspace, specSlug: string): string[] {
   const dir = specsDir(workspace);
-  const contextDir = validatePath(path.join(dir, specSlug), 'context');
+  const specDir = validatePath(dir, specSlug);
+  const contextDir = path.join(specDir, 'context');
 
   if (!fs.existsSync(contextDir)) return [];
   return fs.readdirSync(contextDir).sort();
@@ -205,7 +222,8 @@ export function listContextFiles(workspace: Workspace, specSlug: string): string
 
 export function readContextFile(workspace: Workspace, specSlug: string, filename: string): string {
   const dir = specsDir(workspace);
-  const contextDir = path.join(dir, specSlug, 'context');
+  const specDir = validatePath(dir, specSlug);
+  const contextDir = path.join(specDir, 'context');
   const filePath = validatePath(contextDir, filename);
 
   if (!fs.existsSync(filePath)) {
@@ -222,7 +240,8 @@ export function writeContextFile(
   content: string,
 ): void {
   const dir = specsDir(workspace);
-  const contextDir = path.join(dir, specSlug, 'context');
+  const specDir = validatePath(dir, specSlug);
+  const contextDir = path.join(specDir, 'context');
   const filePath = validatePath(contextDir, filename);
 
   fs.mkdirSync(contextDir, { recursive: true });
@@ -235,7 +254,8 @@ export function deleteContextFile(
   filename: string,
 ): void {
   const dir = specsDir(workspace);
-  const contextDir = path.join(dir, specSlug, 'context');
+  const specDir = validatePath(dir, specSlug);
+  const contextDir = path.join(specDir, 'context');
   const filePath = validatePath(contextDir, filename);
 
   if (!fs.existsSync(filePath)) {
@@ -248,10 +268,11 @@ export function deleteContextFile(
 export function checkSpecReadiness(specId: string): boolean {
   const db = getDb();
   const specTasks = db.select().from(tasks).where(eq(tasks.specId, specId)).all();
-  return specTasks.every((t) => t.status === 'done');
+  // No tasks means ready — specs without tasks can still advance
+  return specTasks.length === 0 || specTasks.every((t) => t.status === 'done');
 }
 
-// ── Internal helpers ──
+// ── Internal helpers ─────────────────────────────────────────────
 
 function nextBuildablePrefix(dir: string): number {
   if (!fs.existsSync(dir)) return 1;

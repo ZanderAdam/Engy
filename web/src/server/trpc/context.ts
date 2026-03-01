@@ -18,6 +18,7 @@ export interface AppState {
     }
   >;
   specLastChanged: Map<string, number>;
+  specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
 }
 
 const GLOBAL_KEY = '__engy_app_state__' as const;
@@ -30,6 +31,7 @@ export function getAppState(): AppState {
       fileChanges: new Map(),
       pendingValidations: new Map(),
       specLastChanged: new Map(),
+      specDebounceTimers: new Map(),
     };
   }
   return g[GLOBAL_KEY] as AppState;

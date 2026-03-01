@@ -15,7 +15,6 @@ import {
   writeContextFile,
   deleteContextFile,
 } from '../../spec/service';
-import { getSpecLastChanged } from '../../spec/watcher';
 
 function getWorkspace(workspaceSlug: string) {
   const db = getDb();
@@ -24,6 +23,10 @@ function getWorkspace(workspaceSlug: string) {
     throw new TRPCError({ code: 'NOT_FOUND', message: `Workspace "${workspaceSlug}" not found` });
   }
   return { slug: ws.slug, docsDir: ws.docsDir };
+}
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 export const specRouter = router({
@@ -41,7 +44,7 @@ export const specRouter = router({
       try {
         return getSpec(ws, input.specSlug);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errorMessage(e);
         if (msg.includes('not found')) {
           throw new TRPCError({ code: 'NOT_FOUND', message: msg });
         }
@@ -70,6 +73,7 @@ export const specRouter = router({
         title: z.string().optional(),
         status: z.enum(['draft', 'ready', 'approved', 'active', 'completed']).optional(),
         body: z.string().optional(),
+        editorJson: z.array(z.any()).optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -78,7 +82,7 @@ export const specRouter = router({
       try {
         return updateSpec(ws, specSlug, updates);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errorMessage(e);
         if (msg.includes('not found')) {
           throw new TRPCError({ code: 'NOT_FOUND', message: msg });
         }
@@ -97,7 +101,7 @@ export const specRouter = router({
         deleteSpec(ws, input.specSlug);
         return { success: true };
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errorMessage(e);
         if (msg.includes('not found')) {
           throw new TRPCError({ code: 'NOT_FOUND', message: msg });
         }
@@ -119,7 +123,7 @@ export const specRouter = router({
       try {
         return readContextFile(ws, input.specSlug, input.filename);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errorMessage(e);
         if (msg.includes('not found')) {
           throw new TRPCError({ code: 'NOT_FOUND', message: msg });
         }
@@ -142,7 +146,7 @@ export const specRouter = router({
         writeContextFile(ws, input.specSlug, input.filename, input.content);
         return { success: true };
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errorMessage(e);
         throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
       }
     }),
@@ -155,7 +159,7 @@ export const specRouter = router({
         deleteContextFile(ws, input.specSlug, input.filename);
         return { success: true };
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errorMessage(e);
         if (msg.includes('not found')) {
           throw new TRPCError({ code: 'NOT_FOUND', message: msg });
         }
@@ -163,9 +167,4 @@ export const specRouter = router({
       }
     }),
 
-  lastChanged: publicProcedure
-    .input(z.object({ workspaceSlug: z.string() }))
-    .query(({ input, ctx }) => {
-      return { timestamp: getSpecLastChanged(input.workspaceSlug, ctx.state) };
-    }),
 });

@@ -14,12 +14,11 @@ import {
 import { CreateSpecTaskDialog } from "./create-spec-task-dialog";
 
 interface SpecTasksProps {
-  workspaceSlug: string;
   specSlug: string;
 }
 
-export function SpecTasks({ workspaceSlug, specSlug }: SpecTasksProps) {
-  const specId = `${workspaceSlug}/${specSlug}`;
+export function SpecTasks({ specSlug }: SpecTasksProps) {
+  const specId = specSlug;
   const utils = trpc.useUtils();
 
   const { data: tasks, isLoading } = trpc.task.listBySpecId.useQuery({
@@ -47,7 +46,6 @@ export function SpecTasks({ workspaceSlug, specSlug }: SpecTasksProps) {
           Tasks ({tasks?.length ?? 0})
         </h3>
         <CreateSpecTaskDialog
-          workspaceSlug={workspaceSlug}
           specSlug={specSlug}
         />
       </div>
@@ -99,7 +97,7 @@ export function SpecTasks({ workspaceSlug, specSlug }: SpecTasksProps) {
                   ) : (
                     <RiUserLine className="size-3 mr-0.5" />
                   )}
-                  {task.type ?? "human"}
+                  {task.type}
                 </Badge>
               </div>
             );

@@ -4,11 +4,6 @@ import { useState } from "react";
 import { useParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { trpc } from "@/lib/trpc";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SpecTree } from "@/components/specs/spec-tree";
 import { SpecFrontmatter } from "@/components/specs/spec-frontmatter";
@@ -27,26 +22,26 @@ export default function SpecsPage() {
   const [selectedSpec, setSelectedSpec] = useState<string | null>(null);
 
   return (
-    <ResizablePanelGroup orientation="horizontal" className="h-[calc(100vh-8rem)]">
-      <ResizablePanel defaultSize={25} minSize={15} maxSize={40}>
+    <div className="flex h-[calc(100vh-6rem)]">
+      <div className="w-64 shrink-0 border-r border-border">
         <SpecTree
           workspaceSlug={params.workspace}
           selectedSpec={selectedSpec}
           onSelectSpec={setSelectedSpec}
         />
-      </ResizablePanel>
-      <ResizableHandle withHandle />
-      <ResizablePanel defaultSize={75}>
+      </div>
+      <div className="flex-1 min-w-0">
         {selectedSpec ? (
           <SpecDetail
             workspaceSlug={params.workspace}
             specSlug={selectedSpec}
+            onDeleted={() => setSelectedSpec(null)}
           />
         ) : (
           <EmptyState />
         )}
-      </ResizablePanel>
-    </ResizablePanelGroup>
+      </div>
+    </div>
   );
 }
 
@@ -65,9 +60,10 @@ function EmptyState() {
 interface SpecDetailProps {
   workspaceSlug: string;
   specSlug: string;
+  onDeleted: () => void;
 }
 
-function SpecDetail({ workspaceSlug, specSlug }: SpecDetailProps) {
+function SpecDetail({ workspaceSlug, specSlug, onDeleted }: SpecDetailProps) {
   const { data: spec, isLoading, error } = trpc.spec.get.useQuery({
     workspaceSlug,
     specSlug,
@@ -95,41 +91,38 @@ function SpecDetail({ workspaceSlug, specSlug }: SpecDetailProps) {
   const documentPath = `specs/${specSlug}/spec.md`;
 
   return (
-    <div className="flex h-full flex-col">
+    <Tabs defaultValue="content" className="flex h-full flex-col">
       <SpecFrontmatter
         workspaceSlug={workspaceSlug}
         specSlug={specSlug}
         title={spec.frontmatter.title}
         status={spec.frontmatter.status}
         type={spec.frontmatter.type}
-      />
-      <Tabs defaultValue="content" className="flex flex-1 flex-col overflow-hidden">
-        <TabsList className="mx-4 mt-2 w-fit">
+        onDeleted={onDeleted}
+      >
+        <TabsList className="mr-2">
           <TabsTrigger value="content">Content</TabsTrigger>
           <TabsTrigger value="tasks">Tasks</TabsTrigger>
         </TabsList>
-        <TabsContent value="content" className="flex-1 overflow-hidden flex">
-          <div className="flex-1 overflow-hidden">
-            <SpecEditor
-              workspaceSlug={workspaceSlug}
-              specSlug={specSlug}
-              initialBody={spec.body}
-            />
-          </div>
-          <div className="w-64 shrink-0">
-            <SpecComments
-              workspaceSlug={workspaceSlug}
-              documentPath={documentPath}
-            />
-          </div>
-        </TabsContent>
-        <TabsContent value="tasks" className="flex-1 overflow-hidden">
-          <SpecTasks
+      </SpecFrontmatter>
+      <TabsContent value="content" className="flex flex-1 overflow-hidden m-0">
+        <div className="flex-1 overflow-auto">
+          <SpecEditor
             workspaceSlug={workspaceSlug}
             specSlug={specSlug}
+            initialBody={spec.body}
           />
-        </TabsContent>
-      </Tabs>
-    </div>
+        </div>
+        <div className="w-64 shrink-0">
+          <SpecComments
+            workspaceSlug={workspaceSlug}
+            documentPath={documentPath}
+          />
+        </div>
+      </TabsContent>
+      <TabsContent value="tasks" className="flex-1 overflow-hidden m-0">
+        <SpecTasks specSlug={specSlug} />
+      </TabsContent>
+    </Tabs>
   );
 }

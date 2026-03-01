@@ -20,13 +20,22 @@ export function SpecEditor({
   initialBody,
 }: SpecEditorProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadedRef = useRef(false);
   const utils = trpc.useUtils();
 
   const updateMutation = trpc.spec.update.useMutation({
     onSuccess: () => {
       utils.spec.get.invalidate({ workspaceSlug, specSlug });
     },
+    onError: (err) => {
+      console.error("[spec-editor] autosave failed:", err.message);
+    },
   });
+
+  const mutateRef = useRef(updateMutation.mutate);
+  useEffect(() => {
+    mutateRef.current = updateMutation.mutate;
+  }, [updateMutation.mutate]);
 
   const editor = useCreateBlockNote({
     initialContent: initialBody
@@ -34,9 +43,9 @@ export function SpecEditor({
       : [{ type: "paragraph", content: "" }],
   });
 
-  // Load initial markdown content
   useEffect(() => {
-    if (!initialBody) return;
+    if (!initialBody || loadedRef.current) return;
+    loadedRef.current = true;
     async function loadContent() {
       const blocks = await editor.tryParseMarkdownToBlocks(initialBody);
       editor.replaceBlocks(editor.document, blocks);
@@ -44,20 +53,19 @@ export function SpecEditor({
     loadContent();
   }, [editor, initialBody]);
 
-  const handleChange = useCallback(async () => {
+  const handleChange = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
 
     timerRef.current = setTimeout(async () => {
       const markdown = await editor.blocksToMarkdownLossy(editor.document);
-      updateMutation.mutate({
+      mutateRef.current({
         workspaceSlug,
         specSlug,
         body: markdown,
       });
     }, AUTOSAVE_DELAY_MS);
-  }, [editor, workspaceSlug, specSlug, updateMutation]);
+  }, [editor, workspaceSlug, specSlug]);
 
-  // Cleanup timer on unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);

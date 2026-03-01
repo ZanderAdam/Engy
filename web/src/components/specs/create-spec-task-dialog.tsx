@@ -23,12 +23,10 @@ import {
 import { RiAddLine } from "@remixicon/react";
 
 interface CreateSpecTaskDialogProps {
-  workspaceSlug: string;
   specSlug: string;
 }
 
 export function CreateSpecTaskDialog({
-  workspaceSlug,
   specSlug,
 }: CreateSpecTaskDialogProps) {
   const [open, setOpen] = useState(false);
@@ -38,7 +36,7 @@ export function CreateSpecTaskDialog({
   const [error, setError] = useState<string | null>(null);
   const utils = trpc.useUtils();
 
-  const specId = `${workspaceSlug}/${specSlug}`;
+  const specId = specSlug;
 
   const createMutation = trpc.task.create.useMutation({
     onSuccess: () => {

@@ -8,6 +8,7 @@ function createTestState(): AppState {
     fileChanges: new Map(),
     pendingValidations: new Map(),
     specLastChanged: new Map(),
+    specDebounceTimers: new Map(),
   };
 }
 
@@ -20,7 +21,7 @@ describe('spec watcher', () => {
   });
 
   afterEach(() => {
-    clearDebounceTimers();
+    clearDebounceTimers(state);
     vi.useRealTimers();
   });
 

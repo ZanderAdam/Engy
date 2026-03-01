@@ -60,7 +60,7 @@ export default function WorkspaceLayout({
   return (
     <div>
       <nav className="border-b border-border" aria-label="Workspace sections">
-        <div className="mx-auto flex max-w-5xl px-6">
+        <div className="mx-auto flex w-[95%] max-w-[1800px]">
           {tabs.map((tab) => (
             <Link
               key={tab.segment}
@@ -76,7 +76,7 @@ export default function WorkspaceLayout({
           ))}
         </div>
       </nav>
-      <div className="mx-auto max-w-5xl px-6 py-6">{children}</div>
+      <div className="mx-auto w-[95%] max-w-[1800px]">{children}</div>
     </div>
   );
 }

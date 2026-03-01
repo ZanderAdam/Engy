@@ -4,23 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { tasks } from '../../db/schema';
-
-function detectCycle(taskId: number, deps: number[], allTasks: Map<number, number[]>): boolean {
-  const visited = new Set<number>();
-  const stack = [...deps];
-
-  while (stack.length > 0) {
-    const current = stack.pop()!;
-    if (current === taskId) return true;
-    if (visited.has(current)) continue;
-    visited.add(current);
-
-    const currentDeps = allTasks.get(current) ?? [];
-    stack.push(...currentDeps);
-  }
-
-  return false;
-}
+import { detectCycle } from '../../tasks/validation';
 
 export const taskRouter = router({
   create: publicProcedure

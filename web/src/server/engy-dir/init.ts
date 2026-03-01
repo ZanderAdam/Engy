@@ -4,7 +4,7 @@ import yaml from 'js-yaml';
 import { getEngyDir } from '../db/client';
 
 function validateSlug(slug: string): void {
-  if (!slug || /[\/\\]/.test(slug) || slug.includes('..') || slug === '.' || slug === '..') {
+  if (!slug || /[\/\\]/.test(slug) || slug.includes('..') || slug === '.') {
     throw new Error(`Invalid workspace slug: ${slug}`);
   }
 }

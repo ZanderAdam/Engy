@@ -300,3 +300,59 @@ export const commentsRelations = relations(comments, ({ one }) => ({
     references: [workspaces.id],
   }),
 }));
+
+// ── Comment Threads (BlockNote native) ─────────────────────────────
+// TODO: drop legacy `comments` table once migration to threads is complete
+
+export const commentThreads = sqliteTable('comment_threads', {
+  id: text('id').primaryKey(),
+  workspaceId: integer('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  documentPath: text('document_path').notNull(),
+  resolved: integer('resolved', { mode: 'boolean' }).notNull().default(false),
+  resolvedBy: text('resolved_by'),
+  resolvedAt: text('resolved_at'),
+  metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
+  createdAt: text('created_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const commentThreadsRelations = relations(commentThreads, ({ one, many }) => ({
+  workspace: one(workspaces, {
+    fields: [commentThreads.workspaceId],
+    references: [workspaces.id],
+  }),
+  comments: many(threadComments),
+}));
+
+export const threadComments = sqliteTable('thread_comments', {
+  id: text('id').primaryKey(),
+  threadId: text('thread_id')
+    .notNull()
+    .references(() => commentThreads.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull(),
+  body: text('body', { mode: 'json' }).$type<unknown>(),
+  reactions: text('reactions', { mode: 'json' })
+    .$type<Array<{ emoji: string; createdAt: string; userIds: string[] }>>()
+    .default([]),
+  metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
+  deletedAt: text('deleted_at'),
+  createdAt: text('created_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const threadCommentsRelations = relations(threadComments, ({ one }) => ({
+  thread: one(commentThreads, {
+    fields: [threadComments.threadId],
+    references: [commentThreads.id],
+  }),
+}));

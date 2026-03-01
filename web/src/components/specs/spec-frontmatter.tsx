@@ -15,12 +15,16 @@ import {
   RiMoreLine,
 } from "@remixicon/react";
 
+type SpecStatus = "draft" | "ready" | "approved" | "active" | "completed";
+
 interface SpecFrontmatterProps {
   workspaceSlug: string;
   specSlug: string;
   title: string;
-  status: string;
+  status: SpecStatus;
   type: string;
+  onDeleted?: () => void;
+  children?: React.ReactNode;
 }
 
 const statusColors: Record<string, string> = {
@@ -31,7 +35,7 @@ const statusColors: Record<string, string> = {
   completed: "bg-emerald-500/20 text-emerald-400",
 };
 
-const nextStatus: Record<string, string | null> = {
+const nextStatus: Record<string, SpecStatus | null> = {
   draft: "ready",
   ready: "approved",
   approved: "active",
@@ -39,7 +43,7 @@ const nextStatus: Record<string, string | null> = {
   completed: null,
 };
 
-const visionNextStatus: Record<string, string | null> = {
+const visionNextStatus: Record<string, SpecStatus | null> = {
   draft: "completed",
   completed: null,
 };
@@ -50,6 +54,8 @@ export function SpecFrontmatter({
   title,
   status,
   type,
+  onDeleted,
+  children,
 }: SpecFrontmatterProps) {
   const utils = trpc.useUtils();
 
@@ -63,6 +69,7 @@ export function SpecFrontmatter({
   const deleteMutation = trpc.spec.delete.useMutation({
     onSuccess: () => {
       utils.spec.list.invalidate({ workspaceSlug });
+      onDeleted?.();
     },
   });
 
@@ -71,7 +78,8 @@ export function SpecFrontmatter({
   const colorClass = statusColors[status] ?? statusColors.draft;
 
   return (
-    <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+    <div className="flex items-center gap-3 border-b border-border px-4 py-2">
+      {children}
       <h2 className="text-sm font-semibold flex-1 truncate">{title}</h2>
       <Badge variant="outline" className="text-xs">
         {type}
@@ -82,7 +90,7 @@ export function SpecFrontmatter({
           variant="outline"
           size="sm"
           onClick={() =>
-            updateMutation.mutate({ workspaceSlug, specSlug, status: next as never })
+            updateMutation.mutate({ workspaceSlug, specSlug, status: next })
           }
           disabled={updateMutation.isPending}
         >
