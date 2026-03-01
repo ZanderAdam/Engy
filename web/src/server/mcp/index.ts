@@ -18,6 +18,14 @@ import {
 import { generateSlug } from '../trpc/utils';
 import { getAppState } from '../trpc/context';
 import { getWorkspaceDir } from '../engy-dir/init';
+import {
+  listSpecs,
+  createSpec,
+  getSpec,
+  updateSpec,
+  readContextFile,
+  writeContextFile,
+} from '../spec/service';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 
@@ -94,6 +102,7 @@ export function getMcpServer(): McpServer {
   registerTaskGroupTools(mcp);
   registerMemoryTools(mcp);
   registerFileTools(mcp);
+  registerSpecTools(mcp);
 
   mcpInstance = mcp;
   return mcp;
@@ -546,6 +555,149 @@ function registerMemoryTools(mcp: McpServer): void {
       return mcpResult(query.all());
     },
   );
+}
+
+function registerSpecTools(mcp: McpServer): void {
+  mcp.tool(
+    'listSpecs',
+    'List all specs in a workspace',
+    { workspaceSlug: z.string().describe('Workspace slug') },
+    async ({ workspaceSlug }) => {
+      const ws = getWorkspaceForMcp(workspaceSlug);
+      if (!ws) return mcpError(`Workspace "${workspaceSlug}" not found`);
+      return mcpResult(listSpecs(ws));
+    },
+  );
+
+  mcp.tool(
+    'createSpec',
+    'Create a new spec in a workspace',
+    {
+      workspaceSlug: z.string().describe('Workspace slug'),
+      title: z.string().describe('Spec title'),
+      type: z.enum(['buildable', 'vision']).default('buildable').describe('Spec type'),
+    },
+    async ({ workspaceSlug, title, type }) => {
+      const ws = getWorkspaceForMcp(workspaceSlug);
+      if (!ws) return mcpError(`Workspace "${workspaceSlug}" not found`);
+      try {
+        return mcpResult(createSpec(ws, title, type));
+      } catch (err) {
+        return mcpError((err as Error).message);
+      }
+    },
+  );
+
+  mcp.tool(
+    'getSpec',
+    'Get full spec content including frontmatter and context files',
+    {
+      workspaceSlug: z.string().describe('Workspace slug'),
+      specSlug: z.string().describe('Spec directory name'),
+    },
+    async ({ workspaceSlug, specSlug }) => {
+      const ws = getWorkspaceForMcp(workspaceSlug);
+      if (!ws) return mcpError(`Workspace "${workspaceSlug}" not found`);
+      try {
+        return mcpResult(getSpec(ws, specSlug));
+      } catch (err) {
+        return mcpError((err as Error).message);
+      }
+    },
+  );
+
+  mcp.tool(
+    'updateSpec',
+    'Update a spec (title, status, or body)',
+    {
+      workspaceSlug: z.string().describe('Workspace slug'),
+      specSlug: z.string().describe('Spec directory name'),
+      title: z.string().optional().describe('New title'),
+      status: z.enum(['draft', 'ready', 'approved', 'active', 'completed']).optional().describe('New status'),
+      body: z.string().optional().describe('New body content'),
+    },
+    async ({ workspaceSlug, specSlug, ...updates }) => {
+      const ws = getWorkspaceForMcp(workspaceSlug);
+      if (!ws) return mcpError(`Workspace "${workspaceSlug}" not found`);
+      try {
+        return mcpResult(updateSpec(ws, specSlug, updates));
+      } catch (err) {
+        return mcpError((err as Error).message);
+      }
+    },
+  );
+
+  mcp.tool(
+    'readSpecFile',
+    'Read a context file from a spec',
+    {
+      workspaceSlug: z.string().describe('Workspace slug'),
+      specSlug: z.string().describe('Spec directory name'),
+      filename: z.string().describe('Context file name'),
+    },
+    async ({ workspaceSlug, specSlug, filename }) => {
+      const ws = getWorkspaceForMcp(workspaceSlug);
+      if (!ws) return mcpError(`Workspace "${workspaceSlug}" not found`);
+      try {
+        return mcpText(readContextFile(ws, specSlug, filename));
+      } catch (err) {
+        return mcpError((err as Error).message);
+      }
+    },
+  );
+
+  mcp.tool(
+    'writeSpecFile',
+    'Write a context file to a spec',
+    {
+      workspaceSlug: z.string().describe('Workspace slug'),
+      specSlug: z.string().describe('Spec directory name'),
+      filename: z.string().describe('Context file name'),
+      content: z.string().describe('File content'),
+    },
+    async ({ workspaceSlug, specSlug, filename, content }) => {
+      const ws = getWorkspaceForMcp(workspaceSlug);
+      if (!ws) return mcpError(`Workspace "${workspaceSlug}" not found`);
+      try {
+        writeContextFile(ws, specSlug, filename, content);
+        return mcpResult({ success: true });
+      } catch (err) {
+        return mcpError((err as Error).message);
+      }
+    },
+  );
+
+  mcp.tool(
+    'listSpecTasks',
+    'List tasks associated with a spec',
+    { specId: z.string().describe('Spec ID (directory name)') },
+    async ({ specId }) => {
+      const db = getDb();
+      return mcpResult(db.select().from(tasks).where(eq(tasks.specId, specId)).all());
+    },
+  );
+
+  mcp.tool(
+    'createSpecTask',
+    'Create a task associated with a spec',
+    {
+      specId: z.string().describe('Spec ID (directory name)'),
+      title: z.string().describe('Task title'),
+      description: z.string().optional().describe('Task description'),
+    },
+    async ({ specId, title, description }) => {
+      const db = getDb();
+      const task = db.insert(tasks).values({ title, description, specId }).returning().get();
+      return mcpResult(task);
+    },
+  );
+}
+
+function getWorkspaceForMcp(slug: string) {
+  const db = getDb();
+  const ws = db.select().from(workspaces).where(eq(workspaces.slug, slug)).get();
+  if (!ws) return null;
+  return { slug: ws.slug, docsDir: ws.docsDir };
 }
 
 function registerFileTools(mcp: McpServer): void {

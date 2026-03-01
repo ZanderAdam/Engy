@@ -700,4 +700,117 @@ describe('MCP Server', () => {
       expect(result.content[0].text).toContain('not a directory');
     });
   });
+
+  describe('spec tools', () => {
+    beforeEach(() => {
+      const db = getDb();
+      db.insert(workspaces).values({ name: 'Test', slug: 'test' }).run();
+      fs.mkdirSync(path.join(ctx.tmpDir, 'test', 'specs'), { recursive: true });
+    });
+
+    it('createSpec should create a buildable spec', async () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const result = await tools['createSpec'].handler(
+        { workspaceSlug: 'test', title: 'Auth', type: 'buildable' },
+        {} as any,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.name).toBe('1_auth');
+      expect(data.type).toBe('buildable');
+    });
+
+    it('listSpecs should list workspace specs', async () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+
+      await tools['createSpec'].handler(
+        { workspaceSlug: 'test', title: 'Auth', type: 'buildable' },
+        {} as any,
+      );
+
+      const result = await tools['listSpecs'].handler({ workspaceSlug: 'test' }, {} as any);
+      const data = JSON.parse(result.content[0].text);
+      expect(data).toHaveLength(1);
+      expect(data[0].name).toBe('1_auth');
+    });
+
+    it('getSpec should return spec content', async () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+
+      await tools['createSpec'].handler(
+        { workspaceSlug: 'test', title: 'Auth', type: 'buildable' },
+        {} as any,
+      );
+
+      const result = await tools['getSpec'].handler(
+        { workspaceSlug: 'test', specSlug: '1_auth' },
+        {} as any,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.frontmatter.title).toBe('Auth');
+      expect(data.body).toContain('# Auth');
+    });
+
+    it('writeSpecFile and readSpecFile should round-trip', async () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+
+      await tools['createSpec'].handler(
+        { workspaceSlug: 'test', title: 'Auth', type: 'buildable' },
+        {} as any,
+      );
+
+      await tools['writeSpecFile'].handler(
+        { workspaceSlug: 'test', specSlug: '1_auth', filename: 'notes.md', content: 'Research notes' },
+        {} as any,
+      );
+
+      const result = await tools['readSpecFile'].handler(
+        { workspaceSlug: 'test', specSlug: '1_auth', filename: 'notes.md' },
+        {} as any,
+      );
+      expect(result.content[0].text).toBe('Research notes');
+    });
+
+    it('createSpecTask should create a task linked to a spec', async () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+
+      const result = await tools['createSpecTask'].handler(
+        { specId: '1_auth', title: 'Implement login' },
+        {} as any,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.title).toBe('Implement login');
+      expect(data.specId).toBe('1_auth');
+    });
+
+    it('listSpecTasks should return tasks for a spec', async () => {
+      const db = getDb();
+      db.insert(tasks).values({ title: 'T1', specId: '1_auth', status: 'todo' }).run();
+      db.insert(tasks).values({ title: 'T2', specId: '1_auth', status: 'done' }).run();
+      db.insert(tasks).values({ title: 'T3', specId: 'other', status: 'todo' }).run();
+
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+
+      const result = await tools['listSpecTasks'].handler({ specId: '1_auth' }, {} as any);
+      const data = JSON.parse(result.content[0].text);
+      expect(data).toHaveLength(2);
+      expect(data.every((t: any) => t.specId === '1_auth')).toBe(true);
+    });
+
+    it('createSpec should return error for missing workspace', async () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const result = await tools['createSpec'].handler(
+        { workspaceSlug: 'nope', title: 'X', type: 'buildable' },
+        {} as any,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('not found');
+    });
+  });
 });
