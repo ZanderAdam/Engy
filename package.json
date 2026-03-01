@@ -14,5 +14,8 @@
     "prettier": "^3.4.0",
     "jscpd": "^4.0.5"
   },
-  "packageManager": "pnpm@10.30.3"
+  "packageManager": "pnpm@10.30.3",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "sharp", "unrs-resolver"]
+  }
 }
