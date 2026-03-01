@@ -1,0 +1,16 @@
+{
+  "threshold": 0,
+  "reporters": ["console"],
+  "ignore": [
+    "node_modules",
+    ".next",
+    "dist",
+    "coverage",
+    ".dev-engy",
+    "**/*.d.ts",
+    "**/migrations/**"
+  ],
+  "minLines": 5,
+  "minTokens": 50,
+  "absolute": true
+}

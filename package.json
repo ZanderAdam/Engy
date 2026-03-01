@@ -1,0 +1,18 @@
+{
+  "name": "engy",
+  "private": true,
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "blt": "turbo run build lint test"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0",
+    "typescript": "^5.7.0",
+    "prettier": "^3.4.0",
+    "jscpd": "^4.0.5"
+  },
+  "packageManager": "pnpm@10.30.3"
+}

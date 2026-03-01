@@ -1,0 +1,17 @@
+{
+  "workspaces": {
+    "web": {
+      "entry": ["server.ts", "src/app/**/*.{ts,tsx}"],
+      "project": ["**/*.{ts,tsx}"],
+      "ignore": ["src/server/db/migrations/**"]
+    },
+    "client": {
+      "entry": ["src/index.ts"],
+      "project": ["**/*.{ts,tsx}"]
+    },
+    "common": {
+      "entry": ["src/index.ts"],
+      "project": ["**/*.{ts,tsx}"]
+    }
+  }
+}

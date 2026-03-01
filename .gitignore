@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+.next/
+.turbo/
+
+# Environment
+.env.local
+.env.*.local
+
+# Data
+.dev-engy/
+
+# Coverage
+coverage/
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
