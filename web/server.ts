@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import next from 'next';
+import { createAppState } from './src/server/trpc/context.js';
 import { attachWebSocket } from './src/server/ws/server.js';
 import { attachMCP } from './src/server/mcp/index.js';
 
@@ -14,7 +15,9 @@ app.prepare().then(() => {
     handle(req, res);
   });
 
-  attachWebSocket(server);
+  const state = createAppState();
+
+  attachWebSocket(server, state);
   attachMCP(server);
 
   server.listen(port, () => {
