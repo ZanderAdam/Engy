@@ -1,13 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import yaml from 'js-yaml';
 import { getEngyDir } from '../db/client';
-
-function yamlQuote(value: string): string {
-  if (/[:\-#{}&*!|>'"@`,[\]{}]/.test(value) || value.trim() !== value) {
-    return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-  }
-  return value;
-}
 
 function validateSlug(slug: string): void {
   if (!slug || /[\/\\]/.test(slug) || slug.includes('..') || slug === '.' || slug === '..') {
@@ -15,19 +9,26 @@ function validateSlug(slug: string): void {
   }
 }
 
-export function initWorkspaceDir(name: string, slug: string, repos: string[]): void {
+export function getWorkspaceDir(workspace: { slug: string; docsDir: string | null }): string {
+  return workspace.docsDir ?? path.join(getEngyDir(), workspace.slug);
+}
+
+export function initWorkspaceDir(
+  name: string,
+  slug: string,
+  repos: string[],
+  docsDir?: string,
+): void {
   validateSlug(slug);
 
-  const dir = path.join(getEngyDir(), slug);
+  const dir = docsDir ?? path.join(getEngyDir(), slug);
   fs.mkdirSync(dir, { recursive: true });
 
-  const yamlContent = [
-    `name: ${yamlQuote(name)}`,
-    `slug: ${yamlQuote(slug)}`,
-    'repos:',
-    ...repos.map((r) => `  - path: ${yamlQuote(r)}`),
-  ].join('\n');
-  fs.writeFileSync(path.join(dir, 'workspace.yaml'), yamlContent + '\n');
+  const config: Record<string, unknown> = { name, slug, repos: repos.map((r) => ({ path: r })) };
+  if (docsDir) {
+    config.docsDir = docsDir;
+  }
+  fs.writeFileSync(path.join(dir, 'workspace.yaml'), yaml.dump(config, { lineWidth: -1 }));
 
   fs.mkdirSync(path.join(dir, 'system', 'features'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'system', 'technical'), { recursive: true });
@@ -41,16 +42,22 @@ export function initWorkspaceDir(name: string, slug: string, repos: string[]): v
   fs.mkdirSync(path.join(dir, 'memory'), { recursive: true });
 }
 
-export function removeWorkspaceDir(slug: string): void {
+export function removeWorkspaceDir(slug: string, docsDir?: string | null): void {
   validateSlug(slug);
 
-  const engyDir = path.resolve(getEngyDir());
-  const dir = path.join(engyDir, slug);
-  const resolved = path.resolve(dir);
+  let resolved: string;
 
-  const rel = path.relative(engyDir, resolved);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    throw new Error(`Path traversal detected for slug: ${slug}`);
+  if (docsDir) {
+    resolved = path.resolve(docsDir);
+  } else {
+    const engyDir = path.resolve(getEngyDir());
+    const dir = path.join(engyDir, slug);
+    resolved = path.resolve(dir);
+
+    const rel = path.relative(engyDir, resolved);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new Error(`Path traversal detected for slug: ${slug}`);
+    }
   }
 
   if (fs.existsSync(resolved)) {

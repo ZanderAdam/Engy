@@ -120,7 +120,7 @@ describe('MCP Server', () => {
       const result = await tool.handler({ slug: 'test-ws' }, {} as any);
       const data = JSON.parse(result.content[0].text);
       expect(data.workspace.slug).toBe('test-ws');
-      expect(data.config).toContain('name: Test WS');
+      expect(data.config.name).toBe('Test WS');
     });
 
     it('getWorkspaceConfig should return error for missing workspace', async () => {

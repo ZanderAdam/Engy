@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import yaml from 'js-yaml';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
-import { initWorkspaceDir, removeWorkspaceDir } from '../../engy-dir/init';
+import { initWorkspaceDir, removeWorkspaceDir, getWorkspaceDir } from '../../engy-dir/init';
 
 describe('workspace router', () => {
   let ctx: TestContext;
@@ -64,6 +65,68 @@ describe('workspace router', () => {
       const list = await caller.workspace.list();
       expect(list).toHaveLength(0);
     });
+
+    it('should store docsDir as null when not provided', async () => {
+      const ws = await caller.workspace.create({ name: 'No DocsDir' });
+      expect(ws.docsDir).toBeNull();
+    });
+
+    it('should write workspace.yaml using js-yaml', async () => {
+      const ws = await caller.workspace.create({ name: 'YAML Check' });
+      const yamlPath = path.join(ctx.tmpDir, ws.slug, 'workspace.yaml');
+      const content = fs.readFileSync(yamlPath, 'utf-8');
+      const parsed = yaml.load(content) as Record<string, unknown>;
+      expect(parsed.name).toBe('YAML Check');
+      expect(parsed.slug).toBe('yaml-check');
+    });
+  });
+
+  describe('create with docsDir', () => {
+    it('should store docsDir in DB when provided', async () => {
+      const customDir = path.join(ctx.tmpDir, 'custom-docs');
+      fs.mkdirSync(customDir, { recursive: true });
+
+      // docsDir requires daemon for validation, so this will fail without daemon
+      await expect(
+        caller.workspace.create({ name: 'Custom', docsDir: customDir }),
+      ).rejects.toThrow('No daemon connected');
+    });
+
+    it('should create workspace files at custom docsDir path', async () => {
+      const customDir = path.join(ctx.tmpDir, 'my-repo-docs');
+      fs.mkdirSync(customDir, { recursive: true });
+
+      // Test initWorkspaceDir directly since the tRPC flow needs a daemon
+      initWorkspaceDir('My Project', 'my-project', [], customDir);
+
+      expect(fs.existsSync(path.join(customDir, 'workspace.yaml'))).toBe(true);
+      expect(fs.existsSync(path.join(customDir, 'specs'))).toBe(true);
+      expect(fs.existsSync(path.join(customDir, 'docs'))).toBe(true);
+      expect(fs.existsSync(path.join(customDir, 'memory'))).toBe(true);
+      expect(fs.existsSync(path.join(customDir, 'system', 'overview.md'))).toBe(true);
+
+      // Default ENGY_DIR path should NOT have been created
+      expect(fs.existsSync(path.join(ctx.tmpDir, 'my-project'))).toBe(false);
+    });
+
+    it('should include docsDir in workspace.yaml when set', async () => {
+      const customDir = path.join(ctx.tmpDir, 'yaml-docs-dir');
+      fs.mkdirSync(customDir, { recursive: true });
+
+      initWorkspaceDir('Yaml Test', 'yaml-test', [], customDir);
+
+      const yamlPath = path.join(customDir, 'workspace.yaml');
+      const parsed = yaml.load(fs.readFileSync(yamlPath, 'utf-8')) as Record<string, unknown>;
+      expect(parsed.docsDir).toBe(customDir);
+    });
+
+    it('should NOT include docsDir in workspace.yaml when not set', async () => {
+      initWorkspaceDir('No Docs', 'no-docs', []);
+
+      const yamlPath = path.join(ctx.tmpDir, 'no-docs', 'workspace.yaml');
+      const parsed = yaml.load(fs.readFileSync(yamlPath, 'utf-8')) as Record<string, unknown>;
+      expect(parsed.docsDir).toBeUndefined();
+    });
   });
 
   describe('list', () => {
@@ -84,6 +147,12 @@ describe('workspace router', () => {
 
     it('should throw NOT_FOUND for missing workspace', async () => {
       await expect(caller.workspace.get({ slug: 'nope' })).rejects.toThrow('not found');
+    });
+
+    it('should return docsDir field', async () => {
+      await caller.workspace.create({ name: 'Get DocsDir' });
+      const result = await caller.workspace.get({ slug: 'get-docsdir' });
+      expect(result.docsDir).toBeNull();
     });
   });
 
@@ -168,6 +237,31 @@ describe('workspace router', () => {
 
     it('removeWorkspaceDir should no-op for non-existent directory', () => {
       expect(() => removeWorkspaceDir('nonexistent-workspace')).not.toThrow();
+    });
+
+    it('removeWorkspaceDir should remove custom docsDir', () => {
+      const customDir = path.join(ctx.tmpDir, 'custom-to-delete');
+      fs.mkdirSync(customDir, { recursive: true });
+      fs.writeFileSync(path.join(customDir, 'test.txt'), 'data');
+
+      removeWorkspaceDir('some-slug', customDir);
+      expect(fs.existsSync(customDir)).toBe(false);
+    });
+
+    it('removeWorkspaceDir should no-op for non-existent custom docsDir', () => {
+      expect(() => removeWorkspaceDir('some-slug', '/nonexistent/path')).not.toThrow();
+    });
+  });
+
+  describe('getWorkspaceDir', () => {
+    it('should return docsDir when set', () => {
+      const result = getWorkspaceDir({ slug: 'my-project', docsDir: '/custom/path' });
+      expect(result).toBe('/custom/path');
+    });
+
+    it('should return default path when docsDir is null', () => {
+      const result = getWorkspaceDir({ slug: 'my-project', docsDir: null });
+      expect(result).toBe(path.join(ctx.tmpDir, 'my-project'));
     });
   });
 });

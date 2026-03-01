@@ -1,5 +1,5 @@
 {
-  "ignore": [".claude/**"],
+  "ignore": [],
   "ignoreDependencies": ["prettier"],
   "workspaces": {
     "web": {

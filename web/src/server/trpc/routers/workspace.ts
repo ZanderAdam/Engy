@@ -33,20 +33,26 @@ export const workspaceRouter = router({
       z.object({
         name: z.string().min(1, 'Name is required'),
         repos: z.array(z.string()).default([]),
+        docsDir: z.string().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const slug = await uniqueWorkspaceSlug(input.name);
 
-      if (input.repos.length > 0) {
+      const pathsToValidate = [
+        ...input.repos,
+        ...(input.docsDir ? [input.docsDir] : []),
+      ];
+
+      if (pathsToValidate.length > 0) {
         try {
-          const results = await dispatchValidation(input.repos, ctx.state);
+          const results = await dispatchValidation(pathsToValidate, ctx.state);
           const invalid = results.filter((r) => !r.exists);
           if (invalid.length > 0) {
             throw new TRPCError({
               code: 'BAD_REQUEST',
-              message: `Invalid repo paths: ${invalid.map((r) => r.path).join(', ')}`,
+              message: `Invalid paths: ${invalid.map((r) => r.path).join(', ')}`,
               cause: { invalidPaths: invalid.map((r) => r.path) },
             });
           }
@@ -61,12 +67,17 @@ export const workspaceRouter = router({
 
       const workspace = db
         .insert(workspaces)
-        .values({ name: input.name, slug, repos: input.repos })
+        .values({
+          name: input.name,
+          slug,
+          repos: input.repos,
+          docsDir: input.docsDir ?? null,
+        })
         .returning()
         .get();
 
       try {
-        initWorkspaceDir(input.name, slug, input.repos);
+        initWorkspaceDir(input.name, slug, input.repos, input.docsDir);
       } catch (err) {
         db.delete(workspaces).where(eq(workspaces.id, workspace.id)).run();
         throw new TRPCError({
@@ -85,7 +96,7 @@ export const workspaceRouter = router({
           })
           .run();
       } catch (err) {
-        removeWorkspaceDir(slug);
+        removeWorkspaceDir(slug, input.docsDir);
         db.delete(workspaces).where(eq(workspaces.id, workspace.id)).run();
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -122,7 +133,7 @@ export const workspaceRouter = router({
     db.delete(workspaces).where(eq(workspaces.id, input.id)).run();
 
     try {
-      removeWorkspaceDir(workspace.slug);
+      removeWorkspaceDir(workspace.slug, workspace.docsDir);
     } catch (err) {
       console.warn(`[workspace] Failed to remove directory for ${workspace.slug}:`, err);
     }

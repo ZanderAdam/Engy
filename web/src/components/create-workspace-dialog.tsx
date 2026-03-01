@@ -22,6 +22,7 @@ export function CreateWorkspaceDialog() {
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [docsDir, setDocsDir] = useState("");
   const [repos, setRepos] = useState<string[]>([""]);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,6 +40,7 @@ export function CreateWorkspaceDialog() {
 
   function resetForm() {
     setName("");
+    setDocsDir("");
     setRepos([""]);
     setError(null);
   }
@@ -62,7 +64,12 @@ export function CreateWorkspaceDialog() {
     setError(null);
 
     const filteredRepos = repos.map((r) => r.trim()).filter((r) => r !== "");
-    createMutation.mutate({ name, repos: filteredRepos });
+    const trimmedDocsDir = docsDir.trim();
+    createMutation.mutate({
+      name,
+      repos: filteredRepos,
+      ...(trimmedDocsDir ? { docsDir: trimmedDocsDir } : {}),
+    });
   }
 
   return (
@@ -97,6 +104,18 @@ export function CreateWorkspaceDialog() {
                 placeholder="my-workspace"
                 required
               />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="workspace-docs-dir">Docs location (optional)</Label>
+              <Input
+                id="workspace-docs-dir"
+                value={docsDir}
+                onChange={(e) => setDocsDir(e.target.value)}
+                placeholder="/path/to/docs"
+              />
+              <p className="text-xs text-muted-foreground">
+                Custom path for workspace files. Defaults to Engy data directory.
+              </p>
             </div>
             <div className="flex flex-col gap-2">
               <Label>Repository paths</Label>

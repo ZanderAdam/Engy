@@ -1,6 +1,7 @@
 import type { Server as HttpServer, IncomingMessage, ServerResponse } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import yaml from 'js-yaml';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
@@ -16,6 +17,7 @@ import {
 } from '../db/schema';
 import { generateSlug } from '../trpc/utils';
 import { getAppState } from '../trpc/context';
+import { getWorkspaceDir } from '../engy-dir/init';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 
@@ -186,6 +188,9 @@ function getAllowedRoots(): string[] {
       for (const repoPath of repos) {
         if (repoPath) roots.push(resolvePath(repoPath));
       }
+      if (ws.docsDir) {
+        roots.push(resolvePath(ws.docsDir));
+      }
     }
   } catch {
     // DB might not be ready yet — only engy dir allowed
@@ -208,9 +213,13 @@ export function isPathAllowed(targetPath: string): boolean {
 function registerWorkspaceTools(mcp: McpServer): void {
   mcp.tool(
     'createWorkspace',
-    'Create a new workspace with optional repo paths. Requires the client daemon for repo validation.',
-    { name: z.string().describe('Workspace name'), repos: z.array(z.string()).default([]).describe('Repository paths') },
-    async ({ name, repos }) => {
+    'Create a new workspace with optional repo paths and docs directory.',
+    {
+      name: z.string().describe('Workspace name'),
+      repos: z.array(z.string()).default([]).describe('Repository paths'),
+      docsDir: z.string().optional().describe('Custom docs directory path'),
+    },
+    async ({ name, repos, docsDir }) => {
       const state = getAppState();
       if (repos.length > 0 && (!state.daemon || state.daemon.readyState !== 1)) {
         return mcpError(
@@ -223,12 +232,12 @@ function registerWorkspaceTools(mcp: McpServer): void {
         const slug = generateSlug(name);
         const workspace = db
           .insert(workspaces)
-          .values({ name, slug, repos })
+          .values({ name, slug, repos, docsDir: docsDir ?? null })
           .returning()
           .get();
 
         const { initWorkspaceDir } = await import('../engy-dir/init');
-        initWorkspaceDir(name, slug, repos);
+        initWorkspaceDir(name, slug, repos, docsDir);
 
         db.insert(projects)
           .values({ workspaceId: workspace.id, name: 'Default', slug: 'default', isDefault: true })
@@ -252,8 +261,12 @@ function registerWorkspaceTools(mcp: McpServer): void {
         return mcpError(`Workspace "${slug}" not found`);
       }
 
-      const yamlPath = path.join(getEngyDir(), slug, 'workspace.yaml');
-      const config = fs.existsSync(yamlPath) ? fs.readFileSync(yamlPath, 'utf-8') : null;
+      const wsDir = getWorkspaceDir(workspace);
+      const yamlPath = path.join(wsDir, 'workspace.yaml');
+      let config: unknown = null;
+      if (fs.existsSync(yamlPath)) {
+        config = yaml.load(fs.readFileSync(yamlPath, 'utf-8'));
+      }
 
       return mcpResult({ workspace, config });
     },

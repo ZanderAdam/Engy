@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `docs_dir` text;
