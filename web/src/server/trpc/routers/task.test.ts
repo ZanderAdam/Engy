@@ -45,6 +45,16 @@ describe('task router', () => {
       });
       expect(t2.dependencies).toEqual([t1.id]);
     });
+
+    it('should reject non-existent dependency', async () => {
+      await expect(
+        caller.task.create({
+          projectId,
+          title: 'Bad deps',
+          dependencies: [9999],
+        }),
+      ).rejects.toThrow('Dependency task 9999 does not exist');
+    });
   });
 
   describe('list', () => {
@@ -53,6 +63,47 @@ describe('task router', () => {
       await caller.task.create({ projectId, title: 'T2' });
       const result = await caller.task.list({ projectId });
       expect(result).toHaveLength(2);
+    });
+
+    it('should list tasks by milestoneId', async () => {
+      const milestone = await caller.milestone.create({
+        projectId,
+        title: 'M1',
+      });
+      await caller.task.create({ projectId, milestoneId: milestone.id, title: 'MT1' });
+      await caller.task.create({ projectId, milestoneId: milestone.id, title: 'MT2' });
+      await caller.task.create({ projectId, title: 'Unlinked' });
+
+      const result = await caller.task.list({ milestoneId: milestone.id });
+      expect(result).toHaveLength(2);
+      expect(result.every((t) => t.milestoneId === milestone.id)).toBe(true);
+    });
+
+    it('should list tasks by taskGroupId', async () => {
+      const milestone = await caller.milestone.create({
+        projectId,
+        title: 'M1',
+      });
+      const group = await caller.taskGroup.create({
+        milestoneId: milestone.id,
+        name: 'Group 1',
+      });
+      await caller.task.create({ projectId, taskGroupId: group.id, title: 'GT1' });
+      await caller.task.create({ projectId, taskGroupId: group.id, title: 'GT2' });
+      await caller.task.create({ projectId, title: 'No group' });
+
+      const result = await caller.task.list({ taskGroupId: group.id });
+      expect(result).toHaveLength(2);
+      expect(result.every((t) => t.taskGroupId === group.id)).toBe(true);
+    });
+
+    it('should return all tasks when no filter provided', async () => {
+      await caller.task.create({ projectId, title: 'A1' });
+      await caller.task.create({ projectId, title: 'A2' });
+      await caller.task.create({ projectId, title: 'A3' });
+
+      const result = await caller.task.list({});
+      expect(result).toHaveLength(3);
     });
   });
 
@@ -86,6 +137,12 @@ describe('task router', () => {
           dependencies: [t2.id],
         }),
       ).rejects.toThrow('Circular dependency');
+    });
+
+    it('should throw NOT_FOUND for non-existent task', async () => {
+      await expect(
+        caller.task.update({ id: 9999, status: 'done' }),
+      ).rejects.toThrow('Task not found');
     });
   });
 

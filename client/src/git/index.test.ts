@@ -1,67 +1,90 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { simpleGit } from 'simple-git';
 import { getBranchInfo, getStatus } from './index.js';
 
-vi.mock('simple-git', () => {
-  const mockStatus = vi.fn();
-  return {
-    simpleGit: vi.fn(() => ({
-      status: mockStatus,
-    })),
-    _mockStatus: mockStatus,
-  };
-});
+describe('git integration', () => {
+  let repoDir: string;
 
-async function getMockStatus() {
-  const mod = await import('simple-git');
-  return (mod as unknown as { _mockStatus: ReturnType<typeof vi.fn> })._mockStatus;
-}
+  async function createTempRepo(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'engy-git-test-'));
+    const git = simpleGit(dir);
+    await git.init();
+    await git.addConfig('user.email', 'test@test.com');
+    await git.addConfig('user.name', 'Test');
+    return dir;
+  }
 
-describe('getBranchInfo', () => {
-  it('returns branch name and detached state', async () => {
-    const mockStatus = await getMockStatus();
-    mockStatus.mockResolvedValue({
-      current: 'main',
-      detached: false,
-    });
+  async function commitFile(dir: string, name: string, content: string) {
+    await writeFile(join(dir, name), content);
+    const git = simpleGit(dir);
+    await git.add(name);
+    await git.commit(`add ${name}`);
+  }
 
-    const info = await getBranchInfo('/tmp/repo');
-    expect(info).toEqual({ current: 'main', isDetached: false });
+  afterEach(async () => {
+    if (repoDir) {
+      await rm(repoDir, { recursive: true, force: true });
+    }
   });
 
-  it('returns HEAD when current is null (detached)', async () => {
-    const mockStatus = await getMockStatus();
-    mockStatus.mockResolvedValue({
-      current: null,
-      detached: true,
+  describe('getBranchInfo', () => {
+    it('returns the default branch name for a fresh repo', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+
+      const info = await getBranchInfo(repoDir);
+
+      expect(['main', 'master']).toContain(info.current);
+      expect(info.isDetached).toBe(false);
     });
 
-    const info = await getBranchInfo('/tmp/repo');
-    expect(info).toEqual({ current: 'HEAD', isDetached: true });
-  });
-});
+    it('reports detached HEAD after checking out a commit hash', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
 
-describe('getStatus', () => {
-  it('returns file paths and statuses', async () => {
-    const mockStatus = await getMockStatus();
-    mockStatus.mockResolvedValue({
-      files: [
-        { path: 'src/index.ts', working_dir: 'M', index: ' ' },
-        { path: 'README.md', working_dir: ' ', index: 'A' },
-      ],
+      const git = simpleGit(repoDir);
+      const log = await git.log();
+      await git.checkout(log.latest!.hash);
+
+      const info = await getBranchInfo(repoDir);
+
+      expect(info.isDetached).toBe(true);
+    });
+  });
+
+  describe('getStatus', () => {
+    it('returns an empty array for a clean repo', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+
+      const files = await getStatus(repoDir);
+
+      expect(files).toEqual([]);
     });
 
-    const result = await getStatus('/tmp/repo');
-    expect(result).toEqual([
-      { path: 'src/index.ts', status: 'M' },
-      { path: 'README.md', status: 'A' },
-    ]);
-  });
+    it('reports modified files after editing a tracked file', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'file.txt', 'original');
 
-  it('returns empty array for clean repo', async () => {
-    const mockStatus = await getMockStatus();
-    mockStatus.mockResolvedValue({ files: [] });
+      await writeFile(join(repoDir, 'file.txt'), 'modified');
 
-    const result = await getStatus('/tmp/repo');
-    expect(result).toEqual([]);
+      const files = await getStatus(repoDir);
+
+      expect(files).toEqual([{ path: 'file.txt', status: 'M' }]);
+    });
+
+    it('reports untracked files', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+
+      await writeFile(join(repoDir, 'new-file.txt'), 'untracked');
+
+      const files = await getStatus(repoDir);
+
+      expect(files).toEqual([{ path: 'new-file.txt', status: '?' }]);
+    });
   });
 });

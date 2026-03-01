@@ -196,6 +196,29 @@ describe('MCP Server', () => {
       expect(data.status).toBe('active');
     });
 
+    it('updateProjectStatus should return error for missing project', async () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const tool = tools['updateProjectStatus'];
+
+      const result = await tool.handler({ id: 9999, status: 'active' }, {} as any);
+      expect(result.isError).toBe(true);
+    });
+
+    it('getWorkspaceConfig should return null config when yaml does not exist', async () => {
+      const db = getDb();
+      db.insert(workspaces).values({ name: 'No YAML', slug: 'no-yaml' }).run();
+
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const tool = tools['getWorkspaceConfig'];
+
+      const result = await tool.handler({ slug: 'no-yaml' }, {} as any);
+      const data = JSON.parse(result.content[0].text);
+      expect(data.workspace.slug).toBe('no-yaml');
+      expect(data.config).toBeNull();
+    });
+
     it('listProjects should return projects for a workspace', async () => {
       const db = getDb();
       db.insert(projects).values({ workspaceId, name: 'P1', slug: 'p1' }).run();
@@ -307,6 +330,106 @@ describe('MCP Server', () => {
       const result = await tool.handler({}, {} as any);
       const data = JSON.parse(result.content[0].text);
       expect(data).toHaveLength(1);
+    });
+
+    it('listTasks should filter by milestoneId', async () => {
+      const db = getDb();
+      const ms = db.insert(milestones).values({ projectId, title: 'M1' }).returning().get();
+      db.insert(tasks).values({ title: 'T1', projectId, milestoneId: ms.id }).run();
+      db.insert(tasks).values({ title: 'T2', projectId }).run();
+
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const tool = tools['listTasks'];
+
+      const result = await tool.handler({ milestoneId: ms.id }, {} as any);
+      const data = JSON.parse(result.content[0].text);
+      expect(data).toHaveLength(1);
+      expect(data[0].title).toBe('T1');
+    });
+
+    it('listTasks should filter by taskGroupId', async () => {
+      const db = getDb();
+      const ms = db.insert(milestones).values({ projectId, title: 'M1' }).returning().get();
+      const grp = db.insert(taskGroups).values({ milestoneId: ms.id, name: 'G1' }).returning().get();
+      db.insert(tasks).values({ title: 'T1', projectId, taskGroupId: grp.id }).run();
+      db.insert(tasks).values({ title: 'T2', projectId }).run();
+
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const tool = tools['listTasks'];
+
+      const result = await tool.handler({ taskGroupId: grp.id }, {} as any);
+      const data = JSON.parse(result.content[0].text);
+      expect(data).toHaveLength(1);
+      expect(data[0].title).toBe('T1');
+    });
+
+    it('createTask should return error for non-existent dependency', async () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const tool = tools['createTask'];
+
+      const result = await tool.handler(
+        { title: 'Bad Dep', projectId, type: 'human', importance: 'not_important', urgency: 'not_urgent', dependencies: [9999] },
+        {} as any,
+      );
+      expect(result.isError).toBe(true);
+      const data = JSON.parse(result.content[0].text);
+      expect(data.error).toContain('9999');
+      expect(data.error).toContain('does not exist');
+    });
+
+    it('createTask should return error when any dependency does not exist', async () => {
+      const db = getDb();
+      const existing = db.insert(tasks).values({ title: 'Real', projectId }).returning().get();
+
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const tool = tools['createTask'];
+
+      const result = await tool.handler(
+        { title: 'Mixed Deps', projectId, type: 'human', importance: 'not_important', urgency: 'not_urgent', dependencies: [existing.id, 8888] },
+        {} as any,
+      );
+      expect(result.isError).toBe(true);
+      const data = JSON.parse(result.content[0].text);
+      expect(data.error).toContain('8888');
+      expect(data.error).toContain('does not exist');
+    });
+
+    it('updateTask should return error for non-existent dependency', async () => {
+      const db = getDb();
+      const task = db.insert(tasks).values({ title: 'T1', projectId }).returning().get();
+
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const tool = tools['updateTask'];
+
+      const result = await tool.handler({ id: task.id, dependencies: [9999] }, {} as any);
+      expect(result.isError).toBe(true);
+      const data = JSON.parse(result.content[0].text);
+      expect(data.error).toContain('9999');
+      expect(data.error).toContain('does not exist');
+    });
+
+    it('updateTask should return error for circular dependency', async () => {
+      const db = getDb();
+      const taskA = db.insert(tasks).values({ title: 'A', projectId }).returning().get();
+      const taskB = db
+        .insert(tasks)
+        .values({ title: 'B', projectId, dependencies: [taskA.id] })
+        .returning()
+        .get();
+
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const tool = tools['updateTask'];
+
+      const result = await tool.handler({ id: taskA.id, dependencies: [taskB.id] }, {} as any);
+      expect(result.isError).toBe(true);
+      const data = JSON.parse(result.content[0].text);
+      expect(data.error).toContain('Circular dependency');
     });
   });
 
@@ -436,6 +559,30 @@ describe('MCP Server', () => {
       const result = await tool.handler({ workspaceId }, {} as any);
       const data = JSON.parse(result.content[0].text);
       expect(data).toHaveLength(2);
+    });
+
+    it('listMemories should filter by projectId', async () => {
+      const db = getDb();
+      const proj = db
+        .insert(projects)
+        .values({ workspaceId, name: 'MemProj', slug: 'memproj' })
+        .returning()
+        .get();
+      db.insert(fleetingMemories)
+        .values({ workspaceId, projectId: proj.id, content: 'Proj mem', type: 'capture', source: 'agent' })
+        .run();
+      db.insert(fleetingMemories)
+        .values({ workspaceId, content: 'No proj', type: 'capture', source: 'agent' })
+        .run();
+
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const tool = tools['listMemories'];
+
+      const result = await tool.handler({ projectId: proj.id }, {} as any);
+      const data = JSON.parse(result.content[0].text);
+      expect(data).toHaveLength(1);
+      expect(data[0].content).toBe('Proj mem');
     });
 
     it('listMemories should return all memories when no filter', async () => {

@@ -38,6 +38,22 @@ describe('project router', () => {
     });
   });
 
+  describe('get', () => {
+    it('should return a project by id', async () => {
+      const proj = await caller.project.create({
+        workspaceId,
+        name: 'Get Test',
+      });
+      const result = await caller.project.get({ id: proj.id });
+      expect(result.name).toBe('Get Test');
+      expect(result.slug).toBe('get-test');
+    });
+
+    it('should throw NOT_FOUND for non-existent project', async () => {
+      await expect(caller.project.get({ id: 9999 })).rejects.toThrow('not found');
+    });
+  });
+
   describe('updateStatus', () => {
     it('should update project status', async () => {
       const proj = await caller.project.create({
@@ -49,6 +65,12 @@ describe('project router', () => {
         status: 'active',
       });
       expect(updated.status).toBe('active');
+    });
+
+    it('should throw NOT_FOUND for non-existent project', async () => {
+      await expect(
+        caller.project.updateStatus({ id: 9999, status: 'active' }),
+      ).rejects.toThrow('not found');
     });
   });
 
