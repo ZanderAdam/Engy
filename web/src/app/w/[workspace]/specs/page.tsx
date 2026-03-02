@@ -94,21 +94,11 @@ function SpecDetail({ workspaceSlug, specSlug, selectedFile, onDeleted }: SpecDe
   });
 
   const handleSave = useCallback(
-    (markdown: string, json: unknown[] | null) => {
+    (markdown: string) => {
       if (isSpecMd) {
-        specUpdateMutation.mutate({
-          workspaceSlug,
-          specSlug,
-          body: markdown,
-          editorJson: json ? (json as unknown[]) : undefined,
-        });
+        specUpdateMutation.mutate({ workspaceSlug, specSlug, body: markdown });
       } else {
-        writeFileMutation.mutate({
-          workspaceSlug,
-          specSlug,
-          filePath,
-          content: markdown,
-        });
+        writeFileMutation.mutate({ workspaceSlug, specSlug, filePath, content: markdown });
       }
     },
     [isSpecMd, workspaceSlug, specSlug, filePath, specUpdateMutation, writeFileMutation],
@@ -133,9 +123,7 @@ function SpecDetail({ workspaceSlug, specSlug, selectedFile, onDeleted }: SpecDe
     );
   }
 
-  const documentPath = `specs/${specSlug}/${filePath}`;
   const editorBody = isSpecMd ? spec.body : (fileData?.content ?? "");
-  const editorJson = isSpecMd ? spec.editorJson : null;
 
   return (
     <Tabs defaultValue="content" className="flex h-full flex-col">
@@ -160,10 +148,7 @@ function SpecDetail({ workspaceSlug, specSlug, selectedFile, onDeleted }: SpecDe
       <TabsContent value="content" className="flex flex-1 overflow-visible m-0">
         <DynamicDocumentEditor
           key={filePath}
-          workspaceSlug={workspaceSlug}
-          documentPath={documentPath}
           initialMarkdown={editorBody}
-          initialJson={editorJson}
           onSave={handleSave}
           comments={isSpecMd}
         />

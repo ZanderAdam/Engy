@@ -114,7 +114,7 @@ describe('spec service', () => {
       expect(spec.frontmatter.type).toBe('buildable');
       expect(spec.body).toContain('# Auth');
       expect(spec.files).toContain('context/notes.md');
-      expect(spec.files).toContain('context/schema.sql');
+      // schema.sql is filtered out (.md only in file listing)
     });
 
     it('should throw for non-existent spec', () => {

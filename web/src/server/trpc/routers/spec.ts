@@ -75,7 +75,6 @@ export const specRouter = router({
         title: z.string().optional(),
         status: z.enum(['draft', 'ready', 'approved', 'active', 'completed']).optional(),
         body: z.string().optional(),
-        editorJson: z.array(z.any()).optional(),
       }),
     )
     .mutation(({ input }) => {

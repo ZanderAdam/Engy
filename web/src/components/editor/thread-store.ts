@@ -1,84 +1,27 @@
-import { ThreadStore, DefaultThreadStoreAuth } from '@blocknote/core/comments';
-import type { ThreadData, CommentData, CommentBody } from '@blocknote/core/comments';
-import { createTRPCClient, httpBatchLink } from '@trpc/client';
-import superjson from 'superjson';
-import type { AppRouter } from '@/server/trpc/root';
+import {
+  ThreadStore,
+  ThreadStoreAuth,
+  type ThreadData,
+  type CommentData,
+  type CommentBody,
+} from '@blocknote/core/comments';
 
-const USER_ID = 'local-user';
-
-function generateId(): string {
-  return crypto.randomUUID();
-}
-
-function toCommentData(db: Record<string, unknown>): CommentData {
-  const base = {
-    type: 'comment' as const,
-    id: db.id as string,
-    userId: db.userId as string,
-    createdAt: new Date(db.createdAt as string),
-    updatedAt: new Date(db.updatedAt as string),
-    reactions: ((db.reactions as Array<{ emoji: string; createdAt: string; userIds: string[] }>) ?? []).map(
-      (r) => ({ emoji: r.emoji, createdAt: new Date(r.createdAt), userIds: r.userIds }),
-    ),
-    metadata: db.metadata ?? {},
-  };
-
-  if (db.deletedAt) {
-    return { ...base, deletedAt: new Date(db.deletedAt as string), body: undefined } as CommentData;
-  }
-  return { ...base, body: db.body } as CommentData;
-}
-
-function toThreadData(db: Record<string, unknown>): ThreadData {
-  const comments = (db.comments as Array<Record<string, unknown>>) ?? [];
-  return {
-    type: 'thread' as const,
-    id: db.id as string,
-    createdAt: new Date(db.createdAt as string),
-    updatedAt: new Date(db.updatedAt as string),
-    resolved: db.resolved as boolean,
-    resolvedUpdatedAt: db.resolvedAt ? new Date(db.resolvedAt as string) : undefined,
-    resolvedBy: (db.resolvedBy as string) ?? undefined,
-    metadata: db.metadata ?? {},
-    comments: comments.map(toCommentData),
-  };
-}
-
-export class EngyThreadStore extends ThreadStore {
+export class InMemoryThreadStore extends ThreadStore {
   private threads: Map<string, ThreadData> = new Map();
-  private listeners: Set<(threads: Map<string, ThreadData>) => void> = new Set();
-  private client: ReturnType<typeof createTRPCClient<AppRouter>>;
-  private workspaceSlug: string;
-  private documentPath: string;
+  private subscribers: Set<(threads: Map<string, ThreadData>) => void> = new Set();
+  private readonly userId: string;
 
-  constructor(workspaceSlug: string, documentPath: string) {
-    super(new DefaultThreadStoreAuth(USER_ID, 'editor'));
-    this.workspaceSlug = workspaceSlug;
-    this.documentPath = documentPath;
-    this.client = createTRPCClient<AppRouter>({
-      links: [httpBatchLink({ url: '/api/trpc', transformer: superjson })],
-    });
-    this.loadThreads();
+  constructor(userId: string, auth: ThreadStoreAuth) {
+    super(auth);
+    this.userId = userId;
   }
 
-  private async loadThreads() {
-    const dbThreads = await this.client.comment.listThreads.query({
-      workspaceSlug: this.workspaceSlug,
-      documentPath: this.documentPath,
-    });
-    this.threads = new Map(
-      (dbThreads as Array<Record<string, unknown>>).map((t) => {
-        const td = toThreadData(t);
-        return [td.id, td];
-      }),
-    );
-    this.notify();
+  private generateId(): string {
+    return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   }
 
-  private notify() {
-    for (const cb of this.listeners) {
-      cb(new Map(this.threads));
-    }
+  private notify(): void {
+    this.subscribers.forEach((cb) => cb(new Map(this.threads)));
   }
 
   addThreadToDocument = undefined;
@@ -87,42 +30,32 @@ export class EngyThreadStore extends ThreadStore {
     initialComment: { body: CommentBody; metadata?: unknown };
     metadata?: unknown;
   }): Promise<ThreadData> {
-    const threadId = generateId();
-    const commentId = generateId();
-    const now = new Date();
+    const threadId = this.generateId();
+    const commentId = this.generateId();
+
+    const comment: CommentData = {
+      type: 'comment',
+      id: commentId,
+      userId: this.userId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      reactions: [],
+      body: options.initialComment.body,
+      metadata: options.initialComment.metadata,
+    };
 
     const thread: ThreadData = {
       type: 'thread',
       id: threadId,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      comments: [comment],
       resolved: false,
-      metadata: options.metadata ?? {},
-      comments: [
-        {
-          type: 'comment',
-          id: commentId,
-          userId: USER_ID,
-          createdAt: now,
-          updatedAt: now,
-          body: options.initialComment.body,
-          reactions: [],
-          metadata: options.initialComment.metadata ?? {},
-        },
-      ],
+      metadata: options.metadata,
     };
 
     this.threads.set(threadId, thread);
     this.notify();
-
-    this.client.comment.createThread.mutate({
-      workspaceSlug: this.workspaceSlug,
-      documentPath: this.documentPath,
-      threadId,
-      initialComment: { id: commentId, body: options.initialComment.body, metadata: options.initialComment.metadata },
-      metadata: options.metadata,
-    });
-
     return thread;
   }
 
@@ -130,35 +63,24 @@ export class EngyThreadStore extends ThreadStore {
     comment: { body: CommentBody; metadata?: unknown };
     threadId: string;
   }): Promise<CommentData> {
-    const commentId = generateId();
-    const now = new Date();
-    const commentData: CommentData = {
-      type: 'comment',
-      id: commentId,
-      userId: USER_ID,
-      createdAt: now,
-      updatedAt: now,
-      body: options.comment.body,
-      reactions: [],
-      metadata: options.comment.metadata ?? {},
-    };
-
     const thread = this.threads.get(options.threadId);
-    if (thread) {
-      thread.comments.push(commentData);
-      thread.updatedAt = now;
-      this.notify();
-    }
+    if (!thread) throw new Error(`Thread ${options.threadId} not found`);
 
-    this.client.comment.addComment.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-      commentId,
+    const comment: CommentData = {
+      type: 'comment',
+      id: this.generateId(),
+      userId: this.userId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      reactions: [],
       body: options.comment.body,
       metadata: options.comment.metadata,
-    });
+    };
 
-    return commentData;
+    thread.comments.push(comment);
+    thread.updatedAt = new Date();
+    this.notify();
+    return comment;
   }
 
   async updateComment(options: {
@@ -167,133 +89,57 @@ export class EngyThreadStore extends ThreadStore {
     commentId: string;
   }): Promise<void> {
     const thread = this.threads.get(options.threadId);
-    if (thread) {
-      const comment = thread.comments.find((c) => c.id === options.commentId);
-      if (comment && !comment.deletedAt) {
-        (comment as { body: CommentBody }).body = options.comment.body;
-        comment.updatedAt = new Date();
-      }
-      this.notify();
-    }
+    if (!thread) throw new Error(`Thread ${options.threadId} not found`);
+    const comment = thread.comments.find((c) => c.id === options.commentId);
+    if (!comment) throw new Error(`Comment ${options.commentId} not found`);
 
-    this.client.comment.updateComment.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-      commentId: options.commentId,
-      body: options.comment.body,
-      metadata: options.comment.metadata,
-    });
+    comment.body = options.comment.body;
+    comment.metadata = options.comment.metadata;
+    comment.updatedAt = new Date();
+    thread.updatedAt = new Date();
+    this.notify();
   }
 
   async deleteComment(options: { threadId: string; commentId: string }): Promise<void> {
     const thread = this.threads.get(options.threadId);
-    if (thread) {
-      const idx = thread.comments.findIndex((c) => c.id === options.commentId);
-      if (idx !== -1) {
-        const existing = thread.comments[idx];
-        thread.comments[idx] = {
-          ...existing,
-          deletedAt: new Date(),
-          body: undefined,
-        } as CommentData;
-      }
-      this.notify();
-    }
-
-    this.client.comment.deleteComment.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-      commentId: options.commentId,
-    });
+    if (!thread) throw new Error(`Thread ${options.threadId} not found`);
+    thread.comments = thread.comments.filter((c) => c.id !== options.commentId);
+    thread.updatedAt = new Date();
+    this.notify();
   }
 
   async deleteThread(options: { threadId: string }): Promise<void> {
     this.threads.delete(options.threadId);
     this.notify();
-
-    this.client.comment.deleteThread.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-    });
   }
 
   async resolveThread(options: { threadId: string }): Promise<void> {
     const thread = this.threads.get(options.threadId);
-    if (thread) {
-      thread.resolved = true;
-      thread.resolvedBy = USER_ID;
-      thread.resolvedUpdatedAt = new Date();
-      this.notify();
-    }
-
-    this.client.comment.resolveThread.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-    });
+    if (!thread) throw new Error(`Thread ${options.threadId} not found`);
+    thread.resolved = true;
+    thread.resolvedBy = this.userId;
+    thread.resolvedUpdatedAt = new Date();
+    thread.updatedAt = new Date();
+    this.notify();
   }
 
   async unresolveThread(options: { threadId: string }): Promise<void> {
     const thread = this.threads.get(options.threadId);
-    if (thread) {
-      thread.resolved = false;
-      thread.resolvedBy = undefined;
-      thread.resolvedUpdatedAt = undefined;
-      this.notify();
-    }
-
-    this.client.comment.unresolveThread.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-    });
+    if (!thread) throw new Error(`Thread ${options.threadId} not found`);
+    thread.resolved = false;
+    thread.resolvedBy = undefined;
+    thread.resolvedUpdatedAt = undefined;
+    thread.updatedAt = new Date();
+    this.notify();
   }
 
-  async addReaction(options: { threadId: string; commentId: string; emoji: string }): Promise<void> {
-    const thread = this.threads.get(options.threadId);
-    if (thread) {
-      const comment = thread.comments.find((c) => c.id === options.commentId);
-      if (comment) {
-        const existing = comment.reactions.find((r) => r.emoji === options.emoji);
-        if (existing) {
-          if (!existing.userIds.includes(USER_ID)) existing.userIds.push(USER_ID);
-        } else {
-          comment.reactions.push({ emoji: options.emoji, createdAt: new Date(), userIds: [USER_ID] });
-        }
-        this.notify();
-      }
-    }
-
-    this.client.comment.addReaction.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-      commentId: options.commentId,
-      emoji: options.emoji,
-    });
-  }
-
-  async deleteReaction(options: { threadId: string; commentId: string; emoji: string }): Promise<void> {
-    const thread = this.threads.get(options.threadId);
-    if (thread) {
-      const comment = thread.comments.find((c) => c.id === options.commentId);
-      if (comment) {
-        comment.reactions = comment.reactions
-          .map((r) =>
-            r.emoji === options.emoji ? { ...r, userIds: r.userIds.filter((id) => id !== USER_ID) } : r,
-          )
-          .filter((r) => r.userIds.length > 0);
-        this.notify();
-      }
-    }
-
-    this.client.comment.deleteReaction.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-      commentId: options.commentId,
-      emoji: options.emoji,
-    });
-  }
+  async addReaction(): Promise<void> {}
+  async deleteReaction(): Promise<void> {}
 
   getThread(threadId: string): ThreadData {
-    return this.threads.get(threadId)!;
+    const thread = this.threads.get(threadId);
+    if (!thread) throw new Error(`Thread ${threadId} not found`);
+    return thread;
   }
 
   getThreads(): Map<string, ThreadData> {
@@ -301,7 +147,7 @@ export class EngyThreadStore extends ThreadStore {
   }
 
   subscribe(cb: (threads: Map<string, ThreadData>) => void): () => void {
-    this.listeners.add(cb);
-    return () => this.listeners.delete(cb);
+    this.subscribers.add(cb);
+    return () => { this.subscribers.delete(cb); };
   }
 }

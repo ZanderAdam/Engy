@@ -24,7 +24,6 @@ interface SpecContent {
   body: string;
   files: string[];
   raw: Record<string, unknown>;
-  editorJson: unknown[] | null;
 }
 
 type Workspace = { slug: string; docsDir: string | null };
@@ -162,23 +161,13 @@ export function getSpec(workspace: Workspace, specSlug: string): SpecContent {
     }
   }
 
-  const editorJsonPath = path.join(specDir, 'spec.editor.json');
-  let editorJson: unknown[] | null = null;
-  if (fs.existsSync(editorJsonPath)) {
-    try {
-      editorJson = JSON.parse(fs.readFileSync(editorJsonPath, 'utf-8'));
-    } catch {
-      // Corrupted JSON — fall back to markdown
-    }
-  }
-
-  return { frontmatter, body, files: files.sort(), raw, editorJson };
+  return { frontmatter, body, files: files.sort(), raw };
 }
 
 export function updateSpec(
   workspace: Workspace,
   specSlug: string,
-  updates: { title?: string; status?: SpecStatus; body?: string; editorJson?: unknown[] },
+  updates: { title?: string; status?: SpecStatus; body?: string },
 ): SpecFrontmatter {
   const dir = specsDir(workspace);
   const specDir = validatePath(dir, specSlug);
@@ -203,11 +192,6 @@ export function updateSpec(
 
   const newBody = updates.body ?? body;
   fs.writeFileSync(specMdPath, serializeFrontmatter(newFrontmatter, newBody, raw));
-
-  if (updates.editorJson) {
-    const editorJsonPath = path.join(specDir, 'spec.editor.json');
-    fs.writeFileSync(editorJsonPath, JSON.stringify(updates.editorJson));
-  }
 
   return newFrontmatter;
 }

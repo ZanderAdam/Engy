@@ -8,13 +8,13 @@ import {
   FloatingComposerController,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
-import { CommentsExtension } from "@blocknote/core/comments";
+import { CommentsExtension, DefaultThreadStoreAuth } from "@blocknote/core/comments";
 import type { User } from "@blocknote/core/comments";
 import "@blocknote/shadcn/style.css";
 import "@blocknote/react/style.css";
 import { Button } from "@/components/ui/button";
 import { RiFileCopyLine, RiCheckLine } from "@remixicon/react";
-import { EngyThreadStore } from "./thread-store";
+import { InMemoryThreadStore } from "./thread-store";
 
 const USER_ID = "local-user";
 const LOCAL_USER: User = { id: USER_ID, username: "You", avatarUrl: "" };
@@ -26,16 +26,10 @@ async function resolveUsers(userIds: string[]): Promise<User[]> {
 }
 
 interface DocumentEditorProps {
-  /** Unique document path for comment scoping (e.g. "specs/initial/spec.md") */
-  documentPath: string;
-  /** Workspace slug for comment thread storage */
-  workspaceSlug: string;
   /** Initial markdown content */
   initialMarkdown: string;
-  /** BlockNote JSON content (preserves comment marks). Takes priority over markdown. */
-  initialJson: unknown[] | null;
-  /** Called on autosave with markdown + optional JSON (when comments exist) */
-  onSave: (markdown: string, json: unknown[] | null) => void;
+  /** Called on autosave with markdown content */
+  onSave: (markdown: string) => void;
   /** Enable inline comments (default: false) */
   comments?: boolean;
 }
@@ -43,10 +37,7 @@ interface DocumentEditorProps {
 const AUTOSAVE_DELAY_MS = 1500;
 
 export function DocumentEditor({
-  documentPath,
-  workspaceSlug,
   initialMarkdown,
-  initialJson,
   onSave,
   comments = false,
 }: DocumentEditorProps) {
@@ -57,10 +48,10 @@ export function DocumentEditor({
   const onSaveRef = useRef(onSave);
   useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
 
-  const threadStore = useMemo(
-    () => new EngyThreadStore(workspaceSlug, documentPath),
-    [workspaceSlug, documentPath],
-  );
+  const threadStore = useMemo(() => {
+    const auth = new DefaultThreadStoreAuth(USER_ID, 'editor');
+    return new InMemoryThreadStore(USER_ID, auth);
+  }, []);
 
   useEffect(() => {
     setHasThreads(threadStore.getThreads().size > 0);
@@ -71,32 +62,29 @@ export function DocumentEditor({
 
   const editor = useCreateBlockNote(
     {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      initialContent: initialJson ? (initialJson as any) : undefined,
       extensions: comments ? [CommentsExtension({ threadStore, resolveUsers })] : undefined,
     },
     [threadStore],
   );
 
   useEffect(() => {
-    if (initialJson || !initialMarkdown || loadedRef.current) return;
+    if (!initialMarkdown || loadedRef.current) return;
     loadedRef.current = true;
     async function loadContent() {
       const blocks = await editor.tryParseMarkdownToBlocks(initialMarkdown);
       editor.replaceBlocks(editor.document, blocks);
     }
     loadContent();
-  }, [editor, initialMarkdown, initialJson]);
+  }, [editor, initialMarkdown]);
 
   const handleChange = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
 
     timerRef.current = setTimeout(async () => {
       const markdown = await editor.blocksToMarkdownLossy(editor.document);
-      const json = threadStore.getThreads().size > 0 ? (editor.document as unknown[]) : null;
-      onSaveRef.current(markdown, json);
+      onSaveRef.current(markdown);
     }, AUTOSAVE_DELAY_MS);
-  }, [editor, threadStore]);
+  }, [editor]);
 
   const handleCopyComments = useCallback(() => {
     const threads = threadStore.getThreads();
