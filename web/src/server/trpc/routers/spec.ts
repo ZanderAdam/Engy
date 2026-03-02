@@ -188,7 +188,7 @@ export const specRouter = router({
       z.object({
         workspaceSlug: z.string(),
         specSlug: z.string(),
-        filePath: z.string(),
+        filePath: z.string().min(1).refine((p) => p !== 'spec.md', { message: 'Use spec.update to modify spec.md' }),
         content: z.string(),
       }),
     )

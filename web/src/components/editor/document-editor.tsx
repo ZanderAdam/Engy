@@ -78,7 +78,7 @@ export function DocumentEditor({
   const readyRef = useRef(false);
 
   useEffect(() => {
-    if (!initialMarkdown || loadedRef.current) return;
+    if (initialMarkdown == null || loadedRef.current) return;
     loadedRef.current = true;
     readyRef.current = false;
     async function loadContent() {

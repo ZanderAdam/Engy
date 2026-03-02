@@ -36,6 +36,7 @@ export function getDb() {
   const sqlite = new Database(dbPath);
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('synchronous = NORMAL');
+  sqlite.pragma('foreign_keys = ON');
 
   dbInstance = drizzle(sqlite, { schema });
   return dbInstance;

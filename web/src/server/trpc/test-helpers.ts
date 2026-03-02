@@ -28,6 +28,7 @@ export function setupTestDb(): TestContext {
 
   const sqlite = new Database(dbPath);
   sqlite.pragma('journal_mode = WAL');
+  sqlite.pragma('foreign_keys = ON');
   const db = drizzle(sqlite, { schema });
   migrate(db, { migrationsFolder: path.join(__dirname, '../db/migrations') });
 

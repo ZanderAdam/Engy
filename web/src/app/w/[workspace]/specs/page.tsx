@@ -1,19 +1,14 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { trpc } from "@/lib/trpc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SpecTree } from "@/components/specs/spec-tree";
 import { SpecFrontmatter } from "@/components/specs/spec-frontmatter";
 import { SpecTasks } from "@/components/specs/spec-tasks";
-import {
-  DynamicDocumentEditor,
-} from "@/components/editor/dynamic-document-editor";
-import {
-  InMemoryThreadStore,
-  DefaultThreadStoreAuth,
-} from "@/components/editor/document-editor";
+import { DynamicDocumentEditor } from "@/components/editor/dynamic-document-editor";
+import { InMemoryThreadStore, DefaultThreadStoreAuth } from "@/components/editor/document-editor";
 import { RiFileTextLine } from "@remixicon/react";
 
 const USER_ID = "local-user";
@@ -106,15 +101,21 @@ function SpecDetail({ workspaceSlug, specSlug, selectedFile, onDeleted }: SpecDe
     onSuccess: () => utils.spec.readFile.invalidate({ workspaceSlug, specSlug, filePath }),
   });
 
+  const specMutateRef = useRef(specUpdateMutation.mutate);
+  useEffect(() => { specMutateRef.current = specUpdateMutation.mutate; }, [specUpdateMutation.mutate]);
+
+  const fileMutateRef = useRef(writeFileMutation.mutate);
+  useEffect(() => { fileMutateRef.current = writeFileMutation.mutate; }, [writeFileMutation.mutate]);
+
   const handleSave = useCallback(
     (markdown: string) => {
       if (isSpecMd) {
-        specUpdateMutation.mutate({ workspaceSlug, specSlug, body: markdown });
+        specMutateRef.current({ workspaceSlug, specSlug, body: markdown });
       } else {
-        writeFileMutation.mutate({ workspaceSlug, specSlug, filePath, content: markdown });
+        fileMutateRef.current({ workspaceSlug, specSlug, filePath, content: markdown });
       }
     },
-    [isSpecMd, workspaceSlug, specSlug, filePath, specUpdateMutation, writeFileMutation],
+    [isSpecMd, workspaceSlug, specSlug, filePath],
   );
 
   if (isLoading) {

@@ -7,6 +7,8 @@ import { commentThreads, threadComments, workspaces } from '../../db/schema';
 
 const USER_ID = 'local-user';
 
+type Reaction = { emoji: string; createdAt: string; userIds: string[] };
+
 function resolveWorkspace(workspaceSlug: string) {
   const db = getDb();
   const ws = db.select().from(workspaces).where(eq(workspaces.slug, workspaceSlug)).get();
@@ -200,11 +202,7 @@ export const commentRouter = router({
       const comment = db.select().from(threadComments).where(eq(threadComments.id, input.commentId)).get();
       if (!comment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Comment not found' });
 
-      const reactions = (comment.reactions ?? []) as Array<{
-        emoji: string;
-        createdAt: string;
-        userIds: string[];
-      }>;
+      const reactions = (comment.reactions ?? []) as Reaction[];
       const existing = reactions.find((r) => r.emoji === input.emoji);
       if (existing) {
         if (!existing.userIds.includes(USER_ID)) existing.userIds.push(USER_ID);
@@ -230,17 +228,13 @@ export const commentRouter = router({
       const comment = db.select().from(threadComments).where(eq(threadComments.id, input.commentId)).get();
       if (!comment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Comment not found' });
 
-      let reactions = (comment.reactions ?? []) as Array<{
-        emoji: string;
-        createdAt: string;
-        userIds: string[];
-      }>;
-      reactions = reactions
+      const reactions = (comment.reactions ?? []) as Reaction[];
+      const filtered = reactions
         .map((r) =>
           r.emoji === input.emoji ? { ...r, userIds: r.userIds.filter((id) => id !== USER_ID) } : r,
         )
         .filter((r) => r.userIds.length > 0);
-      db.update(threadComments).set({ reactions }).where(eq(threadComments.id, input.commentId)).run();
+      db.update(threadComments).set({ reactions: filtered }).where(eq(threadComments.id, input.commentId)).run();
       return { success: true };
     }),
 

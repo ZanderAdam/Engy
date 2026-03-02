@@ -56,6 +56,23 @@ function validatePath(base: string, target: string): string {
   return resolved;
 }
 
+function collectMarkdownFiles(specDir: string): string[] {
+  const entries = fs.readdirSync(specDir, { withFileTypes: true });
+  const files: string[] = [];
+
+  for (const f of entries) {
+    if (f.isFile() && f.name.endsWith('.md')) files.push(f.name);
+    if (f.isDirectory()) {
+      const subFiles = fs.readdirSync(path.join(specDir, f.name));
+      for (const sf of subFiles) {
+        if (sf.endsWith('.md')) files.push(`${f.name}/${sf}`);
+      }
+    }
+  }
+
+  return files.sort();
+}
+
 export function listSpecs(workspace: Workspace): SpecTreeNode[] {
   const dir = specsDir(workspace);
   if (!fs.existsSync(dir)) return [];
@@ -67,18 +84,7 @@ export function listSpecs(workspace: Workspace): SpecTreeNode[] {
     if (!entry.isDirectory()) continue;
 
     const specDir = path.join(dir, entry.name);
-    const allFiles = fs.readdirSync(specDir, { withFileTypes: true });
-    const files: string[] = [];
-
-    for (const f of allFiles) {
-      if (f.isFile() && f.name.endsWith('.md')) files.push(f.name);
-      if (f.isDirectory()) {
-        const subFiles = fs.readdirSync(path.join(specDir, f.name));
-        for (const sf of subFiles) {
-          if (sf.endsWith('.md')) files.push(`${f.name}/${sf}`);
-        }
-      }
-    }
+    const files = collectMarkdownFiles(specDir);
 
     let type: SpecType | null = null;
     let status: SpecStatus | null = null;
@@ -93,7 +99,7 @@ export function listSpecs(workspace: Workspace): SpecTreeNode[] {
       }
     }
 
-    results.push({ name: entry.name, type, status, files: files.sort() });
+    results.push({ name: entry.name, type, status, files });
   }
 
   return results;
@@ -149,19 +155,9 @@ export function getSpec(workspace: Workspace, specSlug: string): SpecContent {
   const content = fs.readFileSync(specMdPath, 'utf-8');
   const { frontmatter, body, raw } = parseFrontmatter(content);
 
-  const files: string[] = [];
-  const specDirEntries = fs.readdirSync(specDir, { withFileTypes: true });
-  for (const f of specDirEntries) {
-    if (f.isFile() && f.name.endsWith('.md')) files.push(f.name);
-    if (f.isDirectory()) {
-      const subFiles = fs.readdirSync(path.join(specDir, f.name));
-      for (const sf of subFiles) {
-        if (sf.endsWith('.md')) files.push(`${f.name}/${sf}`);
-      }
-    }
-  }
+  const files = collectMarkdownFiles(specDir);
 
-  return { frontmatter, body, files: files.sort(), raw };
+  return { frontmatter, body, files, raw };
 }
 
 export function updateSpec(
