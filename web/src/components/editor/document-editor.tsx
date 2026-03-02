@@ -12,7 +12,6 @@ import { CommentsExtension } from "@blocknote/core/comments";
 import type { User } from "@blocknote/core/comments";
 import "@blocknote/shadcn/style.css";
 import "@blocknote/react/style.css";
-import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { RiFileCopyLine, RiCheckLine } from "@remixicon/react";
 import { EngyThreadStore } from "./thread-store";
@@ -24,44 +23,37 @@ async function resolveUsers(): Promise<User[]> {
   return [LOCAL_USER];
 }
 
-interface SpecEditorProps {
-  workspaceSlug: string;
-  specSlug: string;
+interface DocumentEditorProps {
+  /** Unique document path for comment scoping (e.g. "specs/initial/spec.md") */
   documentPath: string;
-  initialBody: string;
-  editorJson: unknown[] | null;
-  showComments?: boolean;
+  /** Workspace slug for comment thread storage */
+  workspaceSlug: string;
+  /** Initial markdown content */
+  initialMarkdown: string;
+  /** BlockNote JSON content (preserves comment marks). Takes priority over markdown. */
+  initialJson: unknown[] | null;
+  /** Called on autosave with markdown + optional JSON (when comments exist) */
+  onSave: (markdown: string, json: unknown[] | null) => void;
+  /** Enable inline comments (default: false) */
+  comments?: boolean;
 }
 
 const AUTOSAVE_DELAY_MS = 1500;
 
-export function SpecEditor({
-  workspaceSlug,
-  specSlug,
+export function DocumentEditor({
   documentPath,
-  initialBody,
-  editorJson,
-  showComments,
-}: SpecEditorProps) {
+  workspaceSlug,
+  initialMarkdown,
+  initialJson,
+  onSave,
+  comments = false,
+}: DocumentEditorProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedRef = useRef(false);
   const [hasThreads, setHasThreads] = useState(false);
   const [copied, setCopied] = useState(false);
-  const utils = trpc.useUtils();
-
-  const updateMutation = trpc.spec.update.useMutation({
-    onSuccess: () => {
-      utils.spec.get.invalidate({ workspaceSlug, specSlug });
-    },
-    onError: (err) => {
-      console.error("[spec-editor] autosave failed:", err.message);
-    },
-  });
-
-  const mutateRef = useRef(updateMutation.mutate);
-  useEffect(() => {
-    mutateRef.current = updateMutation.mutate;
-  }, [updateMutation.mutate]);
+  const onSaveRef = useRef(onSave);
+  useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
 
   const threadStore = useMemo(
     () => new EngyThreadStore(workspaceSlug, documentPath),
@@ -78,37 +70,31 @@ export function SpecEditor({
   const editor = useCreateBlockNote(
     {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      initialContent: editorJson ? (editorJson as any) : undefined,
-      extensions: [CommentsExtension({ threadStore, resolveUsers })],
+      initialContent: initialJson ? (initialJson as any) : undefined,
+      extensions: comments ? [CommentsExtension({ threadStore, resolveUsers })] : undefined,
     },
     [threadStore],
   );
 
   useEffect(() => {
-    if (editorJson || !initialBody || loadedRef.current) return;
+    if (initialJson || !initialMarkdown || loadedRef.current) return;
     loadedRef.current = true;
     async function loadContent() {
-      const blocks = await editor.tryParseMarkdownToBlocks(initialBody);
+      const blocks = await editor.tryParseMarkdownToBlocks(initialMarkdown);
       editor.replaceBlocks(editor.document, blocks);
     }
     loadContent();
-  }, [editor, initialBody, editorJson]);
+  }, [editor, initialMarkdown, initialJson]);
 
   const handleChange = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
 
     timerRef.current = setTimeout(async () => {
       const markdown = await editor.blocksToMarkdownLossy(editor.document);
-      const hasComments = threadStore.getThreads().size > 0;
-      mutateRef.current({
-        workspaceSlug,
-        specSlug,
-        body: markdown,
-        // Only persist editor JSON when comments exist (to preserve marks)
-        editorJson: hasComments ? (editor.document as unknown[]) : undefined,
-      });
+      const json = threadStore.getThreads().size > 0 ? (editor.document as unknown[]) : null;
+      onSaveRef.current(markdown, json);
     }, AUTOSAVE_DELAY_MS);
-  }, [editor, workspaceSlug, specSlug]);
+  }, [editor, threadStore]);
 
   const handleCopyComments = useCallback(() => {
     const threads = threadStore.getThreads();
@@ -117,12 +103,11 @@ export function SpecEditor({
     const lines: string[] = [];
     for (const [, thread] of threads) {
       if (thread.deletedAt) continue;
-      const comments = thread.comments.filter((c) => !c.deletedAt);
-      if (comments.length === 0) continue;
+      const threadComments = thread.comments.filter((c) => !c.deletedAt);
+      if (threadComments.length === 0) continue;
       if (thread.resolved) lines.push("*(Resolved)*");
-      for (const comment of comments) {
-        const text = extractCommentText(comment.body);
-        lines.push(`> ${text}`);
+      for (const comment of threadComments) {
+        lines.push(`> ${extractCommentText(comment.body)}`);
       }
       lines.push("");
     }
@@ -152,7 +137,7 @@ export function SpecEditor({
         <div className="relative flex-1 min-w-0 overflow-y-auto">
           <BlockNoteViewEditor />
         </div>
-        {showComments && hasThreads && (
+        {comments && hasThreads && (
           <div className="w-72 border-l border-border overflow-y-auto shrink-0">
             <div className="p-3 border-b border-border flex items-center justify-between">
               <span className="text-xs text-muted-foreground">Comments</span>

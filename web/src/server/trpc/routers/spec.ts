@@ -14,6 +14,8 @@ import {
   readContextFile,
   writeContextFile,
   deleteContextFile,
+  readSpecFile,
+  writeSpecFile,
 } from '../../spec/service';
 
 function getWorkspace(workspaceSlug: string) {
@@ -167,4 +169,37 @@ export const specRouter = router({
       }
     }),
 
+  readFile: publicProcedure
+    .input(z.object({ workspaceSlug: z.string(), specSlug: z.string(), filePath: z.string() }))
+    .query(({ input }) => {
+      const ws = getWorkspace(input.workspaceSlug);
+      try {
+        return { content: readSpecFile(ws, input.specSlug, input.filePath) };
+      } catch (e) {
+        const msg = errorMessage(e);
+        if (msg.includes('not found')) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: msg });
+        }
+        throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
+      }
+    }),
+
+  writeFile: publicProcedure
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        specSlug: z.string(),
+        filePath: z.string(),
+        content: z.string(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const ws = getWorkspace(input.workspaceSlug);
+      try {
+        writeSpecFile(ws, input.specSlug, input.filePath, input.content);
+        return { success: true };
+      } catch (e) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: errorMessage(e) });
+      }
+    }),
 });

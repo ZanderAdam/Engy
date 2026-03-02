@@ -8,8 +8,7 @@
       "ignore": ["src/components/ui/**", "src/components/tree-view.tsx"],
       "ignoreDependencies": [
         "postcss",
-        "tw-animate-css",
-        "@blocknote/core"
+        "tw-animate-css"
       ]
     },
     "client": {

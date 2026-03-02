@@ -1,24 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useParams } from "next/navigation";
-import dynamic from "next/dynamic";
 import { trpc } from "@/lib/trpc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SpecTree } from "@/components/specs/spec-tree";
 import { SpecFrontmatter } from "@/components/specs/spec-frontmatter";
 import { SpecTasks } from "@/components/specs/spec-tasks";
+import { DynamicDocumentEditor } from "@/components/editor/dynamic-document-editor";
 import { RiFileTextLine } from "@remixicon/react";
-
-const SpecEditor = dynamic(
-  () =>
-    import("@/components/specs/spec-editor").then((mod) => mod.SpecEditor),
-  { ssr: false },
-);
 
 export default function SpecsPage() {
   const params = useParams<{ workspace: string }>();
   const [selectedSpec, setSelectedSpec] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
   return (
     <div className="flex h-[calc(100vh-6rem)]">
@@ -26,7 +21,14 @@ export default function SpecsPage() {
         <SpecTree
           workspaceSlug={params.workspace}
           selectedSpec={selectedSpec}
-          onSelectSpec={setSelectedSpec}
+          onSelectSpec={(slug) => {
+            setSelectedSpec(slug);
+            setSelectedFile(null);
+          }}
+          onSelectFile={(specSlug, filePath) => {
+            setSelectedSpec(specSlug);
+            setSelectedFile(filePath);
+          }}
         />
       </div>
       <div className="flex-1 min-w-0">
@@ -34,7 +36,11 @@ export default function SpecsPage() {
           <SpecDetail
             workspaceSlug={params.workspace}
             specSlug={selectedSpec}
-            onDeleted={() => setSelectedSpec(null)}
+            selectedFile={selectedFile}
+            onDeleted={() => {
+              setSelectedSpec(null);
+              setSelectedFile(null);
+            }}
           />
         ) : (
           <EmptyState />
@@ -59,14 +65,53 @@ function EmptyState() {
 interface SpecDetailProps {
   workspaceSlug: string;
   specSlug: string;
+  selectedFile: string | null;
   onDeleted: () => void;
 }
 
-function SpecDetail({ workspaceSlug, specSlug, onDeleted }: SpecDetailProps) {
+function SpecDetail({ workspaceSlug, specSlug, selectedFile, onDeleted }: SpecDetailProps) {
+  const utils = trpc.useUtils();
+  const filePath = selectedFile ?? "spec.md";
+  const isSpecMd = filePath === "spec.md";
+
   const { data: spec, isLoading, error } = trpc.spec.get.useQuery({
     workspaceSlug,
     specSlug,
   });
+
+  const { data: fileData } = trpc.spec.readFile.useQuery(
+    { workspaceSlug, specSlug, filePath },
+    { enabled: !isSpecMd },
+  );
+
+  const specUpdateMutation = trpc.spec.update.useMutation({
+    onSuccess: () => utils.spec.get.invalidate({ workspaceSlug, specSlug }),
+  });
+
+  const writeFileMutation = trpc.spec.writeFile.useMutation({
+    onSuccess: () => utils.spec.readFile.invalidate({ workspaceSlug, specSlug, filePath }),
+  });
+
+  const handleSave = useCallback(
+    (markdown: string, json: unknown[] | null) => {
+      if (isSpecMd) {
+        specUpdateMutation.mutate({
+          workspaceSlug,
+          specSlug,
+          body: markdown,
+          editorJson: json ? (json as unknown[]) : undefined,
+        });
+      } else {
+        writeFileMutation.mutate({
+          workspaceSlug,
+          specSlug,
+          filePath,
+          content: markdown,
+        });
+      }
+    },
+    [isSpecMd, workspaceSlug, specSlug, filePath, specUpdateMutation, writeFileMutation],
+  );
 
   if (isLoading) {
     return (
@@ -87,7 +132,9 @@ function SpecDetail({ workspaceSlug, specSlug, onDeleted }: SpecDetailProps) {
     );
   }
 
-  const documentPath = `specs/${specSlug}/spec.md`;
+  const documentPath = `specs/${specSlug}/${filePath}`;
+  const editorBody = isSpecMd ? spec.body : (fileData?.content ?? "");
+  const editorJson = isSpecMd ? spec.editorJson : null;
 
   return (
     <Tabs defaultValue="content" className="flex h-full flex-col">
@@ -104,14 +151,20 @@ function SpecDetail({ workspaceSlug, specSlug, onDeleted }: SpecDetailProps) {
           <TabsTrigger value="tasks">Tasks</TabsTrigger>
         </TabsList>
       </SpecFrontmatter>
+      {!isSpecMd && (
+        <div className="px-4 py-1 text-xs text-muted-foreground border-b border-border">
+          {filePath}
+        </div>
+      )}
       <TabsContent value="content" className="flex flex-1 overflow-visible m-0">
-        <SpecEditor
+        <DynamicDocumentEditor
+          key={filePath}
           workspaceSlug={workspaceSlug}
-          specSlug={specSlug}
           documentPath={documentPath}
-          initialBody={spec.body}
-          editorJson={spec.editorJson}
-          showComments
+          initialMarkdown={editorBody}
+          initialJson={editorJson}
+          onSave={handleSave}
+          comments={isSpecMd}
         />
       </TabsContent>
       <TabsContent value="tasks" className="flex-1 overflow-hidden m-0">

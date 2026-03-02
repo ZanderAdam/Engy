@@ -283,6 +283,32 @@ export function deleteContextFile(
   fs.unlinkSync(filePath);
 }
 
+export function readSpecFile(workspace: Workspace, specSlug: string, filePath: string): string {
+  const dir = specsDir(workspace);
+  const specDir = validatePath(dir, specSlug);
+  const resolved = validatePath(specDir, filePath);
+
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`File "${filePath}" not found in spec "${specSlug}"`);
+  }
+
+  return fs.readFileSync(resolved, 'utf-8');
+}
+
+export function writeSpecFile(
+  workspace: Workspace,
+  specSlug: string,
+  filePath: string,
+  content: string,
+): void {
+  const dir = specsDir(workspace);
+  const specDir = validatePath(dir, specSlug);
+  const resolved = validatePath(specDir, filePath);
+
+  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  fs.writeFileSync(resolved, content);
+}
+
 export function checkSpecReadiness(specId: string): boolean {
   const db = getDb();
   const specTasks = db.select().from(tasks).where(eq(tasks.specId, specId)).all();
