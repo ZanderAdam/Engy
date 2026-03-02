@@ -113,7 +113,8 @@ describe('spec service', () => {
       expect(spec.frontmatter.title).toBe('Auth');
       expect(spec.frontmatter.type).toBe('buildable');
       expect(spec.body).toContain('# Auth');
-      expect(spec.contextFiles).toEqual(['notes.md', 'schema.sql']);
+      expect(spec.files).toContain('context/notes.md');
+      expect(spec.files).toContain('context/schema.sql');
     });
 
     it('should throw for non-existent spec', () => {

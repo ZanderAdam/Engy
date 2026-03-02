@@ -14,15 +14,15 @@ import {
 
 interface SpecTreeNode {
   name: string;
-  type: SpecType;
-  status: SpecStatus;
-  contextFiles: string[];
+  type: SpecType | null;
+  status: SpecStatus | null;
+  files: string[];
 }
 
 interface SpecContent {
   frontmatter: SpecFrontmatter;
   body: string;
-  contextFiles: string[];
+  files: string[];
   raw: Record<string, unknown>;
   editorJson: unknown[] | null;
 }
@@ -67,21 +67,32 @@ export function listSpecs(workspace: Workspace): SpecTreeNode[] {
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
 
-    const specMdPath = path.join(dir, entry.name, 'spec.md');
-    if (!fs.existsSync(specMdPath)) continue;
+    const specDir = path.join(dir, entry.name);
+    const allFiles = fs.readdirSync(specDir, { withFileTypes: true });
+    const files: string[] = [];
 
-    const content = fs.readFileSync(specMdPath, 'utf-8');
-    const { frontmatter } = parseFrontmatter(content);
+    for (const f of allFiles) {
+      if (f.isFile()) files.push(f.name);
+      if (f.isDirectory()) {
+        const subFiles = fs.readdirSync(path.join(specDir, f.name));
+        for (const sf of subFiles) files.push(`${f.name}/${sf}`);
+      }
+    }
 
-    const contextDir = path.join(dir, entry.name, 'context');
-    const contextFiles = fs.existsSync(contextDir) ? fs.readdirSync(contextDir).sort() : [];
+    let type: SpecType | null = null;
+    let status: SpecStatus | null = null;
+    const specMdPath = path.join(specDir, 'spec.md');
+    if (fs.existsSync(specMdPath)) {
+      try {
+        const { frontmatter } = parseFrontmatter(fs.readFileSync(specMdPath, 'utf-8'));
+        type = frontmatter.type;
+        status = frontmatter.status;
+      } catch {
+        // No valid frontmatter — still show the directory
+      }
+    }
 
-    results.push({
-      name: entry.name,
-      type: frontmatter.type,
-      status: frontmatter.status,
-      contextFiles,
-    });
+    results.push({ name: entry.name, type, status, files: files.sort() });
   }
 
   return results;
@@ -122,7 +133,7 @@ export function createSpec(
   const body = `# ${title}\n`;
   fs.writeFileSync(path.join(specDir, 'spec.md'), serializeFrontmatter(frontmatter, body));
 
-  return { name: dirName, type, status: 'draft', contextFiles: [] };
+  return { name: dirName, type, status: 'draft', files: [] };
 }
 
 export function getSpec(workspace: Workspace, specSlug: string): SpecContent {
@@ -137,8 +148,15 @@ export function getSpec(workspace: Workspace, specSlug: string): SpecContent {
   const content = fs.readFileSync(specMdPath, 'utf-8');
   const { frontmatter, body, raw } = parseFrontmatter(content);
 
-  const contextDir = path.join(specDir, 'context');
-  const contextFiles = fs.existsSync(contextDir) ? fs.readdirSync(contextDir).sort() : [];
+  const files: string[] = [];
+  const specDirEntries = fs.readdirSync(specDir, { withFileTypes: true });
+  for (const f of specDirEntries) {
+    if (f.isFile()) files.push(f.name);
+    if (f.isDirectory()) {
+      const subFiles = fs.readdirSync(path.join(specDir, f.name));
+      for (const sf of subFiles) files.push(`${f.name}/${sf}`);
+    }
+  }
 
   const editorJsonPath = path.join(specDir, 'spec.editor.json');
   let editorJson: unknown[] | null = null;
@@ -150,7 +168,7 @@ export function getSpec(workspace: Workspace, specSlug: string): SpecContent {
     }
   }
 
-  return { frontmatter, body, contextFiles, raw, editorJson };
+  return { frontmatter, body, files: files.sort(), raw, editorJson };
 }
 
 export function updateSpec(

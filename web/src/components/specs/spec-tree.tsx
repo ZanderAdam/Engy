@@ -10,12 +10,16 @@ import {
   RiFileTextLine,
   RiFileList2Line,
   RiEyeLine,
+  RiFolderLine,
+  RiAddLine,
 } from "@remixicon/react";
+import { Button } from "@/components/ui/button";
 
 interface SpecTreeProps {
   workspaceSlug: string;
   selectedSpec: string | null;
   onSelectSpec: (specSlug: string | null) => void;
+  onSelectFile?: (specSlug: string, filePath: string) => void;
 }
 
 const typeIcons: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -23,10 +27,46 @@ const typeIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   vision: RiEyeLine,
 };
 
+function buildFileTree(specName: string, files: string[]): TreeDataItem[] {
+  const dirs = new Map<string, TreeDataItem[]>();
+  const rootFiles: TreeDataItem[] = [];
+
+  for (const f of files) {
+    const parts = f.split("/");
+    if (parts.length > 1) {
+      const dirName = parts[0];
+      if (!dirs.has(dirName)) dirs.set(dirName, []);
+      dirs.get(dirName)!.push({
+        id: `${specName}/${f}`,
+        name: parts.slice(1).join("/"),
+        icon: RiFileTextLine,
+      });
+    } else {
+      rootFiles.push({
+        id: `${specName}/${f}`,
+        name: f,
+        icon: RiFileTextLine,
+      });
+    }
+  }
+
+  const result: TreeDataItem[] = [...rootFiles];
+  for (const [dirName, children] of dirs) {
+    result.push({
+      id: `${specName}/${dirName}`,
+      name: dirName,
+      icon: RiFolderLine,
+      children,
+    });
+  }
+  return result;
+}
+
 export function SpecTree({
   workspaceSlug,
   selectedSpec,
   onSelectSpec,
+  onSelectFile,
 }: SpecTreeProps) {
   const { data: specs, isLoading } = trpc.spec.list.useQuery({
     workspaceSlug,
@@ -36,31 +76,19 @@ export function SpecTree({
     if (!specs) return [];
 
     return specs.map((spec) => {
-      const TypeIcon = typeIcons[spec.type] ?? RiFileTextLine;
-
-      const children: TreeDataItem[] = [
-        {
-          id: `${spec.name}/spec.md`,
-          name: "spec.md",
-          icon: RiFileTextLine,
-        },
-        ...spec.contextFiles.map((f) => ({
-          id: `${spec.name}/context/${f}`,
-          name: f,
-          icon: RiFileTextLine,
-        })),
-      ];
+      const TypeIcon = typeIcons[spec.type ?? "buildable"] ?? RiFileTextLine;
+      const children = buildFileTree(spec.name, spec.files);
 
       return {
         id: spec.name,
         name: spec.name,
         icon: TypeIcon,
         children,
-        actions: (
+        actions: spec.status ? (
           <Badge variant="outline" className="text-[10px] px-1 py-0">
             {spec.status}
           </Badge>
-        ),
+        ) : undefined,
       } satisfies TreeDataItem;
     });
   }, [specs]);
@@ -102,9 +130,13 @@ export function SpecTree({
                   onSelectSpec(null);
                   return;
                 }
-                // If selecting a spec folder or its spec.md, select the spec
                 const specSlug = item.id.split("/")[0];
                 onSelectSpec(specSlug);
+                // If it's a file (has a / in the id), notify the parent
+                if (item.id.includes("/") && onSelectFile) {
+                  const filePath = item.id.substring(specSlug.length + 1);
+                  onSelectFile(specSlug, filePath);
+                }
               }}
               expandAll={false}
               defaultLeafIcon={RiFileTextLine}

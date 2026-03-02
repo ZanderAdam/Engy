@@ -22,7 +22,7 @@ export default function SpecsPage() {
 
   return (
     <div className="flex h-[calc(100vh-6rem)]">
-      <div className="w-64 shrink-0 border-r border-border">
+      <div className="w-64 min-w-48 max-w-96 shrink-0 border-r border-border resize-x overflow-hidden">
         <SpecTree
           workspaceSlug={params.workspace}
           selectedSpec={selectedSpec}

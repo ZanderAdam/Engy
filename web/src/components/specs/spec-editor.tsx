@@ -99,17 +99,13 @@ export function SpecEditor({
   }, []);
 
   return (
-    <div className="flex flex-1 overflow-hidden">
-      <div className="flex-1 overflow-auto">
-        <BlockNoteView editor={editor} onChange={handleChange} theme="dark">
-          <FloatingComposerController />
-        </BlockNoteView>
-      </div>
+    <BlockNoteView editor={editor} onChange={handleChange} theme="dark" className="flex flex-1 overflow-hidden">
+      <FloatingComposerController />
       {showComments && (
         <aside className="w-72 shrink-0 border-l border-border overflow-auto">
           <ThreadsSidebar />
         </aside>
       )}
-    </div>
+    </BlockNoteView>
   );
 }
