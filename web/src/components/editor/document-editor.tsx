@@ -75,17 +75,23 @@ export function DocumentEditor({
     [threadStore],
   );
 
+  const readyRef = useRef(false);
+
   useEffect(() => {
     if (!initialMarkdown || loadedRef.current) return;
     loadedRef.current = true;
+    readyRef.current = false;
     async function loadContent() {
       const blocks = await editor.tryParseMarkdownToBlocks(initialMarkdown);
       editor.replaceBlocks(editor.document, blocks);
+      // Allow autosave only after initial content is fully loaded
+      setTimeout(() => { readyRef.current = true; }, 500);
     }
     loadContent();
   }, [editor, initialMarkdown]);
 
   const handleChange = useCallback(() => {
+    if (!readyRef.current) return;
     if (timerRef.current) clearTimeout(timerRef.current);
 
     timerRef.current = setTimeout(async () => {
