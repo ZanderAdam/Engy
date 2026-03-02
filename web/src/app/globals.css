@@ -124,3 +124,12 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* BlockNote comment composer sizing */
+.bn-comment-editor {
+  min-width: 300px;
+}
+
+.bn-thread {
+  min-width: 280px;
+}
