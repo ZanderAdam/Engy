@@ -132,7 +132,7 @@ export function DocumentEditor({
       renderEditor={false}
       comments={false}
     >
-      <FloatingComposerController />
+      {comments && <FloatingComposerController />}
       <div className="relative flex w-full h-full overflow-hidden">
         <div className="relative flex-1 min-w-0 overflow-y-auto">
           <BlockNoteViewEditor />
