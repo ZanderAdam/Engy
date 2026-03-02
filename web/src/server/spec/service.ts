@@ -72,10 +72,12 @@ export function listSpecs(workspace: Workspace): SpecTreeNode[] {
     const files: string[] = [];
 
     for (const f of allFiles) {
-      if (f.isFile()) files.push(f.name);
+      if (f.isFile() && f.name.endsWith('.md')) files.push(f.name);
       if (f.isDirectory()) {
         const subFiles = fs.readdirSync(path.join(specDir, f.name));
-        for (const sf of subFiles) files.push(`${f.name}/${sf}`);
+        for (const sf of subFiles) {
+          if (sf.endsWith('.md')) files.push(`${f.name}/${sf}`);
+        }
       }
     }
 
@@ -151,10 +153,12 @@ export function getSpec(workspace: Workspace, specSlug: string): SpecContent {
   const files: string[] = [];
   const specDirEntries = fs.readdirSync(specDir, { withFileTypes: true });
   for (const f of specDirEntries) {
-    if (f.isFile()) files.push(f.name);
+    if (f.isFile() && f.name.endsWith('.md')) files.push(f.name);
     if (f.isDirectory()) {
       const subFiles = fs.readdirSync(path.join(specDir, f.name));
-      for (const sf of subFiles) files.push(`${f.name}/${sf}`);
+      for (const sf of subFiles) {
+        if (sf.endsWith('.md')) files.push(`${f.name}/${sf}`);
+      }
     }
   }
 
