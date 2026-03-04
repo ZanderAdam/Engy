@@ -14,8 +14,9 @@ import {
   milestones,
   taskGroups,
   fleetingMemories,
+  planContent,
 } from '../db/schema';
-import { generateSlug } from '../trpc/utils';
+import { generateSlug, uniqueProjectSlug } from '../trpc/utils';
 import { getAppState } from '../trpc/context';
 import { getWorkspaceDir } from '../engy-dir/init';
 import {
@@ -64,6 +65,7 @@ export function getMcpServer(): McpServer {
   registerMemoryTools(mcp);
   registerFileTools(mcp);
   registerSpecTools(mcp);
+  registerProjectPlanningTools(mcp);
 
   mcpInstance = mcp;
   return mcp;
@@ -650,6 +652,193 @@ function registerSpecTools(mcp: McpServer): void {
       const db = getDb();
       const task = db.insert(tasks).values({ title, description, specId }).returning().get();
       return mcpResult(task);
+    },
+  );
+}
+
+function registerProjectPlanningTools(mcp: McpServer): void {
+  mcp.tool(
+    'createProjectFromSpec',
+    'Create a project from an approved spec. Transitions the spec to active status.',
+    {
+      workspaceSlug: z.string().describe('Workspace slug'),
+      specSlug: z.string().describe('Spec directory name'),
+    },
+    async ({ workspaceSlug, specSlug }) => {
+      const ws = getWorkspaceForMcp(workspaceSlug);
+      if (!ws) return mcpError(`Workspace "${workspaceSlug}" not found`);
+
+      try {
+        const spec = getSpec(ws, specSlug);
+        if (spec.frontmatter.status !== 'approved') {
+          return mcpError('spec must be in approved status');
+        }
+
+        const db = getDb();
+        const workspace = db
+          .select()
+          .from(workspaces)
+          .where(eq(workspaces.slug, workspaceSlug))
+          .get()!;
+
+        const slug = uniqueProjectSlug(workspace.id, spec.frontmatter.title);
+        const project = db
+          .insert(projects)
+          .values({
+            workspaceId: workspace.id,
+            name: spec.frontmatter.title,
+            slug,
+            specPath: specSlug,
+          })
+          .returning()
+          .get();
+
+        updateSpec(ws, specSlug, { status: 'active' });
+        return mcpResult(project);
+      } catch (err) {
+        return mcpError((err as Error).message);
+      }
+    },
+  );
+
+  mcp.tool(
+    'planMilestone',
+    'Update a milestone plan content and optionally transition it to planning status.',
+    {
+      milestoneId: z.number().describe('Milestone ID'),
+      content: z.string().describe('Plan content in markdown'),
+      transitionToPlanning: z
+        .boolean()
+        .default(false)
+        .describe('Whether to transition the milestone to planning status'),
+    },
+    async ({ milestoneId, content, transitionToPlanning }) => {
+      const db = getDb();
+
+      const milestone = db.select().from(milestones).where(eq(milestones.id, milestoneId)).get();
+      if (!milestone) return mcpError('Milestone not found');
+
+      // Upsert plan content
+      const existing = db
+        .select()
+        .from(planContent)
+        .where(eq(planContent.milestoneId, milestoneId))
+        .get();
+
+      let plan;
+      if (existing) {
+        plan = db
+          .update(planContent)
+          .set({ content, updatedAt: new Date().toISOString() })
+          .where(eq(planContent.id, existing.id))
+          .returning()
+          .get();
+      } else {
+        plan = db
+          .insert(planContent)
+          .values({ milestoneId, content })
+          .returning()
+          .get();
+      }
+
+      // Optionally transition to planning
+      if (transitionToPlanning && milestone.status === 'planned') {
+        db.update(milestones)
+          .set({ status: 'planning', updatedAt: new Date().toISOString() })
+          .where(eq(milestones.id, milestoneId))
+          .run();
+      }
+
+      return mcpResult(plan);
+    },
+  );
+
+  mcp.tool(
+    'listProjectTasks',
+    'List all tasks for a project with milestone and task group hierarchy.',
+    {
+      projectId: z.number().describe('Project ID'),
+    },
+    async ({ projectId }) => {
+      const db = getDb();
+
+      const projectMilestones = db
+        .select()
+        .from(milestones)
+        .where(eq(milestones.projectId, projectId))
+        .orderBy(asc(milestones.sortOrder))
+        .all();
+
+      const projectTasks = db
+        .select()
+        .from(tasks)
+        .where(eq(tasks.projectId, projectId))
+        .all();
+
+      return mcpResult({
+        milestones: projectMilestones.map((m) => {
+          const milestoneGroups = db
+            .select()
+            .from(taskGroups)
+            .where(eq(taskGroups.milestoneId, m.id))
+            .all();
+
+          return {
+            ...m,
+            taskGroups: milestoneGroups.map((g) => ({
+              ...g,
+              tasks: projectTasks.filter((t) => t.taskGroupId === g.id),
+            })),
+            tasks: projectTasks.filter(
+              (t) => t.milestoneId === m.id && !t.taskGroupId,
+            ),
+          };
+        }),
+        unassignedTasks: projectTasks.filter((t) => !t.milestoneId),
+      });
+    },
+  );
+
+  mcp.tool(
+    'getProjectOverview',
+    'Get project details with milestone progress, task counts, and status summary.',
+    {
+      projectId: z.number().describe('Project ID'),
+    },
+    async ({ projectId }) => {
+      const db = getDb();
+
+      const project = db.select().from(projects).where(eq(projects.id, projectId)).get();
+      if (!project) return mcpError('Project not found');
+
+      const projectMilestones = db
+        .select()
+        .from(milestones)
+        .where(eq(milestones.projectId, projectId))
+        .orderBy(asc(milestones.sortOrder))
+        .all();
+
+      const projectTasks = db
+        .select()
+        .from(tasks)
+        .where(eq(tasks.projectId, projectId))
+        .all();
+
+      return mcpResult({
+        ...project,
+        milestoneCount: projectMilestones.length,
+        completedMilestones: projectMilestones.filter((m) => m.status === 'complete').length,
+        taskCount: projectTasks.length,
+        completedTasks: projectTasks.filter((t) => t.status === 'done').length,
+        milestones: projectMilestones.map((m) => {
+          const mTasks = projectTasks.filter((t) => t.milestoneId === m.id);
+          return {
+            ...m,
+            taskCount: mTasks.length,
+            completedTasks: mTasks.filter((t) => t.status === 'done').length,
+          };
+        }),
+      });
     },
   );
 }

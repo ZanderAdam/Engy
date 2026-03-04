@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { eq } from 'drizzle-orm';
 import { getMcpServer, resetMcpServer, isPathAllowed } from './index';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { getDb } from '../db/client';
@@ -10,6 +11,7 @@ import {
   tasks,
   milestones,
   taskGroups,
+  planContent,
   fleetingMemories,
 } from '../db/schema';
 
@@ -811,6 +813,164 @@ describe('MCP Server', () => {
       );
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('not found');
+    });
+  });
+
+  describe('project planning tools', () => {
+    let workspaceId: number;
+    let projectId: number;
+    let milestoneId: number;
+
+    beforeEach(() => {
+      const db = getDb();
+      const ws = db
+        .insert(workspaces)
+        .values({ name: 'Plan Test', slug: 'plan-test' })
+        .returning()
+        .get();
+      workspaceId = ws.id;
+      const proj = db
+        .insert(projects)
+        .values({ workspaceId: ws.id, name: 'P1', slug: 'p1' })
+        .returning()
+        .get();
+      projectId = proj.id;
+      const ms = db
+        .insert(milestones)
+        .values({ projectId, title: 'M1', sortOrder: 0 })
+        .returning()
+        .get();
+      milestoneId = ms.id;
+      fs.mkdirSync(path.join(ctx.tmpDir, 'plan-test', 'specs'), { recursive: true });
+    });
+
+    it('createProjectFromSpec should create a project from approved spec', async () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+
+      await tools['createSpec'].handler(
+        { workspaceSlug: 'plan-test', title: 'Auth', type: 'buildable' },
+        {} as any,
+      );
+      await tools['updateSpec'].handler(
+        { workspaceSlug: 'plan-test', specSlug: '1_auth', status: 'ready' },
+        {} as any,
+      );
+      await tools['updateSpec'].handler(
+        { workspaceSlug: 'plan-test', specSlug: '1_auth', status: 'approved' },
+        {} as any,
+      );
+
+      const result = await tools['createProjectFromSpec'].handler(
+        { workspaceSlug: 'plan-test', specSlug: '1_auth' },
+        {} as any,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.name).toBe('Auth');
+      expect(data.status).toBe('planning');
+      expect(data.specPath).toBe('1_auth');
+    });
+
+    it('createProjectFromSpec should reject non-approved spec', async () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+
+      await tools['createSpec'].handler(
+        { workspaceSlug: 'plan-test', title: 'Draft', type: 'buildable' },
+        {} as any,
+      );
+
+      const result = await tools['createProjectFromSpec'].handler(
+        { workspaceSlug: 'plan-test', specSlug: '1_draft' },
+        {} as any,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('approved');
+    });
+
+    it('planMilestone should upsert plan content', async () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+
+      const result = await tools['planMilestone'].handler(
+        { milestoneId, content: '## Plan\nStep 1', transitionToPlanning: false },
+        {} as any,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.content).toBe('## Plan\nStep 1');
+    });
+
+    it('planMilestone should transition milestone to planning', async () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+
+      await tools['planMilestone'].handler(
+        { milestoneId, content: 'Plan', transitionToPlanning: true },
+        {} as any,
+      );
+
+      const db = getDb();
+      const ms = db.select().from(milestones).where(eq(milestones.id, milestoneId)).get();
+      expect(ms!.status).toBe('planning');
+    });
+
+    it('listProjectTasks should return hierarchy', async () => {
+      const db = getDb();
+      const grp = db
+        .insert(taskGroups)
+        .values({ milestoneId, name: 'Backend' })
+        .returning()
+        .get();
+      db.insert(tasks)
+        .values({ projectId, milestoneId, taskGroupId: grp.id, title: 'T1' })
+        .run();
+      db.insert(tasks).values({ projectId, milestoneId, title: 'T2' }).run();
+      db.insert(tasks).values({ projectId, title: 'Unassigned' }).run();
+
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+
+      const result = await tools['listProjectTasks'].handler(
+        { projectId },
+        {} as any,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.milestones).toHaveLength(1);
+      expect(data.milestones[0].taskGroups).toHaveLength(1);
+      expect(data.milestones[0].taskGroups[0].tasks).toHaveLength(1);
+      expect(data.milestones[0].tasks).toHaveLength(1);
+      expect(data.unassignedTasks).toHaveLength(1);
+    });
+
+    it('getProjectOverview should return project with progress', async () => {
+      const db = getDb();
+      db.insert(tasks).values({ projectId, milestoneId, title: 'T1', status: 'done' }).run();
+      db.insert(tasks).values({ projectId, milestoneId, title: 'T2', status: 'todo' }).run();
+
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+
+      const result = await tools['getProjectOverview'].handler(
+        { projectId },
+        {} as any,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.taskCount).toBe(2);
+      expect(data.completedTasks).toBe(1);
+      expect(data.milestones).toHaveLength(1);
+      expect(data.milestones[0].taskCount).toBe(2);
+      expect(data.milestones[0].completedTasks).toBe(1);
+    });
+
+    it('getProjectOverview should return error for missing project', async () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+
+      const result = await tools['getProjectOverview'].handler(
+        { projectId: 9999 },
+        {} as any,
+      );
+      expect(result.isError).toBe(true);
     });
   });
 });
