@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
@@ -15,6 +15,7 @@ import { RiFolderOpenLine } from "@remixicon/react";
 export default function HomePage() {
   const { data: workspaces, isLoading, error } = trpc.workspace.list.useQuery();
   const [openDirDialogOpen, setOpenDirDialogOpen] = useState(false);
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const { dirs: recentDirs, removeDir } = useRecentDirs();
   const router = useRouter();
 
@@ -81,7 +82,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {recentDirs.length > 0 && (
+      {mounted && recentDirs.length > 0 && (
         <div className="mt-8">
           <h2 className="mb-3 text-sm font-medium text-muted-foreground">Recent Directories</h2>
           <div className="flex flex-col gap-1">
