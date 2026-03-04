@@ -43,8 +43,8 @@ export function CreateProjectDialog({
         <DialogHeader>
           <DialogTitle>Create Project</DialogTitle>
           <DialogDescription>
-            Create a project from the spec &ldquo;{specTitle}&rdquo;. The spec status will change
-            to &ldquo;active&rdquo;.
+            Create a project from the spec &ldquo;{specTitle || specSlug}&rdquo;. The spec status
+            will change to &ldquo;active&rdquo;.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

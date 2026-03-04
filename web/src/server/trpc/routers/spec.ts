@@ -240,13 +240,14 @@ export const specRouter = router({
         .where(eq(workspaces.slug, input.workspaceSlug))
         .get()!;
 
-      // Create project
-      const slug = uniqueProjectSlug(workspace.id, spec.frontmatter.title);
+      // Create project — fall back to specSlug if frontmatter title is empty
+      const projectName = spec.frontmatter.title || input.specSlug;
+      const slug = uniqueProjectSlug(workspace.id, projectName);
       const project = db
         .insert(projects)
         .values({
           workspaceId: workspace.id,
-          name: spec.frontmatter.title,
+          name: projectName,
           slug,
           specPath: input.specSlug,
         })

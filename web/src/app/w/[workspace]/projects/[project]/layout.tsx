@@ -4,7 +4,7 @@ import { useParams, usePathname } from "next/navigation";
 import Link from "next/link";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 const tabs = [
@@ -56,32 +56,34 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
       </div>
 
       <nav className="border-b border-border" aria-label="Project sections">
-        <div className="flex">
-          {tabs.map((tab) =>
-            tab.disabled ? (
-              <Tooltip key={tab.segment}>
-                <TooltipTrigger asChild>
-                  <span className="cursor-not-allowed px-3 py-2.5 text-xs font-medium text-muted-foreground/50">
-                    {tab.label}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>{tab.hint}</TooltipContent>
-              </Tooltip>
-            ) : (
-              <Link
-                key={tab.segment}
-                href={tabHref(tab.segment)}
-                className={cn(
-                  "relative px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
-                  isActive(tab.segment) &&
-                    "text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground",
-                )}
-              >
-                {tab.label}
-              </Link>
-            ),
-          )}
-        </div>
+        <TooltipProvider>
+          <div className="flex">
+            {tabs.map((tab) =>
+              tab.disabled ? (
+                <Tooltip key={tab.segment}>
+                  <TooltipTrigger asChild>
+                    <span className="cursor-not-allowed px-3 py-2.5 text-xs font-medium text-muted-foreground/50">
+                      {tab.label}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>{tab.hint}</TooltipContent>
+                </Tooltip>
+              ) : (
+                <Link
+                  key={tab.segment}
+                  href={tabHref(tab.segment)}
+                  className={cn(
+                    "relative px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
+                    isActive(tab.segment) &&
+                      "text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground",
+                  )}
+                >
+                  {tab.label}
+                </Link>
+              ),
+            )}
+          </div>
+        </TooltipProvider>
       </nav>
 
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>
