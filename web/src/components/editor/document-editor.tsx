@@ -88,7 +88,7 @@ export function DocumentEditor({
     loadedRef.current = true;
     readyRef.current = false;
     async function loadContent() {
-      const blocks = await editor.tryParseMarkdownToBlocks(initialMarkdown);
+      const blocks = editor.tryParseMarkdownToBlocks(initialMarkdown);
       editor.replaceBlocks(editor.document, blocks);
       if (comments) {
         await threadStore.ready;
@@ -109,7 +109,7 @@ export function DocumentEditor({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         snapshotAnchors((editor as any)._tiptapEditor.state.doc, threadStore);
       }
-      const raw = await editor.blocksToMarkdownLossy(editor.document);
+      const raw = editor.blocksToMarkdownLossy(editor.document);
       // Backslash-only lines multiply on each markdown round-trip — collapse them
       const markdown = raw.replace(/(\\\n){2,}/g, '\\\n');
       onSaveRef.current(markdown);
@@ -159,7 +159,7 @@ export function DocumentEditor({
       onChange={handleChange}
       theme="dark"
       renderEditor={false}
-      comments={comments}
+      comments={false}
     >
       {comments && <FloatingComposerController />}
       <div className="relative flex w-full h-full overflow-hidden">
