@@ -37,6 +37,10 @@ interface DocumentEditorProps {
   comments?: boolean;
   /** External thread store (persists across editor remounts) */
   threadStore?: InMemoryThreadStore;
+  /** Cached BlockNote blocks (preserves comment marks across file switches) */
+  initialBlocks?: unknown[];
+  /** Called when editor unmounts to cache blocks for later restoration */
+  onCacheBlocks?: (blocks: unknown[]) => void;
 }
 
 const AUTOSAVE_DELAY_MS = 1500;

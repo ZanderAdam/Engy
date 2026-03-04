@@ -65,15 +65,17 @@ export default function SpecsPage() {
           />
         </div>
       )}
-      <div
-        className="flex shrink-0 items-center cursor-col-resize hover:bg-muted/50 active:bg-muted group"
-        style={{ width: 8 }}
-        onMouseDown={collapsed ? undefined : handleMouseDown}
-      >
+      <div className="relative shrink-0 flex items-stretch">
+        {!collapsed && (
+          <div
+            className="w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+            onMouseDown={handleMouseDown}
+          />
+        )}
         <Button
-          variant="ghost"
+          variant="outline"
           size="icon"
-          className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute top-2 -left-3 z-10 h-6 w-6 rounded-full border bg-background shadow-sm"
           onClick={() => setCollapsed((c) => !c)}
         >
           <RiSideBarLine className="size-3" />
