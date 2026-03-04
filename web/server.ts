@@ -21,6 +21,7 @@ app.prepare().then(() => {
   });
 
   const wss = createWebSocketServer(state);
+  const nextUpgrade = app.getUpgradeHandler();
 
   server.on('upgrade', (req, socket, head) => {
     const { pathname } = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
@@ -28,8 +29,9 @@ app.prepare().then(() => {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit('connection', ws, req);
       });
+    } else {
+      nextUpgrade(req, socket, head);
     }
-    // Non-/ws upgrades (e.g. Next.js HMR) fall through to Next.js
   });
 
   attachMCP(server);
