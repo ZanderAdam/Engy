@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
 import path from 'path';
@@ -57,7 +58,6 @@ export function OpenDirDialog({ open, onOpenChange }: OpenDirDialogProps) {
     }
   }, [open, homeData]);
 
-  // Reset selection when the browsed directory changes.
   useEffect(() => {
     setSelectedIndex(-1);
   }, [browsePath]);

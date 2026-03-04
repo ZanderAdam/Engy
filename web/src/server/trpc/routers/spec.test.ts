@@ -139,6 +139,46 @@ describe('spec router', () => {
     });
   });
 
+  describe('createProject', () => {
+    it('should create a project from an approved spec', async () => {
+      await caller.spec.create({ workspaceSlug: 'test-ws', title: 'Auth Revamp', type: 'buildable' });
+      await caller.spec.update({ workspaceSlug: 'test-ws', specSlug: '1_auth_revamp', status: 'ready' });
+      await caller.spec.update({ workspaceSlug: 'test-ws', specSlug: '1_auth_revamp', status: 'approved' });
+
+      const project = await caller.spec.createProject({
+        workspaceSlug: 'test-ws',
+        specSlug: '1_auth_revamp',
+      });
+
+      expect(project.name).toBe('Auth Revamp');
+      expect(project.status).toBe('planning');
+      expect(project.specPath).toBe('1_auth_revamp');
+
+      // Spec status should be updated to active
+      const spec = await caller.spec.get({ workspaceSlug: 'test-ws', specSlug: '1_auth_revamp' });
+      expect(spec.frontmatter.status).toBe('active');
+    });
+
+    it('should reject creating project from non-approved spec', async () => {
+      await caller.spec.create({ workspaceSlug: 'test-ws', title: 'Draft Spec', type: 'buildable' });
+      await expect(
+        caller.spec.createProject({ workspaceSlug: 'test-ws', specSlug: '1_draft_spec' }),
+      ).rejects.toThrow('spec must be in approved status');
+    });
+
+    it('should reject creating project from spec that already has a project', async () => {
+      await caller.spec.create({ workspaceSlug: 'test-ws', title: 'Already Used', type: 'buildable' });
+      await caller.spec.update({ workspaceSlug: 'test-ws', specSlug: '1_already_used', status: 'ready' });
+      await caller.spec.update({ workspaceSlug: 'test-ws', specSlug: '1_already_used', status: 'approved' });
+      await caller.spec.createProject({ workspaceSlug: 'test-ws', specSlug: '1_already_used' });
+
+      // Try creating again — spec is now 'active'
+      await expect(
+        caller.spec.createProject({ workspaceSlug: 'test-ws', specSlug: '1_already_used' }),
+      ).rejects.toThrow('spec must be in approved status');
+    });
+  });
+
   describe('context files', () => {
     beforeEach(async () => {
       await caller.spec.create({ workspaceSlug: 'test-ws', title: 'Auth', type: 'buildable' });

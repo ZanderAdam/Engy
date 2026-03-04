@@ -2,8 +2,9 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
-import { workspaces } from '../../db/schema';
+import { workspaces, projects } from '../../db/schema';
 import { eq } from 'drizzle-orm';
+import { uniqueProjectSlug } from '../utils';
 import {
   listSpecs,
   createSpec,
@@ -200,5 +201,61 @@ export const specRouter = router({
       } catch (e) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: errorMessage(e) });
       }
+    }),
+
+  createProject: publicProcedure
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        specSlug: z.string(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const ws = getWorkspace(input.workspaceSlug);
+
+      // Get spec and validate status
+      let spec;
+      try {
+        spec = getSpec(ws, input.specSlug);
+      } catch (e) {
+        const msg = errorMessage(e);
+        if (msg.includes('not found')) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: msg });
+        }
+        throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
+      }
+
+      if (spec.frontmatter.status !== 'approved') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'spec must be in approved status',
+        });
+      }
+
+      // Look up workspace ID
+      const db = getDb();
+      const workspace = db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.slug, input.workspaceSlug))
+        .get()!;
+
+      // Create project
+      const slug = uniqueProjectSlug(workspace.id, spec.frontmatter.title);
+      const project = db
+        .insert(projects)
+        .values({
+          workspaceId: workspace.id,
+          name: spec.frontmatter.title,
+          slug,
+          specPath: input.specSlug,
+        })
+        .returning()
+        .get();
+
+      // Transition spec to active
+      updateSpec(ws, input.specSlug, { status: 'active' });
+
+      return project;
     }),
 });
