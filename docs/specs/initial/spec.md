@@ -233,7 +233,6 @@ Not applicable. Engy is a pure software application.
 ### 4.1 Workspace Management
 
 **Description:** Workspaces are permanent entities representing ongoing concerns. They define multi-repo topology, hold shared knowledge, and contain ephemeral projects. Each workspace gets an initialized `.engy/` directory with standard structure.\
-\
 **Priority:** High
 
 **Stimulus/Response:**
@@ -264,7 +263,6 @@ Not applicable. Engy is a pure software application.
 ### 4.2 Spec Authoring
 
 **Description:** Specs are pre-project thinking spaces. Users author specs in a tree browser with a rich content editor, manage context files, leave inline review comments, and track spec research tasks. Specs have a lifecycle from Draft through Approved.\
-\
 **Priority:** High
 
 **Stimulus/Response:**
@@ -299,7 +297,6 @@ Not applicable. Engy is a pure software application.
 ### 4.3 Project Planning
 
 **Description:** Projects are created from approved specs. They contain milestones, task groups, and tasks. Planning is progressive — project-level first (milestones with rough scope), then milestone-level (groups and tasks), then optionally task-level (implementation plan). Three project views visualize execution state.\
-\
 **Priority:** High
 
 **Stimulus/Response:**
@@ -336,7 +333,6 @@ Not applicable. Engy is a pure software application.
 ### 4.4 Terminal Integration
 
 **Description:** Claude Code CLI is embedded in an xterm.js terminal panel on the right side of every page. The terminal is context-scoped — its working directory and default agent adapt to the current page. Multiple terminals can be open simultaneously as tabs with splits.\
-\
 **Priority:** High
 
 **Stimulus/Response:**
@@ -368,7 +364,6 @@ Not applicable. Engy is a pure software application.
 ### 4.5 Diff Viewer & Review
 
 **Description:** The diff viewer is the review and commit interface for all code changes. Scoped per task group, it provides three view modes (Latest Changes, Commit History, Branch Diff), line-level commenting, and a batched feedback model (approve or send feedback). A pre-commit gate enforces quality before committing.\
-\
 **Priority:** High
 
 **Stimulus/Response:**
@@ -401,7 +396,6 @@ Not applicable. Engy is a pure software application.
 ### 4.6 Execution Engine
 
 **Description:** The execution engine manages worktrees, task group lifecycle, auto-commit, push, and PR creation. Task groups progress through a state machine from Planned through Merged/Cleaned Up. The engine orchestrates sequential task execution within groups.\
-\
 **Priority:** High
 
 **Stimulus/Response:**
@@ -433,7 +427,6 @@ Not applicable. Engy is a pure software application.
 ### 4.7 Knowledge Layer
 
 **Description:** The knowledge layer encompasses system docs (living source of truth), shared docs (conventions, guides), the memory architecture (fleeting → permanent), ChromaDB search, and the project completion flow with memory distillation and system doc update proposals.\
-\
 **Priority:** High
 
 **Stimulus/Response:**
@@ -472,7 +465,6 @@ Not applicable. Engy is a pure software application.
 ### 4.8 Workspace Polish
 
 **Description:** Dashboard refinements, notifications, settings hierarchy, global search polish, activity feed, and cost visibility that make the experience cohesive.\
-\
 **Priority:** Medium
 
 **Stimulus/Response:**
@@ -500,7 +492,6 @@ Not applicable. Engy is a pure software application.
 ### 4.9 Async Agents
 
 **Description:** Mastra integration provides autonomous background agent execution. Agent sessions are persistent, resumable, and crash-recoverable. Feedback from the diff viewer routes back to the originating agent session.\
-\
 **Priority:** Medium
 
 **Stimulus/Response:**
@@ -531,7 +522,6 @@ Not applicable. Engy is a pure software application.
 ### 4.10 Dev Containers
 
 **Description:** Optional per-workspace Docker containers provide sandboxed execution for async agents. Agents run with full permissions inside a network-firewalled container, eliminating manual permission approvals for unattended workflows.\
-\
 **Priority:** Low
 
 **Stimulus/Response:**
@@ -560,7 +550,6 @@ Not applicable. Engy is a pure software application.
 ### 4.11 PR/CI Monitoring
 
 **Description:** Automated monitoring of open PRs — CI status polling, CI failure auto-fix dispatch, and reviewer comment triage with selective fix dispatch.\
-\
 **Priority:** Low
 
 **Stimulus/Response:**
@@ -748,14 +737,6 @@ M11 depends on: M6, M10
 ***
 
 ## 8. File Map & Implementation Sequence
-
-> This is a vision-level SRS. Detailed file maps, implementation phases, behavioral requirements (Gherkin scenarios), and verification checklists live in each milestone's plan document. See:\
-> \
-> Each milestone plan follows the structure defined in `spec.template.md` sections 8–13.\
-> \
-> \
-> \
-> [M2 Plan](../../projects/initial/m2-plan.md) — Spec Authoring (example of the expected milestone plan format)
 
 ***
 
