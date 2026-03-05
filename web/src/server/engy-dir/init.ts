@@ -13,6 +13,18 @@ export function getWorkspaceDir(workspace: { slug: string; docsDir: string | nul
   return workspace.docsDir ?? path.join(getEngyDir(), workspace.slug);
 }
 
+export function writeWorkspaceYaml(
+  dir: string,
+  name: string,
+  slug: string,
+  repos: string[],
+  docsDir?: string | null,
+): void {
+  const config: Record<string, unknown> = { name, slug, repos: repos.map((r) => ({ path: r })) };
+  if (docsDir) config.docsDir = docsDir;
+  fs.writeFileSync(path.join(dir, 'workspace.yaml'), yaml.dump(config, { lineWidth: -1 }));
+}
+
 export function initWorkspaceDir(
   name: string,
   slug: string,
@@ -24,11 +36,7 @@ export function initWorkspaceDir(
   const dir = docsDir ?? path.join(getEngyDir(), slug);
   fs.mkdirSync(dir, { recursive: true });
 
-  const config: Record<string, unknown> = { name, slug, repos: repos.map((r) => ({ path: r })) };
-  if (docsDir) {
-    config.docsDir = docsDir;
-  }
-  fs.writeFileSync(path.join(dir, 'workspace.yaml'), yaml.dump(config, { lineWidth: -1 }));
+  writeWorkspaceYaml(dir, name, slug, repos, docsDir);
 
   fs.mkdirSync(path.join(dir, 'system', 'features'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'system', 'technical'), { recursive: true });

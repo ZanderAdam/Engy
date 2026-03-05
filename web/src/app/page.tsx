@@ -20,7 +20,7 @@ export default function HomePage() {
   const router = useRouter();
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-8">
+    <div className="mx-auto w-[95%] max-w-4xl py-8">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-lg font-semibold">Workspaces</h1>
         <Button variant="outline" size="sm" onClick={() => setOpenDirDialogOpen(true)}>

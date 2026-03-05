@@ -5,7 +5,7 @@ import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { workspaces, projects } from '../../db/schema';
 import { uniqueWorkspaceSlug } from '../utils';
-import { initWorkspaceDir, removeWorkspaceDir } from '../../engy-dir/init';
+import { initWorkspaceDir, removeWorkspaceDir, writeWorkspaceYaml, getWorkspaceDir } from '../../engy-dir/init';
 import { dispatchValidation } from '../../ws/server';
 import type { AppState } from '../context';
 
@@ -107,6 +107,67 @@ export const workspaceRouter = router({
       broadcastWorkspacesSync(ctx.state);
 
       return workspace;
+    }),
+
+  update: publicProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        name: z.string().min(1).optional(),
+        repos: z.array(z.string()).optional(),
+        docsDir: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const existing = db.select().from(workspaces).where(eq(workspaces.id, input.id)).get();
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
+      }
+
+      const newRepos = input.repos ?? (existing.repos as string[]) ?? [];
+      const newDocsDir = input.docsDir !== undefined ? input.docsDir : existing.docsDir;
+      const newName = input.name ?? existing.name;
+
+      const pathsToValidate: string[] = [];
+      if (input.repos !== undefined) pathsToValidate.push(...input.repos);
+      if (input.docsDir && input.docsDir !== existing.docsDir) {
+        pathsToValidate.push(input.docsDir);
+      }
+
+      if (pathsToValidate.length > 0) {
+        try {
+          const results = await dispatchValidation(pathsToValidate, ctx.state);
+          const invalid = results.filter((r) => !r.exists);
+          if (invalid.length > 0) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: `Invalid paths: ${invalid.map((r) => r.path).join(', ')}`,
+              cause: { invalidPaths: invalid.map((r) => r.path) },
+            });
+          }
+        } catch (err) {
+          if (err instanceof TRPCError) throw err;
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `Path validation failed: ${(err as Error).message}`,
+          });
+        }
+      }
+
+      const updated = db
+        .update(workspaces)
+        .set({ name: newName, repos: newRepos, docsDir: newDocsDir })
+        .where(eq(workspaces.id, input.id))
+        .returning()
+        .get();
+
+      const dir = getWorkspaceDir(updated);
+      writeWorkspaceYaml(dir, updated.name, updated.slug, newRepos, updated.docsDir);
+
+      broadcastWorkspacesSync(ctx.state);
+
+      return updated;
     }),
 
   list: publicProcedure.query(() => {

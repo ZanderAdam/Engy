@@ -129,6 +129,68 @@ describe('workspace router', () => {
     });
   });
 
+  describe('update', () => {
+    it('should update workspace name', async () => {
+      const ws = await caller.workspace.create({ name: 'Original' });
+      const updated = await caller.workspace.update({ id: ws.id, name: 'Renamed' });
+      expect(updated.name).toBe('Renamed');
+    });
+
+    it('should preserve slug when name changes', async () => {
+      const ws = await caller.workspace.create({ name: 'Slug Test' });
+      const updated = await caller.workspace.update({ id: ws.id, name: 'New Name' });
+      expect(updated.slug).toBe(ws.slug);
+    });
+
+    it('should preserve docsDir when not provided in update', async () => {
+      const ws = await caller.workspace.create({ name: 'Docs Update' });
+      const updated = await caller.workspace.update({ id: ws.id, name: 'Docs Update' });
+      expect(updated.docsDir).toBeNull();
+    });
+
+    it('should clear docsDir when set to null', async () => {
+      const ws = await caller.workspace.create({ name: 'Clear Docs' });
+      const updated = await caller.workspace.update({ id: ws.id, docsDir: null });
+      expect(updated.docsDir).toBeNull();
+    });
+
+    it('should rewrite workspace.yaml when name changes', async () => {
+      const ws = await caller.workspace.create({ name: 'Yaml Name' });
+      await caller.workspace.update({ id: ws.id, name: 'Updated Name' });
+
+      const yamlPath = path.join(ctx.tmpDir, ws.slug, 'workspace.yaml');
+      const parsed = yaml.load(fs.readFileSync(yamlPath, 'utf-8')) as Record<string, unknown>;
+      expect(parsed.name).toBe('Updated Name');
+    });
+
+    it('should throw NOT_FOUND for missing workspace', async () => {
+      await expect(caller.workspace.update({ id: 9999, name: 'X' })).rejects.toThrow(
+        'Workspace not found',
+      );
+    });
+
+    it('should fail when repos provided but no daemon connected', async () => {
+      const ws = await caller.workspace.create({ name: 'Repo Update' });
+      await expect(
+        caller.workspace.update({ id: ws.id, repos: ['/some/path'] }),
+      ).rejects.toThrow('No daemon connected');
+    });
+
+    it('should fail when new docsDir provided but no daemon connected', async () => {
+      const ws = await caller.workspace.create({ name: 'DocsDir Update' });
+      await expect(
+        caller.workspace.update({ id: ws.id, docsDir: '/some/new/path' }),
+      ).rejects.toThrow('No daemon connected');
+    });
+
+    it('should not validate docsDir when it is unchanged', async () => {
+      const ws = await caller.workspace.create({ name: 'No Validate' });
+      // null -> null: no daemon needed
+      const updated = await caller.workspace.update({ id: ws.id, docsDir: null });
+      expect(updated.name).toBe('No Validate');
+    });
+  });
+
   describe('list', () => {
     it('should return all workspaces', async () => {
       await caller.workspace.create({ name: 'WS1' });
