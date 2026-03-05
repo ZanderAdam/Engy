@@ -67,7 +67,7 @@ CREATE TABLE `projects` (
 	`slug` text NOT NULL,
 	`status` text DEFAULT 'planning' NOT NULL,
 	`is_default` integer DEFAULT false NOT NULL,
-	`spec_path` text,
+	`project_dir` text,
 	`created_at` text NOT NULL,
 	`updated_at` text NOT NULL,
 	FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE cascade

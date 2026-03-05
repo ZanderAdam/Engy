@@ -50,7 +50,7 @@ describe('workspace router', () => {
       const ws = await caller.workspace.create({ name: 'Dir Check' });
       expect(fs.existsSync(path.join(ctx.tmpDir, ws.slug, 'workspace.yaml'))).toBe(true);
       expect(fs.existsSync(path.join(ctx.tmpDir, ws.slug, 'system', 'overview.md'))).toBe(true);
-      expect(fs.existsSync(path.join(ctx.tmpDir, ws.slug, 'specs'))).toBe(true);
+      expect(fs.existsSync(path.join(ctx.tmpDir, ws.slug, 'projects'))).toBe(true);
     });
 
     it('should roll back DB row when workspace directory init fails', async () => {
@@ -100,7 +100,7 @@ describe('workspace router', () => {
       initWorkspaceDir('My Project', 'my-project', [], customDir);
 
       expect(fs.existsSync(path.join(customDir, 'workspace.yaml'))).toBe(true);
-      expect(fs.existsSync(path.join(customDir, 'specs'))).toBe(true);
+      expect(fs.existsSync(path.join(customDir, 'projects'))).toBe(true);
       expect(fs.existsSync(path.join(customDir, 'docs'))).toBe(true);
       expect(fs.existsSync(path.join(customDir, 'memory'))).toBe(true);
       expect(fs.existsSync(path.join(customDir, 'system', 'overview.md'))).toBe(true);
@@ -178,7 +178,7 @@ describe('workspace router', () => {
 
     it('should cascade delete projects when workspace is deleted', async () => {
       const ws = await caller.workspace.create({ name: 'Cascade WS' });
-      await caller.project.create({ workspaceId: ws.id, name: 'Extra Project' });
+      await caller.project.create({ workspaceSlug: ws.slug, name: 'Extra Project' });
 
       const beforeDelete = await caller.project.list({ workspaceId: ws.id });
       expect(beforeDelete.length).toBeGreaterThanOrEqual(2);

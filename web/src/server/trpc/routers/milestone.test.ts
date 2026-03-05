@@ -12,7 +12,7 @@ describe('milestone router', () => {
     caller = appRouter.createCaller({ state: ctx.state });
     const ws = await caller.workspace.create({ name: 'Milestone WS' });
     const proj = await caller.project.create({
-      workspaceId: ws.id,
+      workspaceSlug: ws.slug,
       name: 'Milestone Project',
     });
     projectId = proj.id;

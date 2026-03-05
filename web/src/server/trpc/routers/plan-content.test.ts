@@ -10,7 +10,7 @@ describe('planContent router', () => {
   let milestoneId: number;
   let projectId: number;
   let workspaceSlug: string;
-  let specSlug: string;
+  let projectSlug: string;
 
   beforeEach(async () => {
     ctx = setupTestDb();
@@ -18,15 +18,10 @@ describe('planContent router', () => {
     const ws = await caller.workspace.create({ name: 'Plan WS' });
     workspaceSlug = ws.slug;
 
-    // Create spec directory for the project
-    specSlug = '1_auth';
-    const specsDir = path.join(ctx.tmpDir, ws.slug, 'specs', specSlug);
-    fs.mkdirSync(specsDir, { recursive: true });
-
+    projectSlug = 'plan-project';
     const proj = await caller.project.create({
-      workspaceId: ws.id,
+      workspaceSlug,
       name: 'Plan Project',
-      specPath: specSlug,
     });
     projectId = proj.id;
     const milestone = await caller.milestone.create({
@@ -58,15 +53,13 @@ describe('planContent router', () => {
       expect(result!.milestoneId).toBe(milestoneId);
     });
 
-    it('should return null for project without specPath', async () => {
-      const proj = await caller.project.create({
-        workspaceId: (
-          await caller.workspace.create({ name: 'No Spec WS' })
-        ).id,
-        name: 'No Spec',
-      });
+    it('should return null for project without projectDir', async () => {
+      const ws = await caller.workspace.create({ name: 'No Dir WS' });
+      // Default project has no projectDir
+      const defaultProjs = await caller.project.list({ workspaceId: ws.id });
+      const defaultProj = defaultProjs.find((p) => p.isDefault)!;
       const ms = await caller.milestone.create({
-        projectId: proj.id,
+        projectId: defaultProj.id,
         title: 'M1',
       });
       const result = await caller.planContent.get({ milestoneId: ms.id });
@@ -83,12 +76,12 @@ describe('planContent router', () => {
       expect(result.content).toBe('Initial plan');
       expect(result.milestoneId).toBe(milestoneId);
 
-      // Verify file exists on disk
+      // Verify file exists on disk under projects/
       const filePath = path.join(
         ctx.tmpDir,
         workspaceSlug,
-        'specs',
-        specSlug,
+        'projects',
+        projectSlug,
         'm1-setup.plan.md',
       );
       expect(fs.existsSync(filePath)).toBe(true);
@@ -96,44 +89,27 @@ describe('planContent router', () => {
     });
 
     it('should overwrite existing plan content', async () => {
-      await caller.planContent.upsert({
-        milestoneId,
-        content: 'First version',
-      });
-      const updated = await caller.planContent.upsert({
-        milestoneId,
-        content: 'Updated version',
-      });
+      await caller.planContent.upsert({ milestoneId, content: 'First version' });
+      const updated = await caller.planContent.upsert({ milestoneId, content: 'Updated version' });
       expect(updated.content).toBe('Updated version');
 
       const result = await caller.planContent.get({ milestoneId });
       expect(result!.content).toBe('Updated version');
     });
 
-    it('should return message for project without specPath', async () => {
+    it('should return message for project without projectDir', async () => {
       const ws = await caller.workspace.create({ name: 'Bare WS' });
-      const proj = await caller.project.create({
-        workspaceId: ws.id,
-        name: 'Bare',
-      });
-      const ms = await caller.milestone.create({
-        projectId: proj.id,
-        title: 'M1',
-      });
-      const result = await caller.planContent.upsert({
-        milestoneId: ms.id,
-        content: 'Content',
-      });
-      expect(result.message).toBe('no specPath');
+      const defaultProjs = await caller.project.list({ workspaceId: ws.id });
+      const defaultProj = defaultProjs.find((p) => p.isDefault)!;
+      const ms = await caller.milestone.create({ projectId: defaultProj.id, title: 'M1' });
+      const result = await caller.planContent.upsert({ milestoneId: ms.id, content: 'Content' });
+      expect(result.message).toBe('no projectDir');
     });
   });
 
   describe('delete', () => {
     it('should delete plan file from filesystem', async () => {
-      await caller.planContent.upsert({
-        milestoneId,
-        content: 'Delete me',
-      });
+      await caller.planContent.upsert({ milestoneId, content: 'Delete me' });
       await caller.planContent.delete({ milestoneId });
       const result = await caller.planContent.get({ milestoneId });
       expect(result).toBeNull();
@@ -154,24 +130,18 @@ describe('planContent router', () => {
     it('should return sorted plan files', async () => {
       await caller.planContent.upsert({ milestoneId, content: 'Plan 1' });
 
-      const ms2 = await caller.milestone.create({
-        projectId,
-        title: 'Auth',
-        sortOrder: 1,
-      });
+      const ms2 = await caller.milestone.create({ projectId, title: 'Auth', sortOrder: 1 });
       await caller.planContent.upsert({ milestoneId: ms2.id, content: 'Plan 2' });
 
       const result = await caller.planContent.list({ projectId });
       expect(result).toEqual(['m1-setup.plan.md', 'm2-auth.plan.md']);
     });
 
-    it('should return empty array for project without specPath', async () => {
+    it('should return empty array for project without projectDir', async () => {
       const ws = await caller.workspace.create({ name: 'List WS' });
-      const proj = await caller.project.create({
-        workspaceId: ws.id,
-        name: 'List',
-      });
-      const result = await caller.planContent.list({ projectId: proj.id });
+      const defaultProjs = await caller.project.list({ workspaceId: ws.id });
+      const defaultProj = defaultProjs.find((p) => p.isDefault)!;
+      const result = await caller.planContent.list({ projectId: defaultProj.id });
       expect(result).toEqual([]);
     });
   });

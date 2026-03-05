@@ -706,7 +706,7 @@ describe('MCP Server', () => {
     beforeEach(() => {
       const db = getDb();
       db.insert(workspaces).values({ name: 'Test', slug: 'test' }).run();
-      fs.mkdirSync(path.join(ctx.tmpDir, 'test', 'specs'), { recursive: true });
+      fs.mkdirSync(path.join(ctx.tmpDir, 'test', 'projects'), { recursive: true });
     });
 
     it('createSpec should create a buildable spec', async () => {
@@ -827,10 +827,10 @@ describe('MCP Server', () => {
         .returning()
         .get();
       const planSpecSlug = 'plan-spec';
-      fs.mkdirSync(path.join(ctx.tmpDir, 'plan-test', 'specs', planSpecSlug), { recursive: true });
+      fs.mkdirSync(path.join(ctx.tmpDir, 'plan-test', 'projects', planSpecSlug), { recursive: true });
       const proj = db
         .insert(projects)
-        .values({ workspaceId: ws.id, name: 'P1', slug: 'p1', specPath: planSpecSlug })
+        .values({ workspaceId: ws.id, name: 'P1', slug: 'p1', projectDir: planSpecSlug })
         .returning()
         .get();
       projectId = proj.id;
@@ -866,7 +866,7 @@ describe('MCP Server', () => {
       const data = JSON.parse(result.content[0].text);
       expect(data.name).toBe('Auth');
       expect(data.status).toBe('planning');
-      expect(data.specPath).toBe('1_auth');
+      expect(data.projectDir).toBe('1_auth');
     });
 
     it('createProjectFromSpec should reject non-approved spec', async () => {

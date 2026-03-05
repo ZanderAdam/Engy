@@ -108,18 +108,18 @@ export const milestoneRouter = router({
             .from(projects)
             .where(eq(projects.id, existing.projectId))
             .get();
-          if (project?.specPath) {
+          if (project?.projectDir) {
             const workspace = db
               .select()
               .from(workspaces)
               .where(eq(workspaces.id, project.workspaceId))
               .get();
             if (workspace) {
-              const specsDir = path.join(getWorkspaceDir(workspace), 'specs');
+              const projectsDir = path.join(getWorkspaceDir(workspace), 'projects');
               const oldFilename = milestoneFilename(existing.sortOrder, existing.title);
               const newFilename = milestoneFilename(result.sortOrder, result.title);
               if (oldFilename !== newFilename) {
-                renamePlanFile(specsDir, project.specPath, oldFilename, newFilename);
+                renamePlanFile(projectsDir, project.projectDir, oldFilename, newFilename);
               }
             }
           }

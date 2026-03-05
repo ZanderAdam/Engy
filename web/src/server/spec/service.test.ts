@@ -29,8 +29,8 @@ describe('spec service', () => {
     const ws = db.insert(workspaces).values({ name: 'Test', slug: 'test' }).returning().get();
     workspace = { slug: ws.slug, docsDir: null };
 
-    // Create specs/ directory
-    fs.mkdirSync(path.join(ctx.tmpDir, 'test', 'specs'), { recursive: true });
+    // Create projects/ directory
+    fs.mkdirSync(path.join(ctx.tmpDir, 'test', 'projects'), { recursive: true });
   });
 
   afterEach(() => {
@@ -67,7 +67,7 @@ describe('spec service', () => {
       expect(spec.type).toBe('buildable');
       expect(spec.status).toBe('draft');
 
-      const specDir = path.join(ctx.tmpDir, 'test', 'specs', '1_auth');
+      const specDir = path.join(ctx.tmpDir, 'test', 'projects', '1_auth');
       expect(fs.existsSync(path.join(specDir, 'spec.md'))).toBe(true);
       expect(fs.existsSync(path.join(specDir, 'context'))).toBe(true);
     });
@@ -91,7 +91,7 @@ describe('spec service', () => {
     it('should not gap-fill when prefixes have gaps', () => {
       createSpec(workspace, 'Auth', 'buildable'); // 1_auth
       // Manually create 3_xxx to create a gap at 2
-      const specsPath = path.join(ctx.tmpDir, 'test', 'specs', '3_manual');
+      const specsPath = path.join(ctx.tmpDir, 'test', 'projects', '3_manual');
       fs.mkdirSync(path.join(specsPath, 'context'), { recursive: true });
       fs.writeFileSync(
         path.join(specsPath, 'spec.md'),
@@ -230,7 +230,7 @@ describe('spec service', () => {
   describe('deleteSpec', () => {
     it('should remove spec directory from disk', () => {
       createSpec(workspace, 'Auth', 'buildable');
-      const specDir = path.join(ctx.tmpDir, 'test', 'specs', '1_auth');
+      const specDir = path.join(ctx.tmpDir, 'test', 'projects', '1_auth');
       expect(fs.existsSync(specDir)).toBe(true);
 
       deleteSpec(workspace, '1_auth');

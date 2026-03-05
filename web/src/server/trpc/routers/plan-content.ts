@@ -44,11 +44,11 @@ export const planContentRouter = router({
     .query(({ input }) => {
       const { milestone, project, workspace } = resolveMilestoneContext(input.milestoneId);
 
-      if (!project.specPath) return null;
+      if (!project.projectDir) return null;
 
-      const specsDir = path.join(getWorkspaceDir(workspace), 'specs');
+      const projectsDir = path.join(getWorkspaceDir(workspace), 'projects');
       const filename = milestoneFilename(milestone.sortOrder, milestone.title);
-      const content = readPlanFile(specsDir, project.specPath, filename);
+      const content = readPlanFile(projectsDir, project.projectDir, filename);
 
       if (content === null) return null;
       return { milestoneId: milestone.id, content };
@@ -64,13 +64,13 @@ export const planContentRouter = router({
     .mutation(({ input }) => {
       const { milestone, project, workspace } = resolveMilestoneContext(input.milestoneId);
 
-      if (!project.specPath) {
-        return { milestoneId: milestone.id, content: input.content, message: 'no specPath' };
+      if (!project.projectDir) {
+        return { milestoneId: milestone.id, content: input.content, message: 'no projectDir' };
       }
 
-      const specsDir = path.join(getWorkspaceDir(workspace), 'specs');
+      const projectsDir = path.join(getWorkspaceDir(workspace), 'projects');
       const filename = milestoneFilename(milestone.sortOrder, milestone.title);
-      writePlanFile(specsDir, project.specPath, filename, input.content);
+      writePlanFile(projectsDir, project.projectDir, filename, input.content);
 
       return { milestoneId: milestone.id, content: input.content };
     }),
@@ -80,13 +80,13 @@ export const planContentRouter = router({
     .mutation(({ input }) => {
       const { milestone, project, workspace } = resolveMilestoneContext(input.milestoneId);
 
-      if (!project.specPath) return { success: true };
+      if (!project.projectDir) return { success: true };
 
-      const specsDir = path.join(getWorkspaceDir(workspace), 'specs');
+      const projectsDir = path.join(getWorkspaceDir(workspace), 'projects');
       const filename = milestoneFilename(milestone.sortOrder, milestone.title);
 
       try {
-        deletePlanFile(specsDir, project.specPath, filename);
+        deletePlanFile(projectsDir, project.projectDir, filename);
       } catch {
         // File doesn't exist — that's fine for delete
       }
@@ -103,7 +103,7 @@ export const planContentRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
       }
 
-      if (!project.specPath) return [];
+      if (!project.projectDir) return [];
 
       const workspace = db
         .select()
@@ -114,7 +114,7 @@ export const planContentRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
       }
 
-      const specsDir = path.join(getWorkspaceDir(workspace), 'specs');
-      return listPlanFiles(specsDir, project.specPath);
+      const projectsDir = path.join(getWorkspaceDir(workspace), 'projects');
+      return listPlanFiles(projectsDir, project.projectDir);
     }),
 });

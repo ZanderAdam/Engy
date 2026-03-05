@@ -12,7 +12,7 @@ describe('task-group router', () => {
     caller = appRouter.createCaller({ state: ctx.state });
     const ws = await caller.workspace.create({ name: 'TaskGroup WS' });
     const proj = await caller.project.create({
-      workspaceId: ws.id,
+      workspaceSlug: ws.slug,
       name: 'TaskGroup Project',
     });
     const milestone = await caller.milestone.create({

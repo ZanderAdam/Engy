@@ -1,7 +1,12 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
+import { Button } from "@/components/ui/button";
 import { ProjectCard } from "./project-card";
+import { CreateProjectDialog } from "@/components/projects/create-project-dialog";
+import { RiAddLine } from "@remixicon/react";
 
 export function WorkspaceOverview({
   workspaceId,
@@ -10,31 +15,42 @@ export function WorkspaceOverview({
   workspaceId: number;
   workspaceSlug: string;
 }) {
+  const router = useRouter();
+  const [showCreate, setShowCreate] = useState(false);
   const { data: projects } = trpc.project.listWithProgress.useQuery({ workspaceId });
 
   if (!projects) return null;
 
-  const defaultProject = projects.find((p) => p.isDefault);
-  const otherProjects = projects.filter((p) => !p.isDefault);
+  const visibleProjects = projects.filter((p) => !p.isDefault);
 
   return (
     <div className="flex flex-col gap-4">
-      {defaultProject && (
-        <ProjectCard project={defaultProject} workspaceSlug={workspaceSlug} />
-      )}
-      {otherProjects.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <h3 className="text-xs font-semibold">Projects</h3>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {otherProjects.map((p) => (
-              <ProjectCard key={p.id} project={p} workspaceSlug={workspaceSlug} />
-            ))}
-          </div>
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Projects
+        </h3>
+        <Button variant="outline" size="sm" onClick={() => setShowCreate(true)}>
+          <RiAddLine data-icon="inline-start" />
+          New Project
+        </Button>
+      </div>
+
+      {visibleProjects.length === 0 ? (
+        <p className="py-8 text-center text-xs text-muted-foreground">No projects yet</p>
+      ) : (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {visibleProjects.map((p) => (
+            <ProjectCard key={p.id} project={p} workspaceSlug={workspaceSlug} />
+          ))}
         </div>
       )}
-      {projects.length === 0 && (
-        <p className="py-8 text-center text-xs text-muted-foreground">No projects yet</p>
-      )}
+
+      <CreateProjectDialog
+        workspaceSlug={workspaceSlug}
+        open={showCreate}
+        onOpenChange={setShowCreate}
+        onCreated={(slug) => router.push(`/w/${workspaceSlug}/projects/${slug}`)}
+      />
     </div>
   );
 }

@@ -107,7 +107,7 @@ function handleFileChange(
     events.splice(0, events.length - MAX_EVENTS_PER_WORKSPACE);
   }
 
-  if (path.includes('/specs/') || path.includes('\\specs\\')) {
+  if (path.includes('/projects/') || path.includes('\\projects\\')) {
     handleSpecFileChange(workspaceSlug, state);
   }
 }

@@ -23,9 +23,9 @@ export default function PlanPage() {
 
   return (
     <div className="flex flex-col gap-4 py-6">
-      {project.specPath && (
+      {project.projectDir && (
         <Link
-          href={`/w/${params.workspace}/specs?spec=${project.specPath}`}
+          href={`/w/${params.workspace}/projects/${params.project}/specs`}
           className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
         >
           <RiFileTextLine className="size-3" />

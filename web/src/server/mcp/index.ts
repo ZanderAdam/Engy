@@ -257,14 +257,14 @@ function registerProjectTools(mcp: McpServer): void {
     {
       workspaceId: z.number().describe('Workspace ID'),
       name: z.string().describe('Project name'),
-      specPath: z.string().optional().describe('Path to project specification'),
+      projectDir: z.string().optional().describe('Path to project directory'),
     },
-    async ({ workspaceId, name, specPath }) => {
+    async ({ workspaceId, name, projectDir }) => {
       const db = getDb();
       const slug = generateSlug(name);
       const project = db
         .insert(projects)
-        .values({ workspaceId, name, slug, specPath })
+        .values({ workspaceId, name, slug, projectDir })
         .returning()
         .get();
       return mcpResult(project);
@@ -688,7 +688,7 @@ function registerProjectPlanningTools(mcp: McpServer): void {
             workspaceId: workspace.id,
             name: spec.frontmatter.title,
             slug,
-            specPath: specSlug,
+            projectDir: specSlug,
           })
           .returning()
           .get();
@@ -721,16 +721,16 @@ function registerProjectPlanningTools(mcp: McpServer): void {
       const project = db.select().from(projects).where(eq(projects.id, milestone.projectId)).get();
       if (!project) return mcpError('Project not found');
 
-      if (!project.specPath) {
-        return mcpError('Project has no specPath — cannot write plan file');
+      if (!project.projectDir) {
+        return mcpError('Project has no projectDir — cannot write plan file');
       }
 
       const workspace = db.select().from(workspaces).where(eq(workspaces.id, project.workspaceId)).get();
       if (!workspace) return mcpError('Workspace not found');
 
-      const specsDir = path.join(getWorkspaceDir(workspace), 'specs');
+      const projectsDir = path.join(getWorkspaceDir(workspace), 'projects');
       const filename = milestoneFilename(milestone.sortOrder, milestone.title);
-      writePlanFile(specsDir, project.specPath, filename, content);
+      writePlanFile(projectsDir, project.projectDir, filename, content);
 
       // Optionally transition to planning
       if (transitionToPlanning && milestone.status === 'planned') {

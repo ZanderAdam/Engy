@@ -36,7 +36,7 @@ export const projects = sqliteTable('projects', {
     .notNull()
     .default('planning'),
   isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
-  specPath: text('spec_path'),
+  projectDir: text('project_dir'),
   createdAt: text('created_at')
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

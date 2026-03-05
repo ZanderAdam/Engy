@@ -15,7 +15,7 @@ type Project = {
   name: string;
   slug: string;
   status: string;
-  specPath: string | null;
+  projectDir: string | null;
   workspaceId: number;
 };
 
@@ -43,9 +43,9 @@ export function ProjectOverview({
           <Badge variant="secondary" className="text-[10px]">
             {project.status}
           </Badge>
-          {project.specPath && (
+          {project.projectDir && (
             <Link
-              href={`/w/${workspaceSlug}/specs?spec=${project.specPath}`}
+              href={`/w/${workspaceSlug}/projects/${project.slug}/specs`}
               className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
             >
               <RiFileTextLine className="size-3" />

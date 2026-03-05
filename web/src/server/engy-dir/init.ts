@@ -37,7 +37,7 @@ export function initWorkspaceDir(
     `# ${name}\n\nWorkspace overview — edit this file to describe your project.\n`,
   );
 
-  fs.mkdirSync(path.join(dir, 'specs'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'projects'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'memory'), { recursive: true });
 }

@@ -12,7 +12,7 @@ describe('task router', () => {
     caller = appRouter.createCaller({ state: ctx.state });
     const ws = await caller.workspace.create({ name: 'Task WS' });
     const proj = await caller.project.create({
-      workspaceId: ws.id,
+      workspaceSlug: ws.slug,
       name: 'Task Project',
     });
     projectId = proj.id;

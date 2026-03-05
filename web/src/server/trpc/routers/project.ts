@@ -3,8 +3,21 @@ import { eq, and } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
-import { projects, milestones, tasks } from '../../db/schema';
+import { projects, milestones, tasks, workspaces } from '../../db/schema';
 import { uniqueProjectSlug } from '../utils';
+import {
+  listProjectFiles,
+  getProjectSpec,
+  updateProjectSpec,
+  listProjectContextFiles,
+  readProjectContextFile,
+  writeProjectContextFile,
+  deleteProjectContextFile,
+  readProjectFile,
+  writeProjectFile,
+  initProjectDir,
+  removeProjectDir,
+} from '../../project/service';
 
 const PROJECT_STATUS_ORDER = ['planning', 'active', 'completing', 'archived'] as const;
 
@@ -19,29 +32,54 @@ function validateProjectStatusTransition(current: string, next: string): void {
   }
 }
 
+function getWorkspace(workspaceSlug: string) {
+  const db = getDb();
+  const ws = db.select().from(workspaces).where(eq(workspaces.slug, workspaceSlug)).get();
+  if (!ws) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: `Workspace "${workspaceSlug}" not found` });
+  }
+  return ws;
+}
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 export const projectRouter = router({
   create: publicProcedure
     .input(
       z.object({
-        workspaceId: z.number(),
+        workspaceSlug: z.string(),
         name: z.string().min(1),
-        specPath: z.string().optional(),
       }),
     )
     .mutation(({ input }) => {
       const db = getDb();
-      const slug = uniqueProjectSlug(input.workspaceId, input.name);
+      const workspace = getWorkspace(input.workspaceSlug);
+      const slug = uniqueProjectSlug(workspace.id, input.name);
 
-      return db
+      const project = db
         .insert(projects)
         .values({
-          workspaceId: input.workspaceId,
+          workspaceId: workspace.id,
           name: input.name,
           slug,
-          specPath: input.specPath,
+          projectDir: slug,
         })
         .returning()
         .get();
+
+      try {
+        initProjectDir({ slug: workspace.slug, docsDir: workspace.docsDir }, slug);
+      } catch (e) {
+        db.delete(projects).where(eq(projects.id, project.id)).run();
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Failed to initialize project directory: ${errorMessage(e)}`,
+        });
+      }
+
+      return project;
     }),
 
   list: publicProcedure
@@ -138,7 +176,243 @@ export const projectRouter = router({
 
   delete: publicProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => {
     const db = getDb();
+    const project = db.select().from(projects).where(eq(projects.id, input.id)).get();
+    if (!project) return { success: true };
+
+    const workspace = db.select().from(workspaces).where(eq(workspaces.id, project.workspaceId)).get();
+
     db.delete(projects).where(eq(projects.id, input.id)).run();
+
+    if (workspace && project.projectDir) {
+      try {
+        removeProjectDir({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir);
+      } catch {
+        // Best-effort filesystem cleanup — DB row already deleted
+      }
+    }
+
     return { success: true };
   }),
+
+  // ── Spec file procedures (project-scoped) ────────────────────────
+
+  listFiles: publicProcedure
+    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string() }))
+    .query(({ input }) => {
+      const db = getDb();
+      const workspace = getWorkspace(input.workspaceSlug);
+      const project = db
+        .select()
+        .from(projects)
+        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
+        .get();
+      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      if (!project.projectDir) return { name: project.slug, type: null, status: null, files: [] };
+
+      return listProjectFiles(
+        { slug: workspace.slug, docsDir: workspace.docsDir },
+        project.projectDir,
+      );
+    }),
+
+  getSpec: publicProcedure
+    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string() }))
+    .query(({ input }) => {
+      const db = getDb();
+      const workspace = getWorkspace(input.workspaceSlug);
+      const project = db
+        .select()
+        .from(projects)
+        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
+        .get();
+      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
+
+      try {
+        return getProjectSpec({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir);
+      } catch (e) {
+        const msg = errorMessage(e);
+        if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
+      }
+    }),
+
+  updateSpec: publicProcedure
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        title: z.string().optional(),
+        status: z.enum(['draft', 'ready', 'approved', 'active', 'completed']).optional(),
+        body: z.string().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const db = getDb();
+      const workspace = getWorkspace(input.workspaceSlug);
+      const project = db
+        .select()
+        .from(projects)
+        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
+        .get();
+      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
+
+      const { workspaceSlug: _, projectSlug: __, ...updates } = input;
+      try {
+        return updateProjectSpec(
+          { slug: workspace.slug, docsDir: workspace.docsDir },
+          project.projectDir,
+          updates,
+        );
+      } catch (e) {
+        const msg = errorMessage(e);
+        if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
+        if (msg.includes('Invalid status') || msg.includes('incomplete tasks')) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
+        }
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: msg });
+      }
+    }),
+
+  readFile: publicProcedure
+    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string(), filePath: z.string() }))
+    .query(({ input }) => {
+      const db = getDb();
+      const workspace = getWorkspace(input.workspaceSlug);
+      const project = db
+        .select()
+        .from(projects)
+        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
+        .get();
+      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
+
+      try {
+        return { content: readProjectFile({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.filePath) };
+      } catch (e) {
+        const msg = errorMessage(e);
+        if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
+      }
+    }),
+
+  writeFile: publicProcedure
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        filePath: z.string().min(1).refine((p) => p !== 'spec.md', {
+          message: 'Use project.updateSpec to modify spec.md',
+        }),
+        content: z.string(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const db = getDb();
+      const workspace = getWorkspace(input.workspaceSlug);
+      const project = db
+        .select()
+        .from(projects)
+        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
+        .get();
+      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
+
+      try {
+        writeProjectFile({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.filePath, input.content);
+        return { success: true };
+      } catch (e) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: errorMessage(e) });
+      }
+    }),
+
+  listContextFiles: publicProcedure
+    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string() }))
+    .query(({ input }) => {
+      const db = getDb();
+      const workspace = getWorkspace(input.workspaceSlug);
+      const project = db
+        .select()
+        .from(projects)
+        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
+        .get();
+      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      if (!project.projectDir) return [];
+
+      return listProjectContextFiles({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir);
+    }),
+
+  readContextFile: publicProcedure
+    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string(), filename: z.string() }))
+    .query(({ input }) => {
+      const db = getDb();
+      const workspace = getWorkspace(input.workspaceSlug);
+      const project = db
+        .select()
+        .from(projects)
+        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
+        .get();
+      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
+
+      try {
+        return readProjectContextFile({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.filename);
+      } catch (e) {
+        const msg = errorMessage(e);
+        if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
+      }
+    }),
+
+  writeContextFile: publicProcedure
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        filename: z.string(),
+        content: z.string(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const db = getDb();
+      const workspace = getWorkspace(input.workspaceSlug);
+      const project = db
+        .select()
+        .from(projects)
+        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
+        .get();
+      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
+
+      try {
+        writeProjectContextFile({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.filename, input.content);
+        return { success: true };
+      } catch (e) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: errorMessage(e) });
+      }
+    }),
+
+  deleteContextFile: publicProcedure
+    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string(), filename: z.string() }))
+    .mutation(({ input }) => {
+      const db = getDb();
+      const workspace = getWorkspace(input.workspaceSlug);
+      const project = db
+        .select()
+        .from(projects)
+        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
+        .get();
+      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
+
+      try {
+        deleteProjectContextFile({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.filename);
+        return { success: true };
+      } catch (e) {
+        const msg = errorMessage(e);
+        if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
+      }
+    }),
 });
