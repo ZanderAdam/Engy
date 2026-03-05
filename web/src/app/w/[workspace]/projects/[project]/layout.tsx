@@ -9,9 +9,8 @@ import { cn } from "@/lib/utils";
 
 const tabs = [
   { label: "Overview", segment: "", disabled: false },
+  { label: "Docs", segment: "docs", disabled: false },
   { label: "Tasks", segment: "tasks", disabled: false },
-  { label: "Plan", segment: "plan", disabled: false },
-  { label: "Specs", segment: "specs", disabled: false },
   { label: "Diffs", segment: "diffs", disabled: true, hint: "Available in M6" },
   { label: "PRs", segment: "prs", disabled: true, hint: "Available in M12" },
 ] as const;

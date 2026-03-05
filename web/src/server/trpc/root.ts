@@ -6,7 +6,6 @@ import { taskGroupRouter } from './routers/task-group';
 import { taskRouter } from './routers/task';
 import { commentRouter } from './routers/comment';
 import { dirRouter } from './routers/dir';
-import { planContentRouter } from './routers/plan-content';
 
 export const appRouter = router({
   workspace: workspaceRouter,
@@ -16,7 +15,6 @@ export const appRouter = router({
   task: taskRouter,
   comment: commentRouter,
   dir: dirRouter,
-  planContent: planContentRouter,
 });
 
 /** @public Used by tRPC client setup */

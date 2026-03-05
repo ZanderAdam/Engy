@@ -22,9 +22,8 @@ function useBreadcrumbs() {
     const segment = segments[i];
     const href = "/" + segments.slice(0, i + 1).join("/");
 
-    if (segment === "w" && segments[i + 1]) {
-      continue;
-    }
+    if (segment === "w" && segments[i + 1]) continue;
+    if (segment === "projects") continue;
 
     crumbs.push({ label: segment, href });
   }

@@ -45,7 +45,7 @@ export function ProjectOverview({
           </Badge>
           {project.projectDir && (
             <Link
-              href={`/w/${workspaceSlug}/projects/${project.slug}/specs`}
+              href={`/w/${workspaceSlug}/projects/${project.slug}/docs`}
               className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
             >
               <RiFileTextLine className="size-3" />

@@ -12,7 +12,7 @@ import { EngyThreadStore } from "@/components/editor/document-editor";
 import { RiFileTextLine, RiSideBarLine } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 
-export default function ProjectSpecsPage() {
+export default function ProjectDocsPage() {
   const params = useParams<{ workspace: string; project: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -23,7 +23,7 @@ export default function ProjectSpecsPage() {
     if (file) p.set("file", file);
     const qs = p.toString();
     router.replace(
-      `/w/${params.workspace}/projects/${params.project}/specs${qs ? `?${qs}` : ""}`,
+      `/w/${params.workspace}/projects/${params.project}/docs${qs ? `?${qs}` : ""}`,
       { scroll: false },
     );
   }

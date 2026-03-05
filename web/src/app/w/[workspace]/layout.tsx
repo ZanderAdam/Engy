@@ -46,6 +46,7 @@ export default function WorkspaceLayout({
   }
 
   const basePath = `/w/${params.workspace}`;
+  const isProjectRoute = pathname.startsWith(`${basePath}/projects/`);
 
   function tabHref(segment: string): string {
     return segment ? `${basePath}/${segment}` : basePath;
@@ -58,23 +59,25 @@ export default function WorkspaceLayout({
 
   return (
     <div className="flex flex-1 flex-col">
-      <nav className="border-b border-border" aria-label="Workspace sections">
-        <div className="mx-auto flex w-[95%] max-w-[1800px]">
-          {tabs.map((tab) => (
-            <Link
-              key={tab.segment}
-              href={tabHref(tab.segment)}
-              className={cn(
-                "relative px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
-                isActive(tab.segment) &&
-                  "text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground",
-              )}
-            >
-              {tab.label}
-            </Link>
-          ))}
-        </div>
-      </nav>
+      {!isProjectRoute && (
+        <nav className="border-b border-border" aria-label="Workspace sections">
+          <div className="mx-auto flex w-[95%] max-w-[1800px]">
+            {tabs.map((tab) => (
+              <Link
+                key={tab.segment}
+                href={tabHref(tab.segment)}
+                className={cn(
+                  "relative px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
+                  isActive(tab.segment) &&
+                    "text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground",
+                )}
+              >
+                {tab.label}
+              </Link>
+            ))}
+          </div>
+        </nav>
+      )}
       <div className="mx-auto flex min-h-0 flex-1 flex-col w-[95%] max-w-[1800px]">{children}</div>
     </div>
   );
