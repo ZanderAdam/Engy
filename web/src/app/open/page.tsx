@@ -8,6 +8,7 @@ import { EngyThreadStore } from '@/components/editor/document-editor';
 import { OpenDirTree } from '@/components/open-dir/open-dir-tree';
 import { useRecentDirs } from '@/hooks/use-recent-dirs';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { RiSideBarLine, RiFolderOpenLine } from '@remixicon/react';
 
 export default function OpenPage() {
@@ -82,17 +83,20 @@ function OpenPageInner() {
       <div className="relative flex shrink-0 items-stretch">
         {!collapsed && (
           <div
-            className="w-1 cursor-col-resize transition-colors hover:bg-primary/30 active:bg-primary/50"
+            className="w-1.5 cursor-col-resize transition-colors hover:bg-primary/30 active:bg-primary/50"
             onMouseDown={handleMouseDown}
           />
         )}
         <Button
           variant="outline"
           size="icon"
-          className="absolute -left-3 top-2 z-10 h-6 w-6 rounded-full border bg-background shadow-sm"
+          className={cn(
+            'absolute top-2 z-10 h-7 w-7 rounded-sm border bg-muted shadow-sm hover:bg-accent',
+            collapsed ? 'left-1' : '-left-3.5',
+          )}
           onClick={() => setCollapsed((c) => !c)}
         >
-          <RiSideBarLine className="size-3" />
+          <RiSideBarLine className="size-3.5" />
         </Button>
       </div>
       <div className="min-w-0 flex-1">
@@ -167,9 +171,6 @@ function FileEditor({ dirPath, absoluteFilePath }: FileEditorProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-border px-4 py-1 text-xs text-muted-foreground">
-        {relPath}
-      </div>
       <DynamicDocumentEditor
         key={absoluteFilePath}
         initialMarkdown={data?.content ?? ''}

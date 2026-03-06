@@ -13,7 +13,7 @@ import type { User } from "@blocknote/core/comments";
 import "@blocknote/shadcn/style.css";
 import "@blocknote/react/style.css";
 import { Button } from "@/components/ui/button";
-import { RiFileCopyLine, RiCheckLine } from "@remixicon/react";
+import { RiFileCopyLine, RiCheckLine, RiChat3Line, RiCloseLine } from "@remixicon/react";
 import { InMemoryThreadStore, DefaultThreadStoreAuth } from "./thread-store";
 import type { CommentStore } from "./thread-store";
 import { snapshotAnchors } from "./comments/snapshot";
@@ -55,7 +55,8 @@ export function DocumentEditor({
 }: DocumentEditorProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedRef = useRef(false);
-  const [hasThreads, setHasThreads] = useState(false);
+  const [hasOpenThreads, setHasOpenThreads] = useState(false);
+  const [commentsCollapsed, setCommentsCollapsed] = useState(false);
   const [copied, setCopied] = useState(false);
   const onSaveRef = useRef(onSave);
   useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
@@ -68,9 +69,11 @@ export function DocumentEditor({
   const threadStore: CommentStore = externalThreadStore ?? internalStore;
 
   useEffect(() => {
-    setHasThreads(threadStore.getThreads().size > 0);
-    return threadStore.subscribe((threads) => {
-      setHasThreads(threads.size > 0);
+    const checkOpen = () =>
+      Array.from(threadStore.getThreads().values()).some((t) => !t.resolved && !t.deletedAt);
+    setHasOpenThreads(checkOpen());
+    return threadStore.subscribe(() => {
+      setHasOpenThreads(checkOpen());
     });
   }, [threadStore]);
 
@@ -166,33 +169,56 @@ export function DocumentEditor({
         <div className="relative flex-1 min-w-0 overflow-y-auto">
           <BlockNoteViewEditor />
         </div>
-        {comments && hasThreads && (
+        {comments && hasOpenThreads && !commentsCollapsed && (
           <div className="w-72 border-l border-border overflow-y-auto shrink-0">
             <div className="p-3 border-b border-border flex items-center justify-between">
               <span className="text-xs text-muted-foreground">Comments</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCopyComments}
-                className="h-6 px-2 text-xs"
-              >
-                {copied ? (
-                  <>
-                    <RiCheckLine className="size-3 mr-1" />
-                    Copied
-                  </>
-                ) : (
-                  <>
-                    <RiFileCopyLine className="size-3 mr-1" />
-                    Copy All
-                  </>
-                )}
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCopyComments}
+                  className="h-6 px-2 text-xs"
+                >
+                  {copied ? (
+                    <>
+                      <RiCheckLine className="size-3 mr-1" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <RiFileCopyLine className="size-3 mr-1" />
+                      Copy All
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCommentsCollapsed(true)}
+                  className="h-6 px-1.5 text-xs text-muted-foreground"
+                  title="Collapse comments"
+                >
+                  <RiCloseLine className="size-3" />
+                </Button>
+              </div>
             </div>
             <div className="p-3">
               <ThreadsSidebar filter="open" sort="position" />
             </div>
           </div>
+        )}
+        {comments && hasOpenThreads && commentsCollapsed && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCommentsCollapsed(false)}
+            className="absolute right-2 top-2 z-10 h-7 px-2 text-xs text-muted-foreground"
+            title="Show comments"
+          >
+            <RiChat3Line className="size-3.5 mr-1" />
+            Comments
+          </Button>
         )}
       </div>
     </BlockNoteView>

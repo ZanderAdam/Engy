@@ -11,6 +11,7 @@ import { DynamicDocumentEditor } from "@/components/editor/dynamic-document-edit
 import { EngyThreadStore } from "@/components/editor/document-editor";
 import { RiFileTextLine, RiSideBarLine } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export default function ProjectDocsPage() {
   const params = useParams<{ workspace: string; project: string }>();
@@ -73,17 +74,20 @@ export default function ProjectDocsPage() {
       <div className="relative shrink-0 flex items-stretch">
         {!collapsed && (
           <div
-            className="w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+            className="w-1.5 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
             onMouseDown={handleMouseDown}
           />
         )}
         <Button
           variant="outline"
           size="icon"
-          className="absolute top-2 -left-3 z-10 h-6 w-6 rounded-full border bg-background shadow-sm"
+          className={cn(
+            "absolute top-2 z-10 h-7 w-7 rounded-sm border bg-muted shadow-sm hover:bg-accent",
+            collapsed ? "left-1" : "-left-3.5",
+          )}
           onClick={() => setCollapsed((c) => !c)}
         >
-          <RiSideBarLine className="size-3" />
+          <RiSideBarLine className="size-3.5" />
         </Button>
       </div>
       <div className="flex-1 min-w-0">
@@ -213,9 +217,6 @@ function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDeta
           </TabsList>
         </div>
       )}
-      <div className="px-4 py-1 text-xs text-muted-foreground border-b border-border">
-        {selectedFile}
-      </div>
       <TabsContent value="content" className="flex flex-1 overflow-hidden m-0">
         {!isContentReady ? (
           <div className="flex items-center justify-center flex-1">
