@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { eq } from 'drizzle-orm';
 import { getMcpServer, resetMcpServer, isPathAllowed } from './index';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { getDb } from '../db/client';
@@ -9,7 +8,6 @@ import {
   workspaces,
   projects,
   tasks,
-  milestones,
   taskGroups,
   fleetingMemories,
 } from '../db/schema';
@@ -333,17 +331,16 @@ describe('MCP Server', () => {
       expect(data).toHaveLength(1);
     });
 
-    it('listTasks should filter by milestoneId', async () => {
+    it('listTasks should filter by milestoneRef', async () => {
       const db = getDb();
-      const ms = db.insert(milestones).values({ projectId, title: 'M1' }).returning().get();
-      db.insert(tasks).values({ title: 'T1', projectId, milestoneId: ms.id }).run();
+      db.insert(tasks).values({ title: 'T1', projectId, milestoneRef: 'm1' }).run();
       db.insert(tasks).values({ title: 'T2', projectId }).run();
 
       const mcp = getMcpServer();
       const tools = (mcp as any)._registeredTools;
       const tool = tools['listTasks'];
 
-      const result = await tool.handler({ milestoneId: ms.id }, {} as any);
+      const result = await tool.handler({ milestoneRef: 'm1' }, {} as any);
       const data = JSON.parse(result.content[0].text);
       expect(data).toHaveLength(1);
       expect(data[0].title).toBe('T1');
@@ -351,8 +348,7 @@ describe('MCP Server', () => {
 
     it('listTasks should filter by taskGroupId', async () => {
       const db = getDb();
-      const ms = db.insert(milestones).values({ projectId, title: 'M1' }).returning().get();
-      const grp = db.insert(taskGroups).values({ milestoneId: ms.id, name: 'G1' }).returning().get();
+      const grp = db.insert(taskGroups).values({ milestoneRef: 'm1', name: 'G1' }).returning().get();
       db.insert(tasks).values({ title: 'T1', projectId, taskGroupId: grp.id }).run();
       db.insert(tasks).values({ title: 'T2', projectId }).run();
 
@@ -434,65 +430,13 @@ describe('MCP Server', () => {
     });
   });
 
-  describe('milestone tools', () => {
-    let projectId: number;
-
-    beforeEach(() => {
-      const db = getDb();
-      const ws = db.insert(workspaces).values({ name: 'Test', slug: 'test' }).returning().get();
-      const proj = db
-        .insert(projects)
-        .values({ workspaceId: ws.id, name: 'P1', slug: 'p1' })
-        .returning()
-        .get();
-      projectId = proj.id;
-    });
-
-    it('createMilestone should create a milestone', async () => {
-      const mcp = getMcpServer();
-      const tools = (mcp as any)._registeredTools;
-      const tool = tools['createMilestone'];
-
-      const result = await tool.handler({ projectId, title: 'M1' }, {} as any);
-      const data = JSON.parse(result.content[0].text);
-      expect(data.title).toBe('M1');
-      expect(data.status).toBe('planned');
-    });
-
-    it('listMilestones should return milestones ordered by sortOrder', async () => {
-      const db = getDb();
-      db.insert(milestones).values({ projectId, title: 'M2', sortOrder: 2 }).run();
-      db.insert(milestones).values({ projectId, title: 'M1', sortOrder: 1 }).run();
-
-      const mcp = getMcpServer();
-      const tools = (mcp as any)._registeredTools;
-      const tool = tools['listMilestones'];
-
-      const result = await tool.handler({ projectId }, {} as any);
-      const data = JSON.parse(result.content[0].text);
-      expect(data).toHaveLength(2);
-      expect(data[0].title).toBe('M1');
-      expect(data[1].title).toBe('M2');
-    });
-  });
-
   describe('task group tools', () => {
-    let milestoneId: number;
+    const milestoneRef = 'm1';
 
     beforeEach(() => {
       const db = getDb();
       const ws = db.insert(workspaces).values({ name: 'Test', slug: 'test' }).returning().get();
-      const proj = db
-        .insert(projects)
-        .values({ workspaceId: ws.id, name: 'P1', slug: 'p1' })
-        .returning()
-        .get();
-      const ms = db
-        .insert(milestones)
-        .values({ projectId: proj.id, title: 'M1' })
-        .returning()
-        .get();
-      milestoneId = ms.id;
+      db.insert(projects).values({ workspaceId: ws.id, name: 'P1', slug: 'p1' }).run();
     });
 
     it('createTaskGroup should create a task group', async () => {
@@ -500,7 +444,7 @@ describe('MCP Server', () => {
       const tools = (mcp as any)._registeredTools;
       const tool = tools['createTaskGroup'];
 
-      const result = await tool.handler({ milestoneId, name: 'Group 1' }, {} as any);
+      const result = await tool.handler({ milestoneRef, name: 'Group 1' }, {} as any);
       const data = JSON.parse(result.content[0].text);
       expect(data.name).toBe('Group 1');
       expect(data.status).toBe('planned');
@@ -508,14 +452,14 @@ describe('MCP Server', () => {
 
     it('listTaskGroups should return groups for a milestone', async () => {
       const db = getDb();
-      db.insert(taskGroups).values({ milestoneId, name: 'G1' }).run();
-      db.insert(taskGroups).values({ milestoneId, name: 'G2' }).run();
+      db.insert(taskGroups).values({ milestoneRef, name: 'G1' }).run();
+      db.insert(taskGroups).values({ milestoneRef, name: 'G2' }).run();
 
       const mcp = getMcpServer();
       const tools = (mcp as any)._registeredTools;
       const tool = tools['listTaskGroups'];
 
-      const result = await tool.handler({ milestoneId }, {} as any);
+      const result = await tool.handler({ milestoneRef }, {} as any);
       const data = JSON.parse(result.content[0].text);
       expect(data).toHaveLength(2);
     });
@@ -817,7 +761,6 @@ describe('MCP Server', () => {
 
   describe('project planning tools', () => {
     let projectId: number;
-    let milestoneId: number;
 
     beforeEach(() => {
       const db = getDb();
@@ -834,12 +777,6 @@ describe('MCP Server', () => {
         .returning()
         .get();
       projectId = proj.id;
-      const ms = db
-        .insert(milestones)
-        .values({ projectId, title: 'M1', sortOrder: 0 })
-        .returning()
-        .get();
-      milestoneId = ms.id;
     });
 
     it('createProjectFromSpec should create a project from approved spec', async () => {
@@ -886,78 +823,38 @@ describe('MCP Server', () => {
       expect(result.content[0].text).toContain('approved');
     });
 
-    it('planMilestone should upsert plan content', async () => {
-      const mcp = getMcpServer();
-      const tools = (mcp as any)._registeredTools;
-
-      const result = await tools['planMilestone'].handler(
-        { milestoneId, content: '## Plan\nStep 1', transitionToPlanning: false },
-        {} as any,
-      );
-      const data = JSON.parse(result.content[0].text);
-      expect(data.content).toBe('## Plan\nStep 1');
-    });
-
-    it('planMilestone should transition milestone to planning', async () => {
-      const mcp = getMcpServer();
-      const tools = (mcp as any)._registeredTools;
-
-      await tools['planMilestone'].handler(
-        { milestoneId, content: 'Plan', transitionToPlanning: true },
-        {} as any,
-      );
-
-      const db = getDb();
-      const ms = db.select().from(milestones).where(eq(milestones.id, milestoneId)).get();
-      expect(ms!.status).toBe('planning');
-    });
-
-    it('listProjectTasks should return hierarchy', async () => {
+    it('listProjectTasks should return grouped tasks', async () => {
       const db = getDb();
       const grp = db
         .insert(taskGroups)
-        .values({ milestoneId, name: 'Backend' })
+        .values({ milestoneRef: 'm1', name: 'Backend' })
         .returning()
         .get();
-      db.insert(tasks)
-        .values({ projectId, milestoneId, taskGroupId: grp.id, title: 'T1' })
-        .run();
-      db.insert(tasks).values({ projectId, milestoneId, title: 'T2' }).run();
-      db.insert(tasks).values({ projectId, title: 'Unassigned' }).run();
+      db.insert(tasks).values({ projectId, taskGroupId: grp.id, title: 'T1' }).run();
+      db.insert(tasks).values({ projectId, title: 'Ungrouped' }).run();
 
       const mcp = getMcpServer();
       const tools = (mcp as any)._registeredTools;
 
-      const result = await tools['listProjectTasks'].handler(
-        { projectId },
-        {} as any,
-      );
+      const result = await tools['listProjectTasks'].handler({ projectId }, {} as any);
       const data = JSON.parse(result.content[0].text);
-      expect(data.milestones).toHaveLength(1);
-      expect(data.milestones[0].taskGroups).toHaveLength(1);
-      expect(data.milestones[0].taskGroups[0].tasks).toHaveLength(1);
-      expect(data.milestones[0].tasks).toHaveLength(1);
-      expect(data.unassignedTasks).toHaveLength(1);
+      expect(data.taskGroups).toHaveLength(1);
+      expect(data.taskGroups[0].tasks).toHaveLength(1);
+      expect(data.ungroupedTasks).toHaveLength(1);
     });
 
     it('getProjectOverview should return project with progress', async () => {
       const db = getDb();
-      db.insert(tasks).values({ projectId, milestoneId, title: 'T1', status: 'done' }).run();
-      db.insert(tasks).values({ projectId, milestoneId, title: 'T2', status: 'todo' }).run();
+      db.insert(tasks).values({ projectId, title: 'T1', status: 'done' }).run();
+      db.insert(tasks).values({ projectId, title: 'T2', status: 'todo' }).run();
 
       const mcp = getMcpServer();
       const tools = (mcp as any)._registeredTools;
 
-      const result = await tools['getProjectOverview'].handler(
-        { projectId },
-        {} as any,
-      );
+      const result = await tools['getProjectOverview'].handler({ projectId }, {} as any);
       const data = JSON.parse(result.content[0].text);
       expect(data.taskCount).toBe(2);
       expect(data.completedTasks).toBe(1);
-      expect(data.milestones).toHaveLength(1);
-      expect(data.milestones[0].taskCount).toBe(2);
-      expect(data.milestones[0].completedTasks).toBe(1);
     });
 
     it('getProjectOverview should return error for missing project', async () => {

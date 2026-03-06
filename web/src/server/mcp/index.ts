@@ -5,13 +5,12 @@ import yaml from 'js-yaml';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
-import { eq, asc } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb, getEngyDir } from '../db/client';
 import {
   workspaces,
   projects,
   tasks,
-  milestones,
   taskGroups,
   fleetingMemories,
 } from '../db/schema';
@@ -27,7 +26,6 @@ import {
   writeContextFile,
 } from '../spec/service';
 import { validateDependencies } from '../tasks/validation';
-import { milestoneFilename, writePlanFile } from '../plan/service';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 
@@ -60,7 +58,6 @@ export function getMcpServer(): McpServer {
   registerWorkspaceTools(mcp);
   registerProjectTools(mcp);
   registerTaskTools(mcp);
-  registerMilestoneTools(mcp);
   registerTaskGroupTools(mcp);
   registerMemoryTools(mcp);
   registerFileTools(mcp);
@@ -322,7 +319,7 @@ function registerTaskTools(mcp: McpServer): void {
     'Create a new task',
     {
       projectId: z.number().optional().describe('Project ID'),
-      milestoneId: z.number().optional().describe('Milestone ID'),
+      milestoneRef: z.string().optional().describe('Milestone ref (e.g. "m1")'),
       taskGroupId: z.number().optional().describe('Task group ID'),
       title: z.string().describe('Task title'),
       description: z.string().optional().describe('Task description'),
@@ -357,7 +354,7 @@ function registerTaskTools(mcp: McpServer): void {
       importance: z.enum(['important', 'not_important']).optional().describe('New importance'),
       urgency: z.enum(['urgent', 'not_urgent']).optional().describe('New urgency'),
       dependencies: z.array(z.number()).optional().describe('New dependencies'),
-      milestoneId: z.number().nullable().optional().describe('New milestone ID'),
+      milestoneRef: z.string().nullable().optional().describe('New milestone ref (e.g. "m1")'),
       taskGroupId: z.number().nullable().optional().describe('New task group ID'),
     },
     async ({ id, ...updates }) => {
@@ -386,15 +383,15 @@ function registerTaskTools(mcp: McpServer): void {
     'List tasks, optionally filtered by project, milestone, or task group',
     {
       projectId: z.number().optional().describe('Filter by project ID'),
-      milestoneId: z.number().optional().describe('Filter by milestone ID'),
+      milestoneRef: z.string().optional().describe('Filter by milestone ref (e.g. "m1")'),
       taskGroupId: z.number().optional().describe('Filter by task group ID'),
     },
-    async ({ projectId, milestoneId, taskGroupId }) => {
+    async ({ projectId, milestoneRef, taskGroupId }) => {
       const db = getDb();
       const query = db.select().from(tasks);
 
       if (taskGroupId) return mcpResult(query.where(eq(tasks.taskGroupId, taskGroupId)).all());
-      if (milestoneId) return mcpResult(query.where(eq(tasks.milestoneId, milestoneId)).all());
+      if (milestoneRef) return mcpResult(query.where(eq(tasks.milestoneRef, milestoneRef)).all());
       if (projectId) return mcpResult(query.where(eq(tasks.projectId, projectId)).all());
       return mcpResult(query.all());
     },
@@ -413,54 +410,20 @@ function registerTaskTools(mcp: McpServer): void {
   );
 }
 
-function registerMilestoneTools(mcp: McpServer): void {
-  mcp.tool(
-    'createMilestone',
-    'Create a new milestone within a project',
-    {
-      projectId: z.number().describe('Project ID'),
-      title: z.string().describe('Milestone title'),
-      scope: z.string().optional().describe('Milestone scope description'),
-      sortOrder: z.number().optional().describe('Sort order'),
-    },
-    async ({ projectId, title, scope, sortOrder }) => {
-      const db = getDb();
-      const milestone = db
-        .insert(milestones)
-        .values({ projectId, title, scope, sortOrder: sortOrder ?? 0 })
-        .returning()
-        .get();
-      return mcpResult(milestone);
-    },
-  );
-
-  mcp.tool(
-    'listMilestones',
-    'List milestones for a project',
-    { projectId: z.number().describe('Project ID') },
-    async ({ projectId }) => {
-      const db = getDb();
-      return mcpResult(
-        db.select().from(milestones).where(eq(milestones.projectId, projectId)).orderBy(asc(milestones.sortOrder)).all(),
-      );
-    },
-  );
-}
-
 function registerTaskGroupTools(mcp: McpServer): void {
   mcp.tool(
     'createTaskGroup',
     'Create a new task group within a milestone',
     {
-      milestoneId: z.number().describe('Milestone ID'),
+      milestoneRef: z.string().describe('Milestone ref (e.g. "m1")'),
       name: z.string().describe('Task group name'),
       repos: z.array(z.string()).optional().describe('Repository paths'),
     },
-    async ({ milestoneId, name, repos }) => {
+    async ({ milestoneRef, name, repos }) => {
       const db = getDb();
       const group = db
         .insert(taskGroups)
-        .values({ milestoneId, name, repos })
+        .values({ milestoneRef, name, repos })
         .returning()
         .get();
       return mcpResult(group);
@@ -470,11 +433,11 @@ function registerTaskGroupTools(mcp: McpServer): void {
   mcp.tool(
     'listTaskGroups',
     'List task groups for a milestone',
-    { milestoneId: z.number().describe('Milestone ID') },
-    async ({ milestoneId }) => {
+    { milestoneRef: z.string().describe('Milestone ref (e.g. "m1")') },
+    async ({ milestoneRef }) => {
       const db = getDb();
       return mcpResult(
-        db.select().from(taskGroups).where(eq(taskGroups.milestoneId, milestoneId)).all(),
+        db.select().from(taskGroups).where(eq(taskGroups.milestoneRef, milestoneRef)).all(),
       );
     },
   );
@@ -702,63 +665,13 @@ function registerProjectPlanningTools(mcp: McpServer): void {
   );
 
   mcp.tool(
-    'planMilestone',
-    'Update a milestone plan content and optionally transition it to planning status.',
-    {
-      milestoneId: z.number().describe('Milestone ID'),
-      content: z.string().describe('Plan content in markdown'),
-      transitionToPlanning: z
-        .boolean()
-        .default(false)
-        .describe('Whether to transition the milestone to planning status'),
-    },
-    async ({ milestoneId, content, transitionToPlanning }) => {
-      const db = getDb();
-
-      const milestone = db.select().from(milestones).where(eq(milestones.id, milestoneId)).get();
-      if (!milestone) return mcpError('Milestone not found');
-
-      const project = db.select().from(projects).where(eq(projects.id, milestone.projectId)).get();
-      if (!project) return mcpError('Project not found');
-
-      if (!project.projectDir) {
-        return mcpError('Project has no projectDir — cannot write plan file');
-      }
-
-      const workspace = db.select().from(workspaces).where(eq(workspaces.id, project.workspaceId)).get();
-      if (!workspace) return mcpError('Workspace not found');
-
-      const projectsDir = path.join(getWorkspaceDir(workspace), 'projects');
-      const filename = milestoneFilename(milestone.sortOrder, milestone.title);
-      writePlanFile(projectsDir, project.projectDir, filename, content);
-
-      // Optionally transition to planning
-      if (transitionToPlanning && milestone.status === 'planned') {
-        db.update(milestones)
-          .set({ status: 'planning', updatedAt: new Date().toISOString() })
-          .where(eq(milestones.id, milestoneId))
-          .run();
-      }
-
-      return mcpResult({ milestoneId, content, filename });
-    },
-  );
-
-  mcp.tool(
     'listProjectTasks',
-    'List all tasks for a project with milestone and task group hierarchy.',
+    'List all tasks for a project grouped by task group.',
     {
       projectId: z.number().describe('Project ID'),
     },
     async ({ projectId }) => {
       const db = getDb();
-
-      const projectMilestones = db
-        .select()
-        .from(milestones)
-        .where(eq(milestones.projectId, projectId))
-        .orderBy(asc(milestones.sortOrder))
-        .all();
 
       const projectTasks = db
         .select()
@@ -766,33 +679,25 @@ function registerProjectPlanningTools(mcp: McpServer): void {
         .where(eq(tasks.projectId, projectId))
         .all();
 
-      return mcpResult({
-        milestones: projectMilestones.map((m) => {
-          const milestoneGroups = db
-            .select()
-            .from(taskGroups)
-            .where(eq(taskGroups.milestoneId, m.id))
-            .all();
+      const projectGroups = db
+        .select()
+        .from(taskGroups)
+        .all()
+        .filter((g) => projectTasks.some((t) => t.taskGroupId === g.id));
 
-          return {
-            ...m,
-            taskGroups: milestoneGroups.map((g) => ({
-              ...g,
-              tasks: projectTasks.filter((t) => t.taskGroupId === g.id),
-            })),
-            tasks: projectTasks.filter(
-              (t) => t.milestoneId === m.id && !t.taskGroupId,
-            ),
-          };
-        }),
-        unassignedTasks: projectTasks.filter((t) => !t.milestoneId),
+      return mcpResult({
+        taskGroups: projectGroups.map((g) => ({
+          ...g,
+          tasks: projectTasks.filter((t) => t.taskGroupId === g.id),
+        })),
+        ungroupedTasks: projectTasks.filter((t) => !t.taskGroupId),
       });
     },
   );
 
   mcp.tool(
     'getProjectOverview',
-    'Get project details with milestone progress, task counts, and status summary.',
+    'Get project details with task counts and status summary.',
     {
       projectId: z.number().describe('Project ID'),
     },
@@ -802,13 +707,6 @@ function registerProjectPlanningTools(mcp: McpServer): void {
       const project = db.select().from(projects).where(eq(projects.id, projectId)).get();
       if (!project) return mcpError('Project not found');
 
-      const projectMilestones = db
-        .select()
-        .from(milestones)
-        .where(eq(milestones.projectId, projectId))
-        .orderBy(asc(milestones.sortOrder))
-        .all();
-
       const projectTasks = db
         .select()
         .from(tasks)
@@ -817,18 +715,8 @@ function registerProjectPlanningTools(mcp: McpServer): void {
 
       return mcpResult({
         ...project,
-        milestoneCount: projectMilestones.length,
-        completedMilestones: projectMilestones.filter((m) => m.status === 'complete').length,
         taskCount: projectTasks.length,
         completedTasks: projectTasks.filter((t) => t.status === 'done').length,
-        milestones: projectMilestones.map((m) => {
-          const mTasks = projectTasks.filter((t) => t.milestoneId === m.id);
-          return {
-            ...m,
-            taskCount: mTasks.length,
-            completedTasks: mTasks.filter((t) => t.status === 'done').length,
-          };
-        }),
       });
     },
   );

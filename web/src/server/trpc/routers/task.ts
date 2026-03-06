@@ -11,7 +11,7 @@ export const taskRouter = router({
     .input(
       z.object({
         projectId: z.number().optional(),
-        milestoneId: z.number().optional(),
+        milestoneRef: z.string().optional(),
         taskGroupId: z.number().optional(),
         title: z.string().min(1),
         description: z.string().optional(),
@@ -46,7 +46,7 @@ export const taskRouter = router({
         .insert(tasks)
         .values({
           projectId: input.projectId,
-          milestoneId: input.milestoneId,
+          milestoneRef: input.milestoneRef,
           taskGroupId: input.taskGroupId,
           title: input.title,
           description: input.description,
@@ -64,7 +64,7 @@ export const taskRouter = router({
     .input(
       z.object({
         projectId: z.number().optional(),
-        milestoneId: z.number().optional(),
+        milestoneRef: z.string().optional(),
         taskGroupId: z.number().optional(),
       }),
     )
@@ -78,11 +78,11 @@ export const taskRouter = router({
           .where(eq(tasks.taskGroupId, input.taskGroupId))
           .all();
       }
-      if (input.milestoneId) {
+      if (input.milestoneRef) {
         return db
           .select()
           .from(tasks)
-          .where(eq(tasks.milestoneId, input.milestoneId))
+          .where(eq(tasks.milestoneRef, input.milestoneRef))
           .all();
       }
       if (input.projectId) {
@@ -116,7 +116,7 @@ export const taskRouter = router({
         importance: z.enum(['important', 'not_important']).optional(),
         urgency: z.enum(['urgent', 'not_urgent']).optional(),
         dependencies: z.array(z.number()).optional(),
-        milestoneId: z.number().nullable().optional(),
+        milestoneRef: z.string().nullable().optional(),
         taskGroupId: z.number().nullable().optional(),
       }),
     )

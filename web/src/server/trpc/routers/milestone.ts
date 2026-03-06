@@ -1,20 +1,26 @@
 import { z } from 'zod';
 import path from 'node:path';
-import { eq, asc } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
-import { milestones, projects, workspaces } from '../../db/schema';
+import { projects, workspaces } from '../../db/schema';
 import { getWorkspaceDir } from '../../engy-dir/init';
-import { milestoneFilename, renamePlanFile } from '../../plan/service';
+import {
+  type MilestoneStatus,
+  buildMilestoneFrontmatter,
+  listMilestones,
+  readPlanFile,
+  writePlanFile,
+  deletePlanFile,
+  parseMilestoneFilename,
+} from '../../plan/service';
 
 const MILESTONE_STATUS_ORDER = ['planned', 'planning', 'active', 'complete'] as const;
 
-function validateMilestoneStatusTransition(current: string, next: string): void {
-  const currentIdx = MILESTONE_STATUS_ORDER.indexOf(
-    current as (typeof MILESTONE_STATUS_ORDER)[number],
-  );
-  const nextIdx = MILESTONE_STATUS_ORDER.indexOf(next as (typeof MILESTONE_STATUS_ORDER)[number]);
+function validateStatusTransition(current: MilestoneStatus, next: MilestoneStatus): void {
+  const currentIdx = MILESTONE_STATUS_ORDER.indexOf(current);
+  const nextIdx = MILESTONE_STATUS_ORDER.indexOf(next);
   if (nextIdx !== currentIdx + 1) {
     throw new TRPCError({
       code: 'BAD_REQUEST',
@@ -23,130 +29,117 @@ function validateMilestoneStatusTransition(current: string, next: string): void 
   }
 }
 
+function slugify(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function resolveProjectDir(projectId: number) {
+  const db = getDb();
+  const project = db.select().from(projects).where(eq(projects.id, projectId)).get();
+  if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+  const workspace = db.select().from(workspaces).where(eq(workspaces.id, project.workspaceId)).get();
+  if (!workspace) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
+  const specsDir = path.join(getWorkspaceDir(workspace), 'projects');
+  const specSlug = project.projectDir ?? project.slug;
+  return { specsDir, specSlug };
+}
+
+function updateFrontmatter(existing: string, title: string, status: MilestoneStatus, scope?: string): string {
+  const frontmatter = buildMilestoneFrontmatter(title, status, scope);
+  const bodyMatch = existing.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/);
+  const body = bodyMatch ? bodyMatch[1] : '';
+  return frontmatter + body;
+}
+
 export const milestoneRouter = router({
+  list: publicProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(({ input }) => {
+      const { specsDir, specSlug } = resolveProjectDir(input.projectId);
+      return listMilestones(specsDir, specSlug);
+    }),
+
+  get: publicProcedure
+    .input(z.object({ projectId: z.number(), filename: z.string() }))
+    .query(({ input }) => {
+      const { specsDir, specSlug } = resolveProjectDir(input.projectId);
+      const milestones = listMilestones(specsDir, specSlug);
+      const milestone = milestones.find((m) => m.filename === input.filename);
+      if (!milestone) throw new TRPCError({ code: 'NOT_FOUND', message: 'Milestone not found' });
+      return milestone;
+    }),
+
   create: publicProcedure
     .input(
       z.object({
         projectId: z.number(),
+        num: z.number().positive(),
         title: z.string().min(1),
         scope: z.string().optional(),
-        sortOrder: z.number().optional(),
       }),
     )
     .mutation(({ input }) => {
-      const db = getDb();
-      return db
-        .insert(milestones)
-        .values({
-          projectId: input.projectId,
-          title: input.title,
-          scope: input.scope,
-          sortOrder: input.sortOrder ?? 0,
-        })
-        .returning()
-        .get();
+      const { specsDir, specSlug } = resolveProjectDir(input.projectId);
+      const filename = `m${input.num}-${slugify(input.title)}.plan.md`;
+      const content = buildMilestoneFrontmatter(input.title, 'planned', input.scope);
+      writePlanFile(specsDir, specSlug, filename, content);
+      return {
+        ref: `m${input.num}`,
+        num: input.num,
+        filename,
+        title: input.title,
+        status: 'planned' as MilestoneStatus,
+        scope: input.scope,
+      };
     }),
-
-  list: publicProcedure
-    .input(z.object({ projectId: z.number() }))
-    .query(({ input }) => {
-      const db = getDb();
-      return db
-        .select()
-        .from(milestones)
-        .where(eq(milestones.projectId, input.projectId))
-        .orderBy(asc(milestones.sortOrder))
-        .all();
-    }),
-
-  get: publicProcedure.input(z.object({ id: z.number() })).query(({ input }) => {
-    const db = getDb();
-    const milestone = db.select().from(milestones).where(eq(milestones.id, input.id)).get();
-    if (!milestone) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: 'Milestone not found' });
-    }
-    return milestone;
-  }),
 
   update: publicProcedure
     .input(
       z.object({
-        id: z.number(),
-        title: z.string().optional(),
+        projectId: z.number(),
+        filename: z.string(),
+        title: z.string().min(1).optional(),
         status: z.enum(['planned', 'planning', 'active', 'complete']).optional(),
         scope: z.string().optional(),
-        sortOrder: z.number().optional(),
       }),
     )
     .mutation(({ input }) => {
-      const db = getDb();
-      const { id, ...updates } = input;
+      const { specsDir, specSlug } = resolveProjectDir(input.projectId);
+      const milestones = listMilestones(specsDir, specSlug);
+      const existing = milestones.find((m) => m.filename === input.filename);
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Milestone not found' });
 
-      const existing = db.select().from(milestones).where(eq(milestones.id, id)).get();
-      if (!existing) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Milestone not found' });
+      if (input.status) validateStatusTransition(existing.status, input.status);
+
+      const newTitle = input.title ?? existing.title;
+      const newStatus = input.status ?? existing.status;
+      const newScope = input.scope !== undefined ? input.scope : existing.scope;
+      const newFilename = `m${existing.num}-${slugify(newTitle)}.plan.md`;
+
+      const existingContent = readPlanFile(specsDir, specSlug, input.filename) ?? '';
+      const newContent = updateFrontmatter(existingContent, newTitle, newStatus, newScope);
+
+      writePlanFile(specsDir, specSlug, newFilename, newContent);
+      if (newFilename !== input.filename) {
+        deletePlanFile(specsDir, specSlug, input.filename);
       }
 
-      if (updates.status) {
-        validateMilestoneStatusTransition(existing.status, updates.status);
-      }
-
-      const result = db
-        .update(milestones)
-        .set({ ...updates, updatedAt: new Date().toISOString() })
-        .where(eq(milestones.id, id))
-        .returning()
-        .get()!;
-
-      // Rename plan file if title or sortOrder changed
-      const titleChanged = updates.title !== undefined && updates.title !== existing.title;
-      const orderChanged = updates.sortOrder !== undefined && updates.sortOrder !== existing.sortOrder;
-      if (titleChanged || orderChanged) {
-        try {
-          const project = db
-            .select()
-            .from(projects)
-            .where(eq(projects.id, existing.projectId))
-            .get();
-          if (project?.projectDir) {
-            const workspace = db
-              .select()
-              .from(workspaces)
-              .where(eq(workspaces.id, project.workspaceId))
-              .get();
-            if (workspace) {
-              const projectsDir = path.join(getWorkspaceDir(workspace), 'projects');
-              const oldFilename = milestoneFilename(existing.sortOrder, existing.title);
-              const newFilename = milestoneFilename(result.sortOrder, result.title);
-              if (oldFilename !== newFilename) {
-                renamePlanFile(projectsDir, project.projectDir, oldFilename, newFilename);
-              }
-            }
-          }
-        } catch {
-          // Best-effort rename — no error if file doesn't exist
-        }
-      }
-
-      return result;
+      return { ref: existing.ref, num: existing.num, filename: newFilename, title: newTitle, status: newStatus, scope: newScope };
     }),
 
-  reorder: publicProcedure
-    .input(z.array(z.object({ id: z.number(), sortOrder: z.number() })))
+  delete: publicProcedure
+    .input(z.object({ projectId: z.number(), filename: z.string() }))
     .mutation(({ input }) => {
-      const db = getDb();
-      for (const item of input) {
-        db.update(milestones)
-          .set({ sortOrder: item.sortOrder, updatedAt: new Date().toISOString() })
-          .where(eq(milestones.id, item.id))
-          .run();
+      const { specsDir, specSlug } = resolveProjectDir(input.projectId);
+      try {
+        deletePlanFile(specsDir, specSlug, input.filename);
+      } catch {
+        // already gone
       }
       return { success: true };
     }),
-
-  delete: publicProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => {
-    const db = getDb();
-    db.delete(milestones).where(eq(milestones.id, input.id)).run();
-    return { success: true };
-  }),
 });

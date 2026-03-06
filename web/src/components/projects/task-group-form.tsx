@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-type Milestone = { id: number; title: string };
+type Milestone = { ref: string; title: string };
 
 export function TaskGroupForm({
   milestones,
@@ -34,21 +34,21 @@ export function TaskGroupForm({
   onCreated?: () => void;
 }) {
   const [name, setName] = useState("");
-  const [milestoneId, setMilestoneId] = useState<string>("");
+  const [milestoneRef, setMilestoneRef] = useState<string>("");
 
   const createGroup = trpc.taskGroup.create.useMutation({
     onSuccess: () => {
       setName("");
-      setMilestoneId("");
+      setMilestoneRef("");
       onCreated?.();
     },
   });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !milestoneId) return;
+    if (!name.trim() || !milestoneRef) return;
     createGroup.mutate({
-      milestoneId: Number(milestoneId),
+      milestoneRef,
       name: name.trim(),
     });
   }
@@ -75,13 +75,13 @@ export function TaskGroupForm({
 
             <div className="flex flex-col gap-1.5">
               <Label>Milestone</Label>
-              <Select value={milestoneId} onValueChange={setMilestoneId}>
+              <Select value={milestoneRef} onValueChange={setMilestoneRef}>
                 <SelectTrigger className="h-7 text-xs">
                   <SelectValue placeholder="Select milestone" />
                 </SelectTrigger>
                 <SelectContent>
                   {milestones.map((ms) => (
-                    <SelectItem key={ms.id} value={String(ms.id)}>
+                    <SelectItem key={ms.ref} value={ms.ref}>
                       {ms.title}
                     </SelectItem>
                   ))}
@@ -93,7 +93,7 @@ export function TaskGroupForm({
           <DialogFooter>
             <Button
               type="submit"
-              disabled={!name.trim() || !milestoneId || createGroup.isPending}
+              disabled={!name.trim() || !milestoneRef || createGroup.isPending}
             >
               Create
             </Button>

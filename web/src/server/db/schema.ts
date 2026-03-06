@@ -50,39 +50,6 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
     fields: [projects.workspaceId],
     references: [workspaces.id],
   }),
-  milestones: many(milestones),
-  tasks: many(tasks),
-}));
-
-// ── Milestones ──────────────────────────────────────────────────────
-
-export const milestones = sqliteTable('milestones', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  projectId: integer('project_id')
-    .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
-  title: text('title').notNull(),
-  status: text('status', {
-    enum: ['planned', 'planning', 'active', 'complete'],
-  })
-    .notNull()
-    .default('planned'),
-  scope: text('scope'),
-  sortOrder: integer('sort_order').notNull().default(0),
-  createdAt: text('created_at')
-    .notNull()
-    .$defaultFn(() => new Date().toISOString()),
-  updatedAt: text('updated_at')
-    .notNull()
-    .$defaultFn(() => new Date().toISOString()),
-});
-
-export const milestonesRelations = relations(milestones, ({ one, many }) => ({
-  project: one(projects, {
-    fields: [milestones.projectId],
-    references: [projects.id],
-  }),
-  taskGroups: many(taskGroups),
   tasks: many(tasks),
 }));
 
@@ -90,9 +57,7 @@ export const milestonesRelations = relations(milestones, ({ one, many }) => ({
 
 export const taskGroups = sqliteTable('task_groups', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  milestoneId: integer('milestone_id')
-    .notNull()
-    .references(() => milestones.id, { onDelete: 'cascade' }),
+  milestoneRef: text('milestone_ref'),
   name: text('name').notNull(),
   status: text('status', {
     enum: ['planned', 'active', 'review', 'complete'],
@@ -108,11 +73,7 @@ export const taskGroups = sqliteTable('task_groups', {
     .$defaultFn(() => new Date().toISOString()),
 });
 
-export const taskGroupsRelations = relations(taskGroups, ({ one, many }) => ({
-  milestone: one(milestones, {
-    fields: [taskGroups.milestoneId],
-    references: [milestones.id],
-  }),
+export const taskGroupsRelations = relations(taskGroups, ({ many }) => ({
   tasks: many(tasks),
   agentSessions: many(agentSessions),
 }));
@@ -122,7 +83,7 @@ export const taskGroupsRelations = relations(taskGroups, ({ one, many }) => ({
 export const tasks = sqliteTable('tasks', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   projectId: integer('project_id').references(() => projects.id, { onDelete: 'cascade' }),
-  milestoneId: integer('milestone_id').references(() => milestones.id, { onDelete: 'set null' }),
+  milestoneRef: text('milestone_ref'),
   taskGroupId: integer('task_group_id').references(() => taskGroups.id, { onDelete: 'set null' }),
   title: text('title').notNull(),
   description: text('description'),
@@ -150,10 +111,6 @@ export const tasksRelations = relations(tasks, ({ one }) => ({
   project: one(projects, {
     fields: [tasks.projectId],
     references: [projects.id],
-  }),
-  milestone: one(milestones, {
-    fields: [tasks.milestoneId],
-    references: [milestones.id],
   }),
   taskGroup: one(taskGroups, {
     fields: [tasks.taskGroupId],

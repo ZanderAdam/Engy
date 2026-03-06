@@ -37,18 +37,6 @@ CREATE TABLE `fleeting_memories` (
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
-CREATE TABLE `milestones` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`project_id` integer NOT NULL,
-	`title` text NOT NULL,
-	`status` text DEFAULT 'planned' NOT NULL,
-	`scope` text,
-	`sort_order` integer DEFAULT 0 NOT NULL,
-	`created_at` text NOT NULL,
-	`updated_at` text NOT NULL,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
 CREATE TABLE `project_memories` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`project_id` integer NOT NULL,
@@ -75,19 +63,18 @@ CREATE TABLE `projects` (
 --> statement-breakpoint
 CREATE TABLE `task_groups` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`milestone_id` integer NOT NULL,
+	`milestone_ref` text,
 	`name` text NOT NULL,
 	`status` text DEFAULT 'planned' NOT NULL,
 	`repos` text,
 	`created_at` text NOT NULL,
-	`updated_at` text NOT NULL,
-	FOREIGN KEY (`milestone_id`) REFERENCES `milestones`(`id`) ON UPDATE no action ON DELETE cascade
+	`updated_at` text NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `tasks` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`project_id` integer,
-	`milestone_id` integer,
+	`milestone_ref` text,
 	`task_group_id` integer,
 	`title` text NOT NULL,
 	`description` text,
@@ -100,7 +87,6 @@ CREATE TABLE `tasks` (
 	`created_at` text NOT NULL,
 	`updated_at` text NOT NULL,
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`milestone_id`) REFERENCES `milestones`(`id`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (`task_group_id`) REFERENCES `task_groups`(`id`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint

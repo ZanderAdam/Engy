@@ -27,13 +27,13 @@ export function MilestoneForm({
 }) {
   const [title, setTitle] = useState("");
   const [scope, setScope] = useState("");
-  const [sortOrder, setSortOrder] = useState(0);
+  const [num, setNum] = useState(1);
 
   const createMilestone = trpc.milestone.create.useMutation({
     onSuccess: () => {
       setTitle("");
       setScope("");
-      setSortOrder(0);
+      setNum(1);
       onCreated?.();
     },
   });
@@ -43,9 +43,9 @@ export function MilestoneForm({
     if (!title.trim()) return;
     createMilestone.mutate({
       projectId,
+      num,
       title: title.trim(),
       scope: scope.trim() || undefined,
-      sortOrder,
     });
   }
 
@@ -81,12 +81,14 @@ export function MilestoneForm({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ms-order">Sort Order</Label>
+              <Label htmlFor="ms-num">Milestone Number</Label>
               <Input
-                id="ms-order"
+                id="ms-num"
                 type="number"
-                value={sortOrder}
-                onChange={(e) => setSortOrder(Number(e.target.value))}
+                step="0.5"
+                min="0.5"
+                value={num}
+                onChange={(e) => setNum(Number(e.target.value))}
               />
             </div>
           </div>

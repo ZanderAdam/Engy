@@ -9,7 +9,7 @@ export const taskGroupRouter = router({
   create: publicProcedure
     .input(
       z.object({
-        milestoneId: z.number(),
+        milestoneRef: z.string(),
         name: z.string().min(1),
         repos: z.array(z.string()).optional(),
       }),
@@ -19,7 +19,7 @@ export const taskGroupRouter = router({
       return db
         .insert(taskGroups)
         .values({
-          milestoneId: input.milestoneId,
+          milestoneRef: input.milestoneRef,
           name: input.name,
           repos: input.repos,
         })
@@ -28,13 +28,13 @@ export const taskGroupRouter = router({
     }),
 
   list: publicProcedure
-    .input(z.object({ milestoneId: z.number() }))
+    .input(z.object({ milestoneRef: z.string() }))
     .query(({ input }) => {
       const db = getDb();
       return db
         .select()
         .from(taskGroups)
-        .where(eq(taskGroups.milestoneId, input.milestoneId))
+        .where(eq(taskGroups.milestoneRef, input.milestoneRef))
         .all();
     }),
 

@@ -65,27 +65,19 @@ describe('task router', () => {
       expect(result).toHaveLength(2);
     });
 
-    it('should list tasks by milestoneId', async () => {
-      const milestone = await caller.milestone.create({
-        projectId,
-        title: 'M1',
-      });
-      await caller.task.create({ projectId, milestoneId: milestone.id, title: 'MT1' });
-      await caller.task.create({ projectId, milestoneId: milestone.id, title: 'MT2' });
+    it('should list tasks by milestoneRef', async () => {
+      await caller.task.create({ projectId, milestoneRef: 'm1', title: 'MT1' });
+      await caller.task.create({ projectId, milestoneRef: 'm1', title: 'MT2' });
       await caller.task.create({ projectId, title: 'Unlinked' });
 
-      const result = await caller.task.list({ milestoneId: milestone.id });
+      const result = await caller.task.list({ milestoneRef: 'm1' });
       expect(result).toHaveLength(2);
-      expect(result.every((t) => t.milestoneId === milestone.id)).toBe(true);
+      expect(result.every((t) => t.milestoneRef === 'm1')).toBe(true);
     });
 
     it('should list tasks by taskGroupId', async () => {
-      const milestone = await caller.milestone.create({
-        projectId,
-        title: 'M1',
-      });
       const group = await caller.taskGroup.create({
-        milestoneId: milestone.id,
+        milestoneRef: 'm1',
         name: 'Group 1',
       });
       await caller.task.create({ projectId, taskGroupId: group.id, title: 'GT1' });

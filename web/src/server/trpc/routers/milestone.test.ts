@@ -22,140 +22,135 @@ describe('milestone router', () => {
     ctx.cleanup();
   });
 
-  describe('update', () => {
-    it('should update milestone title', async () => {
+  describe('create', () => {
+    it('should create a milestone file', async () => {
       const milestone = await caller.milestone.create({
         projectId,
-        title: 'Original Title',
+        num: 1,
+        title: 'Foundation',
       });
-      const updated = await caller.milestone.update({
-        id: milestone.id,
-        title: 'Updated Title',
-      });
-      expect(updated.title).toBe('Updated Title');
+      expect(milestone.ref).toBe('m1');
+      expect(milestone.num).toBe(1);
+      expect(milestone.title).toBe('Foundation');
+      expect(milestone.status).toBe('planned');
+      expect(milestone.filename).toBe('m1-foundation.plan.md');
     });
 
-    it('should allow valid forward status transitions', async () => {
+    it('should support decimal milestone numbers', async () => {
       const milestone = await caller.milestone.create({
         projectId,
-        title: 'Forward Test',
+        num: 1.5,
+        title: 'Auth Setup',
       });
-      await caller.milestone.update({ id: milestone.id, status: 'planning' });
-      await caller.milestone.update({ id: milestone.id, status: 'active' });
-      const result = await caller.milestone.update({
-        id: milestone.id,
-        status: 'complete',
-      });
-      expect(result.status).toBe('complete');
+      expect(milestone.ref).toBe('m1.5');
+      expect(milestone.num).toBe(1.5);
     });
 
-    it('should reject skipping milestone status transitions', async () => {
+    it('should create a milestone with scope', async () => {
       const milestone = await caller.milestone.create({
         projectId,
-        title: 'Skip Test',
+        num: 2,
+        title: 'API Layer',
+        scope: 'REST endpoints only',
       });
+      expect(milestone.scope).toBe('REST endpoints only');
+    });
+  });
+
+  describe('list', () => {
+    it('should list milestones sorted by number', async () => {
+      await caller.milestone.create({ projectId, num: 2, title: 'Second' });
+      await caller.milestone.create({ projectId, num: 1, title: 'First' });
+      const list = await caller.milestone.list({ projectId });
+      expect(list[0].num).toBe(1);
+      expect(list[1].num).toBe(2);
+    });
+
+    it('should return empty list for project with no milestones', async () => {
+      const list = await caller.milestone.list({ projectId });
+      expect(list).toHaveLength(0);
+    });
+  });
+
+  describe('get', () => {
+    it('should get a milestone by filename', async () => {
+      const created = await caller.milestone.create({ projectId, num: 1, title: 'Get Test' });
+      const fetched = await caller.milestone.get({ projectId, filename: created.filename });
+      expect(fetched.title).toBe('Get Test');
+    });
+
+    it('should throw NOT_FOUND for missing filename', async () => {
       await expect(
-        caller.milestone.update({ id: milestone.id, status: 'active' }),
-      ).rejects.toThrow('invalid milestone status transition');
-    });
-
-    it('should reject backward milestone status transitions', async () => {
-      const milestone = await caller.milestone.create({
-        projectId,
-        title: 'Backward Test',
-      });
-      await caller.milestone.update({ id: milestone.id, status: 'planning' });
-      await caller.milestone.update({ id: milestone.id, status: 'active' });
-      await expect(
-        caller.milestone.update({ id: milestone.id, status: 'planned' }),
-      ).rejects.toThrow('invalid milestone status transition');
-    });
-
-    it('should allow update without status change', async () => {
-      const milestone = await caller.milestone.create({
-        projectId,
-        title: 'No Status Change',
-      });
-      const updated = await caller.milestone.update({
-        id: milestone.id,
-        title: 'New Title',
-      });
-      expect(updated.title).toBe('New Title');
-      expect(updated.status).toBe('planned');
-    });
-
-    it('should update milestone scope', async () => {
-      const milestone = await caller.milestone.create({
-        projectId,
-        title: 'Scope Test',
-      });
-      const updated = await caller.milestone.update({
-        id: milestone.id,
-        scope: 'Backend API endpoints',
-      });
-      expect(updated.scope).toBe('Backend API endpoints');
-    });
-
-    it('should update milestone sortOrder', async () => {
-      const milestone = await caller.milestone.create({
-        projectId,
-        title: 'Sort Test',
-      });
-      const updated = await caller.milestone.update({
-        id: milestone.id,
-        sortOrder: 5,
-      });
-      expect(updated.sortOrder).toBe(5);
-    });
-
-    it('should throw NOT_FOUND for non-existent milestone', async () => {
-      await expect(
-        caller.milestone.update({ id: 99999, title: 'Nope' }),
+        caller.milestone.get({ projectId, filename: 'm99-nope.plan.md' }),
       ).rejects.toThrow('not found');
     });
   });
 
-  describe('reorder', () => {
-    it('should reorder multiple milestones', async () => {
-      const m1 = await caller.milestone.create({
+  describe('update', () => {
+    it('should update milestone title and rename file', async () => {
+      const milestone = await caller.milestone.create({ projectId, num: 1, title: 'Original' });
+      const updated = await caller.milestone.update({
         projectId,
-        title: 'First',
-        sortOrder: 0,
+        filename: milestone.filename,
+        title: 'Updated Title',
       });
-      const m2 = await caller.milestone.create({
-        projectId,
-        title: 'Second',
-        sortOrder: 1,
-      });
-      const m3 = await caller.milestone.create({
-        projectId,
-        title: 'Third',
-        sortOrder: 2,
-      });
+      expect(updated.title).toBe('Updated Title');
+      expect(updated.filename).toBe('m1-updated-title.plan.md');
+    });
 
-      await caller.milestone.reorder([
-        { id: m1.id, sortOrder: 2 },
-        { id: m2.id, sortOrder: 0 },
-        { id: m3.id, sortOrder: 1 },
-      ]);
+    it('should allow valid forward status transitions', async () => {
+      const m = await caller.milestone.create({ projectId, num: 1, title: 'Forward Test' });
+      const m2 = await caller.milestone.update({ projectId, filename: m.filename, status: 'planning' });
+      const m3 = await caller.milestone.update({ projectId, filename: m2.filename, status: 'active' });
+      const result = await caller.milestone.update({ projectId, filename: m3.filename, status: 'complete' });
+      expect(result.status).toBe('complete');
+    });
 
-      const list = await caller.milestone.list({ projectId });
-      expect(list[0].title).toBe('Second');
-      expect(list[1].title).toBe('Third');
-      expect(list[2].title).toBe('First');
+    it('should reject skipping milestone status transitions', async () => {
+      const m = await caller.milestone.create({ projectId, num: 1, title: 'Skip Test' });
+      await expect(
+        caller.milestone.update({ projectId, filename: m.filename, status: 'active' }),
+      ).rejects.toThrow('invalid milestone status transition');
+    });
+
+    it('should reject backward milestone status transitions', async () => {
+      const m = await caller.milestone.create({ projectId, num: 1, title: 'Backward Test' });
+      const m2 = await caller.milestone.update({ projectId, filename: m.filename, status: 'planning' });
+      const m3 = await caller.milestone.update({ projectId, filename: m2.filename, status: 'active' });
+      await expect(
+        caller.milestone.update({ projectId, filename: m3.filename, status: 'planned' }),
+      ).rejects.toThrow('invalid milestone status transition');
+    });
+
+    it('should update scope', async () => {
+      const m = await caller.milestone.create({ projectId, num: 1, title: 'Scope Test' });
+      const updated = await caller.milestone.update({
+        projectId,
+        filename: m.filename,
+        scope: 'Backend only',
+      });
+      expect(updated.scope).toBe('Backend only');
+    });
+
+    it('should throw NOT_FOUND for non-existent filename', async () => {
+      await expect(
+        caller.milestone.update({ projectId, filename: 'm99-nope.plan.md', title: 'Nope' }),
+      ).rejects.toThrow('not found');
     });
   });
 
   describe('delete', () => {
     it('should delete an existing milestone', async () => {
-      const milestone = await caller.milestone.create({
-        projectId,
-        title: 'Delete Me',
-      });
-      await caller.milestone.delete({ id: milestone.id });
-      await expect(caller.milestone.get({ id: milestone.id })).rejects.toThrow(
-        'not found',
-      );
+      const milestone = await caller.milestone.create({ projectId, num: 1, title: 'Delete Me' });
+      await caller.milestone.delete({ projectId, filename: milestone.filename });
+      const list = await caller.milestone.list({ projectId });
+      expect(list).toHaveLength(0);
+    });
+
+    it('should succeed silently for non-existent file', async () => {
+      await expect(
+        caller.milestone.delete({ projectId, filename: 'm99-nope.plan.md' }),
+      ).resolves.toEqual({ success: true });
     });
   });
 });

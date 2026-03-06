@@ -5,10 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 type Milestone = {
-  id: number;
+  ref: string;
+  num: number;
   title: string;
   status: string;
-  sortOrder: number;
+  filename: string;
 };
 
 const milestoneStatusColors: Record<string, string> = {
@@ -23,7 +24,7 @@ export function SwimlaneBoard({
 }: {
   milestones: Milestone[];
 }) {
-  const sorted = [...milestones].sort((a, b) => a.sortOrder - b.sortOrder);
+  const sorted = [...milestones].sort((a, b) => a.num - b.num);
 
   if (sorted.length === 0) {
     return <p className="py-8 text-center text-xs text-muted-foreground">No milestones</p>;
@@ -32,7 +33,7 @@ export function SwimlaneBoard({
   return (
     <div className="flex flex-col gap-4">
       {sorted.map((ms) => (
-        <MilestoneLane key={ms.id} milestone={ms} />
+        <MilestoneLane key={ms.ref} milestone={ms} />
       ))}
     </div>
   );
@@ -43,7 +44,7 @@ function MilestoneLane({
 }: {
   milestone: Milestone;
 }) {
-  const { data: groups } = trpc.taskGroup.list.useQuery({ milestoneId: milestone.id });
+  const { data: groups } = trpc.taskGroup.list.useQuery({ milestoneRef: milestone.ref });
 
   return (
     <div className="border border-border">

@@ -3,7 +3,7 @@ import { eq, and } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
-import { projects, milestones, tasks, workspaces } from '../../db/schema';
+import { projects, tasks, workspaces } from '../../db/schema';
 import { uniqueProjectSlug } from '../utils';
 import {
   listProjectFiles,
@@ -128,12 +128,6 @@ export const projectRouter = router({
         .all();
 
       return allProjects.map((project) => {
-        const projectMilestones = db
-          .select()
-          .from(milestones)
-          .where(eq(milestones.projectId, project.id))
-          .all();
-
         const projectTasks = db
           .select()
           .from(tasks)
@@ -142,8 +136,6 @@ export const projectRouter = router({
 
         return {
           ...project,
-          milestoneCount: projectMilestones.length,
-          completedMilestones: projectMilestones.filter((m) => m.status === 'complete').length,
           taskCount: projectTasks.length,
           completedTasks: projectTasks.filter((t) => t.status === 'done').length,
         };

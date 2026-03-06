@@ -13,11 +13,12 @@ const milestoneStatusColors: Record<string, string> = {
 };
 
 type Milestone = {
-  id: number;
+  ref: string;
+  num: number;
   title: string;
   status: string;
-  scope: string | null;
-  sortOrder: number;
+  scope?: string | null;
+  filename: string;
 };
 
 export function MilestoneList({
@@ -25,12 +26,12 @@ export function MilestoneList({
 }: {
   milestones: Milestone[];
 }) {
-  const sorted = [...milestones].sort((a, b) => a.sortOrder - b.sortOrder);
+  const sorted = [...milestones].sort((a, b) => a.num - b.num);
 
   return (
     <div className="flex flex-col gap-2">
       {sorted.map((ms) => (
-        <MilestoneRow key={ms.id} milestone={ms} />
+        <MilestoneRow key={ms.ref} milestone={ms} />
       ))}
       {sorted.length === 0 && (
         <p className="py-4 text-center text-xs text-muted-foreground">No milestones yet</p>
@@ -44,7 +45,7 @@ function MilestoneRow({
 }: {
   milestone: Milestone;
 }) {
-  const { data: tasks } = trpc.task.list.useQuery({ milestoneId: milestone.id });
+  const { data: tasks } = trpc.task.list.useQuery({ milestoneRef: milestone.ref });
   const total = tasks?.length ?? 0;
   const done = tasks?.filter((t) => t.status === "done").length ?? 0;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;

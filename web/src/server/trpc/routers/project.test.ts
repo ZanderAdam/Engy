@@ -85,32 +85,24 @@ describe('project router', () => {
   });
 
   describe('listWithProgress', () => {
-    it('should return projects with progress counts', async () => {
+    it('should return projects with task progress counts', async () => {
       const proj = await caller.project.create({
         workspaceSlug: 'test-ws',
         name: 'Progress Test',
       });
-      const m1 = await caller.milestone.create({ projectId: proj.id, title: 'M1' });
-      await caller.milestone.update({ id: m1.id, status: 'planning' });
-      await caller.milestone.update({ id: m1.id, status: 'active' });
-      await caller.milestone.update({ id: m1.id, status: 'complete' });
 
-      const m2 = await caller.milestone.create({ projectId: proj.id, title: 'M2' });
-
-      await caller.task.create({ projectId: proj.id, milestoneId: m1.id, title: 'T1' });
-      const t2 = await caller.task.create({ projectId: proj.id, milestoneId: m2.id, title: 'T2' });
+      await caller.task.create({ projectId: proj.id, title: 'T1' });
+      const t2 = await caller.task.create({ projectId: proj.id, title: 'T2' });
       await caller.task.update({ id: t2.id, status: 'done' });
 
       const result = await caller.project.listWithProgress({ workspaceId });
       const p = result.find((r) => r.id === proj.id);
       expect(p).toBeDefined();
-      expect(p!.milestoneCount).toBe(2);
-      expect(p!.completedMilestones).toBe(1);
       expect(p!.taskCount).toBe(2);
       expect(p!.completedTasks).toBe(1);
     });
 
-    it('should return zero counts for project with no milestones or tasks', async () => {
+    it('should return zero counts for project with no tasks', async () => {
       const proj = await caller.project.create({
         workspaceSlug: 'test-ws',
         name: 'Empty Project',
@@ -118,7 +110,7 @@ describe('project router', () => {
       const result = await caller.project.listWithProgress({ workspaceId });
       const p = result.find((r) => r.id === proj.id);
       expect(p).toBeDefined();
-      expect(p!.milestoneCount).toBe(0);
+      expect(p!.taskCount).toBe(0);
       expect(p!.completedTasks).toBe(0);
     });
   });
