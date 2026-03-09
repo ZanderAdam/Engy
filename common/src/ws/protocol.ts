@@ -56,3 +56,78 @@ export type ClientToServerMessage =
 export type ServerToClientMessage =
   | WorkspacesSyncMessage
   | ValidatePathsRequestMessage;
+
+// ── Compact terminal relay types (server ↔ daemon) ──────────────────────────
+
+// Server → Daemon commands
+export interface TerminalSpawnCmd {
+  t: 'spawn';
+  sessionId: string;
+  workingDir: string;
+  command?: string;
+  cols: number;
+  rows: number;
+  scopeType: string;
+  scopeLabel: string;
+}
+
+export interface TerminalInputCmd {
+  t: 'i';
+  sessionId: string;
+  d: string;
+}
+
+export interface TerminalResizeCmd {
+  t: 'resize';
+  sessionId: string;
+  cols: number;
+  rows: number;
+}
+
+export interface TerminalKillCmd {
+  t: 'kill';
+  sessionId: string;
+}
+
+export interface TerminalReconnectCmd {
+  t: 'reconnect';
+  sessionId: string;
+}
+
+export type TerminalRelayCommand =
+  | TerminalSpawnCmd
+  | TerminalInputCmd
+  | TerminalResizeCmd
+  | TerminalKillCmd
+  | TerminalReconnectCmd;
+
+// Daemon → Server events
+export interface TerminalOutputEvent {
+  t: 'o';
+  sessionId: string;
+  d: string;
+}
+
+export interface TerminalExitEvent {
+  t: 'exit';
+  sessionId: string;
+  exitCode: number;
+}
+
+export interface TerminalReconnectedEvent {
+  t: 'reconnected';
+  sessionId: string;
+  buffer: string[];
+}
+
+export interface TerminalErrorEvent {
+  t: 'error';
+  sessionId?: string;
+  message: string;
+}
+
+export type TerminalRelayEvent =
+  | TerminalOutputEvent
+  | TerminalExitEvent
+  | TerminalReconnectedEvent
+  | TerminalErrorEvent;

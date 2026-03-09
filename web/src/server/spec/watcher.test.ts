@@ -9,6 +9,9 @@ function createTestState(): AppState {
     pendingValidations: new Map(),
     specLastChanged: new Map(),
     specDebounceTimers: new Map(),
+    terminalSessions: new Map(),
+    terminalSessionMeta: new Map(),
+    terminalDaemon: null,
   };
 }
 

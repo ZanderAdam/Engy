@@ -1,4 +1,5 @@
-name: test
+name: engy
 slug: test
-repos: []
+repos:
+  - path: /Users/aleks/dev/engy
 docsDir: /Users/aleks/dev/engy/docs

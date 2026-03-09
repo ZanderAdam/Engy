@@ -21,6 +21,28 @@ app.prepare().then(() => {
   const state = getAppState();
 
   const server = createServer((req, res) => {
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+
+    // Terminal session list endpoint — returns persisted sessions filtered by scope
+    if (req.method === 'GET' && url.pathname === '/api/terminal/sessions') {
+      const scopeType = url.searchParams.get('scopeType') ?? '';
+      const scopeLabel = url.searchParams.get('scopeLabel') ?? '';
+
+      const sessions = Array.from(state.terminalSessionMeta.entries())
+        .filter(([, m]) => m.scopeType === scopeType && m.scopeLabel === scopeLabel)
+        .map(([sessionId, m]) => ({
+          sessionId,
+          scopeType: m.scopeType,
+          scopeLabel: m.scopeLabel,
+          workingDir: m.workingDir,
+          command: m.command,
+        }));
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ sessions }));
+      return;
+    }
+
     handle(req, res);
   });
 

@@ -7,11 +7,16 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalTab } from "./types";
 
+export interface TerminalActions {
+  write: (data: string) => void;
+  kill: () => void;
+}
+
 interface TerminalProps {
   tab: TerminalTab;
   visible: boolean;
   onStatusChange: (sessionId: string, status: TerminalTab['status']) => void;
-  onReady?: (sessionId: string, write: ((data: string) => void) | null) => void;
+  onReady?: (sessionId: string, actions: TerminalActions | null) => void;
 }
 
 function getWsBase(): string {
@@ -103,10 +108,17 @@ export function TerminalInstance({ tab, visible, onStatusChange, onReady }: Term
     ws.onopen = () => {
       onStatusChange(sessionId, 'active');
       ws.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
-      onReady?.(sessionId, (data) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ t: 'i', sessionId, d: data }));
-        }
+      onReady?.(sessionId, {
+        write: (data) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ t: 'i', sessionId, d: data }));
+          }
+        },
+        kill: () => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ t: 'kill', sessionId }));
+          }
+        },
       });
     };
 

@@ -7,6 +7,13 @@ export interface FileChangeEvent {
   timestamp: number;
 }
 
+export interface TerminalSessionMeta {
+  scopeType: string;
+  scopeLabel: string;
+  workingDir: string;
+  command?: string;
+}
+
 export interface AppState {
   daemon: WebSocket | null;
   fileChanges: Map<string, FileChangeEvent[]>;
@@ -21,6 +28,8 @@ export interface AppState {
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
   /** Maps sessionId → browser WebSocket for terminal I/O relay */
   terminalSessions: Map<string, WebSocket>;
+  /** Persists terminal session metadata across browser disconnects for session restoration */
+  terminalSessionMeta: Map<string, TerminalSessionMeta>;
   /** Dedicated daemon WebSocket for terminal traffic (zero-parse relay) */
   terminalDaemon: WebSocket | null;
 }
@@ -37,6 +46,7 @@ export function getAppState(): AppState {
       specLastChanged: new Map(),
       specDebounceTimers: new Map(),
       terminalSessions: new Map(),
+      terminalSessionMeta: new Map(),
       terminalDaemon: null,
     };
   }

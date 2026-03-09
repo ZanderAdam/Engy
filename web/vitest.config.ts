@@ -7,6 +7,7 @@ export default defineConfig({
     include: ['src/server/**/*.test.ts'],
     coverage: {
       provider: 'v8',
+      all: true,
       include: ['src/server/**/*.ts'],
       exclude: ['src/server/db/migrations/**', 'src/server/db/migrate.ts', 'src/server/db/schema.ts', '**/*.test.ts', '**/test-helpers.ts'],
       thresholds: {

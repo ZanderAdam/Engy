@@ -5,6 +5,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { RiTerminalLine } from "@remixicon/react";
 import { TerminalTabBar } from "./terminal-tab-bar";
 import type { TerminalTab, TerminalScope } from "./types";
+import type { TerminalActions } from "./terminal";
 
 interface InjectEvent {
   context: string;
@@ -22,11 +23,55 @@ interface TerminalManagerProps {
   defaultScope?: TerminalScope;
 }
 
+interface SessionListItem {
+  sessionId: string;
+  scopeType: string;
+  scopeLabel: string;
+  workingDir: string;
+  command?: string;
+}
+
 export function TerminalManager({ onCollapse, defaultScope }: TerminalManagerProps) {
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  // Store WS refs per tab for inject — keyed by sessionId
-  const tabWsRefs = useRef<Map<string, { write: (data: string) => void }>>(new Map());
+  const [loading, setLoading] = useState(true);
+  // Store WS refs per tab for inject + kill — keyed by sessionId
+  const tabWsRefs = useRef<Map<string, TerminalActions>>(new Map());
+
+  // Restore sessions from server on mount
+  useEffect(() => {
+    if (!defaultScope?.workingDir) {
+      setLoading(false);
+      return;
+    }
+
+    const params = new URLSearchParams({
+      scopeType: defaultScope.scopeType,
+      scopeLabel: defaultScope.scopeLabel,
+    });
+
+    fetch(`/api/terminal/sessions?${params}`)
+      .then((res) => res.json())
+      .then((data: { sessions: SessionListItem[] }) => {
+        if (data.sessions.length > 0) {
+          const restored: TerminalTab[] = data.sessions.map((s) => ({
+            sessionId: s.sessionId,
+            scope: {
+              scopeType: s.scopeType as TerminalScope['scopeType'],
+              scopeLabel: s.scopeLabel,
+              workingDir: s.workingDir,
+              command: s.command,
+            },
+            status: 'connecting' as const,
+          }));
+          setTabs(restored);
+          setActiveTabId(restored[0].sessionId);
+        }
+      })
+      .catch(() => {}) // Silently fail — show empty state
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only on mount
 
   const openTerminal = useCallback((scope?: TerminalScope) => {
     const finalScope = scope ?? defaultScope;
@@ -43,6 +88,9 @@ export function TerminalManager({ onCollapse, defaultScope }: TerminalManagerPro
   }, [defaultScope]);
 
   const closeTerminal = useCallback((sessionId: string) => {
+    // Send kill to server+daemon before removing tab
+    tabWsRefs.current.get(sessionId)?.kill();
+
     setTabs((prev) => {
       const remaining = prev.filter((t) => t.sessionId !== sessionId);
       setActiveTabId((active) => {
@@ -64,9 +112,9 @@ export function TerminalManager({ onCollapse, defaultScope }: TerminalManagerPro
   );
 
   const handleReady = useCallback(
-    (sessionId: string, write: ((data: string) => void) | null) => {
-      if (write) {
-        tabWsRefs.current.set(sessionId, { write });
+    (sessionId: string, actions: TerminalActions | null) => {
+      if (actions) {
+        tabWsRefs.current.set(sessionId, actions);
       } else {
         tabWsRefs.current.delete(sessionId);
       }
@@ -89,6 +137,14 @@ export function TerminalManager({ onCollapse, defaultScope }: TerminalManagerPro
     window.addEventListener('terminal:inject', onInject);
     return () => window.removeEventListener('terminal:inject', onInject);
   }, [activeTabId]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center">
+        <p className="text-xs text-muted-foreground">Loading terminals...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-1 flex-col min-h-0">

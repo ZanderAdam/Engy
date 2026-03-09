@@ -4,6 +4,7 @@ import type {
   ClientToServerMessage,
   WorkspacesSyncMessage,
   ValidatePathsRequestMessage,
+  TerminalRelayCommand,
 } from '@engy/common';
 import type { TerminalManager } from '../terminal/manager.js';
 
@@ -46,47 +47,6 @@ async function validatePaths(paths: string[]): Promise<Array<{ path: string; exi
   );
 }
 
-// Compact terminal message types (daemon ↔ server relay)
-interface TerminalSpawnMsg {
-  t: 'spawn';
-  sessionId: string;
-  workingDir: string;
-  command?: string;
-  cols: number;
-  rows: number;
-  scopeType: string;
-  scopeLabel: string;
-}
-
-interface TerminalInputMsg {
-  t: 'i';
-  sessionId: string;
-  d: string;
-}
-
-interface TerminalResizeMsg {
-  t: 'resize';
-  sessionId: string;
-  cols: number;
-  rows: number;
-}
-
-interface TerminalKillMsg {
-  t: 'kill';
-  sessionId: string;
-}
-
-interface TerminalReconnectMsg {
-  t: 'reconnect';
-  sessionId: string;
-}
-
-type TerminalRelayMessage =
-  | TerminalSpawnMsg
-  | TerminalInputMsg
-  | TerminalResizeMsg
-  | TerminalKillMsg
-  | TerminalReconnectMsg;
 
 export class WsClient {
   private ws: WebSocket | null = null;
@@ -174,6 +134,13 @@ export class WsClient {
           this.terminalWs.send(msg);
         }
       });
+
+      // Resync: resume any sessions suspended during disconnect
+      for (const session of this.terminalManager!.getAllSessions()) {
+        if (session.state === 'suspended') {
+          this.terminalManager!.handleReconnect(session.sessionId);
+        }
+      }
     });
 
     this.terminalWs.on('message', (data) => {
@@ -181,6 +148,12 @@ export class WsClient {
     });
 
     this.terminalWs.on('close', () => {
+      // Suspend active sessions so output is buffered, not lost
+      for (const session of this.terminalManager!.getAllSessions()) {
+        if (session.state === 'active') {
+          this.terminalManager!.suspend(session.sessionId);
+        }
+      }
       this.scheduleTerminalReconnect();
     });
 
@@ -208,9 +181,9 @@ export class WsClient {
   }
 
   private handleTerminalMessage(data: WebSocket.RawData): void {
-    let msg: TerminalRelayMessage;
+    let msg: TerminalRelayCommand;
     try {
-      msg = JSON.parse(data.toString()) as TerminalRelayMessage;
+      msg = JSON.parse(data.toString()) as TerminalRelayCommand;
     } catch {
       return;
     }

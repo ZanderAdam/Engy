@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WebSocketServer, type WebSocket as WsWebSocket } from 'ws';
+import { createServer, type Server } from 'node:http';
 import { WsClient, computeBackoff, deriveWsUrl, deriveTerminalRelayUrl } from './client.js';
 import type { WorkspacesSyncMessage, ValidatePathsRequestMessage } from '@engy/common';
+import type { TerminalManager } from '../terminal/manager.js';
+import type { PersistentSession } from '../terminal/types.js';
 import { access } from 'node:fs/promises';
 
 vi.mock('node:fs/promises', () => ({
@@ -220,5 +223,221 @@ describe('WsClient', () => {
 
     client.close();
     expect(client.connected).toBe(false);
+  });
+});
+
+function createMockTerminalManager(
+  sessions: PersistentSession[] = [],
+): TerminalManager & { [K in keyof TerminalManager]: ReturnType<typeof vi.fn> } {
+  return {
+    setSendCallback: vi.fn(),
+    spawn: vi.fn(),
+    write: vi.fn(),
+    resize: vi.fn(),
+    kill: vi.fn(),
+    killAll: vi.fn(),
+    handleReconnect: vi.fn(),
+    suspend: vi.fn(),
+    getAllSessions: vi.fn(() => sessions),
+  } as unknown as TerminalManager & { [K in keyof TerminalManager]: ReturnType<typeof vi.fn> };
+}
+
+describe('WsClient terminal relay', () => {
+  let httpServer: Server;
+  let mainWss: WebSocketServer;
+  let relayWss: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => {
+      wss.once('connection', resolve);
+    });
+  }
+
+  beforeEach(async () => {
+    mainWss = new WebSocketServer({ noServer: true });
+    relayWss = new WebSocketServer({ noServer: true });
+
+    httpServer = createServer();
+    httpServer.on('upgrade', (req, socket, head) => {
+      const url = req.url ?? '';
+      if (url.startsWith('/ws/terminal-relay')) {
+        relayWss.handleUpgrade(req, socket, head, (ws) => {
+          relayWss.emit('connection', ws, req);
+        });
+      } else if (url.startsWith('/ws')) {
+        mainWss.handleUpgrade(req, socket, head, (ws) => {
+          mainWss.emit('connection', ws, req);
+        });
+      }
+    });
+
+    await new Promise<void>((resolve) => {
+      httpServer.listen(0, () => resolve());
+    });
+    const addr = httpServer.address();
+    port = typeof addr === 'object' && addr ? addr.port : 0;
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  });
+
+  it('connects terminal relay alongside main WS', async () => {
+    const mockTm = createMockTerminalManager();
+    const mainConn = waitForConnection(mainWss);
+    const relayConn = waitForConnection(relayWss);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      terminalManager: mockTm,
+    });
+    client.connect();
+
+    await mainConn;
+    await relayConn;
+
+    await vi.waitFor(() => {
+      expect(mockTm.setSendCallback).toHaveBeenCalled();
+    });
+  });
+
+  it('forwards spawn message to terminalManager', async () => {
+    const mockTm = createMockTerminalManager();
+    const relayConn = waitForConnection(relayWss);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      terminalManager: mockTm,
+    });
+    client.connect();
+
+    const relayWs = await relayConn;
+
+    const spawnMsg = JSON.stringify({
+      t: 'spawn',
+      sessionId: 'sess-1',
+      workingDir: '/tmp',
+      cols: 80,
+      rows: 24,
+      scopeType: 'workspace',
+      scopeLabel: 'test',
+    });
+    relayWs.send(spawnMsg);
+
+    await vi.waitFor(() => {
+      expect(mockTm.spawn).toHaveBeenCalledWith({
+        sessionId: 'sess-1',
+        workingDir: '/tmp',
+        cols: 80,
+        rows: 24,
+        command: undefined,
+      });
+    });
+  });
+
+  it('forwards input message to terminalManager.write', async () => {
+    const mockTm = createMockTerminalManager();
+    const relayConn = waitForConnection(relayWss);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      terminalManager: mockTm,
+    });
+    client.connect();
+
+    const relayWs = await relayConn;
+
+    relayWs.send(JSON.stringify({ t: 'i', sessionId: 'sess-1', d: 'ls\r' }));
+
+    await vi.waitFor(() => {
+      expect(mockTm.write).toHaveBeenCalledWith('sess-1', 'ls\r');
+    });
+  });
+
+  it('reconnects terminal relay independently of main WS', async () => {
+    const mockTm = createMockTerminalManager();
+    let relayConn = waitForConnection(relayWss);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      terminalManager: mockTm,
+    });
+    client.connect();
+
+    const relayWs1 = await relayConn;
+    await vi.waitFor(() => {
+      expect(mockTm.setSendCallback).toHaveBeenCalledTimes(1);
+    });
+
+    // Close relay — should reconnect
+    relayConn = waitForConnection(relayWss);
+    relayWs1.close();
+
+    await relayConn;
+    await vi.waitFor(() => {
+      expect(mockTm.setSendCallback).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('suspends active sessions on relay close', async () => {
+    const activeSessions = [
+      { sessionId: 'a', state: 'active' },
+      { sessionId: 'b', state: 'suspended' },
+    ] as PersistentSession[];
+    const mockTm = createMockTerminalManager(activeSessions);
+    const relayConn = waitForConnection(relayWss);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      terminalManager: mockTm,
+    });
+    client.connect();
+
+    const relayWs = await relayConn;
+    relayWs.close();
+
+    await vi.waitFor(() => {
+      // Only 'a' should be suspended (it was active), not 'b' (already suspended)
+      expect(mockTm.suspend).toHaveBeenCalledTimes(1);
+      expect(mockTm.suspend).toHaveBeenCalledWith('a');
+    });
+  });
+
+  it('resumes suspended sessions on relay reconnect', async () => {
+    const sessions = [
+      { sessionId: 'x', state: 'suspended' },
+      { sessionId: 'y', state: 'active' },
+    ] as PersistentSession[];
+    const mockTm = createMockTerminalManager(sessions);
+    let relayConn = waitForConnection(relayWss);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      terminalManager: mockTm,
+    });
+    client.connect();
+
+    const relayWs1 = await relayConn;
+
+    // On initial connect, 'x' is suspended → should resume
+    await vi.waitFor(() => {
+      expect(mockTm.handleReconnect).toHaveBeenCalledWith('x');
+      expect(mockTm.handleReconnect).toHaveBeenCalledTimes(1);
+    });
+
+    // Close and reconnect — session states refreshed from mock
+    mockTm.handleReconnect.mockClear();
+    relayConn = waitForConnection(relayWss);
+    relayWs1.close();
+
+    await relayConn;
+
+    await vi.waitFor(() => {
+      // 'x' is still suspended per our mock → resumed again
+      expect(mockTm.handleReconnect).toHaveBeenCalledWith('x');
+    });
   });
 });

@@ -144,6 +144,10 @@ export class TerminalManager {
     session.suspendedAt = Date.now();
   }
 
+  getAllSessions(): PersistentSession[] {
+    return this.sessions.all();
+  }
+
   killAll(): void {
     for (const session of this.sessions.all()) {
       this.kill(session.sessionId);
