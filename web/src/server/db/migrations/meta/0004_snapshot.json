@@ -366,88 +366,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "milestones": {
-      "name": "milestones",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'planned'"
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "milestones_project_id_projects_id_fk": {
-          "name": "milestones_project_id_projects_id_fk",
-          "tableFrom": "milestones",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "project_memories": {
       "name": "project_memories",
       "columns": {
@@ -570,8 +488,8 @@
           "autoincrement": false,
           "default": false
         },
-        "spec_path": {
-          "name": "spec_path",
+        "project_dir": {
+          "name": "project_dir",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -622,11 +540,11 @@
           "notNull": true,
           "autoincrement": true
         },
-        "milestone_id": {
-          "name": "milestone_id",
-          "type": "integer",
+        "milestone_ref": {
+          "name": "milestone_ref",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "name": {
@@ -667,21 +585,7 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "task_groups_milestone_id_milestones_id_fk": {
-          "name": "task_groups_milestone_id_milestones_id_fk",
-          "tableFrom": "task_groups",
-          "tableTo": "milestones",
-          "columnsFrom": [
-            "milestone_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -703,9 +607,9 @@
           "notNull": false,
           "autoincrement": false
         },
-        "milestone_id": {
-          "name": "milestone_id",
-          "type": "integer",
+        "milestone_ref": {
+          "name": "milestone_ref",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -806,19 +710,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "tasks_milestone_id_milestones_id_fk": {
-          "name": "tasks_milestone_id_milestones_id_fk",
-          "tableFrom": "tasks",
-          "tableTo": "milestones",
-          "columnsFrom": [
-            "milestone_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "tasks_task_group_id_task_groups_id_fk": {
