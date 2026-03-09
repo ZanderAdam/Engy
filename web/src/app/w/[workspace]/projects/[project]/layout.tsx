@@ -48,16 +48,16 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-3 border-b border-border px-0 py-3">
-        <h1 className="text-sm font-semibold">{project.name}</h1>
-        <Badge variant="secondary" className="text-[10px]">
-          {project.status}
-        </Badge>
-      </div>
+      <div className="flex items-stretch border-b border-border">
+        <div className="flex items-center gap-3 py-2">
+          <h1 className="text-sm font-semibold">{project.name}</h1>
+          <Badge variant="secondary" className="text-[10px]">
+            {project.status}
+          </Badge>
+        </div>
 
-      <nav className="border-b border-border" aria-label="Project sections">
-        <TooltipProvider>
-          <div className="flex">
+        <nav className="ml-auto flex" aria-label="Project sections">
+          <TooltipProvider>
             {tabs.map((tab) =>
               tab.disabled ? (
                 <Tooltip key={tab.segment}>
@@ -82,9 +82,9 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                 </Link>
               ),
             )}
-          </div>
-        </TooltipProvider>
-      </nav>
+          </TooltipProvider>
+        </nav>
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>
     </div>
