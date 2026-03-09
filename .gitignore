@@ -13,7 +13,6 @@ web/tsconfig.tsbuildinfo
 .env
 .env.local
 .env.*.local
-.dev.env
 
 # Data
 .dev-engy/
