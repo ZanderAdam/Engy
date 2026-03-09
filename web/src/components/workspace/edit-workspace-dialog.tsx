@@ -19,12 +19,13 @@ interface EditWorkspaceDialogProps {
   workspace: {
     id: number;
     name: string;
+    slug: string;
     repos: string[] | null;
     docsDir: string | null;
   };
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSaved: () => void;
+  onSaved: (newSlug: string) => void;
 }
 
 function initialRepos(repos: string[] | null): string[] {
@@ -38,13 +39,15 @@ export function EditWorkspaceDialog({
   onSaved,
 }: EditWorkspaceDialogProps) {
   const [name, setName] = useState(workspace.name);
+  const [slug, setSlug] = useState(workspace.slug);
+  const [slugTouched, setSlugTouched] = useState(false);
   const [docsDir, setDocsDir] = useState(workspace.docsDir ?? "");
   const [repos, setRepos] = useState<string[]>(initialRepos(workspace.repos));
   const [error, setError] = useState<string | null>(null);
 
   const updateMutation = trpc.workspace.update.useMutation({
     onSuccess: () => {
-      onSaved();
+      onSaved(slug);
       onOpenChange(false);
     },
     onError: (err) => {
@@ -75,14 +78,32 @@ export function EditWorkspaceDialog({
     updateMutation.mutate({
       id: workspace.id,
       name,
+      slug: slug !== workspace.slug ? slug : undefined,
       repos: filteredRepos,
       docsDir: trimmedDocsDir || null,
     });
   }
 
+  function deriveSlug(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+  }
+
+  function handleNameChange(newName: string) {
+    setName(newName);
+    if (!slugTouched) {
+      setSlug(deriveSlug(newName));
+    }
+  }
+
   function handleOpenChange(val: boolean) {
     if (!val) {
       setName(workspace.name);
+      setSlug(workspace.slug);
+      setSlugTouched(false);
       setDocsDir(workspace.docsDir ?? "");
       setRepos(initialRepos(workspace.repos));
       setError(null);
@@ -104,9 +125,25 @@ export function EditWorkspaceDialog({
               <Input
                 id="edit-workspace-name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => handleNameChange(e.target.value)}
                 required
               />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="edit-workspace-slug">Slug</Label>
+              <Input
+                id="edit-workspace-slug"
+                value={slug}
+                onChange={(e) => {
+                  setSlug(e.target.value);
+                  setSlugTouched(true);
+                }}
+                className="font-mono"
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                Used in the URL: /w/{slug || "..."}
+              </p>
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="edit-workspace-docs-dir">Docs location</Label>

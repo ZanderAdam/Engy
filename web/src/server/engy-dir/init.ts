@@ -50,6 +50,31 @@ export function initWorkspaceDir(
   fs.mkdirSync(path.join(dir, 'memory'), { recursive: true });
 }
 
+export function renameWorkspaceDir(oldSlug: string, newSlug: string): void {
+  validateSlug(oldSlug);
+  validateSlug(newSlug);
+
+  const engyDir = path.resolve(getEngyDir());
+  const oldDir = path.join(engyDir, oldSlug);
+  const newDir = path.join(engyDir, newSlug);
+
+  for (const [label, dir] of [['old', oldDir], ['new', newDir]] as const) {
+    const rel = path.relative(engyDir, path.resolve(dir));
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new Error(`Path traversal detected for ${label} slug`);
+    }
+  }
+
+  if (!fs.existsSync(oldDir)) {
+    throw new Error(`Workspace directory does not exist: ${oldDir}`);
+  }
+  if (fs.existsSync(newDir)) {
+    throw new Error(`Target directory already exists: ${newDir}`);
+  }
+
+  fs.renameSync(oldDir, newDir);
+}
+
 export function removeWorkspaceDir(slug: string, docsDir?: string | null): void {
   validateSlug(slug);
 

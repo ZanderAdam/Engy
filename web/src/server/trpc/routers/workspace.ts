@@ -4,8 +4,14 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { workspaces, projects } from '../../db/schema';
-import { uniqueWorkspaceSlug } from '../utils';
-import { initWorkspaceDir, removeWorkspaceDir, writeWorkspaceYaml, getWorkspaceDir } from '../../engy-dir/init';
+import { generateSlug, uniqueWorkspaceSlug } from '../utils';
+import {
+  initWorkspaceDir,
+  removeWorkspaceDir,
+  renameWorkspaceDir,
+  writeWorkspaceYaml,
+  getWorkspaceDir,
+} from '../../engy-dir/init';
 import { dispatchValidation } from '../../ws/server';
 import type { AppState } from '../context';
 
@@ -114,6 +120,7 @@ export const workspaceRouter = router({
       z.object({
         id: z.number(),
         name: z.string().min(1).optional(),
+        slug: z.string().min(1).optional(),
         repos: z.array(z.string()).optional(),
         docsDir: z.string().nullable().optional(),
       }),
@@ -128,6 +135,20 @@ export const workspaceRouter = router({
       const newRepos = input.repos ?? (existing.repos as string[]) ?? [];
       const newDocsDir = input.docsDir !== undefined ? input.docsDir : existing.docsDir;
       const newName = input.name ?? existing.name;
+      const newSlug = input.slug ?? existing.slug;
+
+      if (input.slug !== undefined && input.slug !== existing.slug) {
+        if (generateSlug(input.slug) !== input.slug) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `Invalid slug format. Use lowercase alphanumeric characters and hyphens (e.g., "${generateSlug(input.slug)}").`,
+          });
+        }
+        const conflict = db.select().from(workspaces).where(eq(workspaces.slug, input.slug)).get();
+        if (conflict) {
+          throw new TRPCError({ code: 'CONFLICT', message: `Slug "${input.slug}" is already in use.` });
+        }
+      }
 
       const pathsToValidate: string[] = [];
       if (input.repos !== undefined) pathsToValidate.push(...input.repos);
@@ -157,10 +178,26 @@ export const workspaceRouter = router({
 
       const updated = db
         .update(workspaces)
-        .set({ name: newName, repos: newRepos, docsDir: newDocsDir })
+        .set({ name: newName, slug: newSlug, repos: newRepos, docsDir: newDocsDir })
         .where(eq(workspaces.id, input.id))
         .returning()
         .get();
+
+      const slugChanged = input.slug !== undefined && input.slug !== existing.slug;
+      if (slugChanged && !updated.docsDir) {
+        try {
+          renameWorkspaceDir(existing.slug, updated.slug);
+        } catch (err) {
+          db.update(workspaces)
+            .set({ slug: existing.slug })
+            .where(eq(workspaces.id, input.id))
+            .run();
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: `Failed to rename workspace directory: ${(err as Error).message}`,
+          });
+        }
+      }
 
       const dir = getWorkspaceDir(updated);
       writeWorkspaceYaml(dir, updated.name, updated.slug, newRepos, updated.docsDir);

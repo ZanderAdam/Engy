@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { RiEditLine } from "@remixicon/react";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -12,9 +12,18 @@ import { EditWorkspaceDialog } from "@/components/workspace/edit-workspace-dialo
 
 export default function WorkspaceOverviewPage() {
   const params = useParams<{ workspace: string }>();
+  const router = useRouter();
   const utils = trpc.useUtils();
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
   const [editOpen, setEditOpen] = useState(false);
+
+  function handleSaved(newSlug: string) {
+    if (newSlug !== params.workspace) {
+      router.replace(`/w/${newSlug}`);
+    } else {
+      utils.workspace.get.invalidate({ slug: params.workspace });
+    }
+  }
 
   if (!workspace) return null;
 
@@ -40,7 +49,7 @@ export default function WorkspaceOverviewPage() {
         workspace={workspace}
         open={editOpen}
         onOpenChange={setEditOpen}
-        onSaved={() => utils.workspace.get.invalidate({ slug: params.workspace })}
+        onSaved={handleSaved}
       />
     </div>
   );

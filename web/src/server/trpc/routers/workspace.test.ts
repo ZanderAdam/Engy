@@ -4,7 +4,12 @@ import yaml from 'js-yaml';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
-import { initWorkspaceDir, removeWorkspaceDir, getWorkspaceDir } from '../../engy-dir/init';
+import {
+  initWorkspaceDir,
+  removeWorkspaceDir,
+  renameWorkspaceDir,
+  getWorkspaceDir,
+} from '../../engy-dir/init';
 
 describe('workspace router', () => {
   let ctx: TestContext;
@@ -189,6 +194,70 @@ describe('workspace router', () => {
       const updated = await caller.workspace.update({ id: ws.id, docsDir: null });
       expect(updated.name).toBe('No Validate');
     });
+
+    it('should update slug when provided', async () => {
+      const ws = await caller.workspace.create({ name: 'Slug Update' });
+      const updated = await caller.workspace.update({ id: ws.id, slug: 'new-slug' });
+      expect(updated.slug).toBe('new-slug');
+    });
+
+    it('should rename workspace directory when slug changes', async () => {
+      const ws = await caller.workspace.create({ name: 'Rename Dir' });
+      const oldDir = path.join(ctx.tmpDir, ws.slug);
+      expect(fs.existsSync(oldDir)).toBe(true);
+
+      await caller.workspace.update({ id: ws.id, slug: 'renamed-dir' });
+
+      expect(fs.existsSync(oldDir)).toBe(false);
+      expect(fs.existsSync(path.join(ctx.tmpDir, 'renamed-dir'))).toBe(true);
+    });
+
+    it('should update workspace.yaml slug after rename', async () => {
+      const ws = await caller.workspace.create({ name: 'Yaml Slug' });
+      await caller.workspace.update({ id: ws.id, slug: 'yaml-new-slug' });
+
+      const yamlPath = path.join(ctx.tmpDir, 'yaml-new-slug', 'workspace.yaml');
+      const parsed = yaml.load(fs.readFileSync(yamlPath, 'utf-8')) as Record<string, unknown>;
+      expect(parsed.slug).toBe('yaml-new-slug');
+    });
+
+    it('should reject invalid slug format', async () => {
+      const ws = await caller.workspace.create({ name: 'Bad Slug' });
+      await expect(
+        caller.workspace.update({ id: ws.id, slug: 'Invalid Slug!' }),
+      ).rejects.toThrow('Invalid slug format');
+    });
+
+    it('should reject duplicate slug', async () => {
+      await caller.workspace.create({ name: 'First' });
+      const ws2 = await caller.workspace.create({ name: 'Second' });
+      await expect(
+        caller.workspace.update({ id: ws2.id, slug: 'first' }),
+      ).rejects.toThrow('already in use');
+    });
+
+    it('should allow setting slug to current value (no-op)', async () => {
+      const ws = await caller.workspace.create({ name: 'Same Slug' });
+      const updated = await caller.workspace.update({ id: ws.id, slug: ws.slug });
+      expect(updated.slug).toBe(ws.slug);
+    });
+
+    it('should rollback slug in DB if directory rename fails', async () => {
+      const ws = await caller.workspace.create({ name: 'Rollback Test' });
+      const oldDir = path.join(ctx.tmpDir, ws.slug);
+      expect(fs.existsSync(oldDir)).toBe(true);
+
+      // Pre-create target directory to force rename failure
+      fs.mkdirSync(path.join(ctx.tmpDir, 'conflict-slug'), { recursive: true });
+
+      await expect(
+        caller.workspace.update({ id: ws.id, slug: 'conflict-slug' }),
+      ).rejects.toThrow('Failed to rename workspace directory');
+
+      // Verify slug was rolled back
+      const fetched = await caller.workspace.get({ slug: ws.slug });
+      expect(fetched.slug).toBe(ws.slug);
+    });
   });
 
   describe('list', () => {
@@ -312,6 +381,28 @@ describe('workspace router', () => {
 
     it('removeWorkspaceDir should no-op for non-existent custom docsDir', () => {
       expect(() => removeWorkspaceDir('some-slug', '/nonexistent/path')).not.toThrow();
+    });
+
+    it('renameWorkspaceDir should rename workspace directory', () => {
+      initWorkspaceDir('Rename', 'rename-test', []);
+      renameWorkspaceDir('rename-test', 'renamed-test');
+      expect(fs.existsSync(path.join(ctx.tmpDir, 'renamed-test'))).toBe(true);
+      expect(fs.existsSync(path.join(ctx.tmpDir, 'rename-test'))).toBe(false);
+    });
+
+    it('renameWorkspaceDir should reject path traversal slugs', () => {
+      expect(() => renameWorkspaceDir('../etc', 'new')).toThrow('Invalid workspace slug');
+      expect(() => renameWorkspaceDir('old', '../etc')).toThrow('Invalid workspace slug');
+    });
+
+    it('renameWorkspaceDir should fail if source does not exist', () => {
+      expect(() => renameWorkspaceDir('nonexistent', 'new-name')).toThrow('does not exist');
+    });
+
+    it('renameWorkspaceDir should fail if target already exists', () => {
+      initWorkspaceDir('Src', 'src-ws', []);
+      initWorkspaceDir('Dst', 'dst-ws', []);
+      expect(() => renameWorkspaceDir('src-ws', 'dst-ws')).toThrow('already exists');
     });
   });
 
