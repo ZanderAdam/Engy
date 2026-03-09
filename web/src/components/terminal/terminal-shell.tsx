@@ -40,9 +40,9 @@ export function TerminalShell({ children }: TerminalShellProps) {
   );
 
   return (
-    <div className="flex h-full w-full overflow-hidden">
+    <div className="flex min-h-0 flex-1 w-full overflow-hidden">
       {/* Main content — grows to fill remaining space, overflow-hidden clips editor content at panel boundary */}
-      <div className="flex-1 min-w-0 overflow-hidden">
+      <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
         {children}
       </div>
 

@@ -62,7 +62,7 @@ export default function WorkspaceLayout({
     <div className="flex flex-1 flex-col overflow-hidden">
       {!isProjectRoute && (
         <nav className="border-b border-border" aria-label="Workspace sections">
-          <div className="mx-auto flex w-[95%] max-w-[1800px]">
+          <div className="flex px-6">
             {tabs.map((tab) => (
               <Link
                 key={tab.segment}
@@ -80,7 +80,7 @@ export default function WorkspaceLayout({
         </nav>
       )}
       <TerminalShell>
-        <div className="mx-auto flex min-h-0 flex-1 flex-col w-[95%] max-w-[1800px] overflow-y-auto overflow-x-hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden px-6">
           {children}
         </div>
       </TerminalShell>
