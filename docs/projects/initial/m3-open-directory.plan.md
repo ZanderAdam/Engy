@@ -1,3 +1,8 @@
+---
+title: Open Directory
+status: complete
+---
+
 # Plan: M3 — Open Directory
 
 ## Overview

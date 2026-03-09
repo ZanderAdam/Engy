@@ -50,6 +50,7 @@ function MilestoneRow({
     <div className="flex items-center gap-3 border border-border p-3">
       <div className="flex flex-1 flex-col gap-1">
         <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">M{milestone.num}</span>
           <span className="text-xs font-medium">{milestone.title}</span>
           <MilestoneStatusBadge
             projectId={projectId}

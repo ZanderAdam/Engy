@@ -1,3 +1,8 @@
+---
+title: Spec Authoring
+status: complete
+---
+
 # Plan: M2 Spec Authoring
 
 ## Context

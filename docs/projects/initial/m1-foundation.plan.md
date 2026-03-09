@@ -1,3 +1,8 @@
+---
+title: Foundation
+status: complete
+---
+
 # Plan: M1 Foundation
 
 ## Overview

@@ -1,3 +1,8 @@
+---
+title: Project Planning
+status: complete
+---
+
 # Plan: M4 Project Planning
 
 ## Context
