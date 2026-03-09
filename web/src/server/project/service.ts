@@ -12,11 +12,16 @@ import {
   type SpecType,
 } from '../spec/frontmatter';
 
+interface FileEntry {
+  path: string;
+  mtime: number;
+}
+
 interface ProjectFileTreeNode {
   name: string;
   type: SpecType | null;
   status: SpecStatus | null;
-  files: string[];
+  files: FileEntry[];
 }
 
 interface ProjectFileContent {
@@ -54,21 +59,27 @@ function validatePath(base: string, target: string): string {
   return resolved;
 }
 
-function collectMarkdownFiles(projectDir: string): string[] {
+function collectMarkdownFiles(projectDir: string): FileEntry[] {
   const entries = fs.readdirSync(projectDir, { withFileTypes: true });
-  const files: string[] = [];
+  const files: FileEntry[] = [];
 
   for (const f of entries) {
-    if (f.isFile() && f.name.endsWith('.md')) files.push(f.name);
+    if (f.isFile() && f.name.endsWith('.md')) {
+      const stat = fs.statSync(path.join(projectDir, f.name));
+      files.push({ path: f.name, mtime: stat.mtimeMs });
+    }
     if (f.isDirectory()) {
-      const subFiles = fs.readdirSync(path.join(projectDir, f.name));
-      for (const sf of subFiles) {
-        if (sf.endsWith('.md')) files.push(`${f.name}/${sf}`);
+      const subEntries = fs.readdirSync(path.join(projectDir, f.name), { withFileTypes: true });
+      for (const sf of subEntries) {
+        if (sf.isFile() && sf.name.endsWith('.md')) {
+          const stat = fs.statSync(path.join(projectDir, f.name, sf.name));
+          files.push({ path: `${f.name}/${sf.name}`, mtime: stat.mtimeMs });
+        }
       }
     }
   }
 
-  return files.sort();
+  return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 export function listProjectFiles(workspace: Workspace, projectDir: string): ProjectFileTreeNode {
@@ -125,7 +136,7 @@ export function getProjectSpec(workspace: Workspace, projectSlug: string): Proje
   const content = fs.readFileSync(specMdPath, 'utf-8');
   const { frontmatter, body, raw } = parseFrontmatter(content);
 
-  const files = collectMarkdownFiles(projDir);
+  const files = collectMarkdownFiles(projDir).map((f) => f.path);
 
   return { frontmatter, body, files, raw };
 }

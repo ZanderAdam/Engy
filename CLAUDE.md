@@ -141,7 +141,9 @@ Typed discriminated union in `@engy/common`. Message types: `REGISTER`, `WORKSPA
 3. `turbo run test` — Vitest with coverage thresholds
 4. `knip` — dead code / unused exports detection
 5. `jscpd` — copy-paste detection (threshold: 3 dupes, min 10 lines)
+6. CRITICAL: When implementing changes ALWAYS add a final task: "run /engy:review, run pnpm blt and test in chrome"
 
 ## Formatting
 
 Prettier: semicolons, single quotes, trailing commas, 100 char width, 2-space indent.
+

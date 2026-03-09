@@ -63,7 +63,9 @@ describe('project service', () => {
     it('should list files with correct metadata after init', () => {
       initProjectDir(workspace, 'auth-feature');
       const result = listProjectFiles(workspace, 'auth-feature');
-      expect(result.files).toContain('spec.md');
+      expect(result.files).toContainEqual(
+        expect.objectContaining({ path: 'spec.md', mtime: expect.any(Number) }),
+      );
       expect(result.name).toBe('auth-feature');
     });
 

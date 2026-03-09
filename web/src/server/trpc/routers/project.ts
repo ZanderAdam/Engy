@@ -199,7 +199,8 @@ export const projectRouter = router({
         .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
         .get();
       if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      if (!project.projectDir) return { name: project.slug, type: null, status: null, files: [] };
+      if (!project.projectDir)
+        return { name: project.slug, type: null, status: null, files: [] as { path: string; mtime: number }[] };
 
       return listProjectFiles(
         { slug: workspace.slug, docsDir: workspace.docsDir },

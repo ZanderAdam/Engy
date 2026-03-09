@@ -169,7 +169,9 @@ describe('project router', () => {
         workspaceSlug: 'test-ws',
         projectSlug: 'auth',
       });
-      expect(result.files).toContain('spec.md');
+      expect(result.files).toContainEqual(
+        expect.objectContaining({ path: 'spec.md', mtime: expect.any(Number) }),
+      );
     });
 
     it('should return empty files for unknown project', async () => {
