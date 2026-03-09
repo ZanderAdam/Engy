@@ -1,97 +1,54 @@
-"use client";
+'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { trpc } from "@/lib/trpc";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ProjectTree } from "@/components/projects/project-tree";
-import { ProjectFrontmatter } from "@/components/projects/project-frontmatter";
-import { SpecTasks } from "@/components/specs/spec-tasks";
-import { DynamicDocumentEditor } from "@/components/editor/dynamic-document-editor";
-import { EngyThreadStore } from "@/components/editor/document-editor";
-import { RiFileTextLine, RiSideBarLine } from "@remixicon/react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { trpc } from '@/lib/trpc';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ProjectTree } from '@/components/projects/project-tree';
+import { ProjectFrontmatter } from '@/components/projects/project-frontmatter';
+import { SpecTasks } from '@/components/specs/spec-tasks';
+import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
+import { EngyThreadStore } from '@/components/editor/document-editor';
+import { RiFileTextLine } from '@remixicon/react';
+import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
+
+const SIDEBAR_CONFIG = {
+  defaultWidth: 256,
+  minWidth: 180,
+  maxWidth: 384,
+  storageKey: 'engy-docs-sidebar-width',
+} as const;
 
 export default function ProjectDocsPage() {
   const params = useParams<{ workspace: string; project: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const selectedFile = searchParams.get("file");
+  const selectedFile = searchParams.get('file');
 
   function updateUrl(file: string | null) {
     const p = new URLSearchParams();
-    if (file) p.set("file", file);
+    if (file) p.set('file', file);
     const qs = p.toString();
     router.replace(
-      `/w/${params.workspace}/projects/${params.project}/docs${qs ? `?${qs}` : ""}`,
+      `/w/${params.workspace}/projects/${params.project}/docs${qs ? `?${qs}` : ''}`,
       { scroll: false },
     );
   }
 
-  const [collapsed, setCollapsed] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(256);
-  const dragging = useRef(false);
-
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      dragging.current = true;
-      const startX = e.clientX;
-      const startWidth = sidebarWidth;
-
-      const onMouseMove = (ev: MouseEvent) => {
-        if (!dragging.current) return;
-        const newWidth = Math.min(384, Math.max(180, startWidth + ev.clientX - startX));
-        setSidebarWidth(newWidth);
-      };
-      const onMouseUp = () => {
-        dragging.current = false;
-        document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", onMouseUp);
-      };
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
-    },
-    [sidebarWidth],
-  );
-
   return (
-    <div className="flex h-[calc(100vh-9rem)]">
-      {!collapsed && (
-        <div
-          className="shrink-0 border-r border-border overflow-hidden"
-          style={{ width: sidebarWidth }}
-        >
-          <ProjectTree
-            workspaceSlug={params.workspace}
-            projectSlug={params.project}
-            selectedFile={selectedFile}
-            onSelectFile={(filePath) => updateUrl(filePath)}
-          />
-        </div>
-      )}
-      <div className="relative shrink-0 flex items-stretch">
-        {!collapsed && (
-          <div
-            className="w-1.5 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
-            onMouseDown={handleMouseDown}
-          />
-        )}
-        <Button
-          variant="outline"
-          size="icon"
-          className={cn(
-            "absolute top-2 z-10 h-7 w-7 rounded-sm border bg-muted shadow-sm hover:bg-accent",
-            collapsed ? "left-1" : "-left-3.5",
-          )}
-          onClick={() => setCollapsed((c) => !c)}
-        >
-          <RiSideBarLine className="size-3.5" />
-        </Button>
-      </div>
-      <div className="flex-1 min-w-0">
-        {selectedFile ? (
+    <ThreePanelLayout
+      className="flex-1 min-h-0"
+      left={SIDEBAR_CONFIG}
+      leftContent={
+        <ProjectTree
+          workspaceSlug={params.workspace}
+          projectSlug={params.project}
+          selectedFile={selectedFile}
+          onSelectFile={(filePath) => updateUrl(filePath)}
+        />
+      }
+      centerContent={
+        selectedFile ? (
           <ProjectDetail
             workspaceSlug={params.workspace}
             projectSlug={params.project}
@@ -99,9 +56,9 @@ export default function ProjectDocsPage() {
           />
         ) : (
           <EmptyState />
-        )}
-      </div>
-    </div>
+        )
+      }
+    />
   );
 }
 
@@ -123,14 +80,18 @@ interface ProjectDetailProps {
 function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDetailProps) {
   const utils = trpc.useUtils();
 
-  const isSpecMd = selectedFile === "spec.md";
+  const isSpecMd = selectedFile === 'spec.md';
 
   const threadStore = useMemo(
     () => new EngyThreadStore(workspaceSlug, `${projectSlug}/${selectedFile}`),
     [workspaceSlug, projectSlug, selectedFile],
   );
 
-  const { data: spec, isLoading: isSpecLoading, error } = trpc.project.getSpec.useQuery({
+  const {
+    data: spec,
+    isLoading: isSpecLoading,
+    error,
+  } = trpc.project.getSpec.useQuery({
     workspaceSlug,
     projectSlug,
   });
@@ -166,7 +127,12 @@ function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDeta
       if (isSpecMd) {
         specMutateRef.current({ workspaceSlug, projectSlug, body: markdown });
       } else {
-        fileMutateRef.current({ workspaceSlug, projectSlug, filePath: selectedFile, content: markdown });
+        fileMutateRef.current({
+          workspaceSlug,
+          projectSlug,
+          filePath: selectedFile,
+          content: markdown,
+        });
       }
     },
     [isSpecMd, workspaceSlug, projectSlug, selectedFile],
@@ -185,13 +151,13 @@ function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDeta
       <div className="flex flex-col items-center justify-center gap-2 py-20">
         <p className="text-sm font-medium">Spec not found</p>
         <p className="text-xs text-muted-foreground">
-          {error?.message ?? "The spec may have been deleted."}
+          {error?.message ?? 'The spec may have been deleted.'}
         </p>
       </div>
     );
   }
 
-  const editorBody = isSpecMd ? (spec.body ?? "") : (fileData?.content ?? "");
+  const editorBody = isSpecMd ? (spec.body ?? '') : (fileData?.content ?? '');
   const isContentReady = isSpecMd ? true : !isFileLoading;
 
   return (

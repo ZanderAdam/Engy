@@ -1,28 +1,45 @@
-"use client";
+'use client';
 
-import { useParams, usePathname } from "next/navigation";
-import Link from "next/link";
-import { trpc } from "@/lib/trpc";
-import { cn } from "@/lib/utils";
-import { TerminalShell } from "@/components/terminal/terminal-shell";
+import { useState, useCallback } from 'react';
+import { useParams, usePathname } from 'next/navigation';
+import Link from 'next/link';
+import { trpc } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
+import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
+import { TerminalPanel } from '@/components/terminal/terminal-panel';
+
+const TERMINAL_CONFIG = {
+  defaultWidth: 480,
+  minWidth: 240,
+  maxWidth: 900,
+  storageKey: 'engy-terminal-width',
+} as const;
+
+function terminalShortcut(e: KeyboardEvent): boolean {
+  return e.key === '`' && (e.ctrlKey || e.metaKey);
+}
 
 const tabs = [
-  { label: "Overview", segment: "" },
-  { label: "Tasks", segment: "tasks" },
-  { label: "Docs", segment: "docs" },
-  { label: "Memory", segment: "memory" },
+  { label: 'Overview', segment: '' },
+  { label: 'Tasks', segment: 'tasks' },
+  { label: 'Docs', segment: 'docs' },
+  { label: 'Memory', segment: 'memory' },
 ] as const;
 
-export default function WorkspaceLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const params = useParams<{ workspace: string }>();
   const pathname = usePathname();
-  const { data: workspace, isLoading, error } = trpc.workspace.get.useQuery(
-    { slug: params.workspace },
-  );
+  const {
+    data: workspace,
+    isLoading,
+    error,
+  } = trpc.workspace.get.useQuery({ slug: params.workspace });
+
+  const [terminalCollapsed, setTerminalCollapsed] = useState(false);
+
+  const handleCollapse = useCallback(() => {
+    setTerminalCollapsed(true);
+  }, []);
 
   if (isLoading) {
     return (
@@ -54,7 +71,7 @@ export default function WorkspaceLayout({
   }
 
   function isActive(segment: string): boolean {
-    if (segment === "") return pathname === basePath;
+    if (segment === '') return pathname === basePath;
     return pathname.startsWith(`${basePath}/${segment}`);
   }
 
@@ -68,9 +85,9 @@ export default function WorkspaceLayout({
                 key={tab.segment}
                 href={tabHref(tab.segment)}
                 className={cn(
-                  "relative px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
+                  'relative px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground',
                   isActive(tab.segment) &&
-                    "text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground",
+                    'text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground',
                 )}
               >
                 {tab.label}
@@ -79,11 +96,17 @@ export default function WorkspaceLayout({
           </div>
         </nav>
       )}
-      <TerminalShell>
-        <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden px-6">
-          {children}
-        </div>
-      </TerminalShell>
+      <ThreePanelLayout
+        className="flex-1 min-h-0"
+        right={TERMINAL_CONFIG}
+        rightCollapsed={terminalCollapsed}
+        onRightCollapsedChange={setTerminalCollapsed}
+        rightShortcut={terminalShortcut}
+        centerContent={
+          <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden px-6">{children}</div>
+        }
+        rightContent={<TerminalPanel onCollapse={handleCollapse} />}
+      />
     </div>
   );
 }

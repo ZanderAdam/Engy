@@ -1,16 +1,20 @@
-"use client";
+'use client';
 
-import { useTerminalScope } from "./use-terminal-scope";
-import { useTerminalContext } from "./terminal-provider";
-import { TerminalManager } from "./terminal-manager";
+import { useTerminalScope } from './use-terminal-scope';
+import { TerminalManager } from './terminal-manager';
 
-export function TerminalPanel() {
+interface TerminalPanelProps {
+  onCollapse?: () => void;
+}
+
+const noop = () => {};
+
+export function TerminalPanel({ onCollapse }: TerminalPanelProps) {
   const scope = useTerminalScope();
-  const { toggleCollapsed } = useTerminalContext();
 
   return (
-    <div className="flex h-full flex-col bg-[#0a0a0a]">
-      <TerminalManager onCollapse={toggleCollapsed} defaultScope={scope} />
+    <div className="flex flex-1 min-h-0 flex-col bg-[#0a0a0a]">
+      <TerminalManager onCollapse={onCollapse ?? noop} defaultScope={scope} />
     </div>
   );
 }
