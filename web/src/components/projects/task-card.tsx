@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TaskStatusBadge } from '@/components/projects/task-status-badge';
 import { CopyTaskSlug } from '@/components/projects/copy-task-slug';
+import { TaskQuickActions } from '@/components/projects/task-quick-actions';
 import { cn } from '@/lib/utils';
 import { RiCheckboxLine, RiCheckboxBlankLine } from '@remixicon/react';
 
@@ -62,6 +63,7 @@ export function TaskCard({
         </Button>
       )}
       <CopyTaskSlug taskId={task.id} workspaceSlug={workspaceSlug} />
+      <TaskQuickActions taskId={task.id} workspaceSlug={workspaceSlug} />
       <span className={cn('flex-1 truncate', showCheckbox && isDone && 'line-through')}>
         {task.title}
       </span>

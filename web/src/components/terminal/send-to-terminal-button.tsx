@@ -9,7 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useTerminalActive } from './use-terminal-active';
+import { useSendToTerminal } from './use-send-to-terminal';
 
 interface SendToTerminalButtonProps {
   getContent: () => string;
@@ -17,26 +17,11 @@ interface SendToTerminalButtonProps {
 }
 
 export function SendToTerminalButton({ getContent, className }: SendToTerminalButtonProps) {
-  const terminalActive = useTerminalActive();
+  const { sendToTerminal, terminalActive } = useSendToTerminal();
 
   const handleClick = useCallback(() => {
-    const content = getContent();
-    if (!content) return;
-
-    window.dispatchEvent(
-      new CustomEvent('terminal:inject', {
-        detail: { context: content },
-      }),
-    );
-    // Send Enter as a separate event so the PTY processes the content first
-    setTimeout(() => {
-      window.dispatchEvent(
-        new CustomEvent('terminal:inject', {
-          detail: { context: '\r' },
-        }),
-      );
-    }, 50);
-  }, [getContent]);
+    sendToTerminal(getContent());
+  }, [getContent, sendToTerminal]);
 
   return (
     <TooltipProvider delayDuration={300}>
