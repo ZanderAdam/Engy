@@ -68,7 +68,7 @@ export default function ProjectTasksPage() {
       </div>
 
       {currentView === "graph" && (
-        <DependencyGraph tasks={tasks ?? []} onTaskClick={setSelectedTaskId} />
+        <DependencyGraph tasks={tasks ?? []} workspaceSlug={params.workspace} onTaskClick={setSelectedTaskId} />
       )}
 
       {currentView === "swimlane" && (
@@ -76,7 +76,7 @@ export default function ProjectTasksPage() {
       )}
 
       {currentView === "eisenhower" && (
-        <EisenhowerMatrix tasks={tasks ?? []} onTaskClick={setSelectedTaskId} />
+        <EisenhowerMatrix tasks={tasks ?? []} workspaceSlug={params.workspace} onTaskClick={setSelectedTaskId} />
       )}
 
       {selectedTaskId !== null && (

@@ -1,9 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Badge } from "@/components/ui/badge";
-import { TaskStatusBadge } from "@/components/projects/task-status-badge";
-import { cn } from "@/lib/utils";
+import { TaskCard } from "@/components/projects/task-card";
 
 type Task = {
   id: number;
@@ -73,9 +71,11 @@ function topoSort(tasks: Task[]): { layers: number[][]; taskMap: Map<number, Tas
 
 export function DependencyGraph({
   tasks,
+  workspaceSlug,
   onTaskClick,
 }: {
   tasks: Task[];
+  workspaceSlug: string;
   onTaskClick?: (taskId: number) => void;
 }) {
   const { layers, taskMap } = useMemo(() => topoSort(tasks), [tasks]);
@@ -164,29 +164,14 @@ export function DependencyGraph({
             {layer.map((taskId) => {
               const task = taskMap.get(taskId)!;
               return (
-                <button
+                <TaskCard
                   key={taskId}
-                  type="button"
-                  data-task-id={taskId}
+                  task={task}
+                  workspaceSlug={workspaceSlug}
                   onClick={() => onTaskClick?.(taskId)}
-                  className={cn(
-                    "flex flex-col gap-1 border-l-2 p-2 text-left text-xs transition-colors hover:bg-muted",
-                    statusNodeColors[task.status],
-                    groupColorMap.get(task.taskGroupId),
-                  )}
-                >
-                  <span className="truncate font-medium">{task.title}</span>
-                  <div className="flex gap-1">
-                    <Badge variant="secondary" className="text-[10px]">
-                      {task.type}
-                    </Badge>
-                    <TaskStatusBadge
-                      taskId={taskId}
-                      status={task.status}
-                      clickable
-                    />
-                  </div>
-                </button>
+                  borderClass={statusNodeColors[task.status]}
+                  className={groupColorMap.get(task.taskGroupId)}
+                />
               );
             })}
           </div>

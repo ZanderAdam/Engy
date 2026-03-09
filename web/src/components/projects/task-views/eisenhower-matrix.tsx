@@ -1,7 +1,6 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
-import { TaskStatusBadge } from "@/components/projects/task-status-badge";
+import { TaskCard } from "@/components/projects/task-card";
 
 type Task = {
   id: number;
@@ -31,9 +30,11 @@ const quadrants: Quadrant[] = [
 
 export function EisenhowerMatrix({
   tasks,
+  workspaceSlug,
   onTaskClick,
 }: {
   tasks: Task[];
+  workspaceSlug: string;
   onTaskClick?: (taskId: number) => void;
 }) {
   function tasksForQuadrant(q: Quadrant) {
@@ -46,38 +47,31 @@ export function EisenhowerMatrix({
 
   return (
     <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-px bg-border">
-      {quadrants.map((q) => (
-        <div
-          key={q.label}
-          className="flex min-h-0 flex-col gap-2 bg-background p-3"
-        >
-          <span className="shrink-0 text-xs font-medium text-muted-foreground">{q.label}</span>
-          <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
-            {tasksForQuadrant(q).map((task) => (
-              <button
-                key={task.id}
-                type="button"
-                onClick={() => onTaskClick?.(task.id)}
-                className="flex items-center gap-2 rounded-none border border-border p-2 text-left text-xs transition-colors hover:bg-muted"
-              >
-                <span className="flex-1 truncate">{task.title}</span>
-                <Badge variant="secondary" className="shrink-0 text-[10px]">
-                  {task.type}
-                </Badge>
-                <TaskStatusBadge
-                  taskId={task.id}
-                  status={task.status}
-                  clickable
-                  className="shrink-0"
+      {quadrants.map((q) => {
+        const items = tasksForQuadrant(q);
+        return (
+          <div
+            key={q.label}
+            className="flex min-h-0 flex-col gap-2 bg-background p-3"
+          >
+            <span className="shrink-0 text-xs font-medium text-muted-foreground">{q.label}</span>
+            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
+              {items.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  workspaceSlug={workspaceSlug}
+                  onClick={() => onTaskClick?.(task.id)}
+                  className="rounded-none border border-border"
                 />
-              </button>
-            ))}
-            {tasksForQuadrant(q).length === 0 && (
-              <p className="py-4 text-center text-xs text-muted-foreground">No tasks</p>
-            )}
+              ))}
+              {items.length === 0 && (
+                <p className="py-4 text-center text-xs text-muted-foreground">No tasks</p>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

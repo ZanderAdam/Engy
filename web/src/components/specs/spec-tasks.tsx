@@ -4,23 +4,16 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-import {
-  RiCheckboxLine,
-  RiCheckboxBlankLine,
-  RiRobotLine,
-  RiUserLine,
-  RiAddLine,
-} from "@remixicon/react";
+import { RiAddLine } from "@remixicon/react";
 import { TaskDialog } from "@/components/projects/task-dialog";
+import { TaskCard } from "@/components/projects/task-card";
 
 interface SpecTasksProps {
   specSlug: string;
+  workspaceSlug: string;
 }
 
-export function SpecTasks({ specSlug }: SpecTasksProps) {
-  const specId = specSlug;
+export function SpecTasks({ specSlug: specId, workspaceSlug }: SpecTasksProps) {
   const utils = trpc.useUtils();
   const [showNewTask, setShowNewTask] = useState(false);
 
@@ -60,52 +53,21 @@ export function SpecTasks({ specSlug }: SpecTasksProps) {
               No tasks yet. Add tasks to track work for this spec.
             </p>
           )}
-          {tasks?.map((task) => {
-            const isDone = task.status === "done";
-            return (
-              <div
-                key={task.id}
-                className={cn(
-                  "flex items-center gap-2 rounded px-3 py-2 hover:bg-muted/50",
-                  isDone && "opacity-50",
-                )}
-              >
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 shrink-0"
-                  onClick={() =>
-                    updateMutation.mutate({
-                      id: task.id,
-                      status: isDone ? "todo" : "done",
-                    })
-                  }
-                >
-                  {isDone ? (
-                    <RiCheckboxLine className="size-4" />
-                  ) : (
-                    <RiCheckboxBlankLine className="size-4" />
-                  )}
-                </Button>
-                <span
-                  className={cn(
-                    "text-sm flex-1 truncate",
-                    isDone && "line-through",
-                  )}
-                >
-                  {task.title}
-                </span>
-                <Badge variant="outline" className="text-[10px] px-1 py-0">
-                  {task.type === "ai" ? (
-                    <RiRobotLine className="size-3 mr-0.5" />
-                  ) : (
-                    <RiUserLine className="size-3 mr-0.5" />
-                  )}
-                  {task.type}
-                </Badge>
-              </div>
-            );
-          })}
+          {tasks?.map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              workspaceSlug={workspaceSlug}
+              showCheckbox
+              onCheckboxChange={(done) =>
+                updateMutation.mutate({
+                  id: task.id,
+                  status: done ? "done" : "todo",
+                })
+              }
+              className="rounded px-3"
+            />
+          ))}
         </div>
       </ScrollArea>
       <TaskDialog

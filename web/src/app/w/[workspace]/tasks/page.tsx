@@ -40,7 +40,7 @@ export default function TasksPage() {
         </Button>
       </div>
 
-      <EisenhowerMatrix tasks={tasks ?? []} onTaskClick={setSelectedTaskId} />
+      <EisenhowerMatrix tasks={tasks ?? []} workspaceSlug={params.workspace} onTaskClick={setSelectedTaskId} />
 
       {selectedTaskId !== null && (
         <TaskDialog

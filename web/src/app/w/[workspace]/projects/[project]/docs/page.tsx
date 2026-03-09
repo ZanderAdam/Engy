@@ -199,7 +199,7 @@ function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDeta
         )}
       </TabsContent>
       <TabsContent value="tasks" className="flex-1 overflow-hidden m-0">
-        <SpecTasks specSlug={projectSlug} />
+        <SpecTasks specSlug={projectSlug} workspaceSlug={workspaceSlug} />
       </TabsContent>
     </Tabs>
   );
