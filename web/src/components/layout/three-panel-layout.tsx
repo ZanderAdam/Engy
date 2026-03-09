@@ -1,12 +1,39 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useMemo } from 'react';
 import { RiArrowLeftSLine, RiArrowRightSLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
+import { Kbd, KbdGroup } from '@/components/ui/kbd';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { usePanelResize, type PanelConfig } from '@/lib/hooks/use-panel-resize';
 
-type ShortcutMatcher = (e: KeyboardEvent) => boolean;
+export interface ShortcutDef {
+  mod?: boolean;
+  ctrl?: boolean;
+  shift?: boolean;
+  key: string;
+}
+
+export function matchShortcut(def: ShortcutDef, e: KeyboardEvent): boolean {
+  if (def.mod && !(e.metaKey || e.ctrlKey)) return false;
+  if (def.ctrl && !e.ctrlKey) return false;
+  if (def.shift && !e.shiftKey) return false;
+  return e.key === def.key || e.key.toLowerCase() === def.key.toLowerCase();
+}
+
+function shortcutKeys(def: ShortcutDef): string[] {
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
+  const keys: string[] = [];
+  if (def.mod) keys.push(isMac ? '⌘' : 'Ctrl');
+  if (def.ctrl) keys.push(isMac ? '⌃' : 'Ctrl');
+  if (def.shift) keys.push(isMac ? '⇧' : 'Shift');
+  keys.push(def.key);
+  return keys;
+}
+
+export const DEFAULT_LEFT_SHORTCUT: ShortcutDef = { mod: true, shift: true, key: ',' };
+export const DEFAULT_RIGHT_SHORTCUT: ShortcutDef = { mod: true, shift: true, key: '.' };
 
 interface ThreePanelLayoutProps {
   left?: PanelConfig;
@@ -20,19 +47,48 @@ interface ThreePanelLayoutProps {
   onRightCollapsedChange?: (collapsed: boolean) => void;
   leftWidth?: number;
   leftWidthKey?: number;
-  leftShortcut?: ShortcutMatcher;
-  rightShortcut?: ShortcutMatcher;
+  leftShortcut?: ShortcutDef;
+  rightShortcut?: ShortcutDef;
   className?: string;
 }
 
-export function defaultLeftShortcut(e: KeyboardEvent): boolean {
-  const isModKey = e.metaKey || e.ctrlKey;
-  return isModKey && e.shiftKey && (e.key === '<' || e.key === ',');
-}
-
-export function defaultRightShortcut(e: KeyboardEvent): boolean {
-  const isModKey = e.metaKey || e.ctrlKey;
-  return isModKey && e.shiftKey && (e.key === '>' || e.key === '.');
+function ShortcutButton({
+  onClick,
+  side,
+  label,
+  keys,
+  icon: Icon,
+}: {
+  onClick: () => void;
+  side: 'left' | 'right';
+  label: string;
+  keys: string[];
+  icon: typeof RiArrowLeftSLine;
+}) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="outline" size="sm" onClick={onClick} className="h-8 w-8 p-0">
+            <Icon className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side={side}>
+          <span className="flex items-center gap-1.5">
+            {label}
+            <KbdGroup>
+              {keys.map((k, i) => (
+                <span key={k} className="flex items-center gap-0.5">
+                  {i > 0 && <span className="text-[10px] opacity-60">+</span>}
+                  <Kbd>{k}</Kbd>
+                </span>
+              ))}
+            </KbdGroup>
+          </span>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 export function ThreePanelLayout({
@@ -47,8 +103,8 @@ export function ThreePanelLayout({
   onRightCollapsedChange,
   leftWidth: controlledLeftWidth,
   leftWidthKey,
-  leftShortcut = defaultLeftShortcut,
-  rightShortcut = defaultRightShortcut,
+  leftShortcut = DEFAULT_LEFT_SHORTCUT,
+  rightShortcut = DEFAULT_RIGHT_SHORTCUT,
   className,
 }: ThreePanelLayoutProps) {
   const {
@@ -89,6 +145,9 @@ export function ThreePanelLayout({
     [onRightCollapsedChange, rightPanel],
   );
 
+  const leftKeys = useMemo(() => shortcutKeys(leftShortcut), [leftShortcut]);
+  const rightKeys = useMemo(() => shortcutKeys(rightShortcut), [rightShortcut]);
+
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       if (!containerRef.current || containerRef.current.offsetWidth === 0) return;
@@ -100,10 +159,10 @@ export function ThreePanelLayout({
 
       if (isEditing) return;
 
-      if (leftPanel && leftShortcut(e)) {
+      if (leftPanel && matchShortcut(leftShortcut, e)) {
         e.preventDefault();
         setLeftCollapsed(!isLeftCollapsed);
-      } else if (rightPanel && rightShortcut(e)) {
+      } else if (rightPanel && matchShortcut(rightShortcut, e)) {
         e.preventDefault();
         setRightCollapsed(!isRightCollapsed);
       }
@@ -132,29 +191,25 @@ export function ThreePanelLayout({
 
           {isLeftCollapsed && (
             <div className="flex items-start pt-2">
-              <Button
-                variant="outline"
-                size="sm"
+              <ShortcutButton
                 onClick={() => setLeftCollapsed(false)}
-                className="h-8 w-8 p-0"
-                title="Show sidebar"
-              >
-                <RiArrowRightSLine className="size-4" />
-              </Button>
+                side="right"
+                label="Show sidebar"
+                keys={leftKeys}
+                icon={RiArrowRightSLine}
+              />
             </div>
           )}
 
           {!isLeftCollapsed && (
             <div className="flex flex-col items-center flex-shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
+              <ShortcutButton
                 onClick={() => setLeftCollapsed(true)}
-                className="h-8 w-8 p-0"
-                title="Collapse sidebar"
-              >
-                <RiArrowLeftSLine className="size-4" />
-              </Button>
+                side="right"
+                label="Collapse sidebar"
+                keys={leftKeys}
+                icon={RiArrowLeftSLine}
+              />
               <div
                 className={cn(
                   'flex-1 w-1 bg-border hover:bg-blue-500 cursor-col-resize transition-colors',
@@ -175,15 +230,13 @@ export function ThreePanelLayout({
         <>
           {!isRightCollapsed && (
             <div className="flex flex-col items-center flex-shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
+              <ShortcutButton
                 onClick={() => setRightCollapsed(true)}
-                className="h-8 w-8 p-0"
-                title="Collapse panel"
-              >
-                <RiArrowRightSLine className="size-4" />
-              </Button>
+                side="left"
+                label="Collapse panel"
+                keys={rightKeys}
+                icon={RiArrowRightSLine}
+              />
               <div
                 className={cn(
                   'flex-1 w-1 bg-border hover:bg-blue-500 cursor-col-resize transition-colors',
@@ -198,15 +251,13 @@ export function ThreePanelLayout({
 
           {isRightCollapsed && (
             <div className="flex items-start pt-2">
-              <Button
-                variant="outline"
-                size="sm"
+              <ShortcutButton
                 onClick={() => setRightCollapsed(false)}
-                className="h-8 w-8 p-0"
-                title="Show panel"
-              >
-                <RiArrowLeftSLine className="size-4" />
-              </Button>
+                side="left"
+                label="Show panel"
+                keys={rightKeys}
+                icon={RiArrowLeftSLine}
+              />
             </div>
           )}
 

@@ -5,7 +5,7 @@ import { useParams, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
+import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
 
 const TERMINAL_CONFIG = {
@@ -15,9 +15,7 @@ const TERMINAL_CONFIG = {
   storageKey: 'engy-terminal-width',
 } as const;
 
-function terminalShortcut(e: KeyboardEvent): boolean {
-  return e.key === '`' && (e.ctrlKey || e.metaKey);
-}
+const TERMINAL_SHORTCUT: ShortcutDef = { ctrl: true, key: '`' };
 
 const tabs = [
   { label: 'Overview', segment: '' },
@@ -101,7 +99,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         right={TERMINAL_CONFIG}
         rightCollapsed={terminalCollapsed}
         onRightCollapsedChange={setTerminalCollapsed}
-        rightShortcut={terminalShortcut}
+        rightShortcut={TERMINAL_SHORTCUT}
         centerContent={
           <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden px-6">{children}</div>
         }

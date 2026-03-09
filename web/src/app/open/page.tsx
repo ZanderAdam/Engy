@@ -7,7 +7,7 @@ import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-edit
 import { EngyThreadStore } from '@/components/editor/document-editor';
 import { OpenDirTree } from '@/components/open-dir/open-dir-tree';
 import { useRecentDirs } from '@/hooks/use-recent-dirs';
-import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
+import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
 import { TerminalManager } from '@/components/terminal/terminal-manager';
 import type { TerminalScope } from '@/components/terminal/types';
 import { RiFolderOpenLine } from '@remixicon/react';
@@ -26,9 +26,7 @@ const TERMINAL_CONFIG = {
   storageKey: 'engy-open-terminal-width',
 } as const;
 
-function terminalShortcut(e: KeyboardEvent): boolean {
-  return e.key === '`' && (e.ctrlKey || e.metaKey);
-}
+const TERMINAL_SHORTCUT: ShortcutDef = { ctrl: true, key: '`' };
 
 export default function OpenPage() {
   return (
@@ -87,7 +85,7 @@ function OpenPageInner({ dirPath }: { dirPath: string }) {
       right={TERMINAL_CONFIG}
       rightCollapsed={terminalCollapsed}
       onRightCollapsedChange={setTerminalCollapsed}
-      rightShortcut={terminalShortcut}
+      rightShortcut={TERMINAL_SHORTCUT}
       leftContent={
         <OpenDirTree
           dirPath={dirPath}
