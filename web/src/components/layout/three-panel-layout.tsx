@@ -169,7 +169,7 @@ export function ThreePanelLayout({
         </>
       )}
 
-      <div className="flex-1 min-w-0 overflow-hidden">{centerContent}</div>
+      <div className="flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden">{centerContent}</div>
 
       {rightPanel && (
         <>
