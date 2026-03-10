@@ -4,6 +4,7 @@ node_modules/
 
 # Build
 dist/
+dist-server/
 .next/
 .turbo/
 web/next-env.d.ts

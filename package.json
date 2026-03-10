@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "dotenv -e .dev.env -- turbo run dev",
+    "start": "dotenv -e .env -- turbo run start",
     "build": "turbo run build",
     "lint": "turbo run lint:eslint && knip && jscpd",
     "test": "turbo run test",

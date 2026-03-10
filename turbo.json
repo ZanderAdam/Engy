@@ -6,9 +6,14 @@
       "cache": false,
       "passThroughEnv": ["ENGY_DIR", "PORT", "ENGY_SERVER_URL"]
     },
+    "start": {
+      "persistent": true,
+      "cache": false,
+      "passThroughEnv": ["ENGY_DIR", "PORT", "ENGY_SERVER_URL"]
+    },
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "dist/**"]
+      "outputs": [".next/**", "dist/**", "dist-server/**"]
     },
     "lint:eslint": {
       "dependsOn": ["^build"]
