@@ -2,12 +2,12 @@
 
 import { cn } from "@/lib/utils";
 
-export type TaskView = "graph" | "swimlane" | "eisenhower";
+export type TaskView = "kanban" | "eisenhower" | "graph";
 
 const views: { value: TaskView; label: string }[] = [
-  { value: "graph", label: "Graph" },
-  { value: "swimlane", label: "Swimlane" },
+  { value: "kanban", label: "Kanban" },
   { value: "eisenhower", label: "Eisenhower" },
+  { value: "graph", label: "Graph" },
 ];
 
 export function ViewToggle({

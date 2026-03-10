@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { trpc } from "@/lib/trpc";
 import { ViewToggle, type TaskView } from "@/components/projects/task-views/view-toggle";
 import { DependencyGraph } from "@/components/projects/task-views/dependency-graph";
-import { SwimlaneBoard } from "@/components/projects/task-views/swimlane-board";
+import { KanbanBoard } from "@/components/projects/task-views/kanban-board";
 import { EisenhowerMatrix } from "@/components/projects/task-views/eisenhower-matrix";
 import { useFileChangeEvents } from "@/hooks/use-file-change-events";
 import { TaskDialog } from "@/components/projects/task-dialog";
@@ -19,7 +19,7 @@ export default function ProjectTasksPage() {
   const searchParams = useSearchParams();
 
   const viewParam = searchParams.get("view") as TaskView | null;
-  const currentView = viewParam ?? "graph";
+  const currentView = viewParam ?? "kanban";
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
   const { data: project } = trpc.project.getBySlug.useQuery(
@@ -81,8 +81,14 @@ export default function ProjectTasksPage() {
         />
       )}
 
-      {currentView === "swimlane" && (
-        <SwimlaneBoard milestones={milestones ?? []} />
+      {currentView === "kanban" && (
+        <KanbanBoard
+          tasks={tasks ?? []}
+          workspaceSlug={params.workspace}
+          projectDir={project?.projectDir}
+          planSlugs={project?.planSlugs}
+          onTaskClick={setSelectedTaskId}
+        />
       )}
 
       {currentView === "eisenhower" && (

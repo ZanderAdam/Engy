@@ -1,9 +1,9 @@
 {
-  "ignore": [".claude/worktrees/**"],
+  "ignore": [],
   "ignoreDependencies": ["prettier"],
   "workspaces": {
     "web": {
-      "entry": ["src/app/**/*.{ts,tsx}", "src/**/test-helpers.ts", "src/lib/utils.ts"],
+      "entry": ["server.ts", "src/server/db/migrate.ts", "src/server/ws/events-server.ts", "src/app/**/*.{ts,tsx}", "src/**/test-helpers.ts", "src/lib/utils.ts"],
       "project": ["**/*.{ts,tsx}"],
       "ignore": ["src/components/ui/**", "src/components/tree-view.tsx"],
       "ignoreDependencies": [
