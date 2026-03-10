@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useParams, usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { RiGitRepositoryLine, RiGitRepositoryFill } from '@remixicon/react';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
+import type { TerminalDropdownGroup } from '@/components/terminal/types';
 import { FileChangeProvider } from '@/contexts/file-change-context';
 
 const TERMINAL_CONFIG = {
@@ -25,8 +27,12 @@ const tabs = [
   { label: 'Memory', segment: 'memory' },
 ] as const;
 
+function shellEscape(s: string): string {
+  return s.replace(/'/g, "'\\''");
+}
+
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
-  const params = useParams<{ workspace: string }>();
+  const params = useParams<{ workspace: string; project?: string }>();
   const pathname = usePathname();
   const {
     data: workspace,
@@ -50,6 +56,59 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     setTerminalCollapsed(true);
   }, []);
 
+  const basePath = `/w/${params.workspace}`;
+  const isProjectRoute = pathname.startsWith(`${basePath}/projects/`);
+
+  const extraDropdownGroups = useMemo<TerminalDropdownGroup[] | undefined>(() => {
+    if (!isProjectRoute || !workspace) return undefined;
+    const repos = (workspace.repos as string[]) ?? [];
+    if (repos.length === 0) return undefined;
+
+    const projectSlug = params.project;
+    const projectDir =
+      projectSlug && workspace.resolvedDir
+        ? `${workspace.resolvedDir}/projects/${projectSlug}`
+        : undefined;
+    const addProjectDir = projectDir ? ` --add-dir '${shellEscape(projectDir)}'` : '';
+
+    const entries: TerminalDropdownGroup['entries'] = repos.map((repoPath) => {
+      const dirName = repoPath.split('/').filter(Boolean).pop() ?? repoPath;
+      return {
+        id: `repo:${repoPath}`,
+        label: dirName,
+        tooltip: repoPath,
+        scope: {
+          scopeType: 'project',
+          scopeLabel: `claude: ${dirName}`,
+          workingDir: repoPath,
+          command: `claude${addProjectDir}`,
+        },
+        icon: RiGitRepositoryLine,
+      };
+    });
+
+    if (repos.length > 1) {
+      const addDirFlags = [
+        addProjectDir,
+        ...repos.slice(1).map((d) => ` --add-dir '${shellEscape(d)}'`),
+      ].filter(Boolean).join('');
+      entries.push({
+        id: 'repo:all',
+        label: 'All Repos',
+        tooltip: repos.join(', '),
+        scope: {
+          scopeType: 'project',
+          scopeLabel: 'claude: all repos',
+          workingDir: repos[0],
+          command: `claude${addDirFlags}`,
+        },
+        icon: RiGitRepositoryFill,
+      });
+    }
+
+    return [{ label: 'Claude in Repos', entries }];
+  }, [isProjectRoute, workspace, params.project, pathname]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -71,9 +130,6 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       </div>
     );
   }
-
-  const basePath = `/w/${params.workspace}`;
-  const isProjectRoute = pathname.startsWith(`${basePath}/projects/`);
 
   function tabHref(segment: string): string {
     return segment ? `${basePath}/${segment}` : basePath;
@@ -115,7 +171,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           centerContent={
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6">{children}</div>
           }
-          rightContent={<TerminalPanel onCollapse={handleCollapse} />}
+          rightContent={
+            <TerminalPanel onCollapse={handleCollapse} extraDropdownGroups={extraDropdownGroups} />
+          }
         />
       </div>
     </FileChangeProvider>

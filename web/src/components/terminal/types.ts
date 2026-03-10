@@ -1,3 +1,5 @@
+import type { ElementType } from 'react';
+
 export type TerminalScopeType = 'project' | 'workspace' | 'dir';
 
 export type TerminalStatus = 'connecting' | 'active' | 'exited' | 'error';
@@ -22,4 +24,17 @@ export interface TerminalPanelParams {
 export interface SplitPosition {
   referencePanel: string;
   direction: 'right' | 'below';
+}
+
+export interface TerminalDropdownEntry {
+  id: string;
+  label: string;
+  tooltip?: string;
+  scope: TerminalScope;
+  icon?: ElementType;
+}
+
+export interface TerminalDropdownGroup {
+  label?: string;
+  entries: TerminalDropdownEntry[];
 }

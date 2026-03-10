@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext } from 'react';
-import type { TerminalScope, TerminalStatus, SplitPosition } from './types';
+import type { TerminalScope, TerminalStatus, SplitPosition, TerminalDropdownGroup } from './types';
 import type { TerminalActions } from './terminal';
 
 export interface TerminalDockContextValue {
@@ -9,6 +9,7 @@ export interface TerminalDockContextValue {
   handleStatusChange: (sessionId: string, status: TerminalStatus) => void;
   handleReady: (sessionId: string, actions: TerminalActions | null) => void;
   onCollapse: () => void;
+  extraDropdownGroups?: TerminalDropdownGroup[];
 }
 
 export const TerminalDockContext = createContext<TerminalDockContextValue | null>(null);

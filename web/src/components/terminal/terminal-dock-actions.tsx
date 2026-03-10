@@ -1,22 +1,26 @@
 'use client';
 
+import { Fragment } from 'react';
 import {
   RiAddLine,
   RiArrowRightSLine,
   RiSplitCellsHorizontal,
   RiSplitCellsVertical,
+  RiTerminalLine,
 } from '@remixicon/react';
 import type { IDockviewHeaderActionsProps } from 'dockview';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useTerminalDock } from './terminal-dock-context';
 
 export function TerminalDockActions({ activePanel }: IDockviewHeaderActionsProps) {
-  const { openTerminal, onCollapse } = useTerminalDock();
+  const { openTerminal, onCollapse, extraDropdownGroups } = useTerminalDock();
 
   return (
     <div className="flex shrink-0 items-center border-l border-border">
@@ -53,6 +57,28 @@ export function TerminalDockActions({ activePanel }: IDockviewHeaderActionsProps
             <RiSplitCellsVertical className="size-3" />
             Split Down
           </DropdownMenuItem>
+
+          {extraDropdownGroups?.map((group, gi) => (
+            <Fragment key={gi}>
+              <DropdownMenuSeparator />
+              {group.label && (
+                <DropdownMenuLabel className="text-[10px]">{group.label}</DropdownMenuLabel>
+              )}
+              {group.entries.map((entry) => {
+                const Icon = entry.icon ?? RiTerminalLine;
+                return (
+                  <DropdownMenuItem
+                    key={entry.id}
+                    onClick={() => openTerminal(entry.scope)}
+                    title={entry.tooltip}
+                  >
+                    <Icon className="size-3" />
+                    <span className="truncate">{entry.label}</span>
+                  </DropdownMenuItem>
+                );
+              })}
+            </Fragment>
+          ))}
         </DropdownMenuContent>
       </DropdownMenu>
       <button

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useMemo } from "react";
 import { DockviewReact, type DockviewApi, type SerializedDockview } from "dockview";
 import type { TerminalActions } from "./terminal";
-import type { TerminalTab, TerminalScope, TerminalPanelParams, SplitPosition } from "./types";
+import type { TerminalTab, TerminalScope, TerminalPanelParams, SplitPosition, TerminalDropdownGroup } from "./types";
 import { TerminalDockContext, type TerminalDockContextValue } from "./terminal-dock-context";
 import { TerminalDockPanel } from "./terminal-dock-panel";
 import { TerminalDockTab } from "./terminal-dock-tab";
@@ -22,6 +22,7 @@ interface OpenEvent {
 interface TerminalManagerProps {
   onCollapse: () => void;
   defaultScope?: TerminalScope;
+  extraDropdownGroups?: TerminalDropdownGroup[];
 }
 
 interface SessionListItem {
@@ -84,7 +85,7 @@ function sessionToTab(s: SessionListItem): TerminalTab {
   };
 }
 
-export function TerminalManager({ onCollapse, defaultScope }: TerminalManagerProps) {
+export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups }: TerminalManagerProps) {
   const tabsRef = useRef<Map<string, TerminalTab>>(new Map());
   const tabWsRefs = useRef<Map<string, TerminalActions>>(new Map());
   const dockviewApiRef = useRef<DockviewApi | null>(null);
@@ -320,8 +321,9 @@ export function TerminalManager({ onCollapse, defaultScope }: TerminalManagerPro
       handleStatusChange,
       handleReady,
       onCollapse,
+      extraDropdownGroups,
     }),
-    [openTerminal, handleStatusChange, handleReady, onCollapse],
+    [openTerminal, handleStatusChange, handleReady, onCollapse, extraDropdownGroups],
   );
 
   return (
