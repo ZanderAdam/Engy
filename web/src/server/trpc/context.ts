@@ -32,6 +32,8 @@ export interface AppState {
   terminalSessionMeta: Map<string, TerminalSessionMeta>;
   /** Dedicated daemon WebSocket for terminal traffic (zero-parse relay) */
   terminalDaemon: WebSocket | null;
+  /** Browser WebSockets subscribed to file change events */
+  fileChangeListeners: Set<WebSocket>;
 }
 
 const GLOBAL_KEY = '__engy_app_state__' as const;
@@ -48,6 +50,7 @@ export function getAppState(): AppState {
       terminalSessions: new Map(),
       terminalSessionMeta: new Map(),
       terminalDaemon: null,
+      fileChangeListeners: new Set(),
     };
   }
   return g[GLOBAL_KEY] as AppState;

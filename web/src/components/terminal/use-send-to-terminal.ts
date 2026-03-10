@@ -2,6 +2,7 @@
 
 import { useCallback } from 'react';
 import { useTerminalActive } from './use-terminal-active';
+import type { TerminalScope } from './types';
 
 export function useSendToTerminal() {
   const terminalActive = useTerminalActive();
@@ -24,5 +25,11 @@ export function useSendToTerminal() {
     }, 50);
   }, []);
 
-  return { sendToTerminal, terminalActive };
+  const openNewTerminal = useCallback((scope: TerminalScope) => {
+    window.dispatchEvent(
+      new CustomEvent('terminal:open', { detail: { scope } }),
+    );
+  }, []);
+
+  return { sendToTerminal, openNewTerminal, terminalActive };
 }

@@ -12,6 +12,7 @@ function createTestState(): AppState {
     terminalSessions: new Map(),
     terminalSessionMeta: new Map(),
     terminalDaemon: null,
+    fileChangeListeners: new Set(),
   };
 }
 

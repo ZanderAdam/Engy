@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import type { ClientToServerMessage, ValidatePathsRequestMessage } from '@engy/common';
 import type { AppState, FileChangeEvent } from '../trpc/context';
 import { getDb } from '../db/client';
@@ -109,6 +109,14 @@ function handleFileChange(
 
   if (path.includes('/projects/') || path.includes('\\projects\\')) {
     handleSpecFileChange(workspaceSlug, state);
+  }
+
+  const broadcastMsg = JSON.stringify({
+    type: 'FILE_CHANGE',
+    payload: { workspaceSlug, path, eventType },
+  });
+  for (const ws of state.fileChangeListeners) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(broadcastMsg);
   }
 }
 

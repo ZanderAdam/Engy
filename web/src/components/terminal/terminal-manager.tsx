@@ -12,6 +12,10 @@ interface InjectEvent {
   terminalId?: string;
 }
 
+interface OpenEvent {
+  scope: TerminalScope;
+}
+
 // Lazy-load the terminal instance (no SSR — xterm uses browser APIs)
 const TerminalInstance = dynamic(
   () => import('./terminal').then((m) => m.TerminalInstance),
@@ -160,6 +164,17 @@ export function TerminalManager({ onCollapse, defaultScope }: TerminalManagerPro
     window.addEventListener('terminal:inject', onInject);
     return () => window.removeEventListener('terminal:inject', onInject);
   }, [activeTabId]);
+
+  // Listen for terminal:open custom events to spawn a new terminal with a specific scope
+  useEffect(() => {
+    function onOpen(e: Event) {
+      const { scope } = (e as CustomEvent<OpenEvent>).detail;
+      openTerminal(scope);
+    }
+
+    window.addEventListener('terminal:open', onOpen);
+    return () => window.removeEventListener('terminal:open', onOpen);
+  }, [openTerminal]);
 
   if (loading) {
     return (

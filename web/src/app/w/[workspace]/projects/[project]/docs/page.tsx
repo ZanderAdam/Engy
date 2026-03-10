@@ -80,6 +80,12 @@ interface ProjectDetailProps {
 function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDetailProps) {
   const utils = trpc.useUtils();
 
+  const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
+  const { data: projectData } = trpc.project.getBySlug.useQuery(
+    { workspaceId: workspace?.id ?? 0, slug: projectSlug },
+    { enabled: !!workspace },
+  );
+
   const isSpecMd = selectedFile === 'spec.md';
 
   const threadStore = useMemo(
@@ -200,7 +206,12 @@ function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDeta
         )}
       </TabsContent>
       <TabsContent value="tasks" className="flex-1 overflow-hidden m-0">
-        <SpecTasks specSlug={projectSlug} workspaceSlug={workspaceSlug} />
+        <SpecTasks
+          specSlug={projectSlug}
+          workspaceSlug={workspaceSlug}
+          projectDir={projectData?.projectDir}
+          planSlugs={projectData?.planSlugs}
+        />
       </TabsContent>
     </Tabs>
   );

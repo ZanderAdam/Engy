@@ -1,3 +1,5 @@
+import { existsSync, readdirSync } from 'node:fs';
+import path from 'node:path';
 import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
@@ -5,6 +7,7 @@ import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { projects, tasks, workspaces } from '../../db/schema';
 import { uniqueProjectSlug } from '../utils';
+import { getWorkspaceDir } from '../../engy-dir/init';
 import {
   listProjectFiles,
   getProjectSpec,
@@ -114,7 +117,26 @@ export const projectRouter = router({
       if (!project) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
       }
-      return project;
+
+      const workspace = db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, project.workspaceId))
+        .get();
+
+      let projectDir: string | null = null;
+      let planSlugs: string[] = [];
+      if (workspace && project.projectDir) {
+        projectDir = path.join(getWorkspaceDir(workspace), 'projects', project.projectDir);
+        const plansDir = path.join(projectDir, 'plans');
+        if (existsSync(plansDir)) {
+          planSlugs = readdirSync(plansDir)
+            .filter((f) => f.endsWith('.plan.md'))
+            .map((f) => f.replace(/\.plan\.md$/, ''));
+        }
+      }
+
+      return { ...project, projectDir, planSlugs };
     }),
 
   listWithProgress: publicProcedure

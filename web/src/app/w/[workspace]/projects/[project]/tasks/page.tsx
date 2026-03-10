@@ -7,6 +7,7 @@ import { ViewToggle, type TaskView } from "@/components/projects/task-views/view
 import { DependencyGraph } from "@/components/projects/task-views/dependency-graph";
 import { SwimlaneBoard } from "@/components/projects/task-views/swimlane-board";
 import { EisenhowerMatrix } from "@/components/projects/task-views/eisenhower-matrix";
+import { useFileChangeEvents } from "@/hooks/use-file-change-events";
 import { TaskDialog } from "@/components/projects/task-dialog";
 import { TaskGroupForm } from "@/components/projects/task-group-form";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,8 @@ export default function ProjectTasksPage() {
     { projectId: project?.id ?? 0 },
     { enabled: !!project },
   );
+
+  useFileChangeEvents(params.workspace, params.project);
 
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [showNewTask, setShowNewTask] = useState(false);
@@ -68,7 +71,13 @@ export default function ProjectTasksPage() {
       </div>
 
       {currentView === "graph" && (
-        <DependencyGraph tasks={tasks ?? []} workspaceSlug={params.workspace} onTaskClick={setSelectedTaskId} />
+        <DependencyGraph
+          tasks={tasks ?? []}
+          workspaceSlug={params.workspace}
+          projectDir={project?.projectDir}
+          planSlugs={project?.planSlugs}
+          onTaskClick={setSelectedTaskId}
+        />
       )}
 
       {currentView === "swimlane" && (
@@ -76,7 +85,13 @@ export default function ProjectTasksPage() {
       )}
 
       {currentView === "eisenhower" && (
-        <EisenhowerMatrix tasks={tasks ?? []} workspaceSlug={params.workspace} onTaskClick={setSelectedTaskId} />
+        <EisenhowerMatrix
+          tasks={tasks ?? []}
+          workspaceSlug={params.workspace}
+          projectDir={project?.projectDir}
+          planSlugs={project?.planSlugs}
+          onTaskClick={setSelectedTaskId}
+        />
       )}
 
       {selectedTaskId !== null && (

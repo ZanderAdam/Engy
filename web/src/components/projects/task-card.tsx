@@ -11,6 +11,8 @@ import { RiCheckboxLine, RiCheckboxBlankLine } from '@remixicon/react';
 interface TaskCardProps {
   task: { id: number; title: string; status: string; type: string };
   workspaceSlug: string;
+  projectDir?: string | null;
+  planSlugs?: string[];
   onClick?: () => void;
   showCheckbox?: boolean;
   onCheckboxChange?: (done: boolean) => void;
@@ -21,6 +23,8 @@ interface TaskCardProps {
 export function TaskCard({
   task,
   workspaceSlug,
+  projectDir,
+  planSlugs,
   onClick,
   showCheckbox = false,
   onCheckboxChange,
@@ -63,7 +67,12 @@ export function TaskCard({
         </Button>
       )}
       <CopyTaskSlug taskId={task.id} workspaceSlug={workspaceSlug} />
-      <TaskQuickActions taskId={task.id} workspaceSlug={workspaceSlug} />
+      <TaskQuickActions
+        taskId={task.id}
+        workspaceSlug={workspaceSlug}
+        projectDir={projectDir}
+        planSlugs={planSlugs}
+      />
       <span className={cn('flex-1 truncate', showCheckbox && isDone && 'line-through')}>
         {task.title}
       </span>

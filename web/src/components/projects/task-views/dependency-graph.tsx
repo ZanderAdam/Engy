@@ -72,10 +72,14 @@ function topoSort(tasks: Task[]): { layers: number[][]; taskMap: Map<number, Tas
 export function DependencyGraph({
   tasks,
   workspaceSlug,
+  projectDir,
+  planSlugs,
   onTaskClick,
 }: {
   tasks: Task[];
   workspaceSlug: string;
+  projectDir?: string | null;
+  planSlugs?: string[];
   onTaskClick?: (taskId: number) => void;
 }) {
   const { layers, taskMap } = useMemo(() => topoSort(tasks), [tasks]);
@@ -168,6 +172,8 @@ export function DependencyGraph({
                   key={taskId}
                   task={task}
                   workspaceSlug={workspaceSlug}
+                  projectDir={projectDir}
+                  planSlugs={planSlugs}
                   onClick={() => onTaskClick?.(taskId)}
                   borderClass={statusNodeColors[task.status]}
                   className={groupColorMap.get(task.taskGroupId)}

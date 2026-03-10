@@ -6,6 +6,7 @@ import {
   createTerminalWebSocketServer,
   createTerminalRelayWebSocketServer,
 } from './src/server/ws/terminal-server';
+import { createEventsWebSocketServer } from './src/server/ws/events-server';
 import { attachMCP } from './src/server/mcp/index';
 import { runMigrations } from './src/server/db/migrate';
 
@@ -49,6 +50,7 @@ app.prepare().then(() => {
   const wss = createWebSocketServer(state);
   const terminalWss = createTerminalWebSocketServer(state);
   const terminalRelayWss = createTerminalRelayWebSocketServer(state);
+  const eventsWss = createEventsWebSocketServer(state);
   const nextUpgrade = app.getUpgradeHandler();
 
   server.on('upgrade', (req, socket, head) => {
@@ -64,6 +66,10 @@ app.prepare().then(() => {
     } else if (pathname === '/ws/terminal-relay') {
       terminalRelayWss.handleUpgrade(req, socket, head, (ws) => {
         terminalRelayWss.emit('connection', ws, req);
+      });
+    } else if (pathname === '/ws/events') {
+      eventsWss.handleUpgrade(req, socket, head, (ws) => {
+        eventsWss.emit('connection', ws, req);
       });
     } else {
       nextUpgrade(req, socket, head);

@@ -62,6 +62,7 @@ describe('WebSocket Server', () => {
       terminalSessions: new Map(),
       terminalSessionMeta: new Map(),
       terminalDaemon: null,
+      fileChangeListeners: new Set(),
     };
     const result = await startServer(state);
     server = result.server;
