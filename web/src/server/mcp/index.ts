@@ -4,9 +4,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
+import path from 'node:path';
 import { getDb } from '../db/client';
-import { tasks, taskDependencies, taskGroups, fleetingMemories } from '../db/schema';
+import { tasks, taskDependencies, taskGroups, fleetingMemories, workspaces, projects } from '../db/schema';
 import { validateDependencies, attachBlockedBy } from '../tasks/validation';
+import { getWorkspaceDir } from '../engy-dir/init';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 
@@ -28,6 +30,7 @@ export function getMcpServer(): McpServer {
     { capabilities: { tools: {} } },
   );
 
+  registerWorkspaceTools(mcp);
   registerTaskTools(mcp);
   registerTaskGroupTools(mcp);
   registerMemoryTools(mcp);
@@ -106,7 +109,120 @@ async function handleNewSession(
   await transport.handleRequest(req, res);
 }
 
+// ── Path Helpers ────────────────────────────────────────────────────
+
+type WorkspaceRow = { slug: string; docsDir: string | null };
+
+function resolveWorkspacePaths(ws: WorkspaceRow) {
+  const workspaceDir = getWorkspaceDir(ws);
+  return {
+    workspaceDir,
+    specsDir: path.join(workspaceDir, 'projects'),
+    docsDir: path.join(workspaceDir, 'docs'),
+    memoryDir: path.join(workspaceDir, 'memory'),
+    systemDir: path.join(workspaceDir, 'system'),
+  };
+}
+
+function resolveSpecPath(ws: WorkspaceRow, specId: string): string {
+  const { specsDir } = resolveWorkspacePaths(ws);
+  return path.join(specsDir, specId);
+}
+
+function attachSpecPaths<T extends { projectId: number | null; specId: string | null }>(
+  rows: T[],
+): (T & { specPath: string | null })[] {
+  const projectIds = [...new Set(rows.map((r) => r.projectId).filter((id): id is number => id != null))];
+  if (projectIds.length === 0) return rows.map((r) => ({ ...r, specPath: null }));
+
+  const db = getDb();
+  const wsCache = new Map<number, WorkspaceRow>();
+
+  const projectRows = projectIds.map((id) => db.select().from(projects).where(eq(projects.id, id)).get()).filter(Boolean);
+  for (const p of projectRows) {
+    if (p && !wsCache.has(p.workspaceId)) {
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, p.workspaceId)).get();
+      if (ws) wsCache.set(p.workspaceId, ws);
+    }
+  }
+
+  const projectWsMap = new Map<number, WorkspaceRow>();
+  for (const p of projectRows) {
+    if (p) {
+      const ws = wsCache.get(p.workspaceId);
+      if (ws) projectWsMap.set(p.id, ws);
+    }
+  }
+
+  return rows.map((r) => {
+    if (!r.specId || !r.projectId) return { ...r, specPath: null };
+    const ws = projectWsMap.get(r.projectId);
+    if (!ws) return { ...r, specPath: null };
+    return { ...r, specPath: resolveSpecPath(ws, r.specId) };
+  });
+}
+
 // ── Tool Registration ──────────────────────────────────────────────
+
+function registerWorkspaceTools(mcp: McpServer): void {
+  mcp.tool(
+    'getWorkspaceDetails',
+    'Get workspace details with filesystem paths for direct file access',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+    },
+    async ({ workspaceId }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const projectRows = db.select().from(projects).where(eq(projects.workspaceId, workspaceId)).all();
+
+      return mcpResult({
+        ...ws,
+        paths: resolveWorkspacePaths(ws),
+        projects: projectRows.map((p) => ({
+          ...p,
+          projectDir: p.projectDir
+            ? path.join(resolveWorkspacePaths(ws).specsDir, p.projectDir)
+            : null,
+        })),
+      });
+    },
+  );
+
+  mcp.tool(
+    'getProjectDetails',
+    'Get project details with workspace context and filesystem paths',
+    {
+      projectId: z.number().describe('Project ID'),
+    },
+    async ({ projectId }) => {
+      const db = getDb();
+      const project = db.select().from(projects).where(eq(projects.id, projectId)).get();
+      if (!project) return mcpError('Project not found');
+
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, project.workspaceId)).get();
+      if (!ws) return mcpError('Parent workspace not found');
+
+      const wsPaths = resolveWorkspacePaths(ws);
+
+      return mcpResult({
+        ...project,
+        workspace: { id: ws.id, name: ws.name, slug: ws.slug },
+        paths: {
+          ...wsPaths,
+          projectDir: project.projectDir
+            ? path.join(wsPaths.specsDir, project.projectDir)
+            : null,
+          specDir: project.slug
+            ? path.join(wsPaths.specsDir, project.slug)
+            : null,
+        },
+      });
+    },
+  );
+}
 
 function registerTaskTools(mcp: McpServer): void {
   mcp.tool(
@@ -213,7 +329,7 @@ function registerTaskTools(mcp: McpServer): void {
       else if (projectId) rows = query.where(eq(tasks.projectId, projectId)).all();
       else rows = query.all();
 
-      return mcpResult(attachBlockedBy(rows));
+      return mcpResult(attachSpecPaths(attachBlockedBy(rows)));
     },
   );
 
@@ -225,7 +341,7 @@ function registerTaskTools(mcp: McpServer): void {
       const db = getDb();
       const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
       if (!task) return mcpError('Task not found');
-      return mcpResult(attachBlockedBy([task])[0]);
+      return mcpResult(attachSpecPaths(attachBlockedBy([task]))[0]);
     },
   );
 }

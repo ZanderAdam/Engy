@@ -1,0 +1,6 @@
+{
+  "name": "engy",
+  "description": "Spec-driven development workflow: spec authoring, milestone planning, implementation with TDD, code review, and spec updates",
+  "version": "1.0.0",
+  "author": { "name": "Aleks" }
+}

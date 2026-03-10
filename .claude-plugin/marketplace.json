@@ -1,0 +1,11 @@
+{
+  "name": "engy-marketplace",
+  "owner": { "name": "ZanderAdam" },
+  "plugins": [
+    {
+      "name": "engy",
+      "source": "./plugins/engy",
+      "description": "Spec-driven development workflow skills"
+    }
+  ]
+}
