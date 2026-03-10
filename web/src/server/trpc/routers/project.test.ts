@@ -130,19 +130,11 @@ describe('project router', () => {
       expect(result.status).toBe('archived');
     });
 
-    it('should reject invalid status transition (skip)', async () => {
-      const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Skip Test' });
-      await expect(
-        caller.project.updateStatus({ id: proj.id, status: 'archived' }),
-      ).rejects.toThrow('invalid status transition');
-    });
-
-    it('should reject backward status transition', async () => {
-      const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Backward Test' });
-      await caller.project.updateStatus({ id: proj.id, status: 'active' });
-      await expect(
-        caller.project.updateStatus({ id: proj.id, status: 'planning' }),
-      ).rejects.toThrow('invalid status transition');
+    it('should allow any valid status transition', async () => {
+      const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Any Test' });
+      await caller.project.updateStatus({ id: proj.id, status: 'archived' });
+      const result = await caller.project.updateStatus({ id: proj.id, status: 'planning' });
+      expect(result.status).toBe('planning');
     });
 
     it('should throw NOT_FOUND for non-existent project', async () => {

@@ -21,7 +21,13 @@ export function WorkspaceOverview({
 
   if (!projects) return null;
 
-  const visibleProjects = projects.filter((p) => !p.isDefault);
+  const visibleProjects = [...projects]
+    .filter((p) => !p.isDefault)
+    .sort((a, b) => {
+      const aArchived = a.status === 'archived' ? 1 : 0;
+      const bArchived = b.status === 'archived' ? 1 : 0;
+      return aArchived - bArchived;
+    });
 
   return (
     <div className="flex flex-col gap-4">

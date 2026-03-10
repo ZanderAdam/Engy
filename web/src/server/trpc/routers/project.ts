@@ -21,22 +21,11 @@ import {
   mkdirProject,
   deleteProjectFile,
   deleteProjectSubDir,
+  renameProjectFile,
+  renameProjectSubDir,
   initProjectDir,
   removeProjectDir,
 } from '../../project/service';
-
-const PROJECT_STATUS_ORDER = ['planning', 'active', 'completing', 'archived'] as const;
-
-function validateProjectStatusTransition(current: string, next: string): void {
-  const currentIdx = PROJECT_STATUS_ORDER.indexOf(current as (typeof PROJECT_STATUS_ORDER)[number]);
-  const nextIdx = PROJECT_STATUS_ORDER.indexOf(next as (typeof PROJECT_STATUS_ORDER)[number]);
-  if (nextIdx !== currentIdx + 1) {
-    throw new TRPCError({
-      code: 'BAD_REQUEST',
-      message: `invalid status transition: "${current}" → "${next}"`,
-    });
-  }
-}
 
 function getWorkspace(workspaceSlug: string) {
   const db = getDb();
@@ -196,8 +185,6 @@ export const projectRouter = router({
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
       }
-
-      validateProjectStatusTransition(existing.status, input.status);
 
       return db
         .update(projects)
@@ -437,6 +424,70 @@ export const projectRouter = router({
       } catch (e) {
         const msg = errorMessage(e);
         if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
+      }
+    }),
+
+  renameFile: publicProcedure
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        oldPath: z.string().min(1)
+          .refine((p) => p.endsWith('.md'), { message: 'Only .md files are supported' })
+          .refine((p) => p !== 'spec.md', { message: 'Cannot rename spec.md' }),
+        newPath: z.string().min(1).refine((p) => p.endsWith('.md'), { message: 'Only .md files are supported' }),
+      }),
+    )
+    .mutation(({ input }) => {
+      const db = getDb();
+      const workspace = getWorkspace(input.workspaceSlug);
+      const project = db
+        .select()
+        .from(projects)
+        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
+        .get();
+      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
+
+      try {
+        renameProjectFile({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.oldPath, input.newPath);
+        return { success: true };
+      } catch (e) {
+        const msg = errorMessage(e);
+        if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
+        if (msg.includes('already exists')) throw new TRPCError({ code: 'CONFLICT', message: msg });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
+      }
+    }),
+
+  renameDir: publicProcedure
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        oldSubDir: z.string().min(1),
+        newSubDir: z.string().min(1),
+      }),
+    )
+    .mutation(({ input }) => {
+      const db = getDb();
+      const workspace = getWorkspace(input.workspaceSlug);
+      const project = db
+        .select()
+        .from(projects)
+        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
+        .get();
+      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
+
+      try {
+        renameProjectSubDir({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.oldSubDir, input.newSubDir);
+        return { success: true };
+      } catch (e) {
+        const msg = errorMessage(e);
+        if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
+        if (msg.includes('already exists')) throw new TRPCError({ code: 'CONFLICT', message: msg });
         throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
       }
     }),

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { ProjectStatusBadge } from "@/components/projects/project-status-badge";
 
 type ProjectWithProgress = {
   id: number;
@@ -49,9 +50,7 @@ export function ProjectCard({
     >
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium">{project.name}</span>
-        <Badge variant="secondary" className="text-[10px]">
-          {project.status}
-        </Badge>
+        <ProjectStatusBadge projectId={project.id} status={project.status} clickable />
       </div>
       <div className="flex items-center gap-2">
         <Progress value={pct} className="flex-1" />
