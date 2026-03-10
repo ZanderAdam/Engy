@@ -11,6 +11,7 @@ import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-edit
 import { EngyThreadStore } from '@/components/editor/document-editor';
 import { RiFileTextLine } from '@remixicon/react';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
+import { useOnFileChange } from '@/contexts/file-change-context';
 
 const SIDEBAR_CONFIG = {
   defaultWidth: 256,
@@ -87,6 +88,20 @@ function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDeta
   );
 
   const isSpecMd = selectedFile === 'spec.md';
+
+  useOnFileChange(
+    useCallback(
+      (filePath: string) => {
+        if (!filePath.endsWith('/' + selectedFile)) return;
+        if (isSpecMd) {
+          utils.project.getSpec.invalidate({ workspaceSlug, projectSlug });
+        } else {
+          utils.project.readFile.invalidate({ workspaceSlug, projectSlug, filePath: selectedFile });
+        }
+      },
+      [utils, workspaceSlug, projectSlug, selectedFile, isSpecMd],
+    ),
+  );
 
   const threadStore = useMemo(
     () => new EngyThreadStore(workspaceSlug, `${projectSlug}/${selectedFile}`),

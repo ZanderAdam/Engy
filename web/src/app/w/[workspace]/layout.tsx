@@ -7,6 +7,7 @@ import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
+import { FileChangeProvider } from '@/contexts/file-change-context';
 
 const TERMINAL_CONFIG = {
   defaultWidth: 480,
@@ -84,37 +85,39 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-      {!isProjectRoute && (
-        <nav className="border-b border-border" aria-label="Workspace sections">
-          <div className="flex px-6">
-            {tabs.map((tab) => (
-              <Link
-                key={tab.segment}
-                href={tabHref(tab.segment)}
-                className={cn(
-                  'relative px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground',
-                  isActive(tab.segment) &&
-                    'text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground',
-                )}
-              >
-                {tab.label}
-              </Link>
-            ))}
-          </div>
-        </nav>
-      )}
-      <ThreePanelLayout
-        className="flex-1 min-h-0"
-        right={TERMINAL_CONFIG}
-        rightCollapsed={terminalCollapsed}
-        onRightCollapsedChange={setTerminalCollapsed}
-        rightShortcut={TERMINAL_SHORTCUT}
-        centerContent={
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6">{children}</div>
-        }
-        rightContent={<TerminalPanel onCollapse={handleCollapse} />}
-      />
-    </div>
+    <FileChangeProvider workspaceSlug={params.workspace}>
+      <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+        {!isProjectRoute && (
+          <nav className="border-b border-border" aria-label="Workspace sections">
+            <div className="flex px-6">
+              {tabs.map((tab) => (
+                <Link
+                  key={tab.segment}
+                  href={tabHref(tab.segment)}
+                  className={cn(
+                    'relative px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground',
+                    isActive(tab.segment) &&
+                      'text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground',
+                  )}
+                >
+                  {tab.label}
+                </Link>
+              ))}
+            </div>
+          </nav>
+        )}
+        <ThreePanelLayout
+          className="flex-1 min-h-0"
+          right={TERMINAL_CONFIG}
+          rightCollapsed={terminalCollapsed}
+          onRightCollapsedChange={setTerminalCollapsed}
+          rightShortcut={TERMINAL_SHORTCUT}
+          centerContent={
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6">{children}</div>
+          }
+          rightContent={<TerminalPanel onCollapse={handleCollapse} />}
+        />
+      </div>
+    </FileChangeProvider>
   );
 }

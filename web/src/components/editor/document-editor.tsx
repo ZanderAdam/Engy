@@ -23,6 +23,14 @@ import { SendToTerminalButton } from "../terminal/send-to-terminal-button";
 
 export { EngyThreadStore } from "./thread-store";
 
+function simpleHash(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return hash;
+}
+
 const USER_ID = "local-user";
 const LOCAL_USER: User = { id: USER_ID, username: "You", avatarUrl: "" };
 
@@ -55,7 +63,8 @@ export function DocumentEditor({
   filePath,
 }: DocumentEditorProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const loadedRef = useRef(false);
+  const lastLoadedHashRef = useRef<number | null>(null);
+  const lastContentHashRef = useRef<number | null>(null);
   const [hasOpenThreads, setHasOpenThreads] = useState(false);
   const [commentsCollapsed, setCommentsCollapsed] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -88,9 +97,14 @@ export function DocumentEditor({
   const readyRef = useRef(false);
 
   useEffect(() => {
-    if (initialMarkdown == null || loadedRef.current) return;
-    loadedRef.current = true;
+    if (initialMarkdown == null) return;
+    const hash = simpleHash(initialMarkdown);
+    if (lastLoadedHashRef.current === hash) return;
+
+    lastLoadedHashRef.current = hash;
+    lastContentHashRef.current = hash;
     readyRef.current = false;
+
     async function loadContent() {
       const blocks = editor.tryParseMarkdownToBlocks(initialMarkdown);
       editor.replaceBlocks(editor.document, blocks);
@@ -114,8 +128,11 @@ export function DocumentEditor({
         snapshotAnchors((editor as any)._tiptapEditor.state.doc, threadStore);
       }
       const raw = editor.blocksToMarkdownLossy(editor.document);
-      // Backslash-only lines multiply on each markdown round-trip — collapse them
       const markdown = raw.replace(/(\\\n){2,}/g, '\\\n');
+
+      const contentHash = simpleHash(markdown);
+      if (contentHash === lastContentHashRef.current) return;
+      lastContentHashRef.current = contentHash;
       onSaveRef.current(markdown);
     }, AUTOSAVE_DELAY_MS);
   }, [editor, comments, threadStore]);

@@ -1,17 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { ViewToggle, type TaskView } from "@/components/projects/task-views/view-toggle";
 import { DependencyGraph } from "@/components/projects/task-views/dependency-graph";
 import { KanbanBoard } from "@/components/projects/task-views/kanban-board";
 import { EisenhowerMatrix } from "@/components/projects/task-views/eisenhower-matrix";
-import { useFileChangeEvents } from "@/hooks/use-file-change-events";
+import { useOnFileChange } from "@/contexts/file-change-context";
 import { TaskDialog } from "@/components/projects/task-dialog";
 import { TaskGroupForm } from "@/components/projects/task-group-form";
 import { Button } from "@/components/ui/button";
 import { RiAddLine } from "@remixicon/react";
+
+const DEBOUNCE_MS = 500;
 
 export default function ProjectTasksPage() {
   const params = useParams<{ workspace: string; project: string }>();
@@ -35,13 +38,55 @@ export default function ProjectTasksPage() {
     { enabled: !!project },
   );
 
-  useFileChangeEvents(params.workspace, params.project);
-
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [showNewTask, setShowNewTask] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
 
   const utils = trpc.useUtils();
+  const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    const timers = debounceTimers.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
+
+  useOnFileChange(
+    useCallback(
+      (filePath: string, eventType: string) => {
+        const planMatch = filePath.match(/\/plans\/([^/]+)\.plan\.md$/);
+        if (!planMatch) return;
+
+        const taskSlug = planMatch[1];
+        const existing = debounceTimers.current.get(taskSlug);
+        if (existing) clearTimeout(existing);
+
+        debounceTimers.current.set(
+          taskSlug,
+          setTimeout(() => {
+            debounceTimers.current.delete(taskSlug);
+            utils.project.getBySlug.invalidate();
+
+            if (eventType !== 'unlink') {
+              toast(`Plan ready for ${taskSlug}`, {
+                action: {
+                  label: 'Review',
+                  onClick: () => {
+                    router.push(
+                      `/w/${params.workspace}/projects/${params.project}/docs?file=plans/${taskSlug}.plan.md`,
+                    );
+                  },
+                },
+              });
+            }
+          }, DEBOUNCE_MS),
+        );
+      },
+      [utils, router, params.workspace, params.project],
+    ),
+  );
 
   function handleViewChange(view: TaskView) {
     const p = new URLSearchParams(searchParams.toString());
