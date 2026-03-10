@@ -1,3 +1,8 @@
+---
+title: Terminal Integration
+status: complete
+---
+
 # Plan: M5 Terminal Integration
 
 ## Context
