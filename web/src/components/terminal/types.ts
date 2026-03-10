@@ -14,3 +14,12 @@ export interface TerminalTab {
   scope: TerminalScope;
   status: TerminalStatus;
 }
+
+export interface TerminalPanelParams {
+  tab: TerminalTab;
+}
+
+export interface SplitPosition {
+  referencePanel: string;
+  direction: 'right' | 'below';
+}

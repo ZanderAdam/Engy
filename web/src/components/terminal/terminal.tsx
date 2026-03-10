@@ -14,7 +14,6 @@ export interface TerminalActions {
 
 interface TerminalProps {
   tab: TerminalTab;
-  visible: boolean;
   onStatusChange: (sessionId: string, status: TerminalTab['status']) => void;
   onReady?: (sessionId: string, actions: TerminalActions | null) => void;
 }
@@ -40,7 +39,7 @@ function buildWsUrl(tab: TerminalTab): string {
   return `${base}/ws/terminal?${params.toString()}`;
 }
 
-export function TerminalInstance({ tab, visible, onStatusChange, onReady }: TerminalProps) {
+export function TerminalInstance({ tab, onStatusChange, onReady }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -171,18 +170,10 @@ export function TerminalInstance({ tab, visible, onStatusChange, onReady }: Term
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, handleResize]);
 
-  useEffect(() => {
-    if (visible) setTimeout(() => fitAddonRef.current?.fit(), 10);
-  }, [visible]);
-
   return (
     <div
       ref={containerRef}
-      style={{
-        position: 'absolute',
-        inset: 0,
-        visibility: visible ? 'visible' : 'hidden',
-      }}
+      style={{ width: '100%', height: '100%' }}
     />
   );
 }

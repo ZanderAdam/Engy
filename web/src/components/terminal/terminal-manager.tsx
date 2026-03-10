@@ -1,11 +1,14 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { useState, useCallback, useEffect, useRef } from "react";
-import { RiTerminalLine } from "@remixicon/react";
-import { TerminalTabBar } from "./terminal-tab-bar";
-import type { TerminalTab, TerminalScope } from "./types";
+import { useCallback, useEffect, useRef, useMemo } from "react";
+import { DockviewReact, type DockviewApi, type SerializedDockview } from "dockview";
 import type { TerminalActions } from "./terminal";
+import type { TerminalTab, TerminalScope, TerminalPanelParams, SplitPosition } from "./types";
+import { TerminalDockContext, type TerminalDockContextValue } from "./terminal-dock-context";
+import { TerminalDockPanel } from "./terminal-dock-panel";
+import { TerminalDockTab } from "./terminal-dock-tab";
+import { TerminalDockWatermark } from "./terminal-dock-watermark";
+import { TerminalDockActions } from "./terminal-dock-actions";
 
 interface InjectEvent {
   context: string;
@@ -15,12 +18,6 @@ interface InjectEvent {
 interface OpenEvent {
   scope: TerminalScope;
 }
-
-// Lazy-load the terminal instance (no SSR — xterm uses browser APIs)
-const TerminalInstance = dynamic(
-  () => import('./terminal').then((m) => m.TerminalInstance),
-  { ssr: false },
-);
 
 interface TerminalManagerProps {
   onCollapse: () => void;
@@ -35,51 +32,75 @@ interface SessionListItem {
   command?: string;
 }
 
+const ENGY_THEME = {
+  name: 'engy',
+  className: 'dockview-theme-engy',
+};
+
+const COMPONENTS = { terminal: TerminalDockPanel };
+const TAB_COMPONENTS = { 'terminal-tab': TerminalDockTab };
+
+function getLayoutKey(scope: TerminalScope): string {
+  return `terminal-layout:${scope.scopeType}:${scope.scopeLabel}`;
+}
+
+function saveLayout(api: DockviewApi, scope: TerminalScope): void {
+  try {
+    const json = api.toJSON();
+    localStorage.setItem(getLayoutKey(scope), JSON.stringify(json));
+  } catch {
+    // localStorage may be full or unavailable
+  }
+}
+
+function loadLayout(scope: TerminalScope): SerializedDockview | null {
+  try {
+    const raw = localStorage.getItem(getLayoutKey(scope));
+    if (!raw) return null;
+    return JSON.parse(raw) as SerializedDockview;
+  } catch {
+    return null;
+  }
+}
+
+function clearLayout(scope: TerminalScope): void {
+  try {
+    localStorage.removeItem(getLayoutKey(scope));
+  } catch {
+    // ignore
+  }
+}
+
+function sessionToTab(s: SessionListItem): TerminalTab {
+  return {
+    sessionId: s.sessionId,
+    scope: {
+      scopeType: s.scopeType as TerminalScope['scopeType'],
+      scopeLabel: s.scopeLabel,
+      workingDir: s.workingDir,
+      command: s.command,
+    },
+    status: 'connecting',
+  };
+}
+
 export function TerminalManager({ onCollapse, defaultScope }: TerminalManagerProps) {
-  const [tabs, setTabs] = useState<TerminalTab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  // Store WS refs per tab for inject + kill — keyed by sessionId
+  const tabsRef = useRef<Map<string, TerminalTab>>(new Map());
   const tabWsRefs = useRef<Map<string, TerminalActions>>(new Map());
-
-  // Restore sessions from server on mount
+  const dockviewApiRef = useRef<DockviewApi | null>(null);
+  const restoringRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const defaultScopeRef = useRef(defaultScope);
   useEffect(() => {
-    if (!defaultScope?.workingDir) {
-      setLoading(false);
-      return;
-    }
+    defaultScopeRef.current = defaultScope;
+  }, [defaultScope]);
 
-    const params = new URLSearchParams({
-      scopeType: defaultScope.scopeType,
-      scopeLabel: defaultScope.scopeLabel,
-    });
-
-    fetch(`/api/terminal/sessions?${params}`)
-      .then((res) => res.json())
-      .then((data: { sessions: SessionListItem[] }) => {
-        if (data.sessions.length > 0) {
-          const restored: TerminalTab[] = data.sessions.map((s) => ({
-            sessionId: s.sessionId,
-            scope: {
-              scopeType: s.scopeType as TerminalScope['scopeType'],
-              scopeLabel: s.scopeLabel,
-              workingDir: s.workingDir,
-              command: s.command,
-            },
-            status: 'connecting' as const,
-          }));
-          setTabs(restored);
-          setActiveTabId(restored[0].sessionId);
-        }
-      })
-      .catch(() => {}) // Silently fail — show empty state
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only on mount
-
-  const openTerminal = useCallback((scope?: TerminalScope) => {
-    const finalScope = scope ?? defaultScope;
+  const openTerminal = useCallback((scope?: TerminalScope, position?: SplitPosition) => {
+    const finalScope = scope ?? defaultScopeRef.current;
     if (!finalScope) return;
+
+    const api = dockviewApiRef.current;
+    if (!api) return;
 
     const sessionId = crypto.randomUUID();
     const newTab: TerminalTab = {
@@ -87,32 +108,50 @@ export function TerminalManager({ onCollapse, defaultScope }: TerminalManagerPro
       scope: finalScope,
       status: 'connecting',
     };
-    setTabs((prev) => [...prev, newTab]);
-    setActiveTabId(sessionId);
-  }, [defaultScope]);
+    tabsRef.current.set(sessionId, newTab);
 
-  const closeTerminal = useCallback((sessionId: string) => {
-    // Send kill to server+daemon before removing tab
-    tabWsRefs.current.get(sessionId)?.kill();
-
-    setTabs((prev) => {
-      const remaining = prev.filter((t) => t.sessionId !== sessionId);
-      setActiveTabId((active) => {
-        if (active !== sessionId) return active;
-        return remaining.length > 0 ? remaining[remaining.length - 1].sessionId : null;
-      });
-      return remaining;
+    api.addPanel({
+      id: sessionId,
+      component: 'terminal',
+      tabComponent: 'terminal-tab',
+      title: finalScope.scopeLabel,
+      params: { tab: newTab } satisfies TerminalPanelParams,
+      renderer: 'always',
+      ...(position && { position }),
     });
+  }, []);
+
+  const cleanupTerminal = useCallback((sessionId: string) => {
+    tabWsRefs.current.get(sessionId)?.kill();
+    tabsRef.current.delete(sessionId);
     tabWsRefs.current.delete(sessionId);
+  }, []);
+
+  const broadcastActive = useCallback(() => {
+    const api = dockviewApiRef.current;
+    const activeId = api?.activePanel?.id;
+    const tab = activeId != null ? tabsRef.current.get(activeId) : undefined;
+    const hasActiveTab = tab != null && tab.status !== 'exited';
+    window.__engy_terminal_active = hasActiveTab;
+    window.dispatchEvent(
+      new CustomEvent('terminal:active-changed', { detail: { hasActiveTab } }),
+    );
   }, []);
 
   const handleStatusChange = useCallback(
     (sessionId: string, status: TerminalTab['status']) => {
-      setTabs((prev) =>
-        prev.map((t) => (t.sessionId === sessionId ? { ...t, status } : t)),
-      );
+      const existing = tabsRef.current.get(sessionId);
+      if (!existing) return;
+      const updated = { ...existing, status };
+      tabsRef.current.set(sessionId, updated);
+
+      const api = dockviewApiRef.current;
+      const panel = api?.getPanel(sessionId);
+      panel?.api.updateParameters({ tab: updated } satisfies TerminalPanelParams);
+
+      if (status === 'exited') broadcastActive();
     },
-    [],
+    [broadcastActive],
   );
 
   const handleReady = useCallback(
@@ -126,35 +165,20 @@ export function TerminalManager({ onCollapse, defaultScope }: TerminalManagerPro
     [],
   );
 
-  // Broadcast terminal active state for external consumers
-  useEffect(() => {
-    const hasActiveTab =
-      activeTabId !== null && tabs.some((t) => t.sessionId === activeTabId && t.status !== 'exited');
-    window.__engy_terminal_active = hasActiveTab;
-    window.dispatchEvent(
-      new CustomEvent('terminal:active-changed', {
-        detail: { hasActiveTab },
-      }),
-    );
-  }, [tabs, activeTabId]);
-
   useEffect(() => {
     return () => {
       window.__engy_terminal_active = false;
       window.dispatchEvent(
-        new CustomEvent('terminal:active-changed', {
-          detail: { hasActiveTab: false },
-        }),
+        new CustomEvent('terminal:active-changed', { detail: { hasActiveTab: false } }),
       );
     };
   }, []);
 
-  // Listen for terminal:inject custom events
   useEffect(() => {
     function onInject(e: Event) {
       const { context, terminalId } = (e as CustomEvent<InjectEvent>).detail;
-
-      const targetId = terminalId ?? activeTabId;
+      const api = dockviewApiRef.current;
+      const targetId = terminalId ?? api?.activePanel?.id;
       if (!targetId) return;
 
       const handler = tabWsRefs.current.get(targetId);
@@ -163,9 +187,8 @@ export function TerminalManager({ onCollapse, defaultScope }: TerminalManagerPro
 
     window.addEventListener('terminal:inject', onInject);
     return () => window.removeEventListener('terminal:inject', onInject);
-  }, [activeTabId]);
+  }, []);
 
-  // Listen for terminal:open custom events to spawn a new terminal with a specific scope
   useEffect(() => {
     function onOpen(e: Event) {
       const { scope } = (e as CustomEvent<OpenEvent>).detail;
@@ -176,48 +199,144 @@ export function TerminalManager({ onCollapse, defaultScope }: TerminalManagerPro
     return () => window.removeEventListener('terminal:open', onOpen);
   }, [openTerminal]);
 
-  if (loading) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center">
-        <p className="text-xs text-muted-foreground">Loading terminals...</p>
-      </div>
-    );
-  }
+  const scheduleLayoutSave = useCallback(() => {
+    if (restoringRef.current) return;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const api = dockviewApiRef.current;
+      const scope = defaultScopeRef.current;
+      if (!api || !scope) return;
+
+      if (api.panels.length === 0) {
+        clearLayout(scope);
+      } else {
+        saveLayout(api, scope);
+      }
+    }, 200);
+  }, []);
+
+  const handleDockviewReady = useCallback(
+    (event: { api: DockviewApi }) => {
+      const api = event.api;
+      dockviewApiRef.current = api;
+
+      api.onDidActivePanelChange(() => broadcastActive());
+      api.onDidRemovePanel((panel) => {
+        cleanupTerminal(panel.id);
+        broadcastActive();
+        scheduleLayoutSave();
+      });
+      api.onDidAddPanel(() => scheduleLayoutSave());
+      api.onDidMovePanel(() => scheduleLayoutSave());
+      api.onDidAddGroup(() => scheduleLayoutSave());
+      api.onDidRemoveGroup(() => scheduleLayoutSave());
+
+      if (!defaultScopeRef.current?.workingDir) {
+        return;
+      }
+
+      const params = new URLSearchParams({
+        scopeType: defaultScopeRef.current.scopeType,
+        scopeLabel: defaultScopeRef.current.scopeLabel,
+      });
+
+      fetch(`/api/terminal/sessions?${params}`)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Failed to fetch sessions: ${res.status}`);
+          return res.json();
+        })
+        .then((data: { sessions: SessionListItem[] }) => {
+          const activeSessions = new Set(data.sessions.map((s) => s.sessionId));
+          const sessionMap = new Map(data.sessions.map((s) => [s.sessionId, s]));
+
+          const savedLayout = loadLayout(defaultScopeRef.current!);
+          if (savedLayout) {
+            const savedPanelIds = Object.keys(savedLayout.panels);
+            const allAlive = savedPanelIds.length > 0
+              && savedPanelIds.every((id) => activeSessions.has(id));
+
+            if (allAlive) {
+              for (const [id, panel] of Object.entries(savedLayout.panels)) {
+                const tab = sessionToTab(sessionMap.get(id)!);
+                tabsRef.current.set(id, tab);
+                panel.params = { tab } satisfies TerminalPanelParams;
+              }
+
+              try {
+                restoringRef.current = true;
+                api.fromJSON(savedLayout);
+                restoringRef.current = false;
+
+                const restoredIds = new Set(savedPanelIds);
+                for (const s of data.sessions) {
+                  if (!restoredIds.has(s.sessionId)) {
+                    const tab = sessionToTab(s);
+                    tabsRef.current.set(s.sessionId, tab);
+                    api.addPanel({
+                      id: s.sessionId,
+                      component: 'terminal',
+                      tabComponent: 'terminal-tab',
+                      title: s.scopeLabel,
+                      params: { tab } satisfies TerminalPanelParams,
+                      renderer: 'always',
+                    });
+                  }
+                }
+
+                scheduleLayoutSave();
+                return;
+              } catch (err) {
+                restoringRef.current = false;
+                console.error('Failed to restore terminal layout:', err);
+                tabsRef.current.clear();
+              }
+            } else {
+              clearLayout(defaultScopeRef.current!);
+            }
+          }
+
+          for (const s of data.sessions) {
+            const tab = sessionToTab(s);
+            tabsRef.current.set(s.sessionId, tab);
+            api.addPanel({
+              id: s.sessionId,
+              component: 'terminal',
+              tabComponent: 'terminal-tab',
+              title: s.scopeLabel,
+              params: { tab } satisfies TerminalPanelParams,
+              renderer: 'always',
+            });
+          }
+        })
+        .catch((err: unknown) => console.error('Failed to restore terminal sessions:', err));
+    },
+    [broadcastActive, cleanupTerminal, scheduleLayoutSave],
+  );
+
+  const contextValue = useMemo<TerminalDockContextValue>(
+    () => ({
+      openTerminal,
+      handleStatusChange,
+      handleReady,
+      onCollapse,
+    }),
+    [openTerminal, handleStatusChange, handleReady, onCollapse],
+  );
 
   return (
-    <div className="flex flex-1 flex-col min-h-0">
-      <TerminalTabBar
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onSelect={setActiveTabId}
-        onClose={closeTerminal}
-        onAdd={() => openTerminal()}
-        onCollapse={onCollapse}
+    <TerminalDockContext.Provider value={contextValue}>
+      <DockviewReact
+        className="flex-1 min-h-0"
+        theme={ENGY_THEME}
+        components={COMPONENTS}
+        tabComponents={TAB_COMPONENTS}
+        watermarkComponent={TerminalDockWatermark}
+        rightHeaderActionsComponent={TerminalDockActions}
+        onReady={handleDockviewReady}
+        disableFloatingGroups
+        defaultRenderer="always"
       />
-      {tabs.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3">
-          <p className="text-xs text-muted-foreground">No terminals open</p>
-          <button
-            onClick={() => openTerminal()}
-            className="flex items-center gap-1.5 border border-border px-3 py-1.5 text-xs text-foreground hover:bg-muted"
-          >
-            <RiTerminalLine className="size-3" />
-            Open Terminal
-          </button>
-        </div>
-      ) : (
-        <div className="relative flex-1 min-h-0">
-          {tabs.map((tab) => (
-            <TerminalInstance
-              key={tab.sessionId}
-              tab={tab}
-              visible={tab.sessionId === activeTabId}
-              onStatusChange={handleStatusChange}
-              onReady={handleReady}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+    </TerminalDockContext.Provider>
   );
 }
