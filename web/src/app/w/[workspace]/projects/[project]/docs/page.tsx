@@ -103,6 +103,11 @@ function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDeta
     ),
   );
 
+  const mentionDirs: string[] = [
+    ...((workspace?.repos as string[] | undefined) ?? []),
+    ...(projectData?.projectDir ? [projectData.projectDir] : []),
+  ];
+
   const threadStore = useMemo(
     () => new EngyThreadStore(workspaceSlug, `${projectSlug}/${selectedFile}`),
     [workspaceSlug, projectSlug, selectedFile],
@@ -217,6 +222,7 @@ function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDeta
             comments={true}
             threadStore={threadStore}
             filePath={`${projectSlug}/${selectedFile}`}
+            mentionDirs={mentionDirs.length > 0 ? mentionDirs : undefined}
           />
         )}
       </TabsContent>

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { WebSocket } from 'ws';
 import type { AppState } from '../trpc/context';
-import { createWebSocketServer, dispatchValidation } from './server';
+import { createWebSocketServer, dispatchValidation, dispatchFileSearch } from './server';
 
 let openClients: WebSocket[] = [];
 
@@ -57,6 +57,7 @@ describe('WebSocket Server', () => {
       daemon: null,
       fileChanges: new Map(),
       pendingValidations: new Map(),
+      pendingFileSearches: new Map(),
       specLastChanged: new Map(),
       specDebounceTimers: new Map(),
       terminalSessions: new Map(),
@@ -236,6 +237,62 @@ describe('WebSocket Server', () => {
 
       await expect(validationPromise).rejects.toThrow('Validation timed out');
       expect(state.pendingValidations.size).toBe(0);
+    });
+  });
+
+  describe('SEARCH_FILES_RESPONSE', () => {
+    it('should resolve pending file search on response', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+
+      await vi.waitFor(() => {
+        expect(state.daemon).not.toBeNull();
+      });
+
+      const messagePromise = waitForMessage(ws);
+      const searchPromise = dispatchFileSearch(['/tmp/repo'], 'index', 20, state);
+
+      const request = (await messagePromise) as {
+        type: string;
+        payload: { requestId: string; dirs: string[]; query: string; limit: number };
+      };
+      expect(request.type).toBe('SEARCH_FILES_REQUEST');
+      expect(request.payload.dirs).toEqual(['/tmp/repo']);
+      expect(request.payload.query).toBe('index');
+      expect(request.payload.limit).toBe(20);
+
+      ws.send(
+        JSON.stringify({
+          type: 'SEARCH_FILES_RESPONSE',
+          payload: {
+            requestId: request.payload.requestId,
+            results: [{ label: 'repo', path: 'src/index.ts' }],
+          },
+        }),
+      );
+
+      const results = await searchPromise;
+      expect(results).toEqual([{ label: 'repo', path: 'src/index.ts' }]);
+    });
+
+    it('should reject if no daemon is connected', async () => {
+      await expect(dispatchFileSearch(['/tmp'], '', 20, state)).rejects.toThrow(
+        'No daemon connected',
+      );
+    });
+
+    it('should time out if no response arrives', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+
+      await vi.waitFor(() => {
+        expect(state.daemon).not.toBeNull();
+      });
+
+      const searchPromise = dispatchFileSearch(['/tmp'], '', 20, state, 50);
+
+      await expect(searchPromise).rejects.toThrow('File search timed out');
+      expect(state.pendingFileSearches.size).toBe(0);
     });
   });
 

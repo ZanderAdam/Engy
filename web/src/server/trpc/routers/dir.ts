@@ -4,6 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
+import { dispatchFileSearch } from '../../ws/server';
 
 const MAX_DEPTH = 5;
 
@@ -159,5 +160,18 @@ export const dirRouter = router({
       fs.mkdirSync(path.dirname(resolved), { recursive: true });
       fs.writeFileSync(resolved, input.content, 'utf-8');
       return { success: true };
+    }),
+
+  searchRepoFiles: publicProcedure
+    .input(
+      z.object({
+        dirs: z.array(z.string().min(1)).min(1),
+        query: z.string(),
+        limit: z.number().min(1).max(50).default(20),
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      const results = await dispatchFileSearch(input.dirs, input.query, input.limit, ctx.state);
+      return { results };
     }),
 });

@@ -6,6 +6,8 @@ export type {
   WorkspacesSyncMessage,
   ValidatePathsRequestMessage,
   ValidatePathsResponseMessage,
+  SearchFilesRequestMessage,
+  SearchFilesResponseMessage,
   FileChangeMessage,
   TerminalSpawnCmd,
   TerminalInputCmd,

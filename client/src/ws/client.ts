@@ -1,12 +1,18 @@
 import WebSocket from 'ws';
-import { access } from 'node:fs/promises';
+import path from 'node:path';
+import { access, readdir } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type {
   ClientToServerMessage,
   WorkspacesSyncMessage,
   ValidatePathsRequestMessage,
+  SearchFilesRequestMessage,
   TerminalRelayCommand,
 } from '@engy/common';
 import type { TerminalManager } from '../terminal/manager.js';
+
+const execFileAsync = promisify(execFile);
 
 const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
@@ -47,6 +53,122 @@ async function validatePaths(paths: string[]): Promise<Array<{ path: string; exi
   );
 }
 
+const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '__pycache__']);
+const MAX_READDIR_DEPTH = 10;
+const EXEC_MAX_BUFFER = 10 * 1024 * 1024;
+
+async function getGitRoot(dir: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], {
+      maxBuffer: EXEC_MAX_BUFFER,
+    });
+    return stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
+async function listGitFiles(dir: string, gitRoot: string): Promise<string[]> {
+  const prefix = path.relative(gitRoot, dir);
+  const args = ['-C', gitRoot, 'ls-files'];
+  if (prefix) args.push('--', `${prefix}/`);
+
+  const { stdout } = await execFileAsync('git', args, { maxBuffer: EXEC_MAX_BUFFER });
+  const lines = stdout.split('\n').filter(Boolean);
+
+  if (!prefix) return lines;
+  return lines.map((line) => path.relative(prefix, line));
+}
+
+async function listDirFilesRecursive(
+  rootDir: string,
+  currentDir: string,
+  depth: number,
+): Promise<string[]> {
+  if (depth <= 0) return [];
+  let entries;
+  try {
+    entries = await readdir(currentDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const files: string[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') || SKIP_DIRS.has(entry.name)) continue;
+    const fullPath = path.join(currentDir, entry.name);
+    if (entry.isFile()) {
+      files.push(path.relative(rootDir, fullPath));
+    } else if (entry.isDirectory()) {
+      files.push(...(await listDirFilesRecursive(rootDir, fullPath, depth - 1)));
+    }
+  }
+  return files;
+}
+
+function deduplicateLabels(dirs: string[]): Map<string, string> {
+  const basenames = dirs.map((d) => path.basename(d));
+  const counts = new Map<string, number>();
+  for (const b of basenames) counts.set(b, (counts.get(b) ?? 0) + 1);
+
+  const labels = new Map<string, string>();
+  for (const dir of dirs) {
+    const base = path.basename(dir);
+    if (counts.get(base)! > 1) {
+      const parent = path.basename(path.dirname(dir));
+      labels.set(dir, `${parent}/${base}`);
+    } else {
+      labels.set(dir, base);
+    }
+  }
+  return labels;
+}
+
+function fuzzyMatch(filePath: string, query: string): boolean {
+  if (!query) return true;
+  return filePath.toLowerCase().includes(query.toLowerCase());
+}
+
+async function listFilesForDir(
+  dir: string,
+): Promise<string[]> {
+  const gitRoot = await getGitRoot(dir);
+  if (gitRoot) {
+    return listGitFiles(dir, gitRoot);
+  }
+  return listDirFilesRecursive(dir, dir, MAX_READDIR_DEPTH);
+}
+
+async function searchFilesInDirs(
+  dirs: string[],
+  query: string,
+  limit: number,
+): Promise<Array<{ label: string; path: string }>> {
+  const labels = deduplicateLabels(dirs);
+
+  const allFiles = await Promise.all(
+    dirs.map(async (dir) => {
+      try {
+        const files = await listFilesForDir(dir);
+        return { label: labels.get(dir)!, files };
+      } catch {
+        return { label: '', files: [] as string[] };
+      }
+    }),
+  );
+
+  const results: Array<{ label: string; path: string }> = [];
+  for (const { label, files } of allFiles) {
+    for (const file of files) {
+      if (fuzzyMatch(file, query)) {
+        results.push({ label, path: file });
+        if (results.length >= limit) return results;
+      }
+    }
+  }
+
+  return results;
+}
 
 export class WsClient {
   private ws: WebSocket | null = null;
@@ -177,6 +299,9 @@ export class WsClient {
       case 'VALIDATE_PATHS_REQUEST':
         this.handleValidatePathsRequest(message as ValidatePathsRequestMessage);
         break;
+      case 'SEARCH_FILES_REQUEST':
+        this.handleSearchFilesRequest(message as SearchFilesRequestMessage);
+        break;
     }
   }
 
@@ -221,6 +346,15 @@ export class WsClient {
         requestId: message.payload.requestId,
         results,
       },
+    });
+  }
+
+  private async handleSearchFilesRequest(message: SearchFilesRequestMessage): Promise<void> {
+    const { requestId, dirs, query, limit } = message.payload;
+    const results = await searchFilesInDirs(dirs, query, limit);
+    this.send({
+      type: 'SEARCH_FILES_RESPONSE',
+      payload: { requestId, results },
     });
   }
 

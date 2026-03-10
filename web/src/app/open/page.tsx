@@ -207,6 +207,7 @@ function FileEditor({ dirPath, relPath }: FileEditorProps) {
         comments={true}
         threadStore={threadStore}
         filePath={relPath}
+        mentionDirs={[dirPath]}
       />
     </div>
   );

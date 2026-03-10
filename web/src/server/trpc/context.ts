@@ -24,6 +24,13 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingFileSearches: Map<
+    string,
+    {
+      resolve: (results: Array<{ label: string; path: string }>) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   specLastChanged: Map<string, number>;
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
   /** Maps sessionId → browser WebSocket for terminal I/O relay */
@@ -45,6 +52,7 @@ export function getAppState(): AppState {
       daemon: null,
       fileChanges: new Map(),
       pendingValidations: new Map(),
+      pendingFileSearches: new Map(),
       specLastChanged: new Map(),
       specDebounceTimers: new Map(),
       terminalSessions: new Map(),

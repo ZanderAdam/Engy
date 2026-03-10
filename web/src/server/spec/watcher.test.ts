@@ -7,6 +7,7 @@ function createTestState(): AppState {
     daemon: null,
     fileChanges: new Map(),
     pendingValidations: new Map(),
+    pendingFileSearches: new Map(),
     specLastChanged: new Map(),
     specDebounceTimers: new Map(),
     terminalSessions: new Map(),

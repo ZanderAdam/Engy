@@ -33,6 +33,27 @@ export interface ValidatePathsResponseMessage {
   };
 }
 
+export interface SearchFilesRequestMessage {
+  type: 'SEARCH_FILES_REQUEST';
+  payload: {
+    requestId: string;
+    dirs: string[];
+    query: string;
+    limit: number;
+  };
+}
+
+export interface SearchFilesResponseMessage {
+  type: 'SEARCH_FILES_RESPONSE';
+  payload: {
+    requestId: string;
+    results: Array<{
+      label: string;
+      path: string;
+    }>;
+  };
+}
+
 export interface FileChangeMessage {
   type: 'FILE_CHANGE';
   payload: {
@@ -47,16 +68,20 @@ export type WsMessage =
   | WorkspacesSyncMessage
   | ValidatePathsRequestMessage
   | ValidatePathsResponseMessage
+  | SearchFilesRequestMessage
+  | SearchFilesResponseMessage
   | FileChangeMessage;
 
 export type ClientToServerMessage =
   | RegisterMessage
   | ValidatePathsResponseMessage
+  | SearchFilesResponseMessage
   | FileChangeMessage;
 
 export type ServerToClientMessage =
   | WorkspacesSyncMessage
-  | ValidatePathsRequestMessage;
+  | ValidatePathsRequestMessage
+  | SearchFilesRequestMessage;
 
 // ── Compact terminal relay types (server ↔ daemon) ──────────────────────────
 

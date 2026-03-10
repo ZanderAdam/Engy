@@ -6,7 +6,9 @@ import {
   BlockNoteViewEditor,
   ThreadsSidebar,
   FloatingComposerController,
+  SuggestionMenuController,
 } from "@blocknote/react";
+import type { DefaultReactSuggestionItem } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import { CommentsExtension } from "@blocknote/core/comments";
 import type { User } from "@blocknote/core/comments";
@@ -20,6 +22,7 @@ import { snapshotAnchors } from "./comments/snapshot";
 import { reconcileAnchors } from "./comments/reconcile";
 import { formatCommentsForExport } from "./format-comments";
 import { SendToTerminalButton } from "../terminal/send-to-terminal-button";
+import { trpc } from "@/lib/trpc";
 
 export { EngyThreadStore } from "./thread-store";
 
@@ -51,6 +54,8 @@ interface DocumentEditorProps {
   threadStore?: CommentStore;
   /** File path displayed in comment exports */
   filePath?: string;
+  /** Directories to index for @ file mentions */
+  mentionDirs?: string[];
 }
 
 const AUTOSAVE_DELAY_MS = 1500;
@@ -61,6 +66,7 @@ export function DocumentEditor({
   comments = false,
   threadStore: externalThreadStore,
   filePath,
+  mentionDirs,
 }: DocumentEditorProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoadedHashRef = useRef<number | null>(null);
@@ -89,11 +95,57 @@ export function DocumentEditor({
     });
   }, [threadStore]);
 
+  const utils = trpc.useUtils();
+  const mentionDirsRef = useRef(mentionDirs);
+  useEffect(() => { mentionDirsRef.current = mentionDirs; }, [mentionDirs]);
+
   const editor = useCreateBlockNote(
     {
       extensions: comments ? [CommentsExtension({ threadStore, resolveUsers })] : undefined,
     },
     [threadStore],
+  );
+
+  const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const getMentionItems = useCallback(
+    (query: string): Promise<DefaultReactSuggestionItem[]> => {
+      const dirs = mentionDirsRef.current;
+      if (!dirs || dirs.length === 0) return Promise.resolve([]);
+
+      if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+
+      return new Promise((resolve) => {
+        fetchTimeoutRef.current = setTimeout(async () => {
+          try {
+            const { results } = await utils.dir.searchRepoFiles.fetch({
+              dirs,
+              query,
+              limit: 20,
+            });
+
+            resolve(
+              results.map(({ label, path: filePath }) => {
+                const fullPath = `${label}/${filePath}`;
+                return {
+                  title: fullPath,
+                  group: label,
+                  onItemClick: () => {
+                    editor.insertInlineContent([
+                      { type: 'text', text: fullPath, styles: {} },
+                      ' ',
+                    ]);
+                  },
+                };
+              }),
+            );
+          } catch {
+            resolve([]);
+          }
+        }, 200);
+      });
+    },
+    [utils, editor],
   );
 
   const readyRef = useRef(false);
@@ -185,6 +237,13 @@ export function DocumentEditor({
       comments={false}
     >
       {comments && <FloatingComposerController />}
+      {mentionDirs && mentionDirs.length > 0 && (
+        <SuggestionMenuController
+          triggerCharacter="@"
+          getItems={getMentionItems}
+          minQueryLength={1}
+        />
+      )}
       <div className="relative flex w-full h-full overflow-hidden">
         <div className="relative flex-1 min-w-0 overflow-y-auto">
           <BlockNoteViewEditor />

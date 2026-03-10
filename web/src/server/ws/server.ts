@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import type { ClientToServerMessage, ValidatePathsRequestMessage } from '@engy/common';
+import type {
+  ClientToServerMessage,
+  ValidatePathsRequestMessage,
+  SearchFilesRequestMessage,
+} from '@engy/common';
 import type { AppState, FileChangeEvent } from '../trpc/context';
 import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
@@ -8,6 +12,7 @@ import { handleSpecFileChange } from '../spec/watcher';
 
 const MAX_EVENTS_PER_WORKSPACE = 100;
 const VALIDATION_TIMEOUT_MS = 5_000;
+const FILE_SEARCH_TIMEOUT_MS = 10_000;
 
 export function createWebSocketServer(state: AppState): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
@@ -31,6 +36,10 @@ export function createWebSocketServer(state: AppState): WebSocketServer {
           state.pendingValidations.delete(id);
           pending.reject(new Error('Daemon disconnected'));
         }
+        for (const [id, pending] of state.pendingFileSearches) {
+          state.pendingFileSearches.delete(id);
+          pending.reject(new Error('Daemon disconnected'));
+        }
       }
     });
   });
@@ -45,6 +54,9 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       break;
     case 'VALIDATE_PATHS_RESPONSE':
       handleValidatePathsResponse(msg, state);
+      break;
+    case 'SEARCH_FILES_RESPONSE':
+      handleSearchFilesResponse(msg, state);
       break;
     case 'FILE_CHANGE':
       handleFileChange(msg, state);
@@ -119,6 +131,57 @@ function handleFileChange(
   for (const ws of state.fileChangeListeners) {
     if (ws.readyState === WebSocket.OPEN) ws.send(broadcastMsg);
   }
+}
+
+function handleSearchFilesResponse(
+  msg: { payload: { requestId: string; results: Array<{ label: string; path: string }> } },
+  state: AppState,
+): void {
+  const pending = state.pendingFileSearches.get(msg.payload.requestId);
+  if (!pending) return;
+
+  state.pendingFileSearches.delete(msg.payload.requestId);
+  pending.resolve(msg.payload.results);
+}
+
+export function dispatchFileSearch(
+  dirs: string[],
+  query: string,
+  limit: number,
+  state: AppState,
+  timeoutMs: number = FILE_SEARCH_TIMEOUT_MS,
+): Promise<Array<{ label: string; path: string }>> {
+  return new Promise((resolve, reject) => {
+    if (!state.daemon || state.daemon.readyState !== state.daemon.OPEN) {
+      reject(new Error('No daemon connected'));
+      return;
+    }
+
+    const requestId = randomUUID();
+
+    const timeout = setTimeout(() => {
+      state.pendingFileSearches.delete(requestId);
+      reject(new Error(`File search timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    state.pendingFileSearches.set(requestId, {
+      resolve: (results) => {
+        clearTimeout(timeout);
+        resolve(results);
+      },
+      reject: (reason) => {
+        clearTimeout(timeout);
+        reject(reason);
+      },
+    });
+
+    const message: SearchFilesRequestMessage = {
+      type: 'SEARCH_FILES_REQUEST',
+      payload: { requestId, dirs, query, limit },
+    };
+
+    state.daemon.send(JSON.stringify(message));
+  });
 }
 
 export function dispatchValidation(
