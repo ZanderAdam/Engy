@@ -4,6 +4,7 @@ import { useEffect, useCallback, useMemo } from 'react';
 import { RiArrowLeftSLine, RiArrowRightSLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { usePanelResize, type PanelConfig } from '@/lib/hooks/use-panel-resize';
@@ -49,6 +50,7 @@ interface ThreePanelLayoutProps {
   leftWidthKey?: number;
   leftShortcut?: ShortcutDef;
   rightShortcut?: ShortcutDef;
+  isMobile?: boolean;
   className?: string;
 }
 
@@ -105,13 +107,14 @@ export function ThreePanelLayout({
   leftWidthKey,
   leftShortcut = DEFAULT_LEFT_SHORTCUT,
   rightShortcut = DEFAULT_RIGHT_SHORTCUT,
+  isMobile = false,
   className,
 }: ThreePanelLayoutProps) {
   const {
     left: leftPanel,
     right: rightPanel,
     containerRef,
-  } = usePanelResize({ left, right });
+  } = usePanelResize(isMobile ? {} : { left, right });
 
   const setLeftPanelWidth = leftPanel?.setWidth;
   useEffect(() => {
@@ -172,9 +175,14 @@ export function ThreePanelLayout({
     return () => document.removeEventListener('keydown', handler);
   }, [leftPanel, rightPanel, leftShortcut, rightShortcut, setLeftCollapsed, setRightCollapsed, containerRef, isLeftCollapsed, isRightCollapsed]);
 
+  const hasLeft = !!left;
+  const hasRight = !!right;
+  const rightPanelExpanded = hasRight && !isRightCollapsed;
+
   return (
     <div ref={containerRef} className={cn('flex overflow-hidden', className)}>
-      {leftPanel && (
+      {/* Left panel */}
+      {leftPanel && !isMobile && (
         <>
           <div
             className={cn(
@@ -224,9 +232,38 @@ export function ThreePanelLayout({
         </>
       )}
 
-      <div className="flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden">{centerContent}</div>
+      {hasLeft && isMobile && (
+        <>
+          <div className="flex items-start pt-2">
+            <ShortcutButton
+              onClick={() => setLeftCollapsed(!isLeftCollapsed)}
+              side="right"
+              label={isLeftCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+              keys={leftKeys}
+              icon={isLeftCollapsed ? RiArrowRightSLine : RiArrowLeftSLine}
+            />
+          </div>
+          <Sheet open={!isLeftCollapsed} onOpenChange={(open) => setLeftCollapsed(!open)}>
+            <SheetContent side="left" className="w-3/4 max-w-[300px] p-0" showCloseButton={false}>
+              <SheetTitle className="sr-only">Sidebar</SheetTitle>
+              {leftContent}
+            </SheetContent>
+          </Sheet>
+        </>
+      )}
 
-      {rightPanel && (
+      {/* Center content — hidden on mobile when right panel is expanded */}
+      <div
+        className={cn(
+          'flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden',
+          isMobile && rightPanelExpanded && 'hidden',
+        )}
+      >
+        {centerContent}
+      </div>
+
+      {/* Right panel — desktop: fixed width, mobile: full width */}
+      {rightPanel && !isMobile && (
         <>
           {!isRightCollapsed && (
             <div className="flex flex-col items-center flex-shrink-0">
@@ -274,6 +311,23 @@ export function ThreePanelLayout({
           >
             {rightContent}
           </div>
+        </>
+      )}
+
+      {hasRight && isMobile && (
+        <>
+          <div className="flex items-start pt-2 flex-shrink-0">
+            <ShortcutButton
+              onClick={() => setRightCollapsed(!isRightCollapsed)}
+              side="left"
+              label={isRightCollapsed ? 'Show panel' : 'Collapse panel'}
+              keys={rightKeys}
+              icon={isRightCollapsed ? RiArrowLeftSLine : RiArrowRightSLine}
+            />
+          </div>
+          {!isRightCollapsed && (
+            <div className="flex flex-1 flex-col min-h-0 border-l">{rightContent}</div>
+          )}
         </>
       )}
     </div>

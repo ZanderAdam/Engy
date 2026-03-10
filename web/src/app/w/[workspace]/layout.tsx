@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { RiGitRepositoryLine, RiGitRepositoryFill } from '@remixicon/react';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
 import type { TerminalDropdownGroup } from '@/components/terminal/types';
@@ -40,6 +41,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     error,
   } = trpc.workspace.get.useQuery({ slug: params.workspace });
 
+  const isMobile = useIsMobile();
   const [terminalCollapsed, setTerminalCollapsed] = useState(true);
 
   // Auto-expand terminal when active sessions are restored on page load
@@ -146,7 +148,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         {!isProjectRoute && (
           <nav className="border-b border-border" aria-label="Workspace sections">
-            <div className="flex px-6">
+            <div className={cn('flex', isMobile ? 'px-3' : 'px-6')}>
               {tabs.map((tab) => (
                 <Link
                   key={tab.segment}
@@ -169,11 +171,12 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           rightCollapsed={terminalCollapsed}
           onRightCollapsedChange={setTerminalCollapsed}
           rightShortcut={TERMINAL_SHORTCUT}
+          isMobile={isMobile}
           centerContent={
             <div
               className={cn(
                 'flex min-h-0 flex-1 flex-col overflow-hidden',
-                !isDocsRoute && 'px-6',
+                !isDocsRoute && (isMobile ? 'px-2' : 'px-6'),
               )}
             >
               {children}

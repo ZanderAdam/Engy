@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useRecentDirs } from '@/hooks/use-recent-dirs';
 import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
 import { TerminalManager } from '@/components/terminal/terminal-manager';
@@ -53,6 +54,7 @@ function OpenPageOuter() {
 }
 
 function OpenPageInner({ dirPath }: { dirPath: string }) {
+  const isMobile = useIsMobile();
   const { addDir } = useRecentDirs();
 
   useEffect(() => {
@@ -60,7 +62,21 @@ function OpenPageInner({ dirPath }: { dirPath: string }) {
   }, [dirPath, addDir]);
 
   const [selectedRelPath, setSelectedRelPath] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [prevIsMobile, setPrevIsMobile] = useState(false);
+  if (isMobile !== prevIsMobile) {
+    setPrevIsMobile(isMobile);
+    setSidebarCollapsed(isMobile);
+  }
   const [terminalCollapsed, setTerminalCollapsed] = useState(false);
+
+  const handleSelectFile = useCallback(
+    (relPath: string) => {
+      setSelectedRelPath(relPath);
+      if (isMobile) setSidebarCollapsed(true);
+    },
+    [isMobile],
+  );
 
   const terminalScope = useMemo<TerminalScope>(
     () => ({
@@ -80,14 +96,17 @@ function OpenPageInner({ dirPath }: { dirPath: string }) {
       className="flex-1 min-h-0"
       left={LEFT_PANEL_CONFIG}
       right={TERMINAL_CONFIG}
+      leftCollapsed={sidebarCollapsed}
+      onLeftCollapsedChange={setSidebarCollapsed}
       rightCollapsed={terminalCollapsed}
       onRightCollapsedChange={setTerminalCollapsed}
       rightShortcut={TERMINAL_SHORTCUT}
+      isMobile={isMobile}
       leftContent={
         <DirFileTree
           dirPath={dirPath}
           selectedFile={selectedRelPath}
-          onSelectFile={setSelectedRelPath}
+          onSelectFile={handleSelectFile}
         />
       }
       centerContent={

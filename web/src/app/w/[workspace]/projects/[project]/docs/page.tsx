@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { trpc } from '@/lib/trpc';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -11,6 +11,7 @@ import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-edit
 import { EngyThreadStore } from '@/components/editor/document-editor';
 import { RiFileTextLine } from '@remixicon/react';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useOnFileChange } from '@/contexts/file-change-context';
 
 const SIDEBAR_CONFIG = {
@@ -24,28 +25,42 @@ export default function ProjectDocsPage() {
   const params = useParams<{ workspace: string; project: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const isMobile = useIsMobile();
   const selectedFile = searchParams.get('file');
-
-  function updateUrl(file: string | null) {
-    const p = new URLSearchParams();
-    if (file) p.set('file', file);
-    const qs = p.toString();
-    router.replace(
-      `/w/${params.workspace}/projects/${params.project}/docs${qs ? `?${qs}` : ''}`,
-      { scroll: false },
-    );
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [prevIsMobile, setPrevIsMobile] = useState(false);
+  if (isMobile !== prevIsMobile) {
+    setPrevIsMobile(isMobile);
+    setSidebarCollapsed(isMobile);
   }
+
+  const handleSelectFile = useCallback(
+    (file: string | null) => {
+      const p = new URLSearchParams();
+      if (file) p.set('file', file);
+      const qs = p.toString();
+      router.replace(
+        `/w/${params.workspace}/projects/${params.project}/docs${qs ? `?${qs}` : ''}`,
+        { scroll: false },
+      );
+      if (isMobile) setSidebarCollapsed(true);
+    },
+    [router, params.workspace, params.project, isMobile],
+  );
 
   return (
     <ThreePanelLayout
       className="flex-1 min-h-0"
       left={SIDEBAR_CONFIG}
+      isMobile={isMobile}
+      leftCollapsed={sidebarCollapsed}
+      onLeftCollapsedChange={setSidebarCollapsed}
       leftContent={
         <ProjectTree
           workspaceSlug={params.workspace}
           projectSlug={params.project}
           selectedFile={selectedFile}
-          onSelectFile={(filePath) => updateUrl(filePath)}
+          onSelectFile={handleSelectFile}
         />
       }
       centerContent={
