@@ -126,6 +126,17 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
       }
     };
 
+    // Intercept Shift+Enter to send shell line continuation
+    term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      if (event.key === 'Enter' && event.shiftKey) {
+        if (event.type === 'keydown' && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ t: 'i', sessionId, d: '\\\r' }));
+        }
+        return false;
+      }
+      return true;
+    });
+
     term.onData((data) => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ t: 'i', sessionId, d: data }));
