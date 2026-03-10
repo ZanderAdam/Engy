@@ -322,6 +322,58 @@ export function deleteProjectSubDir(workspace: Workspace, projectSlug: string, s
   fs.rmSync(resolved, { recursive: true, force: true });
 }
 
+export function renameProjectFile(
+  workspace: Workspace,
+  projectSlug: string,
+  oldPath: string,
+  newPath: string,
+): void {
+  const dir = projectsDir(workspace);
+  const projDir = validatePath(dir, projectSlug);
+  const resolvedOld = validatePath(projDir, oldPath);
+  const resolvedNew = validatePath(projDir, newPath);
+
+  if (!fs.existsSync(resolvedOld)) {
+    throw new Error(`File "${oldPath}" not found in project "${projectSlug}"`);
+  }
+  const stat = fs.statSync(resolvedOld);
+  if (!stat.isFile()) {
+    throw new Error(`Not a file: "${oldPath}"`);
+  }
+  if (fs.existsSync(resolvedNew)) {
+    throw new Error(`File "${newPath}" already exists in project "${projectSlug}"`);
+  }
+
+  fs.mkdirSync(path.dirname(resolvedNew), { recursive: true });
+  fs.renameSync(resolvedOld, resolvedNew);
+}
+
+export function renameProjectSubDir(
+  workspace: Workspace,
+  projectSlug: string,
+  oldSubDir: string,
+  newSubDir: string,
+): void {
+  const dir = projectsDir(workspace);
+  const projDir = validatePath(dir, projectSlug);
+  const resolvedOld = validatePath(projDir, oldSubDir);
+  const resolvedNew = validatePath(projDir, newSubDir);
+
+  if (!fs.existsSync(resolvedOld)) {
+    throw new Error(`Directory "${oldSubDir}" not found in project "${projectSlug}"`);
+  }
+  const stat = fs.statSync(resolvedOld);
+  if (!stat.isDirectory()) {
+    throw new Error(`Not a directory: "${oldSubDir}"`);
+  }
+  if (fs.existsSync(resolvedNew)) {
+    throw new Error(`Directory "${newSubDir}" already exists in project "${projectSlug}"`);
+  }
+
+  fs.mkdirSync(path.dirname(resolvedNew), { recursive: true });
+  fs.renameSync(resolvedOld, resolvedNew);
+}
+
 export function checkProjectReadiness(projectSlug: string): boolean {
   const db = getDb();
   const projectTasks = db.select().from(tasks).where(eq(tasks.specId, projectSlug)).all();

@@ -192,6 +192,21 @@ function registerWorkspaceTools(mcp: McpServer): void {
   );
 
   mcp.tool(
+    'listProjects',
+    'List projects, optionally filtered by workspace',
+    {
+      workspaceId: z.number().optional().describe('Filter by workspace ID'),
+    },
+    async ({ workspaceId }) => {
+      const db = getDb();
+      const rows = workspaceId
+        ? db.select().from(projects).where(eq(projects.workspaceId, workspaceId)).all()
+        : db.select().from(projects).all();
+      return mcpResult(rows);
+    },
+  );
+
+  mcp.tool(
     'getProjectDetails',
     'Get project details with workspace context and filesystem paths',
     {

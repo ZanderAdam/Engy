@@ -44,6 +44,7 @@ import {
   RiFolderAddLine,
   RiFolderLine,
   RiMore2Line,
+  RiPencilLine,
   RiSearchLine,
   RiSortAsc,
   RiSortDesc,
@@ -63,6 +64,8 @@ interface FileTreeProps {
   onCreateDir?: (dirPath: string) => void;
   onDeleteFile?: (filePath: string) => void;
   onDeleteDir?: (dirPath: string) => void;
+  onRenameFile?: (oldPath: string, newPath: string) => void;
+  onRenameDir?: (oldPath: string, newPath: string) => void;
 }
 
 interface DirNode {
@@ -147,6 +150,11 @@ function trieToTreeItems(
   return [...dirItems, ...fileItems];
 }
 
+function parentPrefix(itemPath: string): string {
+  const idx = itemPath.lastIndexOf("/");
+  return idx >= 0 ? itemPath.substring(0, idx + 1) : "";
+}
+
 function buildFileTree(
   files: FileEntry[],
   dirs: string[],
@@ -176,6 +184,7 @@ function ItemActions({
   onCreateFile,
   onCreateDir,
   onDelete,
+  onRename,
   size = "sm",
 }: {
   type: "file" | "dir";
@@ -184,12 +193,15 @@ function ItemActions({
   onCreateFile?: (dirPath: string, fileName: string) => void;
   onCreateDir?: (dirPath: string) => void;
   onDelete?: () => void;
+  onRename?: (newName: string) => void;
   size?: "sm" | "xs";
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [createMode, setCreateMode] = useState<"file" | "folder">("file");
   const [createName, setCreateName] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameName, setRenameName] = useState("");
 
   const hasCreateActions = type === "dir" && (!!onCreateFile || !!onCreateDir);
 
@@ -214,12 +226,27 @@ function ItemActions({
     setCreateOpen(true);
   }
 
+  function openRename() {
+    setRenameName(itemName);
+    setRenameOpen(true);
+  }
+
+  function handleRenameSubmit() {
+    const trimmed = renameName.trim();
+    if (!trimmed || trimmed === itemName) return;
+
+    const finalName =
+      type === "file" && !trimmed.endsWith(".md") ? `${trimmed}.md` : trimmed;
+    onRename?.(finalName);
+    setRenameOpen(false);
+  }
+
   const iconSize = size === "xs" ? "size-3" : "size-3.5";
   const btnSize = size === "xs" ? "size-5" : "size-6";
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
@@ -227,7 +254,7 @@ function ItemActions({
             title="Actions"
             onClick={(e) => e.stopPropagation()}
           >
-            {hasCreateActions && !onDelete ? (
+            {hasCreateActions && !onDelete && !onRename ? (
               <RiAddLine className={iconSize} />
             ) : (
               <RiMore2Line className={iconSize} />
@@ -247,7 +274,13 @@ function ItemActions({
               New Folder
             </DropdownMenuItem>
           )}
-          {hasCreateActions && onDelete && <DropdownMenuSeparator />}
+          {hasCreateActions && (onRename || onDelete) && <DropdownMenuSeparator />}
+          {onRename && (
+            <DropdownMenuItem onClick={openRename}>
+              <RiPencilLine className="size-4" />
+              Rename
+            </DropdownMenuItem>
+          )}
           {onDelete && (
             <DropdownMenuItem
               className="text-destructive focus:text-destructive"
@@ -290,6 +323,47 @@ function ItemActions({
                 </Button>
                 <Button type="submit" size="sm" disabled={!createName.trim()}>
                   Create
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {onRename && (
+        <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+          <DialogContent className="max-w-xs" onClick={(e) => e.stopPropagation()}>
+            <DialogHeader>
+              <DialogTitle>Rename {type === "file" ? "File" : "Folder"}</DialogTitle>
+            </DialogHeader>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleRenameSubmit();
+              }}
+            >
+              <Input
+                autoFocus
+                value={renameName}
+                onChange={(e) => setRenameName(e.target.value)}
+                placeholder={itemName}
+                className="h-8 text-sm"
+              />
+              <DialogFooter className="mt-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRenameOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={!renameName.trim() || renameName.trim() === itemName}
+                >
+                  Rename
                 </Button>
               </DialogFooter>
             </form>
@@ -341,6 +415,8 @@ export function FileTree({
   onCreateDir,
   onDeleteFile,
   onDeleteDir,
+  onRenameFile,
+  onRenameDir,
 }: FileTreeProps) {
   const [sortMode, setSortMode] = useState<SortMode>("modified");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -350,7 +426,7 @@ export function FileTree({
 
   const dirActions = useMemo(
     () =>
-      hasCreateActions || onDeleteDir
+      hasCreateActions || onDeleteDir || onRenameDir
         ? (dirPath: string) => (
             <ItemActions
               type="dir"
@@ -359,27 +435,37 @@ export function FileTree({
               onCreateFile={onCreateFile}
               onCreateDir={onCreateDir}
               onDelete={onDeleteDir ? () => onDeleteDir(dirPath) : undefined}
+              onRename={
+                onRenameDir
+                  ? (newName: string) => onRenameDir(dirPath, `${parentPrefix(dirPath)}${newName}`)
+                  : undefined
+              }
               size="xs"
             />
           )
         : undefined,
-    [hasCreateActions, onCreateFile, onCreateDir, onDeleteDir],
+    [hasCreateActions, onCreateFile, onCreateDir, onDeleteDir, onRenameDir],
   );
 
   const fileActions = useMemo(
     () =>
-      onDeleteFile
+      onDeleteFile || onRenameFile
         ? (filePath: string) => (
             <ItemActions
               type="file"
               itemPath={filePath}
               itemName={filePath.split("/").pop() ?? filePath}
-              onDelete={() => onDeleteFile(filePath)}
+              onDelete={onDeleteFile ? () => onDeleteFile(filePath) : undefined}
+              onRename={
+                onRenameFile
+                  ? (newName: string) => onRenameFile(filePath, `${parentPrefix(filePath)}${newName}`)
+                  : undefined
+              }
               size="xs"
             />
           )
         : undefined,
-    [onDeleteFile],
+    [onDeleteFile, onRenameFile],
   );
 
   const treeData: TreeDataItem[] = useMemo(

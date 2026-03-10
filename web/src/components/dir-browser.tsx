@@ -36,6 +36,14 @@ export function DirFileTree({
     onSuccess: () => utils.dir.listFiles.invalidate({ dirPath }),
   });
 
+  const renameFileMutation = trpc.dir.renameFile.useMutation({
+    onSuccess: () => utils.dir.listFiles.invalidate({ dirPath }),
+  });
+
+  const renameDirMutation = trpc.dir.renameDir.useMutation({
+    onSuccess: () => utils.dir.listFiles.invalidate({ dirPath }),
+  });
+
   const handleCreateFile = useCallback(
     (relDir: string, fileName: string) => {
       const filePath = relDir ? `${relDir}/${fileName}` : fileName;
@@ -71,6 +79,32 @@ export function DirFileTree({
     [deleteDirMutation, dirPath],
   );
 
+  const handleRenameFile = useCallback(
+    (oldPath: string, newPath: string) => {
+      renameFileMutation.mutate(
+        { dirPath, oldPath, newPath },
+        { onSuccess: () => { if (selectedFile === oldPath) onSelectFile(newPath); } },
+      );
+    },
+    [renameFileMutation, dirPath, selectedFile, onSelectFile],
+  );
+
+  const handleRenameDir = useCallback(
+    (oldSubDir: string, newSubDir: string) => {
+      renameDirMutation.mutate(
+        { dirPath, oldSubDir, newSubDir },
+        {
+          onSuccess: () => {
+            if (selectedFile?.startsWith(`${oldSubDir}/`)) {
+              onSelectFile(selectedFile.replace(`${oldSubDir}/`, `${newSubDir}/`));
+            }
+          },
+        },
+      );
+    },
+    [renameDirMutation, dirPath, selectedFile, onSelectFile],
+  );
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-10">
@@ -98,6 +132,8 @@ export function DirFileTree({
       onCreateDir={handleCreateDir}
       onDeleteFile={handleDeleteFile}
       onDeleteDir={handleDeleteDir}
+      onRenameFile={handleRenameFile}
+      onRenameDir={handleRenameDir}
       label={path.basename(dirPath) || dirPath}
     />
   );

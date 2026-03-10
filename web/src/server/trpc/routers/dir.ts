@@ -201,6 +201,9 @@ export const dirRouter = router({
     .input(z.object({ dirPath: z.string().min(1), subDir: z.string().min(1) }))
     .mutation(({ input }) => {
       const resolved = validatePath(input.dirPath, input.subDir);
+      if (resolved === path.resolve(input.dirPath)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot delete root directory' });
+      }
       if (!fs.existsSync(resolved)) {
         throw new TRPCError({ code: 'NOT_FOUND', message: `Directory not found: ${input.subDir}` });
       }
@@ -209,6 +212,56 @@ export const dirRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Not a directory: ${input.subDir}` });
       }
       fs.rmSync(resolved, { recursive: true, force: true });
+      return { success: true };
+    }),
+
+  renameFile: publicProcedure
+    .input(z.object({
+      dirPath: z.string().min(1),
+      oldPath: z.string().min(1),
+      newPath: z.string().min(1),
+    }))
+    .mutation(({ input }) => {
+      if (!input.oldPath.endsWith('.md') || !input.newPath.endsWith('.md')) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only .md files are supported' });
+      }
+      const resolvedOld = validatePath(input.dirPath, input.oldPath);
+      const resolvedNew = validatePath(input.dirPath, input.newPath);
+      if (!fs.existsSync(resolvedOld)) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `File not found: ${input.oldPath}` });
+      }
+      if (!fs.statSync(resolvedOld).isFile()) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `Not a file: ${input.oldPath}` });
+      }
+      if (fs.existsSync(resolvedNew)) {
+        throw new TRPCError({ code: 'CONFLICT', message: `File already exists: ${input.newPath}` });
+      }
+      fs.mkdirSync(path.dirname(resolvedNew), { recursive: true });
+      fs.renameSync(resolvedOld, resolvedNew);
+      return { success: true };
+    }),
+
+  renameDir: publicProcedure
+    .input(z.object({
+      dirPath: z.string().min(1),
+      oldSubDir: z.string().min(1),
+      newSubDir: z.string().min(1),
+    }))
+    .mutation(({ input }) => {
+      const resolvedOld = validatePath(input.dirPath, input.oldSubDir);
+      const resolvedNew = validatePath(input.dirPath, input.newSubDir);
+      if (!fs.existsSync(resolvedOld)) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `Directory not found: ${input.oldSubDir}` });
+      }
+      const stat = fs.statSync(resolvedOld);
+      if (!stat.isDirectory()) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `Not a directory: ${input.oldSubDir}` });
+      }
+      if (fs.existsSync(resolvedNew)) {
+        throw new TRPCError({ code: 'CONFLICT', message: `Directory already exists: ${input.newSubDir}` });
+      }
+      fs.mkdirSync(path.dirname(resolvedNew), { recursive: true });
+      fs.renameSync(resolvedOld, resolvedNew);
       return { success: true };
     }),
 

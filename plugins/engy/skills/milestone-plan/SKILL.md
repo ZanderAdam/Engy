@@ -10,6 +10,7 @@ The spec already contains a high-level list of milestones. This skill plans **on
 ## MCP Tools
 
 - `getProjectDetails(projectId)` — project paths (`specDir`, `projectDir`) + workspace context
+- `listProjects(workspaceId?)` — list projects (use to find the correct `projectId`)
 - `createTask`, `updateTask`, `listTasks`, `getTask` — task CRUD (responses include `specPath`)
 - `createTaskGroup`, `listTaskGroups` — group tasks within milestones
 
@@ -34,6 +35,7 @@ Use MCP to discover paths, then Read/Glob/Grep for spec content.
 
 For the selected milestone:
 
+0. **Confirm the correct projectId.** Use `listProjects` to find the project whose `specDir` matches the spec you're working with. Do NOT assume projectId=1.
 1. Review the milestone scope against the spec.
 2. Break the milestone into **task groups**. Each group is a single deliverable — think one PR. Groups are ordered so they can be reviewed and merged as stacked PRs, making large milestones easier to review incrementally.
 3. Within each group, define 1 or more tasks that together produce that deliverable. Follow the vertical slicing and granularity guidelines below.

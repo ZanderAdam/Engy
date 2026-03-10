@@ -30,6 +30,53 @@ describe('MCP Server', () => {
     });
   });
 
+  describe('workspace tools', () => {
+    it('listProjects should return all projects when no filter', async () => {
+      const db = getDb();
+      const ws = db.insert(workspaces).values({ name: 'W1', slug: 'w1' }).returning().get();
+      db.insert(projects).values({ workspaceId: ws.id, name: 'P1', slug: 'p1' }).run();
+      db.insert(projects).values({ workspaceId: ws.id, name: 'P2', slug: 'p2' }).run();
+
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const tool = tools['listProjects'];
+
+      const result = await tool.handler({}, {} as any);
+      const data = JSON.parse(result.content[0].text);
+      expect(data).toHaveLength(2);
+    });
+
+    it('listProjects should filter by workspaceId', async () => {
+      const db = getDb();
+      const ws1 = db.insert(workspaces).values({ name: 'W1', slug: 'w1' }).returning().get();
+      const ws2 = db.insert(workspaces).values({ name: 'W2', slug: 'w2' }).returning().get();
+      db.insert(projects).values({ workspaceId: ws1.id, name: 'P1', slug: 'p1' }).run();
+      db.insert(projects).values({ workspaceId: ws2.id, name: 'P2', slug: 'p2' }).run();
+
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const tool = tools['listProjects'];
+
+      const result = await tool.handler({ workspaceId: ws1.id }, {} as any);
+      const data = JSON.parse(result.content[0].text);
+      expect(data).toHaveLength(1);
+      expect(data[0].name).toBe('P1');
+    });
+
+    it('listProjects should return empty array when workspace has no projects', async () => {
+      const db = getDb();
+      const ws = db.insert(workspaces).values({ name: 'Empty', slug: 'empty' }).returning().get();
+
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const tool = tools['listProjects'];
+
+      const result = await tool.handler({ workspaceId: ws.id }, {} as any);
+      const data = JSON.parse(result.content[0].text);
+      expect(data).toHaveLength(0);
+    });
+  });
+
   describe('task tools', () => {
     let projectId: number;
 

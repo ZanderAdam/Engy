@@ -245,4 +245,91 @@ describe('dir router', () => {
       ).rejects.toThrow('traversal');
     });
   });
+
+  describe('renameFile', () => {
+    it('should rename a file', async () => {
+      const result = await caller.dir.renameFile({
+        dirPath: testDir, oldPath: 'readme.md', newPath: 'renamed.md',
+      });
+      expect(result.success).toBe(true);
+      expect(fs.existsSync(path.join(testDir, 'readme.md'))).toBe(false);
+      expect(fs.existsSync(path.join(testDir, 'renamed.md'))).toBe(true);
+      expect(fs.readFileSync(path.join(testDir, 'renamed.md'), 'utf-8')).toBe('# Readme\nHello world');
+    });
+
+    it('should rename a file in a subdirectory', async () => {
+      const result = await caller.dir.renameFile({
+        dirPath: testDir, oldPath: 'sub/sub-note.md', newPath: 'sub/renamed-note.md',
+      });
+      expect(result.success).toBe(true);
+      expect(fs.existsSync(path.join(testDir, 'sub', 'sub-note.md'))).toBe(false);
+      expect(fs.existsSync(path.join(testDir, 'sub', 'renamed-note.md'))).toBe(true);
+    });
+
+    it('should throw CONFLICT if target already exists', async () => {
+      await expect(
+        caller.dir.renameFile({ dirPath: testDir, oldPath: 'readme.md', newPath: 'notes.md' }),
+      ).rejects.toThrow('already exists');
+    });
+
+    it('should throw NOT_FOUND for missing source', async () => {
+      await expect(
+        caller.dir.renameFile({ dirPath: testDir, oldPath: 'missing.md', newPath: 'new.md' }),
+      ).rejects.toThrow('not found');
+    });
+
+    it('should reject non-md files', async () => {
+      await expect(
+        caller.dir.renameFile({ dirPath: testDir, oldPath: 'readme.txt', newPath: 'new.txt' }),
+      ).rejects.toThrow('Only .md files');
+    });
+
+    it('should reject path traversal on source', async () => {
+      await expect(
+        caller.dir.renameFile({ dirPath: testDir, oldPath: '../../etc/secret.md', newPath: 'new.md' }),
+      ).rejects.toThrow('traversal');
+    });
+
+    it('should reject path traversal on destination', async () => {
+      await expect(
+        caller.dir.renameFile({ dirPath: testDir, oldPath: 'readme.md', newPath: '../../escape.md' }),
+      ).rejects.toThrow('traversal');
+    });
+  });
+
+  describe('renameDir', () => {
+    it('should rename a directory', async () => {
+      const result = await caller.dir.renameDir({
+        dirPath: testDir, oldSubDir: 'sub', newSubDir: 'renamed-sub',
+      });
+      expect(result.success).toBe(true);
+      expect(fs.existsSync(path.join(testDir, 'sub'))).toBe(false);
+      expect(fs.existsSync(path.join(testDir, 'renamed-sub'))).toBe(true);
+      expect(fs.existsSync(path.join(testDir, 'renamed-sub', 'sub-note.md'))).toBe(true);
+    });
+
+    it('should throw CONFLICT if target already exists', async () => {
+      await expect(
+        caller.dir.renameDir({ dirPath: testDir, oldSubDir: 'sub', newSubDir: 'deep' }),
+      ).rejects.toThrow('already exists');
+    });
+
+    it('should throw NOT_FOUND for missing source', async () => {
+      await expect(
+        caller.dir.renameDir({ dirPath: testDir, oldSubDir: 'nonexistent', newSubDir: 'new-dir' }),
+      ).rejects.toThrow('not found');
+    });
+
+    it('should reject path traversal on source', async () => {
+      await expect(
+        caller.dir.renameDir({ dirPath: testDir, oldSubDir: '../../tmp', newSubDir: 'new' }),
+      ).rejects.toThrow('traversal');
+    });
+
+    it('should reject path traversal on destination', async () => {
+      await expect(
+        caller.dir.renameDir({ dirPath: testDir, oldSubDir: 'sub', newSubDir: '../../escape' }),
+      ).rejects.toThrow('traversal');
+    });
+  });
 });

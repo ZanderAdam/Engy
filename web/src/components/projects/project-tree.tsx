@@ -39,6 +39,14 @@ export function ProjectTree({
     onSuccess: () => utils.project.listFiles.invalidate({ workspaceSlug, projectSlug }),
   });
 
+  const renameFileMutation = trpc.project.renameFile.useMutation({
+    onSuccess: () => utils.project.listFiles.invalidate({ workspaceSlug, projectSlug }),
+  });
+
+  const renameDirMutation = trpc.project.renameDir.useMutation({
+    onSuccess: () => utils.project.listFiles.invalidate({ workspaceSlug, projectSlug }),
+  });
+
   const handleCreateFile = useCallback(
     (relDir: string, fileName: string) => {
       const filePath = relDir ? `${relDir}/${fileName}` : fileName;
@@ -74,6 +82,32 @@ export function ProjectTree({
     [deleteDirMutation, workspaceSlug, projectSlug],
   );
 
+  const handleRenameFile = useCallback(
+    (oldPath: string, newPath: string) => {
+      renameFileMutation.mutate(
+        { workspaceSlug, projectSlug, oldPath, newPath },
+        { onSuccess: () => { if (selectedFile === oldPath) onSelectFile(newPath); } },
+      );
+    },
+    [renameFileMutation, workspaceSlug, projectSlug, selectedFile, onSelectFile],
+  );
+
+  const handleRenameDir = useCallback(
+    (oldSubDir: string, newSubDir: string) => {
+      renameDirMutation.mutate(
+        { workspaceSlug, projectSlug, oldSubDir, newSubDir },
+        {
+          onSuccess: () => {
+            if (selectedFile?.startsWith(`${oldSubDir}/`)) {
+              onSelectFile(selectedFile.replace(`${oldSubDir}/`, `${newSubDir}/`));
+            }
+          },
+        },
+      );
+    },
+    [renameDirMutation, workspaceSlug, projectSlug, selectedFile, onSelectFile],
+  );
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-10">
@@ -92,6 +126,8 @@ export function ProjectTree({
       onCreateDir={handleCreateDir}
       onDeleteFile={handleDeleteFile}
       onDeleteDir={handleDeleteDir}
+      onRenameFile={handleRenameFile}
+      onRenameDir={handleRenameDir}
     />
   );
 }
