@@ -35,7 +35,10 @@ export function TaskQuickActions({
   const hasPlan = planSlugs?.includes(taskSlug) ?? false;
 
   const workingDir = repos[0] ?? projectDir ?? undefined;
-  const additionalDirs = repos.slice(1);
+  const additionalDirs = [
+    ...(projectDir && projectDir !== workingDir ? [projectDir] : []),
+    ...repos.slice(1),
+  ];
   const addDirFlags = additionalDirs.map((d) => ` --add-dir '${shellEscape(d)}'`).join('');
 
   function handlePlan() {
