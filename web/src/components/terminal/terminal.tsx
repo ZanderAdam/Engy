@@ -5,6 +5,8 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
+import type { ITheme } from "@xterm/xterm";
+import { DARK_XTERM_THEME } from "@/hooks/use-xterm-theme";
 import type { TerminalTab } from "./types";
 
 export interface TerminalActions {
@@ -14,6 +16,7 @@ export interface TerminalActions {
 
 interface TerminalProps {
   tab: TerminalTab;
+  xtermTheme?: ITheme;
   onStatusChange: (sessionId: string, status: TerminalTab['status']) => void;
   onReady?: (sessionId: string, actions: TerminalActions | null) => void;
 }
@@ -39,7 +42,7 @@ function buildWsUrl(tab: TerminalTab): string {
   return `${base}/ws/terminal?${params.toString()}`;
 }
 
-export function TerminalInstance({ tab, onStatusChange, onReady }: TerminalProps) {
+export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -66,29 +69,7 @@ export function TerminalInstance({ tab, onStatusChange, onReady }: TerminalProps
       scrollback: 5000,
       fontFamily: "'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace",
       fontSize: 13,
-      theme: {
-        background: '#0a0a0a',
-        foreground: '#fafafa',
-        cursor: '#fafafa',
-        cursorAccent: '#0a0a0a',
-        selectionBackground: '#3e3e3e',
-        black: '#0a0a0a',
-        red: '#ef4444',
-        green: '#22c55e',
-        yellow: '#eab308',
-        blue: '#3b82f6',
-        magenta: '#a855f7',
-        cyan: '#06b6d4',
-        white: '#fafafa',
-        brightBlack: '#525252',
-        brightRed: '#f87171',
-        brightGreen: '#4ade80',
-        brightYellow: '#facc15',
-        brightBlue: '#60a5fa',
-        brightMagenta: '#c084fc',
-        brightCyan: '#22d3ee',
-        brightWhite: '#ffffff',
-      },
+      theme: xtermTheme ?? DARK_XTERM_THEME,
     });
 
     const fitAddon = new FitAddon();
@@ -169,6 +150,12 @@ export function TerminalInstance({ tab, onStatusChange, onReady }: TerminalProps
     // to avoid reconnecting when props change. sessionId is stable per tab lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, handleResize]);
+
+  useEffect(() => {
+    if (xtermRef.current && xtermTheme) {
+      xtermRef.current.options.theme = xtermTheme;
+    }
+  }, [xtermTheme]);
 
   return (
     <div

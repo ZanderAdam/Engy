@@ -110,7 +110,7 @@ export default function ProjectTasksPage() {
             <RiAddLine data-icon="inline-start" />
             Group
           </Button>
-          <Button size="sm" onClick={() => setShowNewTask(true)}>
+          <Button size="sm" variant="outline" onClick={() => setShowNewTask(true)}>
             <RiAddLine data-icon="inline-start" />
             Task
           </Button>

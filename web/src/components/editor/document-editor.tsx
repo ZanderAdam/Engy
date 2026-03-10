@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTheme } from "next-themes";
 import {
   useCreateBlockNote,
   BlockNoteViewEditor,
@@ -68,6 +69,7 @@ export function DocumentEditor({
   filePath,
   mentionDirs,
 }: DocumentEditorProps) {
+  const { resolvedTheme } = useTheme();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoadedHashRef = useRef<number | null>(null);
   const lastContentHashRef = useRef<number | null>(null);
@@ -232,7 +234,7 @@ export function DocumentEditor({
     <BlockNoteView
       editor={editor}
       onChange={handleChange}
-      theme="dark"
+      theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
       renderEditor={false}
       comments={false}
     >

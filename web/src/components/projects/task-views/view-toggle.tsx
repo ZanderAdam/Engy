@@ -18,7 +18,7 @@ export function ViewToggle({
   onChange: (view: TaskView) => void;
 }) {
   return (
-    <div className="inline-flex border border-border">
+    <div data-slot="view-toggle" className="inline-flex border border-border">
       {views.map((v) => (
         <button
           key={v.value}

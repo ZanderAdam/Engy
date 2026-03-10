@@ -59,7 +59,7 @@ export default function HomePage() {
         <div className="flex flex-col gap-3">
           {workspaces.map((ws) => (
             <Link key={ws.id} href={`/w/${ws.slug}`}>
-              <Card className="transition-colors hover:bg-muted/50">
+              <Card className="bg-transparent transition-colors hover:bg-muted/50">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm">{ws.name}</CardTitle>

@@ -17,6 +17,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface BreadcrumbEntry {
   label: string;
@@ -60,7 +61,7 @@ export function AppHeader() {
   const crumbs = useBreadcrumbs();
 
   return (
-    <header className="flex h-12 shrink-0 items-center border-b border-border px-4">
+    <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -108,6 +109,7 @@ export function AppHeader() {
           })}
         </BreadcrumbList>
       </Breadcrumb>
+      <ThemeToggle />
     </header>
   );
 }

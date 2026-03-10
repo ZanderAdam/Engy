@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { trpc, getTrpcClientOptions } from "@/lib/trpc";
+import { ThemeProvider } from "./theme-provider";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -20,8 +21,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [trpcClient] = useState(() => trpc.createClient(getTrpcClientOptions()));
 
   return (
-    <trpc.Provider client={trpcClient} queryClient={queryClient}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    </trpc.Provider>
+    <ThemeProvider>
+      <trpc.Provider client={trpcClient} queryClient={queryClient}>
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      </trpc.Provider>
+    </ThemeProvider>
   );
 }

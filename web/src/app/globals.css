@@ -3,10 +3,12 @@
 @import "shadcn/tailwind.css";
 @import "dockview/dist/styles/dockview.css";
 @import "../components/terminal/dockview-theme.css";
+@import "./cyberpunk-theme.css";
 
 @source "../../node_modules/@blocknote/shadcn/dist";
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant theme-cyberpunk (&:is(.theme-cyberpunk *));
 
 @theme inline {
   --color-background: var(--background);
@@ -120,6 +122,40 @@
   --sidebar-ring: oklch(0.552 0.016 285.938);
 }
 
+.theme-cyberpunk {
+  --background: oklch(0.07 0.02 350);
+  --foreground: oklch(0.75 0.15 20);
+  --card: oklch(0.11 0.03 350);
+  --card-foreground: oklch(0.75 0.15 20);
+  --popover: oklch(0.11 0.03 350);
+  --popover-foreground: oklch(0.75 0.15 20);
+  --primary: oklch(0.65 0.29 18);
+  --primary-foreground: oklch(0.95 0 0);
+  --secondary: oklch(0.18 0.06 350);
+  --secondary-foreground: oklch(0.65 0.18 260);
+  --muted: oklch(0.15 0.04 350);
+  --muted-foreground: oklch(0.55 0.14 20);
+  --accent: oklch(0.55 0.18 260);
+  --accent-foreground: oklch(0.95 0 0);
+  --destructive: oklch(0.65 0.29 18);
+  --border: oklch(0.50 0.22 18);
+  --input: oklch(0.15 0.04 350);
+  --ring: oklch(0.65 0.29 18);
+  --chart-1: oklch(0.65 0.29 18);
+  --chart-2: oklch(0.55 0.18 260);
+  --chart-3: oklch(0.60 0.25 330);
+  --chart-4: oklch(0.75 0.18 85);
+  --chart-5: oklch(0.50 0.20 280);
+  --sidebar: oklch(0.09 0.03 350);
+  --sidebar-foreground: oklch(0.75 0.15 20);
+  --sidebar-primary: oklch(0.65 0.29 18);
+  --sidebar-primary-foreground: oklch(0.95 0 0);
+  --sidebar-accent: oklch(0.18 0.06 350);
+  --sidebar-accent-foreground: oklch(0.65 0.18 260);
+  --sidebar-border: oklch(0.50 0.22 18);
+  --sidebar-ring: oklch(0.65 0.29 18);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -146,3 +182,52 @@
   color: oklch(0.7 0.15 250);
 }
 
+.theme-cyberpunk .bn-shadcn .bn-editor a {
+  color: oklch(0.65 0.18 260);
+}
+
+/* BlockNote: override internal theme for cyberpunk */
+.theme-cyberpunk .bn-container {
+  --bn-colors-editor-background: #1b0f16;
+  --bn-colors-editor-text: var(--foreground);
+  --bn-colors-menu-background: var(--popover);
+  --bn-colors-menu-text: var(--foreground);
+  --bn-colors-tooltip-background: var(--popover);
+  --bn-colors-tooltip-text: var(--foreground);
+  --bn-colors-hovered-background: oklch(0.15 0.05 350);
+  --bn-colors-hovered-text: var(--foreground);
+  --bn-colors-selected-background: oklch(0.20 0.08 350);
+  --bn-colors-selected-text: var(--foreground);
+  --bn-colors-disabled-background: oklch(0.10 0.03 350);
+  --bn-colors-disabled-text: var(--muted-foreground);
+  --bn-colors-border: var(--border);
+  --bn-border-radius: 0px;
+  --bn-font-family: var(--font-mono);
+}
+
+.theme-cyberpunk .bn-container [data-color-scheme] {
+  background-color: #1b0f16 !important;
+  color: var(--foreground) !important;
+  border-radius: 0 !important;
+}
+
+.theme-cyberpunk .bn-container .ProseMirror {
+  color: var(--foreground) !important;
+  caret-color: oklch(0.65 0.18 260);
+}
+
+.theme-cyberpunk .bn-container .ProseMirror h1,
+.theme-cyberpunk .bn-container .ProseMirror h2,
+.theme-cyberpunk .bn-container .ProseMirror h3 {
+  color: oklch(0.80 0.20 18) !important;
+}
+
+.theme-cyberpunk .bn-container .ProseMirror p,
+.theme-cyberpunk .bn-container .ProseMirror li,
+.theme-cyberpunk .bn-container .ProseMirror td {
+  color: oklch(0.60 0.10 20) !important;
+}
+
+.theme-cyberpunk .bn-container .ProseMirror .is-empty::before {
+  color: var(--muted-foreground) !important;
+}

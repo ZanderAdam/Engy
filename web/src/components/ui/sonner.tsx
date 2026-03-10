@@ -1,19 +1,20 @@
 'use client';
 
+import { useTheme } from 'next-themes';
 import { Toaster as SonnerToaster } from 'sonner';
 
 export function Toaster() {
+  const { resolvedTheme } = useTheme();
+
   return (
     <SonnerToaster
       position="top-right"
-      theme="dark"
+      theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
       toastOptions={{
         classNames: {
-          toast:
-            'bg-zinc-900 border-zinc-800 text-zinc-100 rounded-none shadow-lg',
-          description: 'text-zinc-400',
-          actionButton: 'bg-zinc-100 text-zinc-900 rounded-none',
-          cancelButton: 'bg-zinc-800 text-zinc-400 rounded-none',
+          toast: 'rounded-none shadow-lg',
+          actionButton: 'rounded-none',
+          cancelButton: 'rounded-none',
         },
       }}
     />

@@ -1,0 +1,156 @@
+/* Cyberpunk theme: interactive overrides
+   Loaded AFTER Tailwind utilities so !important overrides work */
+
+/* Red borders on outline buttons only (overrides dark:border-input) */
+html.theme-cyberpunk [data-slot="button"][data-variant="outline"] {
+  border-color: oklch(0.50 0.22 18) !important;
+}
+
+/* Blue hover + glitch on non-ghost/link buttons and interactive elements */
+html.theme-cyberpunk [data-slot="button"]:not([data-variant="ghost"]):not([data-variant="link"]):hover,
+html.theme-cyberpunk [role="menuitem"]:hover,
+html.theme-cyberpunk [role="option"]:hover,
+html.theme-cyberpunk [data-slot="sidebar-menu-button"]:hover {
+  background: linear-gradient(to top, oklch(0.55 0.16 240 / 20%), transparent 80%) !important;
+  border-color: oklch(0.65 0.16 240) !important;
+  color: oklch(0.75 0.12 240) !important;
+  text-shadow: 0 0 8px oklch(0.70 0.14 240 / 50%);
+  box-shadow: 0 0 12px oklch(0.55 0.16 240 / 35%), inset 0 0 8px oklch(0.55 0.16 240 / 10%);
+  animation: cyberpunk-glitch 0.15s steps(2) 1;
+}
+
+/* Ghost/link buttons: subtle blue text on hover only */
+html.theme-cyberpunk [data-slot="button"][data-variant="ghost"]:hover,
+html.theme-cyberpunk [data-slot="button"][data-variant="link"]:hover {
+  color: oklch(0.75 0.12 240) !important;
+  text-shadow: 0 0 6px oklch(0.70 0.14 240 / 30%);
+}
+
+/* Nav tab hover: bottom-up blue glow gradient + blue underline */
+html.theme-cyberpunk nav a:hover {
+  color: oklch(0.75 0.14 240) !important;
+  background: linear-gradient(to top, oklch(0.70 0.16 240 / 20%), transparent 70%) !important;
+  animation: cyberpunk-glitch 0.15s steps(2) 1;
+}
+
+html.theme-cyberpunk nav a:hover::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 2px;
+  background-color: oklch(0.70 0.16 240);
+  box-shadow: 0 0 8px oklch(0.70 0.16 240 / 60%);
+}
+
+/* Active nav tab: blue text + stronger bottom glow gradient */
+html.theme-cyberpunk nav a.text-foreground {
+  color: oklch(0.75 0.14 240) !important;
+  background: linear-gradient(to top, oklch(0.70 0.16 240 / 30%), transparent 70%) !important;
+}
+
+html.theme-cyberpunk nav a.text-foreground::after {
+  background-color: oklch(0.70 0.16 240) !important;
+  box-shadow: 0 0 10px oklch(0.70 0.16 240 / 70%);
+}
+
+/* View toggle tabs (Kanban/Eisenhower/Graph): match nav tab style */
+html.theme-cyberpunk [data-slot="view-toggle"] button {
+  position: relative;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+html.theme-cyberpunk [data-slot="view-toggle"] button.bg-foreground {
+  color: oklch(0.75 0.14 240) !important;
+  background: linear-gradient(to top, oklch(0.70 0.16 240 / 30%), transparent 70%) !important;
+}
+
+html.theme-cyberpunk [data-slot="view-toggle"] button.bg-foreground::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 2px;
+  background-color: oklch(0.70 0.16 240);
+  box-shadow: 0 0 10px oklch(0.70 0.16 240 / 70%);
+}
+
+html.theme-cyberpunk [data-slot="view-toggle"] button:hover {
+  color: oklch(0.75 0.14 240) !important;
+  background: linear-gradient(to top, oklch(0.70 0.16 240 / 20%), transparent 70%) !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+html.theme-cyberpunk [data-slot="view-toggle"] button:hover::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 2px;
+  background-color: oklch(0.70 0.16 240);
+  box-shadow: 0 0 8px oklch(0.70 0.16 240 / 60%);
+}
+
+/* Dropdown/menu items hover */
+html.theme-cyberpunk [data-slot="dropdown-menu-item"]:hover,
+html.theme-cyberpunk [data-slot="dropdown-menu-item"][data-highlighted],
+html.theme-cyberpunk [data-slot="dropdown-menu-radio-item"]:hover,
+html.theme-cyberpunk [data-slot="dropdown-menu-radio-item"][data-highlighted] {
+  background: linear-gradient(to top, oklch(0.55 0.16 240 / 25%), transparent 80%) !important;
+  border-color: oklch(0.65 0.16 240) !important;
+  color: oklch(0.75 0.12 240) !important;
+}
+
+/* Cards (shadcn Card uses ring-1): red outline, blue on hover */
+html.theme-cyberpunk [data-slot="card"] {
+  outline: 1px solid oklch(0.50 0.22 18) !important;
+  outline-offset: -1px;
+  box-shadow: none !important;
+}
+
+html.theme-cyberpunk [data-slot="card"]:hover {
+  outline-color: oklch(0.65 0.16 240) !important;
+  box-shadow: 0 0 12px oklch(0.55 0.16 240 / 30%) !important;
+}
+
+/* Bordered cards (project-card links): blue border on hover */
+html.theme-cyberpunk a.border:hover {
+  border-color: oklch(0.65 0.16 240) !important;
+  box-shadow: 0 0 12px oklch(0.55 0.16 240 / 30%);
+}
+
+html.theme-cyberpunk tr:hover {
+  box-shadow: inset 0 0 20px oklch(0.50 0.22 18 / 15%), 0 0 8px oklch(0.50 0.22 18 / 10%);
+}
+
+/* Tree view file list: dark red unselected, bright red selected */
+html.theme-cyberpunk [role="tree"] li > div {
+  background-color: #1b0f16 !important;
+  border-radius: 0 !important;
+}
+
+html.theme-cyberpunk [role="tree"] li > div:hover {
+  background-color: #2a1520 !important;
+}
+
+html.theme-cyberpunk [role="tree"] li > div::before {
+  border-radius: 0 !important;
+}
+
+html.theme-cyberpunk [role="tree"] li > div.before\:opacity-100 {
+  background-color: oklch(0.55 0.25 18 / 40%) !important;
+}
+
+html.theme-cyberpunk [role="tree"] li > div.before\:opacity-100::before {
+  border-radius: 0 !important;
+}
+
+@keyframes cyberpunk-glitch {
+  0% { transform: translate(0); }
+  25% { transform: translate(-1px, 1px) skewX(-0.5deg); }
+  50% { transform: translate(1px, -1px) skewX(0.5deg); }
+  75% { transform: translate(-1px, 0) skewX(-0.3deg); }
+  100% { transform: translate(0) skewX(0); }
+}

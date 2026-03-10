@@ -39,7 +39,7 @@ export default function TasksPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-4 py-6">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold">Tasks</h2>
-        <Button size="sm" onClick={() => setShowNewTask(true)}>
+        <Button variant="outline" size="sm" onClick={() => setShowNewTask(true)}>
           <RiAddLine data-icon="inline-start" />
           New Task
         </Button>
