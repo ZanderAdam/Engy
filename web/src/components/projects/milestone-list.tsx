@@ -13,6 +13,15 @@ type Milestone = {
   filename: string;
 };
 
+export function sortMilestones(milestones: Milestone[]): Milestone[] {
+  return [...milestones].sort((a, b) => {
+    const aComplete = a.status === 'complete' ? 1 : 0;
+    const bComplete = b.status === 'complete' ? 1 : 0;
+    if (aComplete !== bComplete) return aComplete - bComplete;
+    return a.num - b.num;
+  });
+}
+
 export function MilestoneList({
   projectId,
   milestones,
@@ -20,7 +29,7 @@ export function MilestoneList({
   projectId: number;
   milestones: Milestone[];
 }) {
-  const sorted = [...milestones].sort((a, b) => a.num - b.num);
+  const sorted = sortMilestones(milestones);
 
   return (
     <div className="flex flex-col gap-2">
