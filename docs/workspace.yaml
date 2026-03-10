@@ -3,3 +3,5 @@ slug: engy
 repos:
   - path: /Users/aleks/dev/engy
 docsDir: /Users/aleks/dev/engy/docs
+planSkill: /engy:planning
+implementSkill: /engy:implement-plan

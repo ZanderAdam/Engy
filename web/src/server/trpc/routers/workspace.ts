@@ -12,6 +12,7 @@ import {
   writeWorkspaceYaml,
   getWorkspaceDir,
 } from '../../engy-dir/init';
+import { initProjectDir } from '../../project/service';
 import { dispatchValidation } from '../../ws/server';
 import type { AppState } from '../context';
 
@@ -109,9 +110,11 @@ export const workspaceRouter = router({
             workspaceId: workspace.id,
             name: 'Default',
             slug: 'default',
+            projectDir: 'default',
             isDefault: true,
           })
           .run();
+        initProjectDir({ slug: workspace.slug, docsDir: input.docsDir ?? null }, 'default');
       } catch (err) {
         removeWorkspaceDir(slug, input.docsDir);
         db.delete(workspaces).where(eq(workspaces.id, workspace.id)).run();

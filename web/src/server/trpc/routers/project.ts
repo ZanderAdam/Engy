@@ -109,7 +109,7 @@ export const projectRouter = router({
     .input(z.object({ workspaceId: z.number(), slug: z.string() }))
     .query(({ input }) => {
       const db = getDb();
-      const project = db
+      let project = db
         .select()
         .from(projects)
         .where(and(eq(projects.workspaceId, input.workspaceId), eq(projects.slug, input.slug)))
@@ -123,6 +123,22 @@ export const projectRouter = router({
         .from(workspaces)
         .where(eq(workspaces.id, project.workspaceId))
         .get();
+
+      if (workspace && project.isDefault && !project.projectDir) {
+        try {
+          const dir = path.join(getWorkspaceDir(workspace), 'projects', project.slug);
+          if (!existsSync(dir)) {
+            initProjectDir(workspace, project.slug);
+          }
+          db.update(projects)
+            .set({ projectDir: project.slug })
+            .where(eq(projects.id, project.id))
+            .run();
+          project = { ...project, projectDir: project.slug };
+        } catch (err) {
+          console.warn('[project] Failed to backfill default project dir:', err);
+        }
+      }
 
       let projectDir: string | null = null;
       let planSlugs: string[] = [];
