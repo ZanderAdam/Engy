@@ -3,6 +3,8 @@
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/lib/trpc';
+import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { FileListPanel } from './file-list-panel';
 import { DiffViewerPanel } from './diff-viewer-panel';
 import { DiffHeader } from './diff-header';
@@ -13,11 +15,26 @@ import { ReviewActions } from './review-actions';
 import { useDiffComments } from './use-diff-comments';
 import type { ChangedFile, ViewMode, DiffViewMode } from './types';
 
+const SIDEBAR_CONFIG = {
+  defaultWidth: 280,
+  minWidth: 180,
+  maxWidth: 450,
+  storageKey: 'engy-diffs-sidebar-width',
+} as const;
+
 interface DiffsPageProps {
   workspaceSlug: string;
 }
 
 export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
+  const isMobile = useIsMobile();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [prevIsMobile, setPrevIsMobile] = useState(false);
+  if (isMobile !== prevIsMobile) {
+    setPrevIsMobile(isMobile);
+    setSidebarCollapsed(isMobile);
+  }
+
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('unified');
   const [diffViewMode, setDiffViewMode] = useState<DiffViewMode>('latest');
@@ -191,10 +208,14 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
       )}
 
       {/* Main content: file list + diff viewer */}
-      <div className="flex flex-1 min-h-0">
-        {/* Left panel: file list or commit list */}
-        <div className="flex w-[280px] flex-shrink-0 flex-col border-r border-border">
-          {diffViewMode === 'history' ? (
+      <ThreePanelLayout
+        className="flex-1 min-h-0"
+        left={SIDEBAR_CONFIG}
+        isMobile={isMobile}
+        leftCollapsed={sidebarCollapsed}
+        onLeftCollapsedChange={setSidebarCollapsed}
+        leftContent={
+          diffViewMode === 'history' ? (
             <div className="flex flex-1 min-h-0 flex-col">
               <div className={cn(
                 'overflow-auto',
@@ -232,12 +253,10 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
               }}
               isLoading={isFileListLoading}
             />
-          )}
-        </div>
-
-        {/* Right panel: diff viewer */}
-        <div className="flex flex-1 min-w-0 flex-col">
-          {allRepos.length === 0 ? (
+          )
+        }
+        centerContent={
+          allRepos.length === 0 ? (
             <div className="flex flex-1 items-center justify-center">
               <p className="text-sm text-muted-foreground">
                 No repositories configured for this workspace
@@ -276,9 +295,9 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
                 />
               </div>
             </div>
-          )}
-        </div>
-      </div>
+          )
+        }
+      />
     </div>
   );
 }
