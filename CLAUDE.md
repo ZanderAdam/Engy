@@ -17,18 +17,12 @@ pnpm monorepo with Turborepo orchestration. Three packages:
 ## Commands
 
 ```bash
-pnpm dev          # Start web + client concurrently (loads .dev.env)
-pnpm build        # Build all packages
-pnpm test         # Run all tests (Vitest)
-pnpm lint         # ESLint + knip (dead code) + jscpd (copy-paste)
+pnpm dev          # Start web + client 
 pnpm blt          # Pre-commit gate: build + lint + test + knip + jscpd
 
 # Single test file
 cd web && pnpm vitest run src/server/trpc/routers/workspace.test.ts
 cd client && pnpm vitest run src/ws/client.test.ts
-
-# Watch mode
-cd web && pnpm vitest src/server/trpc/routers/workspace.test.ts
 ```
 
 ## Architecture
@@ -42,7 +36,7 @@ cd web && pnpm vitest src/server/trpc/routers/workspace.test.ts
 
 ### Server Never Touches User Repos Directly
 
-The server sends `VALIDATE_PATHS_REQUEST` over WebSocket to the client daemon, which checks paths via `fs.access()` and responds with `VALIDATE_PATHS_RESPONSE`. This enables the server to run remotely while repos stay local.
+CRITICAL: Any file system or git operation goes through the client daemon via WebSocket. The server sends requests like "validate this path" or "what's the git status?" and the client responds with results. This allows the server to run remotely while user repos stay local.
 
 ### AppState Singleton on `globalThis`
 
@@ -133,23 +127,21 @@ Iterative DFS via `detectCycle()` for task dependencies. Duplicated in both `rou
 ### WebSocket Protocol
 Typed discriminated union in `@engy/common`. Message types: `REGISTER`, `WORKSPACES_SYNC`, `VALIDATE_PATHS_REQUEST/RESPONSE`, `FILE_CHANGE`. Only one daemon expected; second connection replaces first.
 
-## Quality Gates
-
-`pnpm blt` must pass before committing. It runs:
-1. `turbo run build` — TypeScript compilation across all packages
-2. `turbo run lint:eslint` — ESLint with strict unused-vars
-3. `turbo run test` — Vitest with coverage thresholds
-4. `knip` — dead code / unused exports detection
-5. `jscpd` — copy-paste detection (threshold: 3 dupes, min 10 lines)
+## CRITICAL Quality Gates
+These are non-negotiable and must be verified before committing:
+1. Run `/engy:review` when done with changes
+2. Run `pnpm blt` 
+3. If UI changes, test in Chrome to verify no hydration errors or unexpected behavior
 
 ### Validation Setup
 1. Run `pnpm install` to ensure all dependencies are up to date
 2. Check what port `.dev.env` is set to (default 4000)
 3. Check if any other process is using that port (`lsof -i :4000` on Mac/Linux)
-4. If port is in use, change `PORT` in `.dev.env` to an open port and update `ENGY_SERVER_URL` accordingly
+4. If port is in use, pass `PORT` and `ENGY_SERVER_URL` environment variables to `pnpm blt` with an available port, e.g.:
+```bash
+PORT=4001 ENGY_SERVER_URL=http://localhost:4001 pnpm blt
+```
 
 ## Formatting
 
 Prettier: semicolons, single quotes, trailing commas, 100 char width, 2-space indent.
-
-CRITICAL: When implementing changes ALWAYS add a final task: "run /engy:review, run pnpm blt and test in chrome"
