@@ -396,9 +396,9 @@ export class WsClient {
   }
 
   private async handleGitDiffRequest(message: GitDiffRequestMessage): Promise<void> {
-    const { requestId, repoDir, filePath, base } = message.payload;
+    const { requestId, repoDir, filePath, base, staged } = message.payload;
     try {
-      const diff = await getDiff(repoDir, filePath, base);
+      const diff = await getDiff(repoDir, filePath, base, staged);
       this.send({
         type: 'GIT_DIFF_RESPONSE',
         payload: { requestId, diff },

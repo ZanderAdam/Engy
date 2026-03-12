@@ -174,6 +174,39 @@ describe('git integration', () => {
 
       expect(diff).toBe('');
     });
+
+    it('returns diff for a staged new file', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+      await writeFile(join(repoDir, 'new.txt'), 'staged content');
+      const git = simpleGit(repoDir);
+      await git.add('new.txt');
+
+      const diff = await getDiff(repoDir, 'new.txt', undefined, true);
+
+      expect(diff).toContain('+staged content');
+    });
+
+    it('returns diff for an untracked file (path resolution bug fix)', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+      await writeFile(join(repoDir, 'untracked.txt'), 'untracked content');
+
+      const diff = await getDiff(repoDir, 'untracked.txt');
+
+      expect(diff).toContain('+untracked content');
+    });
+
+    it('returns diff for a staged new file in a repo with no HEAD', async () => {
+      repoDir = await createTempRepo();
+      await writeFile(join(repoDir, 'first.txt'), 'first file');
+      const git = simpleGit(repoDir);
+      await git.add('first.txt');
+
+      const diff = await getDiff(repoDir, 'first.txt', undefined, true);
+
+      expect(diff).toContain('+first file');
+    });
   });
 
   describe('getLog', () => {

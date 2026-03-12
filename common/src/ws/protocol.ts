@@ -94,6 +94,7 @@ export interface GitDiffRequestMessage {
     repoDir: string;
     filePath: string;
     base?: string;
+    staged?: boolean;
   };
 }
 

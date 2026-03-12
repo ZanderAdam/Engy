@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { join, isAbsolute } from 'node:path';
 import { promisify } from 'node:util';
 import { simpleGit } from 'simple-git';
 import type { GitFileStatus } from '@engy/common';
@@ -109,29 +110,65 @@ async function isTracked(dir: string, filePath: string): Promise<boolean> {
   }
 }
 
-export async function getDiff(dir: string, filePath: string, base?: string): Promise<string> {
-  const args = ['-C', dir, 'diff', base ?? 'HEAD', '--', filePath];
-
+async function getGitRoot(dir: string): Promise<string> {
   try {
-    const { stdout } = await execFileAsync('git', args, { maxBuffer: EXEC_MAX_BUFFER });
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', dir, 'rev-parse', '--show-toplevel'],
+      { maxBuffer: EXEC_MAX_BUFFER },
+    );
+    return stdout.trim();
+  } catch {
+    return dir;
+  }
+}
+
+export async function getDiff(
+  dir: string,
+  filePath: string,
+  base?: string,
+  staged?: boolean,
+): Promise<string> {
+  // filePath from git status is always relative to the git root, which may differ
+  // from dir when dir is a subdirectory of the repo
+  const root = await getGitRoot(dir);
+
+  if (staged && !base) {
+    // Staged file: compare index vs HEAD (--cached without HEAD works even in empty repos)
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', root, 'diff', '--cached', '--', filePath],
+      { maxBuffer: EXEC_MAX_BUFFER },
+    );
+    return stdout || diffAgainstEmpty(root, filePath);
+  }
+
+  // Unstaged or base-relative diff
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', root, 'diff', base ?? 'HEAD', '--', filePath],
+      { maxBuffer: EXEC_MAX_BUFFER },
+    );
     if (stdout) return stdout;
 
-    // Empty output — if file is untracked, show as new
-    if (!base && !(await isTracked(dir, filePath))) {
-      return diffAgainstEmpty(dir, filePath);
+    if (!base && !(await isTracked(root, filePath))) {
+      return diffAgainstEmpty(root, filePath);
     }
     return '';
   } catch {
     // File might be untracked — show diff against empty
-    return diffAgainstEmpty(dir, filePath);
+    return diffAgainstEmpty(root, filePath);
   }
 }
 
 async function diffAgainstEmpty(dir: string, filePath: string): Promise<string> {
+  // Use absolute path so --no-index resolves correctly regardless of process CWD
+  const absolutePath = isAbsolute(filePath) ? filePath : join(dir, filePath);
   try {
     const { stdout } = await execFileAsync(
       'git',
-      ['-C', dir, 'diff', '--no-index', '/dev/null', filePath],
+      ['-C', dir, 'diff', '--no-index', '/dev/null', absolutePath],
       { maxBuffer: EXEC_MAX_BUFFER },
     );
     return stdout;

@@ -329,8 +329,9 @@ export function dispatchGitDiff(
   filePath: string,
   state: AppState,
   base?: string,
+  staged?: boolean,
 ): Promise<string> {
-  return dispatchGitOp(state, state.pendingGitDiff, 'GIT_DIFF_REQUEST', { repoDir, filePath, base });
+  return dispatchGitOp(state, state.pendingGitDiff, 'GIT_DIFF_REQUEST', { repoDir, filePath, base, staged });
 }
 
 export function dispatchGitLog(

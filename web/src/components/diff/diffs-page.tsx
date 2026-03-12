@@ -90,30 +90,6 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
     { enabled: !!selectedRepo && diffViewMode === 'branch' && baseBranch.length > 0, retry: false },
   );
 
-  // File diff for selected file (latest + branch modes)
-  const diffBase = diffViewMode === 'branch' ? baseBranch : undefined;
-  const { data: fileDiffData } = trpc.diff.getFileDiff.useQuery(
-    { repoDir: selectedRepo!, filePath: selectedFile!, base: diffBase },
-    {
-      enabled:
-        !!selectedRepo &&
-        !!selectedFile &&
-        (diffViewMode === 'latest' || diffViewMode === 'branch'),
-    },
-  );
-
-  // Per-file diff for history mode (commit selected + file selected)
-  const { data: commitFileDiffData } = trpc.diff.getFileDiff.useQuery(
-    { repoDir: selectedRepo!, filePath: selectedFile!, base: `${selectedCommit}~1` },
-    {
-      enabled:
-        !!selectedRepo &&
-        !!selectedFile &&
-        !!selectedCommit &&
-        diffViewMode === 'history',
-    },
-  );
-
   // Comments
   const { diffComments, commentsForFile, addLineComment, replyToThread, resolve, remove } =
     useDiffComments(selectedRepo);
@@ -130,6 +106,36 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
     return [];
   }, [diffViewMode, statusData, commitDiffData, branchDiffData]);
 
+  const selectedFileData = useMemo(
+    () => files.find((f) => f.path === selectedFile),
+    [files, selectedFile],
+  );
+
+  // File diff for selected file (latest + branch modes)
+  const diffBase = diffViewMode === 'branch' ? baseBranch : undefined;
+  const { data: fileDiffData } = trpc.diff.getFileDiff.useQuery(
+    { repoDir: selectedRepo!, filePath: selectedFile!, base: diffBase, staged: selectedFileData?.staged },
+    {
+      enabled:
+        !!selectedRepo &&
+        !!selectedFile &&
+        !!selectedFileData &&
+        (diffViewMode === 'latest' || diffViewMode === 'branch'),
+    },
+  );
+
+  // Per-file diff for history mode (commit selected + file selected)
+  const { data: commitFileDiffData } = trpc.diff.getFileDiff.useQuery(
+    { repoDir: selectedRepo!, filePath: selectedFile!, base: `${selectedCommit}~1` },
+    {
+      enabled:
+        !!selectedRepo &&
+        !!selectedFile &&
+        !!selectedCommit &&
+        diffViewMode === 'history',
+    },
+  );
+
   // Resolve current diff string
   const currentDiff = useMemo(() => {
     if (diffViewMode === 'history') {
@@ -137,11 +143,6 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
     }
     return fileDiffData?.diff ?? '';
   }, [diffViewMode, commitFileDiffData, fileDiffData]);
-
-  const selectedFileData = useMemo(
-    () => files.find((f) => f.path === selectedFile),
-    [files, selectedFile],
-  );
 
   const fileComments = useMemo(
     () => (selectedFile ? commentsForFile(selectedFile) : []),

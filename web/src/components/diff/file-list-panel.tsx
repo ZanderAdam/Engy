@@ -52,6 +52,100 @@ function getFileName(filePath: string): string {
   return filePath.split('/').pop() ?? filePath;
 }
 
+interface DirGroupViewProps {
+  group: DirGroup;
+  selectedFile: string | null;
+  onSelectFile: (path: string) => void;
+}
+
+function DirGroupView({ group, selectedFile, onSelectFile }: DirGroupViewProps) {
+  return (
+    <div>
+      {group.dir && (
+        <div className="flex items-center gap-1 px-2 pt-1.5 pb-0.5 text-[11px] text-muted-foreground">
+          <RiFolderLine className="size-3 shrink-0" />
+          <span className="truncate">{group.dir}</span>
+        </div>
+      )}
+      {group.files.map((file) => {
+        const isSelected = selectedFile === file.path;
+        return (
+          <button
+            key={file.path}
+            className={cn(
+              'flex w-full items-center gap-1.5 py-1 text-left text-xs hover:bg-accent/50',
+              group.dir ? 'pl-4 pr-2' : 'px-2',
+              isSelected && 'bg-accent text-accent-foreground',
+            )}
+            onClick={() => onSelectFile(file.path)}
+          >
+            <span className={cn('shrink-0 font-mono text-[10px]', STATUS_COLORS[file.status])}>
+              {STATUS_LABELS[file.status]}
+            </span>
+            <span className="truncate">{getFileName(file.path)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+interface FileGroupsProps {
+  files: ChangedFile[];
+  selectedFile: string | null;
+  onSelectFile: (path: string) => void;
+}
+
+function FileGroups({ files, selectedFile, onSelectFile }: FileGroupsProps) {
+  const hasStagedAndUnstaged =
+    files.some((f) => f.staged) && files.some((f) => !f.staged);
+
+  if (!hasStagedAndUnstaged) {
+    return (
+      <>
+        {groupByDirectory(files).map((group) => (
+          <DirGroupView
+            key={group.dir}
+            group={group}
+            selectedFile={selectedFile}
+            onSelectFile={onSelectFile}
+          />
+        ))}
+      </>
+    );
+  }
+
+  const staged = files.filter((f) => f.staged);
+  const unstaged = files.filter((f) => !f.staged);
+
+  return (
+    <>
+      <div className="px-2 pt-2 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+        Staged
+      </div>
+      {groupByDirectory(staged).map((group) => (
+        <DirGroupView
+          key={`staged-${group.dir}`}
+          group={group}
+          selectedFile={selectedFile}
+          onSelectFile={onSelectFile}
+        />
+      ))}
+      <div className="px-2 pt-3 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+        Unstaged
+      </div>
+      {groupByDirectory(unstaged).map((group) => (
+        <DirGroupView
+          key={`unstaged-${group.dir}`}
+          group={group}
+          selectedFile={selectedFile}
+          onSelectFile={onSelectFile}
+        />
+      ))}
+    </>
+  );
+}
+
 export function FileListPanel({
   files,
   selectedFile,
@@ -66,8 +160,6 @@ export function FileListPanel({
     const q = filter.toLowerCase();
     return files.filter((f) => f.path.toLowerCase().includes(q));
   }, [files, filter]);
-
-  const groups = useMemo(() => groupByDirectory(filteredFiles), [filteredFiles]);
 
   const statusCounts = useMemo(() => {
     const counts = { added: 0, modified: 0, deleted: 0, renamed: 0 };
@@ -124,40 +216,11 @@ export function FileListPanel({
         </div>
       ) : (
         <div className="flex-1 overflow-auto py-1">
-          {groups.map((group) => (
-            <div key={group.dir}>
-              {group.dir && (
-                <div className="flex items-center gap-1 px-2 pt-1.5 pb-0.5 text-[11px] text-muted-foreground">
-                  <RiFolderLine className="size-3 shrink-0" />
-                  <span className="truncate">{group.dir}</span>
-                </div>
-              )}
-              {group.files.map((file) => {
-                const isSelected = selectedFile === file.path;
-                return (
-                  <button
-                    key={file.path}
-                    className={cn(
-                      'flex w-full items-center gap-1.5 py-1 text-left text-xs hover:bg-accent/50',
-                      group.dir ? 'pl-4 pr-2' : 'px-2',
-                      isSelected && 'bg-accent text-accent-foreground',
-                    )}
-                    onClick={() => onSelectFile(file.path)}
-                  >
-                    <span
-                      className={cn(
-                        'shrink-0 font-mono text-[10px]',
-                        STATUS_COLORS[file.status],
-                      )}
-                    >
-                      {STATUS_LABELS[file.status]}
-                    </span>
-                    <span className="truncate">{getFileName(file.path)}</span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+          <FileGroups
+            files={filteredFiles}
+            selectedFile={selectedFile}
+            onSelectFile={onSelectFile}
+          />
         </div>
       )}
     </div>

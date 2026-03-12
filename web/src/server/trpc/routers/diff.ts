@@ -16,10 +16,17 @@ export const diffRouter = router({
         repoDir: z.string().min(1),
         filePath: z.string().min(1),
         base: z.string().optional(),
+        staged: z.boolean().optional(),
       }),
     )
     .query(async ({ input, ctx }) => {
-      const diff = await dispatchGitDiff(input.repoDir, input.filePath, ctx.state, input.base);
+      const diff = await dispatchGitDiff(
+        input.repoDir,
+        input.filePath,
+        ctx.state,
+        input.base,
+        input.staged,
+      );
       return { diff };
     }),
 
