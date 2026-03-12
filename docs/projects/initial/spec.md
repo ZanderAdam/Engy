@@ -35,37 +35,7 @@ Engy is a single-user, local-first application providing a permanent home for on
 
 Engy will **not** provide: multi-user collaboration, GitLab/Bitbucket support, self-hosting distribution, or cross-workspace project coordination.
 
-### 1.3 Definitions
-
-| Term              | Definition                                                                                                                                                                                            |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace         | A permanent entity representing an ongoing concern (codebase, product). Defines repo topology, holds shared knowledge, contains ephemeral projects.                                                   |
-| Project           | An ephemeral execution scope tied to a spec. Lives in SQLite. Archived on completion.                                                                                                                 |
-| Default Project   | A permanent scratchpad project auto-created per workspace for ambient work. Cannot be deleted or completed.                                                                                           |
-| Spec              | A pre-project thinking space. A directory containing `spec.md` plus a `context/` subdirectory with supporting research.                                                                               |
-| Vision Spec       | A foundational spec too large to execute as a single project. Serves as shared reference for child specs.                                                                                             |
-| Milestone         | An organizational grouping of task groups within a project.                                                                                                                                           |
-| Task Group        | A set of tasks that ship together as one PR. The unit of worktrees, branches, agent sessions, and parallelization.                                                                                    |
-| Task              | An individual work item. Either `ai` (agent-executed) or `human` (manual checkbox).                                                                                                                   |
-| Agent Session     | A persistent, resumable Claude Agent SDK instance tied to a task group or spec task.                                                                                                                  |
-| System Docs       | The `system/` directory — the canonical, living description of what the system is right now.                                                                                                          |
-| Shared Docs       | The `docs/` directory — user-created conventions, style guides, and organizational knowledge.                                                                                                         |
-| Memory            | Structured knowledge that accumulates as work happens. Permanent memory subtypes: decision, pattern, fact, convention, insight. Fleeting (SQLite, temporary) or permanent (files in `.engy/memory/`). |
-| Fleeting Memory   | A lightweight agent working note in SQLite — fast to create, triaged later. Temporary by nature.                                                                                                      |
-| Project Memory    | A project-scoped decision or learning in SQLite. Evaluated for promotion to permanent memory on project completion.                                                                                   |
-| Plan Content      | Milestone-level implementation plan stored in SQLite. Grows progressively as milestones are planned.                                                                                                  |
-| SDD               | Spec-driven development — the core workflow loop: Specify → Plan → Tasks → Implement.                                                                                                                 |
-| Pre-commit Gate   | A per-repo configured command that must pass before committing.                                                                                                                                       |
-| Dev Container     | An optional per-workspace Docker environment for sandboxed agent execution with network firewall.                                                                                                     |
-| MCP               | Model Context Protocol — the AI access layer exposing Engy data to Claude Code CLI.                                                                                                                   |
-| ChromaDB          | Vector database used for semantic search across all Engy content (specs, docs, tasks, memories). Always rebuildable via `engy reindex`.                                                               |
-| Mastra            | Agent SDK runtime for autonomous background agent execution. Provides agent lifecycle management, tool coordination, workflows, and memory integration.                                               |
-| Claude Code Skill | A Claude Code CLI extension (e.g., `engy:spec-assistant`) that encapsulates a workflow — dynamic, pulling from system docs and memory. Not a static template.                                         |
-| Terminal Panel    | The right-side xterm panel hosting Claude Code CLI, context-scoped per page.                                                                                                                          |
-| Content Editor    | A BlockNote-based rich markdown editor for specs, docs, and memories.                                                                                                                                 |
-| Diff Viewer       | The review and commit interface for code changes, scoped per task group.                                                                                                                              |
-
-### 1.4 References
+### 1.3 References
 
 | Document             | Location                    | Description                                  |
 | -------------------- | --------------------------- | -------------------------------------------- |
@@ -228,9 +198,155 @@ Not applicable. Engy is a pure software application.
 
 ***
 
-## 4. System Features
+## 4. Non-Functional Requirements
 
-### 4.1 Workspace Management
+### 4.1 Performance
+
+| ID   | Requirement                                                                                                   |
+| ---- | ------------------------------------------------------------------------------------------------------------- |
+| NF-1 | UI page transitions shall complete within 200ms for local deployments.                                        |
+| NF-2 | tRPC API responses shall complete within 100ms for standard CRUD operations (SQLite).                         |
+| NF-3 | ChromaDB search queries shall return results within 500ms for workspaces with up to 10,000 indexed documents. |
+| NF-4 | File watcher shall detect changes and sync to UI within 1 second.                                             |
+| NF-5 | Terminal input latency shall not exceed 50ms (xterm.js → CLI process round-trip).                             |
+
+### 4.2 Security
+
+| ID   | Requirement                                                                                                           |
+| ---- | --------------------------------------------------------------------------------------------------------------------- |
+| NF-6 | Dev containers shall block all outbound network traffic not in the allowlist via iptables.                            |
+| NF-7 | Container bind mounts shall enforce read-only access to main branch directories.                                      |
+| NF-8 | The MCP server shall not expose destructive operations (file deletion, repo management) without explicit user action. |
+
+### 4.3 Reliability / Availability
+
+| ID    | Requirement                                                                                                                  |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------- |
+| NF-9  | SQLite shall run in WAL mode for concurrent read/write reliability.                                                          |
+| NF-10 | Agent sessions shall be crash-recoverable: worktree preserved, session state in SQLite, only in-progress task needs restart. |
+| NF-11 | Network failures shall retry with backoff; persistent failures pause and notify the user.                                    |
+| NF-12 | ChromaDB shall be fully rebuildable from source files via `engy reindex`.                                                    |
+
+### 4.4 Scalability
+
+| ID    | Requirement                                                                                       |
+| ----- | ------------------------------------------------------------------------------------------------- |
+| NF-13 | The system shall support workspaces with up to 50 repos and 100 active tasks without degradation. |
+| NF-14 | The system shall support up to 10 concurrent agent sessions per workspace.                        |
+
+### 4.5 Usability
+
+| ID    | Requirement                                                                                                                                                                        |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NF-15 | All primary actions shall be accessible from the top-right action bar — consistent placement across all pages.                                                                     |
+| NF-16 | Terminal context shall auto-start with the appropriate agent — no manual setup required.                                                                                           |
+| NF-17 | Every error shall auto-recover or surface as a notification with clear next steps. No silent failures.                                                                             |
+| NF-18 | The UI shall be responsive across three breakpoints: desktop (>1024px), tablet (768–1024px), and mobile (<768px). Mobile shall support monitoring, review, and approval workflows. |
+
+### 4.6 Maintainability
+
+| ID    | Requirement                                                                                                                   |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------- |
+| NF-19 | Server test coverage shall exceed 90% statements, 85% branches, 90% functions, 90% lines.                                     |
+| NF-20 | The quality gate (`pnpm blt`) shall include: build, lint, test, dead code detection (knip), and copy-paste detection (jscpd). |
+| NF-21 | Database migrations shall run automatically on server startup.                                                                |
+
+***
+
+## 5. Data Requirements
+
+### 5.1 Data Model
+
+**SQLite (execution state):**
+
+| Entity         | Key Attributes                                                                                                              | Relationships                                 |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| Workspace      | id, name, slug, config                                                                                                      | → Project(s), FleetingMemory(ies), Comment(s) |
+| Project        | id, name, slug, status, specReference, isDefault, workspaceId                                                               | → Milestone(s), Task(s), ProjectMemory(ies)   |
+| Milestone      | id, title, status, ordering, scopeDescription, projectId                                                                    | → TaskGroup(s), Task(s)                       |
+| TaskGroup      | id, name, status, reposList, milestoneId                                                                                    | → Task(s), AgentSession(s)                    |
+| Task           | id, title, description, status, type (ai/human), importance, urgency, milestoneId, groupId, projectId, specId, dependencies | —                                             |
+| AgentSession   | id, sessionId, taskGroupId, state, status                                                                                   | —                                             |
+| FleetingMemory | id, content, type, workspaceId                                                                                              | —                                             |
+| ProjectMemory  | id, content, type, projectId                                                                                                | —                                             |
+| PlanContent    | id, content, milestoneId                                                                                                    | —                                             |
+| Comment        | id, content, documentPath, anchorRange, resolved, workspaceId                                                               | —                                             |
+
+**Filesystem (permanent knowledge):**
+
+| Entity             | Location                           | Format                      |
+| ------------------ | ---------------------------------- | --------------------------- |
+| Workspace config   | `.engy/{workspace}/workspace.yaml` | YAML                        |
+| System docs        | `.engy/{workspace}/system/`        | Markdown                    |
+| Specs              | `.engy/{workspace}/specs/`         | Markdown + YAML frontmatter |
+| Shared docs        | `.engy/{workspace}/docs/`          | Markdown                    |
+| Permanent memories | `.engy/{workspace}/memory/`        | Markdown + YAML frontmatter |
+
+**ChromaDB (search index):**
+
+| Content                       | Source              | Rebuild        |
+| ----------------------------- | ------------------- | -------------- |
+| All files + active DB content | Filesystem + SQLite | `engy reindex` |
+
+### 5.2 Data Retention & Migration
+
+* **Active projects:** Full SQLite state retained until project is archived.
+
+* **Archived projects:** Compacted — plan content, milestones, groups, task structure, key decisions, final statuses retained. Agent session state, fleeting memories, execution logs discarded.
+
+* **Permanent knowledge:** Files in `.engy/` persist indefinitely, versioned via git.
+
+* **ChromaDB:** Ephemeral — fully rebuildable from source files. No migration needed.
+
+* **SQLite migrations:** Run automatically on server startup via Drizzle ORM. New migrations generated with Drizzle Kit after schema changes.
+
+***
+
+## 6. Milestones & Implementation Plan
+
+### 6.1 Summary
+
+| #   | Milestone            | Exit Criteria                                                                                                                                                                                                                                                            |
+| --- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| M1  | Foundation           | Two running processes (server + client) communicating via WebSocket. SQLite with full schema. MCP server live. App shell with navigation. Workspace CRUD functional.                                                                                                     |
+| M2  | Spec Authoring       | Specs can be authored in rich editor, context files managed, inline comments work, spec tasks tracked, file watcher syncs external changes, `engy:spec-assistant` skill works from terminal.                                                                             |
+| M3  | Project Planning     | Approved spec → project creation. Milestones, task groups, tasks with dependencies. Three project views functional. Default project with Eisenhower matrix and per-task completion. Planning skills work from terminal. Auto-completion when all milestones finish.      |
+| M4  | Terminal Integration | xterm.js panel on every page. Context-scoped auto-start for all page contexts. Multi-tab with splits. WebSocket bridge to CLI process on client. Read-only outside write scope. All prior skills auto-start in terminal panel.                                           |
+| M5  | Diff Viewer & Review | Three diff view modes. Line-level commenting. Approve and Send Feedback actions. Pre-commit gate. Document feedback routing. Create PR from Branch Diff. Open in VS Code.                                                                                                |
+| M6  | Execution Engine     | Worktree creation/cleanup. Full task group state machine. Auto-commit, push, PR creation via `gh`. Cross-repo groups. Cross-workspace repo access. Execution visibility.                                                                                                 |
+| M7  | Knowledge Layer      | Docs tab with system/shared docs. Memory tab with browser/editor. ChromaDB search. Project completion with memory distillation and system doc proposals. Memory scoping (workspace/repo). Permanent memory schema. Bootstrap skill. Validate/reindex as terminal skills. |
+| M8  | Workspace Polish     | Dashboard refinements. Notification system with all triggers. Hierarchical settings. Global search polish. Cost visibility.                                                                                                                                              |
+| M9  | Async Agents         | Mastra integration. Persistent agent sessions. Crash recovery. Feedback routing to sessions. Auto-start mode. Execution log streaming.                                                                                                                                   |
+| M10 | Dev Containers       | Docker containers start/stop on demand. Network firewall with allowlist. Bind-mounted repos. Container status in UI. Fallback to direct execution.                                                                                                                       |
+| M11 | PR/CI Monitoring     | PRs tab with CI status. Auto-dispatch for CI fixes. Reviewer comment triage with selective fix dispatch.                                                                                                                                                                 |
+
+### 6.2 Dependencies
+
+| Milestone | Blocked By                                         | Notes                                                                                   |
+| --------- | -------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| M1        | —                                                  | Foundation, no dependencies                                                             |
+| M2        | M1                                                 | Needs data layer, app shell, MCP server                                                 |
+| M3        | M2                                                 | Needs spec authoring for spec → project transition                                      |
+| M4        | M3                                                 | Needs project/spec pages to scope terminals to                                          |
+| M5        | M4                                                 | Needs terminal for feedback routing                                                     |
+| M6        | M5                                                 | Needs diff viewer for review flow                                                       |
+| M7        | —                                                  | Can parallel with M5–M6 (independent knowledge subsystem), but depends on M1 data layer |
+| M8        | M6, M7                                             | Needs all features to exist for polish                                                  |
+| M9        | M5 (feedback routing), M6 (worktrees), M7 (memory) | Agent autonomy requires execution + knowledge foundation                                |
+| M10       | M6 (worktrees), M9 (async agents)                  | Container sandbox requires agent execution model                                        |
+| M11       | M6 (PR creation), M10 (dev containers)             | PR monitoring requires execution and sandboxed agent dispatch                           |
+
+```text
+M1 ──→ M2 ──→ M3 ──→ M4 ──→ M5 ──→ M6 ──┐
+                                            ├──→ M8
+                                    M7 ─────┘
+
+M9  depends on: M5, M6, M7
+M10 depends on: M6, M9
+M11 depends on: M6, M10
+```
+
+### 6.3 M1: Foundation
 
 **Description:** Workspaces are permanent entities representing ongoing concerns. They define multi-repo topology, hold shared knowledge, and contain ephemeral projects. Each workspace gets an initialized `.engy/` directory with standard structure.\
 **Priority:** High
@@ -260,7 +376,9 @@ Not applicable. Engy is a pure software application.
 | FR-1.10 | The system shall provide a hierarchical settings model: global settings (Home page) and workspace settings (workspace page), with context-aware settings icon.                                   |
 | FR-1.11 | The system shall use the workspace as a template for project creation — projects inherit repos, conventions, shared docs, and memory automatically.                                              |
 
-### 4.2 Spec Authoring
+**Exit Criteria:** Two running processes (server + client) communicating via WebSocket. SQLite with full schema. MCP server live. App shell with navigation. Workspace CRUD functional.
+
+### 6.4 M2: Spec Authoring
 
 **Description:** Specs are pre-project thinking spaces. Users author specs in a tree browser with a rich content editor, manage context files, leave inline review comments, and track spec research tasks. Specs have a lifecycle from Draft through Approved.\
 **Priority:** High
@@ -294,7 +412,9 @@ Not applicable. Engy is a pure software application.
 | FR-2.12 | The system shall provide an `engy:spec-assistant` Claude Code skill for guided spec drafting, research task creation, and context file generation.                       |
 | FR-2.13 | The system shall support numerical prefix ordering for child specs carved from a vision spec (e.g., `1_storage-layer/`, `2_workspace-model/`), establishing build order. |
 
-### 4.3 Project Planning
+**Exit Criteria:** Specs can be authored in rich editor, context files managed, inline comments work, spec tasks tracked, file watcher syncs external changes, `engy:spec-assistant` skill works from terminal.
+
+### 6.5 M3: Project Planning
 
 **Description:** Projects are created from approved specs. They contain milestones, task groups, and tasks. Planning is progressive — project-level first (milestones with rough scope), then milestone-level (groups and tasks), then optionally task-level (implementation plan). Three project views visualize execution state.\
 **Priority:** High
@@ -330,7 +450,9 @@ Not applicable. Engy is a pure software application.
 | FR-3.14 | The system shall perform per-task completion evaluation for Default project tasks — when a task completes, the agent evaluates whether it produced anything worth capturing (memory promotion, system doc update) and surfaces the review flow if so. |
 | FR-3.15 | The system shall automatically advance a project to Completing when all milestones are complete.                                                                                                                                                      |
 
-### 4.4 Terminal Integration
+**Exit Criteria:** Approved spec → project creation. Milestones, task groups, tasks with dependencies. Three project views functional. Default project with Eisenhower matrix and per-task completion. Planning skills work from terminal. Auto-completion when all milestones finish.
+
+### 6.6 M4: Terminal Integration
 
 **Description:** Claude Code CLI is embedded in an xterm.js terminal panel on the right side of every page. The terminal is context-scoped — its working directory and default agent adapt to the current page. Multiple terminals can be open simultaneously as tabs with splits.\
 **Priority:** High
@@ -361,7 +483,9 @@ Not applicable. Engy is a pure software application.
 | FR-4.11 | The system shall pass working directory, agent name, and scope metadata when spawning CLI processes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | FR-4.12 | The system shall enforce read-only access outside the terminal's write scope — agents can search, read, and reference any workspace content via MCP tools, but direct filesystem writes are limited to the scoped directory.                                                                                                                                                                                                                                                                                                                                                |
 
-### 4.5 Diff Viewer & Review
+**Exit Criteria:** xterm.js panel on every page. Context-scoped auto-start for all page contexts. Multi-tab with splits. WebSocket bridge to CLI process on client. Read-only outside write scope. All prior skills auto-start in terminal panel.
+
+### 6.7 M5: Diff Viewer & Review
 
 **Description:** The diff viewer is the review and commit interface for all code changes. Scoped per task group, it provides three view modes (Latest Changes, Commit History, Branch Diff), line-level commenting, and a batched feedback model (approve or send feedback). A pre-commit gate enforces quality before committing.\
 **Priority:** High
@@ -393,7 +517,9 @@ Not applicable. Engy is a pure software application.
 | FR-5.11 | The system shall provide "Open in VS Code" buttons on diff viewer file tree items, task detail panels (worktree path), and project overview (repo paths) via `code` CLI.                          |
 | FR-5.12 | The system shall provide a "Create PR" action in the Branch Diff view when the task group is in Review state.                                                                                     |
 
-### 4.6 Execution Engine
+**Exit Criteria:** Three diff view modes. Line-level commenting. Approve and Send Feedback actions. Pre-commit gate. Document feedback routing. Create PR from Branch Diff. Open in VS Code.
+
+### 6.8 M6: Execution Engine
 
 **Description:** The execution engine manages worktrees, task group lifecycle, auto-commit, push, and PR creation. Task groups progress through a state machine from Planned through Merged/Cleaned Up. The engine orchestrates sequential task execution within groups.\
 **Priority:** High
@@ -424,7 +550,9 @@ Not applicable. Engy is a pure software application.
 | FR-6.11 | The system shall broadcast task group state changes via WebSocket to the UI.                                                                                                                                         |
 | FR-6.12 | The system shall allow task groups to reference repos outside the workspace when needed — workspace boundaries are organizational, not technical.                                                                    |
 
-### 4.7 Knowledge Layer
+**Exit Criteria:** Worktree creation/cleanup. Full task group state machine. Auto-commit, push, PR creation via `gh`. Cross-repo groups. Cross-workspace repo access. Execution visibility.
+
+### 6.9 M7: Knowledge Layer
 
 **Description:** The knowledge layer encompasses system docs (living source of truth), shared docs (conventions, guides), the memory architecture (fleeting → permanent), ChromaDB search, and the project completion flow with memory distillation and system doc update proposals.\
 **Priority:** High
@@ -462,7 +590,9 @@ Not applicable. Engy is a pure software application.
 | FR-7.17 | The system shall store permanent memories as markdown files with YAML frontmatter containing: id, type, subtype (decision/pattern/fact/convention/insight), title, scope (workspace/repo), repo, confidence, source, tags, linkedMemories, and timestamps. |
 | FR-7.18 | The system shall support `engy validate` and `engy reindex` as terminal skills — not just CLI commands.                                                                                                                                                    |
 
-### 4.8 Workspace Polish
+**Exit Criteria:** Docs tab with system/shared docs. Memory tab with browser/editor. ChromaDB search. Project completion with memory distillation and system doc proposals. Memory scoping (workspace/repo). Permanent memory schema. Bootstrap skill. Validate/reindex as terminal skills.
+
+### 6.10 M8: Workspace Polish
 
 **Description:** Dashboard refinements, notifications, settings hierarchy, global search polish, activity feed, and cost visibility that make the experience cohesive.\
 **Priority:** Medium
@@ -489,7 +619,9 @@ Not applicable. Engy is a pure software application.
 | FR-8.7 | The system shall provide a global search bar on every page with results grouped by type and keyboard shortcut to focus.                                                                                                                                                                            |
 | FR-8.8 | The system shall track token usage per agent session, group, and project — surfaced in execution logs, project overview, and workspace settings.                                                                                                                                                   |
 
-### 4.9 Async Agents
+**Exit Criteria:** Dashboard refinements. Notification system with all triggers. Hierarchical settings. Global search polish. Cost visibility.
+
+### 6.11 M9: Async Agents
 
 **Description:** Mastra integration provides autonomous background agent execution. Agent sessions are persistent, resumable, and crash-recoverable. Feedback from the diff viewer routes back to the originating agent session.\
 **Priority:** Medium
@@ -519,7 +651,9 @@ Not applicable. Engy is a pure software application.
 | FR-9.9  | The system shall provide agent execution visibility: project overview (which agents running), dependency graph (task statuses), task detail Log tab (real-time execution stream). |
 | FR-9.10 | The system shall stream execution logs via WebSocket to the UI.                                                                                                                   |
 
-### 4.10 Dev Containers
+**Exit Criteria:** Mastra integration. Persistent agent sessions. Crash recovery. Feedback routing to sessions. Auto-start mode. Execution log streaming.
+
+### 6.12 M10: Dev Containers
 
 **Description:** Optional per-workspace Docker containers provide sandboxed execution for async agents. Agents run with full permissions inside a network-firewalled container, eliminating manual permission approvals for unattended workflows.\
 **Priority:** Low
@@ -547,7 +681,9 @@ Not applicable. Engy is a pure software application.
 | FR-10.9  | The system shall display container status on the project overview (running, starting, stopped).                                                              |
 | FR-10.10 | The system shall fall back to direct (non-containerized) execution when containers are disabled.                                                             |
 
-### 4.11 PR/CI Monitoring
+**Exit Criteria:** Docker containers start/stop on demand. Network firewall with allowlist. Bind-mounted repos. Container status in UI. Fallback to direct execution.
+
+### 6.13 M11: PR/CI Monitoring
 
 **Description:** Automated monitoring of open PRs — CI status polling, CI failure auto-fix dispatch, and reviewer comment triage with selective fix dispatch.\
 **Priority:** Low
@@ -575,157 +711,9 @@ Not applicable. Engy is a pure software application.
 | FR-11.7 | The system shall support dismissing unselected reviewer comments or responding manually.                                        |
 | FR-11.8 | The system shall notify the user for unresolvable CI failures.                                                                  |
 
-***
+**Exit Criteria:** PRs tab with CI status. Auto-dispatch for CI fixes. Reviewer comment triage with selective fix dispatch.
 
-## 5. Non-Functional Requirements
-
-### 5.1 Performance
-
-| ID   | Requirement                                                                                                   |
-| ---- | ------------------------------------------------------------------------------------------------------------- |
-| NF-1 | UI page transitions shall complete within 200ms for local deployments.                                        |
-| NF-2 | tRPC API responses shall complete within 100ms for standard CRUD operations (SQLite).                         |
-| NF-3 | ChromaDB search queries shall return results within 500ms for workspaces with up to 10,000 indexed documents. |
-| NF-4 | File watcher shall detect changes and sync to UI within 1 second.                                             |
-| NF-5 | Terminal input latency shall not exceed 50ms (xterm.js → CLI process round-trip).                             |
-
-### 5.2 Security
-
-| ID   | Requirement                                                                                                           |
-| ---- | --------------------------------------------------------------------------------------------------------------------- |
-| NF-6 | Dev containers shall block all outbound network traffic not in the allowlist via iptables.                            |
-| NF-7 | Container bind mounts shall enforce read-only access to main branch directories.                                      |
-| NF-8 | The MCP server shall not expose destructive operations (file deletion, repo management) without explicit user action. |
-
-### 5.3 Reliability / Availability
-
-| ID    | Requirement                                                                                                                  |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------- |
-| NF-9  | SQLite shall run in WAL mode for concurrent read/write reliability.                                                          |
-| NF-10 | Agent sessions shall be crash-recoverable: worktree preserved, session state in SQLite, only in-progress task needs restart. |
-| NF-11 | Network failures shall retry with backoff; persistent failures pause and notify the user.                                    |
-| NF-12 | ChromaDB shall be fully rebuildable from source files via `engy reindex`.                                                    |
-
-### 5.4 Scalability
-
-| ID    | Requirement                                                                                       |
-| ----- | ------------------------------------------------------------------------------------------------- |
-| NF-13 | The system shall support workspaces with up to 50 repos and 100 active tasks without degradation. |
-| NF-14 | The system shall support up to 10 concurrent agent sessions per workspace.                        |
-
-### 5.5 Usability
-
-| ID    | Requirement                                                                                                                                                                        |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| NF-15 | All primary actions shall be accessible from the top-right action bar — consistent placement across all pages.                                                                     |
-| NF-16 | Terminal context shall auto-start with the appropriate agent — no manual setup required.                                                                                           |
-| NF-17 | Every error shall auto-recover or surface as a notification with clear next steps. No silent failures.                                                                             |
-| NF-18 | The UI shall be responsive across three breakpoints: desktop (>1024px), tablet (768–1024px), and mobile (<768px). Mobile shall support monitoring, review, and approval workflows. |
-
-### 5.6 Maintainability
-
-| ID    | Requirement                                                                                                                   |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------- |
-| NF-19 | Server test coverage shall exceed 90% statements, 85% branches, 90% functions, 90% lines.                                     |
-| NF-20 | The quality gate (`pnpm blt`) shall include: build, lint, test, dead code detection (knip), and copy-paste detection (jscpd). |
-| NF-21 | Database migrations shall run automatically on server startup.                                                                |
-
-***
-
-## 6. Data Requirements
-
-### 6.1 Data Model
-
-**SQLite (execution state):**
-
-| Entity         | Key Attributes                                                                                                              | Relationships                                 |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| Workspace      | id, name, slug, config                                                                                                      | → Project(s), FleetingMemory(ies), Comment(s) |
-| Project        | id, name, slug, status, specReference, isDefault, workspaceId                                                               | → Milestone(s), Task(s), ProjectMemory(ies)   |
-| Milestone      | id, title, status, ordering, scopeDescription, projectId                                                                    | → TaskGroup(s), Task(s)                       |
-| TaskGroup      | id, name, status, reposList, milestoneId                                                                                    | → Task(s), AgentSession(s)                    |
-| Task           | id, title, description, status, type (ai/human), importance, urgency, milestoneId, groupId, projectId, specId, dependencies | —                                             |
-| AgentSession   | id, sessionId, taskGroupId, state, status                                                                                   | —                                             |
-| FleetingMemory | id, content, type, workspaceId                                                                                              | —                                             |
-| ProjectMemory  | id, content, type, projectId                                                                                                | —                                             |
-| PlanContent    | id, content, milestoneId                                                                                                    | —                                             |
-| Comment        | id, content, documentPath, anchorRange, resolved, workspaceId                                                               | —                                             |
-
-**Filesystem (permanent knowledge):**
-
-| Entity             | Location                           | Format                      |
-| ------------------ | ---------------------------------- | --------------------------- |
-| Workspace config   | `.engy/{workspace}/workspace.yaml` | YAML                        |
-| System docs        | `.engy/{workspace}/system/`        | Markdown                    |
-| Specs              | `.engy/{workspace}/specs/`         | Markdown + YAML frontmatter |
-| Shared docs        | `.engy/{workspace}/docs/`          | Markdown                    |
-| Permanent memories | `.engy/{workspace}/memory/`        | Markdown + YAML frontmatter |
-
-**ChromaDB (search index):**
-
-| Content                       | Source              | Rebuild        |
-| ----------------------------- | ------------------- | -------------- |
-| All files + active DB content | Filesystem + SQLite | `engy reindex` |
-
-### 6.2 Data Retention & Migration
-
-* **Active projects:** Full SQLite state retained until project is archived.
-
-* **Archived projects:** Compacted — plan content, milestones, groups, task structure, key decisions, final statuses retained. Agent session state, fleeting memories, execution logs discarded.
-
-* **Permanent knowledge:** Files in `.engy/` persist indefinitely, versioned via git.
-
-* **ChromaDB:** Ephemeral — fully rebuildable from source files. No migration needed.
-
-* **SQLite migrations:** Run automatically on server startup via Drizzle ORM. New migrations generated with Drizzle Kit after schema changes.
-
-***
-
-## 7. Milestones & Implementation Plan
-
-### 7.1 Milestones
-
-| #   | Milestone            | Features Included                                                                            | Exit Criteria                                                                                                                                                                                                                                                            |
-| --- | -------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| M1  | Foundation           | FR-1.1–1.11 (partial: CRUD, data layer, `.engy/` init, MCP server, client daemon, app shell) | Two running processes (server + client) communicating via WebSocket. SQLite with full schema. MCP server live. App shell with navigation. Workspace CRUD functional.                                                                                                     |
-| M2  | Spec Authoring       | FR-2.1–2.13                                                                                  | Specs can be authored in rich editor, context files managed, inline comments work, spec tasks tracked, file watcher syncs external changes, `engy:spec-assistant` skill works from terminal.                                                                             |
-| M3  | Project Planning     | FR-3.1–3.15                                                                                  | Approved spec → project creation. Milestones, task groups, tasks with dependencies. Three project views functional. Default project with Eisenhower matrix and per-task completion. Planning skills work from terminal. Auto-completion when all milestones finish.      |
-| M4  | Terminal Integration | FR-4.1–4.12                                                                                  | xterm.js panel on every page. Context-scoped auto-start for all page contexts. Multi-tab with splits. WebSocket bridge to CLI process on client. Read-only outside write scope. All prior skills auto-start in terminal panel.                                           |
-| M5  | Diff Viewer & Review | FR-5.1–5.12                                                                                  | Three diff view modes. Line-level commenting. Approve and Send Feedback actions. Pre-commit gate. Document feedback routing. Create PR from Branch Diff. Open in VS Code.                                                                                                |
-| M6  | Execution Engine     | FR-6.1–6.12                                                                                  | Worktree creation/cleanup. Full task group state machine. Auto-commit, push, PR creation via `gh`. Cross-repo groups. Cross-workspace repo access. Execution visibility.                                                                                                 |
-| M7  | Knowledge Layer      | FR-7.1–7.18                                                                                  | Docs tab with system/shared docs. Memory tab with browser/editor. ChromaDB search. Project completion with memory distillation and system doc proposals. Memory scoping (workspace/repo). Permanent memory schema. Bootstrap skill. Validate/reindex as terminal skills. |
-| M8  | Workspace Polish     | FR-8.1–8.8                                                                                   | Dashboard refinements. Notification system with all triggers. Hierarchical settings. Global search polish. Cost visibility.                                                                                                                                              |
-| M9  | Async Agents         | FR-9.1–9.10                                                                                  | Mastra integration. Persistent agent sessions. Crash recovery. Feedback routing to sessions. Auto-start mode. Execution log streaming.                                                                                                                                   |
-| M10 | Dev Containers       | FR-10.1–10.10                                                                                | Docker containers start/stop on demand. Network firewall with allowlist. Bind-mounted repos. Container status in UI. Fallback to direct execution.                                                                                                                       |
-| M11 | PR/CI Monitoring     | FR-11.1–11.8                                                                                 | PRs tab with CI status. Auto-dispatch for CI fixes. Reviewer comment triage with selective fix dispatch.                                                                                                                                                                 |
-
-### 7.2 Dependencies
-
-| Milestone | Blocked By                                         | Notes                                                                                   |
-| --------- | -------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| M1        | —                                                  | Foundation, no dependencies                                                             |
-| M2        | M1                                                 | Needs data layer, app shell, MCP server                                                 |
-| M3        | M2                                                 | Needs spec authoring for spec → project transition                                      |
-| M4        | M3                                                 | Needs project/spec pages to scope terminals to                                          |
-| M5        | M4                                                 | Needs terminal for feedback routing                                                     |
-| M6        | M5                                                 | Needs diff viewer for review flow                                                       |
-| M7        | —                                                  | Can parallel with M5–M6 (independent knowledge subsystem), but depends on M1 data layer |
-| M8        | M6, M7                                             | Needs all features to exist for polish                                                  |
-| M9        | M5 (feedback routing), M6 (worktrees), M7 (memory) | Agent autonomy requires execution + knowledge foundation                                |
-| M10       | M6 (worktrees), M9 (async agents)                  | Container sandbox requires agent execution model                                        |
-| M11       | M6 (PR creation), M10 (dev containers)             | PR monitoring requires execution and sandboxed agent dispatch                           |
-
-```text
-M1 ──→ M2 ──→ M3 ──→ M4 ──→ M5 ──→ M6 ──┐
-                                            ├──→ M8
-                                    M7 ─────┘
-
-M9  depends on: M5, M6, M7
-M10 depends on: M6, M9
-M11 depends on: M6, M10
-```
-
-### 7.3 Phasing / Deferral
+### 6.14 Phasing / Deferral
 
 | ID | Requirement                          | Deferred To | Reason                                                                            |
 | -- | ------------------------------------ | ----------- | --------------------------------------------------------------------------------- |
@@ -736,11 +724,11 @@ M11 depends on: M6, M10
 
 ***
 
-## 8. File Map & Implementation Sequence
+## 7. File Map & Implementation Sequence
 
 ***
 
-## 9. Key Decisions
+## 8. Key Decisions
 
 1. **Single-user first.** No authentication, no multi-tenancy. Architecture should support future multi-user without a rewrite, but it is not a design constraint today.
 
@@ -764,7 +752,7 @@ M11 depends on: M6, M10
 
 ***
 
-## 10. Out of Scope (v1)
+## 9. Out of Scope (v1)
 
 | Feature                              | Reason                         |
 | ------------------------------------ | ------------------------------ |
@@ -775,7 +763,7 @@ M11 depends on: M6, M10
 
 ***
 
-## 11. Dependencies
+## 10. Dependencies
 
 Core technology stack — packages and tools required across milestones:
 
@@ -798,7 +786,7 @@ Core technology stack — packages and tools required across milestones:
 
 ***
 
-## 12. Verification
+## 11. Verification
 
 > Milestone-level verification checklists live in each milestone's plan document. This section defines the system-level acceptance criteria.
 
@@ -816,7 +804,7 @@ Core technology stack — packages and tools required across milestones:
 
 ***
 
-## 13. Open Questions
+## 12. Open Questions
 
 | # | Question                                                                                                       | Owner | Status                                  |
 | - | -------------------------------------------------------------------------------------------------------------- | ----- | --------------------------------------- |
@@ -827,9 +815,10 @@ Core technology stack — packages and tools required across milestones:
 
 ***
 
-## 14. Revision History
+## 13. Revision History
 
 | Date       | Author | Changes                                                                                                                                                                                                                                                                                                                                                                                                                                              | Version |
 | ---------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
 | 2026-03-01 | Aleks  | Initial draft — full SRS from vision spec + milestones                                                                                                                                                                                                                                                                                                                                                                                               | 0.1     |
 | 2026-03-01 | Aleks  | Validation pass: added missing definitions (Shared Docs, Fleeting Memory, Project Memory, Plan Content, ChromaDB, Mastra, Claude Code Skill), added missing FRs (FR-1.11, FR-2.13, FR-3.14, FR-3.15, FR-4.12, FR-5.11, FR-5.12, FR-6.12, FR-7.16, FR-7.17, FR-7.18), expanded FR-4.7 terminal context mapping, corrected Memory definition subtypes, updated milestone FR ranges. Added mobile/responsive support (NF-18, responsive layout in 3.1). | 0.2     |
+| 2026-03-11 | Aleks  | Restructured: removed Definitions section, removed System Features section, consolidated FRs with stimulus/response under milestones, removed Features Included from milestone table, renumbered sections.                                                                                                                                                                                                                                          | 0.3     |

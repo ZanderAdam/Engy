@@ -15,12 +15,7 @@ What is this document specifying? What product/feature, what version or release?
 ### 1.2 Scope
 What the system **will** and **will not** do. One paragraph. Name the software, state its purpose, and list high-level benefits. Call out anything explicitly excluded.
 
-### 1.3 Definitions
-| Term | Definition |
-|------|------------|
-| | |
-
-### 1.4 References
+### 1.3 References
 Links to related docs, designs, APIs, prior art, or existing code.
 
 ---
@@ -31,7 +26,7 @@ Links to related docs, designs, APIs, prior art, or existing code.
 Is this new, a replacement, or part of something larger? Where does it sit in the system? Include a simple diagram if helpful.
 
 ### 2.2 Product Features (Summary)
-Bullet list of major features. Details go in Section 5.
+Bullet list of major features. Details go in milestone sections (Section 6).
 
 - Feature A
 - Feature B
@@ -66,14 +61,76 @@ Only if applicable. Device APIs, sensors, peripherals.
 
 ---
 
-## 4. System Features
+## 4. Non-Functional Requirements
 
-Repeat this block for each feature. Number them to enable traceability.
+Include only what's relevant. Delete unused sections.
 
-### 4.1 [Feature Name]
+### 4.1 Performance
+| ID | Requirement |
+|----|-------------|
+| NF-1 | Page load shall complete within Xms under Y concurrent users. |
 
-**Description:** What it does, one paragraph.
+### 4.2 Security
+| ID | Requirement |
+|----|-------------|
+| NF-2 | All API endpoints shall require authentication via [method]. |
+
+### 4.3 Reliability / Availability
+| ID | Requirement |
+|----|-------------|
+| NF-3 | System shall maintain X% uptime. |
+
+### 4.4 Scalability
+| ID | Requirement |
+|----|-------------|
+| NF-4 | System shall support up to X concurrent users. |
+
+### 4.5 Usability
+| ID | Requirement |
+|----|-------------|
+| NF-5 | Core workflows shall be completable within X clicks/steps. |
+
+### 4.6 Maintainability
+| ID | Requirement |
+|----|-------------|
+| NF-6 | Code shall follow [standard/pattern]. Test coverage shall exceed X%. |
+
+---
+
+## 5. Data Requirements
+
+### 5.1 Data Model
+Key entities and their relationships. ERD or simple table:
+
+| Entity | Key Attributes | Relationships |
+|--------|---------------|---------------|
+| | | |
+
+### 5.2 Data Retention & Migration
+How long is data kept? Any migration from existing systems?
+
+---
+
+## 6. Milestones & Implementation Plan
+
+### 6.1 Summary
+
+| # | Milestone | Exit Criteria |
+|---|-----------|---------------|
+| M1 | | What must be true to call this done |
+| M2 | | |
+
+### 6.2 Dependencies
+
+| Milestone | Blocked By | Notes |
+|-----------|------------|-------|
+| M2 | M1 | e.g. Needs data layer from M1 |
+
+### 6.3 M1: [Milestone Name]
+
+**Description:** What this milestone delivers, one paragraph.\
 **Priority:** High | Medium | Low
+
 **Stimulus/Response:**
 
 | Trigger | System Behavior |
@@ -88,91 +145,12 @@ Repeat this block for each feature. Number them to enable traceability.
 | FR-1.1 | The system shall [behavior] when [condition]. |
 | FR-1.2 | The system shall [behavior] when [condition]. |
 
-**Behavioral Requirements:**
+**Exit Criteria:** What must be true to call this milestone done.
 
-Gherkin scenarios mapping to functional requirements. Each scenario becomes one or more test cases.
-
-```gherkin
-Feature: [Feature Name]
-  [Brief feature description]
-
-  Scenario: [Scenario name] (FR #N)
-    Given [precondition]
-    When [action]
-    Then [expected result]
-```
-
-### 4.N [Next Feature]
+### 6.N M[N]: [Next Milestone]
 _(Repeat the block above)_
 
----
-
-## 5. Non-Functional Requirements
-
-Include only what's relevant. Delete unused sections.
-
-### 5.1 Performance
-| ID | Requirement |
-|----|-------------|
-| NF-1 | Page load shall complete within Xms under Y concurrent users. |
-
-### 5.2 Security
-| ID | Requirement |
-|----|-------------|
-| NF-2 | All API endpoints shall require authentication via [method]. |
-
-### 5.3 Reliability / Availability
-| ID | Requirement |
-|----|-------------|
-| NF-3 | System shall maintain X% uptime. |
-
-### 5.4 Scalability
-| ID | Requirement |
-|----|-------------|
-| NF-4 | System shall support up to X concurrent users. |
-
-### 5.5 Usability
-| ID | Requirement |
-|----|-------------|
-| NF-5 | Core workflows shall be completable within X clicks/steps. |
-
-### 5.6 Maintainability
-| ID | Requirement |
-|----|-------------|
-| NF-6 | Code shall follow [standard/pattern]. Test coverage shall exceed X%. |
-
----
-
-## 6. Data Requirements
-
-### 6.1 Data Model
-Key entities and their relationships. ERD or simple table:
-
-| Entity | Key Attributes | Relationships |
-|--------|---------------|---------------|
-| | | |
-
-### 6.2 Data Retention & Migration
-How long is data kept? Any migration from existing systems?
-
----
-
-## 7. Milestones & Implementation Plan
-
-### 7.1 Milestones
-
-| # | Milestone | Features Included | Target Date | Exit Criteria |
-|---|-----------|-------------------|-------------|---------------|
-| M1 | | FR-x.x, FR-y.y | | What must be true to call this done |
-| M2 | | FR-z.z | | |
-
-### 7.2 Dependencies
-
-| Milestone | Blocked By | External Dependencies |
-|-----------|------------|----------------------|
-| M2 | M1 | e.g. API access from vendor |
-
-### 7.3 Phasing / Deferral
+### 6.X Phasing / Deferral
 
 Features or requirements explicitly deferred to future milestones:
 
@@ -182,7 +160,7 @@ Features or requirements explicitly deferred to future milestones:
 
 ---
 
-## 8. New/Modified File Map
+## 7. File Map & Implementation Sequence
 
 ```
 path/to/
@@ -192,30 +170,13 @@ path/to/
 
 ---
 
-## 9. Implementation Sequence
-
-> TDD throughout: write failing tests first, then implement.
-
-### Phase 1: [Phase Name]
-
-**Files**: `path/to/file.ts`, `path/to/file.test.ts`
-
-1. Step description.
-2. Step description.
-3. Tests: what to test.
-
-### Phase N: [Next Phase]
-_(Repeat the block above)_
-
----
-
-## 10. Key Decisions
+## 8. Key Decisions
 
 1. **[Decision]**: Rationale and tradeoffs.
 
 ---
 
-## 11. Out of Scope
+## 9. Out of Scope
 
 | Feature | Deferred To | Reason |
 |---------|-------------|--------|
@@ -223,7 +184,7 @@ _(Repeat the block above)_
 
 ---
 
-## 12. Dependencies to Add
+## 10. Dependencies
 
 | Package | Target | Purpose |
 |---------|--------|---------|
@@ -231,7 +192,7 @@ _(Repeat the block above)_
 
 ---
 
-## 13. Verification
+## 11. Verification
 
 Acceptance checklist — what must be manually or automatically verified before this is considered done.
 
@@ -241,7 +202,7 @@ Acceptance checklist — what must be manually or automatically verified before 
 
 ---
 
-## 14. Open Questions
+## 12. Open Questions
 
 | # | Question | Owner | Status |
 |---|----------|-------|--------|
@@ -249,7 +210,7 @@ Acceptance checklist — what must be manually or automatically verified before 
 
 ---
 
-## 15. Revision History
+## 13. Revision History
 
 | Date | Author | Changes | Version |
 |------|--------|---------|---------|

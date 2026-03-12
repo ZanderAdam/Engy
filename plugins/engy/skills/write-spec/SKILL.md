@@ -58,11 +58,11 @@ Read every file completely before proceeding. Missing a source doc means missing
 Write `spec.md` following the template structure section by section:
 
 1. **Frontmatter** — Add YAML frontmatter: `title`, `status: draft`, `type: buildable` (or `vision`)
-2. **Sections 1-7** — Standard SRS content extracted from source docs:
-   - Extract definitions from all terms used across source docs
+2. **Sections 1-5** — Standard SRS content extracted from source docs:
    - Extract functional requirements by reading source docs paragraph by paragraph — every described behavior, lifecycle, interaction, and architectural decision becomes an FR
-   - Map FRs to milestones if milestone docs exist
-3. **Sections 8-14** — Implementation sections. For vision-level specs, add pointers to milestone-level plans. For milestone-level specs, include file maps, implementation phases, behavioral requirements (Gherkin), key decisions, verification checklists.
+   - FRs go under their respective milestone in Section 6, not in a separate features section
+3. **Section 6** — Milestones & Implementation Plan. Each milestone gets: description, priority, stimulus/response, functional requirements, and exit criteria. Include dependency table and graph.
+4. **Sections 7-13** — Implementation sections. For vision-level specs, add pointers to milestone-level plans. For milestone-level specs, include file maps, key decisions, verification checklists.
 
 After generation, automatically proceed to validation (Validate Mode below).
 
@@ -71,10 +71,10 @@ After generation, automatically proceed to validation (Validate Mode below).
 Source documents have changed (new context files added, vision doc revised, milestones updated). Incrementally update the existing `spec.md`:
 
 1. **Diff source material** — Compare gathered source docs against what the current SRS covers. Identify new content, changed content, and removed content.
-2. **Add new requirements** — For new behaviors/features in source docs, add FRs to the appropriate feature section using the next available FR ID. Add corresponding definitions, stimulus/response entries, and milestone mappings.
-3. **Update changed requirements** — For revised source content, update the corresponding FRs, definitions, and data model entries to match.
+2. **Add new requirements** — For new behaviors/features in source docs, add FRs to the appropriate milestone section using the next available FR ID. Add corresponding stimulus/response entries.
+3. **Update changed requirements** — For revised source content, update the corresponding FRs and data model entries to match.
 4. **Flag removals** — If source content was removed, flag the orphaned FRs for human review rather than deleting (the removal may be intentional or accidental).
-5. **Update milestone table** — Adjust FR ranges and exit criteria for affected milestones.
+5. **Update milestone sections** — Adjust exit criteria for affected milestones.
 6. **Add revision history entry** — Document what changed and why.
 
 After update, automatically proceed to validation (Validate Mode below).
@@ -133,7 +133,7 @@ Manage files in `{specDir}/context/`. Context files are supplementary documents 
 
 After the agent completes, present:
 
-1. **Changes made** — Summary of definitions added, FRs added/corrected, milestone updates
+1. **Changes made** — Summary of FRs added/corrected, milestone updates
 2. **Issues requiring human judgment** — Contradictions between source docs, ambiguous requirements, scope decisions
 3. **Context doc inconsistencies** — Problems found in source docs themselves (not SRS errors)
 
