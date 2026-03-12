@@ -11,27 +11,92 @@
 
 ## What is Engy
 
-Engy is a single-user workspace manager for spec-driven development. It gives you a permanent home for ongoing concerns (a codebase, a product, accumulated knowledge) and ephemeral execution scopes for bounded work (features, refactors, bug fixes).
-
-The core loop: **Specify → Plan → Execute → Complete.** You write specs in Engy's editor, plan projects from approved specs, run AI agents against tasks, review diffs, and extract learnings back into your knowledge base — all without leaving the app.
+Engy is a personal dev workspace for the **Specify → Plan → Execute → Complete** loop. Write specs, plan milestones, run AI agents against tasks, review diffs, and send inline feedback to Claude Code — all without leaving the app.
 
 Everything is accessible to AI agents via a built-in MCP server, so Claude Code CLI running in your terminal can read and write Engy data directly.
 
-![Project overview with milestones](docs/screenshots/project-overview-milestones.png)
-
 ## Features
 
-- **Workspaces** — permanent homes for ongoing concerns, tied to one or more repositories where Claude Code runs implementations. Additional repos can be added as extra directories. Organize projects, tasks, docs, and memory under one roof.
-- **Projects & Milestones** — scoped execution for bounded work. Track milestones with status badges and progress bars.
-- **Spec Editor** — rich text editor for writing and reviewing Software Requirements Specifications. Supports headings, tables, lists, code blocks, and @ file mentions.
-- **Inline Comments** — leave comments directly on any markdown file (specs, plans, docs). Comments can be sent straight to an active terminal session, so your AI agent gets feedback without leaving the editor.
-- **Task Management** — three views for managing tasks:
-  - **Kanban** — Todo / In Progress / Review / Done columns
-  - **Eisenhower Matrix** — prioritize by urgency and importance
-  - **Dependency Graph** — visualize task dependencies across layers
-- **Notifications** — get notified when a plan is ready for review or other events need your attention.
-- **MCP Server** — built-in Model Context Protocol server so AI agents (Claude Code CLI) can read specs, create tasks, and update project state directly.
-- **Dark & Light Mode** — toggle between themes.
+### Inline Comments → Terminal Feedback
+
+Leave comments directly on any markdown file — specs, plans, docs. Comments can be sent straight to a running Claude Code terminal session, so your AI agent gets feedback without leaving the editor.
+
+![Inline comments sent to Claude Code terminal](docs/screenshots/plan-phases-with-code-preview.png)
+
+### Diff Review & Inline Comments
+
+Review uncommitted changes and branch diffs with line-level commenting. Leave inline comments on specific lines and send feedback directly to a running Claude Code session.
+
+![Diffs tab with inline line-level commenting](docs/screenshots/diffs-tab-line-commenting.png)
+
+### Spec Editor
+
+Rich text editor for writing and reviewing Software Requirements Specifications. Supports headings, tables, lists, code blocks, and @ file mentions.
+
+![Docs tab showing plan context and file tree](docs/screenshots/docs-tab-plan-context.png)
+
+### Task Management
+
+Three views for managing tasks:
+- **Kanban** — Todo / In Progress / Review / Done columns
+- **Eisenhower Matrix** — prioritize by urgency and importance
+- **Dependency Graph** — visualize task dependencies across layers
+
+![Task kanban board with Claude Code running implementation](docs/screenshots/task-kanban-with-implement-terminal.png)
+
+### Projects & Milestones
+
+Scoped execution for bounded work. Track milestones with status badges and progress bars.
+
+![Project overview with milestones](docs/screenshots/project-overview-milestones.png)
+
+### Claude Plans
+
+Review AI-generated plans and send structured feedback directly to a running Claude Code session.
+
+![Claude Plans page with skill improvement feedback](docs/screenshots/claude-plans-skill-feedback.png)
+
+### MCP Server
+
+Built-in Model Context Protocol server so AI agents (Claude Code CLI) can read specs, create tasks, and update project state directly.
+
+### Workspaces
+
+Permanent homes for ongoing concerns, tied to one or more repositories where Claude Code runs implementations. Additional repos can be added as extra directories. Organize projects, tasks, docs, and memory under one roof.
+
+### Notifications
+
+Get notified when a plan is ready for review or other events need your attention.
+
+### Dark & Light Mode
+
+Toggle between themes.
+
+## Skills
+
+Engy ships as a Claude Code plugin with skills that drive the full development loop from your terminal.
+
+Install the marketplace:
+```bash
+/plugin marketplace add <cloned repo path>
+```
+
+Install the plugin.
+
+Then you can run skills like:
+```
+
+| Skill | What it does |
+|---|---|
+| `/write-spec` | Create or validate an SRS from source documents |
+| `/milestone-plan` | Break a spec into milestones, task groups, tasks, and dependencies |
+| `/plan` | Write a codebase-aware implementation plan for a milestone |
+| `/validate-plan` | Check a plan against its parent spec for alignment and gaps |
+| `/implement` | Implement a single task with TDD and code review |
+| `/implement-milestone` | Orchestrate an entire milestone across task groups in parallel |
+| `/review` | Code review with auto-detected scope and severity-tagged findings |
+| `/update-spec` | Sync spec documents with current implementation status |
+| `/workspace-assistant` | Quick task tracking — log bugs, create one-off work items |
 
 ## Getting Started
 
@@ -86,31 +151,13 @@ Inside a workspace, click **+ New Project**. A project is an ephemeral scope for
 
 Navigate to your project's **Docs** tab. Select or create a `spec.md` file to open the rich text editor. Write your Software Requirements Specification with headings, tables, lists, and code blocks. Use **@ mentions** to reference other files. Specs can be marked as `buildable` and tracked through `active` → `complete` status.
 
-![Docs tab showing plan context and file tree](docs/screenshots/docs-tab-plan-context.png)
-
 ### Plan Milestones
 
 On the project **Overview** tab, click **+ Add** to create milestones. Each milestone has a name, status (`planned` / `in_progress` / `complete`), and progress tracking.
 
-![Plan document with implementation phases and task board](docs/screenshots/plan-phases-with-task-board.png)
-
 ### Manage Tasks
 
-Use the project **Tasks** tab to create and organize tasks. Switch between three views:
-
-- **Kanban** — drag tasks through Todo → In Progress → Review → Done
-- **Eisenhower** — prioritize in a 2x2 matrix of urgency vs. importance
-- **Graph** — see task dependencies visualized as a layered DAG
-
-Tasks have IDs (T-1, T-2...), types (`human` / `ai`), and status badges. Use **+ Group** to organize tasks into task groups within milestones.
-
-![Task kanban board with Claude Code running implementation](docs/screenshots/task-kanban-with-implement-terminal.png)
-
-### Review Diffs
-
-The **Diffs** tab shows uncommitted changes and branch diffs with line-level commenting. Leave inline comments on specific lines, and send feedback directly to a running Claude Code terminal session.
-
-![Diffs tab with inline line-level commenting](docs/screenshots/diffs-tab-line-commenting.png)
+Use the project **Tasks** tab to create and organize tasks. Switch between three views: Kanban, Eisenhower, and Graph. Tasks have IDs (T-1, T-2...), types (`human` / `ai`), and status badges. Use **+ Group** to organize tasks into task groups within milestones.
 
 ### Connect Claude Code (MCP)
 
@@ -128,12 +175,6 @@ Engy exposes an MCP server at `/mcp` on the same port. To connect Claude Code CL
 ```
 
 Add this to your `.mcp.json` (adjust the port if needed). Claude Code can then read specs, create tasks, update milestones, and manage project state.
-
-### Send Feedback to Claude Code
-
-The **Claude Plans** tab lets you review AI-generated plans and send structured feedback directly to a running Claude Code session.
-
-![Claude Plans page with skill improvement feedback](docs/screenshots/claude-plans-skill-feedback.png)
 
 ## Architecture
 
