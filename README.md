@@ -84,7 +84,6 @@ Install the marketplace:
 Install the plugin.
 
 Then you can run skills like:
-```
 
 | Skill | What it does |
 |---|---|
