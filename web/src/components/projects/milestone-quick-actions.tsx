@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { trpc } from '@/lib/trpc';
-import { buildQuickActionDirs, buildRepoContext, buildClaudeCommand } from '@/lib/shell';
+import { buildQuickActionDirs, buildContextBlock, buildClaudeCommand } from '@/lib/shell';
 
 interface MilestoneQuickActionsProps {
   milestoneRef: string;
@@ -36,14 +36,18 @@ export function MilestoneQuickActions({ milestoneRef }: MilestoneQuickActionsPro
   const actionDisabled = !workingDir || !projectDir;
 
   function handleImplementMilestone() {
-    if (!workingDir || !projectDir) return;
-    const repoCtx = buildRepoContext(repos);
-    const prompt = `Use /engy:implement-milestone for ${milestoneRef} in project ${projectSlug}${repoCtx}`;
+    if (!workingDir || !projectDir || !workspace || !project) return;
+    const ctx = buildContextBlock({
+      workspace: { id: workspace.id, slug: workspaceSlug },
+      project: { id: project.id, slug: projectSlug, dir: projectDir },
+      repos,
+    });
+    const skillLine = `Use /engy:implement-milestone for ${milestoneRef} in project ${projectSlug}`;
     openNewTerminal({
       scopeType: 'project',
       scopeLabel: `impl-ms: ${milestoneRef}`,
       workingDir,
-      command: buildClaudeCommand({ prompt, additionalDirs }),
+      command: buildClaudeCommand({ prompt: skillLine, systemPrompt: ctx, additionalDirs }),
       groupKey: `project:${workspaceSlug}:${projectSlug}`,
     });
   }

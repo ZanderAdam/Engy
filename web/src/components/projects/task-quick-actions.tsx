@@ -13,7 +13,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { trpc } from '@/lib/trpc';
-import { shellEscape, buildQuickActionDirs, buildRepoContext, buildClaudeCommand } from '@/lib/shell';
+import { buildQuickActionDirs, buildContextBlock, buildClaudeCommand } from '@/lib/shell';
 import { toast } from 'sonner';
 
 const DEFAULT_PLAN_SKILL = '/engy:plan';
@@ -65,31 +65,37 @@ export function TaskQuickActions({ taskId, needsPlan = true, projectSlug: projec
   });
 
   function handlePlan() {
-    if (!workingDir || !projectDir) return;
-    const escapedDir = shellEscape(projectDir);
-    const repoCtx = buildRepoContext(repos);
-    const prompt = `Use ${planSkill} to plan ${taskSlug}, output plan to ${escapedDir}/plans/${taskSlug}.plan.md${repoCtx}`;
+    if (!workingDir || !projectDir || !workspace || !project || !projectSlug) return;
+    const ctx = buildContextBlock({
+      workspace: { id: workspace.id, slug: workspaceSlug },
+      project: { id: project.id, slug: projectSlug, dir: projectDir },
+      repos,
+    });
+    const skillLine = `Use ${planSkill} to plan ${taskSlug}, output plan to ${projectDir}/plans/${taskSlug}.plan.md`;
     openNewTerminal({
       scopeType: 'project',
       scopeLabel: `plan: ${taskSlug}`,
       workingDir,
-      command: buildClaudeCommand({ prompt, additionalDirs }),
+      command: buildClaudeCommand({ prompt: skillLine, systemPrompt: ctx, additionalDirs }),
       groupKey: `project:${workspaceSlug}:${projectSlug}`,
     });
   }
 
   function handleImplement() {
-    if (!workingDir || !projectDir) return;
-    const escapedDir = shellEscape(projectDir);
-    const repoCtx = buildRepoContext(repos);
-    const prompt = needsPlan
-      ? `Use ${implementSkill} for ${taskSlug}, plan at ${escapedDir}/plans/${taskSlug}.plan.md${repoCtx}`
-      : `Use ${implementSkill} for ${taskSlug}${repoCtx}`;
+    if (!workingDir || !projectDir || !workspace || !project || !projectSlug) return;
+    const ctx = buildContextBlock({
+      workspace: { id: workspace.id, slug: workspaceSlug },
+      project: { id: project.id, slug: projectSlug, dir: projectDir },
+      repos,
+    });
+    const skillLine = needsPlan
+      ? `Use ${implementSkill} for ${taskSlug}, plan at ${projectDir}/plans/${taskSlug}.plan.md`
+      : `Use ${implementSkill} for ${taskSlug}`;
     openNewTerminal({
       scopeType: 'project',
       scopeLabel: `impl: ${taskSlug}`,
       workingDir,
-      command: buildClaudeCommand({ prompt, additionalDirs }),
+      command: buildClaudeCommand({ prompt: skillLine, systemPrompt: ctx, additionalDirs }),
       groupKey: `project:${workspaceSlug}:${projectSlug}`,
     });
   }

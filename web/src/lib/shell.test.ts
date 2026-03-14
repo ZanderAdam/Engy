@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   shellEscape,
   buildAddDirFlags,
-  buildRepoContext,
+  buildContextBlock,
   buildClaudeCommand,
   buildQuickActionDirs,
 } from './shell';
@@ -42,18 +42,61 @@ describe('shell utilities', () => {
     });
   });
 
-  describe('buildRepoContext', () => {
-    it('should return empty string for empty repos', () => {
-      expect(buildRepoContext([])).toBe('');
+  describe('buildContextBlock', () => {
+    it('should return workspace-only context when no project', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+      });
+      expect(result).toBe('Workspace: engy (id: 1)');
     });
 
-    it('should return singular label for single repo', () => {
-      expect(buildRepoContext(['/Users/me/repo1'])).toBe('. Code repo: /Users/me/repo1');
+    it('should include project fields when project provided', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        project: { id: 5, slug: 'initial', dir: '/home/user/.engy/workspaces/engy/projects/initial' },
+        repos: [],
+      });
+      expect(result).toBe(
+        [
+          'Workspace: engy (id: 1)',
+          'Project: initial (id: 5)',
+          'Project dir: /home/user/.engy/workspaces/engy/projects/initial',
+        ].join('\n'),
+      );
     });
 
-    it('should return plural label for multiple repos', () => {
-      expect(buildRepoContext(['/Users/me/repo1', '/Users/me/repo2'])).toBe(
-        '. Code repos: /Users/me/repo1, /Users/me/repo2',
+    it('should include singular repo label for one repo', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: ['/Users/me/repo1'],
+      });
+      expect(result).toBe('Workspace: engy (id: 1)\nRepo: /Users/me/repo1');
+    });
+
+    it('should include plural repos label for multiple repos', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: ['/Users/me/repo1', '/Users/me/repo2'],
+      });
+      expect(result).toBe(
+        'Workspace: engy (id: 1)\nRepos: /Users/me/repo1, /Users/me/repo2',
+      );
+    });
+
+    it('should include all fields when workspace, project, and repos provided', () => {
+      const result = buildContextBlock({
+        workspace: { id: 2, slug: 'acme' },
+        project: { id: 10, slug: 'api', dir: '/projects/api' },
+        repos: ['/repos/backend', '/repos/shared'],
+      });
+      expect(result).toBe(
+        [
+          'Workspace: acme (id: 2)',
+          'Project: api (id: 10)',
+          'Project dir: /projects/api',
+          'Repos: /repos/backend, /repos/shared',
+        ].join('\n'),
       );
     });
   });
@@ -87,6 +130,24 @@ describe('shell utilities', () => {
     it('should escape single quotes in prompt', () => {
       expect(buildClaudeCommand({ prompt: "it's a test" })).toBe(
         "claude 'it'\\''s a test' --permission-mode acceptEdits",
+      );
+    });
+
+    it('should include --append-system-prompt when systemPrompt provided', () => {
+      expect(buildClaudeCommand({ systemPrompt: 'Workspace: engy (id: 1)' })).toBe(
+        "claude --append-system-prompt 'Workspace: engy (id: 1)' --permission-mode acceptEdits",
+      );
+    });
+
+    it('should include prompt, add-dir, and system prompt together', () => {
+      expect(
+        buildClaudeCommand({
+          prompt: 'Use /engy:plan',
+          systemPrompt: 'Workspace: engy (id: 1)',
+          additionalDirs: ['/repo'],
+        }),
+      ).toBe(
+        "claude 'Use /engy:plan' --add-dir '/repo' --append-system-prompt 'Workspace: engy (id: 1)' --permission-mode acceptEdits",
       );
     });
   });
