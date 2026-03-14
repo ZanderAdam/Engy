@@ -1,17 +1,42 @@
-"use client";
+'use client';
 
-import { trpc } from "@/lib/trpc";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { trpc } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  RiCircleLine,
+  RiLoader4Line,
+  RiEyeLine,
+  RiCheckboxCircleLine,
+} from '@remixicon/react';
 
-export const taskStatusOptions = ["todo", "in_progress", "review", "done"] as const;
+export const taskStatusOptions = ['todo', 'in_progress', 'review', 'done'] as const;
 type TaskStatus = (typeof taskStatusOptions)[number];
 
 export const taskStatusColors: Record<string, string> = {
-  todo: "bg-muted text-muted-foreground",
-  in_progress: "bg-blue-500/10 text-blue-500",
-  review: "bg-yellow-500/10 text-yellow-500",
-  done: "bg-green-500/10 text-green-500",
+  todo: 'text-muted-foreground',
+  in_progress: 'text-blue-500',
+  review: 'text-yellow-500',
+  done: 'text-green-500',
+};
+
+const taskStatusIcons: Record<string, React.ComponentType<{ className?: string }>> = {
+  todo: RiCircleLine,
+  in_progress: RiLoader4Line,
+  review: RiEyeLine,
+  done: RiCheckboxCircleLine,
+};
+
+const taskStatusLabels: Record<string, string> = {
+  todo: 'Todo',
+  in_progress: 'In Progress',
+  review: 'Review',
+  done: 'Done',
 };
 
 function nextStatus(current: string): TaskStatus {
@@ -45,18 +70,31 @@ export function TaskStatusBadge({
     updateTask.mutate({ id: taskId, status: nextStatus(status) });
   }
 
+  const Icon = taskStatusIcons[status] ?? RiCircleLine;
+  const label = taskStatusLabels[status] ?? status;
+
   return (
-    <Badge
-      variant="outline"
-      className={cn(
-        "text-[10px]",
-        taskStatusColors[status],
-        clickable && "cursor-pointer hover:ring-1 hover:ring-foreground/20",
-        className,
-      )}
-      onClick={clickable ? handleClick : undefined}
-    >
-      {status.replace("_", " ")}
-    </Badge>
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              'shrink-0 p-0.5',
+              taskStatusColors[status],
+              clickable && 'cursor-pointer hover:opacity-80',
+              !clickable && 'cursor-default',
+              className,
+            )}
+            onClick={clickable ? handleClick : undefined}
+          >
+            <Icon className="size-4" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-xs">
+          {label}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
