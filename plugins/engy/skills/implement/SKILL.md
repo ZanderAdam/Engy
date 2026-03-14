@@ -1,99 +1,100 @@
 ---
 name: engy:implement
-description: "Implements a single task or plan with TDD, code review, and optional agent teams. Use when asked to 'implement', 'implement a task', 'implement a plan', 'execute a plan', 'work on task', or 'start implementation'. For milestone-level work across multiple task groups, use /engy:implement-milestone instead."
+description: "This skill should be used when the user asks to 'implement', 'implement a task', 'implement a plan', 'execute a plan', 'work on task', or 'start implementation'."
 ---
 
-# Implementation Orchestrator
+# Task Implementation
 
-Implement a single task or plan document. Gathers all relevant context (task details, plan docs, spec) before writing any code. For milestone-level orchestration across multiple task groups, use `/engy:implement-milestone`.
+Implements a single task or plan document end-to-end: context gathering, TDD implementation, code review, and validation. For milestone-level orchestration across multiple task groups, use `/engy:implement-milestone`.
 
 ## MCP Tools
 
-- `getTask(id)` — task details including `milestoneRef`, `specId`, `taskGroupId`, `specPath`
-- `listTasks(projectId, milestoneRef, taskGroupId)` — find related tasks
-- `updateTask(id, status)` — mark tasks `in_progress` / `done`
-- `getProjectDetails(projectId)` — project paths (`specDir`, `projectDir`)
-Use MCP to discover paths and task relationships, then Read/Glob/Grep for content.
+- `getTask(id)` — task details including title, description, status
+- `updateTask(id, status)` — mark tasks `in_progress` / `review` / `done`
+- `getProjectDetails(projectId)` — project paths
 
-### A. Single Task
+## Step 1: Gather Context
 
-1. `getTask(id)` — read the task's title, description, `milestoneRef`, `specId`, `taskGroupId`, `specPath`.
+### A. From an Engy Task
+
+1. `getTask(id)` — read the task's title, description, and status.
 2. **Check for existing work** — If task status is `in_progress`:
    - Run `git status` and `git diff` to identify uncommitted changes related to this task.
    - Review changed files to understand what's already done vs. what remains.
    - Adjust implementation scope to only cover remaining work.
-3. **Read plan and context documents** (MANDATORY before writing any code):
-   - If `milestoneRef` exists and `specPath` is set, look for a milestone plan doc: `Glob("{specPath}/m{N}-*.plan.md")` (e.g., `{specPath}/m5-diff-viewer.plan.md`). Read it in full — it contains phase breakdowns, requirements, and acceptance criteria. **If a plan doc is found, it is the primary requirements source — skip reading the full spec.**
-   - If no plan doc exists and `specPath` is set, read `{specPath}/spec.md` as the requirements source.
-   - Read any related tasks in the same task group via `listTasks(taskGroupId)` for context on what comes before/after.
+3. If the task description references a plan document path, read that plan — it is the primary requirements source. Otherwise the task description itself is the requirements source.
 4. `updateTask(id, status: "in_progress")`.
-5. Proceed to **Implementation**.
 
-### B. Plan Document
+### B. From a Plan Document
 
 1. Read the plan document in full (path or inline content from user).
 2. Extract **phases** (requirements + deliverables), **test scenarios** (acceptance criteria), and **dependencies** between phases.
-3. Find associated tasks via `listTasks(milestoneRef)` if the plan maps to a milestone.
-4. Proceed to **Implementation** using plan phases.
+3. The plan document is the primary requirements source.
 
-## Implementation
+## Step 2: Discover Validation Gates
 
-### Phase 0: Discover Validation Gates
+Read the project's **CLAUDE.md** for explicit validation and testing instructions.
 
-Scan project config to find **all explicit validation the project asks for**. Check these sources in order:
+## Step 3: Create Session Tasks
 
-1. **CLAUDE.md** — look for explicit validation and testing instructions. These are the highest priority.
+CRITICAL: Before writing any code, create internal session tasks (`TaskCreate`) for **every step** of the implementation. This ensures progress is tracked and nothing is missed.
 
-### Phase 0b: Create Session Tasks
+Create one task per small, independent unit of work. Keep tasks focused — each should be completable on its own.
 
-Create session tasks to track the **implementation workflow**, not to mirror Engy tasks.
+1. **Implementation tasks** — one per logical unit (e.g., "Add X migration", "Implement Y service", "Write tests for Z").
+2. **Final validation task** — always the last task. See Step 5.
 
-**When working from a single Engy task:** Create one task pair:
-- **#a** (implement) — requirements, test scenarios, tests-only command
-- **#b** (validate/fix/commit) — full validation command, skill invocations
+Chain dependencies with `TaskUpdate` (`addBlockedBy`) so tasks execute in order.
 
-**When working from a plan with multiple phases:** Create task pairs per *plan phase* (not per Engy task):
-- **Phase N#a** / **Phase N#b** — one pair per plan phase
+**Example:**
+- Task #1: "Add user preferences table migration"
+- Task #2: "Implement preferences service" (blocked by #1)
+- Task #3: "Add API endpoint for preferences" (blocked by #2)
+- Task #4: "Run /engy:review, pnpm blt, test in Chrome" (blocked by #3) — CRITICAL, always required
 
-Chain dependencies with `TaskUpdate` (addBlockedBy): N#a → N#b → (N+1)#a.
+## Step 4: Implement via TDD (Red-Green-Refactor)
 
-Add a **Final Validation** task after all pairs that includes any manual checks (Chrome testing, etc.) discovered from project config.
+For each implementation task, follow the TDD cycle strictly:
 
-### Phase N#a: Implement via TDD
+1. Mark the session task `in_progress`.
+2. **Red** — Write a failing test first. Test scenarios come from the requirements source (task description or plan) — never invented without basis. **Test strategy cascade:** requirements source > project config > codebase conventions.
+3. **Green** — Write the minimum code to make the test pass.
+4. **Refactor** — Clean up the implementation while keeping tests green. Remove duplication, improve naming, simplify.
+5. Repeat the red-green-refactor cycle until the task's requirements are fully covered.
+6. Run the task's area tests to confirm everything passes. Mark session task completed.
 
-1. Mark task `in_progress`
-2. Identify **independent domains** — sub-tasks touching non-overlapping file sets with no shared state. If single domain, implement inline.
-3. For 2+ independent sub-tasks, use agent teams. See `references/agent-team-coordination.md` for parallelization criteria, agent context requirements, and conflict prevention.
-4. TDD is mandatory. **Test strategy cascade:** plan document > project config > codebase conventions. Test scenarios come from the plan or are derived from requirements — never invented without basis.
-5. **Orchestrator owns the full build command.** Teammates run only their area tests.
+## Step 5: Final Validation
 
-### Phase N#b: Validate, Fix & Commit
+CRITICAL: This step is **always required** as the last session task. It follows whatever the project's CLAUDE.md specifies for quality gates.
 
-1. Run `/engy:review`
-2. Run the **full validation command** discovered in Phase 0, read complete output, verify explicitly — never assume success
-3. Triage feedback by severity (Critical → High → Medium). Address all Critical and High items, re-run validation. If significant rework needed, return to #a.
-4. **Circuit breaker:** after 3 failed validation/review cycles, stop and report to user with diagnostics
-5. On success: commit the phase, mark both #a and #b tasks completed, update Engy task status via `updateTask(id, status: "done")` if working from an Engy task
+After all implementation tasks are done:
 
-### Final Validation
+1. Run `/engy:review`.
+2. Run the **full validation command** discovered in Step 2. Read complete output, verify explicitly — never assume success.
+3. Triage feedback by severity (Critical → High → Medium). Address all Critical and High items, re-run validation.
+4. **Circuit breaker:** after 3 failed validation/review cycles, stop and report to user with diagnostics.
+5. Run any manual checks specified in project config (e.g., test in Chrome).
+6. On success: commit the changes, mark all session tasks completed.
 
-After all phase pairs complete, run end-to-end validation appropriate for the project
+## Engy Task Status Flow
+
+When working from an Engy task, update its status via `updateTask(id, status)`:
+
+1. **`in_progress`** — set when starting work (Step 1).
+2. **`review`** — set if the task needs human input before it can be marked done.
+3. **`done`** — set once changes are committed.
+
+## Step 6: Final Output
+
+After all work is complete, present a summary to the user:
+
+1. **Changes made** — brief summary of what was implemented.
+2. **Validation gates** — which gates were run and their results (pass/fail).
+3. **Follow-ups** — any remaining issues, deferred feedback, or potential improvements.
 
 ## Key Principles
 
-- **Context before code.** Always gather task details, plan docs, spec, and milestone docs before writing any code.
+- **Context before code.** Always gather task details before writing any code.
 - **Evidence before claims.** Run build, read full output, verify explicitly.
-- **Fresh context per agent.** Each teammate gets a complete, self-contained sub-task description. Never assume shared context.
-- **Phase-level commits.** One commit per phase, each in a working state.
+- **Task tracking.** Create session tasks for every step — nothing happens untracked.
 
-## Additional Resources
-
-### Reference Files
-
-- **`references/agent-team-coordination.md`** - Parallelization criteria, agent context requirements, and conflict prevention guidelines
-
-## Flow Position
-
-**Previous:** `validate-plan` | **Next:** `review`
-
-When all implementation phases are complete and passing, proceed with `/engy:review` for a final code review of all changes.
