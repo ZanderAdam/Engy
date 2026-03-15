@@ -19,6 +19,7 @@ function createTestState(): AppState {
     terminalSessionMeta: new Map(),
     terminalDaemon: null,
     fileChangeListeners: new Set(),
+    containerProgressListeners: new Map(),
     pendingContainerUp: new Map(),
     pendingContainerDown: new Map(),
     pendingContainerStatus: new Map(),

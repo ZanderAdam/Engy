@@ -34,6 +34,11 @@ describe('deriveScope', () => {
       const scope = deriveScope('ws', '/ws-dir', [], 1, 'my-proj', 5);
       expect(scope.scopeLabel).toBe('project: my-proj');
     });
+
+    it('should set workspaceSlug', () => {
+      const scope = deriveScope('my-ws', '/ws-dir', [], 1, 'my-proj', 5);
+      expect(scope.workspaceSlug).toBe('my-ws');
+    });
   });
 
   describe('workspace scope', () => {
@@ -63,6 +68,11 @@ describe('deriveScope', () => {
     it('should set scopeLabel with workspace slug', () => {
       const scope = deriveScope('my-ws', '/ws-dir', [], 1);
       expect(scope.scopeLabel).toBe('my-ws');
+    });
+
+    it('should set workspaceSlug', () => {
+      const scope = deriveScope('my-ws', '/ws-dir', [], 1);
+      expect(scope.workspaceSlug).toBe('my-ws');
     });
   });
 });

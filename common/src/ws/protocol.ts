@@ -224,6 +224,14 @@ export interface ContainerStatusResponseMessage {
     | { requestId: string; error: string };
 }
 
+export interface ContainerProgressEventMessage {
+  type: 'CONTAINER_PROGRESS_EVENT';
+  payload: {
+    requestId: string;
+    line: string;
+  };
+}
+
 export type WsMessage =
   | RegisterMessage
   | WorkspacesSyncMessage
@@ -247,7 +255,8 @@ export type WsMessage =
   | ContainerDownRequestMessage
   | ContainerDownResponseMessage
   | ContainerStatusRequestMessage
-  | ContainerStatusResponseMessage;
+  | ContainerStatusResponseMessage
+  | ContainerProgressEventMessage;
 
 export type ClientToServerMessage =
   | RegisterMessage
@@ -261,7 +270,8 @@ export type ClientToServerMessage =
   | GitBranchFilesResponseMessage
   | ContainerUpResponseMessage
   | ContainerDownResponseMessage
-  | ContainerStatusResponseMessage;
+  | ContainerStatusResponseMessage
+  | ContainerProgressEventMessage;
 
 export type ServerToClientMessage =
   | WorkspacesSyncMessage

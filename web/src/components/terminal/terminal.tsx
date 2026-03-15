@@ -40,6 +40,7 @@ function buildWsUrl(tab: TerminalTab): string {
     rows: '24',
   });
   if (scope.command) params.set('command', scope.command);
+  if (scope.workspaceSlug) params.set('workspaceSlug', scope.workspaceSlug);
   return `${base}/ws/terminal?${params.toString()}`;
 }
 

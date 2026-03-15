@@ -8,23 +8,54 @@ export class ContainerManager {
   /**
    * Start a dev container for the given workspace folder.
    * Runs `devcontainer up --workspace-folder {path}` and parses JSON output.
+   * Streams build progress lines via optional onProgress callback.
    */
-  async up(workspaceFolder: string): Promise<{ containerId: string }> {
-    const { stdout } = await execFileAsync(
-      'devcontainer',
-      ['up', '--workspace-folder', workspaceFolder],
-      { maxBuffer: EXEC_MAX_BUFFER },
-    );
-    let result: { outcome: string; containerId?: string; message?: string };
-    try {
-      result = JSON.parse(stdout);
-    } catch {
-      throw new Error(`Failed to parse devcontainer output: ${stdout.slice(0, 200)}`);
-    }
-    if (result.outcome !== 'success') {
-      throw new Error(result.message || 'devcontainer up failed');
-    }
-    return { containerId: result.containerId! };
+  async up(
+    workspaceFolder: string,
+    onProgress?: (line: string) => void,
+  ): Promise<{ containerId: string }> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn('devcontainer', ['up', '--workspace-folder', workspaceFolder]);
+
+      let stdout = '';
+      let settled = false;
+
+      proc.stdout.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString();
+      });
+
+      proc.stderr.on('data', (chunk: Buffer) => {
+        if (!onProgress) return;
+        const lines = chunk.toString().split('\n');
+        for (const line of lines) {
+          const trimmed = line.trimEnd();
+          if (trimmed) onProgress(trimmed);
+        }
+      });
+
+      proc.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(`Failed to start devcontainer: ${err.message}`));
+      });
+
+      proc.on('close', (code) => {
+        if (settled) return;
+        settled = true;
+        let result: { outcome: string; containerId?: string; message?: string };
+        try {
+          result = JSON.parse(stdout);
+        } catch {
+          reject(new Error(`Failed to parse devcontainer output: ${stdout.slice(0, 200)}`));
+          return;
+        }
+        if (code !== 0 || result.outcome !== 'success') {
+          reject(new Error(result.message || 'devcontainer up failed'));
+          return;
+        }
+        resolve({ containerId: result.containerId! });
+      });
+    });
   }
 
   /**

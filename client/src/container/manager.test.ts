@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
 
 // Mock child_process: execFile must use node's custom promisify symbol
@@ -20,6 +21,16 @@ const { ContainerManager } = await import('./manager.js');
 
 const mockSpawn = spawn as unknown as ReturnType<typeof vi.fn>;
 
+function createMockProcess() {
+  const proc = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+  };
+  proc.stdout = new EventEmitter();
+  proc.stderr = new EventEmitter();
+  return proc;
+}
+
 describe('ContainerManager', () => {
   let manager: InstanceType<typeof ContainerManager>;
 
@@ -30,37 +41,85 @@ describe('ContainerManager', () => {
 
   describe('up', () => {
     it('should return containerId on success', async () => {
-      mockExecFileAsync.mockResolvedValue({
-        stdout: JSON.stringify({ outcome: 'success', containerId: 'abc123' }),
-        stderr: '',
-      });
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
 
-      const result = await manager.up('/workspace/project');
+      const promise = manager.up('/workspace/project');
+
+      proc.stdout.emit('data', Buffer.from(JSON.stringify({ outcome: 'success', containerId: 'abc123' })));
+      proc.emit('close', 0);
+
+      const result = await promise;
 
       expect(result).toEqual({ containerId: 'abc123' });
-      expect(mockExecFileAsync).toHaveBeenCalledWith(
+      expect(mockSpawn).toHaveBeenCalledWith(
         'devcontainer',
         ['up', '--workspace-folder', '/workspace/project'],
-        expect.objectContaining({ maxBuffer: 10 * 1024 * 1024 }),
       );
     });
 
     it('should throw when outcome is not success', async () => {
-      mockExecFileAsync.mockResolvedValue({
-        stdout: JSON.stringify({ outcome: 'error', message: 'build failed' }),
-        stderr: '',
-      });
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
 
-      await expect(manager.up('/workspace/project')).rejects.toThrow('build failed');
+      const promise = manager.up('/workspace/project');
+
+      proc.stdout.emit('data', Buffer.from(JSON.stringify({ outcome: 'error', message: 'build failed' })));
+      proc.emit('close', 1);
+
+      await expect(promise).rejects.toThrow('build failed');
     });
 
     it('should throw with default message when outcome fails without message', async () => {
-      mockExecFileAsync.mockResolvedValue({
-        stdout: JSON.stringify({ outcome: 'error' }),
-        stderr: '',
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const promise = manager.up('/workspace/project');
+
+      proc.stdout.emit('data', Buffer.from(JSON.stringify({ outcome: 'error' })));
+      proc.emit('close', 1);
+
+      await expect(promise).rejects.toThrow('devcontainer up failed');
+    });
+
+    it('should stream stderr lines to onProgress callback', async () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const progressLines: string[] = [];
+      const promise = manager.up('/workspace/project', (line) => {
+        progressLines.push(line);
       });
 
-      await expect(manager.up('/workspace/project')).rejects.toThrow('devcontainer up failed');
+      proc.stderr.emit('data', Buffer.from('Step 1/5: Pulling image...\nStep 2/5: Building...\n'));
+      proc.stdout.emit('data', Buffer.from(JSON.stringify({ outcome: 'success', containerId: 'abc123' })));
+      proc.emit('close', 0);
+
+      await promise;
+
+      expect(progressLines).toEqual(['Step 1/5: Pulling image...', 'Step 2/5: Building...']);
+    });
+
+    it('should reject when spawn emits error', async () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const promise = manager.up('/workspace/project');
+      proc.emit('error', new Error('ENOENT'));
+
+      await expect(promise).rejects.toThrow('Failed to start devcontainer: ENOENT');
+    });
+
+    it('should reject when stdout is not valid JSON', async () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const promise = manager.up('/workspace/project');
+
+      proc.stdout.emit('data', Buffer.from('not json'));
+      proc.emit('close', 0);
+
+      await expect(promise).rejects.toThrow('Failed to parse devcontainer output');
     });
   });
 

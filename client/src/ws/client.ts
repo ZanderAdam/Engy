@@ -357,6 +357,7 @@ export class WsClient {
           cols: msg.cols,
           rows: msg.rows,
           command: msg.command,
+          containerWorkspaceFolder: msg.containerWorkspaceFolder,
         });
         break;
       case 'i':
@@ -482,7 +483,12 @@ export class WsClient {
         repos: repos ?? [],
         containerConfig: config,
       });
-      const result = await this.containerManager.up(workspaceFolder);
+      const result = await this.containerManager.up(workspaceFolder, (line) => {
+        this.send({
+          type: 'CONTAINER_PROGRESS_EVENT',
+          payload: { requestId, line },
+        });
+      });
       this.send({
         type: 'CONTAINER_UP_RESPONSE',
         payload: { requestId, containerId: result.containerId },

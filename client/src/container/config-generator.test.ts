@@ -61,7 +61,7 @@ describe('config-generator', () => {
   });
 
   describe('devcontainerJsonContent', () => {
-    it('should set workspaceMount and workspaceFolder to docsDir', () => {
+    it('should use ${localWorkspaceFolder} for workspaceMount and workspaceFolder', () => {
       const options: ConfigGeneratorOptions = {
         docsDir: '/home/user/projects/my-project',
         repos: ['/home/user/repos/repo1'],
@@ -70,9 +70,9 @@ describe('config-generator', () => {
       const json = devcontainerJsonContent(options) as Record<string, unknown>;
 
       expect(json.workspaceMount).toBe(
-        'source=/home/user/projects/my-project,target=/home/user/projects/my-project,type=bind',
+        'source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind',
       );
-      expect(json.workspaceFolder).toBe('/home/user/projects/my-project');
+      expect(json.workspaceFolder).toBe('${localWorkspaceFolder}');
     });
 
     it('should create bind mounts for repos at their original paths', () => {
@@ -283,7 +283,7 @@ describe('config-generator', () => {
       const jsonContent = await readFile(join(devcontainerDir, 'devcontainer.json'), 'utf-8');
       const parsed = JSON.parse(jsonContent);
       expect(parsed.name).toBe('Engy Sandbox');
-      expect(parsed.workspaceFolder).toBe(tempDir);
+      expect(parsed.workspaceFolder).toBe('${localWorkspaceFolder}');
 
       const dockerfile = await readFile(join(devcontainerDir, 'Dockerfile'), 'utf-8');
       expect(dockerfile).toContain('FROM node:20');

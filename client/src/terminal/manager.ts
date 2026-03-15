@@ -1,7 +1,6 @@
 import pty from 'node-pty';
 import { CircularBuffer } from './circular-buffer.js';
 import { SessionManager } from './session-manager.js';
-import { ContainerManager } from '../container/manager.js';
 import type { PersistentSession } from './types.js';
 
 const SIGTERM_TIMEOUT_MS = 3_000;
@@ -40,25 +39,12 @@ export class TerminalManager {
     }
   }
 
-  private async spawnInContainer(opts: SpawnOptions): Promise<void> {
-    const { sessionId, workingDir, containerWorkspaceFolder: folder } = opts;
-    try {
-      const cm = new ContainerManager();
-      const status = await cm.status(folder!);
-      if (!status.running) {
-        console.log(`[terminal] Starting container for ${folder}...`);
-        await cm.up(folder!);
-      }
-    } catch (err) {
-      this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: 1 }));
-      console.error(`[terminal] Failed to start container for session ${sessionId}:`, err);
-      return;
-    }
-
+  private spawnInContainer(opts: SpawnOptions): void {
+    const { workingDir, containerWorkspaceFolder: folder = '' } = opts;
     this.spawnPty(opts, 'devcontainer', [
       'exec',
       '--workspace-folder',
-      folder!,
+      folder,
       '/bin/bash',
       '-c',
       `cd '${workingDir.replace(/'/g, "'\\''")}' && exec /bin/bash`,

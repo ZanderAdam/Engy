@@ -32,6 +32,7 @@ export function deriveScope(
       workingDir: projectDir,
       command: buildClaudeCommand({ systemPrompt, additionalDirs: repos }),
       groupKey: `project:${workspaceSlug}:${projectSlug}`,
+      workspaceSlug,
     };
   }
 
@@ -45,6 +46,7 @@ export function deriveScope(
     workingDir: workspaceDir,
     command: buildClaudeCommand({ systemPrompt, additionalDirs: repos }),
     groupKey: `workspace:${workspaceSlug}`,
+    workspaceSlug,
   };
 }
 
@@ -70,6 +72,7 @@ export function useTerminalScope(): TerminalScope {
       workingDir: '',
       command: buildClaudeCommand(),
       groupKey: `workspace:${workspaceSlug}`,
+      workspaceSlug,
     };
   }
 
@@ -80,6 +83,7 @@ export function useTerminalScope(): TerminalScope {
       workingDir: `${workspace.resolvedDir}/projects/${projectSlug}`,
       command: buildClaudeCommand(),
       groupKey: `project:${workspaceSlug}:${projectSlug}`,
+      workspaceSlug,
     };
   }
 

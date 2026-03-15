@@ -10,6 +10,7 @@ export interface TerminalScope {
   workingDir: string;
   command?: string;
   groupKey: string;
+  workspaceSlug?: string;
 }
 
 export interface TerminalTab {

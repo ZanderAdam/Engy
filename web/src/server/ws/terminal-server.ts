@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { AppState } from '../trpc/context';
@@ -5,6 +6,7 @@ import type { TerminalSpawnCmd, TerminalReconnectCmd, TerminalErrorEvent } from 
 import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { eq } from 'drizzle-orm';
+import { dispatchContainerUp } from './server';
 
 function parseQueryParams(url: string): URLSearchParams {
   const idx = url.indexOf('?');
@@ -23,6 +25,156 @@ function extractSessionId(raw: string): string | null {
   return m ? m[1] : null;
 }
 
+function sendTerminalOutput(ws: WebSocket, sessionId: string, text: string): void {
+  sendRaw(ws, JSON.stringify({ t: 'o', sessionId, d: text }));
+}
+
+/**
+ * If the workspace has containerEnabled, start the container and stream progress.
+ * Sets spawnCmd.containerWorkspaceFolder on success.
+ * Returns false if container start failed and the connection should be aborted.
+ */
+async function maybeStartContainer(
+  ws: WebSocket,
+  sessionId: string,
+  workspaceSlug: string,
+  spawnCmd: TerminalSpawnCmd,
+  state: AppState,
+): Promise<boolean> {
+  let workspace;
+  try {
+    const db = getDb();
+    workspace = db.select().from(workspaces).where(eq(workspaces.slug, workspaceSlug)).get();
+  } catch {
+    return true; // DB unavailable — spawn without container
+  }
+
+  if (!workspace?.containerEnabled || !workspace.docsDir) return true;
+
+  spawnCmd.containerWorkspaceFolder = workspace.docsDir;
+  sendTerminalOutput(ws, sessionId, 'Starting dev container...\r\n');
+
+  const requestId = randomUUID();
+  state.containerProgressListeners.set(requestId, (line) => {
+    sendTerminalOutput(ws, sessionId, `\x1b[2m${line}\x1b[0m\r\n`);
+  });
+
+  try {
+    await dispatchContainerUp(
+      state,
+      workspace.docsDir,
+      Array.isArray(workspace.repos) ? workspace.repos : [],
+      workspace.containerConfig ?? undefined,
+      requestId,
+    );
+    sendTerminalOutput(ws, sessionId, '\x1b[32mContainer ready.\x1b[0m\r\n');
+    return true;
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    sendTerminalOutput(ws, sessionId, `\x1b[31mContainer start failed: ${errMsg}\x1b[0m\r\n`);
+    ws.close(1011, 'Container start failed');
+    return false;
+  } finally {
+    state.containerProgressListeners.delete(requestId);
+  }
+}
+
+async function handleTerminalConnection(
+  ws: WebSocket,
+  req: IncomingMessage,
+  state: AppState,
+): Promise<void> {
+  const params = parseQueryParams(req.url ?? '');
+  const sessionId = params.get('sessionId');
+  const workingDir = params.get('workingDir');
+  const command = params.get('command') ?? undefined;
+  const cols = parseInt(params.get('cols') ?? '80', 10);
+  const rows = parseInt(params.get('rows') ?? '24', 10);
+  const scopeType = params.get('scopeType') ?? 'workspace';
+  const scopeLabel = params.get('scopeLabel') ?? '';
+  const groupKey = params.get('groupKey') ?? undefined;
+  const workspaceSlug = params.get('workspaceSlug') ?? '';
+
+  if (!sessionId || !workingDir) {
+    ws.close(1008, 'Missing sessionId or workingDir');
+    return;
+  }
+
+  // Reconnect detection: check both active WS and persisted metadata
+  const oldWs = state.terminalSessions.get(sessionId);
+  if (oldWs && oldWs.readyState === oldWs.OPEN) {
+    oldWs.close(1001, 'Replaced by new connection');
+  }
+  const isReconnect = oldWs !== undefined || state.terminalSessionMeta.has(sessionId);
+  state.terminalSessions.set(sessionId, ws);
+
+  // Persist session metadata for restoration across page refreshes
+  const existingMeta = state.terminalSessionMeta.get(sessionId);
+  if (!existingMeta) {
+    state.terminalSessionMeta.set(sessionId, { scopeType, scopeLabel, workingDir, command, groupKey });
+  } else if (!existingMeta.groupKey && groupKey) {
+    existingMeta.groupKey = groupKey;
+  }
+
+  // Register handlers early so input is forwarded even during container startup
+  ws.on('message', (raw: Buffer | string) => {
+    const str = typeof raw === 'string' ? raw : raw.toString('utf-8');
+
+    // Intercept kill messages to clean up session metadata (rare path)
+    if (str.startsWith('{"t":"kill"')) {
+      const sid = extractSessionId(str);
+      if (sid) {
+        state.terminalSessionMeta.delete(sid);
+        state.terminalSessions.delete(sid);
+      }
+    }
+
+    const td = state.terminalDaemon;
+    if (td && td.readyState === td.OPEN) {
+      td.send(str);
+    }
+  });
+
+  ws.on('close', () => {
+    // Only clear the WS reference — keep terminalSessionMeta for session restoration
+    if (state.terminalSessions.get(sessionId) === ws) {
+      state.terminalSessions.delete(sessionId);
+    }
+  });
+
+  const daemon = state.terminalDaemon;
+  const daemonReady = daemon && daemon.readyState === daemon.OPEN;
+
+  if (isReconnect) {
+    if (daemonReady) {
+      daemon.send(JSON.stringify({ t: 'reconnect', sessionId } satisfies TerminalReconnectCmd));
+    }
+  } else if (daemonReady) {
+    const spawnCmd: TerminalSpawnCmd = {
+      t: 'spawn',
+      sessionId,
+      workingDir,
+      command,
+      cols,
+      rows,
+      scopeType,
+      scopeLabel,
+    };
+
+    if (workspaceSlug) {
+      const ok = await maybeStartContainer(ws, sessionId, workspaceSlug, spawnCmd, state);
+      if (!ok) return;
+    }
+
+    daemon.send(JSON.stringify(spawnCmd));
+  } else {
+    sendRaw(
+      ws,
+      JSON.stringify({ t: 'error', message: 'No daemon connected' } satisfies TerminalErrorEvent),
+    );
+  }
+}
+
 /**
  * Browser → Server WebSocket for terminal connections.
  * Browser sends compact messages ({ t: 'i', sessionId, d } / { t: 'resize', ... }).
@@ -32,104 +184,9 @@ export function createTerminalWebSocketServer(state: AppState): WebSocketServer 
   const wss = new WebSocketServer({ noServer: true });
 
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
-    const params = parseQueryParams(req.url ?? '');
-    const sessionId = params.get('sessionId');
-    const workingDir = params.get('workingDir');
-    const command = params.get('command') ?? undefined;
-    const cols = parseInt(params.get('cols') ?? '80', 10);
-    const rows = parseInt(params.get('rows') ?? '24', 10);
-    const scopeType = params.get('scopeType') ?? 'workspace';
-    const scopeLabel = params.get('scopeLabel') ?? '';
-    const groupKey = params.get('groupKey') ?? undefined;
-
-    if (!sessionId || !workingDir) {
-      ws.close(1008, 'Missing sessionId or workingDir');
-      return;
-    }
-
-    // Reconnect detection: check both active WS and persisted metadata
-    const oldWs = state.terminalSessions.get(sessionId);
-    if (oldWs && oldWs.readyState === oldWs.OPEN) {
-      oldWs.close(1001, 'Replaced by new connection');
-    }
-    const isReconnect = oldWs !== undefined || state.terminalSessionMeta.has(sessionId);
-    state.terminalSessions.set(sessionId, ws);
-
-    // Persist session metadata for restoration across page refreshes
-    const existingMeta = state.terminalSessionMeta.get(sessionId);
-    if (!existingMeta) {
-      state.terminalSessionMeta.set(sessionId, { scopeType, scopeLabel, workingDir, command, groupKey });
-    } else if (!existingMeta.groupKey && groupKey) {
-      existingMeta.groupKey = groupKey;
-    }
-
-    const daemon = state.terminalDaemon;
-    const daemonReady = daemon && daemon.readyState === daemon.OPEN;
-
-    if (isReconnect) {
-      if (daemonReady) {
-        daemon.send(JSON.stringify({ t: 'reconnect', sessionId } satisfies TerminalReconnectCmd));
-      }
-    } else if (daemonReady) {
-      const spawnCmd: TerminalSpawnCmd = {
-        t: 'spawn',
-        sessionId,
-        workingDir,
-        command,
-        cols,
-        rows,
-        scopeType,
-        scopeLabel,
-      };
-
-      if (scopeLabel) {
-        try {
-          const db = getDb();
-          const workspace = db
-            .select()
-            .from(workspaces)
-            .where(eq(workspaces.slug, scopeLabel))
-            .get();
-          if (workspace?.containerEnabled && workspace.docsDir) {
-            spawnCmd.containerWorkspaceFolder = workspace.docsDir;
-          }
-        } catch {
-          // DB unavailable — spawn without container
-        }
-      }
-
-      daemon.send(JSON.stringify(spawnCmd));
-    } else {
-      sendRaw(
-        ws,
-        JSON.stringify({ t: 'error', message: 'No daemon connected' } satisfies TerminalErrorEvent),
-      );
-    }
-
-    // Hot path: forward browser input raw to daemon terminal relay
-    ws.on('message', (raw: Buffer | string) => {
-      const str = typeof raw === 'string' ? raw : raw.toString('utf-8');
-
-      // Intercept kill messages to clean up session metadata (rare path)
-      if (str.startsWith('{"t":"kill"')) {
-        const sid = extractSessionId(str);
-        if (sid) {
-          state.terminalSessionMeta.delete(sid);
-          state.terminalSessions.delete(sid);
-        }
-      }
-
-      const td = state.terminalDaemon;
-      if (td && td.readyState === td.OPEN) {
-        td.send(str);
-      }
-    });
-
-    ws.on('close', () => {
-      // Only clear the WS reference — keep terminalSessionMeta for session restoration
-      if (state.terminalSessions.get(sessionId) === ws) {
-        state.terminalSessions.delete(sessionId);
-      }
+    handleTerminalConnection(ws, req, state).catch((err: unknown) => {
+      console.error('Terminal connection error:', err);
+      if (ws.readyState === ws.OPEN) ws.close(1011, 'Internal error');
     });
   });
 

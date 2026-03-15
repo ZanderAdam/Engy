@@ -26,6 +26,7 @@ export type {
   ContainerDownResponseMessage,
   ContainerStatusRequestMessage,
   ContainerStatusResponseMessage,
+  ContainerProgressEventMessage,
   TerminalSpawnCmd,
   TerminalInputCmd,
   TerminalResizeCmd,

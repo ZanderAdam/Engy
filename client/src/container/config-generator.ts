@@ -64,8 +64,8 @@ export function devcontainerJsonContent(options: ConfigGeneratorOptions): object
     },
     runArgs: ['--cap-add=NET_ADMIN', '--cap-add=NET_RAW'],
     remoteUser: 'node',
-    workspaceMount: `source=${docsDir},target=${docsDir},type=bind`,
-    workspaceFolder: docsDir,
+    workspaceMount: 'source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind',
+    workspaceFolder: '${localWorkspaceFolder}',
     mounts,
     containerEnv,
     postStartCommand: 'sudo /usr/local/bin/init-firewall.sh',
@@ -116,9 +116,8 @@ RUN mkdir -p /usr/local/share/npm-global && \\
 
 ARG USERNAME=node
 
-# Persist bash history.
-RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \\
-  && mkdir /commandhistory \\
+# Persist bash history
+RUN mkdir /commandhistory \\
   && touch /commandhistory/.bash_history \\
   && chown -R $USERNAME /commandhistory
 

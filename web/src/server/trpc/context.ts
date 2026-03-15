@@ -130,6 +130,8 @@ export interface AppState {
   terminalDaemon: WebSocket | null;
   /** Browser WebSockets subscribed to file change events */
   fileChangeListeners: Set<WebSocket>;
+  /** Callbacks for streaming container build progress to terminals */
+  containerProgressListeners: Map<string, (line: string) => void>;
 }
 
 const GLOBAL_KEY = '__engy_app_state__' as const;
@@ -156,6 +158,7 @@ export function getAppState(): AppState {
       terminalSessionMeta: new Map(),
       terminalDaemon: null,
       fileChangeListeners: new Set(),
+      containerProgressListeners: new Map(),
     };
   }
   return g[GLOBAL_KEY] as AppState;

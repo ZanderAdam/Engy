@@ -6,7 +6,7 @@ import type {
   SearchFilesRequestMessage,
   ContainerUpRequestMessage,
 } from '@engy/common';
-import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowResult, GitBranchFilesResult, ContainerUpResult, ContainerDownResult, ContainerStatusResult } from '../trpc/context';
+import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowResult, GitBranchFilesResult, ContainerUpResult } from '../trpc/context';
 import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { handleSpecFileChange } from '../spec/watcher';
@@ -15,7 +15,7 @@ const MAX_EVENTS_PER_WORKSPACE = 100;
 const VALIDATION_TIMEOUT_MS = 5_000;
 const FILE_SEARCH_TIMEOUT_MS = 10_000;
 const GIT_TIMEOUT_MS = 15_000;
-const CONTAINER_TIMEOUT_MS = 60_000;
+const CONTAINER_TIMEOUT_MS = 300_000;
 
 export function createWebSocketServer(state: AppState): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
@@ -121,6 +121,11 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
         containerId: p.containerId,
       }));
       break;
+    case 'CONTAINER_PROGRESS_EVENT': {
+      const listener = state.containerProgressListeners.get(msg.payload.requestId);
+      if (listener) listener(msg.payload.line);
+      break;
+    }
   }
 }
 
@@ -309,6 +314,7 @@ function dispatchDaemonOp<T>(
   messageType: string,
   payload: Record<string, unknown>,
   timeoutMs: number = GIT_TIMEOUT_MS,
+  explicitRequestId?: string,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     if (!state.daemon || state.daemon.readyState !== state.daemon.OPEN) {
@@ -316,7 +322,12 @@ function dispatchDaemonOp<T>(
       return;
     }
 
-    const requestId = randomUUID();
+    const requestId = explicitRequestId ?? randomUUID();
+
+    if (pendingMap.has(requestId)) {
+      reject(new Error(`Duplicate requestId: ${requestId}`));
+      return;
+    }
 
     const timeout = setTimeout(() => {
       pendingMap.delete(requestId);
@@ -386,6 +397,7 @@ export function dispatchContainerUp(
   workspaceFolder: string,
   repos?: string[],
   config?: ContainerUpRequestMessage['payload']['config'],
+  requestId?: string,
 ): Promise<ContainerUpResult> {
   return dispatchDaemonOp(
     state,
@@ -393,31 +405,6 @@ export function dispatchContainerUp(
     'CONTAINER_UP_REQUEST',
     { workspaceFolder, repos, config },
     CONTAINER_TIMEOUT_MS,
-  );
-}
-
-export function dispatchContainerDown(
-  state: AppState,
-  workspaceFolder: string,
-): Promise<ContainerDownResult> {
-  return dispatchDaemonOp(
-    state,
-    state.pendingContainerDown,
-    'CONTAINER_DOWN_REQUEST',
-    { workspaceFolder },
-    CONTAINER_TIMEOUT_MS,
-  );
-}
-
-export function dispatchContainerStatus(
-  state: AppState,
-  workspaceFolder: string,
-): Promise<ContainerStatusResult> {
-  return dispatchDaemonOp(
-    state,
-    state.pendingContainerStatus,
-    'CONTAINER_STATUS_REQUEST',
-    { workspaceFolder },
-    CONTAINER_TIMEOUT_MS,
+    requestId,
   );
 }
