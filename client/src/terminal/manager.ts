@@ -11,6 +11,7 @@ interface SpawnOptions {
   cols: number;
   rows: number;
   command?: string;
+  containerWorkspaceFolder?: string;
 }
 
 export class TerminalManager {
@@ -26,20 +27,41 @@ export class TerminalManager {
   }
 
   spawn(opts: SpawnOptions): void {
-    const { sessionId, workingDir, cols, rows, command } = opts;
+    const { sessionId, workingDir, cols, rows, command, containerWorkspaceFolder } = opts;
 
     const shell = process.env.SHELL ?? '/bin/bash';
 
     let ptyProcess: ReturnType<typeof pty.spawn>;
     try {
-      ptyProcess = pty.spawn(shell, [], {
-        name: 'xterm-256color',
-        cols,
-        rows,
-        cwd: workingDir,
-        env: { ...process.env },
-        handleFlowControl: true,
-      });
+      if (containerWorkspaceFolder) {
+        ptyProcess = pty.spawn(
+          'devcontainer',
+          [
+            'exec',
+            '--workspace-folder',
+            containerWorkspaceFolder,
+            '/bin/bash',
+            '-c',
+            `cd '${workingDir.replace(/'/g, "'\\''")}' && exec /bin/bash`,
+          ],
+          {
+            name: 'xterm-256color',
+            cols,
+            rows,
+            env: { ...process.env },
+            handleFlowControl: true,
+          },
+        );
+      } else {
+        ptyProcess = pty.spawn(shell, [], {
+          name: 'xterm-256color',
+          cols,
+          rows,
+          cwd: workingDir,
+          env: { ...process.env },
+          handleFlowControl: true,
+        });
+      }
     } catch (err) {
       this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: 1 }));
       console.error(`[terminal] Failed to spawn PTY for session ${sessionId}:`, err);

@@ -288,6 +288,7 @@ export interface TerminalSpawnCmd {
   rows: number;
   scopeType: string;
   scopeLabel: string;
+  containerWorkspaceFolder?: string;
 }
 
 export interface TerminalInputCmd {

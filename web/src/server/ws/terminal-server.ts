@@ -2,6 +2,9 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { AppState } from '../trpc/context';
 import type { TerminalSpawnCmd, TerminalReconnectCmd, TerminalErrorEvent } from '@engy/common';
+import { getDb } from '../db/client';
+import { workspaces } from '../db/schema';
+import { eq } from 'drizzle-orm';
 
 function parseQueryParams(url: string): URLSearchParams {
   const idx = url.indexOf('?');
@@ -68,18 +71,34 @@ export function createTerminalWebSocketServer(state: AppState): WebSocketServer 
         daemon.send(JSON.stringify({ t: 'reconnect', sessionId } satisfies TerminalReconnectCmd));
       }
     } else if (daemonReady) {
-      daemon.send(
-        JSON.stringify({
-          t: 'spawn',
-          sessionId,
-          workingDir,
-          command,
-          cols,
-          rows,
-          scopeType,
-          scopeLabel,
-        } satisfies TerminalSpawnCmd),
-      );
+      const spawnCmd: TerminalSpawnCmd = {
+        t: 'spawn',
+        sessionId,
+        workingDir,
+        command,
+        cols,
+        rows,
+        scopeType,
+        scopeLabel,
+      };
+
+      if (scopeLabel) {
+        try {
+          const db = getDb();
+          const workspace = db
+            .select()
+            .from(workspaces)
+            .where(eq(workspaces.slug, scopeLabel))
+            .get();
+          if (workspace?.containerEnabled && workspace.docsDir) {
+            spawnCmd.containerWorkspaceFolder = workspace.docsDir;
+          }
+        } catch {
+          // DB unavailable — spawn without container
+        }
+      }
+
+      daemon.send(JSON.stringify(spawnCmd));
     } else {
       sendRaw(
         ws,
