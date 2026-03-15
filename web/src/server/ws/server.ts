@@ -5,8 +5,6 @@ import type {
   ValidatePathsRequestMessage,
   SearchFilesRequestMessage,
   ContainerUpRequestMessage,
-  ContainerDownRequestMessage,
-  ContainerStatusRequestMessage,
 } from '@engy/common';
 import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowResult, GitBranchFilesResult, ContainerUpResult, ContainerDownResult, ContainerStatusResult } from '../trpc/context';
 import { getDb } from '../db/client';
@@ -83,42 +81,42 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       handleFileChange(msg, state);
       break;
     case 'GIT_STATUS_RESPONSE':
-      resolveGitResponse(msg.payload, state.pendingGitStatus, (p) => ({
+      resolvePendingResponse(msg.payload, state.pendingGitStatus, (p) => ({
         files: p.files,
         branch: p.branch,
       }));
       break;
     case 'GIT_DIFF_RESPONSE':
-      resolveGitResponse(msg.payload, state.pendingGitDiff, (p) => p.diff);
+      resolvePendingResponse(msg.payload, state.pendingGitDiff, (p) => p.diff);
       break;
     case 'GIT_LOG_RESPONSE':
-      resolveGitResponse(msg.payload, state.pendingGitLog, (p) => ({
+      resolvePendingResponse(msg.payload, state.pendingGitLog, (p) => ({
         commits: p.commits,
       }));
       break;
     case 'GIT_SHOW_RESPONSE':
-      resolveGitResponse(msg.payload, state.pendingGitShow, (p) => ({
+      resolvePendingResponse(msg.payload, state.pendingGitShow, (p) => ({
         diff: p.diff,
         files: p.files,
       }));
       break;
     case 'GIT_BRANCH_FILES_RESPONSE':
-      resolveGitResponse(msg.payload, state.pendingGitBranchFiles, (p) => ({
+      resolvePendingResponse(msg.payload, state.pendingGitBranchFiles, (p) => ({
         files: p.files,
       }));
       break;
     case 'CONTAINER_UP_RESPONSE':
-      resolveGitResponse(msg.payload, state.pendingContainerUp, (p) => ({
+      resolvePendingResponse(msg.payload, state.pendingContainerUp, (p) => ({
         containerId: p.containerId,
       }));
       break;
     case 'CONTAINER_DOWN_RESPONSE':
-      resolveGitResponse(msg.payload, state.pendingContainerDown, (p) => ({
+      resolvePendingResponse(msg.payload, state.pendingContainerDown, (p) => ({
         success: p.success,
       }));
       break;
     case 'CONTAINER_STATUS_RESPONSE':
-      resolveGitResponse(msg.payload, state.pendingContainerStatus, (p) => ({
+      resolvePendingResponse(msg.payload, state.pendingContainerStatus, (p) => ({
         running: p.running,
         containerId: p.containerId,
       }));
@@ -284,9 +282,9 @@ export function dispatchValidation(
   });
 }
 
-// ── Git response handler ────────────────────────────────────────────────────
+// ── Pending response handler ────────────────────────────────────────────────
 
-function resolveGitResponse<T>(
+function resolvePendingResponse<T>(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payload: any,
   pendingMap: Map<string, { resolve: (result: T) => void; reject: (reason: Error) => void }>,
@@ -303,9 +301,9 @@ function resolveGitResponse<T>(
   }
 }
 
-// ── Git dispatch functions ──────────────────────────────────────────────────
+// ── Daemon dispatch functions ───────────────────────────────────────────────
 
-function dispatchGitOp<T>(
+function dispatchDaemonOp<T>(
   state: AppState,
   pendingMap: Map<string, { resolve: (result: T) => void; reject: (reason: Error) => void }>,
   messageType: string,
@@ -322,7 +320,7 @@ function dispatchGitOp<T>(
 
     const timeout = setTimeout(() => {
       pendingMap.delete(requestId);
-      reject(new Error(`Git operation timed out after ${timeoutMs}ms`));
+      reject(new Error(`Daemon operation timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
     pendingMap.set(requestId, {
@@ -344,7 +342,7 @@ export function dispatchGitStatus(
   repoDir: string,
   state: AppState,
 ): Promise<GitStatusResult> {
-  return dispatchGitOp(state, state.pendingGitStatus, 'GIT_STATUS_REQUEST', { repoDir });
+  return dispatchDaemonOp(state, state.pendingGitStatus, 'GIT_STATUS_REQUEST', { repoDir });
 }
 
 export function dispatchGitDiff(
@@ -354,7 +352,7 @@ export function dispatchGitDiff(
   base?: string,
   staged?: boolean,
 ): Promise<string> {
-  return dispatchGitOp(state, state.pendingGitDiff, 'GIT_DIFF_REQUEST', { repoDir, filePath, base, staged });
+  return dispatchDaemonOp(state, state.pendingGitDiff, 'GIT_DIFF_REQUEST', { repoDir, filePath, base, staged });
 }
 
 export function dispatchGitLog(
@@ -362,7 +360,7 @@ export function dispatchGitLog(
   state: AppState,
   maxCount?: number,
 ): Promise<GitLogResult> {
-  return dispatchGitOp(state, state.pendingGitLog, 'GIT_LOG_REQUEST', { repoDir, maxCount });
+  return dispatchDaemonOp(state, state.pendingGitLog, 'GIT_LOG_REQUEST', { repoDir, maxCount });
 }
 
 export function dispatchGitShow(
@@ -370,7 +368,7 @@ export function dispatchGitShow(
   commitHash: string,
   state: AppState,
 ): Promise<GitShowResult> {
-  return dispatchGitOp(state, state.pendingGitShow, 'GIT_SHOW_REQUEST', { repoDir, commitHash });
+  return dispatchDaemonOp(state, state.pendingGitShow, 'GIT_SHOW_REQUEST', { repoDir, commitHash });
 }
 
 export function dispatchGitBranchFiles(
@@ -378,7 +376,7 @@ export function dispatchGitBranchFiles(
   base: string,
   state: AppState,
 ): Promise<GitBranchFilesResult> {
-  return dispatchGitOp(state, state.pendingGitBranchFiles, 'GIT_BRANCH_FILES_REQUEST', { repoDir, base });
+  return dispatchDaemonOp(state, state.pendingGitBranchFiles, 'GIT_BRANCH_FILES_REQUEST', { repoDir, base });
 }
 
 // ── Container dispatch functions ─────────────────────────────────────────────
@@ -386,13 +384,14 @@ export function dispatchGitBranchFiles(
 export function dispatchContainerUp(
   state: AppState,
   workspaceFolder: string,
+  repos?: string[],
   config?: ContainerUpRequestMessage['payload']['config'],
 ): Promise<ContainerUpResult> {
-  return dispatchGitOp(
+  return dispatchDaemonOp(
     state,
     state.pendingContainerUp,
     'CONTAINER_UP_REQUEST',
-    { workspaceFolder, config },
+    { workspaceFolder, repos, config },
     CONTAINER_TIMEOUT_MS,
   );
 }
@@ -401,7 +400,7 @@ export function dispatchContainerDown(
   state: AppState,
   workspaceFolder: string,
 ): Promise<ContainerDownResult> {
-  return dispatchGitOp(
+  return dispatchDaemonOp(
     state,
     state.pendingContainerDown,
     'CONTAINER_DOWN_REQUEST',
@@ -414,7 +413,7 @@ export function dispatchContainerStatus(
   state: AppState,
   workspaceFolder: string,
 ): Promise<ContainerStatusResult> {
-  return dispatchGitOp(
+  return dispatchDaemonOp(
     state,
     state.pendingContainerStatus,
     'CONTAINER_STATUS_REQUEST',

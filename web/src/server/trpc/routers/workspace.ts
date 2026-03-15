@@ -22,7 +22,7 @@ const containerConfigSchema = z
     allowedDomains: z.array(z.string()).optional(),
     extraPackages: z.array(z.string()).optional(),
     envVars: z.record(z.string(), z.string()).optional(),
-    idleTimeout: z.number().optional(),
+    idleTimeout: z.number().min(1).optional(),
   })
   .optional();
 

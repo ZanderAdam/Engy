@@ -6,6 +6,7 @@ const CLEANUP_INTERVAL_MS = 30_000;
 export class SessionManager {
   private readonly sessions = new Map<string, PersistentSession>();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private onExpire: ((sessionId: string) => void) | null = null;
 
   start(): void {
     this.cleanupTimer = setInterval(() => this.cleanup(), CLEANUP_INTERVAL_MS);
@@ -17,6 +18,10 @@ export class SessionManager {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
     }
+  }
+
+  setExpireCallback(cb: (sessionId: string) => void): void {
+    this.onExpire = cb;
   }
 
   get(sessionId: string): PersistentSession | undefined {
@@ -43,6 +48,11 @@ export class SessionManager {
         session.suspendedAt !== undefined &&
         now - session.suspendedAt > SESSION_EXPIRY_MS
       ) {
+        const suspendedSec = Math.round((now - session.suspendedAt) / 1000);
+        console.log(
+          `[terminal] Session ${id} expired after ${suspendedSec}s suspended, killing PTY`,
+        );
+        this.onExpire?.(id);
         try {
           session.ptyProcess.kill();
         } catch {

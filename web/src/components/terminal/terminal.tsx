@@ -120,7 +120,14 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
         }
       } else if (msg.t === 'exit') {
         onStatusChange(sessionId, 'exited');
-        term.write('\r\n\x1b[2m[Process exited]\x1b[0m\r\n');
+        const code = msg.exitCode ?? 0;
+        const label =
+          code === -1
+            ? 'Session expired (disconnected too long)'
+            : code === 0
+              ? 'Process exited'
+              : `Process exited with code ${code}`;
+        term.write(`\r\n\x1b[2m[${label}]\x1b[0m\r\n`);
       } else if (msg.t === 'error') {
         onStatusChange(sessionId, 'error');
         term.write('\r\n\x1b[31m[Error: no daemon connected]\x1b[0m\r\n');

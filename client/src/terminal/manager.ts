@@ -1,6 +1,7 @@
 import pty from 'node-pty';
 import { CircularBuffer } from './circular-buffer.js';
 import { SessionManager } from './session-manager.js';
+import { ContainerManager } from '../container/manager.js';
 import type { PersistentSession } from './types.js';
 
 const SIGTERM_TIMEOUT_MS = 3_000;
@@ -20,6 +21,9 @@ export class TerminalManager {
 
   constructor(sessions: SessionManager = new SessionManager()) {
     this.sessions = sessions;
+    this.sessions.setExpireCallback((sessionId) => {
+      this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: -1 }));
+    });
   }
 
   setSendCallback(cb: (msg: string) => void): void {
@@ -27,41 +31,63 @@ export class TerminalManager {
   }
 
   spawn(opts: SpawnOptions): void {
-    const { sessionId, workingDir, cols, rows, command, containerWorkspaceFolder } = opts;
+    const { containerWorkspaceFolder } = opts;
 
+    if (containerWorkspaceFolder) {
+      this.spawnInContainer(opts);
+    } else {
+      this.spawnLocal(opts);
+    }
+  }
+
+  private async spawnInContainer(opts: SpawnOptions): Promise<void> {
+    const { sessionId, workingDir, containerWorkspaceFolder: folder } = opts;
+    try {
+      const cm = new ContainerManager();
+      const status = await cm.status(folder!);
+      if (!status.running) {
+        console.log(`[terminal] Starting container for ${folder}...`);
+        await cm.up(folder!);
+      }
+    } catch (err) {
+      this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: 1 }));
+      console.error(`[terminal] Failed to start container for session ${sessionId}:`, err);
+      return;
+    }
+
+    this.spawnPty(opts, 'devcontainer', [
+      'exec',
+      '--workspace-folder',
+      folder!,
+      '/bin/bash',
+      '-c',
+      `cd '${workingDir.replace(/'/g, "'\\''")}' && exec /bin/bash`,
+    ]);
+  }
+
+  private spawnLocal(opts: SpawnOptions): void {
     const shell = process.env.SHELL ?? '/bin/bash';
+    this.spawnPty(opts, shell, [], opts.workingDir);
+  }
+
+  private spawnPty(
+    opts: SpawnOptions,
+    cmd: string,
+    args: string[],
+    cwd?: string,
+  ): void {
+    const { sessionId, workingDir, cols, rows, command } = opts;
 
     let ptyProcess: ReturnType<typeof pty.spawn>;
     try {
-      if (containerWorkspaceFolder) {
-        ptyProcess = pty.spawn(
-          'devcontainer',
-          [
-            'exec',
-            '--workspace-folder',
-            containerWorkspaceFolder,
-            '/bin/bash',
-            '-c',
-            `cd '${workingDir.replace(/'/g, "'\\''")}' && exec /bin/bash`,
-          ],
-          {
-            name: 'xterm-256color',
-            cols,
-            rows,
-            env: { ...process.env },
-            handleFlowControl: true,
-          },
-        );
-      } else {
-        ptyProcess = pty.spawn(shell, [], {
-          name: 'xterm-256color',
-          cols,
-          rows,
-          cwd: workingDir,
-          env: { ...process.env },
-          handleFlowControl: true,
-        });
-      }
+      ptyProcess = pty.spawn(cmd, args, {
+        name: 'xterm-256color',
+        cols,
+        rows,
+        ...(cwd ? { cwd } : {}),
+        env: { ...process.env },
+        handleFlowControl: true,
+      });
     } catch (err) {
       this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: 1 }));
       console.error(`[terminal] Failed to spawn PTY for session ${sessionId}:`, err);
@@ -96,8 +122,12 @@ export class TerminalManager {
       }
     });
 
-    ptyProcess.onExit(({ exitCode }) => {
-      this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: exitCode ?? 0 }));
+    ptyProcess.onExit(({ exitCode, signal }) => {
+      const code = exitCode ?? 0;
+      console.log(
+        `[terminal] Session ${sessionId} exited: code=${code}${signal ? ` signal=${signal}` : ''}`,
+      );
+      this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: code }));
       this.sessions.delete(sessionId);
     });
   }
@@ -162,6 +192,7 @@ export class TerminalManager {
   suspend(sessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
+    console.log(`[terminal] Session ${sessionId} suspended (WS disconnected)`);
     session.state = 'suspended';
     session.suspendedAt = Date.now();
   }

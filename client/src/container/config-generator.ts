@@ -1,5 +1,5 @@
 import { mkdir, writeFile, access } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve, relative } from 'node:path';
 
 export interface ConfigGeneratorOptions {
   docsDir: string;
@@ -26,9 +26,14 @@ export function rewriteLocalhostUrls(envVars: Record<string, string>): Record<st
 export function devcontainerJsonContent(options: ConfigGeneratorOptions): object {
   const { docsDir, repos, containerConfig } = options;
 
+  const resolvedDocsDir = resolve(docsDir);
   const repoMounts = repos
     .filter((repo, index, arr) => {
-      if (repo.startsWith(docsDir + '/') || repo === docsDir) return false;
+      const resolvedRepo = resolve(repo);
+      const rel = relative(resolvedDocsDir, resolvedRepo);
+      if (resolvedRepo === resolvedDocsDir || (!rel.startsWith('..') && !rel.startsWith('/'))) {
+        return false;
+      }
       return arr.indexOf(repo) === index;
     })
     .map((repo) => `source=${repo},target=${repo},type=bind`);
@@ -158,7 +163,6 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 
 # Install Claude
 RUN npm install -g @anthropic-ai/claude-code@\${CLAUDE_CODE_VERSION}
-
 
 # Copy and set up firewall script
 COPY init-firewall.sh /usr/local/bin/
@@ -326,7 +330,7 @@ export async function generateDevcontainerConfig(options: ConfigGeneratorOptions
     await access(devcontainerDir);
     return;
   } catch {
-    // Directory doesn't exist, proceed with generation
+    // expected when directory doesn't exist yet
   }
 
   await mkdir(devcontainerDir, { recursive: true });

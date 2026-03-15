@@ -113,7 +113,7 @@ describe('TerminalManager', () => {
   let manager: TerminalManager;
   let sent: string[];
   let onDataCallback: ((data: string) => void) | null;
-  let onExitCallback: ((ev: { exitCode: number }) => void) | null;
+  let onExitCallback: ((ev: { exitCode: number; signal?: number }) => void) | null;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -125,10 +125,12 @@ describe('TerminalManager', () => {
       onDataCallback = cb;
       return { dispose: vi.fn() };
     });
-    mockPtyProcess.onExit.mockImplementation((cb: (ev: { exitCode: number }) => void) => {
-      onExitCallback = cb;
-      return { dispose: vi.fn() };
-    });
+    mockPtyProcess.onExit.mockImplementation(
+      (cb: (ev: { exitCode: number; signal?: number }) => void) => {
+        onExitCallback = cb;
+        return { dispose: vi.fn() };
+      },
+    );
 
     sessions = new SessionManager();
     manager = new TerminalManager(sessions);
@@ -238,6 +240,17 @@ describe('TerminalManager', () => {
     expect(msg.t).toBe('exit');
     expect(msg.sessionId).toBe('unknown');
     expect(msg.exitCode).toBe(-1);
+  });
+
+  it('sends exit with code -1 when session expires', () => {
+    // The constructor wires up an expire callback on the SessionManager.
+    // Access it via the private field to simulate an expiry event.
+    const cb = (sessions as unknown as { onExpire: (id: string) => void }).onExpire;
+    cb('expired-session');
+
+    expect(sent).toHaveLength(1);
+    const msg = JSON.parse(sent[0]);
+    expect(msg).toEqual({ t: 'exit', sessionId: 'expired-session', exitCode: -1 });
   });
 
   it('ignores write for unknown or expired session', () => {

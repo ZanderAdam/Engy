@@ -1,11 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { RiAddLine, RiCloseLine } from '@remixicon/react';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import type { ContainerConfig } from '@/server/db/schema';
 
 export interface ContainerSettingsData {
@@ -20,119 +19,76 @@ interface ContainerSettingsProps {
   onChange: (data: ContainerSettingsData) => void;
 }
 
-function initialList(items: string[] | undefined): string[] {
-  return items && items.length > 0 ? items : [];
+function linesToList(text: string): string[] {
+  return text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
 }
 
-function initialEnvVars(
-  envVars: Record<string, string> | undefined,
-): Array<{ key: string; value: string }> {
-  if (!envVars || Object.keys(envVars).length === 0) return [];
-  return Object.entries(envVars).map(([key, value]) => ({ key, value }));
+function listToLines(items: string[] | undefined): string {
+  return items?.join('\n') ?? '';
+}
+
+function envVarsToLines(envVars: Record<string, string> | undefined): string {
+  if (!envVars) return '';
+  return Object.entries(envVars)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n');
+}
+
+function linesToEnvVars(text: string): Record<string, string> | undefined {
+  const lines = linesToList(text);
+  if (lines.length === 0) return undefined;
+  const result: Record<string, string> = {};
+  for (const line of lines) {
+    const eqIdx = line.indexOf('=');
+    if (eqIdx < 0) continue;
+    const key = line.slice(0, eqIdx).trim();
+    if (key) {
+      result[key] = line.slice(eqIdx + 1).trim();
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 export function ContainerSettings({ initialData, onChange }: ContainerSettingsProps) {
   const [containerEnabled, setContainerEnabled] = useState(initialData.containerEnabled);
-  const [allowedDomains, setAllowedDomains] = useState<string[]>(
-    initialList(initialData.containerConfig?.allowedDomains),
-  );
-  const [extraPackages, setExtraPackages] = useState<string[]>(
-    initialList(initialData.containerConfig?.extraPackages),
-  );
-  const [envVars, setEnvVars] = useState<Array<{ key: string; value: string }>>(
-    initialEnvVars(initialData.containerConfig?.envVars),
-  );
-  const [idleTimeout, setIdleTimeout] = useState<number>(
-    initialData.containerConfig?.idleTimeout ?? 30,
-  );
-  const [maxConcurrency, setMaxConcurrency] = useState(initialData.maxConcurrency);
   const [autoStart, setAutoStart] = useState(initialData.autoStart);
+  const [maxConcurrency, setMaxConcurrency] = useState(initialData.maxConcurrency);
+  const [idleTimeout, setIdleTimeout] = useState(initialData.containerConfig?.idleTimeout ?? 30);
+  const [domains, setDomains] = useState(listToLines(initialData.containerConfig?.allowedDomains));
+  const [packages, setPackages] = useState(listToLines(initialData.containerConfig?.extraPackages));
+  const [envVars, setEnvVars] = useState(envVarsToLines(initialData.containerConfig?.envVars));
 
-  function emitChange(overrides: Partial<{
+  function emit(overrides: Partial<{
     containerEnabled: boolean;
-    allowedDomains: string[];
-    extraPackages: string[];
-    envVars: Array<{ key: string; value: string }>;
-    idleTimeout: number;
-    maxConcurrency: number;
     autoStart: boolean;
+    maxConcurrency: number;
+    idleTimeout: number;
+    domains: string;
+    packages: string;
+    envVars: string;
   }>) {
     const enabled = overrides.containerEnabled ?? containerEnabled;
-    const domains = overrides.allowedDomains ?? allowedDomains;
-    const packages = overrides.extraPackages ?? extraPackages;
-    const vars = overrides.envVars ?? envVars;
-    const timeout = overrides.idleTimeout ?? idleTimeout;
-    const concurrency = overrides.maxConcurrency ?? maxConcurrency;
     const start = overrides.autoStart ?? autoStart;
-
-    const envRecord: Record<string, string> = {};
-    for (const { key, value } of vars) {
-      if (key.trim()) envRecord[key.trim()] = value;
-    }
+    const concurrency = overrides.maxConcurrency ?? maxConcurrency;
+    const timeout = overrides.idleTimeout ?? idleTimeout;
+    const doms = overrides.domains ?? domains;
+    const pkgs = overrides.packages ?? packages;
+    const vars = overrides.envVars ?? envVars;
 
     onChange({
       containerEnabled: enabled,
+      autoStart: start,
+      maxConcurrency: concurrency,
       containerConfig: {
-        allowedDomains: domains.filter((d) => d.trim() !== ''),
-        extraPackages: packages.filter((p) => p.trim() !== ''),
-        envVars: Object.keys(envRecord).length > 0 ? envRecord : undefined,
+        allowedDomains: linesToList(doms),
+        extraPackages: linesToList(pkgs),
+        envVars: linesToEnvVars(vars),
         idleTimeout: timeout,
       },
-      maxConcurrency: concurrency,
-      autoStart: start,
     });
-  }
-
-  // List editor helpers
-  function addDomain() {
-    const next = [...allowedDomains, ''];
-    setAllowedDomains(next);
-    emitChange({ allowedDomains: next });
-  }
-  function removeDomain(i: number) {
-    const next = allowedDomains.filter((_, idx) => idx !== i);
-    setAllowedDomains(next);
-    emitChange({ allowedDomains: next });
-  }
-  function updateDomain(i: number, value: string) {
-    const next = [...allowedDomains];
-    next[i] = value;
-    setAllowedDomains(next);
-    emitChange({ allowedDomains: next });
-  }
-
-  function addPackage() {
-    const next = [...extraPackages, ''];
-    setExtraPackages(next);
-    emitChange({ extraPackages: next });
-  }
-  function removePackage(i: number) {
-    const next = extraPackages.filter((_, idx) => idx !== i);
-    setExtraPackages(next);
-    emitChange({ extraPackages: next });
-  }
-  function updatePackage(i: number, value: string) {
-    const next = [...extraPackages];
-    next[i] = value;
-    setExtraPackages(next);
-    emitChange({ extraPackages: next });
-  }
-
-  function addEnvVar() {
-    const next = [...envVars, { key: '', value: '' }];
-    setEnvVars(next);
-    emitChange({ envVars: next });
-  }
-  function removeEnvVar(i: number) {
-    const next = envVars.filter((_, idx) => idx !== i);
-    setEnvVars(next);
-    emitChange({ envVars: next });
-  }
-  function updateEnvVar(i: number, field: 'key' | 'value', val: string) {
-    const next = [...envVars];
-    next[i] = { ...next[i], [field]: val };
-    setEnvVars(next);
-    emitChange({ envVars: next });
   }
 
   return (
@@ -144,7 +100,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
           checked={containerEnabled}
           onCheckedChange={(checked) => {
             setContainerEnabled(checked);
-            emitChange({ containerEnabled: checked });
+            emit({ containerEnabled: checked });
           }}
         />
       </div>
@@ -156,126 +112,88 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
           checked={autoStart}
           onCheckedChange={(checked) => {
             setAutoStart(checked);
-            emitChange({ autoStart: checked });
+            emit({ autoStart: checked });
           }}
         />
       </div>
 
+      <div className="flex gap-4">
+        <div className="flex flex-1 flex-col gap-2">
+          <Label htmlFor="container-max-concurrency">Max concurrency</Label>
+          <Input
+            id="container-max-concurrency"
+            type="number"
+            min={1}
+            value={maxConcurrency}
+            onChange={(e) => {
+              const val = Math.max(1, parseInt(e.target.value) || 1);
+              setMaxConcurrency(val);
+              emit({ maxConcurrency: val });
+            }}
+          />
+        </div>
+        <div className="flex flex-1 flex-col gap-2">
+          <Label htmlFor="container-idle-timeout">Idle timeout (min)</Label>
+          <Input
+            id="container-idle-timeout"
+            type="number"
+            min={1}
+            value={idleTimeout}
+            onChange={(e) => {
+              const val = Math.max(1, parseInt(e.target.value) || 1);
+              setIdleTimeout(val);
+              emit({ idleTimeout: val });
+            }}
+          />
+        </div>
+      </div>
+
       <div className="flex flex-col gap-2">
-        <Label htmlFor="container-max-concurrency">Max concurrency</Label>
-        <Input
-          id="container-max-concurrency"
-          type="number"
-          min={1}
-          value={maxConcurrency}
+        <Label htmlFor="container-domains">Allowed domains</Label>
+        <Textarea
+          id="container-domains"
+          className="font-mono"
+          rows={3}
+          placeholder={'example.com\napi.custom.io'}
+          value={domains}
           onChange={(e) => {
-            const val = Math.max(1, parseInt(e.target.value) || 1);
-            setMaxConcurrency(val);
-            emitChange({ maxConcurrency: val });
+            setDomains(e.target.value);
+            emit({ domains: e.target.value });
           }}
         />
+        <p className="text-xs text-muted-foreground">One domain per line</p>
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="container-idle-timeout">Idle timeout (minutes)</Label>
-        <Input
-          id="container-idle-timeout"
-          type="number"
-          min={1}
-          value={idleTimeout}
+        <Label htmlFor="container-packages">Extra packages</Label>
+        <Textarea
+          id="container-packages"
+          className="font-mono"
+          rows={3}
+          placeholder={'python3\ncurl'}
+          value={packages}
           onChange={(e) => {
-            const val = Math.max(1, parseInt(e.target.value) || 1);
-            setIdleTimeout(val);
-            emitChange({ idleTimeout: val });
+            setPackages(e.target.value);
+            emit({ packages: e.target.value });
           }}
         />
+        <p className="text-xs text-muted-foreground">One apt package per line</p>
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Allowed domains</Label>
-        {allowedDomains.map((domain, i) => (
-          <div key={i} className="flex gap-2">
-            <Input
-              className="flex-1"
-              value={domain}
-              onChange={(e) => updateDomain(i, e.target.value)}
-              placeholder="example.com"
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={`Remove domain ${i + 1}`}
-              onClick={() => removeDomain(i)}
-            >
-              <RiCloseLine />
-            </Button>
-          </div>
-        ))}
-        <Button type="button" variant="ghost" size="sm" className="w-fit" onClick={addDomain}>
-          <RiAddLine data-icon="inline-start" />
-          Add domain
-        </Button>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label>Extra packages</Label>
-        {extraPackages.map((pkg, i) => (
-          <div key={i} className="flex gap-2">
-            <Input
-              className="flex-1"
-              value={pkg}
-              onChange={(e) => updatePackage(i, e.target.value)}
-              placeholder="package-name"
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={`Remove package ${i + 1}`}
-              onClick={() => removePackage(i)}
-            >
-              <RiCloseLine />
-            </Button>
-          </div>
-        ))}
-        <Button type="button" variant="ghost" size="sm" className="w-fit" onClick={addPackage}>
-          <RiAddLine data-icon="inline-start" />
-          Add package
-        </Button>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label>Environment variables</Label>
-        {envVars.map((env, i) => (
-          <div key={i} className="flex gap-2">
-            <Input
-              className="flex-1 font-mono"
-              value={env.key}
-              onChange={(e) => updateEnvVar(i, 'key', e.target.value)}
-              placeholder="KEY"
-            />
-            <Input
-              className="flex-1"
-              value={env.value}
-              onChange={(e) => updateEnvVar(i, 'value', e.target.value)}
-              placeholder="value"
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={`Remove variable ${i + 1}`}
-              onClick={() => removeEnvVar(i)}
-            >
-              <RiCloseLine />
-            </Button>
-          </div>
-        ))}
-        <Button type="button" variant="ghost" size="sm" className="w-fit" onClick={addEnvVar}>
-          <RiAddLine data-icon="inline-start" />
-          Add variable
-        </Button>
+        <Label htmlFor="container-envvars">Environment variables</Label>
+        <Textarea
+          id="container-envvars"
+          className="font-mono"
+          rows={3}
+          placeholder={'API_KEY=secret\nNODE_ENV=production'}
+          value={envVars}
+          onChange={(e) => {
+            setEnvVars(e.target.value);
+            emit({ envVars: e.target.value });
+          }}
+        />
+        <p className="text-xs text-muted-foreground">KEY=value, one per line</p>
       </div>
     </div>
   );

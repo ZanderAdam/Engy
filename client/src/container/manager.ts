@@ -15,11 +15,16 @@ export class ContainerManager {
       ['up', '--workspace-folder', workspaceFolder],
       { maxBuffer: EXEC_MAX_BUFFER },
     );
-    const result = JSON.parse(stdout);
+    let result: { outcome: string; containerId?: string; message?: string };
+    try {
+      result = JSON.parse(stdout);
+    } catch {
+      throw new Error(`Failed to parse devcontainer output: ${stdout.slice(0, 200)}`);
+    }
     if (result.outcome !== 'success') {
       throw new Error(result.message || 'devcontainer up failed');
     }
-    return { containerId: result.containerId };
+    return { containerId: result.containerId! };
   }
 
   /**

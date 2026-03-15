@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import { useRef, useState } from "react";
-import { RiAddLine, RiCloseLine, RiDeleteBinLine } from "@remixicon/react";
-import { trpc } from "@/lib/trpc";
+import { useRef, useState } from 'react';
+import { RiAddLine, RiCloseLine, RiDeleteBinLine } from '@remixicon/react';
+import { trpc } from '@/lib/trpc';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,23 +12,20 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import {
-  ContainerSettings,
-  type ContainerSettingsData,
-} from "@/components/workspace/container-settings";
-import type { ContainerConfig } from "@/server/db/schema";
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ContainerSettings, type ContainerSettingsData } from '@/components/workspace/container-settings';
+import type { ContainerConfig } from '@/server/db/schema';
 
 interface EditWorkspaceDialogProps {
   workspace: {
@@ -51,7 +48,7 @@ interface EditWorkspaceDialogProps {
 }
 
 function initialRepos(repos: string[] | null): string[] {
-  return repos && repos.length > 0 ? repos : [""];
+  return repos && repos.length > 0 ? repos : [''];
 }
 
 export function EditWorkspaceDialog({
@@ -64,10 +61,10 @@ export function EditWorkspaceDialog({
   const [name, setName] = useState(workspace.name);
   const [slug, setSlug] = useState(workspace.slug);
   const [slugTouched, setSlugTouched] = useState(false);
-  const [docsDir, setDocsDir] = useState(workspace.docsDir ?? "");
+  const [docsDir, setDocsDir] = useState(workspace.docsDir ?? '');
   const [repos, setRepos] = useState<string[]>(initialRepos(workspace.repos));
-  const [planSkill, setPlanSkill] = useState(workspace.planSkill ?? "");
-  const [implementSkill, setImplementSkill] = useState(workspace.implementSkill ?? "");
+  const [planSkill, setPlanSkill] = useState(workspace.planSkill ?? '');
+  const [implementSkill, setImplementSkill] = useState(workspace.implementSkill ?? '');
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const containerDataRef = useRef<ContainerSettingsData>({
@@ -84,9 +81,7 @@ export function EditWorkspaceDialog({
       onOpenChange(false);
       onDeleted?.();
     },
-    onError: (err) => {
-      setError(err.message);
-    },
+    onError: (err) => setError(err.message),
   });
 
   const updateMutation = trpc.workspace.update.useMutation({
@@ -94,13 +89,11 @@ export function EditWorkspaceDialog({
       onSaved(slug);
       onOpenChange(false);
     },
-    onError: (err) => {
-      setError(err.message);
-    },
+    onError: (err) => setError(err.message),
   });
 
   function addRepo() {
-    setRepos([...repos, ""]);
+    setRepos([...repos, '']);
   }
 
   function removeRepo(index: number) {
@@ -117,7 +110,7 @@ export function EditWorkspaceDialog({
     e.preventDefault();
     setError(null);
 
-    const filteredRepos = repos.map((r) => r.trim()).filter((r) => r !== "");
+    const filteredRepos = repos.map((r) => r.trim()).filter((r) => r !== '');
     const trimmedDocsDir = docsDir.trim();
     const container = containerDataRef.current;
     updateMutation.mutate({
@@ -138,9 +131,9 @@ export function EditWorkspaceDialog({
   function deriveSlug(value: string): string {
     return value
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "");
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
   }
 
   function handleNameChange(newName: string) {
@@ -155,10 +148,10 @@ export function EditWorkspaceDialog({
       setName(workspace.name);
       setSlug(workspace.slug);
       setSlugTouched(false);
-      setDocsDir(workspace.docsDir ?? "");
+      setDocsDir(workspace.docsDir ?? '');
       setRepos(initialRepos(workspace.repos));
-      setPlanSkill(workspace.planSkill ?? "");
-      setImplementSkill(workspace.implementSkill ?? "");
+      setPlanSkill(workspace.planSkill ?? '');
+      setImplementSkill(workspace.implementSkill ?? '');
       setError(null);
       setDeleteConfirmOpen(false);
       containerDataRef.current = {
@@ -179,100 +172,108 @@ export function EditWorkspaceDialog({
             <DialogTitle>Edit Workspace</DialogTitle>
             <DialogDescription>Update workspace settings.</DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-4 py-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-workspace-name">Name</Label>
-              <Input
-                id="edit-workspace-name"
-                value={name}
-                onChange={(e) => handleNameChange(e.target.value)}
-                required
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-workspace-slug">Slug</Label>
-              <Input
-                id="edit-workspace-slug"
-                value={slug}
-                onChange={(e) => {
-                  setSlug(e.target.value);
-                  setSlugTouched(true);
-                }}
-                className="font-mono"
-                required
-              />
-              <p className="text-xs text-muted-foreground">
-                Used in the URL: /w/{slug || "..."}
-              </p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-workspace-docs-dir">Docs location</Label>
-              <Input
-                id="edit-workspace-docs-dir"
-                value={docsDir}
-                onChange={(e) => setDocsDir(e.target.value)}
-                placeholder="/path/to/docs"
-              />
-              <p className="text-xs text-muted-foreground">
-                Leave blank to use the default Engy data directory.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label>Repository paths</Label>
-              {repos.map((repo, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    className="flex-1"
-                    value={repo}
-                    onChange={(e) => updateRepo(i, e.target.value)}
-                    placeholder="/path/to/repo"
-                  />
-                  {repos.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Remove path ${i + 1}`}
-                      onClick={() => removeRepo(i)}
-                    >
-                      <RiCloseLine />
-                    </Button>
-                  )}
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="w-fit"
-                onClick={addRepo}
-              >
-                <RiAddLine data-icon="inline-start" />
-                Add path
-              </Button>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label>Task skills</Label>
-              <p className="text-xs text-muted-foreground">
-                Slash commands invoked by the Plan/Implement buttons.
-              </p>
-              <Input
-                aria-label="Plan skill"
-                value={planSkill}
-                onChange={(e) => setPlanSkill(e.target.value)}
-                placeholder="/engy:plan (plan)"
-              />
-              <Input
-                aria-label="Implement skill"
-                value={implementSkill}
-                onChange={(e) => setImplementSkill(e.target.value)}
-                placeholder="/engy:implement (implement)"
-              />
-            </div>
-            <Separator />
 
-            <div className="flex flex-col gap-4">
-              <Label className="text-sm font-medium">Container Settings</Label>
+          <Tabs defaultValue="general" className="flex flex-col gap-2 py-4">
+            <TabsList>
+              <TabsTrigger value="general">General</TabsTrigger>
+              <TabsTrigger value="container">Container</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="general">
+              <div className="flex flex-col gap-4 pt-4">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="edit-workspace-name">Name</Label>
+                  <Input
+                    id="edit-workspace-name"
+                    value={name}
+                    onChange={(e) => handleNameChange(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="edit-workspace-slug">Slug</Label>
+                  <Input
+                    id="edit-workspace-slug"
+                    value={slug}
+                    onChange={(e) => {
+                      setSlug(e.target.value);
+                      setSlugTouched(true);
+                    }}
+                    className="font-mono"
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Used in the URL: /w/{slug || '...'}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="edit-workspace-docs-dir">Docs location</Label>
+                  <Input
+                    id="edit-workspace-docs-dir"
+                    value={docsDir}
+                    onChange={(e) => setDocsDir(e.target.value)}
+                    placeholder="/path/to/docs"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave blank to use the default Engy data directory.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label>Repository paths</Label>
+                  {repos.map((repo, i) => (
+                    <div key={i} className="flex gap-2">
+                      <Input
+                        className="flex-1"
+                        value={repo}
+                        onChange={(e) => updateRepo(i, e.target.value)}
+                        placeholder="/path/to/repo"
+                      />
+                      {repos.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Remove path ${i + 1}`}
+                          onClick={() => removeRepo(i)}
+                        >
+                          <RiCloseLine />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-fit"
+                    onClick={addRepo}
+                  >
+                    <RiAddLine data-icon="inline-start" />
+                    Add path
+                  </Button>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label>Task skills</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Slash commands invoked by the Plan/Implement buttons.
+                  </p>
+                  <Input
+                    aria-label="Plan skill"
+                    value={planSkill}
+                    onChange={(e) => setPlanSkill(e.target.value)}
+                    placeholder="/engy:plan (plan)"
+                  />
+                  <Input
+                    aria-label="Implement skill"
+                    value={implementSkill}
+                    onChange={(e) => setImplementSkill(e.target.value)}
+                    placeholder="/engy:implement (implement)"
+                  />
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="container">
               <ContainerSettings
                 initialData={{
                   containerEnabled: workspace.containerEnabled ?? false,
@@ -284,11 +285,10 @@ export function EditWorkspaceDialog({
                   containerDataRef.current = data;
                 }}
               />
-            </div>
+            </TabsContent>
+          </Tabs>
 
-            {error && <p className="text-xs text-destructive">{error}</p>}
-          </div>
-          <Separator />
+          {error && <p className="text-xs text-destructive">{error}</p>}
           <div className="flex items-center justify-between pt-4">
             <Button
               type="button"
@@ -301,7 +301,7 @@ export function EditWorkspaceDialog({
               Delete workspace
             </Button>
             <Button type="submit" disabled={updateMutation.isPending || !name.trim()}>
-              {updateMutation.isPending ? "Saving..." : "Save"}
+              {updateMutation.isPending ? 'Saving...' : 'Save'}
             </Button>
           </div>
         </form>
@@ -326,7 +326,7 @@ export function EditWorkspaceDialog({
                 deleteMutation.mutate({ id: workspace.id });
               }}
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

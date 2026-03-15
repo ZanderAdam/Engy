@@ -1,5 +1,5 @@
 ---
-title: Diff Viewer + Review\
+title: Diff Viewer + Review
 status: active
 ---
 

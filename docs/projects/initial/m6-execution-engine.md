@@ -1,8 +1,7 @@
-***
-
-title: Execution Engine\
+---
+title: Execution Engine
 status: draft
--------------
+---
 
 # Plan: M6 Execution Engine
 
