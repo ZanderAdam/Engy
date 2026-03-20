@@ -55,7 +55,7 @@ Trophy testing pattern with BDD style — maximize vertical-slice integration te
 These are non-negotiable and must be verified before committing:
 1. Run `/engy:review` when done with changes
 2. Run `pnpm blt` 
-3. If UI changes, test in Chrome to verify no hydration errors or unexpected behavior
+3. If UI changes, test using playwright-cli. Check `playwright-cli --help` for available commands.
 
 ### Validation Setup
 1. Run `pnpm install` to ensure all dependencies are up to date

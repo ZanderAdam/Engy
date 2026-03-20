@@ -17,6 +17,7 @@ web/tsconfig.tsbuildinfo
 
 # Data
 .dev-engy/
+.playwright-cli/
 
 # Coverage
 coverage/
