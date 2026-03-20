@@ -36,6 +36,7 @@ import { reconcileAnchors } from "./comments/reconcile";
 import { formatCommentsForExport } from "./format-comments";
 import { SendToTerminalButton } from "../terminal/send-to-terminal-button";
 import { trpc } from "@/lib/trpc";
+import { stripFrontmatter } from "./frontmatter";
 
 export { EngyThreadStore } from "./thread-store";
 
@@ -85,6 +86,7 @@ export function DocumentEditor({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoadedHashRef = useRef<number | null>(null);
   const lastContentHashRef = useRef<number | null>(null);
+  const frontmatterRef = useRef('');
   const [hasOpenThreads, setHasOpenThreads] = useState(false);
   const [commentsCollapsed, setCommentsCollapsed] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -167,7 +169,10 @@ export function DocumentEditor({
 
   useEffect(() => {
     if (initialMarkdown == null) return;
-    const hash = simpleHash(initialMarkdown);
+    const { header, body } = stripFrontmatter(initialMarkdown);
+    frontmatterRef.current = header;
+
+    const hash = simpleHash(body);
     if (lastLoadedHashRef.current === hash) return;
 
     lastLoadedHashRef.current = hash;
@@ -175,7 +180,7 @@ export function DocumentEditor({
     readyRef.current = false;
 
     async function loadContent() {
-      const blocks = editor.tryParseMarkdownToBlocks(initialMarkdown);
+      const blocks = editor.tryParseMarkdownToBlocks(body);
       editor.replaceBlocks(editor.document, blocks);
       if (comments) {
         await threadStore.ready;
@@ -203,7 +208,7 @@ export function DocumentEditor({
       if (contentHash === lastContentHashRef.current) return;
       lastContentHashRef.current = contentHash;
       lastLoadedHashRef.current = contentHash;
-      onSaveRef.current(markdown);
+      onSaveRef.current(frontmatterRef.current + markdown);
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
       setShowSaved(true);
       savedTimerRef.current = setTimeout(() => setShowSaved(false), 2000);
