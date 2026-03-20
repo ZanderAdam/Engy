@@ -2,15 +2,9 @@
 
 import { useMemo } from "react";
 import { TaskCard } from "@/components/projects/task-card";
+import type { Task as BaseTask } from "@/components/projects/types";
 
-type Task = {
-  id: number;
-  title: string;
-  status: string;
-  type: string;
-  taskGroupId: number | null;
-  blockedBy: number[];
-};
+type Task = BaseTask & { blockedBy: number[] };
 
 const statusNodeColors: Record<string, string> = {
   todo: "border-muted-foreground/30",

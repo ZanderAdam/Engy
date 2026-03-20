@@ -4,14 +4,7 @@ import { useMemo } from "react";
 import { TaskCard } from "@/components/projects/task-card";
 import { taskStatusOptions } from "@/components/projects/task-status-badge";
 import { DEFAULT_DONE_LIMIT } from "@/components/projects/task-filter";
-
-type Task = {
-  id: number;
-  title: string;
-  status: string;
-  type: string;
-  updatedAt?: string;
-};
+import type { Task } from "@/components/projects/types";
 
 const statusLabels: Record<string, string> = {
   todo: "Todo",

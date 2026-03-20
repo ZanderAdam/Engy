@@ -1,15 +1,7 @@
 "use client";
 
 import { TaskCard } from "@/components/projects/task-card";
-
-type Task = {
-  id: number;
-  title: string;
-  status: string;
-  type: string;
-  importance: string | null;
-  urgency: string | null;
-};
+import type { Task } from "@/components/projects/types";
 
 type Quadrant = {
   label: string;

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { eq, and, type SQL } from 'drizzle-orm';
 import path from 'node:path';
 import { getDb } from '../db/client';
 import { tasks, taskDependencies, taskGroups, fleetingMemories, workspaces, projects } from '../db/schema';
@@ -20,6 +20,17 @@ function mcpResult(data: unknown): McpToolResult {
 
 function mcpError(message: string): McpToolResult {
   return { content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }], isError: true };
+}
+
+function omitKey<T extends Record<string, unknown>, K extends keyof T>(
+  rows: T[],
+  key: K,
+): Omit<T, K>[] {
+  return rows.map((row) => {
+    const copy = { ...row };
+    delete copy[key];
+    return copy;
+  });
 }
 
 // ── McpServer Factory ─────────────────────────────────────────────
@@ -57,7 +68,7 @@ export function attachMCP(server: HttpServer): void {
       } else {
         handleNewSession(req, res);
       }
-    } else if (req.method === 'GET') {
+    } else if (req.method === 'GET' || req.method === 'DELETE') {
       if (!sessionId) {
         res.writeHead(400).end(JSON.stringify({ error: 'Missing mcp-session-id header' }));
         return;
@@ -67,20 +78,13 @@ export function attachMCP(server: HttpServer): void {
         res.writeHead(404).end(JSON.stringify({ error: 'Session not found' }));
         return;
       }
-      transport.handleRequest(req, res);
-    } else if (req.method === 'DELETE') {
-      if (!sessionId) {
-        res.writeHead(400).end(JSON.stringify({ error: 'Missing mcp-session-id header' }));
-        return;
+      if (req.method === 'DELETE') {
+        activeSessions.delete(sessionId);
+        transport.close();
+        res.writeHead(200).end();
+      } else {
+        transport.handleRequest(req, res);
       }
-      const transport = activeSessions.get(sessionId);
-      if (!transport) {
-        res.writeHead(404).end(JSON.stringify({ error: 'Session not found' }));
-        return;
-      }
-      activeSessions.delete(sessionId);
-      transport.close();
-      res.writeHead(200).end();
     } else {
       res.writeHead(405).end('Method Not Allowed');
     }
@@ -137,21 +141,18 @@ function attachSpecPaths<T extends { projectId: number | null; specId: string | 
 
   const db = getDb();
   const wsCache = new Map<number, WorkspaceRow>();
+  const projectWsMap = new Map<number, WorkspaceRow>();
 
-  const projectRows = projectIds.map((id) => db.select().from(projects).where(eq(projects.id, id)).get()).filter(Boolean);
+  const projectRows = projectIds
+    .map((id) => db.select().from(projects).where(eq(projects.id, id)).get())
+    .filter((p): p is NonNullable<typeof p> => p != null);
   for (const p of projectRows) {
-    if (p && !wsCache.has(p.workspaceId)) {
+    if (!wsCache.has(p.workspaceId)) {
       const ws = db.select().from(workspaces).where(eq(workspaces.id, p.workspaceId)).get();
       if (ws) wsCache.set(p.workspaceId, ws);
     }
-  }
-
-  const projectWsMap = new Map<number, WorkspaceRow>();
-  for (const p of projectRows) {
-    if (p) {
-      const ws = wsCache.get(p.workspaceId);
-      if (ws) projectWsMap.set(p.id, ws);
-    }
+    const ws = wsCache.get(p.workspaceId);
+    if (ws) projectWsMap.set(p.id, ws);
   }
 
   return rows.map((r) => {
@@ -166,6 +167,17 @@ function attachSpecPaths<T extends { projectId: number | null; specId: string | 
 
 function registerWorkspaceTools(mcp: McpServer): void {
   mcp.tool(
+    'listWorkspaces',
+    'List all workspaces with id, name, and slug for discovery',
+    {},
+    async () => {
+      const db = getDb();
+      const rows = db.select().from(workspaces).all();
+      return mcpResult(rows.map((w) => ({ id: w.id, name: w.name, slug: w.slug })));
+    },
+  );
+
+  mcp.tool(
     'getWorkspaceDetails',
     'Get workspace details with filesystem paths for direct file access',
     {
@@ -178,14 +190,13 @@ function registerWorkspaceTools(mcp: McpServer): void {
 
       const projectRows = db.select().from(projects).where(eq(projects.workspaceId, workspaceId)).all();
 
+      const wsPaths = resolveWorkspacePaths(ws);
       return mcpResult({
         ...ws,
-        paths: resolveWorkspacePaths(ws),
+        paths: wsPaths,
         projects: projectRows.map((p) => ({
           ...p,
-          projectDir: p.projectDir
-            ? path.join(resolveWorkspacePaths(ws).specsDir, p.projectDir)
-            : null,
+          projectDir: p.projectDir ? path.join(wsPaths.specsDir, p.projectDir) : null,
         })),
       });
     },
@@ -193,7 +204,7 @@ function registerWorkspaceTools(mcp: McpServer): void {
 
   mcp.tool(
     'listProjects',
-    'List projects, optionally filtered by workspace',
+    'List projects (id, name, slug) optionally filtered by workspace',
     {
       workspaceId: z.number().optional().describe('Filter by workspace ID'),
     },
@@ -273,7 +284,7 @@ function registerTaskTools(mcp: McpServer): void {
         return t;
       });
 
-      return mcpResult({ ...task, blockedBy: dedupedBlockedBy });
+      return mcpResult({ id: task.id });
     },
   );
 
@@ -292,6 +303,8 @@ function registerTaskTools(mcp: McpServer): void {
       blockedBy: z.array(z.number()).optional().describe('IDs of tasks that block this task'),
       milestoneRef: z.string().nullable().optional().describe('New milestone ref (e.g. "m1")'),
       taskGroupId: z.number().nullable().optional().describe('New task group ID'),
+      projectId: z.number().nullable().optional().describe('New project ID'),
+      specId: z.string().nullable().optional().describe('New specification ID'),
     },
     async ({ id, blockedBy, ...updates }) => {
       const db = getDb();
@@ -322,29 +335,36 @@ function registerTaskTools(mcp: McpServer): void {
       });
       if (!result) return mcpError('Task not found');
 
-      return mcpResult(attachBlockedBy([result])[0]);
+      return mcpResult({ success: true });
     },
   );
 
   mcp.tool(
     'listTasks',
-    'List tasks, optionally filtered by project, milestone, or task group',
+    'List tasks with combined filters (AND logic). Compact mode (default) omits descriptions.',
     {
       projectId: z.number().optional().describe('Filter by project ID'),
       milestoneRef: z.string().optional().describe('Filter by milestone ref (e.g. "m1")'),
       taskGroupId: z.number().optional().describe('Filter by task group ID'),
+      compact: z.boolean().default(true).describe('Omit description field (default true)'),
     },
-    async ({ projectId, milestoneRef, taskGroupId }) => {
+    async ({ projectId, milestoneRef, taskGroupId, compact }) => {
       const db = getDb();
-      const query = db.select().from(tasks);
 
-      let rows;
-      if (taskGroupId) rows = query.where(eq(tasks.taskGroupId, taskGroupId)).all();
-      else if (milestoneRef) rows = query.where(eq(tasks.milestoneRef, milestoneRef)).all();
-      else if (projectId) rows = query.where(eq(tasks.projectId, projectId)).all();
-      else rows = query.all();
+      const conditions: SQL[] = [];
+      if (projectId !== undefined) conditions.push(eq(tasks.projectId, projectId));
+      if (milestoneRef !== undefined) conditions.push(eq(tasks.milestoneRef, milestoneRef));
+      if (taskGroupId !== undefined) conditions.push(eq(tasks.taskGroupId, taskGroupId));
 
-      return mcpResult(attachSpecPaths(attachBlockedBy(rows)));
+      const rows = conditions.length > 0
+        ? db.select().from(tasks).where(and(...conditions)).all()
+        : db.select().from(tasks).all();
+
+      const enriched = attachSpecPaths(attachBlockedBy(rows));
+      if (compact !== false) {
+        return mcpResult(omitKey(enriched, 'description'));
+      }
+      return mcpResult(enriched);
     },
   );
 
@@ -359,12 +379,24 @@ function registerTaskTools(mcp: McpServer): void {
       return mcpResult(attachSpecPaths(attachBlockedBy([task]))[0]);
     },
   );
+
+  mcp.tool(
+    'deleteTask',
+    'Delete a task by ID',
+    { id: z.number().describe('Task ID') },
+    async ({ id }) => {
+      const db = getDb();
+      const deleted = db.delete(tasks).where(eq(tasks.id, id)).returning().get();
+      if (!deleted) return mcpError('Task not found');
+      return mcpResult({ success: true });
+    },
+  );
 }
 
 function registerTaskGroupTools(mcp: McpServer): void {
   mcp.tool(
     'createTaskGroup',
-    'Create a new task group within a milestone',
+    'Create a new task group within a milestone. Returns the new group ID.',
     {
       milestoneRef: z.string().describe('Milestone ref (e.g. "m1")'),
       name: z.string().describe('Task group name'),
@@ -377,7 +409,7 @@ function registerTaskGroupTools(mcp: McpServer): void {
         .values({ milestoneRef, name, repos })
         .returning()
         .get();
-      return mcpResult(group);
+      return mcpResult({ id: group.id });
     },
   );
 
@@ -390,6 +422,52 @@ function registerTaskGroupTools(mcp: McpServer): void {
       return mcpResult(
         db.select().from(taskGroups).where(eq(taskGroups.milestoneRef, milestoneRef)).all(),
       );
+    },
+  );
+
+  mcp.tool(
+    'getTaskGroup',
+    'Get a task group by ID',
+    { id: z.number().describe('Task group ID') },
+    async ({ id }) => {
+      const db = getDb();
+      const group = db.select().from(taskGroups).where(eq(taskGroups.id, id)).get();
+      if (!group) return mcpError('Task group not found');
+      return mcpResult(group);
+    },
+  );
+
+  mcp.tool(
+    'updateTaskGroup',
+    'Update an existing task group',
+    {
+      id: z.number().describe('Task group ID'),
+      name: z.string().optional().describe('New name'),
+      status: z.enum(['planned', 'active', 'review', 'complete']).optional().describe('New status'),
+      repos: z.array(z.string()).optional().describe('New repository paths'),
+    },
+    async ({ id, ...updates }) => {
+      const db = getDb();
+      const result = db
+        .update(taskGroups)
+        .set({ ...updates, updatedAt: new Date().toISOString() })
+        .where(eq(taskGroups.id, id))
+        .returning()
+        .get();
+      if (!result) return mcpError('Task group not found');
+      return mcpResult({ success: true });
+    },
+  );
+
+  mcp.tool(
+    'deleteTaskGroup',
+    'Delete a task group by ID',
+    { id: z.number().describe('Task group ID') },
+    async ({ id }) => {
+      const db = getDb();
+      const deleted = db.delete(taskGroups).where(eq(taskGroups.id, id)).returning().get();
+      if (!deleted) return mcpError('Task group not found');
+      return mcpResult({ success: true });
     },
   );
 }
@@ -418,18 +496,27 @@ function registerMemoryTools(mcp: McpServer): void {
 
   mcp.tool(
     'listMemories',
-    'List fleeting memories, optionally filtered by workspace or project',
+    'List fleeting memories. Compact mode (default) omits content.',
     {
       workspaceId: z.number().optional().describe('Filter by workspace ID'),
       projectId: z.number().optional().describe('Filter by project ID'),
+      compact: z.boolean().default(true).describe('Omit content field (default true)'),
     },
-    async ({ workspaceId, projectId }) => {
+    async ({ workspaceId, projectId, compact }) => {
       const db = getDb();
-      const query = db.select().from(fleetingMemories);
 
-      if (projectId) return mcpResult(query.where(eq(fleetingMemories.projectId, projectId)).all());
-      if (workspaceId) return mcpResult(query.where(eq(fleetingMemories.workspaceId, workspaceId)).all());
-      return mcpResult(query.all());
+      const conditions: SQL[] = [];
+      if (workspaceId !== undefined) conditions.push(eq(fleetingMemories.workspaceId, workspaceId));
+      if (projectId !== undefined) conditions.push(eq(fleetingMemories.projectId, projectId));
+
+      const rows = conditions.length > 0
+        ? db.select().from(fleetingMemories).where(and(...conditions)).all()
+        : db.select().from(fleetingMemories).all();
+
+      if (compact !== false) {
+        return mcpResult(omitKey(rows, 'content'));
+      }
+      return mcpResult(rows);
     },
   );
 }
