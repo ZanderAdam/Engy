@@ -17,7 +17,7 @@ src/
 └── terminal/
     ├── types.ts              # SessionState, PersistentSession interfaces
     ├── circular-buffer.ts    # Ring buffer for terminal output (1000 lines)
-    ├── session-manager.ts    # Session lifecycle, auto-expiry of suspended sessions
+    ├── session-manager.ts    # Session storage (typed Map wrapper)
     └── manager.ts            # PTY spawning, I/O relay, suspend/resume
 ```
 
@@ -43,13 +43,13 @@ Both auto-reconnect with exponential backoff (1s → 30s max, 20% jitter).
 | `watcher.ts` | Watches `{ENGY_DIR}/{workspace}/specs` and `projects` dirs. Sends `FILE_CHANGE` messages. |
 | `git/index.ts` | Executes git commands via `simple-git` and `execFile`. Returns structured results. |
 | `terminal/manager.ts` | Spawns PTY processes (`node-pty`), relays I/O, manages suspend/resume lifecycle. |
-| `terminal/session-manager.ts` | Stores sessions, auto-expires suspended sessions after 5 minutes. |
+| `terminal/session-manager.ts` | Typed session storage (Map wrapper). |
 
 ## Key Patterns
 
 ### Terminal Session Lifecycle
 
-Sessions transition: `active` → `suspended` (on WS disconnect) → `active` (on reconnect, with buffer replay) or `expired` (after 5 min). Circular buffer stores output during suspension for replay.
+Sessions transition: `active` → `suspended` (on WS disconnect) → `active` (on reconnect, with buffer replay). Circular buffer stores output during suspension for replay.
 
 ### Compact Terminal Messages
 

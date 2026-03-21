@@ -356,8 +356,15 @@ export interface TerminalErrorEvent {
   message: string;
 }
 
+/** Sent by daemon on connect to announce which sessions it still has alive. */
+export interface TerminalSyncEvent {
+  t: 'sync';
+  sessionIds: string[];
+}
+
 export type TerminalRelayEvent =
   | TerminalOutputEvent
   | TerminalExitEvent
   | TerminalReconnectedEvent
-  | TerminalErrorEvent;
+  | TerminalErrorEvent
+  | TerminalSyncEvent;

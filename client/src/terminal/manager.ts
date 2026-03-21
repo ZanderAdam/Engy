@@ -30,7 +30,12 @@ export class TerminalManager {
   }
 
   spawn(opts: SpawnOptions): void {
-    const { containerWorkspaceFolder } = opts;
+    const { sessionId, workingDir, cols, rows, command, containerWorkspaceFolder } = opts;
+
+    console.log(
+      `[terminal] Spawning session ${sessionId}: cwd=${workingDir} cols=${cols} rows=${rows} command=${command ?? '(shell)'}`,
+    );
+    console.log(`[terminal] Active sessions: [${this.sessions.all().map((s) => s.sessionId).join(', ')}]`);
 
     if (containerWorkspaceFolder) {
       this.spawnInContainer(opts);
@@ -80,6 +85,8 @@ export class TerminalManager {
       return;
     }
 
+    console.log(`[terminal] PTY spawned for session ${sessionId}, pid=${ptyProcess.pid}`);
+
     const outputBuffer = new CircularBuffer(1000);
     const session: PersistentSession = {
       ptyProcess,
@@ -100,6 +107,7 @@ export class TerminalManager {
       // Send initial command once we get first output (shell is ready)
       if (command && !session.initialCommandSent) {
         session.initialCommandSent = true;
+        console.log(`[terminal] Sending initial command for session ${sessionId}: ${command}`);
         ptyProcess.write(command + '\r');
       }
 
@@ -111,36 +119,48 @@ export class TerminalManager {
     ptyProcess.onExit(({ exitCode, signal }) => {
       const code = exitCode ?? 0;
       console.log(
-        `[terminal] Session ${sessionId} exited: code=${code}${signal ? ` signal=${signal}` : ''}`,
+        `[terminal] Session ${sessionId} exited: code=${code} signal=${signal ?? 'null'} state=${session.state} pid=${ptyProcess.pid}`,
       );
       this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: code }));
       this.sessions.delete(sessionId);
+      console.log(`[terminal] Remaining sessions: [${this.sessions.all().map((s) => s.sessionId).join(', ')}]`);
     });
   }
 
   write(sessionId: string, data: string): void {
     const session = this.sessions.get(sessionId);
-    if (!session || session.state === 'expired') return;
+    if (!session) {
+      console.warn(`[terminal] write: session ${sessionId} not found, ignoring`);
+      return;
+    }
     try {
       session.ptyProcess.write(data);
-    } catch {
-      // pty may have exited
+    } catch (err) {
+      console.warn(`[terminal] write failed for session ${sessionId}:`, err);
     }
   }
 
   resize(sessionId: string, cols: number, rows: number): void {
     const session = this.sessions.get(sessionId);
-    if (!session || session.state === 'expired') return;
+    if (!session) {
+      console.warn(`[terminal] resize: session ${sessionId} not found, ignoring`);
+      return;
+    }
     try {
       session.ptyProcess.resize(cols, rows);
-    } catch {
-      // pty may have exited
+    } catch (err) {
+      console.warn(`[terminal] resize failed for session ${sessionId}:`, err);
     }
   }
 
   kill(sessionId: string): void {
     const session = this.sessions.get(sessionId);
-    if (!session) return;
+    if (!session) {
+      console.warn(`[terminal] kill: session ${sessionId} not found`);
+      return;
+    }
+
+    console.log(`[terminal] Killing session ${sessionId}, pid=${session.ptyProcess.pid}`);
 
     try {
       session.ptyProcess.kill('SIGTERM');
@@ -149,6 +169,7 @@ export class TerminalManager {
     }
 
     const killTimer = setTimeout(() => {
+      console.log(`[terminal] SIGTERM timeout for session ${sessionId}, sending SIGKILL`);
       try {
         session.ptyProcess.kill('SIGKILL');
       } catch {
@@ -164,10 +185,16 @@ export class TerminalManager {
   handleReconnect(sessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (!session) {
+      console.warn(
+        `[terminal] handleReconnect: session ${sessionId} NOT FOUND — sending exit -1. Known sessions: [${this.sessions.all().map((s) => `${s.sessionId}(${s.state})`).join(', ')}]`,
+      );
       this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: -1 }));
       return;
     }
 
+    console.log(
+      `[terminal] handleReconnect: session ${sessionId} found, state=${session.state}, bufferSize=${session.outputBuffer.toArray().length}`,
+    );
     session.state = 'active';
     session.suspendedAt = undefined;
 
@@ -177,8 +204,13 @@ export class TerminalManager {
 
   suspend(sessionId: string): void {
     const session = this.sessions.get(sessionId);
-    if (!session) return;
-    console.log(`[terminal] Session ${sessionId} suspended (WS disconnected)`);
+    if (!session) {
+      console.warn(`[terminal] suspend: session ${sessionId} not found`);
+      return;
+    }
+    console.log(
+      `[terminal] Session ${sessionId} suspended (WS disconnected), state was=${session.state}, pid=${session.ptyProcess.pid}`,
+    );
     session.state = 'suspended';
     session.suspendedAt = Date.now();
   }

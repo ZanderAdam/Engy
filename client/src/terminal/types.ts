@@ -1,7 +1,7 @@
 import type { IPty } from 'node-pty';
 import type { CircularBuffer } from './circular-buffer.js';
 
-export type SessionState = 'active' | 'suspended' | 'expired';
+export type SessionState = 'active' | 'suspended';
 
 export interface PersistentSession {
   ptyProcess: IPty;

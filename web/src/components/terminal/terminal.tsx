@@ -88,6 +88,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
     wsRef.current = ws;
 
     ws.onopen = () => {
+      console.log(`[terminal-ui] WS open for session ${sessionId}`);
       onStatusChange(sessionId, 'active');
       ws.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
       onReady?.(sessionId, {
@@ -115,13 +116,15 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
       if (msg.t === 'o' && msg.d) {
         term.write(msg.d);
       } else if (msg.t === 'reconnected' && msg.buffer) {
+        console.log(`[terminal-ui] Reconnected session ${sessionId}, buffer lines: ${msg.buffer.length}`);
         term.clear();
         for (const line of msg.buffer) {
           term.write(line);
         }
       } else if (msg.t === 'exit') {
-        onStatusChange(sessionId, 'exited');
         const code = msg.exitCode ?? 0;
+        console.log(`[terminal-ui] Exit for session ${sessionId}: code=${code}`);
+        onStatusChange(sessionId, 'exited');
         const label =
           code === -1
             ? 'Session expired (disconnected too long)'
@@ -130,9 +133,24 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
               : `Process exited with code ${code}`;
         term.write(`\r\n\x1b[2m[${label}]\x1b[0m\r\n`);
       } else if (msg.t === 'error') {
+        console.error(`[terminal-ui] Error for session ${sessionId}: no daemon`);
         onStatusChange(sessionId, 'error');
         term.write('\r\n\x1b[31m[Error: no daemon connected]\x1b[0m\r\n');
       }
+    };
+
+    ws.onclose = (event) => {
+      console.log(`[terminal-ui] WS closed for session ${sessionId}: code=${event.code} reason=${event.reason}`);
+    };
+
+    ws.onerror = (event) => {
+      if (isCleanedUp) return;
+      const readyStates = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'] as const;
+      console.error(
+        `[terminal-ui] WS error for session ${sessionId}: ` +
+          `state=${readyStates[ws.readyState]} url=${ws.url}`,
+        event,
+      );
     };
 
     // Intercept Shift+Enter to send shell line continuation

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { IPty } from 'node-pty';
 import { CircularBuffer } from './circular-buffer.js';
 import { SessionManager } from './session-manager.js';
@@ -57,10 +57,6 @@ describe('SessionManager', () => {
 
   beforeEach(() => {
     mgr = new SessionManager();
-  });
-
-  afterEach(() => {
-    mgr.stop();
   });
 
   it('stores and retrieves sessions', () => {
@@ -135,10 +131,6 @@ describe('TerminalManager', () => {
     sessions = new SessionManager();
     manager = new TerminalManager(sessions);
     manager.setSendCallback((msg) => sent.push(msg));
-  });
-
-  afterEach(() => {
-    sessions.stop();
   });
 
   it('spawns a pty process with correct options', () => {

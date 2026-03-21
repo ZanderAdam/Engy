@@ -37,5 +37,6 @@ export type {
   TerminalExitEvent,
   TerminalReconnectedEvent,
   TerminalErrorEvent,
+  TerminalSyncEvent,
   TerminalRelayEvent,
 } from './ws/protocol.js';

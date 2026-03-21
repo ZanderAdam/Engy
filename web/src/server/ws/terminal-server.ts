@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { AppState } from '../trpc/context';
-import type { TerminalSpawnCmd, TerminalReconnectCmd, TerminalErrorEvent } from '@engy/common';
+import type { TerminalSpawnCmd, TerminalReconnectCmd, TerminalErrorEvent, TerminalSyncEvent } from '@engy/common';
 import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { eq } from 'drizzle-orm';
@@ -132,6 +132,7 @@ async function handleTerminalConnection(
     if (str.startsWith('{"t":"kill"')) {
       const sid = extractSessionId(str);
       if (sid) {
+        console.log(`[terminal] Kill intercepted for session ${sid}`);
         state.terminalSessionMeta.delete(sid);
         state.terminalSessions.delete(sid);
       }
@@ -140,10 +141,16 @@ async function handleTerminalConnection(
     const td = state.terminalDaemon;
     if (td && td.readyState === td.OPEN) {
       td.send(str);
+    } else if (!str.startsWith('{"t":"i"')) {
+      // Log non-input messages that can't be forwarded (input is too noisy)
+      console.warn(`[terminal] Cannot forward to daemon (not connected): ${str.slice(0, 100)}`);
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
+    console.log(
+      `[terminal] Browser WS closed for sid=${short}: code=${code} reason=${reason?.toString() ?? ''}`,
+    );
     // Only clear the WS reference — keep terminalSessionMeta for session restoration
     if (state.terminalSessions.get(sessionId) === ws) {
       state.terminalSessions.delete(sessionId);
@@ -192,7 +199,7 @@ async function handleTerminalConnection(
       // Only persist meta after spawn is sent — prevents false reconnects
       // from concurrent connections (React Strict Mode double-mount)
       state.terminalSessionMeta.set(sessionId, {
-        scopeType, scopeLabel, workingDir, command, groupKey, workspaceSlug,
+        scopeType, scopeLabel, workingDir, command, groupKey, workspaceSlug, cols, rows,
       });
     } else {
       console.log(`[terminal] spawn path but no daemon for sid=${short}`);
@@ -228,28 +235,82 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
   const wss = new WebSocketServer({ noServer: true });
 
   wss.on('connection', (ws: WebSocket) => {
-    console.log(`[terminal] daemon relay connected (meta count: ${state.terminalSessionMeta.size})`);
+    console.log(`[terminal-relay] Daemon connected to terminal relay (meta count: ${state.terminalSessionMeta.size})`);
     state.terminalDaemon = ws;
 
     // Hot path: forward daemon terminal output raw to browser
     ws.on('message', (raw: Buffer | string) => {
       const str = typeof raw === 'string' ? raw : raw.toString('utf-8');
+
+      // Handle sync message — daemon announces its known sessions
+      if (str.startsWith('{"t":"sync"')) {
+        try {
+          const sync = JSON.parse(str) as TerminalSyncEvent;
+          const daemonSessionIds = new Set(sync.sessionIds);
+          console.log(
+            `[terminal-relay] Daemon sync: ${daemonSessionIds.size} alive sessions. Server has ${state.terminalSessionMeta.size} meta entries.`,
+          );
+
+          // Respawn or clean up sessions the daemon no longer has
+          for (const [sessionId, meta] of state.terminalSessionMeta) {
+            if (!daemonSessionIds.has(sessionId)) {
+              const browserWs = state.terminalSessions.get(sessionId);
+              if (browserWs && browserWs.readyState === browserWs.OPEN) {
+                // Browser is still connected — respawn the session transparently
+                console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — respawning on daemon`);
+                ws.send(
+                  JSON.stringify({
+                    t: 'spawn',
+                    sessionId,
+                    workingDir: meta.workingDir,
+                    command: meta.command,
+                    cols: meta.cols,
+                    rows: meta.rows,
+                    scopeType: meta.scopeType,
+                    scopeLabel: meta.scopeLabel,
+                  } satisfies TerminalSpawnCmd),
+                );
+              } else {
+                // No browser connected — just clean up
+                console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — no browser, cleaning up`);
+                state.terminalSessions.delete(sessionId);
+                state.terminalSessionMeta.delete(sessionId);
+              }
+            }
+          }
+        } catch {
+          console.warn('[terminal-relay] Failed to parse sync message');
+        }
+        return;
+      }
+
       const sessionId = extractSessionId(str);
       if (!sessionId) return;
 
       const browserWs = state.terminalSessions.get(sessionId);
+
+      // Log non-output messages (output 'o' is too noisy)
+      if (!str.startsWith('{"t":"o"')) {
+        console.log(
+          `[terminal-relay] Daemon→Browser: ${str.slice(0, 150)} | browserWs=${browserWs ? 'found' : 'NOT FOUND'}`,
+        );
+      }
+
       if (browserWs) sendRaw(browserWs, str);
 
       // Exit messages start with {"t":"exit" — no data field to confuse
       const isExit = str.startsWith('{"t":"exit"');
       if (isExit) {
-        console.log(`[terminal] daemon sent exit for sid=${sessionId.slice(0, 8)}`);
+        console.log(`[terminal-relay] Exit for session ${sessionId}, cleaning up meta and WS`);
         state.terminalSessions.delete(sessionId);
         state.terminalSessionMeta.delete(sessionId);
       }
     });
 
-    ws.on('close', () => {
+    ws.on('close', (code, reason) => {
+      console.log(
+        `[terminal-relay] Daemon disconnected: code=${code} reason=${reason?.toString() ?? ''}`,
+      );
       if (state.terminalDaemon === ws) {
         console.log(`[terminal] daemon relay disconnected — clearing ${state.terminalSessionMeta.size} session meta entries`);
         state.terminalDaemon = null;

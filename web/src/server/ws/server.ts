@@ -21,6 +21,8 @@ export function createWebSocketServer(state: AppState): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
   wss.on('connection', (ws: WebSocket) => {
+    console.log('[ws-main-server] New connection');
+
     ws.on('message', (raw: Buffer | string) => {
       let msg: ClientToServerMessage;
       try {
@@ -32,11 +34,19 @@ export function createWebSocketServer(state: AppState): WebSocketServer {
       handleMessage(ws, msg, state);
     });
 
-    ws.on('close', () => {
-      if (state.daemon === ws) {
+    ws.on('close', (code, reason) => {
+      const wasDaemon = state.daemon === ws;
+      console.log(
+        `[ws-main-server] Connection closed: code=${code} reason=${reason?.toString() ?? ''} wasDaemon=${wasDaemon}`,
+      );
+      if (wasDaemon) {
         state.daemon = null;
         rejectAllPending(state);
       }
+    });
+
+    ws.on('error', (err) => {
+      console.error(`[ws-main-server] Error: ${err.message}`);
     });
   });
 
@@ -130,10 +140,15 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
 }
 
 function handleRegister(ws: WebSocket, state: AppState): void {
-  if (state.daemon && state.daemon !== ws && state.daemon.readyState === ws.OPEN) {
-    state.daemon.close();
-  }
+  const oldDaemon = state.daemon !== ws ? state.daemon : null;
+  console.log(`[ws-main-server] REGISTER: hadOldDaemon=${oldDaemon !== null}`);
+
+  // Replace first, then terminate the old one. terminate() (not close()) sends no
+  // close frame, so the client's closure guard (this.ws !== ws) handles it silently.
   state.daemon = ws;
+  if (oldDaemon) {
+    oldDaemon.terminate();
+  }
 
   try {
     const db = getDb();
@@ -150,8 +165,9 @@ function handleRegister(ws: WebSocket, state: AppState): void {
         payload: { workspaces: syncPayload },
       }),
     );
-  } catch {
-    // DB may not be ready during tests
+    console.log(`[ws-main-server] Sent WORKSPACES_SYNC with ${syncPayload.length} workspaces`);
+  } catch (err) {
+    console.error('[ws-main-server] Failed to send WORKSPACES_SYNC:', err);
   }
 }
 

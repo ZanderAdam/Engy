@@ -15,6 +15,8 @@ export interface TerminalSessionMeta {
   command?: string;
   groupKey?: string;
   workspaceSlug?: string;
+  cols: number;
+  rows: number;
 }
 
 export interface GitStatusResult {

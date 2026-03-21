@@ -406,6 +406,69 @@ describe('WsClient terminal relay', () => {
     });
   });
 
+  it('sends sync message with known session IDs on relay connect', async () => {
+    const sessions = [
+      { sessionId: 'a1', state: 'active' },
+      { sessionId: 'b2', state: 'suspended' },
+    ] as PersistentSession[];
+    const mockTm = createMockTerminalManager(sessions);
+    const relayConn = waitForConnection(relayWss);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      terminalManager: mockTm,
+    });
+    client.connect();
+
+    const relayWs = await relayConn;
+    const msg = await new Promise<string>((resolve) => {
+      relayWs.once('message', (data) => resolve(data.toString()));
+    });
+
+    const parsed = JSON.parse(msg);
+    expect(parsed).toEqual({ t: 'sync', sessionIds: ['a1', 'b2'] });
+  });
+
+  it('does not reconnect when a superseded connection closes', async () => {
+    const mockTm = createMockTerminalManager();
+    let relayConn = waitForConnection(relayWss);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      terminalManager: mockTm,
+    });
+    client.connect();
+
+    const relayWs1 = await relayConn;
+    await vi.waitFor(() => {
+      expect(mockTm.setSendCallback).toHaveBeenCalledTimes(1);
+    });
+
+    // Force a reconnect by closing the relay
+    relayConn = waitForConnection(relayWss);
+    relayWs1.close();
+
+    const relayWs2 = await relayConn;
+    await vi.waitFor(() => {
+      expect(mockTm.setSendCallback).toHaveBeenCalledTimes(2);
+    });
+
+    // Now close the OLD relay (ws1) again — this simulates a ghost close event.
+    // The closure guard should prevent a third reconnect.
+    const thirdConn = vi.fn();
+    relayWss.on('connection', thirdConn);
+
+    relayWs1.terminate();
+
+    // Wait a bit and verify no third connection was made
+    await new Promise((r) => setTimeout(r, 300));
+    expect(thirdConn).not.toHaveBeenCalled();
+
+    // Verify ws2 is still the active connection
+    expect(mockTm.setSendCallback).toHaveBeenCalledTimes(2);
+    relayWs2.terminate();
+  });
+
   it('resumes suspended sessions on relay reconnect', async () => {
     const sessions = [
       { sessionId: 'x', state: 'suspended' },

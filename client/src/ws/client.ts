@@ -17,6 +17,7 @@ import type {
   ContainerDownRequestMessage,
   ContainerStatusRequestMessage,
   TerminalRelayCommand,
+  TerminalSyncEvent,
 } from '@engy/common';
 import { getStatusDetailed, getDiff, getLog, getShow, getBranchFiles } from '../git/index.js';
 import { ContainerManager } from '../container/manager.js';
@@ -28,6 +29,7 @@ const execFileAsync = promisify(execFile);
 const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
 const JITTER_FACTOR = 0.2;
+const PING_INTERVAL_MS = 30_000;
 
 interface WsClientOptions {
   serverUrl: string;
@@ -189,6 +191,8 @@ export class WsClient {
   private terminalAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private terminalReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private terminalPingTimer: ReturnType<typeof setInterval> | null = null;
   private intentionallyClosed = false;
   private readonly wsUrl: string;
   private readonly terminalRelayUrl: string;
@@ -216,6 +220,8 @@ export class WsClient {
 
   close(): void {
     this.intentionallyClosed = true;
+    this.stopPing('main');
+    this.stopPing('terminal');
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -234,34 +240,84 @@ export class WsClient {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  private createConnection(): void {
-    this.ws = new WebSocket(this.wsUrl);
+  private startPing(which: 'main' | 'terminal'): void {
+    this.stopPing(which);
+    const timer = setInterval(() => {
+      const ws = which === 'main' ? this.ws : this.terminalWs;
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, PING_INTERVAL_MS);
 
-    this.ws.on('open', () => {
+    if (which === 'main') {
+      this.pingTimer = timer;
+    } else {
+      this.terminalPingTimer = timer;
+    }
+  }
+
+  private stopPing(which: 'main' | 'terminal'): void {
+    const timerKey = which === 'main' ? 'pingTimer' : 'terminalPingTimer';
+    if (this[timerKey]) {
+      clearInterval(this[timerKey]);
+      this[timerKey] = null;
+    }
+  }
+
+  private createConnection(): void {
+    // Terminate old connection immediately to prevent ghost handlers
+    if (this.ws) {
+      this.ws.terminate();
+      this.ws = null;
+    }
+
+    console.log(`[ws-main] Connecting to ${this.wsUrl}`);
+    const ws = new WebSocket(this.wsUrl);
+    this.ws = ws;
+
+    ws.on('open', () => {
+      if (this.ws !== ws) return;
+      console.log('[ws-main] Connected');
       this.attempt = 0;
       this.send({ type: 'REGISTER', payload: {} });
+      this.startPing('main');
     });
 
-    this.ws.on('message', (data) => {
+    ws.on('message', (data) => {
+      if (this.ws !== ws) return;
       this.handleMessage(data);
     });
 
-    this.ws.on('close', () => {
+    ws.on('close', (code, reason) => {
+      if (this.ws !== ws) return;
+      console.log(`[ws-main] Disconnected: code=${code} reason=${reason?.toString() ?? ''}`);
+      this.stopPing('main');
       this.scheduleReconnect();
     });
 
-    this.ws.on('error', () => {
-      // close event follows, which triggers reconnect
+    ws.on('error', (err) => {
+      console.error(`[ws-main] Error: ${err.message}`);
     });
   }
 
   private createTerminalConnection(): void {
     if (!this.terminalManager) return;
 
-    this.terminalWs = new WebSocket(this.terminalRelayUrl);
+    // Terminate old connection immediately to prevent ghost handlers
+    if (this.terminalWs) {
+      this.terminalWs.terminate();
+      this.terminalWs = null;
+    }
 
-    this.terminalWs.on('open', () => {
+    console.log(`[ws-terminal] Connecting to ${this.terminalRelayUrl}`);
+    const ws = new WebSocket(this.terminalRelayUrl);
+    this.terminalWs = ws;
+
+    ws.on('open', () => {
+      if (this.terminalWs !== ws) return;
+      console.log('[ws-terminal] Connected to terminal relay');
       this.terminalAttempt = 0;
+      this.startPing('terminal');
       // Wire terminal manager to send via terminal WS
       this.terminalManager!.setSendCallback((msg) => {
         if (this.terminalWs?.readyState === WebSocket.OPEN) {
@@ -269,29 +325,52 @@ export class WsClient {
         }
       });
 
+      // Announce known sessions so server can clean up stale ones
+      const allSessions = this.terminalManager!.getAllSessions();
+      const sessionIds = allSessions.map((s) => s.sessionId);
+      console.log(`[ws-terminal] Sending sync with ${sessionIds.length} sessions: [${sessionIds.join(', ')}]`);
+      ws.send(JSON.stringify({ t: 'sync', sessionIds } satisfies TerminalSyncEvent));
+
       // Resync: resume any sessions suspended during disconnect
-      for (const session of this.terminalManager!.getAllSessions()) {
-        if (session.state === 'suspended') {
-          this.terminalManager!.handleReconnect(session.sessionId);
-        }
+      const suspended = allSessions.filter((s) => s.state === 'suspended');
+      if (suspended.length > 0) {
+        console.log(
+          `[ws-terminal] Resync: resuming ${suspended.length} suspended sessions: [${suspended.map((s) => s.sessionId).join(', ')}]`,
+        );
+      }
+      for (const session of suspended) {
+        this.terminalManager!.handleReconnect(session.sessionId);
       }
     });
 
-    this.terminalWs.on('message', (data) => {
+    ws.on('message', (data) => {
+      if (this.terminalWs !== ws) return;
       this.handleTerminalMessage(data);
     });
 
-    this.terminalWs.on('close', () => {
+    ws.on('close', (code, reason) => {
+      // Ignore close events from superseded connections
+      if (this.terminalWs !== ws) return;
+      this.stopPing('terminal');
+      console.log(
+        `[ws-terminal] Terminal relay disconnected: code=${code} reason=${reason?.toString() ?? ''}`,
+      );
       // Suspend active sessions so output is buffered, not lost
-      for (const session of this.terminalManager!.getAllSessions()) {
-        if (session.state === 'active') {
-          this.terminalManager!.suspend(session.sessionId);
-        }
+      const allSessions = this.terminalManager!.getAllSessions();
+      const active = allSessions.filter((s) => s.state === 'active');
+      if (active.length > 0) {
+        console.log(
+          `[ws-terminal] Suspending ${active.length} active sessions: [${active.map((s) => s.sessionId).join(', ')}]`,
+        );
+      }
+      for (const session of active) {
+        this.terminalManager!.suspend(session.sessionId);
       }
       this.scheduleTerminalReconnect();
     });
 
-    this.terminalWs.on('error', () => {
+    ws.on('error', (err) => {
+      console.error('[ws-terminal] Terminal relay error:', err.message);
       // close event follows, which triggers reconnect
     });
   }
@@ -346,7 +425,13 @@ export class WsClient {
     try {
       msg = JSON.parse(data.toString()) as TerminalRelayCommand;
     } catch {
+      console.warn('[ws-terminal] Failed to parse terminal message');
       return;
+    }
+
+    // Log non-input messages (input is too noisy)
+    if (msg.t !== 'i') {
+      console.log(`[ws-terminal] Received: t=${msg.t} sessionId=${msg.sessionId}`);
     }
 
     switch (msg.t) {
@@ -539,6 +624,7 @@ export class WsClient {
     if (this.intentionallyClosed) return;
 
     const delay = computeBackoff(this.attempt);
+    console.log(`[ws-main] Scheduling reconnect attempt=${this.attempt} delay=${Math.round(delay)}ms`);
     this.attempt++;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -550,6 +636,7 @@ export class WsClient {
     if (this.intentionallyClosed) return;
 
     const delay = computeBackoff(this.terminalAttempt);
+    console.log(`[ws-terminal] Scheduling reconnect attempt=${this.terminalAttempt} delay=${Math.round(delay)}ms`);
     this.terminalAttempt++;
     this.terminalReconnectTimer = setTimeout(() => {
       this.terminalReconnectTimer = null;
