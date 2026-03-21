@@ -71,6 +71,13 @@
       "when": 1774115515119,
       "tag": "0009_amazing_morlun",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1774118321049,
+      "tag": "0010_puzzling_dakota_north",
+      "breakpoints": true
     }
   ]
 }

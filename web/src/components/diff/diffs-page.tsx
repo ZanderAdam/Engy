@@ -11,6 +11,7 @@ import { DiffHeader } from './diff-header';
 import { ViewModeTabs } from './view-mode-tabs';
 import { CommitList } from './commit-list';
 import { RepoSelector } from './repo-selector';
+import { SessionSelector } from './session-selector';
 import { ReviewActions } from './review-actions';
 import { useDiffComments } from './use-diff-comments';
 import type { ChangedFile, ViewMode, DiffViewMode } from './types';
@@ -41,6 +42,13 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   const [baseBranch, setBaseBranch] = useState('origin/main');
   const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+
+  const handleSessionChange = (sessionId: string | null) => {
+    setSelectedSessionId(sessionId);
+    setSelectedFile(null);
+    setSelectedCommit(null);
+  };
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
   const { data: taskGroups } = trpc.taskGroup.list.useQuery({});
@@ -81,19 +89,19 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
     isLoading: isStatusLoading,
     refetch: refetchStatus,
   } = trpc.diff.getStatus.useQuery(
-    { repoDir: selectedRepo! },
+    { repoDir: selectedRepo!, sessionId: selectedSessionId ?? undefined },
     { enabled: !!selectedRepo && diffViewMode === 'latest' },
   );
 
   // Commit history data
   const { data: logData, isLoading: isLogLoading } = trpc.diff.getLog.useQuery(
-    { repoDir: selectedRepo! },
+    { repoDir: selectedRepo!, sessionId: selectedSessionId ?? undefined },
     { enabled: !!selectedRepo && diffViewMode === 'history' },
   );
 
   // Commit diff data
   const { data: commitDiffData } = trpc.diff.getCommitDiff.useQuery(
-    { repoDir: selectedRepo!, commitHash: selectedCommit! },
+    { repoDir: selectedRepo!, commitHash: selectedCommit!, sessionId: selectedSessionId ?? undefined },
     { enabled: !!selectedRepo && !!selectedCommit && diffViewMode === 'history' },
   );
 
@@ -103,7 +111,7 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
     isLoading: isBranchLoading,
     error: branchError,
   } = trpc.diff.getBranchDiff.useQuery(
-    { repoDir: selectedRepo!, base: baseBranch },
+    { repoDir: selectedRepo!, base: baseBranch, sessionId: selectedSessionId ?? undefined },
     { enabled: !!selectedRepo && diffViewMode === 'branch' && baseBranch.length > 0, retry: false },
   );
 
@@ -131,7 +139,7 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
   // File diff for selected file (latest + branch modes)
   const diffBase = diffViewMode === 'branch' ? baseBranch : undefined;
   const { data: fileDiffData } = trpc.diff.getFileDiff.useQuery(
-    { repoDir: selectedRepo!, filePath: selectedFile!, base: diffBase, staged: selectedFileData?.staged },
+    { repoDir: selectedRepo!, filePath: selectedFile!, base: diffBase, staged: selectedFileData?.staged, sessionId: selectedSessionId ?? undefined },
     {
       enabled:
         !!selectedRepo &&
@@ -143,7 +151,7 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
 
   // Per-file diff for history mode (commit selected + file selected)
   const { data: commitFileDiffData } = trpc.diff.getFileDiff.useQuery(
-    { repoDir: selectedRepo!, filePath: selectedFile!, base: `${selectedCommit}~1` },
+    { repoDir: selectedRepo!, filePath: selectedFile!, base: `${selectedCommit}~1`, sessionId: selectedSessionId ?? undefined },
     {
       enabled:
         !!selectedRepo &&
@@ -181,6 +189,10 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
             repos={allRepos}
             selectedRepo={selectedRepo ?? ''}
             onSelectRepo={handleRepoChange}
+          />
+          <SessionSelector
+            selectedSessionId={selectedSessionId}
+            onSessionChange={handleSessionChange}
           />
         </div>
         <div className="px-3">

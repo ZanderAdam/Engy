@@ -173,6 +173,7 @@ export const agentSessions = sqliteTable('agent_sessions', {
   }),
   completionSummary: text('completion_summary'),
   worktreePath: text('worktree_path'),
+  branch: text('branch'),
   state: text('state', { mode: 'json' }).$type<Record<string, unknown>>(),
   status: text('status', {
     enum: ['active', 'paused', 'stopped', 'completed'],
