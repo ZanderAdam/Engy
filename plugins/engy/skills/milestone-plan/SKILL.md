@@ -16,6 +16,20 @@ The spec already contains a high-level list of milestones. This skill plans **on
 
 Use MCP to discover paths, then Read/Glob/Grep for spec content.
 
+## Multi-Repo Task Scoping
+
+When a workspace manages multiple repos, task scoping rules apply:
+
+- **Task groups** can span multiple repos — set their `repos` field to all repos the group's tasks touch.
+- **Tasks must each target a single repo.** Never create a task that requires working across multiple repos simultaneously. Mention the target repo/package in the task title or description (e.g., "Implement auth middleware in `web/`").
+- **Cross-repo dependencies** within a group use `blockedBy` — upstream repo tasks (e.g., shared types in `common/`) should be completed before downstream consumers (e.g., `web/`).
+
+### Discovering Repos
+
+Call `getProjectDetails(projectId)` and inspect `workspace.repos` (an array of local repo paths). If the array has more than one entry, apply the multi-repo rules above when planning task groups and tasks.
+
+For single-repo workspaces, these rules are effectively no-ops — all tasks naturally target the same repo.
+
 ## Planning Levels
 
 ### Level 1: Identify Which Milestone to Plan
@@ -36,23 +50,25 @@ Use MCP to discover paths, then Read/Glob/Grep for spec content.
 For the selected milestone:
 
 0. **Confirm the correct projectId.** Use `listProjects` to find the project whose `specDir` matches the spec you're working with. Do NOT assume projectId=1.
-1. Review the milestone scope against the spec.
-2. Break the milestone into **task groups**. Each group is a single deliverable — think one PR. Groups are ordered so they can be reviewed and merged as stacked PRs, making large milestones easier to review incrementally.
-3. Within each group, define 1 or more tasks that together produce that deliverable. Follow the vertical slicing and granularity guidelines below.
-4. For each task, specify:
-   - Title and description
+1. **Discover workspace repos.** Call `getProjectDetails(projectId)` and check `workspace.repos`. If the workspace has multiple repos, apply the multi-repo task scoping rules (see above) throughout the remaining steps.
+2. Review the milestone scope against the spec.
+3. Break the milestone into **task groups**. Each group is a single deliverable — think one PR. Groups are ordered so they can be reviewed and merged as stacked PRs, making large milestones easier to review incrementally. For multi-repo workspaces, set the `repos` field on each group to the repos its tasks touch.
+4. Within each group, define 1 or more tasks that together produce that deliverable. Follow the vertical slicing and granularity guidelines below. **Each task must target a single repo** — include the target repo/package in the task title or description (e.g., "Implement auth middleware in `web/`"). For cross-repo dependencies, use `blockedBy` to order upstream tasks before downstream consumers.
+5. For each task, specify:
+   - Title and description (including target repo for multi-repo workspaces)
    - **Acceptance criteria in Gherkin format** (`Given/When/Then`) — derived from the plan's test scenarios or functional requirements. These are what the implementer tests against.
    - **Feature references** — which FRs or plan scenarios this task implements (e.g., "Implements FR #5, #6" or "Covers Scenario: Get file diff")
    - Type (`ai` or `human`)
    - Importance and urgency (using the Eisenhower matrix)
    - Dependencies on other tasks (`blockedBy`)
-5. **Present the full breakdown to the user and wait for explicit approval.**
-6. Only after approval: create groups and tasks via `createTaskGroup` / `createTask`.
+6. **Present the full breakdown to the user and wait for explicit approval.**
+7. Only after approval: create groups and tasks via `createTaskGroup` / `createTask`.
    - Set `milestoneRef` on every task (e.g., `"m3"`) to link it to the milestone.
    - Set `specId` to the spec directory name so the task resolves to the correct spec path.
+   - For multi-repo workspaces, pass the `repos` array when calling `createTaskGroup`.
    - If the task descriptions and/or the spec+plan doc are detailed enough for an agent to implement without a separate planning step, set `needsPlan: false` on those tasks.
-7. Verify structure via `listTasks` and `listTaskGroups`.
-8. Write the milestone plan document (`m{N}-{slug}.plan.md`) using the template below.
+8. Verify structure via `listTasks` and `listTaskGroups`.
+9. Write the milestone plan document (`m{N}-{slug}.plan.md`) using the template below.
 
 ## Vertical Slicing
 
@@ -88,6 +104,7 @@ Each task should be:
 - **Acceptance-tested**: Include Gherkin scenarios (Given/When/Then) that define done. These come from the plan doc's test scenarios or are derived from the FRs the task implements.
 - **Feature-traced**: Reference which FRs or plan scenarios this task covers, so nothing is missed and nothing is invented
 - **Verifiable**: Include what shell commands prove the task is done (e.g., `pnpm test`, `pnpm lint`)
+- **Repo-scoped**: In multi-repo workspaces, each task targets a single repo (mentioned in title or description)
 
 ## Anti-Patterns to Flag
 
@@ -96,6 +113,7 @@ When reviewing the breakdown, watch for and restructure:
 - Tasks with vague acceptance criteria ("works correctly")
 - Tasks with 10+ steps (too large)
 - Circular dependencies
+- Tasks that span multiple repos — split into separate single-repo tasks with `blockedBy` for ordering
 - Tasks that require context from many previous tasks (context rot risk)
 
 ## Eisenhower Matrix for Prioritization
