@@ -58,7 +58,7 @@ For the selected milestone:
    - Set `specId` to the spec directory name so the task resolves to the correct spec path.
    - For multi-repo workspaces, pass the `repos` array when calling `createTaskGroup`.
    - If the task descriptions and/or the spec+plan doc are detailed enough for an agent to implement without a separate planning step, set `needsPlan: false` on those tasks.
-8. Verify structure via `listTasks` and `listTaskGroups`.
+8. Verify structure via `listTasks` and `listTaskGroups`. Filter tasks by milestone AND task groups when available.
 9. Write the milestone plan document (`m{N}-{slug}.plan.md`) using the template below.
 
 ## Vertical Slicing

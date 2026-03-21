@@ -417,7 +417,61 @@ The core execution engine on the client daemon. A for loop, a spawn, a database 
 
    * *Implements FR #15*
 
-### TG3: Questions System & Feedback Loop
+### TG3: Execution UI
+
+Task-level execution indicators, structured log viewer, project-level status. Now that the runner is working (TG2), the UI needs to show execution state.
+
+**Tasks:**
+
+1. **Add auto-implement indicator to task cards**
+
+   * Modify `task-card.tsx` — task cards already show milestone badge, task group badge, and type indicator. Add a subStatus indicator alongside existing badges.
+
+   * When `subStatus` is set: show icon (spinner for implementing, pause for blocked, alert for failed, brain for planning)
+
+   * Distinguish from manual in_progress (no subStatus = manual work)
+
+   * *Implements FR #34*
+
+2. **Create execution tab in task detail**
+
+   * `web/src/components/tasks/execution-tab.tsx`: session file viewer
+
+   * Reads Claude's session file via `execution.getSessionFile(sessionId)` — parses JSONL entries (UserEntry, AssistantEntry, tool calls). Polls for updates **only while the execution tab is open** — no background file watching. Component mounts → start polling, unmounts → stop.
+
+   * Renders conversation entries: user prompts, assistant responses, tool calls (collapsible with input/output), errors (highlighted)
+
+   * Session ID display, duration, status, structured completion summary
+
+   * "Retry" button for failed tasks, "Stop" button for running tasks
+
+   * *Implements FR #35*
+
+3. **Add execution status to project overview**
+
+   * Integrate into existing expandable milestone/task group layout in `milestone-list.tsx` (task groups already render with `TaskGroupQuickAction` — extend with execution state)
+
+   * Show which task groups are currently executing, current task per group with subStatus
+
+   * Container status if containers enabled
+
+   * Quick actions: start group, stop group, open container terminal (extend existing `TaskGroupQuickAction`)
+
+   * *Implements FR #36*
+
+4. **Update MCP to expose execution data**
+
+   * `getProjectDetails`: include active session worktree paths and execution status for task groups
+
+   * *Implements FR #2*
+
+5. **Run /engy:review, pnpm blt, test in Chrome**
+
+   * Final validation task
+
+   * *Implements verification*
+
+### TG4: Questions System & Feedback Loop
 
 Agent-initiated questions during planning, UI queue, feedback from diff viewer. Includes questions schema.
 
@@ -536,60 +590,6 @@ Agent-initiated questions during planning, UI queue, feedback from diff viewer. 
    * Questions persist across page refresh (backed by SQLite)
 
    * *Implements FR #28*
-
-### TG4: Execution UI
-
-Task-level execution indicators, structured log viewer, project-level status.
-
-**Tasks:**
-
-1. **Add auto-implement indicator to task cards**
-
-   * Modify `task-card.tsx` — task cards already show milestone badge, task group badge, and type indicator. Add a subStatus indicator alongside existing badges.
-
-   * When `subStatus` is set: show icon (spinner for implementing, pause for blocked, alert for failed, brain for planning)
-
-   * Distinguish from manual in_progress (no subStatus = manual work)
-
-   * *Implements FR #34*
-
-2. **Create execution tab in task detail**
-
-   * `web/src/components/tasks/execution-tab.tsx`: session file viewer
-
-   * Reads Claude's session file via `execution.getSessionFile(sessionId)` — parses JSONL entries (UserEntry, AssistantEntry, tool calls). Polls for updates **only while the execution tab is open** — no background file watching. Component mounts → start polling, unmounts → stop.
-
-   * Renders conversation entries: user prompts, assistant responses, tool calls (collapsible with input/output), errors (highlighted)
-
-   * Session ID display, duration, status, structured completion summary
-
-   * "Retry" button for failed tasks, "Stop" button for running tasks
-
-   * *Implements FR #35*
-
-3. **Add execution status to project overview**
-
-   * Integrate into existing expandable milestone/task group layout in `milestone-list.tsx` (task groups already render with `TaskGroupQuickAction` — extend with execution state)
-
-   * Show which task groups are currently executing, current task per group with subStatus
-
-   * Container status if containers enabled
-
-   * Quick actions: start group, stop group, open container terminal (extend existing `TaskGroupQuickAction`)
-
-   * *Implements FR #36*
-
-4. **Update MCP to expose execution data**
-
-   * `getProjectDetails`: include active session worktree paths and execution status for task groups
-
-   * *Implements FR #2*
-
-5. **Run /engy:review, pnpm blt, test in Chrome**
-
-   * Final validation task
-
-   * *Implements verification*
 
 ## Test Scenarios
 
