@@ -1,6 +1,6 @@
 ---
 name: engy:plan
-description: "Write a validated implementation plan for a milestone using codebase-aware requirements engineering. Use when asked to 'write a plan', 'plan implementation', 'plan milestone', 'create implementation plan', or when planning complex changes — new features, architecture changes, multi-file work, or anything with ambiguous scope."
+description: "This skill should be used when the user asks to 'write a plan', 'plan implementation', 'plan milestone', 'create implementation plan', or when planning complex changes — new features, architecture changes, multi-file work, or anything with ambiguous scope. Writes a validated implementation plan using codebase-aware requirements engineering."
 ---
 
 # Requirements-First Planning

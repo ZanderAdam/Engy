@@ -1,6 +1,6 @@
 ---
 name: engy:validate-plan
-description: "Validates a project plan against its parent spec for alignment, missing requirements, and consistency. Use when asked to 'validate a plan', 'check plan against spec', or 'verify plan alignment'."
+description: "This skill should be used when the user asks to 'validate a plan', 'check plan against spec', or 'verify plan alignment'. Validates a project plan against its parent spec for alignment, missing requirements, and consistency."
 ---
 
 # Project Document Validation

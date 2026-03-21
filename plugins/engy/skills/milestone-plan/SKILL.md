@@ -1,20 +1,11 @@
 ---
 name: engy:milestone-plan
-description: "Plans spec milestones in detail — task groups, tasks, dependencies, and priorities. Use when asked to 'plan my project', 'plan milestones', 'break down into tasks', or 'create tasks for milestone'."
+description: "This skill should be used when the user asks to 'plan my project', 'plan milestones', 'break down into tasks', or 'create tasks for milestone'. Plans spec milestones in detail — task groups, tasks, dependencies, and priorities."
 ---
 
 # Milestone Planner
 
 The spec already contains a high-level list of milestones. This skill plans **one milestone at a time** in detail — defining task groups, individual tasks, dependencies, and priorities. Everything is presented to the user for approval before creating anything in the system.
-
-## MCP Tools
-
-- `getProjectDetails(projectId)` — project paths (`specDir`, `projectDir`) + workspace context
-- `listProjects(workspaceId?)` — list projects (use to find the correct `projectId`)
-- `createTask`, `updateTask`, `listTasks`, `getTask` — task CRUD (responses include `specPath`)
-- `createTaskGroup`, `listTaskGroups` — group tasks within milestones
-
-Use MCP to discover paths, then Read/Glob/Grep for spec content.
 
 ## Multi-Repo Task Scoping
 
@@ -105,6 +96,7 @@ Each task should be:
 - **Feature-traced**: Reference which FRs or plan scenarios this task covers, so nothing is missed and nothing is invented
 - **Verifiable**: Include what shell commands prove the task is done (e.g., `pnpm test`, `pnpm lint`)
 - **Repo-scoped**: In multi-repo workspaces, each task targets a single repo (mentioned in title or description)
+- **File-conflict-free**: No two parallel tasks modify the same file. Identify shared touchpoint files (routers, protocol types, schema definitions, composition roots) and ensure tasks touching them are serialized via `blockedBy` or combined into a single task
 
 ## Anti-Patterns to Flag
 
@@ -115,6 +107,7 @@ When reviewing the breakdown, watch for and restructure:
 - Circular dependencies
 - Tasks that span multiple repos — split into separate single-repo tasks with `blockedBy` for ordering
 - Tasks that require context from many previous tasks (context rot risk)
+- **Parallel tasks that modify the same file** — tasks that create or modify the same file MUST be serialized via `blockedBy`, never placed in the same parallel wave. If two tasks both need to add to the same file (e.g., both add routes to a router or message types to a protocol), either combine them into one task or serialize them explicitly via `blockedBy`.
 
 ## Eisenhower Matrix for Prioritization
 

@@ -1,6 +1,6 @@
 ---
 name: engy:write-spec
-description: "Creates or validates a Software Requirements Specification from source documents, and manages spec context files. Use when asked to 'write a spec', 'create SRS', 'generate spec', 'author spec', 'spec from vision', 'validate spec', 'review spec', 'check SRS', 'validate SRS against context', 'save context', 'add context file', or 'save this as context'."
+description: "This skill should be used when the user asks to 'write a spec', 'create SRS', 'generate spec', 'author spec', 'spec from vision', 'validate spec', 'review spec', 'check SRS', 'validate SRS against context', 'save context', 'add context file', or 'save this as context'. Creates or validates a Software Requirements Specification from source documents and manages spec context files."
 ---
 
 # Spec Authoring & Validation

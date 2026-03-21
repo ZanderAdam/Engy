@@ -1,6 +1,6 @@
 ---
 name: engy:update-spec
-description: "Updates a project's specification documents with current implementation status. Use when asked to 'update spec status', 'sync spec with implementation', 'mark milestone complete in spec', 'refresh spec', or after completing milestones."
+description: "This skill should be used when the user asks to 'update spec status', 'sync spec with implementation', 'mark milestone complete in spec', 'refresh spec', or after completing milestones. Updates a project's specification documents with current implementation status."
 ---
 
 # Master Spec Update Skill

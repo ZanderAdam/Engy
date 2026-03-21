@@ -18,7 +18,7 @@ Dispatch the `engy-reviewer` agent to simplify code directly, then surface sever
 
 Resolve the review scope. Show a summary: files changed, lines added/removed, directories affected.
 
-Determine what are the features being implemented. Pass faile paths to any relevant plans or tasks to the review agent.
+Determine what are the features being implemented. Pass file paths to any relevant plans or tasks to the review agent.
 
 **Resolution order:**
 1. User-specified commit range, file list, or branch comparison
@@ -46,6 +46,11 @@ Agent tool:
     Features: [path to any plan files, tasks or features lists user provided one, otherwise omit]
 
     Run both phases (Simplify then Review) on these files.
+
+    If plan/spec files are provided, also validate requirements coverage:
+    - Check each referenced FR in the plan
+    - Confirm the implementation actually fulfills it end-to-end, not just that code exists
+    - Report any FRs that are missing, only partially implemented, or not covered by tests
 ```
 
 The agent runs two phases internally:
@@ -74,6 +79,9 @@ Format the agent's output into the report below. Number all findings, sorted Cri
 1. **[CRITICAL]** `file:line` — Description — Suggested fix: ...
 2. **[HIGH]** ...
 3. **[MEDIUM]** ...
+
+### Requirements Coverage
+[Only if plan/spec was provided. For each FR: status (covered / partial / missing) and evidence.]
 
 ### Summary
 [2-3 sentences: assessment, severity counts, recommendation]

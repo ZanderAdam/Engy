@@ -1,6 +1,6 @@
 ---
 name: engy:implement-milestone
-description: "Orchestrates milestone-level implementation across task groups with agent teams. Use when asked to 'implement milestone', 'implement all tasks', 'implement m5', or when working on an entire milestone's worth of tasks."
+description: "This skill should be used when the user asks to 'implement milestone', 'implement all tasks', 'implement m5', or when working on an entire milestone's worth of tasks. Orchestrates milestone-level implementation across task groups with agent teams."
 ---
 
 # Milestone Implementation Orchestrator
@@ -33,17 +33,19 @@ Use MCP to discover paths and task relationships, then Read/Glob/Grep for conten
 Read the project's **CLAUDE.md** to find all explicit validation and testing instructions. Extract two levels:
 
 1. **Lightweight validation** — the commands each subagent must run before returning (build, lint, changed tests). Derive this from CLAUDE.md's quality gates and testing sections.
-2. **Full validation** — the complete validation command set for final end-to-end checks after all tasks complete. This is whatever CLAUDE.md specifies as the pre-commit or CI gate.
+2. **Full validation** — the complete validation command set for end-to-end checks after each task group completes and after all tasks complete. This is whatever CLAUDE.md specifies as the pre-commit or CI gate.
+3. **Cross-package type checks** — when tasks span multiple packages in a monorepo, include cross-package type checks (e.g., `tsc` at the monorepo root or across dependent packages) in both lightweight and full validation commands — not just the package being modified.
 
 ### Step 3: Plan Execution Order
 
 1. Map task group dependencies (a group is blocked if any of its tasks have `blockedBy` pointing to tasks in another group).
 2. **Task groups execute sequentially** — process one group at a time in dependency order.
 3. **Within each task group**, identify which tasks can run in parallel:
-   - Tasks with no `blockedBy` dependencies on other tasks in the same group → **parallel** (dispatch as concurrent team members).
+   - Tasks with no `blockedBy` dependencies on other tasks in the same group → **candidates for parallel** dispatch.
    - Tasks with `blockedBy` dependencies within the group → **serialized** in dependency order after their blockers complete.
-4. Skip task groups where all tasks are marked `done`.
-5. For groups with `in_progress` tasks, check existing work via `git status` and `git diff` before re-dispatching.
+4. **File overlap check (mandatory before parallel dispatch):** For each parallel wave, verify that no two tasks modify the same files. Check task descriptions, plan sections, and affected component lists. If file overlap exists, serialize the overlapping tasks or ask the user to confirm parallel execution.
+5. Skip task groups where all tasks are marked `done`.
+6. For groups with `in_progress` tasks, check existing work via `git status` and `git diff` before re-dispatching.
 
 ### Step 4: Process Each Task Group
 
@@ -60,7 +62,9 @@ Mark all tasks in the group as `in_progress` via `updateTask(id, status: "in_pro
 - File paths and pattern references relevant to the task
 - Explicit instruction to commit changes before returning. CRITICAL: do not include milestone/tg/task ids in task title or description
 
-**Parallelism:** If multiple tasks in the group have no mutual `blockedBy` dependencies, spawn them as concurrent team members in a **single message with multiple Agent tool calls**. Dependent tasks wait until their blockers complete, then get dispatched.
+**Parallelism:** If multiple tasks in the group have no mutual `blockedBy` dependencies and pass the file overlap check (Step 3.4), spawn them as concurrent team members in a **single message with multiple Agent tool calls**. Dependent tasks wait until their blockers complete, then get dispatched.
+
+**Never use worktree isolation** (`isolation: "worktree"`) for parallel agents. Use regular agents with explicit file-ownership lists instead. Each agent receives a list of files it owns (may modify) and files it must not touch.
 
 **Agent prompt template:**
 
@@ -73,13 +77,22 @@ Description: {task description}
 Plan context:
 {relevant plan section}
 
+Files you OWN (may create/modify):
+{list of files this agent is responsible for}
+
+Files you must NOT modify:
+{list of files owned by other parallel agents or out of scope}
+
 Before returning, you MUST:
 1. Run these validation commands and fix any issues:
    {lightweight validation commands from Step 2}
 2. Commit your changes with a descriptive commit message.
 3. Report back: what you implemented, what you committed, any issues encountered.
 
-Do NOT modify files outside the scope of this task.
+CRITICAL safety rules:
+- Do NOT modify files outside your ownership list.
+- NEVER run git stash, git reset, or any destructive git command.
+- If something breaks on files you didn't touch, ignore it and report back.
 ```
 
 #### 4b. Process Results
@@ -89,6 +102,10 @@ As each team member returns:
 1. Verify the agent reports a successful commit.
 2. Mark the task as `done` via `updateTask(id, status: "done")`.
 3. If the agent reports failure, decide: dispatch a fix agent or escalate to user.
+
+#### 4c. Post-Group Validation
+
+After all tasks in a group complete, run the **full validation gate** (discovered in Step 2) before proceeding to the next group. This catches cross-task integration issues early. If validation fails, dispatch fix agents for the failing issues before moving on.
 
 ### Step 5: Final Validation
 
@@ -118,6 +135,9 @@ Present a summary to the user:
 - **Commit before done.** Task status is only set to `done` after a successful commit.
 - **Evidence before claims.** Run validation, read full output, verify explicitly.
 - **Fresh context per agent.** Each team member gets a complete, self-contained task description with validation commands. Never assume shared context.
+- **No worktree isolation.** Never use `isolation: "worktree"` for parallel agents — use regular agents with explicit file-ownership lists.
+- **No destructive git.** Agents must never run `git stash`, `git reset`, or other destructive git commands.
+- **Validate after each group.** Run the full validation gate after each task group, not just at the end.
 
 ## Additional Resources
 
