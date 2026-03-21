@@ -99,6 +99,7 @@ describe('Runner', () => {
       });
 
       expect(spawner.spawn).toHaveBeenCalledWith({
+        sessionId: 'session-abc',
         prompt: 'implement feature X',
         flags: ['--verbose'],
         workingDir: '/path/to/repo/.claude/worktrees/engy-session-a1b2c3',
@@ -239,6 +240,7 @@ describe('Runner', () => {
       await runner.retry('abc-123');
 
       expect(spawner.spawn).toHaveBeenCalledWith({
+        sessionId: 'abc-123',
         prompt: '',
         flags: [],
         resumeSessionId: 'abc-123',

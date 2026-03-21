@@ -1,8 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import type { ContainerManager } from '../container/manager.js';
 
 export interface SpawnConfig {
+  sessionId: string;
   prompt: string;
   flags: string[];
   resumeSessionId?: string;
@@ -40,7 +40,7 @@ export class AgentSpawner {
   async spawn(config: SpawnConfig): Promise<SpawnResult> {
     this.validateConfig(config);
 
-    const sessionId = randomUUID();
+    const { sessionId } = config;
     const args = this.buildArgs(config, sessionId);
     const mode = config.containerMode ? 'container' : 'host';
     console.log(

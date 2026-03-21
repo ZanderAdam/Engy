@@ -79,6 +79,7 @@ export class Runner {
 
     this.spawner
       .spawn({
+        sessionId,
         prompt,
         flags,
         workingDir: worktreePath,
@@ -135,6 +136,7 @@ export class Runner {
     this.emitStatusEvent(sessionId, worktreePath);
 
     const spawnResult = await this.spawner.spawn({
+      sessionId,
       prompt: '',
       flags: [],
       resumeSessionId: sessionId,
@@ -144,12 +146,13 @@ export class Runner {
       env: this.currentConfig?.env,
     });
 
-    this.currentSessionId = spawnResult.sessionId;
-
     await this.handleCompletion(spawnResult);
   }
 
   private handleCompletion(result: SpawnResult): void {
+    console.log(
+      `[runner] Emitting complete: session=${result.sessionId} exit=${result.exitCode} success=${result.success}`,
+    );
     this.emitCompleteEvent({
       sessionId: result.sessionId,
       exitCode: result.exitCode,

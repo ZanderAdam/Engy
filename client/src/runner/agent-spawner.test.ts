@@ -5,10 +5,6 @@ vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
 }));
 
-vi.mock('node:crypto', () => ({
-  randomUUID: vi.fn(() => 'test-uuid-1234'),
-}));
-
 import type { SpawnConfig, SpawnResult } from './agent-spawner.js';
 
 const { spawn } = await import('node:child_process');
@@ -43,6 +39,7 @@ function createMockContainerManager() {
 }
 
 const HOST_CONFIG: SpawnConfig = {
+  sessionId: 'test-session',
   prompt: 'Do something',
   flags: [],
   containerMode: false,
@@ -50,6 +47,7 @@ const HOST_CONFIG: SpawnConfig = {
 };
 
 const CONTAINER_CONFIG: SpawnConfig = {
+  sessionId: 'test-session',
   prompt: 'Do something',
   flags: [],
   containerMode: true,
@@ -104,7 +102,7 @@ describe('AgentSpawner', () => {
         expect.arrayContaining(['--permission-mode', 'acceptEdits']),
         expect.objectContaining({ cwd: '/workspace' }),
       );
-      expect(result.sessionId).toBe('test-uuid-1234');
+      expect(result.sessionId).toBe('test-session');
     });
 
     it('should NOT include --dangerously-skip-permissions in host mode', async () => {
@@ -112,6 +110,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: false,
@@ -125,11 +124,12 @@ describe('AgentSpawner', () => {
       expect(spawnArgs).not.toContain('--dangerously-skip-permissions');
     });
 
-    it('should include --session-id with generated UUID', async () => {
+    it('should include --session-id with config sessionId', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: false,
@@ -142,7 +142,7 @@ describe('AgentSpawner', () => {
       const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
       const sessionIdIndex = spawnArgs.indexOf('--session-id');
       expect(sessionIdIndex).toBeGreaterThan(-1);
-      expect(spawnArgs[sessionIdIndex + 1]).toBe('test-uuid-1234');
+      expect(spawnArgs[sessionIdIndex + 1]).toBe('test-session');
     });
 
     it('should include --json-schema with TASK_COMPLETION_SCHEMA', async () => {
@@ -150,6 +150,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: false,
@@ -170,6 +171,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: false,
@@ -190,6 +192,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: ['--append-system-prompt', 'extra context', '--add-dir', '/other'],
         containerMode: false,
@@ -231,6 +234,7 @@ describe('AgentSpawner', () => {
       containerManager.exec.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: true,
@@ -250,6 +254,7 @@ describe('AgentSpawner', () => {
       containerManager.exec.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: true,
@@ -269,6 +274,7 @@ describe('AgentSpawner', () => {
       containerManager.exec.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: true,
@@ -291,6 +297,7 @@ describe('AgentSpawner', () => {
     it('should throw when containerWorkspaceFolder is missing in container mode', async () => {
       await expect(
         spawner.spawn({
+          sessionId: 'test-session',
           prompt: 'Do something',
           flags: [],
           containerMode: true,
@@ -304,6 +311,7 @@ describe('AgentSpawner', () => {
     it('should throw when --dangerously-skip-permissions is used in host mode', async () => {
       await expect(
         spawner.spawn({
+          sessionId: 'test-session',
           prompt: 'Do something',
           flags: ['--dangerously-skip-permissions'],
           containerMode: false,
@@ -317,6 +325,7 @@ describe('AgentSpawner', () => {
       containerManager.exec.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: ['--dangerously-skip-permissions'],
         containerMode: true,
@@ -337,6 +346,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Implement feature X',
         flags: [],
         containerMode: false,
@@ -357,6 +367,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: false,
@@ -372,7 +383,7 @@ describe('AgentSpawner', () => {
       const result = await promise;
 
       expect(result).toEqual({
-        sessionId: 'test-uuid-1234',
+        sessionId: 'test-session',
         exitCode: 0,
         success: true,
         completion: { taskCompleted: true, summary: 'Done' },
@@ -384,6 +395,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: false,
@@ -399,7 +411,7 @@ describe('AgentSpawner', () => {
       const result = await promise;
 
       expect(result).toEqual({
-        sessionId: 'test-uuid-1234',
+        sessionId: 'test-session',
         exitCode: 1,
         success: false,
         completion: { taskCompleted: false, summary: 'Failed to complete' },
@@ -411,6 +423,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: false,
@@ -423,7 +436,7 @@ describe('AgentSpawner', () => {
       const result = await promise;
 
       expect(result).toEqual({
-        sessionId: 'test-uuid-1234',
+        sessionId: 'test-session',
         exitCode: 0,
         success: true,
         completion: undefined,
@@ -435,6 +448,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: false,
@@ -461,6 +475,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Continue from where you left off',
         flags: [],
         resumeSessionId: 'existing-session-abc',
@@ -478,11 +493,12 @@ describe('AgentSpawner', () => {
       expect(spawnArgs).not.toContain('--session-id');
     });
 
-    it('should return a generated sessionId in the result', async () => {
+    it('should return the config sessionId in the result', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Continue',
         flags: [],
         resumeSessionId: 'existing-session-abc',
@@ -493,7 +509,7 @@ describe('AgentSpawner', () => {
       proc.emit('close', 0);
       const result = await promise;
 
-      expect(result.sessionId).toBe('test-uuid-1234');
+      expect(result.sessionId).toBe('test-session');
     });
   });
 
@@ -507,6 +523,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something slow',
         flags: [],
         containerMode: false,
@@ -533,6 +550,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something fast',
         flags: [],
         containerMode: false,
@@ -555,6 +573,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: false,
@@ -573,6 +592,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: false,
@@ -591,6 +611,7 @@ describe('AgentSpawner', () => {
       mockSpawn.mockReturnValue(proc);
 
       const promise = spawner.spawn({
+        sessionId: 'test-session',
         prompt: 'Do something',
         flags: [],
         containerMode: false,
