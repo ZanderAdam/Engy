@@ -17,23 +17,11 @@ Everything is accessible to AI agents via a built-in MCP server, so Claude Code 
 
 ## Features
 
-### Inline Comments → Terminal Feedback
+### Projects & Milestones
 
-Leave comments directly on any markdown file — specs, plans, docs. Comments can be sent straight to a running Claude Code terminal session, so your AI agent gets feedback without leaving the editor.
+Plan your projects and break them into milestones and task groups. Start implementing milestone, task groups or individual tasks with a single click (🔨 icon) while you continue working on other things.
 
-![Inline comments sent to Claude Code terminal](docs/screenshots/plan-phases-with-code-preview.png)
-
-### Diff Review & Inline Comments
-
-Review uncommitted changes and branch diffs with line-level commenting. Leave inline comments on specific lines and send feedback directly to a running Claude Code session.
-
-![Diffs tab with inline line-level commenting](docs/screenshots/diffs-tab-line-commenting.png)
-
-### Spec Editor
-
-Rich text editor for writing and reviewing Software Requirements Specifications. Supports headings, tables, lists, code blocks, and @ file mentions.
-
-![Docs tab showing plan context and file tree](docs/screenshots/docs-tab-plan-context.png)
+![Project overview with milestones](docs/screenshots/project-overview-milestones.png)
 
 ### Task Management
 
@@ -44,11 +32,17 @@ Three views for managing tasks:
 
 ![Task kanban board with Claude Code running implementation](docs/screenshots/task-kanban-with-implement-terminal.png)
 
-### Projects & Milestones
+### Spec Editor and Review
 
-Scoped execution for bounded work. Track milestones with status badges and progress bars.
+Rich text editor for writing and reviewing Software Requirements Specifications. Supports headings, tables, lists, code blocks, and @ file mentions. Leave comments directly on any markdown file and send straight to a running Claude Code terminal session, so your AI agent gets feedback without you leaving the editor.
 
-![Project overview with milestones](docs/screenshots/project-overview-milestones.png)
+![Inline comments sent to Claude Code terminal](docs/screenshots/plan-phases-with-code-preview.png)
+
+### Diff Review & Inline Comments
+
+Review uncommitted changes and branch diffs with line-level commenting. Leave inline comments on specific lines and send feedback directly to a running Claude Code session.
+
+![Diffs tab with inline line-level commenting](docs/screenshots/diffs-tab-line-commenting.png)\
 
 ### Claude Plans
 
@@ -67,10 +61,6 @@ Permanent homes for ongoing concerns, tied to one or more repositories where Cla
 ### Notifications
 
 Get notified when a plan is ready for review or other events need your attention.
-
-### Dark & Light Mode
-
-Toggle between themes.
 
 ## Skills
 
