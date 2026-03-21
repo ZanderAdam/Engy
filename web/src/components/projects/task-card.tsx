@@ -143,7 +143,7 @@ export function TaskCard({
           </Tooltip>
         </TooltipProvider>
         <TaskStatusBadge taskId={task.id} status={task.status} clickable className="shrink-0" />
-        {(task.milestoneRef || task.taskGroupId) && (
+        {(task.milestoneRef || task.taskGroupId || execStatus) && (
           <div className="ml-auto flex items-center gap-1">
             {task.milestoneRef && (() => {
               const num = parseMilestoneNum(task.milestoneRef);
@@ -158,11 +158,6 @@ export function TaskCard({
                 TG{task.taskGroupId}
               </span>
             )}
-            <ExecutionStatusIcon status={execStatus} />
-          </div>
-        )}
-        {!task.milestoneRef && !task.taskGroupId && execStatus && (
-          <div className="ml-auto">
             <ExecutionStatusIcon status={execStatus} />
           </div>
         )}

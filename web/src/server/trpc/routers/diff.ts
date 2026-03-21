@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import {
@@ -122,29 +122,38 @@ export const diffRouter = router({
       const db = getDb();
       const allSessions = db.select().from(agentSessions).all();
 
-      const sessionsWithContext = allSessions.map((session) => {
-        let taskTitle: string | null = null;
-        let groupName: string | null = null;
+      // Batch-fetch referenced tasks and groups (avoid N+1)
+      const taskIds = [...new Set(allSessions.map((s) => s.taskId).filter(Boolean))] as number[];
+      const groupIds = [
+        ...new Set(allSessions.map((s) => s.taskGroupId).filter(Boolean)),
+      ] as number[];
 
-        if (session.taskId) {
-          const task = db.select().from(tasks).where(eq(tasks.id, session.taskId)).get();
-          taskTitle = task?.title ?? null;
-        }
-        if (session.taskGroupId) {
-          const group = db
-            .select()
-            .from(taskGroups)
-            .where(eq(taskGroups.id, session.taskGroupId))
-            .get();
-          groupName = group?.name ?? null;
-        }
+      const taskMap = new Map(
+        taskIds.length > 0
+          ? db
+              .select({ id: tasks.id, title: tasks.title })
+              .from(tasks)
+              .where(inArray(tasks.id, taskIds))
+              .all()
+              .map((t) => [t.id, t.title])
+          : [],
+      );
+      const groupMap = new Map(
+        groupIds.length > 0
+          ? db
+              .select({ id: taskGroups.id, name: taskGroups.name })
+              .from(taskGroups)
+              .where(inArray(taskGroups.id, groupIds))
+              .all()
+              .map((g) => [g.id, g.name])
+          : [],
+      );
 
-        return {
-          ...session,
-          taskTitle,
-          groupName,
-        };
-      });
+      const sessionsWithContext = allSessions.map((session) => ({
+        ...session,
+        taskTitle: session.taskId ? (taskMap.get(session.taskId) ?? null) : null,
+        groupName: session.taskGroupId ? (groupMap.get(session.taskGroupId) ?? null) : null,
+      }));
 
       if (!input.projectId) return sessionsWithContext;
 

@@ -69,3 +69,17 @@ PORT=4001 ENGY_SERVER_URL=http://localhost:4001 pnpm blt
 ## Formatting
 
 Prettier: semicolons, single quotes, trailing commas, 100 char width, 2-space indent.
+
+## Commit Guidelines
+- All commits must follow the Conventional Commits specification:
+  ```
+    <type>(<scope>): <subject>
+    <BLANK LINE>
+    <body>
+    <BLANK LINE>
+    <footer>
+  ```
+- type: feat, fix, docs, style, refac, chore
+- Subject line should be concise (50 characters max)
+- Body should explain the "why" behind the changes, not just the "what"
+- DO NOT USE milestone or task IDs in commit messages. These are for project management only, not commit history.
