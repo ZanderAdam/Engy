@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch server.ts",
-    "build": "next build && rm -rf dist-server && esbuild server.ts --bundle --platform=node --format=esm --outfile=dist-server/server.mjs --packages=external --sourcemap && cp -r src/server/db/migrations dist-server/",
+    "build": "next build --webpack && rm -rf dist-server && esbuild server.ts --bundle --platform=node --format=esm --outfile=dist-server/server.mjs --packages=external --sourcemap && cp -r src/server/db/migrations dist-server/",
     "start": "NODE_ENV=production node dist-server/server.mjs",
     "lint:eslint": "eslint",
     "test": "vitest run"

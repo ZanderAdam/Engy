@@ -13,7 +13,7 @@
     },
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "dist/**", "dist-server/**"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**", "dist-server/**"]
     },
     "lint:eslint": {
       "dependsOn": ["^build"]
