@@ -3,6 +3,13 @@
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -32,18 +39,12 @@ const taskStatusIcons: Record<string, React.ComponentType<{ className?: string }
   done: RiCheckboxCircleLine,
 };
 
-const taskStatusLabels: Record<string, string> = {
+export const taskStatusLabels: Record<string, string> = {
   todo: 'Todo',
   in_progress: 'In Progress',
   review: 'Review',
   done: 'Done',
 };
-
-function nextStatus(current: string): TaskStatus {
-  const idx = taskStatusOptions.indexOf(current as TaskStatus);
-  if (idx === -1 || idx === taskStatusOptions.length - 1) return taskStatusOptions[0];
-  return taskStatusOptions[idx + 1];
-}
 
 export function TaskStatusBadge({
   taskId,
@@ -64,33 +65,63 @@ export function TaskStatusBadge({
     },
   });
 
-  function handleClick(e: React.MouseEvent) {
-    if (!clickable) return;
-    e.stopPropagation();
-    updateTask.mutate({ id: taskId, status: nextStatus(status) });
+  function handleStatusChange(value: string) {
+    if (value === status) return;
+    updateTask.mutate({ id: taskId, status: value as TaskStatus });
   }
 
   const Icon = taskStatusIcons[status] ?? RiCircleLine;
   const label = taskStatusLabels[status] ?? status;
 
+  const button = (
+    <button
+      type="button"
+      className={cn(
+        'shrink-0 p-0.5',
+        taskStatusColors[status],
+        clickable && 'cursor-pointer hover:opacity-80',
+        !clickable && 'cursor-default',
+        className,
+      )}
+    >
+      <Icon className="size-4" />
+    </button>
+  );
+
+  if (clickable) {
+    return (
+      <TooltipProvider delayDuration={300}>
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              {label}
+            </TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="start" onClick={(e) => e.stopPropagation()}>
+            <DropdownMenuRadioGroup value={status} onValueChange={handleStatusChange}>
+              {taskStatusOptions.map((opt) => {
+                const StatusIcon = taskStatusIcons[opt] ?? RiCircleLine;
+                return (
+                  <DropdownMenuRadioItem key={opt} value={opt} className={taskStatusColors[opt]}>
+                    <StatusIcon className="mr-2 size-4" />
+                    {taskStatusLabels[opt]}
+                  </DropdownMenuRadioItem>
+                );
+              })}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TooltipProvider>
+    );
+  }
+
   return (
     <TooltipProvider delayDuration={300}>
       <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              'shrink-0 p-0.5',
-              taskStatusColors[status],
-              clickable && 'cursor-pointer hover:opacity-80',
-              !clickable && 'cursor-default',
-              className,
-            )}
-            onClick={clickable ? handleClick : undefined}
-          >
-            <Icon className="size-4" />
-          </button>
-        </TooltipTrigger>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
         <TooltipContent side="top" className="text-xs">
           {label}
         </TooltipContent>
