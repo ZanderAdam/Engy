@@ -1,7 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { simpleGit } from 'simple-git';
-import type { ClientToServerMessage } from '@engy/common';
+import type {
+  ClientToServerMessage,
+  ExecutionStatusEventMessage,
+  ExecutionCompleteEventMessage,
+} from '@engy/common';
+import type { SpawnConfig, SpawnResult } from './agent-spawner.js';
+
+export type { SpawnConfig, SpawnResult };
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -12,24 +19,6 @@ interface RunnerConfig {
   env?: Record<string, string>;
 }
 
-/** Minimal interface for the agent spawner — implemented by AgentSpawner (task 53). */
-export interface SpawnConfig {
-  prompt: string;
-  flags: string[];
-  sessionId?: string;
-  workingDir: string;
-  containerMode: boolean;
-  containerWorkspaceFolder?: string;
-  env?: Record<string, string>;
-}
-
-export interface SpawnResult {
-  sessionId: string;
-  exitCode: number;
-  success: boolean;
-  completion?: { taskCompleted: boolean; summary: string };
-}
-
 export interface AgentProcess {
   kill: (signal?: NodeJS.Signals) => void;
 }
@@ -37,15 +26,6 @@ export interface AgentProcess {
 export interface AgentSpawner {
   spawn(config: SpawnConfig): Promise<SpawnResult>;
   getProcess(): AgentProcess | null;
-}
-
-// ── WS Event payloads ────────────────────────────────────────────────────────
-
-interface ExecutionCompletePayload {
-  sessionId: string;
-  exitCode: number;
-  success: boolean;
-  completionSummary?: string;
 }
 
 type SendFn = (message: ClientToServerMessage) => void;
@@ -62,6 +42,7 @@ function generateShortId(): string {
 export class Runner {
   private currentSessionId: string | null = null;
   private currentWorktreePath: string | null = null;
+  private currentConfig: RunnerConfig | null = null;
   private readonly spawner: AgentSpawner;
   private readonly send: SendFn;
 
@@ -81,6 +62,7 @@ export class Runner {
 
     this.currentWorktreePath = worktreePath;
     this.currentSessionId = sessionId;
+    this.currentConfig = config;
 
     this.emitStatusEvent(sessionId, worktreePath);
 
@@ -137,7 +119,9 @@ export class Runner {
       prompt: '',
       flags: ['--resume', sessionId],
       workingDir: worktreePath,
-      containerMode: false,
+      containerMode: this.currentConfig?.containerMode ?? false,
+      containerWorkspaceFolder: this.currentConfig?.containerWorkspaceFolder,
+      env: this.currentConfig?.env,
     });
 
     this.currentSessionId = spawnResult.sessionId;
@@ -155,16 +139,18 @@ export class Runner {
   }
 
   private emitStatusEvent(sessionId: string, worktreePath: string): void {
-    this.send({
+    const msg: ExecutionStatusEventMessage = {
       type: 'EXECUTION_STATUS_EVENT',
       payload: { sessionId, worktreePath, status: 'running' },
-    } as unknown as ClientToServerMessage);
+    };
+    this.send(msg);
   }
 
-  private emitCompleteEvent(payload: ExecutionCompletePayload): void {
-    this.send({
+  private emitCompleteEvent(payload: ExecutionCompleteEventMessage['payload']): void {
+    const msg: ExecutionCompleteEventMessage = {
       type: 'EXECUTION_COMPLETE_EVENT',
       payload,
-    } as unknown as ClientToServerMessage);
+    };
+    this.send(msg);
   }
 }

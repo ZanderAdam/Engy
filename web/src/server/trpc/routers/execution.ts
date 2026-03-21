@@ -5,6 +5,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { eq, desc, and, inArray } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
+import type { ExecutionStartConfig } from '@engy/common';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { agentSessions, tasks, taskGroups, projects, workspaces } from '../../db/schema';
@@ -108,16 +109,28 @@ export const executionRouter = router({
       let worktreePath: string | null = null;
       let taskId: number | null = null;
       let taskGroupId: number | null = null;
+      let repos: string[] = [];
+      let workspace: { containerEnabled: boolean | null; docsDir: string | null } = {
+        containerEnabled: null,
+        docsDir: null,
+      };
 
       if (input.scope === 'task') {
         const id = typeof input.id === 'string' ? parseInt(input.id, 10) : input.id;
-        const { task, workspace, project, projectDir, dirs } = resolveTaskContext(id);
-        additionalDirs = dirs.additionalDirs;
-        worktreePath = dirs.workingDir ?? null;
-        taskId = task.id;
-        taskGroupId = task.taskGroupId;
+        const resolved = resolveTaskContext(id);
+        additionalDirs = resolved.dirs.additionalDirs;
+        worktreePath = resolved.dirs.workingDir ?? null;
+        taskId = resolved.task.id;
+        taskGroupId = resolved.task.taskGroupId;
+        repos = resolved.repos;
+        workspace = resolved.workspace;
 
-        const built = buildPromptForTask(task, workspace, project, projectDir);
+        const built = buildPromptForTask(
+          resolved.task,
+          resolved.workspace,
+          resolved.project,
+          resolved.projectDir,
+        );
         prompt = built.prompt;
         systemPrompt = built.systemPrompt;
       } else if (input.scope === 'taskGroup') {
@@ -134,19 +147,19 @@ export const executionRouter = router({
             message: 'Task group has no tasks with a project',
           });
 
-        const { workspace, project, repos, projectDir, dirs } = resolveProjectContext(
-          firstTask.projectId,
-        );
-        additionalDirs = dirs.additionalDirs;
-        worktreePath = dirs.workingDir ?? null;
+        const resolved = resolveProjectContext(firstTask.projectId);
+        additionalDirs = resolved.dirs.additionalDirs;
+        worktreePath = resolved.dirs.workingDir ?? null;
         taskGroupId = group.id;
+        repos = resolved.repos;
+        workspace = resolved.workspace;
 
-        const implementSkill = workspace.implementSkill || '/engy:implement';
+        const implementSkill = resolved.workspace.implementSkill || '/engy:implement';
         prompt = `Use ${implementSkill} for task group "${group.name}"`;
         systemPrompt = buildContextBlock({
-          workspace: { id: workspace.id, slug: workspace.slug },
-          project: { id: project.id, slug: project.slug, dir: projectDir },
-          repos,
+          workspace: { id: resolved.workspace.id, slug: resolved.workspace.slug },
+          project: { id: resolved.project.id, slug: resolved.project.slug, dir: resolved.projectDir },
+          repos: resolved.repos,
         });
       } else {
         const milestoneRef = String(input.id);
@@ -162,15 +175,44 @@ export const executionRouter = router({
             message: `Milestone "${milestoneRef}" has no tasks with a project`,
           });
 
-        const { workspace, project, projectDir, dirs } = resolveProjectContext(
-          firstTask.projectId,
-        );
-        additionalDirs = dirs.additionalDirs;
-        worktreePath = dirs.workingDir ?? null;
+        const resolved = resolveProjectContext(firstTask.projectId);
+        additionalDirs = resolved.dirs.additionalDirs;
+        worktreePath = resolved.dirs.workingDir ?? null;
+        repos = resolved.repos;
+        workspace = resolved.workspace;
 
-        const built = buildPromptForMilestone(milestoneRef, workspace, project, projectDir);
+        const built = buildPromptForMilestone(
+          milestoneRef,
+          resolved.workspace,
+          resolved.project,
+          resolved.projectDir,
+        );
         prompt = built.prompt;
         systemPrompt = built.systemPrompt;
+      }
+
+      // HIGH #5: Guard against duplicate active sessions for the same scope
+      const existingSession = taskId
+        ? db
+            .select()
+            .from(agentSessions)
+            .where(and(eq(agentSessions.taskId, taskId), eq(agentSessions.status, 'active')))
+            .get()
+        : taskGroupId
+          ? db
+              .select()
+              .from(agentSessions)
+              .where(
+                and(eq(agentSessions.taskGroupId, taskGroupId), eq(agentSessions.status, 'active')),
+              )
+              .get()
+          : undefined;
+
+      if (existingSession) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'An execution is already active for this scope',
+        });
       }
 
       db.insert(agentSessions)
@@ -184,11 +226,19 @@ export const executionRouter = router({
         })
         .run();
 
-      const flags: Record<string, unknown> = {};
-      if (systemPrompt) flags.appendSystemPrompt = systemPrompt;
-      if (additionalDirs.length > 0) flags.addDir = additionalDirs;
+      const flags: string[] = [];
+      if (systemPrompt) flags.push('--append-system-prompt', systemPrompt);
+      for (const dir of additionalDirs) flags.push('--add-dir', dir);
 
-      await dispatchExecutionStart(ctx.state, prompt, flags);
+      const config: ExecutionStartConfig = {
+        repoPath: repos[0] ?? '',
+        containerMode: (workspace.containerEnabled as boolean) ?? false,
+        containerWorkspaceFolder: workspace.containerEnabled
+          ? (workspace.docsDir ?? undefined)
+          : undefined,
+      };
+
+      await dispatchExecutionStart(ctx.state, prompt, flags, config);
 
       return { sessionId };
     }),
@@ -240,13 +290,17 @@ export const executionRouter = router({
         })
         .run();
 
-      const flags: Record<string, unknown> = { resume: input.sessionId };
+      const flags: string[] = ['--resume', input.sessionId];
 
       await dispatchExecutionStart(ctx.state, '', flags);
 
       return { sessionId: newSessionId };
     }),
 
+  // NOTE: This reads from the server's local filesystem (~/.claude/projects/).
+  // It only works when server and daemon are co-located (same machine).
+  // Acceptable for M6 (single-user, local setup) but should be addressed
+  // in a future milestone for remote server deployments.
   getSessionFile: publicProcedure
     .input(z.object({ sessionId: z.string().min(1) }))
     .query(({ input }) => {

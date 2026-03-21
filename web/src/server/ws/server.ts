@@ -6,6 +6,7 @@ import type {
   ValidatePathsRequestMessage,
   SearchFilesRequestMessage,
   ContainerUpRequestMessage,
+  ExecutionStartConfig,
 } from '@engy/common';
 import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowResult, GitBranchFilesResult, ContainerUpResult, ExecutionStartResult, ExecutionStopResult } from '../trpc/context';
 import { getDb } from '../db/client';
@@ -250,6 +251,7 @@ function handleExecutionStatusEvent(payload: {
   sessionId: string;
   status: string;
   taskId?: number;
+  worktreePath?: string;
 }): void {
   console.log(
     `[ws-main-server] Execution status: session=${payload.sessionId} status=${payload.status}`,
@@ -270,8 +272,10 @@ function handleExecutionStatusEvent(payload: {
   }
 
   const now = new Date().toISOString();
+  const updateFields: { updatedAt: string; worktreePath?: string } = { updatedAt: now };
+  if (payload.worktreePath) updateFields.worktreePath = payload.worktreePath;
   db.update(agentSessions)
-    .set({ updatedAt: now })
+    .set(updateFields)
     .where(eq(agentSessions.sessionId, payload.sessionId))
     .run();
 
@@ -286,7 +290,7 @@ function handleExecutionCompleteEvent(payload: {
   sessionId: string;
   exitCode: number;
   success: boolean;
-  completion?: string;
+  completionSummary?: string;
 }): void {
   console.log(
     `[ws-main-server] Execution complete: session=${payload.sessionId} exitCode=${payload.exitCode} success=${payload.success}`,
@@ -313,7 +317,7 @@ function handleExecutionCompleteEvent(payload: {
     tx.update(agentSessions)
       .set({
         status: sessionStatus,
-        completionSummary: payload.completion ?? null,
+        completionSummary: payload.completionSummary ?? null,
         updatedAt: now,
       })
       .where(eq(agentSessions.sessionId, payload.sessionId))
@@ -539,8 +543,8 @@ const EXECUTION_TIMEOUT_MS = 300_000;
 export function dispatchExecutionStart(
   state: AppState,
   prompt: string,
-  flags?: Record<string, unknown>,
-  config?: Record<string, unknown>,
+  flags?: string[],
+  config?: ExecutionStartConfig,
 ): Promise<ExecutionStartResult> {
   return dispatchDaemonOp(
     state,

@@ -579,7 +579,7 @@ describe('WsClient execution handlers', () => {
       payload: {
         requestId: 'req-exec-1',
         prompt: 'Fix the bug',
-        flags: { verbose: true },
+        flags: ['--verbose'],
         config: { repoPath: '/tmp/repo', containerMode: false },
       },
     };

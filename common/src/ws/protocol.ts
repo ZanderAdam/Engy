@@ -234,13 +234,20 @@ export interface ContainerProgressEventMessage {
 
 // ── Execution operations (server ↔ daemon) ──────────────────────────────────
 
+export interface ExecutionStartConfig {
+  repoPath: string;
+  containerMode: boolean;
+  containerWorkspaceFolder?: string;
+  env?: Record<string, string>;
+}
+
 export interface ExecutionStartRequestMessage {
   type: 'EXECUTION_START_REQUEST';
   payload: {
     requestId: string;
     prompt: string;
-    flags?: Record<string, unknown>;
-    config?: Record<string, unknown>;
+    flags?: string[];
+    config?: ExecutionStartConfig;
   };
 }
 
@@ -272,6 +279,7 @@ export interface ExecutionStatusEventMessage {
     sessionId: string;
     status: string;
     taskId?: number;
+    worktreePath?: string;
   };
 }
 
@@ -281,7 +289,7 @@ export interface ExecutionCompleteEventMessage {
     sessionId: string;
     exitCode: number;
     success: boolean;
-    completion?: string;
+    completionSummary?: string;
   };
 }
 

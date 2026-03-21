@@ -103,7 +103,9 @@ describe('execution router', () => {
       const msg = JSON.parse(sent[0]);
       expect(msg.type).toBe('EXECUTION_START_REQUEST');
       expect(msg.payload.prompt).toContain('/engy:implement');
-      expect(msg.payload.flags.appendSystemPrompt).toContain('Workspace: exec-ws');
+      expect(msg.payload.flags).toContain('--append-system-prompt');
+      const flagIndex = (msg.payload.flags as string[]).indexOf('--append-system-prompt');
+      expect((msg.payload.flags as string[])[flagIndex + 1]).toContain('Workspace: exec-ws');
     });
 
     it('should throw when task not found', async () => {
@@ -247,7 +249,7 @@ describe('execution router', () => {
       // Verify the dispatch included --resume flag
       const msg = JSON.parse(sent[0]);
       expect(msg.type).toBe('EXECUTION_START_REQUEST');
-      expect(msg.payload.flags.resume).toBe(original.sessionId);
+      expect(msg.payload.flags).toEqual(['--resume', original.sessionId]);
     });
 
     it('should throw when session not found', async () => {

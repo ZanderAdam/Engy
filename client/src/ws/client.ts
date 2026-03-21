@@ -639,15 +639,14 @@ export class WsClient {
   ): Promise<void> {
     const { requestId, prompt, flags, config } = message.payload;
     try {
-      const flagsArray = flags ? Object.keys(flags).map((k) => `--${k}`) : [];
       const runnerConfig = {
-        repoPath: (config?.repoPath as string) ?? '',
-        containerMode: (config?.containerMode as boolean) ?? false,
-        containerWorkspaceFolder: config?.containerWorkspaceFolder as string | undefined,
-        env: config?.env as Record<string, string> | undefined,
+        repoPath: config?.repoPath ?? '',
+        containerMode: config?.containerMode ?? false,
+        containerWorkspaceFolder: config?.containerWorkspaceFolder,
+        env: config?.env,
       };
 
-      const sessionId = await this.runner.start(prompt, flagsArray, runnerConfig);
+      const sessionId = await this.runner.start(prompt, flags ?? [], runnerConfig);
 
       this.send({
         type: 'EXECUTION_START_RESPONSE',
