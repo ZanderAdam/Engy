@@ -58,7 +58,7 @@ Mark all tasks in the group as `in_progress` via `updateTask(id, status: "in_pro
 - Relevant section of the plan doc
 - Validation commands to run before returning (from Step 2)
 - File paths and pattern references relevant to the task
-- Explicit instruction to commit changes before returning
+- Explicit instruction to commit changes before returning. CRITICAL: do not include milestone/tg/task ids in task title or description
 
 **Parallelism:** If multiple tasks in the group have no mutual `blockedBy` dependencies, spawn them as concurrent team members in a **single message with multiple Agent tool calls**. Dependent tasks wait until their blockers complete, then get dispatched.
 

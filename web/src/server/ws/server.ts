@@ -550,7 +550,7 @@ export function dispatchExecutionStart(
     state,
     state.pendingExecutionStart,
     'EXECUTION_START_REQUEST',
-    { prompt, flags, config },
+    { prompt, flags, config } as unknown as Record<string, unknown>,
     EXECUTION_TIMEOUT_MS,
   );
 }

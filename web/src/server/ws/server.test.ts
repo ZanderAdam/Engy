@@ -464,7 +464,7 @@ describe('Execution event handling', () => {
             sessionId: 'complete-ok',
             exitCode: 0,
             success: true,
-            completion: 'Implemented auth',
+            completionSummary: 'Implemented auth',
           },
         }),
       );
