@@ -112,6 +112,11 @@ export const tasks = sqliteTable('tasks', {
   urgency: text('urgency', { enum: ['urgent', 'not_urgent'] }).default('not_urgent'),
   needsPlan: integer('needs_plan', { mode: 'boolean' }).notNull().default(true),
   specId: text('spec_id'),
+  subStatus: text('sub_status', {
+    enum: ['planning', 'implementing', 'blocked', 'failed'],
+  }),
+  sessionId: text('session_id'),
+  feedback: text('feedback'),
   createdAt: text('created_at')
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -162,6 +167,12 @@ export const agentSessions = sqliteTable('agent_sessions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   sessionId: text('session_id').notNull().unique(),
   taskGroupId: integer('task_group_id').references(() => taskGroups.id, { onDelete: 'set null' }),
+  taskId: integer('task_id').references(() => tasks.id),
+  executionMode: text('execution_mode', {
+    enum: ['group', 'task', 'milestone'],
+  }),
+  completionSummary: text('completion_summary'),
+  worktreePath: text('worktree_path'),
   state: text('state', { mode: 'json' }).$type<Record<string, unknown>>(),
   status: text('status', {
     enum: ['active', 'paused', 'stopped', 'completed'],
@@ -180,6 +191,10 @@ export const agentSessionsRelations = relations(agentSessions, ({ one }) => ({
   taskGroup: one(taskGroups, {
     fields: [agentSessions.taskGroupId],
     references: [taskGroups.id],
+  }),
+  task: one(tasks, {
+    fields: [agentSessions.taskId],
+    references: [tasks.id],
   }),
 }));
 

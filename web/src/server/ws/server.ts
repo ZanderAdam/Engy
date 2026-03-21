@@ -6,7 +6,7 @@ import type {
   SearchFilesRequestMessage,
   ContainerUpRequestMessage,
 } from '@engy/common';
-import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowResult, GitBranchFilesResult, ContainerUpResult } from '../trpc/context';
+import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowResult, GitBranchFilesResult, ContainerUpResult, ExecutionStartResult, ExecutionStopResult } from '../trpc/context';
 import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { handleSpecFileChange } from '../spec/watcher';
@@ -65,6 +65,8 @@ function rejectAllPending(state: AppState): void {
     state.pendingContainerUp,
     state.pendingContainerDown,
     state.pendingContainerStatus,
+    state.pendingExecutionStart,
+    state.pendingExecutionStop,
   ] as const;
 
   const error = new Error('Daemon disconnected');
@@ -136,6 +138,26 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       if (listener) listener(msg.payload.line);
       break;
     }
+    case 'EXECUTION_START_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingExecutionStart, (p) => ({
+        sessionId: p.sessionId,
+      }));
+      break;
+    case 'EXECUTION_STOP_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingExecutionStop, (p) => ({
+        success: p.success,
+      }));
+      break;
+    case 'EXECUTION_STATUS_EVENT':
+      console.log(
+        `[ws-main-server] Execution status: session=${msg.payload.sessionId} status=${msg.payload.status}`,
+      );
+      break;
+    case 'EXECUTION_COMPLETE_EVENT':
+      console.log(
+        `[ws-main-server] Execution complete: session=${msg.payload.sessionId} exitCode=${msg.payload.exitCode} success=${msg.payload.success}`,
+      );
+      break;
   }
 }
 
@@ -422,5 +444,36 @@ export function dispatchContainerUp(
     { workspaceFolder, repos, config },
     CONTAINER_TIMEOUT_MS,
     requestId,
+  );
+}
+
+// ── Execution dispatch functions ─────────────────────────────────────────────
+
+const EXECUTION_TIMEOUT_MS = 300_000;
+
+function dispatchExecutionStart(
+  state: AppState,
+  prompt: string,
+  flags?: Record<string, unknown>,
+  config?: Record<string, unknown>,
+): Promise<ExecutionStartResult> {
+  return dispatchDaemonOp(
+    state,
+    state.pendingExecutionStart,
+    'EXECUTION_START_REQUEST',
+    { prompt, flags, config },
+    EXECUTION_TIMEOUT_MS,
+  );
+}
+
+function dispatchExecutionStop(
+  state: AppState,
+  sessionId: string,
+): Promise<ExecutionStopResult> {
+  return dispatchDaemonOp(
+    state,
+    state.pendingExecutionStop,
+    'EXECUTION_STOP_REQUEST',
+    { sessionId },
   );
 }

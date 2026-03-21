@@ -51,6 +51,14 @@ export interface ContainerStatusResult {
   containerId?: string;
 }
 
+export interface ExecutionStartResult {
+  sessionId: string;
+}
+
+export interface ExecutionStopResult {
+  success: boolean;
+}
+
 export interface AppState {
   daemon: WebSocket | null;
   fileChanges: Map<string, FileChangeEvent[]>;
@@ -124,6 +132,20 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingExecutionStart: Map<
+    string,
+    {
+      resolve: (result: ExecutionStartResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingExecutionStop: Map<
+    string,
+    {
+      resolve: (result: ExecutionStopResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   specLastChanged: Map<string, number>;
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
   /** Maps sessionId → browser WebSocket for terminal I/O relay */
@@ -156,6 +178,8 @@ export function getAppState(): AppState {
       pendingContainerUp: new Map(),
       pendingContainerDown: new Map(),
       pendingContainerStatus: new Map(),
+      pendingExecutionStart: new Map(),
+      pendingExecutionStop: new Map(),
       specLastChanged: new Map(),
       specDebounceTimers: new Map(),
       terminalSessions: new Map(),

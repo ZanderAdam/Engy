@@ -73,6 +73,8 @@ describe('WebSocket Server', () => {
       terminalDaemon: null,
       fileChangeListeners: new Set(),
       containerProgressListeners: new Map(),
+      pendingExecutionStart: new Map(),
+      pendingExecutionStop: new Map(),
     };
     const result = await startServer(state);
     server = result.server;

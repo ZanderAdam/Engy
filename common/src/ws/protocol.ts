@@ -232,6 +232,59 @@ export interface ContainerProgressEventMessage {
   };
 }
 
+// ── Execution operations (server ↔ daemon) ──────────────────────────────────
+
+export interface ExecutionStartRequestMessage {
+  type: 'EXECUTION_START_REQUEST';
+  payload: {
+    requestId: string;
+    prompt: string;
+    flags?: Record<string, unknown>;
+    config?: Record<string, unknown>;
+  };
+}
+
+export interface ExecutionStartResponseMessage {
+  type: 'EXECUTION_START_RESPONSE';
+  payload:
+    | { requestId: string; sessionId: string }
+    | { requestId: string; error: string };
+}
+
+export interface ExecutionStopRequestMessage {
+  type: 'EXECUTION_STOP_REQUEST';
+  payload: {
+    requestId: string;
+    sessionId: string;
+  };
+}
+
+export interface ExecutionStopResponseMessage {
+  type: 'EXECUTION_STOP_RESPONSE';
+  payload:
+    | { requestId: string; success: boolean }
+    | { requestId: string; error: string };
+}
+
+export interface ExecutionStatusEventMessage {
+  type: 'EXECUTION_STATUS_EVENT';
+  payload: {
+    sessionId: string;
+    status: string;
+    taskId?: number;
+  };
+}
+
+export interface ExecutionCompleteEventMessage {
+  type: 'EXECUTION_COMPLETE_EVENT';
+  payload: {
+    sessionId: string;
+    exitCode: number;
+    success: boolean;
+    completion?: string;
+  };
+}
+
 export type WsMessage =
   | RegisterMessage
   | WorkspacesSyncMessage
@@ -256,7 +309,13 @@ export type WsMessage =
   | ContainerDownResponseMessage
   | ContainerStatusRequestMessage
   | ContainerStatusResponseMessage
-  | ContainerProgressEventMessage;
+  | ContainerProgressEventMessage
+  | ExecutionStartRequestMessage
+  | ExecutionStartResponseMessage
+  | ExecutionStopRequestMessage
+  | ExecutionStopResponseMessage
+  | ExecutionStatusEventMessage
+  | ExecutionCompleteEventMessage;
 
 export type ClientToServerMessage =
   | RegisterMessage
@@ -271,7 +330,11 @@ export type ClientToServerMessage =
   | ContainerUpResponseMessage
   | ContainerDownResponseMessage
   | ContainerStatusResponseMessage
-  | ContainerProgressEventMessage;
+  | ContainerProgressEventMessage
+  | ExecutionStartResponseMessage
+  | ExecutionStopResponseMessage
+  | ExecutionStatusEventMessage
+  | ExecutionCompleteEventMessage;
 
 export type ServerToClientMessage =
   | WorkspacesSyncMessage
@@ -284,7 +347,9 @@ export type ServerToClientMessage =
   | GitBranchFilesRequestMessage
   | ContainerUpRequestMessage
   | ContainerDownRequestMessage
-  | ContainerStatusRequestMessage;
+  | ContainerStatusRequestMessage
+  | ExecutionStartRequestMessage
+  | ExecutionStopRequestMessage;
 
 // ── Compact terminal relay types (server ↔ daemon) ──────────────────────────
 

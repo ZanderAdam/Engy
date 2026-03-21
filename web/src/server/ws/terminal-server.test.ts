@@ -27,6 +27,8 @@ function makeState(): AppState {
     pendingContainerUp: new Map(),
     pendingContainerDown: new Map(),
     pendingContainerStatus: new Map(),
+    pendingExecutionStart: new Map(),
+    pendingExecutionStop: new Map(),
   };
 }
 

@@ -253,6 +253,61 @@ describe('task router', () => {
     });
   });
 
+  describe('execution fields', () => {
+    it('should create a task with subStatus and sessionId', async () => {
+      const task = await caller.task.create({
+        projectId,
+        title: 'Executing task',
+        subStatus: 'implementing',
+        sessionId: 'uuid-123',
+      });
+      expect(task.subStatus).toBe('implementing');
+      expect(task.sessionId).toBe('uuid-123');
+    });
+
+    it('should update subStatus and sessionId', async () => {
+      const task = await caller.task.create({
+        projectId,
+        title: 'Update exec fields',
+      });
+      expect(task.subStatus).toBeNull();
+      expect(task.sessionId).toBeNull();
+
+      const updated = await caller.task.update({
+        id: task.id,
+        subStatus: 'implementing',
+        sessionId: 'uuid-123',
+      });
+      expect(updated.subStatus).toBe('implementing');
+      expect(updated.sessionId).toBe('uuid-123');
+    });
+
+    it('should persist feedback', async () => {
+      const task = await caller.task.create({
+        projectId,
+        title: 'Feedback task',
+        feedback: 'needs more tests',
+      });
+      expect(task.feedback).toBe('needs more tests');
+
+      const fetched = await caller.task.get({ id: task.id });
+      expect(fetched.feedback).toBe('needs more tests');
+    });
+
+    it('should clear subStatus with null', async () => {
+      const task = await caller.task.create({
+        projectId,
+        title: 'Clear sub status',
+        subStatus: 'planning',
+      });
+      const updated = await caller.task.update({
+        id: task.id,
+        subStatus: null,
+      });
+      expect(updated.subStatus).toBeNull();
+    });
+  });
+
   describe('delete', () => {
     it('should delete a task', async () => {
       const task = await caller.task.create({

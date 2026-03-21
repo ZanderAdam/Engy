@@ -6,6 +6,8 @@ import { getDb } from '../../db/client';
 import { tasks, taskDependencies } from '../../db/schema';
 import { validateDependencies, attachBlockedBy } from '../../tasks/validation';
 
+const subStatusEnum = z.enum(['planning', 'implementing', 'blocked', 'failed']);
+
 function checkedValidateDeps(taskId: number | null, blockedBy: number[]): number[] {
   try {
     return validateDependencies(taskId, blockedBy);
@@ -29,6 +31,9 @@ export const taskRouter = router({
         needsPlan: z.boolean().default(true),
         blockedBy: z.array(z.number()).default([]),
         specId: z.string().optional(),
+        subStatus: subStatusEnum.optional(),
+        sessionId: z.string().optional(),
+        feedback: z.string().optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -97,6 +102,9 @@ export const taskRouter = router({
         blockedBy: z.array(z.number()).optional(),
         milestoneRef: z.string().nullable().optional(),
         taskGroupId: z.number().nullable().optional(),
+        subStatus: subStatusEnum.nullable().optional(),
+        sessionId: z.string().nullable().optional(),
+        feedback: z.string().nullable().optional(),
       }),
     )
     .mutation(({ input }) => {
