@@ -16,6 +16,7 @@ export interface RunnerConfig {
 export interface SpawnConfig {
   prompt: string;
   flags: string[];
+  sessionId?: string;
   workingDir: string;
   containerMode: boolean;
   containerWorkspaceFolder?: string;
@@ -75,30 +76,40 @@ export class Runner {
     this.send = send;
   }
 
-  async start(prompt: string, flags: string[], config: RunnerConfig): Promise<void> {
+  async start(prompt: string, flags: string[], config: RunnerConfig): Promise<string> {
     const shortId = generateShortId();
+    const sessionId = `engy-session-${shortId}`;
     const branchName = `engy/session-${shortId}`;
-    const worktreePath = join(config.repoPath, WORKTREE_DIR, `engy-session-${shortId}`);
+    const worktreePath = join(config.repoPath, WORKTREE_DIR, sessionId);
 
     const git = simpleGit(config.repoPath);
     await git.raw(['worktree', 'add', worktreePath, '-b', branchName, 'main']);
 
     this.currentWorktreePath = worktreePath;
+    this.currentSessionId = sessionId;
 
-    const spawnResult = await this.spawner.spawn({
-      prompt,
-      flags,
-      workingDir: worktreePath,
-      containerMode: config.containerMode,
-      containerWorkspaceFolder: config.containerWorkspaceFolder,
-      env: config.env,
-    });
+    this.emitStatusEvent(sessionId, worktreePath);
 
-    this.currentSessionId = spawnResult.sessionId;
+    this.spawner
+      .spawn({
+        prompt,
+        flags,
+        sessionId,
+        workingDir: worktreePath,
+        containerMode: config.containerMode,
+        containerWorkspaceFolder: config.containerWorkspaceFolder,
+        env: config.env,
+      })
+      .then((result) => this.handleCompletion(result))
+      .catch(() => {
+        this.handleCompletion({
+          sessionId,
+          exitCode: 1,
+          success: false,
+        });
+      });
 
-    this.emitStatusEvent(spawnResult.sessionId, worktreePath);
-
-    await this.handleCompletion(spawnResult);
+    return sessionId;
   }
 
   stop(): void {

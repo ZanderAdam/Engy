@@ -16,6 +16,8 @@ import type {
   ContainerUpRequestMessage,
   ContainerDownRequestMessage,
   ContainerStatusRequestMessage,
+  ExecutionStartRequestMessage,
+  ExecutionStopRequestMessage,
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
@@ -23,6 +25,8 @@ import { getStatusDetailed, getDiff, getLog, getShow, getBranchFiles } from '../
 import { ContainerManager } from '../container/manager.js';
 import { generateDevcontainerConfig } from '../container/config-generator.js';
 import type { TerminalManager } from '../terminal/manager.js';
+import { Runner } from '../runner/index.js';
+import { AgentSpawner } from '../runner/agent-spawner.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -35,6 +39,7 @@ interface WsClientOptions {
   serverUrl: string;
   onWorkspacesSync?: (message: WorkspacesSyncMessage) => void;
   terminalManager?: TerminalManager;
+  runner?: Runner;
 }
 
 export function computeBackoff(attempt: number): number {
@@ -198,12 +203,15 @@ export class WsClient {
   private readonly terminalRelayUrl: string;
   private readonly onWorkspacesSync?: (message: WorkspacesSyncMessage) => void;
   private readonly terminalManager?: TerminalManager;
+  private readonly runner: Runner;
 
   constructor(options: WsClientOptions) {
     this.wsUrl = deriveWsUrl(options.serverUrl);
     this.terminalRelayUrl = deriveTerminalRelayUrl(options.serverUrl);
     this.onWorkspacesSync = options.onWorkspacesSync;
     this.terminalManager = options.terminalManager;
+    const spawner = new AgentSpawner(this.containerManager);
+    this.runner = options.runner ?? new Runner(spawner, (msg) => this.send(msg));
   }
 
   connect(): void {
@@ -417,6 +425,12 @@ export class WsClient {
       case 'CONTAINER_STATUS_REQUEST':
         this.handleContainerStatusRequest(message as ContainerStatusRequestMessage);
         break;
+      case 'EXECUTION_START_REQUEST':
+        this.handleExecutionStartRequest(message as ExecutionStartRequestMessage);
+        break;
+      case 'EXECUTION_STOP_REQUEST':
+        this.handleExecutionStopRequest(message as ExecutionStopRequestMessage);
+        break;
     }
   }
 
@@ -615,6 +629,49 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'CONTAINER_STATUS_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleExecutionStartRequest(
+    message: ExecutionStartRequestMessage,
+  ): Promise<void> {
+    const { requestId, prompt, flags, config } = message.payload;
+    try {
+      const flagsArray = flags ? Object.keys(flags).map((k) => `--${k}`) : [];
+      const runnerConfig = {
+        repoPath: (config?.repoPath as string) ?? '',
+        containerMode: (config?.containerMode as boolean) ?? false,
+        containerWorkspaceFolder: config?.containerWorkspaceFolder as string | undefined,
+        env: config?.env as Record<string, string> | undefined,
+      };
+
+      const sessionId = await this.runner.start(prompt, flagsArray, runnerConfig);
+
+      this.send({
+        type: 'EXECUTION_START_RESPONSE',
+        payload: { requestId, sessionId },
+      });
+    } catch (err) {
+      this.send({
+        type: 'EXECUTION_START_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private handleExecutionStopRequest(message: ExecutionStopRequestMessage): void {
+    const { requestId } = message.payload;
+    try {
+      this.runner.stop();
+      this.send({
+        type: 'EXECUTION_STOP_RESPONSE',
+        payload: { requestId, success: true },
+      });
+    } catch (err) {
+      this.send({
+        type: 'EXECUTION_STOP_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }

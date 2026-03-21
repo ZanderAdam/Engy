@@ -2,10 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WebSocketServer, type WebSocket as WsWebSocket } from 'ws';
 import { createServer, type Server } from 'node:http';
 import { WsClient, computeBackoff, deriveWsUrl, deriveTerminalRelayUrl } from './client.js';
-import type { WorkspacesSyncMessage, ValidatePathsRequestMessage } from '@engy/common';
+import type {
+  WorkspacesSyncMessage,
+  ValidatePathsRequestMessage,
+  ExecutionStartRequestMessage,
+  ExecutionStopRequestMessage,
+} from '@engy/common';
 import type { TerminalManager } from '../terminal/manager.js';
 import type { PersistentSession } from '../terminal/types.js';
 import { access } from 'node:fs/promises';
+import type { Runner } from '../runner/index.js';
 
 vi.mock('node:fs/promises', () => ({
   access: vi.fn(),
@@ -84,6 +90,13 @@ describe('WsClient', () => {
 
   beforeEach(async () => {
     server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) {
+        resolve();
+      } else {
+        server.on('listening', () => resolve());
+      }
+    });
     port = (server.address() as { port: number }).port;
   });
 
@@ -502,5 +515,269 @@ describe('WsClient terminal relay', () => {
       // 'x' is still suspended per our mock → resumed again
       expect(mockTm.handleReconnect).toHaveBeenCalledWith('x');
     });
+  });
+});
+
+function createMockRunner(overrides: Partial<Runner> = {}): Runner {
+  return {
+    start: vi.fn().mockResolvedValue('mock-session-123'),
+    stop: vi.fn(),
+    retry: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  } as unknown as Runner;
+}
+
+describe('WsClient execution handlers', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => {
+      wss.once('connection', resolve);
+    });
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => {
+      ws.once('message', (data) => resolve(data.toString()));
+    });
+  }
+
+  beforeEach(async () => {
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) {
+        resolve();
+      } else {
+        server.on('listening', () => resolve());
+      }
+    });
+    port = (server.address() as { port: number }).port;
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it('delegates EXECUTION_START_REQUEST to Runner.start and sends response', async () => {
+    const mockRunner = createMockRunner();
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      runner: mockRunner,
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: ExecutionStartRequestMessage = {
+      type: 'EXECUTION_START_REQUEST',
+      payload: {
+        requestId: 'req-exec-1',
+        prompt: 'Fix the bug',
+        flags: { verbose: true },
+        config: { repoPath: '/tmp/repo', containerMode: false },
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    const parsed = JSON.parse(response);
+
+    expect(parsed).toEqual({
+      type: 'EXECUTION_START_RESPONSE',
+      payload: { requestId: 'req-exec-1', sessionId: 'mock-session-123' },
+    });
+
+    expect(mockRunner.start).toHaveBeenCalledWith(
+      'Fix the bug',
+      ['--verbose'],
+      {
+        repoPath: '/tmp/repo',
+        containerMode: false,
+        containerWorkspaceFolder: undefined,
+        env: undefined,
+      },
+    );
+  });
+
+  it('delegates EXECUTION_STOP_REQUEST to Runner.stop and sends response', async () => {
+    const mockRunner = createMockRunner();
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      runner: mockRunner,
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: ExecutionStopRequestMessage = {
+      type: 'EXECUTION_STOP_REQUEST',
+      payload: { requestId: 'req-stop-1', sessionId: 'sess-abc' },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    const parsed = JSON.parse(response);
+
+    expect(parsed).toEqual({
+      type: 'EXECUTION_STOP_RESPONSE',
+      payload: { requestId: 'req-stop-1', success: true },
+    });
+
+    expect(mockRunner.stop).toHaveBeenCalled();
+  });
+
+  it('sends error response when Runner.start throws', async () => {
+    const mockRunner = createMockRunner({
+      start: vi.fn().mockRejectedValue(new Error('git worktree creation failed')),
+    });
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      runner: mockRunner,
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: ExecutionStartRequestMessage = {
+      type: 'EXECUTION_START_REQUEST',
+      payload: {
+        requestId: 'req-err-1',
+        prompt: 'Do something',
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    const parsed = JSON.parse(response);
+
+    expect(parsed).toEqual({
+      type: 'EXECUTION_START_RESPONSE',
+      payload: { requestId: 'req-err-1', error: 'git worktree creation failed' },
+    });
+  });
+
+  it('sends error response when Runner.stop throws', async () => {
+    const mockRunner = createMockRunner({
+      stop: vi.fn().mockImplementation(() => {
+        throw new Error('no active process');
+      }),
+    });
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      runner: mockRunner,
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: ExecutionStopRequestMessage = {
+      type: 'EXECUTION_STOP_REQUEST',
+      payload: { requestId: 'req-stop-err', sessionId: 'sess-abc' },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    const parsed = JSON.parse(response);
+
+    expect(parsed).toEqual({
+      type: 'EXECUTION_STOP_RESPONSE',
+      payload: { requestId: 'req-stop-err', error: 'no active process' },
+    });
+  });
+
+  it('forwards Runner events through WS send', async () => {
+    const mockRunner = createMockRunner();
+
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      runner: mockRunner,
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    // The runner is injected as mock, so events are sent via client.send()
+    // directly. Test that client.send() works for execution event types.
+    client.send({
+      type: 'EXECUTION_STATUS_EVENT',
+      payload: { sessionId: 'evt-session', status: 'running' },
+    });
+
+    const statusMsg = await waitForMessage(ws);
+    expect(JSON.parse(statusMsg)).toEqual({
+      type: 'EXECUTION_STATUS_EVENT',
+      payload: { sessionId: 'evt-session', status: 'running' },
+    });
+
+    client.send({
+      type: 'EXECUTION_COMPLETE_EVENT',
+      payload: { sessionId: 'evt-session', exitCode: 0, success: true },
+    });
+
+    const completeMsg = await waitForMessage(ws);
+    expect(JSON.parse(completeMsg)).toEqual({
+      type: 'EXECUTION_COMPLETE_EVENT',
+      payload: { sessionId: 'evt-session', exitCode: 0, success: true },
+    });
+  });
+
+  it('handles EXECUTION_START_REQUEST with no flags or config', async () => {
+    const mockRunner = createMockRunner();
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      runner: mockRunner,
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: ExecutionStartRequestMessage = {
+      type: 'EXECUTION_START_REQUEST',
+      payload: {
+        requestId: 'req-minimal',
+        prompt: 'Simple task',
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    const parsed = JSON.parse(response);
+
+    expect(parsed).toEqual({
+      type: 'EXECUTION_START_RESPONSE',
+      payload: { requestId: 'req-minimal', sessionId: 'mock-session-123' },
+    });
+
+    expect(mockRunner.start).toHaveBeenCalledWith(
+      'Simple task',
+      [],
+      {
+        repoPath: '',
+        containerMode: false,
+        containerWorkspaceFolder: undefined,
+        env: undefined,
+      },
+    );
   });
 });

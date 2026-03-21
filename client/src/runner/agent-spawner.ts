@@ -33,6 +33,8 @@ const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const KILL_GRACE_MS = 5000;
 
 export class AgentSpawner {
+  private currentProcess: ChildProcess | null = null;
+
   constructor(private containerManager: ContainerManager) {}
 
   async spawn(config: SpawnConfig): Promise<SpawnResult> {
@@ -41,11 +43,18 @@ export class AgentSpawner {
     const sessionId = config.sessionId ?? randomUUID();
     const args = this.buildArgs(config, sessionId);
     const proc = this.spawnProcess(config, args);
+    this.currentProcess = proc;
 
     proc.stdin!.write(config.prompt);
     proc.stdin!.end();
 
-    return this.waitForExit(proc, sessionId, config.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const result = await this.waitForExit(proc, sessionId, config.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    this.currentProcess = null;
+    return result;
+  }
+
+  getProcess(): ChildProcess | null {
+    return this.currentProcess;
   }
 
   private validateConfig(config: SpawnConfig): void {
