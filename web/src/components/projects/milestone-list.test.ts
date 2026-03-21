@@ -69,6 +69,7 @@ const task = (id: number, taskGroupId: number, status: string): Task => ({
   type: 'human',
   importance: null,
   urgency: null,
+  subStatus: null,
   needsPlan: false,
   specId: null,
   createdAt: '',

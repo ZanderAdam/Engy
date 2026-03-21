@@ -9,6 +9,7 @@ export interface Task {
   type: string;
   importance: string | null;
   urgency: string | null;
+  subStatus: string | null;
   needsPlan: boolean;
   specId: string | null;
   createdAt: string;

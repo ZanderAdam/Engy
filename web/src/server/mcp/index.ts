@@ -3,10 +3,18 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { eq, and, type SQL } from 'drizzle-orm';
+import { eq, and, desc, inArray, type SQL } from 'drizzle-orm';
 import path from 'node:path';
 import { getDb } from '../db/client';
-import { tasks, taskDependencies, taskGroups, fleetingMemories, workspaces, projects } from '../db/schema';
+import {
+  tasks,
+  taskDependencies,
+  taskGroups,
+  fleetingMemories,
+  workspaces,
+  projects,
+  agentSessions,
+} from '../db/schema';
 import { validateDependencies, attachBlockedBy } from '../tasks/validation';
 import { getWorkspaceDir } from '../engy-dir/init';
 
@@ -233,6 +241,64 @@ function registerWorkspaceTools(mcp: McpServer): void {
 
       const wsPaths = resolveWorkspacePaths(ws);
 
+      // Fetch execution data: sessions linked to this project's task groups
+      const projectTasks = db.select().from(tasks).where(eq(tasks.projectId, projectId)).all();
+      const taskGroupIds = [
+        ...new Set(
+          projectTasks.map((t) => t.taskGroupId).filter((id): id is number => id != null),
+        ),
+      ];
+
+      const sessions =
+        taskGroupIds.length > 0
+          ? db
+              .select()
+              .from(agentSessions)
+              .where(inArray(agentSessions.taskGroupId, taskGroupIds))
+              .orderBy(desc(agentSessions.createdAt))
+              .all()
+          : [];
+
+      // Build per-taskGroup execution summary (latest session wins)
+      const taskGroupExecution: Record<
+        number,
+        {
+          status: string;
+          sessionId: string;
+          worktreePath: string | null;
+          currentTaskId: number | null;
+          currentTaskTitle: string | null;
+        }
+      > = {};
+
+      for (const tgId of taskGroupIds) {
+        const latestSession = sessions.find((s) => s.taskGroupId === tgId);
+        if (!latestSession) continue;
+
+        // Find the current task: the one with a subStatus set in this group
+        const currentTask = projectTasks.find(
+          (t) => t.taskGroupId === tgId && t.subStatus != null,
+        );
+
+        taskGroupExecution[tgId] = {
+          status: latestSession.status,
+          sessionId: latestSession.sessionId,
+          worktreePath: latestSession.worktreePath,
+          currentTaskId: currentTask?.id ?? null,
+          currentTaskTitle: currentTask?.title ?? null,
+        };
+      }
+
+      const activeSessions = sessions
+        .filter((s) => s.status === 'active')
+        .map((s) => ({
+          sessionId: s.sessionId,
+          status: s.status,
+          worktreePath: s.worktreePath,
+          taskId: s.taskId,
+          taskGroupId: s.taskGroupId,
+        }));
+
       return mcpResult({
         ...project,
         workspace: { id: ws.id, name: ws.name, slug: ws.slug },
@@ -244,6 +310,10 @@ function registerWorkspaceTools(mcp: McpServer): void {
           specDir: project.slug
             ? path.join(wsPaths.specsDir, project.slug)
             : null,
+        },
+        execution: {
+          taskGroups: taskGroupExecution,
+          activeSessions,
         },
       });
     },
