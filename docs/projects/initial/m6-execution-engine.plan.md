@@ -1,6 +1,6 @@
 ---
 title: Execution Engine
-status: draft
+status: active
 ---
 
 # Plan: M6 Execution Engine
