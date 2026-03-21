@@ -108,7 +108,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
       if (!scrollRafRef.current) {
         scrollRafRef.current = requestAnimationFrame(() => {
           scrollRafRef.current = 0;
-          term.scrollToBottom();
+          if (isPinnedRef.current) {
+            term.scrollToBottom();
+          }
         });
       }
     };
