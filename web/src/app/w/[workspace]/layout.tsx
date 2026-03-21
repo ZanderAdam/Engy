@@ -10,6 +10,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
 import type { TerminalDropdownGroup } from '@/components/terminal/types';
+import { useWorktreeSessions } from '@/components/terminal/use-worktree-sessions';
 import { FileChangeProvider } from '@/contexts/file-change-context';
 import { buildClaudeCommand, buildContextBlock } from '@/lib/shell';
 
@@ -163,6 +164,15 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     return [{ label: 'Claude in Repos', entries }];
   }, [isProjectRoute, workspace, project, params.project, params.workspace, isContainerEnabled]);
 
+  const worktreeGroup = useWorktreeSessions(params.workspace);
+
+  const allDropdownGroups = useMemo<TerminalDropdownGroup[] | undefined>(() => {
+    const groups: TerminalDropdownGroup[] = [];
+    if (extraDropdownGroups) groups.push(...extraDropdownGroups);
+    if (worktreeGroup) groups.push(worktreeGroup);
+    return groups.length > 0 ? groups : undefined;
+  }, [extraDropdownGroups, worktreeGroup]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -236,7 +246,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           rightContent={
             <TerminalPanel
               onCollapse={handleCollapse}
-              extraDropdownGroups={extraDropdownGroups}
+              extraDropdownGroups={allDropdownGroups}
               containerEnabled={isContainerEnabled}
             />
           }
