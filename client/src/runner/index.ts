@@ -61,14 +61,21 @@ export class Runner {
     const branchName = `engy/session-${shortId}`;
     const worktreePath = join(config.repoPath, WORKTREE_DIR, `engy-session-${shortId}`);
 
+    console.log(
+      `[runner] Starting session=${sessionId} repo=${config.repoPath} container=${config.containerMode}`,
+    );
+    console.log(`[runner] Creating worktree: ${worktreePath} branch=${branchName}`);
+
     const git = simpleGit(config.repoPath);
     await git.raw(['worktree', 'add', worktreePath, '-b', branchName, 'main']);
+    console.log(`[runner] Worktree created`);
 
     this.currentWorktreePath = worktreePath;
     this.currentSessionId = sessionId;
     this.currentConfig = config;
 
     this.emitStatusEvent(sessionId, worktreePath);
+    console.log(`[runner] Spawning agent with ${flags.length} flags, prompt=${prompt.length} chars`);
 
     this.spawner
       .spawn({
@@ -79,21 +86,30 @@ export class Runner {
         containerWorkspaceFolder: config.containerWorkspaceFolder,
         env: config.env,
       })
-      .then((result) => this.handleCompletion(result))
-      .catch(() => {
+      .then((result) => {
+        console.log(
+          `[runner] Agent completed: session=${sessionId} exit=${result.exitCode} success=${result.success}`,
+        );
+        this.handleCompletion(result);
+      })
+      .catch((err) => {
+        console.error(`[runner] Agent spawn failed: session=${sessionId} error=${err.message}`);
         this.handleCompletion({
           sessionId,
           exitCode: 1,
           success: false,
         });
       });
-
   }
 
   stop(): void {
     const proc = this.spawner.getProcess();
-    if (!proc) return;
+    if (!proc) {
+      console.log(`[runner] Stop called but no active process`);
+      return;
+    }
 
+    console.log(`[runner] Stopping session=${this.currentSessionId}`);
     proc.kill('SIGTERM');
 
     const killTimer = setTimeout(() => {
@@ -109,6 +125,7 @@ export class Runner {
   }
 
   async retry(sessionId: string): Promise<void> {
+    console.log(`[runner] Retrying session=${sessionId} worktree=${this.currentWorktreePath}`);
     if (!this.currentWorktreePath) {
       throw new Error(`No worktree found for session ${sessionId}`);
     }

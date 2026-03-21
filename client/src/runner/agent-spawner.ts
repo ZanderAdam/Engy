@@ -42,14 +42,33 @@ export class AgentSpawner {
 
     const sessionId = randomUUID();
     const args = this.buildArgs(config, sessionId);
+    const mode = config.containerMode ? 'container' : 'host';
+    console.log(
+      `[agent-spawner] Spawning claude (${mode}): cwd=${config.workingDir} sessionId=${sessionId}`,
+    );
+    console.log(`[agent-spawner] Args: ${args.filter((a) => !a.startsWith('{')).join(' ')}`);
+
     const proc = this.spawnProcess(config, args);
     this.currentProcess = proc;
+    console.log(`[agent-spawner] Process spawned: pid=${proc.pid}`);
+
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      console.error(`[agent-spawner] stderr: ${chunk.toString().trim()}`);
+    });
+
+    proc.on('error', (err) => {
+      console.error(`[agent-spawner] Process error: ${err.message}`);
+    });
 
     proc.stdin!.write(config.prompt);
     proc.stdin!.end();
+    console.log(`[agent-spawner] Prompt written to stdin (${config.prompt.length} chars)`);
 
     const result = await this.waitForExit(proc, sessionId, config.timeoutMs ?? DEFAULT_TIMEOUT_MS);
     this.currentProcess = null;
+    console.log(
+      `[agent-spawner] Exit: code=${result.exitCode} success=${result.success} completion=${result.completion ? 'yes' : 'no'}`,
+    );
     return result;
   }
 

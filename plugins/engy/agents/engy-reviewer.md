@@ -29,7 +29,7 @@ Tag each finding with severity and `file:line`. Provide a concrete suggested fix
 - Performance
 - Error handling
 - Test coverage
-- Spec alignment (only if spec content was provided)
+- Feature alignment (only if feature content was provided)
 
 **Output format — numbered list sorted by severity (Critical first, then High, then Medium):**
 

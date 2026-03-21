@@ -638,6 +638,9 @@ export class WsClient {
     message: ExecutionStartRequestMessage,
   ): Promise<void> {
     const { requestId, sessionId, prompt, flags, config } = message.payload;
+    console.log(
+      `[ws-main] EXECUTION_START_REQUEST: session=${sessionId} repo=${config?.repoPath} container=${config?.containerMode} flags=${flags?.length ?? 0}`,
+    );
     try {
       const runnerConfig = {
         repoPath: config?.repoPath ?? '',
@@ -648,11 +651,15 @@ export class WsClient {
 
       await this.runner.start(sessionId, prompt, flags ?? [], runnerConfig);
 
+      console.log(`[ws-main] EXECUTION_START_RESPONSE: session=${sessionId} ok`);
       this.send({
         type: 'EXECUTION_START_RESPONSE',
         payload: { requestId, sessionId },
       });
     } catch (err) {
+      console.error(
+        `[ws-main] EXECUTION_START_RESPONSE: error=${err instanceof Error ? err.message : String(err)}`,
+      );
       this.send({
         type: 'EXECUTION_START_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },

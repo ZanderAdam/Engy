@@ -18,7 +18,7 @@ Dispatch the `engy-reviewer` agent to simplify code directly, then surface sever
 
 Resolve the review scope. Show a summary: files changed, lines added/removed, directories affected.
 
-Determine 
+Determine what are the features being implemented. Pass faile paths to any relevant plans or tasks to the review agent.
 
 **Resolution order:**
 1. User-specified commit range, file list, or branch comparison
@@ -43,7 +43,7 @@ Agent tool:
     [paste the git diff output or key changes]
 
     Project conventions: [path to CLAUDE.md if available]
-    Spec: [path to spec if user provided one, otherwise omit]
+    Features: [path to any plan files, tasks or features lists user provided one, otherwise omit]
 
     Run both phases (Simplify then Review) on these files.
 ```

@@ -101,6 +101,7 @@ export const executionRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      console.log(`[execution] startExecution: scope=${input.scope} id=${input.id}`);
       const db = getDb();
       const sessionId = randomUUID();
       let prompt: string;
@@ -238,6 +239,9 @@ export const executionRouter = router({
           : undefined,
       };
 
+      console.log(
+        `[execution] Dispatching: session=${sessionId} repo=${config.repoPath} container=${config.containerMode} flags=${flags.length} prompt=${prompt.length}chars`,
+      );
       await dispatchExecutionStart(ctx.state, sessionId, prompt, flags, config);
 
       return { sessionId };
