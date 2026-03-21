@@ -19,6 +19,7 @@
   --dv-drag-over-background-color: rgba(59, 130, 246, 0.1);
   --dv-drag-over-border-color: var(--primary);
   --dv-icon-hover-background-color: var(--secondary);
+  --dv-overlay-z-index: 999;
 
   font-family: 'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
 }

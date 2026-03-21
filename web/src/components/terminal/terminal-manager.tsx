@@ -23,6 +23,7 @@ interface TerminalManagerProps {
   onCollapse: () => void;
   defaultScope?: TerminalScope;
   extraDropdownGroups?: TerminalDropdownGroup[];
+  containerEnabled?: boolean;
 }
 
 interface SessionListItem {
@@ -89,7 +90,7 @@ function sessionToTab(s: SessionListItem, fallbackGroupKey: string): TerminalTab
   };
 }
 
-export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups }: TerminalManagerProps) {
+export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled }: TerminalManagerProps) {
   const tabsRef = useRef<Map<string, TerminalTab>>(new Map());
   const tabWsRefs = useRef<Map<string, TerminalActions>>(new Map());
   const dockviewApiRef = useRef<DockviewApi | null>(null);
@@ -331,13 +332,35 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups 
       handleReady,
       onCollapse,
       extraDropdownGroups,
+      containerEnabled,
+      defaultScope,
     }),
-    [openTerminal, handleStatusChange, handleReady, onCollapse, extraDropdownGroups],
+    [openTerminal, handleStatusChange, handleReady, onCollapse, extraDropdownGroups, containerEnabled, defaultScope],
   );
+
+  const dockviewRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = dockviewRef.current;
+    if (!container) return;
+
+    const tabsContainer = container.querySelector<HTMLElement>('.dv-tabs-container');
+    if (!tabsContainer) return;
+
+    function onWheel(e: WheelEvent) {
+      if (e.deltaY === 0) return;
+      e.preventDefault();
+      tabsContainer!.scrollLeft += e.deltaY;
+    }
+
+    tabsContainer.addEventListener('wheel', onWheel, { passive: false });
+    return () => tabsContainer.removeEventListener('wheel', onWheel);
+  }, []);
 
   return (
     <TerminalDockContext.Provider value={contextValue}>
       <DockviewReact
+        ref={dockviewRef}
         className="flex-1 min-h-0"
         theme={ENGY_THEME}
         components={COMPONENTS}
@@ -347,6 +370,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups 
         onReady={handleDockviewReady}
         disableFloatingGroups
         defaultRenderer="always"
+        scrollbars="native"
       />
     </TerminalDockContext.Provider>
   );
