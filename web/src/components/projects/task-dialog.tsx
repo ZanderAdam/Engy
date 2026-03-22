@@ -373,109 +373,102 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
           />
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center gap-4">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium">Status</label>
-              <Select
-                value={status}
-                onValueChange={(v) => { setStatus(v); setDirty(true); }}
-              >
-                <SelectTrigger className="h-7 w-36 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {taskStatusOptions.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s.replace("_", " ")}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+        <Tabs defaultValue={hasExecution && !hasPlan ? "execution" : "description"}>
+          <TabsList variant="line">
+            <TabsTrigger value="description">Description</TabsTrigger>
+            {hasPlan && <TabsTrigger value="plan">Plan</TabsTrigger>}
+            {hasExecution && <TabsTrigger value="execution">Execution</TabsTrigger>}
+          </TabsList>
+          <TabsContent value="description">
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-4">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium">Status</label>
+                  <Select
+                    value={status}
+                    onValueChange={(v) => { setStatus(v); setDirty(true); }}
+                  >
+                    <SelectTrigger className="h-7 w-36 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {taskStatusOptions.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s.replace("_", " ")}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <FieldRow
-              type={type}
-              importance={importance}
-              urgency={urgency}
-              needsPlan={needsPlan}
-              onTypeChange={(v) => { setType(v); setDirty(true); }}
-              onImportanceChange={(v) => { setImportance(v); setDirty(true); }}
-              onUrgencyChange={(v) => { setUrgency(v); setDirty(true); }}
-              onNeedsPlanChange={(v) => { setNeedsPlan(v); setDirty(true); }}
-            />
+                <FieldRow
+                  type={type}
+                  importance={importance}
+                  urgency={urgency}
+                  needsPlan={needsPlan}
+                  onTypeChange={(v) => { setType(v); setDirty(true); }}
+                  onImportanceChange={(v) => { setImportance(v); setDirty(true); }}
+                  onUrgencyChange={(v) => { setUrgency(v); setDirty(true); }}
+                  onNeedsPlanChange={(v) => { setNeedsPlan(v); setDirty(true); }}
+                />
 
-            {groups && groups.length > 0 && (
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium">Task Group</label>
-                <Select
-                  value={taskGroupIdLocal?.toString() ?? "none"}
-                  onValueChange={(v) => {
-                    setTaskGroupIdLocal(v === "none" ? null : Number(v));
-                    setDirty(true);
-                  }}
-                >
-                  <SelectTrigger className="h-7 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {groups.map((g) => (
-                      <SelectItem key={g.id} value={g.id.toString()}>{g.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </div>
-
-          {hasPlan || hasExecution ? (
-            <Tabs defaultValue={hasExecution && !hasPlan ? "execution" : "description"}>
-              <TabsList variant="line">
-                <TabsTrigger value="description">Description</TabsTrigger>
-                {hasPlan && <TabsTrigger value="plan">Plan</TabsTrigger>}
-                {hasExecution && <TabsTrigger value="execution">Execution</TabsTrigger>}
-              </TabsList>
-              <TabsContent value="description">
-                {descriptionEditor}
-              </TabsContent>
-              {hasPlan && (
-                <TabsContent value="plan">
-                  <div className="min-h-[200px] max-h-[50vh] overflow-auto border border-border">
-                    {planData && (
-                      <DynamicDocumentEditor
-                        initialMarkdown={planData.content}
-                        onSave={handlePlanSave}
-                        mentionDirs={mentionDirs}
-                      />
-                    )}
+                {groups && groups.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium">Task Group</label>
+                    <Select
+                      value={taskGroupIdLocal?.toString() ?? "none"}
+                      onValueChange={(v) => {
+                        setTaskGroupIdLocal(v === "none" ? null : Number(v));
+                        setDirty(true);
+                      }}
+                    >
+                      <SelectTrigger className="h-7 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {groups.map((g) => (
+                          <SelectItem key={g.id} value={g.id.toString()}>{g.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                </TabsContent>
-              )}
-              {hasExecution && (
-                <TabsContent value="execution">
-                  <ExecutionTab
-                    taskId={taskId}
-                    sessionId={sessionId!}
-                    status={executionStatus}
-                  />
-                </TabsContent>
-              )}
-            </Tabs>
-          ) : (
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium">Description</label>
-              {descriptionEditor}
-            </div>
-          )}
+                )}
+              </div>
 
-          <BlockedBySelector
-            blockedBy={blockedBy}
-            availableTasks={availableTasks}
-            onAdd={(id) => { setBlockedBy((prev) => [...prev, id]); setDirty(true); }}
-            onRemove={(id) => { setBlockedBy((prev) => prev.filter((x) => x !== id)); setDirty(true); }}
-          />
-        </div>
+              {descriptionEditor}
+
+              <BlockedBySelector
+                blockedBy={blockedBy}
+                availableTasks={availableTasks}
+                onAdd={(id) => { setBlockedBy((prev) => [...prev, id]); setDirty(true); }}
+                onRemove={(id) => { setBlockedBy((prev) => prev.filter((x) => x !== id)); setDirty(true); }}
+              />
+            </div>
+          </TabsContent>
+          {hasPlan && (
+            <TabsContent value="plan">
+              <div className="min-h-[200px] max-h-[50vh] overflow-auto border border-border">
+                {planData && (
+                  <DynamicDocumentEditor
+                    initialMarkdown={planData.content}
+                    onSave={handlePlanSave}
+                    mentionDirs={mentionDirs}
+                  />
+                )}
+              </div>
+            </TabsContent>
+          )}
+          {hasExecution && (
+            <TabsContent value="execution">
+              <ExecutionTab
+                taskId={taskId}
+                sessionId={sessionId!}
+                status={executionStatus}
+              />
+            </TabsContent>
+          )}
+        </Tabs>
 
         <DialogFooter>
           <Button
