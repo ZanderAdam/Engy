@@ -5,7 +5,7 @@ description: "This skill should be used when the user asks to 'write a plan', 'p
 
 # Requirements-First Planning
 
-Write a validated implementation plan for a milestone (or standalone task) using a codebase-aware requirements engineering process. This skill is typically used after `/engy:milestone-plan` has created milestones and tasks — you are now planning the detailed implementation approach for a specific milestone.
+Write a validated implementation plan for a standalone task using a codebase-aware requirements engineering process.
 
 ## MCP Tools
 
@@ -19,8 +19,8 @@ Use MCP to discover context, then Read/Glob/Grep for codebase exploration and sp
 
 Assess complexity before committing to the full process:
 
-- **Simple** (clear scope, 1-2 files, established patterns, no architectural decisions): Skip to Step 3 — write a brief inline plan using the Specify template and present for approval.
-- **Complex** (ambiguous scope, 3+ components, new patterns, cross-cutting concerns, or user explicitly requested planning): Proceed to Step 1.
+- **Simple** (clear scope, 1-2 files, established patterns, no architectural decisions): Skip to Step 3 — write using the **Lightweight Template** below and present for approval.
+- **Complex** (ambiguous scope, 3+ components, new patterns, cross-cutting concerns, or user explicitly requested planning): Proceed to Step 1. Output uses the **Standard Template** below.
 
 Default to **full process**. The simple path is the exception, not the rule.
 
@@ -30,9 +30,9 @@ Default to **full process**. The simple path is the exception, not the rule.
 
 Explore the codebase first: CLAUDE.md, project structure, existing patterns for similar features, dependencies, recent commits touching related areas. If planning a milestone, review the milestone scope, its tasks, and the parent spec for context.
 
-**As Interviewee** — infer requirements from the request plus codebase context. For each inference, note its source (e.g., "soft deletes — matches existing User model pattern"). Consider: loading states, error handling, empty states, mobile behavior, accessibility, data persistence.
+Infer requirements from the request plus codebase context. For each inference, note its source (e.g., "soft deletes — matches existing User model pattern"). Consider: loading states, error handling, empty states, mobile behavior, accessibility, data persistence.
 
-**As Interviewer** — stress-test the inferred requirements against these categories:
+Stress-test the inferred requirements against these categories:
 - **Components** — What pieces are involved? What existing code is affected?
 - **Workflow** — What's the happy path, step by step?
 - **Minimum scope** — What's the smallest version that works? What can defer?
@@ -66,9 +66,14 @@ This is an internal reasoning step. If conflicts are found, present them to the 
 
 ## Step 3: Specify
 
-Synthesize everything into a structured plan following the template at `references/plan-template.md`. The template covers: Overview, Codebase Context, Affected Components, Functional Requirements, Non-Functional Requirements, Workflow, **Test Scenarios**, Out of Scope, Implementation Sequence, and Open Questions.
+Synthesize everything into a structured plan using the appropriate template:
 
-**Test Scenarios are mandatory.** Write Gherkin-format scenarios (Given/When/Then) that cover each feature area. Group by functional area. Reference the FR numbers each scenario validates (e.g., "Scenario: Get file diff (FR #2, #6)").
+- **Lightweight**: Overview, Changes (with inline test impact), Verification.
+- **Standard**: Overview, Functional Requirements, Non-Functional Requirements (if relevant), Codebase Context, Affected Components, Implementation Sequence (ordered steps with inline test impact + parallelization notes), Out of Scope, Open Questions. Optionally: Test Scenarios (only for complex stateful flows).
+
+**Test guidance:** FRs define expected behavior. Implementation Sequence steps include inline test impact. These two cover most testing needs. Only add a separate Test Scenarios section (Gherkin) when the feature has complex multi-step stateful flows where temporal ordering matters and can't be captured in a single FR.
+
+**Code snippets:** For non-obvious changes (e.g., reversing a sort direction, changing a filter predicate), include before/after code snippets inline with the relevant step or change row.
 
 ## Step 4: Validate
 
@@ -84,11 +89,87 @@ If issues are found, fix them inline. Note any tradeoffs or judgment calls at th
 
 **Do NOT start implementation until the user explicitly approves the plan.** Present the plan and wait. Once approved, proceed with `/engy:validate-plan` to validate it against the parent spec before implementation. If something architectural surfaces mid-build that wasn't in the plan, stop and flag it.
 
-## Additional Resources
+## Lightweight Template
 
-### Reference Files
+```markdown
+# Plan: [Feature/Change Name]
 
-- **`references/plan-template.md`** — Structured plan template with all required sections
+## Overview
+What we're changing and why. 2-3 sentences.
+
+## Changes
+
+### `path/to/file.ts`
+What changes. Include before/after snippets for non-obvious changes.
+- *Test impact:* Which tests are affected and how.
+
+### `path/to/other-file.ts`
+...
+
+## Verification
+How to confirm the change works end-to-end.
+```
+
+## Standard Template
+
+```markdown
+# Plan: [Feature/Change Name]
+
+## Overview
+One paragraph: what we're building, why, and the scope boundary.
+
+## Functional Requirements
+Numbered list. Each requirement is one clear behavior the system must exhibit.
+Use "The system shall..." or "When [trigger], [behavior]" format.
+Tag each with its source: (user request), (inferred: <reason>), (elicited).
+Group by feature area if more than 5.
+
+## Non-Functional Requirements
+Only include what's relevant: performance targets, security constraints,
+accessibility, compatibility, data handling, error recovery.
+
+## Codebase Context
+Key conventions, patterns, and existing infrastructure discovered during
+the Internal Pass. Include file paths. Keep brief — just what's needed
+to inform implementation.
+
+## Affected Components
+
+### `path/to/file.ts` [MODIFY]
+What changes.
+
+### `path/to/other-file.ts` [NEW]
+What this new file does.
+
+## Implementation Sequence
+Ordered list of build steps. Note parallelizable steps after the list.
+
+1. **Step name** — What to build/change. (dependencies: none | depends on step N)
+   - *Test impact:* Which tests are affected and how. Include before/after
+     snippets for non-obvious changes.
+
+**Parallelizable:** Steps X, Y, Z have no dependencies and can run concurrently.
+
+## Test Scenarios (optional)
+Include only for complex multi-step stateful flows where temporal ordering
+matters and can't be captured in a single FR. Group by feature area.
+
+### {Feature Area}
+
+```gherkin
+Scenario: {descriptive name} (FR #{N})
+  Given {precondition}
+  When {action}
+  Then {expected outcome}
+```
+
+## Out of Scope
+Explicit list of what this work does NOT include, to prevent scope creep.
+
+## Open Questions
+Anything still ambiguous after elicitation that the user should weigh in on
+before implementation starts.
+```
 
 ## Flow Position
 

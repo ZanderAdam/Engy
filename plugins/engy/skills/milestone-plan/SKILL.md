@@ -43,23 +43,34 @@ For the selected milestone:
 0. **Confirm the correct projectId.** Use `listProjects` to find the project whose `specDir` matches the spec you're working with. Do NOT assume projectId=1.
 1. **Discover workspace repos.** Call `getProjectDetails(projectId)` and check `workspace.repos`. If the workspace has multiple repos, apply the multi-repo task scoping rules (see above) throughout the remaining steps.
 2. Review the milestone scope against the spec.
-3. Break the milestone into **task groups**. Each group is a single deliverable — think one PR. Groups are ordered so they can be reviewed and merged as stacked PRs, making large milestones easier to review incrementally. For multi-repo workspaces, set the `repos` field on each group to the repos its tasks touch.
+3. Break the milestone into **task groups**. Each group is a single deliverable — think one PR. Groups are ordered so they can be reviewed and merged as stacked PRs, making large milestones easier to review incrementally. For multi-repo workspaces, set the `repos` field on each group to the repos its tasks touch. **For each group, define its functional requirements** using hierarchical numbering (e.g., `FR-DC.1` for Dev Containers group). FRs live under each TG, not at the top level — this keeps each group self-contained for agent dispatch.
 4. Within each group, define 1 or more tasks that together produce that deliverable. Follow the vertical slicing and granularity guidelines below. **Each task must target a single repo** — include the target repo/package in the task title or description (e.g., "Implement auth middleware in `web/`"). For cross-repo dependencies, use `blockedBy` to order upstream tasks before downstream consumers.
 5. For each task, specify:
    - Title and description (including target repo for multi-repo workspaces)
-   - **Acceptance criteria in Gherkin format** (`Given/When/Then`) — derived from the plan's test scenarios or functional requirements. These are what the implementer tests against.
-   - **Feature references** — which FRs or plan scenarios this task implements (e.g., "Implements FR #5, #6" or "Covers Scenario: Get file diff")
+   - **File ownership** — list the files this task creates or modifies. This is critical for parallel execution: agents need to know what they own and what siblings touch.
+   - **Acceptance criteria** — derived from the task group's FRs. These are what the implementer tests against.
+   - **FR references** — which FRs this task implements (e.g., "Implements FR-TG1.1, FR-TG1.2")
    - Type (`ai` or `human`)
    - Importance and urgency (using the Eisenhower matrix)
    - Dependencies on other tasks (`blockedBy`)
 6. **Present the full breakdown to the user and wait for explicit approval.**
-7. Only after approval: create groups and tasks via `createTaskGroup` / `createTask`.
+7. Write the milestone plan document (`m{N}-{slug}.plan.md` with `status: draft`) using the template below. This doc *is* the presentation — approval happens on this doc.
+8. **Stop and wait** for the user to request TG planning (e.g., "plan TG1 stories").
+
+### Task Group Planning
+
+When the user asks to plan a specific TG:
+
+1. Read the milestone doc's TG section (requirements, task outline, file ownership) as context. Update milestone doc status to `planning` if still `draft`.
+2. For each task in the TG, run `/engy:plan` to produce a detailed implementation plan.
+3. Create the task group and tasks via `createTaskGroup` / `createTask`.
    - Set `milestoneRef` on every task (e.g., `"m3"`) to link it to the milestone.
    - Set `specId` to the spec directory name so the task resolves to the correct spec path.
    - For multi-repo workspaces, pass the `repos` array when calling `createTaskGroup`.
-   - If the task descriptions and/or the spec+plan doc are detailed enough for an agent to implement without a separate planning step, set `needsPlan: false` on those tasks.
-8. Verify structure via `listTasks` and `listTaskGroups`. Filter tasks by milestone AND task groups when available.
-9. Write the milestone plan document (`m{N}-{slug}.plan.md`) using the template below.
+   - Set `needsPlan: false` — tasks already have detailed plans from step 2.
+   - Store the plan doc path on each task description.
+4. Verify structure via `listTasks` and `listTaskGroups`.
+5. When all TGs are planned and created, update milestone doc status to `complete`.
 
 ## Vertical Slicing
 
@@ -90,13 +101,14 @@ Within each vertical slice, order subtasks as:
 ## Task Quality Checklist
 
 Each task should be:
-- **Session-independent**: An agent starting fresh with only the codebase and task description should be able to complete it
-- **Explicit**: Reference specific files, functions, and patterns from the existing codebase
-- **Acceptance-tested**: Include Gherkin scenarios (Given/When/Then) that define done. These come from the plan doc's test scenarios or are derived from the FRs the task implements.
-- **Feature-traced**: Reference which FRs or plan scenarios this task covers, so nothing is missed and nothing is invented
+- **Well-scoped for planning**: A `/engy:plan` pass with the task description + milestone plan context should produce a complete implementation plan. The milestone task defines *what* and *where*; the planning pass discovers *how*.
+- **Explicit**: Reference specific files, functions, and patterns from the existing codebase. **Never reference line numbers** — they go stale. Reference by function name, class name, or pattern description instead.
+- **File-owned**: List every file the task creates or modifies. This lets parallel agents know what they own and what siblings touch.
+- **Feature-traced**: Reference which FRs this task covers, so nothing is missed and nothing is invented
 - **Verifiable**: Include what shell commands prove the task is done (e.g., `pnpm test`, `pnpm lint`)
 - **Repo-scoped**: In multi-repo workspaces, each task targets a single repo (mentioned in title or description)
 - **File-conflict-free**: No two parallel tasks modify the same file. Identify shared touchpoint files (routers, protocol types, schema definitions, composition roots) and ensure tasks touching them are serialized via `blockedBy` or combined into a single task
+- **Atomically testable**: If you can't test a task independently (e.g., protocol changes without handlers, dispatch without pending maps), it's not a real task — combine it with its dependencies into one task
 
 ## Anti-Patterns to Flag
 
@@ -108,6 +120,8 @@ When reviewing the breakdown, watch for and restructure:
 - Tasks that span multiple repos — split into separate single-repo tasks with `blockedBy` for ordering
 - Tasks that require context from many previous tasks (context rot risk)
 - **Parallel tasks that modify the same file** — tasks that create or modify the same file MUST be serialized via `blockedBy`, never placed in the same parallel wave. If two tasks both need to add to the same file (e.g., both add routes to a router or message types to a protocol), either combine them into one task or serialize them explicitly via `blockedBy`.
+- **Tasks that reference patterns created by siblings** — if task B says "follow the pattern in X" and task A creates that pattern, B must `blockedBy` A. Pattern-establishing tasks must be identified and serialized before pattern-consuming tasks.
+- **Untestable splits** — protocol changes, dispatch functions, pending maps, and handlers are one atomic unit. If you can't run a test after completing the task alone, it's not a valid split. Combine into one task.
 
 ## Eisenhower Matrix for Prioritization
 
@@ -143,23 +157,48 @@ status: draft
 
 {Key existing files, patterns, and components that this milestone builds on. Reference actual paths and describe what each does — this orients the implementer. Include a note on what previous milestones shipped if relevant.}
 
-## Affected Components
+## Task Group Sequencing
 
-| File | Change |
-|------|--------|
-| `path/to/file.ts` | **Create** — description |
-| `path/to/existing.ts` | **Modify** — description |
+{Dependency graph between TGs. Which TGs can start immediately, which
+depend on others, and what specifically they depend on.}
 
-## Functional Requirements
+- **TG1: {Name}** — no dependencies. Can start immediately.
+- **TG2: {Name}** — depends on TG1 ({what specifically}).
+- ...
 
-### {Feature Area 1}
+## TG1: {Task Group Name}
 
-1. The system shall {concrete, testable behavior}. *(source: user request | inferred | elicited)*
+{One paragraph: what this group delivers and why it's sequenced here.}
+
+### Requirements
+
+1. The system shall {concrete, testable behavior}. *(source: user request | inferred | elicited)* (FR-TG1.1)
 2. ...
 
-### {Feature Area 2}
+### Tasks
 
-3. ...
+1. **{Task title}**
+   - Files: `path/to/file.ts` [NEW], `path/to/other.ts` [MODIFY]
+   - Implements FR-TG1.1, FR-TG1.2
+   - {Brief description of what to build}
+
+2. **{Task title}** (depends on task 1)
+   - Files: `path/to/another.ts` [NEW]
+   - Implements FR-TG1.3
+   - {Brief description}
+
+**Parallelizable:** Tasks 1, 3 have no dependencies and can run concurrently.
+
+### Completion Summary
+
+{Updated after TG completes — what was actually shipped, key APIs/patterns
+created, anything the next TG's agents need to know. Leave blank until done.}
+
+## TG2: {Task Group Name}
+
+{Repeat structure. Can reference TG1's completion summary for context.}
+
+...
 
 ## Out of Scope
 
@@ -170,10 +209,13 @@ status: draft
 ### Template Notes
 
 - **Frontmatter status**: `draft` → `planning` → `complete`
-- **Affected Components**: list every new and modified file — this is the implementer's checklist
-- **FRs are numbered continuously** across feature areas (not restarting per section)
+- **No top-level Affected Components or FR sections** — these live under each TG, making each group self-contained for agent dispatch
+- **Hierarchical FR numbering**: `FR-TG1.1`, `FR-TG2.1`, etc. — scoped to task group number, deletions in one TG don't affect another
 - **Source attribution** on each FR: `(user request)`, `(inferred: reason)`, or `(elicited)` — tracks provenance
 - **Codebase Context** prevents the implementer from reimplementing what exists or breaking established patterns
+- **Completion Summary** per TG is updated after implementation — gives the next TG's agents context on what shipped without them having to read the code
+- **File ownership per task** — every task lists its files so parallel agents know boundaries
+- **Never use line numbers** in task descriptions — they go stale. Reference by function/class/pattern name
 
 ## Key Principles
 

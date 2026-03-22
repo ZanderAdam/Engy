@@ -1,6 +1,6 @@
 ---
 title: Execution Engine
-status: active
+status: planning
 ---
 
 # Plan: M6 Execution Engine
@@ -31,565 +31,263 @@ Boundary: no auto-commit/push/PR (future milestone), no Mastra, no long-running 
 
 **Old Engy3 reference** (`engy3/websocket/src/workflow/executors/`): LlmExecutor spawning `claude -p --output-format json`, ClaudeExecutionManager wrapping prompts with task context + memories + aggregated issues and requiring structured completion output via `--json-schema` (TASK_COMPLETION_SCHEMA: taskCompleted, summary, memories), ValidationRunner for shell + claude-code validations. M6 replaces XState with a plain loop but preserves the structured output pattern.
 
-## Affected Components
+## Task Group Sequencing
 
-| File                                                  | Change                                                                                                                                                                              |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `web/src/server/db/schema.ts`                         | **Modify** — add subStatus/sessionId/feedback to tasks, worktreePath/completionSummary to agentSessions, container config + maxConcurrency to workspaces (TG1), new questions table |
-| `common/src/ws/protocol.ts`                           | **Modify** — add execution commands (start/stop/status/complete), container lifecycle messages (TG1)                                                                                |
-| `client/src/runner/index.ts`                          | **Create** — runner loop: worktree lifecycle, pick task, spawn agent, track status, handle questions/feedback, parallel execution                                                   |
-| `client/src/runner/agent-spawner.ts`                  | **Create** — spawn `claude -p` or `devcontainer exec ... claude -p`, structured completion via `--json-schema`                                                                      |
-| `client/src/container/manager.ts`                     | **Modify** (TG1 done) — @devcontainers/cli integration (up/exec/down)                                                                                                               |
-| `client/src/ws/client.ts`                             | **Modify** — handle execution and container WS commands                                                                                                                             |
-| `web/src/server/trpc/routers/execution.ts`            | **Create** — start/stop/retry execution, session file reading, execution status                                                                                                     |
-| `web/src/server/trpc/routers/question.ts`             | **Create** — questions CRUD, batch answer submission                                                                                                                                |
-| `web/src/server/trpc/routers/task.ts`                 | **Modify** — add subStatus to task updates                                                                                                                                          |
-| `web/src/server/trpc/routers/diff.ts`                 | **Modify** — resolve session worktree path, pass as repoDir for worktree-scoped diffs                                                                                               |
-| `web/src/server/mcp/index.ts`                         | **Modify** — add askQuestion tool, expose execution data in getProjectDetails                                                                                                       |
-| `web/src/server/ws/server.ts`                         | **Modify** — dispatch execution commands, handle status/complete events                                                                                                             |
-| `web/src/server/trpc/context.ts`                      | **Modify** — add pending maps for execution WS operations                                                                                                                           |
-| `web/src/components/tasks/execution-tab.tsx`          | **Create** — session file viewer in task detail (reads Claude JSONL session files)                                                                                                  |
-| `web/src/components/tasks/task-card.tsx`              | **Modify** — auto-implement icon/badge for subStatus                                                                                                                                |
-| `web/src/components/questions/question-list.tsx`      | **Create** — notification-triggered question list grouped by task/session                                                                                                           |
-| `web/src/components/questions/question-dialog.tsx`    | **Create** — per-task/session question dialog with structured options                                                                                                               |
-| `web/src/components/diff/review-actions.tsx`          | **Modify** — add task-record feedback path for runner agents                                                                                                                        |
-| `web/src/components/workspace/container-settings.tsx` | **Modify** (TG1 done) — container config in workspace settings                                                                                                                      |
+- **TG1: Dev Container Infrastructure** — no dependencies. Can start immediately. Provides optional container sandbox that TG2's agent spawner routes through.
+- **TG2: Runner Loop & Agent Spawning** — depends on TG1 (agent spawner needs ContainerManager for container-mode execution, terminal routing for worktree sessions).
+- **TG3: Execution UI** — depends on TG2 (execution tab, status indicators, and project overview all read session/execution state produced by the runner).
+- **TG4: Questions System & Feedback Loop** — depends on TG2 (runner integration for question-blocked tasks and feedback-triggered resume). Can be parallelized with TG3 since they touch different files.
 
-## Functional Requirements
+## TG1: Dev Container Infrastructure
 
-### Git Worktrees
+`@devcontainers/cli` integration on the client daemon, workspace settings UI, terminal into containers. This is TG1 so the user can immediately start executing tasks manually in dev containers before the runner exists.
 
-1. The system shall create **per-session worktrees** from local main when execution starts. Path: `{repo}/.claude/worktrees/{session-branch}`. The runner creates worktrees directly (no WS protocol needed — runner runs on the client daemon). *(source: user request, simplified from context/worktrees.md)*
+### Requirements
 
-2. The system shall store `worktreePath` on the `agentSessions` table. The diff viewer and execution UI use this to locate diffs and session files. *(source: user request)*
+1. The system shall support optional per-workspace Docker containers enabled via workspace settings (`containerEnabled`, `allowedDomains`, `extraPackages`, `envVars`, `idleTimeout`). *(source: v2 architecture)* (FR-TG1.1)
+2. The system shall manage one container per workspace via `@devcontainers/cli`: `devcontainer up` on first use (or when task group starts), `devcontainer exec` for running agents, tear down after configurable idle timeout when idle. Idle = no running task agents AND no connected container terminals. Shared across all task groups in the workspace. *(source: v2 architecture + elicited)* (FR-TG1.2)
+3. The system shall provide a base `.devcontainer/devcontainer.json` in the workspace docsDir using Anthropic's reference config (`ghcr.io/anthropics/devcontainer-features/claude-code:1`), with network firewall (default-deny, whitelist npm/GitHub/Claude API + workspace additions). All workspace repos and project dirs (any `--add-dir` paths passed to claude) are bind-mounted into the container. Host `~/.claude` directory is bind-mounted for OAuth tokens, global config, and state data persistence. See `context/anthropic-devcontainer-reference.md` for exact Anthropic reference files (devcontainer.json, Dockerfile, init-firewall.sh) and Engy adaptation notes. *(source: v2 architecture + elicited)* (FR-TG1.3)
+4. The system shall rewrite `localhost` URLs to `host.docker.internal` equivalents in container environment variables. Following the pattern from Anthropic's reference config (which allows host network access via `HOST_NETWORK` in the firewall), any host-local URLs (e.g., `ENGY_SERVER_URL=http://localhost:3000`) must be rewritten to `http://host.docker.internal:3000` when passed as `containerEnv` or `remoteEnv` to `devcontainer exec`. *(source: Anthropic reference config host network pattern + user request)* (FR-TG1.4)
+5. The system shall fall back to direct host execution when containers are disabled. *(source: v2 architecture)* (FR-TG1.5)
+6. The system shall support opening a full xterm terminal into a running container with the same persistence, reconnect, and circular buffer capabilities as local terminals. Container terminals use `devcontainer exec --workspace-folder {path} /bin/bash` instead of local `pty.spawn`, but all xterm features (resize, kill, reconnect with buffer replay) remain. *(source: user request)* (FR-TG1.6)
+7. When containers are enabled, ALL Claude-related execution runs in containers — not just orchestrated agent spawns. This includes: (a) runner-spawned task agents, (b) one-off task execution from the UI, (c) all terminals opened from the terminal panel on the right side of the UI, (d) background processes spawned by Claude. Any xterm session or Claude invocation, whether initiated by the runner or manually via the UI, must route through `devcontainer exec` when `containerEnabled=true` on the workspace. *(source: v2 architecture + user request)* (FR-TG1.7)
+8. The system shall NEVER allow `--dangerously-skip-permissions` to be used outside of a container. The agent spawner must validate that this flag is only passed when executing via `devcontainer exec`. If containerEnabled is false on the workspace, the flag must not be used regardless of any other configuration. *(source: user request — safety critical)* (FR-TG1.8)
 
-3. The system shall **retain** worktrees after a session completes — worktrees are needed for diff review, feedback loops, and eventually PR creation (future milestone). Cleanup is deferred to the PR/merge milestone where worktrees are removed after the PR is merged. *(source: inferred — worktree lifecycle spans beyond execution)*
+### Tasks
 
-4. For task groups, all tasks share one worktree/session. For individual tasks, each gets its own ephemeral worktree. *(source: user request)*
+1. **Add container config and execution settings to workspaces schema**
+   - Files: `web/src/server/db/schema.ts` [MODIFY], `web/src/server/trpc/routers/workspace.ts` [MODIFY]
+   - Implements FR-TG1.1
+   - Add `containerEnabled integer('container_enabled', { mode: 'boolean' }).default(false)` to workspaces. Add `containerConfig text('container_config', { mode: 'json' }).$type<ContainerConfig>()` to workspaces (allowedDomains, extraPackages, envVars, idleTimeout). Add `maxConcurrency integer('max_concurrency').default(1)` to workspaces (controls parallel task execution within groups). Add `autoStart integer('auto_start', { mode: 'boolean' }).default(false)` to workspaces (auto-start runner when tasks marked as AI). Generate migration. Update tRPC workspace router to accept/return new fields.
 
-### Dev Containers
+2. **Add container WebSocket protocol messages**
+   - Files: `common/src/ws/protocol.ts` [MODIFY], `web/src/server/ws/server.ts` [MODIFY], `web/src/server/trpc/context.ts` [MODIFY]
+   - Implements FR-TG1.2
+   - Add `CONTAINER_UP_REQUEST/RESPONSE`, `CONTAINER_STATUS_REQUEST/RESPONSE`, `CONTAINER_DOWN_REQUEST/RESPONSE` to WsMessage, ClientToServerMessage, ServerToClientMessage unions. Add pending maps to AppState: `pendingContainerUp`, `pendingContainerDown`, `pendingContainerStatus`. Add dispatch functions and response handlers following existing `dispatchGitOp` pattern.
 
-8. The system shall support optional per-workspace Docker containers enabled via workspace settings (`containerEnabled`, `allowedDomains`, `extraPackages`, `envVars`, `idleTimeout`). *(source: v2 architecture)*
+3. **Create container manager on client daemon** (depends on task 2)
+   - Files: `client/src/container/manager.ts` [NEW]
+   - Implements FR-TG1.2
+   - `ContainerManager` class with `up(workspaceFolder, config)` (runs `devcontainer up --workspace-folder {path}`, returns container ID), `exec(workspaceFolder, command, args, env)` (runs `devcontainer exec --workspace-folder {path} --remote-env KEY=VALUE ... {command} {args}`), `down(workspaceFolder)` (stops container), `status(workspaceFolder)` (checks if running). Uses `child_process.spawn` with JSON output parsing. Bind-mount host `~/.claude` into container for OAuth tokens, global config, and state data.
 
-9. The system shall manage **one container per workspace** via `@devcontainers/cli`: `devcontainer up` on first use (or when task group starts), `devcontainer exec` for running agents, tear down after configurable idle timeout when idle. **Idle** = no running task agents AND no connected container terminals (no processes currently executing against the dev container). Shared across all task groups in the workspace. *(source: v2 architecture + elicited)*
+4. **Handle container WS messages in client daemon** (depends on tasks 2, 3)
+   - Files: `client/src/ws/client.ts` [MODIFY]
+   - Implements FR-TG1.2
+   - Add cases for `CONTAINER_UP_REQUEST`, `CONTAINER_DOWN_REQUEST`, `CONTAINER_STATUS_REQUEST`. Delegates to ContainerManager.
 
-10. The system shall provide a base `.devcontainer/devcontainer.json` in the **workspace docsDir** using Anthropic's reference config (`ghcr.io/anthropics/devcontainer-features/claude-code:1`), with network firewall (default-deny, whitelist npm/GitHub/Claude API + workspace additions). All workspace repos **and project dirs** (any `--add-dir` paths passed to claude) are bind-mounted into the container. Host `~/.claude` directory is bind-mounted for OAuth tokens, global config, and state data persistence. See `context/anthropic-devcontainer-reference.md` for exact Anthropic reference files (devcontainer.json, Dockerfile, init-firewall.sh) and Engy adaptation notes. *(source: v2 architecture + elicited)*
+5. **Generate devcontainer config for workspace**
+   - Files: `client/src/container/config-generator.ts` [NEW]
+   - Implements FR-TG1.3, FR-TG1.4
+   - Generates `.devcontainer/devcontainer.json` in workspace docsDir (one per workspace, not per repo). Uses Anthropic reference config as base: `ghcr.io/anthropics/devcontainer-features/claude-code:1`. Adds `init-firewall.sh` with default-deny + allowlist (npm, GitHub, Claude API + workspace custom domains). Bind-mounts all workspace repos and project dirs at their original paths. Bind-mounts host `~/.claude` for OAuth tokens, global config, and state data. Rewrites `localhost` URLs to `host.docker.internal` in `containerEnv`. Triggered on first container start if `.devcontainer/` doesn't exist.
 
-10a. The system shall rewrite `localhost` URLs to `host.docker.internal` equivalents in container environment variables. Following the pattern from Anthropic's reference config (which allows host network access via `HOST_NETWORK` in the firewall), any host-local URLs (e.g., `ENGY_SERVER_URL=http://localhost:3000`) must be rewritten to `http://host.docker.internal:3000` when passed as `containerEnv` or `remoteEnv` to `devcontainer exec`. This ensures MCP server connections, API endpoints, and other localhost services remain reachable from inside the container. *(source: Anthropic reference config host network pattern + user request)*
+6. **Route all terminals through container when enabled** (depends on task 3)
+   - Files: `common/src/ws/protocol.ts` [MODIFY], `client/src/ws/client.ts` [MODIFY]
+   - Implements FR-TG1.6, FR-TG1.7
+   - Extend `TerminalSpawnCmd` to accept optional `containerWorkspaceFolder` field. When `containerEnabled=true` on the workspace, all terminal spawns (from the terminal panel, background processes, and UI-initiated xterm sessions) automatically route through `devcontainer exec --workspace-folder {path} /bin/bash` instead of local `pty.spawn`. No separate "Open Container Terminal" button needed — all terminals are container terminals when devcontainers are enabled, local terminals when disabled. Full xterm features: persistence via circular buffer, reconnect with buffer replay, resize, kill.
 
-11. The system shall fall back to direct host execution when containers are disabled. *(source: v2 architecture)*
+7. **Add container settings to workspace settings UI**
+   - Files: `web/src/components/workspace/container-settings.tsx` [MODIFY]
+   - Implements FR-TG1.1, FR-TG1.7
+   - Toggle containerEnabled, edit allowedDomains list, extraPackages, envVars, idleTimeout. Wire to workspace update tRPC mutation. Add container status indicator (running/stopped) to workspace overview.
 
-12. The system shall support opening a full xterm terminal into a running container with the same persistence, reconnect, and circular buffer capabilities as local terminals. Container terminals use `devcontainer exec --workspace-folder {path} /bin/bash` instead of local `pty.spawn`, but all xterm features (resize, kill, reconnect with buffer replay) remain. *(source: user request — same terminal experience in containers)*
+**Parallelizable:** Tasks 1, 2, 5 have no dependencies and can run concurrently. Tasks 3, 4, 6 depend on task 2 (protocol messages). Task 7 depends on task 1 (schema fields).
 
-13. When containers are enabled, **ALL Claude-related execution runs in containers** — not just orchestrated agent spawns. This includes: (a) runner-spawned task agents, (b) one-off task execution from the UI, (c) all terminals opened from the terminal panel on the right side of the UI, (d) background processes spawned by Claude. Any xterm session or Claude invocation, whether initiated by the runner or manually via the UI, must route through `devcontainer exec` when `containerEnabled=true` on the workspace. *(source: v2 architecture + user request)*
+### Completion Summary
 
-14. **Hard validation**: The system shall NEVER allow `--dangerously-skip-permissions` to be used outside of a container. The agent spawner must validate that this flag is only passed when executing via `devcontainer exec`. If containerEnabled is false on the workspace, the flag must not be used regardless of any other configuration. *(source: user request — safety critical)*
+{Leave blank until done.}
 
-### Runner
+## TG2: Runner Loop & Agent Spawning
 
-15. The system shall provide an "Execute in Background" action in the quick action dropdowns for tasks, task groups, and milestones. This triggers headless execution via the runner instead of opening a terminal. The action shall be available alongside the existing "Implement" terminal action. When a session is active, the quick action button shows a running/completed status indicator. *(source: user request)*
+The core execution engine on the client daemon. A for loop, a spawn, a database write. Includes execution schema, protocol, worktree management, and the "Execute in Background" UI actions that trigger it.
 
-16. The system shall provide a runner on the client daemon that: creates a worktree from local main, spawns an agent with the same prompt and flags that existing quick actions build, waits for exit, reports status. The agent itself handles task orchestration — the runner is just a headless version of clicking "Implement" in the UI. *(source: v2 architecture, simplified — agent is the orchestrator)*
+### Requirements
 
-17. The runner shall receive start/stop commands from the server via WebSocket. The server sends `EXECUTION_START_REQUEST` with the pre-built prompt and flags (same as quick actions: `--append-system-prompt` with project context, `--add-dir` for repos). The runner creates a worktree, spawns the agent, and reports back. *(source: inferred + elicited)*
+1. The system shall create per-session worktrees from local main when execution starts. Path: `{repo}/.claude/worktrees/{session-branch}`. The runner creates worktrees directly (no WS protocol needed — runner runs on the client daemon). *(source: user request, simplified from context/worktrees.md)* (FR-TG2.1)
+2. The system shall store `worktreePath` on the `agentSessions` table. The diff viewer and execution UI use this to locate diffs and session files. *(source: user request)* (FR-TG2.2)
+3. The system shall retain worktrees after a session completes — worktrees are needed for diff review, feedback loops, and eventually PR creation (future milestone). Cleanup is deferred to the PR/merge milestone where worktrees are removed after the PR is merged. *(source: inferred — worktree lifecycle spans beyond execution)* (FR-TG2.3)
+4. For task groups, all tasks share one worktree/session. For individual tasks, each gets its own ephemeral worktree. *(source: user request)* (FR-TG2.4)
+5. The system shall provide an "Execute in Background" action in the quick action dropdowns for tasks, task groups, and milestones. This triggers headless execution via the runner instead of opening a terminal. The action shall be available alongside the existing "Implement" terminal action. When a session is active, the quick action button shows a running/completed status indicator. *(source: user request)* (FR-TG2.5)
+6. The system shall provide a runner on the client daemon that: creates a worktree from local main, spawns an agent with the same prompt and flags that existing quick actions build, waits for exit, reports status. The agent itself handles task orchestration — the runner is just a headless version of clicking "Implement" in the UI. *(source: v2 architecture, simplified — agent is the orchestrator)* (FR-TG2.6)
+7. The runner shall receive start/stop commands from the server via WebSocket. The server sends `EXECUTION_START_REQUEST` with the pre-built prompt and flags (same as quick actions: `--append-system-prompt` with project context, `--add-dir` for repos). The runner creates a worktree, spawns the agent, and reports back. *(source: inferred + elicited)* (FR-TG2.7)
+8. The system shall track `sessionId` on the session record. The system generates its own UUID for `--session-id` before spawning. *(source: user request)* (FR-TG2.8)
+9. The runner shall emit execution status events to the server via WebSocket (session started, session completed/failed). Execution output is NOT streamed — Claude writes session files to `~/.claude/projects/{encoded-worktree-path}/{sessionId}.jsonl`, readable from host via bind mount. *(source: inferred, simplified)* (FR-TG2.9)
+10. The system shall spawn agents via `claude -p --output-format stream-json --permission-mode acceptEdits` on host, or `devcontainer exec ... claude -p --output-format stream-json --dangerously-skip-permissions` in containers. The spawner enforces FR-TG1.8 (hard validation of permission flags). *(source: v2 architecture + user confirmation)* (FR-TG2.10)
+11. The system shall write the quick-action-built prompt to stdin and close it. *(source: engy3 reference)* (FR-TG2.11)
+12. The system shall support session management via `--session-id {uuid}` (new session) and `--resume {sessionId}` (retry/feedback continuation). *(source: v2 architecture)* (FR-TG2.12)
+13. The system shall require structured completion output via `--json-schema` with a task completion schema: `{ taskCompleted: boolean, summary: string }`. *(source: engy3 reference)* (FR-TG2.13)
+14. Execution output is stored in Claude's native session files (`~/.claude/projects/{encoded-worktree-path}/{sessionId}.jsonl`). The UI reads these directly — no SQLite storage. *(source: engy3 reference, simplified)* (FR-TG2.14)
+15. The system shall support manual retry only — failed sessions stay failed until user clicks "Retry". *(source: elicited)* (FR-TG2.15)
+16. The system shall support auto-start as an opt-in per-workspace setting. When a task's type changes to `ai`, starts a runner if none is running. *(source: spec FR-9.7, adapted)* (FR-TG2.16)
+17. The diff viewer shall scope diffs to session worktree paths. The server looks up `worktreePath` from the session record and passes it as `repoDir` to existing git diff operations. The diff viewer shall include a session selector dropdown listing active and recent sessions. *(source: user request)* (FR-TG2.17)
 
-18. The system shall track `sessionId` on the session record. The system generates its own UUID for `--session-id` before spawning. *(source: user request)*
+### Tasks
 
-19. The runner shall emit execution status events to the server via WebSocket (session started, session completed/failed). Execution output is NOT streamed — Claude writes session files to `~/.claude/projects/{encoded-worktree-path}/{sessionId}.jsonl`, readable from host via bind mount. *(source: inferred, simplified)*
+1. **Add execution schema and WebSocket protocol**
+   - Files: `web/src/server/db/schema.ts` [MODIFY], `common/src/ws/protocol.ts` [MODIFY], `web/src/server/trpc/routers/task.ts` [MODIFY], `web/src/server/mcp/index.ts` [MODIFY], `web/src/server/ws/server.ts` [MODIFY], `web/src/server/trpc/context.ts` [MODIFY]
+   - Implements FR-TG2.7, FR-TG2.8, FR-TG2.9
+   - Add to tasks table: `subStatus text('sub_status')` (nullable, enum: planning/implementing/blocked/failed), `sessionId text('session_id')` (nullable), `feedback text('feedback')` (nullable). Update existing `agentSessions` table — add `taskId` FK (nullable), `executionMode` text (nullable, enum: group/task/milestone), `completionSummary` text (nullable), `worktreePath text('worktree_path')` (nullable). Generate migration. Update tRPC task router to accept/return subStatus, sessionId, feedback. Update MCP updateTask tool schema. Add WS protocol messages: `EXECUTION_START_REQUEST` (pre-built prompt + flags), `EXECUTION_STOP_REQUEST`, `EXECUTION_STATUS_EVENT` (session started), `EXECUTION_COMPLETE_EVENT` (session done/failed). Add dispatch functions and pending maps for execution messages following existing patterns.
 
-### Agent Spawning
+2. **Create agent spawner** (depends on task 1)
+   - Files: `client/src/runner/agent-spawner.ts` [NEW]
+   - Implements FR-TG2.10, FR-TG2.11, FR-TG2.12, FR-TG2.13, FR-TG1.8
+   - AgentSpawner class with `spawn(config: SpawnConfig): Promise<SpawnResult>`. Host mode: `spawn('claude', ['-p', '--output-format', 'stream-json', '--permission-mode', 'acceptEdits', '--json-schema', TASK_COMPLETION_SCHEMA, ...args])`. Container mode: `containerManager.exec(workspaceFolder, 'claude', ['-p', '--output-format', 'stream-json', '--dangerously-skip-permissions', '--json-schema', TASK_COMPLETION_SCHEMA, ...args])`. Hard validation: assert containerMode === true before allowing `--dangerously-skip-permissions`. Throw if this flag would be used on host. Receives pre-built prompt, flags, and system prompt from the execution router (same as quick actions). Writes prompt to stdin, closes stdin. Monitors stdout for structured completion output. Generates UUID for `--session-id` before spawn (stored on session record). Supports `--resume {sessionId}` for retry/feedback continuation. Timeout with SIGTERM then SIGKILL. Returns: `{ sessionId, exitCode, success, completion: { taskCompleted, summary } }`. TASK_COMPLETION_SCHEMA: `{ taskCompleted: boolean, summary: string }`. Unit tests.
 
-20. The system shall spawn agents via `claude -p --output-format stream-json --permission-mode acceptEdits` on host, or `devcontainer exec ... claude -p --output-format stream-json --dangerously-skip-permissions` in containers. The spawner enforces FR #14 (hard validation of permission flags). *(source: v2 architecture + user confirmation)*
+3. **Create runner** (depends on task 2)
+   - Files: `client/src/runner/index.ts` [NEW]
+   - Implements FR-TG2.1, FR-TG2.2, FR-TG2.3, FR-TG2.4, FR-TG2.6, FR-TG2.9, FR-TG2.15, FR-TG2.16
+   - Runner class — a thin wrapper around the agent spawner that manages worktree lifecycle and WS communication. The agent itself handles task orchestration. `start(prompt, flags, config)`: creates worktree from local main, creates session record with `worktreePath`, spawns agent with the pre-built prompt. Worktrees are retained after completion (needed for diff review, feedback, future PR creation). `stop()`: kills current agent process, preserves worktree. `retry(sessionId)`: re-spawn agent with `--resume {sessionId}` in the same worktree. Emits typed WS events: EXECUTION_STATUS_EVENT, EXECUTION_COMPLETE_EVENT. Stores structured completion output (summary) on session record.
 
-21. The system shall write the quick-action-built prompt to stdin and close it. *(source: engy3 reference)*
+4. **Wire runner to client daemon WS handler** (depends on task 3)
+   - Files: `client/src/ws/client.ts` [MODIFY]
+   - Implements FR-TG2.7
+   - Handle `EXECUTION_START_REQUEST` — delegates to Runner.start. Handle `EXECUTION_STOP_REQUEST` — delegates to Runner.stop. Runner events flow back through WS to server.
 
-22. The system shall support session management via `--session-id {uuid}` (new session) and `--resume {sessionId}` (retry/feedback continuation). *(source: v2 architecture)*
+5. **Create execution tRPC router** (depends on task 1)
+   - Files: `web/src/server/trpc/routers/execution.ts` [NEW]
+   - Implements FR-TG2.6, FR-TG2.14
+   - `startExecution({ scope, id })` — builds the same prompt and flags that the corresponding quick action uses (task, task group, milestone). Reuses `buildClaudeCommand` logic with `--append-system-prompt` + `--add-dir` flags. Dispatches EXECUTION_START_REQUEST with prompt + config to daemon. `stopExecution(sessionId)` — dispatches stop. `retryExecution(sessionId)` — dispatches retry (resume in same worktree). `getSessionFile(sessionId)` — resolves session file path from `~/.claude/projects/{encoded-worktree-path}/{sessionId}.jsonl`, reads and returns content for execution log viewer. `getActiveSessions({ projectId? })` — lists active/recent sessions with worktree paths (for terminal scope and diff viewer). Wire to app router. Tests.
 
-23. The system shall require structured completion output via `--json-schema` with a task completion schema: `{ taskCompleted: boolean, summary: string }`. *(source: engy3 reference)*
+6. **Server-side execution event handling** (depends on task 1)
+   - Files: `web/src/server/ws/server.ts` [MODIFY]
+   - Implements FR-TG2.9
+   - When receiving EXECUTION_STATUS_EVENT, update session state in SQLite. When receiving EXECUTION_COMPLETE_EVENT, update session status (done/failed), store completion summary on session record. Broadcast status changes to UI via tRPC invalidation. No output event handling — execution logs live in Claude's session files, read directly by the UI.
 
-24. Execution output is stored in Claude's native session files (`~/.claude/projects/{encoded-worktree-path}/{sessionId}.jsonl`). The UI reads these directly — no SQLite storage. *(source: engy3 reference, simplified)*
+7. **Scope diff viewer to session worktree paths** (depends on task 5)
+   - Files: `web/src/server/trpc/routers/diff.ts` [MODIFY], `web/src/components/diff/review-actions.tsx` [MODIFY]
+   - Implements FR-TG2.17
+   - Look up the active session's `worktreePath` for the given task/task-group and pass it as `repoDir` to existing git diff operations. Frontend: add a session selector dropdown to the diff viewer — lists active and recent sessions with their worktree paths. Default to the most recent active session. Enables reviewing agent diffs while execution is in progress.
 
-25. The system shall support **manual retry only** — failed sessions stay failed until user clicks "Retry". *(source: elicited)*
+8. **Add worktree sessions to terminal scope** (depends on task 5)
+   - Files: `web/src/components/tasks/execution-tab.tsx` [MODIFY]
+   - Implements FR-TG2.2
+   - Extend the terminal dock's "New Terminal" dropdown to show active session worktrees alongside workspace repos. Group under a "Worktrees" section — each entry shows session branch name and target repo. Clicking opens a terminal `cd`'d into the worktree path (routes through container when `containerEnabled`). Uses existing terminal scope infrastructure (`use-terminal-scope.ts`) — add a worktree scope type that reads `worktreePath` from active sessions via a new `execution.getActiveSessions()` query.
 
-26. The system shall support **auto-start** as an opt-in per-workspace setting. When a task's type changes to `ai`, starts a runner if none is running. *(source: spec FR-9.7, adapted)*
+9. **Add "Execute" action to quick action dropdowns** (depends on task 5)
+   - Files: `web/src/components/projects/task-quick-actions.tsx` [MODIFY], `web/src/components/projects/milestone-quick-actions.tsx` [MODIFY], `web/src/components/projects/milestone-list.tsx` [MODIFY]
+   - Implements FR-TG2.5
+   - Add "Execute in Background" to the existing 3-dot dropdown alongside "Implement" in task-quick-actions. Calls `execution.startExecution({ scope: 'task', id: taskId })`. Add "Execute Milestone" to milestone-quick-actions dropdown. Add "Execute Task Group" to TaskGroupQuickAction in milestone-list. Show running/completed status indicator on the quick action button when a session is active for that scope.
 
-### Questions System
+**Parallelizable:** Tasks 1, 5, 6 can begin once TG1 is complete. Tasks 2, 3, 4 are sequential. Tasks 7, 8, 9 depend on task 5 and can run concurrently with each other.
 
-27. The system shall provide an `askQuestion` MCP tool modeled after Claude Code's native `AskUserQuestion` tool. The tool accepts `{ sessionId, taskId?, documentPath?, questions: [{ question, header, multiSelect, options: [{ label, description, preview? }] }] }` — supporting 1-4 batched questions per call, structured options with descriptions, optional markdown previews for visual comparison, and multi-select. `sessionId` (required) identifies the agent session asking; `taskId` (optional) identifies the task being planned; `documentPath` (optional) references the spec/plan doc the agent is reading. The tool writes each question as a separate row to SQLite (persisted for durability across page refreshes). Signals the agent to exit. *(source: v2 architecture + user request to model after Claude Code AskUserQuestion tool)*
+### Completion Summary
 
-28. The system shall surface unanswered questions via a **persistent notification badge** in the header (count of unanswered questions). The notification persists until **all** questions in the group (task or session) are answered and submitted — partially answered groups still show in the badge count. Clicking the notification opens a **question list** with two grouping modes: (a) **task-scoped questions** grouped by task — each entry shows task title and unanswered count; (b) **session-scoped questions** (no task) — each session is its own entry showing the session ID or a label. Clicking any entry opens a **question dialog** with tabs: one **tab per question** (labeled by `header` chip, e.g. "Auth", "ORM") — each tab shows the question text, structured options (label + description), optional preview rendered as HTML via markdown, multi-select support via checkboxes, free-text "Other" input. A **Task** tab (only when `taskId` is set) — task title and description. A **Document** tab (when `documentPath` is set) — reuses the existing document editor in read-only mode. Single "Submit All" button in the dialog footer. Questions are persisted in the database and survive page refresh. The runner is only notified after the user submits all answers for a group — partial submissions do not unblock the task or resume the agent. *(source: v2 architecture + user request on persistent notifications until fully answered)*
+{Leave blank until done.}
 
-29. When all questions are answered in the UI, the runner spawns a new agent invocation with `--resume {sessionId}` and answers as context. *(source: v2 architecture)*
+## TG3: Execution UI
 
-30. When `taskId` is provided, the `askQuestion` MCP tool validates server-side that the task's `subStatus === 'planning'` and rejects otherwise. When `taskId` is omitted (session-scoped), no validation. *(source: v2 architecture — relaxed for non-task agents)*
+Task-level execution indicators, structured log viewer, project-level status. Now that the runner is working (TG2), the UI needs to show execution state.
 
-### Feedback Loop
+### Requirements
 
-31. The diff viewer shall scope diffs to session worktree paths. The **server** looks up `worktreePath` from the session record and passes it as `repoDir` to existing git diff operations. The diff viewer shall include a **session selector dropdown** listing active and recent sessions. *(source: user request)*
+1. Task cards shall show an execution indicator when a session is active for that task, distinguishing autonomous work from manual. *(source: user request)* (FR-TG3.1)
+2. Task detail shall include an "Execution" tab that reads the Claude session file (JSONL) and renders conversation entries: user prompts, assistant responses, tool calls (collapsible), errors. *(source: v2 architecture + user request)* (FR-TG3.2)
+3. Project overview shall show execution status (which sessions are running, per task group). *(source: inferred)* (FR-TG3.3)
+4. The `getProjectDetails` MCP tool shall include active session worktree paths and execution status for task groups. *(source: user request)* (FR-TG3.4)
 
-32. The diff viewer shall provide a "Send Feedback" action that writes feedback text to the task record in SQLite and notifies the runner. Feedback goes to the async agent, not through the terminal. *(source: user request)*
+### Tasks
 
-33. The runner shall detect feedback and resume the agent session with `--resume {sessionId}` and feedback as context. *(source: v2 architecture)*
+1. **Add auto-implement indicator to task cards**
+   - Files: `web/src/components/tasks/task-card.tsx` [MODIFY]
+   - Implements FR-TG3.1
+   - Task cards already show milestone badge, task group badge, and type indicator. Add a subStatus indicator alongside existing badges. When `subStatus` is set: show icon (spinner for implementing, pause for blocked, alert for failed, brain for planning). Distinguish from manual in_progress (no subStatus = manual work).
 
-### Execution UI
+2. **Create execution tab in task detail**
+   - Files: `web/src/components/tasks/execution-tab.tsx` [NEW]
+   - Implements FR-TG3.2
+   - Session file viewer. Reads Claude's session file via `execution.getSessionFile(sessionId)` — parses JSONL entries (UserEntry, AssistantEntry, tool calls). Polls for updates only while the execution tab is open — no background file watching. Component mounts to start polling, unmounts to stop. Renders conversation entries: user prompts, assistant responses, tool calls (collapsible with input/output), errors (highlighted). Session ID display, duration, status, structured completion summary. "Retry" button for failed tasks, "Stop" button for running tasks.
 
-34. Task cards shall show an execution indicator when a session is active for that task, distinguishing autonomous work from manual. *(source: user request)*
+3. **Add execution status to project overview**
+   - Files: `web/src/components/projects/milestone-list.tsx` [MODIFY]
+   - Implements FR-TG3.3
+   - Integrate into existing expandable milestone/task group layout (task groups already render with `TaskGroupQuickAction` — extend with execution state). Show which task groups are currently executing, current task per group with subStatus. Container status if containers enabled. Quick actions: start group, stop group, open container terminal (extend existing `TaskGroupQuickAction`).
 
-35. Task detail shall include an "Execution" tab that reads the Claude session file (JSONL) and renders conversation entries: user prompts, assistant responses, tool calls (collapsible), errors. *(source: v2 architecture + user request)*
+4. **Update MCP to expose execution data**
+   - Files: `web/src/server/mcp/index.ts` [MODIFY]
+   - Implements FR-TG3.4
+   - `getProjectDetails`: include active session worktree paths and execution status for task groups.
 
-36. Project overview shall show execution status (which sessions are running, per task group). *(source: inferred)*
+5. **Run /engy:review, pnpm blt, test in Chrome**
+   - Final validation task.
+   - Implements verification.
+
+**Parallelizable:** Tasks 1, 2, 3, 4 have no dependencies on each other and can run concurrently.
+
+### Completion Summary
+
+{Leave blank until done.}
+
+## TG4: Questions System & Feedback Loop
+
+Agent-initiated questions during planning, UI queue, feedback from diff viewer. Includes questions schema. Enables agents to ask for clarification during execution and devs to send feedback on agent output.
+
+### Requirements
+
+1. The system shall provide an `askQuestion` MCP tool modeled after Claude Code's native `AskUserQuestion` tool. The tool accepts `{ sessionId, taskId?, documentPath?, questions: [{ question, header, multiSelect, options: [{ label, description, preview? }] }] }` — supporting 1-4 batched questions per call, structured options with descriptions, optional markdown previews for visual comparison, and multi-select. `sessionId` (required) identifies the agent session asking; `taskId` (optional) identifies the task being planned; `documentPath` (optional) references the spec/plan doc the agent is reading. The tool writes each question as a separate row to SQLite (persisted for durability across page refreshes). Signals the agent to exit. *(source: v2 architecture + user request to model after Claude Code AskUserQuestion tool)* (FR-TG4.1)
+2. The system shall surface unanswered questions via: (a) a bouncing `?` icon on task cards that have unanswered questions — provides at-a-glance visibility without opening the task; (b) a persistent notification badge in the header (count of unanswered questions) that persists until all questions in the group are answered and submitted; (c) a "Questions" tab in the task dialog (alongside Description, Plan, Execution tabs) — shows all questions for that task with inline answering. Clicking the header notification opens a question list with two grouping modes: task-scoped questions grouped by task, and session-scoped questions (no task) grouped by session. Clicking any entry opens a question dialog with tabs: one tab per question (labeled by `header` chip, e.g. "Auth", "ORM") — each tab shows the question text, structured options (label + description), optional preview rendered as HTML via markdown, multi-select support via checkboxes, free-text "Other" input. A Task tab (only when `taskId` is set) — task title and description. A Document tab (when `documentPath` is set) — reuses the existing document editor in read-only mode. Single "Submit All" button in the dialog footer. Questions are persisted in the database and survive page refresh. The runner is only notified after the user submits all answers for a group — partial submissions do not unblock the task or resume the agent. *(source: v2 architecture + user request on persistent notifications, bouncing icon, and questions tab)* (FR-TG4.2)
+3. When all questions are answered in the UI, the runner spawns a new agent invocation with `--resume {sessionId}` and answers as context. *(source: v2 architecture)* (FR-TG4.3)
+4. Any agent (planning or implementing) can call `askQuestion` — there is no `subStatus` gate. The tool sets the task's `subStatus` to `blocked` regardless of what it was before. *(source: user request — simplified, no phase restriction)* (FR-TG4.4)
+5. The diff viewer shall provide a "Send Feedback" action that writes feedback text to the task record in SQLite and notifies the runner. Feedback goes to the async agent, not through the terminal. *(source: user request)* (FR-TG4.5)
+6. The runner shall detect feedback and resume the agent session with `--resume {sessionId}` and feedback as context. *(source: v2 architecture)* (FR-TG4.6)
+
+### Tasks
+
+1. **Create questions table**
+   - Files: `web/src/server/db/schema.ts` [MODIFY]
+   - Implements FR-TG4.1, FR-TG4.2
+   - New table: `questions` (id, taskId, sessionId, documentPath, question, header, options JSON, multiSelect, answer, createdAt, answeredAt). `taskId` — nullable FK to tasks (null for session-scoped questions outside task context). `sessionId` — required, identifies the agent session (grouping key for non-task questions). `documentPath` — nullable, path to the spec/plan doc the agent was reading (for UI context tab). `header` — short chip label (max 12 chars) for quick scanning. `options` — JSON array of `{ label, description, preview? }` (structured choices modeled after Claude Code's AskUserQuestion). `multiSelect` — boolean, whether multiple options can be selected. Generate migration with `pnpm drizzle-kit generate`.
+
+2. **Add askQuestion MCP tool** (depends on task 1)
+   - Files: `web/src/server/mcp/index.ts` [MODIFY]
+   - Implements FR-TG4.1, FR-TG4.4
+   - Register `askQuestion` tool modeled after Claude Code's native `AskUserQuestion` tool. Input schema: `{ sessionId: string, taskId?: number, documentPath?: string, questions: [{ question, header, multiSelect, options: [{ label, description, preview? }] }] }`. No subStatus gate — any agent (planning or implementing) can call this tool. Writes one row per question to questions table (persisted in SQLite). If `taskId` is set, sets task `subStatus` to `blocked`. Returns `{ status: 'blocked', questionIds: number[] }`. Agent system prompt instructs: "If you need clarification, call askQuestion with structured options and exit. Batch related questions into a single call (up to 4). Include documentPath so the user can reference the spec."
+
+3. **Create questions tRPC router** (depends on task 1)
+   - Files: `web/src/server/trpc/routers/question.ts` [NEW], `web/src/server/trpc/root.ts` [MODIFY]
+   - Implements FR-TG4.2, FR-TG4.3
+   - `list({ taskId?, sessionId?, unanswered? })` — list questions, optionally filtered. Returns questions with full options JSON for rendering. `submitAnswers({ answers: [{ questionId, answer }] })` — batch-writes answers (string for single-select/free text, JSON array for multi-select) for all questions in a group. Only unblocks the task (clears `subStatus` from `blocked`) after all questions in the group are answered — partial submissions are rejected. Triggers agent resume: dispatches `EXECUTION_START_REQUEST` with `resumeSessionId` and answers formatted into the prompt (reuses existing execution dispatch pattern from `dispatchExecution` in context). `get(questionId)` — single question with task context (task title, description) and `documentPath` for the Document tab. `unansweredCount({ projectId? })` — returns count for notification badge (counts groups with any unanswered questions, not individual questions). `unansweredByTask({ projectId? })` — returns `taskId → count` map for task card bouncing `?` icons. Wire to app router in `root.ts`. Tests.
+
+4. **Server-side integration for questions and feedback** (depends on tasks 2, 3)
+   - Files: `web/src/server/ws/server.ts` [MODIFY], `web/src/server/trpc/routers/execution.ts` [MODIFY]
+   - Implements FR-TG4.3, FR-TG4.6
+   - **Completion handler** (`handleExecutionCompleteEvent` in ws/server.ts): when agent exits after calling `askQuestion`, the task's `subStatus` is already `blocked`. The handler must check for this — if `subStatus === 'blocked'`, set session to `paused` (not `completed`/`stopped`) and preserve the blocked subStatus. This ensures askQuestion's blocked state survives agent exit. **Feedback resume** (execution.ts): add `sendFeedback({ sessionId, feedback })` mutation — writes feedback to task record, dispatches `EXECUTION_START_REQUEST` with `resumeSessionId` and feedback formatted as the prompt ("Developer feedback on your changes:\n{feedback}\nAddress the feedback and continue."), clears feedback field after dispatch. No runner modifications needed — the existing `EXECUTION_START_REQUEST` handler with `resumeSessionId` calls `runner.retry()` which uses `--resume`.
+
+5. **Add task-record feedback path to diff viewer** (depends on task 4)
+   - Files: `web/src/components/diff/review-actions.tsx` [MODIFY]
+   - Implements FR-TG4.5
+   - Currently `handleSendFeedback()` sends to terminal via `sendToTerminal()`. Extend: detect if the task has an active runner session via `execution.getSessionStatus`. When runner is active, call `execution.sendFeedback({ sessionId, feedback })` instead of `sendToTerminal`. When no runner active, keep existing terminal path. Show feedback target indicator: "Sending to runner agent" vs "Sending to terminal". Use existing `generateDiffFeedback()` for markdown formatting in both paths.
+
+6. **Create question dialog UI** (depends on task 3)
+   - Files: `web/src/components/questions/question-list.tsx` [NEW], `web/src/components/questions/question-dialog.tsx` [NEW], `web/src/components/projects/task-card.tsx` [MODIFY], `web/src/components/projects/task-dialog.tsx` [MODIFY], `web/src/components/app-header.tsx` [MODIFY]
+   - Implements FR-TG4.2
+   - **Bouncing `?` icon on task cards:** Add a bouncing question-mark icon to `task-card.tsx` when the task has unanswered questions. Query unanswered count per task via `question.unansweredByTask()`. Animate with CSS `animate-bounce`. Place alongside existing badges in the right-aligned badge group. **Questions tab in task dialog:** Add a "Questions" tab to `task-dialog.tsx` (alongside Description, Plan, Execution) — shows all questions for that task with inline answering, same options/preview/multi-select UI as the standalone dialog. Submit all button. **Notification badge in header:** Add unanswered question count badge to `app-header.tsx` next to ThemeToggle, clicking opens the question list. **Question list** (`question-list.tsx`): Two sections: (a) task-scoped entries grouped by task (shows task title + unanswered count), (b) session-scoped entries (no task) where each session is its own entry. Clicking any entry opens its question dialog. **Question dialog** (`question-dialog.tsx`) scoped to a single task or session, with tabs: one tab per question labeled by `header` chip (question text, structured options list, optional preview panel rendered as HTML via markdown, multi-select support via checkboxes, free-text "Other" input, unanswered tabs show a dot indicator); Task tab (only when `taskId` is set) — task title and description; Document tab (when `documentPath` is set) — reuses the existing BlockNote document editor component in read-only mode. Single "Submit All" button in dialog footer — disabled until all questions have answers. Questions persist across page refresh (backed by SQLite).
+
+7. **Run /engy:review, pnpm blt, test in Chrome** (depends on tasks 4, 5, 6)
+   - Final validation task.
+   - Implements verification.
+
+**Parallelizable:** Task 1 has no dependencies. Tasks 2, 3 depend only on task 1 and can run concurrently. Task 4 depends on tasks 2 and 3. Tasks 5 and 6 can run concurrently — task 5 depends on task 4, task 6 depends on task 3. Task 7 depends on tasks 4, 5, 6.
+
+### Completion Summary
+
+{Leave blank until done.}
 
 ## Out of Scope
 
 * Auto-commit, push, PR creation (future milestone — dev owns review)
-
 * Mastra / LangGraph / XState (replaced by loop + SQLite)
-
 * Long-running agents (spawn per task, exit when done)
-
 * Cross-repo task groups (future — single repo per group first)
-
 * Container network firewall customization UI (CLI config only for now)
-
 * Agent SDK TypeScript library (start with `claude -p`, extract AgentRuntime interface when coupling friction appears)
-
 * Agent-generated memories (structured output captures summary only; memories deferred)
-
 * Automatic retries (manual retry only via UI)
-
 * Task group locking during execution (single-user, runner re-reads task list each iteration)
-
 * Task group Paused/Stopped states and Pause/Resume/Restart controls (future — current groups are either running or not, stop kills the runner and group stays active for manual restart)
-
 * Repos outside workspace boundaries in task groups (FR-6.12 — future, workspace repos sufficient for now)
-
 * Read-only main branch bind mounts in containers (NF-7 — low risk since agents always work in worktrees, not main)
-
 * Crash recovery on daemon restart (NF-10 — future, manual retry sufficient for now. Tasks left in `in_progress` with stale `subStatus` after a crash can be manually retried)
-
 * Worktree cleanup after PR merge (future PR/merge milestone — worktrees retained after execution for review and PR creation)
-
 * Worktree removal on project delete (follow-up)
-
-## Task Groups
-
-### TG1: Dev Container Infrastructure
-
-`@devcontainers/cli` integration on the client daemon, workspace settings UI, terminal into containers. This is TG1 so the user can immediately start executing tasks manually in dev containers.
-
-**Tasks:**
-
-1. **Add container config and execution settings to workspaces schema**
-
-   * Add `containerEnabled integer('container_enabled', { mode: 'boolean' }).default(false)` to workspaces
-
-   * Add `containerConfig text('container_config', { mode: 'json' }).$type<ContainerConfig>()` to workspaces (allowedDomains, extraPackages, envVars, idleTimeout)
-
-   * Add `maxConcurrency integer('max_concurrency').default(1)` to workspaces (controls parallel task execution within groups)
-
-   * Add `autoStart integer('auto_start', { mode: 'boolean' }).default(false)` to workspaces (auto-start runner when tasks marked as AI)
-
-   * Generate migration
-
-   * Update tRPC workspace router to accept/return new fields
-
-   * *Implements FR #8, #26*
-
-2. **Add container WebSocket protocol messages**
-
-   * `CONTAINER_UP_REQUEST/RESPONSE`, `CONTAINER_STATUS_REQUEST/RESPONSE`, `CONTAINER_DOWN_REQUEST/RESPONSE`
-
-   * Add to WsMessage, ClientToServerMessage, ServerToClientMessage unions
-
-   * Add pending maps to AppState: `pendingContainerUp`, `pendingContainerDown`, `pendingContainerStatus`
-
-   * Add dispatch functions and response handlers following existing `dispatchGitOp` pattern
-
-   * *Implements FR #9*
-
-3. **Create container manager on client daemon**
-
-   * `client/src/container/manager.ts`: ContainerManager class
-
-   * `up(workspaceFolder, config)`: runs `devcontainer up --workspace-folder {path}`, returns container ID
-
-   * `exec(workspaceFolder, command, args, env)`: runs `devcontainer exec --workspace-folder {path} --remote-env KEY=VALUE ... {command} {args}`
-
-   * `down(workspaceFolder)`: stops container
-
-   * `status(workspaceFolder)`: checks if container is running
-
-   * Uses `child_process.spawn` with JSON output parsing
-
-   * Bind-mount host `~/.claude` into container for OAuth tokens, global config, and state data
-
-   * *Implements FR #9*
-
-4. **Handle container WS messages in client daemon**
-
-   * `client/src/ws/client.ts`: add cases for `CONTAINER_UP_REQUEST`, `CONTAINER_DOWN_REQUEST`, `CONTAINER_STATUS_REQUEST`
-
-   * Delegates to ContainerManager
-
-   * *Implements FR #9*
-
-5. **Generate devcontainer config for workspace**
-
-   * `client/src/container/config-generator.ts`: generates `.devcontainer/devcontainer.json` in workspace docsDir (one per workspace, not per repo)
-
-   * Uses Anthropic reference config as base: `ghcr.io/anthropics/devcontainer-features/claude-code:1`
-
-   * Adds `init-firewall.sh` with default-deny + allowlist (npm, GitHub, Claude API + workspace custom domains)
-
-   * Bind-mounts all workspace repos **and project dirs** (any `--add-dir` paths) at their original paths
-
-   * Bind-mounts host `~/.claude` for OAuth tokens, global config, and state data
-
-   * Rewrites `localhost` URLs to `host.docker.internal` in `containerEnv` (e.g., `ENGY_SERVER_URL`), following the pattern from Anthropic's reference config where the firewall allows host network access via `HOST_NETWORK` detection
-
-   * Triggered on first container start if `.devcontainer/` doesn't exist
-
-   * *Implements FR #10, #10a*
-
-6. **Route all terminals through container when enabled**
-
-   * Extend `TerminalSpawnCmd` to accept optional `containerWorkspaceFolder` field
-
-   * When `containerEnabled=true` on the workspace, **all** terminal spawns (from the terminal panel, background processes, and UI-initiated xterm sessions) automatically route through `devcontainer exec --workspace-folder {path} /bin/bash` instead of local `pty.spawn`
-
-   * No separate "Open Container Terminal" button needed — all terminals are container terminals when devcontainers are enabled, local terminals when disabled
-
-   * Full xterm features: persistence via circular buffer, reconnect with buffer replay, resize, kill — same as local terminals
-
-   * *Implements FR #12, #13*
-
-7. **Add container settings to workspace settings UI**
-
-   * `web/src/components/workspace/container-settings.tsx`: toggle containerEnabled, edit allowedDomains list, extraPackages, envVars, idleTimeout
-
-   * Wire to workspace update tRPC mutation
-
-   * Add container status indicator (running/stopped) to workspace overview
-
-   * *Implements FR #8, #13*
-
-### TG2: Runner Loop & Agent Spawning
-
-The core execution engine on the client daemon. A for loop, a spawn, a database write. Includes execution schema, protocol, and worktree management.
-
-**Tasks:**
-
-1. **Add execution schema and WebSocket protocol**
-
-   * Add to tasks table: `subStatus text('sub_status')` (nullable, enum: planning/implementing/blocked/failed), `sessionId text('session_id')` (nullable), `feedback text('feedback')` (nullable)
-
-   * Update existing `agentSessions` table — add `taskId` FK (nullable), `executionMode` text (nullable, enum: group/task/milestone), `completionSummary` text (nullable), `worktreePath text('worktree_path')` (nullable — path to the worktree for this session)
-
-   * Generate migration with `pnpm drizzle-kit generate`
-
-   * Update tRPC task router to accept/return subStatus, sessionId, feedback
-
-   * Update MCP updateTask tool schema
-
-   * Add WS protocol messages: `EXECUTION_START_REQUEST` (pre-built prompt + flags), `EXECUTION_STOP_REQUEST`, `EXECUTION_STATUS_EVENT` (session started), `EXECUTION_COMPLETE_EVENT` (session done/failed)
-
-   * Add dispatch functions and pending maps for execution messages following existing patterns
-
-   * *Implements FR #17, #18, #19*
-
-2. **Create agent spawner**
-
-   * `client/src/runner/agent-spawner.ts`: AgentSpawner class
-
-   * `spawn(config: SpawnConfig): Promise<SpawnResult>` — spawns `claude -p` process
-
-   * Host mode: `spawn('claude', ['-p', '--output-format', 'stream-json', '--permission-mode', 'acceptEdits', '--json-schema', TASK_COMPLETION_SCHEMA, ...args])`
-
-   * Container mode: `containerManager.exec(workspaceFolder, 'claude', ['-p', '--output-format', 'stream-json', '--dangerously-skip-permissions', '--json-schema', TASK_COMPLETION_SCHEMA, ...args])`
-
-   * **Hard validation**: assert containerMode === true before allowing `--dangerously-skip-permissions`. Throw if this flag would be used on host.
-
-   * Receives pre-built prompt, flags, and system prompt from the execution router (same as quick actions). Writes prompt to stdin, closes stdin.
-
-   * Monitors stdout for structured completion output from `--json-schema` (taskCompleted, summary). Claude writes session files natively — UI reads them directly.
-
-   * Generates UUID for `--session-id` before spawn (stored on session record)
-
-   * Supports `--resume {sessionId}` for retry/feedback continuation
-
-   * Timeout with SIGTERM → SIGKILL
-
-   * Returns: `{ sessionId, exitCode, success, completion: { taskCompleted, summary } }`
-
-   * TASK_COMPLETION_SCHEMA: `{ taskCompleted: boolean, summary: string }`
-
-   * Unit tests
-
-   * *Implements FR #14, #20, #21, #22, #23*
-
-3. **Create runner**
-
-   * `client/src/runner/index.ts`: Runner class — a thin wrapper around the agent spawner that manages worktree lifecycle and WS communication. The agent itself handles task orchestration.
-
-   * `start(prompt, flags, config)`: creates worktree from local main, creates session record with `worktreePath`, spawns agent with the pre-built prompt. Worktrees are **retained** after completion (needed for diff review, feedback, future PR creation).
-
-   * `stop()`: kills current agent process, preserves worktree
-
-   * `retry(sessionId)`: re-spawn agent with `--resume {sessionId}` in the same worktree
-
-   * Emits typed WS events: EXECUTION_STATUS_EVENT, EXECUTION_COMPLETE_EVENT
-
-   * Stores structured completion output (summary) on session record
-
-   * *Implements FR #16, #19, #25, #26*
-
-4. **Wire runner to client daemon WS handler**
-
-   * `client/src/ws/client.ts`: handle `EXECUTION_START_REQUEST` → delegates to Runner.start
-
-   * Handle `EXECUTION_STOP_REQUEST` → delegates to Runner.stop
-
-   * Runner events flow back through WS to server
-
-   * *Implements FR #17*
-
-5. **Create execution tRPC router**
-
-   * `web/src/server/trpc/routers/execution.ts`:
-
-   * `startExecution({ scope, id })` — builds the same prompt and flags that the corresponding quick action uses (task → task-quick-actions, task group → TG quick action, milestone → milestone-quick-actions). Reuses `buildClaudeCommand` logic with `--append-system-prompt` + `--add-dir` flags. Dispatches EXECUTION_START_REQUEST with prompt + config to daemon.
-
-   * `stopExecution(sessionId)` — dispatches stop
-
-   * `retryExecution(sessionId)` — dispatches retry (resume in same worktree)
-
-   * `getSessionFile(sessionId)` — resolves session file path from `~/.claude/projects/{encoded-worktree-path}/{sessionId}.jsonl`, reads and returns content for execution log viewer
-
-   * `getActiveSessions({ projectId? })` — lists active/recent sessions with worktree paths (for terminal scope and diff viewer)
-
-   * Wire to app router
-
-   * Tests
-
-   * *Implements FR #16, #24*
-
-6. **Server-side execution event handling**
-
-   * `web/src/server/ws/server.ts`: when receiving EXECUTION_STATUS_EVENT, update session state in SQLite
-
-   * When receiving EXECUTION_COMPLETE_EVENT, update session status (done/failed), store completion summary on session record
-
-   * Broadcast status changes to UI via tRPC invalidation
-
-   * No output event handling — execution logs live in Claude's session files, read directly by the UI
-
-   * *Implements FR #19*
-
-7. **Scope diff viewer to session worktree paths**
-
-   * `web/src/server/trpc/routers/diff.ts`: look up the active session's `worktreePath` for the given task/task-group and pass it as `repoDir` to existing git diff operations
-
-   * Frontend: add a **session selector dropdown** to the diff viewer — lists active and recent sessions with their worktree paths. Default to the most recent active session.
-
-   * Enables reviewing agent diffs while execution is in progress
-
-   * *Implements FR #31*
-
-8. **Add worktree sessions to terminal scope**
-
-   * Extend the terminal dock's "New Terminal" dropdown to show active session worktrees alongside workspace repos. Group under a "Worktrees" section — each entry shows session branch name and target repo.
-
-   * Clicking opens a terminal `cd`'d into the worktree path (routes through container when `containerEnabled`)
-
-   * Uses existing terminal scope infrastructure (`use-terminal-scope.ts`) — add a worktree scope type that reads `worktreePath` from active sessions via a new `execution.getActiveSessions()` query
-
-   * *Implements FR #12*
-
-9. **Add "Execute" action to quick action dropdowns**
-
-   * `web/src/components/projects/task-quick-actions.tsx`: add "Execute in Background" to the existing 3-dot dropdown alongside "Implement". Calls `execution.startExecution({ scope: 'task', id: taskId })` instead of opening a terminal. Same prompt, headless.
-
-   * `web/src/components/projects/milestone-quick-actions.tsx`: add "Execute Milestone" to dropdown. Calls `execution.startExecution({ scope: 'milestone', id: milestoneRef })`.
-
-   * `web/src/components/projects/milestone-list.tsx` (TaskGroupQuickAction): add "Execute Task Group" to dropdown. Calls `execution.startExecution({ scope: 'taskGroup', id: groupId })`.
-
-   * Show running/completed status indicator on the quick action button when a session is active for that scope
-
-   * *Implements FR #15*
-
-### TG3: Execution UI
-
-Task-level execution indicators, structured log viewer, project-level status. Now that the runner is working (TG2), the UI needs to show execution state.
-
-**Tasks:**
-
-1. **Add auto-implement indicator to task cards**
-
-   * Modify `task-card.tsx` — task cards already show milestone badge, task group badge, and type indicator. Add a subStatus indicator alongside existing badges.
-
-   * When `subStatus` is set: show icon (spinner for implementing, pause for blocked, alert for failed, brain for planning)
-
-   * Distinguish from manual in_progress (no subStatus = manual work)
-
-   * *Implements FR #34*
-
-2. **Create execution tab in task detail**
-
-   * `web/src/components/tasks/execution-tab.tsx`: session file viewer
-
-   * Reads Claude's session file via `execution.getSessionFile(sessionId)` — parses JSONL entries (UserEntry, AssistantEntry, tool calls). Polls for updates **only while the execution tab is open** — no background file watching. Component mounts → start polling, unmounts → stop.
-
-   * Renders conversation entries: user prompts, assistant responses, tool calls (collapsible with input/output), errors (highlighted)
-
-   * Session ID display, duration, status, structured completion summary
-
-   * "Retry" button for failed tasks, "Stop" button for running tasks
-
-   * *Implements FR #35*
-
-3. **Add execution status to project overview**
-
-   * Integrate into existing expandable milestone/task group layout in `milestone-list.tsx` (task groups already render with `TaskGroupQuickAction` — extend with execution state)
-
-   * Show which task groups are currently executing, current task per group with subStatus
-
-   * Container status if containers enabled
-
-   * Quick actions: start group, stop group, open container terminal (extend existing `TaskGroupQuickAction`)
-
-   * *Implements FR #36*
-
-4. **Update MCP to expose execution data**
-
-   * `getProjectDetails`: include active session worktree paths and execution status for task groups
-
-   * *Implements FR #2*
-
-5. **Run /engy:review, pnpm blt, test in Chrome**
-
-   * Final validation task
-
-   * *Implements verification*
-
-### TG4: Questions System & Feedback Loop
-
-Agent-initiated questions during planning, UI queue, feedback from diff viewer. Includes questions schema.
-
-**Tasks:**
-
-1. **Create questions table**
-
-   * New table: `questions` (id, taskId, sessionId, documentPath, question, header, options JSON, multiSelect, answer, createdAt, answeredAt)
-
-   * `taskId` — nullable FK to tasks (null for session-scoped questions outside task context)
-
-   * `sessionId` — required, identifies the agent session (grouping key for non-task questions)
-
-   * `documentPath` — nullable, path to the spec/plan doc the agent was reading (for UI context tab)
-
-   * `header` — short chip label (max 12 chars) for quick scanning
-
-   * `options` — JSON array of `{ label, description, preview? }` (structured choices modeled after Claude Code's AskUserQuestion)
-
-   * `multiSelect` — boolean, whether multiple options can be selected
-
-   * Generate migration with `pnpm drizzle-kit generate`
-
-   * *Implements FR #27, #28*
-
-2. **Add askQuestion MCP tool**
-
-   * `web/src/server/mcp/index.ts`: register `askQuestion` tool
-
-   * Modeled after Claude Code's native `AskUserQuestion` tool. Input schema:
-
-```typescript
-{
-  sessionId: string,        // agent session (required, grouping key)
-  taskId?: number,          // task being planned (optional)
-  documentPath?: string,    // spec/plan doc the agent is reading
-  questions: [{             // 1-4 batched questions
-    question: string,       // "Which auth method should we use?"
-    header: string,         // max 12 chars, e.g. "Auth method"
-    multiSelect: boolean,
-    options: [{             // 2-4 structured choices (+ auto "Other")
-      label: string,
-      description: string,
-      preview?: string      // optional markdown for side panel
-    }]
-  }]
-}
-```
-
-* **Server-side validation**: if `taskId` is provided, looks up task's `subStatus` and rejects with error if not `planning`. If `taskId` is omitted (session-scoped), no subStatus check.
-
-* Writes one row per question to questions table (persisted in SQLite). If `taskId` is set, sets task `subStatus` to `blocked`. Returns `{ status: 'blocked', questionIds: number[] }`
-
-* Agent system prompt instructs: "If you need clarification during planning, call askQuestion with structured options and exit. Batch related questions into a single call (up to 4). Include documentPath so the user can reference the spec."
-
-* *Implements FR #27, #30*
-
-3. **Create questions tRPC router**
-
-   * `web/src/server/trpc/routers/question.ts`:
-
-   * `list({ taskId?, sessionId?, unanswered? })` — list questions, optionally filtered. Returns questions with full options JSON for rendering.
-
-   * `submitAnswers({ answers: [{ questionId, answer }] })` — batch-writes answers (string for single-select/free text, JSON array for multi-select) for all questions in a group. Only unblocks the task (clears `subStatus` from `blocked`) and notifies the runner **after all questions in the group are answered** — partial submissions are rejected. This ensures the agent always gets a complete set of answers when it resumes.
-
-   * `get(questionId)` — single question with task context (task title, description) and `documentPath` for the Document tab
-
-   * `unansweredCount()` — returns count for notification badge (counts groups with any unanswered questions, not individual questions)
-
-   * Tests
-
-   * *Implements FR #28, #29*
-
-4. **Runner integration for questions and feedback**
-
-   * Runner checks for answered questions on blocked tasks each loop iteration
-
-   * When answer found: spawn new agent with answer as context (task description + "Previous question: ... Answer: ...")
-
-   * When feedback found on a task: spawn agent with `--resume {sessionId}` and feedback text as the prompt
-
-   * Clear feedback field after spawning
-
-   * *Implements FR #29, #33*
-
-5. **Add task-record feedback path to diff viewer**
-
-   * Modify existing `web/src/components/diff/review-actions.tsx` — currently "Send Feedback" pastes into the active terminal. Add an alternative path: when viewing diffs for a task with active runner execution, "Send Feedback" writes to `task.update({ feedback: text })` instead of the terminal.
-
-   * Terminal-based feedback remains for non-runner contexts (manual work, no active execution)
-
-   * Show feedback target indicator: "Sending to runner agent" vs "Sending to terminal"
-
-   * *Implements FR #32*
-
-6. **Create question dialog UI**
-
-   * `web/src/components/questions/question-list.tsx`: notification-triggered panel listing tasks with unanswered questions
-
-   * `web/src/components/questions/question-dialog.tsx`: task-scoped dialog for answering all questions for one task
-
-   * **Notification badge** in project header — shows total unanswered question count, clicking opens the question list
-
-   * **Question list** — two sections: (a) task-scoped entries grouped by task (shows task title + unanswered count), (b) session-scoped entries (no task) where each session is its own entry. Clicking any entry opens its question dialog.
-
-   * **Question dialog** scoped to a single task or session, with tabs:
-
-     * **One tab per question** — labeled by `header` chip (e.g. "Auth", "ORM"). Each tab shows the question text, structured options list (label + description), optional preview panel rendered as **HTML via markdown** (not monospace — full rich rendering since we have a browser), multi-select support via checkboxes, free-text "Other" input. Unanswered tabs show a dot indicator.
-
-     * **Task tab** (only when `taskId` is set) — task title and description (stays fixed — shared context for all questions)
-
-     * **Document tab** (when `documentPath` is set) — reuses the existing document editor component in read-only mode for consistency (stays fixed — all questions from one askQuestion call share the same document context)
-
-     * Single **"Submit All"** button in dialog footer — disabled until all questions have answers
-
-   * Questions persist across page refresh (backed by SQLite)
-
-   * *Implements FR #28*
 
 ## Test Scenarios
 
@@ -790,19 +488,3 @@ And the task is marked as failed with error message
 4. **Logs from session files, not DB.** Claude writes JSONL session files to `~/.claude/projects/...`. UI reads them directly — no stream-to-DB pipeline. Accessible from host for both host and container execution via bind mount.
 
 5. **Per-session worktrees from local main.** Runner creates a worktree before spawning, stores path on session record. Worktrees retained after completion (needed for diff review, feedback, future PR). Cleanup deferred to PR/merge milestone.
-
-6. **UUID session-id set by runner.** Generate before spawn, store immediately. No parsing from output.
-
-7. **Structured completion via --json-schema.** Runner gets programmatic success signal + summary from every agent invocation.
-
-8. **Dev containers first (TG1).** Enables manual task execution in containers immediately, before the runner is built.
-
-9. **One container per workspace.** Shared across all sessions. Cheaper, faster. Agent isolation is via worktrees, not containers.
-
-10. **Mount ~/.claude in containers.** OAuth tokens, global config, state data, and session files persist. Same auth mechanism as host.
-
-11. **Manual retry only.** No automatic retries. Failed sessions stay failed until user clicks Retry.
-
-12. **Auto-start is opt-in.** When enabled, tasks changing to `type: ai` auto-start a runner.
-
-13. **Reuse agentSessions table.** Extend with taskId, executionMode, completionSummary, and worktreePath.
