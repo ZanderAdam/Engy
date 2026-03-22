@@ -316,10 +316,9 @@ describe('execution router', () => {
       expect(result.entries).toEqual([]);
     });
 
-    it('should throw when session not found', async () => {
-      await expect(
-        caller.execution.getSessionFile({ sessionId: 'nonexistent' }),
-      ).rejects.toThrow('Session not found');
+    it('should return empty entries when session not found', async () => {
+      const result = await caller.execution.getSessionFile({ sessionId: 'nonexistent' });
+      expect(result.entries).toEqual([]);
     });
   });
 

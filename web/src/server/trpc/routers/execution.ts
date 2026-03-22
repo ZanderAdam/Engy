@@ -86,8 +86,16 @@ function buildPromptForMilestone(
   return { prompt, systemPrompt };
 }
 
-function encodeWorktreePath(worktreePath: string): string {
-  return worktreePath.replace(/\//g, '-');
+function findSessionFile(sessionId: string): string | null {
+  const projectsDir = path.join(os.homedir(), '.claude', 'projects');
+  if (!fs.existsSync(projectsDir)) return null;
+
+  const filename = `${sessionId}.jsonl`;
+  for (const dir of fs.readdirSync(projectsDir)) {
+    const candidate = path.join(projectsDir, dir, filename);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 // ── Router ───────────────────────────────────────────────────────────
@@ -335,32 +343,9 @@ export const executionRouter = router({
   getSessionFile: publicProcedure
     .input(z.object({ sessionId: z.string().min(1) }))
     .query(({ input }) => {
-      const db = getDb();
-      const session = db
-        .select()
-        .from(agentSessions)
-        .where(eq(agentSessions.sessionId, input.sessionId))
-        .get();
-      if (!session)
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Session not found' });
+      const sessionFilePath = findSessionFile(input.sessionId);
 
-      if (!session.worktreePath) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Session has no worktree path',
-        });
-      }
-
-      const encoded = encodeWorktreePath(session.worktreePath);
-      const sessionFilePath = path.join(
-        os.homedir(),
-        '.claude',
-        'projects',
-        encoded,
-        `${input.sessionId}.jsonl`,
-      );
-
-      if (!fs.existsSync(sessionFilePath)) {
+      if (!sessionFilePath) {
         return { entries: [] };
       }
 
