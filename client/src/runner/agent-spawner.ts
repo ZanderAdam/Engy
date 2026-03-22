@@ -146,11 +146,9 @@ export class AgentSpawner {
         const stdout = chunks.join('');
         try {
           const output = JSON.parse(stdout);
-          if (output.result) {
-            const parsed = typeof output.result === 'string' ? JSON.parse(output.result) : output.result;
-            if ('taskCompleted' in parsed && 'summary' in parsed) {
-              completion = { taskCompleted: parsed.taskCompleted, summary: parsed.summary };
-            }
+          const structured = output.structured_output;
+          if (structured && 'taskCompleted' in structured && 'summary' in structured) {
+            completion = { taskCompleted: structured.taskCompleted, summary: structured.summary };
           }
         } catch (err) {
           console.warn(`[agent-spawner] Failed to parse stdout JSON: ${err instanceof Error ? err.message : String(err)}`);

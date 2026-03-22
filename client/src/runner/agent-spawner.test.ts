@@ -375,7 +375,7 @@ describe('AgentSpawner', () => {
       });
 
       const output = JSON.stringify({
-        result: JSON.stringify({ taskCompleted: true, summary: 'Done' }),
+        structured_output: { taskCompleted: true, summary: 'Done' },
       });
       proc.stdout.emit('data', Buffer.from(output));
       proc.emit('close', 0);
@@ -403,7 +403,7 @@ describe('AgentSpawner', () => {
       });
 
       const output = JSON.stringify({
-        result: JSON.stringify({ taskCompleted: false, summary: 'Failed to complete' }),
+        structured_output: { taskCompleted: false, summary: 'Failed to complete' },
       });
       proc.stdout.emit('data', Buffer.from(output));
       proc.emit('close', 1);
@@ -431,7 +431,7 @@ describe('AgentSpawner', () => {
       });
 
       const output = JSON.stringify({
-        result: JSON.stringify({ taskCompleted: false, summary: 'Task not found' }),
+        structured_output: { taskCompleted: false, summary: 'Task not found' },
       });
       proc.stdout.emit('data', Buffer.from(output));
       proc.emit('close', 0);
@@ -481,7 +481,7 @@ describe('AgentSpawner', () => {
       });
 
       const output = JSON.stringify({
-        result: JSON.stringify({ taskCompleted: true, summary: 'All done' }),
+        structured_output: { taskCompleted: true, summary: 'All done' },
       });
       // Emit in two chunks
       proc.stdout.emit('data', Buffer.from(output.slice(0, 20)));
