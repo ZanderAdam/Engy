@@ -125,6 +125,37 @@ export const tasks = sqliteTable('tasks', {
     .$defaultFn(() => new Date().toISOString()),
 });
 
+// ── Questions ──────────────────────────────────────────────────────
+
+export interface QuestionOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+
+export const questions = sqliteTable('questions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  taskId: integer('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+  sessionId: text('session_id').notNull(),
+  documentPath: text('document_path'),
+  question: text('question').notNull(),
+  header: text('header').notNull(),
+  options: text('options', { mode: 'json' }).$type<QuestionOption[]>(),
+  multiSelect: integer('multi_select', { mode: 'boolean' }).default(false),
+  answer: text('answer'),
+  createdAt: text('created_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  answeredAt: text('answered_at'),
+});
+
+export const questionsRelations = relations(questions, ({ one }) => ({
+  task: one(tasks, {
+    fields: [questions.taskId],
+    references: [tasks.id],
+  }),
+}));
+
 export const tasksRelations = relations(tasks, ({ one, many }) => ({
   project: one(projects, {
     fields: [tasks.projectId],
@@ -338,36 +369,5 @@ export const threadCommentsRelations = relations(threadComments, ({ one }) => ({
   thread: one(commentThreads, {
     fields: [threadComments.threadId],
     references: [commentThreads.id],
-  }),
-}));
-
-// ── Questions ──────────────────────────────────────────────────────
-
-export interface QuestionOption {
-  label: string;
-  description: string;
-  preview?: string;
-}
-
-export const questions = sqliteTable('questions', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  taskId: integer('task_id').references(() => tasks.id, { onDelete: 'set null' }),
-  sessionId: text('session_id').notNull(),
-  documentPath: text('document_path'),
-  question: text('question').notNull(),
-  header: text('header').notNull(),
-  options: text('options', { mode: 'json' }).$type<QuestionOption[]>(),
-  multiSelect: integer('multi_select', { mode: 'boolean' }).default(false),
-  answer: text('answer'),
-  createdAt: text('created_at')
-    .notNull()
-    .$defaultFn(() => new Date().toISOString()),
-  answeredAt: text('answered_at'),
-});
-
-export const questionsRelations = relations(questions, ({ one }) => ({
-  task: one(tasks, {
-    fields: [questions.taskId],
-    references: [tasks.id],
   }),
 }));
