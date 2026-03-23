@@ -12,6 +12,7 @@ import {
   RiCheckboxBlankLine,
   RiUserLine,
   RiRobotLine,
+  RiQuestionLine,
 } from '@remixicon/react';
 
 import { useExecutionStatus } from '@/hooks/use-execution-status';
@@ -80,6 +81,12 @@ export function TaskCard({
   const TypeIcon = typeInfo.icon;
   const nextType = task.type === 'human' ? 'ai' : 'human';
 
+  const { data: unansweredByTask } = trpc.question.unansweredByTask.useQuery(
+    { projectId: task.projectId ?? undefined },
+    { enabled: !!task.projectId },
+  );
+  const unansweredCount = unansweredByTask?.[task.id] ?? 0;
+
   const utils = trpc.useUtils();
   const updateTask = trpc.task.update.useMutation({
     onSuccess: () => {
@@ -144,7 +151,7 @@ export function TaskCard({
           </Tooltip>
         </TooltipProvider>
         <TaskStatusBadge taskId={task.id} status={task.status} clickable className="shrink-0" />
-        {(task.milestoneRef || task.taskGroupId || execStatus) && (
+        {(task.milestoneRef || task.taskGroupId || execStatus || unansweredCount > 0) && (
           <div className="ml-auto flex items-center gap-1">
             {task.milestoneRef && (() => {
               const num = parseMilestoneNum(task.milestoneRef);
@@ -160,6 +167,9 @@ export function TaskCard({
               </span>
             )}
             <ExecutionStatusIcon status={execStatus} />
+            {unansweredCount > 0 && (
+              <RiQuestionLine className="size-3.5 animate-bounce text-amber-400" />
+            )}
           </div>
         )}
       </div>

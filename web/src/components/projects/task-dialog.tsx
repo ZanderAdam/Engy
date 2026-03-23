@@ -21,6 +21,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
 import { DynamicDocumentEditor } from "@/components/editor/dynamic-document-editor";
 import {
   Command,
@@ -33,7 +35,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { taskStatusOptions, taskStatusColors } from "./task-status-badge";
-import { RiAddLine, RiCloseLine, RiDeleteBinLine } from "@remixicon/react";
+import { RiAddLine, RiCloseLine, RiDeleteBinLine, RiQuestionLine } from "@remixicon/react";
 import { toast } from "sonner";
 import { useExecutionStatus } from "@/hooks/use-execution-status";
 import { ExecutionTab } from "./execution-tab";
@@ -257,6 +259,13 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
   const { status: executionStatus, sessionId } = useExecutionStatus('task', taskId);
   const hasExecution = !!sessionId;
 
+  const { data: taskQuestions } = trpc.question.list.useQuery(
+    { taskId, unanswered: true },
+    { enabled: open },
+  );
+  const hasQuestions = (taskQuestions?.length ?? 0) > 0;
+  const unansweredQuestionCount = taskQuestions?.length ?? 0;
+
   const [title, setTitle] = useState(task?.title ?? "");
   const [status, setStatus] = useState(task?.status ?? "");
   const [type, setType] = useState<"ai" | "human">((task?.type as "ai" | "human") ?? "human");
@@ -268,6 +277,7 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
   const [taskGroupIdLocal, setTaskGroupIdLocal] = useState<number | null>(task?.taskGroupId ?? null);
   const [dirty, setDirty] = useState(false);
   const [initialized, setInitialized] = useState(!!task);
+  const [questionAnswers, setQuestionAnswers] = useState<Record<number, string>>({});
 
   if (task && !initialized) {
     setInitialized(true);
@@ -318,6 +328,32 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
       onOpenChange(false);
     },
   });
+
+  const submitQuestionAnswers = trpc.question.submitAnswers.useMutation({
+    onSuccess: () => {
+      setQuestionAnswers({});
+      utils.question.list.invalidate();
+      utils.question.unansweredCount.invalidate();
+      utils.question.unansweredByTask.invalidate();
+      utils.task.get.invalidate();
+      utils.task.list.invalidate();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const allQuestionsAnswered =
+    unansweredQuestionCount > 0 &&
+    (taskQuestions ?? []).every((q) => !!questionAnswers[q.id]?.trim());
+
+  function handleSubmitQuestions() {
+    if (!allQuestionsAnswered || !taskQuestions) return;
+    submitQuestionAnswers.mutate({
+      answers: taskQuestions.map((q) => ({
+        questionId: q.id,
+        answer: questionAnswers[q.id],
+      })),
+    });
+  }
 
   function handleSave() {
     if (!task) return;
@@ -378,6 +414,12 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
             <TabsTrigger value="description">Description</TabsTrigger>
             {hasPlan && <TabsTrigger value="plan">Plan</TabsTrigger>}
             {hasExecution && <TabsTrigger value="execution">Execution</TabsTrigger>}
+            {hasQuestions && (
+              <TabsTrigger value="questions">
+                <RiQuestionLine className="size-3.5 text-amber-400" />
+                Questions ({unansweredQuestionCount})
+              </TabsTrigger>
+            )}
           </TabsList>
           <TabsContent value="description">
             <div className="flex flex-col gap-4">
@@ -466,6 +508,31 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
                 sessionId={sessionId!}
                 status={executionStatus}
               />
+            </TabsContent>
+          )}
+          {hasQuestions && (
+            <TabsContent value="questions">
+              <div className="flex flex-col gap-4 py-2">
+                {(taskQuestions ?? []).map((q) => (
+                  <QuestionCard
+                    key={q.id}
+                    question={q}
+                    answer={questionAnswers[q.id] ?? ''}
+                    onAnswer={(value) =>
+                      setQuestionAnswers((prev) => ({ ...prev, [q.id]: value }))
+                    }
+                  />
+                ))}
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    disabled={!allQuestionsAnswered || submitQuestionAnswers.isPending}
+                    onClick={handleSubmitQuestions}
+                  >
+                    {submitQuestionAnswers.isPending ? 'Submitting...' : 'Submit All'}
+                  </Button>
+                </div>
+              </div>
             </TabsContent>
           )}
         </Tabs>
@@ -635,5 +702,125 @@ function BlockerBadge({ taskId, onRemove }: { taskId: number; onRemove: () => vo
         <RiCloseLine className="size-3" />
       </button>
     </Badge>
+  );
+}
+
+// ── Question card (inline in task dialog) ─────────────────────────────
+
+interface QuestionOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+
+function QuestionCard({
+  question,
+  answer,
+  onAnswer,
+}: {
+  question: {
+    id: number;
+    header: string;
+    question: string;
+    options: QuestionOption[] | null;
+    multiSelect: boolean | null;
+  };
+  answer: string;
+  onAnswer: (value: string) => void;
+}) {
+  const options = question.options ?? [];
+  const isMultiSelect = question.multiSelect ?? false;
+  const [otherText, setOtherText] = useState("");
+  const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+
+  function handleSingleSelect(label: string) {
+    onAnswer(label);
+    const opt = options.find((o) => o.label === label);
+    setSelectedPreview(opt?.preview ?? null);
+  }
+
+  function handleMultiToggle(label: string, checked: boolean) {
+    const current = answer ? answer.split(", ") : [];
+    const next = checked ? [...current, label] : current.filter((v) => v !== label);
+    onAnswer(next.join(", "));
+    if (checked) {
+      const opt = options.find((o) => o.label === label);
+      setSelectedPreview(opt?.preview ?? null);
+    }
+  }
+
+  function handleOther(text: string) {
+    setOtherText(text);
+    onAnswer(text);
+  }
+
+  return (
+    <div className="rounded border border-border p-3">
+      <Badge variant="outline" className="mb-2 text-[10px]">
+        {question.header}
+      </Badge>
+      <p className="mb-3 text-sm">{question.question}</p>
+
+      {options.length > 0 && !isMultiSelect && (
+        <RadioGroup value={answer} onValueChange={handleSingleSelect} className="mb-3">
+          {options.map((opt) => (
+            <div key={opt.label} className="flex items-start gap-2">
+              <RadioGroupItem value={opt.label} id={`qc${question.id}-${opt.label}`} />
+              <div className="flex flex-col gap-0.5">
+                <Label htmlFor={`qc${question.id}-${opt.label}`} className="text-xs font-medium">
+                  {opt.label}
+                </Label>
+                <span className="text-xs text-muted-foreground">{opt.description}</span>
+              </div>
+            </div>
+          ))}
+        </RadioGroup>
+      )}
+
+      {options.length > 0 && isMultiSelect && (
+        <div className="mb-3 flex flex-col gap-3">
+          {options.map((opt) => {
+            const selected = answer.split(", ").includes(opt.label);
+            return (
+              <div key={opt.label} className="flex items-start gap-2">
+                <Checkbox
+                  id={`qc${question.id}-${opt.label}`}
+                  checked={selected}
+                  onCheckedChange={(checked) => handleMultiToggle(opt.label, !!checked)}
+                />
+                <div className="flex flex-col gap-0.5">
+                  <Label
+                    htmlFor={`qc${question.id}-${opt.label}`}
+                    className="text-xs font-medium"
+                  >
+                    {opt.label}
+                  </Label>
+                  <span className="text-xs text-muted-foreground">{opt.description}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {selectedPreview && (
+        <div className="mb-3 rounded border border-border bg-muted/50 p-3">
+          <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Preview
+          </p>
+          <pre className="overflow-auto whitespace-pre-wrap text-xs">{selectedPreview}</pre>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-1.5">
+        <Label className="text-xs">Other</Label>
+        <Input
+          placeholder="Type a custom answer..."
+          value={otherText}
+          onChange={(e) => handleOther(e.target.value)}
+          className="text-xs"
+        />
+      </div>
+    </div>
   );
 }
