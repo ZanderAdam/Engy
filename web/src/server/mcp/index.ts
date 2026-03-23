@@ -14,6 +14,7 @@ import {
   workspaces,
   projects,
   agentSessions,
+  questions,
 } from '../db/schema';
 import { validateDependencies, attachBlockedBy } from '../tasks/validation';
 import { getWorkspaceDir } from '../engy-dir/init';
@@ -53,6 +54,7 @@ export function getMcpServer(): McpServer {
   registerTaskTools(mcp);
   registerTaskGroupTools(mcp);
   registerMemoryTools(mcp);
+  registerQuestionTools(mcp);
 
   return mcp;
 }
@@ -611,6 +613,77 @@ function registerMemoryTools(mcp: McpServer): void {
         return mcpResult(omitKey(rows, 'content'));
       }
       return mcpResult(rows);
+    },
+  );
+}
+
+function registerQuestionTools(mcp: McpServer): void {
+  mcp.tool(
+    'askQuestion',
+    'Ask the user 1-4 batched questions with selectable options. Blocks the task until answered.',
+    {
+      sessionId: z.string().describe('Agent session ID asking the question'),
+      taskId: z
+        .number()
+        .optional()
+        .describe('Task being worked on (optional for session-scoped questions)'),
+      documentPath: z
+        .string()
+        .optional()
+        .describe('Path to spec/plan doc for context tab'),
+      questions: z
+        .array(
+          z.object({
+            question: z.string().describe('The question text'),
+            header: z.string().max(12).describe('Short chip label for tab header'),
+            multiSelect: z.boolean().optional().default(false),
+            options: z.array(
+              z.object({
+                label: z.string(),
+                description: z.string(),
+                preview: z.string().optional().describe('Markdown content for visual preview'),
+              }),
+            ),
+          }),
+        )
+        .min(1)
+        .max(4)
+        .describe('1-4 batched questions per call'),
+    },
+    async ({ sessionId, taskId, documentPath, questions: questionItems }) => {
+      const db = getDb();
+
+      const result = db.transaction((tx) => {
+        const questionIds: number[] = [];
+
+        for (const q of questionItems) {
+          const row = tx
+            .insert(questions)
+            .values({
+              sessionId,
+              taskId: taskId ?? null,
+              documentPath: documentPath ?? null,
+              question: q.question,
+              header: q.header,
+              options: q.options,
+              multiSelect: q.multiSelect,
+            })
+            .returning()
+            .get();
+          questionIds.push(row.id);
+        }
+
+        if (taskId !== undefined) {
+          tx.update(tasks)
+            .set({ subStatus: 'blocked', updatedAt: new Date().toISOString() })
+            .where(eq(tasks.id, taskId))
+            .run();
+        }
+
+        return questionIds;
+      });
+
+      return mcpResult({ status: 'blocked', questionIds: result });
     },
   );
 }
