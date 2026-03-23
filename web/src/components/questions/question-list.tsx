@@ -43,6 +43,13 @@ function TaskQuestionEntry({
   onClick?: () => void;
 }) {
   const { data: task } = trpc.task.get.useQuery({ id: taskId });
+  const { data: project } = trpc.project.get.useQuery(
+    { id: task?.projectId ?? 0 },
+    { enabled: !!task?.projectId },
+  );
+  const { data: workspaces } = trpc.workspace.list.useQuery();
+  const workspace = workspaces?.find((w) => w.id === project?.workspaceId);
+  const slug = workspace ? `${workspace.slug}-T${taskId}` : `T-${taskId}`;
 
   return (
     <button
@@ -51,6 +58,7 @@ function TaskQuestionEntry({
       onClick={onClick}
     >
       <RiQuestionLine className="size-3.5 shrink-0 text-amber-400" />
+      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{slug}</span>
       <span className="min-w-0 flex-1 truncate">{task?.title ?? `Task #${taskId}`}</span>
       <span className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
         {count}
