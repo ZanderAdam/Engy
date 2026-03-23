@@ -8,5 +8,8 @@ export function useQuestionAutoInvalidation(): void {
     utils.question.list.invalidate();
     utils.question.unansweredCount.invalidate();
     utils.question.unansweredByTask.invalidate();
+    // Question events imply task state changes (subStatus blocked/unblocked)
+    utils.task.list.invalidate();
+    utils.task.get.invalidate();
   });
 }

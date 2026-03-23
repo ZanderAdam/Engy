@@ -64,17 +64,19 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
       wsRef.current = ws;
 
       ws.onmessage = (event) => {
-        let msg: { type: string; payload: Record<string, unknown> };
+        let msg: { type: string; payload: unknown };
         try {
           msg = JSON.parse(event.data);
         } catch {
           return;
         }
 
+        if (!msg.type || !msg.payload) return;
+
         // Filter file changes by workspace
         if (
           msg.type === 'FILE_CHANGE' &&
-          (msg.payload as unknown as FileChangePayload).workspaceSlug !== workspaceSlug
+          (msg.payload as FileChangePayload).workspaceSlug !== workspaceSlug
         ) {
           return;
         }
@@ -82,8 +84,7 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
         const callbacks = subscribersRef.current.get(msg.type);
         if (!callbacks) return;
         for (const cb of callbacks) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          cb(msg.payload as any);
+          cb(msg.payload as ServerEventMap[ServerEventType]);
         }
       };
 

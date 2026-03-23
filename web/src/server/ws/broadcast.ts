@@ -42,7 +42,7 @@ export function broadcastTaskChange(
 ): void {
   broadcastEvent({
     type: 'TASK_CHANGE',
-    payload: { action, taskId, projectId: projectId ?? undefined },
+    payload: { action, taskId, projectId },
   });
 }
 

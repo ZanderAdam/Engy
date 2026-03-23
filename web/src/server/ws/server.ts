@@ -12,6 +12,7 @@ import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowR
 import { getDb } from '../db/client';
 import { workspaces, agentSessions, tasks } from '../db/schema';
 import { handleSpecFileChange } from '../spec/watcher';
+import { broadcastTaskChange } from './broadcast';
 
 const MAX_EVENTS_PER_WORKSPACE = 100;
 const VALIDATION_TIMEOUT_MS = 5_000;
@@ -283,6 +284,7 @@ function handleExecutionStatusEvent(payload: {
   if (taskId) {
     const subStatus = payload.status as typeof tasks.$inferInsert.subStatus;
     db.update(tasks).set({ subStatus, updatedAt: now }).where(eq(tasks.id, taskId)).run();
+    broadcastTaskChange('updated', taskId);
   }
 }
 
@@ -362,6 +364,10 @@ function handleExecutionCompleteEvent(payload: {
       }
     }
   });
+
+  if (session.taskId) {
+    broadcastTaskChange('updated', session.taskId);
+  }
 }
 
 export function dispatchFileSearch(
