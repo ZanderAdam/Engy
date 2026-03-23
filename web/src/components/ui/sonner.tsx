@@ -8,7 +8,7 @@ export function Toaster() {
 
   return (
     <SonnerToaster
-      position="top-right"
+      position="bottom-right"
       theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
       toastOptions={{
         classNames: {
