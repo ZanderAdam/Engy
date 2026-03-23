@@ -336,6 +336,70 @@ export const executionRouter = router({
       return { sessionId: newSessionId };
     }),
 
+  sendFeedback: publicProcedure
+    .input(z.object({ sessionId: z.string().min(1), feedback: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const session = db
+        .select()
+        .from(agentSessions)
+        .where(eq(agentSessions.sessionId, input.sessionId))
+        .get();
+      if (!session)
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Session not found' });
+
+      if (!session.taskId)
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Session has no associated task',
+        });
+
+      const now = new Date().toISOString();
+
+      // Write feedback to task record
+      db.update(tasks)
+        .set({ feedback: input.feedback, updatedAt: now })
+        .where(eq(tasks.id, session.taskId))
+        .run();
+
+      // Build resume prompt with feedback
+      const resumePrompt = [
+        'Developer feedback on your changes:',
+        input.feedback,
+        'Address the feedback and continue.',
+      ].join('\n');
+
+      // Create new session linked to same worktree (follows retryExecution pattern)
+      const newSessionId = randomUUID();
+      db.insert(agentSessions)
+        .values({
+          sessionId: newSessionId,
+          executionMode: session.executionMode,
+          status: 'active',
+          worktreePath: session.worktreePath,
+          taskId: session.taskId,
+          taskGroupId: session.taskGroupId,
+        })
+        .run();
+
+      await dispatchExecutionStart(ctx.state, newSessionId, resumePrompt, [
+        '--resume',
+        input.sessionId,
+      ]);
+
+      // Clear feedback and set subStatus back to implementing
+      db.update(tasks)
+        .set({
+          feedback: null,
+          subStatus: 'implementing' as typeof tasks.$inferInsert.subStatus,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(tasks.id, session.taskId))
+        .run();
+
+      return { sessionId: newSessionId };
+    }),
+
   // NOTE: This reads from the server's local filesystem (~/.claude/projects/).
   // It only works when server and daemon are co-located (same machine).
   // Acceptable for M6 (single-user, local setup) but should be addressed

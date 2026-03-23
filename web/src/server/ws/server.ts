@@ -311,32 +311,54 @@ function handleExecutionCompleteEvent(payload: {
   }
 
   const now = new Date().toISOString();
-  const sessionStatus = payload.success ? 'completed' : 'stopped';
+
+  // Check if the task is blocked (agent called askQuestion or awaiting feedback)
+  let taskBlocked = false;
+  if (session.taskId) {
+    const currentTask = db.select().from(tasks).where(eq(tasks.id, session.taskId)).get();
+    if (currentTask?.subStatus === 'blocked') {
+      taskBlocked = true;
+    }
+  }
 
   db.transaction((tx) => {
-    tx.update(agentSessions)
-      .set({
-        status: sessionStatus,
-        completionSummary: payload.completionSummary ?? null,
-        updatedAt: now,
-      })
-      .where(eq(agentSessions.sessionId, payload.sessionId))
-      .run();
+    if (taskBlocked) {
+      // Agent exited while task is blocked — pause session, preserve blocked state
+      tx.update(agentSessions)
+        .set({
+          status: 'paused',
+          completionSummary: payload.completionSummary ?? null,
+          updatedAt: now,
+        })
+        .where(eq(agentSessions.sessionId, payload.sessionId))
+        .run();
+    } else {
+      const sessionStatus = payload.success ? 'completed' : 'stopped';
 
-    if (session.taskId) {
-      if (payload.success) {
-        tx.update(tasks)
-          .set({ status: 'done', subStatus: null, updatedAt: now })
-          .where(eq(tasks.id, session.taskId))
-          .run();
-      } else {
-        tx.update(tasks)
-          .set({
-            subStatus: 'failed' as typeof tasks.$inferInsert.subStatus,
-            updatedAt: now,
-          })
-          .where(eq(tasks.id, session.taskId))
-          .run();
+      tx.update(agentSessions)
+        .set({
+          status: sessionStatus,
+          completionSummary: payload.completionSummary ?? null,
+          updatedAt: now,
+        })
+        .where(eq(agentSessions.sessionId, payload.sessionId))
+        .run();
+
+      if (session.taskId) {
+        if (payload.success) {
+          tx.update(tasks)
+            .set({ status: 'done', subStatus: null, updatedAt: now })
+            .where(eq(tasks.id, session.taskId))
+            .run();
+        } else {
+          tx.update(tasks)
+            .set({
+              subStatus: 'failed' as typeof tasks.$inferInsert.subStatus,
+              updatedAt: now,
+            })
+            .where(eq(tasks.id, session.taskId))
+            .run();
+        }
       }
     }
   });
