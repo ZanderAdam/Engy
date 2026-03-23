@@ -138,6 +138,7 @@ export const questions = sqliteTable('questions', {
   taskId: integer('task_id').references(() => tasks.id, { onDelete: 'set null' }),
   sessionId: text('session_id').notNull(),
   documentPath: text('document_path'),
+  context: text('context'),
   question: text('question').notNull(),
   header: text('header').notNull(),
   options: text('options', { mode: 'json' }).$type<QuestionOption[]>(),

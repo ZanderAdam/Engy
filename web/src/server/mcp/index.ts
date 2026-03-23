@@ -635,6 +635,10 @@ function registerQuestionTools(mcp: McpServer): void {
         .string()
         .optional()
         .describe('Path to spec/plan doc for context tab'),
+      context: z
+        .string()
+        .optional()
+        .describe('1 paragraph explaining why these questions matter and what you need to decide'),
       questions: z
         .array(
           z.object({
@@ -654,7 +658,7 @@ function registerQuestionTools(mcp: McpServer): void {
         .max(4)
         .describe('1-4 batched questions per call'),
     },
-    async ({ sessionId, taskId, documentPath, questions: questionItems }) => {
+    async ({ sessionId, taskId, documentPath, context, questions: questionItems }) => {
       const db = getDb();
 
       const result = db.transaction((tx) => {
@@ -667,6 +671,7 @@ function registerQuestionTools(mcp: McpServer): void {
               sessionId,
               taskId: taskId ?? null,
               documentPath: documentPath ?? null,
+              context: context ?? null,
               question: q.question,
               header: q.header,
               options: q.options,

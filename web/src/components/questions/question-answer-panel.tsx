@@ -11,6 +11,7 @@ interface QuestionRow {
   id: number;
   header: string;
   question: string;
+  context: string | null;
   options: { label: string; description: string; preview?: string }[] | null;
   multiSelect: boolean | null;
 }
@@ -55,9 +56,13 @@ export function QuestionAnswerPanel({ questions, onSubmitted }: QuestionAnswerPa
   }
 
   const defaultTab = questions[0].id.toString();
+  const context = questions[0].context;
 
   return (
     <div className="flex flex-col gap-4">
+      {context && (
+        <p className="text-xs text-muted-foreground">{context}</p>
+      )}
       <Tabs defaultValue={defaultTab}>
         <TabsList variant="line">
           {questions.map((q) => (
