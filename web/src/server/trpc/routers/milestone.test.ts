@@ -159,7 +159,7 @@ describe('milestone router', () => {
       const proj = db.select().from(projects).where(eq(projects.id, projectId)).get()!;
       const ws = db.select().from(workspaces).where(eq(workspaces.id, proj.workspaceId)).get()!;
       const wsDir = ws.docsDir ?? path.join(getEngyDir(), ws.slug);
-      return path.join(wsDir, 'projects', proj.projectDir ?? proj.slug);
+      return path.join(wsDir, 'projects', proj.projectDir ?? proj.slug, 'milestones');
     }
 
     it('should preserve filename on status-only update', async () => {

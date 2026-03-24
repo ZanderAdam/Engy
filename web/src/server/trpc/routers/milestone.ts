@@ -38,7 +38,7 @@ function resolveProjectDir(projectId: number) {
   const workspace = db.select().from(workspaces).where(eq(workspaces.id, project.workspaceId)).get();
   if (!workspace) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
   const specsDir = path.join(getWorkspaceDir(workspace), 'projects');
-  const specSlug = project.projectDir ?? project.slug;
+  const specSlug = path.join(project.projectDir ?? project.slug, 'milestones');
   return { specsDir, specSlug };
 }
 

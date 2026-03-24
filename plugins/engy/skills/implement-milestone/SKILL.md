@@ -26,7 +26,7 @@ Use MCP to discover paths and task relationships, then Read/Glob/Grep for conten
 
 1. `listTaskGroups(milestoneRef)` — get all task groups for the milestone.
 2. **Scope task fetching to what you'll dispatch — never fetch the entire milestone when only one task group is requested.** If a specific task group was requested, use `listTasks(milestoneRef, taskGroupId)` to fetch only that group's tasks. Otherwise use `listTasks(milestoneRef)` for all tasks. Use `compact: true` (default) for the initial fetch to keep output small, then fetch full descriptions (`compact: false`) only for the tasks you'll actually dispatch.
-3. Look for the milestone plan doc: `Glob("{specPath}/m{N}-*.plan.md")`. Read it if found — this is the primary requirements source.
+3. Look for the milestone plan doc: `Glob("{specPath}/milestones/m{N}-*.plan.md")`. Read it if found — this is the primary requirements source.
 4. If no plan doc exists, read `{specPath}/spec.md` for overall context.
 
 ### Step 2: Discover Validation Commands

@@ -29,7 +29,7 @@ For single-repo workspaces, these rules are effectively no-ops — all tasks nat
 2. Read `{specDir}/spec.md` and extract the existing milestone list.
 3. **Determine which milestone to plan:**
    - If the user specified a milestone, use that one.
-   - Otherwise, check for existing milestone plan docs via `Glob("{specPath}/m*-*.plan.md")` or task groups via `listTaskGroups`. Find the **next unplanned milestone** in sequence.
+   - Otherwise, check for existing milestone plan docs via `Glob("{specPath}/milestones/m*-*.plan.md")` or task groups via `listTaskGroups`. Find the **next unplanned milestone** in sequence.
 4. Present the selected milestone and its scope to the user for confirmation before proceeding.
 
 **Do NOT create task groups or tasks yet.** Level 1 is purely about selecting and confirming which milestone to plan.
@@ -139,7 +139,7 @@ Use importance and urgency to classify tasks:
 
 ## Milestone Plan Document Template
 
-After the task breakdown is approved and created, produce a `m{N}-{slug}.plan.md` document at `{specPath}/m{N}-{slug}.plan.md` (where `specPath` is resolved from `getProjectDetails`). This is the canonical location where `/engy:implement` and `/engy:implement-milestone` look for plan docs.
+After the task breakdown is approved and created, produce a `m{N}-{slug}.plan.md` document at `{specPath}/milestones/m{N}-{slug}.plan.md` (where `specPath` is resolved from `getProjectDetails`). This is the canonical location where `/engy:implement` and `/engy:implement-milestone` look for plan docs.
 
 ```markdown
 ---
