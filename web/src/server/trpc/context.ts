@@ -148,10 +148,12 @@ export interface AppState {
   >;
   specLastChanged: Map<string, number>;
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
-  /** Maps sessionId → browser WebSocket for terminal I/O relay */
-  terminalSessions: Map<string, WebSocket>;
+  /** Maps sessionId → set of browser WebSockets for multi-attach terminal I/O relay */
+  terminalSessions: Map<string, Set<WebSocket>>;
   /** Persists terminal session metadata across browser disconnects for session restoration */
   terminalSessionMeta: Map<string, TerminalSessionMeta>;
+  /** Tracks which browser WS is awaiting a reconnect buffer replay (not broadcast to all) */
+  pendingReconnects: Map<string, WebSocket>;
   /** Dedicated daemon WebSocket for terminal traffic (zero-parse relay) */
   terminalDaemon: WebSocket | null;
   /** Browser WebSockets subscribed to file change events */
@@ -184,6 +186,7 @@ export function getAppState(): AppState {
       specDebounceTimers: new Map(),
       terminalSessions: new Map(),
       terminalSessionMeta: new Map(),
+      pendingReconnects: new Map(),
       terminalDaemon: null,
       fileChangeListeners: new Set(),
       containerProgressListeners: new Map(),

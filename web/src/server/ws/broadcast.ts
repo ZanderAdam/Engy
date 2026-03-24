@@ -3,7 +3,7 @@ import { getAppState } from '../trpc/context';
 
 // ── Event Types ─────────────────────────────────────────────────────
 
-export interface FileChangeEvent {
+interface FileChangeEvent {
   type: 'FILE_CHANGE';
   payload: {
     workspaceSlug: string;
@@ -12,7 +12,7 @@ export interface FileChangeEvent {
   };
 }
 
-export interface TaskChangeEvent {
+interface TaskChangeEvent {
   type: 'TASK_CHANGE';
   payload: {
     action: 'created' | 'updated' | 'deleted';
@@ -21,7 +21,7 @@ export interface TaskChangeEvent {
   };
 }
 
-export interface QuestionChangeEvent {
+interface QuestionChangeEvent {
   type: 'QUESTION_CHANGE';
   payload: {
     action: 'created' | 'answered';
@@ -30,7 +30,20 @@ export interface QuestionChangeEvent {
   };
 }
 
-export type ServerEvent = FileChangeEvent | TaskChangeEvent | QuestionChangeEvent;
+interface TerminalSessionsChangeEvent {
+  type: 'TERMINAL_SESSIONS_CHANGE';
+  payload: {
+    action: 'created' | 'destroyed' | 'attached' | 'detached';
+    sessionId: string;
+    groupKey?: string;
+  };
+}
+
+type ServerEvent =
+  | FileChangeEvent
+  | TaskChangeEvent
+  | QuestionChangeEvent
+  | TerminalSessionsChangeEvent;
 
 // ── Generic Broadcast ───────────────────────────────────────────────
 
@@ -74,5 +87,16 @@ export function broadcastQuestionChange(
   broadcastEvent({
     type: 'QUESTION_CHANGE',
     payload: { action, taskId, sessionId },
+  });
+}
+
+export function broadcastTerminalSessionsChange(
+  action: TerminalSessionsChangeEvent['payload']['action'],
+  sessionId: string,
+  groupKey?: string,
+): void {
+  broadcastEvent({
+    type: 'TERMINAL_SESSIONS_CHANGE',
+    payload: { action, sessionId, groupKey },
   });
 }

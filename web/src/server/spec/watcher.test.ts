@@ -17,6 +17,7 @@ function createTestState(): AppState {
     specDebounceTimers: new Map(),
     terminalSessions: new Map(),
     terminalSessionMeta: new Map(),
+    pendingReconnects: new Map(),
     terminalDaemon: null,
     fileChangeListeners: new Set(),
     containerProgressListeners: new Map(),

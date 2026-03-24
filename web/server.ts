@@ -36,15 +36,26 @@ app.prepare().then(() => {
             ? m.groupKey === groupKeyParam
             : m.scopeType === scopeType && m.scopeLabel === scopeLabel,
         )
-        .map(([sessionId, m]) => ({
-          sessionId,
-          scopeType: m.scopeType,
-          scopeLabel: m.scopeLabel,
-          workingDir: m.workingDir,
-          command: m.command,
-          groupKey: m.groupKey,
-          workspaceSlug: m.workspaceSlug,
-        }));
+        .map(([sessionId, m]) => {
+          const wsSet = state.terminalSessions.get(sessionId);
+          let browserCount = 0;
+          if (wsSet) {
+            for (const w of wsSet) {
+              if (w.readyState === w.OPEN) browserCount++;
+            }
+          }
+          return {
+            sessionId,
+            scopeType: m.scopeType,
+            scopeLabel: m.scopeLabel,
+            workingDir: m.workingDir,
+            command: m.command,
+            groupKey: m.groupKey,
+            workspaceSlug: m.workspaceSlug,
+            status: browserCount > 0 ? 'active' as const : 'suspended' as const,
+            browserCount,
+          };
+        });
 
       console.log(`[terminal] GET /api/terminal/sessions → returning ${sessions.length} sessions (total meta: ${state.terminalSessionMeta.size})`);
       res.writeHead(200, { 'Content-Type': 'application/json' });

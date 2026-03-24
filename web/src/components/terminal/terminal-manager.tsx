@@ -9,6 +9,7 @@ import { TerminalDockPanel } from "./terminal-dock-panel";
 import { TerminalDockTab } from "./terminal-dock-tab";
 import { TerminalDockWatermark } from "./terminal-dock-watermark";
 import { TerminalDockActions } from "./terminal-dock-actions";
+import { useOnServerEvent } from "@/contexts/events-context";
 
 interface InjectEvent {
   context: string;
@@ -34,6 +35,8 @@ interface SessionListItem {
   command?: string;
   groupKey?: string;
   workspaceSlug?: string;
+  status: 'active' | 'suspended';
+  browserCount: number;
 }
 
 const ENGY_THEME = {
@@ -204,6 +207,51 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     window.addEventListener('terminal:open', onOpen);
     return () => window.removeEventListener('terminal:open', onOpen);
   }, [openTerminal]);
+
+  // Cross-browser session sync: when another browser creates a session for this groupKey,
+  // fetch updated session list and add any new sessions as tabs
+  useOnServerEvent('TERMINAL_SESSIONS_CHANGE', useCallback((payload) => {
+    const scope = defaultScopeRef.current;
+    if (!scope) return;
+    // Only react to events for our groupKey
+    if (payload.groupKey && payload.groupKey !== scope.groupKey) return;
+
+    const api = dockviewApiRef.current;
+    if (!api) return;
+
+    if (payload.action === 'created') {
+      // Skip if we already know this session (e.g. we created it ourselves)
+      if (tabsRef.current.has(payload.sessionId)) return;
+
+      // Fetch session details and add as a new tab
+      const params = new URLSearchParams({
+        groupKey: scope.groupKey,
+        scopeType: scope.scopeType,
+        scopeLabel: scope.scopeLabel,
+      });
+      fetch(`/api/terminal/sessions?${params}`)
+        .then((res) => res.json())
+        .then((data: { sessions: SessionListItem[] }) => {
+          for (const s of data.sessions) {
+            if (!tabsRef.current.has(s.sessionId)) {
+              const tab = sessionToTab(s, scope.groupKey);
+              tabsRef.current.set(s.sessionId, tab);
+              api.addPanel({
+                id: s.sessionId,
+                component: 'terminal',
+                tabComponent: 'terminal-tab',
+                title: s.scopeLabel,
+                params: { tab } satisfies TerminalPanelParams,
+                renderer: 'always',
+              });
+            }
+          }
+        })
+        .catch((err: unknown) => console.error('Failed to sync terminal sessions:', err));
+    }
+    // 'destroyed' is handled by the terminal WS exit/error events
+    // 'attached'/'detached' are informational — no action needed
+  }, []));
 
   const scheduleLayoutSave = useCallback(() => {
     if (restoringRef.current) return;

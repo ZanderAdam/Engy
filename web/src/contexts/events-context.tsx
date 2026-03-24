@@ -24,13 +24,20 @@ interface QuestionChangePayload {
   sessionId?: string;
 }
 
+interface TerminalSessionsChangePayload {
+  action: 'created' | 'destroyed' | 'attached' | 'detached';
+  sessionId: string;
+  groupKey?: string;
+}
+
 interface ServerEventMap {
   FILE_CHANGE: FileChangePayload;
   TASK_CHANGE: TaskChangePayload;
   QUESTION_CHANGE: QuestionChangePayload;
+  TERMINAL_SESSIONS_CHANGE: TerminalSessionsChangePayload;
 }
 
-export type ServerEventType = keyof ServerEventMap;
+type ServerEventType = keyof ServerEventMap;
 
 // ── Context ─────────────────────────────────────────────────────────
 

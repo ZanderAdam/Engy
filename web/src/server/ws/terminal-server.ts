@@ -7,6 +7,7 @@ import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { dispatchContainerUp } from './server';
+import { broadcastTerminalSessionsChange } from './broadcast';
 
 function parseQueryParams(url: string): URLSearchParams {
   const idx = url.indexOf('?');
@@ -27,6 +28,41 @@ function extractSessionId(raw: string): string | null {
 
 function sendTerminalOutput(ws: WebSocket, sessionId: string, text: string): void {
   sendRaw(ws, JSON.stringify({ t: 'o', sessionId, d: text }));
+}
+
+function addBrowserWs(state: AppState, sessionId: string, ws: WebSocket): void {
+  let wsSet = state.terminalSessions.get(sessionId);
+  if (!wsSet) {
+    wsSet = new Set();
+    state.terminalSessions.set(sessionId, wsSet);
+  }
+  wsSet.add(ws);
+}
+
+function removeBrowserWs(state: AppState, sessionId: string, ws: WebSocket): void {
+  const wsSet = state.terminalSessions.get(sessionId);
+  if (!wsSet) return;
+  wsSet.delete(ws);
+  if (wsSet.size === 0) {
+    state.terminalSessions.delete(sessionId);
+  }
+}
+
+function hasAnyOpenBrowser(state: AppState, sessionId: string): boolean {
+  const wsSet = state.terminalSessions.get(sessionId);
+  if (!wsSet) return false;
+  for (const ws of wsSet) {
+    if (ws.readyState === ws.OPEN) return true;
+  }
+  return false;
+}
+
+function broadcastToSession(state: AppState, sessionId: string, data: string): void {
+  const wsSet = state.terminalSessions.get(sessionId);
+  if (!wsSet) return;
+  for (const ws of wsSet) {
+    sendRaw(ws, data);
+  }
 }
 
 function sendTerminalError(ws: WebSocket, message: string): void {
@@ -112,16 +148,13 @@ async function handleTerminalConnection(
   // Reconnect detection: only check persisted metadata (set after successful spawn).
   // Using terminalSessions for detection would false-positive on React Strict Mode
   // double-mount where the first connection's async spawn hasn't completed yet.
-  const oldWs = state.terminalSessions.get(sessionId);
-  if (oldWs && oldWs.readyState === oldWs.OPEN) {
-    oldWs.close(1001, 'Replaced by new connection');
-  }
   const isReconnect = state.terminalSessionMeta.has(sessionId);
   const short = sessionId.slice(0, 8);
+  const existingCount = state.terminalSessions.get(sessionId)?.size ?? 0;
   console.log(
-    `[terminal] connection sid=${short} isReconnect=${isReconnect} daemon=${state.terminalDaemon != null}`,
+    `[terminal] connection sid=${short} isReconnect=${isReconnect} existingBrowsers=${existingCount} daemon=${state.terminalDaemon != null}`,
   );
-  state.terminalSessions.set(sessionId, ws);
+  addBrowserWs(state, sessionId, ws);
 
   // Update existing meta's groupKey if needed (reconnect case only)
   const existingMeta = state.terminalSessionMeta.get(sessionId);
@@ -138,8 +171,17 @@ async function handleTerminalConnection(
       const sid = extractSessionId(str);
       if (sid) {
         console.log(`[terminal] Kill intercepted for session ${sid}`);
+        const killedMeta = state.terminalSessionMeta.get(sid);
         state.terminalSessionMeta.delete(sid);
+        // Close all attached browsers and remove the session
+        const wsSet = state.terminalSessions.get(sid);
+        if (wsSet) {
+          for (const bws of wsSet) {
+            if (bws !== ws && bws.readyState === bws.OPEN) bws.close(1001, 'Session killed');
+          }
+        }
         state.terminalSessions.delete(sid);
+        broadcastTerminalSessionsChange('destroyed', sid, killedMeta?.groupKey);
       }
     }
 
@@ -156,17 +198,24 @@ async function handleTerminalConnection(
     console.log(
       `[terminal] Browser WS closed for sid=${short}: code=${code} reason=${reason?.toString() ?? ''}`,
     );
-    // Only clear the WS reference — keep terminalSessionMeta for session restoration
-    if (state.terminalSessions.get(sessionId) === ws) {
-      state.terminalSessions.delete(sessionId);
+    // Remove this browser from the session's WS set — keep terminalSessionMeta for restoration
+    removeBrowserWs(state, sessionId, ws);
+    // Only clear pending reconnect if this WS is the one awaiting the buffer
+    if (state.pendingReconnects.get(sessionId) === ws) {
+      state.pendingReconnects.delete(sessionId);
     }
+    const meta = state.terminalSessionMeta.get(sessionId);
+    broadcastTerminalSessionsChange('detached', sessionId, meta?.groupKey);
   });
 
   if (isReconnect) {
     const daemon = state.terminalDaemon;
     if (daemon && daemon.readyState === daemon.OPEN) {
       console.log(`[terminal] sending reconnect to daemon for sid=${short}`);
+      // Track this WS so the reconnected buffer is replayed only to it, not all browsers
+      state.pendingReconnects.set(sessionId, ws);
       daemon.send(JSON.stringify({ t: 'reconnect', sessionId } satisfies TerminalReconnectCmd));
+      broadcastTerminalSessionsChange('attached', sessionId, existingMeta?.groupKey);
     } else {
       console.log(`[terminal] reconnect path but no daemon — clearing meta sid=${short}`);
       state.terminalSessionMeta.delete(sessionId);
@@ -189,9 +238,10 @@ async function handleTerminalConnection(
       if (!ok) return;
     }
 
-    // After potential await (container startup), check if this connection was replaced
+    // After potential await (container startup), check if this connection was removed
     // (React Strict Mode double-mount or rapid reconnect). Skip spawn to avoid duplicate PTYs.
-    if (state.terminalSessions.get(sessionId) !== ws) {
+    const currentSet = state.terminalSessions.get(sessionId);
+    if (!currentSet || !currentSet.has(ws)) {
       console.log(`[terminal] spawn abandoned — connection replaced for sid=${short}`);
       return;
     }
@@ -206,6 +256,7 @@ async function handleTerminalConnection(
       state.terminalSessionMeta.set(sessionId, {
         scopeType, scopeLabel, workingDir, command, groupKey, workspaceSlug, containerMode, cols, rows,
       });
+      broadcastTerminalSessionsChange('created', sessionId, groupKey);
     } else {
       console.log(`[terminal] spawn path but no daemon for sid=${short}`);
       sendTerminalError(ws, 'No daemon connected');
@@ -259,8 +310,7 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
           // Respawn or clean up sessions the daemon no longer has
           for (const [sessionId, meta] of state.terminalSessionMeta) {
             if (!daemonSessionIds.has(sessionId)) {
-              const browserWs = state.terminalSessions.get(sessionId);
-              if (browserWs && browserWs.readyState === browserWs.OPEN) {
+              if (hasAnyOpenBrowser(state, sessionId)) {
                 // Browser is still connected — respawn the session transparently
                 console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — respawning on daemon`);
                 const spawnCmd: TerminalSpawnCmd = {
@@ -287,6 +337,7 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
                   }
                 }
                 ws.send(JSON.stringify(spawnCmd));
+                broadcastTerminalSessionsChange('created', sessionId, meta.groupKey);
               } else {
                 // No browser connected — just clean up
                 console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — no browser, cleaning up`);
@@ -304,23 +355,36 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
       const sessionId = extractSessionId(str);
       if (!sessionId) return;
 
-      const browserWs = state.terminalSessions.get(sessionId);
+      const wsSet = state.terminalSessions.get(sessionId);
 
       // Log non-output messages (output 'o' is too noisy)
       if (!str.startsWith('{"t":"o"')) {
         console.log(
-          `[terminal-relay] Daemon→Browser: ${str.slice(0, 150)} | browserWs=${browserWs ? 'found' : 'NOT FOUND'}`,
+          `[terminal-relay] Daemon→Browser: ${str.slice(0, 150)} | browsers=${wsSet?.size ?? 0}`,
         );
       }
 
-      if (browserWs) sendRaw(browserWs, str);
+      // Reconnected buffer replayed only to the browser that requested it
+      if (str.startsWith('{"t":"reconnected"')) {
+        const reconnectWs = state.pendingReconnects.get(sessionId);
+        state.pendingReconnects.delete(sessionId);
+        if (reconnectWs) {
+          sendRaw(reconnectWs, str);
+        } else {
+          console.warn(`[terminal-relay] Reconnected buffer for ${sessionId} dropped — no pending browser`);
+        }
+      } else if (wsSet) {
+        broadcastToSession(state, sessionId, str);
+      }
 
       // Exit messages start with {"t":"exit" — no data field to confuse
       const isExit = str.startsWith('{"t":"exit"');
       if (isExit) {
         console.log(`[terminal-relay] Exit for session ${sessionId}, cleaning up meta and WS`);
+        const exitMeta = state.terminalSessionMeta.get(sessionId);
         state.terminalSessions.delete(sessionId);
         state.terminalSessionMeta.delete(sessionId);
+        broadcastTerminalSessionsChange('destroyed', sessionId, exitMeta?.groupKey);
       }
     });
 
