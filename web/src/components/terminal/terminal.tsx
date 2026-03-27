@@ -100,9 +100,39 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
     const scrollSub = term.onScroll(() => {
       const buf = term.buffer.active;
       const atBottom = buf.viewportY >= buf.baseY;
-      isPinnedRef.current = atBottom;
       setShowScrollButton(!atBottom);
+      // Only unpin — never re-pin from onScroll. xterm's write() can trigger
+      // scroll events that would incorrectly re-pin when the user scrolled up.
+      if (!atBottom) {
+        isPinnedRef.current = false;
+      }
     });
+
+    // Handle scroll intent via wheel events. xterm's own wheel handler fires
+    // first (on the descendant viewport element), so by the time our handler
+    // runs, isPinnedRef reflects whether xterm already scrolled a full line.
+    const container = containerRef.current;
+    const handleWheel = (e: WheelEvent) => {
+      // When scrolling towards scrollback while pinned, force one-line scroll
+      // to escape the auto-scroll zone. Without this, scrollToBottom() and
+      // xterm's write-triggered auto-scroll reset the native scrollbar every
+      // frame, preventing small trackpad deltas from accumulating.
+      if (isPinnedRef.current && e.deltaY < 0 && term.buffer.active.baseY > 0) {
+        term.scrollLines(-1);
+      }
+
+      // Re-pin when user scrolls to the bottom
+      requestAnimationFrame(() => {
+        const t = xtermRef.current;
+        if (!t) return;
+        const buf = t.buffer.active;
+        if (buf.viewportY >= buf.baseY) {
+          isPinnedRef.current = true;
+          setShowScrollButton(false);
+        }
+      });
+    };
+    container.addEventListener('wheel', handleWheel, { passive: true });
 
     const scheduleScroll = () => {
       if (!scrollRafRef.current) {
@@ -145,9 +175,20 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
       }
 
       if (msg.t === 'o' && msg.d) {
-        const wasPinned = isPinnedRef.current;
-        term.write(msg.d);
-        if (wasPinned) scheduleScroll();
+        if (isPinnedRef.current) {
+          term.write(msg.d);
+          scheduleScroll();
+        } else {
+          // Preserve viewport position when unpinned — xterm's write() can
+          // auto-scroll the viewport even when the user has scrolled up.
+          const savedY = term.buffer.active.viewportY;
+          term.write(msg.d, () => {
+            const currentY = term.buffer.active.viewportY;
+            if (currentY !== savedY) {
+              term.scrollLines(savedY - currentY);
+            }
+          });
+        }
       } else if (msg.t === 'reconnected' && msg.buffer) {
         console.log(`[terminal-ui] Reconnected session ${sessionId}, buffer lines: ${msg.buffer.length}`);
         term.clear();
@@ -216,6 +257,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
       if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
       scrollRafRef.current = 0;
       scrollSub.dispose();
+      container.removeEventListener('wheel', handleWheel);
       resizeObserver.disconnect();
       onReady?.(sessionId, null);
       ws.close();
