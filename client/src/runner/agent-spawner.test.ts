@@ -423,6 +423,48 @@ describe('AgentSpawner', () => {
     });
   });
 
+  describe('MCP config', () => {
+    it('should include --mcp-config with type http when serverUrl is set', async () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const promise = spawner.spawn({
+        ...HOST_CONFIG,
+        serverUrl: 'http://localhost:3000',
+      });
+
+      proc.emit('close', 0);
+      await promise;
+
+      const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+      const mcpIndex = spawnArgs.indexOf('--mcp-config');
+      expect(mcpIndex).toBeGreaterThan(-1);
+
+      const mcpConfig = JSON.parse(spawnArgs[mcpIndex + 1]);
+      expect(mcpConfig).toEqual({
+        mcpServers: {
+          'engy-execution': {
+            type: 'http',
+            url: 'http://localhost:3000/mcp?toolset=execution',
+          },
+        },
+      });
+    });
+
+    it('should not include --mcp-config when serverUrl is not set', async () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const promise = spawner.spawn(HOST_CONFIG);
+
+      proc.emit('close', 0);
+      await promise;
+
+      const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+      expect(spawnArgs).not.toContain('--mcp-config');
+    });
+  });
+
   describe('safety validation (FR #14)', () => {
     it('should throw when --dangerously-skip-permissions is used in host mode', async () => {
       await expect(

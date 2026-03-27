@@ -126,7 +126,7 @@ export class AgentSpawner {
       const mcpConfig = JSON.stringify({
         mcpServers: {
           'engy-execution': {
-            type: 'url',
+            type: 'http',
             url: `${config.serverUrl}/mcp?toolset=execution`,
           },
         },
