@@ -8,7 +8,7 @@ export interface DiffComment {
   documentPath: string;
   lineNumber: number;
   codeLine: string;
-  changeKey: string;
+  side: 'modified' | 'original';
   resolved: boolean;
   comments: Array<{
     id: string;
@@ -49,7 +49,7 @@ export function useDiffComments(repoDir: string | null) {
         documentPath: thread.documentPath,
         lineNumber: (meta.lineNumber as number) ?? 0,
         codeLine: (meta.codeLine as string) ?? '',
-        changeKey: (meta.changeKey as string) ?? '',
+        side: (meta.side as 'modified' | 'original') ?? 'modified',
         resolved: thread.resolved ?? false,
         comments: thread.comments.map((c) => ({
           id: c.id,
@@ -74,8 +74,8 @@ export function useDiffComments(repoDir: string | null) {
     filePath: string,
     lineNumber: number,
     codeLine: string,
-    changeKey: string,
     text: string,
+    side: 'modified' | 'original' = 'modified',
   ) => {
     if (!repoDir) return;
     const threadId = crypto.randomUUID();
@@ -84,7 +84,7 @@ export function useDiffComments(repoDir: string | null) {
       documentPath: makeDiffDocPath(repoDir, filePath),
       threadId,
       initialComment: { id: commentId, body: text },
-      metadata: { type: 'diff', lineNumber, codeLine, changeKey },
+      metadata: { type: 'diff', lineNumber, codeLine, side },
     });
   };
 

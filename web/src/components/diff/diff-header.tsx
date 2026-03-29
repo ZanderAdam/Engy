@@ -2,7 +2,8 @@
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { GitFileStatus, ViewMode } from './types';
+import type { GitFileStatus, ViewMode, EditorMode, DiffViewMode } from './types';
+import type { SaveStatus } from './use-auto-save';
 
 const statusConfig: Record<GitFileStatus, { letter: string; className: string }> = {
   added: { letter: 'A', className: 'bg-green-500/15 text-green-500 border-green-500/30' },
@@ -11,22 +12,35 @@ const statusConfig: Record<GitFileStatus, { letter: string; className: string }>
   renamed: { letter: 'R', className: 'bg-yellow-500/15 text-yellow-500 border-yellow-500/30' },
 };
 
+const saveStatusLabels: Record<SaveStatus, string | null> = {
+  idle: null,
+  saving: 'Saving...',
+  saved: 'Saved',
+  error: 'Save failed',
+};
+
 export function DiffHeader({
   filePath,
   status,
   viewMode,
   onViewModeChange,
-  additions,
-  deletions,
+  editorMode,
+  onEditorModeChange,
+  diffViewMode,
+  saveStatus,
 }: {
   filePath: string;
   status: GitFileStatus;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  additions?: number;
-  deletions?: number;
+  editorMode?: EditorMode;
+  onEditorModeChange?: (mode: EditorMode) => void;
+  diffViewMode?: DiffViewMode;
+  saveStatus?: SaveStatus;
 }) {
   const { letter, className } = statusConfig[status];
+  const showEditToggle = diffViewMode === 'latest' && onEditorModeChange;
+  const saveLabel = saveStatus ? saveStatusLabels[saveStatus] : null;
 
   return (
     <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-3 py-1.5">
@@ -42,15 +56,36 @@ export function DiffHeader({
       <span className="truncate font-mono text-xs text-foreground">{filePath}</span>
 
       <div className="ml-auto flex items-center gap-2">
-        {(additions !== undefined || deletions !== undefined) && (
-          <span className="flex items-center gap-1 text-xs">
-            {additions !== undefined && additions > 0 && (
-              <span className="text-green-500">+{additions}</span>
+        {saveLabel && (
+          <span
+            className={cn(
+              'text-[10px]',
+              saveStatus === 'error' ? 'text-destructive' : 'text-muted-foreground',
             )}
-            {deletions !== undefined && deletions > 0 && (
-              <span className="text-red-500">-{deletions}</span>
-            )}
+          >
+            {saveLabel}
           </span>
+        )}
+
+        {showEditToggle && (
+          <div className="flex">
+            <Button
+              variant="ghost"
+              size="xs"
+              className={cn(editorMode === 'diff' && 'bg-muted text-foreground')}
+              onClick={() => onEditorModeChange('diff')}
+            >
+              Diff
+            </Button>
+            <Button
+              variant="ghost"
+              size="xs"
+              className={cn(editorMode === 'edit' && 'bg-muted text-foreground')}
+              onClick={() => onEditorModeChange('edit')}
+            >
+              Edit
+            </Button>
+          </div>
         )}
 
         <div className="flex">

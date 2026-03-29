@@ -7,6 +7,7 @@ import { taskRouter } from './routers/task';
 import { commentRouter } from './routers/comment';
 import { dirRouter } from './routers/dir';
 import { diffRouter } from './routers/diff';
+import { fileRouter } from './routers/file';
 import { executionRouter } from './routers/execution';
 import { questionRouter } from './routers/question';
 
@@ -19,6 +20,7 @@ export const appRouter = router({
   comment: commentRouter,
   dir: dirRouter,
   diff: diffRouter,
+  file: fileRouter,
   execution: executionRouter,
   question: questionRouter,
 });

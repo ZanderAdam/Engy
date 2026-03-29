@@ -62,7 +62,6 @@ describe('WebSocket Server', () => {
       pendingValidations: new Map(),
       pendingFileSearches: new Map(),
       pendingGitStatus: new Map(),
-      pendingGitDiff: new Map(),
       pendingGitLog: new Map(),
       pendingGitShow: new Map(),
       pendingGitBranchFiles: new Map(),
@@ -79,6 +78,9 @@ describe('WebSocket Server', () => {
       containerProgressListeners: new Map(),
       pendingExecutionStart: new Map(),
       pendingExecutionStop: new Map(),
+      pendingDirList: new Map(),
+      pendingFileRead: new Map(),
+      pendingFileWrite: new Map(),
     };
     const result = await startServer(state);
     server = result.server;

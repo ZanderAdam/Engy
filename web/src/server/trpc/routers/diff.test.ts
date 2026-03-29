@@ -44,30 +44,6 @@ describe('diff router', () => {
     });
   });
 
-  describe('getFileDiff', () => {
-    it('throws when no daemon is connected', async () => {
-      ctx = setupTestDb();
-      const caller = appRouter.createCaller({ state: ctx.state });
-
-      await expect(
-        caller.diff.getFileDiff({ repoDir: '/tmp/repo', filePath: 'file.txt' }),
-      ).rejects.toThrow('No daemon connected');
-    });
-
-    it('throws when sessionId not found', async () => {
-      ctx = setupTestDb();
-      const caller = appRouter.createCaller({ state: ctx.state });
-
-      await expect(
-        caller.diff.getFileDiff({
-          repoDir: '/tmp/repo',
-          filePath: 'file.txt',
-          sessionId: 'bad-id',
-        }),
-      ).rejects.toThrow('Session "bad-id" not found');
-    });
-  });
-
   describe('getLog', () => {
     it('throws when no daemon is connected', async () => {
       ctx = setupTestDb();

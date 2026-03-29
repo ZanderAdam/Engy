@@ -23,13 +23,7 @@ export function DirDiffPanel({ dirPath }: DirDiffPanelProps) {
     refetch: refetchStatus,
   } = trpc.diff.getStatus.useQuery({ repoDir: dirPath });
 
-  const { data: fileDiffData } = trpc.diff.getFileDiff.useQuery(
-    { repoDir: dirPath, filePath: selectedFile! },
-    { enabled: !!selectedFile },
-  );
-
-  const { diffComments, commentsForFile, addLineComment, replyToThread, resolve, remove } =
-    useDiffComments(dirPath);
+  const { diffComments } = useDiffComments(dirPath);
 
   const files: ChangedFile[] = useMemo(() => statusData?.files ?? [], [statusData]);
 
@@ -38,10 +32,27 @@ export function DirDiffPanel({ dirPath }: DirDiffPanelProps) {
     [files, selectedFile],
   );
 
-  const fileComments = useMemo(
-    () => (selectedFile ? commentsForFile(selectedFile) : []),
-    [selectedFile, commentsForFile],
+  // File content: original (HEAD)
+  const { data: originalData } = trpc.file.read.useQuery(
+    { repoDir: dirPath, filePath: selectedFile!, ref: 'HEAD' },
+    { enabled: !!selectedFile && selectedFileData?.status !== 'added', retry: false },
   );
+
+  // File content: modified (working tree)
+  const { data: modifiedData } = trpc.file.read.useQuery(
+    { repoDir: dirPath, filePath: selectedFile! },
+    { enabled: !!selectedFile && selectedFileData?.status !== 'deleted', retry: false },
+  );
+
+  const originalContent = useMemo(() => {
+    if (selectedFileData?.status === 'added') return '';
+    return originalData?.content ?? '';
+  }, [originalData, selectedFileData]);
+
+  const modifiedContent = useMemo(() => {
+    if (selectedFileData?.status === 'deleted') return '';
+    return modifiedData?.content ?? '';
+  }, [modifiedData, selectedFileData]);
 
   return (
     <div className="flex flex-1 min-h-0">
@@ -74,18 +85,12 @@ export function DirDiffPanel({ dirPath }: DirDiffPanelProps) {
                 onViewModeChange={setViewMode}
               />
             )}
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 min-h-0">
               <DiffViewerPanel
-                diff={fileDiffData?.diff ?? ''}
+                originalContent={originalContent}
+                modifiedContent={modifiedContent}
                 viewMode={viewMode}
                 filePath={selectedFile}
-                fileComments={fileComments}
-                onAddComment={(lineNumber, codeLine, changeKey, text) =>
-                  addLineComment(selectedFile, lineNumber, codeLine, changeKey, text)
-                }
-                onReply={replyToThread}
-                onResolve={resolve}
-                onDelete={remove}
               />
             </div>
           </div>

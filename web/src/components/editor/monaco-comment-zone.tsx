@@ -3,9 +3,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Kbd } from '@/components/ui/kbd';
 import { cn } from '@/lib/utils';
-import type { DiffComment } from './use-diff-comments';
+import type { DiffComment } from '@/components/diff/use-diff-comments';
 
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -18,33 +17,34 @@ function formatRelativeTime(dateStr: string): string {
   return `${days}d ago`;
 }
 
-interface CommentWidgetProps {
-  existingComments?: DiffComment;
+interface MonacoCommentZoneProps {
+  comment?: DiffComment;
   onSave: (text: string) => void;
   onReply?: (threadId: string, text: string) => void;
   onResolve?: (threadId: string) => void;
   onDelete?: (threadId: string) => void;
   onCancel: () => void;
+  onHeightChange?: (height: number) => void;
 }
 
-export function CommentWidget({
-  existingComments,
+export function MonacoCommentZone({
+  comment,
   onSave,
   onReply,
   onResolve,
   onDelete,
   onCancel,
-}: CommentWidgetProps) {
+  onHeightChange,
+}: MonacoCommentZoneProps) {
   const [text, setText] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         if (!text.trim()) return;
-        if (existingComments && onReply) {
-          onReply(existingComments.threadId, text.trim());
+        if (comment && onReply) {
+          onReply(comment.threadId, text.trim());
         } else {
           onSave(text.trim());
         }
@@ -55,30 +55,47 @@ export function CommentWidget({
         onCancel();
       }
     },
-    [text, existingComments, onReply, onSave, onCancel],
+    [text, comment, onReply, onSave, onCancel],
   );
 
   const handleSubmit = () => {
     if (!text.trim()) return;
-    if (existingComments && onReply) {
-      onReply(existingComments.threadId, text.trim());
+    if (comment && onReply) {
+      onReply(comment.threadId, text.trim());
     } else {
       onSave(text.trim());
     }
     setText('');
   };
 
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const setContainerRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+        observerRef.current = null;
+      }
+      if (node && onHeightChange) {
+        observerRef.current = new ResizeObserver(() => {
+          onHeightChange(node.offsetHeight);
+        });
+        observerRef.current.observe(node);
+      }
+    },
+    [onHeightChange],
+  );
+
   return (
-    <div className="border border-border bg-background p-3" onClick={(e) => e.stopPropagation()}>
-      {existingComments && existingComments.comments.length > 0 && (
+    <div ref={setContainerRef} className="border border-border bg-background p-3">
+      {comment && comment.comments.length > 0 && (
         <div className="mb-2">
-          {existingComments.comments.map((c, i) => (
+          {comment.comments.map((c, i) => (
             <div
               key={c.id}
               className={cn(
                 'py-1.5 text-xs',
                 i > 0 && 'border-t border-border/50 ml-3',
-                existingComments.resolved && 'opacity-50',
+                comment.resolved && 'opacity-50',
               )}
             >
               <div className="flex items-center gap-1.5 mb-0.5">
@@ -91,18 +108,14 @@ export function CommentWidget({
                   </span>
                 )}
               </div>
-              <span className={cn('whitespace-pre-wrap', existingComments.resolved && 'line-through')}>
+              <span className={cn('whitespace-pre-wrap', comment.resolved && 'line-through')}>
                 {typeof c.body === 'string' ? c.body : JSON.stringify(c.body)}
               </span>
             </div>
           ))}
           <div className="flex items-center gap-1.5 pt-1">
-            {onResolve && !existingComments.resolved && (
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={() => onResolve(existingComments.threadId)}
-              >
+            {onResolve && !comment.resolved && (
+              <Button variant="ghost" size="xs" onClick={() => onResolve(comment.threadId)}>
                 Resolve
               </Button>
             )}
@@ -111,7 +124,7 @@ export function CommentWidget({
                 variant="ghost"
                 size="xs"
                 className="text-destructive hover:text-destructive"
-                onClick={() => onDelete(existingComments.threadId)}
+                onClick={() => onDelete(comment.threadId)}
               >
                 Delete
               </Button>
@@ -121,24 +134,20 @@ export function CommentWidget({
       )}
 
       <Textarea
-        ref={textareaRef}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={existingComments ? 'Reply...' : 'Add a comment...'}
+        placeholder={comment ? 'Reply...' : 'Add a comment...'}
         className="min-h-[60px] resize-none text-xs"
         autoFocus
       />
-      <div className="mt-1.5 flex items-center justify-between">
-        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-          <Kbd>⌘↵</Kbd> save <Kbd>Esc</Kbd> cancel
-        </span>
+      <div className="mt-1.5 flex items-center justify-end">
         <div className="flex gap-1">
           <Button variant="ghost" size="xs" onClick={onCancel}>
             Cancel
           </Button>
           <Button size="xs" onClick={handleSubmit} disabled={!text.trim()}>
-            {existingComments ? 'Reply' : 'Comment'}
+            {comment ? 'Reply' : 'Comment'}
           </Button>
         </div>
       </div>

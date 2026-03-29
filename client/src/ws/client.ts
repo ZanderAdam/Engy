@@ -13,6 +13,9 @@ import type {
   GitLogRequestMessage,
   GitShowRequestMessage,
   GitBranchFilesRequestMessage,
+  DirListRequestMessage,
+  FileReadRequestMessage,
+  FileWriteRequestMessage,
   ContainerUpRequestMessage,
   ContainerDownRequestMessage,
   ContainerStatusRequestMessage,
@@ -21,7 +24,15 @@ import type {
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
-import { getStatusDetailed, getDiff, getLog, getShow, getBranchFiles } from '../git/index.js';
+import {
+  getStatusDetailed,
+  getDiff,
+  getLog,
+  getShow,
+  getBranchFiles,
+  getFileContent,
+  writeFileContent,
+} from '../git/index.js';
 import { ContainerManager } from '../container/manager.js';
 import { CoderManager } from '../container/coder-manager.js';
 import { generateDevcontainerConfig } from '../container/config-generator.js';
@@ -148,9 +159,7 @@ function fuzzyMatch(filePath: string, query: string): boolean {
   return filePath.toLowerCase().includes(query.toLowerCase());
 }
 
-async function listFilesForDir(
-  dir: string,
-): Promise<string[]> {
+async function listFilesForDir(dir: string): Promise<string[]> {
   const gitRoot = await getGitRoot(dir);
   if (gitRoot) {
     return listGitFiles(dir, gitRoot);
@@ -344,7 +353,9 @@ export class WsClient {
       // Announce known sessions so server can clean up stale ones
       const allSessions = this.terminalManager!.getAllSessions();
       const sessionIds = allSessions.map((s) => s.sessionId);
-      console.log(`[ws-terminal] Sending sync with ${sessionIds.length} sessions: [${sessionIds.join(', ')}]`);
+      console.log(
+        `[ws-terminal] Sending sync with ${sessionIds.length} sessions: [${sessionIds.join(', ')}]`,
+      );
       ws.send(JSON.stringify({ t: 'sync', sessionIds } satisfies TerminalSyncEvent));
 
       // Resync: resume any sessions suspended during disconnect
@@ -423,6 +434,15 @@ export class WsClient {
         break;
       case 'GIT_BRANCH_FILES_REQUEST':
         this.handleGitBranchFilesRequest(message as GitBranchFilesRequestMessage);
+        break;
+      case 'DIR_LIST_REQUEST':
+        this.handleDirListRequest(message as DirListRequestMessage);
+        break;
+      case 'FILE_READ_REQUEST':
+        this.handleFileReadRequest(message as FileReadRequestMessage);
+        break;
+      case 'FILE_WRITE_REQUEST':
+        this.handleFileWriteRequest(message as FileWriteRequestMessage);
         break;
       case 'CONTAINER_UP_REQUEST':
         this.handleContainerUpRequest(message as ContainerUpRequestMessage);
@@ -568,7 +588,9 @@ export class WsClient {
     }
   }
 
-  private async handleGitBranchFilesRequest(message: GitBranchFilesRequestMessage): Promise<void> {
+  private async handleGitBranchFilesRequest(
+    message: GitBranchFilesRequestMessage,
+  ): Promise<void> {
     const { requestId, repoDir, base } = message.payload;
     try {
       const files = await getBranchFiles(repoDir, base);
@@ -579,6 +601,63 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'GIT_BRANCH_FILES_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleDirListRequest(message: DirListRequestMessage): Promise<void> {
+    const { requestId, dirPath } = message.payload;
+    try {
+      const entries = await readdir(dirPath, { withFileTypes: true });
+      const dirs: string[] = [];
+      const files: string[] = [];
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue;
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '__pycache__')
+          continue;
+        if (entry.isDirectory()) dirs.push(entry.name);
+        else if (entry.isFile()) files.push(entry.name);
+      }
+      this.send({
+        type: 'DIR_LIST_RESPONSE',
+        payload: { requestId, dirs: dirs.sort(), files: files.sort() },
+      });
+    } catch (err) {
+      this.send({
+        type: 'DIR_LIST_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleFileReadRequest(message: FileReadRequestMessage): Promise<void> {
+    const { requestId, repoDir, filePath, ref } = message.payload;
+    try {
+      const content = await getFileContent(repoDir, filePath, ref);
+      this.send({
+        type: 'FILE_READ_RESPONSE',
+        payload: { requestId, content },
+      });
+    } catch (err) {
+      this.send({
+        type: 'FILE_READ_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleFileWriteRequest(message: FileWriteRequestMessage): Promise<void> {
+    const { requestId, repoDir, filePath, content } = message.payload;
+    try {
+      await writeFileContent(repoDir, filePath, content);
+      this.send({
+        type: 'FILE_WRITE_RESPONSE',
+        payload: { requestId, success: true },
+      });
+    } catch (err) {
+      this.send({
+        type: 'FILE_WRITE_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }
@@ -716,7 +795,9 @@ export class WsClient {
     if (this.intentionallyClosed) return;
 
     const delay = computeBackoff(this.attempt);
-    console.log(`[ws-main] Scheduling reconnect attempt=${this.attempt} delay=${Math.round(delay)}ms`);
+    console.log(
+      `[ws-main] Scheduling reconnect attempt=${this.attempt} delay=${Math.round(delay)}ms`,
+    );
     this.attempt++;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -728,7 +809,9 @@ export class WsClient {
     if (this.intentionallyClosed) return;
 
     const delay = computeBackoff(this.terminalAttempt);
-    console.log(`[ws-terminal] Scheduling reconnect attempt=${this.terminalAttempt} delay=${Math.round(delay)}ms`);
+    console.log(
+      `[ws-terminal] Scheduling reconnect attempt=${this.terminalAttempt} delay=${Math.round(delay)}ms`,
+    );
     this.terminalAttempt++;
     this.terminalReconnectTimer = setTimeout(() => {
       this.terminalReconnectTimer = null;

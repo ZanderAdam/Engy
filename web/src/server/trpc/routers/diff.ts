@@ -4,46 +4,13 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import {
   dispatchGitStatus,
-  dispatchGitDiff,
   dispatchGitLog,
   dispatchGitShow,
   dispatchGitBranchFiles,
 } from '../../ws/server';
 import { getDb } from '../../db/client';
 import { agentSessions, tasks, taskGroups } from '../../db/schema';
-
-/**
- * Resolves the effective repo directory. When a sessionId is provided,
- * looks up the session's worktreePath and uses it instead.
- */
-function resolveRepoDir(repoDir: string, sessionId?: string): string {
-  if (!sessionId) return repoDir;
-
-  const db = getDb();
-  const session = db
-    .select()
-    .from(agentSessions)
-    .where(eq(agentSessions.sessionId, sessionId))
-    .get();
-
-  if (!session) {
-    throw new TRPCError({
-      code: 'NOT_FOUND',
-      message: `Session "${sessionId}" not found`,
-    });
-  }
-
-  if (!session.worktreePath) {
-    throw new TRPCError({
-      code: 'BAD_REQUEST',
-      message: `Session "${sessionId}" has no worktree path`,
-    });
-  }
-
-  return session.worktreePath;
-}
-
-const sessionIdParam = z.string().optional();
+import { resolveRepoDir, sessionIdParam } from './shared';
 
 export const diffRouter = router({
   getStatus: publicProcedure
@@ -51,22 +18,6 @@ export const diffRouter = router({
     .query(async ({ input, ctx }) => {
       const dir = resolveRepoDir(input.repoDir, input.sessionId);
       return dispatchGitStatus(dir, ctx.state);
-    }),
-
-  getFileDiff: publicProcedure
-    .input(
-      z.object({
-        repoDir: z.string().min(1),
-        filePath: z.string().min(1),
-        base: z.string().optional(),
-        staged: z.boolean().optional(),
-        sessionId: sessionIdParam,
-      }),
-    )
-    .query(async ({ input, ctx }) => {
-      const dir = resolveRepoDir(input.repoDir, input.sessionId);
-      const diff = await dispatchGitDiff(dir, input.filePath, ctx.state, input.base, input.staged);
-      return { diff };
     }),
 
   getLog: publicProcedure

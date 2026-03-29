@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/lib/trpc';
+import { DynamicMonacoCodeEditor } from '@/components/editor/dynamic-monaco-editors';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { FileListPanel } from './file-list-panel';
@@ -14,7 +15,8 @@ import { RepoSelector } from './repo-selector';
 import { SessionSelector } from './session-selector';
 import { ReviewActions } from './review-actions';
 import { useDiffComments, extractFilePathFromDocPath } from './use-diff-comments';
-import type { ChangedFile, ViewMode, DiffViewMode } from './types';
+import { useAutoSave } from './use-auto-save';
+import type { ChangedFile, ViewMode, DiffViewMode, EditorMode } from './types';
 
 const SIDEBAR_CONFIG = {
   defaultWidth: 280,
@@ -39,6 +41,7 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('unified');
   const [diffViewMode, setDiffViewMode] = useState<DiffViewMode>('latest');
+  const [editorMode, setEditorMode] = useState<EditorMode>('diff');
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   const [baseBranch, setBaseBranch] = useState('origin/main');
   const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(null);
@@ -79,6 +82,7 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
 
   const handleDiffViewModeChange = (mode: DiffViewMode) => {
     setDiffViewMode(mode);
+    setEditorMode('diff');
     setSelectedFile(null);
     setSelectedCommit(null);
   };
@@ -99,13 +103,13 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
     { enabled: !!selectedRepo && diffViewMode === 'history' },
   );
 
-  // Commit diff data
+  // Commit diff data (for file list)
   const { data: commitDiffData } = trpc.diff.getCommitDiff.useQuery(
     { repoDir: selectedRepo!, commitHash: selectedCommit!, sessionId: selectedSessionId ?? undefined },
     { enabled: !!selectedRepo && !!selectedCommit && diffViewMode === 'history' },
   );
 
-  // Branch diff data
+  // Branch diff data (for file list)
   const {
     data: branchDiffData,
     isLoading: isBranchLoading,
@@ -115,9 +119,32 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
     { enabled: !!selectedRepo && diffViewMode === 'branch' && baseBranch.length > 0, retry: false },
   );
 
+  // Resolve the original ref based on view mode
+  const originalRef = useMemo(() => {
+    if (diffViewMode === 'latest') return 'HEAD';
+    if (diffViewMode === 'history' && selectedCommit) return `${selectedCommit}~1`;
+    if (diffViewMode === 'branch') return baseBranch;
+    return undefined;
+  }, [diffViewMode, selectedCommit, baseBranch]);
+
+  // Resolve the modified ref (undefined = working tree)
+  const modifiedRef = useMemo(() => {
+    if (diffViewMode === 'history' && selectedCommit) return selectedCommit;
+    return undefined; // working tree for latest + branch
+  }, [diffViewMode, selectedCommit]);
+
   // Comments
   const { diffComments, commentsForFile, addLineComment, replyToThread, resolve, remove } =
     useDiffComments(selectedRepo);
+
+  const fileComments = useMemo(
+    () => (selectedFile ? commentsForFile(selectedFile) : []),
+    [selectedFile, commentsForFile],
+  );
+
+  const handleAddComment = (lineNumber: number, side: 'modified' | 'original', text: string) => {
+    if (selectedFile) addLineComment(selectedFile, lineNumber, '', text, side);
+  };
 
   // Resolve files list based on view mode
   const files: ChangedFile[] = useMemo(() => {
@@ -136,42 +163,35 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
     [files, selectedFile],
   );
 
-  // File diff for selected file (latest + branch modes)
-  const diffBase = diffViewMode === 'branch' ? baseBranch : undefined;
-  const { data: fileDiffData } = trpc.diff.getFileDiff.useQuery(
-    { repoDir: selectedRepo!, filePath: selectedFile!, base: diffBase, staged: selectedFileData?.staged, sessionId: selectedSessionId ?? undefined },
-    {
-      enabled:
-        !!selectedRepo &&
-        !!selectedFile &&
-        !!selectedFileData &&
-        (diffViewMode === 'latest' || diffViewMode === 'branch'),
-    },
+  const sessionId = selectedSessionId ?? undefined;
+
+  // File content: original
+  const { data: originalData } = trpc.file.read.useQuery(
+    { repoDir: selectedRepo!, filePath: selectedFile!, ref: originalRef, sessionId },
+    { enabled: !!selectedRepo && !!selectedFile && !!originalRef, retry: false },
   );
 
-  // Per-file diff for history mode (commit selected + file selected)
-  const { data: commitFileDiffData } = trpc.diff.getFileDiff.useQuery(
-    { repoDir: selectedRepo!, filePath: selectedFile!, base: `${selectedCommit}~1`, sessionId: selectedSessionId ?? undefined },
-    {
-      enabled:
-        !!selectedRepo &&
-        !!selectedFile &&
-        !!selectedCommit &&
-        diffViewMode === 'history',
-    },
+  // File content: modified
+  const { data: modifiedData } = trpc.file.read.useQuery(
+    { repoDir: selectedRepo!, filePath: selectedFile!, ref: modifiedRef, sessionId },
+    { enabled: !!selectedRepo && !!selectedFile, retry: false },
   );
 
-  // Resolve current diff string
-  const currentDiff = useMemo(() => {
-    if (diffViewMode === 'history') {
-      return commitFileDiffData?.diff ?? '';
-    }
-    return fileDiffData?.diff ?? '';
-  }, [diffViewMode, commitFileDiffData, fileDiffData]);
+  // Resolve file content (handle added/deleted files)
+  const originalContent = useMemo(() => {
+    if (selectedFileData?.status === 'added') return '';
+    return originalData?.content ?? '';
+  }, [originalData, selectedFileData]);
 
-  const fileComments = useMemo(
-    () => (selectedFile ? commentsForFile(selectedFile) : []),
-    [selectedFile, commentsForFile],
+  const modifiedContent = useMemo(() => {
+    if (selectedFileData?.status === 'deleted') return '';
+    return modifiedData?.content ?? '';
+  }, [modifiedData, selectedFileData]);
+
+  // Auto-save
+  const { status: saveStatus, save } = useAutoSave(
+    diffViewMode === 'latest' ? selectedRepo : null,
+    selectedFile,
   );
 
   const isFileListLoading =
@@ -311,21 +331,33 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
                   status={selectedFileData.status}
                   viewMode={viewMode}
                   onViewModeChange={setViewMode}
+                  editorMode={editorMode}
+                  onEditorModeChange={setEditorMode}
+                  diffViewMode={diffViewMode}
+                  saveStatus={saveStatus}
                 />
               )}
-              <div className="flex-1 overflow-auto">
-                <DiffViewerPanel
-                  diff={currentDiff}
-                  viewMode={viewMode}
-                  filePath={selectedFile}
-                  fileComments={fileComments}
-                  onAddComment={(lineNumber, codeLine, changeKey, text) =>
-                    addLineComment(selectedFile!, lineNumber, codeLine, changeKey, text)
-                  }
-                  onReply={replyToThread}
-                  onResolve={resolve}
-                  onDelete={remove}
-                />
+              <div className="flex-1 min-h-0">
+                {editorMode === 'edit' && diffViewMode === 'latest' ? (
+                  <DynamicMonacoCodeEditor
+                    content={modifiedContent}
+                    filePath={selectedFile}
+                    onChange={save}
+                  />
+                ) : (
+                  <DiffViewerPanel
+                    originalContent={originalContent}
+                    modifiedContent={modifiedContent}
+                    viewMode={viewMode}
+                    filePath={selectedFile}
+                    onChange={diffViewMode === 'latest' ? save : undefined}
+                    fileComments={fileComments}
+                    onAddComment={handleAddComment}
+                    onReply={replyToThread}
+                    onResolve={resolve}
+                    onDelete={remove}
+                  />
+                )}
               </div>
             </div>
           )

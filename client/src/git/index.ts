@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { join, isAbsolute } from 'node:path';
+import { join, isAbsolute, resolve } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { simpleGit } from 'simple-git';
 import type { GitFileStatus } from '@engy/common';
@@ -35,7 +36,10 @@ interface DetailedStatus {
   branch: string;
 }
 
-function mapStatusCode(index: string, workingDir: string): { status: GitFileStatus; staged: boolean } {
+function mapStatusCode(
+  index: string,
+  workingDir: string,
+): { status: GitFileStatus; staged: boolean } {
   // Staged changes (index column)
   if (index === 'A') return { status: 'added', staged: true };
   if (index === 'M') return { status: 'modified', staged: true };
@@ -224,4 +228,39 @@ export async function getBranchFiles(
   );
 
   return parseNameStatusOutput(stdout);
+}
+
+function resolveAndValidatePath(dir: string, filePath: string): string {
+  const fullPath = isAbsolute(filePath) ? filePath : resolve(dir, filePath);
+  const resolvedDir = resolve(dir);
+  if (!fullPath.startsWith(resolvedDir + '/') && fullPath !== resolvedDir) {
+    throw new Error(`Path traversal detected: ${filePath} resolves outside ${dir}`);
+  }
+  return fullPath;
+}
+
+export async function getFileContent(
+  dir: string,
+  filePath: string,
+  ref?: string,
+): Promise<string> {
+  if (ref) {
+    const root = await getGitRoot(dir);
+    const { stdout } = await execFileAsync('git', ['show', `${ref}:${filePath}`], {
+      cwd: root,
+      maxBuffer: EXEC_MAX_BUFFER,
+    });
+    return stdout;
+  }
+  const fullPath = resolveAndValidatePath(dir, filePath);
+  return readFile(fullPath, 'utf-8');
+}
+
+export async function writeFileContent(
+  dir: string,
+  filePath: string,
+  content: string,
+): Promise<void> {
+  const fullPath = resolveAndValidatePath(dir, filePath);
+  await writeFile(fullPath, content, 'utf-8');
 }

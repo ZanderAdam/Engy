@@ -77,14 +77,16 @@ export interface GitStatusRequestMessage {
 
 export interface GitStatusResponseMessage {
   type: 'GIT_STATUS_RESPONSE';
-  payload: {
-    requestId: string;
-    files: Array<{ path: string; status: GitFileStatus; staged: boolean }>;
-    branch: string;
-  } | {
-    requestId: string;
-    error: string;
-  };
+  payload:
+    | {
+        requestId: string;
+        files: Array<{ path: string; status: GitFileStatus; staged: boolean }>;
+        branch: string;
+      }
+    | {
+        requestId: string;
+        error: string;
+      };
 }
 
 export interface GitDiffRequestMessage {
@@ -100,13 +102,15 @@ export interface GitDiffRequestMessage {
 
 export interface GitDiffResponseMessage {
   type: 'GIT_DIFF_RESPONSE';
-  payload: {
-    requestId: string;
-    diff: string;
-  } | {
-    requestId: string;
-    error: string;
-  };
+  payload:
+    | {
+        requestId: string;
+        diff: string;
+      }
+    | {
+        requestId: string;
+        error: string;
+      };
 }
 
 export interface GitLogRequestMessage {
@@ -120,13 +124,15 @@ export interface GitLogRequestMessage {
 
 export interface GitLogResponseMessage {
   type: 'GIT_LOG_RESPONSE';
-  payload: {
-    requestId: string;
-    commits: Array<{ hash: string; message: string; author: string; date: string }>;
-  } | {
-    requestId: string;
-    error: string;
-  };
+  payload:
+    | {
+        requestId: string;
+        commits: Array<{ hash: string; message: string; author: string; date: string }>;
+      }
+    | {
+        requestId: string;
+        error: string;
+      };
 }
 
 export interface GitShowRequestMessage {
@@ -140,14 +146,16 @@ export interface GitShowRequestMessage {
 
 export interface GitShowResponseMessage {
   type: 'GIT_SHOW_RESPONSE';
-  payload: {
-    requestId: string;
-    diff: string;
-    files: Array<{ path: string; status: GitFileStatus }>;
-  } | {
-    requestId: string;
-    error: string;
-  };
+  payload:
+    | {
+        requestId: string;
+        diff: string;
+        files: Array<{ path: string; status: GitFileStatus }>;
+      }
+    | {
+        requestId: string;
+        error: string;
+      };
 }
 
 export interface GitBranchFilesRequestMessage {
@@ -161,13 +169,66 @@ export interface GitBranchFilesRequestMessage {
 
 export interface GitBranchFilesResponseMessage {
   type: 'GIT_BRANCH_FILES_RESPONSE';
+  payload:
+    | {
+        requestId: string;
+        files: Array<{ path: string; status: GitFileStatus }>;
+      }
+    | {
+        requestId: string;
+        error: string;
+      };
+}
+
+// ── File operations (server ↔ daemon) ────────────────────────────────────────
+
+export interface DirListRequestMessage {
+  type: 'DIR_LIST_REQUEST';
   payload: {
     requestId: string;
-    files: Array<{ path: string; status: GitFileStatus }>;
-  } | {
-    requestId: string;
-    error: string;
+    dirPath: string;
   };
+}
+
+export interface DirListResponseMessage {
+  type: 'DIR_LIST_RESPONSE';
+  payload:
+    | { requestId: string; dirs: string[]; files: string[] }
+    | { requestId: string; error: string };
+}
+
+export interface FileReadRequestMessage {
+  type: 'FILE_READ_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    filePath: string;
+    ref?: string;
+  };
+}
+
+export interface FileReadResponseMessage {
+  type: 'FILE_READ_RESPONSE';
+  payload:
+    | { requestId: string; content: string }
+    | { requestId: string; error: string };
+}
+
+export interface FileWriteRequestMessage {
+  type: 'FILE_WRITE_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    filePath: string;
+    content: string;
+  };
+}
+
+export interface FileWriteResponseMessage {
+  type: 'FILE_WRITE_RESPONSE';
+  payload:
+    | { requestId: string; success: boolean }
+    | { requestId: string; error: string };
 }
 
 // ── Container operations (server ↔ daemon) ──────────────────────────────────
@@ -320,6 +381,12 @@ export type WsMessage =
   | GitShowResponseMessage
   | GitBranchFilesRequestMessage
   | GitBranchFilesResponseMessage
+  | DirListRequestMessage
+  | DirListResponseMessage
+  | FileReadRequestMessage
+  | FileReadResponseMessage
+  | FileWriteRequestMessage
+  | FileWriteResponseMessage
   | ContainerUpRequestMessage
   | ContainerUpResponseMessage
   | ContainerDownRequestMessage
@@ -344,6 +411,9 @@ export type ClientToServerMessage =
   | GitLogResponseMessage
   | GitShowResponseMessage
   | GitBranchFilesResponseMessage
+  | DirListResponseMessage
+  | FileReadResponseMessage
+  | FileWriteResponseMessage
   | ContainerUpResponseMessage
   | ContainerDownResponseMessage
   | ContainerStatusResponseMessage
@@ -362,6 +432,9 @@ export type ServerToClientMessage =
   | GitLogRequestMessage
   | GitShowRequestMessage
   | GitBranchFilesRequestMessage
+  | DirListRequestMessage
+  | FileReadRequestMessage
+  | FileWriteRequestMessage
   | ContainerUpRequestMessage
   | ContainerDownRequestMessage
   | ContainerStatusRequestMessage

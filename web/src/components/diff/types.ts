@@ -10,6 +10,7 @@ export interface ChangedFile {
 
 export type ViewMode = 'split' | 'unified';
 export type DiffViewMode = 'latest' | 'history' | 'branch';
+export type EditorMode = 'diff' | 'edit';
 
 export interface CommitInfo {
   hash: string;

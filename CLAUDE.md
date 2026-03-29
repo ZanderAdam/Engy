@@ -45,7 +45,7 @@ Typed discriminated union in `@engy/common`. Message types: `REGISTER`, `WORKSPA
 | `PORT` | web | `3000` | HTTP server port |
 | `ENGY_SERVER_URL` | client | `http://localhost:3000` | Server URL for daemon |
 
-Dev overrides are in `.dev.env` (gitignored), which sets `ENGY_DIR=.dev-engy/` for project-local data.
+Dev overrides are in `.dev.env` (gitignored), which sets `ENGY_DIR=.dev-engy/` for project-local data. When working in a worktree, edit `.dev.env` to use a different port (e.g., `PORT=4002` and `ENGY_SERVER_URL=http://localhost:4002`) to avoid conflicts with the main dev instance.
 
 ## Testing
 

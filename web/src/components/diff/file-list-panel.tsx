@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from 'react';
 import { RiLoopLeftLine, RiFolderLine, RiSearchLine, RiChat3Line } from '@remixicon/react';
-import { TreeView, type TreeDataItem, type TreeRenderItemParams } from '@/components/tree-view';
+import type { TreeRenderItemParams } from '@/components/tree-view';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { FileTree } from './file-tree';
 import type { ChangedFile, GitFileStatus } from '@/components/diff/types';
 
 interface FileListPanelProps {
@@ -29,63 +30,6 @@ const STATUS_LABELS: Record<GitFileStatus, string> = {
   deleted: 'D',
   renamed: 'R',
 };
-
-// --- Trie → TreeDataItem conversion with compact-folder support ---
-
-interface TrieNode {
-  children: Map<string, TrieNode>;
-  files: ChangedFile[];
-}
-
-function buildTrie(files: ChangedFile[]): TrieNode {
-  const root: TrieNode = { children: new Map(), files: [] };
-  for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
-    const parts = file.path.split('/');
-    parts.pop();
-    let node = root;
-    for (const segment of parts) {
-      if (!node.children.has(segment)) {
-        node.children.set(segment, { children: new Map(), files: [] });
-      }
-      node = node.children.get(segment)!;
-    }
-    node.files.push(file);
-  }
-  return root;
-}
-
-function trieToTreeItems(node: TrieNode, parentPath: string): TreeDataItem[] {
-  const dirEntries = [...node.children.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-
-  const dirItems: TreeDataItem[] = dirEntries.map(([dirName, dirNode]) => {
-    let compactedName = dirName;
-    let compactedPath = parentPath ? `${parentPath}/${dirName}` : dirName;
-    let current = dirNode;
-
-    // VSCode-style: collapse single-child dirs with no files
-    while (current.children.size === 1 && current.files.length === 0) {
-      const [childName, childNode] = current.children.entries().next().value!;
-      compactedName = `${compactedName}/${childName}`;
-      compactedPath = `${compactedPath}/${childName}`;
-      current = childNode;
-    }
-
-    return {
-      id: `dir:${compactedPath}`,
-      name: compactedName,
-      children: trieToTreeItems(current, compactedPath),
-    };
-  });
-
-  const fileItems: TreeDataItem[] = node.files.map((f) => ({
-    id: f.path,
-    name: f.path.split('/').pop() ?? f.path,
-  }));
-
-  return [...dirItems, ...fileItems];
-}
-
-// --- Custom renderItem for diff-specific display ---
 
 function createRenderItem(
   fileStatusMap: Map<string, GitFileStatus>,
@@ -120,64 +64,6 @@ function createRenderItem(
   };
 }
 
-// --- DiffFileTree: wraps TreeView for a set of ChangedFiles ---
-
-interface DiffFileTreeProps {
-  files: ChangedFile[];
-  selectedFile: string | null;
-  onSelectFile: (path: string) => void;
-  filterText: string;
-  commentCounts?: Map<string, number>;
-}
-
-function DiffFileTree({
-  files,
-  selectedFile,
-  onSelectFile,
-  filterText,
-  commentCounts,
-}: DiffFileTreeProps) {
-  const filtered = useMemo(() => {
-    if (!filterText) return files;
-    const q = filterText.toLowerCase();
-    return files.filter((f) => f.path.toLowerCase().includes(q));
-  }, [files, filterText]);
-
-  const fileStatusMap = useMemo(() => {
-    const map = new Map<string, GitFileStatus>();
-    for (const f of filtered) map.set(f.path, f.status);
-    return map;
-  }, [filtered]);
-
-  const treeData = useMemo(() => {
-    const root = buildTrie(filtered);
-    return trieToTreeItems(root, '');
-  }, [filtered]);
-
-  const renderItem = useMemo(
-    () => createRenderItem(fileStatusMap, commentCounts),
-    [fileStatusMap, commentCounts],
-  );
-
-  if (treeData.length === 0) return null;
-
-  return (
-    <div className="[&_.ml-4]:ml-1.5 [&_.ml-5]:ml-0.5 [&_.pl-1]:pl-0.5">
-      <TreeView
-        data={treeData}
-        initialSelectedItemId={selectedFile ?? undefined}
-        onSelectChange={(item) => {
-          if (item && !item.children) onSelectFile(item.id);
-        }}
-        expandAll
-        renderItem={renderItem}
-      />
-    </div>
-  );
-}
-
-// --- FileListPanel: top-level component with header, filter, staged/unstaged split ---
-
 export function FileListPanel({
   files,
   selectedFile,
@@ -203,6 +89,34 @@ export function FileListPanel({
       hasStagedAndUnstaged: staged.length > 0 && unstaged.length > 0,
     };
   }, [files]);
+
+  const fileStatusMap = useMemo(() => {
+    const map = new Map<string, GitFileStatus>();
+    for (const f of files) map.set(f.path, f.status);
+    return map;
+  }, [files]);
+
+  const renderItem = useMemo(
+    () => createRenderItem(fileStatusMap, commentCounts),
+    [fileStatusMap, commentCounts],
+  );
+
+  const filteredPaths = useMemo(() => {
+    const q = filter.toLowerCase();
+    return files
+      .filter((f) => !q || f.path.toLowerCase().includes(q))
+      .map((f) => f.path);
+  }, [files, filter]);
+
+  const stagedPaths = useMemo(
+    () => stagedFiles.map((f) => f.path),
+    [stagedFiles],
+  );
+
+  const unstagedPaths = useMemo(
+    () => unstagedFiles.map((f) => f.path),
+    [unstagedFiles],
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -256,31 +170,31 @@ export function FileListPanel({
               <div className="px-2 pt-2 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
                 Staged
               </div>
-              <DiffFileTree
-                files={stagedFiles}
+              <FileTree
+                filePaths={stagedPaths}
                 selectedFile={selectedFile}
                 onSelectFile={onSelectFile}
-                filterText={filter}
-                commentCounts={commentCounts}
+                renderItem={renderItem}
+                showFilter={false}
               />
               <div className="px-2 pt-3 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
                 Unstaged
               </div>
-              <DiffFileTree
-                files={unstagedFiles}
+              <FileTree
+                filePaths={unstagedPaths}
                 selectedFile={selectedFile}
                 onSelectFile={onSelectFile}
-                filterText={filter}
-                commentCounts={commentCounts}
+                renderItem={renderItem}
+                showFilter={false}
               />
             </>
           ) : (
-            <DiffFileTree
-              files={files}
+            <FileTree
+              filePaths={filteredPaths}
               selectedFile={selectedFile}
               onSelectFile={onSelectFile}
-              filterText={filter}
-              commentCounts={commentCounts}
+              renderItem={renderItem}
+              showFilter={false}
             />
           )}
         </div>

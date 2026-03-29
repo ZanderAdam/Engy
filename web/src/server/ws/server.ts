@@ -8,7 +8,7 @@ import type {
   ContainerUpRequestMessage,
   ExecutionStartConfig,
 } from '@engy/common';
-import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowResult, GitBranchFilesResult, ContainerUpResult, ExecutionStartResult, ExecutionStopResult } from '../trpc/context';
+import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowResult, GitBranchFilesResult, ContainerUpResult, ExecutionStartResult, ExecutionStopResult, DirListResult, FileReadResult, FileWriteResult } from '../trpc/context';
 import { getDb } from '../db/client';
 import { workspaces, agentSessions, tasks } from '../db/schema';
 import { handleSpecFileChange } from '../spec/watcher';
@@ -61,7 +61,6 @@ function rejectAllPending(state: AppState): void {
     state.pendingValidations,
     state.pendingFileSearches,
     state.pendingGitStatus,
-    state.pendingGitDiff,
     state.pendingGitLog,
     state.pendingGitShow,
     state.pendingGitBranchFiles,
@@ -70,6 +69,9 @@ function rejectAllPending(state: AppState): void {
     state.pendingContainerStatus,
     state.pendingExecutionStart,
     state.pendingExecutionStop,
+    state.pendingDirList,
+    state.pendingFileRead,
+    state.pendingFileWrite,
   ] as const;
 
   const error = new Error('Daemon disconnected');
@@ -100,9 +102,6 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
         files: p.files,
         branch: p.branch,
       }));
-      break;
-    case 'GIT_DIFF_RESPONSE':
-      resolvePendingResponse(msg.payload, state.pendingGitDiff, (p) => p.diff);
       break;
     case 'GIT_LOG_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGitLog, (p) => ({
@@ -148,6 +147,22 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       break;
     case 'EXECUTION_STOP_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingExecutionStop, (p) => ({
+        success: p.success,
+      }));
+      break;
+    case 'DIR_LIST_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingDirList, (p) => ({
+        dirs: p.dirs,
+        files: p.files,
+      }));
+      break;
+    case 'FILE_READ_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingFileRead, (p) => ({
+        content: p.content,
+      }));
+      break;
+    case 'FILE_WRITE_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingFileWrite, (p) => ({
         success: p.success,
       }));
       break;
@@ -514,16 +529,6 @@ export function dispatchGitStatus(
   return dispatchDaemonOp(state, state.pendingGitStatus, 'GIT_STATUS_REQUEST', { repoDir });
 }
 
-export function dispatchGitDiff(
-  repoDir: string,
-  filePath: string,
-  state: AppState,
-  base?: string,
-  staged?: boolean,
-): Promise<string> {
-  return dispatchDaemonOp(state, state.pendingGitDiff, 'GIT_DIFF_REQUEST', { repoDir, filePath, base, staged });
-}
-
 export function dispatchGitLog(
   repoDir: string,
   state: AppState,
@@ -546,6 +551,41 @@ export function dispatchGitBranchFiles(
   state: AppState,
 ): Promise<GitBranchFilesResult> {
   return dispatchDaemonOp(state, state.pendingGitBranchFiles, 'GIT_BRANCH_FILES_REQUEST', { repoDir, base });
+}
+
+// ── File dispatch functions ──────────────────────────────────────────────────
+
+export function dispatchDirList(
+  dirPath: string,
+  state: AppState,
+): Promise<DirListResult> {
+  return dispatchDaemonOp(state, state.pendingDirList, 'DIR_LIST_REQUEST', { dirPath });
+}
+
+export function dispatchFileRead(
+  repoDir: string,
+  filePath: string,
+  state: AppState,
+  ref?: string,
+): Promise<FileReadResult> {
+  return dispatchDaemonOp(state, state.pendingFileRead, 'FILE_READ_REQUEST', {
+    repoDir,
+    filePath,
+    ref,
+  });
+}
+
+export function dispatchFileWrite(
+  repoDir: string,
+  filePath: string,
+  content: string,
+  state: AppState,
+): Promise<FileWriteResult> {
+  return dispatchDaemonOp(state, state.pendingFileWrite, 'FILE_WRITE_REQUEST', {
+    repoDir,
+    filePath,
+    content,
+  });
 }
 
 // ── Container dispatch functions ─────────────────────────────────────────────

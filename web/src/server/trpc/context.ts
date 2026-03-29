@@ -59,6 +59,19 @@ export interface ExecutionStopResult {
   success: boolean;
 }
 
+export interface DirListResult {
+  dirs: string[];
+  files: string[];
+}
+
+export interface FileReadResult {
+  content: string;
+}
+
+export interface FileWriteResult {
+  success: boolean;
+}
+
 export interface AppState {
   daemon: WebSocket | null;
   fileChanges: Map<string, FileChangeEvent[]>;
@@ -80,13 +93,6 @@ export interface AppState {
     string,
     {
       resolve: (result: GitStatusResult) => void;
-      reject: (reason: Error) => void;
-    }
-  >;
-  pendingGitDiff: Map<
-    string,
-    {
-      resolve: (result: string) => void;
       reject: (reason: Error) => void;
     }
   >;
@@ -146,6 +152,27 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingDirList: Map<
+    string,
+    {
+      resolve: (result: DirListResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingFileRead: Map<
+    string,
+    {
+      resolve: (result: FileReadResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingFileWrite: Map<
+    string,
+    {
+      resolve: (result: FileWriteResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   specLastChanged: Map<string, number>;
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
   /** Maps sessionId → set of browser WebSockets for multi-attach terminal I/O relay */
@@ -173,7 +200,6 @@ export function getAppState(): AppState {
       pendingValidations: new Map(),
       pendingFileSearches: new Map(),
       pendingGitStatus: new Map(),
-      pendingGitDiff: new Map(),
       pendingGitLog: new Map(),
       pendingGitShow: new Map(),
       pendingGitBranchFiles: new Map(),
@@ -182,6 +208,9 @@ export function getAppState(): AppState {
       pendingContainerStatus: new Map(),
       pendingExecutionStart: new Map(),
       pendingExecutionStop: new Map(),
+      pendingDirList: new Map(),
+      pendingFileRead: new Map(),
+      pendingFileWrite: new Map(),
       specLastChanged: new Map(),
       specDebounceTimers: new Map(),
       terminalSessions: new Map(),
