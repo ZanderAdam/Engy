@@ -1,28 +1,28 @@
-"use client";
+'use client';
 
-import { useMemo, useRef, useState } from "react";
-import { trpc } from "@/lib/trpc";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { trpc } from '@/lib/trpc';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DynamicDocumentEditor } from "@/components/editor/dynamic-document-editor";
-import { QuestionAnswerPanel } from "@/components/questions/question-answer-panel";
+} from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
+import { QuestionAnswerPanel } from '@/components/questions/question-answer-panel';
 import {
   Command,
   CommandEmpty,
@@ -30,19 +30,19 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
-import { taskStatusOptions, taskStatusColors } from "./task-status-badge";
-import { RiAddLine, RiCloseLine, RiDeleteBinLine, RiQuestionLine } from "@remixicon/react";
-import { toast } from "sonner";
-import { useExecutionStatus } from "@/hooks/use-execution-status";
-import { ExecutionTab } from "./execution-tab";
+} from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
+import { taskStatusOptions, taskStatusColors } from './task-status-badge';
+import { RiAddLine, RiCloseLine, RiDeleteBinLine, RiQuestionLine } from '@remixicon/react';
+import { toast } from 'sonner';
+import { useExecutionStatus } from '@/hooks/use-execution-status';
+import { ExecutionTab } from './execution-tab';
 
 // ── Create mode ──────────────────────────────────────────────────────
 
 interface CreateProps {
-  mode: "create";
+  mode: 'create';
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectId?: number;
@@ -53,7 +53,7 @@ interface CreateProps {
 // ── Edit mode ────────────────────────────────────────────────────────
 
 interface EditProps {
-  mode: "edit";
+  mode: 'edit';
   open: boolean;
   onOpenChange: (open: boolean) => void;
   taskId: number;
@@ -62,17 +62,14 @@ interface EditProps {
 type TaskDialogProps = CreateProps | EditProps;
 
 export function TaskDialog(props: TaskDialogProps) {
-  if (props.mode === "edit") {
+  if (props.mode === 'edit') {
     return <EditTask key={props.taskId} {...props} />;
   }
   return <CreateTask {...props} />;
 }
 
 function useTaskProjectContext(projectId?: number) {
-  const { data: project } = trpc.project.get.useQuery(
-    { id: projectId! },
-    { enabled: !!projectId },
-  );
+  const { data: project } = trpc.project.get.useQuery({ id: projectId! }, { enabled: !!projectId });
   const { data: workspaces } = trpc.workspace.list.useQuery();
 
   return useMemo(() => {
@@ -101,12 +98,13 @@ function useTaskProjectContext(projectId?: number) {
 // ── Create ───────────────────────────────────────────────────────────
 
 function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: CreateProps) {
-  const [title, setTitle] = useState("");
-  const descriptionRef = useRef("");
+  const titleRef = useRef<HTMLInputElement>(null);
+  const [hasTitle, setHasTitle] = useState(false);
+  const descriptionRef = useRef('');
   const { mentionDirs } = useTaskProjectContext(projectId);
-  const [type, setType] = useState<"ai" | "human">("human");
-  const [importance, setImportance] = useState<"important" | "not_important">("not_important");
-  const [urgency, setUrgency] = useState<"urgent" | "not_urgent">("not_urgent");
+  const [type, setType] = useState<'ai' | 'human'>('human');
+  const [importance, setImportance] = useState<'important' | 'not_important'>('not_important');
+  const [urgency, setUrgency] = useState<'urgent' | 'not_urgent'>('not_urgent');
   const [needsPlan, setNeedsPlan] = useState(true);
   const [blockedBy, setBlockedBy] = useState<number[]>([]);
   const [taskGroupId, setTaskGroupId] = useState<number | undefined>(undefined);
@@ -119,11 +117,12 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
 
   const createTask = trpc.task.create.useMutation({
     onSuccess: () => {
-      setTitle("");
-      descriptionRef.current = "";
-      setType("human");
-      setImportance("not_important");
-      setUrgency("not_urgent");
+      if (titleRef.current) titleRef.current.value = '';
+      setHasTitle(false);
+      descriptionRef.current = '';
+      setType('human');
+      setImportance('not_important');
+      setUrgency('not_urgent');
       setNeedsPlan(true);
       setBlockedBy([]);
       setTaskGroupId(undefined);
@@ -133,11 +132,12 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!title.trim()) return;
+    const titleValue = titleRef.current?.value?.trim() ?? '';
+    if (!titleValue) return;
     createTask.mutate({
       projectId,
       specId,
-      title: title.trim(),
+      title: titleValue,
       description: descriptionRef.current.trim() || undefined,
       type,
       importance,
@@ -148,7 +148,18 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
     });
   }
 
-  const availableTasks = projectTasks?.filter((t) => !blockedBy.includes(t.id)) ?? [];
+  const availableTasks = useMemo(
+    () => projectTasks?.filter((t) => !blockedBy.includes(t.id)) ?? [],
+    [projectTasks, blockedBy],
+  );
+  const handleBlockedByAdd = useCallback((id: number) => setBlockedBy((prev) => [...prev, id]), []);
+  const handleBlockedByRemove = useCallback(
+    (id: number) => setBlockedBy((prev) => prev.filter((x) => x !== id)),
+    [],
+  );
+  const handleDescriptionSave = useCallback((md: string) => {
+    descriptionRef.current = md;
+  }, []);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -163,8 +174,9 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
               <Label htmlFor="task-title">Title</Label>
               <Input
                 id="task-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                ref={titleRef}
+                defaultValue=""
+                onChange={(e) => setHasTitle(!!e.target.value.trim())}
                 placeholder="Task title"
                 autoFocus
               />
@@ -176,7 +188,7 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
                 {open && (
                   <DynamicDocumentEditor
                     initialMarkdown=""
-                    onSave={(md: string) => { descriptionRef.current = md; }}
+                    onSave={handleDescriptionSave}
                     mentionDirs={mentionDirs}
                   />
                 )}
@@ -184,8 +196,14 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
             </div>
 
             <div className="flex items-center gap-4">
-              <FieldRow type={type} importance={importance} urgency={urgency} needsPlan={needsPlan}
-                onTypeChange={setType} onImportanceChange={setImportance} onUrgencyChange={setUrgency}
+              <FieldRow
+                type={type}
+                importance={importance}
+                urgency={urgency}
+                needsPlan={needsPlan}
+                onTypeChange={setType}
+                onImportanceChange={setImportance}
+                onUrgencyChange={setUrgency}
                 onNeedsPlanChange={setNeedsPlan}
               />
 
@@ -193,8 +211,8 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
                 <div className="flex flex-col gap-1.5">
                   <Label>Task Group</Label>
                   <Select
-                    value={taskGroupId?.toString() ?? "none"}
-                    onValueChange={(v) => setTaskGroupId(v === "none" ? undefined : Number(v))}
+                    value={taskGroupId?.toString() ?? 'none'}
+                    onValueChange={(v) => setTaskGroupId(v === 'none' ? undefined : Number(v))}
                   >
                     <SelectTrigger className="h-7 text-xs">
                       <SelectValue placeholder="None" />
@@ -202,7 +220,9 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
                     <SelectContent>
                       <SelectItem value="none">None</SelectItem>
                       {groups.map((g) => (
-                        <SelectItem key={g.id} value={g.id.toString()}>{g.name}</SelectItem>
+                        <SelectItem key={g.id} value={g.id.toString()}>
+                          {g.name}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -214,15 +234,15 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
               <BlockedBySelector
                 blockedBy={blockedBy}
                 availableTasks={availableTasks}
-                onAdd={(id) => setBlockedBy((prev) => [...prev, id])}
-                onRemove={(id) => setBlockedBy((prev) => prev.filter((x) => x !== id))}
+                onAdd={handleBlockedByAdd}
+                onRemove={handleBlockedByRemove}
               />
             )}
           </div>
 
           <DialogFooter>
-            <Button type="submit" disabled={!title.trim() || createTask.isPending}>
-              {createTask.isPending ? "Creating..." : "Create"}
+            <Button type="submit" disabled={!hasTitle || createTask.isPending}>
+              {createTask.isPending ? 'Creating...' : 'Create'}
             </Button>
           </DialogFooter>
         </form>
@@ -234,10 +254,7 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
 // ── Edit ─────────────────────────────────────────────────────────────
 
 function EditTask({ open, onOpenChange, taskId }: EditProps) {
-  const { data: task } = trpc.task.get.useQuery(
-    { id: taskId },
-    { enabled: open },
-  );
+  const { data: task } = trpc.task.get.useQuery({ id: taskId }, { enabled: open });
   const { mentionDirs, workspaceId, workspaceSlug, projectSlug } = useTaskProjectContext(
     task?.projectId ?? undefined,
   );
@@ -255,7 +272,10 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
     { enabled: hasPlan && !!workspaceSlug && !!projectSlug },
   );
 
-  const { status: executionStatus, sessionId } = useExecutionStatus('task', taskId);
+  const { status: executionStatus, sessionId, completionSummary } = useExecutionStatus(
+    'task',
+    taskId,
+  );
   const hasExecution = !!sessionId;
 
   const { data: taskQuestions } = trpc.question.list.useQuery(
@@ -265,27 +285,34 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
   const hasQuestions = (taskQuestions?.length ?? 0) > 0;
   const unansweredQuestionCount = taskQuestions?.length ?? 0;
 
-  const [title, setTitle] = useState(task?.title ?? "");
-  const [status, setStatus] = useState(task?.status ?? "");
-  const [type, setType] = useState<"ai" | "human">((task?.type as "ai" | "human") ?? "human");
-  const [importance, setImportance] = useState<"important" | "not_important">((task?.importance as "important" | "not_important") ?? "not_important");
-  const [urgency, setUrgency] = useState<"urgent" | "not_urgent">((task?.urgency as "urgent" | "not_urgent") ?? "not_urgent");
+  const titleRef = useRef<HTMLInputElement>(null);
+  const [status, setStatus] = useState(task?.status ?? '');
+  const [type, setType] = useState<'ai' | 'human'>((task?.type as 'ai' | 'human') ?? 'human');
+  const [importance, setImportance] = useState<'important' | 'not_important'>(
+    (task?.importance as 'important' | 'not_important') ?? 'not_important',
+  );
+  const [urgency, setUrgency] = useState<'urgent' | 'not_urgent'>(
+    (task?.urgency as 'urgent' | 'not_urgent') ?? 'not_urgent',
+  );
   const [needsPlan, setNeedsPlan] = useState(task?.needsPlan ?? true);
-  const [description, setDescription] = useState(task?.description ?? "");
+  const [initialDescription, setInitialDescription] = useState(task?.description ?? '');
+  const descriptionRef = useRef(task?.description ?? '');
   const [blockedBy, setBlockedBy] = useState<number[]>(task?.blockedBy ?? []);
-  const [taskGroupIdLocal, setTaskGroupIdLocal] = useState<number | null>(task?.taskGroupId ?? null);
+  const [taskGroupIdLocal, setTaskGroupIdLocal] = useState<number | null>(
+    task?.taskGroupId ?? null,
+  );
   const [dirty, setDirty] = useState(false);
   const [initialized, setInitialized] = useState(!!task);
 
   if (task && !initialized) {
     setInitialized(true);
-    setTitle(task.title);
     setStatus(task.status);
-    setType(task.type as "ai" | "human");
-    setImportance((task.importance ?? "not_important") as "important" | "not_important");
-    setUrgency((task.urgency ?? "not_urgent") as "urgent" | "not_urgent");
+    setType(task.type as 'ai' | 'human');
+    setImportance((task.importance ?? 'not_important') as 'important' | 'not_important');
+    setUrgency((task.urgency ?? 'not_urgent') as 'urgent' | 'not_urgent');
     setNeedsPlan(task.needsPlan ?? true);
-    setDescription(task.description || "");
+    setInitialDescription(task.description || '');
+    descriptionRef.current = task.description || '';
     setBlockedBy(task.blockedBy ?? []);
     setTaskGroupIdLocal(task.taskGroupId ?? null);
   }
@@ -298,12 +325,13 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
 
   const utils = trpc.useUtils();
   const writePlan = trpc.project.writeFile.useMutation({
-    onSuccess: () => utils.project.readFile.invalidate({
-      workspaceSlug: workspaceSlug!,
-      projectSlug: projectSlug!,
-      filePath: planFilePath,
-    }),
-    onError: () => toast.error("Failed to save plan"),
+    onSuccess: () =>
+      utils.project.readFile.invalidate({
+        workspaceSlug: workspaceSlug!,
+        projectSlug: projectSlug!,
+        filePath: planFilePath,
+      }),
+    onError: () => toast.error('Failed to save plan'),
   });
 
   function handlePlanSave(md: string) {
@@ -331,17 +359,68 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
     if (!task) return;
     updateTask.mutate({
       id: task.id,
-      title,
+      title: titleRef.current?.value ?? task.title,
       status: status as (typeof taskStatusOptions)[number],
       type,
       importance,
       urgency,
       needsPlan,
-      description,
+      description: descriptionRef.current,
       blockedBy,
       taskGroupId: taskGroupIdLocal,
     });
   }
+
+  const handleTypeChange = useCallback((v: 'ai' | 'human') => {
+    setType(v);
+    setDirty(true);
+  }, []);
+  const handleImportanceChange = useCallback((v: 'important' | 'not_important') => {
+    setImportance(v);
+    setDirty(true);
+  }, []);
+  const handleUrgencyChange = useCallback((v: 'urgent' | 'not_urgent') => {
+    setUrgency(v);
+    setDirty(true);
+  }, []);
+  const handleNeedsPlanChange = useCallback((v: boolean) => {
+    setNeedsPlan(v);
+    setDirty(true);
+  }, []);
+  const handleBlockedByAdd = useCallback((id: number) => {
+    setBlockedBy((prev) => [...prev, id]);
+    setDirty(true);
+  }, []);
+  const handleBlockedByRemove = useCallback((id: number) => {
+    setBlockedBy((prev) => prev.filter((x) => x !== id));
+    setDirty(true);
+  }, []);
+  const handleDescriptionSave = useCallback((md: string) => {
+    descriptionRef.current = md;
+    setDirty(true);
+  }, []);
+
+  const availableTasks = useMemo(
+    () => projectTasks?.filter((t) => t.id !== taskId && !blockedBy.includes(t.id)) ?? [],
+    [projectTasks, taskId, blockedBy],
+  );
+
+  useEffect(() => {
+    descriptionRef.current = initialDescription;
+  }, [initialDescription]);
+
+  const descriptionEditor = useMemo(
+    () => (
+      <div className="min-h-[200px] max-h-[50vh] overflow-auto border border-border">
+        <DynamicDocumentEditor
+          initialMarkdown={initialDescription}
+          onSave={handleDescriptionSave}
+          mentionDirs={mentionDirs}
+        />
+      </div>
+    ),
+    [initialDescription, mentionDirs, handleDescriptionSave],
+  );
 
   if (!task) {
     return (
@@ -355,33 +434,20 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
     );
   }
 
-  const availableTasks = projectTasks?.filter(
-    (t) => t.id !== taskId && !blockedBy.includes(t.id),
-  ) ?? [];
-
-  const descriptionEditor = (
-    <div className="min-h-[200px] max-h-[50vh] overflow-auto border border-border">
-      <DynamicDocumentEditor
-        initialMarkdown={task.description || ""}
-        onSave={(md: string) => { setDescription(md); setDirty(true); }}
-        mentionDirs={mentionDirs}
-      />
-    </div>
-  );
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[60vw] max-w-4xl [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle className="sr-only">Edit Task</DialogTitle>
           <Input
-            value={title}
-            onChange={(e) => { setTitle(e.target.value); setDirty(true); }}
+            ref={titleRef}
+            defaultValue={task.title}
+            onChange={() => setDirty(true)}
             className="mt-6 text-lg font-semibold"
           />
         </DialogHeader>
 
-        <Tabs defaultValue={hasExecution && !hasPlan ? "execution" : "description"}>
+        <Tabs defaultValue={hasExecution && !hasPlan ? 'execution' : 'description'}>
           <TabsList variant="line">
             <TabsTrigger value="description">Description</TabsTrigger>
             {hasPlan && <TabsTrigger value="plan">Plan</TabsTrigger>}
@@ -400,7 +466,10 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
                   <label className="text-xs font-medium">Status</label>
                   <Select
                     value={status}
-                    onValueChange={(v) => { setStatus(v); setDirty(true); }}
+                    onValueChange={(v) => {
+                      setStatus(v);
+                      setDirty(true);
+                    }}
                   >
                     <SelectTrigger className="h-7 w-36 text-xs">
                       <SelectValue />
@@ -408,7 +477,7 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
                     <SelectContent>
                       {taskStatusOptions.map((s) => (
                         <SelectItem key={s} value={s}>
-                          {s.replace("_", " ")}
+                          {s.replace('_', ' ')}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -420,19 +489,19 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
                   importance={importance}
                   urgency={urgency}
                   needsPlan={needsPlan}
-                  onTypeChange={(v) => { setType(v); setDirty(true); }}
-                  onImportanceChange={(v) => { setImportance(v); setDirty(true); }}
-                  onUrgencyChange={(v) => { setUrgency(v); setDirty(true); }}
-                  onNeedsPlanChange={(v) => { setNeedsPlan(v); setDirty(true); }}
+                  onTypeChange={handleTypeChange}
+                  onImportanceChange={handleImportanceChange}
+                  onUrgencyChange={handleUrgencyChange}
+                  onNeedsPlanChange={handleNeedsPlanChange}
                 />
 
                 {groups && groups.length > 0 && (
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-medium">Task Group</label>
                     <Select
-                      value={taskGroupIdLocal?.toString() ?? "none"}
+                      value={taskGroupIdLocal?.toString() ?? 'none'}
                       onValueChange={(v) => {
-                        setTaskGroupIdLocal(v === "none" ? null : Number(v));
+                        setTaskGroupIdLocal(v === 'none' ? null : Number(v));
                         setDirty(true);
                       }}
                     >
@@ -442,7 +511,9 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
                       <SelectContent>
                         <SelectItem value="none">None</SelectItem>
                         {groups.map((g) => (
-                          <SelectItem key={g.id} value={g.id.toString()}>{g.name}</SelectItem>
+                          <SelectItem key={g.id} value={g.id.toString()}>
+                            {g.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -455,8 +526,8 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
               <BlockedBySelector
                 blockedBy={blockedBy}
                 availableTasks={availableTasks}
-                onAdd={(id) => { setBlockedBy((prev) => [...prev, id]); setDirty(true); }}
-                onRemove={(id) => { setBlockedBy((prev) => prev.filter((x) => x !== id)); setDirty(true); }}
+                onAdd={handleBlockedByAdd}
+                onRemove={handleBlockedByRemove}
               />
             </div>
           </TabsContent>
@@ -479,6 +550,7 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
                 taskId={taskId}
                 sessionId={sessionId!}
                 status={executionStatus}
+                completionSummary={completionSummary}
               />
             </TabsContent>
           )}
@@ -500,7 +572,7 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
             Delete
           </Button>
           <Button size="sm" disabled={!dirty || updateTask.isPending} onClick={handleSave}>
-            {updateTask.isPending ? "Saving..." : "Save"}
+            {updateTask.isPending ? 'Saving...' : 'Save'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -510,24 +582,30 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
 
 // ── Shared ───────────────────────────────────────────────────────────
 
-function FieldRow({
-  type, importance, urgency, needsPlan,
-  onTypeChange, onImportanceChange, onUrgencyChange, onNeedsPlanChange,
+const FieldRow = memo(function FieldRow({
+  type,
+  importance,
+  urgency,
+  needsPlan,
+  onTypeChange,
+  onImportanceChange,
+  onUrgencyChange,
+  onNeedsPlanChange,
 }: {
-  type: "ai" | "human";
-  importance: "important" | "not_important";
-  urgency: "urgent" | "not_urgent";
+  type: 'ai' | 'human';
+  importance: 'important' | 'not_important';
+  urgency: 'urgent' | 'not_urgent';
   needsPlan: boolean;
-  onTypeChange: (v: "ai" | "human") => void;
-  onImportanceChange: (v: "important" | "not_important") => void;
-  onUrgencyChange: (v: "urgent" | "not_urgent") => void;
+  onTypeChange: (v: 'ai' | 'human') => void;
+  onImportanceChange: (v: 'important' | 'not_important') => void;
+  onUrgencyChange: (v: 'urgent' | 'not_urgent') => void;
   onNeedsPlanChange: (v: boolean) => void;
 }) {
   return (
     <>
       <div className="flex flex-col gap-1.5">
         <Label>Type</Label>
-        <Select value={type} onValueChange={(v) => onTypeChange(v as "ai" | "human")}>
+        <Select value={type} onValueChange={(v) => onTypeChange(v as 'ai' | 'human')}>
           <SelectTrigger className="h-7 text-xs">
             <SelectValue />
           </SelectTrigger>
@@ -540,7 +618,10 @@ function FieldRow({
 
       <div className="flex flex-col gap-1.5">
         <Label>Importance</Label>
-        <Select value={importance} onValueChange={(v) => onImportanceChange(v as "important" | "not_important")}>
+        <Select
+          value={importance}
+          onValueChange={(v) => onImportanceChange(v as 'important' | 'not_important')}
+        >
           <SelectTrigger className="h-7 text-xs">
             <SelectValue />
           </SelectTrigger>
@@ -553,7 +634,10 @@ function FieldRow({
 
       <div className="flex flex-col gap-1.5">
         <Label>Urgency</Label>
-        <Select value={urgency} onValueChange={(v) => onUrgencyChange(v as "urgent" | "not_urgent")}>
+        <Select
+          value={urgency}
+          onValueChange={(v) => onUrgencyChange(v as 'urgent' | 'not_urgent')}
+        >
           <SelectTrigger className="h-7 text-xs">
             <SelectValue />
           </SelectTrigger>
@@ -566,7 +650,10 @@ function FieldRow({
 
       <div className="flex flex-col gap-1.5">
         <Label>Needs Plan</Label>
-        <Select value={needsPlan ? "yes" : "no"} onValueChange={(v) => onNeedsPlanChange(v === "yes")}>
+        <Select
+          value={needsPlan ? 'yes' : 'no'}
+          onValueChange={(v) => onNeedsPlanChange(v === 'yes')}
+        >
           <SelectTrigger className="h-7 text-xs">
             <SelectValue />
           </SelectTrigger>
@@ -578,9 +665,9 @@ function FieldRow({
       </div>
     </>
   );
-}
+});
 
-function BlockedBySelector({
+const BlockedBySelector = memo(function BlockedBySelector({
   blockedBy,
   availableTasks,
   onAdd,
@@ -621,7 +708,10 @@ function BlockedBySelector({
                     <CommandItem
                       key={t.id}
                       value={`${t.id} ${t.title}`}
-                      onSelect={() => { onAdd(t.id); setOpen(false); }}
+                      onSelect={() => {
+                        onAdd(t.id);
+                        setOpen(false);
+                      }}
                       className="text-xs"
                     >
                       <span className="text-muted-foreground">#{t.id}</span> {t.title}
@@ -635,7 +725,7 @@ function BlockedBySelector({
       )}
     </div>
   );
-}
+});
 
 function BlockerBadge({ taskId, onRemove }: { taskId: number; onRemove: () => void }) {
   const { data: task } = trpc.task.get.useQuery({ id: taskId });
@@ -643,17 +733,12 @@ function BlockerBadge({ taskId, onRemove }: { taskId: number; onRemove: () => vo
   return (
     <Badge
       variant="outline"
-      className={cn("text-[10px] gap-1", task ? taskStatusColors[task.status] : "")}
+      className={cn('text-[10px] gap-1', task ? taskStatusColors[task.status] : '')}
     >
-      #{taskId} {task?.title ?? "..."}
-      <button
-        type="button"
-        onClick={onRemove}
-        className="ml-0.5 hover:text-destructive"
-      >
+      #{taskId} {task?.title ?? '...'}
+      <button type="button" onClick={onRemove} className="ml-0.5 hover:text-destructive">
         <RiCloseLine className="size-3" />
       </button>
     </Badge>
   );
 }
-

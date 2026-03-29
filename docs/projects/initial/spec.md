@@ -76,7 +76,7 @@ Engy is a new product. It is a standalone web application with a companion clien
 │   - MCP Server (AI agents)                         │
 │   - WebSocket relay (client daemon)                │
 │   - SQLite (Drizzle ORM)                           │
-│   - ChromaDB (vector search)                       │
+│   - qmd (hybrid search — BM25 + vector + reranking) │
 └────────┬───────────────────────────────────────────┘
          │ WebSocket
 ┌────────▼───────────────────────────────────────────┐
@@ -102,7 +102,7 @@ Engy is a new product. It is a standalone web application with a companion clien
 
 * **F6** Execution engine — worktree management, task group lifecycle, auto-commit, push, PR creation
 
-* **F7** Knowledge layer — system docs, shared docs, memory architecture, ChromaDB search, project completion flow
+* **F7** Knowledge layer — system docs, shared docs, memory architecture, qmd hybrid search, project completion flow
 
 * **F8** Workspace polish — dashboard, notifications, settings, activity feed, cost visibility
 
@@ -128,7 +128,7 @@ Engy is a new product. It is a standalone web application with a companion clien
 
 * **Database:** SQLite (WAL mode, via Drizzle ORM + better-sqlite3)
 
-* **Search:** ChromaDB (vector embeddings)
+* **Search:** qmd (`@tobilu/qmd` — local hybrid search: BM25 + vector embeddings + LLM reranking)
 
 * **AI:** Anthropic Claude API (Claude Code CLI + Claude Agent SDK)
 
@@ -166,7 +166,7 @@ Engy is a new product. It is a standalone web application with a companion clien
 
 * Server and client can communicate over WebSocket (local or network)
 
-* ChromaDB can run embedded or as a sidecar process
+* qmd runs in-process via `@tobilu/qmd` SDK (SQLite-backed, no external service required)
 
 ***
 
@@ -189,7 +189,7 @@ Pages: Home (workspace list), Workspace (tabbed: Overview, Specs, Docs, Tasks, M
 | WebSocket (`/ws`) | WS               | Server ↔ client daemon. Typed discriminated union protocol. |
 | GitHub API        | HTTPS (via `gh`) | PR creation, CI status, reviewer comments.                  |
 | Docker API        | Unix socket      | Client daemon ↔ Docker for container lifecycle (optional).  |
-| ChromaDB          | HTTP             | Server ↔ ChromaDB for vector search indexing and queries.   |
+| qmd               | In-process SDK   | Server ↔ qmd store for hybrid search indexing and queries.  |
 | Claude API        | HTTPS            | Agent sessions ↔ Anthropic API for LLM inference.           |
 
 ### 3.3 Hardware Interfaces
@@ -202,13 +202,13 @@ Not applicable. Engy is a pure software application.
 
 ### 4.1 Performance
 
-| ID   | Requirement                                                                                                   |
-| ---- | ------------------------------------------------------------------------------------------------------------- |
-| NF-1 | UI page transitions shall complete within 200ms for local deployments.                                        |
-| NF-2 | tRPC API responses shall complete within 100ms for standard CRUD operations (SQLite).                         |
-| NF-3 | ChromaDB search queries shall return results within 500ms for workspaces with up to 10,000 indexed documents. |
-| NF-4 | File watcher shall detect changes and sync to UI within 1 second.                                             |
-| NF-5 | Terminal input latency shall not exceed 50ms (xterm.js → CLI process round-trip).                             |
+| ID   | Requirement                                                                                              |
+| ---- | -------------------------------------------------------------------------------------------------------- |
+| NF-1 | UI page transitions shall complete within 200ms for local deployments.                                   |
+| NF-2 | tRPC API responses shall complete within 100ms for standard CRUD operations (SQLite).                    |
+| NF-3 | qmd search queries shall return results within 500ms for workspaces with up to 10,000 indexed documents. |
+| NF-4 | File watcher shall detect changes and sync to UI within 1 second.                                        |
+| NF-5 | Terminal input latency shall not exceed 50ms (xterm.js → CLI process round-trip).                        |
 
 ### 4.2 Security
 
@@ -225,7 +225,7 @@ Not applicable. Engy is a pure software application.
 | NF-9  | SQLite shall run in WAL mode for concurrent read/write reliability.                                                          |
 | NF-10 | Agent sessions shall be crash-recoverable: worktree preserved, session state in SQLite, only in-progress task needs restart. |
 | NF-11 | Network failures shall retry with backoff; persistent failures pause and notify the user.                                    |
-| NF-12 | ChromaDB shall be fully rebuildable from source files via `engy reindex`.                                                    |
+| NF-12 | The qmd search index shall be fully rebuildable from source files via `engy reindex`.                                        |
 
 ### 4.4 Scalability
 
@@ -282,7 +282,7 @@ Not applicable. Engy is a pure software application.
 | Shared docs        | `.engy/{workspace}/docs/`          | Markdown                    |
 | Permanent memories | `.engy/{workspace}/memory/`        | Markdown + YAML frontmatter |
 
-**ChromaDB (search index):**
+**qmd (search index):**
 
 | Content                       | Source              | Rebuild        |
 | ----------------------------- | ------------------- | -------------- |
@@ -296,7 +296,7 @@ Not applicable. Engy is a pure software application.
 
 * **Permanent knowledge:** Files in `.engy/` persist indefinitely, versioned via git.
 
-* **ChromaDB:** Ephemeral — fully rebuildable from source files. No migration needed.
+* **qmd:** Ephemeral — fully rebuildable from source files via `store.update()` + `store.embed()`. No migration needed.
 
 * **SQLite migrations:** Run automatically on server startup via Drizzle ORM. New migrations generated with Drizzle Kit after schema changes.
 
@@ -306,19 +306,19 @@ Not applicable. Engy is a pure software application.
 
 ### 6.1 Summary
 
-| #   | Milestone            | Exit Criteria                                                                                                                                                                                                                                                            |
-| --- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| M1  | Foundation           | Two running processes (server + client) communicating via WebSocket. SQLite with full schema. MCP server live. App shell with navigation. Workspace CRUD functional.                                                                                                     |
-| M2  | Spec Authoring       | Specs can be authored in rich editor, context files managed, inline comments work, spec tasks tracked, file watcher syncs external changes, `engy:spec-assistant` skill works from terminal.                                                                             |
-| M3  | Project Planning     | Approved spec → project creation. Milestones, task groups, tasks with dependencies. Three project views functional. Default project with Eisenhower matrix and per-task completion. Planning skills work from terminal. Auto-completion when all milestones finish.      |
-| M4  | Terminal Integration | xterm.js panel on every page. Context-scoped auto-start for all page contexts. Multi-tab with splits. WebSocket bridge to CLI process on client. Read-only outside write scope. All prior skills auto-start in terminal panel.                                           |
-| M5  | Diff Viewer & Review | Three diff view modes. Line-level commenting. Approve and Send Feedback actions. Pre-commit gate. Document feedback routing. Create PR from Branch Diff. Open in VS Code.                                                                                                |
-| M6  | Execution Engine     | Worktree creation/cleanup. Full task group state machine. Auto-commit, push, PR creation via `gh`. Cross-repo groups. Cross-workspace repo access. Execution visibility.                                                                                                 |
-| M7  | Knowledge Layer      | Docs tab with system/shared docs. Memory tab with browser/editor. ChromaDB search. Project completion with memory distillation and system doc proposals. Memory scoping (workspace/repo). Permanent memory schema. Bootstrap skill. Validate/reindex as terminal skills. |
-| M8  | Workspace Polish     | Dashboard refinements. Notification system with all triggers. Hierarchical settings. Global search polish. Cost visibility.                                                                                                                                              |
-| M9  | Async Agents         | Mastra integration. Persistent agent sessions. Crash recovery. Feedback routing to sessions. Auto-start mode. Execution log streaming.                                                                                                                                   |
-| M10 | Dev Containers       | Docker containers start/stop on demand. Network firewall with allowlist. Bind-mounted repos. Container status in UI. Fallback to direct execution.                                                                                                                       |
-| M11 | PR/CI Monitoring     | PRs tab with CI status. Auto-dispatch for CI fixes. Reviewer comment triage with selective fix dispatch.                                                                                                                                                                 |
+| #   | Milestone            | Exit Criteria                                                                                                                                                                                                                                                              |
+| --- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1  | Foundation           | Two running processes (server + client) communicating via WebSocket. SQLite with full schema. MCP server live. App shell with navigation. Workspace CRUD functional.                                                                                                       |
+| M2  | Spec Authoring       | Specs can be authored in rich editor, context files managed, inline comments work, spec tasks tracked, file watcher syncs external changes, `engy:spec-assistant` skill works from terminal.                                                                               |
+| M3  | Project Planning     | Approved spec → project creation. Milestones, task groups, tasks with dependencies. Three project views functional. Default project with Eisenhower matrix and per-task completion. Planning skills work from terminal. Auto-completion when all milestones finish.        |
+| M4  | Terminal Integration | xterm.js panel on every page. Context-scoped auto-start for all page contexts. Multi-tab with splits. WebSocket bridge to CLI process on client. Read-only outside write scope. All prior skills auto-start in terminal panel.                                             |
+| M5  | Diff Viewer & Review | Three diff view modes. Line-level commenting. Approve and Send Feedback actions. Pre-commit gate. Document feedback routing. Create PR from Branch Diff. Open in VS Code.                                                                                                  |
+| M6  | Execution Engine     | Worktree creation/cleanup. Full task group state machine. Auto-commit, push, PR creation via `gh`. Cross-repo groups. Cross-workspace repo access. Execution visibility.                                                                                                   |
+| M7  | Knowledge Layer      | Docs tab with system/shared docs. Memory tab with browser/editor. qmd hybrid search. Project completion with memory distillation and system doc proposals. Memory scoping (workspace/repo). Permanent memory schema. Bootstrap skill. Validate/reindex as terminal skills. |
+| M8  | Workspace Polish     | Dashboard refinements. Notification system with all triggers. Hierarchical settings. Global search polish. Cost visibility.                                                                                                                                                |
+| M9  | Async Agents         | Mastra integration. Persistent agent sessions. Crash recovery. Feedback routing to sessions. Auto-start mode. Execution log streaming.                                                                                                                                     |
+| M10 | Dev Containers       | Docker containers start/stop on demand. Network firewall with allowlist. Bind-mounted repos. Container status in UI. Fallback to direct execution.                                                                                                                         |
+| M11 | PR/CI Monitoring     | PRs tab with CI status. Auto-dispatch for CI fixes. Reviewer comment triage with selective fix dispatch.                                                                                                                                                                   |
 
 ### 6.2 Dependencies
 
@@ -554,7 +554,7 @@ M11 depends on: M6, M10
 
 ### 6.9 M7: Knowledge Layer
 
-**Description:** The knowledge layer encompasses system docs (living source of truth), shared docs (conventions, guides), the memory architecture (fleeting → permanent), ChromaDB search, and the project completion flow with memory distillation and system doc update proposals.\
+**Description:** The knowledge layer encompasses system docs (living source of truth), shared docs (conventions, guides), the memory architecture (fleeting → permanent), qmd hybrid search (BM25 + vector + LLM reranking via `@tobilu/qmd`), and the project completion flow with memory distillation and system doc update proposals.\
 **Priority:** High
 
 **Stimulus/Response:**
@@ -563,7 +563,7 @@ M11 depends on: M6, M10
 | ------------------------------------- | ---------------------------------------------------------------------------------- |
 | User navigates to Docs tab            | System shows tree + editor layout with `system/` and `docs/` trees                 |
 | User navigates to Memory tab          | System shows memory browser (left) with filters, memory detail (right) with editor |
-| User searches via UI or terminal      | System queries ChromaDB + SQLite, returns grouped results                          |
+| User searches via UI or terminal      | System queries qmd store (hybrid search), returns grouped results                  |
 | Project completes                     | System runs memory distillation, proposes system doc updates in diff viewer        |
 | User triggers "Bootstrap System Docs" | Bootstrap skill reads codebase, proposes initial system docs for review            |
 
@@ -577,9 +577,9 @@ M11 depends on: M6, M10
 | FR-7.4  | The system shall support manual memory creation and editing.                                                                                                                                                                                               |
 | FR-7.5  | The system shall support memory promotion: review fleeting memories, promote to permanent (written to `.engy/memory/` as markdown with YAML frontmatter).                                                                                                  |
 | FR-7.6  | The system shall provide periodic memory review — surfacing recent unpromoted candidates.                                                                                                                                                                  |
-| FR-7.7  | The system shall integrate ChromaDB to index all content (specs, docs, tasks, memories).                                                                                                                                                                   |
-| FR-7.8  | The system shall provide a search API combining ChromaDB vector search and SQLite structured queries, with results grouped by content type.                                                                                                                |
-| FR-7.9  | The system shall provide `engy reindex` to rebuild ChromaDB and `engy validate` for broken links, schema compliance, duplicate IDs, orphaned content, and lifecycle consistency.                                                                           |
+| FR-7.7  | The system shall integrate qmd (`@tobilu/qmd`) to index all content (specs, docs, tasks, memories) as collections with path-specific context.                                                                                                              |
+| FR-7.8  | The system shall provide a search API using qmd hybrid search (BM25 + vector + LLM reranking) combined with SQLite structured queries, with results grouped by content type.                                                                               |
+| FR-7.9  | The system shall provide `engy reindex` to rebuild the qmd store (`store.update()` + `store.embed()`) and `engy validate` for broken links, schema compliance, duplicate IDs, orphaned content, and lifecycle consistency.                                 |
 | FR-7.10 | The system shall run memory distillation on project completion: evaluate project memories for promotion, deduplicate against existing permanent memories.                                                                                                  |
 | FR-7.11 | The system shall propose system doc updates on project completion — agent proposes diffs that appear in the diff viewer for review.                                                                                                                        |
 | FR-7.12 | The system shall archive completed projects: compact (preserve plan content, milestones, groups, task structure, key decisions, final statuses), discard agent session state, fleeting memories, execution logs.                                           |
@@ -587,10 +587,10 @@ M11 depends on: M6, M10
 | FR-7.14 | The system shall provide a bootstrap skill that reads codebase via client connection and proposes initial system docs.                                                                                                                                     |
 | FR-7.15 | The system shall provide an `engy:sysdoc-assistant` Claude Code skill for editing system docs.                                                                                                                                                             |
 | FR-7.16 | The system shall support memory scoping: workspace-scoped memories (cross-project learnings) and repo-scoped memories (repository-specific patterns, filtered by `repo` field — the universal join key across workspace boundaries).                       |
-| FR-7.17 | The system shall store permanent memories as markdown files with YAML frontmatter containing: id, type, subtype (decision/pattern/fact/convention/insight), title, scope (workspace/repo), repo, confidence, source, tags, linkedMemories, and timestamps. |
+| FR-7.17 | The system shall store permanent memories as markdown files with YAML frontmatter containing: id, type, subtype (decision/pattern/fact/convention/insight), title, scope (workspace/repo), repo, confidence, source, tags, keywords (low-level retrieval terms), themes (high-level conceptual terms), linkedMemories, supersededBy (nullable reference to newer memory), and timestamps. |
 | FR-7.18 | The system shall support `engy validate` and `engy reindex` as terminal skills — not just CLI commands.                                                                                                                                                    |
 
-**Exit Criteria:** Docs tab with system/shared docs. Memory tab with browser/editor. ChromaDB search. Project completion with memory distillation and system doc proposals. Memory scoping (workspace/repo). Permanent memory schema. Bootstrap skill. Validate/reindex as terminal skills.
+**Exit Criteria:** Docs tab with system/shared docs. Memory tab with browser/editor. qmd hybrid search. Project completion with memory distillation and system doc proposals. Memory scoping (workspace/repo). Permanent memory schema. Bootstrap skill. Validate/reindex as terminal skills.
 
 ### 6.10 M8: Workspace Polish
 
@@ -734,7 +734,7 @@ M11 depends on: M6, M10
 
 2. **Two AI runtimes.** Claude Code CLI for interactive work (terminal), Claude Agent SDK via Mastra for autonomous background execution. The split keeps interactive work snappy while heavy lifting runs in the background.
 
-3. **Knowledge in files, execution in database.** `.engy/` files (git-tracked) hold permanent knowledge; SQLite holds transient execution state. ChromaDB indexes both but is always rebuildable.
+3. **Knowledge in files, execution in database.** `.engy/` files (git-tracked) hold permanent knowledge; SQLite holds transient execution state. qmd indexes both but is always rebuildable from source files.
 
 4. **Server never touches user repos directly.** Path validation delegated to client daemon via WebSocket. Enables remote server deployment.
 
@@ -767,22 +767,22 @@ M11 depends on: M6, M10
 
 Core technology stack — packages and tools required across milestones:
 
-| Package/Tool                 | Target            | Purpose                                         |
-| ---------------------------- | ----------------- | ----------------------------------------------- |
-| Next.js 16                   | web               | App Router, React 19, server + client rendering |
-| Drizzle ORM + better-sqlite3 | web               | SQLite database with WAL mode                   |
-| tRPC v11                     | web               | Type-safe API for browser UI                    |
-| MCP SDK                      | web               | AI agent access layer (SSE + HTTP POST)         |
-| BlockNote                    | web               | Rich markdown editor for specs/docs             |
-| xterm.js                     | web               | Terminal emulator for Claude Code CLI panel     |
-| shadcn/ui                    | web               | Component library (lyra style, zinc base)       |
-| Tailwind CSS v4              | web               | Styling                                         |
-| TanStack Query v5            | web               | Data fetching + caching                         |
-| ChromaDB                     | web               | Vector search for knowledge layer               |
-| chokidar                     | client            | File system watching                            |
-| Mastra                       | client            | Agent SDK runtime for async agents              |
-| Docker                       | client (optional) | Dev container runtime                           |
-| `gh` CLI                     | client            | GitHub PR operations                            |
+| Package/Tool                 | Target            | Purpose                                                                                          |
+| ---------------------------- | ----------------- | ------------------------------------------------------------------------------------------------ |
+| Next.js 16                   | web               | App Router, React 19, server + client rendering                                                  |
+| Drizzle ORM + better-sqlite3 | web               | SQLite database with WAL mode                                                                    |
+| tRPC v11                     | web               | Type-safe API for browser UI                                                                     |
+| MCP SDK                      | web               | AI agent access layer (SSE + HTTP POST)                                                          |
+| BlockNote                    | web               | Rich markdown editor for specs/docs                                                              |
+| xterm.js                     | web               | Terminal emulator for Claude Code CLI panel                                                      |
+| shadcn/ui                    | web               | Component library (lyra style, zinc base)                                                        |
+| Tailwind CSS v4              | web               | Styling                                                                                          |
+| TanStack Query v5            | web               | Data fetching + caching                                                                          |
+| qmd (`@tobilu/qmd`)          | web               | Hybrid search for knowledge layer (BM25 + vector + LLM reranking, local-only via node-llama-cpp) |
+| chokidar                     | client            | File system watching                                                                             |
+| Mastra                       | client            | Agent SDK runtime for async agents                                                               |
+| Docker                       | client (optional) | Dev container runtime                                                                            |
+| `gh` CLI                     | client            | GitHub PR operations                                                                             |
 
 ***
 
@@ -806,12 +806,12 @@ Core technology stack — packages and tools required across milestones:
 
 ## 12. Open Questions
 
-| # | Question                                                                                                       | Owner | Status                                  |
-| - | -------------------------------------------------------------------------------------------------------------- | ----- | --------------------------------------- |
-| 1 | How should ChromaDB be deployed — embedded in the server process or as a sidecar?                              | Aleks | Open                                    |
-| 2 | Should archived projects be fully deletable, or kept as permanent references?                                  | Aleks | Resolved (deletable)                    |
-| 3 | What is the optimal idle timeout default for dev containers?                                                   | Aleks | Open                                    |
-| 4 | Should system doc update proposals from project completion be auto-generated or require explicit user trigger? | Aleks | Resolved (auto-generated, user reviews) |
+| # | Question                                                                                                       | Owner | Status                                                                    |
+| - | -------------------------------------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------- |
+| 1 | ~~How should ChromaDB be deployed — embedded in the server process or as a sidecar?~~                          | Aleks | Resolved (replaced with qmd — runs in-process via SDK, no sidecar needed) |
+| 2 | Should archived projects be fully deletable, or kept as permanent references?                                  | Aleks | Resolved (deletable)                                                      |
+| 3 | What is the optimal idle timeout default for dev containers?                                                   | Aleks | Open                                                                      |
+| 4 | Should system doc update proposals from project completion be auto-generated or require explicit user trigger? | Aleks | Resolved (auto-generated, user reviews)                                   |
 
 ***
 
@@ -821,4 +821,7 @@ Core technology stack — packages and tools required across milestones:
 | ---------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
 | 2026-03-01 | Aleks  | Initial draft — full SRS from vision spec + milestones                                                                                                                                                                                                                                                                                                                                                                                               | 0.1     |
 | 2026-03-01 | Aleks  | Validation pass: added missing definitions (Shared Docs, Fleeting Memory, Project Memory, Plan Content, ChromaDB, Mastra, Claude Code Skill), added missing FRs (FR-1.11, FR-2.13, FR-3.14, FR-3.15, FR-4.12, FR-5.11, FR-5.12, FR-6.12, FR-7.16, FR-7.17, FR-7.18), expanded FR-4.7 terminal context mapping, corrected Memory definition subtypes, updated milestone FR ranges. Added mobile/responsive support (NF-18, responsive layout in 3.1). | 0.2     |
-| 2026-03-11 | Aleks  | Restructured: removed Definitions section, removed System Features section, consolidated FRs with stimulus/response under milestones, removed Features Included from milestone table, renumbered sections.                                                                                                                                                                                                                                          | 0.3     |
+| 2026-03-11 | Aleks  | Restructured: removed Definitions section, removed System Features section, consolidated FRs with stimulus/response under milestones, removed Features Included from milestone table, renumbered sections.                                                                                                                                                                                                                                           | 0.3     |
+| 2026-03-23 | Aleks  | M7: Replaced ChromaDB with qmd (`@tobilu/qmd`) as the search SDK. qmd provides hybrid search (BM25 + vector + LLM reranking) running entirely local via node-llama-cpp — eliminates the external service dependency. Updated FRs 7.7–7.9, architecture diagram, interfaces, dependencies, and resolved open question #1.                                                                                                                             | 0.4     |
+| 2026-03-23 | Aleks  | Validation pass: fixed missed ChromaDB reference in NF-12 (section 4.3 Reliability) — updated to reference qmd search index, consistent with the v0.4 migration.                                                                                                                                                                                                                                                                                     | 0.4.1   |
+| 2026-03-23 | Aleks  | FR-7.17: Added keywords, themes, and supersededBy fields to permanent memory schema (aligned with M7 plan and v1 memory spec). | 0.5 |
