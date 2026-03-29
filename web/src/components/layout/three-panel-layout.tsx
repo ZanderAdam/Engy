@@ -23,13 +23,13 @@ export function matchShortcut(def: ShortcutDef, e: KeyboardEvent): boolean {
   return e.key === def.key || e.key.toLowerCase() === def.key.toLowerCase();
 }
 
-function shortcutKeys(def: ShortcutDef): string[] {
+export function shortcutKeys(def: ShortcutDef): string[] {
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
   const keys: string[] = [];
   if (def.mod) keys.push(isMac ? '⌘' : 'Ctrl');
   if (def.ctrl) keys.push(isMac ? '⌃' : 'Ctrl');
   if (def.shift) keys.push(isMac ? '⇧' : 'Shift');
-  keys.push(def.key);
+  keys.push(def.key.toUpperCase());
   return keys;
 }
 

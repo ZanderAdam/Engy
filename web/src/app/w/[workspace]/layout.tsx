@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
+import { BottomTerminalSplit } from '@/components/terminal/bottom-terminal-split';
 import type { TerminalDropdownGroup } from '@/components/terminal/types';
 import { useWorktreeSessions } from '@/components/terminal/use-worktree-sessions';
 import { EventsProvider } from '@/contexts/events-context';
@@ -237,14 +238,20 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           rightShortcut={TERMINAL_SHORTCUT}
           isMobile={isMobile}
           centerContent={
-            <div
-              className={cn(
-                'flex min-h-0 flex-1 flex-col overflow-hidden',
-                !isDocsRoute && (isMobile ? 'px-2' : 'px-6'),
-              )}
+            <BottomTerminalSplit
+              isMobile={isMobile}
+              extraDropdownGroups={allDropdownGroups}
+              containerEnabled={isContainerEnabled}
             >
-              {children}
-            </div>
+              <div
+                className={cn(
+                  'flex min-h-0 flex-1 flex-col overflow-hidden',
+                  !isDocsRoute && (isMobile ? 'px-2' : 'px-6'),
+                )}
+              >
+                {children}
+              </div>
+            </BottomTerminalSplit>
           }
           rightContent={
             <TerminalPanel

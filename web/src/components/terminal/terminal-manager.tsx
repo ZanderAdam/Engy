@@ -25,6 +25,7 @@ interface TerminalManagerProps {
   defaultScope?: TerminalScope;
   extraDropdownGroups?: TerminalDropdownGroup[];
   containerEnabled?: boolean;
+  disableExternalEvents?: boolean;
 }
 
 interface SessionListItem {
@@ -93,7 +94,7 @@ function sessionToTab(s: SessionListItem, fallbackGroupKey: string): TerminalTab
   };
 }
 
-export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled }: TerminalManagerProps) {
+export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled, disableExternalEvents = false }: TerminalManagerProps) {
   const tabsRef = useRef<Map<string, TerminalTab>>(new Map());
   const tabWsRefs = useRef<Map<string, TerminalActions>>(new Map());
   const dockviewApiRef = useRef<DockviewApi | null>(null);
@@ -184,6 +185,8 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   }, []);
 
   useEffect(() => {
+    if (disableExternalEvents) return;
+
     function onInject(e: Event) {
       const { context, terminalId } = (e as CustomEvent<InjectEvent>).detail;
       const api = dockviewApiRef.current;
@@ -196,9 +199,11 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
 
     window.addEventListener('terminal:inject', onInject);
     return () => window.removeEventListener('terminal:inject', onInject);
-  }, []);
+  }, [disableExternalEvents]);
 
   useEffect(() => {
+    if (disableExternalEvents) return;
+
     function onOpen(e: Event) {
       const { scope } = (e as CustomEvent<OpenEvent>).detail;
       openTerminal(scope);
@@ -206,7 +211,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
 
     window.addEventListener('terminal:open', onOpen);
     return () => window.removeEventListener('terminal:open', onOpen);
-  }, [openTerminal]);
+  }, [openTerminal, disableExternalEvents]);
 
   // Cross-browser session sync: when another browser creates a session for this groupKey,
   // fetch updated session list and add any new sessions as tabs

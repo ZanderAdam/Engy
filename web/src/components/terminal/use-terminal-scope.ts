@@ -50,6 +50,20 @@ export function deriveScope(
   };
 }
 
+export function deriveShellScope(scope: TerminalScope): TerminalScope {
+  return {
+    ...scope,
+    command: undefined,
+    groupKey: `shell:${scope.groupKey}`,
+    scopeLabel: `shell: ${scope.scopeLabel}`,
+  };
+}
+
+export function useBottomTerminalScope(): TerminalScope {
+  const scope = useTerminalScope();
+  return deriveShellScope(scope);
+}
+
 export function useTerminalScope(): TerminalScope {
   const params = useParams<{ workspace?: string; project?: string }>();
   const workspaceSlug = params.workspace ?? '';
