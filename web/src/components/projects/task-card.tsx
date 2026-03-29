@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import {
   RiCheckboxLine,
   RiCheckboxBlankLine,
+  RiDraggable,
   RiUserLine,
   RiRobotLine,
   RiQuestionLine,
@@ -27,6 +28,7 @@ interface TaskCardProps {
   onCheckboxChange?: (done: boolean) => void;
   borderClass?: string;
   className?: string;
+  dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
 }
 
 const milestoneColors = [
@@ -73,6 +75,7 @@ export function TaskCard({
   onCheckboxChange,
   borderClass,
   className,
+  dragHandleProps,
 }: TaskCardProps) {
   const isDone = task.status === 'done';
   const { status: sessionStatus } = useExecutionStatus('task', task.id);
@@ -104,13 +107,25 @@ export function TaskCard({
         if (e.key === 'Enter' || e.key === ' ') onClick();
       } : undefined}
       className={cn(
-        'group/task space-y-0.5 p-2 text-left text-xs transition-colors hover:bg-muted',
+        'group/task text-left text-xs transition-colors hover:bg-muted',
         borderClass && `border-l-2 ${borderClass}`,
         showCheckbox && isDone && 'opacity-50',
         onClick && 'cursor-pointer',
+        dragHandleProps ? 'flex' : 'space-y-0.5 p-2',
         className,
       )}
     >
+      {dragHandleProps && (
+        <button
+          type="button"
+          className="flex shrink-0 cursor-grab items-center px-1.5 text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
+          onClick={(e) => e.stopPropagation()}
+          {...dragHandleProps}
+        >
+          <RiDraggable className="size-3" />
+        </button>
+      )}
+      <div className={cn('min-w-0 flex-1 space-y-0.5', dragHandleProps ? 'py-2 pr-2' : 'contents')}>
       <div className="flex items-center gap-1.5">
         {showCheckbox && (
           <Button
@@ -175,6 +190,7 @@ export function TaskCard({
       </div>
       <div className={cn(showCheckbox && isDone && 'line-through')}>
         {task.title}
+      </div>
       </div>
     </div>
   );

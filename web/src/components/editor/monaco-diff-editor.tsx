@@ -6,7 +6,7 @@ import type { editor } from 'monaco-editor';
 import { ENGY_THEME_NAME, engyDarkTheme } from './monaco-theme';
 import { getLanguageFromPath } from './language-map';
 
-export interface MonacoDiffEditorProps {
+interface MonacoDiffEditorProps {
   original: string;
   modified: string;
   filePath: string;

@@ -60,7 +60,7 @@ function trieToTreeItems(node: TrieNode, parentPath: string): TreeDataItem[] {
   return [...dirItems, ...fileItems];
 }
 
-export interface FileTreeProps {
+interface FileTreeProps {
   filePaths: string[];
   selectedFile: string | null;
   onSelectFile: (path: string) => void;
@@ -138,7 +138,7 @@ export function FileTree({
 
 // ── Lazy-loaded file tree (fetches directory contents on demand) ─────────────
 
-export interface LazyFileTreeProps {
+interface LazyFileTreeProps {
   rootDir: string;
   selectedFile: string | null;
   onSelectFile: (path: string) => void;
