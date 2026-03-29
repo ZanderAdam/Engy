@@ -10,13 +10,22 @@ export function useExecutionStatus(scope: Scope, id: number | string) {
 
   const { data } = trpc.execution.getSessionStatus.useQuery(
     { scope, id },
-    { refetchInterval: (query) => (query.state.data?.status === 'active' ? 10_000 : false) },
+    {
+      refetchInterval: (query) => {
+        const s = query.state.data?.status;
+        if (s === 'active') return 10_000;
+        // Brief poll for submitted sessions waiting for completionSummary
+        if (s === 'submitted' && !query.state.data?.completionSummary) return 3_000;
+        return false;
+      },
+    },
   );
 
   const status = data?.status ?? null;
   const sessionId = data?.sessionId ?? null;
   const completionSummary = data?.completionSummary ?? null;
   const isActive = status === 'active';
+  const isSubmitted = status === 'submitted';
 
   const startMutation = trpc.execution.startExecution.useMutation({
     onSuccess: () => {
@@ -38,8 +47,8 @@ export function useExecutionStatus(scope: Scope, id: number | string) {
     },
   });
 
-  function start() {
-    startMutation.mutate({ scope, id });
+  function start(options?: { remote?: boolean }) {
+    startMutation.mutate({ scope, id, remote: options?.remote });
   }
 
   function stop() {
@@ -53,6 +62,7 @@ export function useExecutionStatus(scope: Scope, id: number | string) {
     sessionId,
     completionSummary,
     isActive,
+    isSubmitted,
     isStarting: startMutation.isPending,
     isStopping: stopMutation.isPending,
     start,

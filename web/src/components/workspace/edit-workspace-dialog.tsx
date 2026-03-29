@@ -40,6 +40,7 @@ interface EditWorkspaceDialogProps {
     containerConfig: ContainerConfig | null;
     executionBackend: ExecutionBackend | null;
     coderConfig: CoderConfig | null;
+    remoteEnabled: boolean | null;
     maxConcurrency: number | null;
     autoStart: boolean | null;
   };
@@ -74,6 +75,7 @@ export function EditWorkspaceDialog({
     containerConfig: workspace.containerConfig ?? {},
     executionBackend: workspace.executionBackend ?? 'devcontainer',
     coderConfig: workspace.coderConfig ?? undefined,
+    remoteEnabled: workspace.remoteEnabled ?? false,
     maxConcurrency: workspace.maxConcurrency ?? 1,
     autoStart: workspace.autoStart ?? false,
   });
@@ -129,6 +131,7 @@ export function EditWorkspaceDialog({
       containerConfig: container.containerConfig,
       executionBackend: container.executionBackend,
       coderConfig: container.coderConfig,
+      remoteEnabled: container.remoteEnabled,
       maxConcurrency: container.maxConcurrency,
       autoStart: container.autoStart,
     });
@@ -165,6 +168,7 @@ export function EditWorkspaceDialog({
         containerConfig: workspace.containerConfig ?? {},
         executionBackend: workspace.executionBackend ?? 'devcontainer',
         coderConfig: workspace.coderConfig ?? undefined,
+        remoteEnabled: workspace.remoteEnabled ?? false,
         maxConcurrency: workspace.maxConcurrency ?? 1,
         autoStart: workspace.autoStart ?? false,
       };
@@ -288,6 +292,7 @@ export function EditWorkspaceDialog({
                   containerConfig: workspace.containerConfig ?? {},
                   executionBackend: workspace.executionBackend ?? 'devcontainer',
                   coderConfig: workspace.coderConfig ?? undefined,
+                  remoteEnabled: workspace.remoteEnabled ?? false,
                   maxConcurrency: workspace.maxConcurrency ?? 1,
                   autoStart: workspace.autoStart ?? false,
                 }}

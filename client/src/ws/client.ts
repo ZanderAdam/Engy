@@ -672,6 +672,7 @@ export class WsClient {
         containerWorkspaceFolder: config?.containerWorkspaceFolder,
         coderWorkspace: config?.coderWorkspace,
         coderRepoBasePath: config?.coderRepoBasePath,
+        remote: config?.remote,
         serverUrl: this.serverUrl,
         serverPort: this.serverPort,
         env: config?.env,

@@ -58,12 +58,13 @@ export function ExecutionTab({ taskId, sessionId, status, completionSummary }: E
   const scrollRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const isActive = status === 'active';
+  const isSubmitted = status === 'submitted';
 
   const utils = trpc.useUtils();
 
   const { data, isLoading } = trpc.execution.getSessionFile.useQuery(
     { sessionId },
-    { refetchInterval: isActive ? POLL_INTERVAL_MS : false },
+    { enabled: !isSubmitted, refetchInterval: isActive ? POLL_INTERVAL_MS : false },
   );
 
   const retryMutation = trpc.execution.retryExecution.useMutation({
@@ -103,38 +104,51 @@ export function ExecutionTab({ taskId, sessionId, status, completionSummary }: E
     <div className="flex flex-col gap-2">
       <SessionHeader sessionId={sessionId} status={status} entryCount={entries.length} />
 
-      <div className="flex gap-2">
-        {isActive && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 gap-1 text-xs"
-            onClick={() => stopMutation.mutate({ sessionId })}
-            disabled={stopMutation.isPending}
-          >
-            <RiStopLine className="size-3" />
-            Stop
-          </Button>
-        )}
-        {isFailed && !failedToStart && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 gap-1 text-xs"
-            onClick={() => retryMutation.mutate({ sessionId })}
-            disabled={retryMutation.isPending}
-          >
-            <RiRefreshLine className="size-3" />
-            Retry
-          </Button>
-        )}
-      </div>
+      {isSubmitted ? (
+        <div className="flex flex-col gap-2 rounded border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          {completionSummary ? (
+            <pre className="whitespace-pre-wrap break-words font-mono text-foreground">
+              {completionSummary}
+            </pre>
+          ) : (
+            <span>Remote session submitted</span>
+          )}
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          {isActive && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 text-xs"
+              onClick={() => stopMutation.mutate({ sessionId })}
+              disabled={stopMutation.isPending}
+            >
+              <RiStopLine className="size-3" />
+              Stop
+            </Button>
+          )}
+          {isFailed && !failedToStart && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 text-xs"
+              onClick={() => retryMutation.mutate({ sessionId })}
+              disabled={retryMutation.isPending}
+            >
+              <RiRefreshLine className="size-3" />
+              Retry
+            </Button>
+          )}
+        </div>
+      )}
 
-      <div
-        ref={scrollRef}
-        className="max-h-[50vh] overflow-auto border border-border"
-        onScroll={handleScroll}
-      >
+      {!isSubmitted && (
+        <div
+          ref={scrollRef}
+          className="max-h-[50vh] overflow-auto border border-border"
+          onScroll={handleScroll}
+        >
           {isLoading ? (
             <div className="flex items-center justify-center p-8 text-muted-foreground">
               <RiLoader4Line className="mr-2 size-4 animate-spin" />
@@ -182,7 +196,8 @@ export function ExecutionTab({ taskId, sessionId, status, completionSummary }: E
               )}
             </div>
           )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -217,6 +232,7 @@ function StatusBadge({ status }: { status: string | null }) {
       icon: <RiLoader4Line className="size-3 animate-spin" />,
     },
     completed: { variant: 'secondary', label: 'Completed' },
+    submitted: { variant: 'outline', label: 'Remote' },
     stopped: { variant: 'destructive', label: 'Stopped' },
     failed: { variant: 'destructive', label: 'Failed' },
   };

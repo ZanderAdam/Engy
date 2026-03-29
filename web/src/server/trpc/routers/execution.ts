@@ -16,6 +16,7 @@ import { agentSessions, tasks, taskGroups, projects, workspaces } from '../../db
 import { dispatchExecutionStart, dispatchExecutionStop, dispatchContainerUp } from '../../ws/server';
 import { getWorkspaceDir } from '../../engy-dir/init';
 import { buildContextBlock, buildQuickActionDirs } from '../../../lib/shell';
+import { readPlanFile } from '../../plan/service';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -158,6 +159,39 @@ function resolveCoderWorkspaceForSession(sessionId: string): string | null {
   return coderCfg?.workspace ?? null;
 }
 
+function buildRemotePrompt(
+  task: { id: number; title: string; description: string | null },
+  workspace: { slug: string; id: number; docsDir: string | null },
+  project: { slug: string; id: number; projectDir: string | null },
+): string {
+  const parts: string[] = [];
+
+  // Context
+  parts.push(`Workspace: ${workspace.slug}`);
+  parts.push(`Project: ${project.slug}`);
+  parts.push('');
+
+  // Task info
+  parts.push(`Task: ${workspace.slug}-T${task.id} — ${task.title}`);
+  if (task.description) {
+    parts.push(task.description);
+  }
+  parts.push('');
+
+  // Plan content (if exists)
+  const wsDir = getWorkspaceDir(workspace);
+  const specsDir = path.join(wsDir, 'projects');
+  const specSlug = project.projectDir ?? project.slug;
+  const planFilename = `plans/${workspace.slug}-T${task.id}.plan.md`;
+  const planContent = readPlanFile(specsDir, specSlug, planFilename);
+  if (planContent) {
+    parts.push('## Implementation Plan');
+    parts.push(planContent);
+  }
+
+  return parts.join('\n');
+}
+
 // ── Router ───────────────────────────────────────────────────────────
 
 export const executionRouter = router({
@@ -166,6 +200,7 @@ export const executionRouter = router({
       z.object({
         scope: z.enum(['task', 'taskGroup', 'milestone']),
         id: z.union([z.number(), z.string()]),
+        remote: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
@@ -207,14 +242,19 @@ export const executionRouter = router({
         repos = resolved.repos;
         workspace = resolved.workspace;
 
-        const built = buildPromptForTask(
-          resolved.task,
-          resolved.workspace,
-          resolved.project,
-          resolved.projectDir,
-        );
-        prompt = built.prompt;
-        systemPrompt = built.systemPrompt;
+        if (input.remote) {
+          prompt = buildRemotePrompt(resolved.task, resolved.workspace, resolved.project);
+          systemPrompt = '';
+        } else {
+          const built = buildPromptForTask(
+            resolved.task,
+            resolved.workspace,
+            resolved.project,
+            resolved.projectDir,
+          );
+          prompt = built.prompt;
+          systemPrompt = built.systemPrompt;
+        }
       } else if (input.scope === 'taskGroup') {
         const id = typeof input.id === 'string' ? parseInt(input.id, 10) : input.id;
         const group = db.select().from(taskGroups).where(eq(taskGroups.id, id)).get();
@@ -273,19 +313,20 @@ export const executionRouter = router({
         systemPrompt = built.systemPrompt;
       }
 
-      // HIGH #5: Guard against duplicate active sessions for the same scope
+      // Guard against duplicate active/submitted sessions for the same scope
+      const inFlightStatuses = ['active', 'submitted'] as const;
       const existingSession = taskId
         ? db
             .select()
             .from(agentSessions)
-            .where(and(eq(agentSessions.taskId, taskId), eq(agentSessions.status, 'active')))
+            .where(and(eq(agentSessions.taskId, taskId), inArray(agentSessions.status, [...inFlightStatuses])))
             .get()
         : taskGroupId
           ? db
               .select()
               .from(agentSessions)
               .where(
-                and(eq(agentSessions.taskGroupId, taskGroupId), eq(agentSessions.status, 'active')),
+                and(eq(agentSessions.taskGroupId, taskGroupId), inArray(agentSessions.status, [...inFlightStatuses])),
               )
               .get()
           : undefined;
@@ -317,26 +358,37 @@ export const executionRouter = router({
       }
 
       const flags: string[] = [];
-      if (systemPrompt) flags.push('--append-system-prompt', systemPrompt);
-      for (const dir of additionalDirs) flags.push('--add-dir', dir);
+      if (!input.remote) {
+        if (systemPrompt) flags.push('--append-system-prompt', systemPrompt);
+        for (const dir of additionalDirs) flags.push('--add-dir', dir);
+      }
+
+      if (input.remote && !repos[0]) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Remote execution requires at least one repository configured in the workspace',
+        });
+      }
 
       const isCoder = workspace.executionBackend === 'coder';
       const coderCfg = workspace.coderConfig as { workspace: string; repoBasePath: string } | null;
 
-      const config: ExecutionStartConfig = {
-        repoPath: repos[0] ?? '',
-        containerMode: (workspace.containerEnabled as boolean) ?? false,
-        containerWorkspaceFolder: !isCoder && workspace.containerEnabled
-          ? (workspace.docsDir ?? undefined)
-          : undefined,
-        executionBackend: isCoder ? 'coder' : 'devcontainer',
-        coderWorkspace: isCoder ? coderCfg?.workspace : undefined,
-        coderRepoBasePath: isCoder ? coderCfg?.repoBasePath : undefined,
-      };
+      const config: ExecutionStartConfig = input.remote
+        ? { repoPath: repos[0]!, containerMode: false, remote: true }
+        : {
+            repoPath: repos[0] ?? '',
+            containerMode: (workspace.containerEnabled as boolean) ?? false,
+            containerWorkspaceFolder: !isCoder && workspace.containerEnabled
+              ? (workspace.docsDir ?? undefined)
+              : undefined,
+            executionBackend: isCoder ? 'coder' : 'devcontainer',
+            coderWorkspace: isCoder ? coderCfg?.workspace : undefined,
+            coderRepoBasePath: isCoder ? coderCfg?.repoBasePath : undefined,
+          };
 
       try {
-        // Start container/workspace if needed (same as terminal flow)
-        if (config.containerMode && workspace.docsDir) {
+        // Start container/workspace if needed (skip for remote)
+        if (!input.remote && config.containerMode && workspace.docsDir) {
           console.log(`[execution] Starting ${isCoder ? 'Coder workspace' : 'container'} for workspace=${workspace.slug}`);
           await dispatchContainerUp(
             ctx.state,
@@ -349,8 +401,16 @@ export const executionRouter = router({
           console.log(`[execution] ${isCoder ? 'Workspace' : 'Container'} ready`);
         }
 
+        // Mark remote sessions as submitted before dispatching to avoid race with complete event
+        if (input.remote) {
+          db.update(agentSessions)
+            .set({ status: 'submitted', updatedAt: new Date().toISOString() })
+            .where(eq(agentSessions.sessionId, sessionId))
+            .run();
+        }
+
         console.log(
-          `[execution] Dispatching: session=${sessionId} repo=${config.repoPath} container=${config.containerMode} flags=${flags.length} prompt=${prompt.length}chars`,
+          `[execution] Dispatching: session=${sessionId} remote=${!!input.remote} repo=${config.repoPath} container=${config.containerMode} flags=${flags.length} prompt=${prompt.length}chars`,
         );
         await dispatchExecutionStart(ctx.state, sessionId, prompt, flags, config);
       } catch (err) {
@@ -412,6 +472,11 @@ export const executionRouter = router({
         .get();
       if (!original)
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Session not found' });
+      if (original.status === 'submitted')
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Cannot retry a remote session. Use claude.ai/code to follow up.',
+        });
 
       const newSessionId = randomUUID();
 
@@ -466,6 +531,11 @@ export const executionRouter = router({
         .get();
       if (!session)
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Session not found' });
+      if (session.status === 'submitted')
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Cannot send feedback to a remote session. Use claude.ai/code to follow up.',
+        });
 
       if (!session.taskId)
         throw new TRPCError({

@@ -329,7 +329,9 @@ function handleExecutionCompleteEvent(payload: {
         .where(eq(agentSessions.sessionId, payload.sessionId))
         .run();
     } else {
-      const sessionStatus = payload.success ? 'completed' : 'stopped';
+      // Remote sessions stay as 'submitted' — just update the summary
+      const isRemote = session.status === 'submitted';
+      const sessionStatus = isRemote ? 'submitted' : payload.success ? 'completed' : 'stopped';
 
       tx.update(agentSessions)
         .set({
@@ -340,7 +342,8 @@ function handleExecutionCompleteEvent(payload: {
         .where(eq(agentSessions.sessionId, payload.sessionId))
         .run();
 
-      if (session.taskId) {
+      // Remote sessions: don't update task status — work is still running in the cloud
+      if (session.taskId && !isRemote) {
         if (payload.success) {
           tx.update(tasks)
             .set({ status: 'done', subStatus: null, updatedAt: now })

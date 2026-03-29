@@ -182,6 +182,7 @@ export const workspaceRouter = router({
         executionBackend: executionBackendSchema.nullable().optional(),
         coderConfig: coderConfigSchema.nullable().optional(),
         maxConcurrency: z.number().min(1).nullable().optional(),
+        remoteEnabled: z.boolean().nullable().optional(),
         autoStart: z.boolean().nullable().optional(),
       }),
     )
@@ -203,6 +204,8 @@ export const workspaceRouter = router({
         input.containerConfig !== undefined ? input.containerConfig : existing.containerConfig;
       const newMaxConcurrency =
         input.maxConcurrency !== undefined ? input.maxConcurrency : existing.maxConcurrency;
+      const newRemoteEnabled =
+        input.remoteEnabled !== undefined ? input.remoteEnabled : existing.remoteEnabled;
       const newAutoStart =
         input.autoStart !== undefined ? input.autoStart : existing.autoStart;
       const newExecutionBackend =
@@ -265,6 +268,7 @@ export const workspaceRouter = router({
           executionBackend: newExecutionBackend,
           coderConfig: newCoderConfig,
           maxConcurrency: newMaxConcurrency,
+          remoteEnabled: newRemoteEnabled,
           autoStart: newAutoStart,
         })
         .where(eq(workspaces.id, input.id))

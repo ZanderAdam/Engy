@@ -30,6 +30,7 @@ export const workspaces = sqliteTable('workspaces', {
   executionBackend: text('execution_backend', { enum: ['devcontainer', 'coder'] }).default('devcontainer'),
   coderConfig: text('coder_config', { mode: 'json' }).$type<CoderConfig>(),
   maxConcurrency: integer('max_concurrency').default(1),
+  remoteEnabled: integer('remote_enabled', { mode: 'boolean' }).default(false),
   autoStart: integer('auto_start', { mode: 'boolean' }).default(false),
   createdAt: text('created_at')
     .notNull()
@@ -218,7 +219,7 @@ export const agentSessions = sqliteTable('agent_sessions', {
   branch: text('branch'),
   state: text('state', { mode: 'json' }).$type<Record<string, unknown>>(),
   status: text('status', {
-    enum: ['active', 'paused', 'stopped', 'completed'],
+    enum: ['active', 'paused', 'stopped', 'completed', 'submitted'],
   })
     .notNull()
     .default('active'),

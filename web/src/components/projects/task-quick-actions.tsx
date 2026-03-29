@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { RiMore2Line, RiDraftLine, RiFileTextLine, RiHammerLine, RiPlayLine, RiStopLine } from '@remixicon/react';
+import { RiMore2Line, RiDraftLine, RiFileTextLine, RiHammerLine, RiPlayLine, RiStopLine, RiCloudLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -87,6 +87,7 @@ export function TaskQuickActions({
   }
 
   const { isActive, start: startExecution, stop: stopExecution } = useExecutionStatus('task', taskId);
+  const remoteEnabled = workspace?.remoteEnabled ?? false;
 
   const showImplement = !needsPlan || hasPlan;
 
@@ -138,10 +139,21 @@ export function TaskQuickActions({
               Stop Execution
             </DropdownMenuItem>
           ) : (
-            <DropdownMenuItem disabled={disabled} onClick={startExecution}>
-              <RiPlayLine className="size-4" />
-              Execute in Background
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem disabled={disabled} onClick={() => startExecution()}>
+                <RiPlayLine className="size-4" />
+                Execute in Background
+              </DropdownMenuItem>
+              {remoteEnabled && (
+                <DropdownMenuItem
+                  disabled={disabled}
+                  onClick={() => startExecution({ remote: true })}
+                >
+                  <RiCloudLine className="size-4" />
+                  Execute Remotely
+                </DropdownMenuItem>
+              )}
+            </>
           )}
           <DropdownMenuSeparator />
           {needsPlan && hasPlan && (

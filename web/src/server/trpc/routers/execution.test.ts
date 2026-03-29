@@ -6,7 +6,7 @@ import { WebSocket } from 'ws';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
 import { getDb } from '../../db/client';
-import { agentSessions, tasks } from '../../db/schema';
+import { agentSessions, tasks, workspaces } from '../../db/schema';
 import { eq } from 'drizzle-orm';
 
 vi.mock('node:os', async () => {
@@ -453,6 +453,100 @@ describe('execution router', () => {
       const sessions = await caller.execution.getActiveSessions({ projectId: proj.id });
       expect(sessions).toHaveLength(1);
       expect(sessions[0].taskId).toBe(task1.id);
+    });
+  });
+
+  describe('remote execution', () => {
+    it('should create session with submitted status for remote execution', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb().update(workspaces).set({ repos: ['/tmp/fake-repo'] }).where(eq(workspaces.id, ws.id)).run();
+      const task = await caller.task.create({ projectId: proj.id, title: 'Remote task' });
+      createMockDaemon(ctx);
+
+      const result = await caller.execution.startExecution({
+        scope: 'task',
+        id: task.id,
+        remote: true,
+      });
+
+      const db = getDb();
+      const session = db
+        .select()
+        .from(agentSessions)
+        .where(eq(agentSessions.sessionId, result.sessionId))
+        .get();
+
+      expect(session!.status).toBe('submitted');
+    });
+
+    it('should dispatch with remote config and no flags', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb().update(workspaces).set({ repos: ['/tmp/fake-repo'] }).where(eq(workspaces.id, ws.id)).run();
+      const task = await caller.task.create({ projectId: proj.id, title: 'Remote dispatch' });
+      const { sent } = createMockDaemon(ctx);
+
+      await caller.execution.startExecution({ scope: 'task', id: task.id, remote: true });
+
+      const msg = JSON.parse(sent[0]);
+      expect(msg.payload.config.remote).toBe(true);
+      expect(msg.payload.flags).toEqual([]);
+    });
+
+    it('should reject retry for submitted (remote) sessions', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb().update(workspaces).set({ repos: ['/tmp/fake-repo'] }).where(eq(workspaces.id, ws.id)).run();
+      const task = await caller.task.create({ projectId: proj.id, title: 'Remote retry' });
+      createMockDaemon(ctx);
+
+      const { sessionId } = await caller.execution.startExecution({
+        scope: 'task',
+        id: task.id,
+        remote: true,
+      });
+
+      await expect(caller.execution.retryExecution({ sessionId })).rejects.toThrow(
+        'Cannot retry a remote session',
+      );
+    });
+
+    it('should reject feedback for submitted (remote) sessions', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb().update(workspaces).set({ repos: ['/tmp/fake-repo'] }).where(eq(workspaces.id, ws.id)).run();
+      const task = await caller.task.create({ projectId: proj.id, title: 'Remote feedback' });
+      createMockDaemon(ctx);
+
+      const { sessionId } = await caller.execution.startExecution({
+        scope: 'task',
+        id: task.id,
+        remote: true,
+      });
+
+      await expect(
+        caller.execution.sendFeedback({ sessionId, feedback: 'Fix this' }),
+      ).rejects.toThrow('Cannot send feedback to a remote session');
+    });
+
+    it('should throw when workspace has no repos for remote execution', async () => {
+      const { proj } = await seedProject(caller);
+      const task = await caller.task.create({ projectId: proj.id, title: 'No repos task' });
+      createMockDaemon(ctx);
+
+      await expect(
+        caller.execution.startExecution({ scope: 'task', id: task.id, remote: true }),
+      ).rejects.toThrow('Remote execution requires at least one repository');
+    });
+
+    it('should block duplicate remote sessions for the same task', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb().update(workspaces).set({ repos: ['/tmp/fake-repo'] }).where(eq(workspaces.id, ws.id)).run();
+      const task = await caller.task.create({ projectId: proj.id, title: 'Dup remote' });
+      createMockDaemon(ctx);
+
+      await caller.execution.startExecution({ scope: 'task', id: task.id, remote: true });
+
+      await expect(
+        caller.execution.startExecution({ scope: 'task', id: task.id, remote: true }),
+      ).rejects.toThrow('An execution is already active for this scope');
     });
   });
 });

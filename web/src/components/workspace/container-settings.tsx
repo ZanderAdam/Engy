@@ -19,6 +19,7 @@ export interface ContainerSettingsData {
   containerConfig: ContainerConfig;
   executionBackend: ExecutionBackend;
   coderConfig?: CoderConfig;
+  remoteEnabled: boolean;
   maxConcurrency: number;
   autoStart: boolean;
 }
@@ -66,6 +67,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
   const [executionBackend, setExecutionBackend] = useState<ExecutionBackend>(
     initialData.executionBackend ?? 'devcontainer',
   );
+  const [remoteEnabled, setRemoteEnabled] = useState(initialData.remoteEnabled);
   const [autoStart, setAutoStart] = useState(initialData.autoStart);
   const [maxConcurrency, setMaxConcurrency] = useState(initialData.maxConcurrency);
   const [idleTimeout, setIdleTimeout] = useState(initialData.containerConfig?.idleTimeout ?? 30);
@@ -80,6 +82,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
   function emit(overrides: Partial<{
     containerEnabled: boolean;
     executionBackend: ExecutionBackend;
+    remoteEnabled: boolean;
     autoStart: boolean;
     maxConcurrency: number;
     idleTimeout: number;
@@ -91,6 +94,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
   }>) {
     const enabled = overrides.containerEnabled ?? containerEnabled;
     const backend = overrides.executionBackend ?? executionBackend;
+    const remote = overrides.remoteEnabled ?? remoteEnabled;
     const start = overrides.autoStart ?? autoStart;
     const concurrency = overrides.maxConcurrency ?? maxConcurrency;
     const timeout = overrides.idleTimeout ?? idleTimeout;
@@ -103,6 +107,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
     onChange({
       containerEnabled: enabled,
       executionBackend: backend,
+      remoteEnabled: remote,
       autoStart: start,
       maxConcurrency: concurrency,
       containerConfig: {
@@ -191,6 +196,23 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
           onCheckedChange={(checked) => {
             setAutoStart(checked);
             emit({ autoStart: checked });
+          }}
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-0.5">
+          <Label htmlFor="remote-enabled">Remote execution</Label>
+          <p className="text-xs text-muted-foreground">
+            Run tasks via claude.ai/code cloud infrastructure
+          </p>
+        </div>
+        <Switch
+          id="remote-enabled"
+          checked={remoteEnabled}
+          onCheckedChange={(checked) => {
+            setRemoteEnabled(checked);
+            emit({ remoteEnabled: checked });
           }}
         />
       </div>

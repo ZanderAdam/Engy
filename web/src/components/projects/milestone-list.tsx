@@ -424,7 +424,7 @@ function TaskGroupQuickAction({
               Stop Execution
             </DropdownMenuItem>
           ) : (
-            <DropdownMenuItem disabled={disabled} onClick={startExecution}>
+            <DropdownMenuItem disabled={disabled} onClick={() => startExecution()}>
               <RiPlayLine className="size-4" />
               Execute Task Group
             </DropdownMenuItem>

@@ -312,7 +312,6 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
     setUrgency((task.urgency ?? 'not_urgent') as 'urgent' | 'not_urgent');
     setNeedsPlan(task.needsPlan ?? true);
     setInitialDescription(task.description || '');
-    descriptionRef.current = task.description || '';
     setBlockedBy(task.blockedBy ?? []);
     setTaskGroupIdLocal(task.taskGroupId ?? null);
   }

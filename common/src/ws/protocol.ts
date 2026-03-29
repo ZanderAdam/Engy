@@ -245,6 +245,7 @@ export interface ExecutionStartConfig {
   executionBackend?: ExecutionBackend;
   coderWorkspace?: string;
   coderRepoBasePath?: string;
+  remote?: boolean;
   env?: Record<string, string>;
 }
 

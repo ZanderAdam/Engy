@@ -11,6 +11,7 @@ export interface SpawnConfig {
   containerWorkspaceFolder?: string;
   coderWorkspace?: string;
   coderRepoBasePath?: string;
+  remote?: boolean;
   workingDir: string;
   serverUrl?: string;
   serverPort?: number;
@@ -50,7 +51,7 @@ export class AgentSpawner {
 
     const { sessionId } = config;
     const args = this.buildArgs(config, sessionId);
-    const mode = config.containerMode ? 'container' : 'host';
+    const mode = config.remote ? 'remote' : config.containerMode ? 'container' : 'host';
     console.log(
       `[agent-spawner] Spawning claude (${mode}): cwd=${config.workingDir} sessionId=${sessionId}`,
     );
@@ -68,11 +69,13 @@ export class AgentSpawner {
       console.error(`[agent-spawner] Process error: ${err.message}`);
     });
 
-    proc.stdin!.write(config.prompt);
-    proc.stdin!.end();
-    console.log(`[agent-spawner] Prompt written to stdin (${config.prompt.length} chars)`);
+    if (!config.remote) {
+      proc.stdin!.write(config.prompt);
+      proc.stdin!.end();
+      console.log(`[agent-spawner] Prompt written to stdin (${config.prompt.length} chars)`);
+    }
 
-    const result = await this.waitForExit(proc, sessionId, config.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const result = await this.waitForExit(proc, sessionId, config.timeoutMs ?? DEFAULT_TIMEOUT_MS, config.remote);
     this.currentProcess = null;
     console.log(
       `[agent-spawner] Exit: code=${result.exitCode} success=${result.success} completion=${result.completion ? 'yes' : 'no'}`,
@@ -85,6 +88,8 @@ export class AgentSpawner {
   }
 
   private validateConfig(config: SpawnConfig): void {
+    if (config.remote) return; // Remote mode has no local validation constraints
+
     const isIsolated = config.containerMode || !!config.coderWorkspace;
     if (!isIsolated && config.flags.includes('--dangerously-skip-permissions')) {
       throw new Error('--dangerously-skip-permissions can only be used inside a container');
@@ -96,6 +101,11 @@ export class AgentSpawner {
   }
 
   private buildArgs(config: SpawnConfig, sessionId: string): string[] {
+    // Remote mode: prompt must be passed as CLI arg (stdin falls back to print mode)
+    if (config.remote) {
+      return ['--remote', config.prompt];
+    }
+
     const args = ['-p', '--output-format', 'json'];
     const isIsolated = config.containerMode || !!config.coderWorkspace;
 
@@ -157,6 +167,16 @@ export class AgentSpawner {
       );
     }
 
+    if (config.remote) {
+      // Remote mode: piped stdout causes the CLI to enter print mode which conflicts
+      // with --remote. Use 'inherit' for stdio so the CLI behaves like a terminal.
+      // Output is visible in daemon logs; completionSummary is set from exit code.
+      return spawn('claude', args, {
+        cwd: config.workingDir,
+        stdio: ['ignore', 'inherit', 'inherit'],
+      });
+    }
+
     return spawn('claude', args, {
       cwd: config.workingDir,
       env: config.env ? { ...process.env, ...config.env } : undefined,
@@ -164,7 +184,7 @@ export class AgentSpawner {
     });
   }
 
-  private waitForExit(proc: ChildProcess, sessionId: string, timeoutMs: number): Promise<SpawnResult> {
+  private waitForExit(proc: ChildProcess, sessionId: string, timeoutMs: number, remote?: boolean): Promise<SpawnResult> {
     return new Promise((resolve) => {
       let completion: SpawnResult['completion'];
       const chunks: string[] = [];
@@ -182,15 +202,24 @@ export class AgentSpawner {
         clearTimeout(timeoutId);
         const exitCode = code ?? 1;
 
-        const stdout = chunks.join('');
-        try {
-          const output = JSON.parse(stdout);
-          const structured = output.structured_output;
-          if (structured && 'taskCompleted' in structured && 'summary' in structured) {
-            completion = { taskCompleted: structured.taskCompleted, summary: structured.summary };
+        if (remote) {
+          // Remote mode: stdio is inherited (not piped) so stdout is empty here.
+          // The actual CLI output (session URL) is visible in daemon logs.
+          const summary = exitCode === 0
+            ? 'Remote session submitted — check claude.ai/code for progress'
+            : `Remote submission failed (exit code ${exitCode})`;
+          completion = { taskCompleted: exitCode === 0, summary };
+        } else {
+          const stdout = chunks.join('');
+          try {
+            const output = JSON.parse(stdout);
+            const structured = output.structured_output;
+            if (structured && 'taskCompleted' in structured && 'summary' in structured) {
+              completion = { taskCompleted: structured.taskCompleted, summary: structured.summary };
+            }
+          } catch (err) {
+            console.warn(`[agent-spawner] Failed to parse stdout JSON: ${err instanceof Error ? err.message : String(err)}`);
           }
-        } catch (err) {
-          console.warn(`[agent-spawner] Failed to parse stdout JSON: ${err instanceof Error ? err.message : String(err)}`);
         }
 
         const success = exitCode === 0 && (completion?.taskCompleted ?? true);
