@@ -66,6 +66,7 @@ export function TaskQuickActions({
       prompt,
       scopeLabel: `${replan ? 'replan' : 'plan'}: ${taskSlug}`,
       containerMode: 'host',
+      taskId,
     });
   }
 
@@ -79,6 +80,7 @@ export function TaskQuickActions({
       prompt,
       scopeLabel: `impl: ${taskSlug}`,
       containerMode: useContainer ? 'container' : undefined,
+      taskId,
     });
   }
 

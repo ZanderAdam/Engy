@@ -27,7 +27,12 @@ export function useQuickAction() {
   const { workingDir, additionalDirs } = buildQuickActionDirs(repos, projectDir);
   const disabled = !workingDir || !projectDir;
 
-  function launch(opts: { prompt: string; scopeLabel: string; containerMode?: ContainerMode }) {
+  function launch(opts: {
+    prompt: string;
+    scopeLabel: string;
+    containerMode?: ContainerMode;
+    taskId?: number;
+  }) {
     if (!workingDir || !projectDir || !workspace || !project) return;
     const ctx = buildContextBlock({
       workspace: { id: workspace.id, slug: workspaceSlug },
@@ -48,6 +53,7 @@ export function useQuickAction() {
       groupKey: `project:${workspaceSlug}:${projectSlug}`,
       workspaceSlug,
       containerMode: opts.containerMode,
+      taskId: opts.taskId,
     };
     openNewTerminal(scope);
   }

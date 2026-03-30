@@ -14,6 +14,7 @@ export interface TerminalScope {
   groupKey: string;
   workspaceSlug: string;
   containerMode?: ContainerMode;
+  taskId?: number;
 }
 
 export interface TerminalTab {

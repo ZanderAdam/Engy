@@ -20,6 +20,10 @@ interface OpenEvent {
   scope: TerminalScope;
 }
 
+interface TerminalFocusEvent {
+  sessionId: string;
+}
+
 interface TerminalManagerProps {
   onCollapse: () => void;
   defaultScope?: TerminalScope;
@@ -36,6 +40,7 @@ interface SessionListItem {
   command?: string;
   groupKey?: string;
   workspaceSlug?: string;
+  taskId?: number;
   status: 'active' | 'suspended';
   browserCount: number;
 }
@@ -89,6 +94,7 @@ function sessionToTab(s: SessionListItem, fallbackGroupKey: string): TerminalTab
       command: s.command,
       groupKey: s.groupKey ?? fallbackGroupKey,
       workspaceSlug: s.workspaceSlug ?? '',
+      taskId: s.taskId,
     },
     status: 'connecting',
   };
@@ -138,6 +144,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   }, []);
 
   const broadcastActive = useCallback(() => {
+    if (disableExternalEvents) return;
     const api = dockviewApiRef.current;
     const activeId = api?.activePanel?.id;
     const tab = activeId != null ? tabsRef.current.get(activeId) : undefined;
@@ -146,7 +153,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     window.dispatchEvent(
       new CustomEvent('terminal:active-changed', { detail: { hasActiveTab } }),
     );
-  }, []);
+  }, [disableExternalEvents]);
 
   const handleStatusChange = useCallback(
     (sessionId: string, status: TerminalTab['status']) => {
@@ -176,13 +183,14 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   );
 
   useEffect(() => {
+    if (disableExternalEvents) return;
     return () => {
       window.__engy_terminal_active = false;
       window.dispatchEvent(
         new CustomEvent('terminal:active-changed', { detail: { hasActiveTab: false } }),
       );
     };
-  }, []);
+  }, [disableExternalEvents]);
 
   useEffect(() => {
     if (disableExternalEvents) return;
@@ -212,6 +220,23 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     window.addEventListener('terminal:open', onOpen);
     return () => window.removeEventListener('terminal:open', onOpen);
   }, [openTerminal, disableExternalEvents]);
+
+  // terminal:focus is always listened for (not gated by disableExternalEvents)
+  // because it's an intentional user action from TaskTerminalButton, not a broadcast
+  useEffect(() => {
+    function onFocus(e: Event) {
+      const { sessionId } = (e as CustomEvent<TerminalFocusEvent>).detail;
+      const api = dockviewApiRef.current;
+      if (!api) return;
+      const panel = api.getPanel(sessionId);
+      if (panel) {
+        panel.api.setActive();
+      }
+    }
+
+    window.addEventListener('terminal:focus', onFocus);
+    return () => window.removeEventListener('terminal:focus', onFocus);
+  }, []);
 
   // Cross-browser session sync: when another browser creates a session for this groupKey,
   // fetch updated session list and add any new sessions as tabs

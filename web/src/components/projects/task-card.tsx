@@ -1,9 +1,11 @@
 'use client';
 
+import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { TaskStatusBadge } from '@/components/projects/task-status-badge';
 import { CopyTaskSlug } from '@/components/projects/copy-task-slug';
 import { TaskQuickActions } from '@/components/projects/task-quick-actions';
+import { TaskTerminalButton } from '@/components/projects/task-terminal-button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
@@ -18,6 +20,7 @@ import {
 
 import { useExecutionStatus } from '@/hooks/use-execution-status';
 import { ExecutionStatusIcon } from '@/components/projects/execution-status-icon';
+import { useTaskTerminals } from '@/hooks/use-task-terminals';
 import type { Task } from '@/components/projects/types';
 
 interface TaskCardProps {
@@ -77,6 +80,14 @@ export function TaskCard({
   className,
   dragHandleProps,
 }: TaskCardProps) {
+  const params = useParams<{ workspace: string; project: string }>();
+  const groupKey =
+    params.workspace && params.project
+      ? `project:${params.workspace}:${params.project}`
+      : undefined;
+  const taskTerminals = useTaskTerminals(groupKey);
+  const terminalSessions = taskTerminals.get(task.id) ?? [];
+
   const isDone = task.status === 'done';
   const { status: sessionStatus } = useExecutionStatus('task', task.id);
   const execStatus = sessionStatus === 'active' ? sessionStatus : (task.subStatus ?? sessionStatus);
@@ -166,7 +177,7 @@ export function TaskCard({
           </Tooltip>
         </TooltipProvider>
         <TaskStatusBadge taskId={task.id} status={task.status} clickable className="shrink-0" />
-        {(task.milestoneRef || task.taskGroupId || execStatus || unansweredCount > 0) && (
+        {(task.milestoneRef || task.taskGroupId || execStatus || unansweredCount > 0 || terminalSessions.length > 0) && (
           <div className="ml-auto flex items-center gap-1">
             {task.milestoneRef && (() => {
               const num = parseMilestoneNum(task.milestoneRef);
@@ -181,6 +192,7 @@ export function TaskCard({
                 TG{task.taskGroupId}
               </span>
             )}
+            <TaskTerminalButton sessions={terminalSessions} />
             <ExecutionStatusIcon status={execStatus} />
             {unansweredCount > 0 && (
               <RiQuestionLine className="size-3.5 animate-bounce text-amber-400" />

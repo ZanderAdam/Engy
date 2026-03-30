@@ -152,6 +152,9 @@ async function handleTerminalConnection(
   const groupKey = params.get('groupKey') ?? undefined;
   const workspaceSlug = params.get('workspaceSlug') ?? '';
   const containerMode = params.get('containerMode') ?? undefined;
+  const taskIdRaw = params.get('taskId');
+  const taskIdParsed = taskIdRaw ? parseInt(taskIdRaw, 10) : NaN;
+  const taskId = Number.isInteger(taskIdParsed) && taskIdParsed > 0 ? taskIdParsed : undefined;
 
   if (!sessionId || !workingDir) {
     ws.close(1008, 'Missing sessionId or workingDir');
@@ -267,7 +270,7 @@ async function handleTerminalConnection(
       // Only persist meta after spawn is sent — prevents false reconnects
       // from concurrent connections (React Strict Mode double-mount)
       state.terminalSessionMeta.set(sessionId, {
-        scopeType, scopeLabel, workingDir, command, groupKey, workspaceSlug, containerMode, cols, rows,
+        scopeType, scopeLabel, workingDir, command, groupKey, workspaceSlug, containerMode, taskId, cols, rows,
       });
       broadcastTerminalSessionsChange('created', sessionId, groupKey);
     } else {
