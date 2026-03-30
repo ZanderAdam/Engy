@@ -17,7 +17,8 @@ import {
   questions,
 } from '../db/schema';
 import { validateDependencies, attachBlockedBy } from '../tasks/validation';
-import { getWorkspaceDir } from '../engy-dir/init';
+import { getWorkspaceDir, resolveProjectDir } from '../engy-dir/init';
+import { readTaskPlan } from '../plan/service';
 import { broadcastTaskChange, broadcastQuestionChange } from '../ws/broadcast';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
@@ -481,7 +482,25 @@ function registerTaskTools(mcp: McpServer): void {
       const db = getDb();
       const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
       if (!task) return mcpError('Task not found');
-      return mcpResult(attachSpecPaths(attachBlockedBy([task]))[0]);
+
+      const enriched = attachSpecPaths(attachBlockedBy([task]))[0];
+
+      let planContent: string | null = null;
+      if (task.projectId) {
+        const project = db.select().from(projects).where(eq(projects.id, task.projectId)).get();
+        if (project) {
+          const ws = db
+            .select()
+            .from(workspaces)
+            .where(eq(workspaces.id, project.workspaceId))
+            .get();
+          if (ws) {
+            planContent = readTaskPlan(resolveProjectDir(ws, project), ws.slug, id);
+          }
+        }
+      }
+
+      return mcpResult({ ...enriched, planContent });
     },
   );
 

@@ -13,10 +13,10 @@ import type { ExecutionStartConfig } from '@engy/common';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { agentSessions, tasks, taskGroups, projects, workspaces } from '../../db/schema';
+import { taskPlanSlug, readPlanFile } from '../../plan/service';
 import { dispatchExecutionStart, dispatchExecutionStop, dispatchContainerUp } from '../../ws/server';
-import { getWorkspaceDir } from '../../engy-dir/init';
+import { getWorkspaceDir, resolveProjectDir } from '../../engy-dir/init';
 import { buildContextBlock, buildQuickActionDirs } from '../../../lib/shell';
-import { readPlanFile } from '../../plan/service';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -51,27 +51,20 @@ function resolveTaskContext(taskId: number) {
   return { task, project, workspace, repos, projectDir, dirs };
 }
 
-function resolveProjectDir(
-  workspace: { slug: string; docsDir: string | null },
-  project: { projectDir: string | null; slug: string },
-): string {
-  const slug = project.projectDir ?? project.slug;
-  return path.join(getWorkspaceDir(workspace), 'projects', slug);
-}
-
 function buildPromptForTask(
   task: { id: number; title: string; description: string | null },
   workspace: { slug: string; id: number; implementSkill: string | null },
   project: { slug: string; id: number },
   projectDir: string,
+  repos: string[],
 ) {
-  const taskSlug = `${workspace.slug}-T${task.id}`;
+  const taskSlug = taskPlanSlug(workspace.slug, task.id);
   const implementSkill = workspace.implementSkill || '/engy:implement';
   const prompt = `Use ${implementSkill} for ${taskSlug}`;
   const systemPrompt = buildContextBlock({
     workspace: { id: workspace.id, slug: workspace.slug },
     project: { id: project.id, slug: project.slug, dir: projectDir },
-    repos: [],
+    repos,
   });
   return { prompt, systemPrompt };
 }
@@ -81,12 +74,13 @@ function buildPromptForMilestone(
   workspace: { slug: string; id: number },
   project: { slug: string; id: number },
   projectDir: string,
+  repos: string[],
 ) {
   const prompt = `Use /engy:implement-milestone for ${milestoneRef} in project ${project.slug}`;
   const systemPrompt = buildContextBlock({
     workspace: { id: workspace.id, slug: workspace.slug },
     project: { id: project.id, slug: project.slug, dir: projectDir },
-    repos: [],
+    repos,
   });
   return { prompt, systemPrompt };
 }
@@ -172,7 +166,8 @@ function buildRemotePrompt(
   parts.push('');
 
   // Task info
-  parts.push(`Task: ${workspace.slug}-T${task.id} — ${task.title}`);
+  const slug = taskPlanSlug(workspace.slug, task.id);
+  parts.push(`Task: ${slug} — ${task.title}`);
   if (task.description) {
     parts.push(task.description);
   }
@@ -182,7 +177,7 @@ function buildRemotePrompt(
   const wsDir = getWorkspaceDir(workspace);
   const specsDir = path.join(wsDir, 'projects');
   const specSlug = project.projectDir ?? project.slug;
-  const planFilename = `plans/${workspace.slug}-T${task.id}.plan.md`;
+  const planFilename = `plans/${slug}.plan.md`;
   const planContent = readPlanFile(specsDir, specSlug, planFilename);
   if (planContent) {
     parts.push('## Implementation Plan');
@@ -251,6 +246,7 @@ export const executionRouter = router({
             resolved.workspace,
             resolved.project,
             resolved.projectDir,
+            resolved.repos,
           );
           prompt = built.prompt;
           systemPrompt = built.systemPrompt;
@@ -308,6 +304,7 @@ export const executionRouter = router({
           resolved.workspace,
           resolved.project,
           resolved.projectDir,
+          resolved.repos,
         );
         prompt = built.prompt;
         systemPrompt = built.systemPrompt;

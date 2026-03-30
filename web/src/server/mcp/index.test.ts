@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { getMcpServer } from './index';
@@ -409,6 +411,48 @@ describe('MCP Server', () => {
         const { data } = await call({ id: task.id });
 
         expect(data.title).toBe('T1');
+      });
+
+      it('should return planContent when plan file exists', async () => {
+        const db = getDb();
+        const task = db.insert(tasks).values({ title: 'T1', projectId }).returning().get();
+
+        const projectDir = path.join(ctx.tmpDir, 'test', 'projects', 'p1');
+        const plansDir = path.join(projectDir, 'plans');
+        fs.mkdirSync(plansDir, { recursive: true });
+        fs.writeFileSync(path.join(plansDir, `test-T${task.id}.plan.md`), '# Task Plan');
+
+        const mcp = getMcpServer();
+        const call = callTool(mcp, 'getTask');
+        const { data } = await call({ id: task.id });
+
+        expect(data.planContent).toBe('# Task Plan');
+      });
+
+      it('should return planContent as null when no plan file exists', async () => {
+        const db = getDb();
+        const task = db.insert(tasks).values({ title: 'T1', projectId }).returning().get();
+
+        const mcp = getMcpServer();
+        const call = callTool(mcp, 'getTask');
+        const { data } = await call({ id: task.id });
+
+        expect(data.planContent).toBeNull();
+      });
+
+      it('should return planContent as null when task has no projectId', async () => {
+        const db = getDb();
+        const task = db
+          .insert(tasks)
+          .values({ title: 'Orphan', projectId: null })
+          .returning()
+          .get();
+
+        const mcp = getMcpServer();
+        const call = callTool(mcp, 'getTask');
+        const { data } = await call({ id: task.id });
+
+        expect(data.planContent).toBeNull();
       });
     });
 

@@ -149,6 +149,24 @@ describe('execution router', () => {
       expect(updatedTask!.subStatus).toBe('failed');
     });
 
+    it('should include repo paths in system prompt when workspace has repos', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb()
+        .update(workspaces)
+        .set({ repos: ['/Users/me/repo1', '/Users/me/repo2'] })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+      const task = await caller.task.create({ projectId: proj.id, title: 'Repos task' });
+      const { sent } = createMockDaemon(ctx);
+
+      await caller.execution.startExecution({ scope: 'task', id: task.id });
+
+      const msg = JSON.parse(sent[0]);
+      const flagIndex = (msg.payload.flags as string[]).indexOf('--append-system-prompt');
+      const systemPrompt = (msg.payload.flags as string[])[flagIndex + 1];
+      expect(systemPrompt).toContain('Repos: /Users/me/repo1, /Users/me/repo2');
+    });
+
     it('should throw when task not found', async () => {
       createMockDaemon(ctx);
 

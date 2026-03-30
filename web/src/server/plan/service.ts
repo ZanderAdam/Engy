@@ -10,6 +10,21 @@ function validatePath(base: string, target: string): string {
   return resolved;
 }
 
+export function taskPlanSlug(workspaceSlug: string, taskId: number): string {
+  return `${workspaceSlug}-T${taskId}`;
+}
+
+export function readTaskPlan(
+  projectDir: string,
+  workspaceSlug: string,
+  taskId: number,
+): string | null {
+  const slug = taskPlanSlug(workspaceSlug, taskId);
+  const planPath = validatePath(projectDir, path.join('plans', `${slug}.plan.md`));
+  if (!fs.existsSync(planPath)) return null;
+  return fs.readFileSync(planPath, 'utf-8');
+}
+
 export function slugify(title: string): string {
   return title
     .toLowerCase()

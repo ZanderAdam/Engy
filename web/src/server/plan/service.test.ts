@@ -10,6 +10,8 @@ import {
   deletePlanFile,
   renamePlanFile,
   titleFromFilename,
+  taskPlanSlug,
+  readTaskPlan,
 } from './service';
 
 describe('plan service', () => {
@@ -198,6 +200,40 @@ describe('plan service', () => {
       expect(() =>
         renamePlanFile(specsDir, specSlug, 'm1-setup.plan.md', '../../etc/evil.md'),
       ).toThrow('Path traversal');
+    });
+  });
+
+  describe('taskPlanSlug', () => {
+    it('should format workspace slug and task id', () => {
+      expect(taskPlanSlug('engy', 42)).toBe('engy-T42');
+    });
+
+    it('should handle single-char slugs', () => {
+      expect(taskPlanSlug('x', 1)).toBe('x-T1');
+    });
+  });
+
+  describe('readTaskPlan', () => {
+    it('should return plan content when file exists', () => {
+      const projectDir = path.join(tmpDir, 'project');
+      const plansDir = path.join(projectDir, 'plans');
+      fs.mkdirSync(plansDir, { recursive: true });
+      fs.writeFileSync(path.join(plansDir, 'ws-T5.plan.md'), '# My Plan');
+
+      expect(readTaskPlan(projectDir, 'ws', 5)).toBe('# My Plan');
+    });
+
+    it('should return null when plan file does not exist', () => {
+      const projectDir = path.join(tmpDir, 'project-empty');
+      fs.mkdirSync(projectDir, { recursive: true });
+
+      expect(readTaskPlan(projectDir, 'ws', 99)).toBeNull();
+    });
+
+    it('should return null when plans directory does not exist', () => {
+      const projectDir = path.join(tmpDir, 'no-plans-dir');
+
+      expect(readTaskPlan(projectDir, 'ws', 1)).toBeNull();
     });
   });
 });
