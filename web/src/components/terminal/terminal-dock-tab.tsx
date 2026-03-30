@@ -1,13 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  RiFolderLine,
-  RiLayoutGridLine,
-  RiFolderOpenLine,
-  RiTerminalLine,
-  RiCloseLine,
-} from '@remixicon/react';
+import { RiTerminalLine, RiCloseLine } from '@remixicon/react';
 import type { IDockviewPanelHeaderProps } from 'dockview';
 import { cn } from '@/lib/utils';
 import {
@@ -16,7 +10,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import type { TerminalPanelParams, TerminalTab } from './types';
+import { TERMINAL_ACTIVITY_STYLES, type TerminalPanelParams, type TerminalTab } from './types';
 
 function collapseLabel(label: string): string {
   const parts = label.split('/').filter(Boolean);
@@ -24,11 +18,12 @@ function collapseLabel(label: string): string {
   return `/${parts[0]}/.../${parts[parts.length - 1]}`;
 }
 
-const SCOPE_ICONS: Record<string, React.ElementType> = {
-  project: RiFolderLine,
-  workspace: RiLayoutGridLine,
-  dir: RiFolderOpenLine,
-};
+function getIconStyle(tab: TerminalTab): string | undefined {
+  if (tab.status === 'connecting') return TERMINAL_ACTIVITY_STYLES.connecting;
+  if (tab.status === 'exited') return undefined;
+  if (tab.activityState && tab.activityState !== 'idle') return TERMINAL_ACTIVITY_STYLES[tab.activityState];
+  return undefined;
+}
 
 export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<TerminalPanelParams>) {
   const [tab, setTab] = useState<TerminalTab>(params.tab);
@@ -41,7 +36,6 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
     return () => disposable.dispose();
   }, [api]);
 
-  const ScopeIcon = SCOPE_ICONS[tab.scope.scopeType] ?? RiTerminalLine;
   const label = tab.scope.scopeLabel;
   const isDir = tab.scope.scopeType === 'dir';
 
@@ -52,7 +46,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
         tab.status === 'exited' && 'opacity-50',
       )}
     >
-      <ScopeIcon className="size-[11px] shrink-0" />
+      <RiTerminalLine className={cn('size-[11px] shrink-0', getIconStyle(tab))} />
       {isDir ? (
         <TooltipProvider>
           <Tooltip>

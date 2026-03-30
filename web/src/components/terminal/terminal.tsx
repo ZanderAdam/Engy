@@ -6,9 +6,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import type { ITheme } from "@xterm/xterm";
+import type { DockviewPanelApi } from "dockview";
 import { DARK_XTERM_THEME } from "@/hooks/use-xterm-theme";
 import { RiArrowDownSLine } from "@remixicon/react";
-import type { TerminalTab } from "./types";
+import type { ActivityEvent, TerminalTab } from "./types";
 
 export interface TerminalActions {
   write: (data: string) => void;
@@ -20,6 +21,15 @@ interface TerminalProps {
   xtermTheme?: ITheme;
   onStatusChange: (sessionId: string, status: TerminalTab['status']) => void;
   onReady?: (sessionId: string, actions: TerminalActions | null) => void;
+  onActivity?: (sessionId: string, event: ActivityEvent) => void;
+  panelApi?: DockviewPanelApi;
+}
+
+const ACTIVITY_DEBOUNCE_MS = 3000;
+
+function hasNotificationSequence(data: string): boolean {
+  if (data.includes('\x1b]9;')) return true;
+  return data.includes('\x07') && !data.includes('\x1b]');
 }
 
 function getWsBase(): string {
@@ -47,13 +57,17 @@ function buildWsUrl(tab: TerminalTab): string {
   return `${base}/ws/terminal?${params.toString()}`;
 }
 
-export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: TerminalProps) {
+export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onActivity, panelApi }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const isPinnedRef = useRef(true);
   const scrollRafRef = useRef(0);
+  const activityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isActiveRef = useRef(false);
+  const lastSentColsRef = useRef(0);
+  const lastSentRowsRef = useRef(0);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const sessionId = tab.sessionId;
 
@@ -64,10 +78,23 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
   }, []);
 
   const handleResize = useCallback(() => {
-    fitAddonRef.current?.fit();
+    const container = containerRef.current;
+    const fitAddon = fitAddonRef.current;
     const term = xtermRef.current;
+    if (!container || !fitAddon || !term) return;
+
+    // Skip when panel is hidden (display:none gives 0 dimensions)
+    if (container.offsetWidth === 0 || container.offsetHeight === 0) return;
+
+    fitAddon.fit();
+
+    // Only send resize to server when dimensions actually changed
+    if (term.cols === lastSentColsRef.current && term.rows === lastSentRowsRef.current) return;
+    lastSentColsRef.current = term.cols;
+    lastSentRowsRef.current = term.rows;
+
     const ws = wsRef.current;
-    if (term && ws?.readyState === WebSocket.OPEN) {
+    if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
     }
   }, [sessionId]);
@@ -152,6 +179,8 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
     ws.onopen = () => {
       console.log(`[terminal-ui] WS open for session ${sessionId}`);
       onStatusChange(sessionId, 'active');
+      lastSentColsRef.current = term.cols;
+      lastSentRowsRef.current = term.rows;
       ws.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
       onReady?.(sessionId, {
         write: (data) => {
@@ -176,6 +205,32 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
       }
 
       if (msg.t === 'o' && msg.d) {
+        // Activity tracking: detect notification sequences and data flow
+        const hasBel = msg.d.includes('\x07');
+        const hasOsc = msg.d.includes('\x1b]');
+        if (hasBel || hasOsc) {
+          console.log(`[terminal-activity] session=${sessionId} hasBel=${hasBel} hasOsc=${hasOsc} notification=${hasNotificationSequence(msg.d)} dataLen=${msg.d.length} snippet=${JSON.stringify(msg.d.slice(0, 120))}`);
+        }
+        if (hasNotificationSequence(msg.d)) {
+          isActiveRef.current = false;
+          if (activityTimerRef.current) {
+            clearTimeout(activityTimerRef.current);
+            activityTimerRef.current = null;
+          }
+          onActivity?.(sessionId, 'waiting');
+        } else {
+          if (!isActiveRef.current) {
+            isActiveRef.current = true;
+            onActivity?.(sessionId, 'start');
+          }
+          if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
+          activityTimerRef.current = setTimeout(() => {
+            activityTimerRef.current = null;
+            isActiveRef.current = false;
+            onActivity?.(sessionId, 'idle');
+          }, ACTIVITY_DEBOUNCE_MS);
+        }
+
         if (isPinnedRef.current) {
           term.write(msg.d);
           scheduleScroll();
@@ -255,6 +310,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
     return () => {
       isCleanedUp = true;
       clearTimeout(fitTimer);
+      if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
+      activityTimerRef.current = null;
+      isActiveRef.current = false;
       if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
       scrollRafRef.current = 0;
       scrollSub.dispose();
@@ -277,6 +335,24 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady }: T
       xtermRef.current.options.theme = xtermTheme;
     }
   }, [xtermTheme]);
+
+  // Refit and repaint terminal when the dockview panel becomes visible (tab switch).
+  // Two issues when switching back to a hidden tab:
+  // 1. ResizeObserver won't fire if dimensions haven't changed → need explicit fit()
+  // 2. xterm's canvas renderer pauses while display:none → need refresh() to repaint
+  useEffect(() => {
+    if (!panelApi) return;
+    const disposable = panelApi.onDidVisibilityChange((e) => {
+      if (e.isVisible) {
+        requestAnimationFrame(() => {
+          handleResize();
+          const term = xtermRef.current;
+          if (term) term.refresh(0, term.rows - 1);
+        });
+      }
+    });
+    return () => disposable.dispose();
+  }, [panelApi, handleResize]);
 
   return (
     <div className="relative size-full">

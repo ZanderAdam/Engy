@@ -8,6 +8,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
+import { TERMINAL_ACTIVITY_STYLES } from '@/components/terminal/types';
+import { useTerminalActivity } from '@/hooks/use-terminal-activity';
 import type { TaskTerminalSession } from '@/hooks/use-task-terminals';
 
 interface TaskTerminalButtonProps {
@@ -19,7 +22,11 @@ function focusTerminal(sessionId: string) {
 }
 
 export function TaskTerminalButton({ sessions }: TaskTerminalButtonProps) {
+  const activityState = useTerminalActivity(sessions.map((s) => s.sessionId));
+
   if (sessions.length === 0) return null;
+
+  const activityStyle = TERMINAL_ACTIVITY_STYLES[activityState];
 
   if (sessions.length === 1) {
     return (
@@ -34,7 +41,7 @@ export function TaskTerminalButton({ sessions }: TaskTerminalButtonProps) {
                 focusTerminal(sessions[0].sessionId);
               }}
             >
-              <RiTerminalLine className="size-3.5" />
+              <RiTerminalLine className={cn('size-3.5', activityStyle)} />
             </button>
           </TooltipTrigger>
           <TooltipContent side="top" className="text-xs">
@@ -56,7 +63,7 @@ export function TaskTerminalButton({ sessions }: TaskTerminalButtonProps) {
                 className="shrink-0 p-0.5 text-muted-foreground transition-colors hover:text-foreground"
                 onClick={(e) => e.stopPropagation()}
               >
-                <RiTerminalLine className="size-3.5" />
+                <RiTerminalLine className={cn('size-3.5', activityStyle)} />
               </button>
             </DropdownMenuTrigger>
           </TooltipTrigger>

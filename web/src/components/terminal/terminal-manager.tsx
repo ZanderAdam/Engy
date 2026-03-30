@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useMemo } from "react";
 import { DockviewReact, type DockviewApi, type SerializedDockview } from "dockview";
 import type { TerminalActions } from "./terminal";
-import type { TerminalTab, TerminalScope, TerminalPanelParams, SplitPosition, TerminalDropdownGroup } from "./types";
+import type { ActivityEvent, TerminalActivityState, TerminalTab, TerminalScope, TerminalPanelParams, SplitPosition, TerminalDropdownGroup } from "./types";
 import { TerminalDockContext, type TerminalDockContextValue } from "./terminal-dock-context";
 import { TerminalDockPanel } from "./terminal-dock-panel";
 import { TerminalDockTab } from "./terminal-dock-tab";
@@ -155,20 +155,50 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     );
   }, [disableExternalEvents]);
 
+  const dispatchActivityEvent = useCallback((sessionId: string, activityState: TerminalActivityState) => {
+    if (disableExternalEvents) return;
+    window.dispatchEvent(
+      new CustomEvent('terminal:activity-changed', { detail: { sessionId, activityState } }),
+    );
+  }, [disableExternalEvents]);
+
   const handleStatusChange = useCallback(
     (sessionId: string, status: TerminalTab['status']) => {
       const existing = tabsRef.current.get(sessionId);
       if (!existing) return;
-      const updated = { ...existing, status };
+      const updated = { ...existing, status, activityState: status === 'exited' ? 'idle' as const : existing.activityState };
       tabsRef.current.set(sessionId, updated);
 
       const api = dockviewApiRef.current;
       const panel = api?.getPanel(sessionId);
       panel?.api.updateParameters({ tab: updated } satisfies TerminalPanelParams);
 
-      if (status === 'exited') broadcastActive();
+      if (status === 'exited') {
+        dispatchActivityEvent(sessionId, 'idle');
+        broadcastActive();
+      }
     },
-    [broadcastActive],
+    [broadcastActive, dispatchActivityEvent],
+  );
+
+  const handleActivity = useCallback(
+    (sessionId: string, event: ActivityEvent) => {
+      const existing = tabsRef.current.get(sessionId);
+      if (!existing) return;
+
+      const activityState: TerminalActivityState = event === 'start' ? 'active' : event;
+      if (existing.activityState === activityState) return;
+
+      const updated = { ...existing, activityState };
+      tabsRef.current.set(sessionId, updated);
+
+      const api = dockviewApiRef.current;
+      const panel = api?.getPanel(sessionId);
+      panel?.api.updateParameters({ tab: updated } satisfies TerminalPanelParams);
+
+      dispatchActivityEvent(sessionId, activityState);
+    },
+    [dispatchActivityEvent],
   );
 
   const handleReady = useCallback(
@@ -407,13 +437,14 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     () => ({
       openTerminal,
       handleStatusChange,
+      handleActivity,
       handleReady,
       onCollapse,
       extraDropdownGroups,
       containerEnabled,
       defaultScope,
     }),
-    [openTerminal, handleStatusChange, handleReady, onCollapse, extraDropdownGroups, containerEnabled, defaultScope],
+    [openTerminal, handleStatusChange, handleActivity, handleReady, onCollapse, extraDropdownGroups, containerEnabled, defaultScope],
   );
 
   const dockviewRef = useRef<HTMLDivElement>(null);

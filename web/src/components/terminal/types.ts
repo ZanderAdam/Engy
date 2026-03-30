@@ -4,7 +4,17 @@ export type TerminalScopeType = 'project' | 'workspace' | 'dir' | 'worktree';
 
 export type TerminalStatus = 'connecting' | 'active' | 'exited' | 'error';
 
+export type TerminalActivityState = 'idle' | 'active' | 'waiting';
+
+export type ActivityEvent = 'start' | 'idle' | 'waiting';
+
 export type ContainerMode = 'host' | 'container';
+
+export const TERMINAL_ACTIVITY_STYLES: Partial<Record<TerminalActivityState | TerminalStatus, string>> = {
+  active: 'animate-pulse text-blue-500',
+  waiting: 'animate-bounce text-amber-400',
+  connecting: 'animate-pulse text-muted-foreground',
+};
 
 export interface TerminalScope {
   scopeType: TerminalScopeType;
@@ -21,6 +31,7 @@ export interface TerminalTab {
   sessionId: string;
   scope: TerminalScope;
   status: TerminalStatus;
+  activityState?: TerminalActivityState;
 }
 
 export interface TerminalPanelParams {
