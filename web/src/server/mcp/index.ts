@@ -405,11 +405,6 @@ function registerTaskTools(mcp: McpServer): void {
       taskGroupId: z.number().nullable().optional().describe('New task group ID'),
       projectId: z.number().nullable().optional().describe('New project ID'),
       specId: z.string().nullable().optional().describe('New specification ID'),
-      subStatus: z
-        .enum(['planning', 'implementing', 'blocked', 'failed'])
-        .nullable()
-        .optional()
-        .describe('Sub-status for execution tracking'),
     },
     async ({ id, blockedBy, ...updates }) => {
       const db = getDb();
