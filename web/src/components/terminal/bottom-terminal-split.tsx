@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useCallback, useMemo, useRef } from 'react';
 import { RiArrowUpSLine, RiArrowDownSLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -64,17 +64,23 @@ export function BottomTerminalSplit({
     [extraDropdownGroups],
   );
   const keys = useMemo(() => shortcutKeys(BOTTOM_TERMINAL_SHORTCUT), []);
+  const mountedRef = useRef(false);
 
-  useEffect(() => {
-    localStorage.setItem(COLLAPSED_STORAGE_KEY, collapsed ? 'false' : 'true');
-  }, [collapsed]);
-
+  // Restore expanded state on mount
   useEffect(() => {
     const stored = localStorage.getItem(COLLAPSED_STORAGE_KEY);
     if (stored === 'true') setCollapsed(false);
+    mountedRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Persist expanded state (skip first render to avoid overwriting stored value)
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    localStorage.setItem(COLLAPSED_STORAGE_KEY, collapsed ? 'false' : 'true');
+  }, [collapsed]);
+
+  // Keyboard shortcut: Ctrl+J
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       const isEditing =
@@ -157,19 +163,24 @@ export function BottomTerminalSplit({
         </TooltipProvider>
       </div>
 
-      {/* Expanded terminal */}
-      {!collapsed && (
-        <div className="flex flex-col min-h-0 shrink-0 bg-[#0a0a0a]" style={{ height }}>
-          <TerminalManager
-            key={scopeKey}
-            onCollapse={handleCollapse}
-            defaultScope={scope}
-            extraDropdownGroups={shellDropdownGroups}
-            containerEnabled={containerEnabled}
-            disableExternalEvents
-          />
-        </div>
-      )}
+      {/* Terminal — hidden when collapsed to preserve live connections */}
+      <div
+        className="flex flex-col min-h-0 shrink-0 bg-[#0a0a0a]"
+        style={{
+          height: collapsed ? 0 : height,
+          overflow: collapsed ? 'hidden' : undefined,
+          visibility: collapsed ? 'hidden' : undefined,
+        }}
+      >
+        <TerminalManager
+          key={scopeKey}
+          onCollapse={handleCollapse}
+          defaultScope={scope}
+          extraDropdownGroups={shellDropdownGroups}
+          containerEnabled={containerEnabled}
+          disableExternalEvents
+        />
+      </div>
     </div>
   );
 }

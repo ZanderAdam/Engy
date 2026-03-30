@@ -14,7 +14,6 @@ interface VerticalPanelState {
   collapsed: boolean;
   isResizing: boolean;
   setCollapsed: (collapsed: boolean) => void;
-  setHeight: (height: number) => void;
   handleMouseDown: (e: React.MouseEvent) => void;
 }
 
@@ -47,19 +46,6 @@ export function useVerticalPanelResize(
     if (stored !== null) setHeightState(stored);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const getMaxHeight = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return config.defaultHeight * 2;
-    return container.clientHeight * (config.maxHeightPercent / 100);
-  }, [config.defaultHeight, config.maxHeightPercent]);
-
-  const setHeight = useCallback(
-    (h: number) => {
-      setHeightState(clampHeight(h, config.minHeight, getMaxHeight()));
-    },
-    [config.minHeight, getMaxHeight],
-  );
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -102,7 +88,6 @@ export function useVerticalPanelResize(
     collapsed,
     isResizing,
     setCollapsed,
-    setHeight,
     handleMouseDown,
     containerRef,
   };

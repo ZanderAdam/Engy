@@ -13,6 +13,14 @@ export function getWorkspaceDir(workspace: { slug: string; docsDir: string | nul
   return workspace.docsDir ?? path.join(getEngyDir(), workspace.slug);
 }
 
+export function resolveProjectDir(
+  workspace: { slug: string; docsDir: string | null },
+  project: { projectDir: string | null; slug: string },
+): string {
+  const slug = project.projectDir ?? project.slug;
+  return path.join(getWorkspaceDir(workspace), 'projects', slug);
+}
+
 interface WorkspaceSkills {
   planSkill?: string | null;
   implementSkill?: string | null;
