@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { TaskStatusBadge } from '@/components/projects/task-status-badge';
@@ -19,6 +20,7 @@ import {
 } from '@remixicon/react';
 
 import { useExecutionStatus } from '@/hooks/use-execution-status';
+import { useTerminalActivity } from '@/hooks/use-terminal-activity';
 import { ExecutionStatusIcon } from '@/components/projects/execution-status-icon';
 import { useTaskTerminals } from '@/hooks/use-task-terminals';
 import type { Task } from '@/components/projects/types';
@@ -87,6 +89,8 @@ export function TaskCard({
       : undefined;
   const taskTerminals = useTaskTerminals(groupKey);
   const terminalSessions = taskTerminals.get(task.id) ?? [];
+  const sessionIds = useMemo(() => terminalSessions.map((s) => s.sessionId), [terminalSessions]);
+  const terminalActivity = useTerminalActivity(sessionIds);
 
   const isDone = task.status === 'done';
   const { status: sessionStatus } = useExecutionStatus('task', task.id);
@@ -100,6 +104,7 @@ export function TaskCard({
     { enabled: !!task.projectId },
   );
   const unansweredCount = unansweredByTask?.[task.id] ?? 0;
+  const needsAttention = terminalActivity === 'waiting' || unansweredCount > 0;
 
   const utils = trpc.useUtils();
   const updateTask = trpc.task.update.useMutation({
@@ -120,6 +125,7 @@ export function TaskCard({
       className={cn(
         'group/task text-left text-xs transition-colors hover:bg-muted',
         borderClass && `border-l-2 ${borderClass}`,
+        needsAttention && 'ring-1 ring-inset ring-amber-400/50',
         showCheckbox && isDone && 'opacity-50',
         onClick && 'cursor-pointer',
         dragHandleProps ? 'flex' : 'space-y-0.5 p-2',

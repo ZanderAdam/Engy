@@ -261,12 +261,14 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       const panel = api.getPanel(sessionId);
       if (panel) {
         panel.api.setActive();
+        // Always broadcast so the right panel expands even if the tab was already active
+        broadcastActive();
       }
     }
 
     window.addEventListener('terminal:focus', onFocus);
     return () => window.removeEventListener('terminal:focus', onFocus);
-  }, []);
+  }, [broadcastActive]);
 
   // Cross-browser session sync: when another browser creates a session for this groupKey,
   // fetch updated session list and add any new sessions as tabs

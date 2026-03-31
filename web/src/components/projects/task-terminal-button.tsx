@@ -35,7 +35,7 @@ export function TaskTerminalButton({ sessions }: TaskTerminalButtonProps) {
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="shrink-0 p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+              className="shrink-0 cursor-pointer p-0.5 text-muted-foreground transition-colors hover:text-foreground"
               onClick={(e) => {
                 e.stopPropagation();
                 focusTerminal(sessions[0].sessionId);
@@ -60,7 +60,7 @@ export function TaskTerminalButton({ sessions }: TaskTerminalButtonProps) {
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="shrink-0 p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                className="shrink-0 cursor-pointer p-0.5 text-muted-foreground transition-colors hover:text-foreground"
                 onClick={(e) => e.stopPropagation()}
               >
                 <RiTerminalLine className={cn('size-3.5', activityStyle)} />

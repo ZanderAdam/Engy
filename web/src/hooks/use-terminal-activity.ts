@@ -1,6 +1,7 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
+import type { TerminalActivityState } from '@/components/terminal/types';
 
 interface ActivityChangeDetail {
   sessionId: string;

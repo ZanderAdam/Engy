@@ -26,11 +26,7 @@ interface TerminalProps {
 }
 
 const ACTIVITY_DEBOUNCE_MS = 3000;
-
-function hasNotificationSequence(data: string): boolean {
-  if (data.includes('\x1b]9;')) return true;
-  return data.includes('\x07') && !data.includes('\x1b]');
-}
+const TITLE_SUPPRESS_MS = 3000;
 
 function getWsBase(): string {
   if (typeof window === 'undefined') return '';
@@ -64,8 +60,6 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
   const wsRef = useRef<WebSocket | null>(null);
   const isPinnedRef = useRef(true);
   const scrollRafRef = useRef(0);
-  const activityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isActiveRef = useRef(false);
   const lastSentColsRef = useRef(0);
   const lastSentRowsRef = useRef(0);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -124,6 +118,45 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     fitAddonRef.current = fitAddon;
     isPinnedRef.current = true;
     setShowScrollButton(false);
+
+    // Activity detection via title changes — Claude Code updates the title with
+    // spinner characters while working, stops when idle. Immune to resize/redraw.
+    let lastTitle = '';
+    let titleChangeCount = 0;
+    let titleTimer: ReturnType<typeof setTimeout> | null = null;
+    let titleActive = false;
+    let suppressTitleUntil = Date.now() + TITLE_SUPPRESS_MS;
+
+    const titleSub = term.onTitleChange((title) => {
+      if (Date.now() < suppressTitleUntil || title === lastTitle) return;
+      lastTitle = title;
+      titleChangeCount++;
+
+      if (!titleActive && titleChangeCount >= 2) {
+        titleActive = true;
+        onActivity?.(sessionId, 'start');
+      }
+
+      if (titleTimer) clearTimeout(titleTimer);
+      titleTimer = setTimeout(() => {
+        titleTimer = null;
+        if (titleActive) {
+          titleActive = false;
+          onActivity?.(sessionId, 'waiting');
+        }
+        titleChangeCount = 0;
+      }, ACTIVITY_DEBOUNCE_MS);
+    });
+
+    const bellSub = term.onBell(() => {
+      titleActive = false;
+      titleChangeCount = 0;
+      if (titleTimer) {
+        clearTimeout(titleTimer);
+        titleTimer = null;
+      }
+      onActivity?.(sessionId, 'waiting');
+    });
 
     const scrollSub = term.onScroll(() => {
       const buf = term.buffer.active;
@@ -205,32 +238,6 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       }
 
       if (msg.t === 'o' && msg.d) {
-        // Activity tracking: detect notification sequences and data flow
-        const hasBel = msg.d.includes('\x07');
-        const hasOsc = msg.d.includes('\x1b]');
-        if (hasBel || hasOsc) {
-          console.log(`[terminal-activity] session=${sessionId} hasBel=${hasBel} hasOsc=${hasOsc} notification=${hasNotificationSequence(msg.d)} dataLen=${msg.d.length} snippet=${JSON.stringify(msg.d.slice(0, 120))}`);
-        }
-        if (hasNotificationSequence(msg.d)) {
-          isActiveRef.current = false;
-          if (activityTimerRef.current) {
-            clearTimeout(activityTimerRef.current);
-            activityTimerRef.current = null;
-          }
-          onActivity?.(sessionId, 'waiting');
-        } else {
-          if (!isActiveRef.current) {
-            isActiveRef.current = true;
-            onActivity?.(sessionId, 'start');
-          }
-          if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
-          activityTimerRef.current = setTimeout(() => {
-            activityTimerRef.current = null;
-            isActiveRef.current = false;
-            onActivity?.(sessionId, 'idle');
-          }, ACTIVITY_DEBOUNCE_MS);
-        }
-
         if (isPinnedRef.current) {
           term.write(msg.d);
           scheduleScroll();
@@ -247,6 +254,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
         }
       } else if (msg.t === 'reconnected' && msg.buffer) {
         console.log(`[terminal-ui] Reconnected session ${sessionId}, buffer lines: ${msg.buffer.length}`);
+        suppressTitleUntil = Date.now() + TITLE_SUPPRESS_MS;
         term.clear();
         term.write(msg.buffer.join(''), () => {
           term.scrollToBottom();
@@ -302,6 +310,15 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ t: 'i', sessionId, d: data }));
       }
+      if (titleActive || titleTimer) {
+        titleActive = false;
+        titleChangeCount = 0;
+        if (titleTimer) {
+          clearTimeout(titleTimer);
+          titleTimer = null;
+        }
+        onActivity?.(sessionId, 'idle');
+      }
     });
 
     const resizeObserver = new ResizeObserver(handleResize);
@@ -310,11 +327,11 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     return () => {
       isCleanedUp = true;
       clearTimeout(fitTimer);
-      if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
-      activityTimerRef.current = null;
-      isActiveRef.current = false;
       if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
       scrollRafRef.current = 0;
+      titleSub.dispose();
+      bellSub.dispose();
+      if (titleTimer) clearTimeout(titleTimer);
       scrollSub.dispose();
       container.removeEventListener('wheel', handleWheel);
       resizeObserver.disconnect();
