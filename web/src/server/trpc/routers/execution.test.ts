@@ -184,11 +184,16 @@ describe('execution router', () => {
       ).rejects.toThrow('No daemon connected');
     });
 
-    it('should support milestone scope', async () => {
+    it('should support milestone scope and link session to first task', async () => {
       const { proj } = await seedProject(caller);
+      const firstTask = await caller.task.create({
+        projectId: proj.id,
+        title: 'First milestone task',
+        milestoneRef: 'm1',
+      });
       await caller.task.create({
         projectId: proj.id,
-        title: 'Milestone task',
+        title: 'Second milestone task',
         milestoneRef: 'm1',
       });
       const { sent } = createMockDaemon(ctx);
@@ -199,6 +204,15 @@ describe('execution router', () => {
       const msg = JSON.parse(sent[0]);
       expect(msg.payload.prompt).toContain('implement-milestone');
       expect(msg.payload.prompt).toContain('m1');
+
+      const db = getDb();
+      const session = db
+        .select()
+        .from(agentSessions)
+        .where(eq(agentSessions.sessionId, result.sessionId))
+        .get();
+      expect(session!.executionMode).toBe('milestone');
+      expect(session!.taskId).toBe(firstTask.id);
     });
 
     it('should support taskGroup scope', async () => {
@@ -359,6 +373,26 @@ describe('execution router', () => {
       const result = await caller.execution.getSessionStatus({ scope: 'task', id: task.id });
       expect(result.status).toBe('stopped');
       expect(result.completionSummary).toBe('Worktree creation failed');
+    });
+
+    it('should return session for milestone scope', async () => {
+      const { proj } = await seedProject(caller);
+      await caller.task.create({
+        projectId: proj.id,
+        title: 'MS task',
+        milestoneRef: 'm2',
+      });
+      createMockDaemon(ctx);
+
+      const { sessionId } = await caller.execution.startExecution({
+        scope: 'milestone',
+        id: 'm2',
+      });
+
+      const result = await caller.execution.getSessionStatus({ scope: 'milestone', id: 'm2' });
+      expect(result.status).toBe('active');
+      expect(result.sessionId).toBe(sessionId);
+      expect(result.completionSummary).toBeNull();
     });
 
     it('should return null completionSummary when no session exists', async () => {
@@ -565,6 +599,81 @@ describe('execution router', () => {
       await expect(
         caller.execution.startExecution({ scope: 'task', id: task.id, remote: true }),
       ).rejects.toThrow('An execution is already active for this scope');
+    });
+  });
+
+  describe('startBatchExecution', () => {
+    it('should create a session and mark all tasks as in_progress/implementing', async () => {
+      const { proj } = await seedProject(caller);
+      const t1 = await caller.task.create({ projectId: proj.id, title: 'Batch 1' });
+      const t2 = await caller.task.create({ projectId: proj.id, title: 'Batch 2' });
+      const t3 = await caller.task.create({ projectId: proj.id, title: 'Batch 3' });
+      const { sent } = createMockDaemon(ctx);
+
+      const result = await caller.execution.startBatchExecution({
+        taskIds: [t1.id, t2.id, t3.id],
+      });
+
+      expect(result.sessionId).toBeDefined();
+
+      // Verify prompt includes all task slugs (workspace slug is "exec-ws")
+      const msg = JSON.parse(sent[0]);
+      expect(msg.type).toBe('EXECUTION_START_REQUEST');
+      expect(msg.payload.prompt).toContain(`exec-ws-T${t1.id}`);
+      expect(msg.payload.prompt).toContain(`exec-ws-T${t2.id}`);
+      expect(msg.payload.prompt).toContain(`exec-ws-T${t3.id}`);
+
+      // Verify all tasks moved to in_progress/implementing
+      const db = getDb();
+      for (const id of [t1.id, t2.id, t3.id]) {
+        const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
+        expect(task!.status).toBe('in_progress');
+        expect(task!.subStatus).toBe('implementing');
+      }
+    });
+
+    it('should throw when a task already has an active session', async () => {
+      const { proj } = await seedProject(caller);
+      const t1 = await caller.task.create({ projectId: proj.id, title: 'Active task' });
+      const t2 = await caller.task.create({ projectId: proj.id, title: 'Free task' });
+      createMockDaemon(ctx);
+
+      await caller.execution.startExecution({ scope: 'task', id: t1.id });
+
+      await expect(
+        caller.execution.startBatchExecution({ taskIds: [t1.id, t2.id] }),
+      ).rejects.toThrow('already has an active session');
+    });
+
+    it('should throw when task has no project', async () => {
+      const task = await caller.task.create({ title: 'No project' });
+      createMockDaemon(ctx);
+
+      await expect(
+        caller.execution.startBatchExecution({ taskIds: [task.id] }),
+      ).rejects.toThrow('has no project');
+    });
+
+    it('should require at least one task', async () => {
+      createMockDaemon(ctx);
+
+      await expect(
+        caller.execution.startBatchExecution({ taskIds: [] }),
+      ).rejects.toThrow();
+    });
+
+    it('should reject tasks from different projects', async () => {
+      const { proj } = await seedProject(caller);
+      const ws2 = await caller.workspace.create({ name: 'Other WS' });
+      const proj2 = await caller.project.create({ workspaceSlug: ws2.slug, name: 'Other' });
+
+      const t1 = await caller.task.create({ projectId: proj.id, title: 'Proj1 task' });
+      const t2 = await caller.task.create({ projectId: proj2.id, title: 'Proj2 task' });
+      createMockDaemon(ctx);
+
+      await expect(
+        caller.execution.startBatchExecution({ taskIds: [t1.id, t2.id] }),
+      ).rejects.toThrow('All tasks in a batch must belong to the same project');
     });
   });
 });

@@ -299,6 +299,8 @@ export const executionRouter = router({
         repos = resolved.repos;
         workspace = resolved.workspace;
 
+        taskId = firstTask.id;
+
         const built = buildPromptForMilestone(
           milestoneRef,
           resolved.workspace,
@@ -312,18 +314,29 @@ export const executionRouter = router({
 
       // Guard against duplicate active/submitted sessions for the same scope
       const inFlightStatuses = ['active', 'submitted'] as const;
+      const execMode = input.scope === 'taskGroup' ? 'group' : input.scope;
       const existingSession = taskId
         ? db
             .select()
             .from(agentSessions)
-            .where(and(eq(agentSessions.taskId, taskId), inArray(agentSessions.status, [...inFlightStatuses])))
+            .where(
+              and(
+                eq(agentSessions.taskId, taskId),
+                eq(agentSessions.executionMode, execMode),
+                inArray(agentSessions.status, [...inFlightStatuses]),
+              ),
+            )
             .get()
         : taskGroupId
           ? db
               .select()
               .from(agentSessions)
               .where(
-                and(eq(agentSessions.taskGroupId, taskGroupId), inArray(agentSessions.status, [...inFlightStatuses])),
+                and(
+                  eq(agentSessions.taskGroupId, taskGroupId),
+                  eq(agentSessions.executionMode, execMode),
+                  inArray(agentSessions.status, [...inFlightStatuses]),
+                ),
               )
               .get()
           : undefined;
@@ -346,8 +359,8 @@ export const executionRouter = router({
         })
         .run();
 
-      // Move task to in_progress
-      if (taskId) {
+      // Move task to in_progress (skip for milestone scope — agent handles all tasks)
+      if (taskId && input.scope === 'task') {
         db.update(tasks)
           .set({ status: 'in_progress', subStatus: 'implementing' })
           .where(eq(tasks.id, taskId))
@@ -417,7 +430,7 @@ export const executionRouter = router({
           .set({ status: 'stopped', completionSummary: errorMessage, updatedAt: now })
           .where(eq(agentSessions.sessionId, sessionId))
           .run();
-        if (taskId) {
+        if (taskId && input.scope === 'task') {
           db.update(tasks)
             .set({
               status: (previousTaskStatus ?? 'todo') as typeof tasks.$inferInsert.status,
@@ -731,6 +744,133 @@ export const executionRouter = router({
       return session
         ? { status: session.status, sessionId: session.sessionId, completionSummary: session.completionSummary ?? null }
         : { status: null, sessionId: null, completionSummary: null };
+    }),
+
+  startBatchExecution: publicProcedure
+    .input(
+      z.object({
+        taskIds: z.array(z.number()).min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const sessionId = randomUUID();
+
+      // Resolve all tasks and capture original statuses for rollback
+      const batchTasks = input.taskIds.map((id) => {
+        const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
+        if (!task) throw new TRPCError({ code: 'NOT_FOUND', message: `Task ${id} not found` });
+        if (!task.projectId)
+          throw new TRPCError({ code: 'BAD_REQUEST', message: `Task ${id} has no project` });
+        return task;
+      });
+
+      // All tasks must belong to the same project
+      const projectIds = new Set(batchTasks.map((t) => t.projectId));
+      if (projectIds.size > 1) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'All tasks in a batch must belong to the same project',
+        });
+      }
+
+      const previousStatuses = new Map(batchTasks.map((t) => [t.id, t.status]));
+
+      // Guard against duplicate active sessions
+      const inFlightStatuses = ['active', 'submitted'] as const;
+      for (const task of batchTasks) {
+        const existing = db
+          .select()
+          .from(agentSessions)
+          .where(
+            and(
+              eq(agentSessions.taskId, task.id),
+              inArray(agentSessions.status, [...inFlightStatuses]),
+            ),
+          )
+          .get();
+        if (existing) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: `Task ${task.id} already has an active session`,
+          });
+        }
+      }
+
+      // Resolve project context from first task
+      const firstTask = batchTasks[0];
+      const { project, workspace, repos, projectDir, dirs } = resolveProjectContext(
+        firstTask.projectId!,
+      );
+
+      // Build prompt with all task slugs
+      const taskSlugs = batchTasks.map((t) => taskPlanSlug(workspace.slug, t.id));
+      const implementSkill = workspace.implementSkill || '/engy:implement';
+      const prompt = `Use ${implementSkill} for tasks: ${taskSlugs.join(', ')}`;
+      const systemPrompt = buildContextBlock({
+        workspace: { id: workspace.id, slug: workspace.slug },
+        project: { id: project.id, slug: project.slug, dir: projectDir },
+        repos,
+      });
+
+      // Create session linked to first task
+      db.insert(agentSessions)
+        .values({
+          sessionId,
+          executionMode: 'task',
+          status: 'active',
+          worktreePath: dirs.workingDir ?? null,
+          taskId: firstTask.id,
+        })
+        .run();
+
+      // Mark all tasks as in_progress/implementing
+      for (const task of batchTasks) {
+        db.update(tasks)
+          .set({ status: 'in_progress', subStatus: 'implementing' })
+          .where(eq(tasks.id, task.id))
+          .run();
+      }
+
+      const flags: string[] = [];
+      if (systemPrompt) flags.push('--append-system-prompt', systemPrompt);
+      for (const dir of dirs.additionalDirs) flags.push('--add-dir', dir);
+
+      const config = {
+        repoPath: repos[0] ?? '',
+        containerMode: (workspace.containerEnabled as boolean) ?? false,
+        containerWorkspaceFolder:
+          workspace.containerEnabled && workspace.executionBackend !== 'coder'
+            ? (workspace.docsDir ?? undefined)
+            : undefined,
+      };
+
+      try {
+        await dispatchExecutionStart(ctx.state, sessionId, prompt, flags, config);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        const now = new Date().toISOString();
+        db.update(agentSessions)
+          .set({ status: 'stopped', completionSummary: errorMessage, updatedAt: now })
+          .where(eq(agentSessions.sessionId, sessionId))
+          .run();
+        for (const task of batchTasks) {
+          db.update(tasks)
+            .set({
+              status: (previousStatuses.get(task.id) ?? 'todo') as typeof tasks.$inferInsert.status,
+              subStatus: 'failed' as typeof tasks.$inferInsert.subStatus,
+              updatedAt: now,
+            })
+            .where(eq(tasks.id, task.id))
+            .run();
+        }
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Failed to start batch execution: ${errorMessage}`,
+        });
+      }
+
+      return { sessionId };
     }),
 
   getWorktreeSessions: publicProcedure

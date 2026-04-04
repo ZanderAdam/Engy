@@ -33,6 +33,35 @@ describe('task-group router', () => {
       const result = await caller.taskGroup.list({ milestoneRef });
       expect(result).toHaveLength(0);
     });
+
+    it('should filter by projectId using AND logic', async () => {
+      const ws = await caller.workspace.create({ name: 'Filter WS' });
+      const projA = await caller.project.create({ workspaceSlug: ws.slug, name: 'Project A' });
+      const projB = await caller.project.create({ workspaceSlug: ws.slug, name: 'Project B' });
+
+      await caller.taskGroup.create({ projectId: projA.id, milestoneRef: 'm1', name: 'A-Group' });
+      await caller.taskGroup.create({ projectId: projB.id, milestoneRef: 'm1', name: 'B-Group' });
+
+      const resultA = await caller.taskGroup.list({ projectId: projA.id, milestoneRef: 'm1' });
+      expect(resultA).toHaveLength(1);
+      expect(resultA[0].name).toBe('A-Group');
+
+      const resultB = await caller.taskGroup.list({ projectId: projB.id, milestoneRef: 'm1' });
+      expect(resultB).toHaveLength(1);
+      expect(resultB[0].name).toBe('B-Group');
+    });
+
+    it('should return all groups for milestoneRef without projectId', async () => {
+      const ws = await caller.workspace.create({ name: 'No Filter WS' });
+      const projA = await caller.project.create({ workspaceSlug: ws.slug, name: 'PA' });
+      const projB = await caller.project.create({ workspaceSlug: ws.slug, name: 'PB' });
+
+      await caller.taskGroup.create({ projectId: projA.id, milestoneRef: 'm1', name: 'G1' });
+      await caller.taskGroup.create({ projectId: projB.id, milestoneRef: 'm1', name: 'G2' });
+
+      const result = await caller.taskGroup.list({ milestoneRef: 'm1' });
+      expect(result).toHaveLength(2);
+    });
   });
 
   describe('update', () => {

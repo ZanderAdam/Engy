@@ -128,6 +128,22 @@ describe('task router', () => {
       const blocked = result.find((t) => t.title === 'Blocked');
       expect(blocked?.blockedBy).toEqual([t1.id]);
     });
+
+    it('should combine milestoneRef and projectId with AND logic', async () => {
+      const ws = await caller.workspace.create({ name: 'Cross WS' });
+      const projB = await caller.project.create({ workspaceSlug: ws.slug, name: 'Other Project' });
+
+      await caller.task.create({ projectId, milestoneRef: 'm1', title: 'ProjA-M1' });
+      await caller.task.create({ projectId: projB.id, milestoneRef: 'm1', title: 'ProjB-M1' });
+
+      const resultA = await caller.task.list({ projectId, milestoneRef: 'm1' });
+      expect(resultA).toHaveLength(1);
+      expect(resultA[0].title).toBe('ProjA-M1');
+
+      const resultB = await caller.task.list({ projectId: projB.id, milestoneRef: 'm1' });
+      expect(resultB).toHaveLength(1);
+      expect(resultB[0].title).toBe('ProjB-M1');
+    });
   });
 
   describe('get', () => {
@@ -329,6 +345,104 @@ describe('task router', () => {
       await caller.task.delete({ id: blocker.id });
       const fetched = await caller.task.get({ id: task.id });
       expect(fetched.blockedBy).toEqual([]);
+    });
+  });
+
+  describe('bulkUpdate', () => {
+    it('should update milestoneRef for multiple tasks', async () => {
+      const t1 = await caller.task.create({ projectId, title: 'T1' });
+      const t2 = await caller.task.create({ projectId, title: 'T2' });
+      const t3 = await caller.task.create({ projectId, title: 'T3' });
+
+      const result = await caller.task.bulkUpdate({
+        ids: [t1.id, t2.id, t3.id],
+        milestoneRef: 'm1',
+      });
+
+      expect(result.updated).toBe(3);
+      const fetched = await caller.task.list({ projectId });
+      expect(fetched.every((t) => t.milestoneRef === 'm1')).toBe(true);
+    });
+
+    it('should update taskGroupId for multiple tasks', async () => {
+      const group = await caller.taskGroup.create({
+        milestoneRef: 'm1',
+        name: 'Bulk Group',
+      });
+      const t1 = await caller.task.create({ projectId, title: 'T1' });
+      const t2 = await caller.task.create({ projectId, title: 'T2' });
+
+      const result = await caller.task.bulkUpdate({
+        ids: [t1.id, t2.id],
+        taskGroupId: group.id,
+      });
+
+      expect(result.updated).toBe(2);
+      const fetched = await caller.task.list({ taskGroupId: group.id });
+      expect(fetched).toHaveLength(2);
+    });
+
+    it('should handle empty ids array', async () => {
+      const result = await caller.task.bulkUpdate({
+        ids: [],
+        milestoneRef: 'm1',
+      });
+      expect(result.updated).toBe(0);
+    });
+
+    it('should only update tasks that exist', async () => {
+      const t1 = await caller.task.create({ projectId, title: 'Exists' });
+
+      const result = await caller.task.bulkUpdate({
+        ids: [t1.id, 9999],
+        milestoneRef: 'm2',
+      });
+
+      expect(result.updated).toBe(1);
+      const fetched = await caller.task.get({ id: t1.id });
+      expect(fetched.milestoneRef).toBe('m2');
+    });
+
+    it('should clear milestoneRef with null', async () => {
+      const t1 = await caller.task.create({ projectId, title: 'T1', milestoneRef: 'm1' });
+
+      const result = await caller.task.bulkUpdate({
+        ids: [t1.id],
+        milestoneRef: null,
+      });
+
+      expect(result.updated).toBe(1);
+      const fetched = await caller.task.get({ id: t1.id });
+      expect(fetched.milestoneRef).toBeNull();
+    });
+  });
+
+  describe('bulkDelete', () => {
+    it('should delete multiple tasks', async () => {
+      const t1 = await caller.task.create({ projectId, title: 'Delete1' });
+      const t2 = await caller.task.create({ projectId, title: 'Delete2' });
+      await caller.task.create({ projectId, title: 'Keep' });
+
+      const result = await caller.task.bulkDelete({ ids: [t1.id, t2.id] });
+
+      expect(result.deleted).toBe(2);
+      const remaining = await caller.task.list({ projectId });
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].title).toBe('Keep');
+    });
+
+    it('should handle empty ids array', async () => {
+      const result = await caller.task.bulkDelete({ ids: [] });
+      expect(result.deleted).toBe(0);
+    });
+
+    it('should handle non-existent ids gracefully', async () => {
+      const t1 = await caller.task.create({ projectId, title: 'Exists' });
+
+      const result = await caller.task.bulkDelete({ ids: [t1.id, 9999] });
+
+      expect(result.deleted).toBe(1);
+      await expect(caller.task.get({ id: t1.id })).rejects.toThrow('not found');
     });
   });
 });

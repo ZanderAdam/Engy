@@ -44,10 +44,16 @@ export function EisenhowerMatrix({
   tasks,
   projectSlug,
   onTaskClick,
+  selectable = false,
+  selectedIds,
+  onTaskSelect,
 }: {
   tasks: Task[];
   projectSlug?: string;
   onTaskClick?: (taskId: number) => void;
+  selectable?: boolean;
+  selectedIds?: Set<number>;
+  onTaskSelect?: (id: number) => void;
 }) {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [pendingMoves, setPendingMoves] = useState<Record<number, PendingMove>>({});
@@ -139,6 +145,9 @@ export function EisenhowerMatrix({
                     projectSlug={projectSlug}
                     onClick={() => onTaskClick?.(task.id)}
                     className="rounded-none border border-border"
+                    selectable={selectable}
+                    selected={selectedIds?.has(task.id)}
+                    onSelect={onTaskSelect}
                   />
                 ))}
                 {items.length === 0 && (

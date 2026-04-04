@@ -10,11 +10,17 @@ export function DraggableTaskCard({
   onClick,
   className,
   projectSlug,
+  selectable,
+  selected,
+  onSelect,
 }: {
   task: Task;
   onClick?: () => void;
   className?: string;
   projectSlug?: string;
+  selectable?: boolean;
+  selected?: boolean;
+  onSelect?: (id: number) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: String(task.id),
@@ -28,7 +34,10 @@ export function DraggableTaskCard({
         onClick={onClick}
         className={className}
         projectSlug={projectSlug}
-        dragHandleProps={{ ...listeners, ...attributes }}
+        selectable={selectable}
+        selected={selected}
+        onSelect={onSelect}
+        dragHandleProps={selectable ? undefined : { ...listeners, ...attributes }}
       />
     </div>
   );

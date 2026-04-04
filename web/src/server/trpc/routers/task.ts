@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { and, eq, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, type SQL } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
@@ -162,4 +162,58 @@ export const taskRouter = router({
     broadcastTaskChange('deleted', input.id, task?.projectId ?? undefined);
     return { success: true };
   }),
+
+  bulkUpdate: publicProcedure
+    .input(
+      z.object({
+        ids: z.array(z.number()),
+        milestoneRef: z.string().nullable().optional(),
+        taskGroupId: z.number().nullable().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const { ids, ...updates } = input;
+      if (ids.length === 0) return { updated: 0 };
+
+      const db = getDb();
+      return db.transaction((tx) => {
+        const result = tx
+          .update(tasks)
+          .set({ ...updates, updatedAt: new Date().toISOString() })
+          .where(inArray(tasks.id, ids))
+          .returning()
+          .all();
+
+        for (const task of result) {
+          broadcastTaskChange('updated', task.id, task.projectId ?? undefined);
+        }
+
+        return { updated: result.length };
+      });
+    }),
+
+  bulkDelete: publicProcedure
+    .input(z.object({ ids: z.array(z.number()) }))
+    .mutation(({ input }) => {
+      if (input.ids.length === 0) return { deleted: 0 };
+
+      const db = getDb();
+      return db.transaction((tx) => {
+        const toDelete = tx
+          .select()
+          .from(tasks)
+          .where(inArray(tasks.id, input.ids))
+          .all();
+
+        if (toDelete.length > 0) {
+          tx.delete(tasks).where(inArray(tasks.id, input.ids)).run();
+        }
+
+        for (const task of toDelete) {
+          broadcastTaskChange('deleted', task.id, task.projectId ?? undefined);
+        }
+
+        return { deleted: toDelete.length };
+      });
+    }),
 });

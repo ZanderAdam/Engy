@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { and, eq, type SQL } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
@@ -9,6 +9,7 @@ export const taskGroupRouter = router({
   create: publicProcedure
     .input(
       z.object({
+        projectId: z.number().optional(),
         milestoneRef: z.string(),
         name: z.string().min(1),
         repos: z.array(z.string()).optional(),
@@ -19,6 +20,7 @@ export const taskGroupRouter = router({
       return db
         .insert(taskGroups)
         .values({
+          projectId: input.projectId,
           milestoneRef: input.milestoneRef,
           name: input.name,
           repos: input.repos,
@@ -28,17 +30,22 @@ export const taskGroupRouter = router({
     }),
 
   list: publicProcedure
-    .input(z.object({ milestoneRef: z.string().optional() }))
+    .input(
+      z.object({
+        projectId: z.number().optional(),
+        milestoneRef: z.string().optional(),
+      }),
+    )
     .query(({ input }) => {
       const db = getDb();
-      if (input.milestoneRef) {
-        return db
-          .select()
-          .from(taskGroups)
-          .where(eq(taskGroups.milestoneRef, input.milestoneRef))
-          .all();
-      }
-      return db.select().from(taskGroups).all();
+      const conditions: SQL[] = [];
+      if (input.projectId !== undefined) conditions.push(eq(taskGroups.projectId, input.projectId));
+      if (input.milestoneRef !== undefined)
+        conditions.push(eq(taskGroups.milestoneRef, input.milestoneRef));
+
+      return conditions.length > 0
+        ? db.select().from(taskGroups).where(and(...conditions)).all()
+        : db.select().from(taskGroups).all();
     }),
 
   get: publicProcedure.input(z.object({ id: z.number() })).query(({ input }) => {

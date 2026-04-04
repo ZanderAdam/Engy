@@ -127,8 +127,12 @@ function MilestoneRow({
 }) {
   const [open, setOpen] = useState(false);
   const { status: execStatus } = useExecutionStatus('milestone', milestone.ref);
-  const { data: tasks } = trpc.task.list.useQuery({ milestoneRef: milestone.ref });
+  const { data: tasks } = trpc.task.list.useQuery({
+    projectId,
+    milestoneRef: milestone.ref,
+  });
   const { data: taskGroups, isLoading: groupsLoading } = trpc.taskGroup.list.useQuery({
+    projectId,
     milestoneRef: milestone.ref,
   });
 

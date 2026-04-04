@@ -80,6 +80,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
 
 export const taskGroups = sqliteTable('task_groups', {
   id: integer('id').primaryKey({ autoIncrement: true }),
+  projectId: integer('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   milestoneRef: text('milestone_ref'),
   name: text('name').notNull(),
   status: text('status', {
@@ -96,7 +97,11 @@ export const taskGroups = sqliteTable('task_groups', {
     .$defaultFn(() => new Date().toISOString()),
 });
 
-export const taskGroupsRelations = relations(taskGroups, ({ many }) => ({
+export const taskGroupsRelations = relations(taskGroups, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [taskGroups.projectId],
+    references: [projects.id],
+  }),
   tasks: many(tasks),
   agentSessions: many(agentSessions),
 }));

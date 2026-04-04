@@ -31,6 +31,9 @@ interface TaskCardProps {
   onClick?: () => void;
   showCheckbox?: boolean;
   onCheckboxChange?: (done: boolean) => void;
+  selectable?: boolean;
+  selected?: boolean;
+  onSelect?: (id: number) => void;
   borderClass?: string;
   className?: string;
   dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
@@ -78,6 +81,9 @@ export function TaskCard({
   onClick,
   showCheckbox = false,
   onCheckboxChange,
+  selectable = false,
+  selected = false,
+  onSelect,
   borderClass,
   className,
   dragHandleProps,
@@ -114,20 +120,25 @@ export function TaskCard({
     },
   });
 
+  const handleClick = selectable
+    ? () => onSelect?.(task.id)
+    : onClick;
+
   return (
     <div
-      role={onClick ? 'button' : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onClick={onClick}
-      onKeyDown={onClick ? (e) => {
-        if (e.key === 'Enter' || e.key === ' ') onClick();
+      role={handleClick ? 'button' : undefined}
+      tabIndex={handleClick ? 0 : undefined}
+      onClick={handleClick}
+      onKeyDown={handleClick ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') handleClick();
       } : undefined}
       className={cn(
         'group/task text-left text-xs transition-colors hover:bg-muted',
         borderClass && `border-l-2 ${borderClass}`,
         needsAttention && 'ring-1 ring-inset ring-amber-400/50',
+        selectable && selected && 'ring-1 ring-inset ring-primary',
         showCheckbox && isDone && 'opacity-50',
-        onClick && 'cursor-pointer',
+        handleClick && 'cursor-pointer',
         dragHandleProps ? 'flex' : 'space-y-0.5 p-2',
         className,
       )}
@@ -144,7 +155,16 @@ export function TaskCard({
       )}
       <div className={cn('min-w-0 flex-1 space-y-0.5', dragHandleProps ? 'py-2 pr-2' : 'contents')}>
       <div className="flex items-center gap-1.5">
-        {showCheckbox && (
+        {selectable && (
+          <span className="flex shrink-0 items-center justify-center">
+            {selected ? (
+              <RiCheckboxLine className="size-4 text-primary" />
+            ) : (
+              <RiCheckboxBlankLine className="size-4 text-muted-foreground" />
+            )}
+          </span>
+        )}
+        {showCheckbox && !selectable && (
           <Button
             variant="ghost"
             size="icon"

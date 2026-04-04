@@ -37,10 +37,16 @@ export function KanbanBoard({
   tasks,
   onTaskClick,
   doneLimit = DEFAULT_DONE_LIMIT,
+  selectable = false,
+  selectedIds,
+  onTaskSelect,
 }: {
   tasks: Task[];
   onTaskClick?: (taskId: number) => void;
   doneLimit?: number;
+  selectable?: boolean;
+  selectedIds?: Set<number>;
+  onTaskSelect?: (id: number) => void;
 }) {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [pendingMoves, setPendingMoves] = useState<Record<number, TaskStatus>>({});
@@ -127,6 +133,9 @@ export function KanbanBoard({
             sortedDoneTasks={sortedDoneTasks}
             doneLimit={doneLimit}
             onTaskClick={onTaskClick}
+            selectable={selectable}
+            selectedIds={selectedIds}
+            onTaskSelect={onTaskSelect}
             headerAction={
               <button
                 type="button"
@@ -165,6 +174,9 @@ export function KanbanBoard({
             sortedDoneTasks={sortedDoneTasks}
             doneLimit={doneLimit}
             onTaskClick={onTaskClick}
+            selectable={selectable}
+            selectedIds={selectedIds}
+            onTaskSelect={onTaskSelect}
           />
         ))}
       </div>
@@ -183,6 +195,9 @@ function KanbanColumn({
   sortedDoneTasks,
   doneLimit,
   onTaskClick,
+  selectable = false,
+  selectedIds,
+  onTaskSelect,
   headerAction,
 }: {
   status: string;
@@ -190,6 +205,9 @@ function KanbanColumn({
   sortedDoneTasks: Task[];
   doneLimit: number;
   onTaskClick?: (taskId: number) => void;
+  selectable?: boolean;
+  selectedIds?: Set<number>;
+  onTaskSelect?: (id: number) => void;
   headerAction?: React.ReactNode;
 }) {
   const isDone = status === 'done';
@@ -215,6 +233,9 @@ function KanbanColumn({
             task={task}
             onClick={() => onTaskClick?.(task.id)}
             className="rounded-none border border-border"
+            selectable={selectable}
+            selected={selectedIds?.has(task.id)}
+            onSelect={onTaskSelect}
           />
         ))}
         {hiddenCount > 0 && (

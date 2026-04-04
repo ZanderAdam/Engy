@@ -113,7 +113,10 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
     { projectId: projectId! },
     { enabled: !!projectId && open },
   );
-  const { data: groups } = trpc.taskGroup.list.useQuery({}, { enabled: open });
+  const { data: groups } = trpc.taskGroup.list.useQuery(
+    { projectId },
+    { enabled: open && \!\!projectId },
+  );
 
   const createTask = trpc.task.create.useMutation({
     onSuccess: () => {
@@ -320,7 +323,10 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
     { projectId: task?.projectId ?? 0 },
     { enabled: !!task?.projectId },
   );
-  const { data: groups } = trpc.taskGroup.list.useQuery({}, { enabled: open });
+  const { data: groups } = trpc.taskGroup.list.useQuery(
+    { projectId: task?.projectId ?? undefined },
+    { enabled: open && \!\!task?.projectId },
+  );
 
   const utils = trpc.useUtils();
   const writePlan = trpc.project.writeFile.useMutation({

@@ -9,8 +9,12 @@ import { DependencyGraph } from "@/components/projects/task-views/dependency-gra
 import { KanbanBoard } from "@/components/projects/task-views/kanban-board";
 import { EisenhowerMatrix } from "@/components/projects/task-views/eisenhower-matrix";
 import { useOnFileChange } from "@/contexts/events-context";
+import { useTaskSelection } from "@/hooks/use-task-selection";
 import { TaskDialog } from "@/components/projects/task-dialog";
 import { TaskGroupForm } from "@/components/projects/task-group-form";
+import { BulkActionBar } from "@/components/projects/bulk-action-bar";
+import { GroupFromSelectionDialog } from "@/components/projects/group-from-selection-dialog";
+import { AssignMilestoneDialog } from "@/components/projects/assign-milestone-dialog";
 import {
   TaskFilter,
   applyTaskFilters,
@@ -18,8 +22,18 @@ import {
   DEFAULT_DONE_LIMIT,
   type TaskFilters,
 } from "@/components/projects/task-filter";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { RiAddLine } from "@remixicon/react";
+import { RiAddLine, RiCheckboxMultipleLine } from "@remixicon/react";
 
 const DEBOUNCE_MS = 500;
 
@@ -95,8 +109,36 @@ export default function ProjectTasksPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [showNewTask, setShowNewTask] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
+  const [showGroupDialog, setShowGroupDialog] = useState(false);
+  const [showMilestoneDialog, setShowMilestoneDialog] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const selection = useTaskSelection();
 
   const utils = trpc.useUtils();
+
+  const bulkDelete = trpc.task.bulkDelete.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Deleted ${data.deleted} tasks`);
+      utils.task.list.invalidate();
+      utils.task.get.invalidate();
+      selection.exitSelectMode();
+      setShowDeleteConfirm(false);
+    },
+  });
+
+  const startBatch = trpc.execution.startBatchExecution.useMutation({
+    onSuccess: () => {
+      toast.success('Batch execution started');
+      utils.task.list.invalidate();
+      utils.execution.getSessionStatus.invalidate();
+      utils.execution.getActiveSessions.invalidate();
+      selection.exitSelectMode();
+    },
+    onError: (err) => {
+      toast.error('Failed to start batch execution', { description: err.message });
+    },
+  });
   const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
@@ -173,6 +215,16 @@ export default function ProjectTasksPage() {
     });
   }
 
+  const visibleTaskIds = useMemo(() => filteredTasks.map((t) => t.id), [filteredTasks]);
+
+  function handleSelectAll() {
+    if (selection.selectedCount === visibleTaskIds.length) {
+      selection.clear();
+    } else {
+      selection.selectAll(visibleTaskIds);
+    }
+  }
+
   if (!workspace || !project) return null;
 
   return (
@@ -188,6 +240,16 @@ export default function ProjectTasksPage() {
           />
         </div>
         <div className="flex gap-2">
+          {currentView !== "graph" && (
+            <Button
+              size="sm"
+              variant={selection.isSelecting ? "default" : "outline"}
+              onClick={selection.isSelecting ? selection.exitSelectMode : selection.enterSelectMode}
+            >
+              <RiCheckboxMultipleLine data-icon="inline-start" />
+              Select
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => setShowNewGroup(true)}>
             <RiAddLine data-icon="inline-start" />
             Group
@@ -199,19 +261,49 @@ export default function ProjectTasksPage() {
         </div>
       </div>
 
+      {selection.isSelecting && (
+        <BulkActionBar
+          selectedCount={selection.selectedCount}
+          totalCount={visibleTaskIds.length}
+          onSelectAll={handleSelectAll}
+          onGroup={() => setShowGroupDialog(true)}
+          onMilestone={() => setShowMilestoneDialog(true)}
+          onDelete={() => setShowDeleteConfirm(true)}
+          onExecute={() => {
+            if (selection.selectedIds.size > 0) {
+              startBatch.mutate({ taskIds: Array.from(selection.selectedIds) });
+            }
+          }}
+          onCancel={selection.exitSelectMode}
+        />
+      )}
+
       {currentView === "graph" && (
         <DependencyGraph tasks={filteredTasks} onTaskClick={setSelectedTaskId} />
       )}
 
       {currentView === "kanban" && (
-        <KanbanBoard tasks={filteredTasks} onTaskClick={setSelectedTaskId} doneLimit={filters.doneLimit} />
+        <KanbanBoard
+          tasks={filteredTasks}
+          onTaskClick={selection.isSelecting ? undefined : setSelectedTaskId}
+          doneLimit={filters.doneLimit}
+          selectable={selection.isSelecting}
+          selectedIds={selection.selectedIds}
+          onTaskSelect={selection.toggle}
+        />
       )}
 
       {currentView === "eisenhower" && (
-        <EisenhowerMatrix tasks={filteredTasks} onTaskClick={setSelectedTaskId} />
+        <EisenhowerMatrix
+          tasks={filteredTasks}
+          onTaskClick={selection.isSelecting ? undefined : setSelectedTaskId}
+          selectable={selection.isSelecting}
+          selectedIds={selection.selectedIds}
+          onTaskSelect={selection.toggle}
+        />
       )}
 
-      {selectedTaskId !== null && (
+      {selectedTaskId !== null && !selection.isSelecting && (
         <TaskDialog
           mode="edit"
           taskId={selectedTaskId}
@@ -240,6 +332,49 @@ export default function ProjectTasksPage() {
           utils.taskGroup.list.invalidate();
         }}
       />
+
+      <GroupFromSelectionDialog
+        milestones={milestones ?? []}
+        selectedIds={selection.selectedIds}
+        open={showGroupDialog}
+        onOpenChange={setShowGroupDialog}
+        onComplete={() => {
+          setShowGroupDialog(false);
+          selection.exitSelectMode();
+        }}
+      />
+
+      <AssignMilestoneDialog
+        milestones={milestones ?? []}
+        selectedIds={selection.selectedIds}
+        open={showMilestoneDialog}
+        onOpenChange={setShowMilestoneDialog}
+        onComplete={() => {
+          setShowMilestoneDialog(false);
+          selection.exitSelectMode();
+        }}
+      />
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selection.selectedCount} tasks?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. The selected tasks will be permanently deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                bulkDelete.mutate({ ids: Array.from(selection.selectedIds) });
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

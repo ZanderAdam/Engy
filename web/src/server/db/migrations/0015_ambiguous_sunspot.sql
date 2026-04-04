@@ -1,0 +1,1 @@
+ALTER TABLE `task_groups` ADD `project_id` integer REFERENCES projects(id) ON DELETE CASCADE;
