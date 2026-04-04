@@ -20,6 +20,7 @@ import { validateDependencies, attachBlockedBy } from '../tasks/validation';
 import { getWorkspaceDir, resolveProjectDir } from '../engy-dir/init';
 import { readTaskPlan } from '../plan/service';
 import { broadcastTaskChange, broadcastQuestionChange } from '../ws/broadcast';
+import { taskStatusSchema } from '@/lib/task-status';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 
@@ -395,7 +396,7 @@ function registerTaskTools(mcp: McpServer): void {
       id: z.number().describe('Task ID'),
       title: z.string().optional().describe('New title'),
       description: z.string().optional().describe('New description'),
-      status: z.enum(['todo', 'in_progress', 'review', 'done']).optional().describe('New status'),
+      status: taskStatusSchema.optional().describe('New status'),
       type: z.enum(['ai', 'human']).optional().describe('New type'),
       importance: z.enum(['important', 'not_important']).optional().describe('New importance'),
       urgency: z.enum(['urgent', 'not_urgent']).optional().describe('New urgency'),
@@ -447,10 +448,7 @@ function registerTaskTools(mcp: McpServer): void {
       projectId: z.number().optional().describe('Filter by project ID'),
       milestoneRef: z.string().optional().describe('Filter by milestone ref (e.g. "m1")'),
       taskGroupId: z.number().optional().describe('Filter by task group ID'),
-      status: z
-        .enum(['todo', 'in_progress', 'review', 'done'])
-        .optional()
-        .describe('Filter by status'),
+      status: taskStatusSchema.optional().describe('Filter by status'),
       compact: z.boolean().default(true).describe('Omit description field (default true)'),
     },
     async ({ projectId, milestoneRef, taskGroupId, status, compact }) => {

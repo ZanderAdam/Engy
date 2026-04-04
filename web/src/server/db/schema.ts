@@ -111,7 +111,7 @@ export const tasks = sqliteTable('tasks', {
   title: text('title').notNull(),
   description: text('description'),
   status: text('status', {
-    enum: ['todo', 'in_progress', 'review', 'done'],
+    enum: ['backlog', 'todo', 'in_progress', 'review', 'done'],
   })
     .notNull()
     .default('todo'),

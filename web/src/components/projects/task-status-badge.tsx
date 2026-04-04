@@ -20,12 +20,14 @@ import {
   RiLoader4Line,
   RiEyeLine,
   RiCheckboxCircleLine,
+  RiInboxLine,
 } from '@remixicon/react';
+import { TASK_STATUSES, type TaskStatus } from '@/lib/task-status';
 
-export const taskStatusOptions = ['todo', 'in_progress', 'review', 'done'] as const;
-type TaskStatus = (typeof taskStatusOptions)[number];
+export const taskStatusOptions = TASK_STATUSES;
 
 export const taskStatusColors: Record<string, string> = {
+  backlog: 'text-zinc-500',
   todo: 'text-muted-foreground',
   in_progress: 'text-blue-500',
   review: 'text-yellow-500',
@@ -33,6 +35,7 @@ export const taskStatusColors: Record<string, string> = {
 };
 
 export const taskStatusIcons: Record<string, React.ComponentType<{ className?: string }>> = {
+  backlog: RiInboxLine,
   todo: RiCircleLine,
   in_progress: RiLoader4Line,
   review: RiEyeLine,
@@ -40,6 +43,7 @@ export const taskStatusIcons: Record<string, React.ComponentType<{ className?: s
 };
 
 export const taskStatusLabels: Record<string, string> = {
+  backlog: 'Backlog',
   todo: 'Todo',
   in_progress: 'In Progress',
   review: 'Review',

@@ -6,6 +6,7 @@ import { getDb } from '../../db/client';
 import { tasks, taskDependencies } from '../../db/schema';
 import { validateDependencies, attachBlockedBy } from '../../tasks/validation';
 import { broadcastTaskChange } from '../../ws/broadcast';
+import { taskStatusSchema } from '@/lib/task-status';
 
 const subStatusEnum = z.enum(['planning', 'implementing', 'blocked', 'failed']);
 
@@ -62,7 +63,7 @@ export const taskRouter = router({
         projectId: z.number().optional(),
         milestoneRef: z.string().optional(),
         taskGroupId: z.number().optional(),
-        status: z.enum(['todo', 'in_progress', 'review', 'done']).optional(),
+        status: taskStatusSchema.optional(),
       }),
     )
     .query(({ input }) => {
@@ -99,7 +100,7 @@ export const taskRouter = router({
         id: z.number(),
         title: z.string().optional(),
         description: z.string().optional(),
-        status: z.enum(['todo', 'in_progress', 'review', 'done']).optional(),
+        status: taskStatusSchema.optional(),
         type: z.enum(['ai', 'human']).optional(),
         importance: z.enum(['important', 'not_important']).optional(),
         urgency: z.enum(['urgent', 'not_urgent']).optional(),
