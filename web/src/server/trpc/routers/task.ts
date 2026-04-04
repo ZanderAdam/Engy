@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { and, eq, type SQL } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
@@ -62,21 +62,24 @@ export const taskRouter = router({
         projectId: z.number().optional(),
         milestoneRef: z.string().optional(),
         taskGroupId: z.number().optional(),
+        status: z.enum(['todo', 'in_progress', 'review', 'done']).optional(),
       }),
     )
     .query(({ input }) => {
       const db = getDb();
 
-      let rows;
-      if (input.taskGroupId) {
-        rows = db.select().from(tasks).where(eq(tasks.taskGroupId, input.taskGroupId)).all();
-      } else if (input.milestoneRef) {
-        rows = db.select().from(tasks).where(eq(tasks.milestoneRef, input.milestoneRef)).all();
-      } else if (input.projectId) {
-        rows = db.select().from(tasks).where(eq(tasks.projectId, input.projectId)).all();
-      } else {
-        rows = db.select().from(tasks).all();
-      }
+      const conditions: SQL[] = [];
+      if (input.projectId !== undefined) conditions.push(eq(tasks.projectId, input.projectId));
+      if (input.milestoneRef !== undefined)
+        conditions.push(eq(tasks.milestoneRef, input.milestoneRef));
+      if (input.taskGroupId !== undefined)
+        conditions.push(eq(tasks.taskGroupId, input.taskGroupId));
+      if (input.status !== undefined) conditions.push(eq(tasks.status, input.status));
+
+      const rows =
+        conditions.length > 0
+          ? db.select().from(tasks).where(and(...conditions)).all()
+          : db.select().from(tasks).all();
 
       return attachBlockedBy(rows);
     }),

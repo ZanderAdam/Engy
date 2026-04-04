@@ -447,15 +447,20 @@ function registerTaskTools(mcp: McpServer): void {
       projectId: z.number().optional().describe('Filter by project ID'),
       milestoneRef: z.string().optional().describe('Filter by milestone ref (e.g. "m1")'),
       taskGroupId: z.number().optional().describe('Filter by task group ID'),
+      status: z
+        .enum(['todo', 'in_progress', 'review', 'done'])
+        .optional()
+        .describe('Filter by status'),
       compact: z.boolean().default(true).describe('Omit description field (default true)'),
     },
-    async ({ projectId, milestoneRef, taskGroupId, compact }) => {
+    async ({ projectId, milestoneRef, taskGroupId, status, compact }) => {
       const db = getDb();
 
       const conditions: SQL[] = [];
       if (projectId !== undefined) conditions.push(eq(tasks.projectId, projectId));
       if (milestoneRef !== undefined) conditions.push(eq(tasks.milestoneRef, milestoneRef));
       if (taskGroupId !== undefined) conditions.push(eq(tasks.taskGroupId, taskGroupId));
+      if (status !== undefined) conditions.push(eq(tasks.status, status));
 
       const rows = conditions.length > 0
         ? db.select().from(tasks).where(and(...conditions)).all()
