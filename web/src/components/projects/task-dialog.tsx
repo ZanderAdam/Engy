@@ -115,7 +115,7 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
   );
   const { data: groups } = trpc.taskGroup.list.useQuery(
     { projectId },
-    { enabled: open && \!\!projectId },
+    { enabled: open && !!projectId },
   );
 
   const createTask = trpc.task.create.useMutation({
@@ -325,7 +325,7 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
   );
   const { data: groups } = trpc.taskGroup.list.useQuery(
     { projectId: task?.projectId ?? undefined },
-    { enabled: open && \!\!task?.projectId },
+    { enabled: open && !!task?.projectId },
   );
 
   const utils = trpc.useUtils();
@@ -552,7 +552,8 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
           {hasExecution && (
             <TabsContent value="execution">
               <ExecutionTab
-                taskId={taskId}
+                scope="task"
+                scopeId={taskId}
                 sessionId={sessionId!}
                 status={executionStatus}
                 completionSummary={completionSummary}

@@ -42,7 +42,8 @@ interface SessionEntry {
 }
 
 interface ExecutionTabProps {
-  taskId: number;
+  scope: 'task' | 'taskGroup' | 'milestone';
+  scopeId: number | string;
   sessionId: string;
   status: string | null;
   completionSummary?: string | null;
@@ -54,7 +55,7 @@ const POLL_INTERVAL_MS = 3_000;
 
 // ── Component ─────────────────────────────────────────────────────────
 
-export function ExecutionTab({ taskId, sessionId, status, completionSummary }: ExecutionTabProps) {
+export function ExecutionTab({ scope, scopeId, sessionId, status, completionSummary }: ExecutionTabProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const isActive = status === 'active';
@@ -69,17 +70,17 @@ export function ExecutionTab({ taskId, sessionId, status, completionSummary }: E
 
   const retryMutation = trpc.execution.retryExecution.useMutation({
     onSuccess: () => {
-      utils.execution.getSessionStatus.invalidate({ scope: 'task', id: taskId });
+      utils.execution.getSessionStatus.invalidate({ scope, id: scopeId });
     },
     onError: (err) => {
       toast.error('Failed to retry execution', { description: err.message });
-      utils.execution.getSessionStatus.invalidate({ scope: 'task', id: taskId });
+      utils.execution.getSessionStatus.invalidate({ scope, id: scopeId });
     },
   });
 
   const stopMutation = trpc.execution.stopExecution.useMutation({
     onSuccess: () => {
-      utils.execution.getSessionStatus.invalidate({ scope: 'task', id: taskId });
+      utils.execution.getSessionStatus.invalidate({ scope, id: scopeId });
     },
   });
 

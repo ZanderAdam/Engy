@@ -1,8 +1,26 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { RiMore2Line, RiDraftLine, RiFileTextLine, RiHammerLine, RiPlayLine, RiStopLine, RiCloudLine } from '@remixicon/react';
+import {
+  RiMore2Line,
+  RiDraftLine,
+  RiFileTextLine,
+  RiHammerLine,
+  RiPlayLine,
+  RiStopLine,
+  RiCloudLine,
+  RiChat3Line,
+} from '@remixicon/react';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
 import { useQuickAction } from '@/hooks/use-quick-action';
@@ -42,6 +61,9 @@ export function TaskQuickActions({
   const taskSlug = `${workspaceSlug}-T${taskId}`;
   const hasPlan = planSlugs.includes(taskSlug);
   const projectDir = project?.projectDir;
+
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [promptText, setPromptText] = useState('');
 
   const utils = trpc.useUtils();
   const updateTask = trpc.task.update.useMutation({
@@ -86,6 +108,14 @@ export function TaskQuickActions({
 
   function handleToggleNeedsPlan() {
     updateTask.mutate({ id: taskId, needsPlan: !needsPlan });
+  }
+
+  function handlePromptSubmit() {
+    if (!promptText.trim()) return;
+    const prompt = `${promptText.trim()}\n\nTask: ${taskSlug}`;
+    launch({ prompt, scopeLabel: `prompt: ${taskSlug}`, taskId });
+    setPromptOpen(false);
+    setPromptText('');
   }
 
   const { isActive, start: startExecution, stop: stopExecution } = useExecutionStatus('task', taskId);
@@ -155,6 +185,10 @@ export function TaskQuickActions({
                   Execute Remotely
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem disabled={disabled} onClick={() => setPromptOpen(true)}>
+                <RiChat3Line className="size-4" />
+                Start with prompt
+              </DropdownMenuItem>
             </>
           )}
           <DropdownMenuSeparator />
@@ -182,6 +216,32 @@ export function TaskQuickActions({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Dialog open={promptOpen} onOpenChange={setPromptOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Start with prompt</DialogTitle>
+            <DialogDescription>Enter a prompt to start working on {taskSlug}</DialogDescription>
+          </DialogHeader>
+          <Textarea
+            autoFocus
+            value={promptText}
+            onChange={(e) => setPromptText(e.target.value)}
+            placeholder="What would you like to do?"
+            rows={4}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && promptText.trim()) {
+                handlePromptSubmit();
+              }
+            }}
+          />
+          <DialogFooter>
+            <Button onClick={handlePromptSubmit} disabled={!promptText.trim()}>
+              Start
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

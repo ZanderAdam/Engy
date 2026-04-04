@@ -27,6 +27,7 @@ import { TaskCard } from './task-card';
 import { useQuickAction } from '@/hooks/use-quick-action';
 import { useExecutionStatus } from '@/hooks/use-execution-status';
 import { ExecutionStatusIcon } from './execution-status-icon';
+import { MilestoneExecutionDialog } from './milestone-execution-dialog';
 import { cn } from '@/lib/utils';
 import type { Task } from './types';
 
@@ -126,7 +127,12 @@ function MilestoneRow({
   containerEnabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const { status: execStatus } = useExecutionStatus('milestone', milestone.ref);
+  const [execDialogOpen, setExecDialogOpen] = useState(false);
+  const {
+    status: execStatus,
+    sessionId: execSessionId,
+    completionSummary: execSummary,
+  } = useExecutionStatus('milestone', milestone.ref);
   const { data: tasks } = trpc.task.list.useQuery({
     projectId,
     milestoneRef: milestone.ref,
@@ -201,7 +207,21 @@ function MilestoneRow({
             {done}/{total}
           </span>
         </div>
-        <ExecutionStatusIcon status={execStatus} />
+        <span
+          role={execSessionId ? 'button' : undefined}
+          tabIndex={execSessionId ? 0 : undefined}
+          onClick={
+            execSessionId
+              ? (e) => {
+                  e.stopPropagation();
+                  setExecDialogOpen(true);
+                }
+              : undefined
+          }
+          className={execSessionId ? 'cursor-pointer' : undefined}
+        >
+          <ExecutionStatusIcon status={execStatus} />
+        </span>
       </div>
     </div>
   );
@@ -240,10 +260,23 @@ function MilestoneRow({
     </div>
   );
 
+  const execDialog = execSessionId && (
+    <MilestoneExecutionDialog
+      milestoneNum={milestone.num}
+      milestoneRef={milestone.ref}
+      sessionId={execSessionId}
+      status={execStatus}
+      completionSummary={execSummary}
+      open={execDialogOpen}
+      onOpenChange={setExecDialogOpen}
+    />
+  );
+
   if (!hasContent) {
     return (
       <div className="border border-border">
         {milestoneHeader}
+        {execDialog}
       </div>
     );
   }
@@ -254,6 +287,7 @@ function MilestoneRow({
         <CollapsibleTrigger asChild>{milestoneHeader}</CollapsibleTrigger>
         <CollapsibleContent>{milestoneContent}</CollapsibleContent>
       </div>
+      {execDialog}
     </Collapsible>
   );
 }
