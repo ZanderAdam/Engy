@@ -37,6 +37,7 @@ import { formatCommentsForExport } from "./format-comments";
 import { SendToTerminalButton } from "../terminal/send-to-terminal-button";
 import { trpc } from "@/lib/trpc";
 import { stripFrontmatter } from "./frontmatter";
+import { normalizeMarkdown } from "./remark-normalize";
 
 export { EngyThreadStore } from "./thread-store";
 
@@ -211,7 +212,7 @@ export function DocumentEditor({
         snapshotAnchors((editor as any)._tiptapEditor.state.doc, threadStore);
       }
       const raw = editor.blocksToMarkdownLossy(editor.document);
-      const markdown = raw.replace(/(\\\n){2,}/g, '\\\n');
+      const markdown = normalizeMarkdown(raw);
 
       const contentHash = simpleHash(markdown);
       if (contentHash === lastContentHashRef.current) return;
@@ -228,7 +229,7 @@ export function DocumentEditor({
     const threads = threadStore.getThreads();
     if (threads.size === 0) return '';
 
-    const markdown = editor.blocksToMarkdownLossy(editor.document);
+    const markdown = normalizeMarkdown(editor.blocksToMarkdownLossy(editor.document));
     return formatCommentsForExport({ threads, markdown, filePath });
   }, [threadStore, editor, filePath]);
 
@@ -243,7 +244,7 @@ export function DocumentEditor({
   }, [getFormattedComments]);
 
   const getCurrentMarkdown = useCallback(() => {
-    return editor.blocksToMarkdownLossy(editor.document);
+    return normalizeMarkdown(editor.blocksToMarkdownLossy(editor.document));
   }, [editor]);
 
   const handleCopyMarkdown = useCallback(() => {

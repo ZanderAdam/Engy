@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`remark normalization of BlockNote output > emphasis > should normalize italic markers consistently > italic-normalized 1`] = `"This is *italic* text"`;

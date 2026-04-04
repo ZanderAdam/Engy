@@ -1,0 +1,581 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`BlockNote markdown round-trip > should document blockquote formatting changes > blockquote-roundtrip 1`] = `
+"> Line one\\
+> Line two\\
+> Line three"
+`;
+
+exports[`BlockNote markdown round-trip > should document checkbox formatting changes > checkbox-roundtrip 1`] = `
+"* [ ] Unchecked
+* [x] Checked
+* [ ] Another"
+`;
+
+exports[`BlockNote markdown round-trip > should document horizontal rule formatting changes > hr-asterisks 1`] = `
+"Above
+
+***
+
+Below"
+`;
+
+exports[`BlockNote markdown round-trip > should document horizontal rule formatting changes > hr-dashes 1`] = `
+"Above
+
+***
+
+Below"
+`;
+
+exports[`BlockNote markdown round-trip > should document horizontal rule formatting changes > hr-underscores 1`] = `
+"Above
+
+***
+
+Below"
+`;
+
+exports[`BlockNote markdown round-trip > should document list formatting changes > list-roundtrip 1`] = `
+"* Apple
+
+* Banana
+
+* Cherry"
+`;
+
+exports[`BlockNote markdown round-trip > should document nested list formatting changes > nested-list-roundtrip 1`] = `
+"* Parent
+
+  * Child
+
+  * Child 2
+
+    * Grandchild
+
+* Back"
+`;
+
+exports[`BlockNote markdown round-trip > should document ordered list formatting changes > ordered-list-roundtrip 1`] = `
+"1. First
+
+2. Second
+
+3. Third"
+`;
+
+exports[`BlockNote markdown round-trip > should document second round-trip stability > second-roundtrip 1`] = `
+"# Heading 1
+
+## Heading 2
+
+### Heading 3
+
+#### Heading 4
+
+Regular paragraph with **bold**, *italic*, ***bold italic***, ~~strikethrough~~, and \`inline code\`.
+
+***
+
+Another paragraph after a horizontal rule using dashes.
+
+***
+
+Horizontal rule using asterisks above.
+
+***
+
+Horizontal rule using underscores above.
+
+## Ordered Lists
+
+1. First item
+
+2. Second item
+
+3. Third item
+
+## Ordered List (starting at 5)
+
+5. Fifth item
+
+6. Sixth item
+
+7. Seventh item
+
+## Unordered Lists (dash)
+
+* Apple
+
+* Banana
+
+* Cherry
+
+## Unordered Lists (asterisk)
+
+* Alpha
+
+* Beta
+
+* Gamma
+
+## Unordered Lists (plus)
+
+* One
+
+* Two
+
+* Three
+
+## Nested Lists
+
+* Parent item
+
+  * Child item
+
+  * Another child
+
+    * Grandchild
+
+* Back to parent
+
+1. First
+
+   1. Nested first
+
+   2. Nested second
+
+2. Second
+
+## Checkboxes
+
+* [ ] Unchecked task
+* [x] Checked task
+* [ ] Another unchecked
+
+## Tables
+
+| Name  | Age | City |
+| ----- | --- | ---- |
+| Alice | 30  | NYC  |
+| Bob   | 25  | LA   |
+
+## Table without alignment
+
+| Col A | Col B | Col C |
+| ----- | ----- | ----- |
+| 1     | 2     | 3     |
+| 4     | 5     | 6     |
+
+## Blockquotes
+
+> Single line quote
+
+> Multi line quote\\
+> \\
+> that continues here\\
+> \\
+> and here.
+
+> Nested quote\\
+> \\
+> Inner quote\\
+> \\
+> Back to outer
+
+## Code Blocks
+
+\`\`\`typescript
+function hello(name: string): string {
+  return \`Hello, \${name}!\`;
+}
+\`\`\`
+
+\`\`\`text
+Plain code block without language
+const x = 42;
+\`\`\`
+
+## Links and Images
+
+[Link text](https://example.com)
+
+[Link with title](https://example.com)
+
+![Alt text](https://example.com/image.png)
+
+## Inline Formatting Combinations
+
+This has **bold with&#x20;*****nested italic*****&#x20;inside** it.
+
+This has *italic with&#x20;****nested bold****&#x20;inside* it.
+
+A paragraph with \`code\`, **bold**, and *italic* all mixed together.
+
+## Multiple Paragraphs
+
+First paragraph.
+
+Second paragraph.
+
+Third paragraph with a longer body of text that spans what would normally be a single line in a markdown file.
+
+## Emphasis Edge Cases
+
+**Bold at start** of line.
+
+End of line is **bold**.
+
+Middle has **bold** word.
+
+*Single asterisk italic* vs *underscore italic*.
+
+**Double asterisk bold** vs **underscore bold**.
+
+## Escaped Characters
+
+This has a literal * asterisk and a [ bracket.
+
+## Empty Sections
+
+## Non-empty After Empty
+
+Content after an empty heading section.
+"
+`;
+
+exports[`BlockNote markdown round-trip > should document table formatting changes > table-roundtrip 1`] = `
+"| Name  | Age |
+| ----- | --- |
+| Alice | 30  |"
+`;
+
+exports[`BlockNote markdown round-trip > should show all formatting differences (run with --reporter=verbose to inspect) > blocknote-markdown-roundtrip 1`] = `
+"# Heading 1
+
+## Heading 2
+
+### Heading 3
+
+#### Heading 4
+
+Regular paragraph with **bold**, *italic*, ***bold italic***, ~~strikethrough~~, and \`inline code\`.
+
+***
+
+Another paragraph after a horizontal rule using dashes.
+
+***
+
+Horizontal rule using asterisks above.
+
+***
+
+Horizontal rule using underscores above.
+
+## Ordered Lists
+
+1. First item
+
+2. Second item
+
+3. Third item
+
+## Ordered List (starting at 5)
+
+5. Fifth item
+
+6. Sixth item
+
+7. Seventh item
+
+## Unordered Lists (dash)
+
+* Apple
+
+* Banana
+
+* Cherry
+
+## Unordered Lists (asterisk)
+
+* Alpha
+
+* Beta
+
+* Gamma
+
+## Unordered Lists (plus)
+
+* One
+
+* Two
+
+* Three
+
+## Nested Lists
+
+* Parent item
+
+  * Child item
+
+  * Another child
+
+    * Grandchild
+
+* Back to parent
+
+1. First
+
+   1. Nested first
+
+   2. Nested second
+
+2. Second
+
+## Checkboxes
+
+* [ ] Unchecked task
+* [x] Checked task
+* [ ] Another unchecked
+
+## Tables
+
+| Name  | Age | City |
+| ----- | --- | ---- |
+| Alice | 30  | NYC  |
+| Bob   | 25  | LA   |
+
+## Table without alignment
+
+| Col A | Col B | Col C |
+| ----- | ----- | ----- |
+| 1     | 2     | 3     |
+| 4     | 5     | 6     |
+
+## Blockquotes
+
+> Single line quote
+
+> Multi line quote\\
+> that continues here\\
+> and here.
+
+> Nested quote\\
+> Inner quote\\
+> Back to outer
+
+## Code Blocks
+
+\`\`\`typescript
+function hello(name: string): string {
+  return \`Hello, \${name}!\`;
+}
+\`\`\`
+
+\`\`\`text
+Plain code block without language
+const x = 42;
+\`\`\`
+
+## Links and Images
+
+[Link text](https://example.com)
+
+[Link with title](https://example.com)
+
+![Alt text](https://example.com/image.png)
+
+## Inline Formatting Combinations
+
+This has **bold with&#x20;*****nested italic*****&#x20;inside** it.
+
+This has *italic with&#x20;****nested bold****&#x20;inside* it.
+
+A paragraph with \`code\`, **bold**, and *italic* all mixed together.
+
+## Multiple Paragraphs
+
+First paragraph.
+
+Second paragraph.
+
+Third paragraph with a longer body of text that spans what would normally be a single line in a markdown file.
+
+## Emphasis Edge Cases
+
+**Bold at start** of line.
+
+End of line is **bold**.
+
+Middle has **bold** word.
+
+*Single asterisk italic* vs *underscore italic*.
+
+**Double asterisk bold** vs **underscore bold**.
+
+## Escaped Characters
+
+This has a literal * asterisk and a [ bracket.
+
+## Empty Sections
+
+## Non-empty After Empty
+
+Content after an empty heading section.
+"
+`;
+
+exports[`BlockNote markdown round-trip > should show normalized output vs original input > normalized-roundtrip 1`] = `
+"# Heading 1
+
+## Heading 2
+
+### Heading 3
+
+#### Heading 4
+
+Regular paragraph with **bold**, *italic*, ***bold italic***, ~~strikethrough~~, and \`inline code\`.
+
+---
+
+Another paragraph after a horizontal rule using dashes.
+
+---
+
+Horizontal rule using asterisks above.
+
+---
+
+Horizontal rule using underscores above.
+
+## Ordered Lists
+
+1. First item
+2. Second item
+3. Third item
+
+## Ordered List (starting at 5)
+
+5. Fifth item
+6. Sixth item
+7. Seventh item
+
+## Unordered Lists (dash)
+
+- Apple
+- Banana
+- Cherry
+
+## Unordered Lists (asterisk)
+
+- Alpha
+- Beta
+- Gamma
+
+## Unordered Lists (plus)
+
+- One
+- Two
+- Three
+
+## Nested Lists
+
+- Parent item
+  - Child item
+  - Another child
+    - Grandchild
+- Back to parent
+
+1. First
+   1. Nested first
+   2. Nested second
+2. Second
+
+## Checkboxes
+
+- [ ] Unchecked task
+- [x] Checked task
+- [ ] Another unchecked
+
+## Tables
+
+| Name  | Age | City |
+| ----- | --- | ---- |
+| Alice | 30  | NYC  |
+| Bob   | 25  | LA   |
+
+## Table without alignment
+
+| Col A | Col B | Col C |
+| ----- | ----- | ----- |
+| 1     | 2     | 3     |
+| 4     | 5     | 6     |
+
+## Blockquotes
+
+> Single line quote
+
+> Multi line quote that continues here and here.
+
+> Nested quote Inner quote Back to outer
+
+## Code Blocks
+
+\`\`\`typescript
+function hello(name: string): string {
+  return \`Hello, \${name}!\`;
+}
+\`\`\`
+
+\`\`\`text
+Plain code block without language
+const x = 42;
+\`\`\`
+
+## Links and Images
+
+[Link text](https://example.com)
+
+[Link with title](https://example.com)
+
+![Alt text](https://example.com/image.png)
+
+## Inline Formatting Combinations
+
+This has **bold with *****nested italic***** inside** it.
+
+This has *italic with ****nested bold**** inside* it.
+
+A paragraph with \`code\`, **bold**, and *italic* all mixed together.
+
+## Multiple Paragraphs
+
+First paragraph.
+
+Second paragraph.
+
+Third paragraph with a longer body of text that spans what would normally be a single line in a markdown file.
+
+## Emphasis Edge Cases
+
+**Bold at start** of line.
+
+End of line is **bold**.
+
+Middle has **bold** word.
+
+*Single asterisk italic* vs *underscore italic*.
+
+**Double asterisk bold** vs **underscore bold**.
+
+## Escaped Characters
+
+This has a literal \\* asterisk and a \\[ bracket.
+
+## Empty Sections
+
+## Non-empty After Empty
+
+Content after an empty heading section."
+`;
