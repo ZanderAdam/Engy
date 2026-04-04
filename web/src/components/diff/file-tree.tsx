@@ -101,7 +101,7 @@ export function FileTree({
   }, [filtered]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex flex-col">
       {showFilter && filePaths.length > 5 && (
         <div className="flex items-center gap-1.5 border-b border-border px-2 py-1">
           <RiSearchLine className="size-3 shrink-0 text-muted-foreground" />

@@ -59,6 +59,7 @@ export function MonacoDiffEditor({
         originalEditable: false,
         renderSideBySide,
         minimap: { enabled: false },
+        glyphMargin: true,
         fontSize: 12,
         fontFamily: "'JetBrains Mono', Consolas, Courier, monospace",
         lineHeight: 18,

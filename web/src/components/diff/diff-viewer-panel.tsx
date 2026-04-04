@@ -18,6 +18,7 @@ interface DiffViewerPanelProps {
   onReply?: (threadId: string, text: string) => void;
   onResolve?: (threadId: string) => void;
   onDelete?: (threadId: string) => void;
+  onDeleteComment?: (threadId: string, commentId: string) => void;
 }
 
 export function DiffViewerPanel({
@@ -31,6 +32,7 @@ export function DiffViewerPanel({
   onReply,
   onResolve,
   onDelete,
+  onDeleteComment,
 }: DiffViewerPanelProps) {
   const [editorInstance, setEditorInstance] = useState<editor.IStandaloneDiffEditor | null>(null);
 
@@ -45,6 +47,7 @@ export function DiffViewerPanel({
     onReply,
     onResolve,
     onDelete,
+    onDeleteComment,
   });
 
   if (!filePath) {

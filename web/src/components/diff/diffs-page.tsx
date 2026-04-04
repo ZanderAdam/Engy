@@ -134,8 +134,15 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
   }, [diffViewMode, selectedCommit]);
 
   // Comments
-  const { diffComments, commentsForFile, addLineComment, replyToThread, resolve, remove } =
-    useDiffComments(selectedRepo);
+  const {
+    diffComments,
+    commentsForFile,
+    addLineComment,
+    replyToThread,
+    resolve,
+    remove,
+    removeComment,
+  } = useDiffComments(selectedRepo);
 
   const fileComments = useMemo(
     () => (selectedFile ? commentsForFile(selectedFile) : []),
@@ -356,6 +363,7 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
                     onReply={replyToThread}
                     onResolve={resolve}
                     onDelete={remove}
+                    onDeleteComment={removeComment}
                   />
                 )}
               </div>

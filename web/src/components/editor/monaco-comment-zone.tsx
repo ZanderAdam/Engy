@@ -23,6 +23,7 @@ interface MonacoCommentZoneProps {
   onReply?: (threadId: string, text: string) => void;
   onResolve?: (threadId: string) => void;
   onDelete?: (threadId: string) => void;
+  onDeleteComment?: (threadId: string, commentId: string) => void;
   onCancel: () => void;
   onHeightChange?: (height: number) => void;
 }
@@ -33,6 +34,7 @@ export function MonacoCommentZone({
   onReply,
   onResolve,
   onDelete,
+  onDeleteComment,
   onCancel,
   onHeightChange,
 }: MonacoCommentZoneProps) {
@@ -93,7 +95,7 @@ export function MonacoCommentZone({
             <div
               key={c.id}
               className={cn(
-                'py-1.5 text-xs',
+                'group/comment py-1.5 text-xs',
                 i > 0 && 'border-t border-border/50 ml-3',
                 comment.resolved && 'opacity-50',
               )}
@@ -106,6 +108,16 @@ export function MonacoCommentZone({
                   <span className="text-[10px] text-muted-foreground/60">
                     {formatRelativeTime(c.createdAt)}
                   </span>
+                )}
+                {i > 0 && onDeleteComment && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="ml-auto text-destructive hover:text-destructive opacity-0 group-hover/comment:opacity-100"
+                    onClick={() => onDeleteComment(comment.threadId, c.id)}
+                  >
+                    Delete
+                  </Button>
                 )}
               </div>
               <span className={cn('whitespace-pre-wrap', comment.resolved && 'line-through')}>
@@ -126,7 +138,7 @@ export function MonacoCommentZone({
                 className="text-destructive hover:text-destructive"
                 onClick={() => onDelete(comment.threadId)}
               >
-                Delete
+                Delete thread
               </Button>
             )}
           </div>

@@ -39,6 +39,7 @@ export function useDiffComments(repoDir: string | null) {
   const addComment = trpc.comment.addComment.useMutation({ onSuccess: () => refetch() });
   const resolveThread = trpc.comment.resolveThread.useMutation({ onSuccess: () => refetch() });
   const deleteThread = trpc.comment.deleteThread.useMutation({ onSuccess: () => refetch() });
+  const deleteCommentMut = trpc.comment.deleteComment.useMutation({ onSuccess: () => refetch() });
 
   const diffComments = useMemo<DiffComment[]>(() => {
     if (!threads) return [];
@@ -51,12 +52,14 @@ export function useDiffComments(repoDir: string | null) {
         codeLine: (meta.codeLine as string) ?? '',
         side: (meta.side as 'modified' | 'original') ?? 'modified',
         resolved: thread.resolved ?? false,
-        comments: thread.comments.map((c) => ({
-          id: c.id,
-          body: c.body,
-          userId: c.userId,
-          createdAt: c.createdAt,
-        })),
+        comments: thread.comments
+          .filter((c) => c.deletedAt == null)
+          .map((c) => ({
+            id: c.id,
+            body: c.body,
+            userId: c.userId,
+            createdAt: c.createdAt,
+          })),
       };
     });
   }, [threads]);
@@ -101,6 +104,10 @@ export function useDiffComments(repoDir: string | null) {
     await deleteThread.mutateAsync({ threadId });
   };
 
+  const removeComment = async (threadId: string, commentId: string) => {
+    await deleteCommentMut.mutateAsync({ threadId, commentId });
+  };
+
   return {
     diffComments,
     commentsForFile,
@@ -108,6 +115,7 @@ export function useDiffComments(repoDir: string | null) {
     replyToThread,
     resolve,
     remove,
+    removeComment,
     refetch,
   };
 }
