@@ -7,7 +7,7 @@ import path from 'node:path';
 import { z } from 'zod';
 
 const execFileAsync = promisify(execFile);
-import { eq, desc, and, inArray, sql, gt } from 'drizzle-orm';
+import { eq, desc, and, inArray, sql, gt, isNotNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import type { ExecutionStartConfig } from '@engy/common';
 import type { AppState } from '../context';
@@ -261,6 +261,7 @@ export async function triggerAutoStart(
           eq(projects.workspaceId, workspace.id),
           inArray(agentSessions.status, ['active', 'submitted']),
           gt(agentSessions.updatedAt, staleThreshold),
+          isNotNull(agentSessions.worktreePath),
         ),
       )
       .get();
