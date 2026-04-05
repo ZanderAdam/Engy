@@ -186,7 +186,7 @@ export const workspaceRouter = router({
         executionBackend: executionBackendSchema.nullable().optional(),
         coderConfig: coderConfigSchema.nullable().optional(),
         maxConcurrency: z.number().min(1).nullable().optional(),
-        autoAgentCompletion: autoAgentCompletionSchema.nullable(),
+        autoAgentCompletion: autoAgentCompletionSchema.nullable().optional(),
         remoteEnabled: z.boolean().nullable().optional(),
         autoStart: z.boolean().nullable().optional(),
       }),

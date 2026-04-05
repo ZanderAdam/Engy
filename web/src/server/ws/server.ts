@@ -419,7 +419,7 @@ function handleExecutionCompleteEvent(
           );
         });
       }
-    } else if (!isPlanningMode && workspaceContext.workspace.autoAgentCompletion === 'merge') {
+    } else if (session.executionMode === 'task' && workspaceContext.workspace.autoAgentCompletion === 'merge') {
       // Implementation succeeded with auto-merge — dispatch worktree merge
       if (session.worktreePath) {
         dispatchWorktreeMerge(state, session.worktreePath).catch((err) => {

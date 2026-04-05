@@ -58,7 +58,7 @@ export const taskRouter = router({
         return { ...newTask, blockedBy: dedupedBlockedBy };
       });
 
-      if (result.type === 'ai' && !result.taskGroupId && !result.milestoneRef) {
+      if (result.type === 'ai' && result.status === 'todo' && !result.taskGroupId && !result.milestoneRef) {
         const caller = appRouter.createCaller({ state: ctx.state });
         triggerAutoStart(caller, result.id).catch(() => {});
       }

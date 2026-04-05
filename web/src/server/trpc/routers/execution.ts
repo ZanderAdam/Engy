@@ -7,7 +7,7 @@ import path from 'node:path';
 import { z } from 'zod';
 
 const execFileAsync = promisify(execFile);
-import { eq, desc, and, inArray } from 'drizzle-orm';
+import { eq, desc, and, inArray, sql } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import type { ExecutionStartConfig } from '@engy/common';
 import { router, publicProcedure } from '../trpc';
@@ -53,7 +53,7 @@ function resolveTaskContext(taskId: number) {
 
 function buildPromptForTask(
   task: { id: number; title: string; description: string | null },
-  workspace: { slug: string; id: number; implementSkill: string | null },
+  workspace: { slug: string; id: number; implementSkill: string | null; autoAgentCompletion: string | null },
   project: { slug: string; id: number },
   projectDir: string,
   repos: string[],
@@ -65,13 +65,14 @@ function buildPromptForTask(
     workspace: { id: workspace.id, slug: workspace.slug },
     project: { id: project.id, slug: project.slug, dir: projectDir },
     repos,
+    autoAgentCompletion: workspace.autoAgentCompletion as 'pr' | 'merge' | undefined,
   });
   return { prompt, systemPrompt };
 }
 
 function buildPromptForPlan(
   task: { id: number; title: string; description: string | null },
-  workspace: { slug: string; id: number; planSkill: string | null },
+  workspace: { slug: string; id: number; planSkill: string | null; autoAgentCompletion: string | null },
   project: { slug: string; id: number },
   projectDir: string,
   repos: string[],
@@ -83,6 +84,7 @@ function buildPromptForPlan(
     workspace: { id: workspace.id, slug: workspace.slug },
     project: { id: project.id, slug: project.slug, dir: projectDir },
     repos,
+    autoAgentCompletion: workspace.autoAgentCompletion as 'pr' | 'merge' | undefined,
   });
   return { prompt, systemPrompt };
 }
@@ -242,28 +244,19 @@ export async function triggerAutoStart(caller: TrpcCaller, taskId: number): Prom
 
     // Check concurrency: active sessions < maxConcurrency
     const maxConcurrency = workspace.maxConcurrency ?? 1;
-    const activeSessions = db
-      .select()
+    const activeCountResult = db
+      .select({ count: sql<number>`count(*)` })
       .from(agentSessions)
-      .where(inArray(agentSessions.status, ['active', 'submitted']))
-      .all();
-
-    // Filter to sessions belonging to this workspace's projects
-    const workspaceProjects = db
-      .select()
-      .from(projects)
-      .where(eq(projects.workspaceId, workspace.id))
-      .all();
-    const projectIds = new Set(workspaceProjects.map((p) => p.id));
-
-    const workspaceTasks = db.select().from(tasks).all();
-    const workspaceTaskIds = new Set(
-      workspaceTasks.filter((t) => t.projectId && projectIds.has(t.projectId)).map((t) => t.id),
-    );
-
-    const activeCount = activeSessions.filter(
-      (s) => s.taskId && workspaceTaskIds.has(s.taskId),
-    ).length;
+      .innerJoin(tasks, eq(agentSessions.taskId, tasks.id))
+      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .where(
+        and(
+          eq(projects.workspaceId, workspace.id),
+          inArray(agentSessions.status, ['active', 'submitted']),
+        ),
+      )
+      .get();
+    const activeCount = activeCountResult?.count ?? 0;
 
     if (activeCount >= maxConcurrency) return;
 
