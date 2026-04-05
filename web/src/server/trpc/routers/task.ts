@@ -60,7 +60,9 @@ export const taskRouter = router({
 
       if (result.type === 'ai' && result.status === 'todo' && !result.taskGroupId && !result.milestoneRef) {
         const caller = appRouter.createCaller({ state: ctx.state });
-        triggerAutoStart(caller, result.id).catch(() => {});
+        triggerAutoStart(caller, result.id, ctx.state).catch((err: unknown) => {
+          console.error('[auto-start] create failed:', err);
+        });
       }
 
       return result;
@@ -167,7 +169,9 @@ export const taskRouter = router({
 
       if (typeChangedToAi) {
         const caller = appRouter.createCaller({ state: ctx.state });
-        triggerAutoStart(caller, result.id).catch(() => {});
+        triggerAutoStart(caller, result.id, ctx.state).catch((err: unknown) => {
+          console.error('[auto-start] update failed:', err);
+        });
       }
 
       return result;

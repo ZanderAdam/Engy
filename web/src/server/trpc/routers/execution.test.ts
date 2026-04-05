@@ -778,7 +778,7 @@ describe('execution router', () => {
       });
       createMockDaemon(ctx);
 
-      await triggerAutoStart(caller, task.id);
+      await triggerAutoStart(caller, task.id, ctx.state);
 
       const db = getDb();
       const sessions = db.select().from(agentSessions).all();
@@ -803,7 +803,7 @@ describe('execution router', () => {
       });
       createMockDaemon(ctx);
 
-      await triggerAutoStart(caller, task.id);
+      await triggerAutoStart(caller, task.id, ctx.state);
 
       const db = getDb();
       const sessions = db.select().from(agentSessions).all();
@@ -819,7 +819,7 @@ describe('execution router', () => {
       const task = await caller.task.create({ projectId: proj.id, title: 'No auto' });
       createMockDaemon(ctx);
 
-      await triggerAutoStart(caller, task.id);
+      await triggerAutoStart(caller, task.id, ctx.state);
 
       const db = getDb();
       const sessions = db.select().from(agentSessions).all();
@@ -844,7 +844,7 @@ describe('execution router', () => {
       });
       createMockDaemon(ctx);
 
-      await triggerAutoStart(caller, task.id);
+      await triggerAutoStart(caller, task.id, ctx.state);
 
       const db = getDb();
       const sessions = db.select().from(agentSessions).all();
@@ -865,7 +865,7 @@ describe('execution router', () => {
       });
       createMockDaemon(ctx);
 
-      await triggerAutoStart(caller, task.id);
+      await triggerAutoStart(caller, task.id, ctx.state);
 
       const db = getDb();
       const sessions = db.select().from(agentSessions).all();
@@ -894,7 +894,7 @@ describe('execution router', () => {
         needsPlan: false,
       });
 
-      await triggerAutoStart(caller, task2.id);
+      await triggerAutoStart(caller, task2.id, ctx.state);
 
       const db = getDb();
       const sessions = db.select().from(agentSessions).all();
@@ -917,7 +917,7 @@ describe('execution router', () => {
       createFailingDaemon(ctx, 'Daemon error');
 
       // Should not throw — fire-and-forget
-      await triggerAutoStart(caller, task.id);
+      await triggerAutoStart(caller, task.id, ctx.state);
 
       const db = getDb();
       const updatedTask = db.select().from(tasks).where(eq(tasks.id, task.id)).get();
@@ -928,7 +928,7 @@ describe('execution router', () => {
       const task = await caller.task.create({ title: 'No project' });
       createMockDaemon(ctx);
 
-      await triggerAutoStart(caller, task.id);
+      await triggerAutoStart(caller, task.id, ctx.state);
 
       const db = getDb();
       const sessions = db.select().from(agentSessions).all();

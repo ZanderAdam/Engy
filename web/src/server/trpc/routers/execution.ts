@@ -7,9 +7,10 @@ import path from 'node:path';
 import { z } from 'zod';
 
 const execFileAsync = promisify(execFile);
-import { eq, desc, and, inArray, sql } from 'drizzle-orm';
+import { eq, desc, and, inArray, sql, gt } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import type { ExecutionStartConfig } from '@engy/common';
+import type { AppState } from '../context';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { agentSessions, tasks, taskGroups, projects, workspaces } from '../../db/schema';
@@ -219,14 +220,22 @@ interface TrpcCaller {
   };
 }
 
-export async function triggerAutoStart(caller: TrpcCaller, taskId: number): Promise<void> {
+export async function triggerAutoStart(
+  caller: TrpcCaller,
+  taskId: number,
+  state: AppState,
+): Promise<void> {
   try {
+    // Fail fast if no daemon — same check dispatchExecutionStart does
+    if (!state.daemon || state.daemon.readyState !== 1) {
+      console.log(`[auto-start] Skipped task ${taskId}: no daemon connected`);
+      return;
+    }
+
     const db = getDb();
 
     const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
     if (!task?.projectId) return;
-
-    // Only standalone tasks (no taskGroupId, no milestoneRef)
     if (task.taskGroupId || task.milestoneRef) return;
 
     const project = db.select().from(projects).where(eq(projects.id, task.projectId)).get();
@@ -237,13 +246,11 @@ export async function triggerAutoStart(caller: TrpcCaller, taskId: number): Prom
       .from(workspaces)
       .where(eq(workspaces.id, project.workspaceId))
       .get();
-    if (!workspace) return;
+    if (!workspace?.autoStart) return;
 
-    // Workspace must have autoStart enabled
-    if (!workspace.autoStart) return;
-
-    // Check concurrency: active sessions < maxConcurrency
+    // Check concurrency — exclude sessions not updated in 24h (orphaned)
     const maxConcurrency = workspace.maxConcurrency ?? 1;
+    const staleThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const activeCountResult = db
       .select({ count: sql<number>`count(*)` })
       .from(agentSessions)
@@ -253,18 +260,21 @@ export async function triggerAutoStart(caller: TrpcCaller, taskId: number): Prom
         and(
           eq(projects.workspaceId, workspace.id),
           inArray(agentSessions.status, ['active', 'submitted']),
+          gt(agentSessions.updatedAt, staleThreshold),
         ),
       )
       .get();
     const activeCount = activeCountResult?.count ?? 0;
+    if (activeCount >= maxConcurrency) {
+      console.log(`[auto-start] Skipped task ${taskId}: concurrency ${activeCount}/${maxConcurrency}`);
+      return;
+    }
 
-    if (activeCount >= maxConcurrency) return;
-
-    // Route based on needsPlan
     const scope = task.needsPlan ? 'planning' : 'task';
+    console.log(`[auto-start] Dispatching task ${taskId}: scope=${scope}`);
     await caller.execution.startExecution({ scope, id: taskId });
+    console.log(`[auto-start] Started task ${taskId}`);
   } catch (err) {
-    // Fire-and-forget: log failure, set subStatus to 'failed'
     console.error(`[auto-start] Failed for task ${taskId}:`, err);
     try {
       const db = getDb();
@@ -276,7 +286,7 @@ export async function triggerAutoStart(caller: TrpcCaller, taskId: number): Prom
         .where(eq(tasks.id, taskId))
         .run();
     } catch (updateErr) {
-      console.error(`[auto-start] Failed to update task ${taskId} subStatus:`, updateErr);
+      console.error(`[auto-start] Failed to set subStatus for task ${taskId}:`, updateErr);
     }
   }
 }
@@ -427,7 +437,9 @@ export const executionRouter = router({
       }
 
       // Guard against duplicate active/submitted sessions for the same scope
+      // Exclude sessions not updated in 24h — likely orphaned from crashed processes
       const inFlightStatuses = ['active', 'submitted'] as const;
+      const sessionStaleThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const execMode = input.scope === 'taskGroup' ? 'group' : input.scope;
       const existingSession = taskId
         ? db
@@ -438,6 +450,7 @@ export const executionRouter = router({
                 eq(agentSessions.taskId, taskId),
                 eq(agentSessions.executionMode, execMode),
                 inArray(agentSessions.status, [...inFlightStatuses]),
+                gt(agentSessions.updatedAt, sessionStaleThreshold),
               ),
             )
             .get()
@@ -450,6 +463,7 @@ export const executionRouter = router({
                   eq(agentSessions.taskGroupId, taskGroupId),
                   eq(agentSessions.executionMode, execMode),
                   inArray(agentSessions.status, [...inFlightStatuses]),
+                  gt(agentSessions.updatedAt, sessionStaleThreshold),
                 ),
               )
               .get()
