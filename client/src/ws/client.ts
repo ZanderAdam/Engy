@@ -702,13 +702,14 @@ export class WsClient {
   ): Promise<void> {
     const { requestId, coderWorkspace, filePath, content } = message.payload;
     try {
+      const safeFilePath = filePath.replace(/'/g, "'\\''");
       const child = execFile('coder', [
         'ssh',
         coderWorkspace,
         '--',
         'bash',
         '-c',
-        `cat > ${filePath}`,
+        `cat > '${safeFilePath}'`,
       ]);
       child.stdin?.write(content);
       child.stdin?.end();
