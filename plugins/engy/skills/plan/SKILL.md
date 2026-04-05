@@ -69,7 +69,7 @@ This is an internal reasoning step. If conflicts are found, present them to the 
 Synthesize everything into a structured plan using the appropriate template:
 
 - **Lightweight**: Overview, Changes (with inline test impact), Verification.
-- **Standard**: Overview, Functional Requirements, Non-Functional Requirements (if relevant), Codebase Context, Affected Components, Implementation Sequence (ordered steps with inline test impact + parallelization notes), Out of Scope, Open Questions. Optionally: Test Scenarios (only for complex stateful flows).
+- **Standard**: Overview, Functional Requirements, Non-Functional Requirements (if relevant), Codebase Context (patterns + affected files table), Implementation Sequence (ordered steps with inline test impact + parallelization notes), Out of Scope, Open Questions. Optionally: Test Scenarios (only for complex stateful flows).
 
 **Test guidance:** FRs define expected behavior. Implementation Sequence steps include inline test impact. These two cover most testing needs. Only add a separate Test Scenarios section (Gherkin) when the feature has complex multi-step stateful flows where temporal ordering matters and can't be captured in a single FR.
 
@@ -108,6 +108,8 @@ What changes. Include before/after snippets for non-obvious changes.
 
 ## Verification
 How to confirm the change works end-to-end.
+
+**Parallelizable:** (optional) Note which changes can run concurrently.
 ```
 
 ## Standard Template
@@ -129,20 +131,22 @@ Only include what's relevant: performance targets, security constraints,
 accessibility, compatibility, data handling, error recovery.
 
 ## Codebase Context
-Key conventions, patterns, and existing infrastructure discovered during
-the Internal Pass. Include file paths. Keep brief — just what's needed
-to inform implementation.
 
-## Affected Components
+**Patterns:** Key conventions, established patterns, and existing infrastructure
+the implementation must follow. Keep brief — just what's needed to inform
+implementation decisions.
 
-### `path/to/file.ts` [MODIFY]
-What changes.
+**Affected files:**
 
-### `path/to/other-file.ts` [NEW]
-What this new file does.
+| File | Tag | Current Role → Change |
+|------|-----|----------------------|
+| `path/to/file.ts` | MODIFY | Current role → what changes |
+| `path/to/new-file.ts` | NEW | What this new file does |
 
 ## Implementation Sequence
-Ordered list of build steps. Note parallelizable steps after the list.
+Ordered list of build steps. Each step references affected files by name
+without re-describing what changes (that's in the table above). Focus on
+ordering, dependencies, and test impact.
 
 1. **Step name** — What to build/change. (dependencies: none | depends on step N)
    - *Test impact:* Which tests are affected and how. Include before/after
@@ -168,7 +172,7 @@ Explicit list of what this work does NOT include, to prevent scope creep.
 
 ## Open Questions
 Anything still ambiguous after elicitation that the user should weigh in on
-before implementation starts.
+before implementation starts. Omit this section entirely if there are none.
 ```
 
 ## Flow Position
