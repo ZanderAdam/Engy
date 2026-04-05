@@ -8,7 +8,7 @@ import { validateDependencies, attachBlockedBy } from '../../tasks/validation';
 import { broadcastTaskChange } from '../../ws/broadcast';
 import { taskStatusSchema } from '@/lib/task-status';
 
-const subStatusEnum = z.enum(['planning', 'implementing', 'blocked', 'failed']);
+const subStatusEnum = z.enum(['planning', 'implementing', 'blocked', 'failed', 'plan_review']);
 
 function checkedValidateDeps(taskId: number | null, blockedBy: number[]): number[] {
   try {

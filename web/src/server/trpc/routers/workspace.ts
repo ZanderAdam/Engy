@@ -35,6 +35,8 @@ const coderConfigSchema = z
   })
   .optional();
 
+const autoAgentCompletionSchema = z.enum(['pr', 'merge']).optional();
+
 const DEFAULT_PLAN_SKILL = '/engy:plan';
 const DEFAULT_IMPLEMENT_SKILL = '/engy:implement';
 
@@ -71,6 +73,7 @@ export const workspaceRouter = router({
         executionBackend: executionBackendSchema,
         coderConfig: coderConfigSchema,
         maxConcurrency: z.number().min(1).optional(),
+        autoAgentCompletion: autoAgentCompletionSchema,
         autoStart: z.boolean().optional(),
       }),
     )
@@ -117,6 +120,7 @@ export const workspaceRouter = router({
           executionBackend: input.executionBackend,
           coderConfig: input.coderConfig,
           maxConcurrency: input.maxConcurrency,
+          autoAgentCompletion: input.autoAgentCompletion,
           autoStart: input.autoStart,
         })
         .returning()
@@ -182,6 +186,7 @@ export const workspaceRouter = router({
         executionBackend: executionBackendSchema.nullable().optional(),
         coderConfig: coderConfigSchema.nullable().optional(),
         maxConcurrency: z.number().min(1).nullable().optional(),
+        autoAgentCompletion: autoAgentCompletionSchema.nullable(),
         remoteEnabled: z.boolean().nullable().optional(),
         autoStart: z.boolean().nullable().optional(),
       }),
@@ -204,6 +209,10 @@ export const workspaceRouter = router({
         input.containerConfig !== undefined ? input.containerConfig : existing.containerConfig;
       const newMaxConcurrency =
         input.maxConcurrency !== undefined ? input.maxConcurrency : existing.maxConcurrency;
+      const newAutoAgentCompletion =
+        input.autoAgentCompletion !== undefined
+          ? input.autoAgentCompletion
+          : existing.autoAgentCompletion;
       const newRemoteEnabled =
         input.remoteEnabled !== undefined ? input.remoteEnabled : existing.remoteEnabled;
       const newAutoStart =
@@ -268,6 +277,7 @@ export const workspaceRouter = router({
           executionBackend: newExecutionBackend,
           coderConfig: newCoderConfig,
           maxConcurrency: newMaxConcurrency,
+          autoAgentCompletion: newAutoAgentCompletion,
           remoteEnabled: newRemoteEnabled,
           autoStart: newAutoStart,
         })

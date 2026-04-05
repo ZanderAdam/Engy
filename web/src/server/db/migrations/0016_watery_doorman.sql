@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `auto_agent_completion` text DEFAULT 'pr';

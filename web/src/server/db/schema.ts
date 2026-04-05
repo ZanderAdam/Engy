@@ -30,6 +30,7 @@ export const workspaces = sqliteTable('workspaces', {
   executionBackend: text('execution_backend', { enum: ['devcontainer', 'coder'] }).default('devcontainer'),
   coderConfig: text('coder_config', { mode: 'json' }).$type<CoderConfig>(),
   maxConcurrency: integer('max_concurrency').default(1),
+  autoAgentCompletion: text('auto_agent_completion', { enum: ['pr', 'merge'] }).default('pr'),
   remoteEnabled: integer('remote_enabled', { mode: 'boolean' }).default(false),
   autoStart: integer('auto_start', { mode: 'boolean' }).default(false),
   createdAt: text('created_at')
@@ -128,7 +129,7 @@ export const tasks = sqliteTable('tasks', {
   needsPlan: integer('needs_plan', { mode: 'boolean' }).notNull().default(true),
   specId: text('spec_id'),
   subStatus: text('sub_status', {
-    enum: ['planning', 'implementing', 'blocked', 'failed'],
+    enum: ['planning', 'implementing', 'blocked', 'failed', 'plan_review'],
   }),
   sessionId: text('session_id'),
   feedback: text('feedback'),
@@ -217,7 +218,7 @@ export const agentSessions = sqliteTable('agent_sessions', {
   taskGroupId: integer('task_group_id').references(() => taskGroups.id, { onDelete: 'set null' }),
   taskId: integer('task_id').references(() => tasks.id),
   executionMode: text('execution_mode', {
-    enum: ['group', 'task', 'milestone'],
+    enum: ['group', 'task', 'milestone', 'planning'],
   }),
   completionSummary: text('completion_summary'),
   worktreePath: text('worktree_path'),
