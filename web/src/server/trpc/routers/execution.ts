@@ -16,6 +16,7 @@ import { getDb } from '../../db/client';
 import { agentSessions, tasks, taskGroups, projects, workspaces } from '../../db/schema';
 import { taskPlanSlug, readPlanFile } from '../../plan/service';
 import { dispatchExecutionStart, dispatchExecutionStop, dispatchContainerUp } from '../../ws/server';
+import { broadcastTaskChange } from '../../ws/broadcast';
 import { getWorkspaceDir, resolveProjectDir } from '../../engy-dir/init';
 import { buildContextBlock, buildQuickActionDirs } from '../../../lib/shell';
 
@@ -490,15 +491,19 @@ export const executionRouter = router({
 
       // Move task to in_progress (skip for milestone scope — agent handles all tasks)
       if (taskId && input.scope === 'task') {
-        db.update(tasks)
+        const updated = db.update(tasks)
           .set({ status: 'in_progress', subStatus: 'implementing' })
           .where(eq(tasks.id, taskId))
-          .run();
+          .returning()
+          .get();
+        if (updated) broadcastTaskChange('updated', taskId, updated.projectId ?? undefined);
       } else if (taskId && input.scope === 'planning') {
-        db.update(tasks)
+        const updated = db.update(tasks)
           .set({ status: 'in_progress', subStatus: 'planning' })
           .where(eq(tasks.id, taskId))
-          .run();
+          .returning()
+          .get();
+        if (updated) broadcastTaskChange('updated', taskId, updated.projectId ?? undefined);
       }
 
       const flags: string[] = [];
@@ -822,10 +827,16 @@ export const executionRouter = router({
 
       if (input.scope === 'task') {
         const taskId = typeof input.id === 'string' ? parseInt(input.id, 10) : input.id;
+        // Find most recent session for this task — could be 'task' or 'planning' mode
         const session = db
           .select()
           .from(agentSessions)
-          .where(and(eq(agentSessions.taskId, taskId), eq(agentSessions.executionMode, 'task')))
+          .where(
+            and(
+              eq(agentSessions.taskId, taskId),
+              inArray(agentSessions.executionMode, ['task', 'planning']),
+            ),
+          )
           .orderBy(desc(agentSessions.createdAt))
           .get();
 

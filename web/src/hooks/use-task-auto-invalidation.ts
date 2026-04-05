@@ -9,5 +9,7 @@ export function useTaskAutoInvalidation(): void {
     utils.task.get.invalidate();
     utils.task.listBySpecId.invalidate();
     utils.project.listWithProgress.invalidate();
+    utils.execution.getSessionStatus.invalidate();
+    utils.execution.getActiveSessions.invalidate();
   });
 }
