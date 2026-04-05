@@ -231,6 +231,41 @@ export interface FileWriteResponseMessage {
     | { requestId: string; error: string };
 }
 
+// ── Remote file operations (server ↔ daemon) ──────────────────────────────────
+
+export interface RemoteFilePullRequestMessage {
+  type: 'REMOTE_FILE_PULL_REQUEST';
+  payload: {
+    requestId: string;
+    coderWorkspace: string;
+    filePath: string;
+  };
+}
+
+export interface RemoteFilePullResponseMessage {
+  type: 'REMOTE_FILE_PULL_RESPONSE';
+  payload:
+    | { requestId: string; content: string }
+    | { requestId: string; error: string };
+}
+
+export interface RemoteFilePushRequestMessage {
+  type: 'REMOTE_FILE_PUSH_REQUEST';
+  payload: {
+    requestId: string;
+    coderWorkspace: string;
+    filePath: string;
+    content: string;
+  };
+}
+
+export interface RemoteFilePushResponseMessage {
+  type: 'REMOTE_FILE_PUSH_RESPONSE';
+  payload:
+    | { requestId: string; success: boolean }
+    | { requestId: string; error: string };
+}
+
 // ── Container operations (server ↔ daemon) ──────────────────────────────────
 
 export interface ContainerUpRequestMessage {
@@ -387,6 +422,10 @@ export type WsMessage =
   | FileReadResponseMessage
   | FileWriteRequestMessage
   | FileWriteResponseMessage
+  | RemoteFilePullRequestMessage
+  | RemoteFilePullResponseMessage
+  | RemoteFilePushRequestMessage
+  | RemoteFilePushResponseMessage
   | ContainerUpRequestMessage
   | ContainerUpResponseMessage
   | ContainerDownRequestMessage
@@ -414,6 +453,8 @@ export type ClientToServerMessage =
   | DirListResponseMessage
   | FileReadResponseMessage
   | FileWriteResponseMessage
+  | RemoteFilePullResponseMessage
+  | RemoteFilePushResponseMessage
   | ContainerUpResponseMessage
   | ContainerDownResponseMessage
   | ContainerStatusResponseMessage
@@ -435,6 +476,8 @@ export type ServerToClientMessage =
   | DirListRequestMessage
   | FileReadRequestMessage
   | FileWriteRequestMessage
+  | RemoteFilePullRequestMessage
+  | RemoteFilePushRequestMessage
   | ContainerUpRequestMessage
   | ContainerDownRequestMessage
   | ContainerStatusRequestMessage

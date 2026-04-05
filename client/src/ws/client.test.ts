@@ -7,15 +7,35 @@ import type {
   ValidatePathsRequestMessage,
   ExecutionStartRequestMessage,
   ExecutionStopRequestMessage,
+  RemoteFilePullRequestMessage,
+  RemoteFilePushRequestMessage,
 } from '@engy/common';
 import type { TerminalManager } from '../terminal/manager.js';
 import type { PersistentSession } from '../terminal/types.js';
 import { access } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { Runner } from '../runner/index.js';
+import { EventEmitter } from 'node:events';
 
 vi.mock('node:fs/promises', () => ({
   access: vi.fn(),
 }));
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const { promisify: nodePromisify } = await import('node:util');
+  const original = await importOriginal<typeof import('node:child_process')>();
+  const fn = vi.fn() as Record<symbol, unknown> & ReturnType<typeof vi.fn>;
+  fn[nodePromisify.custom] = vi.fn();
+  return {
+    ...original,
+    execFile: fn,
+  };
+});
+
+const mockedExecFile = vi.mocked(execFile) as unknown as ReturnType<typeof vi.fn> & {
+  [promisify.custom]: ReturnType<typeof vi.fn>;
+};
 
 const mockedAccess = vi.mocked(access);
 
@@ -786,5 +806,201 @@ describe('WsClient execution handlers', () => {
         env: undefined,
       }),
     );
+  });
+});
+
+describe('WsClient remote file sync handlers', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => {
+      wss.once('connection', resolve);
+    });
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => {
+      ws.once('message', (data) => resolve(data.toString()));
+    });
+  }
+
+  beforeEach(async () => {
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) {
+        resolve();
+      } else {
+        server.on('listening', () => resolve());
+      }
+    });
+    port = (server.address() as { port: number }).port;
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    vi.restoreAllMocks();
+  });
+
+  it('responds to REMOTE_FILE_PULL_REQUEST with file content on success', async () => {
+    mockedExecFile[promisify.custom].mockResolvedValue({
+      stdout: 'file-content-here',
+      stderr: '',
+    });
+
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      onWorkspacesSync: vi.fn(),
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: RemoteFilePullRequestMessage = {
+      type: 'REMOTE_FILE_PULL_REQUEST',
+      payload: {
+        requestId: 'pull-1',
+        coderWorkspace: 'my-workspace',
+        filePath: '/home/user/file.txt',
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    expect(JSON.parse(response)).toEqual({
+      type: 'REMOTE_FILE_PULL_RESPONSE',
+      payload: { requestId: 'pull-1', content: 'file-content-here' },
+    });
+  });
+
+  it('responds to REMOTE_FILE_PULL_REQUEST with error for missing file', async () => {
+    mockedExecFile[promisify.custom].mockRejectedValue(
+      new Error('cat: /missing/file: No such file or directory'),
+    );
+
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      onWorkspacesSync: vi.fn(),
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: RemoteFilePullRequestMessage = {
+      type: 'REMOTE_FILE_PULL_REQUEST',
+      payload: {
+        requestId: 'pull-2',
+        coderWorkspace: 'my-workspace',
+        filePath: '/missing/file',
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    expect(JSON.parse(response)).toEqual({
+      type: 'REMOTE_FILE_PULL_RESPONSE',
+      payload: {
+        requestId: 'pull-2',
+        error: 'cat: /missing/file: No such file or directory',
+      },
+    });
+  });
+
+  it('responds to REMOTE_FILE_PUSH_REQUEST with success on write', async () => {
+    const stdinWrite = vi.fn();
+    const stdinEnd = vi.fn();
+    const mockChild = Object.assign(new EventEmitter(), {
+      stdin: { write: stdinWrite, end: stdinEnd },
+    });
+
+    mockedExecFile.mockReturnValue(mockChild as unknown as ReturnType<typeof execFile>);
+
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      onWorkspacesSync: vi.fn(),
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: RemoteFilePushRequestMessage = {
+      type: 'REMOTE_FILE_PUSH_REQUEST',
+      payload: {
+        requestId: 'push-1',
+        coderWorkspace: 'my-workspace',
+        filePath: '/home/user/output.txt',
+        content: 'hello world',
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    await vi.waitFor(() => {
+      expect(stdinWrite).toHaveBeenCalledWith('hello world');
+    });
+
+    // Simulate successful close
+    mockChild.emit('close', 0);
+
+    const response = await waitForMessage(ws);
+    expect(JSON.parse(response)).toEqual({
+      type: 'REMOTE_FILE_PUSH_RESPONSE',
+      payload: { requestId: 'push-1', success: true },
+    });
+  });
+
+  it('responds to REMOTE_FILE_PUSH_REQUEST with error on failure', async () => {
+    const stdinWrite = vi.fn();
+    const stdinEnd = vi.fn();
+    const mockChild = Object.assign(new EventEmitter(), {
+      stdin: { write: stdinWrite, end: stdinEnd },
+    });
+
+    mockedExecFile.mockReturnValue(mockChild as unknown as ReturnType<typeof execFile>);
+
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      onWorkspacesSync: vi.fn(),
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: RemoteFilePushRequestMessage = {
+      type: 'REMOTE_FILE_PUSH_REQUEST',
+      payload: {
+        requestId: 'push-2',
+        coderWorkspace: 'my-workspace',
+        filePath: '/home/user/output.txt',
+        content: 'data',
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    await vi.waitFor(() => {
+      expect(stdinWrite).toHaveBeenCalled();
+    });
+
+    // Simulate non-zero exit
+    mockChild.emit('close', 1);
+
+    const response = await waitForMessage(ws);
+    expect(JSON.parse(response)).toEqual({
+      type: 'REMOTE_FILE_PUSH_RESPONSE',
+      payload: { requestId: 'push-2', error: 'coder ssh push failed (exit 1)' },
+    });
   });
 });

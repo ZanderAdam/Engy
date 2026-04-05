@@ -21,6 +21,8 @@ import type {
   ContainerStatusRequestMessage,
   ExecutionStartRequestMessage,
   ExecutionStopRequestMessage,
+  RemoteFilePullRequestMessage,
+  RemoteFilePushRequestMessage,
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
@@ -453,6 +455,12 @@ export class WsClient {
       case 'CONTAINER_STATUS_REQUEST':
         this.handleContainerStatusRequest(message as ContainerStatusRequestMessage);
         break;
+      case 'REMOTE_FILE_PULL_REQUEST':
+        this.handleRemoteFilePullRequest(message as RemoteFilePullRequestMessage);
+        break;
+      case 'REMOTE_FILE_PUSH_REQUEST':
+        this.handleRemoteFilePushRequest(message as RemoteFilePushRequestMessage);
+        break;
       case 'EXECUTION_START_REQUEST':
         this.handleExecutionStartRequest(message as ExecutionStartRequestMessage);
         break;
@@ -658,6 +666,62 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'FILE_WRITE_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleRemoteFilePullRequest(
+    message: RemoteFilePullRequestMessage,
+  ): Promise<void> {
+    const { requestId, coderWorkspace, filePath } = message.payload;
+    try {
+      const { stdout } = await execFileAsync(
+        'coder',
+        ['ssh', coderWorkspace, '--', 'cat', filePath],
+        { maxBuffer: EXEC_MAX_BUFFER },
+      );
+      this.send({
+        type: 'REMOTE_FILE_PULL_RESPONSE',
+        payload: { requestId, content: stdout },
+      });
+    } catch (err) {
+      this.send({
+        type: 'REMOTE_FILE_PULL_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleRemoteFilePushRequest(
+    message: RemoteFilePushRequestMessage,
+  ): Promise<void> {
+    const { requestId, coderWorkspace, filePath, content } = message.payload;
+    try {
+      const child = execFile('coder', [
+        'ssh',
+        coderWorkspace,
+        '--',
+        'bash',
+        '-c',
+        `cat > ${filePath}`,
+      ]);
+      child.stdin?.write(content);
+      child.stdin?.end();
+      await new Promise<void>((resolve, reject) => {
+        child.on('close', (code) => {
+          if (code !== 0) reject(new Error(`coder ssh push failed (exit ${code})`));
+          else resolve();
+        });
+        child.on('error', reject);
+      });
+      this.send({
+        type: 'REMOTE_FILE_PUSH_RESPONSE',
+        payload: { requestId, success: true },
+      });
+    } catch (err) {
+      this.send({
+        type: 'REMOTE_FILE_PUSH_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }
