@@ -259,7 +259,7 @@ export async function triggerAutoStart(
       .where(
         and(
           eq(projects.workspaceId, workspace.id),
-          inArray(agentSessions.status, ['active', 'submitted']),
+          eq(agentSessions.status, 'active'),
           gt(agentSessions.updatedAt, staleThreshold),
           isNotNull(agentSessions.worktreePath),
         ),
