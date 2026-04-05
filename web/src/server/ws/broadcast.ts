@@ -33,9 +33,10 @@ interface QuestionChangeEvent {
 interface TerminalSessionsChangeEvent {
   type: 'TERMINAL_SESSIONS_CHANGE';
   payload: {
-    action: 'created' | 'destroyed' | 'attached' | 'detached';
+    action: 'created' | 'destroyed' | 'attached' | 'detached' | 'renamed';
     sessionId: string;
     groupKey?: string;
+    newLabel?: string;
   };
 }
 
@@ -94,9 +95,10 @@ export function broadcastTerminalSessionsChange(
   action: TerminalSessionsChangeEvent['payload']['action'],
   sessionId: string,
   groupKey?: string,
+  newLabel?: string,
 ): void {
   broadcastEvent({
     type: 'TERMINAL_SESSIONS_CHANGE',
-    payload: { action, sessionId, groupKey },
+    payload: { action, sessionId, groupKey, newLabel },
   });
 }

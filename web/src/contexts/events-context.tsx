@@ -25,9 +25,10 @@ interface QuestionChangePayload {
 }
 
 interface TerminalSessionsChangePayload {
-  action: 'created' | 'destroyed' | 'attached' | 'detached';
+  action: 'created' | 'destroyed' | 'attached' | 'detached' | 'renamed';
   sessionId: string;
   groupKey?: string;
+  newLabel?: string;
 }
 
 interface ServerEventMap {

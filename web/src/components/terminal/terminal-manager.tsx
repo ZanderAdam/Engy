@@ -212,6 +212,27 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     [],
   );
 
+  const updateTabLabel = useCallback((sessionId: string, newLabel: string) => {
+    const existing = tabsRef.current.get(sessionId);
+    if (!existing) return;
+
+    const updated = { ...existing, scope: { ...existing.scope, scopeLabel: newLabel } };
+    tabsRef.current.set(sessionId, updated);
+
+    const panel = dockviewApiRef.current?.getPanel(sessionId);
+    panel?.api.updateParameters({ tab: updated } satisfies TerminalPanelParams);
+  }, []);
+
+  const renameTerminal = useCallback((sessionId: string, newLabel: string) => {
+    updateTabLabel(sessionId, newLabel);
+
+    fetch('/api/terminal/sessions/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, newLabel }),
+    }).catch((err: unknown) => console.error('Failed to rename terminal session:', err));
+  }, [updateTabLabel]);
+
   useEffect(() => {
     if (disableExternalEvents) return;
     return () => {
@@ -310,10 +331,12 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
           }
         })
         .catch((err: unknown) => console.error('Failed to sync terminal sessions:', err));
+    } else if (payload.action === 'renamed' && payload.newLabel) {
+      updateTabLabel(payload.sessionId, payload.newLabel);
     }
     // 'destroyed' is handled by the terminal WS exit/error events
     // 'attached'/'detached' are informational — no action needed
-  }, []));
+  }, [updateTabLabel]));
 
   const scheduleLayoutSave = useCallback(() => {
     if (restoringRef.current) return;
@@ -441,12 +464,13 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       handleStatusChange,
       handleActivity,
       handleReady,
+      renameTerminal,
       onCollapse,
       extraDropdownGroups,
       containerEnabled,
       defaultScope,
     }),
-    [openTerminal, handleStatusChange, handleActivity, handleReady, onCollapse, extraDropdownGroups, containerEnabled, defaultScope],
+    [openTerminal, handleStatusChange, handleActivity, handleReady, renameTerminal, onCollapse, extraDropdownGroups, containerEnabled, defaultScope],
   );
 
   const dockviewRef = useRef<HTMLDivElement>(null);

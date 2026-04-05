@@ -10,6 +10,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { useTerminalDock } from './terminal-dock-context';
 import { TERMINAL_ACTIVITY_STYLES, type TerminalPanelParams, type TerminalTab } from './types';
 
 function collapseLabel(label: string): string {
@@ -27,6 +28,9 @@ function getIconStyle(tab: TerminalTab): string | undefined {
 
 export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<TerminalPanelParams>) {
   const [tab, setTab] = useState<TerminalTab>(params.tab);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editStartLabel, setEditStartLabel] = useState('');
+  const { renameTerminal } = useTerminalDock();
 
   useEffect(() => {
     const disposable = api.onDidParametersChange(() => {
@@ -39,6 +43,47 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   const label = tab.scope.scopeLabel;
   const isDir = tab.scope.scopeType === 'dir';
 
+  function commitRename(value: string) {
+    const trimmed = value.trim();
+    setIsEditing(false);
+    if (trimmed && trimmed !== editStartLabel) {
+      renameTerminal(tab.sessionId, trimmed);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.stopPropagation();
+      commitRename(e.currentTarget.value);
+    } else if (e.key === 'Escape') {
+      e.stopPropagation();
+      setIsEditing(false);
+    }
+  }
+
+  function handleBlur(e: React.FocusEvent<HTMLInputElement>) {
+    commitRename(e.currentTarget.value);
+  }
+
+  const editInput = (
+    <input
+      className="min-w-0 truncate bg-transparent outline-none text-xs font-mono"
+      defaultValue={label}
+      onKeyDown={handleKeyDown}
+      onBlur={handleBlur}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      autoFocus
+    />
+  );
+
+  const labelSpan = (
+    <span className="min-w-0 truncate" onDoubleClick={() => { setEditStartLabel(label); setIsEditing(true); }}>
+      {isDir ? collapseLabel(label) : label}
+    </span>
+  );
+
   return (
     <div
       className={cn(
@@ -47,19 +92,19 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
       )}
     >
       <RiTerminalLine className={cn('size-[11px] shrink-0', getIconStyle(tab))} />
-      {isDir ? (
+      {isEditing ? (
+        editInput
+      ) : isDir ? (
         <TooltipProvider>
           <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="min-w-0 truncate">{collapseLabel(label)}</span>
-            </TooltipTrigger>
+            <TooltipTrigger asChild>{labelSpan}</TooltipTrigger>
             <TooltipContent side="bottom">
               <p className="font-mono">{label}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
       ) : (
-        <span className="min-w-0 truncate">{label}</span>
+        labelSpan
       )}
       {tab.status === 'exited' && (
         <span className="shrink-0 text-[9px] text-muted-foreground">[exited]</span>

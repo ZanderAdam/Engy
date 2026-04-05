@@ -7,6 +7,7 @@ import {
   createTerminalRelayWebSocketServer,
 } from './src/server/ws/terminal-server';
 import { createEventsWebSocketServer } from './src/server/ws/events-server';
+import { broadcastTerminalSessionsChange } from './src/server/ws/broadcast';
 import { attachMCP } from './src/server/mcp/index';
 import { runMigrations } from './src/server/db/migrate';
 
@@ -61,6 +62,36 @@ app.prepare().then(() => {
       console.log(`[terminal] GET /api/terminal/sessions → returning ${sessions.length} sessions (total meta: ${state.terminalSessionMeta.size})`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ sessions }));
+      return;
+    }
+
+    // Terminal session rename endpoint
+    if (req.method === 'POST' && url.pathname === '/api/terminal/sessions/rename') {
+      let body = '';
+      req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+      req.on('end', () => {
+        try {
+          const { sessionId, newLabel } = JSON.parse(body) as { sessionId: string; newLabel: string };
+          if (typeof sessionId !== 'string' || !sessionId || typeof newLabel !== 'string' || !newLabel.trim()) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'sessionId and newLabel are required strings' }));
+            return;
+          }
+          const meta = state.terminalSessionMeta.get(sessionId);
+          if (!meta) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Session not found' }));
+            return;
+          }
+          meta.scopeLabel = newLabel;
+          broadcastTerminalSessionsChange('renamed', sessionId, meta.groupKey, newLabel);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid request body' }));
+        }
+      });
       return;
     }
 

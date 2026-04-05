@@ -9,6 +9,7 @@ export interface TerminalDockContextValue {
   handleStatusChange: (sessionId: string, status: TerminalStatus) => void;
   handleActivity: (sessionId: string, event: ActivityEvent) => void;
   handleReady: (sessionId: string, actions: TerminalActions | null) => void;
+  renameTerminal: (sessionId: string, newLabel: string) => void;
   onCollapse: () => void;
   extraDropdownGroups?: TerminalDropdownGroup[];
   containerEnabled?: boolean;
