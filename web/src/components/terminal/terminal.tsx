@@ -10,6 +10,7 @@ import type { DockviewPanelApi } from "dockview";
 import { DARK_XTERM_THEME } from "@/hooks/use-xterm-theme";
 import { RiArrowDownSLine } from "@remixicon/react";
 import type { ActivityEvent, TerminalTab } from "./types";
+import { parseTerminalActivity } from "./parse-terminal-activity";
 
 export interface TerminalActions {
   write: (data: string) => void;
@@ -119,15 +120,16 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     isPinnedRef.current = true;
     setShowScrollButton(false);
 
-    // Activity detection via title changes — Claude Code updates the title with
-    // spinner characters while working, stops when idle. Immune to resize/redraw.
+    // Activity detection via OSC title changes parsed from raw WebSocket data.
+    // This works even when the terminal tab is hidden (display:none), unlike
+    // xterm's onTitleChange which defers processing for hidden containers.
     let lastTitle = '';
     let titleChangeCount = 0;
     let titleTimer: ReturnType<typeof setTimeout> | null = null;
     let titleActive = false;
     let suppressTitleUntil = Date.now() + TITLE_SUPPRESS_MS;
 
-    const titleSub = term.onTitleChange((title) => {
+    const handleTitleChange = (title: string) => {
       if (Date.now() < suppressTitleUntil || title === lastTitle) return;
       lastTitle = title;
       titleChangeCount++;
@@ -146,9 +148,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
         }
         titleChangeCount = 0;
       }, ACTIVITY_DEBOUNCE_MS);
-    });
+    };
 
-    const bellSub = term.onBell(() => {
+    const handleBell = () => {
       titleActive = false;
       titleChangeCount = 0;
       if (titleTimer) {
@@ -156,7 +158,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
         titleTimer = null;
       }
       onActivity?.(sessionId, 'waiting');
-    });
+    };
 
     const scrollSub = term.onScroll(() => {
       const buf = term.buffer.active;
@@ -238,6 +240,12 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       }
 
       if (msg.t === 'o' && msg.d) {
+        // Parse activity from raw data before writing to xterm — this works
+        // even when the terminal tab is hidden (xterm defers processing).
+        const activity = parseTerminalActivity(msg.d);
+        for (const title of activity.titles) handleTitleChange(title);
+        if (activity.hasBell) handleBell();
+
         if (isPinnedRef.current) {
           term.write(msg.d);
           scheduleScroll();
@@ -255,6 +263,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       } else if (msg.t === 'reconnected' && msg.buffer) {
         console.log(`[terminal-ui] Reconnected session ${sessionId}, buffer lines: ${msg.buffer.length}`);
         suppressTitleUntil = Date.now() + TITLE_SUPPRESS_MS;
+        titleActive = false;
+        titleChangeCount = 0;
+        if (titleTimer) { clearTimeout(titleTimer); titleTimer = null; }
         term.clear();
         term.write(msg.buffer.join(''), () => {
           term.scrollToBottom();
@@ -329,8 +340,6 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       clearTimeout(fitTimer);
       if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
       scrollRafRef.current = 0;
-      titleSub.dispose();
-      bellSub.dispose();
       if (titleTimer) clearTimeout(titleTimer);
       scrollSub.dispose();
       container.removeEventListener('wheel', handleWheel);
@@ -353,23 +362,22 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     }
   }, [xtermTheme]);
 
-  // Refit and repaint terminal when the dockview panel becomes visible (tab switch).
-  // Two issues when switching back to a hidden tab:
-  // 1. ResizeObserver won't fire if dimensions haven't changed → need explicit fit()
-  // 2. xterm's canvas renderer pauses while display:none → need refresh() to repaint
+  // Repaint terminal when the dockview panel becomes visible (tab switch).
+  // xterm's renderer pauses while display:none → need refresh() to repaint.
+  // ResizeObserver already handles actual size changes (fires when container
+  // transitions from 0x0 to actual dimensions), so explicit resize is not needed.
   useEffect(() => {
     if (!panelApi) return;
     const disposable = panelApi.onDidVisibilityChange((e) => {
       if (e.isVisible) {
         requestAnimationFrame(() => {
-          handleResize();
           const term = xtermRef.current;
           if (term) term.refresh(0, term.rows - 1);
         });
       }
     });
     return () => disposable.dispose();
-  }, [panelApi, handleResize]);
+  }, [panelApi]);
 
   return (
     <div className="relative size-full">
