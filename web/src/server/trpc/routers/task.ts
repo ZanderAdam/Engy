@@ -7,6 +7,8 @@ import { tasks, taskDependencies } from '../../db/schema';
 import { validateDependencies, attachBlockedBy } from '../../tasks/validation';
 import { broadcastTaskChange } from '../../ws/broadcast';
 import { taskStatusSchema } from '@/lib/task-status';
+import { triggerAutoStart } from './execution';
+import { appRouter } from '../root';
 
 const subStatusEnum = z.enum(['planning', 'implementing', 'blocked', 'failed', 'plan_review']);
 
@@ -38,12 +40,12 @@ export const taskRouter = router({
         feedback: z.string().optional(),
       }),
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const db = getDb();
       const { blockedBy: rawBlockedBy, ...values } = input;
       const dedupedBlockedBy = checkedValidateDeps(null, rawBlockedBy);
 
-      return db.transaction((tx) => {
+      const result = db.transaction((tx) => {
         const newTask = tx.insert(tasks).values(values).returning().get();
 
         for (const blockerId of dedupedBlockedBy) {
@@ -55,6 +57,13 @@ export const taskRouter = router({
         broadcastTaskChange('created', newTask.id, newTask.projectId ?? undefined);
         return { ...newTask, blockedBy: dedupedBlockedBy };
       });
+
+      if (result.type === 'ai' && !result.taskGroupId && !result.milestoneRef) {
+        const caller = appRouter.createCaller({ state: ctx.state });
+        triggerAutoStart(caller, result.id).catch(() => {});
+      }
+
+      return result;
     }),
 
   list: publicProcedure
@@ -113,7 +122,7 @@ export const taskRouter = router({
         feedback: z.string().nullable().optional(),
       }),
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const db = getDb();
       const { id, blockedBy, ...updates } = input;
 
@@ -121,7 +130,9 @@ export const taskRouter = router({
         ? checkedValidateDeps(id, blockedBy)
         : undefined;
 
-      return db.transaction((tx) => {
+      const previousTask = db.select().from(tasks).where(eq(tasks.id, id)).get();
+
+      const result = db.transaction((tx) => {
         if (dedupedBlockedBy !== undefined) {
           tx.delete(taskDependencies).where(eq(taskDependencies.taskId, id)).run();
           for (const blockerId of dedupedBlockedBy) {
@@ -131,20 +142,35 @@ export const taskRouter = router({
           }
         }
 
-        const result = tx
+        const updated = tx
           .update(tasks)
           .set({ ...updates, updatedAt: new Date().toISOString() })
           .where(eq(tasks.id, id))
           .returning()
           .get();
 
-        if (!result) {
+        if (!updated) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Task not found' });
         }
 
-        broadcastTaskChange('updated', result.id, result.projectId ?? undefined);
-        return attachBlockedBy([result])[0];
+        broadcastTaskChange('updated', updated.id, updated.projectId ?? undefined);
+        return attachBlockedBy([updated])[0];
       });
+
+      const typeChangedToAi =
+        previousTask &&
+        previousTask.type !== 'ai' &&
+        result.type === 'ai' &&
+        result.status === 'todo' &&
+        !result.taskGroupId &&
+        !result.milestoneRef;
+
+      if (typeChangedToAi) {
+        const caller = appRouter.createCaller({ state: ctx.state });
+        triggerAutoStart(caller, result.id).catch(() => {});
+      }
+
+      return result;
     }),
 
   listBySpecId: publicProcedure
