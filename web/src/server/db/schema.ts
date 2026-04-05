@@ -216,7 +216,7 @@ export const agentSessions = sqliteTable('agent_sessions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   sessionId: text('session_id').notNull().unique(),
   taskGroupId: integer('task_group_id').references(() => taskGroups.id, { onDelete: 'set null' }),
-  taskId: integer('task_id').references(() => tasks.id),
+  taskId: integer('task_id').references(() => tasks.id, { onDelete: 'set null' }),
   executionMode: text('execution_mode', {
     enum: ['group', 'task', 'milestone', 'planning'],
   }),
