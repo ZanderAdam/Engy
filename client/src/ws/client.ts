@@ -23,6 +23,7 @@ import type {
   ExecutionStopRequestMessage,
   RemoteFilePullRequestMessage,
   RemoteFilePushRequestMessage,
+  WorktreeMergeRequestMessage,
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
@@ -461,6 +462,9 @@ export class WsClient {
       case 'REMOTE_FILE_PUSH_REQUEST':
         this.handleRemoteFilePushRequest(message as RemoteFilePushRequestMessage);
         break;
+      case 'WORKTREE_MERGE_REQUEST':
+        this.handleWorktreeMergeRequest(message as WorktreeMergeRequestMessage);
+        break;
       case 'EXECUTION_START_REQUEST':
         this.handleExecutionStartRequest(message as ExecutionStartRequestMessage);
         break;
@@ -722,6 +726,51 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'REMOTE_FILE_PUSH_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleWorktreeMergeRequest(message: WorktreeMergeRequestMessage): Promise<void> {
+    const { requestId, worktreePath, repoDir } = message.payload;
+    try {
+      const { stdout: worktreeList } = await execFileAsync(
+        'git',
+        ['-C', repoDir, 'worktree', 'list', '--porcelain'],
+        { maxBuffer: EXEC_MAX_BUFFER },
+      );
+
+      const blocks = worktreeList.split('\n\n');
+      let branch: string | null = null;
+      for (const block of blocks) {
+        const lines = block.split('\n');
+        const wtPath = lines.find((l) => l.startsWith('worktree '))?.slice('worktree '.length);
+        const branchLine = lines.find((l) => l.startsWith('branch '));
+        if (wtPath === worktreePath && branchLine) {
+          branch = branchLine.slice('branch '.length).replace('refs/heads/', '');
+          break;
+        }
+      }
+
+      if (!branch) {
+        this.send({
+          type: 'WORKTREE_MERGE_RESULT',
+          payload: { requestId, error: `No branch found for worktree: ${worktreePath}` },
+        });
+        return;
+      }
+
+      await execFileAsync('git', ['-C', repoDir, 'merge', '--no-ff', branch], {
+        maxBuffer: EXEC_MAX_BUFFER,
+      });
+
+      this.send({
+        type: 'WORKTREE_MERGE_RESULT',
+        payload: { requestId, success: true, branch },
+      });
+    } catch (err) {
+      this.send({
+        type: 'WORKTREE_MERGE_RESULT',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }

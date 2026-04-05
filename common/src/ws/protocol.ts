@@ -266,6 +266,24 @@ export interface RemoteFilePushResponseMessage {
     | { requestId: string; error: string };
 }
 
+// ── Worktree merge operations (server ↔ daemon) ──────────────────────────────
+
+export interface WorktreeMergeRequestMessage {
+  type: 'WORKTREE_MERGE_REQUEST';
+  payload: {
+    requestId: string;
+    worktreePath: string;
+    repoDir: string;
+  };
+}
+
+export interface WorktreeMergeResultMessage {
+  type: 'WORKTREE_MERGE_RESULT';
+  payload:
+    | { requestId: string; success: boolean; branch: string }
+    | { requestId: string; error: string };
+}
+
 // ── Container operations (server ↔ daemon) ──────────────────────────────────
 
 export interface ContainerUpRequestMessage {
@@ -426,6 +444,8 @@ export type WsMessage =
   | RemoteFilePullResponseMessage
   | RemoteFilePushRequestMessage
   | RemoteFilePushResponseMessage
+  | WorktreeMergeRequestMessage
+  | WorktreeMergeResultMessage
   | ContainerUpRequestMessage
   | ContainerUpResponseMessage
   | ContainerDownRequestMessage
@@ -455,6 +475,7 @@ export type ClientToServerMessage =
   | FileWriteResponseMessage
   | RemoteFilePullResponseMessage
   | RemoteFilePushResponseMessage
+  | WorktreeMergeResultMessage
   | ContainerUpResponseMessage
   | ContainerDownResponseMessage
   | ContainerStatusResponseMessage
@@ -478,6 +499,7 @@ export type ServerToClientMessage =
   | FileWriteRequestMessage
   | RemoteFilePullRequestMessage
   | RemoteFilePushRequestMessage
+  | WorktreeMergeRequestMessage
   | ContainerUpRequestMessage
   | ContainerDownRequestMessage
   | ContainerStatusRequestMessage

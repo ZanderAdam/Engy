@@ -9,6 +9,7 @@ import type {
   ExecutionStopRequestMessage,
   RemoteFilePullRequestMessage,
   RemoteFilePushRequestMessage,
+  WorktreeMergeRequestMessage,
 } from '@engy/common';
 import type { TerminalManager } from '../terminal/manager.js';
 import type { PersistentSession } from '../terminal/types.js';
@@ -1001,6 +1002,174 @@ describe('WsClient remote file sync handlers', () => {
     expect(JSON.parse(response)).toEqual({
       type: 'REMOTE_FILE_PUSH_RESPONSE',
       payload: { requestId: 'push-2', error: 'coder ssh push failed (exit 1)' },
+    });
+  });
+});
+
+describe('WsClient worktree merge handler', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => {
+      wss.once('connection', resolve);
+    });
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => {
+      ws.once('message', (data) => resolve(data.toString()));
+    });
+  }
+
+  beforeEach(async () => {
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) {
+        resolve();
+      } else {
+        server.on('listening', () => resolve());
+      }
+    });
+    port = (server.address() as { port: number }).port;
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    vi.restoreAllMocks();
+  });
+
+  it('merges branch and returns success when worktree is found', async () => {
+    const porcelainOutput = [
+      'worktree /home/user/main-repo',
+      'HEAD abc1234',
+      'branch refs/heads/main',
+      '',
+      'worktree /home/user/worktrees/feature-x',
+      'HEAD def5678',
+      'branch refs/heads/feature-x',
+    ].join('\n');
+
+    mockedExecFile[promisify.custom]
+      .mockResolvedValueOnce({ stdout: porcelainOutput, stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' });
+
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      onWorkspacesSync: vi.fn(),
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: WorktreeMergeRequestMessage = {
+      type: 'WORKTREE_MERGE_REQUEST',
+      payload: {
+        requestId: 'merge-1',
+        worktreePath: '/home/user/worktrees/feature-x',
+        repoDir: '/home/user/main-repo',
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    expect(JSON.parse(response)).toEqual({
+      type: 'WORKTREE_MERGE_RESULT',
+      payload: { requestId: 'merge-1', success: true, branch: 'feature-x' },
+    });
+  });
+
+  it('returns error when no matching worktree is found', async () => {
+    const porcelainOutput = [
+      'worktree /home/user/main-repo',
+      'HEAD abc1234',
+      'branch refs/heads/main',
+    ].join('\n');
+
+    mockedExecFile[promisify.custom].mockResolvedValueOnce({
+      stdout: porcelainOutput,
+      stderr: '',
+    });
+
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      onWorkspacesSync: vi.fn(),
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: WorktreeMergeRequestMessage = {
+      type: 'WORKTREE_MERGE_REQUEST',
+      payload: {
+        requestId: 'merge-2',
+        worktreePath: '/home/user/worktrees/nonexistent',
+        repoDir: '/home/user/main-repo',
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    expect(JSON.parse(response)).toEqual({
+      type: 'WORKTREE_MERGE_RESULT',
+      payload: {
+        requestId: 'merge-2',
+        error: 'No branch found for worktree: /home/user/worktrees/nonexistent',
+      },
+    });
+  });
+
+  it('returns error when merge fails due to conflict', async () => {
+    const porcelainOutput = [
+      'worktree /home/user/main-repo',
+      'HEAD abc1234',
+      'branch refs/heads/main',
+      '',
+      'worktree /home/user/worktrees/feature-y',
+      'HEAD def5678',
+      'branch refs/heads/feature-y',
+    ].join('\n');
+
+    mockedExecFile[promisify.custom]
+      .mockResolvedValueOnce({ stdout: porcelainOutput, stderr: '' })
+      .mockRejectedValueOnce(new Error('CONFLICT (content): Merge conflict in file.txt'));
+
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      onWorkspacesSync: vi.fn(),
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: WorktreeMergeRequestMessage = {
+      type: 'WORKTREE_MERGE_REQUEST',
+      payload: {
+        requestId: 'merge-3',
+        worktreePath: '/home/user/worktrees/feature-y',
+        repoDir: '/home/user/main-repo',
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    expect(JSON.parse(response)).toEqual({
+      type: 'WORKTREE_MERGE_RESULT',
+      payload: {
+        requestId: 'merge-3',
+        error: 'CONFLICT (content): Merge conflict in file.txt',
+      },
     });
   });
 });

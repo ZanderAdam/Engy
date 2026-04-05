@@ -30,6 +30,8 @@ export type {
   RemoteFilePullResponseMessage,
   RemoteFilePushRequestMessage,
   RemoteFilePushResponseMessage,
+  WorktreeMergeRequestMessage,
+  WorktreeMergeResultMessage,
   ContainerUpRequestMessage,
   ContainerUpResponseMessage,
   ContainerDownRequestMessage,
