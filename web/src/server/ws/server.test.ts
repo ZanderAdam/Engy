@@ -641,6 +641,7 @@ describe('Execution event handling', () => {
           name: 'CoderWs',
           slug: 'coder-ws',
           executionBackend: 'coder',
+          coderConfig: { workspace: 'my-coder-ws', repoBasePath: '/home/coder' },
         })
         .returning()
         .get();
@@ -698,7 +699,7 @@ describe('Execution event handling', () => {
       await vi.waitFor(() => {
         const pullMsg = received.find((m) => m.type === 'REMOTE_FILE_PULL_REQUEST');
         expect(pullMsg).toBeDefined();
-        expect(pullMsg!.payload.projectDir).toBe('/tmp/coder-proj');
+        expect(pullMsg!.payload.coderWorkspace).toBe('my-coder-ws');
         expect(pullMsg!.payload.filePath).toBe(`plans/coder-ws-T${task.id}.plan.md`);
       });
     });
@@ -710,6 +711,7 @@ describe('Execution event handling', () => {
           name: 'MergeWs',
           slug: 'merge-ws',
           autoAgentCompletion: 'merge',
+          repos: ['/tmp/main-repo'],
         })
         .returning()
         .get();
@@ -764,6 +766,7 @@ describe('Execution event handling', () => {
         const mergeMsg = received.find((m) => m.type === 'WORKTREE_MERGE_REQUEST');
         expect(mergeMsg).toBeDefined();
         expect(mergeMsg!.payload.worktreePath).toBe('/tmp/worktree-branch');
+        expect(mergeMsg!.payload.repoDir).toBe('/tmp/main-repo');
       });
     });
 

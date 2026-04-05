@@ -73,9 +73,8 @@ export interface FileWriteResult {
   success: boolean;
 }
 
-// TODO: These result types will be fully typed when protocol types are added (TG2)
 export interface RemoteFilePullResult {
-  success: boolean;
+  content: string;
 }
 
 export interface RemoteFilePushResult {
@@ -84,6 +83,7 @@ export interface RemoteFilePushResult {
 
 export interface WorktreeMergeResult {
   success: boolean;
+  branch: string;
 }
 
 export interface AppState {

@@ -170,6 +170,22 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
         success: p.success,
       }));
       break;
+    case 'REMOTE_FILE_PULL_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingRemoteFilePull, (p) => ({
+        content: p.content,
+      }));
+      break;
+    case 'REMOTE_FILE_PUSH_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingRemoteFilePush, (p) => ({
+        success: p.success,
+      }));
+      break;
+    case 'WORKTREE_MERGE_RESULT':
+      resolvePendingResponse(msg.payload, state.pendingWorktreeMerge, (p) => ({
+        success: p.success,
+        branch: p.branch,
+      }));
+      break;
     case 'EXECUTION_STATUS_EVENT':
       handleExecutionStatusEvent(msg.payload);
       break;
@@ -410,10 +426,11 @@ function handleExecutionCompleteEvent(
   if (!taskBlocked && payload.success && workspaceContext) {
     if (isPlanningMode && session.taskId) {
       // For Coder workspaces, pull the plan file from remote to local
-      if (workspaceContext.workspace.executionBackend === 'coder' && workspaceContext.projectDir) {
+      const coderCfg = workspaceContext.workspace.coderConfig as { workspace: string; repoBasePath: string } | null;
+      if (workspaceContext.workspace.executionBackend === 'coder' && coderCfg?.workspace) {
         const planSlug = taskPlanSlug(workspaceContext.workspace.slug, session.taskId);
         const planFilePath = `plans/${planSlug}.plan.md`;
-        dispatchRemoteFilePull(state, workspaceContext.projectDir, planFilePath).catch((err) => {
+        dispatchRemoteFilePull(state, coderCfg.workspace, planFilePath).catch((err) => {
           console.error(
             `[ws-main-server] Failed to pull plan file for session=${payload.sessionId}: ${err.message}`,
           );
@@ -421,8 +438,9 @@ function handleExecutionCompleteEvent(
       }
     } else if (session.executionMode === 'task' && workspaceContext.workspace.autoAgentCompletion === 'merge') {
       // Implementation succeeded with auto-merge — dispatch worktree merge
-      if (session.worktreePath) {
-        dispatchWorktreeMerge(state, session.worktreePath).catch((err) => {
+      const repos = (workspaceContext.workspace.repos as string[]) ?? [];
+      if (session.worktreePath && repos[0]) {
+        dispatchWorktreeMerge(state, session.worktreePath, repos[0]).catch((err) => {
           console.error(
             `[ws-main-server] Failed to merge worktree for session=${payload.sessionId}: ${err.message}`,
           );
@@ -719,23 +737,20 @@ export function dispatchExecutionStop(
 }
 
 // ── Remote file & worktree dispatch functions ──────────────────────────────
-// TODO: Message types (REMOTE_FILE_PULL_REQUEST, REMOTE_FILE_PUSH_REQUEST,
-// WORKTREE_MERGE_REQUEST) will be added to the protocol in TG2. Using string
-// literals until then.
 
 const REMOTE_FILE_TIMEOUT_MS = 30_000;
 const WORKTREE_MERGE_TIMEOUT_MS = 60_000;
 
 function dispatchRemoteFilePull(
   state: AppState,
-  projectDir: string,
+  coderWorkspace: string,
   filePath: string,
 ): Promise<RemoteFilePullResult> {
   return dispatchDaemonOp(
     state,
     state.pendingRemoteFilePull,
     'REMOTE_FILE_PULL_REQUEST',
-    { projectDir, filePath },
+    { coderWorkspace, filePath },
     REMOTE_FILE_TIMEOUT_MS,
   );
 }
@@ -743,12 +758,13 @@ function dispatchRemoteFilePull(
 function dispatchWorktreeMerge(
   state: AppState,
   worktreePath: string,
+  repoDir: string,
 ): Promise<WorktreeMergeResult> {
   return dispatchDaemonOp(
     state,
     state.pendingWorktreeMerge,
     'WORKTREE_MERGE_REQUEST',
-    { worktreePath },
+    { worktreePath, repoDir },
     WORKTREE_MERGE_TIMEOUT_MS,
   );
 }
