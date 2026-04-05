@@ -11,12 +11,16 @@ interface ContextBlockInput {
   workspace: { id: number; slug: string };
   project?: { id: number; slug: string; dir: string };
   repos: string[];
+  autoAgentCompletion?: 'pr' | 'merge';
 }
 
-export function buildContextBlock({ workspace, project, repos }: ContextBlockInput): string {
-  const lines: string[] = [
-    `Workspace: ${workspace.slug} (id: ${workspace.id})`,
-  ];
+export function buildContextBlock({
+  workspace,
+  project,
+  repos,
+  autoAgentCompletion,
+}: ContextBlockInput): string {
+  const lines: string[] = [`Workspace: ${workspace.slug} (id: ${workspace.id})`];
   if (project) {
     lines.push(`Project: ${project.slug} (id: ${project.id})`);
     lines.push(`Project dir: ${project.dir}`);
@@ -24,6 +28,15 @@ export function buildContextBlock({ workspace, project, repos }: ContextBlockInp
   if (repos.length > 0) {
     const label = repos.length === 1 ? 'Repo' : 'Repos';
     lines.push(`${label}: ${repos.join(', ')}`);
+  }
+  if (autoAgentCompletion === 'pr') {
+    lines.push(
+      'When done, push your branch and create a pull request.',
+    );
+  } else if (autoAgentCompletion === 'merge') {
+    lines.push(
+      'When done, commit your changes. The system will handle merging automatically.',
+    );
   }
   return lines.join('\n');
 }

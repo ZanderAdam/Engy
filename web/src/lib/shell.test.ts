@@ -99,6 +99,34 @@ describe('shell utilities', () => {
         ].join('\n'),
       );
     });
+
+    it('should include PR instructions when autoAgentCompletion is pr', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+        autoAgentCompletion: 'pr',
+      });
+      expect(result).toContain('push your branch and create a pull request');
+    });
+
+    it('should include merge instructions when autoAgentCompletion is merge', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+        autoAgentCompletion: 'merge',
+      });
+      expect(result).toContain('commit your changes');
+      expect(result).toContain('system will handle merging automatically');
+    });
+
+    it('should not include completion instructions when autoAgentCompletion is undefined', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+      });
+      expect(result).not.toContain('pull request');
+      expect(result).not.toContain('merging');
+    });
   });
 
   describe('buildClaudeCommand', () => {

@@ -53,6 +53,21 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
       <div className="flex items-center gap-3 py-2">
         <h1 className="text-sm font-semibold">{project.name}</h1>
         <ProjectStatusBadge projectId={project.id} status={project.status} clickable />
+        {workspace.autoStart && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex items-center gap-1 text-emerald-500" aria-label="Auto-start enabled">
+                  <i className="ri-settings-3-line text-sm" />
+                  <span className="text-[10px] font-medium uppercase tracking-wide">Auto</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                Auto-start is enabled — AI tasks will begin automatically.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </div>
 
       <nav className="flex border-b border-border" aria-label="Project sections">

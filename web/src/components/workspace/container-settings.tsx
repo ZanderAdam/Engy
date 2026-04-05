@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/select';
 import type { ContainerConfig, CoderConfig, ExecutionBackend } from '@/server/db/schema';
 
+export type AutoAgentCompletion = 'pr' | 'merge';
+
 export interface ContainerSettingsData {
   containerEnabled: boolean;
   containerConfig: ContainerConfig;
@@ -22,6 +24,7 @@ export interface ContainerSettingsData {
   remoteEnabled: boolean;
   maxConcurrency: number;
   autoStart: boolean;
+  autoAgentCompletion: AutoAgentCompletion;
 }
 
 interface ContainerSettingsProps {
@@ -69,6 +72,9 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
   );
   const [remoteEnabled, setRemoteEnabled] = useState(initialData.remoteEnabled);
   const [autoStart, setAutoStart] = useState(initialData.autoStart);
+  const [autoAgentCompletion, setAutoAgentCompletion] = useState<AutoAgentCompletion>(
+    initialData.autoAgentCompletion ?? 'pr',
+  );
   const [maxConcurrency, setMaxConcurrency] = useState(initialData.maxConcurrency);
   const [idleTimeout, setIdleTimeout] = useState(initialData.containerConfig?.idleTimeout ?? 30);
   const [domains, setDomains] = useState(listToLines(initialData.containerConfig?.allowedDomains));
@@ -84,6 +90,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
     executionBackend: ExecutionBackend;
     remoteEnabled: boolean;
     autoStart: boolean;
+    autoAgentCompletion: AutoAgentCompletion;
     maxConcurrency: number;
     idleTimeout: number;
     domains: string;
@@ -96,6 +103,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
     const backend = overrides.executionBackend ?? executionBackend;
     const remote = overrides.remoteEnabled ?? remoteEnabled;
     const start = overrides.autoStart ?? autoStart;
+    const completion = overrides.autoAgentCompletion ?? autoAgentCompletion;
     const concurrency = overrides.maxConcurrency ?? maxConcurrency;
     const timeout = overrides.idleTimeout ?? idleTimeout;
     const doms = overrides.domains ?? domains;
@@ -109,6 +117,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
       executionBackend: backend,
       remoteEnabled: remote,
       autoStart: start,
+      autoAgentCompletion: completion,
       maxConcurrency: concurrency,
       containerConfig: {
         allowedDomains: linesToList(doms),
@@ -198,6 +207,25 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
             emit({ autoStart: checked });
           }}
         />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="auto-agent-completion">When auto-agent completes</Label>
+        <Select
+          value={autoAgentCompletion}
+          onValueChange={(value: AutoAgentCompletion) => {
+            setAutoAgentCompletion(value);
+            emit({ autoAgentCompletion: value });
+          }}
+        >
+          <SelectTrigger id="auto-agent-completion">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="pr">Create PR</SelectItem>
+            <SelectItem value="merge">Merge to main</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex items-center justify-between">

@@ -81,6 +81,9 @@ describe('WebSocket Server', () => {
       pendingDirList: new Map(),
       pendingFileRead: new Map(),
       pendingFileWrite: new Map(),
+      pendingRemoteFilePull: new Map(),
+      pendingRemoteFilePush: new Map(),
+      pendingWorktreeMerge: new Map(),
     };
     const result = await startServer(state);
     server = result.server;
@@ -567,6 +570,264 @@ describe('Execution event handling', () => {
       });
 
       warnSpy.mockRestore();
+    });
+
+    it('should set subStatus to plan_review on planning mode success', async () => {
+      const ws0 = ctx.db
+        .insert(workspaces)
+        .values({ name: 'PlanWs', slug: 'plan-ws' })
+        .returning()
+        .get();
+      const proj = ctx.db
+        .insert(projects)
+        .values({ workspaceId: ws0.id, name: 'Plan Project', slug: 'plan-proj' })
+        .returning()
+        .get();
+      const task = ctx.db
+        .insert(tasks)
+        .values({
+          title: 'Planning task',
+          projectId: proj.id,
+          status: 'in_progress',
+          subStatus: 'planning',
+        })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'plan-complete',
+          taskId: task.id,
+          status: 'active',
+          executionMode: 'planning',
+        })
+        .run();
+
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+      ws.send(
+        JSON.stringify({
+          type: 'EXECUTION_COMPLETE_EVENT',
+          payload: {
+            sessionId: 'plan-complete',
+            exitCode: 0,
+            success: true,
+            completionSummary: 'Plan generated',
+          },
+        }),
+      );
+
+      await vi.waitFor(() => {
+        const session = ctx.db
+          .select()
+          .from(agentSessions)
+          .where(eq(agentSessions.sessionId, 'plan-complete'))
+          .get();
+        expect(session!.status).toBe('completed');
+        expect(session!.completionSummary).toBe('Plan generated');
+
+        const updatedTask = ctx.db.select().from(tasks).where(eq(tasks.id, task.id)).get();
+        expect(updatedTask!.status).toBe('in_progress');
+        expect(updatedTask!.subStatus).toBe('plan_review');
+      });
+    });
+
+    it('should dispatch REMOTE_FILE_PULL for coder workspace on planning success', async () => {
+      const ws0 = ctx.db
+        .insert(workspaces)
+        .values({
+          name: 'CoderWs',
+          slug: 'coder-ws',
+          executionBackend: 'coder',
+        })
+        .returning()
+        .get();
+      const proj = ctx.db
+        .insert(projects)
+        .values({
+          workspaceId: ws0.id,
+          name: 'Coder Project',
+          slug: 'coder-proj',
+          projectDir: '/tmp/coder-proj',
+        })
+        .returning()
+        .get();
+      const task = ctx.db
+        .insert(tasks)
+        .values({
+          title: 'Coder planning task',
+          projectId: proj.id,
+          status: 'in_progress',
+          subStatus: 'planning',
+        })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'coder-plan',
+          taskId: task.id,
+          status: 'active',
+          executionMode: 'planning',
+        })
+        .run();
+
+      // Collect all messages sent to daemon
+      const received: Array<{ type: string; payload: Record<string, unknown> }> = [];
+      const ws = await connectClient(port);
+      ws.on('message', (data) => {
+        received.push(JSON.parse(data.toString()));
+      });
+
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+      ws.send(
+        JSON.stringify({
+          type: 'EXECUTION_COMPLETE_EVENT',
+          payload: {
+            sessionId: 'coder-plan',
+            exitCode: 0,
+            success: true,
+          },
+        }),
+      );
+
+      await vi.waitFor(() => {
+        const pullMsg = received.find((m) => m.type === 'REMOTE_FILE_PULL_REQUEST');
+        expect(pullMsg).toBeDefined();
+        expect(pullMsg!.payload.projectDir).toBe('/tmp/coder-proj');
+        expect(pullMsg!.payload.filePath).toBe(`plans/coder-ws-T${task.id}.plan.md`);
+      });
+    });
+
+    it('should dispatch WORKTREE_MERGE_REQUEST on implementation success with merge setting', async () => {
+      const ws0 = ctx.db
+        .insert(workspaces)
+        .values({
+          name: 'MergeWs',
+          slug: 'merge-ws',
+          autoAgentCompletion: 'merge',
+        })
+        .returning()
+        .get();
+      const proj = ctx.db
+        .insert(projects)
+        .values({ workspaceId: ws0.id, name: 'Merge Project', slug: 'merge-proj' })
+        .returning()
+        .get();
+      const task = ctx.db
+        .insert(tasks)
+        .values({
+          title: 'Merge task',
+          projectId: proj.id,
+          status: 'in_progress',
+          subStatus: 'implementing',
+        })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'merge-complete',
+          taskId: task.id,
+          status: 'active',
+          executionMode: 'task',
+          worktreePath: '/tmp/worktree-branch',
+        })
+        .run();
+
+      // Collect all messages sent to daemon
+      const received: Array<{ type: string; payload: Record<string, unknown> }> = [];
+      const ws = await connectClient(port);
+      ws.on('message', (data) => {
+        received.push(JSON.parse(data.toString()));
+      });
+
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+      ws.send(
+        JSON.stringify({
+          type: 'EXECUTION_COMPLETE_EVENT',
+          payload: {
+            sessionId: 'merge-complete',
+            exitCode: 0,
+            success: true,
+          },
+        }),
+      );
+
+      await vi.waitFor(() => {
+        const mergeMsg = received.find((m) => m.type === 'WORKTREE_MERGE_REQUEST');
+        expect(mergeMsg).toBeDefined();
+        expect(mergeMsg!.payload.worktreePath).toBe('/tmp/worktree-branch');
+      });
+    });
+
+    it('should not dispatch merge when autoAgentCompletion is pr', async () => {
+      const ws0 = ctx.db
+        .insert(workspaces)
+        .values({
+          name: 'PrWs',
+          slug: 'pr-ws',
+          autoAgentCompletion: 'pr',
+        })
+        .returning()
+        .get();
+      const proj = ctx.db
+        .insert(projects)
+        .values({ workspaceId: ws0.id, name: 'PR Project', slug: 'pr-proj' })
+        .returning()
+        .get();
+      const task = ctx.db
+        .insert(tasks)
+        .values({
+          title: 'PR task',
+          projectId: proj.id,
+          status: 'in_progress',
+          subStatus: 'implementing',
+        })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'pr-complete',
+          taskId: task.id,
+          status: 'active',
+          executionMode: 'task',
+          worktreePath: '/tmp/worktree-pr',
+        })
+        .run();
+
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+      ws.send(
+        JSON.stringify({
+          type: 'EXECUTION_COMPLETE_EVENT',
+          payload: {
+            sessionId: 'pr-complete',
+            exitCode: 0,
+            success: true,
+          },
+        }),
+      );
+
+      // Task should be set to done (standard success path, no merge dispatch)
+      await vi.waitFor(() => {
+        const updatedTask = ctx.db.select().from(tasks).where(eq(tasks.id, task.id)).get();
+        expect(updatedTask!.status).toBe('done');
+        expect(updatedTask!.subStatus).toBeNull();
+      });
+
+      // Give a small window to ensure no merge message was sent
+      await new Promise((r) => setTimeout(r, 100));
+      expect(ctx.state.pendingWorktreeMerge.size).toBe(0);
     });
   });
 });

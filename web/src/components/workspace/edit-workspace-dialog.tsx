@@ -43,6 +43,7 @@ interface EditWorkspaceDialogProps {
     remoteEnabled: boolean | null;
     maxConcurrency: number | null;
     autoStart: boolean | null;
+    autoAgentCompletion: 'pr' | 'merge' | null;
   };
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -78,6 +79,7 @@ export function EditWorkspaceDialog({
     remoteEnabled: workspace.remoteEnabled ?? false,
     maxConcurrency: workspace.maxConcurrency ?? 1,
     autoStart: workspace.autoStart ?? false,
+    autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
   });
 
   const utils = trpc.useUtils();
@@ -134,6 +136,7 @@ export function EditWorkspaceDialog({
       remoteEnabled: container.remoteEnabled,
       maxConcurrency: container.maxConcurrency,
       autoStart: container.autoStart,
+      autoAgentCompletion: container.autoAgentCompletion,
     });
   }
 
@@ -171,6 +174,7 @@ export function EditWorkspaceDialog({
         remoteEnabled: workspace.remoteEnabled ?? false,
         maxConcurrency: workspace.maxConcurrency ?? 1,
         autoStart: workspace.autoStart ?? false,
+        autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
       };
     }
     onOpenChange(val);
@@ -295,6 +299,7 @@ export function EditWorkspaceDialog({
                   remoteEnabled: workspace.remoteEnabled ?? false,
                   maxConcurrency: workspace.maxConcurrency ?? 1,
                   autoStart: workspace.autoStart ?? false,
+                  autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
                 }}
                 onChange={(data) => {
                   containerDataRef.current = data;

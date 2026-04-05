@@ -8,10 +8,11 @@ import type {
   ContainerUpRequestMessage,
   ExecutionStartConfig,
 } from '@engy/common';
-import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowResult, GitBranchFilesResult, ContainerUpResult, ExecutionStartResult, ExecutionStopResult, DirListResult, FileReadResult, FileWriteResult } from '../trpc/context';
+import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowResult, GitBranchFilesResult, ContainerUpResult, ExecutionStartResult, ExecutionStopResult, DirListResult, FileReadResult, FileWriteResult, RemoteFilePullResult, WorktreeMergeResult } from '../trpc/context';
 import { getDb } from '../db/client';
-import { workspaces, agentSessions, tasks } from '../db/schema';
+import { workspaces, agentSessions, tasks, projects } from '../db/schema';
 import { handleSpecFileChange } from '../spec/watcher';
+import { taskPlanSlug } from '../plan/service';
 import { broadcastFileChange, broadcastTaskChange } from './broadcast';
 
 const MAX_EVENTS_PER_WORKSPACE = 100;
@@ -72,6 +73,9 @@ function rejectAllPending(state: AppState): void {
     state.pendingDirList,
     state.pendingFileRead,
     state.pendingFileWrite,
+    state.pendingRemoteFilePull,
+    state.pendingRemoteFilePush,
+    state.pendingWorktreeMerge,
   ] as const;
 
   const error = new Error('Daemon disconnected');
@@ -170,7 +174,7 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       handleExecutionStatusEvent(msg.payload);
       break;
     case 'EXECUTION_COMPLETE_EVENT':
-      handleExecutionCompleteEvent(msg.payload);
+      handleExecutionCompleteEvent(msg.payload, state);
       break;
   }
 }
@@ -297,12 +301,15 @@ function handleExecutionStatusEvent(payload: {
   }
 }
 
-function handleExecutionCompleteEvent(payload: {
-  sessionId: string;
-  exitCode: number;
-  success: boolean;
-  completionSummary?: string;
-}): void {
+function handleExecutionCompleteEvent(
+  payload: {
+    sessionId: string;
+    exitCode: number;
+    success: boolean;
+    completionSummary?: string;
+  },
+  state: AppState,
+): void {
   console.log(
     `[ws-main-server] Execution complete: session=${payload.sessionId} exitCode=${payload.exitCode} success=${payload.success}`,
   );
@@ -322,6 +329,7 @@ function handleExecutionCompleteEvent(payload: {
   }
 
   const now = new Date().toISOString();
+  const isPlanningMode = session.executionMode === 'planning';
 
   // Check if the task is blocked (agent called askQuestion or awaiting feedback)
   let taskBlocked = false;
@@ -331,6 +339,9 @@ function handleExecutionCompleteEvent(payload: {
       taskBlocked = true;
     }
   }
+
+  // Resolve workspace context for post-completion actions
+  const workspaceContext = resolveWorkspaceContext(db, session.taskId);
 
   db.transaction((tx) => {
     if (taskBlocked) {
@@ -342,6 +353,24 @@ function handleExecutionCompleteEvent(payload: {
           updatedAt: now,
         })
         .where(eq(agentSessions.sessionId, payload.sessionId))
+        .run();
+    } else if (isPlanningMode && payload.success && session.taskId) {
+      // Planning completed successfully — move to plan review, keep in_progress
+      tx.update(agentSessions)
+        .set({
+          status: 'completed',
+          completionSummary: payload.completionSummary ?? null,
+          updatedAt: now,
+        })
+        .where(eq(agentSessions.sessionId, payload.sessionId))
+        .run();
+
+      tx.update(tasks)
+        .set({
+          subStatus: 'plan_review' as typeof tasks.$inferInsert.subStatus,
+          updatedAt: now,
+        })
+        .where(eq(tasks.id, session.taskId))
         .run();
     } else {
       // Remote sessions stay as 'submitted' — just update the summary
@@ -377,9 +406,57 @@ function handleExecutionCompleteEvent(payload: {
     }
   });
 
+  // Post-transaction: dispatch async daemon messages
+  if (!taskBlocked && payload.success && workspaceContext) {
+    if (isPlanningMode && session.taskId) {
+      // For Coder workspaces, pull the plan file from remote to local
+      if (workspaceContext.workspace.executionBackend === 'coder' && workspaceContext.projectDir) {
+        const planSlug = taskPlanSlug(workspaceContext.workspace.slug, session.taskId);
+        const planFilePath = `plans/${planSlug}.plan.md`;
+        dispatchRemoteFilePull(state, workspaceContext.projectDir, planFilePath).catch((err) => {
+          console.error(
+            `[ws-main-server] Failed to pull plan file for session=${payload.sessionId}: ${err.message}`,
+          );
+        });
+      }
+    } else if (!isPlanningMode && workspaceContext.workspace.autoAgentCompletion === 'merge') {
+      // Implementation succeeded with auto-merge — dispatch worktree merge
+      if (session.worktreePath) {
+        dispatchWorktreeMerge(state, session.worktreePath).catch((err) => {
+          console.error(
+            `[ws-main-server] Failed to merge worktree for session=${payload.sessionId}: ${err.message}`,
+          );
+        });
+      }
+    }
+  }
+
   if (session.taskId) {
     broadcastTaskChange('updated', session.taskId);
   }
+}
+
+/** Resolve workspace and project context from a task ID (for post-completion actions) */
+function resolveWorkspaceContext(
+  db: ReturnType<typeof getDb>,
+  taskId: number | null,
+): { workspace: typeof workspaces.$inferSelect; projectDir: string | null } | null {
+  if (!taskId) return null;
+
+  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+  if (!task?.projectId) return null;
+
+  const project = db.select().from(projects).where(eq(projects.id, task.projectId)).get();
+  if (!project) return null;
+
+  const workspace = db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, project.workspaceId))
+    .get();
+  if (!workspace) return null;
+
+  return { workspace, projectDir: project.projectDir };
 }
 
 export function dispatchFileSearch(
@@ -638,5 +715,40 @@ export function dispatchExecutionStop(
     state.pendingExecutionStop,
     'EXECUTION_STOP_REQUEST',
     { sessionId },
+  );
+}
+
+// ── Remote file & worktree dispatch functions ──────────────────────────────
+// TODO: Message types (REMOTE_FILE_PULL_REQUEST, REMOTE_FILE_PUSH_REQUEST,
+// WORKTREE_MERGE_REQUEST) will be added to the protocol in TG2. Using string
+// literals until then.
+
+const REMOTE_FILE_TIMEOUT_MS = 30_000;
+const WORKTREE_MERGE_TIMEOUT_MS = 60_000;
+
+function dispatchRemoteFilePull(
+  state: AppState,
+  projectDir: string,
+  filePath: string,
+): Promise<RemoteFilePullResult> {
+  return dispatchDaemonOp(
+    state,
+    state.pendingRemoteFilePull,
+    'REMOTE_FILE_PULL_REQUEST',
+    { projectDir, filePath },
+    REMOTE_FILE_TIMEOUT_MS,
+  );
+}
+
+function dispatchWorktreeMerge(
+  state: AppState,
+  worktreePath: string,
+): Promise<WorktreeMergeResult> {
+  return dispatchDaemonOp(
+    state,
+    state.pendingWorktreeMerge,
+    'WORKTREE_MERGE_REQUEST',
+    { worktreePath },
+    WORKTREE_MERGE_TIMEOUT_MS,
   );
 }

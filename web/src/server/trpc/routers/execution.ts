@@ -69,6 +69,24 @@ function buildPromptForTask(
   return { prompt, systemPrompt };
 }
 
+function buildPromptForPlan(
+  task: { id: number; title: string; description: string | null },
+  workspace: { slug: string; id: number; planSkill: string | null },
+  project: { slug: string; id: number },
+  projectDir: string,
+  repos: string[],
+) {
+  const taskSlug = taskPlanSlug(workspace.slug, task.id);
+  const planSkill = workspace.planSkill || '/engy:plan';
+  const prompt = `Use ${planSkill} for ${taskSlug}`;
+  const systemPrompt = buildContextBlock({
+    workspace: { id: workspace.id, slug: workspace.slug },
+    project: { id: project.id, slug: project.slug, dir: projectDir },
+    repos,
+  });
+  return { prompt, systemPrompt };
+}
+
 function buildPromptForMilestone(
   milestoneRef: string,
   workspace: { slug: string; id: number },
@@ -187,13 +205,96 @@ function buildRemotePrompt(
   return parts.join('\n');
 }
 
+// ── Auto-Start ──────────────────────────────────────────────────────
+
+interface TrpcCaller {
+  execution: {
+    startExecution: (input: {
+      scope: 'task' | 'taskGroup' | 'milestone' | 'planning';
+      id: number | string;
+      remote?: boolean;
+    }) => Promise<{ sessionId: string }>;
+  };
+}
+
+export async function triggerAutoStart(caller: TrpcCaller, taskId: number): Promise<void> {
+  try {
+    const db = getDb();
+
+    const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+    if (!task?.projectId) return;
+
+    // Only standalone tasks (no taskGroupId, no milestoneRef)
+    if (task.taskGroupId || task.milestoneRef) return;
+
+    const project = db.select().from(projects).where(eq(projects.id, task.projectId)).get();
+    if (!project) return;
+
+    const workspace = db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, project.workspaceId))
+      .get();
+    if (!workspace) return;
+
+    // Workspace must have autoStart enabled
+    if (!workspace.autoStart) return;
+
+    // Check concurrency: active sessions < maxConcurrency
+    const maxConcurrency = workspace.maxConcurrency ?? 1;
+    const activeSessions = db
+      .select()
+      .from(agentSessions)
+      .where(inArray(agentSessions.status, ['active', 'submitted']))
+      .all();
+
+    // Filter to sessions belonging to this workspace's projects
+    const workspaceProjects = db
+      .select()
+      .from(projects)
+      .where(eq(projects.workspaceId, workspace.id))
+      .all();
+    const projectIds = new Set(workspaceProjects.map((p) => p.id));
+
+    const workspaceTasks = db.select().from(tasks).all();
+    const workspaceTaskIds = new Set(
+      workspaceTasks.filter((t) => t.projectId && projectIds.has(t.projectId)).map((t) => t.id),
+    );
+
+    const activeCount = activeSessions.filter(
+      (s) => s.taskId && workspaceTaskIds.has(s.taskId),
+    ).length;
+
+    if (activeCount >= maxConcurrency) return;
+
+    // Route based on needsPlan
+    const scope = task.needsPlan ? 'planning' : 'task';
+    await caller.execution.startExecution({ scope, id: taskId });
+  } catch (err) {
+    // Fire-and-forget: log failure, set subStatus to 'failed'
+    console.error(`[auto-start] Failed for task ${taskId}:`, err);
+    try {
+      const db = getDb();
+      db.update(tasks)
+        .set({
+          subStatus: 'failed' as typeof tasks.$inferInsert.subStatus,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(tasks.id, taskId))
+        .run();
+    } catch (updateErr) {
+      console.error(`[auto-start] Failed to update task ${taskId} subStatus:`, updateErr);
+    }
+  }
+}
+
 // ── Router ───────────────────────────────────────────────────────────
 
 export const executionRouter = router({
   startExecution: publicProcedure
     .input(
       z.object({
-        scope: z.enum(['task', 'taskGroup', 'milestone']),
+        scope: z.enum(['task', 'taskGroup', 'milestone', 'planning']),
         id: z.union([z.number(), z.string()]),
         remote: z.boolean().optional(),
       }),
@@ -251,6 +352,26 @@ export const executionRouter = router({
           prompt = built.prompt;
           systemPrompt = built.systemPrompt;
         }
+      } else if (input.scope === 'planning') {
+        const id = typeof input.id === 'string' ? parseInt(input.id, 10) : input.id;
+        const resolved = resolveTaskContext(id);
+        additionalDirs = resolved.dirs.additionalDirs;
+        worktreePath = resolved.dirs.workingDir ?? null;
+        taskId = resolved.task.id;
+        previousTaskStatus = resolved.task.status;
+        taskGroupId = resolved.task.taskGroupId;
+        repos = resolved.repos;
+        workspace = resolved.workspace;
+
+        const built = buildPromptForPlan(
+          resolved.task,
+          resolved.workspace,
+          resolved.project,
+          resolved.projectDir,
+          resolved.repos,
+        );
+        prompt = built.prompt;
+        systemPrompt = built.systemPrompt;
       } else if (input.scope === 'taskGroup') {
         const id = typeof input.id === 'string' ? parseInt(input.id, 10) : input.id;
         const group = db.select().from(taskGroups).where(eq(taskGroups.id, id)).get();
@@ -365,6 +486,11 @@ export const executionRouter = router({
           .set({ status: 'in_progress', subStatus: 'implementing' })
           .where(eq(tasks.id, taskId))
           .run();
+      } else if (taskId && input.scope === 'planning') {
+        db.update(tasks)
+          .set({ status: 'in_progress', subStatus: 'planning' })
+          .where(eq(tasks.id, taskId))
+          .run();
       }
 
       const flags: string[] = [];
@@ -430,7 +556,7 @@ export const executionRouter = router({
           .set({ status: 'stopped', completionSummary: errorMessage, updatedAt: now })
           .where(eq(agentSessions.sessionId, sessionId))
           .run();
-        if (taskId && input.scope === 'task') {
+        if (taskId && (input.scope === 'task' || input.scope === 'planning')) {
           db.update(tasks)
             .set({
               status: (previousTaskStatus ?? 'todo') as typeof tasks.$inferInsert.status,
@@ -679,7 +805,7 @@ export const executionRouter = router({
   getSessionStatus: publicProcedure
     .input(
       z.object({
-        scope: z.enum(['task', 'taskGroup', 'milestone']),
+        scope: z.enum(['task', 'taskGroup', 'milestone', 'planning']),
         id: z.union([z.number(), z.string()]),
       }),
     )
@@ -692,6 +818,22 @@ export const executionRouter = router({
           .select()
           .from(agentSessions)
           .where(and(eq(agentSessions.taskId, taskId), eq(agentSessions.executionMode, 'task')))
+          .orderBy(desc(agentSessions.createdAt))
+          .get();
+
+        return session
+          ? { status: session.status, sessionId: session.sessionId, completionSummary: session.completionSummary ?? null }
+          : { status: null, sessionId: null, completionSummary: null };
+      }
+
+      if (input.scope === 'planning') {
+        const taskId = typeof input.id === 'string' ? parseInt(input.id, 10) : input.id;
+        const session = db
+          .select()
+          .from(agentSessions)
+          .where(
+            and(eq(agentSessions.taskId, taskId), eq(agentSessions.executionMode, 'planning')),
+          )
           .orderBy(desc(agentSessions.createdAt))
           .get();
 

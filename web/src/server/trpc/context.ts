@@ -73,6 +73,19 @@ export interface FileWriteResult {
   success: boolean;
 }
 
+// TODO: These result types will be fully typed when protocol types are added (TG2)
+export interface RemoteFilePullResult {
+  success: boolean;
+}
+
+export interface RemoteFilePushResult {
+  success: boolean;
+}
+
+export interface WorktreeMergeResult {
+  success: boolean;
+}
+
 export interface AppState {
   daemon: WebSocket | null;
   fileChanges: Map<string, FileChangeEvent[]>;
@@ -174,6 +187,28 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  // TODO: Pending maps for daemon messages added in TG2 protocol types
+  pendingRemoteFilePull: Map<
+    string,
+    {
+      resolve: (result: RemoteFilePullResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingRemoteFilePush: Map<
+    string,
+    {
+      resolve: (result: RemoteFilePushResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingWorktreeMerge: Map<
+    string,
+    {
+      resolve: (result: WorktreeMergeResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   specLastChanged: Map<string, number>;
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
   /** Maps sessionId → set of browser WebSockets for multi-attach terminal I/O relay */
@@ -212,6 +247,9 @@ export function getAppState(): AppState {
       pendingDirList: new Map(),
       pendingFileRead: new Map(),
       pendingFileWrite: new Map(),
+      pendingRemoteFilePull: new Map(),
+      pendingRemoteFilePush: new Map(),
+      pendingWorktreeMerge: new Map(),
       specLastChanged: new Map(),
       specDebounceTimers: new Map(),
       terminalSessions: new Map(),

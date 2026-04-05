@@ -8,6 +8,7 @@ import { setupTestDb, type TestContext } from '../test-helpers';
 import { getDb } from '../../db/client';
 import { agentSessions, tasks, workspaces } from '../../db/schema';
 import { eq } from 'drizzle-orm';
+import { triggerAutoStart } from './execution';
 
 vi.mock('node:os', async () => {
   const actual = await vi.importActual<typeof os>('node:os');
@@ -674,6 +675,264 @@ describe('execution router', () => {
       await expect(
         caller.execution.startBatchExecution({ taskIds: [t1.id, t2.id] }),
       ).rejects.toThrow('All tasks in a batch must belong to the same project');
+    });
+  });
+
+  describe('planning scope', () => {
+    it('should create session with executionMode planning and set subStatus planning', async () => {
+      const { proj } = await seedProject(caller);
+      const task = await caller.task.create({ projectId: proj.id, title: 'Plan task' });
+      createMockDaemon(ctx);
+
+      const result = await caller.execution.startExecution({ scope: 'planning', id: task.id });
+
+      const db = getDb();
+      const session = db
+        .select()
+        .from(agentSessions)
+        .where(eq(agentSessions.sessionId, result.sessionId))
+        .get();
+
+      expect(session!.executionMode).toBe('planning');
+      expect(session!.status).toBe('active');
+      expect(session!.taskId).toBe(task.id);
+
+      const updatedTask = db.select().from(tasks).where(eq(tasks.id, task.id)).get();
+      expect(updatedTask!.status).toBe('in_progress');
+      expect(updatedTask!.subStatus).toBe('planning');
+    });
+
+    it('should dispatch with plan skill prompt', async () => {
+      const { proj } = await seedProject(caller);
+      const task = await caller.task.create({ projectId: proj.id, title: 'Plan dispatch' });
+      const { sent } = createMockDaemon(ctx);
+
+      await caller.execution.startExecution({ scope: 'planning', id: task.id });
+
+      const msg = JSON.parse(sent[0]);
+      expect(msg.payload.prompt).toContain('/engy:plan');
+    });
+
+    it('should use custom planSkill from workspace', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb()
+        .update(workspaces)
+        .set({ planSkill: '/custom:plan' })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+      const task = await caller.task.create({ projectId: proj.id, title: 'Custom plan' });
+      const { sent } = createMockDaemon(ctx);
+
+      await caller.execution.startExecution({ scope: 'planning', id: task.id });
+
+      const msg = JSON.parse(sent[0]);
+      expect(msg.payload.prompt).toContain('/custom:plan');
+    });
+
+    it('should revert task on dispatch failure', async () => {
+      const { proj } = await seedProject(caller);
+      const task = await caller.task.create({ projectId: proj.id, title: 'Failing plan' });
+      createFailingDaemon(ctx, 'Plan dispatch failed');
+
+      await expect(
+        caller.execution.startExecution({ scope: 'planning', id: task.id }),
+      ).rejects.toThrow('Failed to start execution: Plan dispatch failed');
+
+      const db = getDb();
+      const updatedTask = db.select().from(tasks).where(eq(tasks.id, task.id)).get();
+      expect(updatedTask!.status).toBe('todo');
+      expect(updatedTask!.subStatus).toBe('failed');
+    });
+
+    it('should return planning session status via getSessionStatus', async () => {
+      const { proj } = await seedProject(caller);
+      const task = await caller.task.create({ projectId: proj.id, title: 'Plan status' });
+      createMockDaemon(ctx);
+
+      const { sessionId } = await caller.execution.startExecution({
+        scope: 'planning',
+        id: task.id,
+      });
+
+      const result = await caller.execution.getSessionStatus({
+        scope: 'planning',
+        id: task.id,
+      });
+      expect(result.status).toBe('active');
+      expect(result.sessionId).toBe(sessionId);
+    });
+  });
+
+  describe('triggerAutoStart', () => {
+    it('should start planning execution for needsPlan=true task', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb()
+        .update(workspaces)
+        .set({ autoStart: true })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+      const task = await caller.task.create({
+        projectId: proj.id,
+        title: 'Auto plan',
+        needsPlan: true,
+      });
+      createMockDaemon(ctx);
+
+      await triggerAutoStart(caller, task.id);
+
+      const db = getDb();
+      const sessions = db.select().from(agentSessions).all();
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].executionMode).toBe('planning');
+
+      const updatedTask = db.select().from(tasks).where(eq(tasks.id, task.id)).get();
+      expect(updatedTask!.subStatus).toBe('planning');
+    });
+
+    it('should start implementation execution for needsPlan=false task', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb()
+        .update(workspaces)
+        .set({ autoStart: true })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+      const task = await caller.task.create({
+        projectId: proj.id,
+        title: 'Auto impl',
+        needsPlan: false,
+      });
+      createMockDaemon(ctx);
+
+      await triggerAutoStart(caller, task.id);
+
+      const db = getDb();
+      const sessions = db.select().from(agentSessions).all();
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].executionMode).toBe('task');
+
+      const updatedTask = db.select().from(tasks).where(eq(tasks.id, task.id)).get();
+      expect(updatedTask!.subStatus).toBe('implementing');
+    });
+
+    it('should skip when autoStart is disabled', async () => {
+      const { proj } = await seedProject(caller);
+      const task = await caller.task.create({ projectId: proj.id, title: 'No auto' });
+      createMockDaemon(ctx);
+
+      await triggerAutoStart(caller, task.id);
+
+      const db = getDb();
+      const sessions = db.select().from(agentSessions).all();
+      expect(sessions).toHaveLength(0);
+    });
+
+    it('should skip when task has taskGroupId', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb()
+        .update(workspaces)
+        .set({ autoStart: true })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+      const group = await caller.taskGroup.create({
+        milestoneRef: 'm1',
+        name: 'Group',
+      });
+      const task = await caller.task.create({
+        projectId: proj.id,
+        title: 'Grouped task',
+        taskGroupId: group.id,
+      });
+      createMockDaemon(ctx);
+
+      await triggerAutoStart(caller, task.id);
+
+      const db = getDb();
+      const sessions = db.select().from(agentSessions).all();
+      expect(sessions).toHaveLength(0);
+    });
+
+    it('should skip when task has milestoneRef', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb()
+        .update(workspaces)
+        .set({ autoStart: true })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+      const task = await caller.task.create({
+        projectId: proj.id,
+        title: 'Milestone task',
+        milestoneRef: 'm1',
+      });
+      createMockDaemon(ctx);
+
+      await triggerAutoStart(caller, task.id);
+
+      const db = getDb();
+      const sessions = db.select().from(agentSessions).all();
+      expect(sessions).toHaveLength(0);
+    });
+
+    it('should skip when at concurrency limit', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb()
+        .update(workspaces)
+        .set({ autoStart: true, maxConcurrency: 1 })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+
+      const task1 = await caller.task.create({
+        projectId: proj.id,
+        title: 'Running task',
+        needsPlan: false,
+      });
+      createMockDaemon(ctx);
+      await caller.execution.startExecution({ scope: 'task', id: task1.id });
+
+      const task2 = await caller.task.create({
+        projectId: proj.id,
+        title: 'Queued task',
+        needsPlan: false,
+      });
+
+      await triggerAutoStart(caller, task2.id);
+
+      const db = getDb();
+      const sessions = db.select().from(agentSessions).all();
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].taskId).toBe(task1.id);
+    });
+
+    it('should set subStatus to failed on dispatch error without throwing', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb()
+        .update(workspaces)
+        .set({ autoStart: true })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+      const task = await caller.task.create({
+        projectId: proj.id,
+        title: 'Failing auto',
+        needsPlan: false,
+      });
+      createFailingDaemon(ctx, 'Daemon error');
+
+      // Should not throw — fire-and-forget
+      await triggerAutoStart(caller, task.id);
+
+      const db = getDb();
+      const updatedTask = db.select().from(tasks).where(eq(tasks.id, task.id)).get();
+      expect(updatedTask!.subStatus).toBe('failed');
+    });
+
+    it('should skip when task has no projectId', async () => {
+      const task = await caller.task.create({ title: 'No project' });
+      createMockDaemon(ctx);
+
+      await triggerAutoStart(caller, task.id);
+
+      const db = getDb();
+      const sessions = db.select().from(agentSessions).all();
+      expect(sessions).toHaveLength(0);
     });
   });
 });
