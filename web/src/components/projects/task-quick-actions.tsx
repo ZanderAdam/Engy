@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   RiMore2Line,
   RiDraftLine,
@@ -49,7 +48,6 @@ export function TaskQuickActions({
   needsPlan = true,
   projectSlug: projectSlugProp,
 }: TaskQuickActionsProps) {
-  const router = useRouter();
   const { disabled, launch, projectSlug: hookProjectSlug, workspace, project } = useQuickAction();
   const projectSlug = projectSlugProp ?? hookProjectSlug;
   const workspaceSlug = workspace?.slug ?? '';
@@ -196,8 +194,8 @@ export function TaskQuickActions({
             <>
               <DropdownMenuItem
                 onClick={() =>
-                  router.push(
-                    `/w/${workspaceSlug}/projects/${projectSlug}/docs?file=plans/${taskSlug}.plan.md`,
+                  window.dispatchEvent(
+                    new CustomEvent('task:open', { detail: { taskId, tab: 'plan' } }),
                   )
                 }
               >

@@ -107,6 +107,9 @@ export default function ProjectTasksPage() {
   }, [taskGroups, tasks]);
 
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [selectedTaskTab, setSelectedTaskTab] = useState<
+    'description' | 'plan' | 'execution' | 'questions' | undefined
+  >(undefined);
   const [showNewTask, setShowNewTask] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
@@ -147,6 +150,19 @@ export default function ProjectTasksPage() {
       for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
     };
+  }, []);
+
+  // Cross-component signal: any quick action / card affordance can request
+  // the task dialog to open on a specific tab via a `task:open` window event.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ taskId: number; tab?: typeof selectedTaskTab }>).detail;
+      if (!detail) return;
+      setSelectedTaskId(detail.taskId);
+      setSelectedTaskTab(detail.tab);
+    };
+    window.addEventListener('task:open', handler);
+    return () => window.removeEventListener('task:open', handler);
   }, []);
 
   useOnFileChange(
@@ -307,8 +323,14 @@ export default function ProjectTasksPage() {
         <TaskDialog
           mode="edit"
           taskId={selectedTaskId}
+          initialTab={selectedTaskTab}
           open
-          onOpenChange={(open) => { if (!open) setSelectedTaskId(null); }}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSelectedTaskId(null);
+              setSelectedTaskTab(undefined);
+            }
+          }}
         />
       )}
 

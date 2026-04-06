@@ -57,11 +57,15 @@ interface CreateProps {
 
 // ── Edit mode ────────────────────────────────────────────────────────
 
+type TaskDialogTab = 'description' | 'plan' | 'execution' | 'questions';
+
 interface EditProps {
   mode: 'edit';
   open: boolean;
   onOpenChange: (open: boolean) => void;
   taskId: number;
+  /** Explicit tab to open on. Overrides the subStatus-based default. */
+  initialTab?: TaskDialogTab;
 }
 
 type TaskDialogProps = CreateProps | EditProps;
@@ -261,7 +265,7 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
 
 // ── Edit ─────────────────────────────────────────────────────────────
 
-function EditTask({ open, onOpenChange, taskId }: EditProps) {
+function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
   const { data: task } = trpc.task.get.useQuery({ id: taskId }, { enabled: open });
   const { mentionDirs, workspaceId, workspaceSlug, projectSlug } = useTaskProjectContext(
     task?.projectId ?? undefined,
@@ -328,12 +332,17 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
     setTaskGroupIdLocal(task.taskGroupId ?? null);
   }
 
-  // Pick initial active tab. Prioritize the `plan_review` signal from the
-  // task itself so we don't flash the Description tab while projectWithPlans
-  // is still in flight. For the execution fallback we do need projectWithPlans
-  // to know whether a plan exists.
+  // Pick initial active tab. An explicit `initialTab` prop wins — e.g. the
+  // View Plan quick action forces the Plan tab regardless of subStatus.
+  // Otherwise prioritize the `plan_review` signal from the task itself so we
+  // don't flash the Description tab while projectWithPlans is still in
+  // flight. For the execution fallback we do need projectWithPlans to know
+  // whether a plan exists.
   if (!tabInitialized && task) {
-    if (task.subStatus === 'plan_review') {
+    if (initialTab) {
+      setTabInitialized(true);
+      setActiveTab(initialTab);
+    } else if (task.subStatus === 'plan_review') {
       setTabInitialized(true);
       setActiveTab('plan');
     } else if (projectWithPlans) {
