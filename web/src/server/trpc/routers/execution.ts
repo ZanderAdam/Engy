@@ -15,7 +15,12 @@ import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { agentSessions, tasks, taskGroups, projects, workspaces } from '../../db/schema';
 import { taskPlanSlug, readPlanFile } from '../../plan/service';
-import { dispatchExecutionStart, dispatchExecutionStop, dispatchContainerUp } from '../../ws/server';
+import {
+  dispatchExecutionStart,
+  dispatchExecutionStop,
+  dispatchContainerUp,
+  dispatchRemoteFilePush,
+} from '../../ws/server';
 import { broadcastTaskChange } from '../../ws/broadcast';
 import { getWorkspaceDir, resolveProjectDir } from '../../engy-dir/init';
 import { buildContextBlock, buildQuickActionDirs } from '../../../lib/shell';
@@ -1032,6 +1037,57 @@ export const executionRouter = router({
       }
 
       return { sessionId };
+    }),
+
+  pushRemoteFile: publicProcedure
+    .input(
+      z.object({
+        taskId: z.number().int().positive(),
+        content: z.string(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const task = db.select().from(tasks).where(eq(tasks.id, input.taskId)).get();
+      if (!task?.projectId) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Task or project not found' });
+      }
+
+      const project = db.select().from(projects).where(eq(projects.id, task.projectId)).get();
+      if (!project) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      }
+
+      const workspace = db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, project.workspaceId))
+        .get();
+      if (!workspace) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
+      }
+
+      // Only push for Coder workspaces; non-Coder is a silent no-op
+      if (workspace.executionBackend !== 'coder') {
+        return { pushed: false };
+      }
+
+      const coderCfg = workspace.coderConfig as { workspace: string } | null;
+      if (!coderCfg?.workspace) {
+        return { pushed: false };
+      }
+
+      // Plan path is computed server-side from task metadata — no user input
+      const planSlug = taskPlanSlug(workspace.slug, input.taskId);
+      const planFilePath = `plans/${planSlug}.plan.md`;
+
+      await dispatchRemoteFilePush(
+        ctx.state,
+        coderCfg.workspace,
+        planFilePath,
+        input.content,
+      );
+      return { pushed: true };
     }),
 
   getWorktreeSessions: publicProcedure

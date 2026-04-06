@@ -7,19 +7,18 @@ import type { TerminalScope } from './types';
 export function useSendToTerminal() {
   const terminalActive = useTerminalActive();
 
-  const sendToTerminal = useCallback((content: string) => {
+  const sendToTerminal = useCallback((content: string, terminalId?: string) => {
     if (!content) return;
 
-    window.dispatchEvent(
-      new CustomEvent('terminal:inject', {
-        detail: { context: content },
-      }),
-    );
+    const detail: { context: string; terminalId?: string } = { context: content };
+    if (terminalId) detail.terminalId = terminalId;
+
+    window.dispatchEvent(new CustomEvent('terminal:inject', { detail }));
     // Send Enter as a separate event so the PTY processes the content first
     setTimeout(() => {
       window.dispatchEvent(
         new CustomEvent('terminal:inject', {
-          detail: { context: '\r' },
+          detail: { context: '\r', ...(terminalId ? { terminalId } : {}) },
         }),
       );
     }, 50);

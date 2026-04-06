@@ -22,6 +22,8 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
+import { EngyThreadStore } from '@/components/editor/document-editor';
+import { PlanActions } from './plan-actions';
 import { QuestionAnswerPanel } from '@/components/questions/question-answer-panel';
 import {
   Command,
@@ -166,7 +168,7 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[60vw] max-w-4xl [&>*]:min-w-0">
+      <DialogContent className="flex h-[90vh] w-[90vw] max-w-[1400px] flex-col gap-0 p-4 sm:max-w-[1400px] [&>*]:min-w-0">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>New Task</DialogTitle>
@@ -306,6 +308,10 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
   );
   const [dirty, setDirty] = useState(false);
   const [initialized, setInitialized] = useState(!!task);
+  const [activeTab, setActiveTab] = useState<string>('description');
+  const [tabInitialized, setTabInitialized] = useState(false);
+  const [planMarkdown, setPlanMarkdown] = useState('');
+  const [planMarkdownInitialized, setPlanMarkdownInitialized] = useState(false);
 
   if (task && !initialized) {
     setInitialized(true);
@@ -318,6 +324,43 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
     setBlockedBy(task.blockedBy ?? []);
     setTaskGroupIdLocal(task.taskGroupId ?? null);
   }
+
+  // Pick initial active tab once both the task and project's planSlugs have loaded.
+  if (!tabInitialized && task && projectWithPlans) {
+    setTabInitialized(true);
+    if (hasPlan && task.subStatus === 'plan_review') {
+      setActiveTab('plan');
+    } else if (hasExecution && !hasPlan) {
+      setActiveTab('execution');
+    }
+  }
+
+  // Seed planMarkdown once the plan file loads so PlanActions has something to
+  // push/export before the user edits anything.
+  if (!planMarkdownInitialized && planData?.content !== undefined) {
+    setPlanMarkdownInitialized(true);
+    setPlanMarkdown(planData.content);
+  }
+
+  const threadStore = useMemo(() => {
+    if (!workspaceSlug || !projectSlug || !taskSlug || !hasPlan) return null;
+    return new EngyThreadStore(workspaceSlug, `${projectSlug}/${planFilePath}`);
+  }, [workspaceSlug, projectSlug, taskSlug, hasPlan, planFilePath]);
+
+  type PlanThreads = ReturnType<EngyThreadStore['getThreads']>;
+  const [planThreads, setPlanThreads] = useState<PlanThreads>(() => new Map());
+  // Render-phase sync: when the thread store identity changes, seed planThreads
+  // from its current snapshot. The effect below handles subsequent updates via
+  // subscribe. Using a ref guard keeps this idempotent across re-renders.
+  const seededStoreRef = useRef<EngyThreadStore | null>(null);
+  if (threadStore !== seededStoreRef.current) {
+    seededStoreRef.current = threadStore;
+    setPlanThreads(threadStore ? threadStore.getThreads() : new Map());
+  }
+  useEffect(() => {
+    if (!threadStore) return;
+    return threadStore.subscribe(setPlanThreads);
+  }, [threadStore]);
 
   const { data: projectTasks } = trpc.task.list.useQuery(
     { projectId: task?.projectId ?? 0 },
@@ -341,6 +384,7 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
 
   function handlePlanSave(md: string) {
     if (!workspaceSlug || !projectSlug) return;
+    setPlanMarkdown(md);
     writePlan.mutate({ workspaceSlug, projectSlug, filePath: planFilePath, content: md });
   }
   const updateTask = trpc.task.update.useMutation({
@@ -430,7 +474,7 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
   if (!task) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-[60vw] max-w-4xl [&>*]:min-w-0">
+        <DialogContent className="flex h-[90vh] w-[90vw] max-w-[1400px] flex-col gap-0 p-4 sm:max-w-[1400px] [&>*]:min-w-0">
           <DialogHeader>
             <DialogTitle>Loading...</DialogTitle>
           </DialogHeader>
@@ -441,7 +485,7 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[60vw] max-w-4xl [&>*]:min-w-0">
+      <DialogContent className="flex h-[90vh] w-[90vw] max-w-[1400px] flex-col gap-0 p-4 sm:max-w-[1400px] [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle className="sr-only">Edit Task</DialogTitle>
           <Input
@@ -452,7 +496,11 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
           />
         </DialogHeader>
 
-        <Tabs defaultValue={hasExecution && !hasPlan ? 'execution' : 'description'}>
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="min-h-0 flex-1 overflow-hidden"
+        >
           <TabsList variant="line">
             <TabsTrigger value="description">Description</TabsTrigger>
             {hasPlan && <TabsTrigger value="plan">Plan</TabsTrigger>}
@@ -537,16 +585,28 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
             </div>
           </TabsContent>
           {hasPlan && (
-            <TabsContent value="plan">
-              <div className="min-h-[200px] max-h-[50vh] overflow-auto border border-border">
-                {planData && (
+            <TabsContent value="plan" className="flex min-h-0 flex-col gap-3">
+              <div className="min-h-0 flex-1 overflow-auto border border-border">
+                {planData && threadStore && taskSlug && (
                   <DynamicDocumentEditor
+                    key={taskSlug}
                     initialMarkdown={planData.content}
                     onSave={handlePlanSave}
+                    comments
+                    threadStore={threadStore}
+                    filePath={`${projectSlug}/${planFilePath}`}
                     mentionDirs={mentionDirs}
                   />
                 )}
               </div>
+              {taskSlug && (
+                <PlanActions
+                  taskId={taskId}
+                  taskSlug={taskSlug}
+                  threads={planThreads}
+                  markdown={planMarkdown}
+                />
+              )}
             </TabsContent>
           )}
           {hasExecution && (

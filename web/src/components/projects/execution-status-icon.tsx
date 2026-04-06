@@ -7,6 +7,7 @@ import {
   RiPauseCircleLine,
   RiAlertLine,
   RiLightbulbLine,
+  RiClipboardLine,
 } from '@remixicon/react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -25,6 +26,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   implementing: RiLoader4Line,
   blocked: RiPauseCircleLine,
   failed: RiAlertLine,
+  plan_review: RiClipboardLine,
 };
 
 const tooltipMap: Record<string, string> = {
@@ -36,6 +38,7 @@ const tooltipMap: Record<string, string> = {
   implementing: 'Auto-implementing\u2026',
   blocked: 'Blocked',
   failed: 'Failed',
+  plan_review: 'Plan ready for review',
 };
 
 const styleMap: Record<string, string> = {
@@ -47,6 +50,7 @@ const styleMap: Record<string, string> = {
   implementing: 'animate-spin text-blue-500',
   blocked: 'text-yellow-500',
   failed: 'text-red-500',
+  plan_review: 'text-amber-500',
 };
 
 export function ExecutionStatusIcon({ status, className }: ExecutionStatusIconProps) {

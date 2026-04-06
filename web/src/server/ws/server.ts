@@ -8,7 +8,7 @@ import type {
   ContainerUpRequestMessage,
   ExecutionStartConfig,
 } from '@engy/common';
-import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowResult, GitBranchFilesResult, ContainerUpResult, ExecutionStartResult, ExecutionStopResult, DirListResult, FileReadResult, FileWriteResult, RemoteFilePullResult, WorktreeMergeResult } from '../trpc/context';
+import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowResult, GitBranchFilesResult, ContainerUpResult, ExecutionStartResult, ExecutionStopResult, DirListResult, FileReadResult, FileWriteResult, RemoteFilePullResult, RemoteFilePushResult, WorktreeMergeResult } from '../trpc/context';
 import { getDb } from '../db/client';
 import { workspaces, agentSessions, tasks, projects } from '../db/schema';
 import { handleSpecFileChange } from '../spec/watcher';
@@ -751,6 +751,21 @@ function dispatchRemoteFilePull(
     state.pendingRemoteFilePull,
     'REMOTE_FILE_PULL_REQUEST',
     { coderWorkspace, filePath },
+    REMOTE_FILE_TIMEOUT_MS,
+  );
+}
+
+export function dispatchRemoteFilePush(
+  state: AppState,
+  coderWorkspace: string,
+  filePath: string,
+  content: string,
+): Promise<RemoteFilePushResult> {
+  return dispatchDaemonOp(
+    state,
+    state.pendingRemoteFilePush,
+    'REMOTE_FILE_PUSH_REQUEST',
+    { coderWorkspace, filePath, content },
     REMOTE_FILE_TIMEOUT_MS,
   );
 }

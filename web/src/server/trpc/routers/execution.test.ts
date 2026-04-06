@@ -603,6 +603,96 @@ describe('execution router', () => {
     });
   });
 
+  describe('pushRemoteFile', () => {
+    function createPushDaemon(ctx: TestContext) {
+      const sent: string[] = [];
+      const mock = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          sent.push(data);
+          const msg = JSON.parse(data);
+          if (msg.type === 'REMOTE_FILE_PUSH_REQUEST') {
+            const pending = ctx.state.pendingRemoteFilePush.get(msg.payload.requestId);
+            if (pending) {
+              ctx.state.pendingRemoteFilePush.delete(msg.payload.requestId);
+              pending.resolve({ success: true });
+            }
+          }
+        },
+      };
+      ctx.state.daemon = mock as unknown as WebSocket;
+      return { sent };
+    }
+
+    it('should no-op for non-Coder workspaces', async () => {
+      const { proj } = await seedProject(caller);
+      const task = await caller.task.create({ projectId: proj.id, title: 'Push test' });
+      const { sent } = createPushDaemon(ctx);
+
+      const result = await caller.execution.pushRemoteFile({
+        taskId: task.id,
+        content: 'edited plan',
+      });
+
+      expect(result.pushed).toBe(false);
+      expect(sent).toHaveLength(0);
+    });
+
+    it('should dispatch REMOTE_FILE_PUSH for Coder workspaces with computed plan path', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb()
+        .update(workspaces)
+        .set({
+          executionBackend: 'coder',
+          coderConfig: { workspace: 'my-coder-ws', repoBasePath: '/repos' },
+        })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+      const task = await caller.task.create({ projectId: proj.id, title: 'Coder push' });
+      const { sent } = createPushDaemon(ctx);
+
+      const result = await caller.execution.pushRemoteFile({
+        taskId: task.id,
+        content: 'edited plan',
+      });
+
+      expect(result.pushed).toBe(true);
+      expect(sent).toHaveLength(1);
+      const msg = JSON.parse(sent[0]);
+      expect(msg.type).toBe('REMOTE_FILE_PUSH_REQUEST');
+      expect(msg.payload.coderWorkspace).toBe('my-coder-ws');
+      expect(msg.payload.filePath).toBe(`plans/${ws.slug}-T${task.id}.plan.md`);
+      expect(msg.payload.content).toBe('edited plan');
+    });
+
+    it('should throw NOT_FOUND for non-existent task', async () => {
+      createPushDaemon(ctx);
+      await expect(
+        caller.execution.pushRemoteFile({ taskId: 99999, content: 'x' }),
+      ).rejects.toThrow('Task or project not found');
+    });
+
+    it('should no-op when Coder workspace has no coderConfig', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb()
+        .update(workspaces)
+        .set({ executionBackend: 'coder', coderConfig: null })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+      const task = await caller.task.create({ projectId: proj.id, title: 'No config' });
+      const { sent } = createPushDaemon(ctx);
+
+      const result = await caller.execution.pushRemoteFile({
+        taskId: task.id,
+        content: 'plan',
+      });
+
+      expect(result.pushed).toBe(false);
+      expect(sent).toHaveLength(0);
+    });
+  });
+
   describe('startBatchExecution', () => {
     it('should create a session and mark all tasks as in_progress/implementing', async () => {
       const { proj } = await seedProject(caller);
