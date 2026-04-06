@@ -694,6 +694,28 @@ describe('AgentSpawner', () => {
 
       expect(result.sessionId).toBe('test-session');
     });
+
+    it('should not add --session-id when caller passes --resume via flags', async () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const promise = spawner.spawn({
+        sessionId: 'new-session',
+        prompt: 'Address feedback',
+        flags: ['--resume', 'old-session-xyz'],
+        containerMode: false,
+        workingDir: '/workspace',
+      });
+
+      proc.emit('close', 0);
+      await promise;
+
+      const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+      expect(spawnArgs).not.toContain('--session-id');
+      expect(spawnArgs).toContain('--resume');
+      const resumeIndex = spawnArgs.indexOf('--resume');
+      expect(spawnArgs[resumeIndex + 1]).toBe('old-session-xyz');
+    });
   });
 
   describe('timeout', () => {

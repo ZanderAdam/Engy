@@ -117,9 +117,12 @@ export class AgentSpawner {
 
     args.push('--json-schema', TASK_COMPLETION_SCHEMA);
 
+    // --session-id is incompatible with --resume; if either side resumes
+    // (config.resumeSessionId or a --resume flag from the caller), skip it.
+    const flagsHaveResume = config.flags.includes('--resume');
     if (config.resumeSessionId) {
       args.push('--resume', config.resumeSessionId);
-    } else {
+    } else if (!flagsHaveResume) {
       args.push('--session-id', sessionId);
     }
 
