@@ -1047,25 +1047,7 @@ export const executionRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const task = db.select().from(tasks).where(eq(tasks.id, input.taskId)).get();
-      if (!task?.projectId) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Task or project not found' });
-      }
-
-      const project = db.select().from(projects).where(eq(projects.id, task.projectId)).get();
-      if (!project) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      }
-
-      const workspace = db
-        .select()
-        .from(workspaces)
-        .where(eq(workspaces.id, project.workspaceId))
-        .get();
-      if (!workspace) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
-      }
+      const { workspace } = resolveTaskContext(input.taskId);
 
       // Only push for Coder workspaces; non-Coder is a silent no-op
       if (workspace.executionBackend !== 'coder') {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { RiCheckLine, RiChat3Line, RiTerminalLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -21,10 +21,23 @@ interface PlanActionsProps {
   taskId: number;
   taskSlug: string;
   threads: Map<string, ThreadLike>;
-  markdown: string;
+  /** False until the thread store has finished its initial DB load. */
+  threadsReady: boolean;
+  /**
+   * Returns the latest plan markdown synchronously. Callers should flush any
+   * pending debounced autosave in the implementation so actions always operate
+   * on fresh content even right after a keystroke.
+   */
+  getMarkdown: () => string;
 }
 
-export function PlanActions({ taskId, taskSlug, threads, markdown }: PlanActionsProps) {
+export function PlanActions({
+  taskId,
+  taskSlug,
+  threads,
+  threadsReady,
+  getMarkdown,
+}: PlanActionsProps) {
   const { sendToTerminal, terminalActive } = useSendToTerminal();
   const { status, sessionId, isActive, isStarting, start } = useExecutionStatus('task', taskId);
 
@@ -37,12 +50,10 @@ export function PlanActions({ taskId, taskSlug, threads, markdown }: PlanActions
 
   const planFilePath = `plans/${taskSlug}.plan.md`;
   const planningSessionActive = isActive || status === 'paused';
-  const approveDisabled = planningSessionActive || isStarting || pushRemoteFileMutation.isPending;
 
-  const buildFormattedComments = useCallback(
-    () => formatCommentsForExport({ threads, markdown, filePath: planFilePath }),
-    [threads, markdown, planFilePath],
-  );
+  // Ref-based re-entry guard. Disabled-state checks reading React state can let
+  // two same-frame clicks through before a re-render propagates.
+  const busyRef = useRef(false);
 
   const hasComments = useMemo(() => {
     for (const [, thread] of threads) {
@@ -52,46 +63,74 @@ export function PlanActions({ taskId, taskSlug, threads, markdown }: PlanActions
     return false;
   }, [threads]);
 
-  const pushPlanFile = useCallback(
-    () => pushRemoteFileMutation.mutateAsync({ taskId, content: markdown }),
-    [taskId, markdown, pushRemoteFileMutation],
-  );
+  const approveDisabled =
+    planningSessionActive || isStarting || pushRemoteFileMutation.isPending;
+  const sendToSessionDisabled =
+    !sessionId ||
+    !threadsReady ||
+    !hasComments ||
+    sendFeedbackMutation.isPending ||
+    pushRemoteFileMutation.isPending;
+
+  let sendToSessionTooltip: string;
+  if (!sessionId) {
+    sendToSessionTooltip = 'No active planning session';
+  } else if (!threadsReady) {
+    sendToSessionTooltip = 'Loading comments\u2026';
+  } else if (!hasComments) {
+    sendToSessionTooltip = 'No comments to send';
+  } else {
+    sendToSessionTooltip = 'Send comments to the planning session';
+  }
 
   const handleApproveAndImplement = useCallback(async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     try {
-      await pushPlanFile();
+      await pushRemoteFileMutation.mutateAsync({ taskId, content: getMarkdown() });
       start();
     } catch (err) {
       toast.error('Failed to start implementation', {
         description: err instanceof Error ? err.message : String(err),
       });
+    } finally {
+      busyRef.current = false;
     }
-  }, [pushPlanFile, start]);
+  }, [pushRemoteFileMutation, taskId, getMarkdown, start]);
 
   const handleSendToSession = useCallback(async () => {
-    if (!sessionId) return;
-    const feedback = buildFormattedComments();
+    if (busyRef.current || !sessionId) return;
+    const markdown = getMarkdown();
+    const feedback = formatCommentsForExport({ threads, markdown, filePath: planFilePath });
     if (!feedback) return;
 
+    busyRef.current = true;
     try {
-      await pushPlanFile();
+      await pushRemoteFileMutation.mutateAsync({ taskId, content: markdown });
       sendFeedbackMutation.mutate({ sessionId, feedback });
     } catch (err) {
       toast.error('Failed to push plan file', {
         description: err instanceof Error ? err.message : String(err),
       });
+    } finally {
+      busyRef.current = false;
     }
-  }, [sessionId, buildFormattedComments, pushPlanFile, sendFeedbackMutation]);
+  }, [
+    sessionId,
+    threads,
+    planFilePath,
+    getMarkdown,
+    pushRemoteFileMutation,
+    taskId,
+    sendFeedbackMutation,
+  ]);
 
   const handleSendToTerminal = useCallback(() => {
-    const feedback = buildFormattedComments();
+    const markdown = getMarkdown();
+    const feedback = formatCommentsForExport({ threads, markdown, filePath: planFilePath });
     if (!feedback) return;
     sendToTerminal(feedback);
-  }, [buildFormattedComments, sendToTerminal]);
-
-  const canSendToSession = !!sessionId && hasComments;
-  const sendToSessionDisabled =
-    !canSendToSession || sendFeedbackMutation.isPending || pushRemoteFileMutation.isPending;
+  }, [getMarkdown, threads, planFilePath, sendToTerminal]);
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -129,13 +168,7 @@ export function PlanActions({ taskId, taskSlug, threads, markdown }: PlanActions
               Send to Task Session
             </Button>
           </TooltipTrigger>
-          <TooltipContent>
-            {!sessionId
-              ? 'No active planning session'
-              : !hasComments
-                ? 'No comments to send'
-                : 'Send comments to the planning session'}
-          </TooltipContent>
+          <TooltipContent>{sendToSessionTooltip}</TooltipContent>
         </Tooltip>
 
         <Tooltip>

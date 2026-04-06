@@ -10,18 +10,16 @@ export function useSendToTerminal() {
   const sendToTerminal = useCallback((content: string, terminalId?: string) => {
     if (!content) return;
 
-    const detail: { context: string; terminalId?: string } = { context: content };
-    if (terminalId) detail.terminalId = terminalId;
-
-    window.dispatchEvent(new CustomEvent('terminal:inject', { detail }));
-    // Send Enter as a separate event so the PTY processes the content first
-    setTimeout(() => {
+    const inject = (context: string) =>
       window.dispatchEvent(
         new CustomEvent('terminal:inject', {
-          detail: { context: '\r', ...(terminalId ? { terminalId } : {}) },
+          detail: terminalId ? { context, terminalId } : { context },
         }),
       );
-    }, 50);
+
+    inject(content);
+    // Send Enter as a separate event so the PTY processes the content first
+    setTimeout(() => inject('\r'), 50);
   }, []);
 
   const openNewTerminal = useCallback((scope: TerminalScope) => {

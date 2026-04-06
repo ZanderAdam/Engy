@@ -21,7 +21,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
+import {
+  DynamicDocumentEditor,
+  type DocumentEditorHandle,
+} from '@/components/editor/dynamic-document-editor';
 import { EngyThreadStore } from '@/components/editor/document-editor';
 import { PlanActions } from './plan-actions';
 import { QuestionAnswerPanel } from '@/components/questions/question-answer-panel';
@@ -325,22 +328,42 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
     setTaskGroupIdLocal(task.taskGroupId ?? null);
   }
 
-  // Pick initial active tab once both the task and project's planSlugs have loaded.
-  if (!tabInitialized && task && projectWithPlans) {
-    setTabInitialized(true);
-    if (hasPlan && task.subStatus === 'plan_review') {
+  // Pick initial active tab. Prioritize the `plan_review` signal from the
+  // task itself so we don't flash the Description tab while projectWithPlans
+  // is still in flight. For the execution fallback we do need projectWithPlans
+  // to know whether a plan exists.
+  if (!tabInitialized && task) {
+    if (task.subStatus === 'plan_review') {
+      setTabInitialized(true);
       setActiveTab('plan');
-    } else if (hasExecution && !hasPlan) {
-      setActiveTab('execution');
+    } else if (projectWithPlans) {
+      setTabInitialized(true);
+      if (hasExecution && !hasPlan) {
+        setActiveTab('execution');
+      }
     }
   }
 
   // Seed planMarkdown once the plan file loads so PlanActions has something to
-  // push/export before the user edits anything.
+  // push/export before the user edits anything. A ref mirrors the state so
+  // PlanActions can read the latest markdown synchronously via a stable
+  // getPlanMarkdown callback without recreating it on every autosave.
   if (!planMarkdownInitialized && planData?.content !== undefined) {
     setPlanMarkdownInitialized(true);
     setPlanMarkdown(planData.content);
   }
+  const planMarkdownRef = useRef(planMarkdown);
+  useEffect(() => {
+    planMarkdownRef.current = planMarkdown;
+  }, [planMarkdown]);
+
+  // Imperative handle into the plan editor so action buttons can flush any
+  // pending debounced autosave before pushing content to the daemon.
+  const planEditorRef = useRef<DocumentEditorHandle | null>(null);
+  const getLatestPlanMarkdown = useCallback(() => {
+    const flushed = planEditorRef.current?.flush();
+    return flushed ?? planMarkdownRef.current;
+  }, []);
 
   const threadStore = useMemo(() => {
     if (!workspaceSlug || !projectSlug || !taskSlug || !hasPlan) return null;
@@ -349,6 +372,7 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
 
   type PlanThreads = ReturnType<EngyThreadStore['getThreads']>;
   const [planThreads, setPlanThreads] = useState<PlanThreads>(() => new Map());
+  const [threadStoreReady, setThreadStoreReady] = useState(false);
   // Render-phase sync: when the thread store identity changes, seed planThreads
   // from its current snapshot. The effect below handles subsequent updates via
   // subscribe. Using a ref guard keeps this idempotent across re-renders.
@@ -356,10 +380,26 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
   if (threadStore !== seededStoreRef.current) {
     seededStoreRef.current = threadStore;
     setPlanThreads(threadStore ? threadStore.getThreads() : new Map());
+    setThreadStoreReady(false);
   }
   useEffect(() => {
-    if (!threadStore) return;
-    return threadStore.subscribe(setPlanThreads);
+    if (!threadStore) {
+      return;
+    }
+    let cancelled = false;
+    // EngyThreadStore loads from the DB asynchronously; wait for it before
+    // enabling comment-driven actions so the "No comments to send" tooltip
+    // doesn't flicker while the initial fetch is in flight.
+    threadStore.ready.then(() => {
+      if (cancelled) return;
+      setPlanThreads(threadStore.getThreads());
+      setThreadStoreReady(true);
+    });
+    const unsubscribe = threadStore.subscribe(setPlanThreads);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [threadStore]);
 
   const { data: projectTasks } = trpc.task.list.useQuery(
@@ -590,6 +630,7 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
                 {planData && threadStore && taskSlug && (
                   <DynamicDocumentEditor
                     key={taskSlug}
+                    ref={planEditorRef}
                     initialMarkdown={planData.content}
                     onSave={handlePlanSave}
                     comments
@@ -604,7 +645,8 @@ function EditTask({ open, onOpenChange, taskId }: EditProps) {
                   taskId={taskId}
                   taskSlug={taskSlug}
                   threads={planThreads}
-                  markdown={planMarkdown}
+                  threadsReady={threadStoreReady}
+                  getMarkdown={getLatestPlanMarkdown}
                 />
               )}
             </TabsContent>

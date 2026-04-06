@@ -670,7 +670,7 @@ describe('execution router', () => {
       createPushDaemon(ctx);
       await expect(
         caller.execution.pushRemoteFile({ taskId: 99999, content: 'x' }),
-      ).rejects.toThrow('Task or project not found');
+      ).rejects.toThrow(/Task 99999 not found/);
     });
 
     it('should no-op when Coder workspace has no coderConfig', async () => {
@@ -690,6 +690,39 @@ describe('execution router', () => {
 
       expect(result.pushed).toBe(false);
       expect(sent).toHaveLength(0);
+    });
+
+    it('should propagate daemon rejection to the caller', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb()
+        .update(workspaces)
+        .set({
+          executionBackend: 'coder',
+          coderConfig: { workspace: 'my-coder-ws', repoBasePath: '/repos' },
+        })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+      const task = await caller.task.create({ projectId: proj.id, title: 'Daemon fail' });
+
+      const mock = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'REMOTE_FILE_PUSH_REQUEST') {
+            const pending = ctx.state.pendingRemoteFilePush.get(msg.payload.requestId);
+            if (pending) {
+              ctx.state.pendingRemoteFilePush.delete(msg.payload.requestId);
+              pending.reject(new Error('daemon disconnected'));
+            }
+          }
+        },
+      };
+      ctx.state.daemon = mock as unknown as WebSocket;
+
+      await expect(
+        caller.execution.pushRemoteFile({ taskId: task.id, content: 'plan' }),
+      ).rejects.toThrow('daemon disconnected');
     });
   });
 

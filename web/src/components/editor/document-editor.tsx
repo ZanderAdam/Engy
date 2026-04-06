@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import {
   useCreateBlockNote,
@@ -73,16 +73,27 @@ interface DocumentEditorProps {
   mentionDirs?: string[];
 }
 
+/** Imperative handle for DocumentEditor. Callers hold a ref to flush pending saves. */
+export interface DocumentEditorHandle {
+  /**
+   * Cancel any pending debounced autosave, synchronously extract the current
+   * markdown, invoke `onSave` with it, and return the content. Used when
+   * downstream actions (publish, push to agent, etc.) need the latest content
+   * without waiting for the autosave debounce.
+   */
+  flush: () => string;
+}
+
 const AUTOSAVE_DELAY_MS = 1500;
 
-export function DocumentEditor({
+export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorProps>(function DocumentEditor({
   initialMarkdown,
   onSave,
   comments = false,
   threadStore: externalThreadStore,
   filePath,
   mentionDirs,
-}: DocumentEditorProps) {
+}, handleRef) {
   const { resolvedTheme } = useTheme();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoadedHashRef = useRef<number | null>(null);
@@ -224,6 +235,37 @@ export function DocumentEditor({
       savedTimerRef.current = setTimeout(() => setShowSaved(false), 2000);
     }, AUTOSAVE_DELAY_MS);
   }, [editor, comments, threadStore]);
+
+  useImperativeHandle(
+    handleRef,
+    () => ({
+      flush: () => {
+        // Cancel any in-flight debounce; we're persisting right now.
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+        if (!readyRef.current) {
+          return frontmatterRef.current;
+        }
+        if (comments) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          snapshotAnchors((editor as any)._tiptapEditor.state.doc, threadStore);
+        }
+        const raw = editor.blocksToMarkdownLossy(editor.document);
+        const markdown = normalizeMarkdown(raw);
+        const full = frontmatterRef.current + markdown;
+        const contentHash = simpleHash(markdown);
+        if (contentHash !== lastContentHashRef.current) {
+          lastContentHashRef.current = contentHash;
+          lastLoadedHashRef.current = contentHash;
+          onSaveRef.current(full);
+        }
+        return full;
+      },
+    }),
+    [editor, comments, threadStore],
+  );
 
   const getFormattedComments = useCallback(() => {
     const threads = threadStore.getThreads();
@@ -400,4 +442,4 @@ export function DocumentEditor({
       </div>
     </BlockNoteView>
   );
-}
+});
