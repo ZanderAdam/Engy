@@ -23,6 +23,16 @@ export function rewriteLocalhostUrls(envVars: Record<string, string>): Record<st
   return result;
 }
 
+export function extractHostPorts(envVars: Record<string, string> | undefined): number[] {
+  if (!envVars) return [];
+  const ports = new Set<number>();
+  for (const value of Object.values(envVars)) {
+    const match = /^https?:\/\/localhost:(\d+)/.exec(value);
+    if (match) ports.add(Number(match[1]));
+  }
+  return [...ports].sort((a, b) => a - b);
+}
+
 export function devcontainerJsonContent(options: ConfigGeneratorOptions): object {
   const { docsDir, repos, containerConfig } = options;
 
@@ -41,6 +51,7 @@ export function devcontainerJsonContent(options: ConfigGeneratorOptions): object
   const mounts = [
     ...repoMounts,
     'source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind',
+    'source=${localEnv:HOME}/.claude.json,target=/tmp/host-claude.json,type=bind,readonly',
   ];
 
   const defaultEnv: Record<string, string> = {
@@ -68,7 +79,8 @@ export function devcontainerJsonContent(options: ConfigGeneratorOptions): object
     workspaceFolder: '${localWorkspaceFolder}',
     mounts,
     containerEnv,
-    postStartCommand: 'sudo /usr/local/bin/init-firewall.sh',
+    postStartCommand:
+      "sed 's|localhost|host.docker.internal|g' /tmp/host-claude.json > /home/node/.claude.json 2>/dev/null || true && sudo /usr/local/bin/init-firewall.sh",
     waitFor: 'postStartCommand',
   };
 }
@@ -173,7 +185,7 @@ USER node
 `;
 }
 
-export function firewallScriptContent(allowedDomains?: string[]): string {
+export function firewallScriptContent(allowedDomains?: string[], hostPorts?: number[]): string {
   const defaultDomains = [
     'registry.npmjs.org',
     'api.anthropic.com',
@@ -188,6 +200,34 @@ export function firewallScriptContent(allowedDomains?: string[]): string {
   const allDomains = allowedDomains ? [...defaultDomains, ...allowedDomains] : defaultDomains;
 
   const domainEntries = allDomains.map((d) => `    "${d}"`).join(' \\\n');
+
+  const ports = hostPorts ?? [];
+  const hostPortsIPv4Block =
+    ports.length > 0
+      ? `
+# Allow Docker Desktop host proxy (host.docker.internal) on specific ports
+DOCKER_HOST_IP=$(getent ahostsv4 host.docker.internal | head -1 | awk '{print $1}')
+if [ -n "$DOCKER_HOST_IP" ]; then
+    echo "Docker host IPv4: $DOCKER_HOST_IP"
+    HOST_PORTS=(${ports.join(' ')})
+    for port in "\${HOST_PORTS[@]}"; do
+        iptables -A OUTPUT -p tcp -d "$DOCKER_HOST_IP" --dport "$port" -j ACCEPT
+        echo "Allowed host port $port -> $DOCKER_HOST_IP"
+    done
+    iptables -A INPUT -s "$DOCKER_HOST_IP" -m state --state ESTABLISHED,RELATED -j ACCEPT
+fi
+`
+      : '';
+
+  const ipv6HostPortAccepts =
+    ports.length > 0
+      ? ports
+          .map(
+            (p) =>
+              `    ip6tables -A OUTPUT -p tcp -d "$DOCKER_HOST_IPV6" --dport ${p} -j ACCEPT`,
+          )
+          .join('\n') + '\n'
+      : '';
 
   return `#!/bin/bash
 set -euo pipefail  # Exit on error, undefined vars, and pipeline failures
@@ -228,8 +268,9 @@ iptables -A INPUT -p tcp --sport 22 -m state --state ESTABLISHED -j ACCEPT
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A OUTPUT -o lo -j ACCEPT
 
-# Create ipset with CIDR support
-ipset create allowed-domains hash:net
+# Create ipset with CIDR support (idempotent)
+ipset create allowed-domains hash:net -exist
+ipset flush allowed-domains
 
 # Fetch GitHub meta information and aggregate + add their IP ranges
 echo "Fetching GitHub IP ranges..."
@@ -251,7 +292,7 @@ while read -r cidr; do
         exit 1
     fi
     echo "Adding GitHub range $cidr"
-    ipset add allowed-domains "$cidr"
+    ipset add allowed-domains "$cidr" -exist
 done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | aggregate -q)
 
 # Resolve and add other allowed domains
@@ -270,7 +311,7 @@ ${domainEntries}; do
             exit 1
         fi
         echo "Adding $ip for $domain"
-        ipset add allowed-domains "$ip"
+        ipset add allowed-domains "$ip" -exist
     done < <(echo "$ips")
 done
 
@@ -284,10 +325,9 @@ fi
 HOST_NETWORK=$(echo "$HOST_IP" | sed "s/\\.[0-9]*$/.0\\/24/")
 echo "Host network detected as: $HOST_NETWORK"
 
-# Set up remaining iptables rules
-iptables -A INPUT -s "$HOST_NETWORK" -j ACCEPT
-iptables -A OUTPUT -d "$HOST_NETWORK" -j ACCEPT
-
+# Allow host network (bridge) — only established return traffic
+iptables -A INPUT -s "$HOST_NETWORK" -m state --state ESTABLISHED,RELATED -j ACCEPT
+${hostPortsIPv4Block}
 # Set default policies to DROP first
 iptables -P INPUT DROP
 iptables -P FORWARD DROP
@@ -302,6 +342,22 @@ iptables -A OUTPUT -m set --match-set allowed-domains dst -j ACCEPT
 
 # Explicitly REJECT all other outbound traffic for immediate feedback
 iptables -A OUTPUT -j REJECT --reject-with icmp-admin-prohibited
+
+# Close IPv6 internet bypass — append only, don't flush/modify existing Docker state
+# Docker Desktop for Mac routes host.docker.internal via IPv6 internally
+DOCKER_HOST_IPV6=$(getent hosts host.docker.internal | awk '{print $1}')
+if [ -n "$DOCKER_HOST_IPV6" ]; then
+    echo "Docker host IPv6: $DOCKER_HOST_IPV6"
+    ip6tables -A OUTPUT -o lo -j ACCEPT
+    ip6tables -A OUTPUT -p icmpv6 -j ACCEPT
+    ip6tables -A OUTPUT -p udp --dport 53 -j ACCEPT
+${ipv6HostPortAccepts}    ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+    ip6tables -A OUTPUT -j REJECT --reject-with icmp6-adm-prohibited
+    ip6tables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+    ip6tables -A INPUT -j DROP
+    ip6tables -P FORWARD DROP
+    echo "IPv6 locked down"
+fi
 
 echo "Firewall configuration complete"
 echo "Verifying firewall rules..."
@@ -336,7 +392,8 @@ export async function generateDevcontainerConfig(options: ConfigGeneratorOptions
 
   const json = devcontainerJsonContent(options);
   const dockerfile = dockerfileContent(options.containerConfig?.extraPackages);
-  const firewall = firewallScriptContent(options.containerConfig?.allowedDomains);
+  const hostPorts = extractHostPorts(options.containerConfig?.envVars);
+  const firewall = firewallScriptContent(options.containerConfig?.allowedDomains, hostPorts);
 
   await writeFile(join(devcontainerDir, 'devcontainer.json'), JSON.stringify(json, null, 2) + '\n');
   await writeFile(join(devcontainerDir, 'Dockerfile'), dockerfile);

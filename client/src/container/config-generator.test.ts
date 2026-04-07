@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import {
   devcontainerJsonContent,
   dockerfileContent,
+  extractHostPorts,
   firewallScriptContent,
   generateDevcontainerConfig,
   rewriteLocalhostUrls,
@@ -60,6 +61,52 @@ describe('config-generator', () => {
     });
   });
 
+  describe('extractHostPorts', () => {
+    it('should return empty array for undefined envVars', () => {
+      expect(extractHostPorts(undefined)).toEqual([]);
+    });
+
+    it('should return empty array for empty envVars', () => {
+      expect(extractHostPorts({})).toEqual([]);
+    });
+
+    it('should extract port from http://localhost:PORT', () => {
+      expect(extractHostPorts({ SERVER_URL: 'http://localhost:3000' })).toEqual([3000]);
+    });
+
+    it('should extract port from https://localhost:PORT/path', () => {
+      expect(extractHostPorts({ API_URL: 'https://localhost:8080/api' })).toEqual([8080]);
+    });
+
+    it('should dedupe and sort ports across multiple env vars', () => {
+      const ports = extractHostPorts({
+        A: 'http://localhost:4000',
+        B: 'http://localhost:3000',
+        C: 'https://localhost:3000/healthz',
+      });
+
+      expect(ports).toEqual([3000, 4000]);
+    });
+
+    it('should ignore non-localhost URLs and non-URL values', () => {
+      const ports = extractHostPorts({
+        REMOTE: 'http://example.com:3000',
+        DEBUG: 'true',
+        LOCAL: 'http://localhost:5000',
+      });
+
+      expect(ports).toEqual([5000]);
+    });
+
+    it('should not match localhost without a port', () => {
+      expect(extractHostPorts({ A: 'http://localhost/foo' })).toEqual([]);
+    });
+
+    it('should not match hosts that contain "localhost" as a substring', () => {
+      expect(extractHostPorts({ A: 'http://mylocalhost:3000' })).toEqual([]);
+    });
+  });
+
   describe('devcontainerJsonContent', () => {
     it('should use ${localWorkspaceFolder} for workspaceMount and workspaceFolder', () => {
       const options: ConfigGeneratorOptions = {
@@ -99,6 +146,20 @@ describe('config-generator', () => {
 
       expect(mounts).toContain(
         'source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind',
+      );
+    });
+
+    it('should include readonly ~/.claude.json bind mount for host Claude config', () => {
+      const options: ConfigGeneratorOptions = {
+        docsDir: '/home/user/docs',
+        repos: [],
+      };
+
+      const json = devcontainerJsonContent(options) as Record<string, unknown>;
+      const mounts = json.mounts as string[];
+
+      expect(mounts).toContain(
+        'source=${localEnv:HOME}/.claude.json,target=/tmp/host-claude.json,type=bind,readonly',
       );
     });
 
@@ -186,15 +247,19 @@ describe('config-generator', () => {
       expect(json.remoteUser).toBe('node');
     });
 
-    it('should include postStartCommand and waitFor', () => {
+    it('should rewrite host claude.json and run firewall in postStartCommand', () => {
       const options: ConfigGeneratorOptions = {
         docsDir: '/home/user/docs',
         repos: [],
       };
 
       const json = devcontainerJsonContent(options) as Record<string, unknown>;
+      const postStart = json.postStartCommand as string;
 
-      expect(json.postStartCommand).toBe('sudo /usr/local/bin/init-firewall.sh');
+      expect(postStart).toContain("sed 's|localhost|host.docker.internal|g' /tmp/host-claude.json");
+      expect(postStart).toContain('> /home/node/.claude.json');
+      expect(postStart).toContain('|| true');
+      expect(postStart).toContain('sudo /usr/local/bin/init-firewall.sh');
       expect(json.waitFor).toBe('postStartCommand');
     });
   });
@@ -272,6 +337,74 @@ describe('config-generator', () => {
       expect(content).toContain('example.com');
       expect(content).toContain('api.github.com');
     });
+
+    it('should use idempotent ipset operations', () => {
+      const content = firewallScriptContent();
+
+      expect(content).toContain('ipset create allowed-domains hash:net -exist');
+      expect(content).toContain('ipset flush allowed-domains');
+      expect(content).toContain('ipset add allowed-domains "$cidr" -exist');
+      expect(content).toContain('ipset add allowed-domains "$ip" -exist');
+    });
+
+    it('should restrict host-network INPUT rule to ESTABLISHED,RELATED', () => {
+      const content = firewallScriptContent();
+
+      expect(content).toContain(
+        'iptables -A INPUT -s "$HOST_NETWORK" -m state --state ESTABLISHED,RELATED -j ACCEPT',
+      );
+      // Old unconditional OUTPUT allow for host network must be gone.
+      expect(content).not.toContain('iptables -A OUTPUT -d "$HOST_NETWORK" -j ACCEPT');
+    });
+
+    it('should always emit an IPv6 lockdown block', () => {
+      const content = firewallScriptContent();
+
+      expect(content).toContain('DOCKER_HOST_IPV6=$(getent hosts host.docker.internal');
+      expect(content).toContain(
+        'ip6tables -A OUTPUT -j REJECT --reject-with icmp6-adm-prohibited',
+      );
+      expect(content).toContain('ip6tables -A INPUT -j DROP');
+    });
+
+    it('should omit HOST_PORTS blocks when no host ports are given but keep IPv6 lockdown', () => {
+      const content = firewallScriptContent();
+
+      expect(content).not.toContain('HOST_PORTS=');
+      expect(content).not.toContain('getent ahostsv4 host.docker.internal');
+      expect(content).not.toContain('ip6tables -A OUTPUT -p tcp -d "$DOCKER_HOST_IPV6"');
+      // IPv6 lockdown must still emit.
+      expect(content).toContain('DOCKER_HOST_IPV6=$(getent hosts host.docker.internal');
+      expect(content).toContain('ip6tables -A OUTPUT -j REJECT');
+    });
+
+    it('should emit IPv4 and IPv6 HOST_PORTS blocks when ports are given', () => {
+      const content = firewallScriptContent(undefined, [3000, 4000]);
+
+      expect(content).toContain('HOST_PORTS=(3000 4000)');
+      expect(content).toContain('getent ahostsv4 host.docker.internal');
+      expect(content).toContain(
+        'iptables -A OUTPUT -p tcp -d "$DOCKER_HOST_IP" --dport "$port" -j ACCEPT',
+      );
+      expect(content).toContain(
+        'ip6tables -A OUTPUT -p tcp -d "$DOCKER_HOST_IPV6" --dport 3000 -j ACCEPT',
+      );
+      expect(content).toContain(
+        'ip6tables -A OUTPUT -p tcp -d "$DOCKER_HOST_IPV6" --dport 4000 -j ACCEPT',
+      );
+    });
+
+    it('should place the IPv4 HOST_PORTS block between host-network rule and DROP policies', () => {
+      const content = firewallScriptContent(undefined, [3000]);
+
+      const hostNetworkIdx = content.indexOf('iptables -A INPUT -s "$HOST_NETWORK"');
+      const hostPortsIdx = content.indexOf('HOST_PORTS=(3000)');
+      const dropPolicyIdx = content.indexOf('iptables -P INPUT DROP');
+
+      expect(hostNetworkIdx).toBeGreaterThan(-1);
+      expect(hostPortsIdx).toBeGreaterThan(hostNetworkIdx);
+      expect(dropPolicyIdx).toBeGreaterThan(hostPortsIdx);
+    });
   });
 
   describe('generateDevcontainerConfig', () => {
@@ -331,6 +464,29 @@ describe('config-generator', () => {
 
       const firewall = await readFile(join(devcontainerDir, 'init-firewall.sh'), 'utf-8');
       expect(firewall).toContain('custom.example.com');
+    });
+
+    it('should derive firewall host ports from envVars localhost URLs', async () => {
+      tempDir = await createTempDir();
+
+      await generateDevcontainerConfig({
+        docsDir: tempDir,
+        repos: [],
+        containerConfig: {
+          envVars: {
+            ENGY_SERVER_URL: 'http://localhost:3000',
+            METRICS_URL: 'https://localhost:4000/metrics',
+          },
+        },
+      });
+
+      const devcontainerDir = join(tempDir, '.devcontainer');
+      const firewall = await readFile(join(devcontainerDir, 'init-firewall.sh'), 'utf-8');
+
+      expect(firewall).toContain('HOST_PORTS=(3000 4000)');
+      expect(firewall).toContain(
+        'ip6tables -A OUTPUT -p tcp -d "$DOCKER_HOST_IPV6" --dport 3000 -j ACCEPT',
+      );
     });
   });
 });
