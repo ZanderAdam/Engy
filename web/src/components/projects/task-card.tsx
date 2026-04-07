@@ -219,7 +219,25 @@ export function TaskCard({
               </span>
             )}
             <TaskTerminalButton sessions={terminalSessions} />
-            <ExecutionStatusIcon status={execStatus} />
+            {execStatus === 'plan_review' ? (
+              <button
+                type="button"
+                aria-label="Open plan review"
+                className="flex shrink-0 cursor-pointer items-center"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.dispatchEvent(
+                    new CustomEvent('task:open', {
+                      detail: { taskId: task.id, tab: 'plan' },
+                    }),
+                  );
+                }}
+              >
+                <ExecutionStatusIcon status={execStatus} />
+              </button>
+            ) : (
+              <ExecutionStatusIcon status={execStatus} />
+            )}
             {unansweredCount > 0 && (
               <RiQuestionLine className="size-3.5 animate-bounce text-amber-400" />
             )}
