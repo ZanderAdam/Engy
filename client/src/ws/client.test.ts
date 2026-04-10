@@ -623,7 +623,7 @@ describe('WsClient execution handlers', () => {
         repoPath: '/tmp/repo',
         containerMode: false,
         containerWorkspaceFolder: undefined,
-        serverUrl: `http://localhost:${port}`,
+        serverPort: port,
         env: undefined,
       }),
     );
@@ -803,7 +803,7 @@ describe('WsClient execution handlers', () => {
         repoPath: '',
         containerMode: false,
         containerWorkspaceFolder: undefined,
-        serverUrl: `http://localhost:${port}`,
+        serverPort: port,
         env: undefined,
       }),
     );

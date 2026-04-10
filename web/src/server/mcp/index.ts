@@ -47,20 +47,17 @@ function omitKey<T extends Record<string, unknown>, K extends keyof T>(
 
 // ── McpServer Factory ─────────────────────────────────────────────
 
-export function getMcpServer(toolset?: string): McpServer {
+export function getMcpServer(): McpServer {
   const mcp = new McpServer(
     { name: 'engy', version: '0.1.0' },
     { capabilities: { tools: {} } },
   );
 
-  if (toolset === 'execution') {
-    registerQuestionTools(mcp);
-  } else {
-    registerWorkspaceTools(mcp);
-    registerTaskTools(mcp);
-    registerTaskGroupTools(mcp);
-    registerMemoryTools(mcp);
-  }
+  registerWorkspaceTools(mcp);
+  registerTaskTools(mcp);
+  registerTaskGroupTools(mcp);
+  registerMemoryTools(mcp);
+  registerQuestionTools(mcp);
 
   return mcp;
 }
@@ -77,14 +74,12 @@ export function attachMCP(server: HttpServer): void {
 
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
-    const toolset = url.searchParams.get('toolset') ?? undefined;
-
     if (req.method === 'POST') {
       const transport = sessionId ? activeSessions.get(sessionId) : undefined;
       if (transport) {
         transport.handleRequest(req, res);
       } else {
-        handleNewSession(req, res, toolset);
+        handleNewSession(req, res);
       }
     } else if (req.method === 'GET' || req.method === 'DELETE') {
       if (!sessionId) {
@@ -112,7 +107,6 @@ export function attachMCP(server: HttpServer): void {
 async function handleNewSession(
   req: IncomingMessage,
   res: ServerResponse,
-  toolset?: string,
 ): Promise<void> {
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
@@ -127,7 +121,7 @@ async function handleNewSession(
     }
   };
 
-  const mcp = getMcpServer(toolset);
+  const mcp = getMcpServer();
   await mcp.connect(transport);
   await transport.handleRequest(req, res);
 }

@@ -215,7 +215,6 @@ export class WsClient {
   private intentionallyClosed = false;
   private readonly wsUrl: string;
   private readonly terminalRelayUrl: string;
-  private readonly serverUrl: string;
   private readonly serverPort: number;
   private readonly onWorkspacesSync?: (message: WorkspacesSyncMessage) => void;
   private readonly terminalManager?: TerminalManager;
@@ -224,7 +223,6 @@ export class WsClient {
   constructor(options: WsClientOptions) {
     this.wsUrl = deriveWsUrl(options.serverUrl);
     this.terminalRelayUrl = deriveTerminalRelayUrl(options.serverUrl);
-    this.serverUrl = options.serverUrl;
     this.serverPort = new URL(options.serverUrl).port
       ? parseInt(new URL(options.serverUrl).port, 10)
       : 3000;
@@ -866,9 +864,9 @@ export class WsClient {
         coderWorkspace: config?.coderWorkspace,
         coderRepoBasePath: config?.coderRepoBasePath,
         remote: config?.remote,
-        serverUrl: this.serverUrl,
         serverPort: this.serverPort,
         env: config?.env,
+        existingWorktreePath: config?.existingWorktreePath,
       };
 
       await this.runner.start(sessionId, prompt, flags ?? [], runnerConfig);

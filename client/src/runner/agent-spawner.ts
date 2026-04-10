@@ -13,7 +13,6 @@ export interface SpawnConfig {
   coderRepoBasePath?: string;
   remote?: boolean;
   workingDir: string;
-  serverUrl?: string;
   serverPort?: number;
   env?: Record<string, string>;
   timeoutMs?: number;
@@ -132,19 +131,6 @@ export class AgentSpawner {
     // so add it as --add-dir so Claude can access the worktree
     if (isIsolated && config.workingDir) {
       args.push('--add-dir', config.workingDir);
-    }
-
-    // Add execution toolset MCP (askQuestion tool) for background agents
-    if (config.serverUrl) {
-      const mcpConfig = JSON.stringify({
-        mcpServers: {
-          'engy-execution': {
-            type: 'http',
-            url: `${config.serverUrl}/mcp?toolset=execution`,
-          },
-        },
-      });
-      args.push('--mcp-config', mcpConfig);
     }
 
     return args;

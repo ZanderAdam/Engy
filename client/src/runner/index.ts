@@ -23,7 +23,6 @@ interface RunnerConfig {
   coderWorkspace?: string;
   coderRepoBasePath?: string;
   remote?: boolean;
-  serverUrl?: string;
   serverPort?: number;
   env?: Record<string, string>;
 }
@@ -118,7 +117,6 @@ export class Runner {
         coderWorkspace: config.coderWorkspace,
         coderRepoBasePath: config.coderRepoBasePath,
         remote: config.remote,
-        serverUrl: config.serverUrl,
         serverPort: config.serverPort,
         env: config.env,
       })
@@ -180,7 +178,6 @@ export class Runner {
       containerWorkspaceFolder: this.currentConfig?.containerWorkspaceFolder,
       coderWorkspace: this.currentConfig?.coderWorkspace,
       coderRepoBasePath: this.currentConfig?.coderRepoBasePath,
-      serverUrl: this.currentConfig?.serverUrl,
       serverPort: this.currentConfig?.serverPort,
       env: this.currentConfig?.env,
     });
