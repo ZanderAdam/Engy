@@ -521,7 +521,7 @@ export function FileTree({
           className="h-6 pl-6 text-xs border-0 bg-transparent focus-visible:ring-0"
         />
       </div>
-      <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
+      <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block">
         {treeData.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-10 px-4">
             <p className="text-sm text-muted-foreground">
