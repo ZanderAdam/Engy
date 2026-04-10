@@ -361,6 +361,10 @@ export interface ExecutionStartConfig {
   coderRepoBasePath?: string;
   remote?: boolean;
   env?: Record<string, string>;
+  // Reuse an existing worktree (set when resuming a prior session via --resume)
+  // so the agent runs from the same cwd as the original session and can find
+  // its conversation JSONL on disk.
+  existingWorktreePath?: string;
 }
 
 export interface ExecutionStartRequestMessage {

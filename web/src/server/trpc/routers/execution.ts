@@ -58,6 +58,59 @@ function resolveTaskContext(taskId: number) {
   return { task, project, workspace, repos, projectDir, dirs };
 }
 
+function buildLocalExecutionConfig(
+  workspace: {
+    containerEnabled: boolean | null;
+    docsDir: string | null;
+    executionBackend: string | null;
+    coderConfig: unknown;
+  },
+  repos: string[],
+): ExecutionStartConfig {
+  const isCoder = workspace.executionBackend === 'coder';
+  const coderCfg = workspace.coderConfig as { workspace: string; repoBasePath: string } | null;
+  return {
+    repoPath: repos[0] ?? '',
+    containerMode: (workspace.containerEnabled as boolean) ?? false,
+    containerWorkspaceFolder:
+      !isCoder && workspace.containerEnabled ? (workspace.docsDir ?? undefined) : undefined,
+    executionBackend: isCoder ? 'coder' : 'devcontainer',
+    coderWorkspace: isCoder ? coderCfg?.workspace : undefined,
+    coderRepoBasePath: isCoder ? coderCfg?.repoBasePath : undefined,
+  };
+}
+
+// Reuses the same resolution that startExecution uses, plus carries the
+// original worktree so `claude --resume` runs from the cwd it was created in
+// (otherwise it errors with "No conversation found with session ID").
+function buildResumeConfig(
+  taskId: number,
+  worktreePath: string | null,
+): ExecutionStartConfig {
+  const { workspace, repos } = resolveTaskContext(taskId);
+  return {
+    ...buildLocalExecutionConfig(workspace, repos),
+    existingWorktreePath: worktreePath ?? undefined,
+  };
+}
+
+// Rebuilds the `--append-system-prompt` and `--add-dir` flags that
+// startExecution passes, so the resumed agent has the same context block and
+// structured-output instructions as the original run.
+function buildResumeFlags(taskId: number): string[] {
+  const { workspace, project, projectDir, repos, dirs } = resolveTaskContext(taskId);
+  const systemPrompt = buildContextBlock({
+    workspace: { id: workspace.id, slug: workspace.slug },
+    project: { id: project.id, slug: project.slug, dir: projectDir },
+    repos,
+    autoAgentCompletion: workspace.autoAgentCompletion as 'pr' | 'merge' | undefined,
+  });
+  const flags: string[] = [];
+  if (systemPrompt) flags.push('--append-system-prompt', systemPrompt);
+  for (const dir of dirs.additionalDirs) flags.push('--add-dir', dir);
+  return flags;
+}
+
 function buildPromptForTask(
   task: { id: number; title: string; description: string | null },
   workspace: { slug: string; id: number; implementSkill: string | null; autoAgentCompletion: string | null },
@@ -529,16 +582,7 @@ export const executionRouter = router({
 
       const config: ExecutionStartConfig = input.remote
         ? { repoPath: repos[0]!, containerMode: false, remote: true }
-        : {
-            repoPath: repos[0] ?? '',
-            containerMode: (workspace.containerEnabled as boolean) ?? false,
-            containerWorkspaceFolder: !isCoder && workspace.containerEnabled
-              ? (workspace.docsDir ?? undefined)
-              : undefined,
-            executionBackend: isCoder ? 'coder' : 'devcontainer',
-            coderWorkspace: isCoder ? coderCfg?.workspace : undefined,
-            coderRepoBasePath: isCoder ? coderCfg?.repoBasePath : undefined,
-          };
+        : buildLocalExecutionConfig(workspace, repos);
 
       try {
         // Start container/workspace if needed (skip for remote)
@@ -632,29 +676,31 @@ export const executionRouter = router({
           message: 'Cannot retry a remote session. Use claude.ai/code to follow up.',
         });
 
-      const newSessionId = randomUUID();
-
-      db.insert(agentSessions)
-        .values({
-          sessionId: newSessionId,
-          executionMode: original.executionMode,
+      // claude --resume appends to the original JSONL, so reuse the same
+      // session row. A new row would leave the UI polling an empty file.
+      db.update(agentSessions)
+        .set({
           status: 'active',
-          worktreePath: original.worktreePath,
-          taskId: original.taskId,
-          taskGroupId: original.taskGroupId,
+          completionSummary: null,
+          updatedAt: new Date().toISOString(),
         })
+        .where(eq(agentSessions.sessionId, input.sessionId))
         .run();
 
-      const flags: string[] = ['--resume', input.sessionId];
+      const baseFlags = original.taskId ? buildResumeFlags(original.taskId) : [];
+      const flags: string[] = [...baseFlags, '--resume', input.sessionId];
+      const resumeConfig = original.taskId
+        ? buildResumeConfig(original.taskId, original.worktreePath)
+        : undefined;
 
       try {
-        await dispatchExecutionStart(ctx.state, newSessionId, '', flags);
+        await dispatchExecutionStart(ctx.state, input.sessionId, '', flags, resumeConfig);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         const now = new Date().toISOString();
         db.update(agentSessions)
           .set({ status: 'stopped', completionSummary: errorMessage, updatedAt: now })
-          .where(eq(agentSessions.sessionId, newSessionId))
+          .where(eq(agentSessions.sessionId, input.sessionId))
           .run();
         if (original.taskId) {
           db.update(tasks)
@@ -671,7 +717,7 @@ export const executionRouter = router({
         });
       }
 
-      return { sessionId: newSessionId };
+      return { sessionId: input.sessionId };
     }),
 
   sendFeedback: publicProcedure
@@ -712,29 +758,29 @@ export const executionRouter = router({
         'Address the feedback and continue.',
       ].join('\n');
 
-      // Create new session linked to same worktree (follows retryExecution pattern)
-      const newSessionId = randomUUID();
-      db.insert(agentSessions)
-        .values({
-          sessionId: newSessionId,
-          executionMode: session.executionMode,
+      // claude --resume appends to the original JSONL, so reuse the same
+      // session row. A new row would leave the UI polling an empty file.
+      db.update(agentSessions)
+        .set({
           status: 'active',
-          worktreePath: session.worktreePath,
-          taskId: session.taskId,
-          taskGroupId: session.taskGroupId,
+          completionSummary: null,
+          updatedAt: new Date().toISOString(),
         })
+        .where(eq(agentSessions.sessionId, input.sessionId))
         .run();
 
       try {
-        await dispatchExecutionStart(ctx.state, newSessionId, resumePrompt, [
-          '--resume',
+        await dispatchExecutionStart(
+          ctx.state,
           input.sessionId,
-        ]);
+          resumePrompt,
+          [...buildResumeFlags(session.taskId), '--resume', input.sessionId],
+          buildResumeConfig(session.taskId, session.worktreePath),
+        );
       } catch (err) {
-        // Clean up orphaned session on dispatch failure
         db.update(agentSessions)
           .set({ status: 'stopped', updatedAt: new Date().toISOString() })
-          .where(eq(agentSessions.sessionId, newSessionId))
+          .where(eq(agentSessions.sessionId, input.sessionId))
           .run();
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -752,7 +798,7 @@ export const executionRouter = router({
         .where(eq(tasks.id, session.taskId))
         .run();
 
-      return { sessionId: newSessionId };
+      return { sessionId: input.sessionId };
     }),
 
   // Reads from local filesystem first, falls back to Coder SSH for remote sessions.

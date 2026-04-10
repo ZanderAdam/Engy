@@ -281,7 +281,7 @@ describe('execution router', () => {
   });
 
   describe('retryExecution', () => {
-    it('should create a new session linked to original worktree with --resume flag', async () => {
+    it('should reactivate the original session row and dispatch with --resume', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Failed task' });
       createMockDaemon(ctx);
@@ -299,34 +299,30 @@ describe('execution router', () => {
         sessionId: original.sessionId,
       });
 
-      expect(retry.sessionId).toBeDefined();
-      expect(retry.sessionId).not.toBe(original.sessionId);
+      // claude --resume appends to the original JSONL, so we reuse the same
+      // session id (not create a new row).
+      expect(retry.sessionId).toBe(original.sessionId);
 
       const db = getDb();
-      const newSession = db
-        .select()
-        .from(agentSessions)
-        .where(eq(agentSessions.sessionId, retry.sessionId))
-        .get();
-      expect(newSession).toBeDefined();
-      expect(newSession!.status).toBe('active');
-      expect(newSession!.taskId).toBe(task.id);
+      const sessions = db.select().from(agentSessions).all();
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]!.sessionId).toBe(original.sessionId);
+      expect(sessions[0]!.status).toBe('active');
+      expect(sessions[0]!.completionSummary).toBeNull();
 
-      // Original session worktree is preserved on the new session
-      const originalSession = db
-        .select()
-        .from(agentSessions)
-        .where(eq(agentSessions.sessionId, original.sessionId))
-        .get();
-      expect(newSession!.worktreePath).toBe(originalSession!.worktreePath);
-
-      // Verify the dispatch included --resume flag
+      // Verify the dispatch reused the same session id with --resume flag.
+      // Resume flags also carry --append-system-prompt and --add-dir so the
+      // resumed agent has the same context block as the original run.
       const msg = JSON.parse(sent[0]);
       expect(msg.type).toBe('EXECUTION_START_REQUEST');
-      expect(msg.payload.flags).toEqual(['--resume', original.sessionId]);
+      expect(msg.payload.sessionId).toBe(original.sessionId);
+      const resumeIndex = msg.payload.flags.indexOf('--resume');
+      expect(resumeIndex).toBeGreaterThanOrEqual(0);
+      expect(msg.payload.flags[resumeIndex + 1]).toBe(original.sessionId);
+      expect(msg.payload.flags).toContain('--append-system-prompt');
     });
 
-    it('should clean up new session on dispatch failure', async () => {
+    it('should mark session stopped again on dispatch failure', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Retry fail task' });
       createMockDaemon(ctx);
@@ -342,10 +338,10 @@ describe('execution router', () => {
 
       const db = getDb();
       const sessions = db.select().from(agentSessions).all();
-      const newSession = sessions.find((s) => s.sessionId !== original.sessionId);
-      expect(newSession).toBeDefined();
-      expect(newSession!.status).toBe('stopped');
-      expect(newSession!.completionSummary).toBe('Daemon crashed');
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]!.sessionId).toBe(original.sessionId);
+      expect(sessions[0]!.status).toBe('stopped');
+      expect(sessions[0]!.completionSummary).toBe('Daemon crashed');
 
       // Task should have subStatus 'failed'
       const updatedTask = db.select().from(tasks).where(eq(tasks.id, task.id)).get();

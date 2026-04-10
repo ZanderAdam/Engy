@@ -8,6 +8,7 @@ import {
   RiLoader4Line,
   RiRefreshLine,
   RiRobotLine,
+  RiSendPlaneLine,
   RiStopLine,
   RiToolsLine,
   RiUserLine,
@@ -15,6 +16,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
@@ -100,6 +102,7 @@ export function ExecutionTab({ scope, scopeId, sessionId, status, completionSumm
 
   const isFailed = status === 'stopped' || status === 'failed';
   const failedToStart = isFailed && entries.length === 0 && !!completionSummary;
+  const isTerminal = status === 'completed' || status === 'stopped' || status === 'failed';
 
   return (
     <div className="flex flex-col gap-2">
@@ -199,6 +202,80 @@ export function ExecutionTab({ scope, scopeId, sessionId, status, completionSumm
           )}
         </div>
       )}
+
+      {isTerminal && scope === 'task' && entries.length > 0 && (
+        <FollowUpComposer sessionId={sessionId} scope={scope} scopeId={scopeId} />
+      )}
+    </div>
+  );
+}
+
+// ── Follow-up composer ────────────────────────────────────────────────
+
+function FollowUpComposer({
+  sessionId,
+  scope,
+  scopeId,
+}: {
+  sessionId: string;
+  scope: 'task' | 'taskGroup' | 'milestone';
+  scopeId: number | string;
+}) {
+  const [prompt, setPrompt] = useState('');
+  const utils = trpc.useUtils();
+
+  const sendMutation = trpc.execution.sendFeedback.useMutation({
+    onSuccess: () => {
+      setPrompt('');
+      utils.execution.getSessionStatus.invalidate({ scope, id: scopeId });
+    },
+    onError: (err) => {
+      toast.error('Failed to send follow-up', { description: err.message });
+      utils.execution.getSessionStatus.invalidate({ scope, id: scopeId });
+    },
+  });
+
+  function handleSubmit() {
+    const trimmed = prompt.trim();
+    if (!trimmed || sendMutation.isPending) return;
+    sendMutation.mutate({ sessionId, feedback: trimmed });
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border border-border bg-muted/30 p-2">
+      <Textarea
+        aria-label="Follow-up prompt"
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Send a follow-up to resume this session… (Cmd/Ctrl+Enter to send)"
+        rows={3}
+        className="resize-none border-border bg-background"
+        disabled={sendMutation.isPending}
+      />
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          onClick={handleSubmit}
+          disabled={!prompt.trim() || sendMutation.isPending}
+        >
+          {sendMutation.isPending ? (
+            <RiLoader4Line className="size-3 animate-spin" />
+          ) : (
+            <RiSendPlaneLine className="size-3" />
+          )}
+          Send
+        </Button>
+      </div>
     </div>
   );
 }
@@ -253,13 +330,13 @@ function StatusBadge({ status }: { status: string | null }) {
 function EntryRenderer({ entry }: { entry: SessionEntry }) {
   const role = entry.type ?? entry.message?.role;
 
-  if (role === 'human') return <HumanEntry entry={entry} />;
+  if (role === 'user') return <UserEntry entry={entry} />;
   if (role === 'assistant') return <AssistantEntry entry={entry} />;
 
   return null;
 }
 
-function HumanEntry({ entry }: { entry: SessionEntry }) {
+function UserEntry({ entry }: { entry: SessionEntry }) {
   const content = extractTextContent(entry.message?.content);
   if (!content) return null;
 

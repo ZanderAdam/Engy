@@ -25,6 +25,10 @@ interface RunnerConfig {
   remote?: boolean;
   serverPort?: number;
   env?: Record<string, string>;
+  // When set, reuse this worktree instead of creating a new one. Used by
+  // --resume so the agent runs from the same cwd as the original session
+  // and can locate its conversation JSONL on disk.
+  existingWorktreePath?: string;
 }
 
 export interface AgentProcess {
@@ -71,7 +75,12 @@ export class Runner {
       `[runner] Starting session=${sessionId} repo=${config.repoPath} container=${config.containerMode} remote=${config.remote ?? false} coder=${config.coderWorkspace ?? 'none'}`,
     );
 
-    if (config.remote) {
+    if (config.existingWorktreePath) {
+      // Resume mode: reuse the original session's worktree so claude --resume
+      // can locate its JSONL under ~/.claude/projects/<encoded-cwd>/.
+      worktreePath = config.existingWorktreePath;
+      console.log(`[runner] Resuming in existing worktree: ${worktreePath}`);
+    } else if (config.remote) {
       // Remote mode: no worktree needed, cloud clones the repo
       worktreePath = config.repoPath;
       console.log(`[runner] Remote mode — skipping worktree creation`);
