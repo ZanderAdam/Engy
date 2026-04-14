@@ -27,9 +27,10 @@ const SIDEBAR_CONFIG = {
 
 interface DiffsPageProps {
   workspaceSlug: string;
+  projectSlug: string;
 }
 
-export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
+export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   const isMobile = useIsMobile();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [prevIsMobile, setPrevIsMobile] = useState(false);
@@ -55,6 +56,10 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
   const { data: taskGroups } = trpc.taskGroup.list.useQuery({});
+  const { data: project } = trpc.project.getBySlug.useQuery(
+    { workspaceId: workspace?.id ?? 0, slug: projectSlug },
+    { enabled: !!workspace },
+  );
 
   const allRepos = useMemo(() => {
     const repoSet = new Set<string>();
@@ -67,10 +72,10 @@ export function DiffsPage({ workspaceSlug }: DiffsPageProps) {
     if (workspace) {
       const repos = workspace.repos as string[] | null;
       if (repos) repos.forEach((r) => repoSet.add(r));
-      if (workspace.docsDir) repoSet.add(workspace.docsDir);
     }
+    if (project?.projectDir) repoSet.add(project.projectDir);
     return [...repoSet];
-  }, [workspace, taskGroups]);
+  }, [workspace, taskGroups, project]);
 
   const selectedRepo = userSelectedRepo ?? (allRepos.length > 0 ? allRepos[0] : null);
 
