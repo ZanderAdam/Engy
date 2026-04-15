@@ -131,11 +131,13 @@ function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDeta
   const {
     data: spec,
     isLoading: isSpecLoading,
-    error,
-  } = trpc.project.getSpec.useQuery({
-    workspaceSlug,
-    projectSlug,
-  });
+    error: specError,
+  } = trpc.project.getSpec.useQuery(
+    { workspaceSlug, projectSlug },
+    { enabled: isSpecMd, retry: false },
+  );
+
+  const missingSpec = isSpecMd && !isSpecLoading && (!spec || !!specError);
 
   const { data: fileData, isLoading: isFileLoading } = trpc.project.readFile.useQuery(
     { workspaceSlug, projectSlug, filePath: selectedFile },
@@ -179,7 +181,7 @@ function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDeta
     [isSpecMd, workspaceSlug, projectSlug, selectedFile],
   );
 
-  if (isSpecLoading) {
+  if (isSpecMd && isSpecLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <p className="text-sm text-muted-foreground">Loading...</p>
@@ -187,23 +189,12 @@ function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDeta
     );
   }
 
-  if (error || !spec) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 py-20">
-        <p className="text-sm font-medium">Spec not found</p>
-        <p className="text-xs text-muted-foreground">
-          {error?.message ?? 'The spec may have been deleted.'}
-        </p>
-      </div>
-    );
-  }
-
-  const editorBody = isSpecMd ? (spec.body ?? '') : (fileData?.content ?? '');
-  const isContentReady = isSpecMd ? true : !isFileLoading;
+  const editorBody = isSpecMd ? (spec?.body ?? '') : (fileData?.content ?? '');
+  const isContentReady = isSpecMd ? !isSpecLoading : !isFileLoading;
 
   return (
     <Tabs defaultValue="content" className="flex h-full flex-col">
-      {isSpecMd ? (
+      {isSpecMd && spec && !specError ? (
         <ProjectFrontmatter
           workspaceSlug={workspaceSlug}
           projectSlug={projectSlug}
@@ -225,7 +216,14 @@ function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDeta
         </div>
       )}
       <TabsContent value="content" className="flex flex-1 overflow-hidden m-0">
-        {!isContentReady ? (
+        {missingSpec ? (
+          <div className="flex flex-col items-center justify-center gap-2 flex-1">
+            <p className="text-sm font-medium">spec.md not found</p>
+            <p className="text-xs text-muted-foreground">
+              Create a file named spec.md in the file tree to enable spec editing.
+            </p>
+          </div>
+        ) : !isContentReady ? (
           <div className="flex items-center justify-center flex-1">
             <p className="text-sm text-muted-foreground">Loading...</p>
           </div>
