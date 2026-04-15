@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { join, basename } from 'node:path';
+import { join, basename, posix as pathPosix } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { simpleGit } from 'simple-git';
@@ -85,17 +85,46 @@ export class Runner {
       worktreePath = config.repoPath;
       console.log(`[runner] Remote mode — skipping worktree creation`);
     } else if (config.coderWorkspace && config.coderRepoBasePath) {
-      // Coder mode: create worktree remotely
+      // Coder mode: create worktree remotely. Use path.posix.join so trailing
+      // slashes in coderRepoBasePath (e.g. legacy '~/dev/' from older UI default)
+      // don't yield '~/dev//engy'. The remote is always POSIX.
       const shortId = generateShortId();
       const branchName = `engy/session-${shortId}`;
       const repoName = basename(config.repoPath);
-      const remoteRepoPath = `${config.coderRepoBasePath}/${repoName}`;
-      worktreePath = `${remoteRepoPath}/${WORKTREE_DIR}/engy-session-${shortId}`;
-      console.log(`[runner] Creating remote worktree via coder ssh: ${worktreePath} branch=${branchName}`);
-      await execFileAsync('coder', [
-        'ssh', config.coderWorkspace, '--',
-        'git', '-C', remoteRepoPath, 'worktree', 'add', worktreePath, '-b', branchName, 'main',
-      ]);
+      const remoteRepoPath = pathPosix.join(config.coderRepoBasePath, repoName);
+      worktreePath = pathPosix.join(remoteRepoPath, WORKTREE_DIR, `engy-session-${shortId}`);
+      console.log(
+        `[runner] Creating remote worktree via coder ssh: ${worktreePath} branch=${branchName}`,
+      );
+      const args = [
+        'ssh',
+        config.coderWorkspace,
+        '--',
+        'git',
+        '-C',
+        remoteRepoPath,
+        'worktree',
+        'add',
+        worktreePath,
+        '-b',
+        branchName,
+        'main',
+      ];
+      try {
+        await execFileAsync('coder', args);
+      } catch (err) {
+        // execFileAsync errors carry stdout/stderr/code as properties, but
+        // Error.message strips them. Surface git's real stderr so launch
+        // failures are diagnosable instead of hiding behind "exited 128".
+        const e = err as { stderr?: string; stdout?: string; code?: number };
+        throw new Error(
+          `coder ssh worktree creation failed (exit ${e.code ?? 'unknown'})\n` +
+            `command: coder ${args.join(' ')}\n` +
+            `stderr: ${(e.stderr ?? '').trim() || '(empty)'}\n` +
+            `stdout: ${(e.stdout ?? '').trim() || '(empty)'}`,
+          { cause: err },
+        );
+      }
       console.log(`[runner] Worktree created`);
     } else {
       // Local mode: create worktree locally

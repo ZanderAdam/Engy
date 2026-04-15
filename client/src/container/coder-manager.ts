@@ -11,6 +11,23 @@ function streamLines(chunk: Buffer, cb: (line: string) => void): void {
   }
 }
 
+// `coder ssh` concatenates arguments and re-parses them through the remote
+// shell (not exec), so unquoted JSON, prompts with spaces, or any shell
+// metachar gets mangled. Wrap each arg in single quotes, escaping embedded
+// single quotes as '\''. Leading '~/' is kept outside the quotes so the
+// remote shell still performs tilde expansion (quoting `~/foo` would leave
+// it as a literal path).
+function shellQuote(arg: string): string {
+  if (arg.startsWith('~/')) {
+    return `~/${quoteInner(arg.slice(2))}`;
+  }
+  return quoteInner(arg);
+}
+
+function quoteInner(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
 export class CoderManager {
   /**
    * Start a Coder workspace. Runs `coder start <workspace> --yes`.
@@ -77,8 +94,25 @@ export class CoderManager {
       }
     }
 
-    sshArgs.push(workspace, '--', command, ...args);
+    sshArgs.push(workspace, '--', shellQuote(command), ...args.map(shellQuote));
     return spawn('coder', sshArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+  }
+
+  /**
+   * Run a command on the Coder workspace and capture its stdout/stderr.
+   * Unlike `exec()`, no PTY or reverse port forwarding is involved — this is
+   * for short-lived operations where the caller wants to await the result.
+   */
+  async execCapture(
+    workspace: string,
+    command: string,
+    args: string[] = [],
+  ): Promise<{ stdout: string; stderr: string }> {
+    return execFileAsync(
+      'coder',
+      ['ssh', '--no-wait', workspace, '--', shellQuote(command), ...args.map(shellQuote)],
+      { maxBuffer: EXEC_MAX_BUFFER },
+    );
   }
 
   /**

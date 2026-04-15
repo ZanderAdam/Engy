@@ -90,7 +90,7 @@ describe('CoderManager', () => {
   });
 
   describe('exec', () => {
-    it('should spawn coder ssh with command', () => {
+    it('should spawn coder ssh with shell-quoted command and args', () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -98,9 +98,41 @@ describe('CoderManager', () => {
 
       expect(mockSpawn).toHaveBeenCalledWith(
         'coder',
-        ['ssh', '--no-wait', 'my-workspace', '--', 'claude', '-p', '--output-format', 'json'],
+        ['ssh', '--no-wait', 'my-workspace', '--', "'claude'", "'-p'", "'--output-format'", "'json'"],
         { stdio: ['pipe', 'pipe', 'pipe'] },
       );
+    });
+
+    it('should shell-quote args containing JSON, spaces, and other shell metachars', () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const schema = '{"type":"object","required":["x"]}';
+      manager.exec('my-workspace', 'claude', ['--json-schema', schema, 'prompt with spaces']);
+
+      const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+      expect(spawnArgs).toContain(`'${schema}'`);
+      expect(spawnArgs).toContain(`'prompt with spaces'`);
+    });
+
+    it("should escape embedded single quotes as '\\''", () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      manager.exec('my-workspace', 'claude', ["it's fine"]);
+
+      const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+      expect(spawnArgs).toContain(`'it'\\''s fine'`);
+    });
+
+    it('should keep leading ~/ outside quotes so the remote shell expands it', () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      manager.exec('my-workspace', 'git', ['-C', '~/dev/engy']);
+
+      const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+      expect(spawnArgs).toContain(`~/'dev/engy'`);
     });
 
     it('should include reverse port forwarding when serverPort is set', () => {
@@ -111,7 +143,7 @@ describe('CoderManager', () => {
 
       expect(mockSpawn).toHaveBeenCalledWith(
         'coder',
-        ['ssh', '--no-wait', '-R', '3000:localhost:3000', 'my-workspace', '--', 'claude', '-p'],
+        ['ssh', '--no-wait', '-R', '3000:localhost:3000', 'my-workspace', '--', "'claude'", "'-p'"],
         { stdio: ['pipe', 'pipe', 'pipe'] },
       );
     });
@@ -139,9 +171,35 @@ describe('CoderManager', () => {
 
       expect(mockSpawn).toHaveBeenCalledWith(
         'coder',
-        ['ssh', '--no-wait', '-R', '4000:localhost:4000', '-e', 'KEY=val', 'my-workspace', '--', 'bash'],
+        ['ssh', '--no-wait', '-R', '4000:localhost:4000', '-e', 'KEY=val', 'my-workspace', '--', "'bash'"],
         { stdio: ['pipe', 'pipe', 'pipe'] },
       );
+    });
+  });
+
+  describe('execCapture', () => {
+    it('should invoke coder ssh with shell-quoted command and capture output', async () => {
+      mockExecFile.mockImplementation(
+        (_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
+          cb(null, { stdout: 'result', stderr: '' });
+          return createMockProcess();
+        },
+      );
+
+      const result = await manager.execCapture('my-workspace', 'git', ['-C', '/tmp/repo', 'status']);
+
+      expect(result.stdout).toBe('result');
+      const callArgs = mockExecFile.mock.calls[0][1] as string[];
+      expect(callArgs).toEqual([
+        'ssh',
+        '--no-wait',
+        'my-workspace',
+        '--',
+        "'git'",
+        "'-C'",
+        "'/tmp/repo'",
+        "'status'",
+      ]);
     });
   });
 

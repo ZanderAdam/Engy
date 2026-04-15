@@ -82,7 +82,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
   const [envVars, setEnvVars] = useState(envVarsToLines(initialData.containerConfig?.envVars));
   const [coderWorkspace, setCoderWorkspace] = useState(initialData.coderConfig?.workspace ?? '');
   const [coderRepoBasePath, setCoderRepoBasePath] = useState(
-    initialData.coderConfig?.repoBasePath ?? '~/dev/',
+    initialData.coderConfig?.repoBasePath ?? '~/dev',
   );
 
   function emit(overrides: Partial<{
@@ -188,7 +188,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
                 setCoderRepoBasePath(e.target.value);
                 emit({ coderRepoBasePath: e.target.value });
               }}
-              placeholder="~/dev/"
+              placeholder="~/dev"
             />
             <p className="text-xs text-muted-foreground">
               Where repos are located inside the Coder workspace

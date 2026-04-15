@@ -403,6 +403,79 @@ describe('AgentSpawner', () => {
       expect(execArgs).toContain('/home/coder/dev/repo/.claude/worktrees/session-abc');
     });
 
+    it('should pass prompt as FIRST positional arg (before flags) and skip stdin', async () => {
+      const proc = createMockProcess();
+      coderManager.exec.mockReturnValue(proc);
+
+      const promise = spawner.spawn({
+        sessionId: 'test-session',
+        prompt: 'Use /engy:implement for task-1',
+        flags: [],
+        containerMode: false,
+        coderWorkspace: 'my-workspace',
+        workingDir: '/home/coder/dev/repo/.claude/worktrees/session-abc',
+      });
+
+      proc.emit('close', 0);
+      await promise;
+
+      const execArgs = coderManager.exec.mock.calls[0][2] as string[];
+      expect(execArgs[0]).toBe('Use /engy:implement for task-1');
+      // Must come before --add-dir so the variadic flag doesn't slurp it.
+      expect(execArgs.indexOf('--add-dir')).toBeGreaterThan(0);
+      expect(proc.stdin.write).not.toHaveBeenCalled();
+    });
+
+    it('should trust agent completion over non-zero coder ssh teardown exit', async () => {
+      const proc = createMockProcess();
+      coderManager.exec.mockReturnValue(proc);
+
+      const promise = spawner.spawn({
+        sessionId: 'test-session',
+        prompt: 'Do it',
+        flags: [],
+        containerMode: false,
+        coderWorkspace: 'my-workspace',
+        workingDir: '/workspace',
+      });
+
+      const json = JSON.stringify({
+        structured_output: { taskCompleted: true, summary: 'Done' },
+      });
+      proc.stdout.emit('data', Buffer.from(`${json}\r\n\x1b[?25h`));
+      proc.emit('close', 1);
+
+      const result = await promise;
+
+      expect(result.success).toBe(true);
+      expect(result.exitCode).toBe(1);
+      expect(result.completion).toEqual({ taskCompleted: true, summary: 'Done' });
+    });
+
+    it('should parse JSON output even when PTY escape sequences trail it', async () => {
+      const proc = createMockProcess();
+      coderManager.exec.mockReturnValue(proc);
+
+      const promise = spawner.spawn({
+        sessionId: 'test-session',
+        prompt: 'Do something',
+        flags: [],
+        containerMode: false,
+        coderWorkspace: 'my-workspace',
+        workingDir: '/workspace',
+      });
+
+      const json = JSON.stringify({
+        structured_output: { taskCompleted: true, summary: 'All done' },
+      });
+      proc.stdout.emit('data', Buffer.from(`${json}\r\n\x1b[?1006l\x1b[?25h`));
+      proc.emit('close', 0);
+
+      const result = await promise;
+
+      expect(result.completion).toEqual({ taskCompleted: true, summary: 'All done' });
+    });
+
     it('should not require containerWorkspaceFolder when coderWorkspace is set', async () => {
       const proc = createMockProcess();
       coderManager.exec.mockReturnValue(proc);

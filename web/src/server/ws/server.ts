@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import path, { posix } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
 import { eq } from 'drizzle-orm';
 import type {
@@ -440,7 +441,18 @@ function handleExecutionCompleteEvent(
       // Implementation succeeded with auto-merge — dispatch worktree merge
       const repos = (workspaceContext.workspace.repos as string[]) ?? [];
       if (session.worktreePath && repos[0]) {
-        dispatchWorktreeMerge(state, session.worktreePath, repos[0]).catch((err) => {
+        // In Coder mode the worktree lives on the remote, so the local
+        // repos[0] path doesn't exist there. Derive the remote repo path
+        // the same way the runner does: basename(localRepo) joined with
+        // coderRepoBasePath.
+        const coderCfg =
+          workspaceContext.workspace.executionBackend === 'coder'
+            ? (workspaceContext.workspace.coderConfig as { workspace: string; repoBasePath: string } | null)
+            : null;
+        const repoDir = coderCfg
+          ? posix.join(coderCfg.repoBasePath, path.basename(repos[0]))
+          : repos[0];
+        dispatchWorktreeMerge(state, session.worktreePath, repoDir, coderCfg?.workspace).catch((err) => {
           console.error(
             `[ws-main-server] Failed to merge worktree for session=${payload.sessionId}: ${err.message}`,
           );
@@ -774,12 +786,13 @@ function dispatchWorktreeMerge(
   state: AppState,
   worktreePath: string,
   repoDir: string,
+  coderWorkspace?: string,
 ): Promise<WorktreeMergeResult> {
   return dispatchDaemonOp(
     state,
     state.pendingWorktreeMerge,
     'WORKTREE_MERGE_REQUEST',
-    { worktreePath, repoDir },
+    { worktreePath, repoDir, coderWorkspace },
     WORKTREE_MERGE_TIMEOUT_MS,
   );
 }

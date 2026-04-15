@@ -8,11 +8,37 @@ vi.mock('node:crypto', () => ({
   randomBytes: vi.fn(() => Buffer.from('a1b2c3', 'hex')),
 }));
 
+vi.mock('node:child_process', () => ({
+  execFile: vi.fn(),
+}));
+
+import { execFile } from 'node:child_process';
 import { simpleGit } from 'simple-git';
 import { Runner } from './index.js';
 import type { AgentSpawner, SpawnResult, AgentProcess } from './index.js';
 
 const mockedSimpleGit = vi.mocked(simpleGit);
+const mockedExecFile = execFile as unknown as ReturnType<typeof vi.fn>;
+
+// Mock execFile as a success (promisify falls through with empty stdout/stderr).
+function mockExecFileSuccess() {
+  mockedExecFile.mockImplementation((_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
+    cb(null);
+  });
+}
+
+// Mock execFile as a failure. The error carries code/stdout/stderr properties
+// the same way Node's real execFile does on non-zero exit.
+function mockExecFileFailure(stderr: string, code = 128) {
+  mockedExecFile.mockImplementation((_cmd: string, _args: string[], cb: (err: Error) => void) => {
+    const err = Object.assign(new Error('Command failed'), {
+      code,
+      stdout: '',
+      stderr,
+    });
+    cb(err);
+  });
+}
 
 function createMockSpawner(
   spawnResult?: Partial<SpawnResult>,
@@ -150,6 +176,93 @@ describe('Runner', () => {
       expect(git.raw).toHaveBeenCalledWith(
         expect.arrayContaining(['worktree', 'add']),
       );
+    });
+
+    describe('coder mode', () => {
+      it('should normalize trailing slash in coderRepoBasePath when building remote paths', async () => {
+        mockExecFileSuccess();
+        const spawner = createMockSpawner();
+        const runner = new Runner(spawner, send);
+
+        await runner.start('session-abc', 'implement feature X', [], {
+          repoPath: '/local/path/to/engy',
+          containerMode: true,
+          coderWorkspace: 'ZanderAdam/AleksGPT',
+          coderRepoBasePath: '~/dev/',
+        });
+
+        expect(mockedExecFile).toHaveBeenCalledWith(
+          'coder',
+          [
+            'ssh',
+            'ZanderAdam/AleksGPT',
+            '--',
+            'git',
+            '-C',
+            '~/dev/engy',
+            'worktree',
+            'add',
+            '~/dev/engy/.claude/worktrees/engy-session-a1b2c3',
+            '-b',
+            'engy/session-a1b2c3',
+            'main',
+          ],
+          expect.any(Function),
+        );
+      });
+
+      it('should also handle coderRepoBasePath without trailing slash', async () => {
+        mockExecFileSuccess();
+        const spawner = createMockSpawner();
+        const runner = new Runner(spawner, send);
+
+        await runner.start('session-abc', 'implement feature X', [], {
+          repoPath: '/local/path/to/engy',
+          containerMode: true,
+          coderWorkspace: 'ZanderAdam/AleksGPT',
+          coderRepoBasePath: '~/dev',
+        });
+
+        expect(mockedExecFile).toHaveBeenCalledWith(
+          'coder',
+          expect.arrayContaining(['-C', '~/dev/engy']),
+          expect.any(Function),
+        );
+      });
+
+      it('should surface git stderr and exit code in error when coder ssh fails', async () => {
+        mockExecFileFailure("fatal: invalid reference: 'main'\n", 128);
+        const spawner = createMockSpawner();
+        const runner = new Runner(spawner, send);
+
+        const err = await runner
+          .start('session-abc', 'implement feature X', [], {
+            repoPath: '/local/path/to/engy',
+            containerMode: true,
+            coderWorkspace: 'ZanderAdam/AleksGPT',
+            coderRepoBasePath: '~/dev',
+          })
+          .catch((e: Error) => e);
+
+        expect(err).toBeInstanceOf(Error);
+        expect((err as Error).message).toMatch(/exit 128/);
+        expect((err as Error).message).toMatch(/invalid reference: 'main'/);
+      });
+
+      it('should include the coder ssh command in the thrown error', async () => {
+        mockExecFileFailure('fatal: not a git repository\n', 128);
+        const spawner = createMockSpawner();
+        const runner = new Runner(spawner, send);
+
+        await expect(
+          runner.start('session-abc', 'implement feature X', [], {
+            repoPath: '/local/path/to/engy',
+            containerMode: true,
+            coderWorkspace: 'ZanderAdam/AleksGPT',
+            coderRepoBasePath: '~/dev',
+          }),
+        ).rejects.toThrow(/coder ssh ZanderAdam\/AleksGPT/);
+      });
     });
   });
 

@@ -274,6 +274,9 @@ export interface WorktreeMergeRequestMessage {
     requestId: string;
     worktreePath: string;
     repoDir: string;
+    // When set, run git commands on the Coder workspace via `coder ssh`.
+    // The worktreePath and repoDir are then interpreted as remote paths.
+    coderWorkspace?: string;
   };
 }
 

@@ -678,11 +678,7 @@ export class WsClient {
   ): Promise<void> {
     const { requestId, coderWorkspace, filePath } = message.payload;
     try {
-      const { stdout } = await execFileAsync(
-        'coder',
-        ['ssh', coderWorkspace, '--', 'cat', filePath],
-        { maxBuffer: EXEC_MAX_BUFFER },
-      );
+      const { stdout } = await this.coderManager.execCapture(coderWorkspace, 'cat', [filePath]);
       this.send({
         type: 'REMOTE_FILE_PULL_RESPONSE',
         payload: { requestId, content: stdout },
@@ -731,13 +727,19 @@ export class WsClient {
   }
 
   private async handleWorktreeMergeRequest(message: WorktreeMergeRequestMessage): Promise<void> {
-    const { requestId, worktreePath, repoDir } = message.payload;
+    const { requestId, worktreePath, repoDir, coderWorkspace } = message.payload;
+    const runGit = (args: string[]): Promise<{ stdout: string; stderr: string }> =>
+      coderWorkspace
+        ? this.coderManager.execCapture(coderWorkspace, 'git', args)
+        : execFileAsync('git', args, { maxBuffer: EXEC_MAX_BUFFER });
+
     try {
-      const { stdout: worktreeList } = await execFileAsync(
-        'git',
-        ['-C', repoDir, 'worktree', 'list', '--porcelain'],
-        { maxBuffer: EXEC_MAX_BUFFER },
-      );
+      const { stdout: worktreeList } = await runGit(['-C', repoDir, 'worktree', 'list', '--porcelain']);
+      // Match by basename: worktree paths are `<repo>/.claude/worktrees/engy-session-<id>`
+      // with a unique session id, so the basename uniquely identifies the entry.
+      // This sidesteps tilde-vs-absolute differences when the stored path uses `~`
+      // but `git worktree list` reports absolute paths.
+      const wantBasename = path.basename(worktreePath);
 
       const blocks = worktreeList.split('\n\n');
       let branch: string | null = null;
@@ -745,7 +747,7 @@ export class WsClient {
         const lines = block.split('\n');
         const wtPath = lines.find((l) => l.startsWith('worktree '))?.slice('worktree '.length);
         const branchLine = lines.find((l) => l.startsWith('branch '));
-        if (wtPath === worktreePath && branchLine) {
+        if (wtPath && path.basename(wtPath) === wantBasename && branchLine) {
           branch = branchLine.slice('branch '.length).replace('refs/heads/', '');
           break;
         }
@@ -759,9 +761,7 @@ export class WsClient {
         return;
       }
 
-      await execFileAsync('git', ['-C', repoDir, 'merge', '--no-ff', branch], {
-        maxBuffer: EXEC_MAX_BUFFER,
-      });
+      await runGit(['-C', repoDir, 'merge', '--no-ff', branch]);
 
       this.send({
         type: 'WORKTREE_MERGE_RESULT',

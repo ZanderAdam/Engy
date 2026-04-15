@@ -37,6 +37,31 @@ export const TASK_COMPLETION_SCHEMA = JSON.stringify({
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const KILL_GRACE_MS = 5000;
 
+// Claude's `--output-format json` emits one JSON object on its own line. In
+// coder mode, `coder ssh` allocates a PTY and appends terminal escape
+// sequences after the JSON, which breaks a whole-buffer JSON.parse. Find the
+// JSON line (starts with `{`, ends with `}`) and parse that.
+function extractJsonOutput(stdout: string): { structured_output?: { taskCompleted: boolean; summary: string } } | null {
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    const line = stdout.split('\n').find((l) => {
+      const t = l.trim();
+      return t.startsWith('{') && t.endsWith('}');
+    });
+    if (!line) {
+      console.warn(`[agent-spawner] No JSON line found in stdout`);
+      return null;
+    }
+    try {
+      return JSON.parse(line.trim());
+    } catch (err) {
+      console.warn(`[agent-spawner] Failed to parse JSON line: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+  }
+}
+
 export class AgentSpawner {
   private currentProcess: ChildProcess | null = null;
 
@@ -68,7 +93,7 @@ export class AgentSpawner {
       console.error(`[agent-spawner] Process error: ${err.message}`);
     });
 
-    if (!config.remote) {
+    if (!config.remote && !config.coderWorkspace) {
       proc.stdin!.write(config.prompt);
       proc.stdin!.end();
       console.log(`[agent-spawner] Prompt written to stdin (${config.prompt.length} chars)`);
@@ -132,6 +157,14 @@ export class AgentSpawner {
     // so add it as --add-dir so Claude can access the worktree
     if (isIsolated && config.workingDir) {
       args.push('--add-dir', config.workingDir);
+    }
+
+    // Coder mode: pass prompt as the FIRST positional arg. `coder ssh`
+    // allocates a PTY that echoes piped stdin instead of forwarding it, so
+    // stdin is unusable. Placing the prompt before all flags avoids it being
+    // slurped by variadic flags like `--add-dir <directories...>`.
+    if (config.coderWorkspace && config.prompt) {
+      return [config.prompt, ...args];
     }
 
     return args;
@@ -201,18 +234,18 @@ export class AgentSpawner {
           completion = { taskCompleted: exitCode === 0, summary };
         } else {
           const stdout = chunks.join('');
-          try {
-            const output = JSON.parse(stdout);
-            const structured = output.structured_output;
-            if (structured && 'taskCompleted' in structured && 'summary' in structured) {
-              completion = { taskCompleted: structured.taskCompleted, summary: structured.summary };
-            }
-          } catch (err) {
-            console.warn(`[agent-spawner] Failed to parse stdout JSON: ${err instanceof Error ? err.message : String(err)}`);
+          const output = extractJsonOutput(stdout);
+          const structured = output?.structured_output;
+          if (structured && 'taskCompleted' in structured && 'summary' in structured) {
+            completion = { taskCompleted: structured.taskCompleted, summary: structured.summary };
           }
         }
 
-        const success = exitCode === 0 && (completion?.taskCompleted ?? true);
+        // When the agent emitted structured completion, trust its taskCompleted
+        // over the exit code: `coder ssh` often exits non-zero on teardown
+        // (e.g. "Accept SSH listener connection: EOF") even though the remote
+        // claude ran to completion successfully.
+        const success = completion ? completion.taskCompleted : exitCode === 0;
         resolve({
           sessionId,
           exitCode,
