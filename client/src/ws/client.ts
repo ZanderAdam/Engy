@@ -697,20 +697,34 @@ export class WsClient {
     const { requestId, coderWorkspace, filePath, content } = message.payload;
     try {
       const safeFilePath = filePath.replace(/'/g, "'\\''");
+      const remoteCmd = `mkdir -p "$(dirname '${safeFilePath}')" && cat > '${safeFilePath}'`;
       const child = execFile('coder', [
         'ssh',
+        '--no-wait',
         coderWorkspace,
         '--',
         'bash',
         '-c',
-        `cat > '${safeFilePath}'`,
+        remoteCmd,
       ]);
+      let stderrBuf = '';
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderrBuf += chunk.toString('utf8');
+      });
+      // If the remote shell exits before stdin drains (e.g. mkdir fails), writes
+      // to stdin emit EPIPE. Swallow here — the real failure surfaces via `close`.
+      child.stdin?.on('error', () => {});
       child.stdin?.write(content);
       child.stdin?.end();
       await new Promise<void>((resolve, reject) => {
         child.on('close', (code) => {
-          if (code !== 0) reject(new Error(`coder ssh push failed (exit ${code})`));
-          else resolve();
+          if (code !== 0) {
+            const stderr = stderrBuf.trim();
+            const suffix = stderr ? `: ${stderr}` : '';
+            reject(new Error(`coder ssh push failed (exit ${code})${suffix}`));
+          } else {
+            resolve();
+          }
         });
         child.on('error', reject);
       });

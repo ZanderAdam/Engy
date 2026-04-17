@@ -918,8 +918,10 @@ describe('WsClient remote file sync handlers', () => {
   it('responds to REMOTE_FILE_PUSH_REQUEST with success on write', async () => {
     const stdinWrite = vi.fn();
     const stdinEnd = vi.fn();
+    const stderr = new EventEmitter();
     const mockChild = Object.assign(new EventEmitter(), {
-      stdin: { write: stdinWrite, end: stdinEnd },
+      stdin: { write: stdinWrite, end: stdinEnd, on: vi.fn() },
+      stderr,
     });
 
     mockedExecFile.mockReturnValue(mockChild as unknown as ReturnType<typeof execFile>);
@@ -940,7 +942,7 @@ describe('WsClient remote file sync handlers', () => {
       payload: {
         requestId: 'push-1',
         coderWorkspace: 'my-workspace',
-        filePath: '/home/user/output.txt',
+        filePath: 'plans/foo.plan.md',
         content: 'hello world',
       },
     };
@@ -950,7 +952,18 @@ describe('WsClient remote file sync handlers', () => {
       expect(stdinWrite).toHaveBeenCalledWith('hello world');
     });
 
-    // Simulate successful close
+    // Verify coder ssh was invoked with --no-wait and a command that
+    // mkdir -p's the parent dir before cat-ing to the target path.
+    expect(mockedExecFile).toHaveBeenCalledWith('coder', [
+      'ssh',
+      '--no-wait',
+      'my-workspace',
+      '--',
+      'bash',
+      '-c',
+      `mkdir -p "$(dirname 'plans/foo.plan.md')" && cat > 'plans/foo.plan.md'`,
+    ]);
+
     mockChild.emit('close', 0);
 
     const response = await waitForMessage(ws);
@@ -960,11 +973,13 @@ describe('WsClient remote file sync handlers', () => {
     });
   });
 
-  it('responds to REMOTE_FILE_PUSH_REQUEST with error on failure', async () => {
+  it('responds to REMOTE_FILE_PUSH_REQUEST with captured stderr on failure', async () => {
     const stdinWrite = vi.fn();
     const stdinEnd = vi.fn();
+    const stderr = new EventEmitter();
     const mockChild = Object.assign(new EventEmitter(), {
-      stdin: { write: stdinWrite, end: stdinEnd },
+      stdin: { write: stdinWrite, end: stdinEnd, on: vi.fn() },
+      stderr,
     });
 
     mockedExecFile.mockReturnValue(mockChild as unknown as ReturnType<typeof execFile>);
@@ -985,7 +1000,7 @@ describe('WsClient remote file sync handlers', () => {
       payload: {
         requestId: 'push-2',
         coderWorkspace: 'my-workspace',
-        filePath: '/home/user/output.txt',
+        filePath: 'plans/foo.plan.md',
         content: 'data',
       },
     };
@@ -995,14 +1010,65 @@ describe('WsClient remote file sync handlers', () => {
       expect(stdinWrite).toHaveBeenCalled();
     });
 
-    // Simulate non-zero exit
+    stderr.emit('data', Buffer.from('bash: plans/foo.plan.md: Permission denied\n'));
     mockChild.emit('close', 1);
 
     const response = await waitForMessage(ws);
     expect(JSON.parse(response)).toEqual({
       type: 'REMOTE_FILE_PUSH_RESPONSE',
-      payload: { requestId: 'push-2', error: 'coder ssh push failed (exit 1)' },
+      payload: {
+        requestId: 'push-2',
+        error: 'coder ssh push failed (exit 1): bash: plans/foo.plan.md: Permission denied',
+      },
     });
+  });
+
+  it('escapes single quotes in filePath to prevent shell injection', async () => {
+    const stdinWrite = vi.fn();
+    const stdinEnd = vi.fn();
+    const stderr = new EventEmitter();
+    const mockChild = Object.assign(new EventEmitter(), {
+      stdin: { write: stdinWrite, end: stdinEnd, on: vi.fn() },
+      stderr,
+    });
+
+    mockedExecFile.mockReturnValue(mockChild as unknown as ReturnType<typeof execFile>);
+
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      onWorkspacesSync: vi.fn(),
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: RemoteFilePushRequestMessage = {
+      type: 'REMOTE_FILE_PUSH_REQUEST',
+      payload: {
+        requestId: 'push-3',
+        coderWorkspace: 'my-workspace',
+        filePath: "plans/foo's.plan.md",
+        content: 'x',
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    await vi.waitFor(() => {
+      expect(mockedExecFile).toHaveBeenCalled();
+    });
+
+    const lastCall = mockedExecFile.mock.calls[mockedExecFile.mock.calls.length - 1];
+    const args = lastCall?.[1] as string[];
+    const remoteCmd = args[args.length - 1];
+    // The quote in `foo's` must be escaped via `'\''` in both mkdir and cat invocations.
+    const escaped = `'plans/foo'\\''s.plan.md'`;
+    expect(remoteCmd).toBe(`mkdir -p "$(dirname ${escaped})" && cat > ${escaped}`);
+
+    mockChild.emit('close', 0);
+    await waitForMessage(ws);
   });
 });
 
