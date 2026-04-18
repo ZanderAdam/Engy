@@ -9,7 +9,6 @@ function createTestState(): AppState {
     pendingValidations: new Map(),
     pendingFileSearches: new Map(),
     pendingGitStatus: new Map(),
-    pendingGitDiff: new Map(),
     pendingGitLog: new Map(),
     pendingGitShow: new Map(),
     pendingGitBranchFiles: new Map(),
@@ -24,8 +23,15 @@ function createTestState(): AppState {
     pendingContainerUp: new Map(),
     pendingContainerDown: new Map(),
     pendingContainerStatus: new Map(),
+    pendingDevcontainerGenerate: new Map(),
     pendingExecutionStart: new Map(),
     pendingExecutionStop: new Map(),
+    pendingDirList: new Map(),
+    pendingFileRead: new Map(),
+    pendingFileWrite: new Map(),
+    pendingRemoteFilePull: new Map(),
+    pendingRemoteFilePush: new Map(),
+    pendingWorktreeMerge: new Map(),
   };
 }
 

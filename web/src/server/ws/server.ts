@@ -9,7 +9,23 @@ import type {
   ContainerUpRequestMessage,
   ExecutionStartConfig,
 } from '@engy/common';
-import type { AppState, FileChangeEvent, GitStatusResult, GitLogResult, GitShowResult, GitBranchFilesResult, ContainerUpResult, ExecutionStartResult, ExecutionStopResult, DirListResult, FileReadResult, FileWriteResult, RemoteFilePullResult, RemoteFilePushResult, WorktreeMergeResult } from '../trpc/context';
+import type {
+  AppState,
+  FileChangeEvent,
+  GitStatusResult,
+  GitLogResult,
+  GitShowResult,
+  GitBranchFilesResult,
+  ContainerUpResult,
+  ExecutionStartResult,
+  ExecutionStopResult,
+  DirListResult,
+  FileReadResult,
+  FileWriteResult,
+  RemoteFilePullResult,
+  RemoteFilePushResult,
+  WorktreeMergeResult,
+} from '../trpc/context';
 import { getDb } from '../db/client';
 import { workspaces, agentSessions, tasks, projects } from '../db/schema';
 import { handleSpecFileChange } from '../spec/watcher';
@@ -69,6 +85,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingContainerUp,
     state.pendingContainerDown,
     state.pendingContainerStatus,
+    state.pendingDevcontainerGenerate,
     state.pendingExecutionStart,
     state.pendingExecutionStop,
     state.pendingDirList,
@@ -145,6 +162,9 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       if (listener) listener(msg.payload.line);
       break;
     }
+    case 'DEVCONTAINER_CONFIG_GENERATE_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingDevcontainerGenerate, () => undefined);
+      break;
     case 'EXECUTION_START_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingExecutionStart, (p) => ({
         sessionId: p.sessionId,
@@ -427,7 +447,10 @@ function handleExecutionCompleteEvent(
   if (!taskBlocked && payload.success && workspaceContext) {
     if (isPlanningMode && session.taskId) {
       // For Coder workspaces, pull the plan file from remote to local
-      const coderCfg = workspaceContext.workspace.coderConfig as { workspace: string; repoBasePath: string } | null;
+      const coderCfg = workspaceContext.workspace.coderConfig as {
+        workspace: string;
+        repoBasePath: string;
+      } | null;
       if (workspaceContext.workspace.executionBackend === 'coder' && coderCfg?.workspace) {
         const planSlug = taskPlanSlug(workspaceContext.workspace.slug, session.taskId);
         const planFilePath = `plans/${planSlug}.plan.md`;
@@ -437,7 +460,10 @@ function handleExecutionCompleteEvent(
           );
         });
       }
-    } else if (session.executionMode === 'task' && workspaceContext.workspace.autoAgentCompletion === 'merge') {
+    } else if (
+      session.executionMode === 'task' &&
+      workspaceContext.workspace.autoAgentCompletion === 'merge'
+    ) {
       // Implementation succeeded with auto-merge — dispatch worktree merge
       const repos = (workspaceContext.workspace.repos as string[]) ?? [];
       if (session.worktreePath && repos[0]) {
@@ -447,16 +473,21 @@ function handleExecutionCompleteEvent(
         // coderRepoBasePath.
         const coderCfg =
           workspaceContext.workspace.executionBackend === 'coder'
-            ? (workspaceContext.workspace.coderConfig as { workspace: string; repoBasePath: string } | null)
+            ? (workspaceContext.workspace.coderConfig as {
+                workspace: string;
+                repoBasePath: string;
+              } | null)
             : null;
         const repoDir = coderCfg
           ? posix.join(coderCfg.repoBasePath, path.basename(repos[0]))
           : repos[0];
-        dispatchWorktreeMerge(state, session.worktreePath, repoDir, coderCfg?.workspace).catch((err) => {
-          console.error(
-            `[ws-main-server] Failed to merge worktree for session=${payload.sessionId}: ${err.message}`,
-          );
-        });
+        dispatchWorktreeMerge(state, session.worktreePath, repoDir, coderCfg?.workspace).catch(
+          (err) => {
+            console.error(
+              `[ws-main-server] Failed to merge worktree for session=${payload.sessionId}: ${err.message}`,
+            );
+          },
+        );
       }
     }
   }
@@ -629,10 +660,7 @@ function dispatchDaemonOp<T, P extends object = Record<string, unknown>>(
   });
 }
 
-export function dispatchGitStatus(
-  repoDir: string,
-  state: AppState,
-): Promise<GitStatusResult> {
+export function dispatchGitStatus(repoDir: string, state: AppState): Promise<GitStatusResult> {
   return dispatchDaemonOp(state, state.pendingGitStatus, 'GIT_STATUS_REQUEST', { repoDir });
 }
 
@@ -657,15 +685,15 @@ export function dispatchGitBranchFiles(
   base: string,
   state: AppState,
 ): Promise<GitBranchFilesResult> {
-  return dispatchDaemonOp(state, state.pendingGitBranchFiles, 'GIT_BRANCH_FILES_REQUEST', { repoDir, base });
+  return dispatchDaemonOp(state, state.pendingGitBranchFiles, 'GIT_BRANCH_FILES_REQUEST', {
+    repoDir,
+    base,
+  });
 }
 
 // ── File dispatch functions ──────────────────────────────────────────────────
 
-export function dispatchDirList(
-  dirPath: string,
-  state: AppState,
-): Promise<DirListResult> {
+export function dispatchDirList(dirPath: string, state: AppState): Promise<DirListResult> {
   return dispatchDaemonOp(state, state.pendingDirList, 'DIR_LIST_REQUEST', { dirPath });
 }
 
@@ -716,6 +744,25 @@ export function dispatchContainerUp(
   );
 }
 
+// Pure local file writes (no Docker build) — 15s is ample for a WS roundtrip
+// plus three small file writes.
+const DEVCONTAINER_GENERATE_TIMEOUT_MS = 15_000;
+
+export function dispatchDevcontainerGenerate(
+  state: AppState,
+  workspaceFolder: string,
+  repos?: string[],
+  config?: ContainerUpRequestMessage['payload']['config'],
+): Promise<void> {
+  return dispatchDaemonOp(
+    state,
+    state.pendingDevcontainerGenerate,
+    'DEVCONTAINER_CONFIG_GENERATE_REQUEST',
+    { workspaceFolder, repos, config },
+    DEVCONTAINER_GENERATE_TIMEOUT_MS,
+  );
+}
+
 // ── Execution dispatch functions ─────────────────────────────────────────────
 
 const EXECUTION_TIMEOUT_MS = 300_000;
@@ -740,12 +787,9 @@ export function dispatchExecutionStop(
   state: AppState,
   sessionId: string,
 ): Promise<ExecutionStopResult> {
-  return dispatchDaemonOp(
-    state,
-    state.pendingExecutionStop,
-    'EXECUTION_STOP_REQUEST',
-    { sessionId },
-  );
+  return dispatchDaemonOp(state, state.pendingExecutionStop, 'EXECUTION_STOP_REQUEST', {
+    sessionId,
+  });
 }
 
 // ── Remote file & worktree dispatch functions ──────────────────────────────

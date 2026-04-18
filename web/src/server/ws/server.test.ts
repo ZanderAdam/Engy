@@ -68,6 +68,7 @@ describe('WebSocket Server', () => {
       pendingContainerUp: new Map(),
       pendingContainerDown: new Map(),
       pendingContainerStatus: new Map(),
+      pendingDevcontainerGenerate: new Map(),
       specLastChanged: new Map(),
       specDebounceTimers: new Map(),
       terminalSessions: new Map(),
@@ -397,10 +398,7 @@ describe('Execution event handling', () => {
     });
 
     it('should update agentSession without taskId', async () => {
-      ctx.db
-        .insert(agentSessions)
-        .values({ sessionId: 'no-task-session', status: 'active' })
-        .run();
+      ctx.db.insert(agentSessions).values({ sessionId: 'no-task-session', status: 'active' }).run();
 
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
@@ -438,9 +436,7 @@ describe('Execution event handling', () => {
       );
 
       await vi.waitFor(() => {
-        expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('nonexistent'),
-        );
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('nonexistent'));
       });
 
       warnSpy.mockRestore();

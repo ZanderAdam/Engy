@@ -10,10 +10,12 @@ import type {
   RemoteFilePullRequestMessage,
   RemoteFilePushRequestMessage,
   WorktreeMergeRequestMessage,
+  DevcontainerConfigGenerateRequestMessage,
 } from '@engy/common';
 import type { TerminalManager } from '../terminal/manager.js';
 import type { PersistentSession } from '../terminal/types.js';
 import { access } from 'node:fs/promises';
+import { generateDevcontainerConfig } from '../container/config-generator.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { Runner } from '../runner/index.js';
@@ -21,6 +23,10 @@ import { EventEmitter } from 'node:events';
 
 vi.mock('node:fs/promises', () => ({
   access: vi.fn(),
+}));
+
+vi.mock('../container/config-generator.js', () => ({
+  generateDevcontainerConfig: vi.fn(),
 }));
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -52,11 +58,15 @@ describe('deriveWsUrl', () => {
 
 describe('deriveTerminalRelayUrl', () => {
   it('converts http to ws with terminal-relay path', () => {
-    expect(deriveTerminalRelayUrl('http://localhost:3000')).toBe('ws://localhost:3000/ws/terminal-relay');
+    expect(deriveTerminalRelayUrl('http://localhost:3000')).toBe(
+      'ws://localhost:3000/ws/terminal-relay',
+    );
   });
 
   it('converts https to wss with terminal-relay path', () => {
-    expect(deriveTerminalRelayUrl('https://example.com')).toBe('wss://example.com/ws/terminal-relay');
+    expect(deriveTerminalRelayUrl('https://example.com')).toBe(
+      'wss://example.com/ws/terminal-relay',
+    );
   });
 });
 
@@ -1236,6 +1246,100 @@ describe('WsClient worktree merge handler', () => {
         requestId: 'merge-3',
         error: 'CONFLICT (content): Merge conflict in file.txt',
       },
+    });
+  });
+});
+
+describe('WsClient devcontainer config generate handler', () => {
+  const mockedGenerate = vi.mocked(generateDevcontainerConfig);
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => {
+      wss.once('connection', resolve);
+    });
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => {
+      ws.once('message', (data) => resolve(data.toString()));
+    });
+  }
+
+  beforeEach(async () => {
+    mockedGenerate.mockReset();
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) {
+        resolve();
+      } else {
+        server.on('listening', () => resolve());
+      }
+    });
+    port = (server.address() as { port: number }).port;
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it('calls generateDevcontainerConfig and responds with success', async () => {
+    mockedGenerate.mockResolvedValueOnce(undefined);
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: DevcontainerConfigGenerateRequestMessage = {
+      type: 'DEVCONTAINER_CONFIG_GENERATE_REQUEST',
+      payload: {
+        requestId: 'gen-1',
+        workspaceFolder: '/tmp/docs',
+        repos: ['/tmp/repo'],
+        config: { allowedDomains: ['example.com'] },
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    expect(JSON.parse(response)).toEqual({
+      type: 'DEVCONTAINER_CONFIG_GENERATE_RESPONSE',
+      payload: { requestId: 'gen-1', success: true },
+    });
+
+    expect(mockedGenerate).toHaveBeenCalledWith({
+      docsDir: '/tmp/docs',
+      repos: ['/tmp/repo'],
+      containerConfig: { allowedDomains: ['example.com'] },
+    });
+  });
+
+  it('responds with error when generateDevcontainerConfig throws', async () => {
+    mockedGenerate.mockRejectedValueOnce(new Error('permission denied'));
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: DevcontainerConfigGenerateRequestMessage = {
+      type: 'DEVCONTAINER_CONFIG_GENERATE_REQUEST',
+      payload: { requestId: 'gen-2', workspaceFolder: '/tmp/readonly' },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    expect(JSON.parse(response)).toEqual({
+      type: 'DEVCONTAINER_CONFIG_GENERATE_RESPONSE',
+      payload: { requestId: 'gen-2', error: 'permission denied' },
     });
   });
 });

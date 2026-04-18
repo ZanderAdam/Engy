@@ -19,6 +19,7 @@ import type {
   ContainerUpRequestMessage,
   ContainerDownRequestMessage,
   ContainerStatusRequestMessage,
+  DevcontainerConfigGenerateRequestMessage,
   ExecutionStartRequestMessage,
   ExecutionStopRequestMessage,
   RemoteFilePullRequestMessage,
@@ -454,6 +455,9 @@ export class WsClient {
       case 'CONTAINER_STATUS_REQUEST':
         this.handleContainerStatusRequest(message as ContainerStatusRequestMessage);
         break;
+      case 'DEVCONTAINER_CONFIG_GENERATE_REQUEST':
+        this.handleDevcontainerConfigGenerate(message as DevcontainerConfigGenerateRequestMessage);
+        break;
       case 'REMOTE_FILE_PULL_REQUEST':
         this.handleRemoteFilePullRequest(message as RemoteFilePullRequestMessage);
         break;
@@ -598,9 +602,7 @@ export class WsClient {
     }
   }
 
-  private async handleGitBranchFilesRequest(
-    message: GitBranchFilesRequestMessage,
-  ): Promise<void> {
+  private async handleGitBranchFilesRequest(message: GitBranchFilesRequestMessage): Promise<void> {
     const { requestId, repoDir, base } = message.payload;
     try {
       const files = await getBranchFiles(repoDir, base);
@@ -673,9 +675,7 @@ export class WsClient {
     }
   }
 
-  private async handleRemoteFilePullRequest(
-    message: RemoteFilePullRequestMessage,
-  ): Promise<void> {
+  private async handleRemoteFilePullRequest(message: RemoteFilePullRequestMessage): Promise<void> {
     const { requestId, coderWorkspace, filePath } = message.payload;
     try {
       const { stdout } = await this.coderManager.execCapture(coderWorkspace, 'cat', [filePath]);
@@ -691,9 +691,7 @@ export class WsClient {
     }
   }
 
-  private async handleRemoteFilePushRequest(
-    message: RemoteFilePushRequestMessage,
-  ): Promise<void> {
+  private async handleRemoteFilePushRequest(message: RemoteFilePushRequestMessage): Promise<void> {
     const { requestId, coderWorkspace, filePath, content } = message.payload;
     try {
       const safeFilePath = filePath.replace(/'/g, "'\\''");
@@ -748,7 +746,13 @@ export class WsClient {
         : execFileAsync('git', args, { maxBuffer: EXEC_MAX_BUFFER });
 
     try {
-      const { stdout: worktreeList } = await runGit(['-C', repoDir, 'worktree', 'list', '--porcelain']);
+      const { stdout: worktreeList } = await runGit([
+        '-C',
+        repoDir,
+        'worktree',
+        'list',
+        '--porcelain',
+      ]);
       // Match by basename: worktree paths are `<repo>/.claude/worktrees/engy-session-<id>`
       // with a unique session id, so the basename uniquely identifies the entry.
       // This sidesteps tilde-vs-absolute differences when the stored path uses `~`
@@ -829,6 +833,28 @@ export class WsClient {
     }
   }
 
+  private async handleDevcontainerConfigGenerate(
+    message: DevcontainerConfigGenerateRequestMessage,
+  ): Promise<void> {
+    const { requestId, workspaceFolder, repos, config } = message.payload;
+    try {
+      await generateDevcontainerConfig({
+        docsDir: workspaceFolder,
+        repos: repos ?? [],
+        containerConfig: config,
+      });
+      this.send({
+        type: 'DEVCONTAINER_CONFIG_GENERATE_RESPONSE',
+        payload: { requestId, success: true },
+      });
+    } catch (err) {
+      this.send({
+        type: 'DEVCONTAINER_CONFIG_GENERATE_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
   private async handleContainerDownRequest(message: ContainerDownRequestMessage): Promise<void> {
     const { requestId, workspaceFolder } = message.payload;
     try {
@@ -863,9 +889,7 @@ export class WsClient {
     }
   }
 
-  private async handleExecutionStartRequest(
-    message: ExecutionStartRequestMessage,
-  ): Promise<void> {
+  private async handleExecutionStartRequest(message: ExecutionStartRequestMessage): Promise<void> {
     const { requestId, sessionId, prompt, flags, config } = message.payload;
     console.log(
       `[ws-main] EXECUTION_START_REQUEST: session=${sessionId} repo=${config?.repoPath} container=${config?.containerMode} flags=${flags?.length ?? 0}`,

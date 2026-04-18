@@ -152,6 +152,13 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingDevcontainerGenerate: Map<
+    string,
+    {
+      resolve: () => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   pendingExecutionStart: Map<
     string,
     {
@@ -242,6 +249,7 @@ export function getAppState(): AppState {
       pendingContainerUp: new Map(),
       pendingContainerDown: new Map(),
       pendingContainerStatus: new Map(),
+      pendingDevcontainerGenerate: new Map(),
       pendingExecutionStart: new Map(),
       pendingExecutionStop: new Map(),
       pendingDirList: new Map(),

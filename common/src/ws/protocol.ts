@@ -351,6 +351,21 @@ export interface ContainerProgressEventMessage {
   };
 }
 
+export interface DevcontainerConfigGenerateRequestMessage {
+  type: 'DEVCONTAINER_CONFIG_GENERATE_REQUEST';
+  payload: {
+    requestId: string;
+    workspaceFolder: string;
+    repos?: string[];
+    config?: ContainerUpRequestMessage['payload']['config'];
+  };
+}
+
+export interface DevcontainerConfigGenerateResponseMessage {
+  type: 'DEVCONTAINER_CONFIG_GENERATE_RESPONSE';
+  payload: { requestId: string; success: true } | { requestId: string; error: string };
+}
+
 // ── Execution operations (server ↔ daemon) ──────────────────────────────────
 
 export type ExecutionBackend = 'devcontainer' | 'coder';
@@ -383,9 +398,7 @@ export interface ExecutionStartRequestMessage {
 
 export interface ExecutionStartResponseMessage {
   type: 'EXECUTION_START_RESPONSE';
-  payload:
-    | { requestId: string; sessionId: string }
-    | { requestId: string; error: string };
+  payload: { requestId: string; sessionId: string } | { requestId: string; error: string };
 }
 
 export interface ExecutionStopRequestMessage {
@@ -398,9 +411,7 @@ export interface ExecutionStopRequestMessage {
 
 export interface ExecutionStopResponseMessage {
   type: 'EXECUTION_STOP_RESPONSE';
-  payload:
-    | { requestId: string; success: boolean }
-    | { requestId: string; error: string };
+  payload: { requestId: string; success: boolean } | { requestId: string; error: string };
 }
 
 export interface ExecutionStatusEventMessage {
@@ -460,6 +471,8 @@ export type WsMessage =
   | ContainerStatusRequestMessage
   | ContainerStatusResponseMessage
   | ContainerProgressEventMessage
+  | DevcontainerConfigGenerateRequestMessage
+  | DevcontainerConfigGenerateResponseMessage
   | ExecutionStartRequestMessage
   | ExecutionStartResponseMessage
   | ExecutionStopRequestMessage
@@ -487,6 +500,7 @@ export type ClientToServerMessage =
   | ContainerDownResponseMessage
   | ContainerStatusResponseMessage
   | ContainerProgressEventMessage
+  | DevcontainerConfigGenerateResponseMessage
   | ExecutionStartResponseMessage
   | ExecutionStopResponseMessage
   | ExecutionStatusEventMessage
@@ -510,6 +524,7 @@ export type ServerToClientMessage =
   | ContainerUpRequestMessage
   | ContainerDownRequestMessage
   | ContainerStatusRequestMessage
+  | DevcontainerConfigGenerateRequestMessage
   | ExecutionStartRequestMessage
   | ExecutionStopRequestMessage;
 

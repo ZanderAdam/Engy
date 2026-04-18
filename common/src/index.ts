@@ -39,6 +39,8 @@ export type {
   ContainerStatusRequestMessage,
   ContainerStatusResponseMessage,
   ContainerProgressEventMessage,
+  DevcontainerConfigGenerateRequestMessage,
+  DevcontainerConfigGenerateResponseMessage,
   ExecutionBackend,
   ExecutionStartConfig,
   ExecutionStartRequestMessage,

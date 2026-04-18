@@ -14,7 +14,7 @@ import {
 } from '../../engy-dir/init';
 import { ensureGitRepo } from '../../engy-dir/git';
 import { initProjectDir } from '../../project/service';
-import { dispatchValidation } from '../../ws/server';
+import { dispatchValidation, dispatchDevcontainerGenerate } from '../../ws/server';
 import type { AppState } from '../context';
 
 const containerConfigSchema = z
@@ -81,10 +81,7 @@ export const workspaceRouter = router({
       const db = getDb();
       const slug = await uniqueWorkspaceSlug(input.name);
 
-      const pathsToValidate = [
-        ...input.repos,
-        ...(input.docsDir ? [input.docsDir] : []),
-      ];
+      const pathsToValidate = [...input.repos, ...(input.docsDir ? [input.docsDir] : [])];
 
       if (pathsToValidate.length > 0) {
         try {
@@ -215,8 +212,7 @@ export const workspaceRouter = router({
           : existing.autoAgentCompletion;
       const newRemoteEnabled =
         input.remoteEnabled !== undefined ? input.remoteEnabled : existing.remoteEnabled;
-      const newAutoStart =
-        input.autoStart !== undefined ? input.autoStart : existing.autoStart;
+      const newAutoStart = input.autoStart !== undefined ? input.autoStart : existing.autoStart;
       const newExecutionBackend =
         input.executionBackend !== undefined ? input.executionBackend : existing.executionBackend;
       const newCoderConfig =
@@ -233,7 +229,10 @@ export const workspaceRouter = router({
         }
         const conflict = db.select().from(workspaces).where(eq(workspaces.slug, input.slug)).get();
         if (conflict) {
-          throw new TRPCError({ code: 'CONFLICT', message: `Slug "${input.slug}" is already in use.` });
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: `Slug "${input.slug}" is already in use.`,
+          });
         }
       }
 
@@ -306,6 +305,31 @@ export const workspaceRouter = router({
         planSkill: updated.planSkill,
         implementSkill: updated.implementSkill,
       });
+
+      const backend = updated.executionBackend ?? 'devcontainer';
+      const { docsDir } = updated;
+      const enablingDevcontainer =
+        updated.containerEnabled === true &&
+        existing.containerEnabled !== true &&
+        backend === 'devcontainer' &&
+        !!docsDir;
+
+      if (enablingDevcontainer && docsDir) {
+        // Fire-and-forget: don't block the Save response on a daemon roundtrip.
+        // On failure, a later terminal spawn still materializes the files via
+        // the existing CONTAINER_UP_REQUEST flow in maybeStartContainer.
+        dispatchDevcontainerGenerate(
+          ctx.state,
+          docsDir,
+          Array.isArray(updated.repos) ? updated.repos : [],
+          updated.containerConfig ?? undefined,
+        ).catch((err) => {
+          console.warn(
+            '[workspace.update] devcontainer config generate failed',
+            err instanceof Error ? err.message : err,
+          );
+        });
+      }
 
       broadcastWorkspacesSync(ctx.state);
 

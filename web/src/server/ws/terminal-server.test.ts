@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { WebSocket } from 'ws';
 import type { AppState } from '../trpc/context';
-import { createTerminalWebSocketServer, createTerminalRelayWebSocketServer } from './terminal-server';
+import {
+  createTerminalWebSocketServer,
+  createTerminalRelayWebSocketServer,
+} from './terminal-server';
 
 let openClients: WebSocket[] = [];
 
@@ -13,7 +16,6 @@ function makeState(): AppState {
     pendingValidations: new Map(),
     pendingFileSearches: new Map(),
     pendingGitStatus: new Map(),
-    pendingGitDiff: new Map(),
     pendingGitLog: new Map(),
     pendingGitShow: new Map(),
     pendingGitBranchFiles: new Map(),
@@ -28,8 +30,15 @@ function makeState(): AppState {
     pendingContainerUp: new Map(),
     pendingContainerDown: new Map(),
     pendingContainerStatus: new Map(),
+    pendingDevcontainerGenerate: new Map(),
     pendingExecutionStart: new Map(),
     pendingExecutionStop: new Map(),
+    pendingDirList: new Map(),
+    pendingFileRead: new Map(),
+    pendingFileWrite: new Map(),
+    pendingRemoteFilePull: new Map(),
+    pendingRemoteFilePush: new Map(),
+    pendingWorktreeMerge: new Map(),
   };
 }
 
@@ -359,7 +368,10 @@ describe('Terminal WebSocket Server', () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
-      const browserWs = await connectBrowser(port, { sessionId: 'sess-persist', workingDir: '/tmp' });
+      const browserWs = await connectBrowser(port, {
+        sessionId: 'sess-persist',
+        workingDir: '/tmp',
+      });
       await spawnPromise;
 
       expect(state.terminalSessionMeta.has('sess-persist')).toBe(true);
@@ -378,7 +390,10 @@ describe('Terminal WebSocket Server', () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
-      const browser1 = await connectBrowser(port, { sessionId: 'sess-refresh', workingDir: '/tmp' });
+      const browser1 = await connectBrowser(port, {
+        sessionId: 'sess-refresh',
+        workingDir: '/tmp',
+      });
       await spawnPromise;
 
       // Close browser (simulate page refresh)
@@ -637,7 +652,10 @@ describe('Terminal WebSocket Server', () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
-      const browser1 = await connectBrowser(port, { sessionId: 'sess-partial', workingDir: '/tmp' });
+      const browser1 = await connectBrowser(port, {
+        sessionId: 'sess-partial',
+        workingDir: '/tmp',
+      });
       await spawnPromise;
 
       const reconnectPromise = waitForMessage(daemonWs);
@@ -686,7 +704,10 @@ describe('Terminal WebSocket Server', () => {
       await spawnPromise;
 
       const reconnectPromise = waitForMessage(daemonWs);
-      const browser2 = await connectBrowser(port, { sessionId: 'sess-input-ma', workingDir: '/tmp' });
+      const browser2 = await connectBrowser(port, {
+        sessionId: 'sess-input-ma',
+        workingDir: '/tmp',
+      });
       await reconnectPromise;
 
       // Input from second browser reaches daemon

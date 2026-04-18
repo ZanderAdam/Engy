@@ -1,9 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { WebSocket } from 'ws';
+import { eq } from 'drizzle-orm';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
+import { workspaces } from '../../db/schema';
 import {
   initWorkspaceDir,
   removeWorkspaceDir,
@@ -38,9 +41,9 @@ describe('workspace router', () => {
     });
 
     it('should fail when repos provided but no daemon connected', async () => {
-      await expect(
-        caller.workspace.create({ name: 'WS', repos: ['/some/path'] }),
-      ).rejects.toThrow('No daemon connected');
+      await expect(caller.workspace.create({ name: 'WS', repos: ['/some/path'] })).rejects.toThrow(
+        'No daemon connected',
+      );
     });
 
     it('should create a Default project when creating a workspace', async () => {
@@ -62,9 +65,9 @@ describe('workspace router', () => {
       // Place a file where the workspace dir would be created, causing mkdirSync to fail
       fs.writeFileSync(path.join(ctx.tmpDir, 'init-fail'), 'blocker');
 
-      await expect(
-        caller.workspace.create({ name: 'Init Fail' }),
-      ).rejects.toThrow('Failed to initialize workspace directory');
+      await expect(caller.workspace.create({ name: 'Init Fail' })).rejects.toThrow(
+        'Failed to initialize workspace directory',
+      );
 
       // Verify the DB row was cleaned up (compensating action)
       const list = await caller.workspace.list();
@@ -106,9 +109,9 @@ describe('workspace router', () => {
       fs.mkdirSync(customDir, { recursive: true });
 
       // docsDir requires daemon for validation, so this will fail without daemon
-      await expect(
-        caller.workspace.create({ name: 'Custom', docsDir: customDir }),
-      ).rejects.toThrow('No daemon connected');
+      await expect(caller.workspace.create({ name: 'Custom', docsDir: customDir })).rejects.toThrow(
+        'No daemon connected',
+      );
     });
 
     it('should create workspace files at custom docsDir path', async () => {
@@ -190,9 +193,9 @@ describe('workspace router', () => {
 
     it('should fail when repos provided but no daemon connected', async () => {
       const ws = await caller.workspace.create({ name: 'Repo Update' });
-      await expect(
-        caller.workspace.update({ id: ws.id, repos: ['/some/path'] }),
-      ).rejects.toThrow('No daemon connected');
+      await expect(caller.workspace.update({ id: ws.id, repos: ['/some/path'] })).rejects.toThrow(
+        'No daemon connected',
+      );
     });
 
     it('should fail when new docsDir provided but no daemon connected', async () => {
@@ -237,17 +240,17 @@ describe('workspace router', () => {
 
     it('should reject invalid slug format', async () => {
       const ws = await caller.workspace.create({ name: 'Bad Slug' });
-      await expect(
-        caller.workspace.update({ id: ws.id, slug: 'Invalid Slug!' }),
-      ).rejects.toThrow('Invalid slug format');
+      await expect(caller.workspace.update({ id: ws.id, slug: 'Invalid Slug!' })).rejects.toThrow(
+        'Invalid slug format',
+      );
     });
 
     it('should reject duplicate slug', async () => {
       await caller.workspace.create({ name: 'First' });
       const ws2 = await caller.workspace.create({ name: 'Second' });
-      await expect(
-        caller.workspace.update({ id: ws2.id, slug: 'first' }),
-      ).rejects.toThrow('already in use');
+      await expect(caller.workspace.update({ id: ws2.id, slug: 'first' })).rejects.toThrow(
+        'already in use',
+      );
     });
 
     it('should allow setting slug to current value (no-op)', async () => {
@@ -291,6 +294,118 @@ describe('workspace router', () => {
       expect(updated.implementSkill).toBe('/engy:implement');
     });
 
+    describe('devcontainer config generation', () => {
+      interface MockDaemon {
+        readyState: number;
+        OPEN: number;
+        send: ReturnType<typeof vi.fn>;
+      }
+
+      function attachMockDaemon(): MockDaemon {
+        const daemon: MockDaemon = {
+          readyState: WebSocket.OPEN,
+          OPEN: WebSocket.OPEN,
+          send: vi.fn(),
+        };
+        ctx.state.daemon = daemon as unknown as WebSocket;
+        return daemon;
+      }
+
+      interface GenerateCall {
+        type: string;
+        payload: { requestId: string; workspaceFolder: string };
+      }
+
+      function findGenerateCall(daemon: MockDaemon): GenerateCall | undefined {
+        for (const call of daemon.send.mock.calls) {
+          const msg = JSON.parse(call[0] as string) as GenerateCall;
+          if (msg.type === 'DEVCONTAINER_CONFIG_GENERATE_REQUEST') return msg;
+        }
+        return undefined;
+      }
+
+      function resolveGenerateRequest(daemon: MockDaemon): void {
+        const msg = findGenerateCall(daemon);
+        if (!msg) throw new Error('no generate request captured');
+        ctx.state.pendingDevcontainerGenerate.get(msg.payload.requestId)?.resolve();
+      }
+
+      function seedDocsDir(workspaceId: number, docsDir: string): void {
+        fs.mkdirSync(docsDir, { recursive: true });
+        ctx.db.update(workspaces).set({ docsDir }).where(eq(workspaces.id, workspaceId)).run();
+      }
+
+      it('dispatches generate when containerEnabled transitions false → true', async () => {
+        const ws = await caller.workspace.create({ name: 'Gen Transition' });
+        seedDocsDir(ws.id, path.join(ctx.tmpDir, 'docs-gt'));
+        const daemon = attachMockDaemon();
+
+        await caller.workspace.update({ id: ws.id, containerEnabled: true });
+        resolveGenerateRequest(daemon);
+
+        const msg = findGenerateCall(daemon)!;
+        expect(msg.type).toBe('DEVCONTAINER_CONFIG_GENERATE_REQUEST');
+        expect(msg.payload.workspaceFolder).toBe(path.join(ctx.tmpDir, 'docs-gt'));
+      });
+
+      it('does not dispatch when containerEnabled already true', async () => {
+        const ws = await caller.workspace.create({ name: 'Gen Idempotent' });
+        seedDocsDir(ws.id, path.join(ctx.tmpDir, 'docs-idempotent'));
+        const daemon = attachMockDaemon();
+
+        await caller.workspace.update({ id: ws.id, containerEnabled: true });
+        resolveGenerateRequest(daemon);
+        daemon.send.mockClear();
+
+        await caller.workspace.update({ id: ws.id, containerEnabled: true });
+        expect(findGenerateCall(daemon)).toBeUndefined();
+      });
+
+      it('does not dispatch when backend is coder', async () => {
+        const ws = await caller.workspace.create({ name: 'Gen Coder' });
+        seedDocsDir(ws.id, path.join(ctx.tmpDir, 'docs-coder'));
+        const daemon = attachMockDaemon();
+
+        await caller.workspace.update({
+          id: ws.id,
+          containerEnabled: true,
+          executionBackend: 'coder',
+        });
+        expect(findGenerateCall(daemon)).toBeUndefined();
+      });
+
+      it('does not dispatch when docsDir is null', async () => {
+        const ws = await caller.workspace.create({ name: 'Gen No Docs' });
+        const daemon = attachMockDaemon();
+
+        await caller.workspace.update({ id: ws.id, containerEnabled: true });
+        expect(findGenerateCall(daemon)).toBeUndefined();
+      });
+
+      it('is non-fatal when daemon is offline', async () => {
+        const ws = await caller.workspace.create({ name: 'Gen Offline' });
+        seedDocsDir(ws.id, path.join(ctx.tmpDir, 'docs-offline'));
+        // daemon intentionally left as null
+        const updated = await caller.workspace.update({ id: ws.id, containerEnabled: true });
+        expect(updated.containerEnabled).toBe(true);
+      });
+
+      it('logs warning but does not throw when dispatch rejects', async () => {
+        const ws = await caller.workspace.create({ name: 'Gen Reject' });
+        seedDocsDir(ws.id, path.join(ctx.tmpDir, 'docs-reject'));
+        const daemon = attachMockDaemon();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const updated = await caller.workspace.update({ id: ws.id, containerEnabled: true });
+        const msg = findGenerateCall(daemon)!;
+        ctx.state.pendingDevcontainerGenerate.get(msg.payload.requestId)?.reject(new Error('boom'));
+        await vi.waitUntil(() => warnSpy.mock.calls.length > 0);
+
+        expect(updated.containerEnabled).toBe(true);
+        warnSpy.mockRestore();
+      });
+    });
+
     it('should rollback slug in DB if directory rename fails', async () => {
       const ws = await caller.workspace.create({ name: 'Rollback Test' });
       const oldDir = path.join(ctx.tmpDir, ws.slug);
@@ -299,9 +414,9 @@ describe('workspace router', () => {
       // Pre-create target directory to force rename failure
       fs.mkdirSync(path.join(ctx.tmpDir, 'conflict-slug'), { recursive: true });
 
-      await expect(
-        caller.workspace.update({ id: ws.id, slug: 'conflict-slug' }),
-      ).rejects.toThrow('Failed to rename workspace directory');
+      await expect(caller.workspace.update({ id: ws.id, slug: 'conflict-slug' })).rejects.toThrow(
+        'Failed to rename workspace directory',
+      );
 
       // Verify slug was rolled back
       const fetched = await caller.workspace.get({ slug: ws.slug });
@@ -351,9 +466,7 @@ describe('workspace router', () => {
     });
 
     it('should throw NOT_FOUND when workspace does not exist', async () => {
-      await expect(caller.workspace.delete({ id: 9999 })).rejects.toThrow(
-        'Workspace not found',
-      );
+      await expect(caller.workspace.delete({ id: 9999 })).rejects.toThrow('Workspace not found');
     });
 
     it('should cascade delete projects when workspace is deleted', async () => {
