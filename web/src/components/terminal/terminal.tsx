@@ -11,6 +11,7 @@ import { DARK_XTERM_THEME } from "@/hooks/use-xterm-theme";
 import { RiArrowDownSLine } from "@remixicon/react";
 import type { ActivityEvent, TerminalTab } from "./types";
 import { parseTerminalActivity } from "./parse-terminal-activity";
+import { ReconnectingSocket } from "./reconnecting-socket";
 
 export interface TerminalActions {
   write: (data: string) => void;
@@ -58,7 +59,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const socketRef = useRef<ReconnectingSocket | null>(null);
   const isPinnedRef = useRef(true);
   const scrollRafRef = useRef(0);
   const lastSentColsRef = useRef(0);
@@ -88,10 +89,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     lastSentColsRef.current = term.cols;
     lastSentRowsRef.current = term.rows;
 
-    const ws = wsRef.current;
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
-    }
+    socketRef.current?.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
   }, [sessionId]);
 
   useEffect(() => {
@@ -208,109 +206,100 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       }
     };
 
-    const ws = new WebSocket(buildWsUrl(tab));
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log(`[terminal-ui] WS open for session ${sessionId}`);
-      onStatusChange(sessionId, 'active');
-      lastSentColsRef.current = term.cols;
-      lastSentRowsRef.current = term.rows;
-      ws.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
-      onReady?.(sessionId, {
-        write: (data) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ t: 'i', sessionId, d: data }));
-          }
-        },
-        kill: () => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ t: 'kill', sessionId }));
-          }
-        },
-      });
+    const actions: TerminalActions = {
+      write: (data) => socketRef.current?.send(JSON.stringify({ t: 'i', sessionId, d: data })),
+      kill: () => socketRef.current?.send(JSON.stringify({ t: 'kill', sessionId })),
     };
 
-    ws.onmessage = (event) => {
-      let msg: { t: string; d?: string; buffer?: string[]; exitCode?: number };
-      try {
-        msg = JSON.parse(event.data as string) as typeof msg;
-      } catch {
-        return;
-      }
+    const socket = new ReconnectingSocket({
+      urlFactory: () => buildWsUrl(tab),
+      callbacks: {
+        onOpen: (ws) => {
+          console.log(`[terminal-ui] WS open for session ${sessionId}`);
+          onStatusChange(sessionId, 'active');
+          lastSentColsRef.current = term.cols;
+          lastSentRowsRef.current = term.rows;
+          ws.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
+        },
+        onMessage: (event) => {
+          let msg: { t: string; d?: string; buffer?: string[]; exitCode?: number };
+          try {
+            msg = JSON.parse(event.data as string) as typeof msg;
+          } catch {
+            return;
+          }
 
-      if (msg.t === 'o' && msg.d) {
-        // Parse activity from raw data before writing to xterm — this works
-        // even when the terminal tab is hidden (xterm defers processing).
-        const activity = parseTerminalActivity(msg.d);
-        for (const title of activity.titles) handleTitleChange(title);
-        if (activity.hasBell) handleBell();
+          if (msg.t === 'o' && msg.d) {
+            // Parse activity from raw data before writing to xterm — this works
+            // even when the terminal tab is hidden (xterm defers processing).
+            const activity = parseTerminalActivity(msg.d);
+            for (const title of activity.titles) handleTitleChange(title);
+            if (activity.hasBell) handleBell();
 
-        if (isPinnedRef.current) {
-          term.write(msg.d);
-          scheduleScroll();
-        } else {
-          // Preserve viewport position when unpinned — xterm's write() can
-          // auto-scroll the viewport even when the user has scrolled up.
-          const savedY = term.buffer.active.viewportY;
-          term.write(msg.d, () => {
-            const currentY = term.buffer.active.viewportY;
-            if (currentY !== savedY) {
-              term.scrollLines(savedY - currentY);
+            if (isPinnedRef.current) {
+              term.write(msg.d);
+              scheduleScroll();
+            } else {
+              // Preserve viewport position when unpinned — xterm's write() can
+              // auto-scroll the viewport even when the user has scrolled up.
+              const savedY = term.buffer.active.viewportY;
+              term.write(msg.d, () => {
+                const currentY = term.buffer.active.viewportY;
+                if (currentY !== savedY) {
+                  term.scrollLines(savedY - currentY);
+                }
+              });
             }
-          });
-        }
-      } else if (msg.t === 'reconnected' && msg.buffer) {
-        console.log(`[terminal-ui] Reconnected session ${sessionId}, buffer lines: ${msg.buffer.length}`);
-        suppressTitleUntil = Date.now() + TITLE_SUPPRESS_MS;
-        titleActive = false;
-        titleChangeCount = 0;
-        if (titleTimer) { clearTimeout(titleTimer); titleTimer = null; }
-        term.clear();
-        term.write(msg.buffer.join(''), () => {
-          term.scrollToBottom();
-        });
-        isPinnedRef.current = true;
-        setShowScrollButton(false);
-      } else if (msg.t === 'exit') {
-        const code = msg.exitCode ?? 0;
-        console.log(`[terminal-ui] Exit for session ${sessionId}: code=${code}`);
-        onStatusChange(sessionId, 'exited');
-        const label =
-          code === -1
-            ? 'Session expired (disconnected too long)'
-            : code === 0
-              ? 'Process exited'
-              : `Process exited with code ${code}`;
-        term.write(`\r\n\x1b[2m[${label}]\x1b[0m\r\n`);
-        if (isPinnedRef.current) scheduleScroll();
-      } else if (msg.t === 'error') {
-        console.error(`[terminal-ui] Error for session ${sessionId}: no daemon`);
-        onStatusChange(sessionId, 'error');
-        term.write('\r\n\x1b[31m[Error: no daemon connected]\x1b[0m\r\n');
-        if (isPinnedRef.current) scheduleScroll();
-      }
-    };
-
-    ws.onclose = (event) => {
-      console.log(`[terminal-ui] WS closed for session ${sessionId}: code=${event.code} reason=${event.reason}`);
-    };
-
-    ws.onerror = (event) => {
-      if (isCleanedUp) return;
-      const readyStates = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'] as const;
-      console.error(
-        `[terminal-ui] WS error for session ${sessionId}: ` +
-          `state=${readyStates[ws.readyState]} url=${ws.url}`,
-        event,
-      );
-    };
+          } else if (msg.t === 'reconnected' && msg.buffer) {
+            console.log(`[terminal-ui] Reconnected session ${sessionId}, buffer lines: ${msg.buffer.length}`);
+            suppressTitleUntil = Date.now() + TITLE_SUPPRESS_MS;
+            titleActive = false;
+            titleChangeCount = 0;
+            if (titleTimer) { clearTimeout(titleTimer); titleTimer = null; }
+            term.clear();
+            term.write(msg.buffer.join(''), () => {
+              term.scrollToBottom();
+            });
+            isPinnedRef.current = true;
+            setShowScrollButton(false);
+          } else if (msg.t === 'exit') {
+            const code = msg.exitCode ?? 0;
+            console.log(`[terminal-ui] Exit for session ${sessionId}: code=${code}`);
+            socket.markFinal();
+            onStatusChange(sessionId, 'exited');
+            const label =
+              code === -1
+                ? 'Session expired (disconnected too long)'
+                : code === 0
+                  ? 'Process exited'
+                  : `Process exited with code ${code}`;
+            term.write(`\r\n\x1b[2m[${label}]\x1b[0m\r\n`);
+            if (isPinnedRef.current) scheduleScroll();
+          } else if (msg.t === 'error') {
+            console.error(`[terminal-ui] Error for session ${sessionId}: no daemon`);
+            socket.markFinal();
+            onStatusChange(sessionId, 'error');
+            term.write('\r\n\x1b[31m[Error: no daemon connected]\x1b[0m\r\n');
+            if (isPinnedRef.current) scheduleScroll();
+          }
+        },
+        onClose: (event) => {
+          console.log(`[terminal-ui] WS closed for session ${sessionId}: code=${event.code} reason=${event.reason}`);
+        },
+        onError: (event) => {
+          if (isCleanedUp) return;
+          console.error(`[terminal-ui] WS error for session ${sessionId}: readyState=${socket.readyState}`, event);
+        },
+      },
+    });
+    socketRef.current = socket;
+    onReady?.(sessionId, actions);
 
     // Intercept Shift+Enter to send shell line continuation
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       if (event.key === 'Enter' && event.shiftKey) {
-        if (event.type === 'keydown' && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ t: 'i', sessionId, d: '\\\r' }));
+        if (event.type === 'keydown') {
+          socket.send(JSON.stringify({ t: 'i', sessionId, d: '\\\r' }));
         }
         return false;
       }
@@ -318,9 +307,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     });
 
     term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ t: 'i', sessionId, d: data }));
-      }
+      socket.send(JSON.stringify({ t: 'i', sessionId, d: data }));
       if (titleActive || titleTimer) {
         titleActive = false;
         titleChangeCount = 0;
@@ -345,11 +332,11 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       container.removeEventListener('wheel', handleWheel);
       resizeObserver.disconnect();
       onReady?.(sessionId, null);
-      ws.close();
+      socket.close();
       term.dispose();
       xtermRef.current = null;
       fitAddonRef.current = null;
-      wsRef.current = null;
+      socketRef.current = null;
     };
     // Intentionally only depends on sessionId and handleResize — do NOT add tab or scope
     // to avoid reconnecting when props change. sessionId is stable per tab lifetime.
