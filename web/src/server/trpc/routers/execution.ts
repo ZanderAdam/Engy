@@ -14,7 +14,7 @@ import type { AppState } from '../context';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { agentSessions, tasks, taskGroups, projects, workspaces } from '../../db/schema';
-import { taskPlanSlug, readPlanFile } from '../../plan/service';
+import { taskPlanSlug, readPlanFile, readTaskPlan } from '../../plan/service';
 import {
   dispatchExecutionStart,
   dispatchExecutionStop,
@@ -330,7 +330,17 @@ export async function triggerAutoStart(
       return;
     }
 
-    const scope = task.needsPlan ? 'planning' : 'task';
+    // If a plan file already exists on disk, skip planning even if the flag
+    // hasn't been cleared yet (handles tasks created before the auto-clear fix).
+    const projDir = resolveProjectDir(workspace, project);
+    const hasPlanFile = !!readTaskPlan(projDir, workspace.slug, task.id);
+    if (task.needsPlan && hasPlanFile) {
+      db.update(tasks)
+        .set({ needsPlan: false, updatedAt: new Date().toISOString() })
+        .where(eq(tasks.id, task.id))
+        .run();
+    }
+    const scope = task.needsPlan && !hasPlanFile ? 'planning' : 'task';
     console.log(`[auto-start] Dispatching task ${taskId}: scope=${scope}`);
     await caller.execution.startExecution({ scope, id: taskId });
     console.log(`[auto-start] Started task ${taskId}`);
@@ -1093,15 +1103,27 @@ export const executionRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      const db = getDb();
       const { workspace } = resolveTaskContext(input.taskId);
 
-      // Only push for Coder workspaces; non-Coder is a silent no-op
+      const clearNeedsPlan = () =>
+        db
+          .update(tasks)
+          .set({ needsPlan: false, updatedAt: new Date().toISOString() })
+          .where(eq(tasks.id, input.taskId))
+          .run();
+
+      // Only push for Coder workspaces; non-Coder is a silent no-op.
+      // Clear needsPlan either way — "Approve & Implement" means the plan is
+      // finalized regardless of execution backend.
       if (workspace.executionBackend !== 'coder') {
+        clearNeedsPlan();
         return { pushed: false };
       }
 
       const coderCfg = workspace.coderConfig as { workspace: string } | null;
       if (!coderCfg?.workspace) {
+        clearNeedsPlan();
         return { pushed: false };
       }
 
@@ -1115,6 +1137,8 @@ export const executionRouter = router({
         planFilePath,
         input.content,
       );
+      // Clear after successful push so the flag stays true if push fails
+      clearNeedsPlan();
       return { pushed: true };
     }),
 

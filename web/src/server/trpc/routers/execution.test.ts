@@ -621,9 +621,10 @@ describe('execution router', () => {
       return { sent };
     }
 
-    it('should no-op for non-Coder workspaces', async () => {
+    it('should no-op for non-Coder workspaces but still clear needsPlan', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Push test' });
+      expect(task.needsPlan).toBe(true);
       const { sent } = createPushDaemon(ctx);
 
       const result = await caller.execution.pushRemoteFile({
@@ -633,6 +634,9 @@ describe('execution router', () => {
 
       expect(result.pushed).toBe(false);
       expect(sent).toHaveLength(0);
+
+      const updated = getDb().select().from(tasks).where(eq(tasks.id, task.id)).get();
+      expect(updated!.needsPlan).toBe(false);
     });
 
     it('should dispatch REMOTE_FILE_PUSH for Coder workspaces with computed plan path', async () => {
@@ -660,6 +664,9 @@ describe('execution router', () => {
       expect(msg.payload.coderWorkspace).toBe('my-coder-ws');
       expect(msg.payload.filePath).toBe(`plans/${ws.slug}-T${task.id}.plan.md`);
       expect(msg.payload.content).toBe('edited plan');
+
+      const updated = getDb().select().from(tasks).where(eq(tasks.id, task.id)).get();
+      expect(updated!.needsPlan).toBe(false);
     });
 
     it('should throw NOT_FOUND for non-existent task', async () => {
@@ -719,6 +726,10 @@ describe('execution router', () => {
       await expect(
         caller.execution.pushRemoteFile({ taskId: task.id, content: 'plan' }),
       ).rejects.toThrow('daemon disconnected');
+
+      // needsPlan should remain true — the push failed so the plan wasn't delivered
+      const updated = getDb().select().from(tasks).where(eq(tasks.id, task.id)).get();
+      expect(updated!.needsPlan).toBe(true);
     });
   });
 
@@ -931,6 +942,47 @@ describe('execution router', () => {
 
       const updatedTask = db.select().from(tasks).where(eq(tasks.id, task.id)).get();
       expect(updatedTask!.subStatus).toBe('implementing');
+    });
+
+    it('should start implementation when needsPlan=true but plan file exists on disk', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb()
+        .update(workspaces)
+        .set({ autoStart: true })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+      const task = await caller.task.create({
+        projectId: proj.id,
+        title: 'Has plan file',
+        needsPlan: true,
+      });
+      createMockDaemon(ctx);
+
+      // Write a plan file to disk so the filesystem fallback detects it
+      const planDir = path.join(
+        process.env.ENGY_DIR!,
+        ws.slug,
+        'projects',
+        proj.slug,
+        'plans',
+      );
+      fs.mkdirSync(planDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(planDir, `${ws.slug}-T${task.id}.plan.md`),
+        '# Plan\nDo the thing.',
+      );
+
+      await triggerAutoStart(caller, task.id, ctx.state);
+
+      const db = getDb();
+      const sessions = db.select().from(agentSessions).all();
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].executionMode).toBe('task');
+
+      const updatedTask = db.select().from(tasks).where(eq(tasks.id, task.id)).get();
+      expect(updatedTask!.subStatus).toBe('implementing');
+      // Flag should be self-healed so future calls skip the filesystem read
+      expect(updatedTask!.needsPlan).toBe(false);
     });
 
     it('should skip when autoStart is disabled', async () => {
