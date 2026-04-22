@@ -20,6 +20,7 @@ interface CommentZoneEntry {
   zoneId: string;
   widget: editor.IOverlayWidget;
   root: Root;
+  resize: (height: number) => void;
 }
 
 function getTargetEditor(
@@ -37,7 +38,6 @@ function getTargetEditor(
 function createCommentOverlayZone(
   targetEditor: editor.IStandaloneCodeEditor,
   afterLineNumber: number,
-  heightInPx: number,
   widgetId: string,
   reactElement: React.ReactElement,
 ): CommentZoneEntry {
@@ -57,23 +57,32 @@ function createCommentOverlayZone(
   };
   targetEditor.addOverlayWidget(widget);
 
+  const zoneDescriptor: editor.IViewZone = {
+    afterLineNumber,
+    heightInPx: 80,
+    domNode: document.createElement('div'),
+    suppressMouseDown: true,
+    onDomNodeTop: (top) => {
+      overlayNode.style.top = `${top}px`;
+    },
+    onComputedHeight: (height) => {
+      overlayNode.style.height = `${height}px`;
+    },
+  };
+
   let zoneId = '';
   targetEditor.changeViewZones((accessor) => {
-    zoneId = accessor.addZone({
-      afterLineNumber,
-      heightInPx,
-      domNode: document.createElement('div'),
-      suppressMouseDown: true,
-      onDomNodeTop: (top) => {
-        overlayNode.style.top = `${top}px`;
-      },
-      onComputedHeight: (height) => {
-        overlayNode.style.height = `${height}px`;
-      },
-    });
+    zoneId = accessor.addZone(zoneDescriptor);
   });
 
-  return { zoneId, widget, root };
+  const resize = (height: number) => {
+    zoneDescriptor.heightInPx = height;
+    targetEditor.changeViewZones((accessor) => {
+      accessor.layoutZone(zoneId);
+    });
+  };
+
+  return { zoneId, widget, root, resize };
 }
 
 function cleanupCommentOverlayZone(
@@ -134,7 +143,6 @@ export function useMonacoComments({
       const entry = createCommentOverlayZone(
         targetEditor,
         comment.lineNumber,
-        120,
         `comment-zone-${comment.threadId}`,
         createElement(MonacoCommentZone, {
           comment,
@@ -145,12 +153,7 @@ export function useMonacoComments({
           onDeleteComment: (threadId, commentId) =>
             onDeleteCommentRef.current?.(threadId, commentId),
           onCancel: () => {},
-          onHeightChange: () => {
-            if (!entry.zoneId) return;
-            targetEditor.changeViewZones((acc) => {
-              acc.layoutZone(entry.zoneId);
-            });
-          },
+          onHeightChange: (height) => entry.resize(height),
         }),
       );
       newEntries.push(entry);
@@ -193,7 +196,6 @@ export function useMonacoComments({
     const entry = createCommentOverlayZone(
       targetEditor,
       newCommentLine,
-      120,
       'comment-zone-new',
       createElement(MonacoCommentZone, {
         onSave: (text: string) => {
@@ -201,12 +203,7 @@ export function useMonacoComments({
           setNewCommentLine(null);
         },
         onCancel: () => setNewCommentLine(null),
-        onHeightChange: () => {
-          if (!entry.zoneId) return;
-          targetEditor.changeViewZones((acc) => {
-            acc.layoutZone(entry.zoneId);
-          });
-        },
+        onHeightChange: (height) => entry.resize(height),
       }),
     );
 
