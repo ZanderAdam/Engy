@@ -28,6 +28,7 @@ coverage/
 
 # Claude Code worktrees
 .claude/worktrees/
+/*/.claude/worktrees/
 
 # IDE
 .idea/
