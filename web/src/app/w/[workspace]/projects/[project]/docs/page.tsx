@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useVirtualParams, useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ProjectTree } from '@/components/projects/project-tree';
+import { EditableFileTree } from '@/components/editable-file-tree';
 import { ProjectFrontmatter } from '@/components/projects/project-frontmatter';
 import { SpecTasks } from '@/components/specs/spec-tasks';
 import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
@@ -35,6 +35,12 @@ export default function ProjectDocsPage() {
     setSidebarCollapsed(isMobile);
   }
 
+  const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
+  const { data: projectData, error: projectError } = trpc.project.getBySlug.useQuery(
+    { workspaceId: workspace?.id ?? 0, slug: params.project },
+    { enabled: !!workspace, retry: false },
+  );
+
   const handleSelectFile = useCallback(
     (file: string | null) => {
       const p = new URLSearchParams();
@@ -57,12 +63,22 @@ export default function ProjectDocsPage() {
       leftCollapsed={sidebarCollapsed}
       onLeftCollapsedChange={setSidebarCollapsed}
       leftContent={
-        <ProjectTree
-          workspaceSlug={params.workspace}
-          projectSlug={params.project}
-          selectedFile={selectedFile}
-          onSelectFile={handleSelectFile}
-        />
+        projectData?.projectDir ? (
+          <EditableFileTree
+            dirPath={projectData.projectDir}
+            selectedFile={selectedFile}
+            onSelectFile={handleSelectFile}
+          />
+        ) : projectError ? (
+          <div className="flex flex-col items-center justify-center gap-1 py-10 px-4">
+            <p className="text-sm font-medium">Project not found</p>
+            <p className="text-xs text-muted-foreground">{projectError.message}</p>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center py-10">
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          </div>
+        )
       }
       centerContent={
         selectedFile ? (

@@ -47,10 +47,19 @@ export function ProjectFrontmatter({
 }: ProjectFrontmatterProps) {
   const utils = trpc.useUtils();
 
+  const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
+  const { data: projectData } = trpc.project.getBySlug.useQuery(
+    { workspaceId: workspace?.id ?? 0, slug: projectSlug },
+    { enabled: !!workspace },
+  );
+
   const updateMutation = trpc.project.updateSpec.useMutation({
     onSuccess: () => {
       utils.project.getSpec.invalidate({ workspaceSlug, projectSlug });
       utils.project.listFiles.invalidate({ workspaceSlug, projectSlug });
+      if (projectData?.projectDir) {
+        utils.dir.listFiles.invalidate({ dirPath: projectData.projectDir });
+      }
     },
   });
 

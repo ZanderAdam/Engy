@@ -40,6 +40,7 @@ import {
   RiAddLine,
   RiDeleteBinLine,
   RiFileAddLine,
+  RiFileCopyLine,
   RiFileTextLine,
   RiFolderAddLine,
   RiFolderLine,
@@ -49,6 +50,7 @@ import {
   RiSortAsc,
   RiSortDesc,
 } from "@remixicon/react";
+import { toast } from "sonner";
 
 type FileEntry = { path: string; mtime: number };
 type SortMode = "modified" | "name";
@@ -60,6 +62,7 @@ interface FileTreeProps {
   selectedFile: string | null;
   onSelectFile: (filePath: string) => void;
   label?: string;
+  rootAbsPath?: string;
   onCreateFile?: (dirPath: string, fileName: string) => void;
   onCreateDir?: (dirPath: string) => void;
   onDeleteFile?: (filePath: string) => void;
@@ -181,6 +184,7 @@ function ItemActions({
   type,
   itemPath,
   itemName,
+  rootAbsPath,
   onCreateFile,
   onCreateDir,
   onDelete,
@@ -190,6 +194,7 @@ function ItemActions({
   type: "file" | "dir";
   itemPath: string;
   itemName: string;
+  rootAbsPath?: string;
   onCreateFile?: (dirPath: string, fileName: string) => void;
   onCreateDir?: (dirPath: string) => void;
   onDelete?: () => void;
@@ -289,6 +294,33 @@ function ItemActions({
               <RiDeleteBinLine className="size-4" />
               Delete {type === "file" ? "File" : "Folder"}
             </DropdownMenuItem>
+          )}
+          {itemPath !== "" && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  navigator.clipboard
+                    .writeText(itemPath)
+                    .then(() => toast.success("Relative path copied"));
+                }}
+              >
+                <RiFileCopyLine className="size-4" />
+                Copy relative path
+              </DropdownMenuItem>
+              {rootAbsPath && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    navigator.clipboard
+                      .writeText(`${rootAbsPath}/${itemPath}`)
+                      .then(() => toast.success("Full path copied"));
+                  }}
+                >
+                  <RiFileCopyLine className="size-4" />
+                  Copy full path
+                </DropdownMenuItem>
+              )}
+            </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
@@ -411,6 +443,7 @@ export function FileTree({
   selectedFile,
   onSelectFile,
   label = "Files",
+  rootAbsPath,
   onCreateFile,
   onCreateDir,
   onDeleteFile,
@@ -432,6 +465,7 @@ export function FileTree({
               type="dir"
               itemPath={dirPath}
               itemName={dirPath.split("/").pop() ?? dirPath}
+              rootAbsPath={rootAbsPath}
               onCreateFile={onCreateFile}
               onCreateDir={onCreateDir}
               onDelete={onDeleteDir ? () => onDeleteDir(dirPath) : undefined}
@@ -444,7 +478,7 @@ export function FileTree({
             />
           )
         : undefined,
-    [hasCreateActions, onCreateFile, onCreateDir, onDeleteDir, onRenameDir],
+    [hasCreateActions, rootAbsPath, onCreateFile, onCreateDir, onDeleteDir, onRenameDir],
   );
 
   const fileActions = useMemo(
@@ -455,6 +489,7 @@ export function FileTree({
               type="file"
               itemPath={filePath}
               itemName={filePath.split("/").pop() ?? filePath}
+              rootAbsPath={rootAbsPath}
               onDelete={onDeleteFile ? () => onDeleteFile(filePath) : undefined}
               onRename={
                 onRenameFile
@@ -465,7 +500,7 @@ export function FileTree({
             />
           )
         : undefined,
-    [onDeleteFile, onRenameFile],
+    [rootAbsPath, onDeleteFile, onRenameFile],
   );
 
   const treeData: TreeDataItem[] = useMemo(

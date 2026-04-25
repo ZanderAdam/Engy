@@ -4,13 +4,17 @@ import { useCallback } from 'react';
 import { trpc } from '@/lib/trpc';
 import { FileTree } from '@/components/file-tree';
 
-interface WorkspaceTreeProps {
+interface EditableFileTreeProps {
   dirPath: string;
   selectedFile: string | null;
   onSelectFile: (filePath: string) => void;
 }
 
-export function WorkspaceTree({ dirPath, selectedFile, onSelectFile }: WorkspaceTreeProps) {
+export function EditableFileTree({
+  dirPath,
+  selectedFile,
+  onSelectFile,
+}: EditableFileTreeProps) {
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.dir.listFiles.useQuery({ dirPath });
 
@@ -60,7 +64,11 @@ export function WorkspaceTree({ dirPath, selectedFile, onSelectFile }: Workspace
     (filePath: string) => {
       deleteFileMutation.mutate(
         { dirPath, filePath },
-        { onSuccess: () => { if (selectedFile === filePath) onSelectFile(''); } },
+        {
+          onSuccess: () => {
+            if (selectedFile === filePath) onSelectFile('');
+          },
+        },
       );
     },
     [deleteFileMutation, dirPath, selectedFile, onSelectFile],
@@ -77,7 +85,11 @@ export function WorkspaceTree({ dirPath, selectedFile, onSelectFile }: Workspace
     (oldPath: string, newPath: string) => {
       renameFileMutation.mutate(
         { dirPath, oldPath, newPath },
-        { onSuccess: () => { if (selectedFile === oldPath) onSelectFile(newPath); } },
+        {
+          onSuccess: () => {
+            if (selectedFile === oldPath) onSelectFile(newPath);
+          },
+        },
       );
     },
     [renameFileMutation, dirPath, selectedFile, onSelectFile],
@@ -113,6 +125,7 @@ export function WorkspaceTree({ dirPath, selectedFile, onSelectFile }: Workspace
       dirs={data?.dirs ?? []}
       selectedFile={selectedFile}
       onSelectFile={onSelectFile}
+      rootAbsPath={dirPath}
       onCreateFile={handleCreateFile}
       onCreateDir={handleCreateDir}
       onDeleteFile={handleDeleteFile}
