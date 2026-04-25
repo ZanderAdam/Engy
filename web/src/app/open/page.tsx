@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useRecentDirs } from '@/hooks/use-recent-dirs';
 import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
@@ -38,7 +38,7 @@ export default function OpenPage() {
 }
 
 function OpenPageOuter() {
-  const searchParams = useSearchParams();
+  const searchParams = useVirtualSearchParams();
   const dirPath = searchParams.get('path') ?? '';
 
   if (!dirPath) {

@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import { useVirtualParams, useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { WorkspaceTree } from '@/components/workspace/workspace-tree';
 import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
@@ -18,9 +19,9 @@ const SIDEBAR_CONFIG = {
 } as const;
 
 export default function WorkspaceDocsPage() {
-  const params = useParams<{ workspace: string }>();
+  const params = useVirtualParams<{ workspace: string }>();
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useVirtualSearchParams();
   const selectedFile = searchParams.get('file');
 
   const { data: workspace, isLoading } = trpc.workspace.get.useQuery({ slug: params.workspace });

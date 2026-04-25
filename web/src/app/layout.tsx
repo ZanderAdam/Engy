@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
-import { AppHeader } from "@/components/app-header";
+import { TabShell } from "@/components/tabs/tab-shell";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -13,20 +13,18 @@ export const metadata: Metadata = {
   description: "Engineering workspace manager",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+// RootLayout intentionally ignores `children` from Next.js routing —
+// TabShell owns rendering for every tab via virtualPath dispatch (see tab-content.tsx).
+// The page.tsx components are never mounted, so their hooks/queries don't run.
+export default function RootLayout() {
   return (
     <html lang="en" className={jetbrainsMono.variable} suppressHydrationWarning>
       <body className="font-sans antialiased">
         <Providers>
           <div className="flex h-screen flex-col overflow-hidden">
             <Suspense>
-              <AppHeader />
+              <TabShell />
             </Suspense>
-            <main className="flex flex-1 flex-col min-h-0">{children}</main>
           </div>
           <Toaster />
         </Providers>

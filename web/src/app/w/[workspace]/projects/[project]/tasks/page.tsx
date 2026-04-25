@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import {
+  useVirtualParams,
+  useVirtualNavigate,
+  useVirtualSearchParams,
+} from "@/components/tabs/tab-context";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { ViewToggle, type TaskView } from "@/components/projects/task-views/view-toggle";
@@ -38,9 +43,10 @@ import { RiAddLine, RiCheckboxMultipleLine } from "@remixicon/react";
 const DEBOUNCE_MS = 500;
 
 export default function ProjectTasksPage() {
-  const params = useParams<{ workspace: string; project: string }>();
+  const params = useVirtualParams<{ workspace: string; project: string }>();
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const nav = useVirtualNavigate();
+  const searchParams = useVirtualSearchParams();
 
   const viewParam = searchParams.get("view") as TaskView | null;
   const currentView = viewParam ?? "kanban";
@@ -186,7 +192,7 @@ export default function ProjectTasksPage() {
                 action: {
                   label: 'Review',
                   onClick: () => {
-                    router.push(
+                    nav.push(
                       `/w/${params.workspace}/projects/${params.project}/docs?file=plans/${taskSlug}.plan.md`,
                     );
                   },
@@ -196,7 +202,7 @@ export default function ProjectTasksPage() {
           }, DEBOUNCE_MS),
         );
       },
-      [utils, router, params.workspace, params.project],
+      [utils, nav, params.workspace, params.project],
     ),
   );
 

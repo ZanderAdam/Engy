@@ -3,7 +3,7 @@
 
 import path from 'path';
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useVirtualNavigate } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -28,7 +28,7 @@ function parseBrowsePath(input: string): { browsePath: string; filter: string } 
 }
 
 export function OpenDirDialog({ open, onOpenChange }: OpenDirDialogProps) {
-  const router = useRouter();
+  const nav = useVirtualNavigate();
   const [inputValue, setInputValue] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const listRef = useRef<HTMLDivElement>(null);
@@ -130,7 +130,7 @@ export function OpenDirDialog({ open, onOpenChange }: OpenDirDialogProps) {
   function handleOpen() {
     if (!openPath) return;
     onOpenChange(false);
-    router.push(`/open?path=${encodeURIComponent(openPath)}`);
+    nav.push(`/open?path=${encodeURIComponent(openPath)}`);
   }
 
   return (

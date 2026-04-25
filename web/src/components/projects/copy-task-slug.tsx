@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useVirtualParams } from '@/components/tabs/tab-context';
 import { RiFileCopyLine, RiCheckLine } from '@remixicon/react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -10,7 +10,7 @@ interface CopyTaskSlugProps {
 }
 
 export function CopyTaskSlug({ taskId }: CopyTaskSlugProps) {
-  const params = useParams<{ workspace: string }>();
+  const params = useVirtualParams<{ workspace: string }>();
   const workspaceSlug = params.workspace ?? '';
   const [copied, setCopied] = useState(false);
   const fullSlug = `${workspaceSlug}-T${taskId}`;

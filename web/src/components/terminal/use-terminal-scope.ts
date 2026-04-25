@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useVirtualParams } from "@/components/tabs/tab-context";
 import { trpc } from "@/lib/trpc";
 import { buildClaudeCommand, buildContextBlock } from '@/lib/shell';
 import type { TerminalScope } from "./types";
@@ -65,7 +65,7 @@ export function useBottomTerminalScope(): TerminalScope {
 }
 
 export function useTerminalScope(): TerminalScope {
-  const params = useParams<{ workspace?: string; project?: string }>();
+  const params = useVirtualParams();
   const workspaceSlug = params.workspace ?? '';
   const projectSlug = params.project;
 

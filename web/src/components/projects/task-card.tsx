@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useParams } from 'next/navigation';
+import { useVirtualParams } from '@/components/tabs/tab-context';
 import { Button } from '@/components/ui/button';
 import { TaskStatusBadge } from '@/components/projects/task-status-badge';
 import { CopyTaskSlug } from '@/components/projects/copy-task-slug';
@@ -88,7 +88,7 @@ export function TaskCard({
   className,
   dragHandleProps,
 }: TaskCardProps) {
-  const params = useParams<{ workspace: string; project: string }>();
+  const params = useVirtualParams<{ workspace: string; project: string }>();
   const groupKey =
     params.workspace && params.project
       ? `project:${params.workspace}:${params.project}`

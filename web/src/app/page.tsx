@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { VLink } from "@/components/tabs/virtual-link";
+import { useVirtualNavigate } from "@/components/tabs/tab-context";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +17,7 @@ export default function HomePage() {
   const [openDirDialogOpen, setOpenDirDialogOpen] = useState(false);
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const { dirs: recentDirs, removeDir } = useRecentDirs();
-  const router = useRouter();
+  const nav = useVirtualNavigate();
 
   return (
     <div className="mx-auto w-[95%] max-w-4xl overflow-y-auto py-8">
@@ -58,7 +58,7 @@ export default function HomePage() {
       {workspaces && workspaces.length > 0 && (
         <div className="flex flex-col gap-3">
           {workspaces.map((ws) => (
-            <Link key={ws.id} href={`/w/${ws.slug}`}>
+            <VLink key={ws.id} href={`/w/${ws.slug}`}>
               <Card className="bg-transparent transition-colors hover:bg-muted/50">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
@@ -74,7 +74,7 @@ export default function HomePage() {
                   </p>
                 </CardContent>
               </Card>
-            </Link>
+            </VLink>
           ))}
           <div className="mt-2">
             <CreateWorkspaceDialog />
@@ -91,7 +91,7 @@ export default function HomePage() {
                 <button
                   type="button"
                   className="flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted/50 truncate"
-                  onClick={() => router.push(`/open?path=${encodeURIComponent(dir)}`)}
+                  onClick={() => nav.push(`/open?path=${encodeURIComponent(dir)}`)}
                 >
                   <RiFolderOpenLine className="size-4 shrink-0 text-muted-foreground" />
                   <span className="truncate font-mono text-xs">{dir}</span>

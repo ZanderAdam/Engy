@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { VLink } from "@/components/tabs/virtual-link";
 import { Progress } from "@/components/ui/progress";
 import { ProjectStatusBadge } from "@/components/projects/project-status-badge";
 
@@ -25,7 +25,7 @@ export function ProjectCard({
     project.taskCount > 0 ? Math.round((project.completedTasks / project.taskCount) * 100) : 0;
 
   return (
-    <Link
+    <VLink
       href={`/w/${workspaceSlug}/projects/${project.slug}`}
       className="flex flex-col gap-2 border border-border p-4 transition-colors hover:bg-muted/50"
     >
@@ -39,6 +39,6 @@ export function ProjectCard({
           {project.completedTasks}/{project.taskCount} tasks
         </span>
       </div>
-    </Link>
+    </VLink>
   );
 }

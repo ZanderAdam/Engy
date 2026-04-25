@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useVirtualNavigate } from "@/components/tabs/tab-context";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { ProjectCard } from "./project-card";
@@ -15,7 +15,7 @@ export function WorkspaceOverview({
   workspaceId: number;
   workspaceSlug: string;
 }) {
-  const router = useRouter();
+  const nav = useVirtualNavigate();
   const [showCreate, setShowCreate] = useState(false);
   const { data: projects } = trpc.project.listWithProgress.useQuery({ workspaceId });
 
@@ -54,7 +54,7 @@ export function WorkspaceOverview({
         workspaceSlug={workspaceSlug}
         open={showCreate}
         onOpenChange={setShowCreate}
-        onCreated={(slug) => router.push(`/w/${workspaceSlug}/projects/${slug}`)}
+        onCreated={(slug) => nav.push(`/w/${workspaceSlug}/projects/${slug}`)}
       />
     </div>
   );

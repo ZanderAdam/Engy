@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useParams, usePathname } from 'next/navigation';
-import Link from 'next/link';
 import { RiGitRepositoryLine, RiGitRepositoryFill, RiComputerLine, RiBox3Line } from '@remixicon/react';
+import { useVirtualParams, useVirtualPathname } from '@/components/tabs/tab-context';
+import { VLink } from '@/components/tabs/virtual-link';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -34,8 +34,8 @@ const tabs = [
 ] as const;
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
-  const params = useParams<{ workspace: string; project?: string }>();
-  const pathname = usePathname();
+  const params = useVirtualParams<{ workspace: string; project?: string }>();
+  const pathname = useVirtualPathname();
   const {
     data: workspace,
     isLoading,
@@ -191,9 +191,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         <p className="text-xs text-muted-foreground">
           The workspace &ldquo;{params.workspace}&rdquo; does not exist.
         </p>
-        <Link href="/" className="mt-2 text-xs text-primary underline">
+        <VLink href="/" className="mt-2 text-xs text-primary underline">
           Back to home
-        </Link>
+        </VLink>
       </div>
     );
   }
@@ -215,7 +215,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           <nav className="border-b border-border" aria-label="Workspace sections">
             <div className={cn('flex', isMobile ? 'px-3' : 'px-6')}>
               {tabs.map((tab) => (
-                <Link
+                <VLink
                   key={tab.segment}
                   href={tabHref(tab.segment)}
                   className={cn(
@@ -225,7 +225,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
                   )}
                 >
                   {tab.label}
-                </Link>
+                </VLink>
               ))}
             </div>
           </nav>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useVirtualNavigate } from "@/components/tabs/tab-context";
 import { RiAddLine, RiCloseLine } from "@remixicon/react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export function CreateWorkspaceDialog() {
-  const router = useRouter();
+  const nav = useVirtualNavigate();
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -31,7 +31,7 @@ export function CreateWorkspaceDialog() {
       utils.workspace.list.invalidate();
       setOpen(false);
       resetForm();
-      router.push(`/w/${workspace.slug}`);
+      nav.push(`/w/${workspace.slug}`);
     },
     onError: (err) => {
       setError(err.message);

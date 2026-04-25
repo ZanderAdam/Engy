@@ -1,13 +1,13 @@
 'use client';
 
-import { useParams } from 'next/navigation';
+import { useVirtualParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { buildQuickActionDirs, buildContextBlock, buildClaudeCommand } from '@/lib/shell';
 import type { ContainerMode, TerminalScope } from '@/components/terminal/types';
 
 export function useQuickAction() {
-  const params = useParams<{ workspace: string; project: string }>();
+  const params = useVirtualParams<{ workspace: string; project: string }>();
   const workspaceSlug = params.workspace ?? '';
   const projectSlug = params.project ?? '';
 

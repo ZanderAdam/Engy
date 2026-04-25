@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import { useVirtualParams, useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProjectTree } from '@/components/projects/project-tree';
@@ -22,9 +23,9 @@ const SIDEBAR_CONFIG = {
 } as const;
 
 export default function ProjectDocsPage() {
-  const params = useParams<{ workspace: string; project: string }>();
+  const params = useVirtualParams<{ workspace: string; project: string }>();
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useVirtualSearchParams();
   const isMobile = useIsMobile();
   const selectedFile = searchParams.get('file');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);

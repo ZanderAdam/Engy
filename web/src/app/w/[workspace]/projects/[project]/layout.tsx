@@ -1,7 +1,7 @@
 "use client";
 
-import { useParams, usePathname } from "next/navigation";
-import Link from "next/link";
+import { useVirtualParams, useVirtualPathname } from "@/components/tabs/tab-context";
+import { VLink } from "@/components/tabs/virtual-link";
 import { trpc } from "@/lib/trpc";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ProjectStatusBadge } from "@/components/projects/project-status-badge";
@@ -18,8 +18,8 @@ const tabs = [
 ] as const;
 
 export default function ProjectLayout({ children }: { children: React.ReactNode }) {
-  const params = useParams<{ workspace: string; project: string }>();
-  const pathname = usePathname();
+  const params = useVirtualParams<{ workspace: string; project: string }>();
+  const pathname = useVirtualPathname();
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
   const { data: project } = trpc.project.getBySlug.useQuery(
@@ -83,7 +83,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                 <TooltipContent>{tab.hint}</TooltipContent>
               </Tooltip>
             ) : (
-              <Link
+              <VLink
                 key={tab.segment}
                 href={tabHref(tab.segment)}
                 className={cn(
@@ -93,7 +93,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                 )}
               >
                 {tab.label}
-              </Link>
+              </VLink>
             ),
           )}
         </TooltipProvider>

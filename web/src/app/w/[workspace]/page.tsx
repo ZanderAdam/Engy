@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useVirtualParams } from "@/components/tabs/tab-context";
 import { RiEditLine } from "@remixicon/react";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +11,7 @@ import { WorkspaceOverview } from "@/components/workspace/workspace-overview";
 import { EditWorkspaceDialog } from "@/components/workspace/edit-workspace-dialog";
 
 export default function WorkspaceOverviewPage() {
-  const params = useParams<{ workspace: string }>();
+  const params = useVirtualParams<{ workspace: string }>();
   const router = useRouter();
   const utils = trpc.useUtils();
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });

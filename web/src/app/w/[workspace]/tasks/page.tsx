@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useVirtualParams, useVirtualNavigate } from "@/components/tabs/tab-context";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { EisenhowerMatrix } from "@/components/projects/task-views/eisenhower-matrix";
@@ -27,8 +27,8 @@ import { RiAddLine, RiCheckboxMultipleLine } from "@remixicon/react";
 const DEBOUNCE_MS = 500;
 
 export default function TasksPage() {
-  const params = useParams<{ workspace: string }>();
-  const router = useRouter();
+  const params = useVirtualParams<{ workspace: string }>();
+  const nav = useVirtualNavigate();
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
   const { data: allProjects } = trpc.project.list.useQuery(
     { workspaceId: workspace?.id ?? 0 },
@@ -129,7 +129,7 @@ export default function TasksPage() {
                 action: {
                   label: 'Review',
                   onClick: () => {
-                    router.push(
+                    nav.push(
                       `/w/${params.workspace}/docs?file=projects/default/plans/${taskSlug}.plan.md`,
                     );
                   },
@@ -139,7 +139,7 @@ export default function TasksPage() {
           }, DEBOUNCE_MS),
         );
       },
-      [utils, router, params.workspace, workspace?.id, defaultProject?.slug],
+      [utils, nav, params.workspace, workspace?.id, defaultProject?.slug],
     ),
   );
 
