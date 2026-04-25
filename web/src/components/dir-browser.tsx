@@ -12,10 +12,12 @@ export function DirFileTree({
   dirPath,
   selectedFile,
   onSelectFile,
+  label,
 }: {
   dirPath: string;
   selectedFile: string | null;
   onSelectFile: (relPath: string) => void;
+  label?: string;
 }) {
   const utils = trpc.useUtils();
   const { data, isLoading, error } = trpc.dir.listFiles.useQuery({ dirPath });
@@ -134,7 +136,8 @@ export function DirFileTree({
       onDeleteDir={handleDeleteDir}
       onRenameFile={handleRenameFile}
       onRenameDir={handleRenameDir}
-      label={path.basename(dirPath) || dirPath}
+      label={label || path.basename(dirPath) || dirPath}
+      rootAbsPath={dirPath}
     />
   );
 }

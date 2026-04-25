@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useVirtualParams, useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { EditableFileTree } from '@/components/editable-file-tree';
+import { DirFileTree } from '@/components/dir-browser';
 import { ProjectFrontmatter } from '@/components/projects/project-frontmatter';
 import { SpecTasks } from '@/components/specs/spec-tasks';
 import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
@@ -64,10 +64,11 @@ export default function ProjectDocsPage() {
       onLeftCollapsedChange={setSidebarCollapsed}
       leftContent={
         projectData?.projectDir ? (
-          <EditableFileTree
+          <DirFileTree
             dirPath={projectData.projectDir}
             selectedFile={selectedFile}
             onSelectFile={handleSelectFile}
+            label="Files"
           />
         ) : projectError ? (
           <div className="flex flex-col items-center justify-center gap-1 py-10 px-4">
@@ -211,10 +212,11 @@ function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDeta
 
   return (
     <Tabs defaultValue="content" className="flex h-full flex-col">
-      {isSpecMd && spec && !specError ? (
+      {isSpecMd && spec && !specError && projectData?.projectDir ? (
         <ProjectFrontmatter
           workspaceSlug={workspaceSlug}
           projectSlug={projectSlug}
+          projectDir={projectData.projectDir}
           title={spec.frontmatter.title}
           status={spec.frontmatter.status}
           type={spec.frontmatter.type}

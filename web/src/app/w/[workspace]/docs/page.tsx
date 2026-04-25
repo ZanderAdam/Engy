@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useVirtualParams, useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
-import { EditableFileTree } from '@/components/editable-file-tree';
+import { DirFileTree } from '@/components/dir-browser';
 import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
 import { EngyThreadStore } from '@/components/editor/document-editor';
 import { RiFileTextLine } from '@remixicon/react';
@@ -48,10 +48,11 @@ export default function WorkspaceDocsPage() {
       className="flex-1 min-h-0"
       left={SIDEBAR_CONFIG}
       leftContent={
-        <EditableFileTree
+        <DirFileTree
           dirPath={workspace.resolvedDir}
           selectedFile={selectedFile}
           onSelectFile={updateUrl}
+          label="Files"
         />
       }
       centerContent={
