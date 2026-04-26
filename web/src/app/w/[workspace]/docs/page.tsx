@@ -1,15 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useVirtualParams, useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { DirFileTree } from '@/components/dir-browser';
-import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
-import { EngyThreadStore } from '@/components/editor/document-editor';
-import { RiFileTextLine } from '@remixicon/react';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
-import { useOnFileChange } from '@/contexts/events-context';
+import { DocDockManager, type DocDockHandle } from '@/components/docs/doc-dock-manager';
+import { WorkspaceDocDockPanel } from '@/components/docs/doc-dock-panel';
+import { useDocDockHandlers } from '@/components/docs/use-doc-dock-handlers';
+import { workspaceDocGroupKey, type DocScope } from '@/components/docs/types';
 
 const SIDEBAR_CONFIG = {
   defaultWidth: 256,
@@ -22,16 +22,44 @@ export default function WorkspaceDocsPage() {
   const params = useVirtualParams<{ workspace: string }>();
   const router = useRouter();
   const searchParams = useVirtualSearchParams();
-  const selectedFile = searchParams.get('file');
+  const initialFile = searchParams.get('file');
+
+  const dockRef = useRef<DocDockHandle>(null);
+  const [activeFile, setActiveFile] = useState<string | null>(initialFile);
 
   const { data: workspace, isLoading } = trpc.workspace.get.useQuery({ slug: params.workspace });
 
-  function updateUrl(file: string | null) {
-    const p = new URLSearchParams();
-    if (file) p.set('file', file);
-    const qs = p.toString();
-    router.replace(`/w/${params.workspace}/docs${qs ? `?${qs}` : ''}`, { scroll: false });
-  }
+  const updateUrl = useCallback(
+    (file: string | null) => {
+      const p = new URLSearchParams();
+      if (file) p.set('file', file);
+      const qs = p.toString();
+      router.replace(`/w/${params.workspace}/docs${qs ? `?${qs}` : ''}`, { scroll: false });
+    },
+    [router, params.workspace],
+  );
+
+  const handleActiveFileChange = useCallback(
+    (file: string | null) => {
+      setActiveFile(file);
+      updateUrl(file);
+    },
+    [updateUrl],
+  );
+
+  const { onSelectFile, onRenameFile, onDeleteFile, onRenameDir, onDeleteDir } =
+    useDocDockHandlers(dockRef);
+
+  const repos: string[] = Array.isArray(workspace?.repos) ? (workspace.repos as string[]) : [];
+
+  const scope: DocScope | null = workspace?.resolvedDir
+    ? {
+        scopeType: 'workspace',
+        groupKey: workspaceDocGroupKey(params.workspace),
+        workspaceSlug: params.workspace,
+        rootDir: workspace.resolvedDir,
+      }
+    : null;
 
   if (isLoading) {
     return (
@@ -41,7 +69,7 @@ export default function WorkspaceDocsPage() {
     );
   }
 
-  if (!workspace?.resolvedDir) return null;
+  if (!workspace?.resolvedDir || !scope) return null;
 
   return (
     <ThreePanelLayout
@@ -50,117 +78,25 @@ export default function WorkspaceDocsPage() {
       leftContent={
         <DirFileTree
           dirPath={workspace.resolvedDir}
-          selectedFile={selectedFile}
-          onSelectFile={updateUrl}
+          selectedFile={activeFile}
+          onSelectFile={onSelectFile}
+          onRenameFile={onRenameFile}
+          onDeleteFile={onDeleteFile}
+          onRenameDir={onRenameDir}
+          onDeleteDir={onDeleteDir}
           label="Files"
         />
       }
       centerContent={
-        selectedFile ? (
-          <WorkspaceDocDetail
-            workspaceSlug={params.workspace}
-            resolvedDir={workspace.resolvedDir}
-            repos={(workspace.repos as string[]) ?? []}
-            selectedFile={selectedFile}
-          />
-        ) : (
-          <EmptyState />
-        )
+        <DocDockManager
+          ref={dockRef}
+          scope={scope}
+          repos={repos}
+          panelComponent={WorkspaceDocDockPanel}
+          initialFile={initialFile}
+          onActiveFileChange={handleActiveFileChange}
+        />
       }
-    />
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2">
-      <RiFileTextLine className="size-10 text-muted-foreground/50" />
-      <p className="text-sm text-muted-foreground">Select a file to view</p>
-    </div>
-  );
-}
-
-interface WorkspaceDocDetailProps {
-  workspaceSlug: string;
-  resolvedDir: string;
-  repos: string[];
-  selectedFile: string;
-}
-
-function WorkspaceDocDetail({
-  workspaceSlug,
-  resolvedDir,
-  repos,
-  selectedFile,
-}: WorkspaceDocDetailProps) {
-  const utils = trpc.useUtils();
-
-  useOnFileChange(
-    useCallback(
-      (filePath: string) => {
-        if (!filePath.endsWith('/' + selectedFile)) return;
-        utils.dir.read.invalidate({ dirPath: resolvedDir, filePath: selectedFile });
-      },
-      [utils, resolvedDir, selectedFile],
-    ),
-  );
-
-  const threadStore = useMemo(
-    () => new EngyThreadStore(workspaceSlug, selectedFile),
-    [workspaceSlug, selectedFile],
-  );
-
-  const {
-    data: fileData,
-    isLoading,
-    error,
-  } = trpc.dir.read.useQuery({
-    dirPath: resolvedDir,
-    filePath: selectedFile,
-  });
-
-  const writeMutation = trpc.dir.write.useMutation({
-    onSuccess: () => utils.dir.read.invalidate({ dirPath: resolvedDir, filePath: selectedFile }),
-  });
-
-  const mutateRef = useRef(writeMutation.mutate);
-  useEffect(() => {
-    mutateRef.current = writeMutation.mutate;
-  }, [writeMutation.mutate]);
-
-  const handleSave = useCallback(
-    (markdown: string) => {
-      mutateRef.current({ dirPath: resolvedDir, filePath: selectedFile, content: markdown });
-    },
-    [resolvedDir, selectedFile],
-  );
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 py-20">
-        <p className="text-sm font-medium">Failed to load file</p>
-        <p className="text-xs text-muted-foreground">{error.message}</p>
-      </div>
-    );
-  }
-
-  return (
-    <DynamicDocumentEditor
-      key={selectedFile}
-      initialMarkdown={fileData?.content ?? ''}
-      onSave={handleSave}
-      comments={true}
-      threadStore={threadStore}
-      filePath={selectedFile}
-      mentionDirs={repos.length > 0 ? repos : undefined}
     />
   );
 }

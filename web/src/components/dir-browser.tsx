@@ -12,11 +12,19 @@ export function DirFileTree({
   dirPath,
   selectedFile,
   onSelectFile,
+  onRenameFile,
+  onDeleteFile,
+  onRenameDir,
+  onDeleteDir,
   label,
 }: {
   dirPath: string;
   selectedFile: string | null;
   onSelectFile: (relPath: string) => void;
+  onRenameFile?: (oldPath: string, newPath: string) => void;
+  onDeleteFile?: (filePath: string) => void;
+  onRenameDir?: (oldSubDir: string, newSubDir: string) => void;
+  onDeleteDir?: (subDir: string) => void;
   label?: string;
 }) {
   const utils = trpc.useUtils();
@@ -68,27 +76,40 @@ export function DirFileTree({
     (filePath: string) => {
       deleteFileMutation.mutate(
         { dirPath, filePath },
-        { onSuccess: () => { if (selectedFile === filePath) onSelectFile(''); } },
+        {
+          onSuccess: () => {
+            if (selectedFile === filePath) onSelectFile('');
+            onDeleteFile?.(filePath);
+          },
+        },
       );
     },
-    [deleteFileMutation, dirPath, selectedFile, onSelectFile],
+    [deleteFileMutation, dirPath, selectedFile, onSelectFile, onDeleteFile],
   );
 
   const handleDeleteDir = useCallback(
     (subDir: string) => {
-      deleteDirMutation.mutate({ dirPath, subDir });
+      deleteDirMutation.mutate(
+        { dirPath, subDir },
+        { onSuccess: () => onDeleteDir?.(subDir) },
+      );
     },
-    [deleteDirMutation, dirPath],
+    [deleteDirMutation, dirPath, onDeleteDir],
   );
 
   const handleRenameFile = useCallback(
     (oldPath: string, newPath: string) => {
       renameFileMutation.mutate(
         { dirPath, oldPath, newPath },
-        { onSuccess: () => { if (selectedFile === oldPath) onSelectFile(newPath); } },
+        {
+          onSuccess: () => {
+            onRenameFile?.(oldPath, newPath);
+            if (selectedFile === oldPath) onSelectFile(newPath);
+          },
+        },
       );
     },
-    [renameFileMutation, dirPath, selectedFile, onSelectFile],
+    [renameFileMutation, dirPath, selectedFile, onSelectFile, onRenameFile],
   );
 
   const handleRenameDir = useCallback(
@@ -97,6 +118,7 @@ export function DirFileTree({
         { dirPath, oldSubDir, newSubDir },
         {
           onSuccess: () => {
+            onRenameDir?.(oldSubDir, newSubDir);
             if (selectedFile?.startsWith(`${oldSubDir}/`)) {
               onSelectFile(selectedFile.replace(`${oldSubDir}/`, `${newSubDir}/`));
             }
@@ -104,7 +126,7 @@ export function DirFileTree({
         },
       );
     },
-    [renameDirMutation, dirPath, selectedFile, onSelectFile],
+    [renameDirMutation, dirPath, selectedFile, onSelectFile, onRenameDir],
   );
 
   if (isLoading) {

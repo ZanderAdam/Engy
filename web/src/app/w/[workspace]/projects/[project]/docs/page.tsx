@@ -1,19 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useVirtualParams, useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DirFileTree } from '@/components/dir-browser';
-import { ProjectFrontmatter } from '@/components/projects/project-frontmatter';
-import { SpecTasks } from '@/components/specs/spec-tasks';
-import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
-import { EngyThreadStore } from '@/components/editor/document-editor';
-import { RiFileTextLine } from '@remixicon/react';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useOnFileChange } from '@/contexts/events-context';
+import { DocDockManager, type DocDockHandle } from '@/components/docs/doc-dock-manager';
+import { ProjectDocDockPanel } from '@/components/docs/doc-dock-project-panel';
+import { useDocDockHandlers } from '@/components/docs/use-doc-dock-handlers';
+import { projectDocGroupKey, type DocScope } from '@/components/docs/types';
 
 const SIDEBAR_CONFIG = {
   defaultWidth: 256,
@@ -27,7 +24,7 @@ export default function ProjectDocsPage() {
   const router = useRouter();
   const searchParams = useVirtualSearchParams();
   const isMobile = useIsMobile();
-  const selectedFile = searchParams.get('file');
+  const initialFile = searchParams.get('file');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [prevIsMobile, setPrevIsMobile] = useState(false);
   if (isMobile !== prevIsMobile) {
@@ -35,13 +32,16 @@ export default function ProjectDocsPage() {
     setSidebarCollapsed(isMobile);
   }
 
+  const dockRef = useRef<DocDockHandle>(null);
+  const [activeFile, setActiveFile] = useState<string | null>(initialFile);
+
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
   const { data: projectData, error: projectError } = trpc.project.getBySlug.useQuery(
     { workspaceId: workspace?.id ?? 0, slug: params.project },
     { enabled: !!workspace, retry: false },
   );
 
-  const handleSelectFile = useCallback(
+  const updateUrl = useCallback(
     (file: string | null) => {
       const p = new URLSearchParams();
       if (file) p.set('file', file);
@@ -50,10 +50,36 @@ export default function ProjectDocsPage() {
         `/w/${params.workspace}/projects/${params.project}/docs${qs ? `?${qs}` : ''}`,
         { scroll: false },
       );
-      if (isMobile) setSidebarCollapsed(true);
     },
-    [router, params.workspace, params.project, isMobile],
+    [router, params.workspace, params.project],
   );
+
+  const handleActiveFileChange = useCallback(
+    (file: string | null) => {
+      setActiveFile(file);
+      updateUrl(file);
+    },
+    [updateUrl],
+  );
+
+  const onAfterSelect = useCallback(() => {
+    if (isMobile) setSidebarCollapsed(true);
+  }, [isMobile]);
+
+  const { onSelectFile, onRenameFile, onDeleteFile, onRenameDir, onDeleteDir } =
+    useDocDockHandlers(dockRef, { onAfterSelect });
+
+  const repos: string[] = Array.isArray(workspace?.repos) ? (workspace.repos as string[]) : [];
+
+  const scope: DocScope | null = projectData?.projectDir
+    ? {
+        scopeType: 'project',
+        groupKey: projectDocGroupKey(params.workspace, params.project),
+        workspaceSlug: params.workspace,
+        projectSlug: params.project,
+        rootDir: projectData.projectDir,
+      }
+    : null;
 
   return (
     <ThreePanelLayout
@@ -66,8 +92,12 @@ export default function ProjectDocsPage() {
         projectData?.projectDir ? (
           <DirFileTree
             dirPath={projectData.projectDir}
-            selectedFile={selectedFile}
-            onSelectFile={handleSelectFile}
+            selectedFile={activeFile}
+            onSelectFile={onSelectFile}
+            onRenameFile={onRenameFile}
+            onDeleteFile={onDeleteFile}
+            onRenameDir={onRenameDir}
+            onDeleteDir={onDeleteDir}
             label="Files"
           />
         ) : projectError ? (
@@ -82,185 +112,21 @@ export default function ProjectDocsPage() {
         )
       }
       centerContent={
-        selectedFile ? (
-          <ProjectDetail
-            workspaceSlug={params.workspace}
-            projectSlug={params.project}
-            selectedFile={selectedFile}
+        scope ? (
+          <DocDockManager
+            ref={dockRef}
+            scope={scope}
+            repos={repos}
+            panelComponent={ProjectDocDockPanel}
+            initialFile={initialFile}
+            onActiveFileChange={handleActiveFileChange}
           />
         ) : (
-          <EmptyState />
+          <div className="flex items-center justify-center py-20">
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          </div>
         )
       }
     />
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2">
-      <RiFileTextLine className="size-10 text-muted-foreground/50" />
-      <p className="text-sm text-muted-foreground">Select a file to view</p>
-    </div>
-  );
-}
-
-interface ProjectDetailProps {
-  workspaceSlug: string;
-  projectSlug: string;
-  selectedFile: string;
-}
-
-function ProjectDetail({ workspaceSlug, projectSlug, selectedFile }: ProjectDetailProps) {
-  const utils = trpc.useUtils();
-
-  const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
-  const { data: projectData } = trpc.project.getBySlug.useQuery(
-    { workspaceId: workspace?.id ?? 0, slug: projectSlug },
-    { enabled: !!workspace },
-  );
-
-  const isSpecMd = selectedFile === 'spec.md';
-
-  useOnFileChange(
-    useCallback(
-      (filePath: string) => {
-        if (!filePath.endsWith('/' + selectedFile)) return;
-        if (isSpecMd) {
-          utils.project.getSpec.invalidate({ workspaceSlug, projectSlug });
-        } else {
-          utils.project.readFile.invalidate({ workspaceSlug, projectSlug, filePath: selectedFile });
-        }
-      },
-      [utils, workspaceSlug, projectSlug, selectedFile, isSpecMd],
-    ),
-  );
-
-  const mentionDirs: string[] = [
-    ...((workspace?.repos as string[] | undefined) ?? []),
-    ...(projectData?.projectDir ? [projectData.projectDir] : []),
-  ];
-
-  const threadStore = useMemo(
-    () => new EngyThreadStore(workspaceSlug, `${projectSlug}/${selectedFile}`),
-    [workspaceSlug, projectSlug, selectedFile],
-  );
-
-  const {
-    data: spec,
-    isLoading: isSpecLoading,
-    error: specError,
-  } = trpc.project.getSpec.useQuery(
-    { workspaceSlug, projectSlug },
-    { enabled: isSpecMd, retry: false },
-  );
-
-  const missingSpec = isSpecMd && !isSpecLoading && (!spec || !!specError);
-
-  const { data: fileData, isLoading: isFileLoading } = trpc.project.readFile.useQuery(
-    { workspaceSlug, projectSlug, filePath: selectedFile },
-    { enabled: !isSpecMd },
-  );
-
-  const specUpdateMutation = trpc.project.updateSpec.useMutation({
-    onSuccess: () => {
-      utils.project.getSpec.invalidate({ workspaceSlug, projectSlug });
-    },
-  });
-
-  const writeFileMutation = trpc.project.writeFile.useMutation({
-    onSuccess: () =>
-      utils.project.readFile.invalidate({ workspaceSlug, projectSlug, filePath: selectedFile }),
-  });
-
-  const specMutateRef = useRef(specUpdateMutation.mutate);
-  useEffect(() => {
-    specMutateRef.current = specUpdateMutation.mutate;
-  }, [specUpdateMutation.mutate]);
-
-  const fileMutateRef = useRef(writeFileMutation.mutate);
-  useEffect(() => {
-    fileMutateRef.current = writeFileMutation.mutate;
-  }, [writeFileMutation.mutate]);
-
-  const handleSave = useCallback(
-    (markdown: string) => {
-      if (isSpecMd) {
-        specMutateRef.current({ workspaceSlug, projectSlug, body: markdown });
-      } else {
-        fileMutateRef.current({
-          workspaceSlug,
-          projectSlug,
-          filePath: selectedFile,
-          content: markdown,
-        });
-      }
-    },
-    [isSpecMd, workspaceSlug, projectSlug, selectedFile],
-  );
-
-  if (isSpecMd && isSpecLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      </div>
-    );
-  }
-
-  const editorBody = isSpecMd ? (spec?.body ?? '') : (fileData?.content ?? '');
-  const isContentReady = isSpecMd ? !isSpecLoading : !isFileLoading;
-
-  return (
-    <Tabs defaultValue="content" className="flex h-full flex-col">
-      {isSpecMd && spec && !specError && projectData?.projectDir ? (
-        <ProjectFrontmatter
-          workspaceSlug={workspaceSlug}
-          projectSlug={projectSlug}
-          projectDir={projectData.projectDir}
-          title={spec.frontmatter.title}
-          status={spec.frontmatter.status}
-          type={spec.frontmatter.type}
-        >
-          <TabsList className="mr-2">
-            <TabsTrigger value="content">Content</TabsTrigger>
-            <TabsTrigger value="tasks">Tasks</TabsTrigger>
-          </TabsList>
-        </ProjectFrontmatter>
-      ) : (
-        <div className="flex items-center gap-3 border-b border-border px-4 py-2">
-          <TabsList className="mr-2">
-            <TabsTrigger value="content">Content</TabsTrigger>
-            <TabsTrigger value="tasks">Tasks</TabsTrigger>
-          </TabsList>
-        </div>
-      )}
-      <TabsContent value="content" className="flex flex-1 overflow-hidden m-0">
-        {missingSpec ? (
-          <div className="flex flex-col items-center justify-center gap-2 flex-1">
-            <p className="text-sm font-medium">spec.md not found</p>
-            <p className="text-xs text-muted-foreground">
-              Create a file named spec.md in the file tree to enable spec editing.
-            </p>
-          </div>
-        ) : !isContentReady ? (
-          <div className="flex items-center justify-center flex-1">
-            <p className="text-sm text-muted-foreground">Loading...</p>
-          </div>
-        ) : (
-          <DynamicDocumentEditor
-            key={selectedFile}
-            initialMarkdown={editorBody}
-            onSave={handleSave}
-            comments={true}
-            threadStore={threadStore}
-            filePath={`${projectSlug}/${selectedFile}`}
-            mentionDirs={mentionDirs.length > 0 ? mentionDirs : undefined}
-          />
-        )}
-      </TabsContent>
-      <TabsContent value="tasks" className="flex-1 overflow-hidden m-0">
-        <SpecTasks specSlug={projectSlug} />
-      </TabsContent>
-    </Tabs>
   );
 }
