@@ -1,3 +1,5 @@
+import type { TaskStatus } from '@/lib/task-status';
+
 export interface Task {
   id: number;
   projectId: number | null;
@@ -5,7 +7,7 @@ export interface Task {
   taskGroupId: number | null;
   title: string;
   description: string | null;
-  status: string;
+  status: TaskStatus;
   type: string;
   importance: string | null;
   urgency: string | null;

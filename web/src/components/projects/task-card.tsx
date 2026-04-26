@@ -182,7 +182,12 @@ export function TaskCard({
           </Button>
         )}
         <CopyTaskSlug taskId={task.id} />
-        <TaskQuickActions taskId={task.id} needsPlan={task.needsPlan} projectSlug={projectSlug} />
+        <TaskQuickActions
+          taskId={task.id}
+          status={task.status}
+          needsPlan={task.needsPlan}
+          projectSlug={projectSlug}
+        />
         <TooltipProvider delayDuration={300}>
           <Tooltip>
             <TooltipTrigger asChild>

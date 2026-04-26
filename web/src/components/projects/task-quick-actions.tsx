@@ -32,6 +32,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { trpc } from '@/lib/trpc';
 import { useQuickAction } from '@/hooks/use-quick-action';
 import { useExecutionStatus } from '@/hooks/use-execution-status';
+import type { TaskStatus } from '@/lib/task-status';
 import { toast } from 'sonner';
 
 const DEFAULT_PLAN_SKILL = '/engy:plan';
@@ -39,12 +40,14 @@ const DEFAULT_IMPLEMENT_SKILL = '/engy:implement';
 
 interface TaskQuickActionsProps {
   taskId: number;
+  status: TaskStatus;
   needsPlan?: boolean;
   projectSlug?: string;
 }
 
 export function TaskQuickActions({
   taskId,
+  status,
   needsPlan = true,
   projectSlug: projectSlugProp,
 }: TaskQuickActionsProps) {
@@ -75,6 +78,12 @@ export function TaskQuickActions({
     },
   });
 
+  function maybePromote() {
+    if (status === 'backlog' || status === 'todo') {
+      updateTask.mutate({ id: taskId, status: 'in_progress' });
+    }
+  }
+
   // Planning always runs on host — read-only analysis, no need for container sandbox
   function handlePlan(replan = false) {
     if (!projectDir || !projectSlug) return;
@@ -91,7 +100,7 @@ export function TaskQuickActions({
   }
 
   function handleImplement() {
-    if (!projectDir || !projectSlug) return;
+    if (disabled || !projectDir || !projectSlug) return;
     const useContainer = workspace?.containerEnabled ?? false;
     const prompt = needsPlan
       ? `Use ${implementSkill} for ${taskSlug}, plan at ${projectDir}/plans/${taskSlug}.plan.md`
@@ -102,6 +111,7 @@ export function TaskQuickActions({
       containerMode: useContainer ? 'container' : undefined,
       taskId,
     });
+    maybePromote();
   }
 
   function handleToggleNeedsPlan() {
@@ -109,9 +119,10 @@ export function TaskQuickActions({
   }
 
   function handlePromptSubmit() {
-    if (!promptText.trim()) return;
+    if (disabled || !promptText.trim()) return;
     const prompt = `${promptText.trim()}\n\nTask: ${taskSlug}`;
     launch({ prompt, scopeLabel: `prompt: ${taskSlug}`, taskId });
+    maybePromote();
     setPromptOpen(false);
     setPromptText('');
   }
