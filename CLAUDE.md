@@ -47,6 +47,10 @@ Typed discriminated union in `@engy/common`. Message types: `REGISTER`, `WORKSPA
 
 Dev overrides are in `.dev.env` (gitignored), which sets `ENGY_DIR=.dev-engy/` for project-local data. When working in a worktree, edit `.dev.env` to use a different port (e.g., `PORT=4002` and `ENGY_SERVER_URL=http://localhost:4002`) to avoid conflicts with the main dev instance.
 
+
+## Implementation
+When making changes with a subagent, use `sonnet` as the model. 
+
 ## Testing
 
 Trophy testing pattern with BDD style — maximize vertical-slice integration tests, fill gaps with focused unit tests. No mocks for the database. BDD-style: `describe('feature') > describe('operation') > it('should ...')`. Tests colocated with modules (`foo.ts` → `foo.test.ts`). See package CLAUDE.md files for setup details and coverage thresholds.
