@@ -83,21 +83,78 @@ interface TabShellClientProps {
   initialUrlPath: string;
 }
 
+interface HistoryState {
+  engy: true;
+  tabId: string;
+  virtualPath: string;
+}
+
 function TabShellClient({ initialUrlPath }: TabShellClientProps) {
   const [state, setState] = useState<InitialState>(() => computeInitialState(initialUrlPath));
   const { tabs, activeTabId } = state;
 
   const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) ?? null, [tabs, activeTabId]);
 
+  // Last `{tabId}::{virtualPath}` we wrote to history. Used to skip writes that
+  // originate from a popstate-driven state restore (we already are in sync).
+  const lastWrittenRef = useRef<string | null>(null);
+  // When set, the next history write replaces instead of pushing — closing a
+  // tab swaps the URL without leaving a back-stack entry to the closed tab.
+  const replaceNextRef = useRef(false);
+
   useEffect(() => {
     if (!activeTab) return;
     if (typeof window === 'undefined') return;
-    if (window.location.pathname + window.location.search !== activeTab.virtualPath) {
-      window.history.replaceState(null, '', activeTab.virtualPath);
+
+    const target = activeTab.virtualPath;
+    document.title = `engy:${deriveTitleSegments(target).join(':')}`;
+
+    const key = `${activeTab.id}::${target}`;
+    if (lastWrittenRef.current === key) return;
+
+    const isFirstRun = lastWrittenRef.current === null;
+    const shouldReplace = isFirstRun || replaceNextRef.current;
+    replaceNextRef.current = false;
+    lastWrittenRef.current = key;
+
+    const historyState: HistoryState = {
+      engy: true,
+      tabId: activeTab.id,
+      virtualPath: target,
+    };
+    if (shouldReplace) {
+      window.history.replaceState(historyState, '', target);
+    } else {
+      window.history.pushState(historyState, '', target);
     }
-    const segments = deriveTitleSegments(activeTab.virtualPath);
-    document.title = `engy:${segments.join(':')}`;
   }, [activeTab]);
+
+  useEffect(() => {
+    function onPop(e: PopStateEvent) {
+      const s = e.state as HistoryState | null;
+      if (!s || s.engy !== true) return;
+      setState((prev) => {
+        const target = prev.tabs.find((t) => t.id === s.tabId);
+        if (!target) return prev;
+        lastWrittenRef.current = `${s.tabId}::${s.virtualPath}`;
+        return {
+          tabs: prev.tabs.map((t) =>
+            t.id === s.tabId
+              ? {
+                  ...t,
+                  virtualPath: s.virtualPath,
+                  title: deriveDefaultTitle(s.virtualPath),
+                  lastActiveAt: Date.now(),
+                }
+              : t,
+          ),
+          activeTabId: s.tabId,
+        };
+      });
+    }
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -141,13 +198,16 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
     setState((s) => {
       const idx = s.tabs.findIndex((t) => t.id === id);
       if (idx < 0) return s;
+      const closingActive = s.activeTabId === id;
       const remaining = s.tabs.filter((t) => t.id !== id);
       if (remaining.length === 0) {
         const fresh = makeTab('/');
+        replaceNextRef.current = true;
         return { tabs: [fresh], activeTabId: fresh.id };
       }
-      if (s.activeTabId === id) {
+      if (closingActive) {
         const next = remaining[Math.min(idx, remaining.length - 1)];
+        replaceNextRef.current = true;
         return { tabs: remaining, activeTabId: next.id };
       }
       return { tabs: remaining, activeTabId: s.activeTabId };

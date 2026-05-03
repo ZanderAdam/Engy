@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { useVirtualParams } from "@/components/tabs/tab-context";
+import { useVirtualNavigate, useVirtualParams } from "@/components/tabs/tab-context";
 import { RiEditLine } from "@remixicon/react";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -12,14 +11,14 @@ import { EditWorkspaceDialog } from "@/components/workspace/edit-workspace-dialo
 
 export default function WorkspaceOverviewPage() {
   const params = useVirtualParams<{ workspace: string }>();
-  const router = useRouter();
+  const nav = useVirtualNavigate();
   const utils = trpc.useUtils();
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
   const [editOpen, setEditOpen] = useState(false);
 
   function handleSaved(newSlug: string) {
     if (newSlug !== params.workspace) {
-      router.replace(`/w/${newSlug}`);
+      nav.push(`/w/${newSlug}`);
     } else {
       utils.workspace.get.invalidate({ slug: params.workspace });
     }
@@ -48,7 +47,7 @@ export default function WorkspaceOverviewPage() {
         open={editOpen}
         onOpenChange={setEditOpen}
         onSaved={handleSaved}
-        onDeleted={() => router.replace("/")}
+        onDeleted={() => nav.push("/")}
       />
     </div>
   );

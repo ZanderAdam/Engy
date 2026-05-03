@@ -1,16 +1,20 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
-import { useVirtualParams } from "@/components/tabs/tab-context";
+import { useEffect, useRef } from "react";
+import { useVirtualNavigate, useVirtualParams } from "@/components/tabs/tab-context";
 
 export default function SpecsRedirectPage() {
   const params = useVirtualParams<{ workspace: string }>();
-  const router = useRouter();
+  const nav = useVirtualNavigate();
+  const navRef = useRef(nav);
 
   useEffect(() => {
-    router.replace(`/w/${params.workspace}`);
-  }, [params.workspace, router]);
+    navRef.current = nav;
+  });
+
+  useEffect(() => {
+    navRef.current.push(`/w/${params.workspace}`);
+  }, [params.workspace]);
 
   return null;
 }

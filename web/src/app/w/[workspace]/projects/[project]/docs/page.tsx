@@ -1,8 +1,11 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useVirtualParams, useVirtualSearchParams } from '@/components/tabs/tab-context';
+import {
+  useVirtualNavigate,
+  useVirtualParams,
+  useVirtualSearchParams,
+} from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { DirFileTree } from '@/components/dir-browser';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
@@ -21,7 +24,7 @@ const SIDEBAR_CONFIG = {
 
 export default function ProjectDocsPage() {
   const params = useVirtualParams<{ workspace: string; project: string }>();
-  const router = useRouter();
+  const nav = useVirtualNavigate();
   const searchParams = useVirtualSearchParams();
   const isMobile = useIsMobile();
   const initialFile = searchParams.get('file');
@@ -46,12 +49,11 @@ export default function ProjectDocsPage() {
       const p = new URLSearchParams();
       if (file) p.set('file', file);
       const qs = p.toString();
-      router.replace(
+      nav.push(
         `/w/${params.workspace}/projects/${params.project}/docs${qs ? `?${qs}` : ''}`,
-        { scroll: false },
       );
     },
-    [router, params.workspace, params.project],
+    [nav, params.workspace, params.project],
   );
 
   const handleActiveFileChange = useCallback(

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   useVirtualParams,
   useVirtualNavigate,
@@ -44,7 +43,6 @@ const DEBOUNCE_MS = 500;
 
 export default function ProjectTasksPage() {
   const params = useVirtualParams<{ workspace: string; project: string }>();
-  const router = useRouter();
   const nav = useVirtualNavigate();
   const searchParams = useVirtualSearchParams();
 
@@ -211,7 +209,8 @@ export default function ProjectTasksPage() {
   function replaceParams(updater: (p: URLSearchParams) => void) {
     const p = new URLSearchParams(searchParams.toString());
     updater(p);
-    router.replace(`${basePath}?${p.toString()}`, { scroll: false });
+    const qs = p.toString();
+    nav.push(qs ? `${basePath}?${qs}` : basePath);
   }
 
   function handleViewChange(view: TaskView) {

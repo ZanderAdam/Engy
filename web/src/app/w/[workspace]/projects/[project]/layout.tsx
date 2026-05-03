@@ -50,6 +50,18 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <nav
+        aria-label="Breadcrumb"
+        className="flex items-center gap-1.5 pt-2 text-xs text-muted-foreground"
+      >
+        <VLink href="/" className="hover:text-foreground">
+          engy
+        </VLink>
+        <span className="opacity-60">›</span>
+        <VLink href={`/w/${params.workspace}`} className="hover:text-foreground">
+          {workspace.name}
+        </VLink>
+      </nav>
       <div className="flex items-center gap-3 py-2">
         <h1 className="text-sm font-semibold">{project.name}</h1>
         <ProjectStatusBadge projectId={project.id} status={project.status} clickable />
