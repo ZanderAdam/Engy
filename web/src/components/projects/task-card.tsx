@@ -21,6 +21,7 @@ import {
 
 import { useExecutionStatus } from '@/hooks/use-execution-status';
 import { useTerminalActivity } from '@/hooks/use-terminal-activity';
+import { useTaskHasPlan } from '@/hooks/use-task-has-plan';
 import { ExecutionStatusIcon } from '@/components/projects/execution-status-icon';
 import { useTaskTerminals } from '@/hooks/use-task-terminals';
 import type { Task } from '@/components/projects/types';
@@ -100,7 +101,12 @@ export function TaskCard({
 
   const isDone = task.status === 'done';
   const { status: sessionStatus } = useExecutionStatus('task', task.id);
-  const execStatus = sessionStatus === 'active' ? sessionStatus : (task.subStatus ?? sessionStatus);
+  const { hasPlan } = useTaskHasPlan(task.id, task.projectId);
+
+  const baseStatus = sessionStatus === 'active' ? sessionStatus : (task.subStatus ?? sessionStatus);
+  // Surface a hand-authored plan file as 'plan_review' only when no agent ever
+  // set a sub-status; live session signals always win.
+  const execStatus = baseStatus ?? (hasPlan && !isDone ? 'plan_review' : null);
   const typeInfo = typeIcons[task.type] ?? typeIcons.human;
   const TypeIcon = typeInfo.icon;
   const nextType = task.type === 'human' ? 'ai' : 'human';
@@ -184,6 +190,7 @@ export function TaskCard({
         <CopyTaskSlug taskId={task.id} />
         <TaskQuickActions
           taskId={task.id}
+          projectId={task.projectId}
           status={task.status}
           needsPlan={task.needsPlan}
           projectSlug={projectSlug}

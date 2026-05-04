@@ -42,6 +42,7 @@ import { taskStatusOptions, taskStatusColors } from './task-status-badge';
 import { RiAddLine, RiCloseLine, RiDeleteBinLine, RiQuestionLine } from '@remixicon/react';
 import { toast } from 'sonner';
 import { useExecutionStatus } from '@/hooks/use-execution-status';
+import { useTaskHasPlan } from '@/hooks/use-task-has-plan';
 import { ExecutionTab } from './execution-tab';
 
 // ── Create mode ──────────────────────────────────────────────────────
@@ -267,17 +268,14 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
 
 function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
   const { data: task } = trpc.task.get.useQuery({ id: taskId }, { enabled: open });
-  const { mentionDirs, workspaceId, workspaceSlug, projectSlug } = useTaskProjectContext(
+  const { mentionDirs, workspaceSlug, projectSlug } = useTaskProjectContext(
     task?.projectId ?? undefined,
   );
 
-  const taskSlug = workspaceSlug ? `${workspaceSlug}-T${taskId}` : undefined;
-  const { data: projectWithPlans } = trpc.project.getBySlug.useQuery(
-    { workspaceId: workspaceId!, slug: projectSlug! },
-    { enabled: !!workspaceId && !!projectSlug },
+  const { taskSlug, hasPlan, planFilePath, resolved: planLookupResolved } = useTaskHasPlan(
+    taskId,
+    task?.projectId,
   );
-  const hasPlan = taskSlug ? (projectWithPlans?.planSlugs ?? []).includes(taskSlug) : false;
-  const planFilePath = taskSlug ? `plans/${taskSlug}.plan.md` : '';
 
   const { data: planData } = trpc.project.readFile.useQuery(
     { workspaceSlug: workspaceSlug!, projectSlug: projectSlug!, filePath: planFilePath },
@@ -345,7 +343,7 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
     } else if (task.subStatus === 'plan_review') {
       setTabInitialized(true);
       setActiveTab('plan');
-    } else if (projectWithPlans) {
+    } else if (planLookupResolved) {
       setTabInitialized(true);
       if (hasExecution && !hasPlan) {
         setActiveTab('execution');

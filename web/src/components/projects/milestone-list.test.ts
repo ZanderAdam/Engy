@@ -58,7 +58,7 @@ const tg = (id: number) => ({
   status: 'active' as const,
 });
 
-const task = (id: number, taskGroupId: number, status: string): Task => ({
+const task = (id: number, taskGroupId: number, status: Task['status']): Task => ({
   id,
   projectId: 1,
   milestoneRef: 'm1',

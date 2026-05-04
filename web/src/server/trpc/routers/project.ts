@@ -40,6 +40,27 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+type ProjectRow = typeof projects.$inferSelect;
+type WorkspaceRow = typeof workspaces.$inferSelect;
+
+function readPlanSlugs(projectAbsDir: string): string[] {
+  const plansDir = path.join(projectAbsDir, 'plans');
+  if (!existsSync(plansDir)) return [];
+  return readdirSync(plansDir)
+    .filter((f) => f.endsWith('.plan.md'))
+    .map((f) => f.replace(/\.plan\.md$/, ''));
+}
+
+function enrichProject(project: ProjectRow, workspace: WorkspaceRow | undefined) {
+  let projectDir: string | null = null;
+  let planSlugs: string[] = [];
+  if (workspace && project.projectDir) {
+    projectDir = path.join(getWorkspaceDir(workspace), 'projects', project.projectDir);
+    planSlugs = readPlanSlugs(projectDir);
+  }
+  return { ...project, projectDir, planSlugs };
+}
+
 export const projectRouter = router({
   create: publicProcedure
     .input(
@@ -97,6 +118,26 @@ export const projectRouter = router({
     return project;
   }),
 
+  getPlanSlugs: publicProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(({ input }) => {
+      const db = getDb();
+      const project = db.select().from(projects).where(eq(projects.id, input.projectId)).get();
+      if (!project) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      }
+      const workspace = db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, project.workspaceId))
+        .get();
+      if (!workspace || !project.projectDir) {
+        return { workspaceSlug: workspace?.slug ?? '', planSlugs: [] };
+      }
+      const projectAbsDir = path.join(getWorkspaceDir(workspace), 'projects', project.projectDir);
+      return { workspaceSlug: workspace.slug, planSlugs: readPlanSlugs(projectAbsDir) };
+    }),
+
   getBySlug: publicProcedure
     .input(z.object({ workspaceId: z.number(), slug: z.string() }))
     .query(({ input }) => {
@@ -132,19 +173,7 @@ export const projectRouter = router({
         }
       }
 
-      let projectDir: string | null = null;
-      let planSlugs: string[] = [];
-      if (workspace && project.projectDir) {
-        projectDir = path.join(getWorkspaceDir(workspace), 'projects', project.projectDir);
-        const plansDir = path.join(projectDir, 'plans');
-        if (existsSync(plansDir)) {
-          planSlugs = readdirSync(plansDir)
-            .filter((f) => f.endsWith('.plan.md'))
-            .map((f) => f.replace(/\.plan\.md$/, ''));
-        }
-      }
-
-      return { ...project, projectDir, planSlugs };
+      return enrichProject(project, workspace);
     }),
 
   listWithProgress: publicProcedure

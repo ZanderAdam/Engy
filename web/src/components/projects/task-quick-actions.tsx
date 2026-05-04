@@ -32,6 +32,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { trpc } from '@/lib/trpc';
 import { useQuickAction } from '@/hooks/use-quick-action';
 import { useExecutionStatus } from '@/hooks/use-execution-status';
+import { useTaskHasPlan } from '@/hooks/use-task-has-plan';
 import type { TaskStatus } from '@/lib/task-status';
 import { toast } from 'sonner';
 
@@ -40,6 +41,7 @@ const DEFAULT_IMPLEMENT_SKILL = '/engy:implement';
 
 interface TaskQuickActionsProps {
   taskId: number;
+  projectId: number | null;
   status: TaskStatus;
   needsPlan?: boolean;
   projectSlug?: string;
@@ -47,20 +49,18 @@ interface TaskQuickActionsProps {
 
 export function TaskQuickActions({
   taskId,
+  projectId,
   status,
   needsPlan = true,
   projectSlug: projectSlugProp,
 }: TaskQuickActionsProps) {
   const { disabled, launch, projectSlug: hookProjectSlug, workspace, project } = useQuickAction();
   const projectSlug = projectSlugProp ?? hookProjectSlug;
-  const workspaceSlug = workspace?.slug ?? '';
 
-  const planSlugs = project?.planSlugs ?? [];
   const planSkill = workspace?.planSkill || DEFAULT_PLAN_SKILL;
   const implementSkill = workspace?.implementSkill || DEFAULT_IMPLEMENT_SKILL;
 
-  const taskSlug = `${workspaceSlug}-T${taskId}`;
-  const hasPlan = planSlugs.includes(taskSlug);
+  const { taskSlug, hasPlan } = useTaskHasPlan(taskId, projectId);
   const projectDir = project?.projectDir;
 
   const [promptOpen, setPromptOpen] = useState(false);
@@ -86,7 +86,7 @@ export function TaskQuickActions({
 
   // Planning always runs on host — read-only analysis, no need for container sandbox
   function handlePlan(replan = false) {
-    if (!projectDir || !projectSlug) return;
+    if (!projectDir || !projectSlug || !taskSlug) return;
     const planPath = `${projectDir}/plans/${taskSlug}.plan.md`;
     const prompt = replan
       ? `Use ${planSkill} to replan ${taskSlug}, existing plan at ${planPath}. Replan based on the updated task description.`
@@ -100,7 +100,7 @@ export function TaskQuickActions({
   }
 
   function handleImplement() {
-    if (disabled || !projectDir || !projectSlug) return;
+    if (disabled || !projectDir || !projectSlug || !taskSlug) return;
     const useContainer = workspace?.containerEnabled ?? false;
     const prompt = needsPlan
       ? `Use ${implementSkill} for ${taskSlug}, plan at ${projectDir}/plans/${taskSlug}.plan.md`
@@ -119,7 +119,7 @@ export function TaskQuickActions({
   }
 
   function handlePromptSubmit() {
-    if (disabled || !promptText.trim()) return;
+    if (disabled || !taskSlug || !promptText.trim()) return;
     const prompt = `${promptText.trim()}\n\nTask: ${taskSlug}`;
     launch({ prompt, scopeLabel: `prompt: ${taskSlug}`, taskId });
     maybePromote();
@@ -194,7 +194,7 @@ export function TaskQuickActions({
                   Execute Remotely
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem disabled={disabled} onClick={() => setPromptOpen(true)}>
+              <DropdownMenuItem disabled={disabled || !taskSlug} onClick={() => setPromptOpen(true)}>
                 <RiChat3Line className="size-4" />
                 Start with prompt
               </DropdownMenuItem>

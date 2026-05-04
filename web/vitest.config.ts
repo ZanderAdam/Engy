@@ -4,7 +4,12 @@ import path from 'node:path';
 export default defineConfig({
   test: {
     globals: true,
-    include: ['src/server/**/*.test.ts', 'src/lib/**/*.test.ts', 'src/components/**/*.test.ts'],
+    include: [
+      'src/server/**/*.test.ts',
+      'src/lib/**/*.test.ts',
+      'src/components/**/*.test.ts',
+      'src/hooks/**/*.test.ts',
+    ],
     coverage: {
       provider: 'v8',
       all: true,
