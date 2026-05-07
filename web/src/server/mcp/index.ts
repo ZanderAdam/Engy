@@ -11,6 +11,7 @@ import {
   taskDependencies,
   taskGroups,
   fleetingMemories,
+  permanentMemories,
   workspaces,
   projects,
   agentSessions,
@@ -21,6 +22,7 @@ import { getWorkspaceDir, resolveProjectDir } from '../engy-dir/init';
 import { readTaskPlan } from '../plan/service';
 import { broadcastTaskChange, broadcastQuestionChange } from '../ws/broadcast';
 import { taskStatusSchema } from '@/lib/task-status';
+import { writePermanentMemory } from '../lib/memory-files';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 
@@ -385,7 +387,7 @@ function registerTaskTools(mcp: McpServer): void {
 
   mcp.tool(
     'updateTask',
-    'Update an existing task',
+    'Update an existing task. Optionally pass memories[] to capture learnings from the task implementation as fleeting memories scoped to the task\'s workspace.',
     {
       id: z.number().describe('Task ID'),
       title: z.string().optional().describe('New title'),
@@ -400,8 +402,20 @@ function registerTaskTools(mcp: McpServer): void {
       taskGroupId: z.number().nullable().optional().describe('New task group ID'),
       projectId: z.number().nullable().optional().describe('New project ID'),
       specId: z.string().nullable().optional().describe('New specification ID'),
+      memories: z
+        .array(
+          z.object({
+            content: z.string().describe('Memory content'),
+            type: z
+              .enum(['capture', 'question', 'blocker', 'idea', 'reference'])
+              .optional()
+              .describe('Memory type (default: capture)'),
+          }),
+        )
+        .optional()
+        .describe('Learnings captured during task implementation — stored as fleeting memories on the workspace'),
     },
-    async ({ id, blockedBy, ...updates }) => {
+    async ({ id, blockedBy, memories, ...updates }) => {
       const db = getDb();
 
       let dedupedBlockedBy: number[] | undefined;
@@ -421,12 +435,38 @@ function registerTaskTools(mcp: McpServer): void {
           }
         }
 
-        return tx
+        const updated = tx
           .update(tasks)
           .set({ ...updates, updatedAt: new Date().toISOString() })
           .where(eq(tasks.id, id))
           .returning()
           .get();
+
+        if (!updated) return null;
+
+        if (memories && memories.length > 0 && updated.projectId != null) {
+          const project = tx
+            .select()
+            .from(projects)
+            .where(eq(projects.id, updated.projectId))
+            .get();
+          if (project) {
+            for (const mem of memories) {
+              tx
+                .insert(fleetingMemories)
+                .values({
+                  workspaceId: project.workspaceId,
+                  content: mem.content,
+                  type: mem.type ?? 'capture',
+                  source: 'agent',
+                  tags: [],
+                })
+                .run();
+            }
+          }
+        }
+
+        return updated;
       });
       if (!result) return mcpError('Task not found');
 
@@ -621,7 +661,7 @@ function registerMemoryTools(mcp: McpServer): void {
 
   mcp.tool(
     'listMemories',
-    'List fleeting memories for a workspace. Compact mode (default) omits content.',
+    'List fleeting memories for a workspace. Compact mode (default) omits content. NOTE: scheduled for replacement by the unified search tool in TG3-T5 — keep using this until search is live.',
     {
       workspaceId: z.number().optional().describe('Filter by workspace ID'),
       compact: z.boolean().default(true).describe('Omit content field (default true)'),
@@ -637,6 +677,218 @@ function registerMemoryTools(mcp: McpServer): void {
         return mcpResult(omitKey(rows, 'content'));
       }
       return mcpResult(rows);
+    },
+  );
+
+  mcp.tool(
+    'createPermanentMemory',
+    'Create a permanent memory with full metadata — writes a DB row and a markdown file in the workspace memory directory',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      subtype: z
+        .enum(['decision', 'pattern', 'fact', 'convention', 'insight'])
+        .describe('Memory subtype'),
+      title: z.string().describe('Memory title'),
+      content: z.string().describe('Memory body content (markdown)'),
+      repo: z.string().optional().describe('Optional repo provenance (e.g. "api-server")'),
+      confidence: z.number().min(0).max(1).optional().describe('Confidence score 0–1'),
+      keywords: z.array(z.string()).optional().describe('Low-level retrieval terms'),
+      themes: z.array(z.string()).optional().describe('High-level conceptual themes'),
+      tags: z.array(z.string()).optional().describe('Organizational tags'),
+      scenarioIds: z.array(z.string()).optional().describe('FR/scenario ID anchors'),
+      sources: z
+        .array(z.string())
+        .optional()
+        .describe('Paths to memory/sources/ or memory/references/ records that triggered this note'),
+      linkedMemories: z
+        .array(z.string())
+        .optional()
+        .describe('Paths to related permanent memory files (memory/{subtype}/...)'),
+    },
+    async ({ workspaceId, subtype, title, content, ...metadata }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const workspaceDir = getWorkspaceDir(ws);
+
+      let filePath: string;
+      try {
+        filePath = await writePermanentMemory(workspaceDir, { subtype, title, ...metadata }, content);
+      } catch (err) {
+        return mcpError(`Failed to write memory file: ${(err as Error).message}`);
+      }
+
+      const memory = db
+        .insert(permanentMemories)
+        .values({
+          workspaceId,
+          subtype,
+          title,
+          content,
+          repo: metadata.repo,
+          confidence: metadata.confidence,
+          keywords: metadata.keywords ?? [],
+          themes: metadata.themes ?? [],
+          tags: metadata.tags ?? [],
+          scenarioIds: metadata.scenarioIds ?? [],
+          sources: metadata.sources ?? [],
+          linkedMemories: metadata.linkedMemories ?? [],
+          filePath,
+        })
+        .returning()
+        .get();
+
+      return mcpResult({ id: memory.id, filePath });
+    },
+  );
+
+  mcp.tool(
+    'updatePermanentMemory',
+    'Update a permanent memory by ID — syncs both the DB record and the markdown file',
+    {
+      id: z.number().describe('Permanent memory ID'),
+      title: z.string().optional().describe('New title'),
+      content: z.string().optional().describe('New body content (markdown)'),
+      repo: z.string().nullable().optional().describe('New repo provenance'),
+      confidence: z.number().min(0).max(1).nullable().optional().describe('New confidence score'),
+      keywords: z.array(z.string()).optional().describe('New keywords'),
+      themes: z.array(z.string()).optional().describe('New themes'),
+      tags: z.array(z.string()).optional().describe('New tags'),
+      scenarioIds: z.array(z.string()).optional().describe('New scenario ID anchors'),
+      sources: z.array(z.string()).optional().describe('New source paths'),
+      linkedMemories: z.array(z.string()).optional().describe('New linked memory paths'),
+    },
+    async ({ id, ...updates }) => {
+      const db = getDb();
+      const existing = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, id))
+        .get();
+      if (!existing) return mcpError('Permanent memory not found');
+
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, existing.workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const workspaceDir = getWorkspaceDir(ws);
+
+      const resolvedTitle = updates.title ?? existing.title;
+      const resolvedContent = updates.content ?? existing.content;
+      const resolvedSubtype = existing.subtype;
+
+      let filePath: string;
+      try {
+        filePath = await writePermanentMemory(
+          workspaceDir,
+          {
+            subtype: resolvedSubtype,
+            title: resolvedTitle,
+            repo: 'repo' in updates ? (updates.repo ?? undefined) : (existing.repo ?? undefined),
+            confidence:
+              'confidence' in updates
+                ? (updates.confidence ?? undefined)
+                : (existing.confidence ?? undefined),
+            keywords: updates.keywords ?? existing.keywords ?? [],
+            themes: updates.themes ?? existing.themes ?? [],
+            tags: updates.tags ?? existing.tags ?? [],
+            scenarioIds: updates.scenarioIds ?? existing.scenarioIds ?? [],
+            sources: updates.sources ?? existing.sources ?? [],
+            linkedMemories: updates.linkedMemories ?? existing.linkedMemories ?? [],
+          },
+          resolvedContent,
+        );
+      } catch (err) {
+        return mcpError(`Failed to write memory file: ${(err as Error).message}`);
+      }
+
+      db.update(permanentMemories)
+        .set({ ...updates, filePath, updatedAt: new Date().toISOString() })
+        .where(eq(permanentMemories.id, id))
+        .run();
+
+      return mcpResult({ success: true, filePath });
+    },
+  );
+
+  mcp.tool(
+    'promoteMemory',
+    'Promote a fleeting memory to a permanent memory — creates the permanent record and file, then marks the fleeting as promoted',
+    {
+      fleetingMemoryId: z.number().describe('Fleeting memory ID to promote'),
+      subtype: z
+        .enum(['decision', 'pattern', 'fact', 'convention', 'insight'])
+        .describe('Permanent memory subtype'),
+      title: z.string().describe('Title for the permanent memory'),
+      repo: z.string().optional().describe('Optional repo provenance'),
+      confidence: z.number().min(0).max(1).optional().describe('Confidence score 0–1'),
+      keywords: z.array(z.string()).optional().describe('Low-level retrieval terms'),
+      themes: z.array(z.string()).optional().describe('High-level conceptual themes'),
+      tags: z.array(z.string()).optional().describe('Organizational tags'),
+      scenarioIds: z.array(z.string()).optional().describe('FR/scenario ID anchors'),
+      sources: z.array(z.string()).optional().describe('Source paths'),
+      linkedMemories: z.array(z.string()).optional().describe('Linked memory paths'),
+    },
+    async ({ fleetingMemoryId, subtype, title, ...metadata }) => {
+      const db = getDb();
+      const fleeting = db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, fleetingMemoryId))
+        .get();
+      if (!fleeting) return mcpError('Fleeting memory not found');
+      if (fleeting.promoted) return mcpError('Fleeting memory is already promoted');
+
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, fleeting.workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const workspaceDir = getWorkspaceDir(ws);
+
+      let filePath: string;
+      try {
+        filePath = await writePermanentMemory(
+          workspaceDir,
+          { subtype, title, ...metadata },
+          fleeting.content,
+        );
+      } catch (err) {
+        return mcpError(`Failed to write memory file: ${(err as Error).message}`);
+      }
+
+      const result = db.transaction((tx) => {
+        const permanent = tx
+          .insert(permanentMemories)
+          .values({
+            workspaceId: fleeting.workspaceId,
+            subtype,
+            title,
+            content: fleeting.content,
+            repo: metadata.repo,
+            confidence: metadata.confidence,
+            keywords: metadata.keywords ?? [],
+            themes: metadata.themes ?? [],
+            tags: metadata.tags ?? [],
+            scenarioIds: metadata.scenarioIds ?? [],
+            sources: metadata.sources ?? [],
+            linkedMemories: metadata.linkedMemories ?? [],
+            filePath,
+          })
+          .returning()
+          .get();
+
+        tx.update(fleetingMemories)
+          .set({
+            promoted: true,
+            promotedFromId: permanent.id,
+            promotedAt: new Date().toISOString(),
+          })
+          .where(eq(fleetingMemories.id, fleetingMemoryId))
+          .run();
+
+        return permanent;
+      });
+
+      return mcpResult({ permanentMemoryId: result.id, filePath });
     },
   );
 }
