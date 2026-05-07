@@ -8,9 +8,11 @@ import {
   ThreadsSidebar,
   FloatingComposerController,
   SuggestionMenuController,
+  getDefaultReactSlashMenuItems,
 } from "@blocknote/react";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
+import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
 import { CommentsExtension } from "@blocknote/core/comments";
 import type { User } from "@blocknote/core/comments";
 import "@blocknote/shadcn/style.css";
@@ -38,6 +40,16 @@ import { SendToTerminalButton } from "../terminal/send-to-terminal-button";
 import { trpc } from "@/lib/trpc";
 import { stripFrontmatter } from "./frontmatter";
 import { normalizeMarkdown } from "./remark-normalize";
+import { mermaidBlockSpec } from "./mermaid/block";
+import { insertMermaidItem } from "./mermaid/slash-menu";
+import { codeBlockToMermaid, mermaidToCodeBlock } from "./mermaid/markdown-bridge";
+
+const schema = BlockNoteSchema.create({
+  blockSpecs: {
+    ...defaultBlockSpecs,
+    mermaid: mermaidBlockSpec(),
+  },
+});
 
 export { EngyThreadStore } from "./thread-store";
 
@@ -130,6 +142,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
 
   const editor = useCreateBlockNote(
     {
+      schema,
       extensions: comments ? [CommentsExtension({ threadStore, resolveUsers })] : undefined,
     },
     [threadStore],
@@ -202,7 +215,9 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
 
     async function loadContent() {
       const blocks = editor.tryParseMarkdownToBlocks(body);
-      editor.replaceBlocks(editor.document, blocks);
+      const transformed = codeBlockToMermaid(blocks);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.replaceBlocks(editor.document, transformed as any);
       if (comments) {
         await threadStore.ready;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -222,7 +237,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         snapshotAnchors((editor as any)._tiptapEditor.state.doc, threadStore);
       }
-      const raw = editor.blocksToMarkdownLossy(editor.document);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw = editor.blocksToMarkdownLossy(mermaidToCodeBlock(editor.document as any) as any);
       const markdown = normalizeMarkdown(raw);
 
       const contentHash = simpleHash(markdown);
@@ -252,7 +268,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           snapshotAnchors((editor as any)._tiptapEditor.state.doc, threadStore);
         }
-        const raw = editor.blocksToMarkdownLossy(editor.document);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw = editor.blocksToMarkdownLossy(mermaidToCodeBlock(editor.document as any) as any);
         const markdown = normalizeMarkdown(raw);
         const full = frontmatterRef.current + markdown;
         const contentHash = simpleHash(markdown);
@@ -271,7 +288,10 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     const threads = threadStore.getThreads();
     if (threads.size === 0) return '';
 
-    const markdown = normalizeMarkdown(editor.blocksToMarkdownLossy(editor.document));
+    const markdown = normalizeMarkdown(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.blocksToMarkdownLossy(mermaidToCodeBlock(editor.document as any) as any),
+    );
     return formatCommentsForExport({ threads, markdown, filePath });
   }, [threadStore, editor, filePath]);
 
@@ -286,7 +306,10 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   }, [getFormattedComments]);
 
   const getCurrentMarkdown = useCallback(() => {
-    return normalizeMarkdown(editor.blocksToMarkdownLossy(editor.document));
+    return normalizeMarkdown(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.blocksToMarkdownLossy(mermaidToCodeBlock(editor.document as any) as any),
+    );
   }, [editor]);
 
   const handleCopyMarkdown = useCallback(() => {
@@ -331,6 +354,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
       renderEditor={false}
       comments={false}
+      slashMenu={false}
     >
       {comments && <FloatingComposerController />}
       {mentionDirs && mentionDirs.length > 0 && (
@@ -340,6 +364,28 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           minQueryLength={1}
         />
       )}
+      <SuggestionMenuController
+        triggerCharacter="/"
+        getItems={async (query) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const defaults = getDefaultReactSlashMenuItems(editor as any);
+          // Mermaid uses its own "Diagrams" group so it can't collide with
+          // any default group (BlockNote uses each group name as a React key
+          // for the menu's section label, so reusing an existing group on a
+          // non-contiguous item would produce duplicate-key warnings).
+          const items: DefaultReactSuggestionItem[] = [
+            ...defaults,
+            insertMermaidItem(editor),
+          ];
+          if (!query) return items;
+          const q = query.toLowerCase();
+          return items.filter((item) => {
+            if (item.title.toLowerCase().includes(q)) return true;
+            const aliases = (item as { aliases?: string[] }).aliases;
+            return aliases?.some((a) => a.toLowerCase().includes(q)) ?? false;
+          });
+        }}
+      />
       <div className="relative flex w-full h-full overflow-hidden">
         <div className="relative flex-1 min-w-0 overflow-y-auto">
           <BlockNoteViewEditor />
