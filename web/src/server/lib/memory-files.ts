@@ -4,10 +4,11 @@ import crypto from 'node:crypto';
 import matter from 'gray-matter';
 import { simpleGit } from 'simple-git';
 import type { MemorySubtype } from '../db/schema';
+import { regenerateReadmeChain } from './readme-index';
 
 // ── Types ────────────────────────────────────────────────────────────
 
-interface PermanentMemoryFrontmatter {
+export interface PermanentMemoryFrontmatter {
   title: string;
   subtype: MemorySubtype;
   repo?: string;
@@ -53,9 +54,6 @@ interface ReferenceRecordFile {
 }
 
 // ── Index marker escaping ────────────────────────────────────────────
-
-const INDEX_START = '<!-- INDEX START -->';
-const INDEX_END = '<!-- INDEX END -->';
 
 export function escapeIndexMarkers(text: string): string {
   // Escape literal index markers in user-supplied content so they can't
@@ -184,12 +182,6 @@ async function commitFile(
   await git.commit(message, { '--allow-empty': null });
 }
 
-// ── README chain update (deferred import to avoid circular dep) ──────
-
-async function updateReadmeChain(filePath: string): Promise<void> {
-  const { regenerateReadmeChain } = await import('./readme-index.js');
-  await regenerateReadmeChain(filePath);
-}
 
 // ── Write: Permanent Memory ──────────────────────────────────────────
 
@@ -235,7 +227,7 @@ export async function writePermanentMemory(
     .filter(Boolean)
     .join('\n');
 
-  await updateReadmeChain(filePath);
+  regenerateReadmeChain(filePath);
 
   const readmePaths = collectReadmePaths(workspaceDir, filePath);
   await commitFile(
@@ -329,7 +321,7 @@ export async function writeSourceSnapshot(
 
   const relPath = path.relative(workspaceDir, filePath).replace(/\\/g, '/');
 
-  await updateReadmeChain(filePath);
+  regenerateReadmeChain(filePath);
   const readmePaths = collectReadmePaths(workspaceDir, filePath);
   await commitFile(
     workspaceDir,
@@ -385,7 +377,7 @@ export async function writeReferenceRecord(
 
   const relPath = path.relative(workspaceDir, filePath).replace(/\\/g, '/');
 
-  await updateReadmeChain(filePath);
+  regenerateReadmeChain(filePath);
   const readmePaths = collectReadmePaths(workspaceDir, filePath);
   await commitFile(
     workspaceDir,
