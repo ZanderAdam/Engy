@@ -176,6 +176,28 @@ describe('memory router', () => {
         caller.memory.update({ id: 99999, title: 'X' }),
       ).rejects.toThrow('not found');
     });
+
+    it('should set supersededById when provided', async () => {
+      const created = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Old fact',
+        content: 'Old content',
+      });
+      const replacement = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'New fact',
+        content: 'New content',
+      });
+
+      const updated = await caller.memory.update({
+        id: created.id,
+        supersededById: replacement.id,
+      });
+
+      expect(updated.supersededById).toBe(replacement.id);
+    });
   });
 
   describe('delete', () => {

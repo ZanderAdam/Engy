@@ -4,9 +4,19 @@ import { useState, useMemo } from 'react';
 import { trpc } from '@/lib/trpc';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { MemoryFilters, type MemoryFiltersValue } from './memory-filters';
+import { PromoteDialog } from './promote-dialog';
+import { RiAddLine, RiArrowUpLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
+
+export type MemoryKind = 'permanent' | 'fleeting';
+
+export interface MemorySelection {
+  id: number;
+  kind: MemoryKind;
+}
 
 const SUBTYPE_COLORS: Record<string, string> = {
   decision: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
@@ -27,8 +37,9 @@ const DEFAULT_FILTERS: MemoryFiltersValue = {
 interface MemoryBrowserProps {
   workspaceSlug: string;
   repos: string[];
-  selectedId: number | null;
-  onSelect: (id: number) => void;
+  selected: MemorySelection | null;
+  onSelect: (selection: MemorySelection) => void;
+  onCreateNew?: () => void;
 }
 
 function ConfidenceBar({ value }: { value: number | null }) {
@@ -49,13 +60,13 @@ function ConfidenceBar({ value }: { value: number | null }) {
 function PermanentList({
   workspaceSlug,
   filters,
-  selectedId,
+  selected,
   onSelect,
 }: {
   workspaceSlug: string;
   filters: MemoryFiltersValue;
-  selectedId: number | null;
-  onSelect: (id: number) => void;
+  selected: MemorySelection | null;
+  onSelect: (selection: MemorySelection) => void;
 }) {
   const { data: memories, isLoading } = trpc.memory.list.useQuery({
     workspaceSlug,
@@ -99,9 +110,9 @@ function PermanentList({
           <button
             className={cn(
               'w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:bg-muted/50',
-              selectedId === mem.id && 'bg-muted/70',
+              selected?.kind === 'permanent' && selected.id === mem.id && 'bg-muted/70',
             )}
-            onClick={() => onSelect(mem.id)}
+            onClick={() => onSelect({ id: mem.id, kind: 'permanent' })}
           >
             <div className="flex items-start justify-between gap-2 mb-1">
               <span className="text-xs font-medium leading-tight line-clamp-1 flex-1">
@@ -138,15 +149,27 @@ function PermanentList({
   );
 }
 
+interface FleetingMemory {
+  id: number;
+  content: string;
+  type: string;
+  tags?: unknown;
+  createdAt: string;
+}
+
 function ReviewCandidatesList({
   workspaceSlug,
-  selectedId,
+  repos,
+  selected,
   onSelect,
 }: {
   workspaceSlug: string;
-  selectedId: number | null;
-  onSelect: (id: number) => void;
+  repos: string[];
+  selected: MemorySelection | null;
+  onSelect: (selection: MemorySelection) => void;
 }) {
+  const [promoteTarget, setPromoteTarget] = useState<FleetingMemory | null>(null);
+
   const { data: candidates, isLoading } = trpc.memory.reviewCandidates.useQuery({
     workspaceSlug,
     limit: 100,
@@ -169,48 +192,82 @@ function ReviewCandidatesList({
   }
 
   return (
-    <ul className="divide-y divide-border">
-      {candidates.map((mem) => (
-        <li key={mem.id}>
-          <button
-            className={cn(
-              'w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:bg-muted/50',
-              selectedId === mem.id && 'bg-muted/70',
-            )}
-            onClick={() => onSelect(mem.id)}
-          >
-            <div className="flex items-start justify-between gap-2 mb-1">
-              <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-                {mem.type}
-              </span>
-              <span className="text-[10px] text-muted-foreground tabular-nums ml-auto">
-                {new Date(mem.createdAt).toLocaleDateString()}
-              </span>
-            </div>
-            <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-3">
-              {mem.content.slice(0, 200)}
-              {mem.content.length > 200 && '…'}
-            </p>
-            {Array.isArray(mem.tags) && mem.tags.length > 0 && (
-              <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                {(mem.tags as string[]).map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center h-4 px-1.5 text-[10px] border border-border text-muted-foreground"
+    <>
+      <ul className="divide-y divide-border">
+        {candidates.map((mem) => (
+          <li key={mem.id}>
+            <button
+              className={cn(
+                'w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:bg-muted/50',
+                selected?.kind === 'fleeting' && selected.id === mem.id && 'bg-muted/70',
+              )}
+              onClick={() => onSelect({ id: mem.id, kind: 'fleeting' })}
+            >
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                  {mem.type}
+                </span>
+                <div className="flex items-center gap-1 ml-auto">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className="h-5 px-1.5 text-[10px] gap-0.5"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPromoteTarget(mem as FleetingMemory);
+                    }}
+                    title="Promote to permanent memory"
                   >
-                    {tag}
+                    <RiArrowUpLine className="size-2.5" />
+                    Promote
+                  </Button>
+                  <span className="text-[10px] text-muted-foreground tabular-nums">
+                    {new Date(mem.createdAt).toLocaleDateString()}
                   </span>
-                ))}
+                </div>
               </div>
-            )}
-          </button>
-        </li>
-      ))}
-    </ul>
+              <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-3">
+                {mem.content.slice(0, 200)}
+                {mem.content.length > 200 && '…'}
+              </p>
+              {Array.isArray(mem.tags) && mem.tags.length > 0 && (
+                <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                  {(mem.tags as string[]).map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center h-4 px-1.5 text-[10px] border border-border text-muted-foreground"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {promoteTarget && (
+        <PromoteDialog
+          open={!!promoteTarget}
+          onOpenChange={(open) => !open && setPromoteTarget(null)}
+          fleeting={promoteTarget}
+          workspaceSlug={workspaceSlug}
+          repos={repos}
+        />
+      )}
+    </>
   );
 }
 
-export function MemoryBrowser({ workspaceSlug, repos, selectedId, onSelect }: MemoryBrowserProps) {
+export function MemoryBrowser({
+  workspaceSlug,
+  repos,
+  selected,
+  onSelect,
+  onCreateNew,
+}: MemoryBrowserProps) {
   const [permanentFilters, setPermanentFilters] = useState<MemoryFiltersValue>(DEFAULT_FILTERS);
 
   const { data: candidates } = trpc.memory.reviewCandidates.useQuery({
@@ -223,19 +280,32 @@ export function MemoryBrowser({ workspaceSlug, repos, selectedId, onSelect }: Me
     <div className="flex flex-col h-full overflow-hidden">
       <Tabs defaultValue="permanent" className="flex flex-col h-full">
         <div className="px-2 pt-2 border-b border-border shrink-0">
-          <TabsList variant="line" className="h-8">
-            <TabsTrigger value="permanent" className="text-xs px-2">
-              Permanent
-            </TabsTrigger>
-            <TabsTrigger value="candidates" className="text-xs px-2 gap-1.5">
-              Review Candidates
-              {candidateCount > 0 && (
-                <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[10px]">
-                  {candidateCount}
-                </Badge>
-              )}
-            </TabsTrigger>
-          </TabsList>
+          <div className="flex items-center justify-between mb-1">
+            <TabsList variant="line" className="h-8">
+              <TabsTrigger value="permanent" className="text-xs px-2">
+                Permanent
+              </TabsTrigger>
+              <TabsTrigger value="candidates" className="text-xs px-2 gap-1.5">
+                Review Candidates
+                {candidateCount > 0 && (
+                  <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[10px]">
+                    {candidateCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            </TabsList>
+            {onCreateNew && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={onCreateNew}
+                title="Create new memory"
+                className="text-muted-foreground"
+              >
+                <RiAddLine className="size-3.5" />
+              </Button>
+            )}
+          </div>
         </div>
 
         <TabsContent value="permanent" className="flex flex-col flex-1 min-h-0 mt-0">
@@ -248,7 +318,7 @@ export function MemoryBrowser({ workspaceSlug, repos, selectedId, onSelect }: Me
             <PermanentList
               workspaceSlug={workspaceSlug}
               filters={permanentFilters}
-              selectedId={selectedId}
+              selected={selected}
               onSelect={onSelect}
             />
           </ScrollArea>
@@ -258,7 +328,8 @@ export function MemoryBrowser({ workspaceSlug, repos, selectedId, onSelect }: Me
           <ScrollArea className="flex-1">
             <ReviewCandidatesList
               workspaceSlug={workspaceSlug}
-              selectedId={selectedId}
+              repos={repos}
+              selected={selected}
               onSelect={onSelect}
             />
           </ScrollArea>

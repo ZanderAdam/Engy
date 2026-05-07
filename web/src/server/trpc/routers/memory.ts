@@ -45,6 +45,7 @@ const updateInput = z.object({
   scenarioIds: z.array(z.string()).optional(),
   sources: z.array(z.string()).optional(),
   linkedMemories: z.array(z.string()).optional(),
+  supersededById: z.number().nullable().optional(),
 });
 
 const listInput = z.object({
@@ -230,9 +231,12 @@ export const memoryRouter = router({
       await rewriteMemoryFile(workspaceDir, existing.filePath, merged, merged.content);
     }
 
+    const supersededByIdUpdate =
+      updates.supersededById !== undefined ? { supersededById: updates.supersededById } : {};
+
     const updated = db
       .update(permanentMemories)
-      .set({ ...merged, updatedAt: new Date().toISOString() })
+      .set({ ...merged, ...supersededByIdUpdate, updatedAt: new Date().toISOString() })
       .where(eq(permanentMemories.id, id))
       .returning()
       .get();
