@@ -1,0 +1,439 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import matter from 'gray-matter';
+import { simpleGit } from 'simple-git';
+import type { MemorySubtype } from '../db/schema';
+
+// ── Types ────────────────────────────────────────────────────────────
+
+interface PermanentMemoryFrontmatter {
+  title: string;
+  subtype: MemorySubtype;
+  repo?: string;
+  confidence?: number;
+  keywords?: string[];
+  themes?: string[];
+  tags?: string[];
+  linkedMemories?: string[];
+  scenarioIds?: string[];
+  sources?: string[];
+}
+
+interface PermanentMemoryFile {
+  frontmatter: PermanentMemoryFrontmatter;
+  content: string;
+  filePath: string;
+}
+
+interface SourceSnapshotFrontmatter {
+  title: string;
+  url?: string;
+  source_type: string;
+  ingester?: string;
+  content_hash: string;
+}
+
+interface SourceSnapshotFile {
+  frontmatter: SourceSnapshotFrontmatter;
+  body: string;
+  filePath: string;
+}
+
+interface ReferenceRecordFrontmatter {
+  title: string;
+  url: string;
+  type: string;
+  description?: string;
+}
+
+interface ReferenceRecordFile {
+  frontmatter: ReferenceRecordFrontmatter;
+  filePath: string;
+}
+
+// ── Index marker escaping ────────────────────────────────────────────
+
+const INDEX_START = '<!-- INDEX START -->';
+const INDEX_END = '<!-- INDEX END -->';
+
+export function escapeIndexMarkers(text: string): string {
+  // Escape literal index markers in user-supplied content so they can't
+  // corrupt parent README regeneration. Replace with HTML entity equivalents.
+  return text
+    .replace(/<!--\s*INDEX START\s*-->/g, '<!-\u200b- INDEX START -->')
+    .replace(/<!--\s*INDEX END\s*-->/g, '<!-\u200b- INDEX END -->');
+}
+
+// ── Path validation ──────────────────────────────────────────────────
+
+const VALID_SOURCE_DIRS = ['memory/sources', 'memory/references'];
+
+// Subtype enum values (singular) → directory names (plural)
+const SUBTYPE_DIR_MAP: Record<MemorySubtype, string> = {
+  decision: 'decisions',
+  pattern: 'patterns',
+  fact: 'facts',
+  convention: 'conventions',
+  insight: 'insights',
+};
+
+const VALID_MEMORY_SUBTYPES: MemorySubtype[] = Object.keys(SUBTYPE_DIR_MAP) as MemorySubtype[];
+
+export function validateSourcePath(sourcePath: string, workspaceDir: string): void {
+  if (path.isAbsolute(sourcePath)) {
+    throw new Error(
+      `Source path must be relative, got absolute path: ${sourcePath}`,
+    );
+  }
+  if (sourcePath.split('/').includes('..') || sourcePath.includes('..')) {
+    throw new Error(`Source path must not contain '..' segments: ${sourcePath}`);
+  }
+  const resolved = path.resolve(workspaceDir, sourcePath);
+  const allowed = VALID_SOURCE_DIRS.map((d) => path.resolve(workspaceDir, d));
+  if (!allowed.some((dir) => resolved.startsWith(dir + path.sep) || resolved === dir)) {
+    throw new Error(
+      `Source path must resolve under memory/sources/ or memory/references/, got: ${sourcePath}`,
+    );
+  }
+}
+
+export function validateLinkedMemoryPath(linkedPath: string, workspaceDir: string): void {
+  if (path.isAbsolute(linkedPath)) {
+    throw new Error(`Linked memory path must be relative, got absolute: ${linkedPath}`);
+  }
+  if (linkedPath.split('/').includes('..') || linkedPath.includes('..')) {
+    throw new Error(`Linked memory path must not contain '..' segments: ${linkedPath}`);
+  }
+  const resolved = path.resolve(workspaceDir, linkedPath);
+  const allowed = Object.values(SUBTYPE_DIR_MAP).map((dirName) =>
+    path.resolve(workspaceDir, 'memory', dirName),
+  );
+  if (!allowed.some((dir) => resolved.startsWith(dir + path.sep) || resolved === dir)) {
+    throw new Error(
+      `Linked memory path must resolve under memory/{subtype}/, got: ${linkedPath}`,
+    );
+  }
+}
+
+// ── Frontmatter parsing ──────────────────────────────────────────────
+
+function requireStringArray(data: Record<string, unknown>, field: string): string[] {
+  if (!(field in data)) return [];
+  const val = data[field];
+  if (!Array.isArray(val) || val.some((v) => typeof v !== 'string')) {
+    throw new Error(
+      `Frontmatter field '${field}' must be an array of strings, got: ${JSON.stringify(val)}`,
+    );
+  }
+  return val as string[];
+}
+
+function parseMatterSafe(content: string): matter.GrayMatterFile<string> {
+  if (!content.startsWith('---')) {
+    throw new Error('Missing frontmatter: file must start with --- delimiters');
+  }
+  const secondDelim = content.indexOf('\n---', 3);
+  if (secondDelim === -1) {
+    throw new Error('Malformed frontmatter: missing closing --- delimiter');
+  }
+  try {
+    return matter(content);
+  } catch (err) {
+    throw new Error(`Invalid YAML frontmatter: ${(err as Error).message}`);
+  }
+}
+
+// ── Slug/timestamp helpers ────────────────────────────────────────────
+
+function toSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60);
+}
+
+function nowTimestamp(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    String(d.getFullYear()) +
+    pad(d.getMonth() + 1) +
+    pad(d.getDate()) +
+    pad(d.getHours()) +
+    pad(d.getMinutes())
+  );
+}
+
+function sha256(text: string): string {
+  return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+// ── Git helpers ──────────────────────────────────────────────────────
+
+async function commitFile(
+  workspaceDir: string,
+  filePaths: string[],
+  message: string,
+): Promise<void> {
+  const git = simpleGit(workspaceDir);
+  // Add relative paths to git
+  const relPaths = filePaths.map((p) => path.relative(workspaceDir, p));
+  await git.add(relPaths);
+  await git.commit(message, { '--allow-empty': null });
+}
+
+// ── README chain update (deferred import to avoid circular dep) ──────
+
+async function updateReadmeChain(filePath: string): Promise<void> {
+  const { regenerateReadmeChain } = await import('./readme-index.js');
+  await regenerateReadmeChain(filePath);
+}
+
+// ── Write: Permanent Memory ──────────────────────────────────────────
+
+export async function writePermanentMemory(
+  workspaceDir: string,
+  fm: PermanentMemoryFrontmatter,
+  body: string,
+): Promise<string> {
+  if (fm.sources) {
+    for (const s of fm.sources) validateSourcePath(s, workspaceDir);
+  }
+  if (fm.linkedMemories) {
+    for (const l of fm.linkedMemories) validateLinkedMemoryPath(l, workspaceDir);
+  }
+
+  const safeFm = {
+    ...fm,
+    keywords: fm.keywords ?? [],
+    themes: fm.themes ?? [],
+    tags: fm.tags ?? [],
+    linkedMemories: fm.linkedMemories ?? [],
+    scenarioIds: fm.scenarioIds ?? [],
+    sources: fm.sources ?? [],
+  };
+
+  const slug = toSlug(fm.title);
+  const ts = nowTimestamp();
+  const filename = `${ts}-${slug}.md`;
+  const dir = path.join(workspaceDir, 'memory', SUBTYPE_DIR_MAP[fm.subtype]);
+  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, filename);
+
+  const safeBody = escapeIndexMarkers(body);
+  const fileContent = matter.stringify(safeBody, safeFm);
+  fs.writeFileSync(filePath, fileContent, 'utf8');
+
+  const relPath = path.relative(workspaceDir, filePath).replace(/\\/g, '/');
+  const msgBody = [
+    `subtype: ${fm.subtype}`,
+    fm.repo ? `repo: ${fm.repo}` : null,
+    fm.sources?.length ? `sources: [${fm.sources.join(', ')}]` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  await updateReadmeChain(filePath);
+
+  const readmePaths = collectReadmePaths(workspaceDir, filePath);
+  await commitFile(
+    workspaceDir,
+    [filePath, ...readmePaths],
+    `memory(promote): ${fm.title}\n\nmemory_id: ${relPath}\n${msgBody}`,
+  );
+
+  return relPath;
+}
+
+// ── Read: Permanent Memory ───────────────────────────────────────────
+
+export function readPermanentMemory(filePath: string, workspaceDir: string): PermanentMemoryFile {
+  const raw = fs.readFileSync(filePath, 'utf8');
+  const parsed = parseMatterSafe(raw);
+  const data = parsed.data as Record<string, unknown>;
+
+  if (typeof data.title !== 'string' || !data.title) {
+    throw new Error('Permanent memory frontmatter must have a non-empty string title');
+  }
+  if (!VALID_MEMORY_SUBTYPES.includes(data.subtype as MemorySubtype)) {
+    throw new Error(`Invalid subtype '${data.subtype}', must be one of: ${VALID_MEMORY_SUBTYPES.join(', ')}`);
+  }
+
+  const tags = requireStringArray(data, 'tags');
+  const linkedMemories = requireStringArray(data, 'linkedMemories');
+  const scenarioIds = requireStringArray(data, 'scenarioIds');
+  const sources = requireStringArray(data, 'sources');
+
+  for (const s of sources) validateSourcePath(s, workspaceDir);
+  for (const l of linkedMemories) validateLinkedMemoryPath(l, workspaceDir);
+
+  return {
+    frontmatter: {
+      title: data.title as string,
+      subtype: data.subtype as MemorySubtype,
+      repo: typeof data.repo === 'string' ? data.repo : undefined,
+      confidence: typeof data.confidence === 'number' ? data.confidence : undefined,
+      keywords: requireStringArray(data, 'keywords'),
+      themes: requireStringArray(data, 'themes'),
+      tags,
+      linkedMemories,
+      scenarioIds,
+      sources,
+    },
+    content: parsed.content,
+    filePath,
+  };
+}
+
+// ── Write: Source Snapshot ───────────────────────────────────────────
+
+export async function writeSourceSnapshot(
+  workspaceDir: string,
+  fm: Omit<SourceSnapshotFrontmatter, 'content_hash'>,
+  body: string,
+): Promise<{ filePath: string; deduplicated: boolean }> {
+  const hash = sha256(body);
+
+  // Dedup: scan existing sources for matching hash
+  const sourcesDir = path.join(workspaceDir, 'memory', 'sources');
+  fs.mkdirSync(sourcesDir, { recursive: true });
+
+  if (fs.existsSync(sourcesDir)) {
+    for (const fname of fs.readdirSync(sourcesDir)) {
+      if (!fname.endsWith('.md')) continue;
+      const fpath = path.join(sourcesDir, fname);
+      try {
+        const raw = fs.readFileSync(fpath, 'utf8');
+        const parsed = matter(raw);
+        if ((parsed.data as Record<string, unknown>).content_hash === hash) {
+          const relPath = path.relative(workspaceDir, fpath).replace(/\\/g, '/');
+          return { filePath: relPath, deduplicated: true };
+        }
+      } catch {
+        // skip unreadable files
+      }
+    }
+  }
+
+  const slug = toSlug(fm.title);
+  const ts = nowTimestamp();
+  const filename = `${ts}-${slug}.md`;
+  const filePath = path.join(sourcesDir, filename);
+
+  const safeFm: SourceSnapshotFrontmatter = { ...fm, content_hash: hash };
+  const safeBody = escapeIndexMarkers(body);
+  const fileContent = matter.stringify(safeBody, safeFm);
+  fs.writeFileSync(filePath, fileContent, 'utf8');
+
+  const relPath = path.relative(workspaceDir, filePath).replace(/\\/g, '/');
+
+  await updateReadmeChain(filePath);
+  const readmePaths = collectReadmePaths(workspaceDir, filePath);
+  await commitFile(
+    workspaceDir,
+    [filePath, ...readmePaths],
+    `memory(ingest): ${fm.title}\n\nsource_path: ${relPath}\nsource_type: ${fm.source_type}`,
+  );
+
+  return { filePath: relPath, deduplicated: false };
+}
+
+// ── Read: Source Snapshot ────────────────────────────────────────────
+
+export function readSourceSnapshot(filePath: string): SourceSnapshotFile {
+  const raw = fs.readFileSync(filePath, 'utf8');
+  const parsed = parseMatterSafe(raw);
+  const data = parsed.data as Record<string, unknown>;
+
+  if (typeof data.title !== 'string' || !data.title) {
+    throw new Error('Source snapshot frontmatter must have a non-empty string title');
+  }
+  if (typeof data.source_type !== 'string' || !data.source_type) {
+    throw new Error('Source snapshot frontmatter must have a non-empty string source_type');
+  }
+
+  return {
+    frontmatter: {
+      title: data.title as string,
+      url: typeof data.url === 'string' ? data.url : undefined,
+      source_type: data.source_type as string,
+      ingester: typeof data.ingester === 'string' ? data.ingester : undefined,
+      content_hash: typeof data.content_hash === 'string' ? data.content_hash : '',
+    },
+    body: parsed.content,
+    filePath,
+  };
+}
+
+// ── Write: Reference Record ──────────────────────────────────────────
+
+export async function writeReferenceRecord(
+  workspaceDir: string,
+  fm: ReferenceRecordFrontmatter,
+): Promise<string> {
+  const dir = path.join(workspaceDir, 'memory', 'references');
+  fs.mkdirSync(dir, { recursive: true });
+
+  const slug = toSlug(fm.title);
+  const filename = `${slug}.md`;
+  const filePath = path.join(dir, filename);
+
+  const fileContent = matter.stringify('', fm);
+  fs.writeFileSync(filePath, fileContent, 'utf8');
+
+  const relPath = path.relative(workspaceDir, filePath).replace(/\\/g, '/');
+
+  await updateReadmeChain(filePath);
+  const readmePaths = collectReadmePaths(workspaceDir, filePath);
+  await commitFile(
+    workspaceDir,
+    [filePath, ...readmePaths],
+    `memory(ingest): ${fm.title} reference\n\nsource_path: ${relPath}`,
+  );
+
+  return relPath;
+}
+
+// ── Read: Reference Record ────────────────────────────────────────────
+
+export function readReferenceRecord(filePath: string): ReferenceRecordFile {
+  const raw = fs.readFileSync(filePath, 'utf8');
+  const parsed = parseMatterSafe(raw);
+  const data = parsed.data as Record<string, unknown>;
+
+  if (typeof data.title !== 'string' || !data.title) {
+    throw new Error('Reference record frontmatter must have a non-empty string title');
+  }
+  if (typeof data.url !== 'string' || !data.url) {
+    throw new Error('Reference record frontmatter must have a non-empty string url');
+  }
+  if (typeof data.type !== 'string' || !data.type) {
+    throw new Error('Reference record frontmatter must have a non-empty string type');
+  }
+
+  return {
+    frontmatter: {
+      title: data.title as string,
+      url: data.url as string,
+      type: data.type as string,
+      description: typeof data.description === 'string' ? data.description : undefined,
+    },
+    filePath,
+  };
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+function collectReadmePaths(workspaceDir: string, filePath: string): string[] {
+  const results: string[] = [];
+  let dir = path.dirname(filePath);
+  const root = workspaceDir;
+  while (dir !== root && dir.startsWith(root)) {
+    const readme = path.join(dir, 'README.md');
+    if (fs.existsSync(readme)) results.push(readme);
+    dir = path.dirname(dir);
+  }
+  return results;
+}
