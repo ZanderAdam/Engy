@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { eq } from 'drizzle-orm';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { workspaces } from '../db/schema';
 import { backfillM7, needsM7Backfill } from './backfill-m7';
