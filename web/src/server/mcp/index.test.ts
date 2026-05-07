@@ -680,32 +680,26 @@ describe('MCP Server', () => {
       expect(data).toHaveLength(2);
     });
 
-    it('listMemories should filter by projectId', async () => {
+    it('listMemories should filter by workspaceId when multiple workspaces exist', async () => {
       const db = getDb();
-      const proj = db
-        .insert(projects)
-        .values({ workspaceId, name: 'MemProj', slug: 'memproj' })
+      const ws2 = db
+        .insert(workspaces)
+        .values({ name: 'WS2', slug: 'ws2' })
         .returning()
         .get();
       db.insert(fleetingMemories)
-        .values({
-          workspaceId,
-          projectId: proj.id,
-          content: 'Proj mem',
-          type: 'capture',
-          source: 'agent',
-        })
+        .values({ workspaceId, content: 'WS1 mem', type: 'capture', source: 'agent' })
         .run();
       db.insert(fleetingMemories)
-        .values({ workspaceId, content: 'No proj', type: 'capture', source: 'agent' })
+        .values({ workspaceId: ws2.id, content: 'WS2 mem', type: 'capture', source: 'agent' })
         .run();
 
       const mcp = getMcpServer();
       const call = callTool(mcp, 'listMemories');
-      const { data } = await call({ projectId: proj.id, compact: false });
+      const { data } = await call({ workspaceId, compact: false });
 
       expect(data).toHaveLength(1);
-      expect(data[0].content).toBe('Proj mem');
+      expect(data[0].content).toBe('WS1 mem');
     });
 
     it('listMemories should return all memories when no filter', async () => {

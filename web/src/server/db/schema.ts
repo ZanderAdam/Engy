@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, uniqueIndex, index, primaryKey } from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
 
 // ── Workspaces ──────────────────────────────────────────────────────
@@ -43,6 +43,9 @@ export const workspaces = sqliteTable('workspaces', {
 
 export const workspacesRelations = relations(workspaces, ({ many }) => ({
   projects: many(projects),
+  permanentMemories: many(permanentMemories),
+  fleetingMemories: many(fleetingMemories),
+  frontmatterEntries: many(frontmatter),
 }));
 
 // ── Projects ────────────────────────────────────────────────────────
@@ -248,6 +251,52 @@ export const agentSessionsRelations = relations(agentSessions, ({ one }) => ({
   }),
 }));
 
+// ── Permanent Memories ──────────────────────────────────────────────
+
+export type MemorySubtype = 'decision' | 'pattern' | 'fact' | 'convention' | 'insight';
+
+export const permanentMemories = sqliteTable('permanent_memories', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  workspaceId: integer('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  subtype: text('subtype', {
+    enum: ['decision', 'pattern', 'fact', 'convention', 'insight'],
+  })
+    .notNull()
+    .default('fact'),
+  title: text('title').notNull(),
+  content: text('content').notNull(),
+  repo: text('repo'),
+  confidence: real('confidence').default(1.0),
+  keywords: text('keywords', { mode: 'json' }).$type<string[]>().default([]),
+  themes: text('themes', { mode: 'json' }).$type<string[]>().default([]),
+  tags: text('tags', { mode: 'json' }).$type<string[]>().default([]),
+  linkedMemories: text('linked_memories', { mode: 'json' }).$type<string[]>().default([]),
+  scenarioIds: text('scenario_ids', { mode: 'json' }).$type<string[]>().default([]),
+  sources: text('sources', { mode: 'json' }).$type<string[]>().default([]),
+  filePath: text('file_path'),
+  supersededById: integer('superseded_by_id'),
+  createdAt: text('created_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const permanentMemoriesRelations = relations(permanentMemories, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [permanentMemories.workspaceId],
+    references: [workspaces.id],
+  }),
+  supersededBy: one(permanentMemories, {
+    fields: [permanentMemories.supersededById],
+    references: [permanentMemories.id],
+    relationName: 'supersededBy',
+  }),
+}));
+
 // ── Fleeting Memories ───────────────────────────────────────────────
 
 export const fleetingMemories = sqliteTable('fleeting_memories', {
@@ -255,7 +304,6 @@ export const fleetingMemories = sqliteTable('fleeting_memories', {
   workspaceId: integer('workspace_id')
     .notNull()
     .references(() => workspaces.id, { onDelete: 'cascade' }),
-  projectId: integer('project_id').references(() => projects.id, { onDelete: 'set null' }),
   content: text('content').notNull(),
   type: text('type', {
     enum: ['capture', 'question', 'blocker', 'idea', 'reference'],
@@ -267,6 +315,11 @@ export const fleetingMemories = sqliteTable('fleeting_memories', {
     .default('agent'),
   tags: text('tags', { mode: 'json' }).$type<string[]>().default([]),
   promoted: integer('promoted', { mode: 'boolean' }).notNull().default(false),
+  promotedFromId: integer('promoted_from_id').references(() => permanentMemories.id, {
+    onDelete: 'set null',
+  }),
+  promotedAt: text('promoted_at'),
+  sources: text('sources', { mode: 'json' }).$type<string[]>().default([]),
   createdAt: text('created_at')
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -277,34 +330,39 @@ export const fleetingMemoriesRelations = relations(fleetingMemories, ({ one }) =
     fields: [fleetingMemories.workspaceId],
     references: [workspaces.id],
   }),
-  project: one(projects, {
-    fields: [fleetingMemories.projectId],
-    references: [projects.id],
+  promotedFrom: one(permanentMemories, {
+    fields: [fleetingMemories.promotedFromId],
+    references: [permanentMemories.id],
   }),
 }));
 
-// ── Project Memories ────────────────────────────────────────────────
+// ── Frontmatter Index ───────────────────────────────────────────────
 
-export const projectMemories = sqliteTable('project_memories', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  projectId: integer('project_id')
-    .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
-  content: text('content').notNull(),
-  type: text('type', {
-    enum: ['decision', 'fact', 'procedure', 'insight', 'preference'],
-  }).notNull(),
-  confidence: real('confidence').default(1.0),
-  tags: text('tags', { mode: 'json' }).$type<string[]>().default([]),
-  createdAt: text('created_at')
-    .notNull()
-    .$defaultFn(() => new Date().toISOString()),
-});
+export type FrontmatterCollection = 'system' | 'docs' | 'projects' | 'memory';
 
-export const projectMemoriesRelations = relations(projectMemories, ({ one }) => ({
-  project: one(projects, {
-    fields: [projectMemories.projectId],
-    references: [projects.id],
+export const frontmatter = sqliteTable(
+  'frontmatter',
+  {
+    workspaceId: integer('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    collection: text('collection', {
+      enum: ['system', 'docs', 'projects', 'memory'],
+    }).notNull(),
+    path: text('path').notNull(),
+    data: text('data').notNull(),
+    indexedAt: text('indexed_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.path] }),
+    index('idx_frontmatter_collection').on(table.workspaceId, table.collection),
+  ],
+);
+
+export const frontmatterRelations = relations(frontmatter, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [frontmatter.workspaceId],
+    references: [workspaces.id],
   }),
 }));
 

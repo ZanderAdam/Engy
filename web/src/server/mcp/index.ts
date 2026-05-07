@@ -610,7 +610,6 @@ function registerMemoryTools(mcp: McpServer): void {
         .default('capture')
         .describe('Memory type'),
       source: z.enum(['agent', 'user', 'system']).default('agent').describe('Memory source'),
-      projectId: z.number().optional().describe('Project ID'),
       tags: z.array(z.string()).default([]).describe('Tags for organization'),
     },
     async (args) => {
@@ -622,21 +621,16 @@ function registerMemoryTools(mcp: McpServer): void {
 
   mcp.tool(
     'listMemories',
-    'List fleeting memories. Compact mode (default) omits content.',
+    'List fleeting memories for a workspace. Compact mode (default) omits content.',
     {
       workspaceId: z.number().optional().describe('Filter by workspace ID'),
-      projectId: z.number().optional().describe('Filter by project ID'),
       compact: z.boolean().default(true).describe('Omit content field (default true)'),
     },
-    async ({ workspaceId, projectId, compact }) => {
+    async ({ workspaceId, compact }) => {
       const db = getDb();
 
-      const conditions: SQL[] = [];
-      if (workspaceId !== undefined) conditions.push(eq(fleetingMemories.workspaceId, workspaceId));
-      if (projectId !== undefined) conditions.push(eq(fleetingMemories.projectId, projectId));
-
-      const rows = conditions.length > 0
-        ? db.select().from(fleetingMemories).where(and(...conditions)).all()
+      const rows = workspaceId !== undefined
+        ? db.select().from(fleetingMemories).where(eq(fleetingMemories.workspaceId, workspaceId)).all()
         : db.select().from(fleetingMemories).all();
 
       if (compact !== false) {
