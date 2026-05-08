@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { RiGitRepositoryLine, RiGitRepositoryFill, RiComputerLine, RiBox3Line } from '@remixicon/react';
-import { useVirtualParams, useVirtualPathname } from '@/components/tabs/tab-context';
+import { useVirtualParams, useVirtualPathname, useTabId } from '@/components/tabs/tab-context';
 import { VLink } from '@/components/tabs/virtual-link';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
@@ -36,6 +36,7 @@ const tabs = [
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const params = useVirtualParams<{ workspace: string; project?: string }>();
   const pathname = useVirtualPathname();
+  const tabId = useTabId();
   const {
     data: workspace,
     isLoading,
@@ -45,15 +46,17 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const isMobile = useIsMobile();
   const [terminalCollapsed, setTerminalCollapsed] = useState(true);
 
-  // Auto-expand terminal when active sessions are restored on page load
+  // Auto-expand terminal when active sessions are restored on page load.
+  // Filter by tabId so only this tab's TerminalManager triggers expansion.
   useEffect(() => {
     function onActiveChanged(e: Event) {
-      const { hasActiveTab } = (e as CustomEvent<{ hasActiveTab: boolean }>).detail;
-      if (hasActiveTab) setTerminalCollapsed(false);
+      const detail = (e as CustomEvent<{ hasActiveTab: boolean; tabId?: string }>).detail;
+      if (detail.tabId !== undefined && detail.tabId !== tabId) return;
+      if (detail.hasActiveTab) setTerminalCollapsed(false);
     }
     window.addEventListener('terminal:active-changed', onActiveChanged);
     return () => window.removeEventListener('terminal:active-changed', onActiveChanged);
-  }, []);
+  }, [tabId]);
 
   const handleCollapse = useCallback(() => {
     setTerminalCollapsed(true);

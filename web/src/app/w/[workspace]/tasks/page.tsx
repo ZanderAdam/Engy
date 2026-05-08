@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useVirtualParams, useVirtualNavigate } from "@/components/tabs/tab-context";
+import { useVirtualParams, useVirtualNavigate, useTabId } from "@/components/tabs/tab-context";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { EisenhowerMatrix } from "@/components/projects/task-views/eisenhower-matrix";
@@ -28,6 +28,7 @@ const DEBOUNCE_MS = 500;
 
 export default function TasksPage() {
   const params = useVirtualParams<{ workspace: string }>();
+  const tabId = useTabId();
   const nav = useVirtualNavigate();
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
   const { data: allProjects } = trpc.project.list.useQuery(
@@ -96,14 +97,15 @@ export default function TasksPage() {
   // the task dialog to open on a specific tab via a `task:open` window event.
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ taskId: number; tab?: typeof selectedTaskTab }>).detail;
+      const detail = (e as CustomEvent<{ taskId: number; tab?: typeof selectedTaskTab; tabId?: string }>).detail;
       if (!detail) return;
+      if (detail.tabId !== undefined && detail.tabId !== tabId) return;
       setSelectedTaskId(detail.taskId);
       setSelectedTaskTab(detail.tab);
     };
     window.addEventListener('task:open', handler);
     return () => window.removeEventListener('task:open', handler);
-  }, []);
+  }, [tabId]);
 
   useOnFileChange(
     useCallback(

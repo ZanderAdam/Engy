@@ -10,18 +10,22 @@ import { TerminalDockTab } from "./terminal-dock-tab";
 import { TerminalDockWatermark } from "./terminal-dock-watermark";
 import { TerminalDockActions } from "./terminal-dock-actions";
 import { useOnServerEvent } from "@/contexts/events-context";
+import { useOptionalTab } from "@/components/tabs/tab-context";
 
 interface InjectEvent {
   context: string;
   terminalId?: string;
+  tabId?: string;
 }
 
 interface OpenEvent {
   scope: TerminalScope;
+  tabId?: string;
 }
 
 interface TerminalFocusEvent {
   sessionId: string;
+  tabId?: string;
 }
 
 interface TerminalManagerProps {
@@ -101,6 +105,14 @@ function sessionToTab(s: SessionListItem, fallbackGroupKey: string): TerminalTab
 }
 
 export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled, disableExternalEvents = false }: TerminalManagerProps) {
+  const tabCtx = useOptionalTab();
+  const myTabId = tabCtx?.tabId ?? null;
+
+  const myTabIdRef = useRef(myTabId);
+  useEffect(() => {
+    myTabIdRef.current = myTabId;
+  }, [myTabId]);
+
   const tabsRef = useRef<Map<string, TerminalTab>>(new Map());
   const tabWsRefs = useRef<Map<string, TerminalActions>>(new Map());
   const dockviewApiRef = useRef<DockviewApi | null>(null);
@@ -149,18 +161,21 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     const activeId = api?.activePanel?.id;
     const tab = activeId != null ? tabsRef.current.get(activeId) : undefined;
     const hasActiveTab = tab != null && tab.status !== 'exited';
-    window.__engy_terminal_active = hasActiveTab;
+    // Only the active project tab (or a tab-less manager) writes the global flag
+    if (!myTabId || tabCtx?.isActive) {
+      window.__engy_terminal_active = hasActiveTab;
+    }
     window.dispatchEvent(
-      new CustomEvent('terminal:active-changed', { detail: { hasActiveTab } }),
+      new CustomEvent('terminal:active-changed', { detail: { hasActiveTab, tabId: myTabId } }),
     );
-  }, [disableExternalEvents]);
+  }, [disableExternalEvents, myTabId, tabCtx?.isActive]);
 
   const dispatchActivityEvent = useCallback((sessionId: string, activityState: TerminalActivityState) => {
     if (disableExternalEvents) return;
     window.dispatchEvent(
-      new CustomEvent('terminal:activity-changed', { detail: { sessionId, activityState } }),
+      new CustomEvent('terminal:activity-changed', { detail: { sessionId, activityState, tabId: myTabId } }),
     );
-  }, [disableExternalEvents]);
+  }, [disableExternalEvents, myTabId]);
 
   const handleStatusChange = useCallback(
     (sessionId: string, status: TerminalTab['status']) => {
@@ -236,9 +251,11 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   useEffect(() => {
     if (disableExternalEvents) return;
     return () => {
-      window.__engy_terminal_active = false;
+      const tabId = myTabIdRef.current;
+      // Only clear the global flag if we were the active tab (or no TabContext)
+      if (!tabId) window.__engy_terminal_active = false;
       window.dispatchEvent(
-        new CustomEvent('terminal:active-changed', { detail: { hasActiveTab: false } }),
+        new CustomEvent('terminal:active-changed', { detail: { hasActiveTab: false, tabId } }),
       );
     };
   }, [disableExternalEvents]);
@@ -247,7 +264,8 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     if (disableExternalEvents) return;
 
     function onInject(e: Event) {
-      const { context, terminalId } = (e as CustomEvent<InjectEvent>).detail;
+      const { context, terminalId, tabId } = (e as CustomEvent<InjectEvent>).detail;
+      if (tabId !== undefined && tabId !== myTabId) return;
       const api = dockviewApiRef.current;
       const targetId = terminalId ?? api?.activePanel?.id;
       if (!targetId) return;
@@ -258,25 +276,27 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
 
     window.addEventListener('terminal:inject', onInject);
     return () => window.removeEventListener('terminal:inject', onInject);
-  }, [disableExternalEvents]);
+  }, [disableExternalEvents, myTabId]);
 
   useEffect(() => {
     if (disableExternalEvents) return;
 
     function onOpen(e: Event) {
-      const { scope } = (e as CustomEvent<OpenEvent>).detail;
+      const { scope, tabId } = (e as CustomEvent<OpenEvent>).detail;
+      if (tabId !== undefined && tabId !== myTabId) return;
       openTerminal(scope);
     }
 
     window.addEventListener('terminal:open', onOpen);
     return () => window.removeEventListener('terminal:open', onOpen);
-  }, [openTerminal, disableExternalEvents]);
+  }, [openTerminal, disableExternalEvents, myTabId]);
 
   // terminal:focus is always listened for (not gated by disableExternalEvents)
   // because it's an intentional user action from TaskTerminalButton, not a broadcast
   useEffect(() => {
     function onFocus(e: Event) {
-      const { sessionId } = (e as CustomEvent<TerminalFocusEvent>).detail;
+      const { sessionId, tabId } = (e as CustomEvent<TerminalFocusEvent>).detail;
+      if (tabId !== undefined && tabId !== myTabId) return;
       const api = dockviewApiRef.current;
       if (!api) return;
       const panel = api.getPanel(sessionId);
@@ -289,7 +309,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
 
     window.addEventListener('terminal:focus', onFocus);
     return () => window.removeEventListener('terminal:focus', onFocus);
-  }, [broadcastActive]);
+  }, [broadcastActive, myTabId]);
 
   // Cross-browser session sync: when another browser creates a session for this groupKey,
   // fetch updated session list and add any new sessions as tabs

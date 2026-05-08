@@ -33,6 +33,7 @@ import { trpc } from '@/lib/trpc';
 import { useQuickAction } from '@/hooks/use-quick-action';
 import { useExecutionStatus } from '@/hooks/use-execution-status';
 import { useTaskHasPlan } from '@/hooks/use-task-has-plan';
+import { useTabId } from '@/components/tabs/tab-context';
 import type { TaskStatus } from '@/lib/task-status';
 import { toast } from 'sonner';
 
@@ -56,6 +57,7 @@ export function TaskQuickActions({
 }: TaskQuickActionsProps) {
   const { disabled, launch, projectSlug: hookProjectSlug, workspace, project } = useQuickAction();
   const projectSlug = projectSlugProp ?? hookProjectSlug;
+  const tabId = useTabId();
 
   const planSkill = workspace?.planSkill || DEFAULT_PLAN_SKILL;
   const implementSkill = workspace?.implementSkill || DEFAULT_IMPLEMENT_SKILL;
@@ -206,7 +208,7 @@ export function TaskQuickActions({
               <DropdownMenuItem
                 onClick={() =>
                   window.dispatchEvent(
-                    new CustomEvent('task:open', { detail: { taskId, tab: 'plan' } }),
+                    new CustomEvent('task:open', { detail: { taskId, tab: 'plan', tabId } }),
                   )
                 }
               >

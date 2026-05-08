@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useVirtualParams } from '@/components/tabs/tab-context';
+import { useVirtualParams, useTabId } from '@/components/tabs/tab-context';
 import { Button } from '@/components/ui/button';
 import { TaskStatusBadge } from '@/components/projects/task-status-badge';
 import { CopyTaskSlug } from '@/components/projects/copy-task-slug';
@@ -90,6 +90,7 @@ export function TaskCard({
   dragHandleProps,
 }: TaskCardProps) {
   const params = useVirtualParams<{ workspace: string; project: string }>();
+  const tabId = useTabId();
   const groupKey =
     params.workspace && params.project
       ? `project:${params.workspace}:${params.project}`
@@ -240,7 +241,7 @@ export function TaskCard({
                   e.stopPropagation();
                   window.dispatchEvent(
                     new CustomEvent('task:open', {
-                      detail: { taskId: task.id, tab: 'plan' },
+                      detail: { taskId: task.id, tab: 'plan', tabId },
                     }),
                   );
                 }}

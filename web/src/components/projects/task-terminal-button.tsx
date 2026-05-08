@@ -11,17 +11,21 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils';
 import { TERMINAL_ACTIVITY_STYLES } from '@/components/terminal/types';
 import { useTerminalActivity } from '@/hooks/use-terminal-activity';
+import { useTabId } from '@/components/tabs/tab-context';
 import type { TaskTerminalSession } from '@/hooks/use-task-terminals';
 
 interface TaskTerminalButtonProps {
   sessions: TaskTerminalSession[];
 }
 
-function focusTerminal(sessionId: string) {
-  window.dispatchEvent(new CustomEvent('terminal:focus', { detail: { sessionId } }));
+function focusTerminal(sessionId: string, tabId: string | null) {
+  window.dispatchEvent(
+    new CustomEvent('terminal:focus', { detail: { sessionId, tabId } }),
+  );
 }
 
 export function TaskTerminalButton({ sessions }: TaskTerminalButtonProps) {
+  const tabId = useTabId();
   const activityState = useTerminalActivity(sessions.map((s) => s.sessionId));
 
   if (sessions.length === 0) return null;
@@ -38,7 +42,7 @@ export function TaskTerminalButton({ sessions }: TaskTerminalButtonProps) {
               className="shrink-0 cursor-pointer p-0.5 text-muted-foreground transition-colors hover:text-foreground"
               onClick={(e) => {
                 e.stopPropagation();
-                focusTerminal(sessions[0].sessionId);
+                focusTerminal(sessions[0].sessionId, tabId);
               }}
             >
               <RiTerminalLine className={cn('size-3.5', activityStyle)} />
@@ -73,7 +77,7 @@ export function TaskTerminalButton({ sessions }: TaskTerminalButtonProps) {
         </Tooltip>
         <DropdownMenuContent align="start" onClick={(e) => e.stopPropagation()}>
           {sessions.map((s) => (
-            <DropdownMenuItem key={s.sessionId} onClick={() => focusTerminal(s.sessionId)}>
+            <DropdownMenuItem key={s.sessionId} onClick={() => focusTerminal(s.sessionId, tabId)}>
               <RiTerminalLine className="size-4" />
               {s.scopeLabel}
             </DropdownMenuItem>

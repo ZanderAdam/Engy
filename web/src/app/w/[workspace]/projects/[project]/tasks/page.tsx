@@ -5,6 +5,7 @@ import {
   useVirtualParams,
   useVirtualNavigate,
   useVirtualSearchParams,
+  useTabId,
 } from "@/components/tabs/tab-context";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -43,6 +44,7 @@ const DEBOUNCE_MS = 500;
 
 export default function ProjectTasksPage() {
   const params = useVirtualParams<{ workspace: string; project: string }>();
+  const tabId = useTabId();
   const nav = useVirtualNavigate();
   const searchParams = useVirtualSearchParams();
 
@@ -160,14 +162,15 @@ export default function ProjectTasksPage() {
   // the task dialog to open on a specific tab via a `task:open` window event.
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ taskId: number; tab?: typeof selectedTaskTab }>).detail;
+      const detail = (e as CustomEvent<{ taskId: number; tab?: typeof selectedTaskTab; tabId?: string }>).detail;
       if (!detail) return;
+      if (detail.tabId !== undefined && detail.tabId !== tabId) return;
       setSelectedTaskId(detail.taskId);
       setSelectedTaskTab(detail.tab);
     };
     window.addEventListener('task:open', handler);
     return () => window.removeEventListener('task:open', handler);
-  }, []);
+  }, [tabId]);
 
   useOnFileChange(
     useCallback(

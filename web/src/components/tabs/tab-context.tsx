@@ -18,6 +18,11 @@ export function useOptionalTab(): TabContextValue | null {
   return useContext(TabContext);
 }
 
+export function useTabId(): string | null {
+  const ctx = useContext(TabContext);
+  return ctx?.tabId ?? null;
+}
+
 export function useVirtualPathname(): string {
   const ctx = useContext(TabContext);
   const pathname = usePathname();
