@@ -14,6 +14,7 @@ import {
 } from '../../lib/memory-files';
 import { simpleGit } from 'simple-git';
 import matter from 'gray-matter';
+import { autoLink } from '../../search/auto-linker';
 
 const memorySubtypeSchema = z.enum(['decision', 'pattern', 'fact', 'convention', 'insight']);
 
@@ -194,6 +195,10 @@ export const memoryRouter = router({
       })
       .returning()
       .get();
+
+    autoLink(memory.id, ws.slug).catch((err) =>
+      console.error('[autoLink] create failed:', err),
+    );
 
     return memory;
   }),
@@ -399,6 +404,10 @@ export const memoryRouter = router({
 
       return permanent;
     });
+
+    autoLink(result.id, ws.slug).catch((err) =>
+      console.error('[autoLink] promote failed:', err),
+    );
 
     return result;
   }),
