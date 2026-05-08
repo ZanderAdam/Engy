@@ -7,7 +7,12 @@ export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 const DEBOUNCE_MS = 1_000;
 
-export function useAutoSave(repoDir: string | null, filePath: string | null) {
+export function useAutoSave(
+  repoDir: string | null,
+  filePath: string | null,
+  worktreePath?: string,
+  coderWorkspace?: string,
+) {
   const [status, setStatus] = useState<SaveStatus>('idle');
   const lastSavedRef = useRef<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -50,7 +55,7 @@ export function useAutoSave(repoDir: string | null, filePath: string | null) {
         timerRef.current = null;
         setStatus('saving');
         try {
-          await mutateRef.current({ repoDir, filePath, content });
+          await mutateRef.current({ repoDir, filePath, content, worktreePath, coderWorkspace });
           lastSavedRef.current = content;
           setStatus('saved');
         } catch {
@@ -58,7 +63,7 @@ export function useAutoSave(repoDir: string | null, filePath: string | null) {
         }
       }, DEBOUNCE_MS);
     },
-    [repoDir, filePath],
+    [repoDir, filePath, worktreePath, coderWorkspace],
   );
 
   return { status, save };

@@ -3,7 +3,16 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { simpleGit } from 'simple-git';
-import { getBranchInfo, getStatus, getStatusDetailed, getDiff, getLog, getShow } from './index.js';
+import {
+  getBranchInfo,
+  getStatus,
+  getStatusDetailed,
+  getDiff,
+  getLog,
+  getShow,
+  parsePorcelainStatus,
+  parseWorktreeList,
+} from './index.js';
 
 describe('git integration', () => {
   let repoDir: string;
@@ -250,6 +259,82 @@ describe('git integration', () => {
       expect(result.diff).toContain('+content');
       expect(result.files).toHaveLength(1);
       expect(result.files[0]).toEqual({ path: 'file.txt', status: 'added' });
+    });
+  });
+
+  describe('parsePorcelainStatus', () => {
+    it('parses branch and entries with NUL separators', () => {
+      const out = '## main...origin/main\0 M file1.txt\0A  file2.txt\0?? file3.txt\0';
+      const result = parsePorcelainStatus(out);
+      expect(result.branch).toBe('main');
+      expect(result.entries).toEqual([
+        { index: ' ', workingDir: 'M', path: 'file1.txt' },
+        { index: 'A', workingDir: ' ', path: 'file2.txt' },
+        { index: '?', workingDir: '?', path: 'file3.txt' },
+      ]);
+    });
+
+    it('handles renames by skipping the original-path token', () => {
+      const out = '## main\0R  newname.txt\0oldname.txt\0 M other.txt\0';
+      const result = parsePorcelainStatus(out);
+      expect(result.entries).toEqual([
+        { index: 'R', workingDir: ' ', path: 'newname.txt' },
+        { index: ' ', workingDir: 'M', path: 'other.txt' },
+      ]);
+    });
+
+    it('reports HEAD for detached state', () => {
+      const out = '## HEAD (no branch)\0';
+      const result = parsePorcelainStatus(out);
+      expect(result.branch).toBe('HEAD');
+      expect(result.entries).toEqual([]);
+    });
+  });
+
+  describe('parseWorktreeList', () => {
+    it('parses multiple worktrees with branches', () => {
+      const out = [
+        'worktree /repo',
+        'HEAD abc123',
+        'branch refs/heads/main',
+        '',
+        'worktree /repo/.claude/worktrees/engy-session-xyz',
+        'HEAD def456',
+        'branch refs/heads/engy/session-xyz',
+        '',
+      ].join('\n');
+      const result = parseWorktreeList(out);
+      expect(result).toEqual([
+        { path: '/repo', branch: 'main', isMain: true, isLocked: false },
+        {
+          path: '/repo/.claude/worktrees/engy-session-xyz',
+          branch: 'engy/session-xyz',
+          isMain: false,
+          isLocked: false,
+        },
+      ]);
+    });
+
+    it('marks detached HEAD with null branch and locked entries', () => {
+      const out = [
+        'worktree /repo',
+        'HEAD abc123',
+        'branch refs/heads/main',
+        '',
+        'worktree /repo/wt-detached',
+        'HEAD def456',
+        'detached',
+        'locked maintenance',
+        '',
+      ].join('\n');
+      const result = parseWorktreeList(out);
+      expect(result).toHaveLength(2);
+      expect(result[1]).toEqual({
+        path: '/repo/wt-detached',
+        branch: null,
+        isMain: false,
+        isLocked: true,
+      });
     });
   });
 });

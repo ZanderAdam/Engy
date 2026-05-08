@@ -3,7 +3,12 @@ import { createServer, type Server } from 'node:http';
 import { eq } from 'drizzle-orm';
 import { WebSocket } from 'ws';
 import type { AppState } from '../trpc/context';
-import { createWebSocketServer, dispatchValidation, dispatchFileSearch } from './server';
+import {
+  createWebSocketServer,
+  dispatchValidation,
+  dispatchFileSearch,
+  dispatchGitWorktreeList,
+} from './server';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { agentSessions, tasks, projects, workspaces } from '../db/schema';
 
@@ -85,6 +90,7 @@ describe('WebSocket Server', () => {
       pendingRemoteFilePull: new Map(),
       pendingRemoteFilePush: new Map(),
       pendingWorktreeMerge: new Map(),
+      pendingGitWorktreeList: new Map(),
     };
     const result = await startServer(state);
     server = result.server;
@@ -314,6 +320,99 @@ describe('WebSocket Server', () => {
 
       await expect(searchPromise).rejects.toThrow('File search timed out');
       expect(state.pendingFileSearches.size).toBe(0);
+    });
+  });
+
+  describe('GIT_WORKTREE_LIST_RESPONSE', () => {
+    it('should resolve pending worktree list on response', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+
+      await vi.waitFor(() => {
+        expect(state.daemon).not.toBeNull();
+      });
+
+      const messagePromise = waitForMessage(ws);
+      const worktreePromise = dispatchGitWorktreeList('/tmp/repo', state);
+
+      const request = (await messagePromise) as {
+        type: string;
+        payload: { requestId: string; repoDir: string };
+      };
+      expect(request.type).toBe('GIT_WORKTREE_LIST_REQUEST');
+      expect(request.payload.repoDir).toBe('/tmp/repo');
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_WORKTREE_LIST_RESPONSE',
+          payload: {
+            requestId: request.payload.requestId,
+            worktrees: [
+              { path: '/tmp/repo', branch: 'main', isMain: true, isLocked: false },
+              { path: '/tmp/repo-wt', branch: 'feature', isMain: false, isLocked: false },
+            ],
+          },
+        }),
+      );
+
+      const result = await worktreePromise;
+      expect(result.worktrees).toHaveLength(2);
+      expect(result.worktrees[0]).toEqual({
+        path: '/tmp/repo',
+        branch: 'main',
+        isMain: true,
+        isLocked: false,
+      });
+    });
+
+    it('should reject if no daemon is connected', async () => {
+      await expect(dispatchGitWorktreeList('/tmp/repo', state)).rejects.toThrow(
+        'No daemon connected',
+      );
+    });
+
+    it('should reject on error response', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+
+      await vi.waitFor(() => {
+        expect(state.daemon).not.toBeNull();
+      });
+
+      const messagePromise = waitForMessage(ws);
+      const worktreePromise = dispatchGitWorktreeList('/bad/path', state);
+
+      const request = (await messagePromise) as {
+        type: string;
+        payload: { requestId: string };
+      };
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_WORKTREE_LIST_RESPONSE',
+          payload: { requestId: request.payload.requestId, error: 'not a git repo' },
+        }),
+      );
+
+      await expect(worktreePromise).rejects.toThrow('not a git repo');
+    });
+
+    it('should forward coderWorkspace in the request payload', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+
+      await vi.waitFor(() => {
+        expect(state.daemon).not.toBeNull();
+      });
+
+      const messagePromise = waitForMessage(ws);
+      dispatchGitWorktreeList('/remote/repo', state, 'my-coder-ws').catch(() => {});
+
+      const request = (await messagePromise) as {
+        type: string;
+        payload: { requestId: string; repoDir: string; coderWorkspace?: string };
+      };
+      expect(request.payload.coderWorkspace).toBe('my-coder-ws');
     });
   });
 

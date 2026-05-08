@@ -13,6 +13,7 @@ import type {
   GitLogRequestMessage,
   GitShowRequestMessage,
   GitBranchFilesRequestMessage,
+  GitWorktreeListRequestMessage,
   DirListRequestMessage,
   FileReadRequestMessage,
   FileWriteRequestMessage,
@@ -36,6 +37,9 @@ import {
   getBranchFiles,
   getFileContent,
   writeFileContent,
+  listWorktrees,
+  localGitRunner,
+  type GitRunner,
 } from '../git/index.js';
 import { ContainerManager } from '../container/manager.js';
 import { CoderManager } from '../container/coder-manager.js';
@@ -437,6 +441,9 @@ export class WsClient {
       case 'GIT_BRANCH_FILES_REQUEST':
         this.handleGitBranchFilesRequest(message as GitBranchFilesRequestMessage);
         break;
+      case 'GIT_WORKTREE_LIST_REQUEST':
+        this.handleGitWorktreeListRequest(message as GitWorktreeListRequestMessage);
+        break;
       case 'DIR_LIST_REQUEST':
         this.handleDirListRequest(message as DirListRequestMessage);
         break;
@@ -538,10 +545,15 @@ export class WsClient {
     });
   }
 
+  private gitRunnerFor(coderWorkspace?: string): GitRunner {
+    if (!coderWorkspace) return localGitRunner;
+    return (args) => this.coderManager.execCapture(coderWorkspace, 'git', args);
+  }
+
   private async handleGitStatusRequest(message: GitStatusRequestMessage): Promise<void> {
-    const { requestId, repoDir } = message.payload;
+    const { requestId, repoDir, coderWorkspace } = message.payload;
     try {
-      const result = await getStatusDetailed(repoDir);
+      const result = await getStatusDetailed(repoDir, this.gitRunnerFor(coderWorkspace));
       this.send({
         type: 'GIT_STATUS_RESPONSE',
         payload: { requestId, files: result.files, branch: result.branch },
@@ -555,9 +567,9 @@ export class WsClient {
   }
 
   private async handleGitDiffRequest(message: GitDiffRequestMessage): Promise<void> {
-    const { requestId, repoDir, filePath, base, staged } = message.payload;
+    const { requestId, repoDir, filePath, base, staged, coderWorkspace } = message.payload;
     try {
-      const diff = await getDiff(repoDir, filePath, base, staged);
+      const diff = await getDiff(repoDir, filePath, base, staged, this.gitRunnerFor(coderWorkspace));
       this.send({
         type: 'GIT_DIFF_RESPONSE',
         payload: { requestId, diff },
@@ -571,9 +583,9 @@ export class WsClient {
   }
 
   private async handleGitLogRequest(message: GitLogRequestMessage): Promise<void> {
-    const { requestId, repoDir, maxCount } = message.payload;
+    const { requestId, repoDir, maxCount, coderWorkspace } = message.payload;
     try {
-      const commits = await getLog(repoDir, maxCount);
+      const commits = await getLog(repoDir, maxCount, this.gitRunnerFor(coderWorkspace));
       this.send({
         type: 'GIT_LOG_RESPONSE',
         payload: { requestId, commits },
@@ -587,9 +599,9 @@ export class WsClient {
   }
 
   private async handleGitShowRequest(message: GitShowRequestMessage): Promise<void> {
-    const { requestId, repoDir, commitHash } = message.payload;
+    const { requestId, repoDir, commitHash, coderWorkspace } = message.payload;
     try {
-      const result = await getShow(repoDir, commitHash);
+      const result = await getShow(repoDir, commitHash, this.gitRunnerFor(coderWorkspace));
       this.send({
         type: 'GIT_SHOW_RESPONSE',
         payload: { requestId, diff: result.diff, files: result.files },
@@ -603,9 +615,9 @@ export class WsClient {
   }
 
   private async handleGitBranchFilesRequest(message: GitBranchFilesRequestMessage): Promise<void> {
-    const { requestId, repoDir, base } = message.payload;
+    const { requestId, repoDir, base, coderWorkspace } = message.payload;
     try {
-      const files = await getBranchFiles(repoDir, base);
+      const files = await getBranchFiles(repoDir, base, this.gitRunnerFor(coderWorkspace));
       this.send({
         type: 'GIT_BRANCH_FILES_RESPONSE',
         payload: { requestId, files },
@@ -613,6 +625,24 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'GIT_BRANCH_FILES_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleGitWorktreeListRequest(
+    message: GitWorktreeListRequestMessage,
+  ): Promise<void> {
+    const { requestId, repoDir, coderWorkspace } = message.payload;
+    try {
+      const worktrees = await listWorktrees(repoDir, this.gitRunnerFor(coderWorkspace));
+      this.send({
+        type: 'GIT_WORKTREE_LIST_RESPONSE',
+        payload: { requestId, worktrees },
+      });
+    } catch (err) {
+      this.send({
+        type: 'GIT_WORKTREE_LIST_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }
@@ -644,9 +674,20 @@ export class WsClient {
   }
 
   private async handleFileReadRequest(message: FileReadRequestMessage): Promise<void> {
-    const { requestId, repoDir, filePath, ref } = message.payload;
+    const { requestId, repoDir, filePath, ref, coderWorkspace } = message.payload;
     try {
-      const content = await getFileContent(repoDir, filePath, ref);
+      let content: string;
+      if (coderWorkspace) {
+        if (ref) {
+          content = await getFileContent(repoDir, filePath, ref, this.gitRunnerFor(coderWorkspace));
+        } else {
+          const posixPath = filePath.startsWith('/') ? filePath : `${repoDir}/${filePath}`;
+          const { stdout } = await this.coderManager.execCapture(coderWorkspace, 'cat', [posixPath]);
+          content = stdout;
+        }
+      } else {
+        content = await getFileContent(repoDir, filePath, ref);
+      }
       this.send({
         type: 'FILE_READ_RESPONSE',
         payload: { requestId, content },
@@ -660,9 +701,43 @@ export class WsClient {
   }
 
   private async handleFileWriteRequest(message: FileWriteRequestMessage): Promise<void> {
-    const { requestId, repoDir, filePath, content } = message.payload;
+    const { requestId, repoDir, filePath, content, coderWorkspace } = message.payload;
     try {
-      await writeFileContent(repoDir, filePath, content);
+      if (coderWorkspace) {
+        const posixPath = filePath.startsWith('/') ? filePath : `${repoDir}/${filePath}`;
+        const safeFilePath = posixPath.replace(/'/g, "'\\''");
+        const remoteCmd = `mkdir -p "$(dirname '${safeFilePath}')" && cat > '${safeFilePath}'`;
+        const child = execFile('coder', [
+          'ssh',
+          '--no-wait',
+          coderWorkspace,
+          '--',
+          'bash',
+          '-c',
+          remoteCmd,
+        ]);
+        let stderrBuf = '';
+        child.stderr?.on('data', (chunk: Buffer) => {
+          stderrBuf += chunk.toString('utf8');
+        });
+        child.stdin?.on('error', () => {});
+        child.stdin?.write(content);
+        child.stdin?.end();
+        await new Promise<void>((resolve, reject) => {
+          child.on('close', (code) => {
+            if (code !== 0) {
+              const stderr = stderrBuf.trim();
+              const suffix = stderr ? `: ${stderr}` : '';
+              reject(new Error(`coder ssh write failed (exit ${code})${suffix}`));
+            } else {
+              resolve();
+            }
+          });
+          child.on('error', reject);
+        });
+      } else {
+        await writeFileContent(repoDir, filePath, content);
+      }
       this.send({
         type: 'FILE_WRITE_RESPONSE',
         payload: { requestId, success: true },
@@ -740,36 +815,16 @@ export class WsClient {
 
   private async handleWorktreeMergeRequest(message: WorktreeMergeRequestMessage): Promise<void> {
     const { requestId, worktreePath, repoDir, coderWorkspace } = message.payload;
-    const runGit = (args: string[]): Promise<{ stdout: string; stderr: string }> =>
-      coderWorkspace
-        ? this.coderManager.execCapture(coderWorkspace, 'git', args)
-        : execFileAsync('git', args, { maxBuffer: EXEC_MAX_BUFFER });
+    const runGit = this.gitRunnerFor(coderWorkspace);
 
     try {
-      const { stdout: worktreeList } = await runGit([
-        '-C',
-        repoDir,
-        'worktree',
-        'list',
-        '--porcelain',
-      ]);
       // Match by basename: worktree paths are `<repo>/.claude/worktrees/engy-session-<id>`
       // with a unique session id, so the basename uniquely identifies the entry.
       // This sidesteps tilde-vs-absolute differences when the stored path uses `~`
       // but `git worktree list` reports absolute paths.
       const wantBasename = path.basename(worktreePath);
-
-      const blocks = worktreeList.split('\n\n');
-      let branch: string | null = null;
-      for (const block of blocks) {
-        const lines = block.split('\n');
-        const wtPath = lines.find((l) => l.startsWith('worktree '))?.slice('worktree '.length);
-        const branchLine = lines.find((l) => l.startsWith('branch '));
-        if (wtPath && path.basename(wtPath) === wantBasename && branchLine) {
-          branch = branchLine.slice('branch '.length).replace('refs/heads/', '');
-          break;
-        }
-      }
+      const worktrees = await listWorktrees(repoDir, runGit);
+      const branch = worktrees.find((w) => path.basename(w.path) === wantBasename)?.branch ?? null;
 
       if (!branch) {
         this.send({

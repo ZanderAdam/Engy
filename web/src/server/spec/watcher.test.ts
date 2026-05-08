@@ -32,6 +32,7 @@ function createTestState(): AppState {
     pendingRemoteFilePull: new Map(),
     pendingRemoteFilePush: new Map(),
     pendingWorktreeMerge: new Map(),
+    pendingGitWorktreeList: new Map(),
   };
 }
 

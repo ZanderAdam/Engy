@@ -1,69 +1,140 @@
 'use client';
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { useState } from 'react';
+import { RiArrowDownSLine } from '@remixicon/react';
 import { trpc } from '@/lib/trpc';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import type { TaggedWorktreeEntry } from '@/server/trpc/routers/diff';
 
-interface SessionSelectorProps {
-  selectedSessionId: string | null;
-  onSessionChange: (sessionId: string | null) => void;
+export type WorktreeSelection = { worktreePath: string; coderWorkspace?: string } | null;
+
+interface WorktreeSelectorProps {
+  workspaceSlug: string;
+  repoDir: string;
+  value: WorktreeSelection;
+  onChange: (value: WorktreeSelection) => void;
 }
 
-const MAIN_REPO_VALUE = '__main__';
+const MAIN_VALUE = '__main__';
 
-const STATUS_DOTS: Record<string, string> = {
-  active: 'bg-green-500',
-  completed: 'bg-blue-500',
-  paused: 'bg-yellow-500',
-  stopped: 'bg-zinc-500',
-};
-
-function sessionLabel(session: {
-  sessionId: string;
-  branch: string | null;
-  taskTitle: string | null;
-  groupName: string | null;
-}): string {
-  if (session.branch) return session.branch;
-  if (session.taskTitle) return session.taskTitle;
-  if (session.groupName) return session.groupName;
-  return session.sessionId.slice(0, 8);
+function entryLabel(entry: TaggedWorktreeEntry): string {
+  return entry.branch ?? entry.path.split('/').filter(Boolean).pop() ?? entry.path;
 }
 
-export function SessionSelector({ selectedSessionId, onSessionChange }: SessionSelectorProps) {
-  const { data: sessions } = trpc.diff.getSessions.useQuery({});
+function entryKey(entry: TaggedWorktreeEntry): string {
+  const coder = entry.location !== 'local' ? entry.location.coderWorkspace : '';
+  return `${coder}:${entry.path}`;
+}
 
-  if (!sessions || sessions.length === 0) return null;
+function selectionKey(selection: WorktreeSelection): string {
+  if (!selection) return MAIN_VALUE;
+  return `${selection.coderWorkspace ?? ''}:${selection.worktreePath}`;
+}
 
-  const handleChange = (value: string) => {
-    onSessionChange(value === MAIN_REPO_VALUE ? null : value);
+export function WorktreeSelector({
+  workspaceSlug,
+  repoDir,
+  value,
+  onChange,
+}: WorktreeSelectorProps) {
+  const [open, setOpen] = useState(false);
+  const { data: worktrees = [] } = trpc.diff.getWorktrees.useQuery(
+    { workspaceSlug, repoDir },
+    { enabled: !!repoDir },
+  );
+
+  const localEntries = worktrees.filter((wt) => wt.location === 'local' && !wt.isMain);
+  const coderEntries = worktrees.filter((wt) => wt.location !== 'local');
+  const coderWorkspaceNames = [
+    ...new Set(
+      coderEntries.map((wt) => (wt.location as { coderWorkspace: string }).coderWorkspace),
+    ),
+  ];
+
+  const selectedKey = selectionKey(value);
+  const selectedEntry = value ? worktrees.find((wt) => entryKey(wt) === selectedKey) : null;
+  const selectedLabel = selectedEntry ? entryLabel(selectedEntry) : 'Main repo';
+
+  const select = (next: WorktreeSelection) => {
+    onChange(next);
+    setOpen(false);
   };
 
   return (
-    <div className="px-3 py-2">
-      <Select value={selectedSessionId ?? MAIN_REPO_VALUE} onValueChange={handleChange}>
-        <SelectTrigger size="sm" className="w-full max-w-[260px]">
-          <SelectValue placeholder="Select session" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={MAIN_REPO_VALUE}>Main repo</SelectItem>
-          {sessions.map((session) => (
-            <SelectItem key={session.sessionId} value={session.sessionId}>
-              <span className="flex items-center gap-2">
-                <span
-                  className={`inline-block h-2 w-2 rounded-full ${STATUS_DOTS[session.status] ?? 'bg-zinc-500'}`}
-                />
-                <span className="truncate">{sessionLabel(session)}</span>
-              </span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="border-b border-border px-3 py-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between rounded-none border border-input/30 bg-input/30 px-2 py-1.5 text-xs hover:bg-muted"
+          >
+            <span className="truncate">{selectedLabel}</span>
+            <RiArrowDownSLine className="size-3.5 shrink-0 text-muted-foreground" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search worktrees..." />
+            <CommandList className="max-h-72">
+              <CommandEmpty>No worktrees found.</CommandEmpty>
+              <CommandGroup>
+                <CommandItem
+                  value="Main repo"
+                  data-checked={!value}
+                  onSelect={() => select(null)}
+                >
+                  Main repo
+                </CommandItem>
+                {localEntries.map((wt) => {
+                  const key = entryKey(wt);
+                  return (
+                    <CommandItem
+                      key={key}
+                      value={entryLabel(wt)}
+                      data-checked={selectedKey === key}
+                      onSelect={() => select({ worktreePath: wt.path })}
+                    >
+                      {entryLabel(wt)}
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+              {coderWorkspaceNames.map((ws) => (
+                <CommandGroup key={ws} heading={`Coder: ${ws}`}>
+                  {coderEntries
+                    .filter(
+                      (wt) =>
+                        (wt.location as { coderWorkspace: string }).coderWorkspace === ws,
+                    )
+                    .map((wt) => {
+                      const key = entryKey(wt);
+                      return (
+                        <CommandItem
+                          key={key}
+                          value={`${entryLabel(wt)} ${ws}`}
+                          data-checked={selectedKey === key}
+                          onSelect={() =>
+                            select({ worktreePath: wt.path, coderWorkspace: ws })
+                          }
+                        >
+                          {entryLabel(wt)}
+                        </CommandItem>
+                      );
+                    })}
+                </CommandGroup>
+              ))}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

@@ -39,6 +39,7 @@ function makeState(): AppState {
     pendingRemoteFilePull: new Map(),
     pendingRemoteFilePush: new Map(),
     pendingWorktreeMerge: new Map(),
+    pendingGitWorktreeList: new Map(),
   };
 }
 

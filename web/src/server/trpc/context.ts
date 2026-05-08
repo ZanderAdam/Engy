@@ -1,5 +1,5 @@
 import type WebSocket from 'ws';
-import type { GitFileStatus } from '@engy/common';
+import type { GitFileStatus, GitWorktreeEntry } from '@engy/common';
 
 export interface FileChangeEvent {
   workspaceSlug: string;
@@ -84,6 +84,10 @@ export interface RemoteFilePushResult {
 export interface WorktreeMergeResult {
   success: boolean;
   branch: string;
+}
+
+export interface GitWorktreeListResult {
+  worktrees: GitWorktreeEntry[];
 }
 
 export interface AppState {
@@ -216,6 +220,13 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingGitWorktreeList: Map<
+    string,
+    {
+      resolve: (result: GitWorktreeListResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   specLastChanged: Map<string, number>;
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
   /** Maps sessionId → set of browser WebSockets for multi-attach terminal I/O relay */
@@ -258,6 +269,7 @@ export function getAppState(): AppState {
       pendingRemoteFilePull: new Map(),
       pendingRemoteFilePush: new Map(),
       pendingWorktreeMerge: new Map(),
+      pendingGitWorktreeList: new Map(),
       specLastChanged: new Map(),
       specDebounceTimers: new Map(),
       terminalSessions: new Map(),

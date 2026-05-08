@@ -3,10 +3,15 @@ import { join, isAbsolute, resolve } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { simpleGit } from 'simple-git';
-import type { GitFileStatus } from '@engy/common';
+import type { GitFileStatus, GitWorktreeEntry } from '@engy/common';
 
 const execFileAsync = promisify(execFile);
 const EXEC_MAX_BUFFER = 10 * 1024 * 1024;
+
+export type GitRunner = (args: string[]) => Promise<{ stdout: string; stderr: string }>;
+
+export const localGitRunner: GitRunner = (args) =>
+  execFileAsync('git', args, { maxBuffer: EXEC_MAX_BUFFER });
 
 const GIT_STATUS_MAP: Record<string, GitFileStatus> = {
   A: 'added',
@@ -40,13 +45,11 @@ function mapStatusCode(
   index: string,
   workingDir: string,
 ): { status: GitFileStatus; staged: boolean } {
-  // Staged changes (index column)
   if (index === 'A') return { status: 'added', staged: true };
   if (index === 'M') return { status: 'modified', staged: true };
   if (index === 'D') return { status: 'deleted', staged: true };
   if (index === 'R') return { status: 'renamed', staged: true };
 
-  // Unstaged changes (working directory column)
   if (workingDir === 'M') return { status: 'modified', staged: false };
   if (workingDir === 'D') return { status: 'deleted', staged: false };
   if (workingDir === '?') return { status: 'added', staged: false };
@@ -88,39 +91,84 @@ export async function getStatus(dir: string): Promise<FileStatus[]> {
   }));
 }
 
-export async function getStatusDetailed(dir: string): Promise<DetailedStatus> {
-  const git = simpleGit(dir);
-  const status = await git.status();
-
-  const files: DetailedFileStatus[] = status.files.map((f) => {
-    const { status: fileStatus, staged } = mapStatusCode(f.index, f.working_dir.trim());
-    return { path: f.path, status: fileStatus, staged };
-  });
-
-  return {
-    files,
-    branch: status.current ?? 'HEAD',
-  };
+interface ParsedPorcelainStatus {
+  branch: string;
+  entries: Array<{ index: string; workingDir: string; path: string }>;
 }
 
-async function isTracked(dir: string, filePath: string): Promise<boolean> {
+export function parsePorcelainStatus(output: string): ParsedPorcelainStatus {
+  // Format from `git status --porcelain=v1 -b -z`: NUL-separated tokens.
+  // First token: `## <branch>...<remote> [ahead N, behind M]` (or `## HEAD (no branch)`).
+  // Remaining tokens: `XY <path>`. Renames add an extra NUL-separated old path.
+  const tokens = output.split('\0');
+  let branch = 'HEAD';
+  const entries: Array<{ index: string; workingDir: string; path: string }> = [];
+
+  let i = 0;
+  while (i < tokens.length) {
+    const tok = tokens[i];
+    if (!tok) {
+      i++;
+      continue;
+    }
+    if (tok.startsWith('## ')) {
+      const rest = tok.slice(3);
+      if (rest.startsWith('HEAD (no branch)')) {
+        branch = 'HEAD';
+      } else {
+        branch = rest.split(/\.\.\.| /)[0] ?? 'HEAD';
+      }
+      i++;
+      continue;
+    }
+
+    const xy = tok.slice(0, 2);
+    const path = tok.slice(3);
+    const index = xy[0];
+    const workingDir = xy[1];
+    entries.push({ index, workingDir, path });
+    if (index === 'R' || index === 'C') {
+      // Rename/copy entry: skip the original-path token
+      i += 2;
+    } else {
+      i++;
+    }
+  }
+
+  return { branch, entries };
+}
+
+export async function getStatusDetailed(
+  dir: string,
+  runGit: GitRunner = localGitRunner,
+): Promise<DetailedStatus> {
+  const { stdout } = await runGit(['-C', dir, 'status', '--porcelain=v1', '-b', '-z']);
+  const { branch, entries } = parsePorcelainStatus(stdout);
+
+  const files: DetailedFileStatus[] = entries.map((e) => {
+    const { status, staged } = mapStatusCode(e.index, e.workingDir.trim());
+    return { path: e.path, status, staged };
+  });
+
+  return { files, branch };
+}
+
+async function isTracked(
+  dir: string,
+  filePath: string,
+  runGit: GitRunner,
+): Promise<boolean> {
   try {
-    await execFileAsync('git', ['-C', dir, 'ls-files', '--error-unmatch', filePath], {
-      maxBuffer: EXEC_MAX_BUFFER,
-    });
+    await runGit(['-C', dir, 'ls-files', '--error-unmatch', filePath]);
     return true;
   } catch {
     return false;
   }
 }
 
-async function getGitRoot(dir: string): Promise<string> {
+async function getGitRoot(dir: string, runGit: GitRunner): Promise<string> {
   try {
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-C', dir, 'rev-parse', '--show-toplevel'],
-      { maxBuffer: EXEC_MAX_BUFFER },
-    );
+    const { stdout } = await runGit(['-C', dir, 'rev-parse', '--show-toplevel']);
     return stdout.trim();
   } catch {
     return dir;
@@ -132,49 +180,38 @@ export async function getDiff(
   filePath: string,
   base?: string,
   staged?: boolean,
+  runGit: GitRunner = localGitRunner,
 ): Promise<string> {
   // filePath from git status is always relative to the git root, which may differ
   // from dir when dir is a subdirectory of the repo
-  const root = await getGitRoot(dir);
+  const root = await getGitRoot(dir, runGit);
 
   if (staged && !base) {
-    // Staged file: compare index vs HEAD (--cached without HEAD works even in empty repos)
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-C', root, 'diff', '--cached', '--', filePath],
-      { maxBuffer: EXEC_MAX_BUFFER },
-    );
-    return stdout || diffAgainstEmpty(root, filePath);
+    const { stdout } = await runGit(['-C', root, 'diff', '--cached', '--', filePath]);
+    return stdout || diffAgainstEmpty(root, filePath, runGit);
   }
 
-  // Unstaged or base-relative diff
   try {
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-C', root, 'diff', base ?? 'HEAD', '--', filePath],
-      { maxBuffer: EXEC_MAX_BUFFER },
-    );
+    const { stdout } = await runGit(['-C', root, 'diff', base ?? 'HEAD', '--', filePath]);
     if (stdout) return stdout;
 
-    if (!base && !(await isTracked(root, filePath))) {
-      return diffAgainstEmpty(root, filePath);
+    if (!base && !(await isTracked(root, filePath, runGit))) {
+      return diffAgainstEmpty(root, filePath, runGit);
     }
     return '';
   } catch {
-    // File might be untracked — show diff against empty
-    return diffAgainstEmpty(root, filePath);
+    return diffAgainstEmpty(root, filePath, runGit);
   }
 }
 
-async function diffAgainstEmpty(dir: string, filePath: string): Promise<string> {
-  // Use absolute path so --no-index resolves correctly regardless of process CWD
+async function diffAgainstEmpty(
+  dir: string,
+  filePath: string,
+  runGit: GitRunner,
+): Promise<string> {
   const absolutePath = isAbsolute(filePath) ? filePath : join(dir, filePath);
   try {
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-C', dir, 'diff', '--no-index', '/dev/null', absolutePath],
-      { maxBuffer: EXEC_MAX_BUFFER },
-    );
+    const { stdout } = await runGit(['-C', dir, 'diff', '--no-index', '/dev/null', absolutePath]);
     return stdout;
   } catch (e: unknown) {
     // git diff --no-index exits with code 1 when files differ
@@ -186,32 +223,56 @@ async function diffAgainstEmpty(dir: string, filePath: string): Promise<string> 
 export async function getLog(
   dir: string,
   maxCount = 50,
+  runGit: GitRunner = localGitRunner,
 ): Promise<Array<{ hash: string; message: string; author: string; date: string }>> {
-  const git = simpleGit(dir);
-  const log = await git.log({ maxCount });
-  return log.all.map((entry) => ({
-    hash: entry.hash,
-    message: entry.message,
-    author: entry.author_name,
-    date: entry.date,
-  }));
+  // Format: hash\0author\0iso-date\0subject  (one record per line)
+  const { stdout } = await runGit([
+    '-C',
+    dir,
+    'log',
+    '--no-color',
+    '--pretty=format:%H%x00%an%x00%aI%x00%s',
+    '-n',
+    String(maxCount),
+  ]);
+
+  return stdout
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [hash, author, date, ...messageParts] = line.split('\0');
+      return {
+        hash: hash ?? '',
+        author: author ?? '',
+        date: date ?? '',
+        message: messageParts.join('\0'),
+      };
+    });
 }
 
 export async function getShow(
   dir: string,
   commitHash: string,
+  runGit: GitRunner = localGitRunner,
 ): Promise<{ diff: string; files: Array<{ path: string; status: GitFileStatus }> }> {
-  const { stdout: diffOutput } = await execFileAsync(
-    'git',
-    ['-C', dir, 'show', '--format=', commitHash],
-    { maxBuffer: EXEC_MAX_BUFFER },
-  );
+  const { stdout: diffOutput } = await runGit([
+    '-C',
+    dir,
+    'show',
+    '--format=',
+    commitHash,
+  ]);
 
-  const { stdout: nameStatusOutput } = await execFileAsync(
-    'git',
-    ['-C', dir, 'diff-tree', '--root', '--no-commit-id', '-r', '--name-status', commitHash],
-    { maxBuffer: EXEC_MAX_BUFFER },
-  );
+  const { stdout: nameStatusOutput } = await runGit([
+    '-C',
+    dir,
+    'diff-tree',
+    '--root',
+    '--no-commit-id',
+    '-r',
+    '--name-status',
+    commitHash,
+  ]);
 
   const files = parseNameStatusOutput(nameStatusOutput);
   return { diff: diffOutput, files };
@@ -220,14 +281,55 @@ export async function getShow(
 export async function getBranchFiles(
   dir: string,
   base: string,
+  runGit: GitRunner = localGitRunner,
 ): Promise<Array<{ path: string; status: GitFileStatus }>> {
-  const { stdout } = await execFileAsync(
-    'git',
-    ['-C', dir, 'diff', '--name-status', base],
-    { maxBuffer: EXEC_MAX_BUFFER },
-  );
-
+  const { stdout } = await runGit(['-C', dir, 'diff', '--name-status', base]);
   return parseNameStatusOutput(stdout);
+}
+
+export function parseWorktreeList(output: string): GitWorktreeEntry[] {
+  // `git worktree list --porcelain` emits blocks separated by blank lines.
+  // Each block has lines like:
+  //   worktree <abs path>
+  //   HEAD <sha>
+  //   branch refs/heads/<name>     (omitted for detached)
+  //   detached                     (instead of branch when HEAD is detached)
+  //   bare                         (for the bare main entry, no HEAD/branch)
+  //   locked [reason]              (optional)
+  // The first block is the main worktree.
+  const entries: GitWorktreeEntry[] = [];
+  const blocks = output.split('\n\n').filter((b) => b.trim().length > 0);
+
+  blocks.forEach((block, idx) => {
+    const lines = block.split('\n');
+    let path: string | undefined;
+    let branch: string | null = null;
+    let isLocked = false;
+
+    for (const line of lines) {
+      if (line.startsWith('worktree ')) {
+        path = line.slice('worktree '.length);
+      } else if (line.startsWith('branch ')) {
+        branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
+      } else if (line === 'locked' || line.startsWith('locked ')) {
+        isLocked = true;
+      }
+    }
+
+    if (path) {
+      entries.push({ path, branch, isMain: idx === 0, isLocked });
+    }
+  });
+
+  return entries;
+}
+
+export async function listWorktrees(
+  repoDir: string,
+  runGit: GitRunner = localGitRunner,
+): Promise<GitWorktreeEntry[]> {
+  const { stdout } = await runGit(['-C', repoDir, 'worktree', 'list', '--porcelain']);
+  return parseWorktreeList(stdout);
 }
 
 function resolveAndValidatePath(dir: string, filePath: string): string {
@@ -243,13 +345,11 @@ export async function getFileContent(
   dir: string,
   filePath: string,
   ref?: string,
+  runGit: GitRunner = localGitRunner,
 ): Promise<string> {
   if (ref) {
-    const root = await getGitRoot(dir);
-    const { stdout } = await execFileAsync('git', ['show', `${ref}:${filePath}`], {
-      cwd: root,
-      maxBuffer: EXEC_MAX_BUFFER,
-    });
+    const root = await getGitRoot(dir, runGit);
+    const { stdout } = await runGit(['-C', root, 'show', `${ref}:${filePath}`]);
     return stdout;
   }
   const fullPath = resolveAndValidatePath(dir, filePath);

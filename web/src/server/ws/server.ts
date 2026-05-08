@@ -16,6 +16,7 @@ import type {
   GitLogResult,
   GitShowResult,
   GitBranchFilesResult,
+  GitWorktreeListResult,
   ContainerUpResult,
   ExecutionStartResult,
   ExecutionStopResult,
@@ -94,6 +95,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingRemoteFilePull,
     state.pendingRemoteFilePush,
     state.pendingWorktreeMerge,
+    state.pendingGitWorktreeList,
   ] as const;
 
   const error = new Error('Daemon disconnected');
@@ -139,6 +141,11 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'GIT_BRANCH_FILES_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGitBranchFiles, (p) => ({
         files: p.files,
+      }));
+      break;
+    case 'GIT_WORKTREE_LIST_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGitWorktreeList, (p) => ({
+        worktrees: p.worktrees,
       }));
       break;
     case 'CONTAINER_UP_RESPONSE':
@@ -660,34 +667,64 @@ function dispatchDaemonOp<T, P extends object = Record<string, unknown>>(
   });
 }
 
-export function dispatchGitStatus(repoDir: string, state: AppState): Promise<GitStatusResult> {
-  return dispatchDaemonOp(state, state.pendingGitStatus, 'GIT_STATUS_REQUEST', { repoDir });
+export function dispatchGitStatus(
+  repoDir: string,
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<GitStatusResult> {
+  return dispatchDaemonOp(state, state.pendingGitStatus, 'GIT_STATUS_REQUEST', {
+    repoDir,
+    coderWorkspace,
+  });
 }
 
 export function dispatchGitLog(
   repoDir: string,
   state: AppState,
   maxCount?: number,
+  coderWorkspace?: string,
 ): Promise<GitLogResult> {
-  return dispatchDaemonOp(state, state.pendingGitLog, 'GIT_LOG_REQUEST', { repoDir, maxCount });
+  return dispatchDaemonOp(state, state.pendingGitLog, 'GIT_LOG_REQUEST', {
+    repoDir,
+    maxCount,
+    coderWorkspace,
+  });
 }
 
 export function dispatchGitShow(
   repoDir: string,
   commitHash: string,
   state: AppState,
+  coderWorkspace?: string,
 ): Promise<GitShowResult> {
-  return dispatchDaemonOp(state, state.pendingGitShow, 'GIT_SHOW_REQUEST', { repoDir, commitHash });
+  return dispatchDaemonOp(state, state.pendingGitShow, 'GIT_SHOW_REQUEST', {
+    repoDir,
+    commitHash,
+    coderWorkspace,
+  });
 }
 
 export function dispatchGitBranchFiles(
   repoDir: string,
   base: string,
   state: AppState,
+  coderWorkspace?: string,
 ): Promise<GitBranchFilesResult> {
   return dispatchDaemonOp(state, state.pendingGitBranchFiles, 'GIT_BRANCH_FILES_REQUEST', {
     repoDir,
     base,
+    coderWorkspace,
+  });
+}
+
+export function dispatchGitWorktreeList(
+  repoDir: string,
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<GitWorktreeListResult> {
+  return dispatchDaemonOp(state, state.pendingGitWorktreeList, 'GIT_WORKTREE_LIST_REQUEST', {
+    repoDir,
+    coderWorkspace,
   });
 }
 
@@ -702,11 +739,13 @@ export function dispatchFileRead(
   filePath: string,
   state: AppState,
   ref?: string,
+  coderWorkspace?: string,
 ): Promise<FileReadResult> {
   return dispatchDaemonOp(state, state.pendingFileRead, 'FILE_READ_REQUEST', {
     repoDir,
     filePath,
     ref,
+    coderWorkspace,
   });
 }
 
@@ -715,11 +754,13 @@ export function dispatchFileWrite(
   filePath: string,
   content: string,
   state: AppState,
+  coderWorkspace?: string,
 ): Promise<FileWriteResult> {
   return dispatchDaemonOp(state, state.pendingFileWrite, 'FILE_WRITE_REQUEST', {
     repoDir,
     filePath,
     content,
+    coderWorkspace,
   });
 }
 

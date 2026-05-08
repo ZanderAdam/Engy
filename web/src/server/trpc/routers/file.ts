@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { router, publicProcedure } from '../trpc';
 import { dispatchDirList, dispatchFileRead, dispatchFileWrite } from '../../ws/server';
-import { resolveRepoDir, sessionIdParam } from './shared';
 
 export const fileRouter = router({
   listDir: publicProcedure
@@ -20,12 +19,13 @@ export const fileRouter = router({
         repoDir: z.string().min(1),
         filePath: z.string().min(1),
         ref: z.string().optional(),
-        sessionId: sessionIdParam,
+        worktreePath: z.string().optional(),
+        coderWorkspace: z.string().optional(),
       }),
     )
     .query(async ({ input, ctx }) => {
-      const dir = resolveRepoDir(input.repoDir, input.sessionId);
-      return dispatchFileRead(dir, input.filePath, ctx.state, input.ref);
+      const dir = input.worktreePath ?? input.repoDir;
+      return dispatchFileRead(dir, input.filePath, ctx.state, input.ref, input.coderWorkspace);
     }),
 
   write: publicProcedure
@@ -34,11 +34,12 @@ export const fileRouter = router({
         repoDir: z.string().min(1),
         filePath: z.string().min(1),
         content: z.string(),
-        sessionId: sessionIdParam,
+        worktreePath: z.string().optional(),
+        coderWorkspace: z.string().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const dir = resolveRepoDir(input.repoDir, input.sessionId);
-      return dispatchFileWrite(dir, input.filePath, input.content, ctx.state);
+      const dir = input.worktreePath ?? input.repoDir;
+      return dispatchFileWrite(dir, input.filePath, input.content, ctx.state, input.coderWorkspace);
     }),
 });

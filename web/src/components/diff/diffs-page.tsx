@@ -12,7 +12,8 @@ import { DiffHeader } from './diff-header';
 import { ViewModeTabs } from './view-mode-tabs';
 import { CommitList } from './commit-list';
 import { RepoSelector } from './repo-selector';
-import { SessionSelector } from './session-selector';
+import { WorktreeSelector } from './worktree-selector';
+import type { WorktreeSelection } from './worktree-selector';
 import { ReviewActions } from './review-actions';
 import { useDiffComments, extractFilePathFromDocPath } from './use-diff-comments';
 import { useAutoSave } from './use-auto-save';
@@ -46,10 +47,10 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   const [baseBranch, setBaseBranch] = useState('origin/main');
   const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(null);
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedWorktree, setSelectedWorktree] = useState<WorktreeSelection>(null);
 
-  const handleSessionChange = (sessionId: string | null) => {
-    setSelectedSessionId(sessionId);
+  const handleWorktreeChange = (worktree: WorktreeSelection) => {
+    setSelectedWorktree(worktree);
     setSelectedFile(null);
     setSelectedCommit(null);
   };
@@ -83,6 +84,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     setUserSelectedRepo(repo);
     setSelectedFile(null);
     setSelectedCommit(null);
+    setSelectedWorktree(null);
   };
 
   const handleDiffViewModeChange = (mode: DiffViewMode) => {
@@ -98,19 +100,32 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     isLoading: isStatusLoading,
     refetch: refetchStatus,
   } = trpc.diff.getStatus.useQuery(
-    { repoDir: selectedRepo!, sessionId: selectedSessionId ?? undefined },
+    {
+      repoDir: selectedRepo!,
+      worktreePath: selectedWorktree?.worktreePath,
+      coderWorkspace: selectedWorktree?.coderWorkspace,
+    },
     { enabled: !!selectedRepo && diffViewMode === 'latest' },
   );
 
   // Commit history data
   const { data: logData, isLoading: isLogLoading } = trpc.diff.getLog.useQuery(
-    { repoDir: selectedRepo!, sessionId: selectedSessionId ?? undefined },
+    {
+      repoDir: selectedRepo!,
+      worktreePath: selectedWorktree?.worktreePath,
+      coderWorkspace: selectedWorktree?.coderWorkspace,
+    },
     { enabled: !!selectedRepo && diffViewMode === 'history' },
   );
 
   // Commit diff data (for file list)
   const { data: commitDiffData } = trpc.diff.getCommitDiff.useQuery(
-    { repoDir: selectedRepo!, commitHash: selectedCommit!, sessionId: selectedSessionId ?? undefined },
+    {
+      repoDir: selectedRepo!,
+      commitHash: selectedCommit!,
+      worktreePath: selectedWorktree?.worktreePath,
+      coderWorkspace: selectedWorktree?.coderWorkspace,
+    },
     { enabled: !!selectedRepo && !!selectedCommit && diffViewMode === 'history' },
   );
 
@@ -120,7 +135,12 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     isLoading: isBranchLoading,
     error: branchError,
   } = trpc.diff.getBranchDiff.useQuery(
-    { repoDir: selectedRepo!, base: baseBranch, sessionId: selectedSessionId ?? undefined },
+    {
+      repoDir: selectedRepo!,
+      base: baseBranch,
+      worktreePath: selectedWorktree?.worktreePath,
+      coderWorkspace: selectedWorktree?.coderWorkspace,
+    },
     { enabled: !!selectedRepo && diffViewMode === 'branch' && baseBranch.length > 0, retry: false },
   );
 
@@ -175,17 +195,27 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     [files, selectedFile],
   );
 
-  const sessionId = selectedSessionId ?? undefined;
-
   // File content: original
   const { data: originalData } = trpc.file.read.useQuery(
-    { repoDir: selectedRepo!, filePath: selectedFile!, ref: originalRef, sessionId },
+    {
+      repoDir: selectedRepo!,
+      filePath: selectedFile!,
+      ref: originalRef,
+      worktreePath: selectedWorktree?.worktreePath,
+      coderWorkspace: selectedWorktree?.coderWorkspace,
+    },
     { enabled: !!selectedRepo && !!selectedFile && !!originalRef, retry: false },
   );
 
   // File content: modified
   const { data: modifiedData } = trpc.file.read.useQuery(
-    { repoDir: selectedRepo!, filePath: selectedFile!, ref: modifiedRef, sessionId },
+    {
+      repoDir: selectedRepo!,
+      filePath: selectedFile!,
+      ref: modifiedRef,
+      worktreePath: selectedWorktree?.worktreePath,
+      coderWorkspace: selectedWorktree?.coderWorkspace,
+    },
     { enabled: !!selectedRepo && !!selectedFile, retry: false },
   );
 
@@ -204,6 +234,8 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   const { status: saveStatus, save } = useAutoSave(
     diffViewMode === 'latest' ? selectedRepo : null,
     selectedFile,
+    selectedWorktree?.worktreePath,
+    selectedWorktree?.coderWorkspace,
   );
 
   const isFileListLoading =
@@ -241,10 +273,14 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
             selectedRepo={selectedRepo ?? ''}
             onSelectRepo={handleRepoChange}
           />
-          <SessionSelector
-            selectedSessionId={selectedSessionId}
-            onSessionChange={handleSessionChange}
-          />
+          {selectedRepo && (
+            <WorktreeSelector
+              workspaceSlug={workspaceSlug}
+              repoDir={selectedRepo}
+              value={selectedWorktree}
+              onChange={handleWorktreeChange}
+            />
+          )}
         </div>
         <div className="px-3">
           <ReviewActions repoDir={selectedRepo} diffComments={currentFileComments} />

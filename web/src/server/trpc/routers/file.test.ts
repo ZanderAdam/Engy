@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
-import { agentSessions } from '../../db/schema';
 
 describe('file router', () => {
   let ctx: TestContext;
@@ -31,31 +30,31 @@ describe('file router', () => {
       ).rejects.toThrow('No daemon connected');
     });
 
-    it('throws when sessionId not found', async () => {
+    it('uses worktreePath as effective dir when provided', async () => {
       ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 
+      // Still throws no-daemon, but with worktreePath — confirms the input shape is accepted
       await expect(
-        caller.file.read({ repoDir: '/tmp/repo', filePath: 'file.txt', sessionId: 'bad-id' }),
-      ).rejects.toThrow('Session "bad-id" not found');
+        caller.file.read({
+          repoDir: '/tmp/repo',
+          filePath: 'file.txt',
+          worktreePath: '/tmp/worktree',
+        }),
+      ).rejects.toThrow('No daemon connected');
     });
 
-    it('throws when session has no worktree path', async () => {
+    it('accepts coderWorkspace in input', async () => {
       ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
-
-      ctx.db
-        .insert(agentSessions)
-        .values({ sessionId: 'sess-no-wt', status: 'active' })
-        .run();
 
       await expect(
         caller.file.read({
           repoDir: '/tmp/repo',
           filePath: 'file.txt',
-          sessionId: 'sess-no-wt',
+          coderWorkspace: 'my-coder-ws',
         }),
-      ).rejects.toThrow('Session "sess-no-wt" has no worktree path');
+      ).rejects.toThrow('No daemon connected');
     });
   });
 
@@ -69,7 +68,7 @@ describe('file router', () => {
       ).rejects.toThrow('No daemon connected');
     });
 
-    it('throws when sessionId not found', async () => {
+    it('uses worktreePath as effective dir when provided', async () => {
       ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 
@@ -78,9 +77,23 @@ describe('file router', () => {
           repoDir: '/tmp/repo',
           filePath: 'file.txt',
           content: 'hello',
-          sessionId: 'bad-id',
+          worktreePath: '/tmp/worktree',
         }),
-      ).rejects.toThrow('Session "bad-id" not found');
+      ).rejects.toThrow('No daemon connected');
+    });
+
+    it('accepts coderWorkspace in input', async () => {
+      ctx = setupTestDb();
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(
+        caller.file.write({
+          repoDir: '/tmp/repo',
+          filePath: 'file.txt',
+          content: 'hello',
+          coderWorkspace: 'my-coder-ws',
+        }),
+      ).rejects.toThrow('No daemon connected');
     });
   });
 });

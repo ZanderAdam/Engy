@@ -72,6 +72,7 @@ export interface GitStatusRequestMessage {
   payload: {
     requestId: string;
     repoDir: string;
+    coderWorkspace?: string;
   };
 }
 
@@ -97,6 +98,7 @@ export interface GitDiffRequestMessage {
     filePath: string;
     base?: string;
     staged?: boolean;
+    coderWorkspace?: string;
   };
 }
 
@@ -119,6 +121,7 @@ export interface GitLogRequestMessage {
     requestId: string;
     repoDir: string;
     maxCount?: number;
+    coderWorkspace?: string;
   };
 }
 
@@ -141,6 +144,7 @@ export interface GitShowRequestMessage {
     requestId: string;
     repoDir: string;
     commitHash: string;
+    coderWorkspace?: string;
   };
 }
 
@@ -164,6 +168,7 @@ export interface GitBranchFilesRequestMessage {
     requestId: string;
     repoDir: string;
     base: string;
+    coderWorkspace?: string;
   };
 }
 
@@ -178,6 +183,29 @@ export interface GitBranchFilesResponseMessage {
         requestId: string;
         error: string;
       };
+}
+
+export interface GitWorktreeEntry {
+  path: string;
+  branch: string | null;
+  isMain: boolean;
+  isLocked: boolean;
+}
+
+export interface GitWorktreeListRequestMessage {
+  type: 'GIT_WORKTREE_LIST_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    coderWorkspace?: string;
+  };
+}
+
+export interface GitWorktreeListResponseMessage {
+  type: 'GIT_WORKTREE_LIST_RESPONSE';
+  payload:
+    | { requestId: string; worktrees: GitWorktreeEntry[] }
+    | { requestId: string; error: string };
 }
 
 // ── File operations (server ↔ daemon) ────────────────────────────────────────
@@ -204,6 +232,7 @@ export interface FileReadRequestMessage {
     repoDir: string;
     filePath: string;
     ref?: string;
+    coderWorkspace?: string;
   };
 }
 
@@ -221,6 +250,7 @@ export interface FileWriteRequestMessage {
     repoDir: string;
     filePath: string;
     content: string;
+    coderWorkspace?: string;
   };
 }
 
@@ -452,6 +482,8 @@ export type WsMessage =
   | GitShowResponseMessage
   | GitBranchFilesRequestMessage
   | GitBranchFilesResponseMessage
+  | GitWorktreeListRequestMessage
+  | GitWorktreeListResponseMessage
   | DirListRequestMessage
   | DirListResponseMessage
   | FileReadRequestMessage
@@ -490,6 +522,7 @@ export type ClientToServerMessage =
   | GitLogResponseMessage
   | GitShowResponseMessage
   | GitBranchFilesResponseMessage
+  | GitWorktreeListResponseMessage
   | DirListResponseMessage
   | FileReadResponseMessage
   | FileWriteResponseMessage
@@ -515,6 +548,7 @@ export type ServerToClientMessage =
   | GitLogRequestMessage
   | GitShowRequestMessage
   | GitBranchFilesRequestMessage
+  | GitWorktreeListRequestMessage
   | DirListRequestMessage
   | FileReadRequestMessage
   | FileWriteRequestMessage
