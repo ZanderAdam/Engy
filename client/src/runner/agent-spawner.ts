@@ -18,11 +18,16 @@ export interface SpawnConfig {
   timeoutMs?: number;
 }
 
+export interface CompletionMemory {
+  content: string;
+  type?: string;
+}
+
 export interface SpawnResult {
   sessionId: string;
   exitCode: number;
   success: boolean;
-  completion?: { taskCompleted: boolean; summary: string };
+  completion?: { taskCompleted: boolean; summary: string; memories?: CompletionMemory[] };
 }
 
 export const TASK_COMPLETION_SCHEMA = JSON.stringify({
@@ -30,6 +35,17 @@ export const TASK_COMPLETION_SCHEMA = JSON.stringify({
   properties: {
     taskCompleted: { type: 'boolean' },
     summary: { type: 'string' },
+    memories: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          content: { type: 'string' },
+          type: { type: 'string' },
+        },
+        required: ['content'],
+      },
+    },
   },
   required: ['taskCompleted', 'summary'],
 });
@@ -41,7 +57,7 @@ const KILL_GRACE_MS = 5000;
 // coder mode, `coder ssh` allocates a PTY and appends terminal escape
 // sequences after the JSON, which breaks a whole-buffer JSON.parse. Find the
 // JSON line (starts with `{`, ends with `}`) and parse that.
-function extractJsonOutput(stdout: string): { structured_output?: { taskCompleted: boolean; summary: string } } | null {
+function extractJsonOutput(stdout: string): { structured_output?: { taskCompleted: boolean; summary: string; memories?: CompletionMemory[] } } | null {
   try {
     return JSON.parse(stdout);
   } catch {
@@ -237,7 +253,11 @@ export class AgentSpawner {
           const output = extractJsonOutput(stdout);
           const structured = output?.structured_output;
           if (structured && 'taskCompleted' in structured && 'summary' in structured) {
-            completion = { taskCompleted: structured.taskCompleted, summary: structured.summary };
+            completion = {
+              taskCompleted: structured.taskCompleted,
+              summary: structured.summary,
+              memories: structured.memories,
+            };
           }
         }
 

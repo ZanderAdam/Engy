@@ -5,7 +5,7 @@ import { WebSocket } from 'ws';
 import type { AppState } from '../trpc/context';
 import { createWebSocketServer, dispatchValidation, dispatchFileSearch } from './server';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { agentSessions, tasks, projects, workspaces } from '../db/schema';
+import { agentSessions, tasks, projects, workspaces, fleetingMemories } from '../db/schema';
 
 let openClients: WebSocket[] = [];
 
@@ -828,5 +828,197 @@ describe('Execution event handling', () => {
       await new Promise((r) => setTimeout(r, 100));
       expect(ctx.state.pendingWorktreeMerge.size).toBe(0);
     });
+  });
+});
+
+describe('CREATE_MEMORIES_REQUEST', () => {
+  let ctx: TestContext;
+  let server: Server;
+  let port: number;
+
+  beforeEach(async () => {
+    openClients = [];
+    ctx = setupTestDb();
+
+    const result = await startServer(ctx.state);
+    server = result.server;
+    port = result.port;
+  });
+
+  afterEach(async () => {
+    for (const ws of openClients) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.terminate();
+      }
+    }
+    openClients = [];
+    await closeServer(server);
+    ctx.cleanup();
+  });
+
+  it('should insert fleeting memories scoped to the task workspace', async () => {
+    const workspace = ctx.db
+      .insert(workspaces)
+      .values({ name: 'MemWs', slug: 'mem-ws' })
+      .returning()
+      .get();
+    const project = ctx.db
+      .insert(projects)
+      .values({ workspaceId: workspace.id, name: 'Mem Project', slug: 'mem-proj' })
+      .returning()
+      .get();
+    const task = ctx.db
+      .insert(tasks)
+      .values({ title: 'Mem task', projectId: project.id, status: 'in_progress' })
+      .returning()
+      .get();
+    ctx.db
+      .insert(agentSessions)
+      .values({ sessionId: 'mem-session', taskId: task.id, status: 'active' })
+      .run();
+
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+    ws.send(
+      JSON.stringify({
+        type: 'CREATE_MEMORIES_REQUEST',
+        sessionId: 'mem-session',
+        memories: [
+          { content: 'Always use transactions for batch inserts', type: 'capture' },
+          { content: 'Watch out for migration order' },
+        ],
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const inserted = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.workspaceId, workspace.id))
+        .all();
+      expect(inserted).toHaveLength(2);
+    });
+
+    const inserted = ctx.db
+      .select()
+      .from(fleetingMemories)
+      .where(eq(fleetingMemories.workspaceId, workspace.id))
+      .all();
+
+    expect(inserted[0].content).toBe('Always use transactions for batch inserts');
+    expect(inserted[0].type).toBe('capture');
+    expect(inserted[0].source).toBe('agent');
+    expect(inserted[0].workspaceId).toBe(workspace.id);
+
+    expect(inserted[1].content).toBe('Watch out for migration order');
+    expect(inserted[1].type).toBe('capture');
+    expect(inserted[1].source).toBe('agent');
+  });
+
+  it('should default memory type to capture when not specified', async () => {
+    const workspace = ctx.db
+      .insert(workspaces)
+      .values({ name: 'DefWs', slug: 'def-ws' })
+      .returning()
+      .get();
+    const project = ctx.db
+      .insert(projects)
+      .values({ workspaceId: workspace.id, name: 'Def Project', slug: 'def-proj' })
+      .returning()
+      .get();
+    const task = ctx.db
+      .insert(tasks)
+      .values({ title: 'Def task', projectId: project.id, status: 'in_progress' })
+      .returning()
+      .get();
+    ctx.db
+      .insert(agentSessions)
+      .values({ sessionId: 'def-session', taskId: task.id, status: 'active' })
+      .run();
+
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+    ws.send(
+      JSON.stringify({
+        type: 'CREATE_MEMORIES_REQUEST',
+        sessionId: 'def-session',
+        memories: [{ content: 'A memory without type' }],
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const inserted = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.workspaceId, workspace.id))
+        .all();
+      expect(inserted).toHaveLength(1);
+    });
+
+    const [m] = ctx.db
+      .select()
+      .from(fleetingMemories)
+      .where(eq(fleetingMemories.workspaceId, workspace.id))
+      .all();
+    expect(m.type).toBe('capture');
+  });
+
+  it('should log warning and skip when sessionId is unknown', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+    ws.send(
+      JSON.stringify({
+        type: 'CREATE_MEMORIES_REQUEST',
+        sessionId: 'ghost-session',
+        memories: [{ content: 'Should not be inserted' }],
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('ghost-session'));
+    });
+
+    const all = ctx.db.select().from(fleetingMemories).all();
+    expect(all).toHaveLength(0);
+
+    warnSpy.mockRestore();
+  });
+
+  it('should log warning and skip when session has no taskId', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    ctx.db
+      .insert(agentSessions)
+      .values({ sessionId: 'no-task-session', status: 'active' })
+      .run();
+
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+    ws.send(
+      JSON.stringify({
+        type: 'CREATE_MEMORIES_REQUEST',
+        sessionId: 'no-task-session',
+        memories: [{ content: 'Should not be inserted' }],
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no-task-session'));
+    });
+
+    const all = ctx.db.select().from(fleetingMemories).all();
+    expect(all).toHaveLength(0);
+
+    warnSpy.mockRestore();
   });
 });

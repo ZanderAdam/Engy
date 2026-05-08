@@ -434,6 +434,12 @@ export interface ExecutionCompleteEventMessage {
   };
 }
 
+export interface CreateMemoriesRequestMessage {
+  type: 'CREATE_MEMORIES_REQUEST';
+  sessionId: string;
+  memories: Array<{ content: string; type?: string }>;
+}
+
 export type WsMessage =
   | RegisterMessage
   | WorkspacesSyncMessage
@@ -478,7 +484,8 @@ export type WsMessage =
   | ExecutionStopRequestMessage
   | ExecutionStopResponseMessage
   | ExecutionStatusEventMessage
-  | ExecutionCompleteEventMessage;
+  | ExecutionCompleteEventMessage
+  | CreateMemoriesRequestMessage;
 
 export type ClientToServerMessage =
   | RegisterMessage
@@ -504,7 +511,8 @@ export type ClientToServerMessage =
   | ExecutionStartResponseMessage
   | ExecutionStopResponseMessage
   | ExecutionStatusEventMessage
-  | ExecutionCompleteEventMessage;
+  | ExecutionCompleteEventMessage
+  | CreateMemoriesRequestMessage;
 
 export type ServerToClientMessage =
   | WorkspacesSyncMessage

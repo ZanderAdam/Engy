@@ -452,5 +452,88 @@ describe('Runner', () => {
         },
       });
     });
+
+    it('should send CREATE_MEMORIES_REQUEST before EXECUTION_COMPLETE_EVENT when memories present', async () => {
+      createMockGit();
+      const spawner = createMockSpawner({
+        sessionId: 'session-abc',
+        exitCode: 0,
+        success: true,
+        completion: {
+          taskCompleted: true,
+          summary: 'Done',
+          memories: [
+            { content: 'Pattern: always use transactions', type: 'capture' },
+            { content: 'Gotcha: migration order matters' },
+          ],
+        },
+      });
+      const runner = new Runner(spawner, send);
+
+      await runner.start('session-abc', 'implement feature X', [], {
+        repoPath: '/path/to/repo',
+        containerMode: false,
+      });
+
+      const calls = send.mock.calls.map((c: unknown[]) => c[0]) as Array<{ type: string }>;
+      const memoriesCall = calls.find((m) => m.type === 'CREATE_MEMORIES_REQUEST');
+      const completeCall = calls.find((m) => m.type === 'EXECUTION_COMPLETE_EVENT');
+
+      expect(memoriesCall).toEqual({
+        type: 'CREATE_MEMORIES_REQUEST',
+        sessionId: 'session-abc',
+        memories: [
+          { content: 'Pattern: always use transactions', type: 'capture' },
+          { content: 'Gotcha: migration order matters' },
+        ],
+      });
+
+      expect(completeCall).toBeDefined();
+
+      // Memories must be sent before the complete event
+      expect(calls.indexOf(memoriesCall!)).toBeLessThan(calls.indexOf(completeCall!));
+    });
+
+    it('should not send CREATE_MEMORIES_REQUEST when memories are absent', async () => {
+      createMockGit();
+      const spawner = createMockSpawner({
+        sessionId: 'session-abc',
+        exitCode: 0,
+        success: true,
+        completion: { taskCompleted: true, summary: 'Done' },
+      });
+      const runner = new Runner(spawner, send);
+
+      await runner.start('session-abc', 'implement feature X', [], {
+        repoPath: '/path/to/repo',
+        containerMode: false,
+      });
+
+      const memoriesCall = (send.mock.calls as unknown[][]).find(
+        (c) => (c[0] as { type: string }).type === 'CREATE_MEMORIES_REQUEST',
+      );
+      expect(memoriesCall).toBeUndefined();
+    });
+
+    it('should not send CREATE_MEMORIES_REQUEST when memories array is empty', async () => {
+      createMockGit();
+      const spawner = createMockSpawner({
+        sessionId: 'session-abc',
+        exitCode: 0,
+        success: true,
+        completion: { taskCompleted: true, summary: 'Done', memories: [] },
+      });
+      const runner = new Runner(spawner, send);
+
+      await runner.start('session-abc', 'implement feature X', [], {
+        repoPath: '/path/to/repo',
+        containerMode: false,
+      });
+
+      const memoriesCall = (send.mock.calls as unknown[][]).find(
+        (c) => (c[0] as { type: string }).type === 'CREATE_MEMORIES_REQUEST',
+      );
+      expect(memoriesCall).toBeUndefined();
+    });
   });
 });

@@ -49,6 +49,7 @@ export type {
   ExecutionStopResponseMessage,
   ExecutionStatusEventMessage,
   ExecutionCompleteEventMessage,
+  CreateMemoriesRequestMessage,
   TerminalSpawnCmd,
   TerminalInputCmd,
   TerminalResizeCmd,

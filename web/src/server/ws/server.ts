@@ -27,7 +27,7 @@ import type {
   WorktreeMergeResult,
 } from '../trpc/context';
 import { getDb } from '../db/client';
-import { workspaces, agentSessions, tasks, projects } from '../db/schema';
+import { workspaces, agentSessions, tasks, projects, fleetingMemories } from '../db/schema';
 import { handleSpecFileChange } from '../spec/watcher';
 import { taskPlanSlug } from '../plan/service';
 import { broadcastFileChange, broadcastTaskChange } from './broadcast';
@@ -212,6 +212,9 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       break;
     case 'EXECUTION_COMPLETE_EVENT':
       handleExecutionCompleteEvent(msg.payload, state);
+      break;
+    case 'CREATE_MEMORIES_REQUEST':
+      handleCreateMemoriesRequest(msg);
       break;
   }
 }
@@ -495,6 +498,68 @@ function handleExecutionCompleteEvent(
   if (session.taskId) {
     broadcastTaskChange('updated', session.taskId);
   }
+}
+
+function handleCreateMemoriesRequest(msg: {
+  type: 'CREATE_MEMORIES_REQUEST';
+  sessionId: string;
+  memories: Array<{ content: string; type?: string }>;
+}): void {
+  const { sessionId, memories } = msg;
+  console.log(
+    `[ws-main-server] CREATE_MEMORIES_REQUEST: session=${sessionId} count=${memories.length}`,
+  );
+
+  const db = getDb();
+  const session = db
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.sessionId, sessionId))
+    .get();
+
+  if (!session) {
+    console.warn(`[ws-main-server] CREATE_MEMORIES_REQUEST for unknown session: ${sessionId}`);
+    return;
+  }
+
+  const workspaceId = resolveWorkspaceIdFromSession(db, session.taskId);
+  if (!workspaceId) {
+    console.warn(
+      `[ws-main-server] CREATE_MEMORIES_REQUEST: cannot resolve workspaceId for session=${sessionId}`,
+    );
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const rows = memories.map((m) => ({
+    workspaceId,
+    content: m.content,
+    type: (m.type ?? 'capture') as typeof fleetingMemories.$inferInsert.type,
+    source: 'agent' as const,
+    tags: [] as string[],
+    createdAt: now,
+  }));
+
+  db.insert(fleetingMemories).values(rows).run();
+  console.log(
+    `[ws-main-server] Inserted ${rows.length} fleeting memories for workspaceId=${workspaceId}`,
+  );
+}
+
+/** Resolve workspaceId from a session's task (for memory insertion) */
+function resolveWorkspaceIdFromSession(
+  db: ReturnType<typeof getDb>,
+  taskId: number | null,
+): number | null {
+  if (!taskId) return null;
+
+  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+  if (!task?.projectId) return null;
+
+  const project = db.select().from(projects).where(eq(projects.id, task.projectId)).get();
+  if (!project) return null;
+
+  return project.workspaceId;
 }
 
 /** Resolve workspace and project context from a task ID (for post-completion actions) */
