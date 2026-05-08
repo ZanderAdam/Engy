@@ -643,7 +643,8 @@ describe('search router — mocked qmd store', () => {
   let caller: ReturnType<typeof appRouter.createCaller>;
   let workspaceSlug: string;
   let workspaceId: number;
-  let getStoreSpy: ReturnType<typeof vi.spyOn>;
+  // Inferred as MockInstance<(workspaceSlug: string) => Promise<QMDStore>>
+  let getStoreSpy: ReturnType<typeof vi.spyOn<typeof qmdStoreModule, never>>;
 
   beforeEach(async () => {
     // Enable qmd code paths — spy provides the store
