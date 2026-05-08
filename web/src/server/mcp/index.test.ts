@@ -5,6 +5,8 @@ import { eq } from 'drizzle-orm';
 import { getMcpServer } from './index';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { getDb } from '../db/client';
+import { appRouter } from '../trpc/root';
+import { _resetStoreCache } from '../search/qmd-store';
 import {
   workspaces,
   projects,
@@ -12,6 +14,7 @@ import {
   taskGroups,
   taskDependencies,
   fleetingMemories,
+  permanentMemories,
 } from '../db/schema';
 
 // Helper to call an MCP tool by name
@@ -713,6 +716,262 @@ describe('MCP Server', () => {
       const { data } = await call();
 
       expect(data).toHaveLength(1);
+    });
+  });
+
+  describe('index tools', () => {
+    let wsWorkspaceId: number;
+    let wsDir: string;
+    let wsSlug: string;
+
+    beforeEach(async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const ws = await caller.workspace.create({ name: 'Index Test WS' });
+      wsSlug = ws.slug;
+      const db = getDb();
+      const wsRow = db.select().from(workspaces).where(eq(workspaces.slug, ws.slug)).get()!;
+      wsWorkspaceId = wsRow.id;
+      wsDir = path.join(ctx.tmpDir, wsSlug);
+    });
+
+    afterEach(() => {
+      _resetStoreCache();
+    });
+
+    function writeFixture(relPath: string, content: string): void {
+      const abs = path.join(wsDir, relPath);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, content, 'utf8');
+    }
+
+    describe('reindex', () => {
+      it('should return error for non-existent workspace', async () => {
+        const mcp = getMcpServer();
+        const { isError, data } = await callTool(mcp, 'reindex')({ workspaceId: 9999 });
+
+        expect(isError).toBe(true);
+        expect(data.error).toContain('Workspace not found');
+      });
+
+      it('should return per-collection counts for an empty workspace', async () => {
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'reindex')({ workspaceId: wsWorkspaceId });
+
+        expect(isError).toBe(false);
+        expect(data).toHaveProperty('durationMs');
+        expect(data).toHaveProperty('collections');
+        expect(Array.isArray(data.collections)).toBe(true);
+        expect(data.collections).toHaveLength(4);
+      });
+
+      it('should index a new markdown file and return positive indexed count', async () => {
+        writeFixture('docs/guide.md', '---\ntitle: Guide\n---\n\nContent here.\n');
+
+        const mcp = getMcpServer();
+        const { data } = await callTool(mcp, 'reindex')({
+          workspaceId: wsWorkspaceId,
+          collection: 'docs',
+        });
+
+        const docs = data.collections.find(
+          (c: { collection: string }) => c.collection === 'docs',
+        );
+        expect(docs).toBeDefined();
+        expect(docs.indexed + docs.updated).toBeGreaterThanOrEqual(1);
+      });
+
+      it('should accept full:true and return results for all four collections', async () => {
+        writeFixture('system/arch.md', '---\ntitle: Architecture\n---\n');
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'reindex')({
+          workspaceId: wsWorkspaceId,
+          full: true,
+        });
+
+        expect(isError).toBe(false);
+        expect(data.collections).toHaveLength(4);
+      });
+
+      it('should limit to a single collection when collection is specified', async () => {
+        const mcp = getMcpServer();
+        const { data } = await callTool(mcp, 'reindex')({
+          workspaceId: wsWorkspaceId,
+          collection: 'memory',
+        });
+
+        expect(data.collections).toHaveLength(1);
+        expect(data.collections[0].collection).toBe('memory');
+      });
+    });
+
+    describe('indexStatus', () => {
+      it('should return error for non-existent workspace', async () => {
+        const mcp = getMcpServer();
+        const { isError, data } = await callTool(mcp, 'indexStatus')({ workspaceId: 9999 });
+
+        expect(isError).toBe(true);
+        expect(data.error).toContain('Workspace not found');
+      });
+
+      it('should return status with upToDate flag and collection counts', async () => {
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'indexStatus')({
+          workspaceId: wsWorkspaceId,
+        });
+
+        expect(isError).toBe(false);
+        expect(data).toHaveProperty('upToDate');
+        expect(data).toHaveProperty('needsEmbedding');
+        expect(data).toHaveProperty('durationMs');
+        expect(data).toHaveProperty('collections');
+        expect(Array.isArray(data.collections)).toBe(true);
+        expect(data.collections).toHaveLength(4);
+      });
+
+      it('should report unchanged files after an initial reindex', async () => {
+        writeFixture('docs/stable.md', '---\ntitle: Stable\n---\n');
+
+        const mcp = getMcpServer();
+        await callTool(mcp, 'reindex')({ workspaceId: wsWorkspaceId, collection: 'docs' });
+
+        const { data } = await callTool(mcp, 'indexStatus')({ workspaceId: wsWorkspaceId });
+        const docs = data.collections.find(
+          (c: { collection: string }) => c.collection === 'docs',
+        );
+        expect(docs.unchanged).toBeGreaterThan(0);
+      });
+    });
+
+    describe('validateWorkspace', () => {
+      it('should return error for non-existent workspace', async () => {
+        const mcp = getMcpServer();
+        const { isError, data } = await callTool(mcp, 'validateWorkspace')({ workspaceId: 9999 });
+
+        expect(isError).toBe(true);
+        expect(data.error).toContain('Workspace not found');
+      });
+
+      it('should return a report with summary for an empty workspace', async () => {
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'validateWorkspace')({
+          workspaceId: wsWorkspaceId,
+        });
+
+        expect(isError).toBe(false);
+        expect(data).toHaveProperty('workspaceId', wsWorkspaceId);
+        expect(data).toHaveProperty('findings');
+        expect(data).toHaveProperty('summary');
+        expect(data.summary).toMatchObject({
+          errors: expect.any(Number),
+          warnings: expect.any(Number),
+          infos: expect.any(Number),
+          total: expect.any(Number),
+        });
+      });
+
+      it('should detect broken link in linkedMemories', async () => {
+        const db = getDb();
+        db.insert(permanentMemories)
+          .values({
+            workspaceId: wsWorkspaceId,
+            subtype: 'fact',
+            title: 'Broken Link',
+            content: 'body',
+            filePath: 'memory/facts/broken.md',
+            linkedMemories: ['memory/patterns/missing.md'],
+          })
+          .run();
+        writeFixture('memory/facts/broken.md', '---\ntitle: Broken Link\nsubtype: fact\n---\n');
+
+        const mcp = getMcpServer();
+        const { data } = await callTool(mcp, 'validateWorkspace')({
+          workspaceId: wsWorkspaceId,
+        });
+
+        const brokenLinks = data.findings.filter(
+          (f: { check: string }) => f.check === 'broken-links',
+        );
+        expect(brokenLinks.length).toBeGreaterThan(0);
+        expect(brokenLinks[0].severity).toBe('error');
+        expect(brokenLinks[0].message).toContain('missing.md');
+      });
+
+      it('should detect orphaned permanentMemory row when file is missing on disk', async () => {
+        const db = getDb();
+        db.insert(permanentMemories)
+          .values({
+            workspaceId: wsWorkspaceId,
+            subtype: 'fact',
+            title: 'Orphan',
+            content: 'body',
+            filePath: 'memory/facts/orphan.md',
+          })
+          .run();
+
+        const mcp = getMcpServer();
+        const { data } = await callTool(mcp, 'validateWorkspace')({
+          workspaceId: wsWorkspaceId,
+        });
+
+        const orphans = data.findings.filter(
+          (f: { check: string }) => f.check === 'orphaned-content',
+        );
+        expect(orphans.length).toBeGreaterThan(0);
+        expect(orphans[0].severity).toBe('error');
+        expect(orphans[0].path).toBe('memory/facts/orphan.md');
+      });
+
+      it('should detect lifecycle inconsistency for promoted fleeting missing promotedFromId', async () => {
+        const db = getDb();
+        // Insert a fleeting marked as promoted but without a promotedFromId.
+        // The FK schema uses onDelete: 'set null', so deleting the permanent sets
+        // promotedFromId to null — that's the warning case we're testing here.
+        db.insert(fleetingMemories)
+          .values({
+            workspaceId: wsWorkspaceId,
+            content: 'A learning',
+            type: 'capture',
+            source: 'agent',
+            promoted: true,
+          })
+          .run();
+
+        const mcp = getMcpServer();
+        const { data } = await callTool(mcp, 'validateWorkspace')({
+          workspaceId: wsWorkspaceId,
+        });
+
+        const lcIssues = data.findings.filter(
+          (f: { check: string }) => f.check === 'lifecycle-consistency',
+        );
+        expect(lcIssues.length).toBeGreaterThan(0);
+        expect(lcIssues[0].severity).toBe('warning');
+        expect(lcIssues[0].message).toContain('promotedFromId');
+      });
+
+      it('should detect schema compliance issue for memory file missing title', async () => {
+        writeFixture(
+          'memory/facts/202501010001-no-title.md',
+          '---\nsubtype: fact\n---\n\nNo title here.\n',
+        );
+        await callTool(getMcpServer(), 'reindex')({
+          workspaceId: wsWorkspaceId,
+          collection: 'memory',
+        });
+
+        const mcp = getMcpServer();
+        const { data } = await callTool(mcp, 'validateWorkspace')({
+          workspaceId: wsWorkspaceId,
+        });
+
+        const schemaIssues = data.findings.filter(
+          (f: { check: string }) => f.check === 'schema-compliance',
+        );
+        expect(
+          schemaIssues.some((f: { message: string }) => f.message.includes('title')),
+        ).toBe(true);
+      });
     });
   });
 });

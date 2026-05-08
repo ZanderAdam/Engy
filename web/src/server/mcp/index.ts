@@ -23,6 +23,8 @@ import { readTaskPlan } from '../plan/service';
 import { broadcastTaskChange, broadcastQuestionChange } from '../ws/broadcast';
 import { taskStatusSchema } from '@/lib/task-status';
 import { writePermanentMemory } from '../lib/memory-files';
+import { update as indexerUpdate, forceFullReindex } from '../search/indexer';
+import { validateWorkspace as runValidateWorkspace } from '../search/validate';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 
@@ -60,6 +62,7 @@ export function getMcpServer(): McpServer {
   registerTaskGroupTools(mcp);
   registerMemoryTools(mcp);
   registerQuestionTools(mcp);
+  registerIndexTools(mcp);
 
   return mcp;
 }
@@ -889,6 +892,95 @@ function registerMemoryTools(mcp: McpServer): void {
       });
 
       return mcpResult({ permanentMemoryId: result.id, filePath });
+    },
+  );
+}
+
+function registerIndexTools(mcp: McpServer): void {
+  mcp.tool(
+    'reindex',
+    'Re-index workspace content into the qmd hybrid search store. Returns per-collection counts.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      collection: z
+        .enum(['system', 'docs', 'projects', 'memory'])
+        .optional()
+        .describe('Limit to one collection (default: all four)'),
+      full: z
+        .boolean()
+        .default(false)
+        .describe('Force full rebuild — clears and re-adds every collection from scratch'),
+    },
+    async ({ workspaceId, collection, full }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const started = Date.now();
+      let results;
+      try {
+        if (full) {
+          results = await forceFullReindex(ws.slug);
+        } else {
+          results = await indexerUpdate(ws.slug, collection);
+        }
+      } catch (err) {
+        return mcpError(`Reindex failed: ${(err as Error).message}`);
+      }
+
+      return mcpResult({
+        durationMs: Date.now() - started,
+        collections: results,
+      });
+    },
+  );
+
+  mcp.tool(
+    'indexStatus',
+    'Report per-collection index status without modifying content. unchanged === fileCount means up-to-date.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+    },
+    async ({ workspaceId }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const started = Date.now();
+      let results;
+      try {
+        results = await indexerUpdate(ws.slug);
+      } catch (err) {
+        return mcpError(`Status check failed: ${(err as Error).message}`);
+      }
+
+      const totalNeedsEmbedding = results.reduce((sum, r) => sum + r.needsEmbedding, 0);
+      return mcpResult({
+        durationMs: Date.now() - started,
+        upToDate: totalNeedsEmbedding === 0,
+        needsEmbedding: totalNeedsEmbedding,
+        collections: results,
+      });
+    },
+  );
+
+  mcp.tool(
+    'validateWorkspace',
+    'Run integrity checks on workspace knowledge files and report findings grouped by severity.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+    },
+    async ({ workspaceId }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      try {
+        const report = await runValidateWorkspace(ws);
+        return mcpResult(report);
+      } catch (err) {
+        return mcpError(`Validation failed: ${(err as Error).message}`);
+      }
     },
   );
 }
