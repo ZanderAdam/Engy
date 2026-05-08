@@ -648,7 +648,7 @@ function registerTaskGroupTools(mcp: McpServer): void {
 function registerMemoryTools(mcp: McpServer): void {
   mcp.tool(
     'createFleetingMemory',
-    'Create a fleeting memory note for quick capture',
+    'Create a fleeting memory note for quick capture. Pass sources[] with paths under memory/sources/ or memory/references/ that triggered this note.',
     {
       workspaceId: z.number().describe('Workspace ID'),
       content: z.string().describe('Memory content'),
@@ -658,10 +658,18 @@ function registerMemoryTools(mcp: McpServer): void {
         .describe('Memory type'),
       source: z.enum(['agent', 'user', 'system']).default('agent').describe('Memory source'),
       tags: z.array(z.string()).default([]).describe('Tags for organization'),
+      sources: z
+        .array(z.string())
+        .optional()
+        .describe('Paths under memory/sources/ or memory/references/ that triggered this note'),
     },
-    async (args) => {
+    async ({ sources, ...rest }) => {
       const db = getDb();
-      const memory = db.insert(fleetingMemories).values(args).returning().get();
+      const memory = db
+        .insert(fleetingMemories)
+        .values({ ...rest, sources: sources ?? [] })
+        .returning()
+        .get();
       return mcpResult(memory);
     },
   );
