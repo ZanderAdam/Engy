@@ -408,6 +408,73 @@ export function readReferenceRecord(filePath: string): ReferenceRecordFile {
   };
 }
 
+// ── Rewrite: Permanent Memory ────────────────────────────────────────
+
+/**
+ * Rewrite an existing permanent memory file in place.
+ *
+ * Unlike writePermanentMemory, this does NOT generate a new timestamped filename.
+ * It reads the existing filePath, validates it lives under memory/{subtype}/,
+ * overwrites it with the new frontmatter + body, regenerates the README chain,
+ * and commits with a memory(edit) message.
+ *
+ * @returns The (unchanged) relative filePath.
+ */
+export async function rewritePermanentMemory(
+  workspaceDir: string,
+  existingRelPath: string,
+  fm: PermanentMemoryFrontmatter,
+  body: string,
+): Promise<string> {
+  if (fm.sources) {
+    for (const s of fm.sources) validateSourcePath(s, workspaceDir);
+  }
+  if (fm.linkedMemories) {
+    for (const l of fm.linkedMemories) validateLinkedMemoryPath(l, workspaceDir);
+  }
+
+  // Validate that the path is under a known memory subtype directory.
+  const allowed = Object.values(SUBTYPE_DIR_MAP).map((dirName) => `memory/${dirName}`);
+  assertWithinAllowedDirs(existingRelPath, workspaceDir, allowed, 'Memory file path');
+
+  const safeFm = {
+    ...fm,
+    keywords: fm.keywords ?? [],
+    themes: fm.themes ?? [],
+    tags: fm.tags ?? [],
+    linkedMemories: fm.linkedMemories ?? [],
+    scenarioIds: fm.scenarioIds ?? [],
+    sources: fm.sources ?? [],
+  };
+
+  const safeBody = escapeIndexMarkers(body);
+  const fileContent = matter.stringify(safeBody, safeFm);
+  const absPath = path.isAbsolute(existingRelPath)
+    ? existingRelPath
+    : path.join(workspaceDir, existingRelPath);
+  fs.writeFileSync(absPath, fileContent, 'utf8');
+
+  const relPath = path.relative(workspaceDir, absPath).replace(/\\/g, '/');
+  const msgBody = [
+    `subtype: ${fm.subtype}`,
+    fm.repo ? `repo: ${fm.repo}` : null,
+    `title: ${fm.title}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  regenerateReadmeChain(absPath);
+
+  const readmePaths = collectReadmePaths(workspaceDir, absPath);
+  await commitFile(
+    workspaceDir,
+    [absPath, ...readmePaths],
+    `memory(edit): ${fm.title}\n\nmemory_id: ${relPath}\n${msgBody}`,
+  );
+
+  return relPath;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────
 
 function collectReadmePaths(workspaceDir: string, filePath: string): string[] {

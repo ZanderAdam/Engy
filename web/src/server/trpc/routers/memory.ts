@@ -9,11 +9,10 @@ import { workspaces, permanentMemories, fleetingMemories } from '../../db/schema
 import { getWorkspaceDir } from '../../engy-dir/init';
 import {
   writePermanentMemory,
-  escapeIndexMarkers,
+  rewritePermanentMemory,
   type PermanentMemoryFrontmatter,
 } from '../../lib/memory-files';
 import { simpleGit } from 'simple-git';
-import matter from 'gray-matter';
 import { autoLink } from '../../search/auto-linker';
 
 const memorySubtypeSchema = z.enum(['decision', 'pattern', 'fact', 'convention', 'insight']);
@@ -110,48 +109,6 @@ function resolveWorkspace(workspaceSlug: string) {
   return ws;
 }
 
-async function rewriteMemoryFile(
-  workspaceDir: string,
-  filePath: string,
-  fm: {
-    title: string;
-    subtype: string;
-    repo?: string | null;
-    confidence?: number | null;
-    keywords?: string[];
-    themes?: string[];
-    tags?: string[];
-    linkedMemories?: string[];
-    scenarioIds?: string[];
-    sources?: string[];
-  },
-  body: string,
-): Promise<void> {
-  const safeFm = {
-    title: fm.title,
-    subtype: fm.subtype,
-    ...(fm.repo != null ? { repo: fm.repo } : {}),
-    ...(fm.confidence != null ? { confidence: fm.confidence } : {}),
-    keywords: fm.keywords ?? [],
-    themes: fm.themes ?? [],
-    tags: fm.tags ?? [],
-    linkedMemories: fm.linkedMemories ?? [],
-    scenarioIds: fm.scenarioIds ?? [],
-    sources: fm.sources ?? [],
-  };
-
-  const safeBody = escapeIndexMarkers(body);
-  const fileContent = matter.stringify(safeBody, safeFm);
-  const absPath = path.isAbsolute(filePath) ? filePath : path.join(workspaceDir, filePath);
-  fs.writeFileSync(absPath, fileContent, 'utf8');
-
-  const git = simpleGit(workspaceDir);
-  const relPath = path.relative(workspaceDir, absPath).replace(/\\/g, '/');
-  await git.add([relPath]);
-  await git.commit(`memory(edit): ${fm.title}\n\nmemory_id: ${relPath}\nsubtype: ${fm.subtype}`, {
-    '--allow-empty': null,
-  });
-}
 
 async function deleteMemoryFile(workspaceDir: string, filePath: string, title: string): Promise<void> {
   const absPath = path.isAbsolute(filePath) ? filePath : path.join(workspaceDir, filePath);
@@ -233,7 +190,7 @@ export const memoryRouter = router({
 
     if (existing.filePath) {
       const workspaceDir = getWorkspaceDir(ws);
-      await rewriteMemoryFile(workspaceDir, existing.filePath, merged, merged.content);
+      await rewritePermanentMemory(workspaceDir, existing.filePath, buildMemoryFrontmatter(merged), merged.content);
     }
 
     const supersededByIdUpdate =
@@ -311,8 +268,15 @@ export const memoryRouter = router({
         or(like(permanentMemories.title, pattern), like(permanentMemories.content, pattern))!,
       );
     }
+    if (input.tags && input.tags.length > 0) {
+      for (const tag of input.tags) {
+        conditions.push(
+          sql`EXISTS (SELECT 1 FROM json_each(${permanentMemories.tags}) WHERE value = ${tag})` as ReturnType<typeof eq>,
+        );
+      }
+    }
 
-    let rows = db
+    return db
       .select()
       .from(permanentMemories)
       .where(and(...conditions))
@@ -320,15 +284,6 @@ export const memoryRouter = router({
       .limit(input.limit)
       .offset(input.offset)
       .all();
-
-    if (input.tags && input.tags.length > 0) {
-      rows = rows.filter((row) => {
-        const rowTags = (row.tags as string[]) ?? [];
-        return input.tags!.every((tag) => rowTags.includes(tag));
-      });
-    }
-
-    return rows;
   }),
 
   promote: publicProcedure.input(promoteInput).mutation(async ({ input }) => {

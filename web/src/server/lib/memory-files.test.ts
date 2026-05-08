@@ -5,6 +5,7 @@ import { simpleGit } from 'simple-git';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   writePermanentMemory,
+  rewritePermanentMemory,
   readPermanentMemory,
   writeSourceSnapshot,
   readSourceSnapshot,
@@ -177,6 +178,84 @@ describe('memory-files', () => {
       const git = simpleGit(workspaceDir);
       const log = await git.log();
       expect(log.total).toBeGreaterThan(1);
+    });
+  });
+
+  describe('rewritePermanentMemory', () => {
+    it('should rewrite the existing file in place without creating a new one', async () => {
+      const relPath = await writePermanentMemory(
+        workspaceDir,
+        { title: 'Original', subtype: 'fact' as const },
+        'Original body.',
+      );
+
+      await rewritePermanentMemory(
+        workspaceDir,
+        relPath,
+        { title: 'Rewritten', subtype: 'fact' as const },
+        'Rewritten body.',
+      );
+
+      // Same path, updated content
+      const absPath = path.join(workspaceDir, relPath);
+      expect(fs.existsSync(absPath)).toBe(true);
+      const raw = fs.readFileSync(absPath, 'utf8');
+      expect(raw).toContain('Rewritten');
+      expect(raw).toContain('Rewritten body.');
+
+      // No new file created (README.md may exist from readme chain, exclude it)
+      const dir = path.join(workspaceDir, 'memory', 'facts');
+      const mdFiles = fs.readdirSync(dir).filter((f) => f.endsWith('.md') && f !== 'README.md');
+      expect(mdFiles).toHaveLength(1);
+    });
+
+    it('should return the same relative path', async () => {
+      const relPath = await writePermanentMemory(
+        workspaceDir,
+        { title: 'Stable', subtype: 'decision' as const },
+        'body',
+      );
+      fs.mkdirSync(path.join(workspaceDir, 'memory', 'decisions'), { recursive: true });
+
+      const returned = await rewritePermanentMemory(
+        workspaceDir,
+        relPath,
+        { title: 'Stable', subtype: 'decision' as const },
+        'updated body',
+      );
+
+      expect(returned).toBe(relPath);
+    });
+
+    it('should create a git commit with memory(edit) message', async () => {
+      const relPath = await writePermanentMemory(
+        workspaceDir,
+        { title: 'Commit Test', subtype: 'insight' as const },
+        'body',
+      );
+      fs.mkdirSync(path.join(workspaceDir, 'memory', 'insights'), { recursive: true });
+
+      await rewritePermanentMemory(
+        workspaceDir,
+        relPath,
+        { title: 'Commit Test', subtype: 'insight' as const },
+        'updated body',
+      );
+
+      const git = simpleGit(workspaceDir);
+      const log = await git.log();
+      expect(log.latest?.message).toContain('memory(edit)');
+    });
+
+    it('should reject a path outside memory subtype dirs', async () => {
+      await expect(
+        rewritePermanentMemory(
+          workspaceDir,
+          'memory/sources/some-source.md',
+          { title: 'Bad Path', subtype: 'fact' as const },
+          'body',
+        ),
+      ).rejects.toThrow('must resolve under');
     });
   });
 

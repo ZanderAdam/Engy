@@ -23,8 +23,9 @@ import { getWorkspaceDir, resolveProjectDir } from '../engy-dir/init';
 import { readTaskPlan } from '../plan/service';
 import { broadcastTaskChange, broadcastQuestionChange } from '../ws/broadcast';
 import { taskStatusSchema } from '@/lib/task-status';
-import { writePermanentMemory } from '../lib/memory-files';
-import { update as indexerUpdate, forceFullReindex } from '../search/indexer';
+import { writePermanentMemory, rewritePermanentMemory } from '../lib/memory-files';
+import { update as indexerUpdate, forceFullReindex, updateAndEmbed } from '../search/indexer';
+import { autoLink } from '../search/auto-linker';
 import { validateWorkspace as runValidateWorkspace } from '../search/validate';
 import { getStore } from '../search/qmd-store';
 
@@ -745,6 +746,10 @@ function registerMemoryTools(mcp: McpServer): void {
         .returning()
         .get();
 
+      autoLink(memory.id, ws.slug).catch((err) =>
+        console.error('[autoLink] createPermanentMemory failed:', err),
+      );
+
       return mcpResult({ id: memory.id, filePath });
     },
   );
@@ -779,33 +784,35 @@ function registerMemoryTools(mcp: McpServer): void {
 
       const workspaceDir = getWorkspaceDir(ws);
 
+      if (!existing.filePath) {
+        return mcpError('Memory has no file path — cannot update in place');
+      }
+
       const resolvedTitle = updates.title ?? existing.title;
       const resolvedContent = updates.content ?? existing.content;
       const resolvedSubtype = existing.subtype;
 
+      const fm = {
+        subtype: resolvedSubtype,
+        title: resolvedTitle,
+        repo: 'repo' in updates ? (updates.repo ?? undefined) : (existing.repo ?? undefined),
+        confidence:
+          'confidence' in updates
+            ? (updates.confidence ?? undefined)
+            : (existing.confidence ?? undefined),
+        keywords: updates.keywords ?? existing.keywords ?? [],
+        themes: updates.themes ?? existing.themes ?? [],
+        tags: updates.tags ?? existing.tags ?? [],
+        scenarioIds: updates.scenarioIds ?? existing.scenarioIds ?? [],
+        sources: updates.sources ?? existing.sources ?? [],
+        linkedMemories: updates.linkedMemories ?? existing.linkedMemories ?? [],
+      };
+
       let filePath: string;
       try {
-        filePath = await writePermanentMemory(
-          workspaceDir,
-          {
-            subtype: resolvedSubtype,
-            title: resolvedTitle,
-            repo: 'repo' in updates ? (updates.repo ?? undefined) : (existing.repo ?? undefined),
-            confidence:
-              'confidence' in updates
-                ? (updates.confidence ?? undefined)
-                : (existing.confidence ?? undefined),
-            keywords: updates.keywords ?? existing.keywords ?? [],
-            themes: updates.themes ?? existing.themes ?? [],
-            tags: updates.tags ?? existing.tags ?? [],
-            scenarioIds: updates.scenarioIds ?? existing.scenarioIds ?? [],
-            sources: updates.sources ?? existing.sources ?? [],
-            linkedMemories: updates.linkedMemories ?? existing.linkedMemories ?? [],
-          },
-          resolvedContent,
-        );
+        filePath = await rewritePermanentMemory(workspaceDir, existing.filePath, fm, resolvedContent);
       } catch (err) {
-        return mcpError(`Failed to write memory file: ${(err as Error).message}`);
+        return mcpError(`Failed to rewrite memory file: ${(err as Error).message}`);
       }
 
       db.update(permanentMemories)
@@ -894,6 +901,10 @@ function registerMemoryTools(mcp: McpServer): void {
         return permanent;
       });
 
+      autoLink(result.id, ws.slug).catch((err) =>
+        console.error('[autoLink] promoteMemory failed:', err),
+      );
+
       return mcpResult({ permanentMemoryId: result.id, filePath });
     },
   );
@@ -924,8 +935,12 @@ function registerIndexTools(mcp: McpServer): void {
       try {
         if (full) {
           results = await forceFullReindex(ws.slug);
+          // Trigger embed pass after full rebuild; errors are non-fatal
+          getStore(ws.slug)
+            .then((store) => store.embed())
+            .catch((err) => console.error('[reindex] embed error after full reindex:', err));
         } else {
-          results = await indexerUpdate(ws.slug, collection);
+          results = await updateAndEmbed(ws.slug, collection);
         }
       } catch (err) {
         return mcpError(`Reindex failed: ${(err as Error).message}`);

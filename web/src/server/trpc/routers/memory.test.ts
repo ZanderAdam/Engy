@@ -149,6 +149,33 @@ describe('memory router', () => {
       expect(raw).toContain('Updated content');
     });
 
+    it('should rewrite the file in place (same path, no orphan)', async () => {
+      const created = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'In-place update',
+        content: 'Original',
+      });
+
+      const originalPath = created.filePath!;
+
+      await caller.memory.update({
+        id: created.id,
+        content: 'Updated in place',
+      });
+
+      const wsDir = path.join(ctx.tmpDir, workspaceSlug);
+      // Original file is still there
+      expect(fs.existsSync(path.join(wsDir, originalPath))).toBe(true);
+      const raw = fs.readFileSync(path.join(wsDir, originalPath), 'utf8');
+      expect(raw).toContain('Updated in place');
+
+      // Only one non-README file in the subtype dir
+      const subtypeDir = path.join(wsDir, 'memory', 'facts');
+      const mdFiles = fs.readdirSync(subtypeDir).filter((f) => f.endsWith('.md') && f !== 'README.md');
+      expect(mdFiles).toHaveLength(1);
+    });
+
     it('should merge partial updates, preserving existing fields', async () => {
       const created = await caller.memory.create({
         workspaceSlug,
@@ -312,6 +339,20 @@ describe('memory router', () => {
       const page2 = await caller.memory.list({ workspaceSlug, limit: 2, offset: 2 });
       expect(page1.length).toBe(2);
       expect(page2.length).toBe(1);
+    });
+
+    it('should apply tag filter via SQL before pagination so limit is honoured', async () => {
+      // 3 items seeded in beforeEach; only 1 has the 'auth' tag.
+      // With limit=2 offset=0: should return exactly that 1 match (not 0 due to post-filter trimming).
+      const result = await caller.memory.list({ workspaceSlug, tags: ['auth'], limit: 2, offset: 0 });
+      expect(result.length).toBe(1);
+      expect(result[0].title).toBe('JWT fact');
+    });
+
+    it('should return correct page when tag filter is combined with offset', async () => {
+      // With 1 match for 'auth' and offset=1, result should be empty (not the 1 match)
+      const result = await caller.memory.list({ workspaceSlug, tags: ['auth'], limit: 2, offset: 1 });
+      expect(result.length).toBe(0);
     });
 
     it('should throw NOT_FOUND for unknown workspace', async () => {

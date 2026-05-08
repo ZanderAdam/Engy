@@ -5,6 +5,7 @@ import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { getWorkspaceDir, initMemoryDirs } from './init';
+import { update as indexerUpdate } from '../search/indexer';
 
 /**
  * Ensures an existing pre-M7 workspace has the full M7 directory and README
@@ -30,6 +31,17 @@ export async function backfillM7(workspaceSlug: string): Promise<void> {
     throw new Error(`Workspace directory does not exist: ${workspaceDir}`);
   }
 
+  // Ensure the qmd binary search store is not committed to the workspace git repo.
+  const gitignorePath = path.join(workspaceDir, '.gitignore');
+  if (!fs.existsSync(gitignorePath)) {
+    fs.writeFileSync(gitignorePath, '.qmd/\n', 'utf8');
+  } else {
+    const existing = fs.readFileSync(gitignorePath, 'utf8');
+    if (!existing.includes('.qmd')) {
+      fs.writeFileSync(gitignorePath, `${existing}.qmd/\n`, 'utf8');
+    }
+  }
+
   initMemoryDirs(workspaceDir);
 
   // Commit any newly created files if inside a git repo
@@ -40,7 +52,12 @@ export async function backfillM7(workspaceSlug: string): Promise<void> {
     await git.commit('memory(init): backfill M7 directories');
   }
 
-  // TODO TG3-T2: invoke WorkspaceIndexer.update() to populate qmd and frontmatter table
+  // Populate the qmd store and frontmatter table for this workspace.
+  try {
+    await indexerUpdate(workspaceSlug);
+  } catch (err) {
+    console.error(`[backfillM7] indexer update failed for ${workspaceSlug}:`, err);
+  }
 }
 
 /**
