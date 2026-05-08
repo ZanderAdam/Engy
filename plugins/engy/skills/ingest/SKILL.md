@@ -1,0 +1,208 @@
+---
+name: engy:ingest
+description: Ingest external content (URL, file path, raw text, transcript) into the knowledge layer. Snapshots non-durable sources, links durable ones, drafts a fleeting distillation, dispatches research, and proposes candidate edits to existing notes.
+---
+
+# Ingest External Content
+
+Takes a URL, file path, raw text, or transcript reference (e.g., a Granola meeting ID) and walks it through the full knowledge-layer ingestion pipeline: classify → write source record → distill → research → propose edits → reindex.
+
+## MCP Tools
+
+- `mcp__Engy__listWorkspaces` — resolve workspaceId when not in context
+- `mcp__Engy__getWorkspaceDetails` — resolve workspace paths (`paths.memoryDir`)
+- `mcp__Engy__createFleetingMemory` — draft the fleeting distillation
+- `mcp__Engy__reindex` — trigger incremental memory reindex after writing
+
+## Process
+
+### Step 1: Classify Durability
+
+Determine whether the source is **durable** (link) or **non-durable** (snapshot):
+
+**Link (durable)** — stable content that is unlikely to change or disappear:
+- Internal docs and stable repo paths (include a commit SHA if possible)
+- Versioned public RFCs and official specs (IETF, W3C, ISO)
+- Versioned release notes or changelogs at a pinned tag
+
+**Snapshot (non-durable)** — transient or link-rot-prone content:
+- Slack threads, Discord messages, internal chat
+- Meeting transcripts (including Granola)
+- Blog posts, articles, Medium posts, Substack
+- PDFs from arbitrary URLs, emails, podcasts, whiteboard photos
+
+**URL fetch validation (applies when the input is a URL):**
+- Reject non-HTTP schemes (`file://`, `javascript:`, `gopher://`, etc.) — print an error and stop.
+- Cap fetched body at **5 MB**. If the response exceeds this, truncate and note `[truncated — original was N bytes]`.
+- Cap the extracted markdown snapshot body at **2 MB**. Truncate with the same marker if needed.
+- Cap redirect chains at **5 hops**. If exceeded, report the final URL reached and ask the user whether to proceed.
+
+**Granola transcripts:**
+- Fetch via `mcp__claude_ai_Granola__get_meeting_transcript` (or other `mcp__claude_ai_Granola__*` tools as needed).
+- If Granola MCP tools are not present, print: "Granola MCP is not configured. Install and configure the Granola MCP server, then retry." and stop.
+- Treat the result as a snapshot.
+
+**Very large sources** (e.g., a long meeting transcript): consider dispatching a dedicated Task for the classify + distill step (step 3) to keep the main context light. For typical sources, the main agent handles everything inline.
+
+### Step 2: Write the Source Record
+
+Write the source record to disk **before** dispatching research. This ensures the research subagent reads from the immutable on-disk artifact, not transient text.
+
+Resolve `memoryDir` via `mcp__Engy__getWorkspaceDetails`. If `memoryDir` is not available from context, fall back to `{workspaceDir}/memory/`.
+
+#### Link (durable source)
+
+Create `memory/references/{slug}.md` with frontmatter only — no content body:
+
+```markdown
+---
+url: <canonical URL>
+type: <rfc | spec | repo | docs | release-notes>
+title: <human-readable title>
+description: <one-sentence summary>
+---
+```
+
+#### Snapshot (non-durable source)
+
+Create `memory/sources/{YYYYMMDDHHmm}-{slug}.md` with provenance frontmatter and the full snapshot body:
+
+```markdown
+---
+url: <source URL, or omit if not a URL>
+origin: <human-readable origin — e.g. "Granola meeting 2025-05-07", "email from alice@example.com">
+source_type: <article | transcript | slack | email | pdf | podcast | other>
+ingester: engy:ingest
+title: <human-readable title>
+ingested_at: <ISO 8601 timestamp>
+---
+
+<snapshot content here>
+```
+
+**Slug generation:** lowercase the title, replace spaces and special characters with hyphens, limit to 40 characters.
+
+**Deduplication:** the server's `writeSourceSnapshot` helper dedupes by SHA-256. If the file already exists at the computed path, print "Source already on disk — reusing existing path: `<path>`" and proceed with the existing path.
+
+**Write surface:** use the built-in Write tool. If the workspace exposes a `dir.write` MCP tool (check `web/src/server/mcp/index.ts`), use that instead.
+
+### Step 3: Draft a Fleeting Distillation
+
+Call `mcp__Engy__createFleetingMemory` with a four-part distillation as the `content`:
+
+```
+mcp__Engy__createFleetingMemory({
+  workspaceId: <id>,
+  type: 'capture',
+  source: 'agent',
+  tags: ['ingest'],
+  content: `Source: <source-path>
+
+**Core claim:** <the single most important assertion or finding>
+
+**What surprised:** <what was unexpected or non-obvious>
+
+**Connects to:** <related topics, decisions, or existing notes this links to>
+
+**Contradicts:** <any prior positions or notes this conflicts with, or "nothing identified">
+`
+})
+```
+
+> **TODO:** `mcp__Engy__createFleetingMemory` does not currently accept a `sources` field in its schema (`workspaceId`, `content`, `type`, `source`, `projectId`, `tags` only). Include the source path inline in the `content` body as shown above until `sources: [<source-path>]` is added to the schema.
+
+Note the returned `distillationId` (memory `id`) for the commit message.
+
+### Step 4: Dispatch the Research Subagent
+
+Invoke the `engy:research` subagent to find related permanent notes and surface contradictions:
+
+```
+Task({
+  subagent_type: 'engy:research',
+  prompt: '<source content summary> — find related permanent notes and contradictions. Context: workspace=<slug><, repo=<repo-name> if source is repo-related>'
+})
+```
+
+Pass the first ~500 words of the snapshot (or the reference title + description for links) as the source content summary. Include `filters.repo` in the prompt when the source is clearly scoped to one repo.
+
+Hold the returned `## Findings` digest for step 5.
+
+### Step 5: Propose Candidate Edits
+
+If the research digest identifies existing permanent notes that should be updated in light of the new source:
+
+1. Read the affected file(s) fully before editing.
+2. Apply the minimum change needed — add a new section, update a claim, or add a cross-reference (`linkedMemories`, `sources`, or `scenarioIds` frontmatter).
+3. Write the change using the Edit tool. Do **not** commit.
+
+Changes land as uncommitted working-tree diffs. The user reviews them in the diff viewer's "Latest Changes" mode and accepts (commits) or reverts per the standard batched review flow. No special approval UI is required.
+
+If no existing notes warrant changes, print "No candidate edits — no existing notes need updating." and continue.
+
+### Step 6: Commit
+
+The server-side commit helpers fire automatically when source records and distillations are written. Each commit uses the `memory(ingest):` convention (FR-TG1.8) with structured fields in the commit body:
+
+```
+memory(ingest): <slug>
+
+source_path: memory/sources/<filename>.md
+distillation_id: <fleeting memory id>
+candidate_edits: <list of edited note paths, or "none">
+contradictions: <list of contradicted note paths, or "none">
+```
+
+If you need to write a manual commit (e.g., for candidate edits), follow this format. Use `git log --grep='^memory(ingest):'` to audit the operations log.
+
+### Step 7: Trigger Reindex
+
+Call the `reindex` MCP tool to update the memory search index:
+
+```
+mcp__Engy__reindex({
+  workspaceId: <id>,
+  collection: 'memory',
+  full: false
+})
+```
+
+Print the structured counts returned by the tool, for example:
+
+```
+Reindex complete.
+  Indexed:          3
+  Unchanged:        0
+  Needs embedding:  2  (embedding runs in background)
+```
+
+If `needsEmbedding > 0`, note: "Embedding will complete in the background — search relevance improves as it finishes."
+
+## Output Format
+
+After all steps complete, print a summary:
+
+```
+Ingest complete.
+
+  Source:         memory/sources/20250507-1430-my-article.md   (snapshot)
+  Distillation:   fleeting memory #<id>
+  Candidate edits: memory/decisions/my-decision.md              (1 file)
+  Reindex:        3 indexed, 0 unchanged, 2 needsEmbedding
+
+Next: run /engy:review-memories to promote the distillation when ready.
+```
+
+## Key Principles
+
+- **Write source record first** — research reads from disk, not from prompt context. Never dispatch research before the source file exists on disk.
+- **No auto-promotion** — the fleeting distillation joins the standard `/engy:review-memories` lifecycle. Ingestion never promotes memories automatically.
+- **Main agent by default** — classify, write, and distill in the main agent context. Dispatch a Task subagent only for very large sources (long transcripts).
+- **Candidate edits are uncommitted** — user reviews via diff viewer before any permanent note is changed.
+- **Fetch safety** — enforce the 5 MB / 2 MB / 5-hop limits even if the user overrides; truncate rather than fail silently.
+
+## Flow Position
+
+**Typical trigger:** user pastes a URL, drops a transcript reference, or wants to capture a document into the workspace memory.
+
+**Next step:** `/engy:review-memories` — promotes the drafted distillation when the user is ready.
