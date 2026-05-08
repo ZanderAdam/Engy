@@ -78,40 +78,32 @@ const SUBTYPE_DIR_MAP: Record<MemorySubtype, string> = {
 
 const VALID_MEMORY_SUBTYPES: MemorySubtype[] = Object.keys(SUBTYPE_DIR_MAP) as MemorySubtype[];
 
-export function validateSourcePath(sourcePath: string, workspaceDir: string): void {
-  if (path.isAbsolute(sourcePath)) {
-    throw new Error(
-      `Source path must be relative, got absolute path: ${sourcePath}`,
-    );
+function assertWithinAllowedDirs(
+  relPath: string,
+  workspaceDir: string,
+  allowedDirs: string[],
+  errorContext: string,
+): void {
+  if (path.isAbsolute(relPath)) {
+    throw new Error(`${errorContext} must be relative, got absolute path: ${relPath}`);
   }
-  if (sourcePath.split('/').includes('..') || sourcePath.includes('..')) {
-    throw new Error(`Source path must not contain '..' segments: ${sourcePath}`);
+  if (relPath.split(/[/\\]/).includes('..')) {
+    throw new Error(`${errorContext} must not contain '..' segments: ${relPath}`);
   }
-  const resolved = path.resolve(workspaceDir, sourcePath);
-  const allowed = VALID_SOURCE_DIRS.map((d) => path.resolve(workspaceDir, d));
+  const resolved = path.resolve(workspaceDir, relPath);
+  const allowed = allowedDirs.map((d) => path.resolve(workspaceDir, d));
   if (!allowed.some((dir) => resolved.startsWith(dir + path.sep) || resolved === dir)) {
-    throw new Error(
-      `Source path must resolve under memory/sources/ or memory/references/, got: ${sourcePath}`,
-    );
+    throw new Error(`${errorContext} must resolve under ${allowedDirs.join(' or ')}, got: ${relPath}`);
   }
 }
 
+export function validateSourcePath(sourcePath: string, workspaceDir: string): void {
+  assertWithinAllowedDirs(sourcePath, workspaceDir, VALID_SOURCE_DIRS, 'Source path');
+}
+
 export function validateLinkedMemoryPath(linkedPath: string, workspaceDir: string): void {
-  if (path.isAbsolute(linkedPath)) {
-    throw new Error(`Linked memory path must be relative, got absolute: ${linkedPath}`);
-  }
-  if (linkedPath.split('/').includes('..') || linkedPath.includes('..')) {
-    throw new Error(`Linked memory path must not contain '..' segments: ${linkedPath}`);
-  }
-  const resolved = path.resolve(workspaceDir, linkedPath);
-  const allowed = Object.values(SUBTYPE_DIR_MAP).map((dirName) =>
-    path.resolve(workspaceDir, 'memory', dirName),
-  );
-  if (!allowed.some((dir) => resolved.startsWith(dir + path.sep) || resolved === dir)) {
-    throw new Error(
-      `Linked memory path must resolve under memory/{subtype}/, got: ${linkedPath}`,
-    );
-  }
+  const allowed = Object.values(SUBTYPE_DIR_MAP).map((dirName) => `memory/${dirName}`);
+  assertWithinAllowedDirs(linkedPath, workspaceDir, allowed, 'Linked memory path');
 }
 
 // ── Frontmatter parsing ──────────────────────────────────────────────

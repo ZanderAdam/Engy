@@ -45,17 +45,13 @@ function extractDescription(filePath: string): string {
 
   // Try first non-empty prose line (skip frontmatter block and headings)
   const lines = raw.split('\n');
-  let inFrontmatter = false;
-  let frontmatterDone = false;
   let delimCount = 0;
   for (const line of lines) {
     if (line.trim() === '---') {
       delimCount++;
-      if (delimCount === 1) { inFrontmatter = true; continue; }
-      if (delimCount === 2) { inFrontmatter = false; frontmatterDone = true; continue; }
+      continue;
     }
-    if (inFrontmatter) continue;
-    if (!frontmatterDone && delimCount < 2) continue;
+    if (delimCount < 2) continue;
     const trimmed = line.trim();
     if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('<!--')) {
       return trimmed.slice(0, 80);

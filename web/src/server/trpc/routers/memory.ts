@@ -383,10 +383,10 @@ export const memoryRouter = router({
           confidence: input.confidence ?? 1.0,
           keywords: input.keywords ?? [],
           themes: input.themes ?? [],
-          tags: input.tags ?? (fleeting.tags as string[]) ?? [],
+          tags: promoteTags,
           linkedMemories: input.linkedMemories ?? [],
           scenarioIds: input.scenarioIds ?? [],
-          sources: input.sources ?? (fleeting.sources as string[]) ?? [],
+          sources: promoteSources,
           filePath,
         })
         .returning()

@@ -165,7 +165,7 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
           .where(eq(permanentMemories.id, memoryId))
           .run();
         // Keep local state in sync for next iteration
-        (memory.linkedMemories as string[]) = updatedSrcLinks;
+        memory.linkedMemories = updatedSrcLinks;
       } catch {
         // non-fatal
       }

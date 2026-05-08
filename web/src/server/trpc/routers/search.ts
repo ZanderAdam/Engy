@@ -105,6 +105,14 @@ function buildFrontmatterConditions(
 }
 
 /**
+ * Derive a title from a file path when no frontmatter is available.
+ */
+function titleFromPath(filePath: string): string {
+  const base = filePath.split('/').pop() ?? filePath;
+  return base.replace(/\.md$/, '').replace(/[-_]/g, ' ');
+}
+
+/**
  * Extract a title from a frontmatter JSON data string.
  * Falls back to a name derived from the file path.
  */
@@ -115,16 +123,7 @@ function extractTitle(dataJson: string, filePath: string): string {
   } catch {
     // ignore parse errors
   }
-  const base = filePath.split('/').pop() ?? filePath;
-  return base.replace(/\.md$/, '').replace(/[-_]/g, ' ');
-}
-
-/**
- * Derive a title from a file path when no frontmatter is available.
- */
-function titleFromPath(filePath: string): string {
-  const base = filePath.split('/').pop() ?? filePath;
-  return base.replace(/\.md$/, '').replace(/[-_]/g, ' ');
+  return titleFromPath(filePath);
 }
 
 /**
