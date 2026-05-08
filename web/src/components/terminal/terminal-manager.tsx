@@ -11,6 +11,7 @@ import { TerminalDockWatermark } from "./terminal-dock-watermark";
 import { TerminalDockActions } from "./terminal-dock-actions";
 import { useOnServerEvent } from "@/contexts/events-context";
 import { useOptionalTab } from "@/components/tabs/tab-context";
+import { randomId } from "@/lib/random-id";
 
 interface InjectEvent {
   context: string;
@@ -130,7 +131,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     const api = dockviewApiRef.current;
     if (!api) return;
 
-    const sessionId = crypto.randomUUID();
+    const sessionId = randomId();
     const newTab: TerminalTab = {
       sessionId,
       scope: finalScope,

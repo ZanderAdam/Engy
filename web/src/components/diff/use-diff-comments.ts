@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo } from 'react';
 import { trpc } from '@/lib/trpc';
+import { randomId } from '@/lib/random-id';
 
 export interface DiffComment {
   threadId: string;
@@ -81,8 +82,8 @@ export function useDiffComments(repoDir: string | null) {
     side: 'modified' | 'original' = 'modified',
   ) => {
     if (!repoDir) return;
-    const threadId = crypto.randomUUID();
-    const commentId = crypto.randomUUID();
+    const threadId = randomId();
+    const commentId = randomId();
     await createThread.mutateAsync({
       documentPath: makeDiffDocPath(repoDir, filePath),
       threadId,
@@ -92,7 +93,7 @@ export function useDiffComments(repoDir: string | null) {
   };
 
   const replyToThread = async (threadId: string, text: string) => {
-    const commentId = crypto.randomUUID();
+    const commentId = randomId();
     await addComment.mutateAsync({ threadId, commentId, body: text });
   };
 

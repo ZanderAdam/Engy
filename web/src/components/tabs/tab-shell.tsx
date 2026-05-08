@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { usePathname, useSearchParams } from 'next/navigation';
 import { RiAddLine, RiCloseLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
+import { randomId } from '@/lib/random-id';
 import { HeaderActions } from '@/components/header-actions';
 import { TabContext, type TabContextValue } from './tab-context';
 import { TabContent } from './tab-content';
@@ -21,7 +22,7 @@ const PERSIST_DEBOUNCE_MS = 200;
 function makeTab(virtualPath: string): Tab {
   const path = normalizeVirtualPath(virtualPath);
   return {
-    id: crypto.randomUUID(),
+    id: randomId(),
     virtualPath: path,
     title: deriveDefaultTitle(path),
     lastActiveAt: Date.now(),

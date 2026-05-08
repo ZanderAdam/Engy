@@ -9,6 +9,7 @@ import {
 import { createTRPCClient, httpBatchLink } from '@trpc/client';
 import superjson from 'superjson';
 import type { AppRouter } from '@/server/trpc/root';
+import { randomId } from '@/lib/random-id';
 
 export { DefaultThreadStoreAuth };
 
@@ -265,8 +266,8 @@ export class EngyThreadStore extends ThreadStore implements CommentStore {
     initialComment: { body: CommentBody; metadata?: unknown };
     metadata?: unknown;
   }): Promise<ThreadData> {
-    const threadId = crypto.randomUUID();
-    const commentId = crypto.randomUUID();
+    const threadId = randomId();
+    const commentId = randomId();
     const now = new Date();
 
     const thread: ThreadData = {
@@ -306,7 +307,7 @@ export class EngyThreadStore extends ThreadStore implements CommentStore {
     comment: { body: CommentBody; metadata?: unknown };
     threadId: string;
   }): Promise<CommentData> {
-    const commentId = crypto.randomUUID();
+    const commentId = randomId();
     const now = new Date();
     const commentData: CommentData = {
       type: 'comment',
