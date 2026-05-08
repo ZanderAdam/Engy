@@ -27,6 +27,34 @@ const QMD_AVAILABLE = process.env.QMD_AVAILABLE === '1';
 // Tests that need qmd will clear this flag inside their beforeEach.
 process.env.QMD_SKIP = '1';
 
+/** Insert a frontmatter row directly into the given db, bypassing the indexer. */
+function insertFrontmatterRow(
+  db: TestContext['db'],
+  workspaceId: number,
+  collection: 'system' | 'docs' | 'projects' | 'memory',
+  filePath: string,
+  data: Record<string, unknown> | string,
+): void {
+  const dataJson = typeof data === 'string' ? data : JSON.stringify(data);
+  db.insert(frontmatter)
+    .values({
+      workspaceId,
+      collection,
+      path: filePath,
+      data: dataJson,
+      indexedAt: new Date().toISOString(),
+    })
+    .onConflictDoUpdate({
+      target: [frontmatter.workspaceId, frontmatter.path],
+      set: {
+        collection,
+        data: dataJson,
+        indexedAt: new Date().toISOString(),
+      },
+    })
+    .run();
+}
+
 describe('search router', () => {
   let ctx: TestContext;
   let caller: ReturnType<typeof appRouter.createCaller>;
@@ -63,26 +91,9 @@ describe('search router', () => {
   function insertFrontmatter(
     collection: 'system' | 'docs' | 'projects' | 'memory',
     filePath: string,
-    data: Record<string, unknown>,
+    data: Record<string, unknown> | string,
   ): void {
-    ctx.db
-      .insert(frontmatter)
-      .values({
-        workspaceId,
-        collection,
-        path: filePath,
-        data: JSON.stringify(data),
-        indexedAt: new Date().toISOString(),
-      })
-      .onConflictDoUpdate({
-        target: [frontmatter.workspaceId, frontmatter.path],
-        set: {
-          collection,
-          data: JSON.stringify(data),
-          indexedAt: new Date().toISOString(),
-        },
-      })
-      .run();
+    insertFrontmatterRow(ctx.db, workspaceId, collection, filePath, data);
   }
 
   async function insertTaskInWorkspace(title: string, description?: string, status = 'todo') {
@@ -395,16 +406,7 @@ describe('search router', () => {
         // Insert a row with deliberately broken JSON to exercise the catch branch in extractTitle.
         // The status-only filter runs a frontmatter query with no JSON1 conditions, so the broken
         // row passes through and extractTitle must silently handle the parse failure.
-        ctx.db
-          .insert(frontmatter)
-          .values({
-            workspaceId,
-            collection: 'docs',
-            path: 'docs/broken-json.md',
-            data: 'NOT_VALID_JSON',
-            indexedAt: new Date().toISOString(),
-          })
-          .run();
+        insertFrontmatter('docs', 'docs/broken-json.md', 'NOT_VALID_JSON');
 
         // status-only filter → frontmatter query returns ALL rows (no JSON1 condition on data)
         const result = await caller.search.query({
@@ -671,24 +673,7 @@ describe('search router — mocked qmd store', () => {
     filePath: string,
     data: Record<string, unknown>,
   ): void {
-    ctx.db
-      .insert(frontmatter)
-      .values({
-        workspaceId,
-        collection,
-        path: filePath,
-        data: JSON.stringify(data),
-        indexedAt: new Date().toISOString(),
-      })
-      .onConflictDoUpdate({
-        target: [frontmatter.workspaceId, frontmatter.path],
-        set: {
-          collection,
-          data: JSON.stringify(data),
-          indexedAt: new Date().toISOString(),
-        },
-      })
-      .run();
+    insertFrontmatterRow(ctx.db, workspaceId, collection, filePath, data);
   }
 
   function mockSearchResults(
