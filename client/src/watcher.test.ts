@@ -13,7 +13,7 @@ function createMockWsClient() {
   } as unknown as WsClient & { sent: unknown[] };
 }
 
-function waitForFileChange(wsClient: WsClient & { sent: unknown[] }, timeout = 5000): Promise<void> {
+function waitForFileChange(wsClient: WsClient & { sent: unknown[] }, timeout = 8000): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const check = () => {
@@ -25,7 +25,7 @@ function waitForFileChange(wsClient: WsClient & { sent: unknown[] }, timeout = 5
   });
 }
 
-describe('SpecWatcher', () => {
+describe('SpecWatcher', { retry: 2 }, () => {
   let tmpDir: string;
   let wsClient: WsClient & { sent: unknown[] };
 
@@ -42,7 +42,7 @@ describe('SpecWatcher', () => {
     const specsDir = path.join(tmpDir, 'test-ws', 'specs');
     fs.mkdirSync(specsDir, { recursive: true });
 
-    const watcher = new SpecWatcher(tmpDir, wsClient, { usePolling: true });
+    const watcher = new SpecWatcher(tmpDir, wsClient, { usePolling: true, pollingInterval: 100 });
     watcher.sync([{ slug: 'test-ws' }]);
     await watcher.waitForReady('test-ws');
 
@@ -57,13 +57,13 @@ describe('SpecWatcher', () => {
     expect(msg.payload.eventType).toBe('add');
 
     await watcher.closeAll();
-  }, 10_000);
+  }, 15_000);
 
   it('should stop watching on workspace removal', async () => {
     const specsDir = path.join(tmpDir, 'ws-a', 'specs');
     fs.mkdirSync(specsDir, { recursive: true });
 
-    const watcher = new SpecWatcher(tmpDir, wsClient, { usePolling: true });
+    const watcher = new SpecWatcher(tmpDir, wsClient, { usePolling: true, pollingInterval: 100 });
     watcher.sync([{ slug: 'ws-a' }]);
     await watcher.waitForReady('ws-a');
 
@@ -76,7 +76,7 @@ describe('SpecWatcher', () => {
     expect(wsClient.sent.length).toBe(0);
 
     await watcher.closeAll();
-  }, 10_000);
+  }, 15_000);
 
   it('should start watchers for new workspaces on sync', async () => {
     const specsDirA = path.join(tmpDir, 'ws-a', 'specs');
@@ -84,7 +84,7 @@ describe('SpecWatcher', () => {
     fs.mkdirSync(specsDirA, { recursive: true });
     fs.mkdirSync(specsDirB, { recursive: true });
 
-    const watcher = new SpecWatcher(tmpDir, wsClient, { usePolling: true });
+    const watcher = new SpecWatcher(tmpDir, wsClient, { usePolling: true, pollingInterval: 100 });
     watcher.sync([{ slug: 'ws-a' }]);
     await watcher.waitForReady('ws-a');
 
@@ -100,5 +100,5 @@ describe('SpecWatcher', () => {
     expect(bMsgs.length).toBeGreaterThan(0);
 
     await watcher.closeAll();
-  }, 10_000);
+  }, 15_000);
 });

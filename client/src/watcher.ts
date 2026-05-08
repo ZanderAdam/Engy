@@ -10,7 +10,14 @@ interface WatchedWorkspace {
 
 interface SpecWatcherOptions {
   usePolling?: boolean;
+  pollingInterval?: number;
 }
+
+// Polling default avoids libuv FSEvents interference with node-pty master-fd
+// reads on macOS, which silently drops PTY child output. Spec dirs are small
+// so 1s polling is cheap.
+const DEFAULT_USE_POLLING = true;
+const DEFAULT_POLLING_INTERVAL_MS = 1_000;
 
 export class SpecWatcher {
   private watchers = new Map<string, FSWatcher>();
@@ -54,9 +61,9 @@ export class SpecWatcher {
       ignoreInitial: true,
       depth: 10,
     };
-    if (this.options.usePolling) {
+    if (this.options.usePolling ?? DEFAULT_USE_POLLING) {
       watchOptions.usePolling = true;
-      watchOptions.interval = 100;
+      watchOptions.interval = this.options.pollingInterval ?? DEFAULT_POLLING_INTERVAL_MS;
     }
 
     // Use docsDir if set, otherwise default to ENGY_DIR/slug
