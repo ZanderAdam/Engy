@@ -36,6 +36,27 @@ For single-repo workspaces, these rules are effectively no-ops — all tasks nat
 
 **One milestone per run.** Do not plan multiple milestones unless the user explicitly asks.
 
+### Level 1.5: Research Prior Knowledge
+
+Before writing the milestone plan body, dispatch the `engy:research` subagent to surface relevant prior decisions, patterns, and architectural context from the workspace knowledge graph:
+
+```
+Task({
+  subagent_type: 'engy:research',
+  prompt: '<milestone name and domain description> — context: project=<slug>, milestone=<id>, repo=<repo-or-empty>'
+})
+```
+
+The subagent returns a digest with 3–8 cited findings. Fold it into the milestone plan document in the **Codebase Context** section or immediately after the **Overview**, wrapped in markers:
+
+```markdown
+<!-- engy:research synthesized YYYY-MM-DD -->
+<digest content>
+<!-- /engy:research -->
+```
+
+The markers let future readers identify LLM-synthesized content and re-run the research step. When the milestone is repo-local, include `filters.repo` in the prompt. This step runs after Level 1 (milestone selection confirmed) and before writing the plan document.
+
 ### Level 2: Plan Milestone Details (Groups and Tasks)
 
 For the selected milestone:

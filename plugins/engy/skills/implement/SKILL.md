@@ -76,6 +76,20 @@ After all implementation tasks are done:
 5. Run any manual checks specified in project config (e.g., test in Chrome).
 6. On success: commit the changes, mark all session tasks completed.
 
+## Capture Learnings as Memories
+
+When you discover non-obvious patterns, gotchas, or architectural decisions during implementation:
+
+- **In-flight capture**: call `updateTask(id, { memories: [{ content, type? }] })` alongside any status update. Do this immediately when you learn something surprising — don't wait until the end.
+- **Completion output**: include a `memories` array in your structured completion JSON for any learnings not already captured mid-task.
+
+What makes a good memory: short, concrete, surprising. Save what would force a future agent to re-learn through trial and error. Do not save things discoverable by reading the code (file structures, function signatures) — save the reasoning, gotchas, and non-obvious decisions.
+
+**Examples of good memories:**
+- "drizzle-kit generate must run after any schema.ts change or migrations won't include the new column"
+- "the AppState singleton uses globalThis to survive Next.js HMR — never instantiate it inside a request handler"
+- "WebSocket request-response uses a pending map pattern — response handler must delete the map entry or memory leaks"
+
 ## Engy Task Status Flow
 
 When working from an Engy task, update its status via `updateTask(id, status)`:
