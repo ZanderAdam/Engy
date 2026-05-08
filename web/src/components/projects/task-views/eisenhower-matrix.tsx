@@ -14,6 +14,8 @@ import {
 import { TaskCard } from '@/components/projects/task-card';
 import { DraggableTaskCard } from '@/components/projects/task-views/draggable-task-card';
 import { DroppableZone } from '@/components/projects/task-views/droppable-zone';
+import { CollapsedLaneStrip } from '@/components/projects/task-views/collapsed-lane-strip';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 import type { Task } from '@/components/projects/types';
@@ -55,8 +57,10 @@ export function EisenhowerMatrix({
   selectedIds?: Set<number>;
   onTaskSelect?: (id: number) => void;
 }) {
+  const isMobile = useIsMobile();
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [pendingMoves, setPendingMoves] = useState<Record<number, PendingMove>>({});
+  const [expandedKey, setExpandedKey] = useState<string>('important--urgent');
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -126,38 +130,88 @@ export function EisenhowerMatrix({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-px bg-border">
-        {quadrants.map((q) => {
-          const items = tasksForQuadrant(q);
-          const droppableId = `${q.importance}--${q.urgency}`;
-          return (
-            <DroppableZone
-              key={q.label}
-              id={droppableId}
-              className="flex min-h-0 flex-col gap-2 bg-background p-3"
-            >
-              <span className="shrink-0 text-xs font-medium text-muted-foreground">{q.label}</span>
-              <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
-                {items.map((task) => (
-                  <DraggableTaskCard
-                    key={task.id}
-                    task={task}
-                    projectSlug={projectSlug}
-                    onClick={() => onTaskClick?.(task.id)}
-                    className="rounded-none border border-border"
-                    selectable={selectable}
-                    selected={selectedIds?.has(task.id)}
-                    onSelect={onTaskSelect}
-                  />
-                ))}
-                {items.length === 0 && (
-                  <p className="py-4 text-center text-xs text-muted-foreground">No tasks</p>
-                )}
-              </div>
-            </DroppableZone>
-          );
-        })}
-      </div>
+      {isMobile ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-px bg-border">
+          {quadrants.map((q) => {
+            const items = tasksForQuadrant(q);
+            const droppableId = `${q.importance}--${q.urgency}`;
+            if (expandedKey === droppableId) {
+              return (
+                <DroppableZone
+                  key={q.label}
+                  id={droppableId}
+                  className="flex min-h-0 flex-1 flex-col gap-2 bg-background p-3"
+                >
+                  <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                    {q.label}
+                  </span>
+                  <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
+                    {items.map((task) => (
+                      <DraggableTaskCard
+                        key={task.id}
+                        task={task}
+                        projectSlug={projectSlug}
+                        onClick={() => onTaskClick?.(task.id)}
+                        className="rounded-none border border-border"
+                        selectable={selectable}
+                        selected={selectedIds?.has(task.id)}
+                        onSelect={onTaskSelect}
+                      />
+                    ))}
+                    {items.length === 0 && (
+                      <p className="py-4 text-center text-xs text-muted-foreground">No tasks</p>
+                    )}
+                  </div>
+                </DroppableZone>
+              );
+            }
+            return (
+              <CollapsedLaneStrip
+                key={q.label}
+                droppableId={droppableId}
+                label={q.label}
+                count={items.length}
+                onExpand={() => setExpandedKey(droppableId)}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-px bg-border">
+          {quadrants.map((q) => {
+            const items = tasksForQuadrant(q);
+            const droppableId = `${q.importance}--${q.urgency}`;
+            return (
+              <DroppableZone
+                key={q.label}
+                id={droppableId}
+                className="flex min-h-0 flex-col gap-2 bg-background p-3"
+              >
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                  {q.label}
+                </span>
+                <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
+                  {items.map((task) => (
+                    <DraggableTaskCard
+                      key={task.id}
+                      task={task}
+                      projectSlug={projectSlug}
+                      onClick={() => onTaskClick?.(task.id)}
+                      className="rounded-none border border-border"
+                      selectable={selectable}
+                      selected={selectedIds?.has(task.id)}
+                      onSelect={onTaskSelect}
+                    />
+                  ))}
+                  {items.length === 0 && (
+                    <p className="py-4 text-center text-xs text-muted-foreground">No tasks</p>
+                  )}
+                </div>
+              </DroppableZone>
+            );
+          })}
+        </div>
+      )}
       <DragOverlay dropAnimation={null}>
         {activeTask && (
           <TaskCard task={activeTask} className="rounded-none border border-border shadow-lg" />
