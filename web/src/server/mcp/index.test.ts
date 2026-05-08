@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type MockedFunction } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { getMcpServer } from './index';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
@@ -15,7 +15,20 @@ import {
   taskDependencies,
   fleetingMemories,
   permanentMemories,
+  frontmatter,
 } from '../db/schema';
+
+vi.mock('../search/qmd-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../search/qmd-store')>();
+  return {
+    ...actual,
+    // Default to calling through to the real implementation; search tests override per-test.
+    getStore: vi.fn(actual.getStore),
+  };
+});
+
+import { getStore } from '../search/qmd-store';
+const mockGetStore = getStore as MockedFunction<typeof getStore>;
 
 // Helper to call an MCP tool by name
 function callTool(mcp: ReturnType<typeof getMcpServer>, name: string) {
@@ -971,6 +984,243 @@ describe('MCP Server', () => {
         expect(
           schemaIssues.some((f: { message: string }) => f.message.includes('title')),
         ).toBe(true);
+      });
+    });
+  });
+
+  describe('search tool', () => {
+    let wsId: number;
+    let wsSlugForSearch: string;
+
+    beforeEach(async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const ws = await caller.workspace.create({ name: 'Search Test WS' });
+      wsSlugForSearch = ws.slug;
+      const db = getDb();
+      const wsRow = db.select().from(workspaces).where(eq(workspaces.slug, ws.slug)).get()!;
+      wsId = wsRow.id;
+    });
+
+    afterEach(() => {
+      _resetStoreCache();
+      vi.restoreAllMocks();
+    });
+
+    it('should return error when workspace not found', async () => {
+      const mcp = getMcpServer();
+      const { isError, data } = await callTool(mcp, 'search')({
+        workspaceId: 99999,
+        query: 'test',
+      });
+      expect(isError).toBe(true);
+      expect(data.error).toContain('Workspace not found');
+    });
+
+    it('should return error when neither query nor filters provided', async () => {
+      const mcp = getMcpServer();
+      const { isError, data } = await callTool(mcp, 'search')({ workspaceId: wsId });
+      expect(isError).toBe(true);
+      expect(data.error).toContain('at least one of');
+    });
+
+    describe('filters-only mode', () => {
+      it('should filter by task status', async () => {
+        const db = getDb();
+        const proj = db
+          .insert(projects)
+          .values({ workspaceId: wsId, name: 'P1', slug: 'p1-search' })
+          .returning()
+          .get();
+        db.insert(tasks).values({ title: 'Done Task', projectId: proj.id, status: 'done' }).run();
+        db.insert(tasks).values({ title: 'Todo Task', projectId: proj.id, status: 'todo' }).run();
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          filters: { status: 'done' },
+        });
+
+        expect(isError).toBe(false);
+        const taskGroup = data.find((g: { collection: string }) => g.collection === 'tasks');
+        expect(taskGroup).toBeDefined();
+        expect(taskGroup.results).toHaveLength(1);
+        expect(taskGroup.results[0].title).toBe('Done Task');
+      });
+
+      it('should filter frontmatter by tags using JSON1 membership', async () => {
+        const db = getDb();
+        db.insert(frontmatter)
+          .values({
+            workspaceId: wsId,
+            collection: 'memory',
+            path: 'memory/facts/tagged.md',
+            data: JSON.stringify({ title: 'Tagged Memory', tags: ['auth', 'security'] }),
+            indexedAt: new Date().toISOString(),
+          })
+          .run();
+        db.insert(frontmatter)
+          .values({
+            workspaceId: wsId,
+            collection: 'memory',
+            path: 'memory/facts/other.md',
+            data: JSON.stringify({ title: 'Other Memory', tags: ['unrelated'] }),
+            indexedAt: new Date().toISOString(),
+          })
+          .run();
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          filters: { tags: ['auth'] },
+        });
+
+        expect(isError).toBe(false);
+        const memGroup = data.find((g: { collection: string }) => g.collection === 'memory');
+        expect(memGroup).toBeDefined();
+        expect(memGroup.results).toHaveLength(1);
+        expect(memGroup.results[0].title).toBe('Tagged Memory');
+      });
+
+      it('should filter by linkedMemories for reverse-link queries', async () => {
+        const db = getDb();
+        const targetPath = 'memory/facts/target.md';
+        db.insert(frontmatter)
+          .values({
+            workspaceId: wsId,
+            collection: 'memory',
+            path: 'memory/facts/linker.md',
+            data: JSON.stringify({ title: 'Linker Memory', linkedMemories: [targetPath] }),
+            indexedAt: new Date().toISOString(),
+          })
+          .run();
+        db.insert(frontmatter)
+          .values({
+            workspaceId: wsId,
+            collection: 'memory',
+            path: 'memory/facts/unlinked.md',
+            data: JSON.stringify({ title: 'Unlinked', linkedMemories: [] }),
+            indexedAt: new Date().toISOString(),
+          })
+          .run();
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          filters: { linkedMemories: [targetPath] },
+        });
+
+        expect(isError).toBe(false);
+        const memGroup = data.find((g: { collection: string }) => g.collection === 'memory');
+        expect(memGroup).toBeDefined();
+        expect(memGroup.results.some((r: { title: string }) => r.title === 'Linker Memory')).toBe(true);
+        expect(memGroup.results.some((r: { title: string }) => r.title === 'Unlinked')).toBe(false);
+      });
+
+      it('should scope to collection when collection filter is provided', async () => {
+        const db = getDb();
+        db.insert(frontmatter)
+          .values({
+            workspaceId: wsId,
+            collection: 'memory',
+            path: 'memory/facts/mem.md',
+            data: JSON.stringify({ title: 'Mem', tags: ['shared-tag'] }),
+            indexedAt: new Date().toISOString(),
+          })
+          .run();
+        db.insert(frontmatter)
+          .values({
+            workspaceId: wsId,
+            collection: 'docs',
+            path: 'docs/guide.md',
+            data: JSON.stringify({ title: 'Guide', tags: ['shared-tag'] }),
+            indexedAt: new Date().toISOString(),
+          })
+          .run();
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          collection: 'memory',
+          filters: { tags: ['shared-tag'] },
+        });
+
+        expect(isError).toBe(false);
+        expect(data.every((g: { collection: string }) => g.collection === 'memory')).toBe(true);
+      });
+    });
+
+    describe('query-only mode (QMD_SKIP=1)', () => {
+      beforeEach(() => {
+        process.env.QMD_SKIP = '1';
+      });
+      afterEach(() => {
+        delete process.env.QMD_SKIP;
+      });
+
+      it('should search tasks by LIKE query', async () => {
+        const db = getDb();
+        const proj = db
+          .insert(projects)
+          .values({ workspaceId: wsId, name: 'P2', slug: 'p2-search' })
+          .returning()
+          .get();
+        db.insert(tasks).values({ title: 'Fix auth bug', projectId: proj.id }).run();
+        db.insert(tasks).values({ title: 'Unrelated task', projectId: proj.id }).run();
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          query: 'auth',
+        });
+
+        expect(isError).toBe(false);
+        const taskGroup = data.find((g: { collection: string }) => g.collection === 'tasks');
+        expect(taskGroup).toBeDefined();
+        expect(taskGroup.results.some((r: { title: string }) => r.title === 'Fix auth bug')).toBe(true);
+      });
+
+      it('should return empty results when nothing matches', async () => {
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          query: 'zzz-no-match-ever',
+        });
+
+        expect(isError).toBe(false);
+        expect(data).toEqual([]);
+      });
+    });
+
+    describe('query + filters mode (QMD_SKIP=1)', () => {
+      beforeEach(() => {
+        process.env.QMD_SKIP = '1';
+      });
+      afterEach(() => {
+        delete process.env.QMD_SKIP;
+      });
+
+      it('should apply task status filter when both query and filters provided', async () => {
+        const db = getDb();
+        const proj = db
+          .insert(projects)
+          .values({ workspaceId: wsId, name: 'P3', slug: 'p3-search' })
+          .returning()
+          .get();
+        db.insert(tasks).values({ title: 'Done Auth Task', projectId: proj.id, status: 'done' }).run();
+        db.insert(tasks).values({ title: 'Todo Auth Task', projectId: proj.id, status: 'todo' }).run();
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          query: 'auth',
+          filters: { status: 'done' },
+        });
+
+        expect(isError).toBe(false);
+        const taskGroup = data.find((g: { collection: string }) => g.collection === 'tasks');
+        expect(taskGroup).toBeDefined();
+        expect(taskGroup.results).toHaveLength(1);
+        expect(taskGroup.results[0].title).toBe('Done Auth Task');
       });
     });
   });

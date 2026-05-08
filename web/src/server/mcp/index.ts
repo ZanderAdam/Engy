@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { eq, and, desc, inArray, type SQL } from 'drizzle-orm';
+import { eq, and, desc, inArray, like, or, sql as drizzleSql, type SQL } from 'drizzle-orm';
 import path from 'node:path';
 import { getDb } from '../db/client';
 import {
@@ -16,6 +16,7 @@ import {
   projects,
   agentSessions,
   questions,
+  frontmatter,
 } from '../db/schema';
 import { validateDependencies, attachBlockedBy } from '../tasks/validation';
 import { getWorkspaceDir, resolveProjectDir } from '../engy-dir/init';
@@ -25,6 +26,7 @@ import { taskStatusSchema } from '@/lib/task-status';
 import { writePermanentMemory } from '../lib/memory-files';
 import { update as indexerUpdate, forceFullReindex } from '../search/indexer';
 import { validateWorkspace as runValidateWorkspace } from '../search/validate';
+import { getStore } from '../search/qmd-store';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 
@@ -63,6 +65,7 @@ export function getMcpServer(): McpServer {
   registerMemoryTools(mcp);
   registerQuestionTools(mcp);
   registerIndexTools(mcp);
+  registerSearchTools(mcp);
 
   return mcp;
 }
@@ -1060,4 +1063,323 @@ function registerQuestionTools(mcp: McpServer): void {
       return mcpResult({ status: 'blocked', questionIds: result });
     },
   );
+}
+
+// ── Search helpers (shared with registerSearchTools) ──────────────────
+
+interface SearchResult {
+  path: string;
+  title: string;
+  snippet?: string;
+  score?: number;
+}
+
+interface SearchResultGroup {
+  collection: string;
+  results: SearchResult[];
+}
+
+function collectionFromVirtualPath(virtualPath: string): string {
+  const match = /^qmd:\/\/([^/]+)/.exec(virtualPath);
+  return match ? match[1] : 'docs';
+}
+
+function titleFromPath(filePath: string): string {
+  const base = filePath.split('/').pop() ?? filePath;
+  return base.replace(/\.md$/, '').replace(/[-_]/g, ' ');
+}
+
+function extractTitle(dataJson: string, filePath: string): string {
+  try {
+    const data = JSON.parse(dataJson) as Record<string, unknown>;
+    if (typeof data.title === 'string' && data.title) return data.title;
+  } catch {
+    // ignore
+  }
+  return titleFromPath(filePath);
+}
+
+function buildFrontmatterWhereCondition(
+  workspaceId: number,
+  filters: Record<string, unknown>,
+  collection?: string,
+) {
+  const conditions: ReturnType<typeof eq>[] = [
+    eq(frontmatter.workspaceId, workspaceId) as ReturnType<typeof eq>,
+  ];
+
+  if (collection && collection !== 'tasks') {
+    conditions.push(
+      eq(frontmatter.collection, collection as 'system' | 'docs' | 'projects' | 'memory') as ReturnType<typeof eq>,
+    );
+  }
+
+  for (const scalar of ['type', 'subtype', 'repo'] as const) {
+    const val = filters[scalar];
+    if (typeof val === 'string' && val) {
+      conditions.push(
+        drizzleSql`json_extract(${frontmatter.data}, '$.' || ${scalar}) = ${val}` as ReturnType<typeof eq>,
+      );
+    }
+  }
+
+  for (const field of ['tags', 'scenarioIds', 'sources', 'linkedMemories'] as const) {
+    const values = filters[field];
+    if (Array.isArray(values) && values.length > 0) {
+      for (const value of values as string[]) {
+        conditions.push(
+          drizzleSql`EXISTS (
+            SELECT 1 FROM json_each(${frontmatter.data}, '$.' || ${field})
+            WHERE value = ${value}
+          )` as ReturnType<typeof eq>,
+        );
+      }
+    }
+  }
+
+  return and(...conditions)!;
+}
+
+function groupFrontmatterRows(
+  rows: Array<{ collection: string; path: string; data: string }>,
+): SearchResultGroup[] {
+  const byCollection = new Map<string, SearchResult[]>();
+  for (const row of rows) {
+    const group = byCollection.get(row.collection) ?? [];
+    group.push({ path: row.path, title: extractTitle(row.data, row.path) });
+    byCollection.set(row.collection, group);
+  }
+  return Array.from(byCollection.entries()).map(([col, results]) => ({ collection: col, results }));
+}
+
+function searchTasksByQuery(workspaceId: number, query: string, limit: number): SearchResult[] {
+  const db = getDb();
+  const pattern = `%${query}%`;
+  const rows = db
+    .select({ id: tasks.id, title: tasks.title, description: tasks.description })
+    .from(tasks)
+    .innerJoin(projects, eq(tasks.projectId, projects.id))
+    .where(and(eq(projects.workspaceId, workspaceId), or(like(tasks.title, pattern), like(tasks.description, pattern))!))
+    .limit(limit)
+    .all();
+  return rows.map((t) => ({
+    path: `task:${t.id}`,
+    title: t.title,
+    snippet: t.description ? t.description.slice(0, 150) : undefined,
+  }));
+}
+
+function filterTasksByStatus(workspaceId: number, status: string, limit: number): SearchResult[] {
+  const db = getDb();
+  const rows = db
+    .select({ id: tasks.id, title: tasks.title })
+    .from(tasks)
+    .innerJoin(projects, eq(tasks.projectId, projects.id))
+    .where(and(eq(projects.workspaceId, workspaceId), eq(tasks.status, status as (typeof tasks.status)['_']['data'])))
+    .limit(limit)
+    .all();
+  return rows.map((t) => ({ path: `task:${t.id}`, title: t.title }));
+}
+
+const searchFiltersSchema = z.object({
+  type: z.string().optional(),
+  subtype: z.string().optional(),
+  repo: z.string().optional(),
+  promoted: z.boolean().optional(),
+  tags: z.array(z.string()).optional(),
+  scenarioIds: z.array(z.string()).optional(),
+  sources: z.array(z.string()).optional(),
+  linkedMemories: z.array(z.string()).optional(),
+  status: z.string().optional(),
+});
+
+function registerSearchTools(mcp: McpServer): void {
+  mcp.tool(
+    'search',
+    'Unified search across all workspace collections. Supports semantic query, structured filters, or both. Replaces listMemories for discovery use cases.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      query: z.string().optional().describe('Semantic search query (hybrid BM25 + vector + rerank)'),
+      collection: z
+        .enum(['system', 'docs', 'projects', 'memory', 'tasks'])
+        .optional()
+        .describe('Scope to a single collection'),
+      filters: searchFiltersSchema
+        .optional()
+        .describe(
+          'Structured filters on frontmatter: tags, scenarioIds, sources, linkedMemories (array membership), type/subtype/repo (scalar), status (tasks only)',
+        ),
+      limit: z.number().min(1).max(500).default(50).describe('Max results per collection'),
+    },
+    async ({ workspaceId, query, collection, filters, limit }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const hasQuery = typeof query === 'string' && query.trim().length > 0;
+      const hasFilters =
+        filters !== undefined && Object.values(filters).some((v) => v !== undefined);
+
+      if (!hasQuery && !hasFilters) {
+        return mcpError('Provide at least one of: query or filters');
+      }
+
+      try {
+        const groups = await runMcpSearch(ws.id, ws.slug, query, collection, filters, limit);
+        return mcpResult(groups);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes('download') || message.includes('model')) {
+          return mcpError(
+            'Embedding model not yet available. Run `reindex` to initialise the search index.',
+          );
+        }
+        return mcpError(`Search failed: ${message}`);
+      }
+    },
+  );
+}
+
+async function runMcpSearch(
+  workspaceId: number,
+  workspaceSlug: string,
+  query: string | undefined,
+  collection: string | undefined,
+  filters: Record<string, unknown> | undefined,
+  limit: number,
+): Promise<SearchResultGroup[]> {
+  const hasQuery = typeof query === 'string' && query.trim().length > 0;
+  const hasFilters = filters !== undefined && Object.values(filters).some((v) => v !== undefined);
+
+  if (hasQuery && !hasFilters) {
+    return mcpQueryOnly(workspaceId, workspaceSlug, query!, collection, limit);
+  }
+  if (!hasQuery && hasFilters) {
+    return mcpFiltersOnly(workspaceId, filters!, collection, limit);
+  }
+  return mcpQueryWithFilters(workspaceId, workspaceSlug, query!, filters!, collection, limit);
+}
+
+async function mcpQueryOnly(
+  workspaceId: number,
+  workspaceSlug: string,
+  query: string,
+  collection: string | undefined,
+  limit: number,
+): Promise<SearchResultGroup[]> {
+  const groups: SearchResultGroup[] = [];
+
+  if (!collection || collection === 'tasks') {
+    const taskResults = searchTasksByQuery(workspaceId, query, limit);
+    if (taskResults.length > 0) groups.push({ collection: 'tasks', results: taskResults });
+  }
+
+  if (process.env.QMD_SKIP === '1') return groups;
+
+  const store = await getStore(workspaceSlug);
+  const qmdResults = await store.search({ query, collection, limit, rerank: true });
+  const byCollection = new Map<string, SearchResult[]>();
+  for (const hit of qmdResults) {
+    const col = collectionFromVirtualPath(hit.file);
+    const group = byCollection.get(col) ?? [];
+    group.push({
+      path: `${col}/${hit.displayPath}`,
+      title: hit.title || titleFromPath(hit.displayPath),
+      snippet: hit.bestChunk ? hit.bestChunk.slice(0, 200) : undefined,
+      score: hit.score,
+    });
+    byCollection.set(col, group);
+  }
+  for (const [col, results] of byCollection.entries()) {
+    groups.push({ collection: col, results });
+  }
+  return groups;
+}
+
+async function mcpFiltersOnly(
+  workspaceId: number,
+  filters: Record<string, unknown>,
+  collection: string | undefined,
+  limit: number,
+): Promise<SearchResultGroup[]> {
+  const db = getDb();
+  const groups: SearchResultGroup[] = [];
+
+  if (!collection || collection !== 'tasks') {
+    const condition = buildFrontmatterWhereCondition(workspaceId, filters, collection);
+    const rows = db
+      .select({ collection: frontmatter.collection, path: frontmatter.path, data: frontmatter.data })
+      .from(frontmatter)
+      .where(condition)
+      .limit(limit)
+      .all();
+    groups.push(...groupFrontmatterRows(rows));
+  }
+
+  const statusVal = filters.status;
+  if (typeof statusVal === 'string' && statusVal && (!collection || collection === 'tasks')) {
+    const taskResults = filterTasksByStatus(workspaceId, statusVal, limit);
+    if (taskResults.length > 0) groups.push({ collection: 'tasks', results: taskResults });
+  }
+
+  return groups;
+}
+
+async function mcpQueryWithFilters(
+  workspaceId: number,
+  workspaceSlug: string,
+  query: string,
+  filters: Record<string, unknown>,
+  collection: string | undefined,
+  limit: number,
+): Promise<SearchResultGroup[]> {
+  const db = getDb();
+  const groups: SearchResultGroup[] = [];
+
+  const statusVal = filters.status;
+  if (typeof statusVal === 'string' && statusVal && (!collection || collection === 'tasks')) {
+    const taskResults = filterTasksByStatus(workspaceId, statusVal, limit);
+    if (taskResults.length > 0) groups.push({ collection: 'tasks', results: taskResults });
+  }
+
+  if (process.env.QMD_SKIP === '1') return groups;
+
+  const store = await getStore(workspaceSlug);
+  const qmdResults = await store.search({ query, collection, limit: limit * 2, rerank: true });
+
+  if (qmdResults.length > 0) {
+    const scoreByPath = new Map<string, number>();
+    for (const hit of qmdResults) {
+      const col = collectionFromVirtualPath(hit.file);
+      scoreByPath.set(`${col}/${hit.displayPath}`, hit.score);
+    }
+
+    const condition = buildFrontmatterWhereCondition(workspaceId, filters, collection);
+    const filteredRows = db
+      .select({ collection: frontmatter.collection, path: frontmatter.path, data: frontmatter.data })
+      .from(frontmatter)
+      .where(condition)
+      .all()
+      .filter((row) => scoreByPath.has(row.path));
+
+    const byCollection = new Map<string, SearchResult[]>();
+    for (const row of filteredRows) {
+      const group = byCollection.get(row.collection) ?? [];
+      group.push({
+        path: row.path,
+        title: extractTitle(row.data, row.path),
+        score: scoreByPath.get(row.path),
+      });
+      byCollection.set(row.collection, group);
+    }
+
+    for (const [col, results] of byCollection.entries()) {
+      groups.push({
+        collection: col,
+        results: results.sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, limit),
+      });
+    }
+  }
+
+  return groups;
 }
