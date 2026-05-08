@@ -1,6 +1,6 @@
 import type { ActivityEvent } from './types';
 
-export interface ActivityTracker {
+interface ActivityTracker {
   bumpActivity: () => void;
   handleBell: () => void;
   resetOnUserInput: () => void;
