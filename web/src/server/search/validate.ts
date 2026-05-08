@@ -171,6 +171,22 @@ function checkDuplicateIds(workspaceId: number): Finding[] {
 
 // ── Check: orphaned content ───────────────────────────────────────────
 
+const MEMORY_SUBTYPES = ['decisions', 'patterns', 'facts', 'conventions', 'insights'] as const;
+
+function walkMemoryFiles(workspaceDir: string): string[] {
+  const filePaths: string[] = [];
+  for (const subtype of MEMORY_SUBTYPES) {
+    const dir = path.join(workspaceDir, 'memory', subtype);
+    if (!fs.existsSync(dir)) continue;
+    for (const entry of fs.readdirSync(dir)) {
+      if (entry.endsWith('.md')) {
+        filePaths.push(`memory/${subtype}/${entry}`);
+      }
+    }
+  }
+  return filePaths;
+}
+
 function checkOrphanedContent(workspaceId: number, workspaceDir: string): Finding[] {
   const findings: Finding[] = [];
   const db = getDb();
@@ -181,6 +197,7 @@ function checkOrphanedContent(workspaceId: number, workspaceDir: string): Findin
     .where(eq(permanentMemories.workspaceId, workspaceId))
     .all();
 
+  // DB → file: DB row exists but file is missing on disk.
   for (const row of memRows) {
     if (!row.filePath) continue;
     const absPath = path.join(workspaceDir, row.filePath);
@@ -190,6 +207,19 @@ function checkOrphanedContent(workspaceId: number, workspaceDir: string): Findin
         check: 'orphaned-content',
         message: 'permanentMemories DB row has no file on disk',
         path: row.filePath,
+      });
+    }
+  }
+
+  // file → DB: file exists on disk but has no corresponding DB row.
+  const knownPaths = new Set(memRows.map((r) => r.filePath).filter(Boolean));
+  for (const filePath of walkMemoryFiles(workspaceDir)) {
+    if (!knownPaths.has(filePath)) {
+      findings.push({
+        severity: 'warning',
+        check: 'orphaned-content',
+        message: `File on disk has no permanentMemories row: ${filePath}`,
+        path: filePath,
       });
     }
   }
