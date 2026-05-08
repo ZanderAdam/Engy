@@ -17,8 +17,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { eq, and } from 'drizzle-orm';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { appRouter } from '../trpc/root';
-import { frontmatter, permanentMemories, workspaces } from '../db/schema';
-import { update, forceFullReindex, syncPermanentMemoryMirror } from './indexer';
+import { frontmatter, permanentMemories, workspaces, type FrontmatterCollection } from '../db/schema';
+import { update, forceFullReindex, syncPermanentMemoryMirror, type IndexResult } from './indexer';
 import { _resetStoreCache } from './qmd-store';
 
 // QMD embedding requires a local GGUF model. Mark embed-only tests as
@@ -60,7 +60,7 @@ describe('WorkspaceIndexer', () => {
     fs.writeFileSync(abs, content, 'utf8');
   }
 
-  function readFrontmatterRows(collection: string) {
+  function readFrontmatterRows(collection: FrontmatterCollection) {
     return ctx.db
       .select()
       .from(frontmatter)
@@ -187,7 +187,7 @@ describe('WorkspaceIndexer', () => {
         writeFixture('projects/alpha/spec.md', `---\ntitle: Alpha Spec\n---\n`);
         writeFixture('memory/decisions/001-decision.md', `---\ntitle: A Decision\nsubtype: decision\n---\n`);
 
-        const results = await update(workspaceSlug);
+        const results: IndexResult[] = await update(workspaceSlug);
 
         const collections = results.map((r) => r.collection).sort();
         expect(collections).toEqual(['docs', 'memory', 'projects', 'system']);
