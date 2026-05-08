@@ -11,6 +11,7 @@ import { DARK_XTERM_THEME } from "@/hooks/use-xterm-theme";
 import { RiArrowDownSLine } from "@remixicon/react";
 import type { ActivityEvent, TerminalTab } from "./types";
 import { parseTerminalActivity } from "./parse-terminal-activity";
+import { createActivityTracker } from "./activity-tracker";
 import { ReconnectingSocket } from "./reconnecting-socket";
 
 export interface TerminalActions {
@@ -118,44 +119,20 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     isPinnedRef.current = true;
     setShowScrollButton(false);
 
-    // Activity detection via OSC title changes parsed from raw WebSocket data.
-    // This works even when the terminal tab is hidden (display:none), unlike
-    // xterm's onTitleChange which defers processing for hidden containers.
+    // Activity detection via OSC title changes and PTY output bytes parsed from
+    // raw WebSocket data. This works even when the terminal tab is hidden
+    // (display:none), unlike xterm's onTitleChange which defers processing.
     let lastTitle = '';
-    let titleChangeCount = 0;
-    let titleTimer: ReturnType<typeof setTimeout> | null = null;
-    let titleActive = false;
-    let suppressTitleUntil = Date.now() + TITLE_SUPPRESS_MS;
+    const activityTracker = createActivityTracker({
+      debounceMs: ACTIVITY_DEBOUNCE_MS,
+      suppressMs: TITLE_SUPPRESS_MS,
+      onActivity: (event: ActivityEvent) => onActivity?.(sessionId, event),
+    });
 
     const handleTitleChange = (title: string) => {
-      if (Date.now() < suppressTitleUntil || title === lastTitle) return;
+      if (title === lastTitle) return;
       lastTitle = title;
-      titleChangeCount++;
-
-      if (!titleActive && titleChangeCount >= 2) {
-        titleActive = true;
-        onActivity?.(sessionId, 'start');
-      }
-
-      if (titleTimer) clearTimeout(titleTimer);
-      titleTimer = setTimeout(() => {
-        titleTimer = null;
-        if (titleActive) {
-          titleActive = false;
-          onActivity?.(sessionId, 'waiting');
-        }
-        titleChangeCount = 0;
-      }, ACTIVITY_DEBOUNCE_MS);
-    };
-
-    const handleBell = () => {
-      titleActive = false;
-      titleChangeCount = 0;
-      if (titleTimer) {
-        clearTimeout(titleTimer);
-        titleTimer = null;
-      }
-      onActivity?.(sessionId, 'waiting');
+      activityTracker.bumpActivity();
     };
 
     const scrollSub = term.onScroll(() => {
@@ -234,7 +211,13 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
             // even when the terminal tab is hidden (xterm defers processing).
             const activity = parseTerminalActivity(msg.d);
             for (const title of activity.titles) handleTitleChange(title);
-            if (activity.hasBell) handleBell();
+            if (activity.hasBell) {
+              activityTracker.handleBell();
+            } else if (msg.d.length > 0) {
+              // Any non-bell PTY output is an activity signal. Bell is handled
+              // separately because it transitions directly to 'waiting'.
+              activityTracker.bumpActivity();
+            }
 
             if (isPinnedRef.current) {
               term.write(msg.d);
@@ -252,10 +235,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
             }
           } else if (msg.t === 'reconnected' && msg.buffer) {
             console.log(`[terminal-ui] Reconnected session ${sessionId}, buffer lines: ${msg.buffer.length}`);
-            suppressTitleUntil = Date.now() + TITLE_SUPPRESS_MS;
-            titleActive = false;
-            titleChangeCount = 0;
-            if (titleTimer) { clearTimeout(titleTimer); titleTimer = null; }
+            activityTracker.suppress();
             term.clear();
             term.write(msg.buffer.join(''), () => {
               term.scrollToBottom();
@@ -308,15 +288,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
 
     term.onData((data) => {
       socket.send(JSON.stringify({ t: 'i', sessionId, d: data }));
-      if (titleActive || titleTimer) {
-        titleActive = false;
-        titleChangeCount = 0;
-        if (titleTimer) {
-          clearTimeout(titleTimer);
-          titleTimer = null;
-        }
-        onActivity?.(sessionId, 'idle');
-      }
+      activityTracker.resetOnUserInput();
     });
 
     const resizeObserver = new ResizeObserver(handleResize);
@@ -327,7 +299,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       clearTimeout(fitTimer);
       if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
       scrollRafRef.current = 0;
-      if (titleTimer) clearTimeout(titleTimer);
+      activityTracker.dispose();
       scrollSub.dispose();
       container.removeEventListener('wheel', handleWheel);
       resizeObserver.disconnect();
