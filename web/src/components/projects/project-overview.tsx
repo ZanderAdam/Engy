@@ -40,7 +40,12 @@ export function ProjectOverview({
   const pct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
 
   return (
-    <div className="flex flex-col gap-6 py-6">
+    <div
+      role="region"
+      aria-label="Project overview"
+      tabIndex={0}
+      className="engy-scrollbar flex min-h-0 min-w-0 flex-1 flex-col gap-6 overflow-auto py-6 pr-2 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+    >
       <div className="flex items-center gap-3">
         <Progress value={pct} className="flex-1" />
         <span className="text-xs text-muted-foreground">

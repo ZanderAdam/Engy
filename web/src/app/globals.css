@@ -173,6 +173,36 @@
   }
 }
 
+.engy-scrollbar {
+  scrollbar-color: color-mix(in oklch, var(--foreground) 40%, var(--background))
+    color-mix(in oklch, var(--background) 84%, var(--foreground));
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+}
+
+.engy-scrollbar::-webkit-scrollbar {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.engy-scrollbar::-webkit-scrollbar-track {
+  background: color-mix(in oklch, var(--background) 84%, var(--foreground));
+}
+
+.engy-scrollbar::-webkit-scrollbar-thumb {
+  min-height: 2.25rem;
+  background: color-mix(in oklch, var(--foreground) 40%, var(--background));
+  border: 2px solid color-mix(in oklch, var(--background) 84%, var(--foreground));
+}
+
+.engy-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklch, var(--foreground) 52%, var(--background));
+}
+
+.engy-scrollbar::-webkit-scrollbar-corner {
+  background: color-mix(in oklch, var(--background) 84%, var(--foreground));
+}
+
 /* BlockNote: constrain editor to parent so text reflows and content scrolls */
 .bn-container {
   width: 100%;
