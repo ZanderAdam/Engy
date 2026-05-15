@@ -3,7 +3,7 @@ import { and, eq, type SQL } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
-import { taskGroups } from '../../db/schema';
+import { taskGroups, projects } from '../../db/schema';
 
 export const taskGroupRouter = router({
   create: publicProcedure
@@ -32,6 +32,7 @@ export const taskGroupRouter = router({
   list: publicProcedure
     .input(
       z.object({
+        workspaceId: z.number().optional(),
         projectId: z.number().optional(),
         milestoneRef: z.string().optional(),
       }),
@@ -42,6 +43,17 @@ export const taskGroupRouter = router({
       if (input.projectId !== undefined) conditions.push(eq(taskGroups.projectId, input.projectId));
       if (input.milestoneRef !== undefined)
         conditions.push(eq(taskGroups.milestoneRef, input.milestoneRef));
+
+      if (input.workspaceId !== undefined) {
+        conditions.push(eq(projects.workspaceId, input.workspaceId));
+        const rows = db
+          .select({ taskGroup: taskGroups })
+          .from(taskGroups)
+          .innerJoin(projects, eq(taskGroups.projectId, projects.id))
+          .where(and(...conditions))
+          .all();
+        return rows.map((r) => r.taskGroup);
+      }
 
       return conditions.length > 0
         ? db.select().from(taskGroups).where(and(...conditions)).all()

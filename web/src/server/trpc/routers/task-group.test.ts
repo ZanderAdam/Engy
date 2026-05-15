@@ -51,6 +51,51 @@ describe('task-group router', () => {
       expect(resultB[0].name).toBe('B-Group');
     });
 
+    it('should filter by workspaceId using AND logic', async () => {
+      const wsA = await caller.workspace.create({ name: 'WS Alpha' });
+      const wsB = await caller.workspace.create({ name: 'WS Beta' });
+      const projA = await caller.project.create({ workspaceSlug: wsA.slug, name: 'Alpha Proj' });
+      const projB = await caller.project.create({ workspaceSlug: wsB.slug, name: 'Beta Proj' });
+
+      await caller.taskGroup.create({ projectId: projA.id, milestoneRef: 'm1', name: 'Alpha-Group' });
+      await caller.taskGroup.create({ projectId: projB.id, milestoneRef: 'm1', name: 'Beta-Group' });
+
+      const resultA = await caller.taskGroup.list({ workspaceId: wsA.id });
+      expect(resultA).toHaveLength(1);
+      expect(resultA[0].name).toBe('Alpha-Group');
+      expect(resultA[0].projectId).toBe(projA.id);
+
+      const resultB = await caller.taskGroup.list({ workspaceId: wsB.id });
+      expect(resultB).toHaveLength(1);
+      expect(resultB[0].name).toBe('Beta-Group');
+      expect(resultB[0].projectId).toBe(projB.id);
+    });
+
+    it('should AND workspaceId with projectId and milestoneRef', async () => {
+      const wsA = await caller.workspace.create({ name: 'Combo WS A' });
+      const wsB = await caller.workspace.create({ name: 'Combo WS B' });
+      const projA = await caller.project.create({ workspaceSlug: wsA.slug, name: 'Combo Proj A' });
+      const projB = await caller.project.create({ workspaceSlug: wsB.slug, name: 'Combo Proj B' });
+
+      await caller.taskGroup.create({ projectId: projA.id, milestoneRef: 'm1', name: 'A-m1' });
+      await caller.taskGroup.create({ projectId: projA.id, milestoneRef: 'm2', name: 'A-m2' });
+      await caller.taskGroup.create({ projectId: projB.id, milestoneRef: 'm1', name: 'B-m1' });
+
+      const match = await caller.taskGroup.list({
+        workspaceId: wsA.id,
+        projectId: projA.id,
+        milestoneRef: 'm1',
+      });
+      expect(match).toHaveLength(1);
+      expect(match[0].name).toBe('A-m1');
+
+      const mismatch = await caller.taskGroup.list({
+        workspaceId: wsA.id,
+        projectId: projB.id,
+      });
+      expect(mismatch).toHaveLength(0);
+    });
+
     it('should return all groups for milestoneRef without projectId', async () => {
       const ws = await caller.workspace.create({ name: 'No Filter WS' });
       const projA = await caller.project.create({ workspaceSlug: ws.slug, name: 'PA' });

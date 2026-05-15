@@ -18,7 +18,10 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
-  const { data: taskGroups } = trpc.taskGroup.list.useQuery({});
+  const { data: taskGroups } = trpc.taskGroup.list.useQuery(
+    { workspaceId: workspace?.id ?? 0 },
+    { enabled: !!workspace },
+  );
   const { data: project } = trpc.project.getBySlug.useQuery(
     { workspaceId: workspace?.id ?? 0, slug: projectSlug ?? '' },
     { enabled: !!workspace && !!projectSlug },
