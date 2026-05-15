@@ -5,101 +5,151 @@ description: Generate initial system docs (overview, features, technical) for a 
 
 # System Docs Bootstrap
 
-Generates the initial set of system documentation files for a workspace by analyzing the codebase and folding in any prior knowledge from the workspace knowledge graph. Results are written as uncommitted files for user review.
+Terminal skill that produces the initial set of system documentation files for a workspace by analyzing the codebase on disk and folding in any prior knowledge from the workspace knowledge graph. Files are written uncommitted under `{workspaceDir}/system/` for the user to review in the diff viewer's "Latest Changes" mode and approve (commit) or reject (revert).
 
 ## MCP Tools
 
-- `getWorkspaceDetails(workspaceId)` — resolve workspace paths (`workspaceDir`, `repos`)
-- `listWorkspaces()` — find the active workspace if not already known
+- `mcp__Engy__listWorkspaces` — discover workspaceId when not in context
+- `mcp__Engy__getWorkspaceDetails` — resolve workspace paths (`paths.workspaceDir`, `paths.systemDir`) and `repos[]`
+- `mcp__Engy__search({ workspaceId, query, collection: 'system', limit: 10 })` — locate any existing system docs to avoid clobbering _(skip gracefully if not yet available)_
 
-## tRPC Tools (for codebase exploration)
+All codebase exploration uses the built-in **Glob**, **Grep**, and **Read** tools directly against the absolute repo paths returned in `workspace.repos[]`. All file writes use the built-in **Write** tool against absolute paths under `{workspaceDir}/system/`.
 
-- `dir.listFiles({ dirPath })` — list markdown files in a knowledge directory
-- `dir.searchRepoFiles({ dirs, query, limit })` — search repo files by query (dispatched to client daemon)
+## Process
 
-## Step 1: Resolve Workspace
+### Step 1: Resolve Workspace
 
-1. Identify the active workspace from session context.
-2. Call `getWorkspaceDetails(workspaceId)` to get `workspaceDir` and `repos`.
-3. Check if `{workspaceDir}/system/` already has content via `dir.listFiles`. If substantial docs already exist, warn the user before overwriting: "System docs already exist. This will generate drafts alongside them — review and merge manually."
+Identify the active workspace from session/route context:
 
-## Step 2: Discover Codebase Structure
+- If `workspaceId` is available from context, use it.
+- Otherwise call `mcp__Engy__listWorkspaces`. If multiple workspaces exist, ask the user which to target.
+- Call `mcp__Engy__getWorkspaceDetails({ workspaceId })` to obtain `paths.workspaceDir`, `paths.systemDir`, and `repos[]` (absolute paths on disk).
 
-Use `dir.searchRepoFiles` (or Read/Glob directly if the repos are accessible) to explore the codebase across each repo in `workspace.repos`:
+`systemDir` = `{workspaceDir}/system/`
 
-- Top-level directories and their purpose
-- Key entry points (e.g., `server.ts`, `main.ts`, `index.ts`, `app/layout.tsx`)
-- Major feature areas (inferred from directory names, router files, component directories)
-- Architectural patterns (e.g., data access layer, API surface, frontend framework)
-- Public APIs and key exports
+### Step 2: Check Existing System Docs
 
-Focus on breadth over depth. The goal is a structural map, not line-by-line analysis. Limit searches to 3–5 targeted queries to stay within context budget.
+Use **Glob** against `{systemDir}/**/*.md` to enumerate any existing docs. If `mcp__Engy__search` is available, also run:
 
-## Step 3: Research Prior Knowledge
+```
+mcp__Engy__search({ workspaceId, query: 'overview architecture', collection: 'system', limit: 10 })
+```
 
-Dispatch the `engy:research` subagent to surface any existing workspace knowledge relevant to the codebase:
+If substantial docs already exist, warn the user before continuing: "System docs already exist. This will generate drafts alongside them — review and merge manually." Proceed only after confirmation.
+
+### Step 3: Discover Codebase Structure
+
+For each absolute repo path in `workspace.repos[]`, use built-in tools to build a structural map:
+
+- **Glob** for top-level directories and key entry points (e.g., `*/package.json`, `**/server.ts`, `**/main.ts`, `**/app/layout.tsx`, `**/index.ts`).
+- **Read** the root `package.json` / `pyproject.toml` / `Cargo.toml` (or equivalent) to identify the technology stack.
+- **Grep** for routing or feature-area markers (e.g., `router\.|app\.use|@Controller|export.*Route`) to spot major feature clusters.
+- **Read** a small set of high-signal entry-point files (one or two per repo) to confirm architecture.
+
+Focus on breadth over depth. The goal is a structural map, not line-by-line analysis. Cap exploration at roughly 8–12 tool calls per repo to stay within context budget.
+
+### Step 4: Dispatch Research Subagent
+
+Invoke the `engy:research` subagent to surface any existing workspace knowledge relevant to the codebase:
 
 ```
 Task({
   subagent_type: 'engy:research',
-  prompt: 'Existing architectural decisions, patterns, and conventions for this workspace — context: workspace=<slug>'
+  prompt: 'Existing architectural decisions, patterns, and conventions for this workspace — context: workspace=<slug>, repos=<workspace.repos[]>'
 })
 ```
 
-Fold the returned digest into the proposed docs as supporting context (inline citations where relevant).
+The subagent returns a `## Findings` digest with cited sources. Hold this digest for Step 5.
 
-## Step 4: Generate System Docs
+If the codebase spans distinct domains (e.g., backend + frontend + daemon), run a separate Task call per domain and merge the digests.
 
-Based on the codebase map and research digest, generate the following files:
+### Step 5: Generate System Docs
 
-### `system/overview.md`
+Based on the codebase map and research digest, draft the following files. Aim for **3–6 feature docs and 2–4 technical docs** — prefer fewer, higher-quality docs over exhaustive coverage.
 
-High-level workspace overview:
+**`system/overview.md`** — high-level workspace overview:
+
 - What the workspace does and its primary user
 - The repository / package structure
 - Technology stack (languages, frameworks, key libraries)
 - How the pieces connect (brief architecture narrative)
 
-### `system/features/<name>.md` (one per major feature area)
+**`system/features/<name>.md`** — one per major feature cluster (e.g., `authentication.md`, `task-management.md`, `git-integration.md`):
 
-One file per distinct feature cluster discovered in the codebase (e.g., `authentication.md`, `task-management.md`, `git-integration.md`):
 - What the feature does
-- Key components/files involved
-- Notable design decisions (cite research findings where relevant)
+- Key components/files involved (cite paths)
+- Notable design decisions
 
-### `system/technical/<topic>.md` (one per major architectural concern)
+**`system/technical/<topic>.md`** — one per major architectural concern (e.g., `data-storage.md`, `websocket-protocol.md`, `api-surface.md`):
 
-One file per architectural concern (e.g., `data-storage.md`, `websocket-protocol.md`, `api-surface.md`):
 - What the concern is
 - How the codebase handles it
 - Key patterns and constraints
 
-Aim for 3–6 feature docs and 2–4 technical docs. Prefer fewer, higher-quality docs over exhaustive coverage.
+Use this frontmatter and structure for every generated file:
 
-## Step 5: Write Files
+```markdown
+---
+description: <one-line summary of what this doc covers>
+sources:
+  - memory/<path-to-supporting-memory>.md
+---
 
-Write each generated doc to `{workspaceDir}/system/` using `dir.write` (tRPC) or direct file writes:
+# <Feature or Topic Name>
 
-- `{workspaceDir}/system/overview.md`
-- `{workspaceDir}/system/features/<name>.md`
-- `{workspaceDir}/system/technical/<topic>.md`
+<Body content — overview, behavior, edge cases, constraints, examples>
+
+## Sources
+
+<!-- engy:research synthesized <YYYY-MM-DD> -->
+<Inline citations from the research digest — title + citation path for each relevant finding>
+<!-- /engy:research -->
+```
+
+**Zero-findings handler:** if the `engy:research` subagent returns `Findings: 0`, do NOT emit the `<!-- engy:research -->` marker block. Instead, write a single inline line under `## Sources`: `No prior knowledge found.` Omit the `sources:` frontmatter key entirely when there are no supporting memories.
+
+### Step 6: Write Files
+
+Use the **Write** tool to write each generated doc to its absolute path under `{systemDir}`:
+
+- `{systemDir}/overview.md`
+- `{systemDir}/features/<name>.md`
+- `{systemDir}/technical/<topic>.md`
 
 Files are written **uncommitted** — they appear as working-tree changes visible in the diff viewer's "Latest Changes" view. The user reviews and commits them when satisfied.
 
-## Step 6: Present Summary
+### Step 7: Print Summary
 
-Print a summary of what was generated:
-- List of files written with one-line descriptions
-- Any gaps or areas with low confidence (where codebase exploration was limited)
-- Suggested next step: "Review the generated docs in the diff viewer, then commit what looks right. Use `/engy:sysdoc-assistant` to refine individual docs."
+After writing all files, print:
+
+```
+System docs bootstrap complete.
+
+Files written:
+  NEW     system/overview.md                — workspace overview, stack, structure
+  NEW     system/features/auth.md           — OAuth2 + session handling
+  NEW     system/technical/ws-protocol.md   — WebSocket REGISTER handshake
+  ...
+
+Research digest: <N> findings from <N> sources walked.   (or: No prior knowledge found.)
+
+Review changes in the diff viewer (Latest Changes mode), then commit or revert.
+Next step: refine individual docs with /engy:sysdoc-assistant.
+```
+
+Each line includes: disposition (NEW), relative path, and a one-line rationale.
 
 ## Key Principles
 
-- **Breadth first.** Prefer a working overview of all major areas over deep coverage of one area.
-- **Cite sources.** When research findings inform a doc, cite them inline (e.g., `<!-- source: memory/decisions/auth-token-rotation.md -->`).
-- **Uncommitted writes only.** Never commit during bootstrap — the user reviews via the diff viewer.
+- **Scope only `system/`** — never write to `docs/`, `memory/`, `projects/`, or anywhere outside `{workspaceDir}/system/`.
+- **No automatic commit** — writes land as working-tree changes for the user to review.
+- **Breadth first** — prefer a working overview of all major areas over deep coverage of one area.
+- **Cite sources** — when research findings inform a doc, cite them inline under `## Sources`. When there are none, say so explicitly.
+- **Use built-in file tools** — codebase exploration is Glob/Grep/Read against the absolute paths in `workspace.repos[]`; writes are the Write tool against absolute paths under `systemDir`.
+- **LLM analysis is in-context** — codebase mapping and gap analysis run in the main agent; the only external dispatch is the `engy:research` subagent.
 
 ## Flow Position
 
-**Use when:** Starting a new workspace or when `{workspaceDir}/system/` is empty or sparse.
-**Follow-up:** `/engy:sysdoc-assistant` for ongoing editing; `/engy:propose-sysdocs` after project completion.
+**Typical trigger:** starting a new workspace or when `{workspaceDir}/system/` is empty or sparse.
+
+**Follow-up:** `/engy:sysdoc-assistant` for ongoing editing; `/engy:propose-sysdocs` after project completion to fold in new learnings.
