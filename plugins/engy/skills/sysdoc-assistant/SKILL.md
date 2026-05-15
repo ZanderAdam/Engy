@@ -1,33 +1,43 @@
 ---
 name: engy:sysdoc-assistant
-description: Interactive editor for system docs. Navigates the system doc tree, opens files, dispatches engy:research for context, and assists with content updates.
+description: Interactive editor for system docs. Browses the system doc tree, opens files, dispatches engy:research for context, and assists with focused content updates one doc at a time.
 ---
 
 # System Doc Assistant
 
-An interactive skill for browsing and editing the workspace's system documentation. Scoped exclusively to `{workspaceDir}/system/`. Writes are uncommitted — the user reviews changes in the diff viewer before committing.
+Interactive skill for browsing and editing the workspace's system documentation. Scoped exclusively to `{workspaceDir}/system/`. Writes are uncommitted — the user reviews changes in the diff viewer before committing.
+
+Unlike `/engy:propose-sysdocs` (which proposes a batch of updates after project completion), this skill works on **one doc at a time** with the user driving each edit.
 
 ## MCP Tools
 
-- `getWorkspaceDetails(workspaceId)` — resolve `workspaceDir`
+- `mcp__Engy__listWorkspaces` — discover workspaceId when not in context
+- `mcp__Engy__getWorkspaceDetails` — resolve workspace paths (`paths.workspaceDir`, `paths.systemDir`)
+- `mcp__Engy__search({ workspaceId, query, collection: 'system', limit: 10 })` — find relevant existing system docs by topic _(skip gracefully if not yet available)_
 
-## tRPC Tools (for file operations)
+All file operations use **built-in tools** (Glob, Read, Write, Edit) against absolute paths under `{workspaceDir}/system/`. The MCP server does not expose file IO — tRPC procedures are not callable from this context.
 
-- `dir.list({ dirPath })` — list subdirectories and files at a path
-- `dir.listFiles({ dirPath })` — list all markdown files recursively
-- `dir.read({ dirPath, filePath })` — read a specific file
-- `dir.write({ dirPath, filePath, content })` — write a file (uncommitted)
+## Process
 
-## Step 1: Resolve Workspace
+### Step 1: Resolve Workspace
 
-1. Identify the active workspace from session context.
-2. Call `getWorkspaceDetails(workspaceId)` to get `workspaceDir`.
-3. Set the working root to `{workspaceDir}/system/`. All file operations in this skill are scoped to this directory — never read or write outside it.
+Identify the active workspace from session/route context:
 
-## Step 2: List Existing System Docs
+- If `workspaceId` is available from context, use it.
+- Otherwise call `mcp__Engy__listWorkspaces`. If multiple workspaces exist, ask the user which to target.
+- Call `mcp__Engy__getWorkspaceDetails({ workspaceId })` to get `paths.workspaceDir` and `paths.systemDir`.
 
-1. Call `dir.listFiles({ dirPath: '{workspaceDir}/system/' })` to enumerate all existing docs.
-2. Present the tree to the user:
+Set `systemDir = paths.systemDir` (= `{workspaceDir}/system/`). **Every Read/Write/Edit path in this skill must start with `systemDir` — verify the prefix before each call.**
+
+### Step 2: List Existing System Docs
+
+Enumerate all markdown files under `systemDir` with built-in Glob:
+
+```
+Glob({ pattern: `${systemDir}/**/*.md` })
+```
+
+Present the tree to the user, grouped by subdirectory:
 
 ```
 system/
@@ -40,61 +50,81 @@ system/
     websocket-protocol.md
 ```
 
-If the `system/` directory is empty or does not exist, suggest running `/engy:bootstrap-sysdocs` first.
+If Glob returns nothing, the `system/` tree is empty — suggest running `/engy:bootstrap-sysdocs` first and exit.
 
-## Step 3: Select a File to Edit
+### Step 3: Select a File to Edit
 
 Ask the user which doc to work on:
-- **Existing file**: user picks from the list (or types a path)
-- **New file**: user provides a name/path — confirm it fits the `features/` or `technical/` convention before creating
 
-Read the selected file in full before presenting it or making any edits.
+- **Existing file** — user picks from the list (or supplies a path). Verify the resolved absolute path is under `systemDir` before reading.
+- **New file** — user provides a name/path. Confirm it fits the `features/` or `technical/` convention. Verify the proposed absolute path is under `systemDir` before writing.
 
-## Step 4: Understand the Edit Request
+For an existing file, read it in full with built-in Read before proposing any edits:
+
+```
+Read({ file_path: `${systemDir}/<relative-path>.md` })
+```
+
+### Step 4: Understand the Edit Request
 
 Ask the user what they want to change or add. Common intents:
+
 - Update a section to reflect new implementation details
 - Add a missing feature doc
 - Correct an outdated architectural description
-- Improve clarity or structure
+- Improve clarity, structure, or cross-references
 
 If the request is ambiguous, ask one clarifying question before proceeding.
 
-## Step 5: Research Context (when helpful)
+### Step 5: Dispatch Research Subagent (when context warrants)
 
-For non-trivial edits — especially those touching architectural decisions, inter-system dependencies, or historical context — dispatch the `engy:research` subagent:
+For non-trivial edits — especially those touching architectural decisions, inter-system dependencies, or historical context — dispatch the `engy:research` subagent to gather prior decisions and supporting notes:
 
 ```
 Task({
   subagent_type: 'engy:research',
-  prompt: '<specific topic of the edit> — context: workspace=<slug>, doc=<file path>'
+  prompt: '<topic of the edit> — context: workspace=<slug>, doc=<relative path>, intent=<user request summary>'
 })
 ```
 
-Fold relevant findings into the proposed edit as inline citations. Skip research for straightforward factual corrections.
+Fold the returned `## Findings` digest into the proposed edit as inline citations. Skip this step for straightforward factual corrections or wording improvements.
 
-## Step 6: Propose and Apply Edit
+### Step 6: Propose and Apply Edit
 
-1. Show the user a **before/after diff** of the proposed change before writing.
-2. On user approval, write the updated file via `dir.write({ dirPath, filePath, content })`.
-3. Confirm the write and remind the user: "This change is uncommitted — review it in the diff viewer when ready."
+1. Show the user a **before/after diff** (or, for new files, a content preview) of the proposed change. Never write silently.
+2. On user approval, apply the change:
+   - **Edit existing file** — use built-in Edit with the absolute path under `systemDir`:
+     ```
+     Edit({ file_path: `${systemDir}/<relative-path>.md`, old_string, new_string })
+     ```
+   - **Create new file** — use built-in Write with the absolute path under `systemDir`:
+     ```
+     Write({ file_path: `${systemDir}/<relative-path>.md`, content })
+     ```
+3. **Before calling Write or Edit**, verify the resolved `file_path` starts with `systemDir`. If not, refuse the operation and report the scope violation to the user.
+4. Confirm the write and remind the user: "Change is uncommitted — review it in the diff viewer when ready."
 
-For new files, confirm the proposed path and content structure before writing.
+### Step 7: Continue or Exit
 
-## Step 7: Continue or Exit
+After each edit, ask: "Anything else to update in the system docs?"
 
-After each edit, ask: "Anything else to update in the system docs?" 
-- If yes, return to Step 3 (file selection).
-- If no, close with a summary of all files changed in this session and next steps (e.g., "Review and commit changes in the diff viewer").
+- **Yes** — return to Step 3 (file selection).
+- **No** — close with a summary of all files changed in this session and the next step ("Review and commit changes in the diff viewer").
 
 ## Key Principles
 
-- **System scope only.** Never read or write files outside `{workspaceDir}/system/`. If the user asks about codebase files, use Read/Glob directly — do not proxy through dir tools.
-- **Show before writing.** Always present a diff or content preview before calling `dir.write`. Never write silently.
-- **Uncommitted writes.** Never commit during this skill. The user controls when changes land.
-- **Consistency.** When editing a feature doc, check that related technical docs remain consistent and flag any divergence to the user.
+- **Scope only `system/`** — every Read/Write/Edit must resolve to an absolute path with `${systemDir}` as its prefix. Refuse anything else, even if the user requests it. For non-system context (codebase files, memories, project specs), use Read/Glob directly on those paths, never proxy them through this skill's edit flow.
+- **One doc at a time** — this skill is interactive and focused. Do not bulk-write multiple files in one turn. For batch proposals, point the user at `/engy:propose-sysdocs`.
+- **Read before writing** — always Read an existing file in full before proposing an Edit.
+- **Show before writing** — always present a diff or content preview and wait for explicit approval before calling Write or Edit.
+- **Uncommitted writes** — never commit during this skill. The user controls when changes land via the diff viewer.
+- **Consistency check** — when editing a feature doc, note any related technical docs that may now diverge and flag them to the user (do not silently edit them).
+- **Cite sources** — when an edit is informed by a research digest, preserve inline citations in the doc so future readers can trace the reasoning.
 
 ## Flow Position
 
-**Use when:** Incrementally updating system docs as the codebase evolves, or after `/engy:bootstrap-sysdocs` to refine generated content.
-**Related:** `/engy:bootstrap-sysdocs` (initial generation), `/engy:propose-sysdocs` (post-project-completion proposals).
+**Use when:** Incrementally updating system docs as the codebase evolves, or after `/engy:bootstrap-sysdocs` to refine generated content one file at a time.
+
+**Related:**
+- `/engy:bootstrap-sysdocs` — initial generation of the `system/` tree.
+- `/engy:propose-sysdocs` — batch proposals after project completion (non-interactive).
