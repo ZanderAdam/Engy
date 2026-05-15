@@ -28,6 +28,7 @@ import { update as indexerUpdate, forceFullReindex, updateAndEmbed } from '../se
 import { autoLink } from '../search/auto-linker';
 import { validateWorkspace as runValidateWorkspace } from '../search/validate';
 import { getStore } from '../search/qmd-store';
+import { projectCompletionService } from '../services/project-completion';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 
@@ -349,6 +350,36 @@ function registerWorkspaceTools(mcp: McpServer): void {
           activeSessions: activeExecutionSessions,
         },
       });
+    },
+  );
+
+  mcp.tool(
+    'startProjectCompletion',
+    'Begin project completion flow — sets status to `completing` and returns ranked candidate fleeting memories for distillation review.',
+    {
+      projectId: z.number().describe('Project ID'),
+    },
+    async ({ projectId }) => {
+      try {
+        return mcpResult(projectCompletionService.startCompletion(projectId));
+      } catch (err) {
+        return mcpError((err as Error).message);
+      }
+    },
+  );
+
+  mcp.tool(
+    'archiveProject',
+    'Archive a project — marks status `archived` and removes associated agent sessions. Plan, tasks, and promoted memories are preserved.',
+    {
+      projectId: z.number().describe('Project ID'),
+    },
+    async ({ projectId }) => {
+      try {
+        return mcpResult(projectCompletionService.archive(projectId));
+      } catch (err) {
+        return mcpError((err as Error).message);
+      }
     },
   );
 }
