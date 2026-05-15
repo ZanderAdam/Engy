@@ -67,3 +67,14 @@ Structured table followed by a one-line status:
 - All zeros: "Index is up-to-date."
 - Changes found: "Index updated. X file(s) newly indexed, Y updated."
 - Embedding needed: "X file(s) queued for background embedding."
+
+## Key Principles
+
+- Idempotent — re-running on unchanged files is cheap.
+- qmd owns freshness — no manual mtime/SHA tracking on the engy side.
+
+## Flow Position
+
+**Typical trigger:** user notices stale search results or runs a bulk file change.
+
+**Next step:** run `/engy:validate` to confirm integrity, or `/engy:research` to query the refreshed index.

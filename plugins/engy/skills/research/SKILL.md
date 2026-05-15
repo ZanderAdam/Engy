@@ -38,3 +38,15 @@ Print the returned digest to the user verbatim. Do not summarize or reformat —
 The subagent returns a `## Findings` block with 3–8 cited findings and a sources/findings count footer. Present it as-is.
 
 If the user's question is ambiguous, ask one clarifying question before dispatching (e.g., "Is this about the current project or workspace-wide?").
+
+## Key Principles
+
+- Dispatch-only — this skill does no work beyond invoking the subagent.
+- Present the digest verbatim — the subagent's structured output is already formatted for the user.
+- Ask one clarifying question if the user's input is ambiguous (e.g., "is this workspace-wide or project-scoped?").
+
+## Flow Position
+
+**Typical trigger:** user asks "what do we know about X?" in the terminal.
+
+**Next step:** user uses the digest to inform their next action — write a plan, design a feature, file a bug.

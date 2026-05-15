@@ -45,6 +45,8 @@ The subagent returns a digest with 3–8 cited findings. Fold the digest directl
 
 Place this block in the **Overview** section or immediately before the **Implementation Sequence**. The markers let future readers identify LLM-synthesized content and re-run the research step against current memory state.
 
+If the subagent returns `Findings: 0`, omit the marker block entirely — do not write an empty block.
+
 When the work is repo-local, include `filters.repo` in the prompt so the subagent applies repo-scoped ranking. Skip this step only for **Simple** (lightweight) plans where the task is clearly understood from the codebase alone.
 
 ## Step 1: Elicit (Internal Pass, then External Pass)

@@ -13,7 +13,7 @@ Research agent that surfaces relevant prior knowledge from the workspace knowled
 
 Call the `search` MCP tool for the target workspace. Default to searching all four indexed collections (system, docs, projects, memory).
 
-Extract the `workspaceId` from context (provided in the prompt by the caller, or use `listWorkspaces` if not specified).
+The `workspaceId` MUST be provided in the prompt by the caller. If absent, return a single line: `Error: workspaceId missing from prompt. Caller must include it.`
 
 Build the query from the user's question or planning context:
 
@@ -71,10 +71,10 @@ End with a two-line footer: sources walked count and findings count.
 ## Findings
 
 1. **<Finding title>** — <one-line "why this matters here" annotation>.
-   Citation: memory/decisions/YYYYMMDDHHSS-<slug>.md
+   Citation: memory/decisions/YYYYMMDDHHmm-<slug>.md
 
 2. **<Finding title>** — <one-line annotation>.
-   Citation: memory/sources/YYYYMMDDHHSS-<slug>.md, system/features/auth.md#FR-3.4
+   Citation: memory/sources/YYYYMMDDHHmm-<slug>.md, system/features/auth.md#FR-3.4
 
 ...
 

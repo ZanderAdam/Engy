@@ -55,7 +55,11 @@ The subagent returns a digest with 3–8 cited findings. Fold it into the milest
 <!-- /engy:research -->
 ```
 
-The markers let future readers identify LLM-synthesized content and re-run the research step. When the milestone is repo-local, include `filters.repo` in the prompt. This step runs after Level 1 (milestone selection confirmed) and before writing the plan document.
+The markers let future readers identify LLM-synthesized content and re-run the research step.
+
+If the subagent returns `Findings: 0`, omit the marker block entirely — do not write an empty block.
+
+When the milestone is repo-local, mention the repo path in the prompt so the subagent applies `filters.repo`. This step runs after Level 1 (milestone selection confirmed) and before writing the plan document.
 
 ### Level 2: Plan Milestone Details (Groups and Tasks)
 

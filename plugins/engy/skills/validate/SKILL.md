@@ -30,7 +30,7 @@ validateWorkspace({ workspaceId: <id> })
 
 This runs all checks server-side:
 
-- **Broken links** — every `linkedMemories` entry and `sources[]` reference must exist on disk
+- **Broken links** — every `linkedMemories` entry and `sources[]` reference must exist on disk. **Note:** broken-link checking covers DB-tracked `linkedMemories` and `sources` frontmatter only. Inline markdown links in document bodies are not checked.
 - **Schema compliance** — memory files in `memory/{subtype}/` must have `title` and `subtype` frontmatter
 - **Duplicate IDs** — same `filePath` cannot appear twice in `permanentMemories`
 - **Orphaned content** — DB rows with no matching file on disk
@@ -74,3 +74,14 @@ If there are no findings: "Workspace is clean — no integrity issues found."
 
 Findings grouped by severity (errors first), followed by a one-line summary.
 Each finding includes: `[check-name] <path-if-applicable> — <message>`.
+
+## Key Principles
+
+- Read-only — validate never modifies state.
+- Severity grouping — errors must be fixed; warnings are advisory.
+
+## Flow Position
+
+**Typical trigger:** user wants to verify knowledge graph integrity before promoting memories or after a bulk import.
+
+**Next step:** address errors first, then run `/engy:reindex` if index status flagged embedding lag.
