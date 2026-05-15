@@ -1,6 +1,6 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { TerminalActivityState } from '@/components/terminal/types';
 
 interface ActivityChangeDetail {
@@ -46,4 +46,39 @@ export function useTerminalActivity(sessionIds: string[]): TerminalActivityState
     () => getHighestPriority(sessionIds),
     () => 'idle' as const,
   );
+}
+
+function buildActivities(sessionIds: string[]): Record<string, TerminalActivityState> {
+  const out: Record<string, TerminalActivityState> = {};
+  for (const id of sessionIds) out[id] = stateMap.get(id) ?? 'idle';
+  return out;
+}
+
+export function useTerminalActivities(
+  sessionIds: string[],
+): Record<string, TerminalActivityState> {
+  const key = sessionIds.join('|');
+  const [snapshot, setSnapshot] = useState(() => buildActivities(sessionIds));
+
+  useEffect(() => {
+    const ids = key ? key.split('|') : [];
+    function rebuild() {
+      setSnapshot((prev) => {
+        const next = buildActivities(ids);
+        const prevKeys = Object.keys(prev);
+        if (prevKeys.length !== ids.length) return next;
+        for (const id of ids) {
+          if (prev[id] !== next[id]) return next;
+        }
+        return prev;
+      });
+    }
+    rebuild();
+    listeners.add(rebuild);
+    return () => {
+      listeners.delete(rebuild);
+    };
+  }, [key]);
+
+  return snapshot;
 }

@@ -525,6 +525,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
         rightHeaderActionsComponent={TerminalDockActions}
         onReady={handleDockviewReady}
         disableFloatingGroups
+        disableTabsOverflowList
         defaultRenderer="always"
         scrollbars="native"
       />

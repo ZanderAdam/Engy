@@ -16,6 +16,13 @@ export const TERMINAL_ACTIVITY_STYLES: Partial<Record<TerminalActivityState | Te
   connecting: 'animate-pulse text-muted-foreground',
 };
 
+export function getTerminalIconStyle(tab: TerminalTab): string | undefined {
+  if (tab.status === 'connecting') return TERMINAL_ACTIVITY_STYLES.connecting;
+  if (tab.status === 'exited') return undefined;
+  if (tab.activityState && tab.activityState !== 'idle') return TERMINAL_ACTIVITY_STYLES[tab.activityState];
+  return undefined;
+}
+
 export interface TerminalScope {
   scopeType: TerminalScopeType;
   scopeLabel: string;

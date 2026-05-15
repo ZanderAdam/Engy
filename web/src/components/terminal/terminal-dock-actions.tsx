@@ -5,11 +5,13 @@ import {
   RiAddLine,
   RiArrowRightSLine,
   RiBox3Line,
+  RiListUnordered,
   RiSplitCellsHorizontal,
   RiSplitCellsVertical,
   RiTerminalLine,
 } from '@remixicon/react';
 import type { IDockviewHeaderActionsProps } from 'dockview';
+import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,14 +21,54 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useTerminalDock } from './terminal-dock-context';
-import { toContainerScope } from './types';
+import { getTerminalIconStyle, toContainerScope, type TerminalPanelParams } from './types';
+import { useTerminalActivities } from '@/hooks/use-terminal-activity';
 
-export function TerminalDockActions({ activePanel }: IDockviewHeaderActionsProps) {
+export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActionsProps) {
   const { openTerminal, onCollapse, extraDropdownGroups, containerEnabled, defaultScope } =
     useTerminalDock();
+  const activities = useTerminalActivities(panels.map((p) => p.id));
 
   return (
     <div className="flex shrink-0 items-center border-l border-border">
+      {panels.length > 1 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground border-r border-border"
+              aria-label="List terminals"
+              title="All terminals"
+            >
+              <RiListUnordered className="size-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {panels.map((panel) => {
+              const { tab } = panel.params as TerminalPanelParams;
+              const liveTab = { ...tab, activityState: activities[panel.id] ?? tab.activityState };
+              const isExited = tab.status === 'exited';
+              const isActive = activePanel?.id === panel.id;
+              return (
+                <DropdownMenuItem
+                  key={panel.id}
+                  onClick={() => panel.api.setActive()}
+                  className={cn(isExited && 'opacity-60')}
+                  aria-current={isActive || undefined}
+                >
+                  <RiTerminalLine className={cn('size-3', getTerminalIconStyle(liveTab))} />
+                  <span className="truncate">{panel.title ?? tab.scope.scopeLabel}</span>
+                  {isActive && (
+                    <span
+                      aria-hidden
+                      className="ml-auto size-1.5 rounded-full bg-foreground"
+                    />
+                  )}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button

@@ -11,19 +11,12 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useTerminalDock } from './terminal-dock-context';
-import { TERMINAL_ACTIVITY_STYLES, type TerminalPanelParams, type TerminalTab } from './types';
+import { getTerminalIconStyle, type TerminalPanelParams, type TerminalTab } from './types';
 
 function collapseLabel(label: string): string {
   const parts = label.split('/').filter(Boolean);
   if (parts.length <= 2) return label;
   return `/${parts[0]}/.../${parts[parts.length - 1]}`;
-}
-
-function getIconStyle(tab: TerminalTab): string | undefined {
-  if (tab.status === 'connecting') return TERMINAL_ACTIVITY_STYLES.connecting;
-  if (tab.status === 'exited') return undefined;
-  if (tab.activityState && tab.activityState !== 'idle') return TERMINAL_ACTIVITY_STYLES[tab.activityState];
-  return undefined;
 }
 
 export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<TerminalPanelParams>) {
@@ -91,7 +84,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
         tab.status === 'exited' && 'opacity-50',
       )}
     >
-      <RiTerminalLine className={cn('size-[11px] shrink-0', getIconStyle(tab))} />
+      <RiTerminalLine className={cn('size-[11px] shrink-0', getTerminalIconStyle(tab))} />
       {isEditing ? (
         editInput
       ) : isDir ? (
