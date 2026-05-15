@@ -73,6 +73,8 @@ The subagent returns a `## Findings` digest with cited sources. Hold this digest
 
 If the project has distinct domains (e.g., data model changes + UI changes), run a separate Task call per domain and merge the digests.
 
+If the digest reports `Findings: 0`, proposed docs must omit the `<!-- engy:research synthesized -->` marker block in Step 5 and instead note `No prior knowledge found for this topic.` inline within the `## Sources` section.
+
 ### Step 4: Analyze Gaps
 
 Based on completed tasks + promoted memories + research digest, identify what is missing or outdated in `{workspaceDir}/system/`:
@@ -115,7 +117,7 @@ scenarioIds:
 - `sources[]` frontmatter with memory paths that support the change
 - A `## Sources` section (or update the existing one) with research digest citations
 
-**If the Write tool is unavailable** and the MCP server does not expose a `dir.write` tool, print the proposed file content as a fenced markdown block with the target path in the header, so the user can apply it manually or via the editor.
+Use the built-in Write tool with an absolute path. Read the existing file via Read first if editing.
 
 ### Step 6: Print Summary
 

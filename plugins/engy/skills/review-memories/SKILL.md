@@ -113,10 +113,9 @@ Print: `Promoted (edited) → <permanent memory title>`
 Print: `Promoted → <title>. Marked <existing title> as superseded.`
 
 **contradict**
-Do NOT promote. Call `mcp__Engy__updatePermanentMemory` is not used here — the fleeting stays unpromoted.
-Add a tag to the fleeting by calling `mcp__Engy__createFleetingMemory` is also not the right path — instead, note the contradiction inline:
-Print: `Flagged as contradiction with <existing title>. Left unpromoted. Review manually.`
-(The fleeting remains in the DB; the note is surfaced only in the session output.)
+Do not promote and do not call any memory mutation. Print:
+`Flagged as contradiction with <existing title>. Left unpromoted. Review manually.`
+The fleeting remains in the DB; the contradiction note exists only in the session output.
 
 **skip**
 Do nothing. Print: `Skipped.`

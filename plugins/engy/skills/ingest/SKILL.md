@@ -84,11 +84,11 @@ ingested_at: <ISO 8601 timestamp>
 
 **Deduplication:** the server's `writeSourceSnapshot` helper dedupes by SHA-256. If the file already exists at the computed path, print "Source already on disk — reusing existing path: `<path>`" and proceed with the existing path.
 
-**Write surface:** use the built-in Write tool. If the workspace exposes a `dir.write` MCP tool (check `web/src/server/mcp/index.ts`), use that instead.
+**Write surface:** use the built-in Write tool with an absolute path under the workspace dir.
 
 ### Step 3: Draft a Fleeting Distillation
 
-Call `mcp__Engy__createFleetingMemory` with a four-part distillation as the `content`:
+Call `mcp__Engy__createFleetingMemory` with a four-part distillation as the `content` and pass the source path via the `sources` field:
 
 ```
 mcp__Engy__createFleetingMemory({
@@ -96,9 +96,8 @@ mcp__Engy__createFleetingMemory({
   type: 'capture',
   source: 'agent',
   tags: ['ingest'],
-  content: `Source: <source-path>
-
-**Core claim:** <the single most important assertion or finding>
+  sources: ['<source-path>'],
+  content: `**Core claim:** <the single most important assertion or finding>
 
 **What surprised:** <what was unexpected or non-obvious>
 
@@ -108,8 +107,6 @@ mcp__Engy__createFleetingMemory({
 `
 })
 ```
-
-> **TODO:** `mcp__Engy__createFleetingMemory` does not currently accept a `sources` field in its schema (`workspaceId`, `content`, `type`, `source`, `projectId`, `tags` only). Include the source path inline in the `content` body as shown above until `sources: [<source-path>]` is added to the schema.
 
 Note the returned `distillationId` (memory `id`) for the commit message.
 
@@ -142,7 +139,7 @@ If no existing notes warrant changes, print "No candidate edits — no existing 
 
 ### Step 6: Commit
 
-The server-side commit helpers fire automatically when source records and distillations are written. Each commit uses the `memory(ingest):` convention (FR-TG1.8) with structured fields in the commit body:
+After all writes for the ingest are done (source record, distillation, and any candidate edits), run `git add` + `git commit` from the workspace dir using the Bash tool. One commit per ingest run, not per file. Use the structured `memory(ingest):` format from FR-TG1.8:
 
 ```
 memory(ingest): <slug>
@@ -153,7 +150,7 @@ candidate_edits: <list of edited note paths, or "none">
 contradictions: <list of contradicted note paths, or "none">
 ```
 
-If you need to write a manual commit (e.g., for candidate edits), follow this format. Use `git log --grep='^memory(ingest):'` to audit the operations log.
+Use `git log --grep='^memory(ingest):'` to audit the operations log.
 
 ### Step 7: Trigger Reindex
 
