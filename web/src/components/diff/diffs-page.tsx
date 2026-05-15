@@ -56,10 +56,13 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   };
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
-  const { data: taskGroups } = trpc.taskGroup.list.useQuery({});
   const { data: project } = trpc.project.getBySlug.useQuery(
     { workspaceId: workspace?.id ?? 0, slug: projectSlug },
     { enabled: !!workspace },
+  );
+  const { data: taskGroups } = trpc.taskGroup.list.useQuery(
+    { projectId: project?.id ?? 0 },
+    { enabled: !!project },
   );
 
   const allRepos = useMemo(() => {
