@@ -13,6 +13,8 @@ import type { ActivityEvent, TerminalTab } from "./types";
 import { parseTerminalActivity } from "./parse-terminal-activity";
 import { createActivityTracker } from "./activity-tracker";
 import { ReconnectingSocket } from "./reconnecting-socket";
+import { MobileTerminalControls } from "./mobile-terminal-controls";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export interface TerminalActions {
   write: (data: string) => void;
@@ -67,6 +69,14 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
   const lastSentRowsRef = useRef(0);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const sessionId = tab.sessionId;
+  const isMobile = useIsMobile();
+
+  const sendKey = useCallback(
+    (data: string) => {
+      socketRef.current?.send(JSON.stringify({ t: 'i', sessionId, d: data }));
+    },
+    [sessionId],
+  );
 
   const handleScrollToBottom = useCallback(() => {
     xtermRef.current?.scrollToBottom();
@@ -339,18 +349,21 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
   }, [panelApi]);
 
   return (
-    <div className="relative size-full">
-      <div ref={containerRef} className="size-full" />
-      {showScrollButton && (
-        <button
-          onClick={handleScrollToBottom}
-          className="absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full bg-zinc-700/80 px-3 py-1 text-xs text-zinc-300 shadow-lg backdrop-blur-sm transition-opacity hover:bg-zinc-600/80"
-          aria-label="Scroll to bottom"
-        >
-          <RiArrowDownSLine className="size-3.5" />
-          Bottom
-        </button>
-      )}
+    <div className="flex size-full">
+      <div className="relative flex-1 min-w-0">
+        <div ref={containerRef} className="size-full" />
+        {showScrollButton && (
+          <button
+            onClick={handleScrollToBottom}
+            className="absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full bg-zinc-700/80 px-3 py-1 text-xs text-zinc-300 shadow-lg backdrop-blur-sm transition-opacity hover:bg-zinc-600/80"
+            aria-label="Scroll to bottom"
+          >
+            <RiArrowDownSLine className="size-3.5" />
+            Bottom
+          </button>
+        )}
+      </div>
+      {isMobile && <MobileTerminalControls onKey={sendKey} />}
     </div>
   );
 }
