@@ -17,6 +17,8 @@ import type { WorktreeSelection } from './worktree-selector';
 import { ReviewActions } from './review-actions';
 import { useDiffComments, extractFilePathFromDocPath } from './use-diff-comments';
 import { useAutoSave } from './use-auto-save';
+import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
+import { RiGitBranchLine } from '@remixicon/react';
 import type { ChangedFile, ViewMode, DiffViewMode, EditorMode } from './types';
 
 const SIDEBAR_CONFIG = {
@@ -47,10 +49,10 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   const [baseBranch, setBaseBranch] = useState('origin/main');
   const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(null);
-  const [selectedWorktree, setSelectedWorktree] = useState<WorktreeSelection>(null);
+  const [userSelectedWorktree, setUserSelectedWorktree] = useState<WorktreeSelection>(null);
 
-  const handleWorktreeChange = (worktree: WorktreeSelection) => {
-    setSelectedWorktree(worktree);
+  const handleUserWorktreeChange = (worktree: WorktreeSelection) => {
+    setUserSelectedWorktree(worktree);
     setSelectedFile(null);
     setSelectedCommit(null);
   };
@@ -60,6 +62,22 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     { workspaceId: workspace?.id ?? 0, slug: projectSlug },
     { enabled: !!workspace },
   );
+
+  const { branch: projectWorktreeBranch, repoMap: projectRepoMap } = useProjectWorktreeMap({
+    projectId: project?.id,
+  });
+
+  // When a project-level worktree activates, drop any local per-repo worktree
+  // selection so clearing `?wt` later doesn't resurrect a stale Coder pick.
+  // Using the "set state during render" pattern (vs. useEffect) per React's
+  // recommendation for state synced to props.
+  const [prevProjectWtBranch, setPrevProjectWtBranch] = useState<string | null>(
+    projectWorktreeBranch,
+  );
+  if (projectWorktreeBranch !== prevProjectWtBranch) {
+    setPrevProjectWtBranch(projectWorktreeBranch);
+    if (projectWorktreeBranch) setUserSelectedWorktree(null);
+  }
   const { data: taskGroups } = trpc.taskGroup.list.useQuery(
     { projectId: project?.id ?? 0 },
     { enabled: !!project },
@@ -83,11 +101,22 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
   const selectedRepo = userSelectedRepo ?? (allRepos.length > 0 ? allRepos[0] : null);
 
+  // When a project-level worktree is active, derive selectedWorktree from the
+  // per-repo map (overrides the user's local WorktreeSelector choice).
+  const selectedWorktree: WorktreeSelection = useMemo(() => {
+    if (projectWorktreeBranch && selectedRepo) {
+      const worktreePath = projectRepoMap.get(selectedRepo);
+      if (worktreePath) return { worktreePath };
+      return null;
+    }
+    return userSelectedWorktree;
+  }, [projectWorktreeBranch, projectRepoMap, selectedRepo, userSelectedWorktree]);
+
   const handleRepoChange = (repo: string) => {
     setUserSelectedRepo(repo);
     setSelectedFile(null);
     setSelectedCommit(null);
-    setSelectedWorktree(null);
+    setUserSelectedWorktree(null);
   };
 
   const handleDiffViewModeChange = (mode: DiffViewMode) => {
@@ -276,13 +305,20 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
             selectedRepo={selectedRepo ?? ''}
             onSelectRepo={handleRepoChange}
           />
-          {selectedRepo && (
+          {selectedRepo && !projectWorktreeBranch && (
             <WorktreeSelector
               workspaceSlug={workspaceSlug}
               repoDir={selectedRepo}
-              value={selectedWorktree}
-              onChange={handleWorktreeChange}
+              value={userSelectedWorktree}
+              onChange={handleUserWorktreeChange}
             />
+          )}
+          {projectWorktreeBranch && (
+            <div className="flex items-center gap-1 border-b border-border px-3 py-2 text-xs text-muted-foreground">
+              <RiGitBranchLine className="size-3" />
+              <span>on</span>
+              <span className="font-mono text-foreground">{projectWorktreeBranch}</span>
+            </div>
           )}
         </div>
         <div className="px-3">

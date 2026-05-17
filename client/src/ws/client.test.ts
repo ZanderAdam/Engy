@@ -1250,6 +1250,269 @@ describe('WsClient worktree merge handler', () => {
   });
 });
 
+describe('WsClient worktree add/remove handlers', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => wss.once('connection', resolve));
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => ws.once('message', (data) => resolve(data.toString())));
+  }
+
+  beforeEach(async () => {
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) resolve();
+      else server.on('listening', () => resolve());
+    });
+    port = (server.address() as { port: number }).port;
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    vi.restoreAllMocks();
+  });
+
+  async function setupAndSend(req: object): Promise<string> {
+    const connPromise = waitForConnection(server);
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      onWorkspacesSync: vi.fn(),
+    });
+    client.connect();
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+    ws.send(JSON.stringify(req));
+    return waitForMessage(ws);
+  }
+
+  describe('WORKTREE_ADD_REQUEST', () => {
+    it('creates a worktree with -b when createBranch is true', async () => {
+      mockedExecFile[promisify.custom].mockResolvedValueOnce({ stdout: '', stderr: '' });
+
+      const response = await setupAndSend({
+        type: 'WORKTREE_ADD_REQUEST',
+        payload: {
+          requestId: 'add-1',
+          repoDir: '/home/user/repo',
+          worktreePath: '/tmp/wt/feat-x',
+          branch: 'feat-x',
+          createBranch: true,
+        },
+      });
+
+      expect(JSON.parse(response)).toEqual({
+        type: 'WORKTREE_ADD_RESULT',
+        payload: {
+          requestId: 'add-1',
+          success: true,
+          worktreePath: '/tmp/wt/feat-x',
+          branch: 'feat-x',
+        },
+      });
+      expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
+        'git',
+        ['-C', '/home/user/repo', 'worktree', 'add', '-b', 'feat-x', '/tmp/wt/feat-x'],
+        expect.any(Object),
+      );
+    });
+
+    it('checks out an existing branch when createBranch is false', async () => {
+      mockedExecFile[promisify.custom].mockResolvedValueOnce({ stdout: '', stderr: '' });
+
+      await setupAndSend({
+        type: 'WORKTREE_ADD_REQUEST',
+        payload: {
+          requestId: 'add-2',
+          repoDir: '/home/user/repo',
+          worktreePath: '/tmp/wt/feat-x',
+          branch: 'feat-x',
+          createBranch: false,
+        },
+      });
+
+      expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
+        'git',
+        ['-C', '/home/user/repo', 'worktree', 'add', '/tmp/wt/feat-x', 'feat-x'],
+        expect.any(Object),
+      );
+    });
+
+    it('classifies branch-already-exists errors as BRANCH_EXISTS', async () => {
+      mockedExecFile[promisify.custom].mockRejectedValueOnce(
+        new Error("fatal: a branch named 'feat-x' already exists"),
+      );
+
+      const response = await setupAndSend({
+        type: 'WORKTREE_ADD_REQUEST',
+        payload: {
+          requestId: 'add-3',
+          repoDir: '/home/user/repo',
+          worktreePath: '/tmp/wt/feat-x',
+          branch: 'feat-x',
+          createBranch: true,
+        },
+      });
+
+      const parsed = JSON.parse(response);
+      expect(parsed.type).toBe('WORKTREE_ADD_RESULT');
+      expect(parsed.payload.code).toBe('BRANCH_EXISTS');
+    });
+
+    it('classifies path-already-checked-out errors as PATH_EXISTS', async () => {
+      mockedExecFile[promisify.custom].mockRejectedValueOnce(
+        new Error("fatal: '/tmp/wt/feat-x' is already checked out at '/old/wt'"),
+      );
+
+      const response = await setupAndSend({
+        type: 'WORKTREE_ADD_REQUEST',
+        payload: {
+          requestId: 'add-4',
+          repoDir: '/home/user/repo',
+          worktreePath: '/tmp/wt/feat-x',
+          branch: 'feat-x',
+          createBranch: true,
+        },
+      });
+
+      expect(JSON.parse(response).payload.code).toBe('PATH_EXISTS');
+    });
+
+    it('classifies unknown errors as OTHER', async () => {
+      mockedExecFile[promisify.custom].mockRejectedValueOnce(new Error('something unexpected'));
+
+      const response = await setupAndSend({
+        type: 'WORKTREE_ADD_REQUEST',
+        payload: {
+          requestId: 'add-5',
+          repoDir: '/home/user/repo',
+          worktreePath: '/tmp/wt/x',
+          branch: 'x',
+          createBranch: true,
+        },
+      });
+
+      expect(JSON.parse(response).payload.code).toBe('OTHER');
+    });
+
+    it('passes baseRef as final positional argument when createBranch is true', async () => {
+      mockedExecFile[promisify.custom].mockResolvedValueOnce({ stdout: '', stderr: '' });
+
+      await setupAndSend({
+        type: 'WORKTREE_ADD_REQUEST',
+        payload: {
+          requestId: 'add-6',
+          repoDir: '/home/user/repo',
+          worktreePath: '/tmp/wt/feat-x',
+          branch: 'feat-x',
+          createBranch: true,
+          baseRef: 'origin/main',
+        },
+      });
+
+      expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
+        'git',
+        [
+          '-C',
+          '/home/user/repo',
+          'worktree',
+          'add',
+          '-b',
+          'feat-x',
+          '/tmp/wt/feat-x',
+          'origin/main',
+        ],
+        expect.any(Object),
+      );
+    });
+  });
+
+  describe('WORKTREE_REMOVE_REQUEST', () => {
+    it('removes a worktree successfully', async () => {
+      mockedExecFile[promisify.custom].mockResolvedValueOnce({ stdout: '', stderr: '' });
+
+      const response = await setupAndSend({
+        type: 'WORKTREE_REMOVE_REQUEST',
+        payload: {
+          requestId: 'rm-1',
+          repoDir: '/home/user/repo',
+          worktreePath: '/tmp/wt/feat-x',
+          force: false,
+        },
+      });
+
+      expect(JSON.parse(response)).toEqual({
+        type: 'WORKTREE_REMOVE_RESULT',
+        payload: { requestId: 'rm-1', success: true },
+      });
+      expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
+        'git',
+        ['-C', '/home/user/repo', 'worktree', 'remove', '/tmp/wt/feat-x'],
+        expect.any(Object),
+      );
+    });
+
+    it('passes --force when force is true', async () => {
+      mockedExecFile[promisify.custom].mockResolvedValueOnce({ stdout: '', stderr: '' });
+
+      await setupAndSend({
+        type: 'WORKTREE_REMOVE_REQUEST',
+        payload: {
+          requestId: 'rm-2',
+          repoDir: '/home/user/repo',
+          worktreePath: '/tmp/wt/feat-x',
+          force: true,
+        },
+      });
+
+      expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
+        'git',
+        ['-C', '/home/user/repo', 'worktree', 'remove', '--force', '/tmp/wt/feat-x'],
+        expect.any(Object),
+      );
+    });
+
+    it('classifies dirty-worktree errors as DIRTY', async () => {
+      mockedExecFile[promisify.custom].mockRejectedValueOnce(
+        new Error("fatal: '/tmp/wt/feat-x' contains modified or untracked files"),
+      );
+
+      const response = await setupAndSend({
+        type: 'WORKTREE_REMOVE_REQUEST',
+        payload: {
+          requestId: 'rm-3',
+          repoDir: '/home/user/repo',
+          worktreePath: '/tmp/wt/feat-x',
+          force: false,
+        },
+      });
+
+      expect(JSON.parse(response).payload.code).toBe('DIRTY');
+    });
+
+    it('classifies unknown errors as OTHER', async () => {
+      mockedExecFile[promisify.custom].mockRejectedValueOnce(new Error('totally unknown'));
+
+      const response = await setupAndSend({
+        type: 'WORKTREE_REMOVE_REQUEST',
+        payload: {
+          requestId: 'rm-4',
+          repoDir: '/home/user/repo',
+          worktreePath: '/tmp/wt/x',
+          force: false,
+        },
+      });
+
+      expect(JSON.parse(response).payload.code).toBe('OTHER');
+    });
+  });
+});
+
 describe('WsClient devcontainer config generate handler', () => {
   const mockedGenerate = vi.mocked(generateDevcontainerConfig);
   let server: WebSocketServer;

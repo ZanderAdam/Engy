@@ -7,7 +7,8 @@ import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { projects, tasks, workspaces } from '../../db/schema';
 import { uniqueProjectSlug } from '../utils';
-import { getWorkspaceDir } from '../../engy-dir/init';
+import { getWorkspaceDir, effectiveDocsDirForBranch } from '../../engy-dir/init';
+import type { AppState } from '../context';
 import {
   listProjectFiles,
   getProjectSpec,
@@ -51,14 +52,69 @@ function readPlanSlugs(projectAbsDir: string): string[] {
     .map((f) => f.replace(/\.plan\.md$/, ''));
 }
 
-function enrichProject(project: ProjectRow, workspace: WorkspaceRow | undefined) {
+function enrichProject(
+  project: ProjectRow,
+  workspace: WorkspaceRow | undefined,
+  effectiveDocsDir?: string | null,
+) {
   let projectDir: string | null = null;
   let planSlugs: string[] = [];
   if (workspace && project.projectDir) {
-    projectDir = path.join(getWorkspaceDir(workspace), 'projects', project.projectDir);
+    const effectiveWorkspace =
+      effectiveDocsDir !== undefined && effectiveDocsDir !== null
+        ? { ...workspace, docsDir: effectiveDocsDir }
+        : workspace;
+    projectDir = path.join(getWorkspaceDir(effectiveWorkspace), 'projects', project.projectDir);
     planSlugs = readPlanSlugs(projectDir);
   }
   return { ...project, projectDir, planSlugs };
+}
+
+/**
+ * Returns `{ slug, docsDir }` rebased to the worktree path when `worktreeBranch`
+ * is set and `workspace.docsDir` sits inside a materialized repo.
+ */
+async function resolveEffectiveWorkspace(
+  workspace: WorkspaceRow,
+  worktreeBranch: string | undefined,
+  state: AppState,
+): Promise<{ slug: string; docsDir: string | null }> {
+  if (!worktreeBranch) {
+    return { slug: workspace.slug, docsDir: workspace.docsDir };
+  }
+  const docsDir = await effectiveDocsDirForBranch(
+    { slug: workspace.slug, docsDir: workspace.docsDir, repos: workspace.repos },
+    worktreeBranch,
+    state,
+  );
+  return { slug: workspace.slug, docsDir };
+}
+
+const worktreeBranchSchema = z.string().optional();
+
+async function loadProjectForFile(
+  workspaceSlug: string,
+  projectSlug: string,
+  worktreeBranch: string | undefined,
+  state: AppState,
+): Promise<{
+  project: ProjectRow;
+  workspace: WorkspaceRow;
+  effective: { slug: string; docsDir: string | null };
+}> {
+  const db = getDb();
+  const workspace = getWorkspace(workspaceSlug);
+  const project = db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, projectSlug)))
+    .get();
+  if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+  if (!project.projectDir) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
+  }
+  const effective = await resolveEffectiveWorkspace(workspace, worktreeBranch, state);
+  return { project, workspace, effective };
 }
 
 export const projectRouter = router({
@@ -119,8 +175,8 @@ export const projectRouter = router({
   }),
 
   getPlanSlugs: publicProcedure
-    .input(z.object({ projectId: z.number() }))
-    .query(({ input }) => {
+    .input(z.object({ projectId: z.number(), worktreeBranch: worktreeBranchSchema }))
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const project = db.select().from(projects).where(eq(projects.id, input.projectId)).get();
       if (!project) {
@@ -134,13 +190,20 @@ export const projectRouter = router({
       if (!workspace || !project.projectDir) {
         return { workspaceSlug: workspace?.slug ?? '', planSlugs: [] };
       }
-      const projectAbsDir = path.join(getWorkspaceDir(workspace), 'projects', project.projectDir);
+      const effective = await resolveEffectiveWorkspace(workspace, input.worktreeBranch, ctx.state);
+      const projectAbsDir = path.join(getWorkspaceDir(effective), 'projects', project.projectDir);
       return { workspaceSlug: workspace.slug, planSlugs: readPlanSlugs(projectAbsDir) };
     }),
 
   getBySlug: publicProcedure
-    .input(z.object({ workspaceId: z.number(), slug: z.string() }))
-    .query(({ input }) => {
+    .input(
+      z.object({
+        workspaceId: z.number(),
+        slug: z.string(),
+        worktreeBranch: worktreeBranchSchema,
+      }),
+    )
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       let project = db
         .select()
@@ -173,7 +236,12 @@ export const projectRouter = router({
         }
       }
 
-      return enrichProject(project, workspace);
+      let effectiveDocsDir: string | null = null;
+      if (workspace && input.worktreeBranch) {
+        const effective = await resolveEffectiveWorkspace(workspace, input.worktreeBranch, ctx.state);
+        effectiveDocsDir = effective.docsDir;
+      }
+      return enrichProject(project, workspace, effectiveDocsDir);
     }),
 
   listWithProgress: publicProcedure
@@ -246,8 +314,14 @@ export const projectRouter = router({
   // ── Spec file procedures (project-scoped) ────────────────────────
 
   listFiles: publicProcedure
-    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string() }))
-    .query(({ input }) => {
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        worktreeBranch: worktreeBranchSchema,
+      }),
+    )
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const workspace = getWorkspace(input.workspaceSlug);
       const project = db
@@ -265,27 +339,27 @@ export const projectRouter = router({
           dirs: [] as string[],
         };
 
-      return listProjectFiles(
-        { slug: workspace.slug, docsDir: workspace.docsDir },
-        project.projectDir,
-      );
+      const effective = await resolveEffectiveWorkspace(workspace, input.worktreeBranch, ctx.state);
+      return listProjectFiles(effective, project.projectDir);
     }),
 
   getSpec: publicProcedure
-    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string() }))
-    .query(({ input }) => {
-      const db = getDb();
-      const workspace = getWorkspace(input.workspaceSlug);
-      const project = db
-        .select()
-        .from(projects)
-        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
-        .get();
-      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
-
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        worktreeBranch: worktreeBranchSchema,
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      const { project, effective } = await loadProjectForFile(
+        input.workspaceSlug,
+        input.projectSlug,
+        input.worktreeBranch,
+        ctx.state,
+      );
       try {
-        return getProjectSpec({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir);
+        return getProjectSpec(effective, project.projectDir!);
       } catch (e) {
         const msg = errorMessage(e);
         if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
@@ -301,25 +375,22 @@ export const projectRouter = router({
         title: z.string().optional(),
         status: z.enum(['draft', 'ready', 'approved', 'active', 'completed']).optional(),
         body: z.string().optional(),
+        worktreeBranch: worktreeBranchSchema,
       }),
     )
-    .mutation(({ input }) => {
-      const db = getDb();
-      const workspace = getWorkspace(input.workspaceSlug);
-      const project = db
-        .select()
-        .from(projects)
-        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
-        .get();
-      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
-
+    .mutation(async ({ input, ctx }) => {
+      const { project, effective } = await loadProjectForFile(
+        input.workspaceSlug,
+        input.projectSlug,
+        input.worktreeBranch,
+        ctx.state,
+      );
       try {
-        return updateProjectSpec(
-          { slug: workspace.slug, docsDir: workspace.docsDir },
-          project.projectDir,
-          { title: input.title, status: input.status, body: input.body },
-        );
+        return updateProjectSpec(effective, project.projectDir!, {
+          title: input.title,
+          status: input.status,
+          body: input.body,
+        });
       } catch (e) {
         const msg = errorMessage(e);
         if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
@@ -331,20 +402,23 @@ export const projectRouter = router({
     }),
 
   readFile: publicProcedure
-    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string(), filePath: z.string() }))
-    .query(({ input }) => {
-      const db = getDb();
-      const workspace = getWorkspace(input.workspaceSlug);
-      const project = db
-        .select()
-        .from(projects)
-        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
-        .get();
-      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
-
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        filePath: z.string(),
+        worktreeBranch: worktreeBranchSchema,
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      const { project, effective } = await loadProjectForFile(
+        input.workspaceSlug,
+        input.projectSlug,
+        input.worktreeBranch,
+        ctx.state,
+      );
       try {
-        return { content: readProjectFile({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.filePath) };
+        return { content: readProjectFile(effective, project.projectDir!, input.filePath) };
       } catch (e) {
         const msg = errorMessage(e);
         if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
@@ -361,21 +435,18 @@ export const projectRouter = router({
           message: 'Use project.updateSpec to modify spec.md',
         }),
         content: z.string(),
+        worktreeBranch: worktreeBranchSchema,
       }),
     )
-    .mutation(({ input }) => {
-      const db = getDb();
-      const workspace = getWorkspace(input.workspaceSlug);
-      const project = db
-        .select()
-        .from(projects)
-        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
-        .get();
-      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
-
+    .mutation(async ({ input, ctx }) => {
+      const { project, effective } = await loadProjectForFile(
+        input.workspaceSlug,
+        input.projectSlug,
+        input.worktreeBranch,
+        ctx.state,
+      );
       try {
-        writeProjectFile({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.filePath, input.content);
+        writeProjectFile(effective, project.projectDir!, input.filePath, input.content);
         return { success: true };
       } catch (e) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: errorMessage(e) });
@@ -383,20 +454,23 @@ export const projectRouter = router({
     }),
 
   mkdir: publicProcedure
-    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string(), subDir: z.string().min(1) }))
-    .mutation(({ input }) => {
-      const db = getDb();
-      const workspace = getWorkspace(input.workspaceSlug);
-      const project = db
-        .select()
-        .from(projects)
-        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
-        .get();
-      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
-
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        subDir: z.string().min(1),
+        worktreeBranch: worktreeBranchSchema,
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { project, effective } = await loadProjectForFile(
+        input.workspaceSlug,
+        input.projectSlug,
+        input.worktreeBranch,
+        ctx.state,
+      );
       try {
-        mkdirProject({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.subDir);
+        mkdirProject(effective, project.projectDir!, input.subDir);
         return { success: true };
       } catch (e) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: errorMessage(e) });
@@ -411,21 +485,18 @@ export const projectRouter = router({
         filePath: z.string().min(1)
           .refine((p) => p.endsWith('.md'), { message: 'Only .md files are supported' })
           .refine((p) => p !== 'spec.md', { message: 'Cannot delete spec.md' }),
+        worktreeBranch: worktreeBranchSchema,
       }),
     )
-    .mutation(({ input }) => {
-      const db = getDb();
-      const workspace = getWorkspace(input.workspaceSlug);
-      const project = db
-        .select()
-        .from(projects)
-        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
-        .get();
-      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
-
+    .mutation(async ({ input, ctx }) => {
+      const { project, effective } = await loadProjectForFile(
+        input.workspaceSlug,
+        input.projectSlug,
+        input.worktreeBranch,
+        ctx.state,
+      );
       try {
-        deleteProjectFile({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.filePath);
+        deleteProjectFile(effective, project.projectDir!, input.filePath);
         return { success: true };
       } catch (e) {
         const msg = errorMessage(e);
@@ -435,20 +506,23 @@ export const projectRouter = router({
     }),
 
   deleteDir: publicProcedure
-    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string(), subDir: z.string().min(1) }))
-    .mutation(({ input }) => {
-      const db = getDb();
-      const workspace = getWorkspace(input.workspaceSlug);
-      const project = db
-        .select()
-        .from(projects)
-        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
-        .get();
-      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
-
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        subDir: z.string().min(1),
+        worktreeBranch: worktreeBranchSchema,
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { project, effective } = await loadProjectForFile(
+        input.workspaceSlug,
+        input.projectSlug,
+        input.worktreeBranch,
+        ctx.state,
+      );
       try {
-        deleteProjectSubDir({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.subDir);
+        deleteProjectSubDir(effective, project.projectDir!, input.subDir);
         return { success: true };
       } catch (e) {
         const msg = errorMessage(e);
@@ -466,21 +540,18 @@ export const projectRouter = router({
           .refine((p) => p.endsWith('.md'), { message: 'Only .md files are supported' })
           .refine((p) => p !== 'spec.md', { message: 'Cannot rename spec.md' }),
         newPath: z.string().min(1).refine((p) => p.endsWith('.md'), { message: 'Only .md files are supported' }),
+        worktreeBranch: worktreeBranchSchema,
       }),
     )
-    .mutation(({ input }) => {
-      const db = getDb();
-      const workspace = getWorkspace(input.workspaceSlug);
-      const project = db
-        .select()
-        .from(projects)
-        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
-        .get();
-      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
-
+    .mutation(async ({ input, ctx }) => {
+      const { project, effective } = await loadProjectForFile(
+        input.workspaceSlug,
+        input.projectSlug,
+        input.worktreeBranch,
+        ctx.state,
+      );
       try {
-        renameProjectFile({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.oldPath, input.newPath);
+        renameProjectFile(effective, project.projectDir!, input.oldPath, input.newPath);
         return { success: true };
       } catch (e) {
         const msg = errorMessage(e);
@@ -497,21 +568,18 @@ export const projectRouter = router({
         projectSlug: z.string(),
         oldSubDir: z.string().min(1),
         newSubDir: z.string().min(1),
+        worktreeBranch: worktreeBranchSchema,
       }),
     )
-    .mutation(({ input }) => {
-      const db = getDb();
-      const workspace = getWorkspace(input.workspaceSlug);
-      const project = db
-        .select()
-        .from(projects)
-        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
-        .get();
-      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
-
+    .mutation(async ({ input, ctx }) => {
+      const { project, effective } = await loadProjectForFile(
+        input.workspaceSlug,
+        input.projectSlug,
+        input.worktreeBranch,
+        ctx.state,
+      );
       try {
-        renameProjectSubDir({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.oldSubDir, input.newSubDir);
+        renameProjectSubDir(effective, project.projectDir!, input.oldSubDir, input.newSubDir);
         return { success: true };
       } catch (e) {
         const msg = errorMessage(e);
@@ -522,8 +590,14 @@ export const projectRouter = router({
     }),
 
   listContextFiles: publicProcedure
-    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string() }))
-    .query(({ input }) => {
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        worktreeBranch: worktreeBranchSchema,
+      }),
+    )
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const workspace = getWorkspace(input.workspaceSlug);
       const project = db
@@ -534,24 +608,28 @@ export const projectRouter = router({
       if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
       if (!project.projectDir) return [];
 
-      return listProjectContextFiles({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir);
+      const effective = await resolveEffectiveWorkspace(workspace, input.worktreeBranch, ctx.state);
+      return listProjectContextFiles(effective, project.projectDir);
     }),
 
   readContextFile: publicProcedure
-    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string(), filename: z.string() }))
-    .query(({ input }) => {
-      const db = getDb();
-      const workspace = getWorkspace(input.workspaceSlug);
-      const project = db
-        .select()
-        .from(projects)
-        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
-        .get();
-      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
-
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        filename: z.string(),
+        worktreeBranch: worktreeBranchSchema,
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      const { project, effective } = await loadProjectForFile(
+        input.workspaceSlug,
+        input.projectSlug,
+        input.worktreeBranch,
+        ctx.state,
+      );
       try {
-        return readProjectContextFile({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.filename);
+        return readProjectContextFile(effective, project.projectDir!, input.filename);
       } catch (e) {
         const msg = errorMessage(e);
         if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
@@ -566,21 +644,18 @@ export const projectRouter = router({
         projectSlug: z.string(),
         filename: z.string(),
         content: z.string(),
+        worktreeBranch: worktreeBranchSchema,
       }),
     )
-    .mutation(({ input }) => {
-      const db = getDb();
-      const workspace = getWorkspace(input.workspaceSlug);
-      const project = db
-        .select()
-        .from(projects)
-        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
-        .get();
-      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
-
+    .mutation(async ({ input, ctx }) => {
+      const { project, effective } = await loadProjectForFile(
+        input.workspaceSlug,
+        input.projectSlug,
+        input.worktreeBranch,
+        ctx.state,
+      );
       try {
-        writeProjectContextFile({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.filename, input.content);
+        writeProjectContextFile(effective, project.projectDir!, input.filename, input.content);
         return { success: true };
       } catch (e) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: errorMessage(e) });
@@ -588,20 +663,23 @@ export const projectRouter = router({
     }),
 
   deleteContextFile: publicProcedure
-    .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string(), filename: z.string() }))
-    .mutation(({ input }) => {
-      const db = getDb();
-      const workspace = getWorkspace(input.workspaceSlug);
-      const project = db
-        .select()
-        .from(projects)
-        .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, input.projectSlug)))
-        .get();
-      if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
-      if (!project.projectDir) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
-
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        filename: z.string(),
+        worktreeBranch: worktreeBranchSchema,
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { project, effective } = await loadProjectForFile(
+        input.workspaceSlug,
+        input.projectSlug,
+        input.worktreeBranch,
+        ctx.state,
+      );
       try {
-        deleteProjectContextFile({ slug: workspace.slug, docsDir: workspace.docsDir }, project.projectDir, input.filename);
+        deleteProjectContextFile(effective, project.projectDir!, input.filename);
         return { success: true };
       } catch (e) {
         const msg = errorMessage(e);

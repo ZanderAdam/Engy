@@ -8,6 +8,8 @@ import {
   dispatchValidation,
   dispatchFileSearch,
   dispatchGitWorktreeList,
+  dispatchWorktreeAdd,
+  dispatchWorktreeRemove,
 } from './server';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { agentSessions, tasks, projects, workspaces } from '../db/schema';
@@ -90,6 +92,8 @@ describe('WebSocket Server', () => {
       pendingRemoteFilePull: new Map(),
       pendingRemoteFilePush: new Map(),
       pendingWorktreeMerge: new Map(),
+      pendingWorktreeAdd: new Map(),
+      pendingWorktreeRemove: new Map(),
       pendingGitWorktreeList: new Map(),
     };
     const result = await startServer(state);
@@ -413,6 +417,123 @@ describe('WebSocket Server', () => {
         payload: { requestId: string; repoDir: string; coderWorkspace?: string };
       };
       expect(request.payload.coderWorkspace).toBe('my-coder-ws');
+    });
+  });
+
+  describe('WORKTREE_ADD_RESULT', () => {
+    it('resolves with worktreePath and branch on success', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+      const messagePromise = waitForMessage(ws);
+      const promise = dispatchWorktreeAdd(state, {
+        repoDir: '/repo',
+        worktreePath: '/wt/feat',
+        branch: 'feat',
+        createBranch: true,
+      });
+
+      const request = (await messagePromise) as { type: string; payload: { requestId: string } };
+      expect(request.type).toBe('WORKTREE_ADD_REQUEST');
+
+      ws.send(
+        JSON.stringify({
+          type: 'WORKTREE_ADD_RESULT',
+          payload: {
+            requestId: request.payload.requestId,
+            success: true,
+            worktreePath: '/wt/feat',
+            branch: 'feat',
+          },
+        }),
+      );
+
+      await expect(promise).resolves.toEqual({ worktreePath: '/wt/feat', branch: 'feat' });
+    });
+
+    it('rejects with code attached on error', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+      const messagePromise = waitForMessage(ws);
+      const promise = dispatchWorktreeAdd(state, {
+        repoDir: '/repo',
+        worktreePath: '/wt/feat',
+        branch: 'feat',
+        createBranch: true,
+      });
+      const request = (await messagePromise) as { type: string; payload: { requestId: string } };
+
+      ws.send(
+        JSON.stringify({
+          type: 'WORKTREE_ADD_RESULT',
+          payload: {
+            requestId: request.payload.requestId,
+            error: 'branch exists',
+            code: 'BRANCH_EXISTS',
+          },
+        }),
+      );
+
+      await expect(promise).rejects.toMatchObject({
+        message: 'branch exists',
+        code: 'BRANCH_EXISTS',
+      });
+    });
+  });
+
+  describe('WORKTREE_REMOVE_RESULT', () => {
+    it('resolves on success', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+      const messagePromise = waitForMessage(ws);
+      const promise = dispatchWorktreeRemove(state, {
+        repoDir: '/repo',
+        worktreePath: '/wt/feat',
+        force: false,
+      });
+      const request = (await messagePromise) as { type: string; payload: { requestId: string } };
+      expect(request.type).toBe('WORKTREE_REMOVE_REQUEST');
+
+      ws.send(
+        JSON.stringify({
+          type: 'WORKTREE_REMOVE_RESULT',
+          payload: { requestId: request.payload.requestId, success: true },
+        }),
+      );
+
+      await expect(promise).resolves.toBeUndefined();
+    });
+
+    it('rejects with DIRTY code on dirty worktree', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+      const messagePromise = waitForMessage(ws);
+      const promise = dispatchWorktreeRemove(state, {
+        repoDir: '/repo',
+        worktreePath: '/wt/feat',
+        force: false,
+      });
+      const request = (await messagePromise) as { type: string; payload: { requestId: string } };
+
+      ws.send(
+        JSON.stringify({
+          type: 'WORKTREE_REMOVE_RESULT',
+          payload: {
+            requestId: request.payload.requestId,
+            error: 'is dirty',
+            code: 'DIRTY',
+          },
+        }),
+      );
+
+      await expect(promise).rejects.toMatchObject({ message: 'is dirty', code: 'DIRTY' });
     });
   });
 

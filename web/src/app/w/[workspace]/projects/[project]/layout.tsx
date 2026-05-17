@@ -1,10 +1,14 @@
 "use client";
 
-import { useVirtualParams, useVirtualPathname } from "@/components/tabs/tab-context";
+import { useState } from "react";
+import { RiGitBranchLine } from "@remixicon/react";
+import { useVirtualParams, useVirtualPathname, useVirtualSearchParams } from "@/components/tabs/tab-context";
 import { VLink } from "@/components/tabs/virtual-link";
 import { trpc } from "@/lib/trpc";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ProjectStatusBadge } from "@/components/projects/project-status-badge";
+import { WorktreeDropdown } from "@/components/projects/worktree-dropdown";
+import { ManageWorktreesDialog } from "@/components/projects/manage-worktrees-dialog";
 import { cn } from "@/lib/utils";
 
 const tabs = [
@@ -20,6 +24,8 @@ const tabs = [
 export default function ProjectLayout({ children }: { children: React.ReactNode }) {
   const params = useVirtualParams<{ workspace: string; project: string }>();
   const pathname = useVirtualPathname();
+  const searchParams = useVirtualSearchParams();
+  const [manageOpen, setManageOpen] = useState(false);
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
   const { data: project } = trpc.project.getBySlug.useQuery(
@@ -36,6 +42,8 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
   }
 
   const basePath = `/w/${params.workspace}/projects/${params.project}`;
+  const activeWt = searchParams.get('wt');
+  const workspaceRepoCount = ((workspace.repos as string[] | null) ?? []).length;
 
   function tabHref(segment: string): string {
     return segment ? `${basePath}/${segment}` : basePath;
@@ -65,6 +73,13 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
           <span className="opacity-60">›</span>
         </nav>
         <h1 className="text-sm font-semibold">{project.name}</h1>
+        {workspaceRepoCount > 0 && (
+          <WorktreeDropdown
+            projectId={project.id}
+            workspaceRepoCount={workspaceRepoCount}
+            onOpenManage={() => setManageOpen(true)}
+          />
+        )}
         <ProjectStatusBadge projectId={project.id} status={project.status} clickable />
         {workspace.autoStart && (
           <TooltipProvider>
@@ -112,7 +127,24 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
         </TooltipProvider>
       </nav>
 
+      {activeWt && (
+        <div className="flex items-center gap-1.5 border-b border-border bg-muted/30 px-3 py-1 text-[10px] text-muted-foreground">
+          <RiGitBranchLine className="size-3" />
+          <span>on</span>
+          <span className="font-mono text-foreground">{activeWt}</span>
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+
+      {workspaceRepoCount > 0 && (
+        <ManageWorktreesDialog
+          open={manageOpen}
+          onOpenChange={setManageOpen}
+          projectId={project.id}
+          workspaceRepos={(workspace.repos as string[]) ?? []}
+        />
+      )}
     </div>
   );
 }

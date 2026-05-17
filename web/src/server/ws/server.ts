@@ -8,6 +8,8 @@ import type {
   SearchFilesRequestMessage,
   ContainerUpRequestMessage,
   ExecutionStartConfig,
+  WorktreeAddErrorCode,
+  WorktreeRemoveErrorCode,
 } from '@engy/common';
 import type {
   AppState,
@@ -26,6 +28,7 @@ import type {
   RemoteFilePullResult,
   RemoteFilePushResult,
   WorktreeMergeResult,
+  WorktreeAddResult,
 } from '../trpc/context';
 import { getDb } from '../db/client';
 import { workspaces, agentSessions, tasks, projects } from '../db/schema';
@@ -95,6 +98,8 @@ function rejectAllPending(state: AppState): void {
     state.pendingRemoteFilePull,
     state.pendingRemoteFilePush,
     state.pendingWorktreeMerge,
+    state.pendingWorktreeAdd,
+    state.pendingWorktreeRemove,
     state.pendingGitWorktreeList,
   ] as const;
 
@@ -213,6 +218,12 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
         success: p.success,
         branch: p.branch,
       }));
+      break;
+    case 'WORKTREE_ADD_RESULT':
+      handleWorktreeAddResult(msg.payload, state);
+      break;
+    case 'WORKTREE_REMOVE_RESULT':
+      handleWorktreeRemoveResult(msg.payload, state);
       break;
     case 'EXECUTION_STATUS_EVENT':
       handleExecutionStatusEvent(msg.payload);
@@ -624,6 +635,42 @@ function resolvePendingResponse<T>(
   }
 }
 
+function handleWorktreeAddResult(
+  payload:
+    | { requestId: string; success: true; worktreePath: string; branch: string }
+    | { requestId: string; error: string; code: WorktreeAddErrorCode },
+  state: AppState,
+): void {
+  const pending = state.pendingWorktreeAdd.get(payload.requestId);
+  if (!pending) return;
+  state.pendingWorktreeAdd.delete(payload.requestId);
+  if ('error' in payload) {
+    const err = new Error(payload.error) as Error & { code: WorktreeAddErrorCode };
+    err.code = payload.code;
+    pending.reject(err);
+  } else {
+    pending.resolve({ worktreePath: payload.worktreePath, branch: payload.branch });
+  }
+}
+
+function handleWorktreeRemoveResult(
+  payload:
+    | { requestId: string; success: true }
+    | { requestId: string; error: string; code: WorktreeRemoveErrorCode },
+  state: AppState,
+): void {
+  const pending = state.pendingWorktreeRemove.get(payload.requestId);
+  if (!pending) return;
+  state.pendingWorktreeRemove.delete(payload.requestId);
+  if ('error' in payload) {
+    const err = new Error(payload.error) as Error & { code: WorktreeRemoveErrorCode };
+    err.code = payload.code;
+    pending.reject(err);
+  } else {
+    pending.resolve();
+  }
+}
+
 // ── Daemon dispatch functions ───────────────────────────────────────────────
 
 function dispatchDaemonOp<T, P extends object = Record<string, unknown>>(
@@ -878,6 +925,44 @@ function dispatchWorktreeMerge(
     state.pendingWorktreeMerge,
     'WORKTREE_MERGE_REQUEST',
     { worktreePath, repoDir, coderWorkspace },
+    WORKTREE_MERGE_TIMEOUT_MS,
+  );
+}
+
+export function dispatchWorktreeAdd(
+  state: AppState,
+  args: {
+    repoDir: string;
+    worktreePath: string;
+    branch: string;
+    createBranch: boolean;
+    baseRef?: string;
+    coderWorkspace?: string;
+  },
+): Promise<WorktreeAddResult> {
+  return dispatchDaemonOp(
+    state,
+    state.pendingWorktreeAdd,
+    'WORKTREE_ADD_REQUEST',
+    args,
+    WORKTREE_MERGE_TIMEOUT_MS,
+  );
+}
+
+export function dispatchWorktreeRemove(
+  state: AppState,
+  args: {
+    repoDir: string;
+    worktreePath: string;
+    force: boolean;
+    coderWorkspace?: string;
+  },
+): Promise<void> {
+  return dispatchDaemonOp<void>(
+    state,
+    state.pendingWorktreeRemove,
+    'WORKTREE_REMOVE_REQUEST',
+    args,
     WORKTREE_MERGE_TIMEOUT_MS,
   );
 }

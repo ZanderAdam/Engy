@@ -5,5 +5,5 @@ import { CodePage } from '@/components/code/code-page';
 
 export default function CodeRoute() {
   const params = useVirtualParams<{ workspace: string; project: string }>();
-  return <CodePage workspaceSlug={params.workspace} />;
+  return <CodePage workspaceSlug={params.workspace} projectSlug={params.project} />;
 }

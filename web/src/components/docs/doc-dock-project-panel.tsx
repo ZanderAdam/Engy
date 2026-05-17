@@ -9,6 +9,7 @@ import { SpecTasks } from '@/components/specs/spec-tasks';
 import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
 import { EngyThreadStore } from '@/components/editor/document-editor';
 import { useOnFileChange } from '@/contexts/events-context';
+import { useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { useDocDock } from './doc-dock-context';
 import type { DocPanelParams } from './types';
 
@@ -20,10 +21,12 @@ export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelPara
   const isSpecMd = filePath === 'spec.md';
 
   const utils = trpc.useUtils();
+  const searchParams = useVirtualSearchParams();
+  const worktreeBranch = searchParams.get('wt') ?? undefined;
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
   const { data: projectData } = trpc.project.getBySlug.useQuery(
-    { workspaceId: workspace?.id ?? 0, slug: projectSlug },
+    { workspaceId: workspace?.id ?? 0, slug: projectSlug, worktreeBranch },
     { enabled: !!workspace },
   );
 
@@ -32,12 +35,17 @@ export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelPara
       (changedPath: string) => {
         if (!changedPath.endsWith('/' + filePath)) return;
         if (isSpecMd) {
-          utils.project.getSpec.invalidate({ workspaceSlug, projectSlug });
+          utils.project.getSpec.invalidate({ workspaceSlug, projectSlug, worktreeBranch });
         } else {
-          utils.project.readFile.invalidate({ workspaceSlug, projectSlug, filePath });
+          utils.project.readFile.invalidate({
+            workspaceSlug,
+            projectSlug,
+            filePath,
+            worktreeBranch,
+          });
         }
       },
-      [utils, workspaceSlug, projectSlug, filePath, isSpecMd],
+      [utils, workspaceSlug, projectSlug, filePath, isSpecMd, worktreeBranch],
     ),
   );
 
@@ -56,25 +64,26 @@ export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelPara
     isLoading: isSpecLoading,
     error: specError,
   } = trpc.project.getSpec.useQuery(
-    { workspaceSlug, projectSlug },
+    { workspaceSlug, projectSlug, worktreeBranch },
     { enabled: isSpecMd, retry: false },
   );
 
   const missingSpec = isSpecMd && !isSpecLoading && (!spec || !!specError);
 
   const { data: fileData, isLoading: isFileLoading } = trpc.project.readFile.useQuery(
-    { workspaceSlug, projectSlug, filePath },
+    { workspaceSlug, projectSlug, filePath, worktreeBranch },
     { enabled: !isSpecMd },
   );
 
   const specUpdateMutation = trpc.project.updateSpec.useMutation({
     onSuccess: () => {
-      utils.project.getSpec.invalidate({ workspaceSlug, projectSlug });
+      utils.project.getSpec.invalidate({ workspaceSlug, projectSlug, worktreeBranch });
     },
   });
 
   const writeFileMutation = trpc.project.writeFile.useMutation({
-    onSuccess: () => utils.project.readFile.invalidate({ workspaceSlug, projectSlug, filePath }),
+    onSuccess: () =>
+      utils.project.readFile.invalidate({ workspaceSlug, projectSlug, filePath, worktreeBranch }),
   });
 
   const specMutateRef = useRef(specUpdateMutation.mutate);
@@ -90,12 +99,18 @@ export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelPara
   const handleSave = useCallback(
     (markdown: string) => {
       if (isSpecMd) {
-        specMutateRef.current({ workspaceSlug, projectSlug, body: markdown });
+        specMutateRef.current({ workspaceSlug, projectSlug, body: markdown, worktreeBranch });
       } else {
-        fileMutateRef.current({ workspaceSlug, projectSlug, filePath, content: markdown });
+        fileMutateRef.current({
+          workspaceSlug,
+          projectSlug,
+          filePath,
+          content: markdown,
+          worktreeBranch,
+        });
       }
     },
-    [isSpecMd, workspaceSlug, projectSlug, filePath],
+    [isSpecMd, workspaceSlug, projectSlug, filePath, worktreeBranch],
   );
 
   const editorBody = isSpecMd ? (spec?.body ?? '') : (fileData?.content ?? '');

@@ -317,6 +317,48 @@ export interface WorktreeMergeResultMessage {
     | { requestId: string; error: string };
 }
 
+export type WorktreeAddErrorCode = 'BRANCH_EXISTS' | 'PATH_EXISTS' | 'OTHER';
+
+export interface WorktreeAddRequestMessage {
+  type: 'WORKTREE_ADD_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    worktreePath: string;
+    branch: string;
+    createBranch: boolean;
+    baseRef?: string;
+    coderWorkspace?: string;
+  };
+}
+
+export interface WorktreeAddResultMessage {
+  type: 'WORKTREE_ADD_RESULT';
+  payload:
+    | { requestId: string; success: true; worktreePath: string; branch: string }
+    | { requestId: string; error: string; code: WorktreeAddErrorCode };
+}
+
+export type WorktreeRemoveErrorCode = 'DIRTY' | 'OTHER';
+
+export interface WorktreeRemoveRequestMessage {
+  type: 'WORKTREE_REMOVE_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    worktreePath: string;
+    force: boolean;
+    coderWorkspace?: string;
+  };
+}
+
+export interface WorktreeRemoveResultMessage {
+  type: 'WORKTREE_REMOVE_RESULT';
+  payload:
+    | { requestId: string; success: true }
+    | { requestId: string; error: string; code: WorktreeRemoveErrorCode };
+}
+
 // ── Container operations (server ↔ daemon) ──────────────────────────────────
 
 export interface ContainerUpRequestMessage {
@@ -496,6 +538,10 @@ export type WsMessage =
   | RemoteFilePushResponseMessage
   | WorktreeMergeRequestMessage
   | WorktreeMergeResultMessage
+  | WorktreeAddRequestMessage
+  | WorktreeAddResultMessage
+  | WorktreeRemoveRequestMessage
+  | WorktreeRemoveResultMessage
   | ContainerUpRequestMessage
   | ContainerUpResponseMessage
   | ContainerDownRequestMessage
@@ -529,6 +575,8 @@ export type ClientToServerMessage =
   | RemoteFilePullResponseMessage
   | RemoteFilePushResponseMessage
   | WorktreeMergeResultMessage
+  | WorktreeAddResultMessage
+  | WorktreeRemoveResultMessage
   | ContainerUpResponseMessage
   | ContainerDownResponseMessage
   | ContainerStatusResponseMessage
@@ -555,6 +603,8 @@ export type ServerToClientMessage =
   | RemoteFilePullRequestMessage
   | RemoteFilePushRequestMessage
   | WorktreeMergeRequestMessage
+  | WorktreeAddRequestMessage
+  | WorktreeRemoveRequestMessage
   | ContainerUpRequestMessage
   | ContainerDownRequestMessage
   | ContainerStatusRequestMessage

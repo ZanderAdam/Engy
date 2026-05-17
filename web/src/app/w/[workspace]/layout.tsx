@@ -15,6 +15,7 @@ import { useWorktreeSessions } from '@/components/terminal/use-worktree-sessions
 import { EventsProvider } from '@/contexts/events-context';
 import { useTaskAutoInvalidation } from '@/hooks/use-task-auto-invalidation';
 import { useQuestionAutoInvalidation } from '@/hooks/use-question-auto-invalidation';
+import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { buildClaudeCommand, buildContextBlock } from '@/lib/shell';
 
 const TERMINAL_CONFIG = {
@@ -73,6 +74,10 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   const isContainerEnabled = workspace?.containerEnabled ?? false;
 
+  const { branch: worktreeBranch, repoMap: worktreeRepoMap } = useProjectWorktreeMap({
+    projectId: isProjectRoute ? project?.id : undefined,
+  });
+
   const extraDropdownGroups = useMemo<TerminalDropdownGroup[] | undefined>(() => {
     if (!isProjectRoute || !workspace) return undefined;
     const repos = (workspace.repos as string[]) ?? [];
@@ -93,28 +98,40 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           })
         : undefined;
 
-    const groupKey = `project:${params.workspace}:${projectSlug}`;
+    const projectGroupKey = `project:${params.workspace}:${projectSlug}`;
+    const worktreeGroupKey = worktreeBranch
+      ? `${projectGroupKey}:wt:${worktreeBranch}`
+      : projectGroupKey;
+
+    /** Map a main repo path to its worktree-effective path (or main path if no match). */
+    function effectiveRepo(repoPath: string): string {
+      return worktreeRepoMap.get(repoPath) ?? repoPath;
+    }
+    function groupKeyFor(repoPath: string): string {
+      return worktreeRepoMap.has(repoPath) ? worktreeGroupKey : projectGroupKey;
+    }
 
     function makeRepoEntry(
       repoPath: string,
       mode: 'host' | 'container' | undefined,
     ): TerminalDropdownGroup['entries'][number] {
-      const dirName = repoPath.split('/').filter(Boolean).pop() ?? repoPath;
+      const effective = effectiveRepo(repoPath);
+      const dirName = effective.split('/').filter(Boolean).pop() ?? effective;
       const isContainer = mode === 'container';
       return {
         id: `${isContainer ? 'container:' : ''}repo:${repoPath}`,
         label: isContainer ? `${dirName} (Container)` : dirName,
-        tooltip: repoPath,
+        tooltip: effective,
         scope: {
           scopeType: 'project',
           scopeLabel: `claude: ${dirName}`,
-          workingDir: repoPath,
+          workingDir: effective,
           command: buildClaudeCommand({
             systemPrompt,
             additionalDirs: projectDir ? [projectDir] : undefined,
             dangerouslySkipPermissions: isContainer,
           }),
-          groupKey,
+          groupKey: groupKeyFor(repoPath),
           workspaceSlug: params.workspace,
           containerMode: mode,
         },
@@ -125,24 +142,28 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     function makeAllReposEntry(
       mode: 'host' | 'container' | undefined,
     ): TerminalDropdownGroup['entries'][number] {
+      const effectiveRepos = repos.map(effectiveRepo);
       const isContainer = mode === 'container';
+      // Prefer a materialized worktree as the primary cwd when one exists.
+      const primary = repos.find((r) => worktreeRepoMap.has(r));
+      const primaryEffective = primary ? effectiveRepo(primary) : effectiveRepos[0];
+      const additional = effectiveRepos.filter((r) => r !== primaryEffective);
       return {
         id: `${isContainer ? 'container:' : ''}repo:all`,
         label: isContainer ? 'All Repos (Container)' : 'All Repos',
-        tooltip: repos.join(', '),
+        tooltip: effectiveRepos.join(', '),
         scope: {
           scopeType: 'project',
           scopeLabel: 'claude: all repos',
-          workingDir: repos[0],
+          workingDir: primaryEffective,
           command: buildClaudeCommand({
             systemPrompt,
-            additionalDirs: [
-              ...(projectDir ? [projectDir] : []),
-              ...repos.slice(1),
-            ],
+            additionalDirs: [...(projectDir ? [projectDir] : []), ...additional],
             dangerouslySkipPermissions: isContainer,
           }),
-          groupKey,
+          // "All repos" is mixed (some worktree, some not); use the worktree key
+          // when any repo is materialized to keep it grouped with the worktree.
+          groupKey: worktreeBranch && worktreeRepoMap.size > 0 ? worktreeGroupKey : projectGroupKey,
           workspaceSlug: params.workspace,
           containerMode: mode,
         },
@@ -168,7 +189,16 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     }
 
     return [{ label: 'Claude in Repos', entries }];
-  }, [isProjectRoute, workspace, project, params.project, params.workspace, isContainerEnabled]);
+  }, [
+    isProjectRoute,
+    workspace,
+    project,
+    params.project,
+    params.workspace,
+    isContainerEnabled,
+    worktreeBranch,
+    worktreeRepoMap,
+  ]);
 
   const worktreeGroup = useWorktreeSessions(params.workspace);
 

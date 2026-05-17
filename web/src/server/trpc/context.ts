@@ -1,5 +1,10 @@
 import type WebSocket from 'ws';
-import type { GitFileStatus, GitWorktreeEntry } from '@engy/common';
+import type {
+  GitFileStatus,
+  GitWorktreeEntry,
+  WorktreeAddErrorCode,
+  WorktreeRemoveErrorCode,
+} from '@engy/common';
 
 export interface FileChangeEvent {
   workspaceSlug: string;
@@ -84,6 +89,19 @@ export interface RemoteFilePushResult {
 export interface WorktreeMergeResult {
   success: boolean;
   branch: string;
+}
+
+export interface WorktreeAddResult {
+  worktreePath: string;
+  branch: string;
+}
+
+export interface WorktreeAddError extends Error {
+  code: WorktreeAddErrorCode;
+}
+
+export interface WorktreeRemoveError extends Error {
+  code: WorktreeRemoveErrorCode;
 }
 
 export interface GitWorktreeListResult {
@@ -220,6 +238,20 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingWorktreeAdd: Map<
+    string,
+    {
+      resolve: (result: WorktreeAddResult) => void;
+      reject: (reason: Error | WorktreeAddError) => void;
+    }
+  >;
+  pendingWorktreeRemove: Map<
+    string,
+    {
+      resolve: () => void;
+      reject: (reason: Error | WorktreeRemoveError) => void;
+    }
+  >;
   pendingGitWorktreeList: Map<
     string,
     {
@@ -269,6 +301,8 @@ export function getAppState(): AppState {
       pendingRemoteFilePull: new Map(),
       pendingRemoteFilePush: new Map(),
       pendingWorktreeMerge: new Map(),
+      pendingWorktreeAdd: new Map(),
+      pendingWorktreeRemove: new Map(),
       pendingGitWorktreeList: new Map(),
       specLastChanged: new Map(),
       specDebounceTimers: new Map(),

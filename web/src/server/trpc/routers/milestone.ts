@@ -5,7 +5,8 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { projects, workspaces } from '../../db/schema';
-import { getWorkspaceDir } from '../../engy-dir/init';
+import { getWorkspaceDir, effectiveDocsDirForBranch } from '../../engy-dir/init';
+import type { AppState } from '../context';
 import {
   type MilestoneStatus,
   buildMilestoneFrontmatter,
@@ -31,16 +32,30 @@ function validateStatusTransition(current: MilestoneStatus, next: MilestoneStatu
   }
 }
 
-function resolveProjectDir(projectId: number) {
+async function resolveProjectDir(
+  projectId: number,
+  worktreeBranch: string | undefined,
+  state: AppState,
+) {
   const db = getDb();
   const project = db.select().from(projects).where(eq(projects.id, projectId)).get();
   if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
   const workspace = db.select().from(workspaces).where(eq(workspaces.id, project.workspaceId)).get();
   if (!workspace) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
-  const specsDir = path.join(getWorkspaceDir(workspace), 'projects');
+  const effectiveDocsDir = worktreeBranch
+    ? await effectiveDocsDirForBranch(
+        { slug: workspace.slug, docsDir: workspace.docsDir, repos: workspace.repos },
+        worktreeBranch,
+        state,
+      )
+    : workspace.docsDir;
+  const effective = { slug: workspace.slug, docsDir: effectiveDocsDir };
+  const specsDir = path.join(getWorkspaceDir(effective), 'projects');
   const specSlug = path.join(project.projectDir ?? project.slug, 'milestones');
   return { specsDir, specSlug };
 }
+
+const worktreeBranchSchema = z.string().optional();
 
 function updateFrontmatter(existing: string, title: string, status: MilestoneStatus, scope?: string): string {
   const frontmatter = buildMilestoneFrontmatter(title, status, scope);
@@ -51,16 +66,30 @@ function updateFrontmatter(existing: string, title: string, status: MilestoneSta
 
 export const milestoneRouter = router({
   list: publicProcedure
-    .input(z.object({ projectId: z.number() }))
-    .query(({ input }) => {
-      const { specsDir, specSlug } = resolveProjectDir(input.projectId);
+    .input(z.object({ projectId: z.number(), worktreeBranch: worktreeBranchSchema }))
+    .query(async ({ input, ctx }) => {
+      const { specsDir, specSlug } = await resolveProjectDir(
+        input.projectId,
+        input.worktreeBranch,
+        ctx.state,
+      );
       return listMilestones(specsDir, specSlug);
     }),
 
   get: publicProcedure
-    .input(z.object({ projectId: z.number(), filename: z.string() }))
-    .query(({ input }) => {
-      const { specsDir, specSlug } = resolveProjectDir(input.projectId);
+    .input(
+      z.object({
+        projectId: z.number(),
+        filename: z.string(),
+        worktreeBranch: worktreeBranchSchema,
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      const { specsDir, specSlug } = await resolveProjectDir(
+        input.projectId,
+        input.worktreeBranch,
+        ctx.state,
+      );
       const milestones = listMilestones(specsDir, specSlug);
       const milestone = milestones.find((m) => m.filename === input.filename);
       if (!milestone) throw new TRPCError({ code: 'NOT_FOUND', message: 'Milestone not found' });
@@ -74,10 +103,15 @@ export const milestoneRouter = router({
         num: z.number().positive(),
         title: z.string().min(1),
         scope: z.string().optional(),
+        worktreeBranch: worktreeBranchSchema,
       }),
     )
-    .mutation(({ input }) => {
-      const { specsDir, specSlug } = resolveProjectDir(input.projectId);
+    .mutation(async ({ input, ctx }) => {
+      const { specsDir, specSlug } = await resolveProjectDir(
+        input.projectId,
+        input.worktreeBranch,
+        ctx.state,
+      );
       const filename = `m${input.num}-${slugify(input.title)}.plan.md`;
       const content = buildMilestoneFrontmatter(input.title, 'planned', input.scope);
       writePlanFile(specsDir, specSlug, filename, content);
@@ -99,10 +133,15 @@ export const milestoneRouter = router({
         title: z.string().min(1).optional(),
         status: z.enum(['planned', 'planning', 'active', 'complete']).optional(),
         scope: z.string().optional(),
+        worktreeBranch: worktreeBranchSchema,
       }),
     )
-    .mutation(({ input }) => {
-      const { specsDir, specSlug } = resolveProjectDir(input.projectId);
+    .mutation(async ({ input, ctx }) => {
+      const { specsDir, specSlug } = await resolveProjectDir(
+        input.projectId,
+        input.worktreeBranch,
+        ctx.state,
+      );
       const milestones = listMilestones(specsDir, specSlug);
       const existing = milestones.find((m) => m.filename === input.filename);
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Milestone not found' });
@@ -128,9 +167,19 @@ export const milestoneRouter = router({
     }),
 
   delete: publicProcedure
-    .input(z.object({ projectId: z.number(), filename: z.string() }))
-    .mutation(({ input }) => {
-      const { specsDir, specSlug } = resolveProjectDir(input.projectId);
+    .input(
+      z.object({
+        projectId: z.number(),
+        filename: z.string(),
+        worktreeBranch: worktreeBranchSchema,
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { specsDir, specSlug } = await resolveProjectDir(
+        input.projectId,
+        input.worktreeBranch,
+        ctx.state,
+      );
       try {
         deletePlanFile(specsDir, specSlug, input.filename);
       } catch {
