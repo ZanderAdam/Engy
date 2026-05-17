@@ -15,6 +15,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
@@ -40,12 +50,18 @@ export function ManageWorktreesDialog({
 }: ManageWorktreesDialogProps) {
   const [mode, setMode] = useState<Mode>('list');
   const [error, setError] = useState<string | null>(null);
+  const [dirtyPending, setDirtyPending] = useState<{
+    branch: string;
+    repoPaths: string[];
+    finalByRepo: Map<string, { repoPath: string; success: boolean; code?: string }>;
+  } | null>(null);
 
   const utils = trpc.useUtils();
-  const { data: groups = [] } = trpc.worktree.listGrouped.useQuery(
+  const { data: listGroupedData } = trpc.worktree.listGrouped.useQuery(
     { projectId },
     { enabled: open },
   );
+  const groups = listGroupedData?.groups ?? [];
 
   const searchParams = useVirtualSearchParams();
   const pathname = useVirtualPathname();
@@ -100,40 +116,74 @@ export function ManageWorktreesDialog({
         repoPaths: presentRepos,
         force: false,
       });
+
+      const finalByRepo = new Map(result.map((r) => [r.repoPath, r]));
       const dirty = result.filter((r) => !r.success && r.code === 'DIRTY');
+
       if (dirty.length > 0) {
-        if (
-          !confirm(
-            `${dirty.length} worktree(s) have uncommitted changes. Force remove (discards changes)?`,
-          )
-        ) {
-          return;
-        }
-        const forced = await removeMut.mutateAsync({
-          projectId,
+        setDirtyPending({
           branch,
           repoPaths: dirty.map((d) => d.repoPath),
-          force: true,
+          finalByRepo,
         });
-        const stillFailing = forced.filter((r) => !r.success);
-        if (stillFailing.length > 0) {
-          setError(
-            `Forced remove failed for: ${stillFailing.map((f) => basename(f.repoPath)).join(', ')}`,
-          );
-          return;
-        }
+        return;
       }
-      const otherFailures = result.filter((r) => !r.success && r.code !== 'DIRTY');
-      if (otherFailures.length > 0) {
-        setError(`Remove failed for: ${otherFailures.map((f) => basename(f.repoPath)).join(', ')}`);
-      }
-      if (branch === activeBranch) setUrlBranch(null);
+
+      finishRemove(branch, finalByRepo);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
 
+  async function handleForceConfirm() {
+    if (!dirtyPending) return;
+    const { branch, repoPaths, finalByRepo } = dirtyPending;
+    setDirtyPending(null);
+    try {
+      const forced = await removeMut.mutateAsync({
+        projectId,
+        branch,
+        repoPaths,
+        force: true,
+      });
+      for (const r of forced) {
+        finalByRepo.set(r.repoPath, r);
+      }
+      finishRemove(branch, finalByRepo);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function finishRemove(
+    branch: string,
+    finalByRepo: Map<string, { repoPath: string; success: boolean; code?: string }>,
+  ) {
+    const failures = [...finalByRepo.values()].filter((r) => !r.success);
+    if (failures.length > 0) {
+      setError(`Remove failed for: ${failures.map((f) => basename(f.repoPath)).join(', ')}`);
+      return;
+    }
+    if (branch === activeBranch) setUrlBranch(null);
+  }
+
   return (
+    <>
+    <AlertDialog open={!!dirtyPending} onOpenChange={(o) => { if (!o) setDirtyPending(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Uncommitted changes</AlertDialogTitle>
+          <AlertDialogDescription>
+            {dirtyPending?.repoPaths.length ?? 0} worktree(s) have uncommitted changes. Force
+            remove will discard all local changes. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => setDirtyPending(null)}>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={handleForceConfirm}>Force remove</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
@@ -193,6 +243,7 @@ export function ManageWorktreesDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   );
 }
 

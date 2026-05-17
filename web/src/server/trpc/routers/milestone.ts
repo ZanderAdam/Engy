@@ -5,7 +5,8 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { projects, workspaces } from '../../db/schema';
-import { getWorkspaceDir, effectiveDocsDirForBranch } from '../../engy-dir/init';
+import { getWorkspaceDir } from '../../engy-dir/init';
+import { resolveEffectiveWorkspace } from '../../engy-dir/effective';
 import type { AppState } from '../context';
 import {
   type MilestoneStatus,
@@ -42,14 +43,7 @@ async function resolveProjectDir(
   if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
   const workspace = db.select().from(workspaces).where(eq(workspaces.id, project.workspaceId)).get();
   if (!workspace) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
-  const effectiveDocsDir = worktreeBranch
-    ? await effectiveDocsDirForBranch(
-        { slug: workspace.slug, docsDir: workspace.docsDir, repos: workspace.repos },
-        worktreeBranch,
-        state,
-      )
-    : workspace.docsDir;
-  const effective = { slug: workspace.slug, docsDir: effectiveDocsDir };
+  const effective = await resolveEffectiveWorkspace(workspace, worktreeBranch, state);
   const specsDir = path.join(getWorkspaceDir(effective), 'projects');
   const specSlug = path.join(project.projectDir ?? project.slug, 'milestones');
   return { specsDir, specSlug };

@@ -7,7 +7,8 @@ import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { projects, tasks, workspaces } from '../../db/schema';
 import { uniqueProjectSlug } from '../utils';
-import { getWorkspaceDir, effectiveDocsDirForBranch } from '../../engy-dir/init';
+import { getWorkspaceDir } from '../../engy-dir/init';
+import { resolveEffectiveWorkspace } from '../../engy-dir/effective';
 import type { AppState } from '../context';
 import {
   listProjectFiles,
@@ -68,26 +69,6 @@ function enrichProject(
     planSlugs = readPlanSlugs(projectDir);
   }
   return { ...project, projectDir, planSlugs };
-}
-
-/**
- * Returns `{ slug, docsDir }` rebased to the worktree path when `worktreeBranch`
- * is set and `workspace.docsDir` sits inside a materialized repo.
- */
-async function resolveEffectiveWorkspace(
-  workspace: WorkspaceRow,
-  worktreeBranch: string | undefined,
-  state: AppState,
-): Promise<{ slug: string; docsDir: string | null }> {
-  if (!worktreeBranch) {
-    return { slug: workspace.slug, docsDir: workspace.docsDir };
-  }
-  const docsDir = await effectiveDocsDirForBranch(
-    { slug: workspace.slug, docsDir: workspace.docsDir, repos: workspace.repos },
-    worktreeBranch,
-    state,
-  );
-  return { slug: workspace.slug, docsDir };
 }
 
 const worktreeBranchSchema = z.string().optional();

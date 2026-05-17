@@ -19,6 +19,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
+import { trpc } from '@/lib/trpc';
 
 interface WorktreeDropdownProps {
   projectId: number;
@@ -37,6 +38,8 @@ export function WorktreeDropdown({
   const navigate = useVirtualNavigate();
 
   const { branch, allGroups } = useProjectWorktreeMap({ projectId });
+  const { data: listGroupedData } = trpc.worktree.listGrouped.useQuery({ projectId });
+  const listErrors = listGroupedData?.errors ?? [];
 
   const triggerLabel = branch ?? 'main';
 
@@ -104,6 +107,31 @@ export function WorktreeDropdown({
           </Command>
         </PopoverContent>
       </Popover>
+
+      {listErrors.length > 0 && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                aria-label="Some repos failed to list worktrees"
+                className="cursor-default text-xs text-amber-500"
+              >
+                ⚠
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              <p className="mb-1 font-medium">Failed to list worktrees in:</p>
+              <ul className="space-y-0.5">
+                {listErrors.map(({ repoPath, message }) => (
+                  <li key={repoPath} className="font-mono text-[11px]">
+                    {repoPath}: {message}
+                  </li>
+                ))}
+              </ul>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
 
       <TooltipProvider>
         <Tooltip>

@@ -20,6 +20,11 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { Runner } from '../runner/index.js';
 import { EventEmitter } from 'node:events';
+import * as nodeFs from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import * as os from 'node:os';
+import * as nodePath from 'node:path';
+import { simpleGit } from 'simple-git';
 
 vi.mock('node:fs/promises', () => ({
   access: vi.fn(),
@@ -1254,6 +1259,7 @@ describe('WsClient worktree add/remove handlers', () => {
   let server: WebSocketServer;
   let port: number;
   let client: WsClient;
+  let tmpDir: string;
 
   function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
     return new Promise((resolve) => wss.once('connection', resolve));
@@ -1270,13 +1276,34 @@ describe('WsClient worktree add/remove handlers', () => {
       else server.on('listening', () => resolve());
     });
     port = (server.address() as { port: number }).port;
+    tmpDir = mkdtempSync(nodePath.join(os.tmpdir(), 'engy-ws-wt-test-'));
+
+    const realChildProcess = await vi.importActual<typeof import('node:child_process')>(
+      'node:child_process',
+    );
+    const realExecFileAsync = promisify(realChildProcess.execFile);
+    mockedExecFile[promisify.custom].mockImplementation(
+      (...args: Parameters<typeof realExecFileAsync>) => realExecFileAsync(...args),
+    );
   });
 
   afterEach(async () => {
     client?.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    vi.restoreAllMocks();
+    rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  async function createTempRepo(): Promise<string> {
+    const repoDir = mkdtempSync(nodePath.join(tmpDir, 'repo-'));
+    const git = simpleGit(repoDir);
+    await git.init();
+    await git.addConfig('user.email', 'test@test.com');
+    await git.addConfig('user.name', 'Test');
+    nodeFs.writeFileSync(nodePath.join(repoDir, 'init.txt'), 'hello');
+    await git.add('init.txt');
+    await git.commit('initial commit');
+    return repoDir;
+  }
 
   async function setupAndSend(req: object): Promise<string> {
     const connPromise = waitForConnection(server);
@@ -1293,14 +1320,15 @@ describe('WsClient worktree add/remove handlers', () => {
 
   describe('WORKTREE_ADD_REQUEST', () => {
     it('creates a worktree with -b when createBranch is true', async () => {
-      mockedExecFile[promisify.custom].mockResolvedValueOnce({ stdout: '', stderr: '' });
+      const repoDir = await createTempRepo();
+      const worktreePath = nodePath.join(tmpDir, 'wt-feat-x');
 
       const response = await setupAndSend({
         type: 'WORKTREE_ADD_REQUEST',
         payload: {
           requestId: 'add-1',
-          repoDir: '/home/user/repo',
-          worktreePath: '/tmp/wt/feat-x',
+          repoDir,
+          worktreePath,
           branch: 'feat-x',
           createBranch: true,
         },
@@ -1311,49 +1339,52 @@ describe('WsClient worktree add/remove handlers', () => {
         payload: {
           requestId: 'add-1',
           success: true,
-          worktreePath: '/tmp/wt/feat-x',
+          worktreePath,
           branch: 'feat-x',
         },
       });
-      expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
-        'git',
-        ['-C', '/home/user/repo', 'worktree', 'add', '-b', 'feat-x', '/tmp/wt/feat-x'],
-        expect.any(Object),
-      );
+      expect(nodeFs.existsSync(worktreePath)).toBe(true);
+      const list = await simpleGit(repoDir).raw(['worktree', 'list', '--porcelain']);
+      expect(list).toContain(worktreePath);
     });
 
     it('checks out an existing branch when createBranch is false', async () => {
-      mockedExecFile[promisify.custom].mockResolvedValueOnce({ stdout: '', stderr: '' });
+      const repoDir = await createTempRepo();
+      const git = simpleGit(repoDir);
+      await git.branch(['existing-branch']);
+      const worktreePath = nodePath.join(tmpDir, 'wt-existing');
 
-      await setupAndSend({
+      const response = await setupAndSend({
         type: 'WORKTREE_ADD_REQUEST',
         payload: {
           requestId: 'add-2',
-          repoDir: '/home/user/repo',
-          worktreePath: '/tmp/wt/feat-x',
-          branch: 'feat-x',
+          repoDir,
+          worktreePath,
+          branch: 'existing-branch',
           createBranch: false,
         },
       });
 
-      expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
-        'git',
-        ['-C', '/home/user/repo', 'worktree', 'add', '/tmp/wt/feat-x', 'feat-x'],
-        expect.any(Object),
-      );
+      const parsed = JSON.parse(response);
+      expect(parsed.type).toBe('WORKTREE_ADD_RESULT');
+      expect(parsed.payload.success).toBe(true);
+      expect(nodeFs.existsSync(worktreePath)).toBe(true);
+      const list = await git.raw(['worktree', 'list', '--porcelain']);
+      expect(list).toContain(worktreePath);
     });
 
     it('classifies branch-already-exists errors as BRANCH_EXISTS', async () => {
-      mockedExecFile[promisify.custom].mockRejectedValueOnce(
-        new Error("fatal: a branch named 'feat-x' already exists"),
-      );
+      const repoDir = await createTempRepo();
+      const git = simpleGit(repoDir);
+      await git.branch(['feat-x']);
+      const worktreePath = nodePath.join(tmpDir, 'wt-branch-exists');
 
       const response = await setupAndSend({
         type: 'WORKTREE_ADD_REQUEST',
         payload: {
           requestId: 'add-3',
-          repoDir: '/home/user/repo',
-          worktreePath: '/tmp/wt/feat-x',
+          repoDir,
+          worktreePath,
           branch: 'feat-x',
           createBranch: true,
         },
@@ -1365,18 +1396,19 @@ describe('WsClient worktree add/remove handlers', () => {
     });
 
     it('classifies path-already-checked-out errors as PATH_EXISTS', async () => {
-      mockedExecFile[promisify.custom].mockRejectedValueOnce(
-        new Error("fatal: '/tmp/wt/feat-x' is already checked out at '/old/wt'"),
-      );
+      const repoDir = await createTempRepo();
+      const wt1 = nodePath.join(tmpDir, 'wt-first');
+      await simpleGit(repoDir).raw(['worktree', 'add', '-b', 'checked-out-branch', wt1]);
+      const wt2 = nodePath.join(tmpDir, 'wt-second');
 
       const response = await setupAndSend({
         type: 'WORKTREE_ADD_REQUEST',
         payload: {
           requestId: 'add-4',
-          repoDir: '/home/user/repo',
-          worktreePath: '/tmp/wt/feat-x',
-          branch: 'feat-x',
-          createBranch: true,
+          repoDir,
+          worktreePath: wt2,
+          branch: 'checked-out-branch',
+          createBranch: false,
         },
       });
 
@@ -1384,16 +1416,18 @@ describe('WsClient worktree add/remove handlers', () => {
     });
 
     it('classifies unknown errors as OTHER', async () => {
-      mockedExecFile[promisify.custom].mockRejectedValueOnce(new Error('something unexpected'));
+      const repoDir = await createTempRepo();
+      const worktreePath = nodePath.join(tmpDir, 'wt-no-ref');
 
       const response = await setupAndSend({
         type: 'WORKTREE_ADD_REQUEST',
         payload: {
           requestId: 'add-5',
-          repoDir: '/home/user/repo',
-          worktreePath: '/tmp/wt/x',
-          branch: 'x',
+          repoDir,
+          worktreePath,
+          branch: 'new-branch',
           createBranch: true,
+          baseRef: 'nonexistent-ref-xyz',
         },
       });
 
@@ -1401,47 +1435,40 @@ describe('WsClient worktree add/remove handlers', () => {
     });
 
     it('passes baseRef as final positional argument when createBranch is true', async () => {
-      mockedExecFile[promisify.custom].mockResolvedValueOnce({ stdout: '', stderr: '' });
+      const repoDir = await createTempRepo();
+      const worktreePath = nodePath.join(tmpDir, 'wt-baseref');
 
-      await setupAndSend({
+      const response = await setupAndSend({
         type: 'WORKTREE_ADD_REQUEST',
         payload: {
           requestId: 'add-6',
-          repoDir: '/home/user/repo',
-          worktreePath: '/tmp/wt/feat-x',
-          branch: 'feat-x',
+          repoDir,
+          worktreePath,
+          branch: 'feat-from-main',
           createBranch: true,
-          baseRef: 'origin/main',
+          baseRef: 'HEAD',
         },
       });
 
-      expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
-        'git',
-        [
-          '-C',
-          '/home/user/repo',
-          'worktree',
-          'add',
-          '-b',
-          'feat-x',
-          '/tmp/wt/feat-x',
-          'origin/main',
-        ],
-        expect.any(Object),
-      );
+      const parsed = JSON.parse(response);
+      expect(parsed.type).toBe('WORKTREE_ADD_RESULT');
+      expect(parsed.payload.success).toBe(true);
+      expect(nodeFs.existsSync(worktreePath)).toBe(true);
     });
   });
 
   describe('WORKTREE_REMOVE_REQUEST', () => {
     it('removes a worktree successfully', async () => {
-      mockedExecFile[promisify.custom].mockResolvedValueOnce({ stdout: '', stderr: '' });
+      const repoDir = await createTempRepo();
+      const worktreePath = nodePath.join(tmpDir, 'wt-to-remove');
+      await simpleGit(repoDir).raw(['worktree', 'add', '-b', 'remove-me', worktreePath]);
 
       const response = await setupAndSend({
         type: 'WORKTREE_REMOVE_REQUEST',
         payload: {
           requestId: 'rm-1',
-          repoDir: '/home/user/repo',
-          worktreePath: '/tmp/wt/feat-x',
+          repoDir,
+          worktreePath,
           force: false,
         },
       });
@@ -1450,44 +1477,43 @@ describe('WsClient worktree add/remove handlers', () => {
         type: 'WORKTREE_REMOVE_RESULT',
         payload: { requestId: 'rm-1', success: true },
       });
-      expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
-        'git',
-        ['-C', '/home/user/repo', 'worktree', 'remove', '/tmp/wt/feat-x'],
-        expect.any(Object),
-      );
+      expect(nodeFs.existsSync(worktreePath)).toBe(false);
     });
 
     it('passes --force when force is true', async () => {
-      mockedExecFile[promisify.custom].mockResolvedValueOnce({ stdout: '', stderr: '' });
+      const repoDir = await createTempRepo();
+      const worktreePath = nodePath.join(tmpDir, 'wt-dirty-force');
+      await simpleGit(repoDir).raw(['worktree', 'add', '-b', 'dirty-branch', worktreePath]);
+      nodeFs.writeFileSync(nodePath.join(worktreePath, 'untracked.txt'), 'dirty');
 
-      await setupAndSend({
+      const response = await setupAndSend({
         type: 'WORKTREE_REMOVE_REQUEST',
         payload: {
           requestId: 'rm-2',
-          repoDir: '/home/user/repo',
-          worktreePath: '/tmp/wt/feat-x',
+          repoDir,
+          worktreePath,
           force: true,
         },
       });
 
-      expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
-        'git',
-        ['-C', '/home/user/repo', 'worktree', 'remove', '--force', '/tmp/wt/feat-x'],
-        expect.any(Object),
-      );
+      const parsed = JSON.parse(response);
+      expect(parsed.type).toBe('WORKTREE_REMOVE_RESULT');
+      expect(parsed.payload.success).toBe(true);
+      expect(nodeFs.existsSync(worktreePath)).toBe(false);
     });
 
     it('classifies dirty-worktree errors as DIRTY', async () => {
-      mockedExecFile[promisify.custom].mockRejectedValueOnce(
-        new Error("fatal: '/tmp/wt/feat-x' contains modified or untracked files"),
-      );
+      const repoDir = await createTempRepo();
+      const worktreePath = nodePath.join(tmpDir, 'wt-dirty');
+      await simpleGit(repoDir).raw(['worktree', 'add', '-b', 'dirty-wt', worktreePath]);
+      nodeFs.writeFileSync(nodePath.join(worktreePath, 'dirty.txt'), 'untracked change');
 
       const response = await setupAndSend({
         type: 'WORKTREE_REMOVE_REQUEST',
         payload: {
           requestId: 'rm-3',
-          repoDir: '/home/user/repo',
-          worktreePath: '/tmp/wt/feat-x',
+          repoDir,
+          worktreePath,
           force: false,
         },
       });
@@ -1496,14 +1522,15 @@ describe('WsClient worktree add/remove handlers', () => {
     });
 
     it('classifies unknown errors as OTHER', async () => {
-      mockedExecFile[promisify.custom].mockRejectedValueOnce(new Error('totally unknown'));
+      const repoDir = await createTempRepo();
+      const nonexistentPath = nodePath.join(tmpDir, 'wt-does-not-exist');
 
       const response = await setupAndSend({
         type: 'WORKTREE_REMOVE_REQUEST',
         payload: {
           requestId: 'rm-4',
-          repoDir: '/home/user/repo',
-          worktreePath: '/tmp/wt/x',
+          repoDir,
+          worktreePath: nonexistentPath,
           force: false,
         },
       });

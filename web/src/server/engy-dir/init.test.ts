@@ -7,6 +7,7 @@ import {
   branchToPathSegment,
   getProjectWorktreeDir,
   effectiveDocsDirForBranch,
+  validateNoBasenameCollisions,
 } from './init';
 import type { AppState } from '../trpc/context';
 
@@ -92,6 +93,41 @@ describe('init helpers', () => {
 
     it('rejects unsafe branch', () => {
       expect(() => getProjectWorktreeDir(workspace, 'proj', 'bad branch', '/r')).toThrow();
+    });
+
+    it('truncates long branch names to 56 chars + dash + 8-char hash', () => {
+      const longBranch = 'a'.repeat(70);
+      const segment = branchToPathSegment(longBranch);
+      expect(segment).toHaveLength(65); // 56 + 1 + 8
+      expect(segment.slice(0, 56)).toBe('a'.repeat(56));
+      expect(segment[56]).toBe('-');
+      // Hash part must be 8 lowercase hex chars.
+      expect(segment.slice(57)).toMatch(/^[0-9a-f]{8}$/);
+    });
+
+    it('does not truncate branch names exactly at the limit (64 chars)', () => {
+      const branch64 = 'b'.repeat(64);
+      expect(branchToPathSegment(branch64)).toBe(branch64);
+    });
+  });
+
+  describe('validateNoBasenameCollisions', () => {
+    it('accepts paths with distinct basenames', () => {
+      expect(() => validateNoBasenameCollisions(['/a/foo', '/b/bar'])).not.toThrow();
+    });
+
+    it('throws when two paths share the same basename', () => {
+      expect(() => validateNoBasenameCollisions(['/a/foo', '/b/foo'])).toThrow(
+        /basename collision/,
+      );
+    });
+
+    it('accepts a single path', () => {
+      expect(() => validateNoBasenameCollisions(['/a/foo'])).not.toThrow();
+    });
+
+    it('accepts an empty array', () => {
+      expect(() => validateNoBasenameCollisions([])).not.toThrow();
     });
   });
 

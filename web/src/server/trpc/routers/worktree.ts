@@ -9,7 +9,11 @@ import {
   dispatchWorktreeAdd,
   dispatchWorktreeRemove,
 } from '../../ws/server';
-import { getProjectWorktreeDir, branchToPathSegment } from '../../engy-dir/init';
+import {
+  getProjectWorktreeDir,
+  branchToPathSegment,
+  validateNoBasenameCollisions,
+} from '../../engy-dir/init';
 import type { WorktreeAddErrorCode, WorktreeRemoveErrorCode } from '@engy/common';
 
 const BRANCH_RE = /^[A-Za-z0-9._/-]+$/;
@@ -72,8 +76,8 @@ function errorCode<T extends string>(err: unknown, fallback: T): T {
 export const worktreeRouter = router({
   /**
    * Enumerate worktrees across all `workspace.repos`, grouped by branch name.
-   * Excludes main worktrees. Repos that fail to enumerate are silently omitted
-   * (partial degradation).
+   * Excludes main worktrees. Repos that fail to enumerate are recorded in
+   * `errors` rather than silently dropped — callers can surface the failures.
    */
   listGrouped: publicProcedure
     .input(z.object({ projectId: z.number() }))
@@ -81,22 +85,26 @@ export const worktreeRouter = router({
       const { workspace } = getProjectAndWorkspace(input.projectId);
       const repos = workspaceRepos(workspace);
 
-      const results = await Promise.all(
+      const settled = await Promise.allSettled(
         repos.map(async (repoPath) => {
-          try {
-            const { worktrees } = await dispatchGitWorktreeList(repoPath, ctx.state);
-            return { repoPath, worktrees };
-          } catch (err) {
-            console.warn(`[worktree.listGrouped] git worktree list failed for ${repoPath}:`, err);
-            return { repoPath, worktrees: [] };
-          }
+          const { worktrees } = await dispatchGitWorktreeList(repoPath, ctx.state);
+          return { repoPath, worktrees };
         }),
       );
 
+      const errors: Array<{ repoPath: string; message: string }> = [];
+
       // branch → { repoPath → worktreePath }
       const byBranch = new Map<string, Map<string, string>>();
-      for (const { repoPath, worktrees } of results) {
-        for (const wt of worktrees) {
+      settled.forEach((result, i) => {
+        const repoPath = repos[i];
+        if (result.status === 'rejected') {
+          const message =
+            result.reason instanceof Error ? result.reason.message : String(result.reason);
+          errors.push({ repoPath, message });
+          return;
+        }
+        for (const wt of result.value.worktrees) {
           if (wt.isMain || !wt.branch) continue;
           let inner = byBranch.get(wt.branch);
           if (!inner) {
@@ -105,7 +113,7 @@ export const worktreeRouter = router({
           }
           inner.set(repoPath, wt.path);
         }
-      }
+      });
 
       const groups = [...byBranch.entries()]
         .map(([branch, repoMap]) => ({
@@ -117,13 +125,14 @@ export const worktreeRouter = router({
         }))
         .sort((a, b) => a.branch.localeCompare(b.branch));
 
-      return groups;
+      return { groups, errors };
     }),
 
   /**
-   * Create a worktree on `branch` in each selected repo. First repo carries
-   * `createBranch` (when true); subsequent repos check out the (now existing)
-   * branch. On any per-repo failure, rolls back the already-added repos.
+   * Create a worktree on `branch` in each selected repo. Repo[0] runs first
+   * (it carries `createBranch: true` when applicable); repos[1..N] run in
+   * parallel against the now-existing branch. On any failure, all already-added
+   * repos are rolled back.
    */
   create: publicProcedure
     .input(
@@ -138,60 +147,106 @@ export const worktreeRouter = router({
     .mutation(async ({ input, ctx }) => {
       const { project, workspace } = getProjectAndWorkspace(input.projectId);
       validateRepoSubset(workspace, input.repoPaths);
+      validateNoBasenameCollisions(input.repoPaths);
 
-      // Touch the branch slug to fail early on unsafe path segments.
+      // Fail early on unsafe path segments.
       branchToPathSegment(input.branch);
 
-      const succeeded: AddResult[] = [];
-      for (let i = 0; i < input.repoPaths.length; i++) {
-        const repoPath = input.repoPaths[i];
-        const worktreePath = getProjectWorktreeDir(
-          workspace,
-          project.slug,
-          input.branch,
-          repoPath,
+      async function rollback(succeeded: AddResult[]): Promise<string[]> {
+        const leaked: string[] = [];
+        await Promise.allSettled(
+          succeeded
+            .filter((r): r is RepoSuccess => r.success)
+            .map(async (prior) => {
+              try {
+                await dispatchWorktreeRemove(ctx.state, {
+                  repoDir: prior.repoPath,
+                  worktreePath: prior.worktreePath,
+                  force: true,
+                });
+              } catch (rollbackErr) {
+                console.warn(
+                  `[worktree.create] rollback failed for ${prior.repoPath}:`,
+                  rollbackErr,
+                );
+                leaked.push(prior.worktreePath);
+              }
+            }),
         );
-        const createBranch = i === 0 ? input.createBranch : false;
+        return leaked;
+      }
 
-        try {
+      function buildError(
+        failedRepo: string,
+        err: unknown,
+        leaked: string[],
+      ): TRPCError {
+        const code = errorCode<WorktreeAddErrorCode>(err, 'OTHER');
+        const leakedNote =
+          leaked.length > 0
+            ? ` Rollback left orphaned worktree(s); remove manually: ${leaked.join(', ')}.`
+            : '';
+        return new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Failed to create worktree in ${failedRepo}: ${err instanceof Error ? err.message : String(err)} (${code}).${leakedNote}`,
+        });
+      }
+
+      const [firstRepo, ...restRepos] = input.repoPaths;
+      const firstWorktreePath = getProjectWorktreeDir(workspace, project.slug, input.branch, firstRepo);
+
+      // Step 1: run repo[0] alone so the branch is created before others check it out.
+      let firstResult: RepoSuccess;
+      try {
+        await dispatchWorktreeAdd(ctx.state, {
+          repoDir: firstRepo,
+          worktreePath: firstWorktreePath,
+          branch: input.branch,
+          createBranch: input.createBranch,
+          baseRef: input.createBranch ? input.baseRef : undefined,
+        });
+        firstResult = { repoPath: firstRepo, success: true, worktreePath: firstWorktreePath };
+      } catch (err) {
+        throw buildError(firstRepo, err, []);
+      }
+
+      if (restRepos.length === 0) {
+        return { branch: input.branch, repos: [firstResult] };
+      }
+
+      // Step 2: run repos[1..N] in parallel with createBranch: false.
+      const restSettled = await Promise.allSettled(
+        restRepos.map(async (repoPath): Promise<RepoSuccess> => {
+          const worktreePath = getProjectWorktreeDir(workspace, project.slug, input.branch, repoPath);
           await dispatchWorktreeAdd(ctx.state, {
             repoDir: repoPath,
             worktreePath,
             branch: input.branch,
-            createBranch,
-            baseRef: createBranch ? input.baseRef : undefined,
+            createBranch: false,
           });
-          succeeded.push({ repoPath, success: true, worktreePath });
-        } catch (err) {
-          // Rollback: remove what we already created. Track leaks so the user
-          // can clean up by hand if a rollback step itself fails.
-          const leaked: string[] = [];
-          for (const prior of succeeded) {
-            if (!prior.success) continue;
-            try {
-              await dispatchWorktreeRemove(ctx.state, {
-                repoDir: prior.repoPath,
-                worktreePath: prior.worktreePath,
-                force: true,
-              });
-            } catch (rollbackErr) {
-              console.warn(
-                `[worktree.create] rollback failed for ${prior.repoPath}:`,
-                rollbackErr,
-              );
-              leaked.push(prior.worktreePath);
-            }
+          return { repoPath, success: true, worktreePath };
+        }),
+      );
+
+      // Collect successes and the first failure.
+      const succeeded: AddResult[] = [firstResult];
+      let firstFailureRepo: string | null = null;
+      let firstFailureErr: unknown = null;
+
+      restSettled.forEach((result, i) => {
+        if (result.status === 'fulfilled') {
+          succeeded.push(result.value);
+        } else {
+          if (firstFailureRepo === null) {
+            firstFailureRepo = restRepos[i];
+            firstFailureErr = result.reason;
           }
-          const code = errorCode<WorktreeAddErrorCode>(err, 'OTHER');
-          const leakedNote =
-            leaked.length > 0
-              ? ` Rollback left orphaned worktree(s); remove manually: ${leaked.join(', ')}.`
-              : '';
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: `Failed to create worktree in ${repoPath}: ${err instanceof Error ? err.message : String(err)} (${code}).${leakedNote}`,
-          });
         }
+      });
+
+      if (firstFailureRepo !== null) {
+        const leaked = await rollback(succeeded);
+        throw buildError(firstFailureRepo, firstFailureErr, leaked);
       }
 
       return { branch: input.branch, repos: succeeded };
@@ -212,6 +267,7 @@ export const worktreeRouter = router({
     .mutation(async ({ input, ctx }): Promise<AddResult[]> => {
       const { project, workspace } = getProjectAndWorkspace(input.projectId);
       validateRepoSubset(workspace, input.repoPaths);
+      validateNoBasenameCollisions(input.repoPaths);
       branchToPathSegment(input.branch);
 
       const results = await Promise.all(

@@ -145,8 +145,9 @@ describe('worktree router', () => {
         ]),
       });
 
-      const groups = await caller.worktree.listGrouped({ projectId: proj.id });
+      const { groups, errors } = await caller.worktree.listGrouped({ projectId: proj.id });
 
+      expect(errors).toHaveLength(0);
       expect(groups).toHaveLength(2);
       const featX = groups.find((g) => g.branch === 'feat-x')!;
       expect(featX.repos).toHaveLength(2);
@@ -172,12 +173,14 @@ describe('worktree router', () => {
         ]),
       });
 
-      const groups = await caller.worktree.listGrouped({ projectId: proj.id });
+      const { groups, errors } = await caller.worktree.listGrouped({ projectId: proj.id });
       expect(groups).toHaveLength(1);
       expect(groups[0]).toEqual({
         branch: 'feat-x',
         repos: [{ repoPath: '/repo-A', worktreePath: '/wt/feat-x-A' }],
       });
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({ repoPath: '/repo-B', message: 'not a git repo' });
     });
 
     it('throws NOT_FOUND for unknown project', async () => {

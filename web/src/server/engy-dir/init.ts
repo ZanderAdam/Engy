@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import yaml from 'js-yaml';
 import { getEngyDir } from '../db/client';
 import { dispatchGitWorktreeList } from '../ws/server';
@@ -99,12 +100,33 @@ export function renameWorkspaceDir(oldSlug: string, newSlug: string): void {
 /**
  * Normalize a branch name into a path-safe segment.
  * Replaces `/` with `-`; rejects any branch with chars outside [A-Za-z0-9._/-].
+ * Caps the result at 64 chars: if longer, truncates to 56 chars + `-` + 8-char sha1 suffix.
  */
 export function branchToPathSegment(branch: string): string {
   if (!branch || !BRANCH_SAFE_RE.test(branch)) {
     throw new Error(`Invalid branch name: ${branch}`);
   }
-  return branch.replace(/\//g, '-');
+  const segment = branch.replace(/\//g, '-');
+  if (segment.length <= 64) return segment;
+  const hash = crypto.createHash('sha1').update(branch).digest('hex').slice(0, 8);
+  return `${segment.slice(0, 56)}-${hash}`;
+}
+
+/**
+ * Throws if any two paths in the array share the same basename.
+ * Prevents on-disk collisions in the worktree directory layout.
+ */
+export function validateNoBasenameCollisions(repoPaths: string[]): void {
+  const seen = new Map<string, string>();
+  for (const repoPath of repoPaths) {
+    const base = path.basename(path.resolve(repoPath));
+    if (seen.has(base)) {
+      throw new Error(
+        `Repo basename collision: "${base}" is shared by "${seen.get(base)}" and "${repoPath}". Each repo must have a unique directory name.`,
+      );
+    }
+    seen.set(base, repoPath);
+  }
 }
 
 /**

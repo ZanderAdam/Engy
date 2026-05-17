@@ -39,10 +39,12 @@ export function useProjectWorktreeMap(args: {
   const searchParams = useVirtualSearchParams();
   const wtParam = searchParams.get('wt');
 
-  const { data: allGroups = [], isLoading } = trpc.worktree.listGrouped.useQuery(
+  const { data, isLoading } = trpc.worktree.listGrouped.useQuery(
     { projectId: args.projectId ?? 0 },
     { enabled: !!args.projectId },
   );
+
+  const allGroups: WorktreeGroup[] = data?.groups ?? [];
 
   return useMemo(() => {
     if (!wtParam) {
