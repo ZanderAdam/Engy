@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Engy is a single-user, AI-assisted engineering workspace manager for spec-driven development. It provides a permanent home for ongoing concerns (workspaces) and ephemeral scopes for bounded work (projects). Currently at Milestone 1 (Foundation) complete, Milestone 2 (Spec Authoring) in planning.
+Engy is a single-user, AI-assisted engineering workspace manager for spec-driven development. It provides a permanent home for ongoing concerns (workspaces) and ephemeral scopes for bounded work (projects).
 
 ## Monorepo Structure
 
@@ -13,6 +13,19 @@ pnpm monorepo with Turborepo orchestration. Three packages:
 - **`web/`** — Next.js 16 (App Router) + custom Node.js HTTP server. Contains both frontend UI and all backend services (tRPC API, WebSocket server, MCP server) on a single port.
 - **`client/`** — Node.js daemon that runs locally on the developer's machine. Connects to `web/` via WebSocket. Handles path validation, file watching, and git operations.
 - **`common/`** — Shared TypeScript types only (WebSocket protocol discriminated union). Zero runtime code.
+
+Subdirectory CLAUDE.mds codify patterns at the point of use (auto-loaded when Claude works in that subtree):
+- `web/CLAUDE.md`, `client/CLAUDE.md`, `common/CLAUDE.md` — package overviews
+- `web/src/server/db/CLAUDE.md` — Drizzle schema & migration rules
+- `web/src/server/trpc/routers/CLAUDE.md` — router authoring, compensating actions, broadcasts
+- `web/src/server/mcp/CLAUDE.md` — MCP↔tRPC parity rules
+- `web/src/server/ws/CLAUDE.md` — four endpoints, pending-map dispatch, broadcasts
+- `web/src/components/CLAUDE.md` + `web/src/components/ui/CLAUDE.md` — component conventions & shadcn discipline
+- `client/src/terminal/CLAUDE.md` — session lifecycle, compact wire keys, security guard
+- `client/src/container/CLAUDE.md` — devcontainer + coder lifecycle, config generation
+- `client/src/runner/CLAUDE.md` — agent process spawning across host/container/coder/remote modes
+
+**If you spot drift between any CLAUDE.md and the actual code — wrong file path, renamed helper, stale claim, missing rule — raise it to the user instead of silently working around it.** These files are the project's authoritative onboarding contract; correcting them is higher leverage than completing one task with a workaround.
 
 ## Commands
 
@@ -35,7 +48,7 @@ CRITICAL: The server never touches user repos directly. Any file system or git o
 
 ### WebSocket Protocol
 
-Typed discriminated union in `@engy/common`. Message types: `REGISTER`, `WORKSPACES_SYNC`, `VALIDATE_PATHS_REQUEST/RESPONSE`, `FILE_CHANGE`. Only one daemon expected; second connection replaces first.
+Typed discriminated union in `@engy/common` (~40 message types spanning registration, file system, git, containers, agent execution, and terminal relay). Only one daemon expected; second connection replaces first. See `common/CLAUDE.md` for the protocol catalog and `web/src/server/ws/CLAUDE.md` for the request/response dispatch pattern.
 
 ## Environment Variables
 
