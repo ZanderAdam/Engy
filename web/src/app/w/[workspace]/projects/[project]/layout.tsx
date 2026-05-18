@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { RiGitBranchLine } from "@remixicon/react";
 import { useVirtualParams, useVirtualPathname, useVirtualSearchParams } from "@/components/tabs/tab-context";
 import { VLink } from "@/components/tabs/virtual-link";
 import { trpc } from "@/lib/trpc";
@@ -42,11 +41,12 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
   }
 
   const basePath = `/w/${params.workspace}/projects/${params.project}`;
-  const activeWt = searchParams.get('wt');
   const workspaceRepoCount = ((workspace.repos as string[] | null) ?? []).length;
+  const searchString = searchParams.toString();
 
   function tabHref(segment: string): string {
-    return segment ? `${basePath}/${segment}` : basePath;
+    const base = segment ? `${basePath}/${segment}` : basePath;
+    return searchString ? `${base}?${searchString}` : base;
   }
 
   function isActive(segment: string): boolean {
@@ -126,14 +126,6 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
           )}
         </TooltipProvider>
       </nav>
-
-      {activeWt && (
-        <div className="flex items-center gap-1.5 border-b border-border bg-muted/30 px-3 py-1 text-[10px] text-muted-foreground">
-          <RiGitBranchLine className="size-3" />
-          <span>on</span>
-          <span className="font-mono text-foreground">{activeWt}</span>
-        </div>
-      )}
 
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>
 

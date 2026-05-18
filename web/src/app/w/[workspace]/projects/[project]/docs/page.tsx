@@ -47,14 +47,15 @@ export default function ProjectDocsPage() {
 
   const updateUrl = useCallback(
     (file: string | null) => {
-      const p = new URLSearchParams();
+      const p = new URLSearchParams(searchParams.toString());
       if (file) p.set('file', file);
+      else p.delete('file');
       const qs = p.toString();
       nav.push(
         `/w/${params.workspace}/projects/${params.project}/docs${qs ? `?${qs}` : ''}`,
       );
     },
-    [nav, params.workspace, params.project],
+    [nav, params.workspace, params.project, searchParams],
   );
 
   const handleActiveFileChange = useCallback(

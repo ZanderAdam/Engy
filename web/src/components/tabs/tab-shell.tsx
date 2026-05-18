@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { RiAddLine, RiCloseLine } from '@remixicon/react';
+import { RiAddLine, RiCloseLine, RiGitBranchLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
 import { randomId } from '@/lib/random-id';
 import { HeaderActions } from '@/components/header-actions';
@@ -10,7 +10,7 @@ import { TabContext, type TabContextValue } from './tab-context';
 import { TabContent } from './tab-content';
 import {
   deriveDefaultTitle,
-  deriveTitleSegments,
+  deriveTabTitle,
   loadPersisted,
   normalizeVirtualPath,
   savePersisted,
@@ -108,7 +108,7 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
     if (typeof window === 'undefined') return;
 
     const target = activeTab.virtualPath;
-    document.title = `engy:${deriveTitleSegments(target).join(':')}`;
+    document.title = `engy:${deriveDefaultTitle(target)}`;
 
     const key = `${activeTab.id}::${target}`;
     if (lastWrittenRef.current === key) return;
@@ -338,7 +338,7 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
       >
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
-          const segments = deriveTitleSegments(tab.virtualPath);
+          const { segments, worktree } = deriveTabTitle(tab.virtualPath);
           return (
             <div
               key={tab.id}
@@ -369,7 +369,7 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
                   : 'text-muted-foreground/50 opacity-60 hover:bg-muted/40 hover:text-foreground hover:opacity-100',
               )}
             >
-              <span className="flex max-w-[18rem] items-center gap-1 truncate">
+              <span className="flex max-w-[22rem] items-center gap-1 truncate">
                 {segments.map((seg, i) => (
                   <span key={i} className="flex items-center gap-1">
                     {i > 0 && (
@@ -393,6 +393,18 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
                     </span>
                   </span>
                 ))}
+                {worktree && (
+                  <span
+                    className={cn(
+                      'ml-1 flex items-center gap-0.5 rounded-sm bg-muted/60 px-1 py-0.5 font-mono text-[10px]',
+                      isActive ? 'text-foreground' : 'text-muted-foreground',
+                    )}
+                    title={`Worktree: ${worktree}`}
+                  >
+                    <RiGitBranchLine className="size-3" />
+                    <span className="max-w-[8rem] truncate">{worktree}</span>
+                  </span>
+                )}
               </span>
               <button
                 type="button"
