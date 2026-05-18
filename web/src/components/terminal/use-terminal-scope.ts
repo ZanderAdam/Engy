@@ -5,6 +5,7 @@ import { trpc } from "@/lib/trpc";
 import { buildClaudeCommand, buildContextBlock } from '@/lib/shell';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import type { TerminalScope } from "./types";
+import { projectGroupKey, workspaceGroupKey, normalizeWtParam } from './group-key';
 
 // ── Default terminal scope logic — DO NOT CHANGE ──────────────────────
 // When starting Claude from the terminal panel (not task quick actions):
@@ -28,7 +29,6 @@ export function deriveScope(
       project: { id: projectId, slug: projectSlug, dir: projectDir },
       repos,
     });
-    const baseKey = `project:${workspaceSlug}:${projectSlug}`;
     return {
       scopeType: 'project',
       scopeLabel: worktreeBranch
@@ -36,7 +36,7 @@ export function deriveScope(
         : `project: ${projectSlug}`,
       workingDir: projectDir,
       command: buildClaudeCommand({ systemPrompt, additionalDirs: repos }),
-      groupKey: worktreeBranch ? `${baseKey}:wt:${worktreeBranch}` : baseKey,
+      groupKey: projectGroupKey(workspaceSlug, projectSlug, worktreeBranch),
       workspaceSlug,
     };
   }
@@ -50,7 +50,7 @@ export function deriveScope(
     scopeLabel: workspaceSlug,
     workingDir: workspaceDir,
     command: buildClaudeCommand({ systemPrompt, additionalDirs: repos }),
-    groupKey: `workspace:${workspaceSlug}`,
+    groupKey: workspaceGroupKey(workspaceSlug),
     workspaceSlug,
   };
 }
@@ -76,8 +76,10 @@ export function useTerminalScope(): TerminalScope {
   const projectSlug = params.project;
   // Use the raw `?wt` URL param so each branch (even pre-materialization) gets
   // its own groupKey. Path substitution below uses the resolved repoMap, which
-  // is empty until a worktree directory exists.
-  const worktreeBranch = searchParams.get('wt') ?? undefined;
+  // is empty until a worktree directory exists — so an unmaterialized worktree
+  // still gets a unique groupKey, but `--add-dir` flags still point at the
+  // main repo paths until the worktree is created.
+  const worktreeBranch = normalizeWtParam(searchParams.get('wt'));
 
   const { data: workspace } = trpc.workspace.get.useQuery(
     { slug: workspaceSlug },
@@ -99,13 +101,12 @@ export function useTerminalScope(): TerminalScope {
       scopeLabel: workspaceSlug,
       workingDir: '',
       command: buildClaudeCommand(),
-      groupKey: `workspace:${workspaceSlug}`,
+      groupKey: workspaceGroupKey(workspaceSlug),
       workspaceSlug,
     };
   }
 
   if (projectSlug && !project) {
-    const baseKey = `project:${workspaceSlug}:${projectSlug}`;
     return {
       scopeType: 'project',
       scopeLabel: worktreeBranch
@@ -113,7 +114,7 @@ export function useTerminalScope(): TerminalScope {
         : `project: ${projectSlug}`,
       workingDir: `${workspace.resolvedDir}/projects/${projectSlug}`,
       command: buildClaudeCommand(),
-      groupKey: worktreeBranch ? `${baseKey}:wt:${worktreeBranch}` : baseKey,
+      groupKey: projectGroupKey(workspaceSlug, projectSlug, worktreeBranch),
       workspaceSlug,
     };
   }
