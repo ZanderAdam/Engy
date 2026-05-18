@@ -24,6 +24,7 @@ export const MOBILE_TERMINAL_BUTTONS: ControlButton[] = [
   { id: 'up', label: '↑', ariaLabel: 'Send Up Arrow', data: '\x1b[A', icon: RiArrowUpSLine },
   { id: 'down', label: '↓', ariaLabel: 'Send Down Arrow', data: '\x1b[B', icon: RiArrowDownSLine },
   { id: 'tab', label: 'Tab', ariaLabel: 'Send Tab', data: '\t' },
+  { id: 'mode', label: 'Mode', ariaLabel: 'Send Shift+Tab', data: '\x1b[Z' },
   { id: 'enter', label: 'Enter', ariaLabel: 'Send Enter', data: '\r' },
 ];
 

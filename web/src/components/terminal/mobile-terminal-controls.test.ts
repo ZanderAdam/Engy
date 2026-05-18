@@ -11,7 +11,7 @@ import { MOBILE_TERMINAL_BUTTONS } from './mobile-terminal-controls';
  */
 describe('mobile terminal controls', () => {
   describe('button order', () => {
-    it('should render Esc, 1, 2, 3, up, down, Tab, Enter top-to-bottom', () => {
+    it('should render Esc, 1, 2, 3, up, down, Tab, Mode, Enter top-to-bottom', () => {
       expect(MOBILE_TERMINAL_BUTTONS.map((b) => b.id)).toEqual([
         'esc',
         '1',
@@ -20,6 +20,7 @@ describe('mobile terminal controls', () => {
         'up',
         'down',
         'tab',
+        'mode',
         'enter',
       ]);
     });
@@ -34,6 +35,7 @@ describe('mobile terminal controls', () => {
       ['up', '\x1b[A'],
       ['down', '\x1b[B'],
       ['tab', '\t'],
+      ['mode', '\x1b[Z'],
       ['enter', '\r'],
     ];
 
