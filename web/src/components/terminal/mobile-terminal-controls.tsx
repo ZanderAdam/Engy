@@ -31,7 +31,7 @@ export const MOBILE_TERMINAL_BUTTONS: ControlButton[] = [
 export function MobileTerminalControls({ onKey }: MobileTerminalControlsProps) {
   return (
     <div
-      className="flex flex-col gap-1 shrink-0 p-1 border-l border-zinc-800 bg-zinc-900/80"
+      className="flex flex-col justify-end gap-1 shrink-0 p-1 border-l border-zinc-800 bg-zinc-900/80"
       role="toolbar"
       aria-label="Terminal keys"
     >
