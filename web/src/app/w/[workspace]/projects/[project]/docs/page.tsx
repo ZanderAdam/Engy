@@ -38,22 +38,24 @@ export default function ProjectDocsPage() {
   const dockRef = useRef<DocDockHandle>(null);
   const [activeFile, setActiveFile] = useState<string | null>(initialFile);
 
+  const worktreeBranch = searchParams.get('wt') ?? undefined;
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
   const { data: projectData, error: projectError } = trpc.project.getBySlug.useQuery(
-    { workspaceId: workspace?.id ?? 0, slug: params.project },
+    { workspaceId: workspace?.id ?? 0, slug: params.project, worktreeBranch },
     { enabled: !!workspace, retry: false },
   );
 
   const updateUrl = useCallback(
     (file: string | null) => {
-      const p = new URLSearchParams();
+      const p = new URLSearchParams(searchParams.toString());
       if (file) p.set('file', file);
+      else p.delete('file');
       const qs = p.toString();
       nav.push(
         `/w/${params.workspace}/projects/${params.project}/docs${qs ? `?${qs}` : ''}`,
       );
     },
-    [nav, params.workspace, params.project],
+    [nav, params.workspace, params.project, searchParams],
   );
 
   const handleActiveFileChange = useCallback(

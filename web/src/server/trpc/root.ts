@@ -10,6 +10,7 @@ import { diffRouter } from './routers/diff';
 import { fileRouter } from './routers/file';
 import { executionRouter } from './routers/execution';
 import { questionRouter } from './routers/question';
+import { worktreeRouter } from './routers/worktree';
 
 export const appRouter = router({
   workspace: workspaceRouter,
@@ -23,6 +24,7 @@ export const appRouter = router({
   file: fileRouter,
   execution: executionRouter,
   question: questionRouter,
+  worktree: worktreeRouter,
 });
 
 /** @public Used by tRPC client setup */

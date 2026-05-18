@@ -2,7 +2,12 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { RiGitRepositoryLine, RiGitRepositoryFill, RiComputerLine, RiBox3Line } from '@remixicon/react';
-import { useVirtualParams, useVirtualPathname, useTabId } from '@/components/tabs/tab-context';
+import {
+  useVirtualParams,
+  useVirtualPathname,
+  useVirtualSearchParams,
+  useTabId,
+} from '@/components/tabs/tab-context';
 import { VLink } from '@/components/tabs/virtual-link';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
@@ -15,6 +20,8 @@ import { useWorktreeSessions } from '@/components/terminal/use-worktree-sessions
 import { EventsProvider } from '@/contexts/events-context';
 import { useTaskAutoInvalidation } from '@/hooks/use-task-auto-invalidation';
 import { useQuestionAutoInvalidation } from '@/hooks/use-question-auto-invalidation';
+import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
+import { projectGroupKey, normalizeWtParam } from '@/components/terminal/group-key';
 import { buildClaudeCommand, buildContextBlock } from '@/lib/shell';
 
 const TERMINAL_CONFIG = {
@@ -36,6 +43,7 @@ const tabs = [
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const params = useVirtualParams<{ workspace: string; project?: string }>();
   const pathname = useVirtualPathname();
+  const searchParams = useVirtualSearchParams();
   const tabId = useTabId();
   const {
     data: workspace,
@@ -73,6 +81,15 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   const isContainerEnabled = workspace?.containerEnabled ?? false;
 
+  const { repoMap: worktreeRepoMap } = useProjectWorktreeMap({
+    projectId: isProjectRoute ? project?.id : undefined,
+  });
+  // Use the raw `?wt` URL param (not the resolved/materialized branch) so the
+  // groupKey isolates terminal sessions per tab even when the worktree hasn't
+  // been created yet for this repo. Path substitution still falls back to the
+  // main repo path when no worktree exists.
+  const worktreeBranch = normalizeWtParam(searchParams.get('wt'));
+
   const extraDropdownGroups = useMemo<TerminalDropdownGroup[] | undefined>(() => {
     if (!isProjectRoute || !workspace) return undefined;
     const repos = (workspace.repos as string[]) ?? [];
@@ -93,28 +110,38 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           })
         : undefined;
 
-    const groupKey = `project:${params.workspace}:${projectSlug}`;
+    // Single source of truth: `projectGroupKey` keeps this in lockstep with the
+    // default scope in `useTerminalScope`. Always include the URL `?wt` even when
+    // the worktree for this specific repo isn't materialized yet, so terminal
+    // sessions stay isolated to this tab (not shared with the no-?wt tab).
+    const groupKeyForEntry = projectGroupKey(params.workspace, projectSlug ?? '', worktreeBranch);
+
+    /** Map a main repo path to its worktree-effective path (or main path if no match). */
+    function effectiveRepo(repoPath: string): string {
+      return worktreeRepoMap.get(repoPath) ?? repoPath;
+    }
 
     function makeRepoEntry(
       repoPath: string,
       mode: 'host' | 'container' | undefined,
     ): TerminalDropdownGroup['entries'][number] {
-      const dirName = repoPath.split('/').filter(Boolean).pop() ?? repoPath;
+      const effective = effectiveRepo(repoPath);
+      const dirName = effective.split('/').filter(Boolean).pop() ?? effective;
       const isContainer = mode === 'container';
       return {
         id: `${isContainer ? 'container:' : ''}repo:${repoPath}`,
         label: isContainer ? `${dirName} (Container)` : dirName,
-        tooltip: repoPath,
+        tooltip: effective,
         scope: {
           scopeType: 'project',
           scopeLabel: `claude: ${dirName}`,
-          workingDir: repoPath,
+          workingDir: effective,
           command: buildClaudeCommand({
             systemPrompt,
             additionalDirs: projectDir ? [projectDir] : undefined,
             dangerouslySkipPermissions: isContainer,
           }),
-          groupKey,
+          groupKey: groupKeyForEntry,
           workspaceSlug: params.workspace,
           containerMode: mode,
         },
@@ -125,24 +152,26 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     function makeAllReposEntry(
       mode: 'host' | 'container' | undefined,
     ): TerminalDropdownGroup['entries'][number] {
+      const effectiveRepos = repos.map(effectiveRepo);
       const isContainer = mode === 'container';
+      // Prefer a materialized worktree as the primary cwd when one exists.
+      const primary = repos.find((r) => worktreeRepoMap.has(r));
+      const primaryEffective = primary ? effectiveRepo(primary) : effectiveRepos[0];
+      const additional = effectiveRepos.filter((r) => r !== primaryEffective);
       return {
         id: `${isContainer ? 'container:' : ''}repo:all`,
         label: isContainer ? 'All Repos (Container)' : 'All Repos',
-        tooltip: repos.join(', '),
+        tooltip: effectiveRepos.join(', '),
         scope: {
           scopeType: 'project',
           scopeLabel: 'claude: all repos',
-          workingDir: repos[0],
+          workingDir: primaryEffective,
           command: buildClaudeCommand({
             systemPrompt,
-            additionalDirs: [
-              ...(projectDir ? [projectDir] : []),
-              ...repos.slice(1),
-            ],
+            additionalDirs: [...(projectDir ? [projectDir] : []), ...additional],
             dangerouslySkipPermissions: isContainer,
           }),
-          groupKey,
+          groupKey: groupKeyForEntry,
           workspaceSlug: params.workspace,
           containerMode: mode,
         },
@@ -168,7 +197,16 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     }
 
     return [{ label: 'Claude in Repos', entries }];
-  }, [isProjectRoute, workspace, project, params.project, params.workspace, isContainerEnabled]);
+  }, [
+    isProjectRoute,
+    workspace,
+    project,
+    params.project,
+    params.workspace,
+    isContainerEnabled,
+    worktreeBranch,
+    worktreeRepoMap,
+  ]);
 
   const worktreeGroup = useWorktreeSessions(params.workspace);
 

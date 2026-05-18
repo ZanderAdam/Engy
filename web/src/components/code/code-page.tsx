@@ -6,17 +6,25 @@ import { DynamicMonacoCodeEditor } from '@/components/editor/dynamic-monaco-edit
 import { useAutoSave } from '@/components/diff/use-auto-save';
 import { RepoSelector } from '@/components/diff/repo-selector';
 import { LazyFileTree } from '@/components/diff/file-tree';
+import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 
 interface CodePageProps {
   workspaceSlug: string;
+  projectSlug?: string;
 }
 
-export function CodePage({ workspaceSlug }: CodePageProps) {
+export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
   const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
   const { data: taskGroups } = trpc.taskGroup.list.useQuery({});
+  const { data: project } = trpc.project.getBySlug.useQuery(
+    { workspaceId: workspace?.id ?? 0, slug: projectSlug ?? '' },
+    { enabled: !!workspace && !!projectSlug },
+  );
+
+  const { repoMap: worktreeRepoMap } = useProjectWorktreeMap({ projectId: project?.id });
 
   const allRepos = useMemo(() => {
     const repoSet = new Set<string>();
@@ -35,6 +43,22 @@ export function CodePage({ workspaceSlug }: CodePageProps) {
   }, [workspace, taskGroups]);
 
   const selectedRepo = userSelectedRepo ?? (allRepos.length > 0 ? allRepos[0] : null);
+  // The worktree-effective root for `selectedRepo`. If no worktree is materialized
+  // for this repo on the active branch, falls back to the main path.
+  const effectiveRoot = useMemo(() => {
+    if (!selectedRepo) return null;
+    return worktreeRepoMap.get(selectedRepo) ?? selectedRepo;
+  }, [selectedRepo, worktreeRepoMap]);
+
+  // Clear the open file when the effective root changes — otherwise the
+  // remembered absolute path is rooted at the *previous* worktree and would
+  // produce a garbage relative read against the new root. Uses the
+  // "set state during render" pattern per React's set-state-in-effect rule.
+  const [prevEffectiveRoot, setPrevEffectiveRoot] = useState<string | null>(effectiveRoot);
+  if (effectiveRoot !== prevEffectiveRoot) {
+    setPrevEffectiveRoot(effectiveRoot);
+    setSelectedFile(null);
+  }
 
   const trpcUtils = trpc.useUtils();
 
@@ -47,33 +71,43 @@ export function CodePage({ workspaceSlug }: CodePageProps) {
 
   const searchFiles = useCallback(
     async (query: string) => {
-      if (!selectedRepo) return [];
+      if (!effectiveRoot) return [];
       const result = await trpcUtils.dir.searchRepoFiles.fetch({
-        dirs: [selectedRepo],
+        dirs: [effectiveRoot],
         query,
         limit: 50,
       });
       return result.results;
     },
-    [trpcUtils, selectedRepo],
+    [trpcUtils, effectiveRoot],
   );
 
-  // File path for read is relative to repo, but LazyFileTree gives absolute paths
+  // File path for read is relative to effectiveRoot, but LazyFileTree gives absolute paths
   const relativeSelectedFile = useMemo(() => {
-    if (!selectedFile || !selectedRepo) return null;
-    return selectedFile.startsWith(selectedRepo)
-      ? selectedFile.slice(selectedRepo.length + 1)
+    if (!selectedFile || !effectiveRoot) return null;
+    return selectedFile.startsWith(effectiveRoot)
+      ? selectedFile.slice(effectiveRoot.length + 1)
       : selectedFile;
-  }, [selectedFile, selectedRepo]);
+  }, [selectedFile, effectiveRoot]);
+
+  // Pass repoDir = main repo (preserves identity), worktreePath = effectiveRoot
+  // (only when it differs). Symmetric with the Diffs page.
+  const overrideWorktreePath =
+    selectedRepo && effectiveRoot && effectiveRoot !== selectedRepo ? effectiveRoot : undefined;
 
   const { data: fileData } = trpc.file.read.useQuery(
-    { repoDir: selectedRepo!, filePath: relativeSelectedFile! },
+    {
+      repoDir: selectedRepo!,
+      filePath: relativeSelectedFile!,
+      worktreePath: overrideWorktreePath,
+    },
     { enabled: !!selectedRepo && !!relativeSelectedFile, retry: false },
   );
 
   const { status: saveStatus, save } = useAutoSave(
     selectedRepo,
     relativeSelectedFile,
+    overrideWorktreePath,
   );
 
   return (
@@ -103,9 +137,9 @@ export function CodePage({ workspaceSlug }: CodePageProps) {
 
       <div className="flex flex-1 min-h-0">
         <div className="w-[280px] flex-shrink-0 border-r border-border">
-          {selectedRepo ? (
+          {effectiveRoot ? (
             <LazyFileTree
-              rootDir={selectedRepo}
+              rootDir={effectiveRoot}
               selectedFile={selectedFile}
               onSelectFile={setSelectedFile}
               listDir={listDir}

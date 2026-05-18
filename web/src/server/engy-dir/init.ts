@@ -1,7 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import yaml from 'js-yaml';
 import { getEngyDir } from '../db/client';
+import { dispatchGitWorktreeList } from '../ws/server';
+import type { AppState } from '../trpc/context';
+
+const BRANCH_SAFE_RE = /^[A-Za-z0-9._/-]+$/;
 
 function validateSlug(slug: string): void {
   if (!slug || /[\/\\]/.test(slug) || slug.includes('..') || slug === '.') {
@@ -90,6 +95,106 @@ export function renameWorkspaceDir(oldSlug: string, newSlug: string): void {
   }
 
   fs.renameSync(oldDir, newDir);
+}
+
+/**
+ * Normalize a branch name into a path-safe segment.
+ * Replaces `/` with `-`; rejects any branch with chars outside [A-Za-z0-9._/-].
+ * Caps the result at 64 chars: if longer, truncates to 56 chars + `-` + 8-char sha1 suffix.
+ */
+export function branchToPathSegment(branch: string): string {
+  if (!branch || !BRANCH_SAFE_RE.test(branch)) {
+    throw new Error(`Invalid branch name: ${branch}`);
+  }
+  const segment = branch.replace(/\//g, '-');
+  if (segment.length <= 64) return segment;
+  const hash = crypto.createHash('sha1').update(branch).digest('hex').slice(0, 8);
+  return `${segment.slice(0, 56)}-${hash}`;
+}
+
+/**
+ * Throws if any two paths in the array share the same basename.
+ * Prevents on-disk collisions in the worktree directory layout.
+ */
+export function validateNoBasenameCollisions(repoPaths: string[]): void {
+  const seen = new Map<string, string>();
+  for (const repoPath of repoPaths) {
+    const base = path.basename(path.resolve(repoPath));
+    if (seen.has(base)) {
+      throw new Error(
+        `Repo basename collision: "${base}" is shared by "${seen.get(base)}" and "${repoPath}". Each repo must have a unique directory name.`,
+      );
+    }
+    seen.set(base, repoPath);
+  }
+}
+
+/**
+ * Compute the on-disk worktree path for a (project, branch, repo) tuple.
+ * Layout: `${workspaceDir}/worktrees/<projectSlug>/<branchSegment>/<repoBasename>`.
+ */
+export function getProjectWorktreeDir(
+  workspace: { slug: string; docsDir: string | null },
+  projectSlug: string,
+  branch: string,
+  repoPath: string,
+): string {
+  validateSlug(projectSlug);
+  const branchSegment = branchToPathSegment(branch);
+  const repoBasename = path.basename(path.resolve(repoPath));
+  if (!repoBasename || repoBasename === '/' || repoBasename === '.') {
+    throw new Error(`Invalid repo path: ${repoPath}`);
+  }
+  return path.join(
+    getWorkspaceDir(workspace),
+    'worktrees',
+    projectSlug,
+    branchSegment,
+    repoBasename,
+  );
+}
+
+/**
+ * When `workspace.docsDir` lives inside one of `workspace.repos`, and that repo
+ * has a worktree on `branch`, return the docs path rebased into the worktree.
+ * Otherwise, return `workspace.docsDir` unchanged (or the default ENGY_DIR
+ * computation if `docsDir` is null).
+ *
+ * Calls `dispatchGitWorktreeList` per candidate repo (the one that contains
+ * `docsDir`). Errors from the daemon are swallowed and fall through to the
+ * unchanged path — partial degradation, never throws.
+ */
+export async function effectiveDocsDirForBranch(
+  workspace: { slug: string; docsDir: string | null; repos: unknown },
+  branch: string,
+  state: AppState,
+): Promise<string> {
+  const docsDir = workspace.docsDir;
+  if (!docsDir) return getWorkspaceDir(workspace);
+  const repos = (workspace.repos as string[] | null | undefined) ?? [];
+  const normalizedDocs = path.resolve(docsDir);
+
+  for (const repoPath of repos) {
+    const normalizedRepo = path.resolve(repoPath);
+    const isContained =
+      normalizedDocs === normalizedRepo ||
+      normalizedDocs.startsWith(normalizedRepo + path.sep);
+    if (!isContained) continue;
+    const rel = path.relative(normalizedRepo, normalizedDocs);
+    // docsDir is inside repoPath — look up the worktree for `branch` in this repo.
+    try {
+      const { worktrees } = await dispatchGitWorktreeList(repoPath, state);
+      const match = worktrees.find((w) => !w.isMain && w.branch === branch);
+      if (match) return rel ? path.join(match.path, rel) : match.path;
+    } catch {
+      // Daemon failure — fall through to the unchanged docsDir.
+    }
+    // docsDir is inside this repo but no matching worktree — return unchanged
+    // (docsDir can only sit inside one repo, so don't check the rest).
+    return docsDir;
+  }
+
+  return docsDir;
 }
 
 export function removeWorkspaceDir(slug: string, docsDir?: string | null): void {

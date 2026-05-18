@@ -26,6 +26,10 @@ import type {
   RemoteFilePullRequestMessage,
   RemoteFilePushRequestMessage,
   WorktreeMergeRequestMessage,
+  WorktreeAddRequestMessage,
+  WorktreeAddErrorCode,
+  WorktreeRemoveRequestMessage,
+  WorktreeRemoveErrorCode,
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
@@ -49,6 +53,49 @@ import { Runner } from '../runner/index.js';
 import { AgentSpawner } from '../runner/agent-spawner.js';
 
 const execFileAsync = promisify(execFile);
+
+function errorText(err: unknown): string {
+  if (err instanceof Error) {
+    const stderr = (err as unknown as { stderr?: unknown }).stderr;
+    if (typeof stderr === 'string' && stderr.length > 0) {
+      return `${err.message}\n${stderr}`;
+    }
+    return err.message;
+  }
+  return String(err);
+}
+
+function classifyWorktreeAddError(msg: string): WorktreeAddErrorCode {
+  const lower = msg.toLowerCase();
+  if (
+    lower.includes("a branch named") ||
+    (lower.includes('already exists') && (lower.includes('branch') || lower.includes('refs/heads')))
+  ) {
+    return 'BRANCH_EXISTS';
+  }
+  if (
+    lower.includes('already checked out') ||
+    lower.includes('already used by worktree') ||
+    (lower.includes('already exists') && !lower.includes('branch'))
+  ) {
+    return 'PATH_EXISTS';
+  }
+  return 'OTHER';
+}
+
+function classifyWorktreeRemoveError(msg: string): WorktreeRemoveErrorCode {
+  const lower = msg.toLowerCase();
+  if (
+    lower.includes('is dirty') ||
+    lower.includes('contains modified') ||
+    lower.includes('contains untracked') ||
+    lower.includes('is not empty') ||
+    lower.includes('uncommitted')
+  ) {
+    return 'DIRTY';
+  }
+  return 'OTHER';
+}
 
 const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
@@ -474,6 +521,12 @@ export class WsClient {
       case 'WORKTREE_MERGE_REQUEST':
         this.handleWorktreeMergeRequest(message as WorktreeMergeRequestMessage);
         break;
+      case 'WORKTREE_ADD_REQUEST':
+        this.handleWorktreeAddRequest(message as WorktreeAddRequestMessage);
+        break;
+      case 'WORKTREE_REMOVE_REQUEST':
+        this.handleWorktreeRemoveRequest(message as WorktreeRemoveRequestMessage);
+        break;
       case 'EXECUTION_START_REQUEST':
         this.handleExecutionStartRequest(message as ExecutionStartRequestMessage);
         break;
@@ -844,6 +897,55 @@ export class WsClient {
       this.send({
         type: 'WORKTREE_MERGE_RESULT',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleWorktreeAddRequest(message: WorktreeAddRequestMessage): Promise<void> {
+    const { requestId, repoDir, worktreePath, branch, createBranch, baseRef, coderWorkspace } =
+      message.payload;
+    const runGit = this.gitRunnerFor(coderWorkspace);
+
+    const args = ['-C', repoDir, 'worktree', 'add'];
+    if (createBranch) args.push('-b', branch);
+    args.push(worktreePath);
+    if (createBranch && baseRef) args.push(baseRef);
+    if (!createBranch) args.push(branch);
+
+    try {
+      await runGit(args);
+      this.send({
+        type: 'WORKTREE_ADD_RESULT',
+        payload: { requestId, success: true, worktreePath, branch },
+      });
+    } catch (err) {
+      const errorMsg = errorText(err);
+      this.send({
+        type: 'WORKTREE_ADD_RESULT',
+        payload: { requestId, error: errorMsg, code: classifyWorktreeAddError(errorMsg) },
+      });
+    }
+  }
+
+  private async handleWorktreeRemoveRequest(message: WorktreeRemoveRequestMessage): Promise<void> {
+    const { requestId, repoDir, worktreePath, force, coderWorkspace } = message.payload;
+    const runGit = this.gitRunnerFor(coderWorkspace);
+
+    const args = ['-C', repoDir, 'worktree', 'remove'];
+    if (force) args.push('--force');
+    args.push(worktreePath);
+
+    try {
+      await runGit(args);
+      this.send({
+        type: 'WORKTREE_REMOVE_RESULT',
+        payload: { requestId, success: true },
+      });
+    } catch (err) {
+      const errorMsg = errorText(err);
+      this.send({
+        type: 'WORKTREE_REMOVE_RESULT',
+        payload: { requestId, error: errorMsg, code: classifyWorktreeRemoveError(errorMsg) },
       });
     }
   }

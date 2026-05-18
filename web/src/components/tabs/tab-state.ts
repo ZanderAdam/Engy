@@ -57,7 +57,7 @@ function basenameFromPath(rawPath: string | null): string | null {
   return last ?? null;
 }
 
-export function deriveTitleSegments(virtualPath: string): string[] {
+function deriveTitleSegments(virtualPath: string): string[] {
   const { workspace, project, section } = parseVirtualPath(virtualPath);
   if (!workspace) {
     if (section === 'open') {
@@ -74,8 +74,27 @@ export function deriveTitleSegments(virtualPath: string): string[] {
   return parts;
 }
 
+interface TabTitle {
+  segments: string[];
+  worktree?: string;
+}
+
+export function deriveTabTitle(virtualPath: string): TabTitle {
+  const segments = deriveTitleSegments(virtualPath);
+  const idx = virtualPath.indexOf('?');
+  const wt = idx >= 0 ? new URLSearchParams(virtualPath.slice(idx + 1)).get('wt') : null;
+  if (wt) return { segments, worktree: wt };
+  // Project routes that haven't picked a worktree are on the default branch —
+  // show that explicitly so the second-row chip doesn't render as a blank gap.
+  const { workspace, project } = parseVirtualPath(virtualPath);
+  if (workspace && project) return { segments, worktree: 'default' };
+  return { segments };
+}
+
 export function deriveDefaultTitle(virtualPath: string): string {
-  return deriveTitleSegments(virtualPath).join(' › ');
+  const { segments, worktree } = deriveTabTitle(virtualPath);
+  const base = segments.join(' › ');
+  return worktree ? `${base} (${worktree})` : base;
 }
 
 export function loadPersisted(): PersistedTabsV1 | null {

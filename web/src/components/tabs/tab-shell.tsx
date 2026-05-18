@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { RiAddLine, RiCloseLine } from '@remixicon/react';
+import { RiAddLine, RiCloseLine, RiGitBranchLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
 import { randomId } from '@/lib/random-id';
 import { HeaderActions } from '@/components/header-actions';
@@ -10,7 +10,7 @@ import { TabContext, type TabContextValue } from './tab-context';
 import { TabContent } from './tab-content';
 import {
   deriveDefaultTitle,
-  deriveTitleSegments,
+  deriveTabTitle,
   loadPersisted,
   normalizeVirtualPath,
   savePersisted,
@@ -69,7 +69,7 @@ export function TabShell() {
   if (!isClient) {
     return (
       <>
-        <div className="flex h-9 shrink-0 items-stretch border-b border-border bg-background">
+        <div className="flex h-11 shrink-0 items-stretch border-b border-border bg-background">
           <div className="flex-1" />
           <div className="w-20" aria-hidden />
         </div>
@@ -108,7 +108,7 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
     if (typeof window === 'undefined') return;
 
     const target = activeTab.virtualPath;
-    document.title = `engy:${deriveTitleSegments(target).join(':')}`;
+    document.title = `engy:${deriveDefaultTitle(target)}`;
 
     const key = `${activeTab.id}::${target}`;
     if (lastWrittenRef.current === key) return;
@@ -328,7 +328,7 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
 
   return (
     <div
-      className="flex h-9 shrink-0 items-stretch border-b border-border bg-background"
+      className="flex h-11 shrink-0 items-stretch border-b border-border bg-background"
       role="tablist"
       aria-label="Workspace tabs"
     >
@@ -338,7 +338,7 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
       >
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
-          const segments = deriveTitleSegments(tab.virtualPath);
+          const { segments, worktree } = deriveTabTitle(tab.virtualPath);
           return (
             <div
               key={tab.id}
@@ -369,30 +369,46 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
                   : 'text-muted-foreground/50 opacity-60 hover:bg-muted/40 hover:text-foreground hover:opacity-100',
               )}
             >
-              <span className="flex max-w-[18rem] items-center gap-1 truncate">
-                {segments.map((seg, i) => (
-                  <span key={i} className="flex items-center gap-1">
-                    {i > 0 && (
-                      <span className={isActive ? 'text-muted-foreground/60' : 'opacity-60'}>
-                        ›
-                      </span>
-                    )}
-                    <span
-                      className={cn(
-                        'truncate',
-                        i === segments.length - 1
-                          ? isActive
-                            ? 'font-semibold text-foreground'
-                            : 'font-semibold'
-                          : isActive
-                            ? 'text-muted-foreground'
-                            : '',
+              <span className="flex min-w-0 max-w-[22rem] flex-col justify-center gap-0.5 py-1">
+                <span className="flex items-center gap-1 truncate leading-tight">
+                  {segments.map((seg, i) => (
+                    <span key={i} className="flex items-center gap-1">
+                      {i > 0 && (
+                        <span className={isActive ? 'text-muted-foreground/60' : 'opacity-60'}>
+                          ›
+                        </span>
                       )}
-                    >
-                      {seg}
+                      <span
+                        className={cn(
+                          'truncate',
+                          i === segments.length - 1
+                            ? isActive
+                              ? 'font-semibold text-foreground'
+                              : 'font-semibold'
+                            : isActive
+                              ? 'text-muted-foreground'
+                              : '',
+                        )}
+                      >
+                        {seg}
+                      </span>
                     </span>
+                  ))}
+                </span>
+                {worktree ? (
+                  <span
+                    className={cn(
+                      'flex items-center gap-0.5 font-mono text-[9px] leading-none',
+                      isActive ? 'text-muted-foreground' : 'text-muted-foreground/70',
+                    )}
+                    title={`Worktree: ${worktree}`}
+                  >
+                    <RiGitBranchLine className="size-2.5" />
+                    <span className="max-w-[10rem] truncate">{worktree}</span>
                   </span>
-                ))}
+                ) : (
+                  <span aria-hidden className="h-2.5" />
+                )}
               </span>
               <button
                 type="button"

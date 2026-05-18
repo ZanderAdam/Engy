@@ -327,4 +327,24 @@ describe('project router', () => {
       expect(files).toEqual([]);
     });
   });
+
+  describe('worktreeBranch docs re-rooting', () => {
+    it('is a no-op when docsDir is outside any repo (ENGY_DIR case)', async () => {
+      // The default test workspace has no repos and docsDir is null, so the helper
+      // returns the default ENGY_DIR-based path. Passing worktreeBranch should not
+      // change anything.
+      const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'NoRepo' });
+      const withBranch = await caller.project.getBySlug({
+        workspaceId,
+        slug: 'noRepo'.toLowerCase(),
+        worktreeBranch: 'feat-x',
+      });
+      const withoutBranch = await caller.project.getBySlug({
+        workspaceId,
+        slug: 'norepo',
+      });
+      expect(withBranch.projectDir).toBe(withoutBranch.projectDir);
+      expect(proj.slug).toBe('norepo');
+    });
+  });
 });
