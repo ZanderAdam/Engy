@@ -41,7 +41,7 @@ export function WorktreeDropdown({
   const { data: listGroupedData } = trpc.worktree.listGrouped.useQuery({ projectId });
   const listErrors = listGroupedData?.errors ?? [];
 
-  const triggerLabel = branch ?? 'main';
+  const triggerLabel = branch ?? 'default';
 
   function setWorktree(nextBranch: string | null) {
     const next = new URLSearchParams(searchParams);
@@ -74,12 +74,12 @@ export function WorktreeDropdown({
               <CommandEmpty>No worktrees.</CommandEmpty>
               <CommandGroup>
                 <CommandItem
-                  value="main"
+                  value="default"
                   data-checked={!branch}
                   onSelect={() => setWorktree(null)}
                 >
                   <RiGitBranchLine className="mr-2 size-3" />
-                  <span className="flex-1">main</span>
+                  <span className="flex-1">default branch</span>
                 </CommandItem>
                 {allGroups.map((g) => (
                   <CommandItem

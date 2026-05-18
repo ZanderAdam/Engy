@@ -69,7 +69,7 @@ export function TabShell() {
   if (!isClient) {
     return (
       <>
-        <div className="flex h-9 shrink-0 items-stretch border-b border-border bg-background">
+        <div className="flex h-11 shrink-0 items-stretch border-b border-border bg-background">
           <div className="flex-1" />
           <div className="w-20" aria-hidden />
         </div>
@@ -328,7 +328,7 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
 
   return (
     <div
-      className="flex h-9 shrink-0 items-stretch border-b border-border bg-background"
+      className="flex h-11 shrink-0 items-stretch border-b border-border bg-background"
       role="tablist"
       aria-label="Workspace tabs"
     >
@@ -369,41 +369,45 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
                   : 'text-muted-foreground/50 opacity-60 hover:bg-muted/40 hover:text-foreground hover:opacity-100',
               )}
             >
-              <span className="flex max-w-[22rem] items-center gap-1 truncate">
-                {segments.map((seg, i) => (
-                  <span key={i} className="flex items-center gap-1">
-                    {i > 0 && (
-                      <span className={isActive ? 'text-muted-foreground/60' : 'opacity-60'}>
-                        ›
-                      </span>
-                    )}
-                    <span
-                      className={cn(
-                        'truncate',
-                        i === segments.length - 1
-                          ? isActive
-                            ? 'font-semibold text-foreground'
-                            : 'font-semibold'
-                          : isActive
-                            ? 'text-muted-foreground'
-                            : '',
+              <span className="flex min-w-0 max-w-[22rem] flex-col justify-center gap-0.5 py-1">
+                <span className="flex items-center gap-1 truncate leading-tight">
+                  {segments.map((seg, i) => (
+                    <span key={i} className="flex items-center gap-1">
+                      {i > 0 && (
+                        <span className={isActive ? 'text-muted-foreground/60' : 'opacity-60'}>
+                          ›
+                        </span>
                       )}
-                    >
-                      {seg}
+                      <span
+                        className={cn(
+                          'truncate',
+                          i === segments.length - 1
+                            ? isActive
+                              ? 'font-semibold text-foreground'
+                              : 'font-semibold'
+                            : isActive
+                              ? 'text-muted-foreground'
+                              : '',
+                        )}
+                      >
+                        {seg}
+                      </span>
                     </span>
-                  </span>
-                ))}
-                {worktree && (
+                  ))}
+                </span>
+                {worktree ? (
                   <span
                     className={cn(
-                      'ml-1 flex items-center gap-0.5 rounded-sm bg-muted/60 px-1 py-0.5 font-mono text-[10px]',
-                      isActive ? 'text-foreground' : 'text-muted-foreground',
+                      'flex items-center gap-0.5 font-mono text-[9px] leading-none',
+                      isActive ? 'text-muted-foreground' : 'text-muted-foreground/70',
                     )}
                     title={`Worktree: ${worktree}`}
                   >
-                    <RiGitBranchLine className="size-3" />
-                    <span className="max-w-[8rem] truncate">{worktree}</span>
+                    <RiGitBranchLine className="size-2.5" />
+                    <span className="max-w-[10rem] truncate">{worktree}</span>
                   </span>
+                ) : (
+                  <span aria-hidden className="h-2.5" />
                 )}
               </span>
               <button
