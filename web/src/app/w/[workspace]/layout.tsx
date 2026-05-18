@@ -2,7 +2,12 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { RiGitRepositoryLine, RiGitRepositoryFill, RiComputerLine, RiBox3Line } from '@remixicon/react';
-import { useVirtualParams, useVirtualPathname, useTabId } from '@/components/tabs/tab-context';
+import {
+  useVirtualParams,
+  useVirtualPathname,
+  useVirtualSearchParams,
+  useTabId,
+} from '@/components/tabs/tab-context';
 import { VLink } from '@/components/tabs/virtual-link';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
@@ -37,6 +42,7 @@ const tabs = [
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const params = useVirtualParams<{ workspace: string; project?: string }>();
   const pathname = useVirtualPathname();
+  const searchParams = useVirtualSearchParams();
   const tabId = useTabId();
   const {
     data: workspace,
@@ -74,9 +80,14 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   const isContainerEnabled = workspace?.containerEnabled ?? false;
 
-  const { branch: worktreeBranch, repoMap: worktreeRepoMap } = useProjectWorktreeMap({
+  const { repoMap: worktreeRepoMap } = useProjectWorktreeMap({
     projectId: isProjectRoute ? project?.id : undefined,
   });
+  // Use the raw `?wt` URL param (not the resolved/materialized branch) so the
+  // groupKey isolates terminal sessions per tab even when the worktree hasn't
+  // been created yet for this repo. Path substitution still falls back to the
+  // main repo path when no worktree exists.
+  const worktreeBranch = searchParams.get('wt') ?? undefined;
 
   const extraDropdownGroups = useMemo<TerminalDropdownGroup[] | undefined>(() => {
     if (!isProjectRoute || !workspace) return undefined;
@@ -107,9 +118,10 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     function effectiveRepo(repoPath: string): string {
       return worktreeRepoMap.get(repoPath) ?? repoPath;
     }
-    function groupKeyFor(repoPath: string): string {
-      return worktreeRepoMap.has(repoPath) ? worktreeGroupKey : projectGroupKey;
-    }
+    // Always use worktreeGroupKey when this tab has a ?wt selection — even if
+    // the worktree for this specific repo isn't materialized yet — so terminal
+    // sessions stay isolated to this tab (not shared with the no-?wt tab).
+    const groupKeyForEntry = worktreeBranch ? worktreeGroupKey : projectGroupKey;
 
     function makeRepoEntry(
       repoPath: string,
@@ -131,7 +143,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             additionalDirs: projectDir ? [projectDir] : undefined,
             dangerouslySkipPermissions: isContainer,
           }),
-          groupKey: groupKeyFor(repoPath),
+          groupKey: groupKeyForEntry,
           workspaceSlug: params.workspace,
           containerMode: mode,
         },
@@ -161,9 +173,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             additionalDirs: [...(projectDir ? [projectDir] : []), ...additional],
             dangerouslySkipPermissions: isContainer,
           }),
-          // "All repos" is mixed (some worktree, some not); use the worktree key
-          // when any repo is materialized to keep it grouped with the worktree.
-          groupKey: worktreeBranch && worktreeRepoMap.size > 0 ? worktreeGroupKey : projectGroupKey,
+          groupKey: worktreeBranch ? worktreeGroupKey : projectGroupKey,
           workspaceSlug: params.workspace,
           containerMode: mode,
         },

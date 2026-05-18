@@ -39,6 +39,18 @@ describe('deriveScope', () => {
       const scope = deriveScope('my-ws', '/ws-dir', [], 1, 'my-proj', 5);
       expect(scope.workspaceSlug).toBe('my-ws');
     });
+
+    it('should append :wt:<branch> to groupKey and label when on a worktree', () => {
+      const scope = deriveScope('ws', '/ws-dir', [], 1, 'proj', 5, 'feat-x');
+      expect(scope.groupKey).toBe('project:ws:proj:wt:feat-x');
+      expect(scope.scopeLabel).toBe('project: proj (feat-x)');
+    });
+
+    it('should keep base groupKey when no worktree', () => {
+      const scope = deriveScope('ws', '/ws-dir', [], 1, 'proj', 5);
+      expect(scope.groupKey).toBe('project:ws:proj');
+      expect(scope.scopeLabel).toBe('project: proj');
+    });
   });
 
   describe('workspace scope', () => {

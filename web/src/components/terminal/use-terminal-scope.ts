@@ -1,8 +1,9 @@
 "use client";
 
-import { useVirtualParams } from "@/components/tabs/tab-context";
+import { useVirtualParams, useVirtualSearchParams } from "@/components/tabs/tab-context";
 import { trpc } from "@/lib/trpc";
 import { buildClaudeCommand, buildContextBlock } from '@/lib/shell';
+import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import type { TerminalScope } from "./types";
 
 // ── Default terminal scope logic — DO NOT CHANGE ──────────────────────
@@ -18,6 +19,7 @@ export function deriveScope(
   workspaceId: number,
   projectSlug?: string,
   projectId?: number,
+  worktreeBranch?: string,
 ): TerminalScope {
   if (projectSlug && projectId !== undefined) {
     const projectDir = `${workspaceDir}/projects/${projectSlug}`;
@@ -26,12 +28,15 @@ export function deriveScope(
       project: { id: projectId, slug: projectSlug, dir: projectDir },
       repos,
     });
+    const baseKey = `project:${workspaceSlug}:${projectSlug}`;
     return {
       scopeType: 'project',
-      scopeLabel: `project: ${projectSlug}`,
+      scopeLabel: worktreeBranch
+        ? `project: ${projectSlug} (${worktreeBranch})`
+        : `project: ${projectSlug}`,
       workingDir: projectDir,
       command: buildClaudeCommand({ systemPrompt, additionalDirs: repos }),
-      groupKey: `project:${workspaceSlug}:${projectSlug}`,
+      groupKey: worktreeBranch ? `${baseKey}:wt:${worktreeBranch}` : baseKey,
       workspaceSlug,
     };
   }
@@ -66,8 +71,13 @@ export function useBottomTerminalScope(): TerminalScope {
 
 export function useTerminalScope(): TerminalScope {
   const params = useVirtualParams();
+  const searchParams = useVirtualSearchParams();
   const workspaceSlug = params.workspace ?? '';
   const projectSlug = params.project;
+  // Use the raw `?wt` URL param so each branch (even pre-materialization) gets
+  // its own groupKey. Path substitution below uses the resolved repoMap, which
+  // is empty until a worktree directory exists.
+  const worktreeBranch = searchParams.get('wt') ?? undefined;
 
   const { data: workspace } = trpc.workspace.get.useQuery(
     { slug: workspaceSlug },
@@ -78,6 +88,10 @@ export function useTerminalScope(): TerminalScope {
     { workspaceId: workspace?.id ?? 0, slug: projectSlug ?? '' },
     { enabled: !!workspace && !!projectSlug },
   );
+
+  const { repoMap: worktreeRepoMap } = useProjectWorktreeMap({
+    projectId: project?.id,
+  });
 
   if (!workspace) {
     return {
@@ -91,17 +105,31 @@ export function useTerminalScope(): TerminalScope {
   }
 
   if (projectSlug && !project) {
+    const baseKey = `project:${workspaceSlug}:${projectSlug}`;
     return {
       scopeType: 'project',
-      scopeLabel: `project: ${projectSlug}`,
+      scopeLabel: worktreeBranch
+        ? `project: ${projectSlug} (${worktreeBranch})`
+        : `project: ${projectSlug}`,
       workingDir: `${workspace.resolvedDir}/projects/${projectSlug}`,
       command: buildClaudeCommand(),
-      groupKey: `project:${workspaceSlug}:${projectSlug}`,
+      groupKey: worktreeBranch ? `${baseKey}:wt:${worktreeBranch}` : baseKey,
       workspaceSlug,
     };
   }
 
   const repos = Array.isArray(workspace.repos) ? (workspace.repos as string[]) : [];
+  const effectiveRepos = worktreeBranch
+    ? repos.map((r) => worktreeRepoMap.get(r) ?? r)
+    : repos;
 
-  return deriveScope(workspaceSlug, workspace.resolvedDir, repos, workspace.id, projectSlug, project?.id);
+  return deriveScope(
+    workspaceSlug,
+    workspace.resolvedDir,
+    effectiveRepos,
+    workspace.id,
+    projectSlug,
+    project?.id,
+    worktreeBranch,
+  );
 }
