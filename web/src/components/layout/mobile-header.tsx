@@ -1,20 +1,13 @@
 'use client';
 
 import {
-  RiAddLine,
   RiArrowDownSLine,
   RiCheckLine,
   RiChat3Line,
   RiFolderLine,
-  RiHome2Line,
-  RiMoonLine,
   RiMoreLine,
-  RiQuestionLine,
-  RiSunLine,
   RiTerminalLine,
 } from '@remixicon/react';
-import { useTheme } from 'next-themes';
-import { trpc } from '@/lib/trpc';
 import {
   useVirtualNavigate,
   useVirtualPathname,
@@ -53,18 +46,21 @@ interface ProjectLike {
 interface MobileHeaderProps {
   workspace?: WorkspaceLike;
   project?: ProjectLike;
+  hasNotifications?: boolean;
   onOpenManageWorktrees?: () => void;
 }
 
-export function MobileHeader({ workspace, project, onOpenManageWorktrees }: MobileHeaderProps) {
+export function MobileHeader({
+  workspace,
+  project,
+  hasNotifications = false,
+  onOpenManageWorktrees,
+}: MobileHeaderProps) {
   const pathname = useVirtualPathname();
   const searchParams = useVirtualSearchParams();
   const navigate = useVirtualNavigate();
   const tabsList = useTabsList();
   const { overlay, openOverlay, closeOverlay } = useMobileOverlay();
-  const { resolvedTheme, setTheme } = useTheme();
-  const { data: unansweredData } = trpc.question.unansweredCount.useQuery({});
-  const unansweredCount = unansweredData?.count ?? 0;
 
   const workspaceRepoCount = ((workspace?.repos as string[] | null) ?? []).length;
 
@@ -156,58 +152,20 @@ export function MobileHeader({ workspace, project, onOpenManageWorktrees }: Mobi
 
         <div className="flex shrink-0 items-center gap-2 pl-2">
           <span aria-hidden className="size-2 rounded-full bg-primary" />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon-sm"
-                className="relative rounded-full"
-                aria-label="More options"
-              >
-                <RiMoreLine className="size-3.5" />
-                {unansweredCount > 0 && (
-                  <Badge
-                    variant="destructive"
-                    className="absolute -right-1 -top-1 size-3 min-w-0 rounded-full p-0"
-                  />
-                )}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={4} className="min-w-[12rem]">
-              {tabsList && (
-                <DropdownMenuItem onSelect={() => tabsList.openNewTab('/')}>
-                  <RiAddLine className="size-3" />
-                  New tab
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onSelect={() => navigate.push('/')}>
-                <RiHome2Line className="size-3" />
-                Home
-              </DropdownMenuItem>
-              {unansweredCount > 0 && (
-                <DropdownMenuItem onSelect={() => navigate.push('/')}>
-                  <RiQuestionLine className="size-3" />
-                  Questions
-                  <Badge variant="destructive" className="ml-auto text-[10px]">
-                    {unansweredCount}
-                  </Badge>
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
-                }}
-              >
-                {resolvedTheme === 'dark' ? (
-                  <RiSunLine className="size-3" />
-                ) : (
-                  <RiMoonLine className="size-3" />
-                )}
-                {resolvedTheme === 'dark' ? 'Light mode' : 'Dark mode'}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            className="relative rounded-full"
+            aria-label="More options"
+          >
+            <RiMoreLine className="size-3.5" />
+            {hasNotifications && (
+              <Badge
+                variant="destructive"
+                className="absolute -right-1 -top-1 size-3 min-w-0 rounded-full p-0"
+              />
+            )}
+          </Button>
         </div>
       </div>
 
