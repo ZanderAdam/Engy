@@ -297,8 +297,8 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   return (
     <div className="flex flex-1 min-h-0 flex-col">
       {/* Top bar: view mode tabs + repo selector + review actions */}
-      <div className="flex items-center justify-between border-b border-border">
-        <div className="flex items-center">
+      <div className="flex items-center justify-between gap-2 overflow-x-auto border-b border-border [scrollbar-width:thin]">
+        <div className="flex shrink-0 items-center">
           <ViewModeTabs value={diffViewMode} onChange={handleDiffViewModeChange} />
           <RepoSelector
             repos={allRepos}
@@ -314,21 +314,21 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
             />
           )}
           {projectWorktreeBranch && (
-            <div className="flex items-center gap-1 border-b border-border px-3 py-2 text-xs text-muted-foreground">
+            <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-2 text-xs text-muted-foreground">
               <RiGitBranchLine className="size-3" />
               <span>on</span>
               <span className="font-mono text-foreground">{projectWorktreeBranch}</span>
             </div>
           )}
         </div>
-        <div className="px-3">
+        <div className="shrink-0 px-3">
           <ReviewActions repoDir={selectedRepo} diffComments={currentFileComments} />
         </div>
       </div>
 
       {/* Branch diff: base branch input */}
       {diffViewMode === 'branch' && (
-        <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
+        <div className="flex items-center gap-2 overflow-x-auto border-b border-border px-3 py-1.5">
           <span className="text-xs text-muted-foreground">Base:</span>
           <input
             type="text"
@@ -422,6 +422,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                   onEditorModeChange={setEditorMode}
                   diffViewMode={diffViewMode}
                   saveStatus={saveStatus}
+                  hideViewModeToggle={isMobile}
                 />
               )}
               <div className="flex-1 min-h-0">
@@ -435,7 +436,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                   <DiffViewerPanel
                     originalContent={originalContent}
                     modifiedContent={modifiedContent}
-                    viewMode={viewMode}
+                    viewMode={isMobile ? 'unified' : viewMode}
                     filePath={selectedFile}
                     onChange={diffViewMode === 'latest' ? save : undefined}
                     fileComments={fileComments}

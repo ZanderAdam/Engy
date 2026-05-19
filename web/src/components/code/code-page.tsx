@@ -115,21 +115,23 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
 
   return (
     <div className="flex flex-1 min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
-        <RepoSelector
-          repos={allRepos}
-          selectedRepo={selectedRepo ?? ''}
-          onSelectRepo={(repo) => {
-            setUserSelectedRepo(repo);
-            setSelectedFile(null);
-          }}
-        />
-        {relativeSelectedFile && (
-          <span className="truncate font-mono text-xs text-muted-foreground">
-            {relativeSelectedFile}
-          </span>
-        )}
-        <div className="ml-auto">
+      <div className="flex items-center gap-2 overflow-x-auto border-b border-border px-3 py-1.5">
+        <div className="flex shrink-0 items-center gap-2">
+          <RepoSelector
+            repos={allRepos}
+            selectedRepo={selectedRepo ?? ''}
+            onSelectRepo={(repo) => {
+              setUserSelectedRepo(repo);
+              setSelectedFile(null);
+            }}
+          />
+          {relativeSelectedFile && (
+            <span className="truncate font-mono text-xs text-muted-foreground">
+              {relativeSelectedFile}
+            </span>
+          )}
+        </div>
+        <div className="ml-auto shrink-0">
           {saveStatus !== 'idle' && (
             <span className="text-[10px] text-muted-foreground">
               {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Error'}
