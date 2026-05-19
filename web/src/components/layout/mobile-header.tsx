@@ -5,7 +5,6 @@ import {
   RiCheckLine,
   RiChat3Line,
   RiFolderLine,
-  RiMoreLine,
   RiTerminalLine,
 } from '@remixicon/react';
 import {
@@ -28,6 +27,7 @@ import { WorkspaceSwitcher } from './header/workspace-switcher';
 import { ProjectSwitcher } from './header/project-switcher';
 import { OpenTabsPicker } from './header/open-tabs-picker';
 import { WorktreeDropdown } from '@/components/projects/worktree-dropdown';
+import { HeaderActions } from '@/components/header-actions';
 import { useMobileOverlay } from './mobile-overlay-context';
 
 interface WorkspaceLike {
@@ -46,16 +46,10 @@ interface ProjectLike {
 interface MobileHeaderProps {
   workspace?: WorkspaceLike;
   project?: ProjectLike;
-  hasNotifications?: boolean;
   onOpenManageWorktrees?: () => void;
 }
 
-export function MobileHeader({
-  workspace,
-  project,
-  hasNotifications = false,
-  onOpenManageWorktrees,
-}: MobileHeaderProps) {
+export function MobileHeader({ workspace, project, onOpenManageWorktrees }: MobileHeaderProps) {
   const pathname = useVirtualPathname();
   const searchParams = useVirtualSearchParams();
   const navigate = useVirtualNavigate();
@@ -150,22 +144,8 @@ export function MobileHeader({
           </OpenTabsPicker>
         </nav>
 
-        <div className="flex shrink-0 items-center gap-2 pl-2">
-          <span aria-hidden className="size-2 rounded-full bg-primary" />
-          <Button
-            variant="outline"
-            size="icon-sm"
-            className="relative rounded-full"
-            aria-label="More options"
-          >
-            <RiMoreLine className="size-3.5" />
-            {hasNotifications && (
-              <Badge
-                variant="destructive"
-                className="absolute -right-1 -top-1 size-3 min-w-0 rounded-full p-0"
-              />
-            )}
-          </Button>
+        <div className="flex shrink-0 items-center pl-1">
+          <HeaderActions />
         </div>
       </div>
 
