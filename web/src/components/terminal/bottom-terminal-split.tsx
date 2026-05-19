@@ -1,12 +1,9 @@
 'use client';
 
 import { useEffect, useCallback, useMemo, useRef } from 'react';
-import { RiArrowUpSLine, RiArrowDownSLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Kbd, KbdGroup } from '@/components/ui/kbd';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { matchShortcut, shortcutKeys, type ShortcutDef } from '@/components/layout/three-panel-layout';
+import { matchShortcut, type ShortcutDef } from '@/components/layout/three-panel-layout';
+import { BottomTerminalProvider } from '@/components/layout/workspace-terminal-context';
 import {
   useVerticalPanelResize,
   type VerticalPanelConfig,
@@ -63,7 +60,6 @@ export function BottomTerminalSplit({
     () => toShellDropdownGroups(extraDropdownGroups),
     [extraDropdownGroups],
   );
-  const keys = useMemo(() => shortcutKeys(BOTTOM_TERMINAL_SHORTCUT), []);
   const mountedRef = useRef(false);
 
   // Restore expanded state on mount
@@ -104,83 +100,54 @@ export function BottomTerminalSplit({
     setCollapsed(true);
   }, [setCollapsed]);
 
+  const ctxValue = useMemo(() => ({ collapsed, setCollapsed }), [collapsed, setCollapsed]);
+
   if (isMobile) {
-    return <>{children}</>;
+    return <BottomTerminalProvider value={ctxValue}>{children}</BottomTerminalProvider>;
   }
 
   return (
-    <div ref={containerRef} className="flex flex-1 min-h-0 flex-col overflow-hidden">
-      {/* Page content */}
-      <div className="flex flex-1 min-h-0 flex-col overflow-hidden">{children}</div>
+    <BottomTerminalProvider value={ctxValue}>
+      <div ref={containerRef} className="flex flex-1 min-h-0 flex-col overflow-hidden">
+        {/* Page content */}
+        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">{children}</div>
 
-      {/* Toggle bar — always visible */}
-      <div className="flex items-center justify-end shrink-0">
-        {/* Drag handle — inline with button */}
+        {/* Drag handle — only visible when expanded; toggle moved to project header */}
         {!collapsed && (
-          <div
-            role="separator"
-            aria-orientation="horizontal"
-            className={cn(
-              'flex-1 h-1 bg-border hover:bg-blue-500 cursor-row-resize transition-colors',
-              isResizing && 'bg-blue-500',
-            )}
-            onMouseDown={handleMouseDown}
-            onDoubleClick={() => setCollapsed(true)}
-            title="Drag to resize terminal"
-          />
+          <div className="flex items-center shrink-0">
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              className={cn(
+                'flex-1 h-1 bg-border hover:bg-blue-500 cursor-row-resize transition-colors',
+                isResizing && 'bg-blue-500',
+              )}
+              onMouseDown={handleMouseDown}
+              onDoubleClick={() => setCollapsed(true)}
+              title="Drag to resize terminal"
+            />
+          </div>
         )}
 
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCollapsed(!collapsed)}
-                className="h-8 w-8 p-0"
-              >
-                {collapsed ? (
-                  <RiArrowUpSLine className="size-4" />
-                ) : (
-                  <RiArrowDownSLine className="size-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <span className="flex items-center gap-1.5">
-                {collapsed ? 'Show terminal' : 'Collapse terminal'}
-                <KbdGroup>
-                  {keys.map((k, i) => (
-                    <span key={k} className="flex items-center gap-0.5">
-                      {i > 0 && <span className="text-[10px] opacity-60">+</span>}
-                      <Kbd>{k}</Kbd>
-                    </span>
-                  ))}
-                </KbdGroup>
-              </span>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        {/* Terminal — hidden when collapsed to preserve live connections */}
+        <div
+          className="flex flex-col min-h-0 shrink-0 bg-[#0a0a0a]"
+          style={{
+            height: collapsed ? 0 : height,
+            overflow: collapsed ? 'hidden' : undefined,
+            visibility: collapsed ? 'hidden' : undefined,
+          }}
+        >
+          <TerminalManager
+            key={scopeKey}
+            onCollapse={handleCollapse}
+            defaultScope={scope}
+            extraDropdownGroups={shellDropdownGroups}
+            containerEnabled={containerEnabled}
+            disableExternalEvents
+          />
+        </div>
       </div>
-
-      {/* Terminal — hidden when collapsed to preserve live connections */}
-      <div
-        className="flex flex-col min-h-0 shrink-0 bg-[#0a0a0a]"
-        style={{
-          height: collapsed ? 0 : height,
-          overflow: collapsed ? 'hidden' : undefined,
-          visibility: collapsed ? 'hidden' : undefined,
-        }}
-      >
-        <TerminalManager
-          key={scopeKey}
-          onCollapse={handleCollapse}
-          defaultScope={scope}
-          extraDropdownGroups={shellDropdownGroups}
-          containerEnabled={containerEnabled}
-          disableExternalEvents
-        />
-      </div>
-    </div>
+    </BottomTerminalProvider>
   );
 }

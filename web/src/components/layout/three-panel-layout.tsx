@@ -5,6 +5,8 @@ import { RiArrowLeftSLine, RiArrowRightSLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { useOptionalMobileOverlay } from './mobile-overlay-context';
+import { MobileFilesSheet } from './mobile-files-sheet';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { usePanelResize, type PanelConfig } from '@/lib/hooks/use-panel-resize';
@@ -179,8 +181,11 @@ export function ThreePanelLayout({
   const hasRight = !!right;
   const rightPanelExpanded = hasRight && !isRightCollapsed;
 
+  const mobileOverlay = useOptionalMobileOverlay();
+  const useMobileOverlayFiles = isMobile && hasLeft && !!mobileOverlay;
+
   return (
-    <div ref={containerRef} className={cn('flex overflow-hidden', className)}>
+    <div ref={containerRef} className={cn('flex overflow-hidden relative', className)}>
       {/* Left panel */}
       {leftPanel && !isMobile && (
         <>
@@ -232,17 +237,25 @@ export function ThreePanelLayout({
         </>
       )}
 
-      {hasLeft && isMobile && (
+      {hasLeft && isMobile && useMobileOverlayFiles && (
+        <MobileFilesSheet>{leftContent}</MobileFilesSheet>
+      )}
+
+      {hasLeft && isMobile && !useMobileOverlayFiles && (
         <>
-          <div className="flex items-start pt-2">
-            <ShortcutButton
-              onClick={() => setLeftCollapsed(!isLeftCollapsed)}
-              side="right"
-              label={isLeftCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-              keys={leftKeys}
-              icon={isLeftCollapsed ? RiArrowRightSLine : RiArrowLeftSLine}
-            />
-          </div>
+          {isLeftCollapsed && (
+            <div className="absolute left-1 top-1 z-10">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLeftCollapsed(false)}
+                className="h-6 w-6 p-0 opacity-70"
+                aria-label="Show sidebar"
+              >
+                <RiArrowRightSLine className="size-3" />
+              </Button>
+            </div>
+          )}
           <Sheet open={!isLeftCollapsed} onOpenChange={(open) => setLeftCollapsed(!open)}>
             <SheetContent side="left" className="w-3/4 max-w-[300px] p-0" showCloseButton={false}>
               <SheetTitle className="sr-only">Sidebar</SheetTitle>
@@ -314,7 +327,7 @@ export function ThreePanelLayout({
         </>
       )}
 
-      {hasRight && isMobile && (
+      {hasRight && isMobile && !mobileOverlay && (
         <>
           <div className="flex items-start pt-2 flex-shrink-0">
             <ShortcutButton

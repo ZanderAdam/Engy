@@ -13,6 +13,8 @@ import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
+import { MobileOverlayProvider } from '@/components/layout/mobile-overlay-context';
+import { MobileTerminalSheet } from '@/components/layout/mobile-terminal-sheet';
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
 import { BottomTerminalSplit } from '@/components/terminal/bottom-terminal-split';
 import type { TerminalDropdownGroup } from '@/components/terminal/types';
@@ -248,8 +250,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     return pathname.startsWith(`${basePath}/${segment}`);
   }
 
-  return (
-    <EventsProvider workspaceSlug={params.workspace}>
+  const content = (
+    <>
       <AutoInvalidation />
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         {!isProjectRoute && (
@@ -303,6 +305,22 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           }
         />
       </div>
+    </>
+  );
+
+  return (
+    <EventsProvider workspaceSlug={params.workspace}>
+      {isMobile ? (
+        <MobileOverlayProvider>
+          {content}
+          <MobileTerminalSheet
+            extraDropdownGroups={allDropdownGroups}
+            containerEnabled={isContainerEnabled}
+          />
+        </MobileOverlayProvider>
+      ) : (
+        content
+      )}
     </EventsProvider>
   );
 }

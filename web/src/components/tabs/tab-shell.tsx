@@ -6,7 +6,8 @@ import { RiAddLine, RiCloseLine, RiGitBranchLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
 import { randomId } from '@/lib/random-id';
 import { HeaderActions } from '@/components/header-actions';
-import { TabContext, type TabContextValue } from './tab-context';
+import { TabContext, TabsListContext, type TabContextValue, type TabsListContextValue } from './tab-context';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { TabContent } from './tab-content';
 import {
   deriveDefaultTitle,
@@ -93,6 +94,7 @@ interface HistoryState {
 function TabShellClient({ initialUrlPath }: TabShellClientProps) {
   const [state, setState] = useState<InitialState>(() => computeInitialState(initialUrlPath));
   const { tabs, activeTabId } = state;
+  const isMobile = useIsMobile();
 
   const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) ?? null, [tabs, activeTabId]);
 
@@ -247,15 +249,22 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const tabsListValue = useMemo<TabsListContextValue>(
+    () => ({ tabs, activeTabId, activateTab, closeTab, openNewTab }),
+    [tabs, activeTabId, activateTab, closeTab, openNewTab],
+  );
+
   return (
-    <>
-      <TabStrip
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onActivate={activateTab}
-        onClose={closeTab}
-        onNew={() => openNewTab('/')}
-      />
+    <TabsListContext.Provider value={tabsListValue}>
+      {!isMobile && (
+        <TabStrip
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onActivate={activateTab}
+          onClose={closeTab}
+          onNew={() => openNewTab('/')}
+        />
+      )}
       <div className="flex flex-1 flex-col min-h-0">
         {tabs.map((tab) => (
           <TabPanel
@@ -267,7 +276,7 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
           />
         ))}
       </div>
-    </>
+    </TabsListContext.Provider>
   );
 }
 

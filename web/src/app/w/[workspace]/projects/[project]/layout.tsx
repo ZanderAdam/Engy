@@ -8,22 +8,19 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { ProjectStatusBadge } from "@/components/projects/project-status-badge";
 import { WorktreeDropdown } from "@/components/projects/worktree-dropdown";
 import { ManageWorktreesDialog } from "@/components/projects/manage-worktrees-dialog";
+import { sections as tabs } from "@/components/layout/header/sections";
+import { MobileHeader } from "@/components/layout/mobile-header";
+import { TerminalToggleButton } from "@/components/terminal/terminal-toggle-button";
+import { useBottomTerminal } from "@/components/layout/workspace-terminal-context";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
-
-const tabs = [
-  { label: "Overview", segment: "", disabled: false },
-  { label: "Docs", segment: "docs", disabled: false },
-  { label: "Tasks", segment: "tasks", disabled: false },
-  { label: "Claude Plans", segment: "claude-plans", disabled: false },
-  { label: "Diffs", segment: "diffs", disabled: false },
-  { label: "Code", segment: "code", disabled: false },
-  { label: "PRs", segment: "prs", disabled: true, hint: "Available in M12" },
-] as const;
 
 export default function ProjectLayout({ children }: { children: React.ReactNode }) {
   const params = useVirtualParams<{ workspace: string; project: string }>();
   const pathname = useVirtualPathname();
   const searchParams = useVirtualSearchParams();
+  const isMobile = useIsMobile();
+  const terminal = useBottomTerminal();
   const [manageOpen, setManageOpen] = useState(false);
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
@@ -54,6 +51,27 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
       return pathname === basePath;
     }
     return pathname.startsWith(`${basePath}/${segment}`);
+  }
+
+  if (isMobile) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <MobileHeader
+          workspace={workspace}
+          project={project}
+          onOpenManageWorktrees={() => setManageOpen(true)}
+        />
+        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        {workspaceRepoCount > 0 && (
+          <ManageWorktreesDialog
+            open={manageOpen}
+            onOpenChange={setManageOpen}
+            projectId={project.id}
+            workspaceRepos={(workspace.repos as string[]) ?? []}
+          />
+        )}
+      </div>
+    );
   }
 
   return (
@@ -98,7 +116,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
         )}
       </div>
 
-      <nav className="flex border-b border-border" aria-label="Project sections">
+      <nav className="flex items-stretch border-b border-border" aria-label="Project sections">
         <TooltipProvider>
           {tabs.map((tab) =>
             tab.disabled ? (
@@ -125,6 +143,16 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
             ),
           )}
         </TooltipProvider>
+        <div className="flex-1" />
+        {terminal && (
+          <div className="flex items-center pr-2">
+            <TerminalToggleButton
+              variant="inline"
+              collapsed={terminal.collapsed}
+              onToggle={() => terminal.setCollapsed(!terminal.collapsed)}
+            />
+          </div>
+        )}
       </nav>
 
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>

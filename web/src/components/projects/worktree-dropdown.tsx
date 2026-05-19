@@ -25,12 +25,14 @@ interface WorktreeDropdownProps {
   projectId: number;
   workspaceRepoCount: number;
   onOpenManage: () => void;
+  hideManageButton?: boolean;
 }
 
 export function WorktreeDropdown({
   projectId,
   workspaceRepoCount,
   onOpenManage,
+  hideManageButton = false,
 }: WorktreeDropdownProps) {
   const [open, setOpen] = useState(false);
   const pathname = useVirtualPathname();
@@ -60,11 +62,12 @@ export function WorktreeDropdown({
           <button
             type="button"
             aria-label="Select worktree"
-            className="flex items-center gap-1 rounded-sm border border-input/40 bg-input/30 px-2 py-0.5 text-xs hover:bg-muted"
+            title={triggerLabel}
+            className="flex min-w-0 max-w-[7rem] sm:max-w-[10rem] items-center gap-1 rounded-sm border border-input/40 bg-input/30 px-2 py-0.5 text-xs hover:bg-muted"
           >
-            <RiGitBranchLine className="size-3 text-muted-foreground" />
-            <span className="font-mono">{triggerLabel}</span>
-            <RiArrowDownSLine className="size-3 text-muted-foreground" />
+            <RiGitBranchLine className="size-3 shrink-0 text-muted-foreground" />
+            <span className="truncate font-mono">{triggerLabel}</span>
+            <RiArrowDownSLine className="size-3 shrink-0 text-muted-foreground" />
           </button>
         </PopoverTrigger>
         <PopoverContent className="w-64 p-0" align="start">
@@ -133,21 +136,23 @@ export function WorktreeDropdown({
         </TooltipProvider>
       )}
 
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label="Manage worktrees"
-              onClick={onOpenManage}
-              className="flex items-center justify-center rounded-sm border border-input/40 bg-input/30 p-1 hover:bg-muted"
-            >
-              <RiSettings3Line className="size-3 text-muted-foreground" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Manage worktrees</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      {!hideManageButton && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label="Manage worktrees"
+                onClick={onOpenManage}
+                className="flex items-center justify-center rounded-sm border border-input/40 bg-input/30 p-1 hover:bg-muted"
+              >
+                <RiSettings3Line className="size-3 text-muted-foreground" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Manage worktrees</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useMemo } from 'react';
 import { useParams, usePathname, useSearchParams } from 'next/navigation';
-import { parseVirtualPath, type VirtualParams } from './tab-state';
+import { parseVirtualPath, type Tab, type VirtualParams } from './tab-state';
 
 export interface TabContextValue {
   tabId: string;
@@ -13,6 +13,20 @@ export interface TabContextValue {
 }
 
 export const TabContext = createContext<TabContextValue | null>(null);
+
+export interface TabsListContextValue {
+  tabs: Tab[];
+  activeTabId: string | null;
+  activateTab: (id: string) => void;
+  closeTab: (id: string) => void;
+  openNewTab: (path: string, activate?: boolean) => string;
+}
+
+export const TabsListContext = createContext<TabsListContextValue | null>(null);
+
+export function useTabsList(): TabsListContextValue | null {
+  return useContext(TabsListContext);
+}
 
 export function useOptionalTab(): TabContextValue | null {
   return useContext(TabContext);
