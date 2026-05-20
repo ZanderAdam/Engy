@@ -9,7 +9,7 @@ Feature components for the Next.js 16 + React 19 frontend. See `../../CLAUDE.md`
 - All interactive components are `"use client"`. Server Components are the exception — opt in only when there's a measurable reason and no client hooks.
 - Class composition: `cn()` from `@/lib/utils`. Tailwind v4 syntax; no `tailwind.config.js`-style theme extension here.
 - Dark mode only — `<html className="dark">` is fixed. Use the dark palette directly; don't write `dark:` variants.
-- Icons: both `lucide-react` and `@remixicon/react` are in use. Match the icon set already used in the file/feature you're editing rather than introducing a new one.
+- Icons: **default to `@remixicon/react`** for new code (62 files use it vs. 2 on `lucide-react`). Only stick with `lucide-react` when editing one of the remaining lucide files to avoid mixing within a single component.
 - Toasts: `sonner` (mounted via `ui/sonner.tsx`).
 
 ## Data layer
@@ -19,8 +19,8 @@ Feature components for the Next.js 16 + React 19 frontend. See `../../CLAUDE.md`
 
 ## Real-time updates
 
-- **Don't open WebSockets from components.** Subscribe via `useFileChangeContext()` (`@/contexts/file-change-context`) for FS events, or the equivalent context for task/question/terminal-session events.
-- New broadcast types: add the event in `server/ws/broadcast.ts`, then surface it via a new context (or extend an existing one). Components consume only contexts.
+- **Don't open WebSockets from components.** Subscribe via `useOnFileChange()` or `useOnServerEvent('TASK_CHANGE' | 'QUESTION_CHANGE' | 'TERMINAL_SESSIONS_CHANGE', cb)` from `@/contexts/events-context`. A single `EventsProvider` (mounted in `app/w/[workspace]/layout.tsx`) owns the WS connection.
+- New broadcast types: add the payload to `ServerEventMap` in `events-context.tsx` and the wrapper in `server/ws/broadcast.ts`. Components stay on `useOnServerEvent`.
 
 ## Layout & structure
 

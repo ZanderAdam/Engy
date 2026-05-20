@@ -61,8 +61,8 @@ Typed discriminated union in `@engy/common` (~40 message types spanning registra
 Dev overrides are in `.dev.env` (gitignored), which sets `ENGY_DIR=.dev-engy/` for project-local data. When working in a worktree, edit `.dev.env` to use a different port (e.g., `PORT=4002` and `ENGY_SERVER_URL=http://localhost:4002`) to avoid conflicts with the main dev instance.
 
 
-## Implementation
-When making changes with a subagent, use `sonnet` as the model. 
+## Subagents
+When spawning implementation subagents, pass `model: 'sonnet'` (Opus reserved for orchestration).
 
 ## Testing
 
