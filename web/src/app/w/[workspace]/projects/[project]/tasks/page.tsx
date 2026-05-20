@@ -253,8 +253,8 @@ export default function ProjectTasksPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 py-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-2 overflow-x-auto">
+        <div className="flex shrink-0 items-center gap-2">
           <ViewToggle value={currentView} onChange={handleViewChange} />
           <TaskFilter
             value={filters}
@@ -263,7 +263,7 @@ export default function ProjectTasksPage() {
             milestones={activeMilestones}
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           {currentView !== "graph" && (
             <Button
               size="sm"
