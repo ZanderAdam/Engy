@@ -5,6 +5,7 @@ import { DiffEditor, type DiffBeforeMount, type DiffOnMount } from '@monaco-edit
 import type { editor } from 'monaco-editor';
 import { ENGY_THEME_NAME, engyDarkTheme } from './monaco-theme';
 import { getLanguageFromPath } from './language-map';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface MonacoDiffEditorProps {
   original: string;
@@ -26,6 +27,7 @@ export function MonacoDiffEditor({
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const onChangeRef = useRef(onChange);
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  const isMobile = useIsMobile();
 
   const handleBeforeMount: DiffBeforeMount = useCallback((monaco) => {
     monaco.editor.defineTheme(ENGY_THEME_NAME, engyDarkTheme);
@@ -46,6 +48,13 @@ export function MonacoDiffEditor({
 
   const language = getLanguageFromPath(filePath);
 
+  const maxLines = Math.max(
+    original.split('\n').length,
+    modified.split('\n').length,
+  );
+  const digits = Math.max(2, String(maxLines).length);
+  const lineNumbersMinChars = isMobile ? digits : 5;
+
   return (
     <DiffEditor
       original={original}
@@ -59,7 +68,13 @@ export function MonacoDiffEditor({
         originalEditable: false,
         renderSideBySide,
         minimap: { enabled: false },
-        glyphMargin: true,
+        glyphMargin: !isMobile,
+        folding: !isMobile,
+        lineNumbers: 'on',
+        lineNumbersMinChars,
+        lineDecorationsWidth: isMobile ? 0 : 10,
+        renderIndicators: !isMobile,
+        renderMarginRevertIcon: !isMobile,
         fontSize: 12,
         fontFamily: "'JetBrains Mono', Consolas, Courier, monospace",
         lineHeight: 18,

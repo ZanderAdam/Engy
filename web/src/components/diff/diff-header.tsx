@@ -28,6 +28,7 @@ export function DiffHeader({
   onEditorModeChange,
   diffViewMode,
   saveStatus,
+  hideViewModeToggle,
 }: {
   filePath: string;
   status: GitFileStatus;
@@ -37,6 +38,7 @@ export function DiffHeader({
   onEditorModeChange?: (mode: EditorMode) => void;
   diffViewMode?: DiffViewMode;
   saveStatus?: SaveStatus;
+  hideViewModeToggle?: boolean;
 }) {
   const { letter, className } = statusConfig[status];
   const showEditToggle = diffViewMode === 'latest' && onEditorModeChange;
@@ -88,24 +90,26 @@ export function DiffHeader({
           </div>
         )}
 
-        <div className="flex">
-          <Button
-            variant="ghost"
-            size="xs"
-            className={cn(viewMode === 'split' && 'bg-muted text-foreground')}
-            onClick={() => onViewModeChange('split')}
-          >
-            Split
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            className={cn(viewMode === 'unified' && 'bg-muted text-foreground')}
-            onClick={() => onViewModeChange('unified')}
-          >
-            Unified
-          </Button>
-        </div>
+        {!hideViewModeToggle && (
+          <div className="flex">
+            <Button
+              variant="ghost"
+              size="xs"
+              className={cn(viewMode === 'split' && 'bg-muted text-foreground')}
+              onClick={() => onViewModeChange('split')}
+            >
+              Split
+            </Button>
+            <Button
+              variant="ghost"
+              size="xs"
+              className={cn(viewMode === 'unified' && 'bg-muted text-foreground')}
+              onClick={() => onViewModeChange('unified')}
+            >
+              Unified
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
