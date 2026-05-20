@@ -14,6 +14,7 @@ describe('file operations', () => {
     await git.init();
     await git.addConfig('user.email', 'test@test.com');
     await git.addConfig('user.name', 'Test');
+    await git.addConfig('commit.gpgsign', 'false');
     return dir;
   }
 
