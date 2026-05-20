@@ -1299,6 +1299,7 @@ describe('WsClient worktree add/remove handlers', () => {
     await git.init();
     await git.addConfig('user.email', 'test@test.com');
     await git.addConfig('user.name', 'Test');
+    await git.addConfig('commit.gpgsign', 'false');
     nodeFs.writeFileSync(nodePath.join(repoDir, 'init.txt'), 'hello');
     await git.add('init.txt');
     await git.commit('initial commit');

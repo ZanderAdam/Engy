@@ -2,11 +2,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { simpleGit } from 'simple-git';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { isInsideGitRepo, ensureGitRepo } from './git';
 
 describe('git helpers', () => {
   let tmpDir: string;
+  const originalGitConfigGlobal = process.env.GIT_CONFIG_GLOBAL;
+
+  beforeAll(() => {
+    process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+  });
+
+  afterAll(() => {
+    if (originalGitConfigGlobal === undefined) {
+      delete process.env.GIT_CONFIG_GLOBAL;
+    } else {
+      process.env.GIT_CONFIG_GLOBAL = originalGitConfigGlobal;
+    }
+  });
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'engy-git-test-'));

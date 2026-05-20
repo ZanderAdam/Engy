@@ -18,7 +18,7 @@ Plan your projects and break them into milestones and task groups. Start impleme
 
 ### Spec Editor and Review
 
-Rich text editor for writing and reviewing project plans. Supports headings, tables, lists, code blocks, and @ file mentions. Leave comments directly on any markdown file and send straight to a running Claude Code terminal session, so your AI agent gets feedback without you leaving the editor.
+Rich text editor for writing and reviewing project plans. Supports headings, tables, lists, code blocks, mermaid diagrams (render + edit), and @ file mentions. Open multiple documents side-by-side in dockable tabs. Leave comments directly on any markdown file and send straight to a running Claude Code terminal session, so your AI agent gets feedback without you leaving the editor.
 
 ![Inline comments sent to Claude Code terminal](docs/screenshots/plan-phases-with-code-preview.png)
 
@@ -33,13 +33,13 @@ Three views for managing tasks:
 
 ### Diff Review & Inline Comments
 
-Review uncommitted changes and branch diffs with line-level commenting. Leave inline comments on specific lines and send feedback directly to a running Claude Code session.
+Review uncommitted changes and branch diffs with line-level commenting. Pick which worktree to review from the project header dropdown, or open the worktree manager to create and clean up worktrees per project. Leave inline comments on specific lines and send feedback directly to a running Claude Code session.
 
 ![Diffs tab with inline line-level commenting](docs/screenshots/diffs-tab-line-commenting.png)\
 
 ### Claude Plans
 
-Review AI-generated plans and send structured feedback directly to a running Claude Code session.
+Review AI-generated plans and send structured feedback directly to a running Claude Code session. Plan review is also embedded inline in the task dialog's Plan tab — jump there directly from the clipboard icon on any task awaiting review.
 
 ![Claude Plans page with skill improvement feedback](docs/screenshots/claude-plans-skill-feedback.png)
 
@@ -48,6 +48,10 @@ Review AI-generated plans and send structured feedback directly to a running Cla
 Engy has a built-in terminal that you can use to interact with Claude Code and manage your project. It persists across sessons and project pages, so you can keep your Claude Code agent running while you navigate around the app.
 
 ![Built-in terminal](docs/screenshots/terminal.png)
+
+### Mobile Support
+
+Use Engy from your phone. The Kanban and Eisenhower views collapse into accordion lanes, and the terminal exposes on-screen buttons for keys your soft keyboard hides — Tab, Esc, Ctrl, arrows, and a Mode button for Shift+Tab.
 
 ### DevContainers
 
