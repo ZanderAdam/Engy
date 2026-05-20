@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
-type MobileOverlay = 'files' | 'terminal' | 'comments' | null;
+type MobileOverlay = 'files' | 'terminal' | null;
 
 interface MobileOverlayContextValue {
   overlay: MobileOverlay;

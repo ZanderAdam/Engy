@@ -38,6 +38,7 @@ import { reconcileAnchors } from "./comments/reconcile";
 import { formatCommentsForExport } from "./format-comments";
 import { SendToTerminalButton } from "../terminal/send-to-terminal-button";
 import { trpc } from "@/lib/trpc";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { stripFrontmatter } from "./frontmatter";
 import { normalizeMarkdown } from "./remark-normalize";
 import { mermaidBlockSpec } from "./mermaid/block";
@@ -112,7 +113,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   const lastContentHashRef = useRef<number | null>(null);
   const frontmatterRef = useRef('');
   const [hasOpenThreads, setHasOpenThreads] = useState(false);
-  const [commentsCollapsed, setCommentsCollapsed] = useState(false);
+  const isMobile = useIsMobile();
+  const [commentsCollapsed, setCommentsCollapsed] = useState(isMobile);
   const [copied, setCopied] = useState(false);
   const [copiedMarkdown, setCopiedMarkdown] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
@@ -389,50 +391,67 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       <div className="relative flex w-full h-full overflow-hidden">
         <div className="relative flex-1 min-w-0 overflow-y-auto">
           <BlockNoteViewEditor />
-          <TooltipProvider delayDuration={300}>
-            <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleCopyMarkdown}
-                    className="h-6 w-6 p-0 text-muted-foreground"
-                  >
-                    {copiedMarkdown ? (
-                      <RiCheckLine className="size-3 text-green-500" />
-                    ) : (
-                      <RiFileCopyLine className="size-3" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>{copiedMarkdown ? 'Copied!' : 'Copy markdown'}</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleDownloadMarkdown}
-                    className="h-6 w-6 p-0 text-muted-foreground"
-                  >
-                    <RiDownloadLine className="size-3" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>Download markdown</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          </TooltipProvider>
           {showSaved && (
             <span className="absolute bottom-3 right-3 text-xs text-muted-foreground/70 animate-in fade-in duration-200">
               Saved
             </span>
           )}
         </div>
+        <TooltipProvider delayDuration={300}>
+          <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-sm border border-border bg-background/80 backdrop-blur px-1 py-0.5">
+            {comments && hasOpenThreads && commentsCollapsed && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCommentsCollapsed(false)}
+                    className="h-6 w-6 p-0 text-muted-foreground"
+                  >
+                    <RiChat3Line className="size-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>Show comments</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCopyMarkdown}
+                  className="h-6 w-6 p-0 text-muted-foreground"
+                >
+                  {copiedMarkdown ? (
+                    <RiCheckLine className="size-3 text-green-500" />
+                  ) : (
+                    <RiFileCopyLine className="size-3" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>{copiedMarkdown ? 'Copied!' : 'Copy markdown'}</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDownloadMarkdown}
+                  className="h-6 w-6 p-0 text-muted-foreground"
+                >
+                  <RiDownloadLine className="size-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>Download markdown</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
         {comments && hasOpenThreads && !commentsCollapsed && (
           <div className="w-72 border-l border-border overflow-y-auto shrink-0">
             <div className="p-3 border-b border-border flex items-center justify-between">
@@ -472,18 +491,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
               <ThreadsSidebar filter="open" sort="position" />
             </div>
           </div>
-        )}
-        {comments && hasOpenThreads && commentsCollapsed && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setCommentsCollapsed(false)}
-            className="absolute right-2 top-2 z-10 h-7 px-2 text-xs text-muted-foreground"
-            title="Show comments"
-          >
-            <RiChat3Line className="size-3.5 mr-1" />
-            Comments
-          </Button>
         )}
       </div>
     </BlockNoteView>

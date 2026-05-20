@@ -3,7 +3,6 @@
 import {
   RiArrowDownSLine,
   RiCheckLine,
-  RiChat3Line,
   RiFolderLine,
   RiTerminalLine,
 } from '@remixicon/react';
@@ -87,7 +86,6 @@ export function MobileHeader({ workspace, project, onOpenManageWorktrees }: Mobi
   const tabLabel =
     project?.name ?? workspace?.name ?? activeTab?.title ?? 'engy';
 
-  const commentsAvailable = current?.segment === 'docs';
   const filesAvailable =
     current?.segment === 'docs' || current?.segment === 'diffs' || current?.segment === 'code';
 
@@ -214,17 +212,6 @@ export function MobileHeader({ workspace, project, onOpenManageWorktrees }: Mobi
                 onOpenManage={onOpenManageWorktrees}
                 hideManageButton
               />
-            )}
-            {commentsAvailable && (
-              <Button
-                variant="outline"
-                size="icon-sm"
-                aria-pressed={overlay === 'comments'}
-                onClick={() => (overlay === 'comments' ? closeOverlay() : openOverlay('comments'))}
-                aria-label="Toggle comments"
-              >
-                <RiChat3Line className="size-3.5" />
-              </Button>
             )}
             <Button
               variant="outline"
