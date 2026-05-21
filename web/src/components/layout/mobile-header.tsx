@@ -167,14 +167,14 @@ export function MobileHeader({ workspace, project, onOpenManageWorktrees }: Mobi
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                className="h-full flex-1 justify-between rounded-none px-3"
+                className="h-full min-w-0 flex-1 justify-between rounded-none px-3"
               >
-                <span className="flex items-center gap-1.5">
-                  <current.icon className="size-3.5" />
-                  <span className="text-sm font-medium">{current.label}</span>
-                  <RiArrowDownSLine className="size-3.5" />
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <current.icon className="size-3.5 shrink-0" />
+                  <span className="truncate text-sm font-medium">{current.label}</span>
+                  <RiArrowDownSLine className="size-3.5 shrink-0" />
                 </span>
-                <span className="text-xs text-muted-foreground">{sectionPosition}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{sectionPosition}</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-[12rem] md:w-auto w-[calc(100vw-1rem)]">

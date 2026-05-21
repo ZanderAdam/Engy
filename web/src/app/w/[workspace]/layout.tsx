@@ -1,7 +1,13 @@
 'use client';
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { RiGitRepositoryLine, RiGitRepositoryFill, RiComputerLine, RiBox3Line } from '@remixicon/react';
+import {
+  RiGitRepositoryLine,
+  RiGitRepositoryFill,
+  RiComputerLine,
+  RiBox3Line,
+  RiTerminalLine,
+} from '@remixicon/react';
 import {
   useVirtualParams,
   useVirtualPathname,
@@ -9,11 +15,15 @@ import {
   useTabId,
 } from '@/components/tabs/tab-context';
 import { VLink } from '@/components/tabs/virtual-link';
+import { Button } from '@/components/ui/button';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
-import { MobileOverlayProvider } from '@/components/layout/mobile-overlay-context';
+import {
+  MobileOverlayProvider,
+  useOptionalMobileOverlay,
+} from '@/components/layout/mobile-overlay-context';
 import { MobileTerminalSheet } from '@/components/layout/mobile-terminal-sheet';
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
 import { BottomTerminalSplit } from '@/components/terminal/bottom-terminal-split';
@@ -255,8 +265,11 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       <AutoInvalidation />
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         {!isProjectRoute && (
-          <nav className="border-b border-border" aria-label="Workspace sections">
-            <div className={cn('flex', isMobile ? 'px-3' : 'px-6')}>
+          <nav
+            className="flex items-stretch border-b border-border"
+            aria-label="Workspace sections"
+          >
+            <div className={cn('flex flex-1 min-w-0', isMobile ? 'px-3' : 'px-6')}>
               {tabs.map((tab) => (
                 <VLink
                   key={tab.segment}
@@ -271,6 +284,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
                 </VLink>
               ))}
             </div>
+            {isMobile && <WorkspaceMobileTerminalToggle />}
           </nav>
         )}
         <ThreePanelLayout
@@ -329,4 +343,23 @@ function AutoInvalidation() {
   useTaskAutoInvalidation();
   useQuestionAutoInvalidation();
   return null;
+}
+
+function WorkspaceMobileTerminalToggle() {
+  const overlay = useOptionalMobileOverlay();
+  if (!overlay) return null;
+  const isOpen = overlay.overlay === 'terminal';
+  return (
+    <div className="flex shrink-0 items-center border-l border-border px-1.5">
+      <Button
+        variant="outline"
+        size="icon-sm"
+        aria-pressed={isOpen}
+        onClick={() => (isOpen ? overlay.closeOverlay() : overlay.openOverlay('terminal'))}
+        aria-label="Toggle terminal"
+      >
+        <RiTerminalLine className="size-3.5" />
+      </Button>
+    </div>
+  );
 }
