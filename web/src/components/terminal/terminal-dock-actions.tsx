@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   RiAddLine,
   RiArrowRightSLine,
@@ -28,6 +28,16 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
   const { openTerminal, onCollapse, extraDropdownGroups, containerEnabled, defaultScope } =
     useTerminalDock();
   const activities = useTerminalActivities(panels.map((p) => p.id));
+  const [, forceRender] = useState(0);
+
+  useEffect(() => {
+    const disposables = panels.map((panel) =>
+      panel.api.onDidParametersChange(() => forceRender((n) => n + 1)),
+    );
+    return () => {
+      for (const d of disposables) d.dispose();
+    };
+  }, [panels]);
 
   return (
     <div className="flex shrink-0 items-center border-l border-border">
@@ -56,7 +66,7 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
                   aria-current={isActive || undefined}
                 >
                   <RiTerminalLine className={cn('size-3', getTerminalIconStyle(liveTab))} />
-                  <span className="truncate">{panel.title ?? tab.scope.scopeLabel}</span>
+                  <span className="truncate">{tab.scope.scopeLabel}</span>
                   {isActive && (
                     <span
                       aria-hidden
