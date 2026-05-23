@@ -20,6 +20,10 @@ export async function ensureGitRepo(dir: string): Promise<boolean> {
   await git.init();
   await git.addConfig('user.name', 'Engy');
   await git.addConfig('user.email', 'engy@localhost');
+  // Avoid inheriting a global signing requirement the host may have enforced
+  // (devcontainers and managed CI environments often do): workspace init has
+  // no signing key and would otherwise fail at the initial commit.
+  await git.addConfig('commit.gpgsign', 'false');
   await git.add('.');
   await git.commit('Initial workspace structure');
   return true;
