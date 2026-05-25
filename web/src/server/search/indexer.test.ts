@@ -375,6 +375,28 @@ describe('WorkspaceIndexer', () => {
       expect(rows).toHaveLength(1);
     });
 
+    it('should skip README.md files and only index real memory files', async () => {
+      writeFixture(
+        'memory/decisions/README.md',
+        `# Decisions\n\nThis folder contains decision records.\n`,
+      );
+      writeFixture(
+        'memory/decisions/a-real-decision.md',
+        `---\ntitle: A Real Decision\nsubtype: decision\n---\n\nWe decided something important.\n`,
+      );
+
+      await syncPermanentMemoryMirror(workspaceSlug);
+
+      const rows = ctx.db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.workspaceId, workspaceId))
+        .all();
+
+      expect(rows.find((r) => r.filePath === 'memory/decisions/README.md')).toBeUndefined();
+      expect(rows.find((r) => r.filePath === 'memory/decisions/a-real-decision.md')).toBeDefined();
+    });
+
     it('should NOT create rows for files in memory/sources/ or memory/references/', async () => {
       writeFixture(
         'memory/sources/202501010030-source.md',

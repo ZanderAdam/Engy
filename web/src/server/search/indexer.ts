@@ -155,6 +155,8 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
     const mdFiles = collectMdFiles(subtypeDir);
 
     for (const absPath of mdFiles) {
+      if (path.basename(absPath).toLowerCase() === 'readme.md') continue;
+
       const relPath = toRelativePath(workspaceDir, absPath);
 
       let fm: Record<string, unknown> = {};
