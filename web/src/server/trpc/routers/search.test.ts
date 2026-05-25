@@ -251,6 +251,30 @@ describe('search router', () => {
       });
     });
 
+    describe('array filter: themes membership', () => {
+      it('should return rows where themes array includes the requested theme', async () => {
+        insertFrontmatter('memory', 'memory/facts/cache.md', {
+          title: 'Cache Layer',
+          themes: ['performance', 'caching'],
+        });
+        insertFrontmatter('memory', 'memory/facts/auth.md', {
+          title: 'Auth Layer',
+          themes: ['security'],
+        });
+
+        const result = await caller.search.query({
+          workspaceSlug,
+          filters: { themes: ['performance'] },
+        });
+
+        const memGroup = result.find((g) => g.collection === 'memory');
+        expect(memGroup).toBeDefined();
+        const paths = memGroup!.results.map((r) => r.path);
+        expect(paths).toContain('memory/facts/cache.md');
+        expect(paths).not.toContain('memory/facts/auth.md');
+      });
+    });
+
     describe('array filter: linkedMemories membership', () => {
       it('should return rows where linkedMemories includes the requested id', async () => {
         insertFrontmatter('memory', 'memory/decisions/linked.md', {
@@ -695,14 +719,14 @@ describe('search router — mocked qmd store', () => {
       mockSearchResults([
         {
           file: 'qmd://docs/auth-guide.md',
-          displayPath: 'auth-guide.md',
+          displayPath: 'docs/auth-guide.md',
           title: 'Auth Guide',
           bestChunk: 'JWT authentication is used.',
           score: 0.9,
         },
         {
           file: 'qmd://memory/decisions/001.md',
-          displayPath: 'decisions/001.md',
+          displayPath: 'memory/decisions/001.md',
           title: 'Auth Decision',
           bestChunk: 'We chose JWT.',
           score: 0.8,
@@ -741,7 +765,7 @@ describe('search router — mocked qmd store', () => {
       mockSearchResults([
         {
           file: 'qmd://docs/my-doc.md',
-          displayPath: 'my-doc.md',
+          displayPath: 'docs/my-doc.md',
           title: '',
           bestChunk: 'Some content.',
           score: 0.7,
@@ -763,14 +787,14 @@ describe('search router — mocked qmd store', () => {
       mockSearchResults([
         {
           file: 'qmd://docs/auth-jwt.md',
-          displayPath: 'auth-jwt.md',
+          displayPath: 'docs/auth-jwt.md',
           title: 'Auth JWT',
           bestChunk: 'JWT auth.',
           score: 0.95,
         },
         {
           file: 'qmd://docs/auth-oauth.md',
-          displayPath: 'auth-oauth.md',
+          displayPath: 'docs/auth-oauth.md',
           title: 'Auth OAuth',
           bestChunk: 'OAuth auth.',
           score: 0.85,
@@ -834,14 +858,14 @@ describe('search router — mocked qmd store', () => {
       mockSearchResults([
         {
           file: 'qmd://memory/decisions/b.md',
-          displayPath: 'decisions/b.md',
+          displayPath: 'memory/decisions/b.md',
           title: 'B',
           bestChunk: 'B content.',
           score: 0.9,
         },
         {
           file: 'qmd://memory/decisions/a.md',
-          displayPath: 'decisions/a.md',
+          displayPath: 'memory/decisions/a.md',
           title: 'A',
           bestChunk: 'A content.',
           score: 0.6,
@@ -858,6 +882,256 @@ describe('search router — mocked qmd store', () => {
       expect(memGroup).toBeDefined();
       expect(memGroup!.results[0].path).toBe('memory/decisions/b.md');
       expect(memGroup!.results[1].path).toBe('memory/decisions/a.md');
+    });
+  });
+
+  describe('mode + intent plumbing', () => {
+    it('default mode passes through to store.search and forwards intent', async () => {
+      const searchSpy = vi.fn().mockResolvedValue([
+        {
+          file: 'qmd://memory/decisions/x.md',
+          displayPath: 'memory/decisions/x.md',
+          title: 'X',
+          bestChunk: 'Body of X.',
+          score: 0.9,
+        },
+      ]);
+      getStoreSpy.mockResolvedValue({
+        search: searchSpy,
+        searchLex: vi.fn(),
+        searchVector: vi.fn(),
+      } as unknown as Awaited<ReturnType<typeof qmdStoreModule.getStore>>);
+
+      await caller.search.query({
+        workspaceSlug,
+        query: 'why',
+        intent: 'architectural choice',
+      });
+
+      expect(searchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'why', intent: 'architectural choice' }),
+      );
+    });
+
+    it("mode='lex' calls searchLex (BM25) and maps filepath to file", async () => {
+      const searchLexSpy = vi.fn().mockResolvedValue([
+        {
+          filepath: 'qmd://memory/facts/y.md',
+          displayPath: 'memory/facts/y.md',
+          title: 'Y',
+          body: 'Y body content for snippet.',
+          score: 0.7,
+          source: 'fts',
+        },
+      ]);
+      getStoreSpy.mockResolvedValue({
+        search: vi.fn(),
+        searchLex: searchLexSpy,
+        searchVector: vi.fn(),
+      } as unknown as Awaited<ReturnType<typeof qmdStoreModule.getStore>>);
+
+      const result = await caller.search.query({
+        workspaceSlug,
+        query: 'pnpm blt',
+        mode: 'lex',
+      });
+
+      expect(searchLexSpy).toHaveBeenCalledWith(
+        'pnpm blt',
+        expect.objectContaining({ collection: undefined, limit: 50 }),
+      );
+      const memGroup = result.find((g) => g.collection === 'memory');
+      expect(memGroup?.results[0].path).toBe('memory/facts/y.md');
+    });
+
+    it("mode='vector' calls searchVector and maps filepath to file", async () => {
+      const searchVectorSpy = vi.fn().mockResolvedValue([
+        {
+          filepath: 'qmd://memory/patterns/z.md',
+          displayPath: 'memory/patterns/z.md',
+          title: 'Z',
+          body: 'Z body for snippet.',
+          score: 0.5,
+        },
+      ]);
+      getStoreSpy.mockResolvedValue({
+        search: vi.fn(),
+        searchLex: vi.fn(),
+        searchVector: searchVectorSpy,
+      } as unknown as Awaited<ReturnType<typeof qmdStoreModule.getStore>>);
+
+      const result = await caller.search.query({
+        workspaceSlug,
+        query: 'similar to X',
+        mode: 'vector',
+      });
+
+      expect(searchVectorSpy).toHaveBeenCalledOnce();
+      const memGroup = result.find((g) => g.collection === 'memory');
+      expect(memGroup?.results[0].path).toBe('memory/patterns/z.md');
+    });
+  });
+
+  describe('subtype affinity reweighting', () => {
+    it('should promote decision over pattern for "why" queries', async () => {
+      insertFrontmatter('memory', 'memory/patterns/workspaces-vs-projects.md', {
+        title: 'Workspaces vs projects',
+        subtype: 'pattern',
+      });
+      insertFrontmatter('memory', 'memory/decisions/m7-workspace-scope.md', {
+        title: 'Workspace-only memory scope',
+        subtype: 'decision',
+      });
+
+      mockSearchResults([
+        {
+          file: 'qmd://memory/patterns/workspaces-vs-projects.md',
+          displayPath: 'memory/patterns/workspaces-vs-projects.md',
+          title: 'Workspaces vs projects',
+          bestChunk: 'pattern body',
+          score: 0.93,
+        },
+        {
+          file: 'qmd://memory/decisions/m7-workspace-scope.md',
+          displayPath: 'memory/decisions/m7-workspace-scope.md',
+          title: 'Workspace-only memory scope',
+          bestChunk: 'decision body',
+          score: 0.44,
+        },
+      ]);
+
+      const result = await caller.search.query({
+        workspaceSlug,
+        query: 'why are permanent memories workspace-scoped',
+      });
+
+      const memGroup = result.find((g) => g.collection === 'memory');
+      expect(memGroup!.results[0].path).toBe('memory/decisions/m7-workspace-scope.md');
+      expect(memGroup!.results[1].path).toBe('memory/patterns/workspaces-vs-projects.md');
+    });
+
+    it('should promote fact over pattern for "where" queries', async () => {
+      insertFrontmatter('memory', 'memory/patterns/frontmatter-graph.md', {
+        title: 'Frontmatter table as graph',
+        subtype: 'pattern',
+      });
+      insertFrontmatter('memory', 'memory/facts/sqlite-location.md', {
+        title: 'SQLite at ENGY_DIR/engy.db',
+        subtype: 'fact',
+      });
+
+      mockSearchResults([
+        {
+          file: 'qmd://memory/patterns/frontmatter-graph.md',
+          displayPath: 'memory/patterns/frontmatter-graph.md',
+          title: 'Frontmatter table as graph',
+          bestChunk: 'pattern body',
+          score: 0.89,
+        },
+        {
+          file: 'qmd://memory/facts/sqlite-location.md',
+          displayPath: 'memory/facts/sqlite-location.md',
+          title: 'SQLite at ENGY_DIR/engy.db',
+          bestChunk: 'fact body',
+          score: 0.55,
+        },
+      ]);
+
+      const result = await caller.search.query({
+        workspaceSlug,
+        query: 'where is the SQLite database stored',
+      });
+
+      const memGroup = result.find((g) => g.collection === 'memory');
+      expect(memGroup!.results[0].path).toBe('memory/facts/sqlite-location.md');
+    });
+
+    it('should promote fact over convention for bare UPPER_SNAKE_CASE identifier', async () => {
+      insertFrontmatter('memory', 'memory/conventions/dev-env.md', {
+        title: 'Use .dev.env per worktree',
+        subtype: 'convention',
+      });
+      insertFrontmatter('memory', 'memory/facts/three-envs.md', {
+        title: 'Three environment variables',
+        subtype: 'fact',
+      });
+
+      mockSearchResults([
+        {
+          file: 'qmd://memory/conventions/dev-env.md',
+          displayPath: 'memory/conventions/dev-env.md',
+          title: 'Use .dev.env per worktree',
+          bestChunk: 'convention body',
+          score: 0.93,
+        },
+        {
+          file: 'qmd://memory/facts/three-envs.md',
+          displayPath: 'memory/facts/three-envs.md',
+          title: 'Three environment variables',
+          bestChunk: 'fact body',
+          score: 0.56,
+        },
+      ]);
+
+      const result = await caller.search.query({
+        workspaceSlug,
+        query: 'ENGY_SERVER_URL',
+      });
+
+      const memGroup = result.find((g) => g.collection === 'memory');
+      expect(memGroup!.results[0].path).toBe('memory/facts/three-envs.md');
+    });
+
+    it('should leave order untouched for queries with no detected shape', async () => {
+      insertFrontmatter('memory', 'memory/patterns/a.md', { title: 'A', subtype: 'pattern' });
+      insertFrontmatter('memory', 'memory/facts/b.md', { title: 'B', subtype: 'fact' });
+
+      mockSearchResults([
+        {
+          file: 'qmd://memory/patterns/a.md',
+          displayPath: 'memory/patterns/a.md',
+          title: 'A',
+          bestChunk: 'a body',
+          score: 0.9,
+        },
+        {
+          file: 'qmd://memory/facts/b.md',
+          displayPath: 'memory/facts/b.md',
+          title: 'B',
+          bestChunk: 'b body',
+          score: 0.5,
+        },
+      ]);
+
+      const result = await caller.search.query({
+        workspaceSlug,
+        query: 'how does this work',
+      });
+
+      const memGroup = result.find((g) => g.collection === 'memory');
+      expect(memGroup!.results[0].path).toBe('memory/patterns/a.md');
+    });
+
+    it('should not reweight hits with no detectable subtype', async () => {
+      insertFrontmatter('docs', 'docs/no-subtype.md', { title: 'No subtype' });
+
+      mockSearchResults([
+        {
+          file: 'qmd://docs/no-subtype.md',
+          displayPath: 'docs/no-subtype.md',
+          title: 'No subtype',
+          bestChunk: 'body',
+          score: 0.8,
+        },
+      ]);
+
+      const result = await caller.search.query({
+        workspaceSlug,
+        query: 'why something',
+      });
+
+      const docsGroup = result.find((g) => g.collection === 'docs');
+      expect(docsGroup!.results[0].score).toBe(0.8);
     });
   });
 });

@@ -28,6 +28,8 @@ import { update as indexerUpdate, forceFullReindex, updateAndEmbed } from '../se
 import { autoLink } from '../search/auto-linker';
 import { validateWorkspace as runValidateWorkspace } from '../search/validate';
 import { getStore } from '../search/qmd-store';
+import { runQmdSearch, type QmdSearchMode } from '../search/qmd-search';
+import { applySubtypeAffinity } from '../search/subtype-affinity';
 import { projectCompletionService } from '../services/project-completion';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
@@ -1177,7 +1179,7 @@ function buildFrontmatterWhereCondition(
     }
   }
 
-  for (const field of ['tags', 'scenarioIds', 'sources', 'linkedMemories'] as const) {
+  for (const field of ['tags', 'themes', 'scenarioIds', 'sources', 'linkedMemories'] as const) {
     const values = filters[field];
     if (Array.isArray(values) && values.length > 0) {
       for (const value of values as string[]) {
@@ -1241,6 +1243,7 @@ const searchFiltersSchema = z.object({
   repo: z.string().optional(),
   promoted: z.boolean().optional(),
   tags: z.array(z.string()).optional(),
+  themes: z.array(z.string()).optional(),
   scenarioIds: z.array(z.string()).optional(),
   sources: z.array(z.string()).optional(),
   linkedMemories: z.array(z.string()).optional(),
@@ -1261,11 +1264,21 @@ function registerSearchTools(mcp: McpServer): void {
       filters: searchFiltersSchema
         .optional()
         .describe(
-          'Structured filters on frontmatter: tags, scenarioIds, sources, linkedMemories (array membership), type/subtype/repo (scalar), status (tasks only)',
+          'Structured filters on frontmatter: tags, themes, scenarioIds, sources, linkedMemories (array membership), type/subtype/repo (scalar), status (tasks only)',
         ),
       limit: z.number().min(1).max(500).default(50).describe('Max results per collection'),
+      mode: z
+        .enum(['hybrid', 'lex', 'vector'])
+        .optional()
+        .describe("Search mode (default 'hybrid'). 'lex' = BM25 only, 'vector' = embedding only."),
+      intent: z
+        .string()
+        .optional()
+        .describe(
+          "Intent token for qmd reranker — see engy:research playbook for the question-shape table.",
+        ),
     },
-    async ({ workspaceId, query, collection, filters, limit }) => {
+    async ({ workspaceId, query, collection, filters, limit, mode, intent }) => {
       const db = getDb();
       const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
       if (!ws) return mcpError('Workspace not found');
@@ -1279,7 +1292,16 @@ function registerSearchTools(mcp: McpServer): void {
       }
 
       try {
-        const groups = await runMcpSearch(ws.id, ws.slug, query, collection, filters, limit);
+        const groups = await runMcpSearch(
+          ws.id,
+          ws.slug,
+          query,
+          collection,
+          filters,
+          limit,
+          mode ?? 'hybrid',
+          intent,
+        );
         return mcpResult(groups);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -1301,17 +1323,28 @@ async function runMcpSearch(
   collection: string | undefined,
   filters: Record<string, unknown> | undefined,
   limit: number,
+  mode: QmdSearchMode,
+  intent: string | undefined,
 ): Promise<SearchResultGroup[]> {
   const hasQuery = typeof query === 'string' && query.trim().length > 0;
   const hasFilters = filters !== undefined && Object.values(filters).some((v) => v !== undefined);
 
   if (hasQuery && !hasFilters) {
-    return mcpQueryOnly(workspaceId, workspaceSlug, query!, collection, limit);
+    return mcpQueryOnly(workspaceId, workspaceSlug, query!, collection, limit, mode, intent);
   }
   if (!hasQuery && hasFilters) {
     return mcpFiltersOnly(workspaceId, filters!, collection, limit);
   }
-  return mcpQueryWithFilters(workspaceId, workspaceSlug, query!, filters!, collection, limit);
+  return mcpQueryWithFilters(
+    workspaceId,
+    workspaceSlug,
+    query!,
+    filters!,
+    collection,
+    limit,
+    mode,
+    intent,
+  );
 }
 
 async function mcpQueryOnly(
@@ -1320,6 +1353,8 @@ async function mcpQueryOnly(
   query: string,
   collection: string | undefined,
   limit: number,
+  mode: QmdSearchMode,
+  intent: string | undefined,
 ): Promise<SearchResultGroup[]> {
   const groups: SearchResultGroup[] = [];
 
@@ -1330,16 +1365,16 @@ async function mcpQueryOnly(
 
   if (process.env.QMD_SKIP === '1') return groups;
 
-  const store = await getStore(workspaceSlug);
-  const qmdResults = await store.search({ query, collection, limit, rerank: true });
+  const rawHits = await runQmdSearch(workspaceSlug, query, collection, limit, mode, intent);
+  const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
   const byCollection = new Map<string, SearchResult[]>();
   for (const hit of qmdResults) {
     const col = collectionFromVirtualPath(hit.file);
     const group = byCollection.get(col) ?? [];
     group.push({
-      path: `${col}/${hit.displayPath}`,
+      path: hit.displayPath,
       title: hit.title || titleFromPath(hit.displayPath),
-      snippet: hit.bestChunk ? hit.bestChunk.slice(0, 200) : undefined,
+      snippet: hit.snippet,
       score: hit.score,
     });
     byCollection.set(col, group);
@@ -1386,6 +1421,8 @@ async function mcpQueryWithFilters(
   filters: Record<string, unknown>,
   collection: string | undefined,
   limit: number,
+  mode: QmdSearchMode,
+  intent: string | undefined,
 ): Promise<SearchResultGroup[]> {
   const db = getDb();
   const groups: SearchResultGroup[] = [];
@@ -1398,41 +1435,52 @@ async function mcpQueryWithFilters(
 
   if (process.env.QMD_SKIP === '1') return groups;
 
-  const store = await getStore(workspaceSlug);
-  const qmdResults = await store.search({ query, collection, limit: limit * 2, rerank: true });
+  const subtypeFilter = typeof filters.subtype === 'string' && filters.subtype ? filters.subtype : null;
+  // With a subtype filter the relevant subset is small; go wide so qmd scores cover it.
+  const candidateLimit = subtypeFilter ? Math.min(500, limit * 8) : limit * 2;
+  const rawHits = await runQmdSearch(workspaceSlug, query, collection, candidateLimit, mode, intent);
+  const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
 
-  if (qmdResults.length > 0) {
-    const scoreByPath = new Map<string, number>();
-    for (const hit of qmdResults) {
-      const col = collectionFromVirtualPath(hit.file);
-      scoreByPath.set(`${col}/${hit.displayPath}`, hit.score);
-    }
+  const scoreByPath = new Map<string, number>();
+  for (const hit of qmdResults) {
+    scoreByPath.set(hit.displayPath, hit.score);
+  }
 
-    const condition = buildFrontmatterWhereCondition(workspaceId, filters, collection);
-    const filteredRows = db
-      .select({ collection: frontmatter.collection, path: frontmatter.path, data: frontmatter.data })
-      .from(frontmatter)
-      .where(condition)
-      .all()
-      .filter((row) => scoreByPath.has(row.path));
+  // Anchor on the filter: every filter-matching row is returned, with qmd score
+  // where available and fallback ordering otherwise. Without this, any
+  // filter-matching doc qmd missed in its top-N would silently disappear.
+  const condition = buildFrontmatterWhereCondition(workspaceId, filters, collection);
+  const filteredRows = db
+    .select({ collection: frontmatter.collection, path: frontmatter.path, data: frontmatter.data })
+    .from(frontmatter)
+    .where(condition)
+    .all();
 
-    const byCollection = new Map<string, SearchResult[]>();
-    for (const row of filteredRows) {
-      const group = byCollection.get(row.collection) ?? [];
-      group.push({
-        path: row.path,
-        title: extractTitle(row.data, row.path),
-        score: scoreByPath.get(row.path),
-      });
-      byCollection.set(row.collection, group);
-    }
+  const byCollection = new Map<string, SearchResult[]>();
+  for (const row of filteredRows) {
+    const group = byCollection.get(row.collection) ?? [];
+    group.push({
+      path: row.path,
+      title: extractTitle(row.data, row.path),
+      score: scoreByPath.get(row.path),
+    });
+    byCollection.set(row.collection, group);
+  }
 
-    for (const [col, results] of byCollection.entries()) {
-      groups.push({
-        collection: col,
-        results: results.sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, limit),
-      });
-    }
+  for (const [col, results] of byCollection.entries()) {
+    groups.push({
+      collection: col,
+      results: results
+        .sort((a, b) => {
+          const aScored = typeof a.score === 'number';
+          const bScored = typeof b.score === 'number';
+          if (aScored && bScored) return (b.score ?? 0) - (a.score ?? 0);
+          if (aScored) return -1;
+          if (bScored) return 1;
+          return a.path.localeCompare(b.path);
+        })
+        .slice(0, limit),
+    });
   }
 
   return groups;

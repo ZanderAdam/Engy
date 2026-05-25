@@ -35,12 +35,28 @@ For each candidate (sequential, NOT batched):
 
 Using your own reasoning (no extra API calls), propose:
 
-- **subtype** — one of: `decision`, `pattern`, `fact`, `convention`, `insight`
+- **subtype** — one of: `decision`, `pattern`, `fact`, `convention`, `insight`. Match the shape of the claim:
+  - `decision` — "we chose X over Y because Z"
+  - `pattern` — "how X works, the recurring shape"
+  - `fact` — "X is true / X exists / X has these properties"
+  - `convention` — "the team rule / when to do X"
+  - `insight` — "something non-obvious / a learning / a gotcha"
 - **title** — concise, ≤ 80 characters, describes the memory's core insight
-- **keywords** — 3–8 low-level retrieval terms (specific nouns, method names, error codes)
+- **keywords** — 3–8 low-level retrieval terms (specific nouns, method names, error codes). **Atomicity rule:** keywords should be terms that are *central to this memory's claim*, not terms that happen to appear in the body but belong in a sibling memory. Example: a memory titled "M2 added per-workspace docsDir" should NOT list `ENGY_DIR` as a keyword even if its body mentions ENGY_DIR — that keyword belongs in a separate `engy-dir-defaults` memory.
 - **themes** — 1–4 high-level conceptual areas (e.g. "error-handling", "auth", "performance")
-- **tags** — 1–4 broader categorization labels (e.g. "architecture", "dx", "security")
+- **tags** — 1–4 broader categorization labels (e.g. "architecture", "dx", "security"). **Preserve** ingest-applied tags (milestone like `m7`, repo, doc-class) — don't drop them during promotion; user filtering depends on consistent tag taxonomy.
 - **repo** — if the memory is repo-specific, propose the matching repo name from the workspace's known repos; otherwise omit
+
+#### 3a-bis. Atomicity check (block promotion if violated)
+
+Before proposing metadata, scan the fleeting body for content that doesn't support the central claim:
+
+- **Sibling-context bleed:** the body restates a fact or decision that has (or should have) its own memory. Example: a memory about diff-viewer UI that also explains how the daemon serves git ops — the daemon facts belong in a daemon memory.
+- **Multi-claim body:** the body has two distinct claims joined by "and" or "also". One memory, one claim — split into two fleeting memories (call `createFleetingMemory` again for the second), or trim down to the dominant claim and let the user re-capture the secondary one.
+
+If either is present, before presenting to the user, propose: "This memory mixes claim A with claim B. Promote A and re-capture B? [yes/no]". If yes, trim body to A, propose metadata for A, continue. If no, proceed but flag in the user prompt: "⚠ atomicity: this memory restates content that belongs in `<sibling-memory-path>` — review keywords carefully."
+
+Why this matters: search retrieval is sensitive to keyword density. A memory restating sibling content steals top-rank for queries it shouldn't answer. Eval evidence (May 2026): a single context-bleeding zettel cost 2/15 points in independent validation.
 
 #### 3b. Similarity Check
 

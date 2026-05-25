@@ -95,7 +95,7 @@ mcp__Engy__createFleetingMemory({
   workspaceId: <id>,
   type: 'capture',
   source: 'agent',
-  tags: ['ingest'],
+  tags: ['ingest', ...<derived tags, see below>],
   sources: ['<source-path>'],
   content: `**Core claim:** <the single most important assertion or finding>
 
@@ -107,6 +107,16 @@ mcp__Engy__createFleetingMemory({
 `
 })
 ```
+
+**Atomicity rule (load-bearing for retrieval).** A fleeting distillation captures ONE central claim from the source. Resist restating peripheral facts that belong in their own memories. For example: if the source mentions `ENGY_DIR` defaults in passing, do NOT restate that in this distillation's body if the central claim is about something else — point to it in "Connects to" instead. Why this matters: search relevance is driven by content density; a memory that restates sibling claims wins queries it shouldn't and starves the rightful answer's retrieval rank. Eval evidence: a single context-bleeding zettel dominated 2/15 queries in independent validation (May 2026 sprint).
+
+**Tag derivation (auto-attach where unambiguous).** Beyond the literal `'ingest'` tag, derive tags from the source path:
+
+- **Milestone tag:** if the source path matches `**/milestones/m{N}-*.md` (e.g. `m7-knowledge-layer.plan.md`), add `'m{N}'`.
+- **Repo tag:** if the source is inside a workspace repo path, add the repo's short name (e.g. `'engy'`).
+- **Doc-class tag:** add one of `'spec'`, `'vision'`, `'plan'`, `'context'`, `'claude-md'` based on filename/path.
+
+These are conventions enforced at ingest because tag filtering (`search({filters:{tags:['m7']}})`) is only as good as the consistency of tags applied. Don't invent new tag tokens here — let `engy:review-memories` propose richer per-memory tags during promotion.
 
 Note the returned `distillationId` (memory `id`) for the commit message.
 

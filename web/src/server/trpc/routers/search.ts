@@ -4,18 +4,22 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { workspaces, frontmatter, tasks, projects } from '../../db/schema';
-import { getStore } from '../../search/qmd-store';
+import { runQmdSearch } from '../../search/qmd-search';
+import { applySubtypeAffinity } from '../../search/subtype-affinity';
 
 const filtersSchema = z.object({
   type: z.string().optional(),
   subtype: z.string().optional(),
   repo: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  themes: z.array(z.string()).optional(),
   scenarioIds: z.array(z.string()).optional(),
   sources: z.array(z.string()).optional(),
   linkedMemories: z.array(z.string()).optional(),
   status: z.string().optional(),
 });
+
+const searchModeSchema = z.enum(['hybrid', 'lex', 'vector']).default('hybrid');
 
 const queryInput = z.object({
   workspaceSlug: z.string().min(1),
@@ -23,7 +27,11 @@ const queryInput = z.object({
   collection: z.string().optional(),
   filters: filtersSchema.optional(),
   limit: z.number().min(1).max(500).default(50),
+  mode: searchModeSchema.optional(),
+  intent: z.string().optional(),
 });
+
+type SearchMode = z.infer<typeof searchModeSchema>;
 
 type SearchFilters = z.infer<typeof filtersSchema>;
 
@@ -87,7 +95,7 @@ function buildFrontmatterConditions(
     );
   }
 
-  for (const field of ['tags', 'scenarioIds', 'sources', 'linkedMemories'] as const) {
+  for (const field of ['tags', 'themes', 'scenarioIds', 'sources', 'linkedMemories'] as const) {
     const values = filters[field];
     if (values && values.length > 0) {
       for (const value of values) {
@@ -155,12 +163,14 @@ function collectionFromVirtualPath(virtualPath: string): string {
 }
 
 /**
- * Construct a workspace-relative frontmatter path from collection name + display path.
- * displayPath is relative within the collection dir (e.g. "decisions/foo.md").
- * The frontmatter table stores paths as "{collection}/{displayPath}".
+ * Normalise a qmd hit's displayPath to the workspace-relative path stored in
+ * the frontmatter table. qmd already returns displayPath with the collection
+ * prefix (e.g. "memory/decisions/foo.md"), so this is a passthrough — kept as
+ * a named helper to make the semantic explicit and to guard against future
+ * qmd response-shape changes.
  */
-function toFrontmatterPath(collectionName: string, displayPath: string): string {
-  return `${collectionName}/${displayPath}`;
+function toFrontmatterPath(_collectionName: string, displayPath: string): string {
+  return displayPath;
 }
 
 /**
@@ -215,14 +225,15 @@ function filterTasksByStatus(workspaceId: number, status: string, limit: number)
 export const searchRouter = router({
   query: publicProcedure.input(queryInput).query(async ({ input }) => {
     const ws = resolveWorkspace(input.workspaceSlug);
-    const { query, collection, filters, limit } = input;
+    const { query, collection, filters, limit, intent } = input;
+    const mode: SearchMode = input.mode ?? 'hybrid';
 
     const hasQuery = typeof query === 'string' && query.trim().length > 0;
     const hasFilters =
       filters !== undefined && Object.values(filters).some((v) => v !== undefined);
 
     if (hasQuery && !hasFilters) {
-      return queryOnlyMode(ws.id, ws.slug, query!, collection, limit);
+      return queryOnlyMode(ws.id, ws.slug, query!, collection, limit, mode, intent);
     }
 
     if (!hasQuery && hasFilters) {
@@ -230,7 +241,7 @@ export const searchRouter = router({
     }
 
     if (hasQuery && hasFilters) {
-      return queryWithFiltersMode(ws.id, ws.slug, query!, filters!, collection, limit);
+      return queryWithFiltersMode(ws.id, ws.slug, query!, filters!, collection, limit, mode, intent);
     }
 
     return [];
@@ -243,6 +254,8 @@ async function queryOnlyMode(
   query: string,
   collection: string | undefined,
   limit: number,
+  mode: SearchMode,
+  intent: string | undefined,
 ): Promise<SearchResultGroup[]> {
   const groups: SearchResultGroup[] = [];
 
@@ -254,19 +267,14 @@ async function queryOnlyMode(
     }
   }
 
-  // qmd hybrid search — skipped when QMD_SKIP=1 (test environments without models).
+  // qmd search — skipped when QMD_SKIP=1 (test environments without models).
   if (process.env.QMD_SKIP === '1') {
     return groups;
   }
 
   try {
-    const store = await getStore(workspaceSlug);
-    const qmdResults = await store.search({
-      query,
-      collection,
-      limit,
-      rerank: true,
-    });
+    const rawHits = await runQmdSearch(workspaceSlug, query, collection, limit, mode, intent);
+    const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
 
     const byCollection = new Map<string, SearchResult[]>();
     for (const hit of qmdResults) {
@@ -275,7 +283,7 @@ async function queryOnlyMode(
       group.push({
         path: toFrontmatterPath(col, hit.displayPath),
         title: hit.title || titleFromPath(hit.displayPath),
-        snippet: hit.bestChunk ? hit.bestChunk.slice(0, 200) : undefined,
+        snippet: hit.snippet,
         score: hit.score,
       });
       byCollection.set(col, group);
@@ -343,6 +351,8 @@ async function queryWithFiltersMode(
   filters: SearchFilters,
   collection: string | undefined,
   limit: number,
+  mode: SearchMode,
+  intent: string | undefined,
 ): Promise<SearchResultGroup[]> {
   const db = getDb();
   const groups: SearchResultGroup[] = [];
@@ -361,56 +371,68 @@ async function queryWithFiltersMode(
   }
 
   try {
-    const store = await getStore(workspaceSlug);
-    // Fetch more candidates so filters have room to narrow
-    const qmdResults = await store.search({
+    // Fetch more candidates so filters have room to narrow.
+    // With a subtype filter the relevant subset is small (≤ corpus size for that subtype),
+    // so go wide enough to almost always intersect.
+    const candidateLimit = filters.subtype ? Math.min(500, limit * 8) : limit * 2;
+    const rawHits = await runQmdSearch(
+      workspaceSlug,
       query,
       collection,
-      limit: limit * 2,
-      rerank: true,
-    });
+      candidateLimit,
+      mode,
+      intent,
+    );
+    const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
 
-    if (qmdResults.length > 0) {
-      // Build a set of workspace-relative paths from qmd results
-      const scoreByFrontmatterPath = new Map<string, number>();
-      for (const hit of qmdResults) {
-        const col = collectionFromVirtualPath(hit.file);
-        const fmPath = toFrontmatterPath(col, hit.displayPath);
-        scoreByFrontmatterPath.set(fmPath, hit.score);
-      }
+    // Build a set of workspace-relative paths from qmd results
+    const scoreByFrontmatterPath = new Map<string, number>();
+    for (const hit of qmdResults) {
+      const col = collectionFromVirtualPath(hit.file);
+      const fmPath = toFrontmatterPath(col, hit.displayPath);
+      scoreByFrontmatterPath.set(fmPath, hit.score);
+    }
 
-      const condition = buildFrontmatterConditions(workspaceId, filters, collection);
-      const filteredRows = db
-        .select({
-          collection: frontmatter.collection,
-          path: frontmatter.path,
-          data: frontmatter.data,
-        })
-        .from(frontmatter)
-        .where(condition)
-        .all()
-        .filter((row) => scoreByFrontmatterPath.has(row.path));
+    // Always run the frontmatter filter so the response includes filter-matching docs
+    // even when qmd missed them entirely (e.g. when subtype is the dominant signal).
+    const condition = buildFrontmatterConditions(workspaceId, filters, collection);
+    const filteredRows = db
+      .select({
+        collection: frontmatter.collection,
+        path: frontmatter.path,
+        data: frontmatter.data,
+      })
+      .from(frontmatter)
+      .where(condition)
+      .all();
 
-      const byCollection = new Map<string, SearchResult[]>();
-      for (const row of filteredRows) {
-        const group = byCollection.get(row.collection) ?? [];
-        group.push({
-          path: row.path,
-          title: extractTitle(row.data, row.path),
-          score: scoreByFrontmatterPath.get(row.path),
-        });
-        byCollection.set(row.collection, group);
-      }
+    const byCollection = new Map<string, SearchResult[]>();
+    for (const row of filteredRows) {
+      const group = byCollection.get(row.collection) ?? [];
+      group.push({
+        path: row.path,
+        title: extractTitle(row.data, row.path),
+        score: scoreByFrontmatterPath.get(row.path),
+      });
+      byCollection.set(row.collection, group);
+    }
 
-      // Sort each group by score descending, take up to limit
-      for (const [col, results] of byCollection.entries()) {
-        groups.push({
-          collection: col,
-          results: results
-            .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-            .slice(0, limit),
-        });
-      }
+    // Sort each group: scored rows by score desc, unscored rows after (by path for stability),
+    // then truncate to limit.
+    for (const [col, results] of byCollection.entries()) {
+      groups.push({
+        collection: col,
+        results: results
+          .sort((a, b) => {
+            const aScored = typeof a.score === 'number';
+            const bScored = typeof b.score === 'number';
+            if (aScored && bScored) return (b.score ?? 0) - (a.score ?? 0);
+            if (aScored) return -1;
+            if (bScored) return 1;
+            return a.path.localeCompare(b.path);
+          })
+          .slice(0, limit),
+      });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
