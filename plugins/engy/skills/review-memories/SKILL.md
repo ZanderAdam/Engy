@@ -141,22 +141,31 @@ Do nothing. Print: `Skipped.`
 
 #### 3f: Memory Evolution — Enrich Linked Siblings (runs after every successful promotion)
 
-After `promoteMemory` returns, the server's auto-linker may establish `linkedMemories[]` links to existing permanent memories. Walk back to each linked sibling and consider whether the newly promoted memory reveals something the sibling did not already capture.
+After `promoteMemory` returns, read `linkedMemories` directly from the MCP response — the server awaits the auto-linker before returning, so the array is fully populated. Do **not** re-query the memory; use the value you already have.
+
+If `linkedMemories` is empty in the response, autoLink either failed silently or found no siblings above the similarity threshold. Skip this step entirely — there is nothing to enrich.
 
 **Purpose (A-MEM rationale):** Most memory systems are purely additive — a new node is created and edges are drawn, but existing nodes stay untouched. A-MEM (Agentic Memory, NeurIPS 2025) shows that enriching linked siblings' metadata with what the new memory teaches improves multi-hop recall by 5–15%. Promotion is the right moment for this: the memory now has its final keywords and themes, giving the clearest signal.
 
-For each sibling in the promoted memory's `linkedMemories[]` (up to 5, permanent memories only):
+**Resolving a sibling path to its `id`** — `updatePermanentMemory` requires a numeric `id`. Resolve it with a filtered list call:
+```
+mcp__Engy__listMemories({ workspaceId, compact: false })
+// then find the entry whose filePath matches the sibling path
+```
 
-1. Read the sibling's current keywords and themes (from the similarity-check results in 3b, or by searching for the sibling's path).
-2. Apply this reasoning to yourself:
+For each sibling path in the response's `linkedMemories` (up to 5, permanent memories only):
+
+1. Resolve the sibling's numeric `id` as above. If it cannot be resolved, skip this sibling.
+2. Read the sibling's current keywords and themes (from the resolved row, or from the similarity-check results in 3b).
+3. Apply this reasoning to yourself:
 
    > "The newly promoted memory says: `<title> — <keywords> — <themes>`. The sibling memory says: `<sibling title> — <sibling keywords> — <sibling themes>`. Does the newly promoted memory reveal a genuine new connection that enriches this sibling's meaning? If yes, propose 0–3 keyword or theme additions that reflect this connection. Be conservative: only add terms you are high-confidence about. Additions only — never remove existing keywords or themes."
 
-3. **If** you identify 1–3 high-confidence additions:
+4. **If** you identify 1–3 high-confidence additions:
    - Call `mcp__Engy__updatePermanentMemory({ id: <sibling id>, keywords: <full merged list>, themes: <full merged list> })`.
    - Pass the full merged arrays (existing + additions), not just the delta.
    - Log: `Enriched sibling "<sibling title>" — added: <terms>`.
-4. **If** no high-confidence addition exists, skip the sibling silently.
+5. **If** no high-confidence addition exists, skip the sibling silently.
 
 **Hard constraints:**
 - Maximum **3 additions** per sibling (keywords + themes combined).

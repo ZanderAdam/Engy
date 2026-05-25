@@ -762,6 +762,137 @@ describe('MCP Server', () => {
     });
   });
 
+  describe('promoteMemory tool', () => {
+    let wsId: number;
+    let wsSlug: string;
+
+    beforeEach(async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const ws = await caller.workspace.create({ name: 'Promote Test WS' });
+      wsSlug = ws.slug;
+      const db = getDb();
+      const wsRow = db.select().from(workspaces).where(eq(workspaces.slug, wsSlug)).get()!;
+      wsId = wsRow.id;
+    });
+
+    afterEach(() => {
+      _resetStoreCache();
+      vi.restoreAllMocks();
+    });
+
+    it('should return permanentMemoryId, filePath, and linkedMemories on success (QMD_SKIP=1)', async () => {
+      process.env.QMD_SKIP = '1';
+      try {
+        const db = getDb();
+        const fleeting = db
+          .insert(fleetingMemories)
+          .values({ workspaceId: wsId, content: 'A key insight', type: 'capture', source: 'agent' })
+          .returning()
+          .get();
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'promoteMemory')({
+          fleetingMemoryId: fleeting.id,
+          subtype: 'insight',
+          title: 'Key Insight',
+          keywords: ['insight'],
+          themes: ['learning'],
+          tags: [],
+        });
+
+        expect(isError).toBe(false);
+        expect(data).toHaveProperty('permanentMemoryId');
+        expect(data).toHaveProperty('filePath');
+        expect(data).toHaveProperty('linkedMemories');
+        expect(Array.isArray(data.linkedMemories)).toBe(true);
+        // QMD_SKIP means autoLink returns immediately with no links
+        expect(data.linkedMemories).toEqual([]);
+      } finally {
+        delete process.env.QMD_SKIP;
+      }
+    });
+
+    it('should populate linkedMemories when autoLink finds siblings', async () => {
+      if (process.env.QMD_SKIP === '1') return;
+
+      const db = getDb();
+
+      // Create an existing permanent memory that autoLink can find
+      const sibling = db
+        .insert(permanentMemories)
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Related Fact',
+          content: 'Related content about the same topic',
+          filePath: 'memory/facts/related-fact.md',
+          linkedMemories: [],
+        })
+        .returning()
+        .get();
+
+      // Mock getStore to return the sibling as a high-score candidate
+      mockGetStore.mockResolvedValue({
+        search: async () => [
+          {
+            file: 'qmd://memory/facts/related-fact.md',
+            displayPath: 'facts/related-fact.md',
+            title: 'Related Fact',
+            score: 0.9,
+          },
+        ],
+      } as any);
+
+      const fleeting = db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId: wsId,
+          content: 'A key insight about the same topic',
+          type: 'capture',
+          source: 'agent',
+        })
+        .returning()
+        .get();
+
+      // Write the sibling file so autoLink can read and update it
+      const wsDir = path.join(ctx.tmpDir, wsSlug);
+      const siblingPath = path.join(wsDir, 'memory', 'facts', 'related-fact.md');
+      fs.mkdirSync(path.dirname(siblingPath), { recursive: true });
+      fs.writeFileSync(
+        siblingPath,
+        '---\ntitle: Related Fact\nsubtype: fact\nlinkedMemories: []\n---\n\nRelated content.\n',
+        'utf8',
+      );
+
+      const mcp = getMcpServer();
+      const { data, isError } = await callTool(mcp, 'promoteMemory')({
+        fleetingMemoryId: fleeting.id,
+        subtype: 'insight',
+        title: 'Key Insight',
+        keywords: ['insight', 'topic'],
+        themes: ['learning'],
+        tags: [],
+      });
+
+      expect(isError).toBe(false);
+      expect(Array.isArray(data.linkedMemories)).toBe(true);
+      expect(data.linkedMemories.length).toBeGreaterThan(0);
+      expect(data.linkedMemories.some((p: string) => p.includes('related-fact'))).toBe(true);
+
+      // Verify DB row was also updated with the linked sibling
+      const promoted = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, data.permanentMemoryId))
+        .get();
+      expect((promoted?.linkedMemories as string[]).length).toBeGreaterThan(0);
+
+      // Cleanup mock
+      mockGetStore.mockReset();
+      void sibling;
+    }, 30000);
+  });
+
   describe('index tools', () => {
     let wsWorkspaceId: number;
     let wsDir: string;

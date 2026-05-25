@@ -943,11 +943,21 @@ function registerMemoryTools(mcp: McpServer): void {
         return permanent;
       });
 
-      autoLink(result.id, ws.slug).catch((err) =>
-        console.error('[autoLink] promoteMemory failed:', err),
-      );
+      try {
+        await autoLink(result.id, ws.slug);
+      } catch (err) {
+        console.error('[autoLink] promoteMemory failed:', err);
+      }
 
-      return mcpResult({ permanentMemoryId: result.id, filePath });
+      // Re-read the row so linkedMemories reflects whatever autoLink wrote.
+      const promoted = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, result.id))
+        .get();
+      const linkedMemories = (promoted?.linkedMemories as string[]) ?? [];
+
+      return mcpResult({ permanentMemoryId: result.id, filePath, linkedMemories });
     },
   );
 }
