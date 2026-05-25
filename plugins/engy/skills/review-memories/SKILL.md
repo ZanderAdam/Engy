@@ -116,16 +116,19 @@ Call `mcp__Engy__promoteMemory` with:
   repo: <proposed or omitted>
 }
 ```
+After promotion, run the **sibling evolution step** (3f) on the newly linked memories.
 Print: `Promoted → <permanent memory title>`
 
 **edit**
 Ask the user which fields to revise. Show the current proposed values; accept corrections. Re-display the revised block for confirmation, then call `mcp__Engy__promoteMemory` with the revised values.
+After promotion, run the **sibling evolution step** (3f) on the newly linked memories.
 Print: `Promoted (edited) → <permanent memory title>`
 
 **supersede**
 1. Call `mcp__Engy__promoteMemory` with proposed metadata → get back `permanentMemoryId`.
 2. For each flagged existing permanent memory that this supersedes, call:
    `mcp__Engy__updatePermanentMemory({ id: <existing id>, supersededById: <new permanentMemoryId> })`
+After promotion, run the **sibling evolution step** (3f) on the newly linked memories.
 Print: `Promoted → <title>. Marked <existing title> as superseded.`
 
 **contradict**
@@ -136,6 +139,33 @@ The fleeting remains in the DB; the contradiction note exists only in the sessio
 **skip**
 Do nothing. Print: `Skipped.`
 
+#### 3f: Memory Evolution — Enrich Linked Siblings (runs after every successful promotion)
+
+After `promoteMemory` returns, the server's auto-linker may establish `linkedMemories[]` links to existing permanent memories. Walk back to each linked sibling and consider whether the newly promoted memory reveals something the sibling did not already capture.
+
+**Purpose (A-MEM rationale):** Most memory systems are purely additive — a new node is created and edges are drawn, but existing nodes stay untouched. A-MEM (Agentic Memory, NeurIPS 2025) shows that enriching linked siblings' metadata with what the new memory teaches improves multi-hop recall by 5–15%. Promotion is the right moment for this: the memory now has its final keywords and themes, giving the clearest signal.
+
+For each sibling in the promoted memory's `linkedMemories[]` (up to 5, permanent memories only):
+
+1. Read the sibling's current keywords and themes (from the similarity-check results in 3b, or by searching for the sibling's path).
+2. Apply this reasoning to yourself:
+
+   > "The newly promoted memory says: `<title> — <keywords> — <themes>`. The sibling memory says: `<sibling title> — <sibling keywords> — <sibling themes>`. Does the newly promoted memory reveal a genuine new connection that enriches this sibling's meaning? If yes, propose 0–3 keyword or theme additions that reflect this connection. Be conservative: only add terms you are high-confidence about. Additions only — never remove existing keywords or themes."
+
+3. **If** you identify 1–3 high-confidence additions:
+   - Call `mcp__Engy__updatePermanentMemory({ id: <sibling id>, keywords: <full merged list>, themes: <full merged list> })`.
+   - Pass the full merged arrays (existing + additions), not just the delta.
+   - Log: `Enriched sibling "<sibling title>" — added: <terms>`.
+4. **If** no high-confidence addition exists, skip the sibling silently.
+
+**Hard constraints:**
+- Maximum **3 additions** per sibling (keywords + themes combined).
+- Additions only — never remove existing keywords or themes.
+- Skip if the term is already present in the sibling's existing keywords or themes.
+- Skip fleeting memories and reference files — only permanent memories with a resolvable `id`.
+
+This step is inline (no subagent), fast, and silent on skips. It runs after every `approve`, `edit`, or `supersede` action and is invisible to the user unless enrichments actually occur.
+
 ### Step 4: Summary
 
 After all candidates are processed (or the user stops early), print:
@@ -143,11 +173,12 @@ After all candidates are processed (or the user stops early), print:
 ```
 Review complete.
 
-  Reviewed:      <N>
-  Promoted:      <N>  (including edits and supersessions)
-  Superseded:    <N>  existing memories marked as superseded
-  Contradictions:<N>  flagged (left unpromoted)
-  Skipped:       <N>
+  Reviewed:          <N>
+  Promoted:          <N>  (including edits and supersessions)
+  Superseded:        <N>  existing memories marked as superseded
+  Contradictions:    <N>  flagged (left unpromoted)
+  Skipped:           <N>
+  Siblings enriched: <N>  across all promotions
 ```
 
 ## Key Principles
@@ -157,6 +188,7 @@ Review complete.
 - **No project-status gate** — this skill works anytime: during project completion or as ongoing maintenance.
 - **Contradict = do not promote** — flagging a contradiction leaves the fleeting untouched; the conflict note lives only in session output.
 - **Supersede = promote first, then update** — always create the new permanent record before marking the old one superseded.
+- **Evolution is additions-only** — step 3f never removes existing keywords or themes; it only adds. Conservative by design: when in doubt, skip.
 
 ## Flow Position
 

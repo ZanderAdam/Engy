@@ -147,9 +147,48 @@ Changes land as uncommitted working-tree diffs. The user reviews them in the dif
 
 If no existing notes warrant changes, print "No candidate edits — no existing notes need updating." and continue.
 
-### Step 6: Commit
+### Step 6: Memory Evolution — Enrich Related Permanent Memories
 
-After all writes for the ingest are done (source record, distillation, and any candidate edits), run `git add` + `git commit` from the workspace dir using the Bash tool. One commit per ingest run, not per file. Use the structured `memory(ingest):` format from FR-TG1.8:
+The auto-linker fires on permanent memory creation/promotion, not on fleeting creation. At ingest time the new memory is still fleeting, so there are no `linkedMemories[]` links yet. However, the research digest from Step 4 already identified related permanent memories. Use those as the sibling candidates for evolution.
+
+**Purpose (A-MEM rationale):** Most memory systems are purely additive — a new node is created and edges are drawn, but existing nodes stay untouched. A-MEM (Agentic Memory, NeurIPS 2025) shows that walking back to each related permanent memory and enriching its metadata with what the new content taught us about it improves multi-hop recall by 5–15%. When you learn something new, your existing associations should get richer, not just more numerous.
+
+**Sibling candidates for this step:** the permanent memories surfaced in the Step 4 research digest with a similarity score above 0.75 (up to 5). Skip reference files (`memory/references/`) and any memory with no resolvable permanent memory `id` — those evolve through the standard review lifecycle.
+
+For each sibling candidate:
+
+1. Read the sibling's current frontmatter (`keywords`, `themes`) from the research digest or by searching with `mcp__Engy__search`.
+2. Apply this reasoning prompt to yourself:
+
+   > "The new memory's core claim is: `<fleeting distillation content>`. The sibling memory says: `<sibling title> — <sibling keywords> — <sibling themes>`. Does the new memory reveal a genuine new connection — not just a shared topic, but a relationship that enriches this sibling's meaning? If yes, propose 0–3 keyword or theme additions to the sibling that reflect this connection. Be conservative: only add terms you are high-confidence about. Never remove existing keywords or themes."
+
+3. **If** you identify 1–3 high-confidence additions (keyword or theme terms):
+   - Call `mcp__Engy__updatePermanentMemory({ id: <sibling id>, keywords: <merged list>, themes: <merged list> })` — pass the full merged arrays (existing + additions), not just the new terms.
+   - Log the enrichment in the session: `Enriched sibling "<sibling title>" — added: <term1>, <term2>`.
+4. **If** no high-confidence addition exists, skip the sibling silently (no log entry needed).
+
+**Hard constraints:**
+- Maximum **3 additions** per sibling (keywords + themes combined).
+- Additions only — never remove existing keywords or themes.
+- Skip if the addition is merely a shared topic already expressed by the sibling's existing keywords (e.g., if the sibling already has keyword "websocket" and the new memory is about websockets, adding "websocket" again adds no signal).
+- If you cannot resolve a sibling's permanent memory `id`, skip that sibling rather than guessing.
+
+**Audit log format** — print after this step completes:
+
+```
+Memory evolution complete.
+  Siblings evaluated: <N>
+  Siblings enriched:  <N>
+  Enrichments:
+    - "<sibling title>": added keywords=[...], themes=[...]
+    - "<sibling title>": no high-confidence additions — skipped
+```
+
+If the Step 4 research digest found no related permanent memories above the threshold, print "Memory evolution: no related permanent memories found — skipped." and continue.
+
+### Step 7: Commit
+
+After all writes for the ingest are done (source record, distillation, candidate edits, and sibling enrichments), run `git add` + `git commit` from the workspace dir using the Bash tool. One commit per ingest run, not per file. Use the structured `memory(ingest):` format from FR-TG1.8:
 
 ```
 memory(ingest): <slug>
@@ -158,11 +197,12 @@ source_path: memory/sources/<filename>.md
 distillation_id: <fleeting memory id>
 candidate_edits: <list of edited note paths, or "none">
 contradictions: <list of contradicted note paths, or "none">
+siblings_enriched: <list of enriched sibling titles, or "none">
 ```
 
 Use `git log --grep='^memory(ingest):'` to audit the operations log.
 
-### Step 7: Trigger Reindex
+### Step 8: Trigger Reindex
 
 Call the `reindex` MCP tool to update the memory search index:
 
@@ -192,10 +232,11 @@ After all steps complete, print a summary:
 ```
 Ingest complete.
 
-  Source:         memory/sources/20250507-1430-my-article.md   (snapshot)
-  Distillation:   fleeting memory #<id>
+  Source:          memory/sources/20250507-1430-my-article.md   (snapshot)
+  Distillation:    fleeting memory #<id>
   Candidate edits: memory/decisions/my-decision.md              (1 file)
-  Reindex:        3 indexed, 0 unchanged, 2 needsEmbedding
+  Siblings enriched: <N> (<sibling-title-1>, <sibling-title-2>, or "none")
+  Reindex:         3 indexed, 0 unchanged, 2 needsEmbedding
 
 Next: run /engy:review-memories to promote the distillation when ready.
 ```
@@ -207,6 +248,7 @@ Next: run /engy:review-memories to promote the distillation when ready.
 - **Main agent by default** — classify, write, and distill in the main agent context. Dispatch a Task subagent only for very large sources (long transcripts).
 - **Candidate edits are uncommitted** — user reviews via diff viewer before any permanent note is changed.
 - **Fetch safety** — enforce the 5 MB / 2 MB / 5-hop limits even if the user overrides; truncate rather than fail silently.
+- **Evolution is additions-only** — Step 6 never removes existing keywords or themes; it only adds. High-confidence threshold is enforced; when in doubt, skip.
 
 ## Flow Position
 
