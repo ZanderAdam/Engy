@@ -360,6 +360,34 @@ describe('memory router', () => {
         caller.memory.list({ workspaceSlug: 'no-such-ws' }),
       ).rejects.toThrow('not found');
     });
+
+    it('should exclude memories that have been superseded', async () => {
+      const old = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Old superseded fact',
+        content: 'This is the old version.',
+      });
+      const replacement = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'New replacement fact',
+        content: 'This is the new version.',
+      });
+
+      // Mark old as superseded by replacement
+      ctx.db
+        .update(permanentMemories)
+        .set({ supersededById: replacement.id })
+        .where(eq(permanentMemories.id, old.id))
+        .run();
+
+      const result = await caller.memory.list({ workspaceSlug });
+      const titles = result.map((m) => m.title);
+      // The beforeEach seeds 3 memories + we added 2 = 5 total, but old is superseded
+      expect(titles).not.toContain('Old superseded fact');
+      expect(titles).toContain('New replacement fact');
+    });
   });
 
   describe('promote', () => {

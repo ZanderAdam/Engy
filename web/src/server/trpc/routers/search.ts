@@ -6,6 +6,7 @@ import { getDb } from '../../db/client';
 import { workspaces, frontmatter, tasks, projects } from '../../db/schema';
 import { runQmdSearch } from '../../search/qmd-search';
 import { applySubtypeAffinity } from '../../search/subtype-affinity';
+import { getSupersededMemoryPaths } from '../../search/memory-queries';
 
 const filtersSchema = z.object({
   type: z.string().optional(),
@@ -275,9 +276,11 @@ async function queryOnlyMode(
   try {
     const rawHits = await runQmdSearch(workspaceSlug, query, collection, limit, mode, intent);
     const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
+    const supersededPaths = getSupersededMemoryPaths(workspaceId);
 
     const byCollection = new Map<string, SearchResult[]>();
     for (const hit of qmdResults) {
+      if (supersededPaths.has(hit.displayPath)) continue;
       const col = collectionFromVirtualPath(hit.file);
       const group = byCollection.get(col) ?? [];
       group.push({
@@ -330,7 +333,8 @@ async function filtersOnlyMode(
       .limit(limit)
       .all();
 
-    groups.push(...groupFrontmatterRows(rows));
+    const supersededPaths = getSupersededMemoryPaths(workspaceId);
+    groups.push(...groupFrontmatterRows(rows.filter((r) => !supersededPaths.has(r.path))));
   }
 
   // Tasks collection: status filter
@@ -384,10 +388,12 @@ async function queryWithFiltersMode(
       intent,
     );
     const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
+    const supersededPaths = getSupersededMemoryPaths(workspaceId);
 
-    // Build a set of workspace-relative paths from qmd results
+    // Build a set of workspace-relative paths from qmd results (skip superseded)
     const scoreByFrontmatterPath = new Map<string, number>();
     for (const hit of qmdResults) {
+      if (supersededPaths.has(hit.displayPath)) continue;
       const col = collectionFromVirtualPath(hit.file);
       const fmPath = toFrontmatterPath(col, hit.displayPath);
       scoreByFrontmatterPath.set(fmPath, hit.score);
@@ -404,7 +410,8 @@ async function queryWithFiltersMode(
       })
       .from(frontmatter)
       .where(condition)
-      .all();
+      .all()
+      .filter((r) => !supersededPaths.has(r.path));
 
     const byCollection = new Map<string, SearchResult[]>();
     for (const row of filteredRows) {

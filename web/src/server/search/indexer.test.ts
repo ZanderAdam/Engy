@@ -419,6 +419,55 @@ describe('WorkspaceIndexer', () => {
       expect(rows.filter((r) => r.filePath?.includes('/sources/'))).toHaveLength(0);
       expect(rows.filter((r) => r.filePath?.includes('/references/'))).toHaveLength(0);
     });
+
+    it('should preserve supersededById on re-sync (disk has no concept of supersession)', async () => {
+      const memFile = 'memory/facts/202501010040-old-fact.md';
+      writeFixture(
+        memFile,
+        `---\ntitle: Old Fact\nsubtype: fact\n---\n\nThis was the old fact.\n`,
+      );
+
+      // First sync: creates the row with supersededById = null
+      await syncPermanentMemoryMirror(workspaceSlug);
+
+      const firstSync = ctx.db
+        .select()
+        .from(permanentMemories)
+        .where(and(eq(permanentMemories.workspaceId, workspaceId), eq(permanentMemories.filePath, memFile)))
+        .get();
+      expect(firstSync).toBeDefined();
+      expect(firstSync!.supersededById).toBeNull();
+
+      // Simulate supersession: set supersededById to a non-null value in the DB
+      const replacementRow = ctx.db
+        .insert(permanentMemories)
+        .values({
+          workspaceId,
+          subtype: 'fact',
+          title: 'New Fact',
+          content: 'Replacement content',
+          filePath: 'memory/facts/202501010041-new-fact.md',
+        })
+        .returning()
+        .get();
+
+      ctx.db
+        .update(permanentMemories)
+        .set({ supersededById: replacementRow.id })
+        .where(eq(permanentMemories.id, firstSync!.id))
+        .run();
+
+      // Re-sync: the file still exists on disk; supersededById must NOT be reset to null
+      await syncPermanentMemoryMirror(workspaceSlug);
+
+      const afterResync = ctx.db
+        .select()
+        .from(permanentMemories)
+        .where(and(eq(permanentMemories.workspaceId, workspaceId), eq(permanentMemories.filePath, memFile)))
+        .get();
+      expect(afterResync).toBeDefined();
+      expect(afterResync!.supersededById).toBe(replacementRow.id);
+    });
   });
 
   describe('forceFullReindex()', () => {

@@ -31,6 +31,7 @@ import { getStore } from '../search/qmd-store';
 import { runQmdSearch, type QmdSearchMode } from '../search/qmd-search';
 import { applySubtypeAffinity } from '../search/subtype-affinity';
 import { projectCompletionService } from '../services/project-completion';
+import { getSupersededMemoryPaths } from '../search/memory-queries';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 
@@ -1367,8 +1368,10 @@ async function mcpQueryOnly(
 
   const rawHits = await runQmdSearch(workspaceSlug, query, collection, limit, mode, intent);
   const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
+  const supersededPaths = getSupersededMemoryPaths(workspaceId);
   const byCollection = new Map<string, SearchResult[]>();
   for (const hit of qmdResults) {
+    if (supersededPaths.has(hit.displayPath)) continue;
     const col = collectionFromVirtualPath(hit.file);
     const group = byCollection.get(col) ?? [];
     group.push({
@@ -1402,7 +1405,8 @@ async function mcpFiltersOnly(
       .where(condition)
       .limit(limit)
       .all();
-    groups.push(...groupFrontmatterRows(rows));
+    const supersededPaths = getSupersededMemoryPaths(workspaceId);
+    groups.push(...groupFrontmatterRows(rows.filter((r) => !supersededPaths.has(r.path))));
   }
 
   const statusVal = filters.status;
@@ -1440,9 +1444,11 @@ async function mcpQueryWithFilters(
   const candidateLimit = subtypeFilter ? Math.min(500, limit * 8) : limit * 2;
   const rawHits = await runQmdSearch(workspaceSlug, query, collection, candidateLimit, mode, intent);
   const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
+  const supersededPaths = getSupersededMemoryPaths(workspaceId);
 
   const scoreByPath = new Map<string, number>();
   for (const hit of qmdResults) {
+    if (supersededPaths.has(hit.displayPath)) continue;
     scoreByPath.set(hit.displayPath, hit.score);
   }
 
@@ -1454,7 +1460,8 @@ async function mcpQueryWithFilters(
     .select({ collection: frontmatter.collection, path: frontmatter.path, data: frontmatter.data })
     .from(frontmatter)
     .where(condition)
-    .all();
+    .all()
+    .filter((r) => !supersededPaths.has(r.path));
 
   const byCollection = new Map<string, SearchResult[]>();
   for (const row of filteredRows) {

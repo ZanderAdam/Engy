@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
-import { frontmatter, tasks, projects } from '../../db/schema';
+import { frontmatter, permanentMemories, tasks, projects } from '../../db/schema';
 import { _resetStoreCache } from '../../search/qmd-store';
 import { update } from '../../search/indexer';
 
@@ -1132,6 +1132,123 @@ describe('search router — mocked qmd store', () => {
 
       const docsGroup = result.find((g) => g.collection === 'docs');
       expect(docsGroup!.results[0].score).toBe(0.8);
+    });
+  });
+
+  describe('superseded memory filtering', () => {
+    function insertPermanentMemory(filePath: string, supersededById: number | null = null) {
+      ctx.db
+        .insert(permanentMemories)
+        .values({
+          workspaceId,
+          subtype: 'fact',
+          title: filePath,
+          content: 'content',
+          filePath,
+          supersededById,
+        })
+        .run();
+    }
+
+    it('should exclude superseded memories from query-only mode (mocked qmd)', async () => {
+      insertFrontmatter('memory', 'memory/facts/old.md', { title: 'Old Fact', subtype: 'fact' });
+      insertFrontmatter('memory', 'memory/facts/new.md', { title: 'New Fact', subtype: 'fact' });
+
+      // Create permanent memory rows so the superseded lookup works
+      const newRow = ctx.db
+        .insert(permanentMemories)
+        .values({ workspaceId, subtype: 'fact', title: 'New Fact', content: 'x', filePath: 'memory/facts/new.md' })
+        .returning()
+        .get();
+      insertPermanentMemory('memory/facts/old.md', newRow.id);
+
+      mockSearchResults([
+        {
+          file: 'qmd://memory/facts/old.md',
+          displayPath: 'memory/facts/old.md',
+          title: 'Old Fact',
+          bestChunk: 'old body',
+          score: 0.9,
+        },
+        {
+          file: 'qmd://memory/facts/new.md',
+          displayPath: 'memory/facts/new.md',
+          title: 'New Fact',
+          bestChunk: 'new body',
+          score: 0.8,
+        },
+      ]);
+
+      const result = await caller.search.query({ workspaceSlug, query: 'fact' });
+
+      const memGroup = result.find((g) => g.collection === 'memory');
+      const paths = memGroup?.results.map((r) => r.path) ?? [];
+      expect(paths).not.toContain('memory/facts/old.md');
+      expect(paths).toContain('memory/facts/new.md');
+    });
+
+    it('should exclude superseded memories from filters-only mode', async () => {
+      insertFrontmatter('memory', 'memory/facts/old.md', { title: 'Old Fact', subtype: 'fact' });
+      insertFrontmatter('memory', 'memory/facts/new.md', { title: 'New Fact', subtype: 'fact' });
+
+      const newRow = ctx.db
+        .insert(permanentMemories)
+        .values({ workspaceId, subtype: 'fact', title: 'New Fact', content: 'x', filePath: 'memory/facts/new.md' })
+        .returning()
+        .get();
+      insertPermanentMemory('memory/facts/old.md', newRow.id);
+
+      // filters-only mode (QMD_SKIP=1 is set globally, so no qmd needed)
+      process.env.QMD_SKIP = '1';
+      const result = await caller.search.query({
+        workspaceSlug,
+        filters: { subtype: 'fact' },
+      });
+
+      const memGroup = result.find((g) => g.collection === 'memory');
+      const paths = memGroup?.results.map((r) => r.path) ?? [];
+      expect(paths).not.toContain('memory/facts/old.md');
+      expect(paths).toContain('memory/facts/new.md');
+    });
+
+    it('should exclude superseded memories from query+filters mode (mocked qmd)', async () => {
+      insertFrontmatter('memory', 'memory/facts/old.md', { title: 'Old Fact', subtype: 'fact' });
+      insertFrontmatter('memory', 'memory/facts/new.md', { title: 'New Fact', subtype: 'fact' });
+
+      const newRow = ctx.db
+        .insert(permanentMemories)
+        .values({ workspaceId, subtype: 'fact', title: 'New Fact', content: 'x', filePath: 'memory/facts/new.md' })
+        .returning()
+        .get();
+      insertPermanentMemory('memory/facts/old.md', newRow.id);
+
+      mockSearchResults([
+        {
+          file: 'qmd://memory/facts/old.md',
+          displayPath: 'memory/facts/old.md',
+          title: 'Old Fact',
+          bestChunk: 'old body',
+          score: 0.9,
+        },
+        {
+          file: 'qmd://memory/facts/new.md',
+          displayPath: 'memory/facts/new.md',
+          title: 'New Fact',
+          bestChunk: 'new body',
+          score: 0.8,
+        },
+      ]);
+
+      const result = await caller.search.query({
+        workspaceSlug,
+        query: 'fact',
+        filters: { subtype: 'fact' },
+      });
+
+      const memGroup = result.find((g) => g.collection === 'memory');
+      const paths = memGroup?.results.map((r) => r.path) ?? [];
+      expect(paths).not.toContain('memory/facts/old.md');
+      expect(paths).toContain('memory/facts/new.md');
     });
   });
 });

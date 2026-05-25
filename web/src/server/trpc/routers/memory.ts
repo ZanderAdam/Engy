@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { and, desc, eq, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import fs from 'node:fs';
 import path from 'node:path';
 import { TRPCError } from '@trpc/server';
@@ -254,7 +254,10 @@ export const memoryRouter = router({
     const ws = resolveWorkspace(input.workspaceSlug);
     const db = getDb();
 
-    const conditions = [eq(permanentMemories.workspaceId, ws.id)];
+    const conditions = [
+      eq(permanentMemories.workspaceId, ws.id),
+      isNull(permanentMemories.supersededById),
+    ];
 
     if (input.subtype) {
       conditions.push(eq(permanentMemories.subtype, input.subtype));
