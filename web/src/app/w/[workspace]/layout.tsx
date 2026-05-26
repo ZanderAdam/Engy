@@ -7,7 +7,7 @@ import { VLink } from '@/components/tabs/virtual-link';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
+import { ThreePanelLayout, type ShortcutDef, matchShortcut } from '@/components/layout/three-panel-layout';
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
 import { BottomTerminalSplit } from '@/components/terminal/bottom-terminal-split';
 import type { TerminalDropdownGroup } from '@/components/terminal/types';
@@ -16,6 +16,7 @@ import { EventsProvider } from '@/contexts/events-context';
 import { useTaskAutoInvalidation } from '@/hooks/use-task-auto-invalidation';
 import { useQuestionAutoInvalidation } from '@/hooks/use-question-auto-invalidation';
 import { buildClaudeCommand, buildContextBlock } from '@/lib/shell';
+import { QuickCaptureDialog } from '@/components/memory/quick-capture-dialog';
 
 const TERMINAL_CONFIG = {
   defaultWidth: 480,
@@ -25,6 +26,7 @@ const TERMINAL_CONFIG = {
 } as const;
 
 const TERMINAL_SHORTCUT: ShortcutDef = { ctrl: true, key: '`' };
+const QUICK_CAPTURE_SHORTCUT: ShortcutDef = { mod: true, shift: true, key: 'm' };
 
 const tabs = [
   { label: 'Overview', segment: '' },
@@ -44,6 +46,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   const isMobile = useIsMobile();
   const [terminalCollapsed, setTerminalCollapsed] = useState(true);
+  const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
 
   // Auto-expand terminal when active sessions are restored on page load
   useEffect(() => {
@@ -53,6 +56,17 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     }
     window.addEventListener('terminal:active-changed', onActiveChanged);
     return () => window.removeEventListener('terminal:active-changed', onActiveChanged);
+  }, []);
+
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      if (matchShortcut(QUICK_CAPTURE_SHORTCUT, e)) {
+        e.preventDefault();
+        setQuickCaptureOpen(true);
+      }
+    }
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
   }, []);
 
   const handleCollapse = useCallback(() => {
@@ -210,6 +224,11 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   return (
     <EventsProvider workspaceSlug={params.workspace}>
       <AutoInvalidation />
+      <QuickCaptureDialog
+        open={quickCaptureOpen}
+        onOpenChange={setQuickCaptureOpen}
+        workspaceSlug={params.workspace}
+      />
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         {!isProjectRoute && (
           <nav className="border-b border-border" aria-label="Workspace sections">
