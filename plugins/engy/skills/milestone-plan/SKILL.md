@@ -25,11 +25,11 @@ For single-repo workspaces, these rules are effectively no-ops — all tasks nat
 
 ### Level 1: Identify Which Milestone to Plan
 
-1. Get the project's `specDir` via `getProjectDetails`.
+1. Get the project's `specDir` via `getProjectDetails` (returned at `paths.specDir`).
 2. Read `{specDir}/spec.md` and extract the existing milestone list.
 3. **Determine which milestone to plan:**
    - If the user specified a milestone, use that one.
-   - Otherwise, check for existing milestone plan docs via `Glob("{specPath}/milestones/m*-*.plan.md")` or task groups via `listTaskGroups`. Find the **next unplanned milestone** in sequence.
+   - Otherwise, check for existing milestone plan docs via `Glob("{specDir}/milestones/m*-*.plan.md")` or task groups via `listTaskGroups`. Find the **next unplanned milestone** in sequence.
 4. Present the selected milestone and its scope to the user for confirmation before proceeding.
 
 **Do NOT create task groups or tasks yet.** Level 1 is purely about selecting and confirming which milestone to plan.
@@ -113,7 +113,7 @@ Within each vertical slice, order subtasks as:
 ## Task Quality Checklist
 
 Each task should be:
-- **Well-scoped for planning**: A `/engy:plan` pass with the task description + milestone plan context should produce a complete implementation plan. The milestone task defines *what* and *where*; the planning pass discovers *how*.
+- **Self-sufficient for simple tasks, plan-ready for complex ones**: The milestone task block should be detailed enough that simple, single-file tasks can skip `/engy:plan` entirely (see Task Group Planning's conditional flow). For multi-file or architecturally cross-cutting tasks, the block must still be a good launching pad — a `/engy:plan` pass with the task description + milestone plan context should produce a complete implementation plan. The milestone task always defines *what* and *where*; the planning pass (when needed) discovers *how*.
 - **Explicit**: Reference specific files, functions, and patterns from the existing codebase. **Never reference line numbers** — they go stale. Reference by function name, class name, or pattern description instead.
 - **File-owned**: List every file the task creates or modifies. This lets parallel agents know what they own and what siblings touch.
 - **Feature-traced**: Reference which FRs this task covers, so nothing is missed and nothing is invented
@@ -151,7 +151,7 @@ Use importance and urgency to classify tasks:
 
 ## Milestone Plan Document Template
 
-After the task breakdown is approved and created, produce a `m{N}-{slug}.plan.md` document at `{specPath}/milestones/m{N}-{slug}.plan.md` (where `specPath` is resolved from `getProjectDetails`). This is the canonical location where `/engy:implement` and `/engy:implement-milestone` look for plan docs.
+After the task breakdown is approved and created, produce a `m{N}-{slug}.plan.md` document at `{specDir}/milestones/m{N}-{slug}.plan.md` (where `specDir` is resolved from `getProjectDetails`'s `paths.specDir`). This is the canonical location where `/engy:implement` and `/engy:implement-milestone` look for plan docs.
 
 ```markdown
 ---
@@ -240,6 +240,6 @@ created, anything the next TG's agents need to know. Leave blank until done.}
 
 ## Flow Position
 
-**Previous:** `write-spec` | **Next:** `plan`
+**Previous:** `write-spec` | **Next:** `implement` (with `plan` invoked conditionally per task)
 
-When milestones and tasks are created and approved, proceed with `/engy:plan` to write a detailed implementation plan for the first milestone.
+Once the milestone plan doc is written and approved, the user typically asks to plan a specific TG ("plan TG1"). Within that TG planning pass, run `/engy:plan` only for tasks that warrant it (see the Task Group Planning criteria); simple tasks ship straight to `/engy:implement` with `needsPlan: true` as a safety net.
