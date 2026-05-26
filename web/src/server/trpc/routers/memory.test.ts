@@ -1,10 +1,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
 import { permanentMemories, fleetingMemories } from '../../db/schema';
+import { _resetStoreCache } from '../../search/qmd-store';
+import { update as indexerUpdate } from '../../search/indexer';
+
+vi.mock('../../lib/promote-proposal', () => ({
+  proposeMemoryMetadata: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock('../../search/indexer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../search/indexer')>();
+  return { ...actual, update: vi.fn(actual.update) };
+});
+
+const QMD_AVAILABLE = process.env.QMD_AVAILABLE === '1';
 
 describe('memory router', () => {
   let ctx: TestContext;
@@ -19,6 +32,7 @@ describe('memory router', () => {
   });
 
   afterEach(() => {
+    _resetStoreCache();
     ctx.cleanup();
   });
 
@@ -224,6 +238,71 @@ describe('memory router', () => {
       });
 
       expect(updated.supersededById).toBe(replacement.id);
+    });
+
+    it('should trigger an incremental reindex after updating', async () => {
+      const mockUpdate = vi.mocked(indexerUpdate);
+      mockUpdate.mockClear();
+
+      const created = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Reindex trigger fact',
+        content: 'Original for reindex test',
+      });
+
+      mockUpdate.mockClear();
+
+      await caller.memory.update({
+        id: created.id,
+        content: 'Updated for reindex test',
+      });
+
+      // Allow the fire-and-forget reindex to settle.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(mockUpdate).toHaveBeenCalledWith(workspaceSlug, 'memory');
+    });
+
+    describe.skipIf(!QMD_AVAILABLE)('qmd search round-trip after update', () => {
+      beforeEach(() => {
+        delete process.env.QMD_SKIP;
+      });
+
+      afterEach(() => {
+        _resetStoreCache();
+        process.env.QMD_SKIP = '1';
+      });
+
+      it('should reflect updated content in the DB row after reindex', async () => {
+        const uniqueNewToken = 'UpdatedQmdContent67890';
+
+        const created = await caller.memory.create({
+          workspaceSlug,
+          subtype: 'fact',
+          title: 'QMD round-trip fact',
+          content: 'OriginalQmdContent12345',
+        });
+
+        // Seed the initial index so qmd knows about this file.
+        await indexerUpdate(workspaceSlug, 'memory');
+
+        await caller.memory.update({
+          id: created.id,
+          content: uniqueNewToken,
+        });
+
+        // Wait for the fire-and-forget reindex to complete.
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        // The permanentMemories DB row (updated by syncPermanentMemoryMirror) reflects fresh content.
+        const row = ctx.db
+          .select({ content: permanentMemories.content })
+          .from(permanentMemories)
+          .where(eq(permanentMemories.id, created.id))
+          .get();
+        expect(row?.content).toContain(uniqueNewToken);
+      });
     });
   });
 
@@ -613,6 +692,138 @@ describe('memory router', () => {
     it('should return empty array when no fleeting memories exist', async () => {
       const result = await caller.memory.reviewCandidates({ workspaceSlug });
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('createFleeting', () => {
+    it('should create a fleeting memory and return its id', async () => {
+      const result = await caller.memory.createFleeting({
+        workspaceSlug,
+        content: 'Remember to refactor the auth module',
+      });
+
+      expect(result.id).toBeGreaterThan(0);
+
+      const row = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, result.id))
+        .get();
+      expect(row?.content).toBe('Remember to refactor the auth module');
+      expect(row?.source).toBe('user');
+      expect(row?.type).toBe('capture');
+      expect(row?.promoted).toBe(false);
+    });
+
+    it('should store supplied tags', async () => {
+      const result = await caller.memory.createFleeting({
+        workspaceSlug,
+        content: 'Tagged capture',
+        tags: ['auth', 'refactor'],
+      });
+
+      const row = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, result.id))
+        .get();
+      expect(row?.tags).toEqual(['auth', 'refactor']);
+    });
+
+    it('should respect an explicit source value', async () => {
+      const result = await caller.memory.createFleeting({
+        workspaceSlug,
+        content: 'Agent-sourced capture',
+        source: 'agent',
+      });
+
+      const row = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, result.id))
+        .get();
+      expect(row?.source).toBe('agent');
+    });
+
+    it('should throw NOT_FOUND for unknown workspace', async () => {
+      await expect(
+        caller.memory.createFleeting({
+          workspaceSlug: 'no-such-ws',
+          content: 'Some thought',
+        }),
+      ).rejects.toThrow('not found');
+    });
+
+    it('should reject empty content', async () => {
+      await expect(
+        caller.memory.createFleeting({
+          workspaceSlug,
+          content: '',
+        }),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('proposePromotion', () => {
+    it('should throw NOT_FOUND for a non-existent fleeting memory', async () => {
+      await expect(
+        caller.memory.proposePromotion({ fleetingMemoryId: 99999 }),
+      ).rejects.toThrow('not found');
+    });
+
+    it('should return null when LLM is unavailable (QMD_SKIP=1)', async () => {
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+
+      const fleeting = ctx.db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId: ws.id,
+          content: 'We chose SQLite over PostgreSQL for simplicity in single-user mode.',
+          type: 'capture',
+          source: 'agent',
+        })
+        .returning()
+        .get();
+
+      // The vi.mock at the top makes proposeMemoryMetadata return null (QMD_SKIP simulation).
+      const result = await caller.memory.proposePromotion({ fleetingMemoryId: fleeting.id });
+      expect(result).toBeNull();
+    });
+
+    it('should return a proposal when the LLM responds', async () => {
+      const { proposeMemoryMetadata } = await import('../../lib/promote-proposal');
+      const mockPropose = vi.mocked(proposeMemoryMetadata);
+      mockPropose.mockResolvedValueOnce({
+        title: 'SQLite chosen for single-user simplicity',
+        subtype: 'decision',
+        keywords: ['sqlite', 'postgresql', 'database'],
+        themes: ['persistence', 'infrastructure'],
+        tags: ['architecture'],
+        confidence: 0.9,
+        rationale: 'Describes a technology choice with explicit reasoning.',
+        linkedMemories: [],
+      });
+
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+
+      const fleeting = ctx.db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId: ws.id,
+          content: 'We chose SQLite over PostgreSQL for simplicity in single-user mode.',
+          type: 'capture',
+          source: 'agent',
+        })
+        .returning()
+        .get();
+
+      const result = await caller.memory.proposePromotion({ fleetingMemoryId: fleeting.id });
+
+      expect(result).not.toBeNull();
+      expect(result?.title).toBe('SQLite chosen for single-user simplicity');
+      expect(result?.subtype).toBe('decision');
+      expect(result?.keywords).toContain('sqlite');
+      expect(result?.confidence).toBe(0.9);
     });
   });
 });

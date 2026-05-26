@@ -862,6 +862,12 @@ function registerMemoryTools(mcp: McpServer): void {
         .where(eq(permanentMemories.id, id))
         .run();
 
+      // Fire-and-forget incremental reindex so next search returns fresh content.
+      // Edit feedback is fast; the local change is already reflected in the DB/file.
+      indexerUpdate(ws.slug, 'memory').catch((err) =>
+        console.error('[updatePermanentMemory] reindex error:', err),
+      );
+
       return mcpResult({ success: true, filePath });
     },
   );

@@ -14,6 +14,8 @@ import {
 } from '../../lib/memory-files';
 import { simpleGit } from 'simple-git';
 import { autoLink } from '../../search/auto-linker';
+import { proposeMemoryMetadata } from '../../lib/promote-proposal';
+import { update as indexerUpdate } from '../../search/indexer';
 
 const memorySubtypeSchema = z.enum(['decision', 'pattern', 'fact', 'convention', 'insight']);
 
@@ -207,6 +209,12 @@ export const memoryRouter = router({
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Memory not found' });
     }
 
+    // Fire-and-forget incremental reindex so next search returns fresh content.
+    // Edit feedback is fast; the local change is already reflected in the DB/file.
+    indexerUpdate(ws.slug, 'memory').catch((err) =>
+      console.error('[memory.update] reindex error:', err),
+    );
+
     return updated;
   }),
 
@@ -393,5 +401,54 @@ export const memoryRouter = router({
         .orderBy(desc(fleetingMemories.createdAt))
         .limit(input.limit)
         .all();
+    }),
+
+  createFleeting: publicProcedure
+    .input(
+      z.object({
+        workspaceSlug: z.string().min(1),
+        content: z.string().min(1),
+        tags: z.array(z.string()).optional(),
+        source: z.enum(['agent', 'user', 'system']).optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const ws = resolveWorkspace(input.workspaceSlug);
+      const db = getDb();
+      const memory = db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId: ws.id,
+          content: input.content,
+          type: 'capture',
+          source: input.source ?? 'user',
+          tags: input.tags ?? [],
+        })
+        .returning({ id: fleetingMemories.id })
+        .get();
+      return { id: memory.id };
+    }),
+
+  proposePromotion: publicProcedure
+    .input(z.object({ fleetingMemoryId: z.number() }))
+    .query(async ({ input }) => {
+      const db = getDb();
+
+      const fleeting = db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, input.fleetingMemoryId))
+        .get();
+
+      if (!fleeting) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Fleeting memory not found' });
+      }
+
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, fleeting.workspaceId)).get();
+      if (!ws) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
+      }
+
+      return proposeMemoryMetadata(fleeting.content, ws.slug);
     }),
 });
