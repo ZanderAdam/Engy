@@ -172,6 +172,33 @@ function checkSchemaCompliance(workspaceId: number, workspaceDir: string): Findi
   return findings;
 }
 
+// ── Check: missing sources on subtype memories ────────────────────────
+
+function checkMissingSources(workspaceId: number): Finding[] {
+  const findings: Finding[] = [];
+  const db = getDb();
+
+  const memRows = db
+    .select()
+    .from(permanentMemories)
+    .where(eq(permanentMemories.workspaceId, workspaceId))
+    .all();
+
+  for (const row of memRows) {
+    if (!row.subtype) continue;
+    if (row.sources && row.sources.length > 0) continue;
+
+    findings.push({
+      severity: 'warning',
+      check: 'missing-sources',
+      message: `Subtype memory has no sources[] — traceability gap`,
+      path: row.filePath ?? undefined,
+    });
+  }
+
+  return findings;
+}
+
 // ── Check: duplicate DB paths ─────────────────────────────────────────
 
 function checkDuplicateIds(workspaceId: number): Finding[] {
@@ -387,6 +414,7 @@ export async function validateWorkspace(ws: WorkspaceRow): Promise<ValidationRep
     ...checkStaleMemories(ws.id),
     ...checkBrokenLinks(ws.id, workspaceDir),
     ...checkSchemaCompliance(ws.id, workspaceDir),
+    ...checkMissingSources(ws.id),
     ...checkDuplicateIds(ws.id),
     ...checkOrphanedContent(ws.id, workspaceDir),
     ...checkLifecycleConsistency(ws.id),

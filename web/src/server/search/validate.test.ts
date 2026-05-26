@@ -177,6 +177,76 @@ describe('validateWorkspace', () => {
     });
   });
 
+  describe('missing-sources lint', () => {
+    it('should warn when a subtype memory has an empty sources array', async () => {
+      const db = getDb();
+      db.insert(permanentMemories)
+        .values({
+          workspaceId: ws.id,
+          subtype: 'decision',
+          title: 'No Sources',
+          content: 'body',
+          filePath: 'memory/decisions/no-sources.md',
+          sources: [],
+        })
+        .run();
+
+      const report = await validateWorkspace(ws);
+
+      const findings = report.findings.filter((f) => f.check === 'missing-sources');
+      expect(findings.length).toBeGreaterThan(0);
+      expect(findings[0].severity).toBe('warning');
+      expect(findings[0].path).toBe('memory/decisions/no-sources.md');
+    });
+
+    it('should not warn when a subtype memory has at least one source', async () => {
+      const db = getDb();
+      db.insert(permanentMemories)
+        .values({
+          workspaceId: ws.id,
+          subtype: 'decision',
+          title: 'Has Source',
+          content: 'body',
+          filePath: 'memory/decisions/has-source.md',
+          sources: ['memory/sources/some-source.md'],
+        })
+        .run();
+      writeFile('memory/decisions/has-source.md', '---\ntitle: Has Source\nsubtype: decision\n---\n');
+      writeFile('memory/sources/some-source.md', '---\ntitle: Some Source\n---\n');
+
+      const report = await validateWorkspace(ws);
+
+      const findings = report.findings.filter((f) => f.check === 'missing-sources');
+      expect(findings).toHaveLength(0);
+    });
+
+    it('should warn when sources field is omitted entirely (defaults to empty array)', async () => {
+      // The permanentMemories schema enforces subtype NOT NULL (default 'fact'), so
+      // every permanent memory is a Zettelkasten zettel. This test verifies that a
+      // memory with no sources specified (relying on the column default []) still triggers
+      // the traceability warning.
+      const db = getDb();
+      db.insert(permanentMemories)
+        .values({
+          workspaceId: ws.id,
+          subtype: 'convention',
+          title: 'No Sources Omitted',
+          content: 'body',
+          filePath: 'memory/conventions/omitted-sources.md',
+          // sources intentionally omitted — defaults to []
+        })
+        .run();
+
+      const report = await validateWorkspace(ws);
+
+      const findings = report.findings.filter(
+        (f) => f.check === 'missing-sources' && f.path === 'memory/conventions/omitted-sources.md',
+      );
+      expect(findings).toHaveLength(1);
+      expect(findings[0].severity).toBe('warning');
+    });
+  });
+
   describe('commit-message lint', () => {
     it('should warn when a memory file was committed with a non-conformant message', async () => {
       // Initialize a git repo in the workspace directory.
