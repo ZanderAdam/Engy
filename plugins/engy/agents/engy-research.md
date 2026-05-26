@@ -60,13 +60,25 @@ Run multiple queries if the question has distinct facets (e.g., one for the patt
 
 ### Step 3: Walk Frontmatter Links
 
-For each promising hit from Step 1, follow the frontmatter links to deepen context:
+For each promising hit from Step 2, follow the frontmatter links to deepen context:
 
 - **`sources[]`** — Read the referenced file under `memory/sources/` or `memory/references/` for the underlying snapshot or reference.
-- **`linkedMemories[]`** — Read related notes for supporting context or contradicting positions.
+- **`linkedMemories[]`** — Read related notes for supporting context or contradicting positions (see BFS walk below).
 - **`scenarioIds[]`** — Cross-reference into matching system docs and test files for implementation evidence.
 
 Do not walk links from low-signal hits. Prioritize hits where the title, body excerpt, or tags clearly relate to the question.
+
+#### BFS walk for `linkedMemories[]`
+
+Walk `linkedMemories[]` to **depth 2** using a bounded BFS:
+
+1. **Initialise** a global `visited` set containing every UID already in the Step 2 search-result set. These are already considered — do not re-enter them.
+2. **Depth-1 pass** — For each promising hit (filtered as above), enqueue its `linkedMemories[]` UIDs that are not in `visited`. Read each enqueued zettel, add its UID to `visited`.
+3. **Depth-2 pass** — For each depth-1 zettel that added **meaningful new context** (its body, claim, or tags materially extend what the search results already say), enqueue its `linkedMemories[]` UIDs that are not in `visited`. Read each enqueued zettel, add its UID to `visited`. Skip depth-2 links from depth-1 nodes that were low-signal.
+4. **Hard cap** — Maintain a running count of unique zettels visited across the entire walk phase (depth-1 + depth-2 combined). Once the count reaches **10**, stop traversing further hops immediately and proceed to Step 4 with whatever has been collected.
+5. Skip any link whose UID is already in `visited` (prevents cycles and re-reads).
+
+**Why depth-2 with a cap.** Each hop is a file read — unbounded traversal would make latency grow with graph density. The hard cap of 10 nodes keeps the walk phase predictable regardless of graph size. The empirical motivation: multi-hop questions like "X and Y" often bridge two topical clusters whose connecting node (a shared constraint, a shared convention) does not appear in the top-N search results for either sub-query in isolation. A single extra hop from a depth-1 zettel surfaces that bridge node; depth-2 with a tight cap captures it without reading the entire neighbourhood.
 
 ### Step 4: Evaluate Relevance
 
@@ -108,6 +120,7 @@ End with a two-line footer: sources walked count and findings count.
 ...
 
 Sources walked: <N>
+Nodes visited (BFS walk): <N> / 10
 Findings: <N>
 ```
 
@@ -119,6 +132,7 @@ If no relevant findings are surfaced after searching and walking links, return:
 No relevant prior knowledge found for this question.
 
 Sources walked: <N>
+Nodes visited (BFS walk): <N> / 10
 Findings: 0
 ```
 
