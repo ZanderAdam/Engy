@@ -38,7 +38,7 @@ function buildNavigationPath(workspaceSlug: string, path: string): string {
   }
   const collection = path.split('/')[0];
   if (collection === 'memory') {
-    return `/w/${workspaceSlug}/memory`;
+    return `/w/${workspaceSlug}/memory?path=${encodeURIComponent(path)}`;
   }
   const filePath = path.split('/').slice(1).join('/');
   return `/w/${workspaceSlug}/docs?file=${encodeURIComponent(filePath)}`;

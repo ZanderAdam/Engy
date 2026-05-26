@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useVirtualParams } from '@/components/tabs/tab-context';
+import { useMemo, useState } from 'react';
+import { useVirtualParams, useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
 import { MemoryBrowser, type MemorySelection } from '@/components/memory/memory-browser';
@@ -23,11 +23,28 @@ const SIDEBAR_CONFIG = {
 
 export default function MemoryPage() {
   const params = useVirtualParams<{ workspace: string }>();
+  const searchParams = useVirtualSearchParams();
+  const initialPath = searchParams.get('path');
   const [selected, setSelected] = useState<MemorySelection | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
   const { data: workspace, isLoading } = trpc.workspace.get.useQuery({ slug: params.workspace });
   const utils = trpc.useUtils();
+
+  // Resolve ?path= query param to a numeric selection so the detail panel opens immediately.
+  const { data: memoriesForPath } = trpc.memory.list.useQuery(
+    { workspaceSlug: params.workspace, limit: 200 },
+    { enabled: !!initialPath, staleTime: 60_000 },
+  );
+
+  const pathResolved: MemorySelection | null = useMemo(() => {
+    if (!initialPath || !memoriesForPath) return null;
+    const match = memoriesForPath.find((m) => m.filePath === initialPath);
+    return match ? { id: match.id, kind: 'permanent' } : null;
+  }, [initialPath, memoriesForPath]);
+
+  // User's explicit click overrides the URL-derived selection; path-resolved is the fallback.
+  const effectiveSelected = selected ?? pathResolved;
 
   const createMutation = trpc.memory.create.useMutation({
     onSuccess: async (result) => {
@@ -70,15 +87,15 @@ export default function MemoryPage() {
           <MemoryBrowser
             workspaceSlug={params.workspace}
             repos={repos}
-            selected={selected}
+            selected={effectiveSelected}
             onSelect={setSelected}
             onCreateNew={() => setCreateOpen(true)}
           />
         }
         centerContent={
-          selected ? (
+          effectiveSelected ? (
             <MemoryDetail
-              selection={selected}
+              selection={effectiveSelected}
               workspaceSlug={params.workspace}
               repos={repos}
               onDeleted={() => setSelected(null)}
