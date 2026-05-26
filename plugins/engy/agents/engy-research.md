@@ -95,33 +95,51 @@ Discard hits that merely share vocabulary with the question but carry no actiona
 
 Empirical note (May 2026): Q4 "why are permanent memories workspace-scoped and not project-scoped" returned two decisions at top-2 with scores 0.687 / 0.664: `workspace-creation-uses-compensating-actions` (claim: workspace creation atomicity — wrong topic) and `m7-workspace-only-memory-scope` (claim: memories are workspace-scoped only — exact match). The score gap was a coin flip; the claim line disambiguated cleanly.
 
+**Dedup pass — run this before producing the digest.**
+
+After filtering for genuine relevance, cluster the surviving findings by topic. Two findings are duplicates if their **core claim** is substantively the same — one quotes or restates the other, the same fact is stated in different words, the same decision is recorded from different angles. Title overlap or a shared `sources[]` entry is a strong signal but not sufficient on its own: read the `**Core claim:**` lines and compare them directly.
+
+For each cluster:
+1. Pick the **strongest** member — most specific claim, freshest date, primary source (`decision` or `fact` zettel) over derived source (`insight` or `pattern`).
+2. Cite only that one as a numbered finding.
+3. Mention sibling cluster members in the citation's annotation using "also see X, Y" so callers can follow up, without giving them separate finding slots.
+
+Hard cap: produce **at most 8 distinct findings** after merging. If more survive the dedup pass, keep the most actionable ones and drop the rest.
+
 ### Step 5: Return Synthesized Digest
 
-Produce a markdown block with 3–8 cited findings. Each finding must include:
+Produce a markdown block with the deduplicated findings (3–8 after the Step 4 dedup pass). Each finding must include:
 
 - A one-line "why this matters here" annotation linking the finding to the question
+- A confidence tag — `[high]`, `[medium]`, or `[low]` — placed at the **end** of the annotation line, derived as follows:
+  - **`[high]`** — primary source (`decision` or `fact` zettel) whose `**Core claim:**` directly answers the question, corroborated by ≥1 linked sibling encountered during the BFS walk, and no contradictions found in the walked graph.
+  - **`[medium]`** — single primary source (`decision` or `fact`), no corroboration but also no contradictions.
+  - **`[low]`** — derived from synthesis across `pattern` or `insight` zettels rather than a direct primary source; OR contradicted by another zettel seen during the walk; OR this finding emerged from a near-tie that the Step 4 disambiguation broke (the runner-up claim was also plausible).
 - An inline citation with the relative file path (and fragment anchor for section-specific refs)
 
 Group findings by relevance (most directly actionable first), not by collection.
 
-End with a two-line footer: sources walked count and findings count.
+End with a three-line footer: sources walked count, nodes visited count, and distinct findings count after dedup.
 
 ## Output Format
 
 ```
 ## Findings
 
-1. **<Finding title>** — <one-line "why this matters here" annotation>.
+1. **<Finding title>** — <one-line "why this matters here" annotation>. [high]
    Citation: memory/decisions/YYYYMMDDHHmm-<slug>.md
 
-2. **<Finding title>** — <one-line annotation>.
+2. **<Finding title>** — <one-line annotation> (also see memory/insights/YYYYMMDDHHmm-<slug>.md, memory/patterns/YYYYMMDDHHmm-<slug>.md). [medium]
+   Citation: memory/decisions/YYYYMMDDHHmm-<slug>.md
+
+3. **<Finding title>** — <one-line annotation>. [low]
    Citation: memory/sources/YYYYMMDDHHmm-<slug>.md, system/features/auth.md#FR-3.4
 
 ...
 
 Sources walked: <N>
 Nodes visited (BFS walk): <N> / 10
-Findings: <N>
+Distinct findings: <N> (after dedup)
 ```
 
 If no relevant findings are surfaced after searching and walking links, return:
@@ -133,7 +151,7 @@ No relevant prior knowledge found for this question.
 
 Sources walked: <N>
 Nodes visited (BFS walk): <N> / 10
-Findings: 0
+Distinct findings: 0 (after dedup)
 ```
 
 ## Constraints

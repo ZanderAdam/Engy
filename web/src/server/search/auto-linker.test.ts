@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach, vi, type MockedFunction } 
 import { eq } from 'drizzle-orm';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { getDb } from '../db/client';
-import { workspaces, permanentMemories, frontmatter } from '../db/schema';
+import { workspaces, permanentMemories } from '../db/schema';
 import { appRouter } from '../trpc/root';
 import { autoLink, SIMILARITY_THRESHOLD, MAX_LINKS } from './auto-linker';
 import { _resetStoreCache } from './qmd-store';
@@ -58,19 +58,6 @@ function writeMemoryFile(wsDir: string, relPath: string, title: string, linkedMe
   fs.writeFileSync(absPath, fm, 'utf8');
 }
 
-function readLinkedMemories(wsDir: string, relPath: string): string[] {
-  const absPath = path.join(wsDir, relPath);
-  if (!fs.existsSync(absPath)) return [];
-  const raw = fs.readFileSync(absPath, 'utf8');
-  // Simple extraction: find linkedMemories line
-  const match = raw.match(/^linkedMemories:\s*\[([^\]]*)\]/m);
-  if (!match || !match[1].trim()) return [];
-  return match[1]
-    .split(',')
-    .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
-    .filter(Boolean);
-}
-
 describe('auto-linker', () => {
   let ctx: TestContext;
   let wsDir: string;
@@ -111,13 +98,15 @@ describe('auto-linker', () => {
   });
 
   describe('QMD_SKIP guard', () => {
-    it('should return early when QMD_SKIP=1', async () => {
+    it('should skip the similarity pass (getStore) when QMD_SKIP=1', async () => {
       // Re-set it to test the guard (beforeEach cleared it for mock-based tests)
       process.env.QMD_SKIP = '1';
       const db = getDb();
+      const srcPath = 'memory/facts/skip.md';
+      writeMemoryFile(wsDir, srcPath, 'Skip Test');
       const mem = db
         .insert(permanentMemories)
-        .values({ workspaceId: wsId, subtype: 'fact', title: 'Skip Test', content: 'body', filePath: 'memory/facts/skip.md' })
+        .values({ workspaceId: wsId, subtype: 'fact', title: 'Skip Test', content: 'body', filePath: srcPath })
         .returning()
         .get();
 
@@ -328,6 +317,222 @@ describe('auto-linker', () => {
       mockGetStore.mockResolvedValue(mockStore as any);
 
       await expect(autoLink(srcMem.id, wsSlug)).resolves.toBeUndefined();
+    });
+  });
+
+  describe('tag/theme co-linking pass', () => {
+    function writeMemoryFileWithTags(
+      wsDir: string,
+      relPath: string,
+      title: string,
+      opts: { tags?: string[]; themes?: string[]; subtype?: string } = {},
+    ) {
+      const absPath = path.join(wsDir, relPath);
+      fs.mkdirSync(path.dirname(absPath), { recursive: true });
+      const tags = opts.tags ?? [];
+      const themes = opts.themes ?? [];
+      const subtype = opts.subtype ?? 'fact';
+      const fm = [
+        '---',
+        `title: ${title}`,
+        `subtype: ${subtype}`,
+        'linkedMemories: []',
+        'keywords: []',
+        `themes: [${themes.map((t) => `'${t}'`).join(', ')}]`,
+        `tags: [${tags.map((t) => `'${t}'`).join(', ')}]`,
+        'scenarioIds: []',
+        'sources: []',
+        '---',
+        '',
+        `Content of ${title}.`,
+      ].join('\n');
+      fs.writeFileSync(absPath, fm, 'utf8');
+    }
+
+    it('should link candidate with 3 shared tags+themes, skip candidates with fewer than 2', async () => {
+      const db = getDb();
+
+      // Source: tags=[auth, oauth], themes=[security]
+      const srcPath = 'memory/facts/tag-src.md';
+      writeMemoryFileWithTags(wsDir, srcPath, 'Auth Source', {
+        tags: ['auth', 'oauth'],
+        themes: ['security'],
+      });
+      const srcMem = db
+        .insert(permanentMemories)
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Auth Source',
+          content: 'auth body',
+          filePath: srcPath,
+          tags: ['auth', 'oauth'],
+          themes: ['security'],
+        })
+        .returning()
+        .get();
+
+      // Candidate A: tags=[auth, oauth], themes=[security] → 3 shared → SHOULD link
+      const pathA = 'memory/facts/tag-cand-a.md';
+      writeMemoryFileWithTags(wsDir, pathA, 'Cand A', {
+        tags: ['auth', 'oauth'],
+        themes: ['security'],
+      });
+      db.insert(permanentMemories)
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Cand A',
+          content: 'oauth body',
+          filePath: pathA,
+          tags: ['auth', 'oauth'],
+          themes: ['security'],
+        })
+        .run();
+
+      // Candidate B: tags=[auth], themes=[] → 1 shared → should NOT link
+      const pathB = 'memory/facts/tag-cand-b.md';
+      writeMemoryFileWithTags(wsDir, pathB, 'Cand B', { tags: ['auth'] });
+      db.insert(permanentMemories)
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Cand B',
+          content: 'auth partial body',
+          filePath: pathB,
+          tags: ['auth'],
+          themes: [],
+        })
+        .run();
+
+      // Candidate C: tags=[unrelated] → 0 shared → should NOT link
+      const pathC = 'memory/facts/tag-cand-c.md';
+      writeMemoryFileWithTags(wsDir, pathC, 'Cand C', { tags: ['unrelated'] });
+      db.insert(permanentMemories)
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Cand C',
+          content: 'unrelated body',
+          filePath: pathC,
+          tags: ['unrelated'],
+          themes: [],
+        })
+        .run();
+
+      // QMD_SKIP=1 skips the similarity pass but the tag pass still runs.
+      process.env.QMD_SKIP = '1';
+
+      await autoLink(srcMem.id, wsSlug);
+
+      const updated = db.select().from(permanentMemories).where(eq(permanentMemories.id, srcMem.id)).get()!;
+      const links = (updated.linkedMemories as string[]) ?? [];
+
+      expect(links).toContain(pathA);
+      expect(links).not.toContain(pathB);
+      expect(links).not.toContain(pathC);
+    });
+
+    it('should link thematic siblings with valid subtypes but exclude zero-overlap candidates', async () => {
+      const db = getDb();
+
+      const srcPath = 'memory/facts/anchor-src.md';
+      writeMemoryFileWithTags(wsDir, srcPath, 'Anchor Source', {
+        tags: ['auth', 'oauth'],
+        themes: ['security'],
+      });
+      const srcMem = db
+        .insert(permanentMemories)
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Anchor Source',
+          content: 'body',
+          filePath: srcPath,
+          tags: ['auth', 'oauth'],
+          themes: ['security'],
+        })
+        .returning()
+        .get();
+
+      // Candidate with 0 shared tags — should NOT be linked
+      const unrelatedPath = 'memory/facts/unrelated-doc.md';
+      writeMemoryFileWithTags(wsDir, unrelatedPath, 'Unrelated Doc', {
+        tags: ['deploy', 'ci'],
+        themes: ['devops'],
+      });
+      db.insert(permanentMemories)
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Unrelated Doc',
+          content: 'unrelated body',
+          filePath: unrelatedPath,
+          tags: ['deploy', 'ci'],
+          themes: ['devops'],
+        })
+        .run();
+
+      const mockStore = { search: vi.fn().mockResolvedValue([]) };
+      mockGetStore.mockResolvedValue(mockStore as any);
+
+      await autoLink(srcMem.id, wsSlug);
+
+      const updated = db.select().from(permanentMemories).where(eq(permanentMemories.id, srcMem.id)).get()!;
+      expect((updated.linkedMemories as string[]) ?? []).not.toContain(unrelatedPath);
+    });
+
+    it('should respect MAX_LINKS cap when many candidates share tags', async () => {
+      const db = getDb();
+
+      const srcPath = 'memory/facts/cap-src.md';
+      writeMemoryFileWithTags(wsDir, srcPath, 'Cap Source', {
+        tags: ['alpha', 'beta'],
+        themes: ['gamma'],
+      });
+      const srcMem = db
+        .insert(permanentMemories)
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Cap Source',
+          content: 'body',
+          filePath: srcPath,
+          tags: ['alpha', 'beta'],
+          themes: ['gamma'],
+        })
+        .returning()
+        .get();
+
+      // Create MAX_LINKS + 3 candidates, all sharing 2+ tags → only MAX_LINKS should be linked
+      const count = MAX_LINKS + 3;
+      for (let i = 0; i < count; i++) {
+        const candPath = `memory/facts/cap-cand-${i}.md`;
+        writeMemoryFileWithTags(wsDir, candPath, `Cap Cand ${i}`, {
+          tags: ['alpha', 'beta'],
+          themes: ['gamma'],
+        });
+        db.insert(permanentMemories)
+          .values({
+            workspaceId: wsId,
+            subtype: 'fact',
+            title: `Cap Cand ${i}`,
+            content: 'body',
+            filePath: candPath,
+            tags: ['alpha', 'beta'],
+            themes: ['gamma'],
+          })
+          .run();
+      }
+
+      const mockStore = { search: vi.fn().mockResolvedValue([]) };
+      mockGetStore.mockResolvedValue(mockStore as any);
+
+      await autoLink(srcMem.id, wsSlug);
+
+      const updated = db.select().from(permanentMemories).where(eq(permanentMemories.id, srcMem.id)).get()!;
+      const links = (updated.linkedMemories as string[]) ?? [];
+      expect(links.length).toBeLessThanOrEqual(MAX_LINKS);
     });
   });
 

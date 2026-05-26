@@ -4,9 +4,10 @@ import matter from 'gray-matter';
 import { simpleGit } from 'simple-git';
 import { getDb } from '../db/client';
 import { workspaces, permanentMemories } from '../db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, and, ne } from 'drizzle-orm';
 import { getWorkspaceDir } from '../engy-dir/init';
 import { getStore } from './qmd-store';
+import type { HybridQueryResult } from '@tobilu/qmd';
 import { validateLinkedMemoryPath, escapeIndexMarkers } from '../lib/memory-files';
 
 // ── Tunables ─────────────────────────────────────────────────────────
@@ -80,6 +81,73 @@ function unionLinks(existing: string[], newPath: string): string[] {
   return [...existing, newPath];
 }
 
+// ── Tag/theme co-linking ──────────────────────────────────────────────
+
+/** Subtypes that are anchor documents rather than zettels — excluded from tag pass. */
+const ANCHOR_SUBTYPES = new Set(['sources', 'references']);
+
+/**
+ * Count the number of overlapping items between two string arrays.
+ */
+function sharedCount(a: string[], b: string[]): number {
+  if (!Array.isArray(a) || !Array.isArray(b)) return 0;
+  const setB = new Set(b);
+  return a.filter((item) => setB.has(item)).length;
+}
+
+/**
+ * Secondary co-linking pass: find permanent memories in the same workspace
+ * that share at least 2 tags or themes with the given memory.
+ *
+ * Returns candidates sorted by (shared count desc, updatedAt desc), limited to
+ * `limit` entries. Excludes self, already-linked memories, and anchor subtypes.
+ */
+function findTagThemeSiblings(
+  memoryId: number,
+  workspaceId: number,
+  tags: string[],
+  themes: string[],
+  alreadyLinked: string[],
+  limit: number,
+): Array<{ filePath: string; id: number; title: string; updatedAt: string }> {
+  if (limit <= 0) return [];
+  if (tags.length === 0 && themes.length === 0) return [];
+
+  const db = getDb();
+  const alreadyLinkedSet = new Set(alreadyLinked);
+
+  const candidates = db
+    .select({
+      id: permanentMemories.id,
+      filePath: permanentMemories.filePath,
+      title: permanentMemories.title,
+      subtype: permanentMemories.subtype,
+      tags: permanentMemories.tags,
+      themes: permanentMemories.themes,
+      updatedAt: permanentMemories.updatedAt,
+    })
+    .from(permanentMemories)
+    .where(and(eq(permanentMemories.workspaceId, workspaceId), ne(permanentMemories.id, memoryId)))
+    .all();
+
+  return candidates
+    .flatMap((row) => {
+      if (!row.filePath) return [];
+      if (ANCHOR_SUBTYPES.has(row.subtype)) return [];
+      if (alreadyLinkedSet.has(row.filePath)) return [];
+
+      const shared =
+        sharedCount(tags, (row.tags as string[]) ?? []) +
+        sharedCount(themes, (row.themes as string[]) ?? []);
+      if (shared < 2) return [];
+
+      return [{ id: row.id, filePath: row.filePath, title: row.title, updatedAt: row.updatedAt, shared }];
+    })
+    .sort((a, b) => b.shared - a.shared || b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, limit)
+    .map(({ filePath, id, title, updatedAt }) => ({ filePath, id, title, updatedAt }));
+}
+
 // ── Auto-link ─────────────────────────────────────────────────────────
 
 /**
@@ -89,8 +157,6 @@ function unionLinks(existing: string[], newPath: string): string[] {
  * Fire-and-forget: catch all errors internally so callers are never blocked.
  */
 export async function autoLink(memoryId: number, workspaceSlug: string): Promise<void> {
-  if (process.env.QMD_SKIP === '1') return;
-
   const db = getDb();
   const memory = db.select().from(permanentMemories).where(eq(permanentMemories.id, memoryId)).get();
   if (!memory || !memory.filePath) return;
@@ -99,43 +165,49 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
   if (!ws) return;
 
   const workspaceDir = getWorkspaceDir(ws);
-
-  // Build a query from title + first 500 chars of content for relevance
-  const queryText = [memory.title, memory.content.slice(0, 500)].join(' ');
-
-  let store;
-  try {
-    store = await getStore(workspaceSlug);
-  } catch {
-    return;
-  }
-
-  let candidates;
-  try {
-    candidates = await store.search({
-      query: queryText,
-      collection: 'memory',
-      limit: 20,
-      rerank: false,
-    });
-  } catch {
-    return;
-  }
-
   const ownFilePath = memory.filePath;
 
-  // Filter: above threshold, not self
-  const eligible = candidates.filter((hit) => {
-    if (hit.score < SIMILARITY_THRESHOLD) return false;
-    const col = collectionFromVirtualPath(hit.file);
-    const candidatePath = `${col}/${hit.displayPath}`;
-    // Normalize both to avoid mismatch with leading memory/ prefix
-    const normalizedOwn = ownFilePath.replace(/^memory\//, '');
-    const normalizedCandidate = candidatePath.replace(/^memory\//, '');
-    return normalizedOwn !== normalizedCandidate;
-  });
+  // ── Pass 1: similarity-based links ────────────────────────────────────
+  // Skipped when QMD_SKIP=1 (e.g. during tests that only exercise the tag pass).
 
-  const toLink = eligible.slice(0, MAX_LINKS);
+  const toLink: HybridQueryResult[] = [];
+
+  if (process.env.QMD_SKIP !== '1') {
+    const queryText = [memory.title, memory.content.slice(0, 500)].join(' ');
+
+    let store;
+    try {
+      store = await getStore(workspaceSlug);
+    } catch {
+      // If the store fails to init, fall through to the tag pass only.
+    }
+
+    if (store) {
+      let candidates;
+      try {
+        candidates = await store.search({
+          query: queryText,
+          collection: 'memory',
+          limit: 20,
+          rerank: false,
+        });
+      } catch {
+        candidates = [];
+      }
+
+      // Filter: above threshold, not self
+      const eligible = candidates.filter((hit) => {
+        if (hit.score < SIMILARITY_THRESHOLD) return false;
+        const col = collectionFromVirtualPath(hit.file);
+        const candidatePath = `${col}/${hit.displayPath}`;
+        const normalizedOwn = ownFilePath.replace(/^memory\//, '');
+        const normalizedCandidate = candidatePath.replace(/^memory\//, '');
+        return normalizedOwn !== normalizedCandidate;
+      });
+
+      toLink.push(...eligible.slice(0, MAX_LINKS));
+    }
+  }
 
   for (const hit of toLink) {
     const col = collectionFromVirtualPath(hit.file);
@@ -198,6 +270,82 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
         }
       } catch {
         // non-fatal
+      }
+    }
+  }
+
+  // ── Secondary pass: tag/theme siblings ────────────────────────────────
+  // If the similarity pass left room under MAX_LINKS, fill with thematic siblings.
+
+  const currentLinks = (memory.linkedMemories as string[]) ?? [];
+  const remaining = MAX_LINKS - currentLinks.length;
+
+  if (remaining > 0) {
+    const srcTags = (memory.tags as string[]) ?? [];
+    const srcThemes = (memory.themes as string[]) ?? [];
+    const tagSiblings = findTagThemeSiblings(
+      memoryId,
+      memory.workspaceId,
+      srcTags,
+      srcThemes,
+      currentLinks,
+      remaining,
+    );
+
+    for (const sibling of tagSiblings) {
+      // Validate path before touching files
+      let siblingAbsPath: string;
+      try {
+        validateLinkedMemoryPath(sibling.filePath, workspaceDir);
+        siblingAbsPath = path.join(workspaceDir, sibling.filePath);
+      } catch {
+        continue;
+      }
+
+      if (!fs.existsSync(siblingAbsPath)) continue;
+
+      // Update source memory
+      const latestSrcLinks = (memory.linkedMemories as string[]) ?? [];
+      const updatedSrcLinks = unionLinks(latestSrcLinks, sibling.filePath);
+
+      if (updatedSrcLinks.length > latestSrcLinks.length) {
+        try {
+          await updateLinkedMemoriesInFile(workspaceDir, ownFilePath, updatedSrcLinks, memory.title);
+          db.update(permanentMemories)
+            .set({ linkedMemories: updatedSrcLinks, updatedAt: new Date().toISOString() })
+            .where(eq(permanentMemories.id, memoryId))
+            .run();
+          memory.linkedMemories = updatedSrcLinks;
+        } catch {
+          // non-fatal
+        }
+      }
+
+      // Update sibling memory
+      const siblingRow = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, sibling.id))
+        .get();
+
+      const existingSiblingLinks = (siblingRow?.linkedMemories as string[]) ?? [];
+      const updatedSiblingLinks = unionLinks(existingSiblingLinks, ownFilePath);
+
+      if (updatedSiblingLinks.length > existingSiblingLinks.length) {
+        try {
+          await updateLinkedMemoriesInFile(
+            workspaceDir,
+            sibling.filePath,
+            updatedSiblingLinks,
+            sibling.title,
+          );
+          db.update(permanentMemories)
+            .set({ linkedMemories: updatedSiblingLinks, updatedAt: new Date().toISOString() })
+            .where(eq(permanentMemories.id, sibling.id))
+            .run();
+        } catch {
+          // non-fatal
+        }
       }
     }
   }
