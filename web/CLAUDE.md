@@ -37,6 +37,14 @@ src/server/
 │   └── events-server.ts          # /ws/events — file change broadcasts to browsers
 ├── mcp/
 │   └── index.ts                  # /mcp — StreamableHTTPServerTransport for AI agents
+├── search/
+│   ├── qmd-store.ts              # Per-workspace qmd store singleton (lazy init, cached)
+│   ├── qmd-search.ts             # Unified BM25/vector/hybrid dispatch; normalises result shape
+│   ├── subtype-affinity.ts       # Post-hoc score reweighting from query-shape signals
+│   ├── memory-queries.ts         # getSupersededMemoryPaths() — exclude superseded from results
+│   ├── indexer.ts                # update()/forceFullReindex()/syncPermanentMemoryMirror()
+│   ├── auto-linker.ts            # Bidirectional link writing on memory create/promote
+│   └── validate.ts               # Integrity checks (broken links, schema, orphaned content)
 ├── project/
 │   └── service.ts                # File tree traversal, content reading
 ├── spec/
@@ -119,10 +127,14 @@ Both share DB and AppState but have separate implementations (intentional duplic
 Workspace → Project(s) → Milestone(s) → TaskGroup(s) → Task(s)
                                                       → AgentSession(s)
                        → Task(s) (directly on project)
-         → FleetingMemory(ies)
+         → FleetingMemory(ies)   # DB-only; workspace-scoped; no projectId
+         → PermanentMemory(ies)  # DB row + markdown file in {workspaceDir}/memory/{subtype}/
          → Comment(s) (by document_path)
-Project  → ProjectMemory(ies)
 ```
+
+- **`fleetingMemories`** — quick-capture notes (content, type, source, tags, sources[]). DB-only; no corresponding filesystem file. Workspace-scoped (no `projectId`). Promoted via `promoteMemory` which creates a `permanentMemories` row + markdown file and sets `promoted=true`, `promotedFromId`, `promotedAt`.
+- **`permanentMemories`** — Zettelkasten-style notes persisted as both a DB row and a markdown file in `{workspaceDir}/memory/{subtype}/`. Full metadata: subtype (decision/pattern/fact/convention/insight), title, content, repo (optional provenance), confidence, keywords, themes, tags, linkedMemories, scenarioIds, sources, supersededById. The `filePath` column stores the workspace-relative path to the markdown file.
+- **`frontmatter`** — universal frontmatter index for all four collections (system/docs/projects/memory). JSON1-queryable `data` column; powers structured filters and reverse-link graph queries.
 
 Migrations auto-run on startup via `runMigrations()`. After schema changes: `pnpm drizzle-kit generate`.
 
