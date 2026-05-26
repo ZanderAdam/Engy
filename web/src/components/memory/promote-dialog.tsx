@@ -11,7 +11,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { MemoryForm, type MemoryFormValues } from './memory-form';
+import { Badge } from '@/components/ui/badge';
+import { MemoryForm, type MemoryFormValues, type MemorySubtype } from './memory-form';
 import { cn } from '@/lib/utils';
 
 interface FleetingMemory {
@@ -52,6 +53,15 @@ export function PromoteDialog({
   const [pendingValues, setPendingValues] = useState<MemoryFormValues | null>(null);
   const [similarMemories, setSimilarMemories] = useState<PermanentMemory[]>([]);
   const [selectedSupersede, setSelectedSupersede] = useState<number | null>(null);
+
+  const proposalQuery = trpc.memory.proposePromotion.useQuery(
+    { fleetingMemoryId: fleeting.id },
+    {
+      enabled: open,
+      retry: false,
+      staleTime: Infinity,
+    },
+  );
 
   const promoteMutation = trpc.memory.promote.useMutation({
     onSuccess: async (result) => {
@@ -141,6 +151,28 @@ export function PromoteDialog({
   }
 
   const fleetingTags = Array.isArray(fleeting.tags) ? (fleeting.tags as string[]) : [];
+  const proposal = proposalQuery.data;
+
+  // Build form default values: AI proposal takes precedence over fleeting data.
+  // When the proposal arrives, we pass a new key to MemoryForm to remount it
+  // with the updated defaults (React's cleanest way to reset uncontrolled state).
+  const formDefaults: Partial<MemoryFormValues> = proposal
+    ? {
+        content: fleeting.content,
+        title: proposal.title,
+        subtype: proposal.subtype as MemorySubtype,
+        tags: proposal.tags.length > 0 ? proposal.tags : fleetingTags,
+        confidence: proposal.confidence,
+        repo: '',
+      }
+    : {
+        content: fleeting.content,
+        tags: fleetingTags,
+        confidence: 1.0,
+      };
+
+  // Key drives MemoryForm remount: changes when proposal arrives.
+  const formKey = proposal ? `proposal-${fleeting.id}` : `base-${fleeting.id}`;
 
   return (
     <Dialog
@@ -154,18 +186,27 @@ export function PromoteDialog({
         {step === 'form' && (
           <>
             <DialogHeader>
-              <DialogTitle>Promote to Permanent Memory</DialogTitle>
+              <div className="flex items-center gap-2">
+                <DialogTitle>Promote to Permanent Memory</DialogTitle>
+                {proposal && (
+                  <Badge variant="secondary" className="text-xs shrink-0">
+                    AI proposed
+                  </Badge>
+                )}
+                {proposalQuery.isLoading && (
+                  <span className="text-xs text-muted-foreground animate-pulse">
+                    Proposing…
+                  </span>
+                )}
+              </div>
               <DialogDescription>
                 Review and refine this fleeting memory before saving it permanently.
               </DialogDescription>
             </DialogHeader>
 
             <MemoryForm
-              defaultValues={{
-                content: fleeting.content,
-                tags: fleetingTags,
-                confidence: 1.0,
-              }}
+              key={formKey}
+              defaultValues={formDefaults}
               repos={repos}
               onSubmit={handleFormSubmit}
               submitLabel="Promote"
