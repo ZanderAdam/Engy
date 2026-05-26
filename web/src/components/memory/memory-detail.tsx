@@ -113,10 +113,12 @@ function PermanentDetail({
   }
 
   const tags = Array.isArray(memory.tags) ? (memory.tags as string[]) : [];
+  const themes = Array.isArray(memory.themes) ? (memory.themes as string[]) : [];
+  const keywords = Array.isArray(memory.keywords) ? (memory.keywords as string[]) : [];
+  const sources = Array.isArray(memory.sources) ? (memory.sources as string[]) : [];
   const linkedMemories = Array.isArray(memory.linkedMemories)
     ? (memory.linkedMemories as string[])
     : [];
-  const sources = Array.isArray(memory.sources) ? (memory.sources as string[]) : [];
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -184,13 +186,57 @@ function PermanentDetail({
               </span>
               <div className="flex flex-wrap gap-1">
                 {tags.map((tag) => (
-                  <Badge
-                    key={tag}
-                    variant="secondary"
-                    className="text-[10px] h-4 px-1.5"
-                  >
+                  <Badge key={tag} variant="secondary" className="text-[10px] h-4 px-1.5">
                     {tag}
                   </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {themes.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                Themes
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {themes.map((theme) => (
+                  <Badge key={theme} variant="secondary" className="text-[10px] h-4 px-1.5">
+                    {theme}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {keywords.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                Keywords
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {keywords.map((kw) => (
+                  <Badge key={kw} variant="secondary" className="text-[10px] h-4 px-1.5">
+                    {kw}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {sources.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                Sources
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {sources.map((src) => (
+                  <span
+                    key={src}
+                    className="text-[10px] font-mono border border-border px-1.5 py-0.5 text-muted-foreground"
+                  >
+                    {src}
+                  </span>
                 ))}
               </div>
             </div>
@@ -209,24 +255,6 @@ function PermanentDetail({
                   >
                     <RiExternalLinkLine className="size-2.5" />
                     {path.split('/').pop() ?? path}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {sources.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                Sources
-              </span>
-              <div className="flex flex-wrap gap-1">
-                {sources.map((src) => (
-                  <span
-                    key={src}
-                    className="text-[10px] font-mono border border-border px-1.5 py-0.5 text-muted-foreground"
-                  >
-                    {src}
                   </span>
                 ))}
               </div>
