@@ -426,6 +426,51 @@ describe('validateWorkspace', () => {
     });
   });
 
+  describe('stale memory detection', () => {
+    it('should warn when a memory has not been updated in more than 180 days', async () => {
+      const db = getDb();
+      const staleDate = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
+      db.insert(permanentMemories)
+        .values({
+          workspaceId: ws.id,
+          subtype: 'fact',
+          title: 'Old Memory',
+          content: 'body',
+          filePath: 'memory/facts/old.md',
+          updatedAt: staleDate,
+        })
+        .run();
+
+      const report = await validateWorkspace(ws);
+
+      const staleWarnings = report.findings.filter((f) => f.check === 'stale-memory');
+      expect(staleWarnings.length).toBeGreaterThan(0);
+      expect(staleWarnings[0].severity).toBe('warning');
+      expect(staleWarnings[0].message).toContain('200');
+      expect(staleWarnings[0].path).toBe('memory/facts/old.md');
+    });
+
+    it('should produce no stale-memory warning for a recently updated memory', async () => {
+      const db = getDb();
+      const recentDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      db.insert(permanentMemories)
+        .values({
+          workspaceId: ws.id,
+          subtype: 'fact',
+          title: 'Fresh Memory',
+          content: 'body',
+          filePath: 'memory/facts/fresh.md',
+          updatedAt: recentDate,
+        })
+        .run();
+
+      const report = await validateWorkspace(ws);
+
+      const staleWarnings = report.findings.filter((f) => f.check === 'stale-memory');
+      expect(staleWarnings).toHaveLength(0);
+    });
+  });
+
   describe('summary counts', () => {
     it('should tally findings into the summary object correctly', async () => {
       const db = getDb();

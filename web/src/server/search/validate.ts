@@ -37,6 +37,40 @@ interface ValidationReport {
 
 type WorkspaceRow = { id: number; slug: string; docsDir: string | null };
 
+const STALE_MEMORY_DAYS = 180;
+
+// ── Check: stale memories ─────────────────────────────────────────────
+
+function checkStaleMemories(workspaceId: number): Finding[] {
+  const findings: Finding[] = [];
+  const db = getDb();
+
+  const memRows = db
+    .select()
+    .from(permanentMemories)
+    .where(eq(permanentMemories.workspaceId, workspaceId))
+    .all();
+
+  const now = Date.now();
+  const thresholdMs = STALE_MEMORY_DAYS * 24 * 60 * 60 * 1000;
+
+  for (const row of memRows) {
+    const updatedAt = new Date(row.updatedAt).getTime();
+    const ageMs = now - updatedAt;
+    if (ageMs > thresholdMs) {
+      const daysSinceUpdate = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+      findings.push({
+        severity: 'warning',
+        check: 'stale-memory',
+        message: `Memory not updated in ${daysSinceUpdate} days`,
+        path: row.filePath ?? undefined,
+      });
+    }
+  }
+
+  return findings;
+}
+
 // ── Check: broken links ───────────────────────────────────────────────
 
 function checkBrokenLinks(workspaceId: number, workspaceDir: string): Finding[] {
@@ -350,6 +384,7 @@ export async function validateWorkspace(ws: WorkspaceRow): Promise<ValidationRep
   const workspaceDir = getWorkspaceDir(ws);
 
   const allFindings: Finding[] = [
+    ...checkStaleMemories(ws.id),
     ...checkBrokenLinks(ws.id, workspaceDir),
     ...checkSchemaCompliance(ws.id, workspaceDir),
     ...checkDuplicateIds(ws.id),
