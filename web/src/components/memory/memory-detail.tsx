@@ -9,6 +9,7 @@ import { DynamicDocumentEditor, type DocumentEditorHandle } from '@/components/e
 import { EngyThreadStore } from '@/components/editor/document-editor';
 import { PromoteDialog } from './promote-dialog';
 import { RiDeleteBinLine, RiArrowUpLine, RiExternalLinkLine } from '@remixicon/react';
+import { VLink } from '@/components/tabs/virtual-link';
 import { cn } from '@/lib/utils';
 
 type MemoryKind = 'permanent' | 'fleeting';
@@ -249,13 +250,14 @@ function PermanentDetail({
               </span>
               <div className="flex flex-wrap gap-1">
                 {linkedMemories.map((path) => (
-                  <span
+                  <VLink
                     key={path}
-                    className="inline-flex items-center gap-0.5 text-[10px] font-mono border border-border px-1.5 py-0.5 text-muted-foreground"
+                    href={`/w/${workspaceSlug}/memory?path=${encodeURIComponent(path)}`}
+                    className="inline-flex items-center gap-0.5 text-[10px] font-mono border border-border px-1.5 py-0.5 text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors cursor-pointer"
                   >
                     <RiExternalLinkLine className="size-2.5" />
                     {path.split('/').pop() ?? path}
-                  </span>
+                  </VLink>
                 ))}
               </div>
             </div>
