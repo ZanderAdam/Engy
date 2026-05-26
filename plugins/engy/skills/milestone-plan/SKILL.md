@@ -62,15 +62,27 @@ For the selected milestone:
 When the user asks to plan a specific TG:
 
 1. Read the milestone doc's TG section (requirements, task outline, file ownership) as context. Update milestone doc status to `planning` if still `draft`.
-2. For each task in the TG, run `/engy:plan` to produce a detailed implementation plan.
+2. **For each task, decide whether `/engy:plan` is warranted.** A separate planning pass is only needed when the milestone doc's task block leaves real ambiguity. Run `/engy:plan` if **any** of the following apply:
+   - The task touches more than 2 files of non-trivial size.
+   - The task description is vague — contains "TBD", "implementer's choice", "decide between X and Y", or leaves a key design choice open.
+   - The task spans architectural boundaries (e.g., adds a new layer, changes a cross-cutting protocol, introduces a new pattern other tasks will follow).
+
+   Otherwise, the milestone doc's task block (title, file ownership, FR refs, acceptance criteria, brief description) is sufficient — skip `/engy:plan`.
 3. Create the task group and tasks via `createTaskGroup` / `createTask`.
    - Set `milestoneRef` on every task (e.g., `"m3"`) to link it to the milestone.
    - Set `specId` to the spec directory name so the task resolves to the correct spec path.
    - For multi-repo workspaces, pass the `repos` array when calling `createTaskGroup`.
-   - Set `needsPlan: false` — tasks already have detailed plans from step 2.
-   - Store the plan doc path on each task description.
+   - **For tasks that got a `/engy:plan` pass:** set `needsPlan: false` and store the plan doc path in the task description.
+   - **For tasks that didn't:** set `needsPlan: true` and copy the milestone doc's task block (files, FR refs, description, acceptance criteria) into the task description as-is. The implementer agent can still spin up its own plan pass at implementation time if it hits ambiguity.
 4. Verify structure via `listTasks` and `listTaskGroups`.
 5. When all TGs are planned and created, update milestone doc status to `complete`.
+
+#### Example: when to plan, when to skip
+
+Both tasks below come from the same TG. The first warrants `/engy:plan`; the second does not.
+
+- **Plan-warranted:** *"Wire spawn-event replay into mobile terminal sheet."* Touches `web/src/components/terminal/*`, `web/src/server/ws/handlers.ts`, and `client/src/terminal/session.ts` (3 files, 2 layers, cross-cutting protocol change). Run `/engy:plan`, store the plan path, `needsPlan: false`.
+- **Skip:** *"Add `status: 'planning'` to milestone plan doc frontmatter type."* Touches one file, the milestone doc's task block already lists the exact field, file, and acceptance criteria. Copy the task block into the description, `needsPlan: true` as a safety net.
 
 ## Vertical Slicing
 
@@ -224,6 +236,7 @@ created, anything the next TG's agents need to know. Leave blank until done.}
 - Keep milestones independent and shippable.
 - Set realistic dependencies — avoid over-constraining.
 - Plan content should explain the "how" and "why", not just list tasks.
+- **Milestone-doc detail absorbs `/engy:plan`.** A well-written milestone task block (file ownership, FR refs, acceptance criteria, concrete step-level intent) IS the plan for 1–4 hr tasks. Reserve `/engy:plan` for tasks with real ambiguity — multi-file, vague, or architecturally cross-cutting. When in doubt, lean on `needsPlan: true` so the implementer can plan at execution time if it hits friction.
 
 ## Flow Position
 
