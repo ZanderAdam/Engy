@@ -183,7 +183,7 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
     }
 
     if (store) {
-      let candidates;
+      let candidates: HybridQueryResult[] = [];
       try {
         candidates = await store.search({
           query: queryText,
