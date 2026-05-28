@@ -261,6 +261,28 @@ Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5.
 
 Phase 1 + 2 alone (~16-21h) gives the highest signal for the lowest cost. Recommend running them as a tight sprint before deciding whether to do 3-5.
 
+## Score history — calibration corpus
+
+Informal pre-Phase-1 calibration runs against a 134-zettel corpus seeded by 4 independent subagents from engy's own M1–M9 plans + spec + context docs. 15-question grading rubric (0/1/2; synthesis-aware): 5 conceptual "why" + 5 factual "where/what" + 3 bare identifier + 2 cross-cutting "X and Y".
+
+| Run | Method | Score | What changed |
+|---|---|---|---|
+| v1 | independent validator, raw `search.query` | 26/30 | baseline |
+| v2 | independent validator, simulated playbook (no link walk) | 27/30 | + intent tokens |
+| v3 | "real-agent" attempt (agent was not registered, validator simulated) | 26/30 | flat — same protocol as v1/v2 |
+| v4 | subtype-affinity reranking + MCP path fixes | 28/30 | server-side reranking flipped Q6/Q11/Q13 |
+| v5 | + near-tie disambiguation guidance | 28/30 | recovered Q4 (tied decisions); regressed elsewhere by judgment |
+| v6 | manual playbook applying full Wave A/B/C rules (BFS depth-2 + dedup + confidence tags) | 29/30 | BFS rescued multi-hop Q14; dedup fixed Q11; Q13 still partial |
+| **v7** | **first true real-agent run** (`engy:research` registered after fixing frontmatter) | **30/30** | research-only policy fixed Q12 (no longer invokes action tools); Q13 caught as catalogue rather than definition |
+
+Reports archived at `/tmp/validation-report-v{N}-*.md`. The v7 run is the first measurement against the actual production agent — prior runs (including v3) were manual playbook executions because the agent failed to register due to MCP tool names in its frontmatter (fixed in commits `47760e0` + `8982cc8`).
+
+**What this calibration teaches us before formal Phase 1–5:**
+- Subtype-affinity reranking and BFS link-walking both moved the needle on this corpus. Worth keeping in the production agent.
+- Synthesis-aware grading (digest quality, not top-1) is necessary — top-1 retrieval alone doesn't reflect what the user sees.
+- The research-only policy (Q12 fix) is a durable agent-behavior rule independent of any specific dataset. Apply across other action-named questions in formal eval sets.
+- An unregistered agent is invisible to evaluators — make sure the registered agent matches the docs/intent of the eval before running formal benchmarks.
+
 ## References
 
 - [BEIR Benchmark — GitHub](https://github.com/beir-cellar/beir)
