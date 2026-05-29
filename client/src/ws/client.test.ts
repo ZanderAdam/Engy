@@ -26,9 +26,13 @@ import * as os from 'node:os';
 import * as nodePath from 'node:path';
 import { simpleGit } from 'simple-git';
 
-vi.mock('node:fs/promises', () => ({
-  access: vi.fn(),
-}));
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...original,
+    access: vi.fn(),
+  };
+});
 
 vi.mock('../container/config-generator.js', () => ({
   generateDevcontainerConfig: vi.fn(),
@@ -1632,5 +1636,203 @@ describe('WsClient devcontainer config generate handler', () => {
       type: 'DEVCONTAINER_CONFIG_GENERATE_RESPONSE',
       payload: { requestId: 'gen-2', error: 'permission denied' },
     });
+  });
+});
+
+describe('WsClient dir list handler', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+  let tmpDir: string;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => {
+      wss.once('connection', resolve);
+    });
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => {
+      ws.once('message', (data) => resolve(data.toString()));
+    });
+  }
+
+  beforeEach(async () => {
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) {
+        resolve();
+      } else {
+        server.on('listening', () => resolve());
+      }
+    });
+    port = (server.address() as { port: number }).port;
+    tmpDir = mkdtempSync(nodePath.join(os.tmpdir(), 'dir-list-'));
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('includes dotfiles and previously skipped directories', async () => {
+    nodeFs.writeFileSync(nodePath.join(tmpDir, '.env'), 'X=1');
+    nodeFs.writeFileSync(nodePath.join(tmpDir, '.gitignore'), 'node_modules\n');
+    nodeFs.writeFileSync(nodePath.join(tmpDir, 'README.md'), '# hi');
+    nodeFs.mkdirSync(nodePath.join(tmpDir, 'node_modules'));
+    nodeFs.mkdirSync(nodePath.join(tmpDir, 'src'));
+
+    const connPromise = waitForConnection(server);
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    ws.send(
+      JSON.stringify({
+        type: 'DIR_LIST_REQUEST',
+        payload: { requestId: 'list-1', dirPath: tmpDir },
+      }),
+    );
+
+    const response = JSON.parse(await waitForMessage(ws));
+    expect(response).toEqual({
+      type: 'DIR_LIST_RESPONSE',
+      payload: {
+        requestId: 'list-1',
+        dirs: ['node_modules', 'src'],
+        files: ['.env', '.gitignore', 'README.md'],
+      },
+    });
+  });
+
+  it('returns error for unreadable path', async () => {
+    const connPromise = waitForConnection(server);
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const missing = nodePath.join(tmpDir, 'does-not-exist');
+    ws.send(
+      JSON.stringify({
+        type: 'DIR_LIST_REQUEST',
+        payload: { requestId: 'list-2', dirPath: missing },
+      }),
+    );
+
+    const response = JSON.parse(await waitForMessage(ws));
+    expect(response.type).toBe('DIR_LIST_RESPONSE');
+    expect(response.payload.requestId).toBe('list-2');
+    expect(response.payload.error).toBeDefined();
+  });
+});
+
+describe('WsClient search files handler', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+  let tmpDir: string;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => {
+      wss.once('connection', resolve);
+    });
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => {
+      ws.once('message', (data) => resolve(data.toString()));
+    });
+  }
+
+  beforeEach(async () => {
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) {
+        resolve();
+      } else {
+        server.on('listening', () => resolve());
+      }
+    });
+    port = (server.address() as { port: number }).port;
+    tmpDir = mkdtempSync(nodePath.join(os.tmpdir(), 'search-files-'));
+    mockedExecFile[promisify.custom].mockReset();
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('non-git fallback surfaces dotfiles and node_modules entries', async () => {
+    nodeFs.writeFileSync(nodePath.join(tmpDir, '.env'), 'X=1');
+    nodeFs.writeFileSync(nodePath.join(tmpDir, 'README.md'), '# hi');
+    nodeFs.mkdirSync(nodePath.join(tmpDir, 'node_modules'));
+    nodeFs.writeFileSync(nodePath.join(tmpDir, 'node_modules', 'pkg.json'), '{}');
+    nodeFs.mkdirSync(nodePath.join(tmpDir, '.config'));
+    nodeFs.writeFileSync(nodePath.join(tmpDir, '.config', 'settings.json'), '{}');
+
+    // Force non-git path by making `git rev-parse` reject.
+    mockedExecFile[promisify.custom].mockRejectedValue(new Error('not a git repo'));
+
+    const connPromise = waitForConnection(server);
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    ws.send(
+      JSON.stringify({
+        type: 'SEARCH_FILES_REQUEST',
+        payload: { requestId: 'search-1', dirs: [tmpDir], query: '', limit: 50 },
+      }),
+    );
+
+    const response = JSON.parse(await waitForMessage(ws));
+    expect(response.type).toBe('SEARCH_FILES_RESPONSE');
+    const paths = (response.payload.results as Array<{ path: string }>).map((r) => r.path);
+    expect(paths).toEqual(
+      expect.arrayContaining(['.env', 'README.md', 'node_modules/pkg.json', '.config/settings.json']),
+    );
+    // Confirm the fallback path was actually exercised (getGitRoot probed and failed).
+    const gitProbe = mockedExecFile[promisify.custom].mock.calls[0]?.[1];
+    expect(gitProbe).toEqual(expect.arrayContaining(['rev-parse', '--show-toplevel']));
+  });
+
+  it('git-backed search uses git ls-files (unchanged)', async () => {
+    // Force git path: rev-parse succeeds and returns the repo root,
+    // then ls-files returns a tracked file list.
+    const repoRoot = tmpDir;
+    mockedExecFile[promisify.custom]
+      .mockResolvedValueOnce({ stdout: `${repoRoot}\n`, stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'src/index.ts\nREADME.md\n', stderr: '' });
+
+    const connPromise = waitForConnection(server);
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    ws.send(
+      JSON.stringify({
+        type: 'SEARCH_FILES_REQUEST',
+        payload: { requestId: 'search-2', dirs: [repoRoot], query: '', limit: 50 },
+      }),
+    );
+
+    const response = JSON.parse(await waitForMessage(ws));
+    const paths = (response.payload.results as Array<{ path: string }>).map((r) => r.path);
+    // Exact match proves the git path was taken — fallback would have returned [] from the empty tmpDir.
+    expect(paths).toEqual(['src/index.ts', 'README.md']);
+    const gitCalls = mockedExecFile[promisify.custom].mock.calls;
+    expect(gitCalls[0]?.[1]).toEqual(expect.arrayContaining(['rev-parse', '--show-toplevel']));
+    expect(gitCalls[1]?.[1]).toEqual(expect.arrayContaining(['ls-files']));
   });
 });

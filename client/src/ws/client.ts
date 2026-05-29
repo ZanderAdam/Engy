@@ -138,7 +138,6 @@ async function validatePaths(paths: string[]): Promise<Array<{ path: string; exi
   );
 }
 
-const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '__pycache__']);
 const MAX_READDIR_DEPTH = 10;
 const EXEC_MAX_BUFFER = 10 * 1024 * 1024;
 
@@ -180,7 +179,6 @@ async function listDirFilesRecursive(
 
   const files: string[] = [];
   for (const entry of entries) {
-    if (entry.name.startsWith('.') || SKIP_DIRS.has(entry.name)) continue;
     const fullPath = path.join(currentDir, entry.name);
     if (entry.isFile()) {
       files.push(path.relative(rootDir, fullPath));
@@ -708,9 +706,6 @@ export class WsClient {
       const dirs: string[] = [];
       const files: string[] = [];
       for (const entry of entries) {
-        if (entry.name.startsWith('.')) continue;
-        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '__pycache__')
-          continue;
         if (entry.isDirectory()) dirs.push(entry.name);
         else if (entry.isFile()) files.push(entry.name);
       }
