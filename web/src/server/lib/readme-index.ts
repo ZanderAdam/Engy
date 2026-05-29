@@ -175,7 +175,7 @@ export function updateReadmeIndex(dirPath: string): void {
 
 export function regenerateReadmeChain(filePath: string): void {
   // Walk up from the file's directory, regenerating READMEs at each level.
-  // M7 supports one level of subdirs under collection roots — we walk up
+  // One level of subdirs under collection roots is supported — we walk up
   // until we hit the workspace dir (two levels up from collection root).
   let dir = path.dirname(filePath);
   const visited = new Set<string>();

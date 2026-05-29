@@ -194,7 +194,6 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
-  // TODO: Pending maps for daemon messages added in TG2 protocol types
   pendingRemoteFilePull: Map<
     string,
     {
