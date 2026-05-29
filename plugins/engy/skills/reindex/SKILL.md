@@ -77,4 +77,4 @@ Structured table followed by a one-line status:
 
 **Typical trigger:** user notices stale search results or runs a bulk file change.
 
-**Next step:** run `/engy:validate` to confirm integrity, or `/engy:research` to query the refreshed index.
+**Next step:** run `/engy:validate` to confirm integrity, or `/engy:knowledge-research` to query the refreshed index.

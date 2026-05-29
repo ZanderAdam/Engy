@@ -34,19 +34,24 @@ Guides a project through its full completion lifecycle: distillation, memory rev
 
 ## Phase 3: Memory Review
 
-After user confirms:
+After user confirms, invoke `engy:review-memories` directly via the Skill tool:
 
-1. Tell the user: "Now run `/engy:review-memories`. Wait for the user to confirm it's complete before proceeding."
-   - The user works through each candidate: approve, edit, supersede, contradict, or skip.
-   - This phase is interactive and may take time — do not rush or batch-skip candidates.
-2. When the user signals review-memories is complete, return to this orchestration flow.
+```
+Skill({ skill: 'engy:review-memories' })
+```
+
+The review skill is interactive — the user works through each candidate (approve, edit, supersede, contradict, skip). Do not rush or batch-skip. When it returns, continue to Phase 4.
 
 ## Phase 4: System Doc Proposals
 
-1. Tell the user: "Now run `/engy:propose-sysdocs`. Wait for the user to confirm it's complete before proceeding."
-   - The skill reads completed tasks and promoted memories to propose updates to `{workspaceDir}/system/` files.
-   - Changes are uncommitted working-tree writes — the user reviews them in the diff viewer.
-2. When the user signals propose-sysdocs is complete (or declines), return to this orchestration flow.
+Pause and ask: "Memory review is complete. Generate system doc proposals from the project's completed tasks and promoted memories? [yes/skip]"
+
+- **yes** — invoke `engy:propose-sysdocs` via the Skill tool:
+  ```
+  Skill({ skill: 'engy:propose-sysdocs' })
+  ```
+  Changes land uncommitted under `{workspaceDir}/system/` for diff-viewer review.
+- **skip** — continue to Phase 5.
 
 ## Phase 5: Archive
 

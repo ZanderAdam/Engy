@@ -1,5 +1,5 @@
 ---
-name: engy:research
+name: engy:knowledge-research
 description: Search the knowledge layer for prior decisions, patterns, facts, and conventions on a topic. Use when the user asks "what do we know about X?".
 ---
 

@@ -46,7 +46,7 @@ For each absolute repo path in `workspace.repos[]`, use built-in tools to build 
 - **Grep** for routing or feature-area markers (e.g., `router\.|app\.use|@Controller|export.*Route`) to spot major feature clusters.
 - **Read** a small set of high-signal entry-point files (one or two per repo) to confirm architecture.
 
-Focus on breadth over depth. The goal is a structural map, not line-by-line analysis. Cap exploration at roughly 8–12 tool calls per repo to stay within context budget.
+Focus on breadth over depth. The goal is a structural map, not line-by-line analysis.
 
 ### Step 4: Dispatch Research Subagent
 

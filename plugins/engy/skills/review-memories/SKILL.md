@@ -49,14 +49,7 @@ Using your own reasoning (no extra API calls), propose:
 
 #### 3a-bis. Atomicity check (block promotion if violated)
 
-Before proposing metadata, scan the fleeting body for content that doesn't support the central claim:
-
-- **Sibling-context bleed:** the body restates a fact or decision that has (or should have) its own memory. Example: a memory about diff-viewer UI that also explains how the daemon serves git ops — the daemon facts belong in a daemon memory.
-- **Multi-claim body:** the body has two distinct claims joined by "and" or "also". One memory, one claim — split into two fleeting memories (call `createFleetingMemory` again for the second), or trim down to the dominant claim and let the user re-capture the secondary one.
-
-If either is present, before presenting to the user, propose: "This memory mixes claim A with claim B. Promote A and re-capture B? [yes/no]". If yes, trim body to A, propose metadata for A, continue. If no, proceed but flag in the user prompt: "⚠ atomicity: this memory restates content that belongs in `<sibling-memory-path>` — review keywords carefully."
-
-Why this matters: search retrieval is sensitive to keyword density. A memory restating sibling content steals top-rank for queries it shouldn't answer.
+Before proposing metadata, scan the fleeting body for **sibling-context bleed** (restates a fact that belongs in another memory) or a **multi-claim body** (two distinct claims joined by "and"/"also"). If either is present, prompt the user to split or trim before continuing. See `references/atomicity.md` for examples and the split prompt.
 
 #### 3b. Similarity Check
 
@@ -141,39 +134,9 @@ Do nothing. Print: `Skipped.`
 
 #### 3f: Memory Evolution — Enrich Linked Siblings (runs after every successful promotion)
 
-After `promoteMemory` returns, read `linkedMemories` directly from the MCP response — the server awaits the auto-linker before returning, so the array is fully populated. Do **not** re-query the memory; use the value you already have.
+After `promoteMemory` returns, walk `linkedMemories[]` from the response and, for each sibling, propose 0–3 high-confidence keyword/theme additions and merge them via `updatePermanentMemory`. Additions only — never remove. Cap at 5 siblings per promotion, max 3 additions per sibling. Skip if `linkedMemories` is empty.
 
-If `linkedMemories` is empty in the response, autoLink either failed silently or found no siblings above the similarity threshold. Skip this step entirely — there is nothing to enrich.
-
-**Purpose (A-MEM rationale):** Most memory systems are purely additive — a new node is created and edges are drawn, but existing nodes stay untouched. A-MEM (Agentic Memory, NeurIPS 2025) shows that enriching linked siblings' metadata with what the new memory teaches improves multi-hop recall by 5–15%. Promotion is the right moment for this: the memory now has its final keywords and themes, giving the clearest signal.
-
-**Resolving a sibling path to its `id`** — `updatePermanentMemory` requires a numeric `id`. Resolve it with a filtered list call:
-```
-mcp__Engy__listMemories({ workspaceId, compact: false })
-// then find the entry whose filePath matches the sibling path
-```
-
-For each sibling path in the response's `linkedMemories` (up to 5, permanent memories only):
-
-1. Resolve the sibling's numeric `id` as above. If it cannot be resolved, skip this sibling.
-2. Read the sibling's current keywords and themes (from the resolved row, or from the similarity-check results in 3b).
-3. Apply this reasoning to yourself:
-
-   > "The newly promoted memory says: `<title> — <keywords> — <themes>`. The sibling memory says: `<sibling title> — <sibling keywords> — <sibling themes>`. Does the newly promoted memory reveal a genuine new connection that enriches this sibling's meaning? If yes, propose 0–3 keyword or theme additions that reflect this connection. Be conservative: only add terms you are high-confidence about. Additions only — never remove existing keywords or themes."
-
-4. **If** you identify 1–3 high-confidence additions:
-   - Call `mcp__Engy__updatePermanentMemory({ id: <sibling id>, keywords: <full merged list>, themes: <full merged list> })`.
-   - Pass the full merged arrays (existing + additions), not just the delta.
-   - Log: `Enriched sibling "<sibling title>" — added: <terms>`.
-5. **If** no high-confidence addition exists, skip the sibling silently.
-
-**Hard constraints:**
-- Maximum **3 additions** per sibling (keywords + themes combined).
-- Additions only — never remove existing keywords or themes.
-- Skip if the term is already present in the sibling's existing keywords or themes.
-- Skip fleeting memories and reference files — only permanent memories with a resolvable `id`.
-
-This step is inline (no subagent), fast, and silent on skips. It runs after every `approve`, `edit`, or `supersede` action and is invisible to the user unless enrichments actually occur.
+See `references/sibling-evolution.md` for the per-sibling procedure (id resolution, the enrichment prompt, and constraints).
 
 ### Step 4: Summary
 
@@ -204,3 +167,8 @@ Review complete.
 **Typical trigger:** after `/engy:complete-project` distillation phase, or standalone maintenance.
 
 **Next step (optional):** `/engy:propose-sysdocs` to surface patterns identified during review into system documentation.
+
+## Additional Resources
+
+- `references/atomicity.md` — examples and split-prompt logic for step 3a-bis.
+- `references/sibling-evolution.md` — per-sibling enrichment procedure and constraints for step 3f.

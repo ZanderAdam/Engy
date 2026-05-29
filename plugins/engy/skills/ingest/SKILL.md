@@ -31,18 +31,12 @@ Determine whether the source is **durable** (link) or **non-durable** (snapshot)
 - Blog posts, articles, Medium posts, Substack
 - PDFs from arbitrary URLs, emails, podcasts, whiteboard photos
 
-**URL fetch validation (applies when the input is a URL):**
-- Reject non-HTTP schemes (`file://`, `javascript:`, `gopher://`, etc.) — print an error and stop.
-- Cap fetched body at **5 MB**. If the response exceeds this, truncate and note `[truncated — original was N bytes]`.
-- Cap the extracted markdown snapshot body at **2 MB**. Truncate with the same marker if needed.
-- Cap redirect chains at **5 hops**. If exceeded, report the final URL reached and ask the user whether to proceed.
+**URL fetch:** reject non-HTTP schemes (`file://`, `javascript:`, etc.) — print an error and stop. If the fetched body looks pathologically large or the redirect chain looks suspicious, ask the user before continuing.
 
 **Granola transcripts:**
 - Fetch via `mcp__claude_ai_Granola__get_meeting_transcript` (or other `mcp__claude_ai_Granola__*` tools as needed).
 - If Granola MCP tools are not present, print: "Granola MCP is not configured. Install and configure the Granola MCP server, then retry." and stop.
 - Treat the result as a snapshot.
-
-**Very large sources** (e.g., a long meeting transcript): consider dispatching a dedicated Task for the classify + distill step (step 3) to keep the main context light. For typical sources, the main agent handles everything inline.
 
 ### Step 2: Write the Source Record
 
@@ -149,7 +143,7 @@ If no existing notes warrant changes, print "No candidate edits — no existing 
 
 ### Step 6: Commit
 
-After all writes for the ingest are done (source record, distillation, and candidate edits), run `git add` + `git commit` from the workspace dir using the Bash tool. One commit per ingest run, not per file. Use the structured `memory(ingest):` format from FR-TG1.8:
+After all writes for the ingest are done (source record, distillation, and candidate edits), run `git add` + `git commit` from the workspace dir using the Bash tool. One commit per ingest run, not per file. Use the structured `memory(ingest):` format:
 
 ```
 memory(ingest): <slug>
@@ -206,7 +200,6 @@ Next: run /engy:review-memories to promote the distillation when ready.
 - **No auto-promotion** — the fleeting distillation joins the standard `/engy:review-memories` lifecycle. Ingestion never promotes memories automatically.
 - **Main agent by default** — classify, write, and distill in the main agent context. Dispatch a Task subagent only for very large sources (long transcripts).
 - **Candidate edits are uncommitted** — user reviews via diff viewer before any permanent note is changed.
-- **Fetch safety** — enforce the 5 MB / 2 MB / 5-hop limits even if the user overrides; truncate rather than fail silently.
 - **No sibling evolution at ingest** — autoLink only fires on permanent memory creation/promotion, not on fleeting creation. Sibling enrichment happens exclusively in `/engy:review-memories` step 3f, where promotion provides the final keywords and themes.
 
 ## Flow Position

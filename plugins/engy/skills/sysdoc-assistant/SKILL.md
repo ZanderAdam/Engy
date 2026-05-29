@@ -27,7 +27,9 @@ Identify the active workspace from session/route context:
 - Otherwise call `mcp__Engy__listWorkspaces`. If multiple workspaces exist, ask the user which to target.
 - Call `mcp__Engy__getWorkspaceDetails({ workspaceId })` to get `paths.workspaceDir` and `paths.systemDir`.
 
-Set `systemDir = paths.systemDir` (= `{workspaceDir}/system/`). **Every Read/Write/Edit path in this skill must start with `systemDir` — verify the prefix before each call.**
+Set `systemDir = paths.systemDir` (= `{workspaceDir}/system/`).
+
+**Scope rule (load-bearing):** every Read/Write/Edit path in this skill must resolve to an absolute path starting with `${systemDir}`. Refuse anything else, even if the user requests it. For non-system context (codebase files, memories, project specs), use Read/Glob directly on those paths, never proxy them through this skill's edit flow.
 
 ### Step 2: List Existing System Docs
 
@@ -56,8 +58,8 @@ If Glob returns nothing, the `system/` tree is empty — suggest running `/engy:
 
 Ask the user which doc to work on:
 
-- **Existing file** — user picks from the list (or supplies a path). Verify the resolved absolute path is under `systemDir` before reading.
-- **New file** — user provides a name/path. Confirm it fits the `features/` or `technical/` convention. Verify the proposed absolute path is under `systemDir` before writing.
+- **Existing file** — user picks from the list (or supplies a path).
+- **New file** — user provides a name/path. Confirm it fits the `features/` or `technical/` convention.
 
 For an existing file, read it in full with built-in Read before proposing any edits:
 
@@ -92,17 +94,8 @@ Fold the returned `## Findings` digest into the proposed edit as inline citation
 ### Step 6: Propose and Apply Edit
 
 1. Show the user a **before/after diff** (or, for new files, a content preview) of the proposed change. Never write silently.
-2. On user approval, apply the change:
-   - **Edit existing file** — use built-in Edit with the absolute path under `systemDir`:
-     ```
-     Edit({ file_path: `${systemDir}/<relative-path>.md`, old_string, new_string })
-     ```
-   - **Create new file** — use built-in Write with the absolute path under `systemDir`:
-     ```
-     Write({ file_path: `${systemDir}/<relative-path>.md`, content })
-     ```
-3. **Before calling Write or Edit**, verify the resolved `file_path` starts with `systemDir`. If not, refuse the operation and report the scope violation to the user.
-4. Confirm the write and remind the user: "Change is uncommitted — review it in the diff viewer when ready."
+2. On user approval, apply the change with built-in Edit (existing file) or Write (new file). Per the scope rule in Step 1, the `file_path` must be an absolute path under `${systemDir}`.
+3. Confirm the write and remind the user: "Change is uncommitted — review it in the diff viewer when ready."
 
 ### Step 7: Continue or Exit
 
@@ -113,7 +106,6 @@ After each edit, ask: "Anything else to update in the system docs?"
 
 ## Key Principles
 
-- **Scope only `system/`** — every Read/Write/Edit must resolve to an absolute path with `${systemDir}` as its prefix. Refuse anything else, even if the user requests it. For non-system context (codebase files, memories, project specs), use Read/Glob directly on those paths, never proxy them through this skill's edit flow.
 - **One doc at a time** — this skill is interactive and focused. Do not bulk-write multiple files in one turn. For batch proposals, point the user at `/engy:propose-sysdocs`.
 - **Read before writing** — always Read an existing file in full before proposing an Edit.
 - **Show before writing** — always present a diff or content preview and wait for explicit approval before calling Write or Edit.
