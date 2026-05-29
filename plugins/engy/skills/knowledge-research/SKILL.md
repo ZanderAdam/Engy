@@ -15,9 +15,7 @@ Identify scope hints from the current session:
 - Active project name or slug
 - Active milestone ref (e.g., "m7")
 - Repo path if the question is repo-local
-- **workspaceId** — required by `engy:research`. If not already known, call `mcp__Engy__listWorkspaces` (or `mcp__Engy__getWorkspaceDetails`) to obtain it before dispatching.
-
-> In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
+- **workspaceId** — required by `engy:research`. If not already known, call `listWorkspaces` (or `getWorkspaceDetails`) to obtain it before dispatching.
 
 ### Step 2: Dispatch Research Subagent
 

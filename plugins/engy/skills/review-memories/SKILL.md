@@ -9,24 +9,21 @@ Batch-review unpromoted fleeting memories, enrich each one with LLM-proposed met
 
 ## MCP Tools
 
-> In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
-
-- `mcp__Engy__listWorkspaces` — discover workspaceId when not known from context
-- `mcp__Engy__listMemories({ workspaceId, compact: false })` — fetch all fleeting memories
-- `mcp__Engy__listMemories({ workspaceId, scope: 'permanent', compact: false })` — fetch permanent memories with enriched metadata (for sibling context and similarity checks)
-- `mcp__Engy__search({ workspaceId, query, collection: 'memory', limit: 5 })` — find similar permanent memories
-- `mcp__Engy__promoteMemory(...)` — promote approved fleeting to permanent (writes DB row + markdown file)
-- `mcp__Engy__updatePermanentMemory({ id, ... })` — mark existing permanent as superseded via `supersededById`
+- `listWorkspaces` — discover workspaceId when not known from context
+- `listMemories` — fetch all fleeting memories or permanent memories with enriched metadata
+- `search` — find similar permanent memories
+- `promoteMemory` — promote approved fleeting to permanent (writes DB row + markdown file)
+- `updatePermanentMemory` — mark existing permanent as superseded via `supersededById`
 
 ## Process
 
 ### Step 1: Identify Workspace
 
-Resolve the `workspaceId` from the current session/route context. If ambiguous, call `mcp__Engy__listWorkspaces` and ask the user which workspace to review.
+Resolve the `workspaceId` from the current session/route context. If ambiguous, call `listWorkspaces` and ask the user which workspace to review.
 
 ### Step 2: Fetch Candidates
 
-Call `mcp__Engy__listMemories({ workspaceId, compact: false })`. Filter the returned list client-side to entries where `promoted === false`. If no unpromoted memories exist, print "No unpromoted fleeting memories found." and stop.
+Call `listMemories({ workspaceId, compact: false })`. Filter the returned list client-side to entries where `promoted === false`. If no unpromoted memories exist, print "No unpromoted fleeting memories found." and stop.
 
 Show a one-line header: `Found <N> unpromoted fleeting memories. Starting review...`
 
@@ -58,7 +55,7 @@ Before proposing metadata, scan the fleeting body for **sibling-context bleed** 
 
 #### 3b. Similarity Check
 
-Call `mcp__Engy__search({ workspaceId, query: <fleeting.content>, collection: 'memory', limit: 5 })`.
+Call `search({ workspaceId, query: <fleeting.content>, collection: 'memory', limit: 5 })`.
 
 Collect any results with a score above ~0.6 (or the top 2–3 if scores are not available). These are candidates for duplicate / supersession / contradiction.
 
@@ -102,7 +99,7 @@ If the user types "stop", "done", or "exit", stop iterating immediately and jump
 #### 3e: Handle the Action
 
 **approve**
-Call `mcp__Engy__promoteMemory` with:
+Call `promoteMemory` with:
 ```
 {
   fleetingMemoryId: <id>,
@@ -118,14 +115,14 @@ After promotion, run the **sibling evolution step** (3f) on the newly linked mem
 Print: `Promoted → <permanent memory title>`
 
 **edit**
-Ask the user which fields to revise. Show the current proposed values; accept corrections. Re-display the revised block for confirmation, then call `mcp__Engy__promoteMemory` with the revised values.
+Ask the user which fields to revise. Show the current proposed values; accept corrections. Re-display the revised block for confirmation, then call `promoteMemory` with the revised values.
 After promotion, run the **sibling evolution step** (3f) on the newly linked memories.
 Print: `Promoted (edited) → <permanent memory title>`
 
 **supersede**
-1. Call `mcp__Engy__promoteMemory` with proposed metadata → get back `permanentMemoryId`.
+1. Call `promoteMemory` with proposed metadata → get back `permanentMemoryId`.
 2. For each flagged existing permanent memory that this supersedes, call:
-   `mcp__Engy__updatePermanentMemory({ id: <existing id>, supersededById: <new permanentMemoryId> })`
+   `updatePermanentMemory({ id: <existing id>, supersededById: <new permanentMemoryId> })`
    This writes `supersededById` into both the DB record and the memory's markdown frontmatter, so the supersession is durable on disk.
 After promotion, run the **sibling evolution step** (3f) on the newly linked memories.
 Print: `Promoted → <title>. Marked <existing title> as superseded.`
@@ -133,7 +130,7 @@ Print: `Promoted → <title>. Marked <existing title> as superseded.`
 **contradict**
 Do not promote the fleeting memory. Create a durable record of the finding by calling:
 ```
-mcp__Engy__createFleetingMemory({
+createFleetingMemory({
   workspaceId: <workspaceId>,
   content: "CONTRADICTION: fleeting memory <fleeting id> ('<fleeting title excerpt>') directly contradicts permanent memory <permanent id> ('<permanent title>'). Left unpromoted. Review manually.",
   tags: ["contradiction"]

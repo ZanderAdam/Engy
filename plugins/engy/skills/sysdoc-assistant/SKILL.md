@@ -11,11 +11,9 @@ Unlike `/engy:propose-sysdocs` (which proposes a batch of updates after project 
 
 ## MCP Tools
 
-In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
-
-- `mcp__Engy__listWorkspaces` — discover workspaceId when not in context
-- `mcp__Engy__getWorkspaceDetails` — resolve workspace paths (`paths.workspaceDir`, `paths.systemDir`)
-- `mcp__Engy__search({ workspaceId, query, collection: 'system', limit: 10 })` — find relevant existing system docs by topic _(skip gracefully if not yet available)_
+- `listWorkspaces` — discover workspaceId when not in context
+- `getWorkspaceDetails` — resolve workspace paths (`paths.workspaceDir`, `paths.systemDir`)
+- `search` — find relevant existing system docs by topic _(skip gracefully if not yet available)_
 
 All file operations use **built-in tools** (Glob, Read, Write, Edit) against absolute paths under `{workspaceDir}/system/`. The MCP server does not expose file IO — tRPC procedures are not callable from this context.
 
@@ -26,8 +24,8 @@ All file operations use **built-in tools** (Glob, Read, Write, Edit) against abs
 Identify the active workspace from session/route context:
 
 - If `workspaceId` is available from context, use it.
-- Otherwise call `mcp__Engy__listWorkspaces`. If multiple workspaces exist, ask the user which to target.
-- Call `mcp__Engy__getWorkspaceDetails({ workspaceId })` to get `paths.workspaceDir` and `paths.systemDir`.
+- Otherwise call `listWorkspaces`. If multiple workspaces exist, ask the user which to target.
+- Call `getWorkspaceDetails({ workspaceId })` to get `paths.workspaceDir` and `paths.systemDir`.
 
 Set `systemDir = paths.systemDir` (= `{workspaceDir}/system/`).
 

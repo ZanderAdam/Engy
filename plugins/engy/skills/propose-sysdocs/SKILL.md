@@ -9,14 +9,12 @@ Terminal skill that analyzes completed project work and promoted memories, then 
 
 ## MCP Tools
 
-In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
-
-- `mcp__Engy__listWorkspaces` — discover workspaceId when not in context
-- `mcp__Engy__getWorkspaceDetails` — resolve workspace paths, repos list
-- `mcp__Engy__getProjectDetails` — resolve project context and filesystem paths
-- `mcp__Engy__listTasks({ projectId, status: 'done', compact: false })` — fetch completed tasks
-- `mcp__Engy__listMemories({ workspaceId, scope: 'permanent', compact: false })` — fetch promoted permanent memories
-- `mcp__Engy__search({ workspaceId, query, collection: 'system', limit: 10 })` — find relevant existing system docs (skip gracefully if the workspace has no system collection yet)
+- `listWorkspaces` — discover workspaceId when not in context
+- `getWorkspaceDetails` — resolve workspace paths, repos list
+- `getProjectDetails` — resolve project context and filesystem paths
+- `listTasks` — fetch completed tasks
+- `listMemories` — fetch promoted permanent memories
+- `search` — find relevant existing system docs (skip gracefully if the workspace has no system collection yet)
 
 ## Process
 
@@ -25,8 +23,8 @@ In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are
 Identify the active workspace and project from the current session/route context:
 
 - If `workspaceId` / `projectId` are available from context, use them.
-- Otherwise call `mcp__Engy__listWorkspaces`. If multiple workspaces exist, ask the user which to target.
-- Call `mcp__Engy__getProjectDetails({ projectId })` to get the project name, workspace slug, filesystem paths (`paths.systemDir`, `paths.workspaceDir`), and `workspace.repos[]`.
+- Otherwise call `listWorkspaces`. If multiple workspaces exist, ask the user which to target.
+- Call `getProjectDetails({ projectId })` to get the project name, workspace slug, filesystem paths (`paths.systemDir`, `paths.workspaceDir`), and `workspace.repos[]`.
 
 `systemDir` = `{workspaceDir}/system/`
 
@@ -37,7 +35,7 @@ Run these in parallel:
 **Completed tasks:**
 
 ```
-mcp__Engy__listTasks({ projectId, status: 'done', compact: false })
+listTasks({ projectId, status: 'done', compact: false })
 ```
 
 Also fetch any tasks with status `'review'` or `'active'` to include in-progress context.
@@ -45,17 +43,17 @@ Also fetch any tasks with status `'review'` or `'active'` to include in-progress
 **Promoted permanent memories:**
 
 ```
-mcp__Engy__listMemories({ workspaceId, scope: 'permanent', compact: false })
+listMemories({ workspaceId, scope: 'permanent', compact: false })
 ```
 
 These are the distilled insights ready to be surfaced as system docs.
 
 **Existing system docs:**
 
-List the contents of `systemDir` using the Read tool. Read any existing files relevant to the project's domain. If `mcp__Engy__search` is available:
+List the contents of `systemDir` using the Read tool. Read any existing files relevant to the project's domain. If `search` is available:
 
 ```
-mcp__Engy__search({ workspaceId, query: '<project summary or focus area>', collection: 'system', limit: 10 })
+search({ workspaceId, query: '<project summary or focus area>', collection: 'system', limit: 10 })
 ```
 
 Use search results to scope which existing docs to read in full.

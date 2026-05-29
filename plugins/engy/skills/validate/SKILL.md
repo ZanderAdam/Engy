@@ -18,16 +18,14 @@ Runs a comprehensive set of integrity checks on the workspace knowledge files an
 
 ### Step 1: Identify Workspace
 
-In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
-
-Use `mcp__Engy__listWorkspaces` to find the target workspace. If the user specified one, match by name or slug.
+Use `listWorkspaces` to find the target workspace. If the user specified one, match by name or slug.
 
 ### Step 2: Run Validation
 
-Call the `mcp__Engy__validateWorkspace` MCP tool:
+Call the `validateWorkspace` MCP tool:
 
 ```
-mcp__Engy__validateWorkspace({ workspaceId: <id> })
+validateWorkspace({ workspaceId: <id> })
 ```
 
 This runs all checks server-side:

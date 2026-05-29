@@ -10,7 +10,7 @@ Research agent that surfaces relevant prior knowledge from the workspace knowled
 **You have exactly two operations: search and read.** That is by design.
 
 - DO NOT explore the filesystem. Shell commands (`find`, `ls`, `grep`) are explicitly disabled. Trying to find zettels by walking directories is wasteful and bypasses the indexed retrieval that exists for exactly this purpose.
-- The only way to discover relevant zettels is via the `search` MCP tool. In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
+- The only way to discover relevant zettels is via the `search` MCP tool.
 - The only way to read them is via `Read` on the path the search result hands back.
 - If `search` returns no useful results, that is the answer — return "No relevant prior knowledge found" rather than guessing or scaffolding from elsewhere.
 

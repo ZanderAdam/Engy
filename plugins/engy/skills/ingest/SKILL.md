@@ -9,13 +9,11 @@ Takes a URL, file path, raw text, or transcript reference (e.g., a Granola meeti
 
 ## MCP Tools
 
-In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
-
-- `mcp__Engy__listWorkspaces` — resolve workspaceId when not in context
-- `mcp__Engy__getWorkspaceDetails` — resolve workspace paths (`paths.memoryDir`)
-- `mcp__Engy__writeSourceSnapshot` — write a snapshot file, deduping by SHA-256; returns `{ filePath: string; reused: boolean }`
-- `mcp__Engy__createFleetingMemory` — draft the fleeting distillation
-- `mcp__Engy__reindex` — trigger incremental memory reindex after writing
+- `listWorkspaces` — resolve workspaceId when not in context
+- `getWorkspaceDetails` — resolve workspace paths (`paths.memoryDir`)
+- `writeSourceSnapshot` — write a snapshot file, deduping by SHA-256; returns `{ filePath: string; reused: boolean }`
+- `createFleetingMemory` — draft the fleeting distillation
+- `reindex` — trigger incremental memory reindex after writing
 
 ## Process
 
@@ -45,7 +43,7 @@ Determine whether the source is **durable** (link) or **non-durable** (snapshot)
 
 Write the source record to disk **before** dispatching research. This ensures the research subagent reads from the immutable on-disk artifact, not transient text.
 
-Resolve `memoryDir` via `mcp__Engy__getWorkspaceDetails`. If `memoryDir` is not available from context, fall back to `{workspaceDir}/memory/`.
+Resolve `memoryDir` via `getWorkspaceDetails`. If `memoryDir` is not available from context, fall back to `{workspaceDir}/memory/`.
 
 #### Link (durable source)
 
@@ -62,10 +60,10 @@ description: <one-sentence summary>
 
 #### Snapshot (non-durable source)
 
-Call `mcp__Engy__writeSourceSnapshot` with the workspaceId, content, and provenance fields (flat params):
+Call `writeSourceSnapshot` with the workspaceId, content, and provenance fields (flat params):
 
 ```
-mcp__Engy__writeSourceSnapshot({
+writeSourceSnapshot({
   workspaceId: <id>,
   title: <human-readable title>,
   content: <snapshot content>,
@@ -82,10 +80,10 @@ The tool writes `memory/sources/{YYYYMMDDHHmm}-{slug}.md` (the `ingester` field 
 
 ### Step 3: Draft a Fleeting Distillation
 
-Call `mcp__Engy__createFleetingMemory` with a four-part distillation as the `content` and pass the source path via the `sources` field:
+Call `createFleetingMemory` with a four-part distillation as the `content` and pass the source path via the `sources` field:
 
 ```
-mcp__Engy__createFleetingMemory({
+createFleetingMemory({
   workspaceId: <id>,
   type: 'capture',
   source: 'agent',
@@ -177,7 +175,7 @@ Use `git log --grep='^memory(ingest):'` to audit the operations log.
 Call the `reindex` MCP tool to update the memory search index:
 
 ```
-mcp__Engy__reindex({
+reindex({
   workspaceId: <id>,
   collection: 'memory',
   full: false

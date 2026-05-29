@@ -14,7 +14,7 @@ For each sibling path in the response's `linkedMemories` (cap at 5, permanent me
 
 1. **Resolve numeric id.** `updatePermanentMemory` requires a numeric `id`. Resolve with:
    ```
-   mcp__Engy__listMemories({ workspaceId, scope: 'permanent', compact: false })
+   listMemories({ workspaceId, scope: 'permanent', compact: false })
    // then find the entry whose filePath matches the sibling path
    ```
    Passing `scope: 'permanent'` returns enriched permanent metadata (keywords, themes, tags) rather than fleeting fields, making the merge step more reliable. If id cannot be resolved, skip this sibling.
@@ -25,7 +25,7 @@ For each sibling path in the response's `linkedMemories` (cap at 5, permanent me
    > "The newly promoted memory says: `<title> — <keywords> — <themes>`. The sibling memory says: `<sibling title> — <sibling keywords> — <sibling themes>`. Does the newly promoted memory reveal a genuine new connection that enriches this sibling's meaning? If yes, propose 0–3 keyword or theme additions that reflect this connection. Be conservative: only add terms you are high-confidence about. Additions only — never remove existing keywords or themes."
 
 4. **If 1–3 high-confidence additions exist:**
-   - Call `mcp__Engy__updatePermanentMemory({ id: <sibling id>, keywords: <full merged list>, themes: <full merged list> })`.
+   - Call `updatePermanentMemory({ id: <sibling id>, keywords: <full merged list>, themes: <full merged list> })`.
    - Pass the **full merged arrays** (existing + additions), not just the delta.
    - Log: `Enriched sibling "<sibling title>" — added: <terms>`.
 

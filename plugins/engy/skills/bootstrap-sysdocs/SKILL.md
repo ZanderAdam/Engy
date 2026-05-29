@@ -9,11 +9,9 @@ Terminal skill that produces the initial set of system documentation files for a
 
 ## MCP Tools
 
-In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
-
-- `mcp__Engy__listWorkspaces` — discover workspaceId when not in context
-- `mcp__Engy__getWorkspaceDetails` — resolve workspace paths (`paths.workspaceDir`, `paths.systemDir`) and `repos[]`
-- `mcp__Engy__search({ workspaceId, query, collection: 'system', limit: 10 })` — locate any existing system docs to avoid clobbering (skip gracefully if the workspace has no system collection yet)
+- `listWorkspaces` — discover workspaceId when not in context
+- `getWorkspaceDetails` — resolve workspace paths (`paths.workspaceDir`, `paths.systemDir`) and `repos[]`
+- `search` — locate any existing system docs to avoid clobbering (skip gracefully if the workspace has no system collection yet)
 
 All codebase exploration uses the built-in **Glob**, **Grep**, and **Read** tools directly against the absolute repo paths returned in `workspace.repos[]`. All file writes use the built-in **Write** tool against absolute paths under `{workspaceDir}/system/`.
 
@@ -24,17 +22,17 @@ All codebase exploration uses the built-in **Glob**, **Grep**, and **Read** tool
 Identify the active workspace from session/route context:
 
 - If `workspaceId` is available from context, use it.
-- Otherwise call `mcp__Engy__listWorkspaces`. If multiple workspaces exist, ask the user which to target.
-- Call `mcp__Engy__getWorkspaceDetails({ workspaceId })` to obtain `paths.workspaceDir`, `paths.systemDir`, and `repos[]` (absolute paths on disk).
+- Otherwise call `listWorkspaces`. If multiple workspaces exist, ask the user which to target.
+- Call `getWorkspaceDetails({ workspaceId })` to obtain `paths.workspaceDir`, `paths.systemDir`, and `repos[]` (absolute paths on disk).
 
 `systemDir` = `{workspaceDir}/system/`
 
 ### Step 2: Check Existing System Docs
 
-Use **Glob** against `{systemDir}/**/*.md` to enumerate any existing docs. If `mcp__Engy__search` is available, also run:
+Use **Glob** against `{systemDir}/**/*.md` to enumerate any existing docs. If `search` is available, also run:
 
 ```
-mcp__Engy__search({ workspaceId, query: 'overview architecture', collection: 'system', limit: 10 })
+search({ workspaceId, query: 'overview architecture', collection: 'system', limit: 10 })
 ```
 
 **Non-destructive rule:** never overwrite an existing file. For each planned output path, check whether the file already exists:
