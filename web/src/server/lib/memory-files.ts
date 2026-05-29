@@ -19,6 +19,7 @@ export interface PermanentMemoryFrontmatter {
   linkedMemories?: string[];
   scenarioIds?: string[];
   sources?: string[];
+  supersededBy?: string;
 }
 
 interface PermanentMemoryFile {
@@ -30,8 +31,10 @@ interface PermanentMemoryFile {
 interface SourceSnapshotFrontmatter {
   title: string;
   url?: string;
+  origin?: string;
   source_type: string;
   ingester?: string;
+  ingested_at?: string;
   content_hash: string;
 }
 
@@ -190,7 +193,7 @@ export async function writePermanentMemory(
     for (const l of fm.linkedMemories) validateLinkedMemoryPath(l, workspaceDir);
   }
 
-  const safeFm = {
+  const safeFm: PermanentMemoryFrontmatter & Record<string, unknown> = {
     ...fm,
     keywords: fm.keywords ?? [],
     themes: fm.themes ?? [],
@@ -199,6 +202,7 @@ export async function writePermanentMemory(
     scenarioIds: fm.scenarioIds ?? [],
     sources: fm.sources ?? [],
   };
+  if (fm.supersededBy) safeFm.supersededBy = fm.supersededBy;
 
   const slug = toSlug(fm.title);
   const ts = nowTimestamp();
@@ -266,6 +270,7 @@ export function readPermanentMemory(filePath: string, workspaceDir: string): Per
       linkedMemories,
       scenarioIds,
       sources,
+      supersededBy: typeof data.supersededBy === 'string' ? data.supersededBy : undefined,
     },
     content: parsed.content,
     filePath,
@@ -438,7 +443,7 @@ export async function rewritePermanentMemory(
   const allowed = Object.values(SUBTYPE_DIR_MAP).map((dirName) => `memory/${dirName}`);
   assertWithinAllowedDirs(existingRelPath, workspaceDir, allowed, 'Memory file path');
 
-  const safeFm = {
+  const safeFm: PermanentMemoryFrontmatter & Record<string, unknown> = {
     ...fm,
     keywords: fm.keywords ?? [],
     themes: fm.themes ?? [],
@@ -447,6 +452,7 @@ export async function rewritePermanentMemory(
     scenarioIds: fm.scenarioIds ?? [],
     sources: fm.sources ?? [],
   };
+  if (fm.supersededBy) safeFm.supersededBy = fm.supersededBy;
 
   const safeBody = escapeIndexMarkers(body);
   const fileContent = matter.stringify(safeBody, safeFm);

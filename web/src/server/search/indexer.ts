@@ -192,6 +192,24 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
 
       const now = new Date().toISOString();
 
+      // Resolve supersededBy path -> supersededById only when frontmatter has it set.
+      // When the file has no supersededBy key, preserve the existing DB value rather
+      // than resetting to null — the DB is the authoritative source for supersession.
+      let supersededByIdUpdate: { supersededById: number | null } | Record<string, never> = {};
+      if (typeof fm.supersededBy === 'string' && fm.supersededBy) {
+        const superseder = db
+          .select({ id: permanentMemories.id })
+          .from(permanentMemories)
+          .where(
+            and(
+              eq(permanentMemories.workspaceId, ws.id),
+              eq(permanentMemories.filePath, fm.supersededBy as string),
+            ),
+          )
+          .get();
+        supersededByIdUpdate = { supersededById: superseder?.id ?? null };
+      }
+
       if (existing) {
         db.update(permanentMemories)
           .set({
@@ -208,6 +226,7 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
               : [],
             scenarioIds: Array.isArray(fm.scenarioIds) ? (fm.scenarioIds as string[]) : [],
             sources: Array.isArray(fm.sources) ? (fm.sources as string[]) : [],
+            ...supersededByIdUpdate,
             updatedAt: now,
           })
           .where(eq(permanentMemories.id, existing.id))
@@ -230,6 +249,7 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
               : [],
             scenarioIds: Array.isArray(fm.scenarioIds) ? (fm.scenarioIds as string[]) : [],
             sources: Array.isArray(fm.sources) ? (fm.sources as string[]) : [],
+            ...supersededByIdUpdate,
             createdAt: now,
             updatedAt: now,
           })

@@ -344,6 +344,50 @@ describe('memory-files', () => {
     });
   });
 
+  describe('writeSourceSnapshot provenance fields', () => {
+    it('should persist origin and ingested_at fields in frontmatter', async () => {
+      const { filePath } = await writeSourceSnapshot(
+        workspaceDir,
+        {
+          title: 'Provenance Test',
+          source_type: 'web',
+          origin: 'example.com',
+          ingester: 'mcp',
+          ingested_at: '2026-01-01T00:00:00.000Z',
+        },
+        'Content with provenance.',
+      );
+
+      // The raw markdown file should contain the provenance fields in frontmatter.
+      const raw = fs.readFileSync(path.join(workspaceDir, filePath), 'utf8');
+      expect(raw).toContain('origin: example.com');
+      expect(raw).toContain("ingested_at: '2026-01-01T00:00:00.000Z'");
+      expect(raw).toContain('ingester: mcp');
+    });
+
+    it('should return deduplicated:true and no new file for identical content', async () => {
+      const body = 'Exactly the same content for dedup verification.';
+      const first = await writeSourceSnapshot(
+        workspaceDir,
+        { title: 'First', source_type: 'paste', ingester: 'mcp', ingested_at: '2026-01-01T00:00:00.000Z' },
+        body,
+      );
+      expect(first.deduplicated).toBe(false);
+
+      const second = await writeSourceSnapshot(
+        workspaceDir,
+        { title: 'Second', source_type: 'paste', origin: 'clipboard', ingester: 'mcp' },
+        body,
+      );
+      expect(second.filePath).toBe(first.filePath);
+      expect(second.deduplicated).toBe(true);
+
+      const sourcesDir = path.join(workspaceDir, 'memory', 'sources');
+      const snapshots = fs.readdirSync(sourcesDir).filter((f) => f.endsWith('.md') && f !== 'README.md');
+      expect(snapshots).toHaveLength(1);
+    });
+  });
+
   describe('readSourceSnapshot validation', () => {
     it('should reject file missing frontmatter delimiters', () => {
       const p = path.join(workspaceDir, 'memory', 'sources', 'bad.md');

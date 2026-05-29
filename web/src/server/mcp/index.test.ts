@@ -762,6 +762,270 @@ describe('MCP Server', () => {
     });
   });
 
+  describe('writeSourceSnapshot tool', () => {
+    let workspaceId: number;
+    let wsSlug: string;
+
+    beforeEach(async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const ws = await caller.workspace.create({ name: 'Snapshot Test WS' });
+      wsSlug = ws.slug;
+      const db = getDb();
+      const wsRow = db.select().from(workspaces).where(eq(workspaces.slug, wsSlug)).get()!;
+      workspaceId = wsRow.id;
+    });
+
+    it('should write a source file with provenance frontmatter', async () => {
+      const mcp = getMcpServer();
+      const { data, isError } = await callTool(mcp, 'writeSourceSnapshot')({
+        workspaceId,
+        title: 'Auth Research Article',
+        content: 'Body content of the article about authentication.',
+        sourceType: 'web',
+        url: 'https://example.com/auth',
+        origin: 'example.com',
+        ingestedAt: '2026-01-01T00:00:00.000Z',
+      });
+
+      expect(isError).toBe(false);
+      expect(data).toHaveProperty('filePath');
+      expect(data.reused).toBe(false);
+
+      const wsDir = path.join(ctx.tmpDir, wsSlug);
+      const absPath = path.join(wsDir, data.filePath);
+      expect(fs.existsSync(absPath)).toBe(true);
+
+      const raw = fs.readFileSync(absPath, 'utf8');
+      expect(raw).toContain('Auth Research Article');
+      expect(raw).toContain('source_type: web');
+      expect(raw).toContain('origin: example.com');
+      expect(raw).toContain('ingester: mcp');
+      expect(raw).toContain('content_hash:');
+    });
+
+    it('should return reused:true and no duplicate file for identical content', async () => {
+      const body = 'Exactly identical content for MCP dedup test.';
+      const mcp = getMcpServer();
+      const call = callTool(mcp, 'writeSourceSnapshot');
+
+      const { data: first, isError: firstErr } = await call({
+        workspaceId,
+        title: 'First Ingest',
+        content: body,
+        sourceType: 'paste',
+      });
+      expect(firstErr).toBe(false);
+      expect(first.reused).toBe(false);
+
+      const { data: second, isError: secondErr } = await call({
+        workspaceId,
+        title: 'Second Ingest Same Body',
+        content: body,
+        sourceType: 'paste',
+      });
+      expect(secondErr).toBe(false);
+      expect(second.filePath).toBe(first.filePath);
+      expect(second.reused).toBe(true);
+
+      const wsDir = path.join(ctx.tmpDir, wsSlug);
+      const sourcesDir = path.join(wsDir, 'memory', 'sources');
+      const snapshots = fs.readdirSync(sourcesDir).filter((f) => f.endsWith('.md') && f !== 'README.md');
+      expect(snapshots).toHaveLength(1);
+    });
+  });
+
+  describe('updatePermanentMemory tool', () => {
+    let workspaceId: number;
+    let wsSlug: string;
+
+    beforeEach(async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const ws = await caller.workspace.create({ name: 'Update PM Test WS' });
+      wsSlug = ws.slug;
+      const db = getDb();
+      const wsRow = db.select().from(workspaces).where(eq(workspaces.slug, wsSlug)).get()!;
+      workspaceId = wsRow.id;
+    });
+
+    afterEach(() => {
+      _resetStoreCache();
+    });
+
+    it('should set supersededById in DB and write supersededBy path to frontmatter', async () => {
+      process.env.QMD_SKIP = '1';
+      try {
+        const db = getDb();
+
+        // Create the "old" memory via the MCP createPermanentMemory tool so it has a file.
+        const mcp = getMcpServer();
+        const { data: oldData } = await callTool(mcp, 'createPermanentMemory')({
+          workspaceId,
+          subtype: 'fact',
+          title: 'Old Fact',
+          content: 'This is the old fact body.',
+          keywords: ['old', 'fact'],
+        });
+        expect(oldData).toHaveProperty('filePath');
+
+        const { data: newData } = await callTool(getMcpServer(), 'createPermanentMemory')({
+          workspaceId,
+          subtype: 'fact',
+          title: 'New Fact',
+          content: 'This is the replacement fact.',
+        });
+        expect(newData).toHaveProperty('filePath');
+
+        const oldRow = db.select().from(permanentMemories).where(eq(permanentMemories.id, oldData.id)).get()!;
+        const newRow = db.select().from(permanentMemories).where(eq(permanentMemories.id, newData.id)).get()!;
+
+        // Update old memory to be superseded by new memory.
+        const { data: updateResult, isError } = await callTool(getMcpServer(), 'updatePermanentMemory')({
+          id: oldRow.id,
+          supersededById: newRow.id,
+        });
+
+        expect(isError).toBe(false);
+        expect(updateResult.success).toBe(true);
+
+        // DB column must be set.
+        const afterUpdate = db.select().from(permanentMemories).where(eq(permanentMemories.id, oldRow.id)).get()!;
+        expect(afterUpdate.supersededById).toBe(newRow.id);
+
+        // Markdown frontmatter must contain supersededBy with the new memory's path.
+        const wsDir = path.join(ctx.tmpDir, wsSlug);
+        const raw = fs.readFileSync(path.join(wsDir, oldRow.filePath!), 'utf8');
+        expect(raw).toContain('supersededBy:');
+        expect(raw).toContain(newRow.filePath!);
+      } finally {
+        delete process.env.QMD_SKIP;
+      }
+    });
+  });
+
+  describe('listMemories scope param', () => {
+    let workspaceId: number;
+
+    beforeEach(() => {
+      const db = getDb();
+      const ws = db.insert(workspaces).values({ name: 'Scope Test WS', slug: 'scope-test' }).returning().get();
+      workspaceId = ws.id;
+    });
+
+    it('default scope (fleeting) returns only fleeting memories as flat array', async () => {
+      const db = getDb();
+      db.insert(fleetingMemories)
+        .values({ workspaceId, content: 'A fleeting', type: 'capture', source: 'agent' })
+        .run();
+      db.insert(permanentMemories)
+        .values({
+          workspaceId,
+          subtype: 'fact',
+          title: 'A Permanent',
+          content: 'Some fact',
+          filePath: 'memory/facts/a-permanent.md',
+        })
+        .run();
+
+      const mcp = getMcpServer();
+      const { data } = await callTool(mcp, 'listMemories')({ workspaceId });
+
+      // Flat array — fleeting-only backward-compat
+      expect(Array.isArray(data)).toBe(true);
+      expect(data).toHaveLength(1);
+      expect(data[0]).not.toHaveProperty('subtype');
+    });
+
+    it('scope:permanent returns permanent rows with subtype, title, and keywords', async () => {
+      const db = getDb();
+      db.insert(permanentMemories)
+        .values({
+          workspaceId,
+          subtype: 'fact',
+          title: 'Cache Expiry Fact',
+          content: 'All caches expire.',
+          filePath: 'memory/facts/cache-expiry.md',
+          keywords: ['cache', 'expiry'],
+        })
+        .run();
+
+      const mcp = getMcpServer();
+      const { data } = await callTool(mcp, 'listMemories')({ workspaceId, scope: 'permanent' });
+
+      // Returns { permanent: [...] }
+      expect(data).toHaveProperty('permanent');
+      expect(Array.isArray(data.permanent)).toBe(true);
+      expect(data.permanent).toHaveLength(1);
+      const row = data.permanent[0];
+      expect(row.subtype).toBe('fact');
+      expect(row.title).toBe('Cache Expiry Fact');
+      expect(row.keywords).toEqual(['cache', 'expiry']);
+    });
+
+    it('scope:both returns both fleeting and permanent arrays', async () => {
+      const db = getDb();
+      db.insert(fleetingMemories)
+        .values({ workspaceId, content: 'Fleeting thought', type: 'idea', source: 'user' })
+        .run();
+      db.insert(permanentMemories)
+        .values({
+          workspaceId,
+          subtype: 'insight',
+          title: 'Permanent insight',
+          content: 'An important insight.',
+          filePath: 'memory/insights/permanent-insight.md',
+        })
+        .run();
+
+      const mcp = getMcpServer();
+      const { data } = await callTool(mcp, 'listMemories')({ workspaceId, scope: 'both' });
+
+      expect(data).toHaveProperty('fleeting');
+      expect(data).toHaveProperty('permanent');
+      expect(data.fleeting).toHaveLength(1);
+      expect(data.permanent).toHaveLength(1);
+    });
+
+    it('scope:permanent compact:false includes content field', async () => {
+      const db = getDb();
+      db.insert(permanentMemories)
+        .values({
+          workspaceId,
+          subtype: 'convention',
+          title: 'Test Convention',
+          content: 'Always write tests.',
+          filePath: 'memory/conventions/test-convention.md',
+        })
+        .run();
+
+      const mcp = getMcpServer();
+      const { data } = await callTool(mcp, 'listMemories')({
+        workspaceId,
+        scope: 'permanent',
+        compact: false,
+      });
+
+      expect(data.permanent[0].content).toBe('Always write tests.');
+    });
+
+    it('scope:permanent compact:true (default) omits content', async () => {
+      const db = getDb();
+      db.insert(permanentMemories)
+        .values({
+          workspaceId,
+          subtype: 'pattern',
+          title: 'Repo Pattern',
+          content: 'Use repository pattern.',
+          filePath: 'memory/patterns/repo-pattern.md',
+        })
+        .run();
+
+      const mcp = getMcpServer();
+      const { data } = await callTool(mcp, 'listMemories')({ workspaceId, scope: 'permanent' });
+
+      expect(data.permanent[0]).not.toHaveProperty('content');
+    });
+  });
+
   describe('promoteMemory tool', () => {
     let wsId: number;
     let wsSlug: string;

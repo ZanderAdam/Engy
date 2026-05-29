@@ -240,6 +240,31 @@ describe('memory router', () => {
       expect(updated.supersededById).toBe(replacement.id);
     });
 
+    it('should write supersededBy path to markdown frontmatter when supersededById is set', async () => {
+      const created = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Superseded Fact',
+        content: 'This is the old content.',
+      });
+      const replacement = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Replacement Fact',
+        content: 'This is the new content.',
+      });
+
+      await caller.memory.update({
+        id: created.id,
+        supersededById: replacement.id,
+      });
+
+      const wsDir = path.join(ctx.tmpDir, workspaceSlug);
+      const raw = fs.readFileSync(path.join(wsDir, created.filePath!), 'utf8');
+      expect(raw).toContain('supersededBy:');
+      expect(raw).toContain(replacement.filePath!);
+    });
+
     it('should trigger an incremental reindex after updating', async () => {
       const mockUpdate = vi.mocked(indexerUpdate);
       mockUpdate.mockClear();

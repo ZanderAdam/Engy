@@ -24,7 +24,7 @@ import { getWorkspaceDir, resolveProjectDir } from '../engy-dir/init';
 import { readTaskPlan } from '../plan/service';
 import { broadcastTaskChange, broadcastQuestionChange } from '../ws/broadcast';
 import { taskStatusSchema } from '@/lib/task-status';
-import { writePermanentMemory, rewritePermanentMemory } from '../lib/memory-files';
+import { writePermanentMemory, rewritePermanentMemory, writeSourceSnapshot } from '../lib/memory-files';
 import { update as indexerUpdate, forceFullReindex, updateAndEmbed } from '../search/indexer';
 import { autoLink } from '../search/auto-linker';
 import { validateWorkspace as runValidateWorkspace } from '../search/validate';
@@ -711,22 +711,39 @@ function registerMemoryTools(mcp: McpServer): void {
 
   mcp.tool(
     'listMemories',
-    'List fleeting memories for a workspace. Compact mode (default) omits content.',
+    'List memories for a workspace. Compact mode (default) omits content. Use scope to include permanent memories.',
     {
       workspaceId: z.number().optional().describe('Filter by workspace ID'),
       compact: z.boolean().default(true).describe('Omit content field (default true)'),
+      scope: z
+        .enum(['fleeting', 'permanent', 'both'])
+        .default('fleeting')
+        .describe("Which memory store to query: 'fleeting' (default), 'permanent', or 'both'"),
     },
-    async ({ workspaceId, compact }) => {
+    async ({ workspaceId, compact, scope: scopeParam }) => {
+      const scope = scopeParam ?? 'fleeting';
       const db = getDb();
+      const result: Record<string, unknown> = {};
 
-      const rows = workspaceId !== undefined
-        ? db.select().from(fleetingMemories).where(eq(fleetingMemories.workspaceId, workspaceId)).all()
-        : db.select().from(fleetingMemories).all();
-
-      if (compact !== false) {
-        return mcpResult(omitKey(rows, 'content'));
+      if (scope === 'fleeting' || scope === 'both') {
+        const rows = workspaceId !== undefined
+          ? db.select().from(fleetingMemories).where(eq(fleetingMemories.workspaceId, workspaceId)).all()
+          : db.select().from(fleetingMemories).all();
+        result.fleeting = compact !== false ? omitKey(rows, 'content') : rows;
       }
-      return mcpResult(rows);
+
+      if (scope === 'permanent' || scope === 'both') {
+        const rows = workspaceId !== undefined
+          ? db.select().from(permanentMemories).where(eq(permanentMemories.workspaceId, workspaceId)).all()
+          : db.select().from(permanentMemories).all();
+        result.permanent = compact !== false ? omitKey(rows, 'content') : rows;
+      }
+
+      // Back-compat: fleeting-only scope returns a flat array (same as before)
+      if (scope === 'fleeting') {
+        return mcpResult(result.fleeting);
+      }
+      return mcpResult(result);
     },
   );
 
@@ -812,6 +829,7 @@ function registerMemoryTools(mcp: McpServer): void {
       scenarioIds: z.array(z.string()).optional().describe('New scenario ID anchors'),
       sources: z.array(z.string()).optional().describe('New source paths'),
       linkedMemories: z.array(z.string()).optional().describe('New linked memory paths'),
+      supersededById: z.number().nullable().optional().describe('ID of the memory that supersedes this one'),
     },
     async ({ id, ...updates }) => {
       const db = getDb();
@@ -835,20 +853,32 @@ function registerMemoryTools(mcp: McpServer): void {
       const resolvedContent = updates.content ?? existing.content;
       const resolvedSubtype = existing.subtype;
 
+      // Resolve supersededBy path for frontmatter when supersededById is set
+      let supersededByPath: string | undefined;
+      if (updates.supersededById != null) {
+        const superseder = db
+          .select({ filePath: permanentMemories.filePath })
+          .from(permanentMemories)
+          .where(eq(permanentMemories.id, updates.supersededById))
+          .get();
+        supersededByPath = superseder?.filePath ?? undefined;
+      }
+
+      const resolvedRepo = 'repo' in updates ? updates.repo : existing.repo;
+      const resolvedConfidence = 'confidence' in updates ? updates.confidence : existing.confidence;
+
       const fm = {
         subtype: resolvedSubtype,
         title: resolvedTitle,
-        repo: 'repo' in updates ? (updates.repo ?? undefined) : (existing.repo ?? undefined),
-        confidence:
-          'confidence' in updates
-            ? (updates.confidence ?? undefined)
-            : (existing.confidence ?? undefined),
-        keywords: updates.keywords ?? existing.keywords ?? [],
-        themes: updates.themes ?? existing.themes ?? [],
-        tags: updates.tags ?? existing.tags ?? [],
-        scenarioIds: updates.scenarioIds ?? existing.scenarioIds ?? [],
-        sources: updates.sources ?? existing.sources ?? [],
-        linkedMemories: updates.linkedMemories ?? existing.linkedMemories ?? [],
+        keywords: (updates.keywords ?? existing.keywords ?? []) as string[],
+        themes: (updates.themes ?? existing.themes ?? []) as string[],
+        tags: (updates.tags ?? existing.tags ?? []) as string[],
+        scenarioIds: (updates.scenarioIds ?? existing.scenarioIds ?? []) as string[],
+        sources: (updates.sources ?? existing.sources ?? []) as string[],
+        linkedMemories: (updates.linkedMemories ?? existing.linkedMemories ?? []) as string[],
+        ...(resolvedRepo != null ? { repo: resolvedRepo as string } : {}),
+        ...(resolvedConfidence != null ? { confidence: resolvedConfidence as number } : {}),
+        ...(supersededByPath != null ? { supersededBy: supersededByPath } : {}),
       };
 
       let filePath: string;
@@ -858,8 +888,11 @@ function registerMemoryTools(mcp: McpServer): void {
         return mcpError(`Failed to rewrite memory file: ${(err as Error).message}`);
       }
 
+      const supersededByIdUpdate =
+        'supersededById' in updates ? { supersededById: updates.supersededById } : {};
+
       db.update(permanentMemories)
-        .set({ ...updates, filePath, updatedAt: new Date().toISOString() })
+        .set({ ...updates, ...supersededByIdUpdate, filePath, updatedAt: new Date().toISOString() })
         .where(eq(permanentMemories.id, id))
         .run();
 
@@ -965,6 +998,50 @@ function registerMemoryTools(mcp: McpServer): void {
       const linkedMemories = (promoted?.linkedMemories as string[]) ?? [];
 
       return mcpResult({ permanentMemoryId: result.id, filePath, linkedMemories });
+    },
+  );
+
+  mcp.tool(
+    'writeSourceSnapshot',
+    'Write a source snapshot to memory/sources/ — deduplicates by SHA-256 of content. Returns the file path and whether the content was reused.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      title: z.string().describe('Title for the source snapshot'),
+      content: z.string().describe('Full text content of the source'),
+      slug: z.string().optional().describe('Optional filename slug override'),
+      url: z.string().optional().describe('Source URL'),
+      origin: z.string().optional().describe('Origin identifier (e.g. domain or tool name)'),
+      sourceType: z.string().describe('Source type (e.g. "web", "file", "paste")'),
+      ingestedAt: z.string().optional().describe('ISO timestamp of ingestion (defaults to now)'),
+    },
+    async ({ workspaceId, title, content, url, origin, sourceType, ingestedAt }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const workspaceDir = getWorkspaceDir(ws);
+
+      let result: { filePath: string; reused: boolean };
+      try {
+        const snapshotFm: Parameters<typeof writeSourceSnapshot>[1] = {
+          title,
+          source_type: sourceType,
+          ingester: 'mcp',
+          ingested_at: ingestedAt ?? new Date().toISOString(),
+        };
+        if (url !== undefined) snapshotFm.url = url;
+        if (origin !== undefined) snapshotFm.origin = origin;
+        const { filePath, deduplicated } = await writeSourceSnapshot(
+          workspaceDir,
+          snapshotFm,
+          content,
+        );
+        result = { filePath, reused: deduplicated };
+      } catch (err) {
+        return mcpError(`Failed to write source snapshot: ${(err as Error).message}`);
+      }
+
+      return mcpResult(result);
     },
   );
 }

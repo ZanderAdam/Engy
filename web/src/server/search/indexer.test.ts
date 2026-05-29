@@ -420,6 +420,39 @@ describe('WorkspaceIndexer', () => {
       expect(rows.filter((r) => r.filePath?.includes('/references/'))).toHaveLength(0);
     });
 
+    it('should recover supersededById from supersededBy frontmatter on initial sync', async () => {
+      // Write the replacement file first (lexically earlier timestamp so it is processed
+      // first by syncPermanentMemoryMirror, giving it a DB row before the superseded file
+      // tries to resolve its supersededBy path).
+      const replacementFile = 'memory/facts/202501010041-replacement-fact.md';
+      writeFixture(
+        replacementFile,
+        `---\ntitle: Replacement Fact\nsubtype: fact\n---\n\nReplacement content.\n`,
+      );
+
+      // Write the superseded file with a later timestamp (sorted after replacement).
+      const supersededFile = 'memory/facts/202501010042-superseded-fact.md';
+      writeFixture(
+        supersededFile,
+        `---\ntitle: Superseded Fact\nsubtype: fact\nsupersededBy: ${replacementFile}\n---\n\nOld content.\n`,
+      );
+
+      await syncPermanentMemoryMirror(workspaceSlug);
+
+      const rows = ctx.db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.workspaceId, workspaceId))
+        .all();
+
+      const replacementRow = rows.find((r) => r.filePath === replacementFile);
+      const supersededRow = rows.find((r) => r.filePath === supersededFile);
+
+      expect(replacementRow).toBeDefined();
+      expect(supersededRow).toBeDefined();
+      expect(supersededRow!.supersededById).toBe(replacementRow!.id);
+    });
+
     it('should preserve supersededById on re-sync (disk has no concept of supersession)', async () => {
       const memFile = 'memory/facts/202501010040-old-fact.md';
       writeFixture(

@@ -193,7 +193,18 @@ export const memoryRouter = router({
 
     if (existing.filePath) {
       const workspaceDir = getWorkspaceDir(ws);
-      await rewritePermanentMemory(workspaceDir, existing.filePath, buildMemoryFrontmatter(merged), merged.content);
+      let supersededByPath: string | undefined;
+      if (updates.supersededById != null) {
+        const superseder = db
+          .select({ filePath: permanentMemories.filePath })
+          .from(permanentMemories)
+          .where(eq(permanentMemories.id, updates.supersededById))
+          .get();
+        supersededByPath = superseder?.filePath ?? undefined;
+      }
+      const fm = buildMemoryFrontmatter(merged);
+      if (supersededByPath) fm.supersededBy = supersededByPath;
+      await rewritePermanentMemory(workspaceDir, existing.filePath, fm, merged.content);
     }
 
     const supersededByIdUpdate =
