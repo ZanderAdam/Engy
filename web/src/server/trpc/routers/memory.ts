@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { jsonArrayContains } from '../../db/json';
 import fs from 'node:fs';
 import path from 'node:path';
 import { TRPCError } from '@trpc/server';
@@ -282,7 +283,7 @@ export const memoryRouter = router({
     if (input.tags && input.tags.length > 0) {
       for (const tag of input.tags) {
         conditions.push(
-          sql`EXISTS (SELECT 1 FROM json_each(${permanentMemories.tags}) WHERE value = ${tag})` as ReturnType<typeof eq>,
+          jsonArrayContains(permanentMemories.tags, tag),
         );
       }
     }

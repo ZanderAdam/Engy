@@ -8,7 +8,7 @@ import { getWorkspaceDir, initMemoryDirs } from './init';
 import { update as indexerUpdate } from '../search/indexer';
 
 /**
- * Ensures an existing pre-M7 workspace has the full M7 directory and README
+ * Ensures a workspace has the full knowledge-layer directory and README
  * structure. Creates anything missing using the same logic as fresh init, then
  * commits the additions. Safe to run on already-migrated workspaces — it skips
  * directories and READMEs that already exist.
@@ -49,7 +49,7 @@ export async function backfillM7(workspaceSlug: string): Promise<void> {
   const status = await git.status();
   if (status.files.length > 0) {
     await git.add('.');
-    await git.commit('memory(init): backfill M7 directories');
+    await git.commit('memory(init): backfill knowledge-layer directories');
   }
 
   // Populate the qmd store and frontmatter table for this workspace.
@@ -61,8 +61,8 @@ export async function backfillM7(workspaceSlug: string): Promise<void> {
 }
 
 /**
- * Returns true if the workspace looks like it was created before M7
- * (has a memory/ dir but no memory/README.md).
+ * Returns true if the workspace looks like it was created before the
+ * knowledge-layer (has a memory/ dir but no memory/README.md).
  */
 export function needsM7Backfill(workspaceDir: string): boolean {
   const memoryDir = path.join(workspaceDir, 'memory');

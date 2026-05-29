@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { and, eq, like, or, sql } from 'drizzle-orm';
+import { jsonObjectArrayContains } from '../../db/json';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
@@ -100,12 +101,7 @@ function buildFrontmatterConditions(
     const values = filters[field];
     if (values && values.length > 0) {
       for (const value of values) {
-        conditions.push(
-          sql`EXISTS (
-            SELECT 1 FROM json_each(${frontmatter.data}, '$.' || ${field})
-            WHERE value = ${value}
-          )` as ReturnType<typeof eq>,
-        );
+        conditions.push(jsonObjectArrayContains(frontmatter.data, field, value));
       }
     }
   }

@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { eq, and, desc, inArray, like, or, sql as drizzleSql, type SQL } from 'drizzle-orm';
 import path from 'node:path';
 import { getDb } from '../db/client';
+import { jsonObjectArrayContains } from '../db/json';
 import {
   tasks,
   taskDependencies,
@@ -710,7 +711,7 @@ function registerMemoryTools(mcp: McpServer): void {
 
   mcp.tool(
     'listMemories',
-    'List fleeting memories for a workspace. Compact mode (default) omits content. NOTE: scheduled for replacement by the unified search tool in TG3-T5 — keep using this until search is live.',
+    'List fleeting memories for a workspace. Compact mode (default) omits content.',
     {
       workspaceId: z.number().optional().describe('Filter by workspace ID'),
       compact: z.boolean().default(true).describe('Omit content field (default true)'),
@@ -1200,12 +1201,7 @@ function buildFrontmatterWhereCondition(
     const values = filters[field];
     if (Array.isArray(values) && values.length > 0) {
       for (const value of values as string[]) {
-        conditions.push(
-          drizzleSql`EXISTS (
-            SELECT 1 FROM json_each(${frontmatter.data}, '$.' || ${field})
-            WHERE value = ${value}
-          )` as ReturnType<typeof eq>,
-        );
+        conditions.push(jsonObjectArrayContains(frontmatter.data, field, value));
       }
     }
   }

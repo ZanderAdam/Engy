@@ -14,7 +14,7 @@ Terminal skill that analyzes completed project work and promoted memories, then 
 - `mcp__Engy__getProjectDetails` — resolve project context and filesystem paths
 - `mcp__Engy__listTasks({ projectId, status: 'done', compact: false })` — fetch completed tasks
 - `mcp__Engy__listMemories({ workspaceId, compact: false })` — fetch all fleeting memories (filter client-side for promoted)
-- `mcp__Engy__search({ workspaceId, query, collection: 'system', limit: 10 })` — find relevant existing system docs _(available once TG3 search is wired; skip gracefully if not yet available)_
+- `mcp__Engy__search({ workspaceId, query, collection: 'system', limit: 10 })` — find relevant existing system docs (skip gracefully if the workspace has no system collection yet)
 
 ## Process
 

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import matter from 'gray-matter';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, like } from 'drizzle-orm';
 import { getStore } from './qmd-store';
 import { getDb } from '../db/client';
 import { workspaces, frontmatter, permanentMemories } from '../db/schema';
@@ -94,7 +94,8 @@ function syncFrontmatterTable(
       const parsed = matter(raw);
       data = parsed.data ?? {};
     } catch {
-      // Malformed frontmatter — index with empty data rather than skipping.
+      console.warn(`[indexer] failed to parse frontmatter for ${relPath} — skipping`);
+      continue;
     }
 
     db.insert(frontmatter)
@@ -237,13 +238,16 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
     }
 
     // Remove DB rows for memory files that no longer exist.
-    const subtypePrefix = `memory/${subtype}/`;
     const existingRows = db
       .select({ id: permanentMemories.id, filePath: permanentMemories.filePath })
       .from(permanentMemories)
-      .where(eq(permanentMemories.workspaceId, ws.id))
-      .all()
-      .filter((r) => r.filePath?.startsWith(subtypePrefix));
+      .where(
+        and(
+          eq(permanentMemories.workspaceId, ws.id),
+          like(permanentMemories.filePath, `memory/${subtype}/%`),
+        ),
+      )
+      .all();
 
     const activePaths = new Set(
       collectMdFiles(subtypeDir).map((p) => toRelativePath(workspaceDir, p)),
@@ -321,7 +325,7 @@ function spawnEmbedPass(workspaceSlug: string): void {
 
 /**
  * Re-index a workspace from scratch by removing and re-adding each collection,
- * then running a full update. Used by the reindex skill (TG3-T6).
+ * then running a full update.
  */
 export async function forceFullReindex(workspaceSlug: string): Promise<IndexResult[]> {
   const store = await getStore(workspaceSlug);

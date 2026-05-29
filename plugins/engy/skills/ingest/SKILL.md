@@ -108,7 +108,7 @@ mcp__Engy__createFleetingMemory({
 })
 ```
 
-**Atomicity rule (load-bearing for retrieval).** A fleeting distillation captures ONE central claim from the source. Resist restating peripheral facts that belong in their own memories. For example: if the source mentions `ENGY_DIR` defaults in passing, do NOT restate that in this distillation's body if the central claim is about something else — point to it in "Connects to" instead. Why this matters: search relevance is driven by content density; a memory that restates sibling claims wins queries it shouldn't and starves the rightful answer's retrieval rank. Eval evidence: a single context-bleeding zettel dominated 2/15 queries in independent validation (May 2026 sprint).
+**Atomicity rule (load-bearing for retrieval).** A fleeting distillation captures ONE central claim from the source. Resist restating peripheral facts that belong in their own memories. For example: if the source mentions `ENGY_DIR` defaults in passing, do NOT restate that in this distillation's body if the central claim is about something else — point to it in "Connects to" instead. Why this matters: search relevance is driven by content density; a memory that restates sibling claims wins queries it shouldn't and starves the rightful answer's retrieval rank.
 
 **Tag derivation (auto-attach where unambiguous).** Beyond the literal `'ingest'` tag, derive tags from the source path:
 

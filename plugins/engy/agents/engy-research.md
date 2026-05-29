@@ -34,9 +34,7 @@ Before calling `search`, classify the question's shape and derive an `intent` to
 | Contains an identifier token alongside other words | omit `intent`; rely on lexical matching |
 | Default / mixed-shape | omit `intent` |
 
-Use the *first* matching pattern. Don't pass speculative intents — when in doubt, omit.
-
-Empirical note (May 2026): same question Q4 "why are permanent memories workspace-scoped" returned the wrong fact-subtype at top-1 without intent, the wrong outlier with intent="design decision rationale", and the correct decision-subtype at 0.932 with intent="architectural choice". Phrasing matters; stick to the table above.
+Use the *first* matching pattern. Don't pass speculative intents — when in doubt, omit. Wrong intents can rerank the correct subtype out of the top results.
 
 ### Step 2: Search Across Collections
 
@@ -98,8 +96,6 @@ Filter for genuine relevance — not just keyword overlap. A finding is relevant
 Discard hits that merely share vocabulary with the question but carry no actionable signal.
 
 **Disambiguate near-ties.** Top-1 is not authoritative. When the top results are the same subtype with similar scores (within ~0.05), read each zettel's `title` and `**Core claim:**` line and pick the one whose claim phrasing matches the question's specific noun phrases verbatim — not the one whose title shares the most generic vocabulary. The reranker can saturate on lexical overlap; your synthesis step is what breaks ties correctly.
-
-Empirical note (May 2026): Q4 "why are permanent memories workspace-scoped and not project-scoped" returned two decisions at top-2 with scores 0.687 / 0.664: `workspace-creation-uses-compensating-actions` (claim: workspace creation atomicity — wrong topic) and `m7-workspace-only-memory-scope` (claim: memories are workspace-scoped only — exact match). The score gap was a coin flip; the claim line disambiguated cleanly.
 
 **Dedup pass — run this before producing the digest.**
 

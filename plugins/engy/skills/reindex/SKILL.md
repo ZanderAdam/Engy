@@ -18,14 +18,14 @@ Calls the `reindex` MCP tool and reports structured per-collection counts.
 
 ### Step 1: Identify Workspace
 
-Use `listWorkspaces` to find the target workspace. If the user specified one by name, match by name or slug.
+Use `mcp__Engy__listWorkspaces` to find the target workspace. If the user specified one by name, match by name or slug.
 
 ### Step 2: Call reindex
 
-Call the `reindex` MCP tool:
+Call the `mcp__Engy__reindex` MCP tool:
 
 ```
-reindex({
+mcp__Engy__reindex({
   workspaceId: <id>,
   full: false         // incremental by default; use true if user asks for a forced rebuild
 })
@@ -36,7 +36,7 @@ Use `full: true` when the user says "force reindex", "rebuild from scratch", or 
 To reindex a single collection (e.g., "reindex memory only"):
 
 ```
-reindex({
+mcp__Engy__reindex({
   workspaceId: <id>,
   collection: "memory",
   full: false

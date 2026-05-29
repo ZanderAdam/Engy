@@ -44,15 +44,15 @@ function readMemoryFileSafe(absPath: string): {
 }
 
 /**
- * Write a memory file's frontmatter back to disk and commit, preserving the body.
- * Used to update linkedMemories without touching timestamps or filenames.
+ * Write a memory file's frontmatter back to disk, preserving the body.
+ * Pushes the touched relative path into touchedPaths for later batched commit.
  */
-async function updateLinkedMemoriesInFile(
+function updateLinkedMemoriesInFile(
   workspaceDir: string,
   relFilePath: string,
   newLinkedMemories: string[],
-  title: string,
-): Promise<void> {
+  touchedPaths: string[],
+): void {
   const absPath = path.isAbsolute(relFilePath)
     ? relFilePath
     : path.join(workspaceDir, relFilePath);
@@ -65,12 +65,10 @@ async function updateLinkedMemoriesInFile(
   const fileContent = matter.stringify(safeBody, updatedFm);
   fs.writeFileSync(absPath, fileContent, 'utf8');
 
-  const git = simpleGit(workspaceDir);
   const relPath = path.relative(workspaceDir, absPath).replace(/\\/g, '/');
-  await git.add([relPath]);
-  await git.commit(`memory(autolink): ${title}\n\nmemory_id: ${relPath}`, {
-    '--allow-empty': null,
-  });
+  if (!touchedPaths.includes(relPath)) {
+    touchedPaths.push(relPath);
+  }
 }
 
 /**
@@ -209,6 +207,8 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
     }
   }
 
+  const touchedPaths: string[] = [];
+
   for (const hit of toLink) {
     const col = collectionFromVirtualPath(hit.file);
     const candidateRelPath = `${col}/${hit.displayPath}`;
@@ -231,7 +231,7 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
 
     if (updatedSrcLinks.length > existingSrcLinks.length) {
       try {
-        await updateLinkedMemoriesInFile(workspaceDir, ownFilePath, updatedSrcLinks, memory.title);
+        updateLinkedMemoriesInFile(workspaceDir, ownFilePath, updatedSrcLinks, touchedPaths);
         db.update(permanentMemories)
           .set({ linkedMemories: updatedSrcLinks, updatedAt: new Date().toISOString() })
           .where(eq(permanentMemories.id, memoryId))
@@ -255,13 +255,7 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
 
     if (updatedCandLinks.length > existingCandLinks.length) {
       try {
-        const candidateTitle = candidateRow?.title ?? hit.title ?? 'memory';
-        await updateLinkedMemoriesInFile(
-          workspaceDir,
-          candidateRelPath,
-          updatedCandLinks,
-          candidateTitle,
-        );
+        updateLinkedMemoriesInFile(workspaceDir, candidateRelPath, updatedCandLinks, touchedPaths);
         if (candidateRow) {
           db.update(permanentMemories)
             .set({ linkedMemories: updatedCandLinks, updatedAt: new Date().toISOString() })
@@ -310,7 +304,7 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
 
       if (updatedSrcLinks.length > latestSrcLinks.length) {
         try {
-          await updateLinkedMemoriesInFile(workspaceDir, ownFilePath, updatedSrcLinks, memory.title);
+          updateLinkedMemoriesInFile(workspaceDir, ownFilePath, updatedSrcLinks, touchedPaths);
           db.update(permanentMemories)
             .set({ linkedMemories: updatedSrcLinks, updatedAt: new Date().toISOString() })
             .where(eq(permanentMemories.id, memoryId))
@@ -333,12 +327,7 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
 
       if (updatedSiblingLinks.length > existingSiblingLinks.length) {
         try {
-          await updateLinkedMemoriesInFile(
-            workspaceDir,
-            sibling.filePath,
-            updatedSiblingLinks,
-            sibling.title,
-          );
+          updateLinkedMemoriesInFile(workspaceDir, sibling.filePath, updatedSiblingLinks, touchedPaths);
           db.update(permanentMemories)
             .set({ linkedMemories: updatedSiblingLinks, updatedAt: new Date().toISOString() })
             .where(eq(permanentMemories.id, sibling.id))
@@ -348,5 +337,12 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
         }
       }
     }
+  }
+
+  // ── Batched commit ────────────────────────────────────────────────────
+  if (touchedPaths.length > 0) {
+    const git = simpleGit(workspaceDir);
+    await git.add(touchedPaths);
+    await git.commit(`memory(autolink): link ${memory.title}`);
   }
 }

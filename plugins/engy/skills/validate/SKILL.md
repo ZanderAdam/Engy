@@ -18,14 +18,14 @@ Runs a comprehensive set of integrity checks on the workspace knowledge files an
 
 ### Step 1: Identify Workspace
 
-Use `listWorkspaces` to find the target workspace. If the user specified one, match by name or slug.
+Use `mcp__Engy__listWorkspaces` to find the target workspace. If the user specified one, match by name or slug.
 
 ### Step 2: Run Validation
 
-Call the `validateWorkspace` MCP tool:
+Call the `mcp__Engy__validateWorkspace` MCP tool:
 
 ```
-validateWorkspace({ workspaceId: <id> })
+mcp__Engy__validateWorkspace({ workspaceId: <id> })
 ```
 
 This runs all checks server-side:

@@ -56,7 +56,7 @@ Before proposing metadata, scan the fleeting body for content that doesn't suppo
 
 If either is present, before presenting to the user, propose: "This memory mixes claim A with claim B. Promote A and re-capture B? [yes/no]". If yes, trim body to A, propose metadata for A, continue. If no, proceed but flag in the user prompt: "⚠ atomicity: this memory restates content that belongs in `<sibling-memory-path>` — review keywords carefully."
 
-Why this matters: search retrieval is sensitive to keyword density. A memory restating sibling content steals top-rank for queries it shouldn't answer. Eval evidence (May 2026): a single context-bleeding zettel cost 2/15 points in independent validation.
+Why this matters: search retrieval is sensitive to keyword density. A memory restating sibling content steals top-rank for queries it shouldn't answer.
 
 #### 3b. Similarity Check
 

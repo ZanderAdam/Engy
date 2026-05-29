@@ -113,7 +113,7 @@ describe('backfill-m7', () => {
       const git = simpleGit(wsDir);
       const log = await git.log();
       const lastCommit = log.latest;
-      expect(lastCommit?.message).toBe('memory(init): backfill M7 directories');
+      expect(lastCommit?.message).toBe('memory(init): backfill knowledge-layer directories');
     });
 
     it('should be idempotent — second run does not fail or duplicate commits', async () => {

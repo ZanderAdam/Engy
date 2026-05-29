@@ -11,7 +11,7 @@ Terminal skill that produces the initial set of system documentation files for a
 
 - `mcp__Engy__listWorkspaces` — discover workspaceId when not in context
 - `mcp__Engy__getWorkspaceDetails` — resolve workspace paths (`paths.workspaceDir`, `paths.systemDir`) and `repos[]`
-- `mcp__Engy__search({ workspaceId, query, collection: 'system', limit: 10 })` — locate any existing system docs to avoid clobbering _(skip gracefully if not yet available)_
+- `mcp__Engy__search({ workspaceId, query, collection: 'system', limit: 10 })` — locate any existing system docs to avoid clobbering (skip gracefully if the workspace has no system collection yet)
 
 All codebase exploration uses the built-in **Glob**, **Grep**, and **Read** tools directly against the absolute repo paths returned in `workspace.repos[]`. All file writes use the built-in **Write** tool against absolute paths under `{workspaceDir}/system/`.
 
