@@ -14,10 +14,10 @@ For each sibling path in the response's `linkedMemories` (cap at 5, permanent me
 
 1. **Resolve numeric id.** `updatePermanentMemory` requires a numeric `id`. Resolve with:
    ```
-   mcp__Engy__listMemories({ workspaceId, compact: false })
+   mcp__Engy__listMemories({ workspaceId, scope: 'permanent', compact: false })
    // then find the entry whose filePath matches the sibling path
    ```
-   If id cannot be resolved, skip this sibling.
+   Passing `scope: 'permanent'` returns enriched permanent metadata (keywords, themes, tags) rather than fleeting fields, making the merge step more reliable. If id cannot be resolved, skip this sibling.
 
 2. **Read current keywords and themes** from the resolved row, or from the similarity-check results in step 3b.
 
@@ -41,3 +41,7 @@ For each sibling path in the response's `linkedMemories` (cap at 5, permanent me
 ## Why bother
 
 Most memory systems are purely additive — a new node is created and edges are drawn, but existing nodes stay untouched. Enriching linked siblings' metadata with what the new memory teaches improves multi-hop retrieval: queries that should reach the sibling now find it through the enriched terms. Promotion is the right moment because the memory now has its final keywords and themes.
+
+## Provenance caveat
+
+Auto-enriched keyword and theme additions are conservative by design; the session log is the only record of why a term was added — future runs must not treat enriched terms as independently authoritative signal.

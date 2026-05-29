@@ -1,6 +1,6 @@
 ---
 name: engy:validate
-description: Validate workspace knowledge integrity — broken links, schema compliance, orphaned content, lifecycle consistency, commit-message conformance, and index status.
+description: This skill should be used when the user asks to "validate workspace", "check knowledge integrity", "run validation", "check for broken links", or "verify memories before promoting".
 ---
 
 # Validate Workspace
@@ -17,6 +17,8 @@ Runs a comprehensive set of integrity checks on the workspace knowledge files an
 ## Process
 
 ### Step 1: Identify Workspace
+
+In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
 
 Use `mcp__Engy__listWorkspaces` to find the target workspace. If the user specified one, match by name or slug.
 

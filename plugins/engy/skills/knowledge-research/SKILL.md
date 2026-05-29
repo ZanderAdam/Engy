@@ -1,6 +1,6 @@
 ---
 name: engy:knowledge-research
-description: Search the knowledge layer for prior decisions, patterns, facts, and conventions on a topic. Use when the user asks "what do we know about X?".
+description: This skill should be used when the user asks to "search knowledge", "what do we know about X?", "look up prior decisions on X", "find conventions for X", or "research the knowledge base".
 ---
 
 # Knowledge Research
@@ -15,6 +15,9 @@ Identify scope hints from the current session:
 - Active project name or slug
 - Active milestone ref (e.g., "m7")
 - Repo path if the question is repo-local
+- **workspaceId** — required by `engy:research`. If not already known, call `mcp__Engy__listWorkspaces` (or `mcp__Engy__getWorkspaceDetails`) to obtain it before dispatching.
+
+> In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
 
 ### Step 2: Dispatch Research Subagent
 
@@ -23,9 +26,11 @@ Invoke the `engy:research` subagent via the Task tool:
 ```
 Task({
   subagent_type: 'engy:research',
-  prompt: '<user question> — context: <active project/milestone/repo>'
+  prompt: '<user question> — context: <active project/milestone/repo> workspaceId=<id>'
 })
 ```
+
+`workspaceId` is required — `engy:research` errors without it. Resolve it in Step 1 before dispatching.
 
 Include any scope hints in the prompt so the subagent can apply `filters.repo`, `filters.scenarioIds`, or collection scoping when relevant.
 

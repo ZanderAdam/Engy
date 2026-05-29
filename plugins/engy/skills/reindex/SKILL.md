@@ -1,6 +1,6 @@
 ---
 name: engy:reindex
-description: Re-index workspace content into the qmd hybrid search store. Use when search results are stale or after large file changes.
+description: This skill should be used when the user asks to "reindex", "rebuild the index", "force reindex", "refresh search", or "reindex workspace content".
 ---
 
 # Reindex Workspace
@@ -20,6 +20,8 @@ Calls the `reindex` MCP tool and reports structured per-collection counts.
 
 Use `mcp__Engy__listWorkspaces` to find the target workspace. If the user specified one by name, match by name or slug.
 
+> In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
+
 ### Step 2: Call reindex
 
 Call the `mcp__Engy__reindex` MCP tool:
@@ -31,7 +33,7 @@ mcp__Engy__reindex({
 })
 ```
 
-Use `full: true` when the user says "force reindex", "rebuild from scratch", or "full reindex".
+Use `full: true` when the user says "force reindex", "rebuild from scratch", or "full reindex". Before doing so, ask: "This rebuilds the whole index and can take minutes — proceed? [yes]" and wait for confirmation.
 
 To reindex a single collection (e.g., "reindex memory only"):
 

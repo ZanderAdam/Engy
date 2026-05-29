@@ -1,6 +1,6 @@
 ---
 name: engy:complete-project
-description: Orchestrate project completion. Triggers distillation of unpromoted fleetings, hands off to /engy:review-memories, then /engy:propose-sysdocs, then archives the project.
+description: "This skill should be used when the user asks to 'complete a project', 'wrap up a project', 'archive a project', or 'run project completion'."
 ---
 
 # Project Completion Orchestrator
@@ -9,6 +9,9 @@ Guides a project through its full completion lifecycle: distillation, memory rev
 
 ## MCP Tools
 
+In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
+
+- `mcp__Engy__listWorkspaces()` — resolve the active workspace and obtain its `workspaceId` before calling `listProjects`.
 - `mcp__Engy__getProjectDetails({ projectId })` — fetch project metadata, status, and workspace context.
 - `mcp__Engy__listProjects({ workspaceId })` — find the active project if not provided.
 - `mcp__Engy__startProjectCompletion({ projectId })` — set status to `completing` and return ranked candidate fleeting memories for distillation review.
@@ -40,7 +43,7 @@ After user confirms, invoke `engy:review-memories` directly via the Skill tool:
 Skill({ skill: 'engy:review-memories' })
 ```
 
-The review skill is interactive — the user works through each candidate (approve, edit, supersede, contradict, skip). Do not rush or batch-skip. When it returns, continue to Phase 4.
+`Skill(...)` runs the inner skill to completion and returns control here before Phase 4 begins; do not advance until it returns. The invoked skill re-resolves workspace/project context itself — surface the active project name and workspace slug to the user before invoking so they can confirm the inner skill will target the right scope. The review skill is interactive — the user works through each candidate (approve, edit, supersede, contradict, skip). Do not rush or batch-skip. When it returns, continue to Phase 4.
 
 ## Phase 4: System Doc Proposals
 
@@ -50,7 +53,7 @@ Pause and ask: "Memory review is complete. Generate system doc proposals from th
   ```
   Skill({ skill: 'engy:propose-sysdocs' })
   ```
-  Changes land uncommitted under `{workspaceDir}/system/` for diff-viewer review.
+  `Skill(...)` runs the inner skill to completion and returns control here before Phase 5 begins; do not advance until it returns. The invoked skill re-resolves workspace/project context itself — surface the active project name and workspace slug to the user before invoking so the inner skill targets the right scope. Changes land uncommitted under `{workspaceDir}/system/` for diff-viewer review.
 - **skip** — continue to Phase 5.
 
 ## Phase 5: Archive

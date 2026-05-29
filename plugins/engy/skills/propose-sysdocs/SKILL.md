@@ -1,6 +1,6 @@
 ---
 name: engy:propose-sysdocs
-description: Propose system doc updates based on the current project's completed tasks and promoted memories. Writes proposed changes to {workspaceDir}/system/, reviewable via the diff viewer's Latest Changes mode.
+description: This skill should be used when the user asks to "propose system docs", "update system docs", "refresh system docs", or "surface project knowledge to system docs".
 ---
 
 # Propose System Docs
@@ -9,11 +9,13 @@ Terminal skill that analyzes completed project work and promoted memories, then 
 
 ## MCP Tools
 
+In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
+
 - `mcp__Engy__listWorkspaces` — discover workspaceId when not in context
 - `mcp__Engy__getWorkspaceDetails` — resolve workspace paths, repos list
 - `mcp__Engy__getProjectDetails` — resolve project context and filesystem paths
 - `mcp__Engy__listTasks({ projectId, status: 'done', compact: false })` — fetch completed tasks
-- `mcp__Engy__listMemories({ workspaceId, compact: false })` — fetch all fleeting memories (filter client-side for promoted)
+- `mcp__Engy__listMemories({ workspaceId, scope: 'permanent', compact: false })` — fetch promoted permanent memories
 - `mcp__Engy__search({ workspaceId, query, collection: 'system', limit: 10 })` — find relevant existing system docs (skip gracefully if the workspace has no system collection yet)
 
 ## Process
@@ -43,10 +45,10 @@ Also fetch any tasks with status `'review'` or `'active'` to include in-progress
 **Promoted permanent memories:**
 
 ```
-mcp__Engy__listMemories({ workspaceId, compact: false })
+mcp__Engy__listMemories({ workspaceId, scope: 'permanent', compact: false })
 ```
 
-Filter the results client-side to entries where `promoted === true` (permanent memories). These are the distilled insights ready to be surfaced as system docs.
+These are the distilled insights ready to be surfaced as system docs.
 
 **Existing system docs:**
 
@@ -73,7 +75,7 @@ The subagent returns a `## Findings` digest with cited sources. Hold this digest
 
 If the project has distinct domains (e.g., data model changes + UI changes), run a separate Task call per domain and merge the digests.
 
-If the digest reports `Findings: 0`, proposed docs must omit the `<!-- engy:research synthesized -->` marker block in Step 5 and instead note `No prior knowledge found for this topic.` inline within the `## Sources` section.
+If the digest reports `Findings: 0`, proposed docs must omit the `<!-- engy:research synthesized <YYYY-MM-DD> -->` ... `<!-- /engy:research -->` marker block in Step 5 and instead note `No prior knowledge found.` inline within the `## Sources` section.
 
 ### Step 4: Analyze Gaps
 

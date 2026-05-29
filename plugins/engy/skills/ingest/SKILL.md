@@ -1,6 +1,6 @@
 ---
 name: engy:ingest
-description: Ingest external content (URL, file path, raw text, transcript) into the knowledge layer. Snapshots non-durable sources, links durable ones, drafts a fleeting distillation, dispatches research, and proposes candidate edits to existing notes.
+description: This skill should be used when the user asks to "ingest", "capture this URL", "add this article to memory", "save this transcript", "ingest this document", or "add this to the knowledge layer". Snapshots non-durable sources, links durable ones, drafts a fleeting distillation, dispatches research, and proposes candidate edits to existing notes.
 ---
 
 # Ingest External Content
@@ -9,8 +9,11 @@ Takes a URL, file path, raw text, or transcript reference (e.g., a Granola meeti
 
 ## MCP Tools
 
+In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
+
 - `mcp__Engy__listWorkspaces` — resolve workspaceId when not in context
 - `mcp__Engy__getWorkspaceDetails` — resolve workspace paths (`paths.memoryDir`)
+- `mcp__Engy__writeSourceSnapshot` — write a snapshot file, deduping by SHA-256; returns `{ filePath: string; reused: boolean }`
 - `mcp__Engy__createFleetingMemory` — draft the fleeting distillation
 - `mcp__Engy__reindex` — trigger incremental memory reindex after writing
 
@@ -59,26 +62,23 @@ description: <one-sentence summary>
 
 #### Snapshot (non-durable source)
 
-Create `memory/sources/{YYYYMMDDHHmm}-{slug}.md` with provenance frontmatter and the full snapshot body:
+Call `mcp__Engy__writeSourceSnapshot` with the workspaceId, content, and provenance fields (flat params):
 
-```markdown
----
-url: <source URL, or omit if not a URL>
-origin: <human-readable origin — e.g. "Granola meeting 2025-05-07", "email from alice@example.com">
-source_type: <article | transcript | slack | email | pdf | podcast | other>
-ingester: engy:ingest
-title: <human-readable title>
-ingested_at: <ISO 8601 timestamp>
----
-
-<snapshot content here>
+```
+mcp__Engy__writeSourceSnapshot({
+  workspaceId: <id>,
+  title: <human-readable title>,
+  content: <snapshot content>,
+  sourceType: <article | transcript | slack | email | pdf | podcast | other>,
+  url: <source URL, omit if not a URL>,
+  origin: <human-readable origin — e.g. "Granola meeting 2025-05-07", "email from alice@example.com">,
+  ingestedAt: <ISO 8601 timestamp, optional — defaults to now>
+})
 ```
 
+The tool writes `memory/sources/{YYYYMMDDHHmm}-{slug}.md` (the `ingester` field is set server-side), dedupes by SHA-256, and returns `{ filePath, reused }`. If `reused` is `true`, print "Source already on disk — reusing existing path: `<filePath>`" and proceed with the returned path.
+
 **Slug generation:** lowercase the title, replace spaces and special characters with hyphens, limit to 40 characters.
-
-**Deduplication:** the server's `writeSourceSnapshot` helper dedupes by SHA-256. If the file already exists at the computed path, print "Source already on disk — reusing existing path: `<path>`" and proceed with the existing path.
-
-**Write surface:** use the built-in Write tool with an absolute path under the workspace dir.
 
 ### Step 3: Draft a Fleeting Distillation
 
@@ -129,21 +129,37 @@ Pass the first ~500 words of the snapshot (or the reference title + description 
 
 Hold the returned `## Findings` digest for step 5.
 
+**Partial-failure recovery:** if research fails at this point, do not silently proceed. Print: "Research subagent failed. Recoverable state: source file written to `<filePath>` (not yet committed), fleeting distillation created with id `<distillationId>` (in DB). Re-run `/engy:ingest` with the same source to retry, or continue manually from Step 5." Then stop.
+
 ### Step 5: Propose Candidate Edits
 
 If the research digest identifies existing permanent notes that should be updated in light of the new source:
 
 1. Read the affected file(s) fully before editing.
 2. Apply the minimum change needed — add a new section, update a claim, or add a cross-reference (`linkedMemories`, `sources`, or `scenarioIds` frontmatter).
-3. Write the change using the Edit tool. Do **not** commit.
-
-Changes land as uncommitted working-tree diffs. The user reviews them in the diff viewer's "Latest Changes" mode and accepts (commits) or reverts per the standard batched review flow. No special approval UI is required.
+3. Write the change using the Edit tool. Note the edited file paths — they will be included in the single ingest commit in Step 6.
 
 If no existing notes warrant changes, print "No candidate edits — no existing notes need updating." and continue.
 
 ### Step 6: Commit
 
-After all writes for the ingest are done (source record, distillation, and candidate edits), run `git add` + `git commit` from the workspace dir using the Bash tool. One commit per ingest run, not per file. Use the structured `memory(ingest):` format:
+**PII / safety check before committing a snapshot:** the full source body will be permanently committed to git history. For meeting transcripts (Granola and similar), emails, or any content that may contain names, contact details, or confidential discussion, pause and print:
+
+```
+The snapshot body will be permanently committed to git history.
+If it contains sensitive or personally-identifiable information you want to redact, do so now (edit the file), or type "skip" to abort the commit entirely.
+Proceed? [yes / skip]
+```
+
+Wait for explicit confirmation before running `git commit`.
+
+After all writes for the ingest are done (source record, distillation, and candidate edits), stage the explicit file paths returned earlier and commit. One commit per ingest run, not per file. Stage ONLY the paths involved — never use `git add -A` or `git add .`, which would sweep unrelated dirty state:
+
+```bash
+git add <source-path> <edited-note-path-1> <edited-note-path-2> ...
+```
+
+Use the structured `memory(ingest):` commit format:
 
 ```
 memory(ingest): <slug>
@@ -199,7 +215,7 @@ Next: run /engy:review-memories to promote the distillation when ready.
 - **Write source record first** — research reads from disk, not from prompt context. Never dispatch research before the source file exists on disk.
 - **No auto-promotion** — the fleeting distillation joins the standard `/engy:review-memories` lifecycle. Ingestion never promotes memories automatically.
 - **Main agent by default** — classify, write, and distill in the main agent context. Dispatch a Task subagent only for very large sources (long transcripts).
-- **Candidate edits are uncommitted** — user reviews via diff viewer before any permanent note is changed.
+- **Candidate edits land in the ingest commit** — edits to existing permanent notes are staged alongside the source file and committed together in the single ingest commit (Step 6).
 - **No sibling evolution at ingest** — autoLink only fires on permanent memory creation/promotion, not on fleeting creation. Sibling enrichment happens exclusively in `/engy:review-memories` step 3f, where promotion provides the final keywords and themes.
 
 ## Flow Position

@@ -1,6 +1,6 @@
 ---
 name: engy:bootstrap-sysdocs
-description: Generate initial system docs (overview, features, technical) for a workspace by reading the codebase. Use when starting a new workspace or when system docs are sparse.
+description: This skill should be used when the user asks to "bootstrap system docs", "generate system documentation", "initialize workspace docs", or "create initial system docs" for a workspace.
 ---
 
 # System Docs Bootstrap
@@ -8,6 +8,8 @@ description: Generate initial system docs (overview, features, technical) for a 
 Terminal skill that produces the initial set of system documentation files for a workspace by analyzing the codebase on disk and folding in any prior knowledge from the workspace knowledge graph. Files are written uncommitted under `{workspaceDir}/system/` for the user to review in the diff viewer's "Latest Changes" mode and approve (commit) or reject (revert).
 
 ## MCP Tools
+
+In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
 
 - `mcp__Engy__listWorkspaces` — discover workspaceId when not in context
 - `mcp__Engy__getWorkspaceDetails` — resolve workspace paths (`paths.workspaceDir`, `paths.systemDir`) and `repos[]`
@@ -35,7 +37,14 @@ Use **Glob** against `{systemDir}/**/*.md` to enumerate any existing docs. If `m
 mcp__Engy__search({ workspaceId, query: 'overview architecture', collection: 'system', limit: 10 })
 ```
 
-If substantial docs already exist, warn the user before continuing: "System docs already exist. This will generate drafts alongside them — review and merge manually." Proceed only after confirmation.
+**Non-destructive rule:** never overwrite an existing file. For each planned output path, check whether the file already exists:
+
+- If the file does **not** exist, write it normally.
+- If the file **already exists**, write the new content to `<name>.draft.md` instead (e.g., `overview.draft.md`, `features/auth.draft.md`) and note it in the Step 7 summary as `DRAFT` rather than `NEW`.
+
+If any existing files are detected, print once before proceeding: "Existing system docs found. New content will be written as `.draft.md` files — merge manually and delete the drafts when done."
+
+No confirmation prompt is required; the non-destructive draft approach means it is always safe to proceed.
 
 ### Step 3: Discover Codebase Structure
 
@@ -110,11 +119,7 @@ sources:
 
 ### Step 6: Write Files
 
-Use the **Write** tool to write each generated doc to its absolute path under `{systemDir}`:
-
-- `{systemDir}/overview.md`
-- `{systemDir}/features/<name>.md`
-- `{systemDir}/technical/<topic>.md`
+Use the **Write** tool to write each generated doc to its absolute path under `{systemDir}`. Apply the non-destructive rule from Step 2: write to `<name>.draft.md` if the canonical path already exists.
 
 Files are written **uncommitted** — they appear as working-tree changes visible in the diff viewer's "Latest Changes" view. The user reviews and commits them when satisfied.
 
@@ -126,9 +131,9 @@ After writing all files, print:
 System docs bootstrap complete.
 
 Files written:
-  NEW     system/overview.md                — workspace overview, stack, structure
-  NEW     system/features/auth.md           — OAuth2 + session handling
-  NEW     system/technical/ws-protocol.md   — WebSocket REGISTER handshake
+  NEW     system/overview.md                     — workspace overview, stack, structure
+  NEW     system/features/auth.md                — OAuth2 + session handling
+  DRAFT   system/technical/ws-protocol.draft.md  — WebSocket REGISTER handshake (existing file preserved)
   ...
 
 Research digest: <N> findings from <N> sources walked.   (or: No prior knowledge found.)
@@ -137,11 +142,12 @@ Review changes in the diff viewer (Latest Changes mode), then commit or revert.
 Next step: refine individual docs with /engy:sysdoc-assistant.
 ```
 
-Each line includes: disposition (NEW), relative path, and a one-line rationale.
+Each line includes: disposition (`NEW` for freshly created files, `DRAFT` for files written as `.draft.md` because the canonical path already existed), relative path, and a one-line rationale.
 
 ## Key Principles
 
 - **Scope only `system/`** — never write to `docs/`, `memory/`, `projects/`, or anywhere outside `{workspaceDir}/system/`.
+- **Non-destructive** — never overwrite an existing file; write drafts as `<name>.draft.md` and tell the user to merge manually.
 - **No automatic commit** — writes land as working-tree changes for the user to review.
 - **Breadth first** — prefer a working overview of all major areas over deep coverage of one area.
 - **Cite sources** — when research findings inform a doc, cite them inline under `## Sources`. When there are none, say so explicitly.

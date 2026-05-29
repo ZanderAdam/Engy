@@ -1,6 +1,6 @@
 ---
 name: engy:sysdoc-assistant
-description: Interactive editor for system docs. Browses the system doc tree, opens files, dispatches engy:research for context, and assists with focused content updates one doc at a time.
+description: "This skill should be used when the user asks to 'edit system docs', 'update a system doc', 'open the sysdoc assistant', 'browse system documentation', or 'fix a system doc'."
 ---
 
 # System Doc Assistant
@@ -10,6 +10,8 @@ Interactive skill for browsing and editing the workspace's system documentation.
 Unlike `/engy:propose-sysdocs` (which proposes a batch of updates after project completion), this skill works on **one doc at a time** with the user driving each edit.
 
 ## MCP Tools
+
+In a normal session MCP tools are `mcp__Engy__*`; in a worktree session they are `mcp__EngyWorktree__*` — call whichever is wired.
 
 - `mcp__Engy__listWorkspaces` — discover workspaceId when not in context
 - `mcp__Engy__getWorkspaceDetails` — resolve workspace paths (`paths.workspaceDir`, `paths.systemDir`)
@@ -29,7 +31,7 @@ Identify the active workspace from session/route context:
 
 Set `systemDir = paths.systemDir` (= `{workspaceDir}/system/`).
 
-**Scope rule (load-bearing):** every Read/Write/Edit path in this skill must resolve to an absolute path starting with `${systemDir}`. Refuse anything else, even if the user requests it. For non-system context (codebase files, memories, project specs), use Read/Glob directly on those paths, never proxy them through this skill's edit flow.
+**Scope rule (load-bearing):** before every Read/Write/Edit, resolve the target path to its canonical form using `realpath` (following all symlinks, collapsing `..` segments). The resolved absolute path must still begin with `${systemDir}`. Refuse any path whose canonical form escapes `systemDir` — this includes paths containing `..` segments that traverse above `systemDir` and symlinks whose final target is outside `system/`. A string-prefix check on the raw input is not sufficient; the canonical check is required. For non-system context (codebase files, memories, project specs), use Read/Glob directly on those paths, never proxy them through this skill's edit flow.
 
 ### Step 2: List Existing System Docs
 
