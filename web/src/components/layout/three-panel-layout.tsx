@@ -265,11 +265,14 @@ export function ThreePanelLayout({
         </>
       )}
 
-      {/* Center content — hidden on mobile when right panel is expanded */}
+      {/* Center content — hidden on mobile only when the inline right panel is
+          shown in its place (no overlay). In overlay mode the terminal is a
+          full-screen Sheet, so the center must stay mounted/visible underneath —
+          otherwise closing the overlay leaves a blank screen. */}
       <div
         className={cn(
           'flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden',
-          isMobile && rightPanelExpanded && 'hidden',
+          isMobile && rightPanelExpanded && !mobileOverlay && 'hidden',
         )}
       >
         {centerContent}

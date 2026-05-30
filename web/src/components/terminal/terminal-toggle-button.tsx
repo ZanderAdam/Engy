@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { RiArrowUpSLine, RiArrowDownSLine, RiTerminalLine } from '@remixicon/react';
+import { RiArrowUpSLine, RiArrowDownSLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -12,35 +12,23 @@ const BOTTOM_TERMINAL_SHORTCUT: ShortcutDef = { ctrl: true, key: 'j' };
 interface TerminalToggleButtonProps {
   collapsed: boolean;
   onToggle: () => void;
-  variant?: 'floating' | 'inline';
 }
 
-export function TerminalToggleButton({
-  collapsed,
-  onToggle,
-  variant = 'floating',
-}: TerminalToggleButtonProps) {
+export function TerminalToggleButton({ collapsed, onToggle }: TerminalToggleButtonProps) {
   const keys = useMemo(() => shortcutKeys(BOTTOM_TERMINAL_SHORTCUT), []);
-
-  if (variant === 'inline') {
-    return (
-      <Button
-        variant="outline"
-        size="icon-sm"
-        aria-pressed={!collapsed}
-        aria-label={collapsed ? 'Show terminal' : 'Collapse terminal'}
-        onClick={onToggle}
-      >
-        <RiTerminalLine className="size-3.5" />
-      </Button>
-    );
-  }
 
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="outline" size="sm" onClick={onToggle} className="h-8 w-8 p-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onToggle}
+            aria-pressed={!collapsed}
+            aria-label={collapsed ? 'Show terminal' : 'Collapse terminal'}
+            className="h-9 w-9 p-0 shadow-md"
+          >
             {collapsed ? (
               <RiArrowUpSLine className="size-4" />
             ) : (

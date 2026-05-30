@@ -213,12 +213,14 @@ export function MobileHeader({ workspace, project, onOpenManageWorktrees }: Mobi
                 hideManageButton
               />
             )}
+            {/* Opens the RIGHT terminal (Claude/agent). The BOTTOM shell
+                terminal is opened from the floating toggle, not here. */}
             <Button
               variant="outline"
               size="icon-sm"
               aria-pressed={overlay === 'terminal'}
               onClick={() => (overlay === 'terminal' ? closeOverlay() : openOverlay('terminal'))}
-              aria-label="Toggle terminal"
+              aria-label="Toggle Claude terminal"
             >
               <RiTerminalLine className="size-3.5" />
             </Button>

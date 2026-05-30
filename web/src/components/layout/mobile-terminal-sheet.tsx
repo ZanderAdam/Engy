@@ -4,9 +4,12 @@ import { useEffect, useRef } from 'react';
 import { RiArrowRightSLine } from '@remixicon/react';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { useBottomTerminalScope } from '@/components/terminal/use-terminal-scope';
+import {
+  useTerminalScope,
+  useBottomTerminalScope,
+} from '@/components/terminal/use-terminal-scope';
 import { TerminalManager } from '@/components/terminal/terminal-manager';
-import type { TerminalDropdownGroup } from '@/components/terminal/types';
+import type { TerminalDropdownGroup, TerminalScope } from '@/components/terminal/types';
 import { useMobileOverlay } from './mobile-overlay-context';
 
 interface MobileTerminalSheetProps {
@@ -14,16 +17,30 @@ interface MobileTerminalSheetProps {
   containerEnabled?: boolean;
 }
 
+interface SheetBaseProps extends MobileTerminalSheetProps {
+  overlayKind: 'terminal' | 'shell';
+  scope: TerminalScope;
+  title: string;
+  // The RIGHT (Claude) terminal owns the external terminal:open/inject events.
+  // The shell terminal opts out so a single manager handles them on mobile.
+  disableExternalEvents?: boolean;
+  queueExternalEvents?: boolean;
+}
+
 const QUEUED_EVENT_NAMES = ['terminal:open', 'terminal:inject'] as const;
 
-export function MobileTerminalSheet({
+function MobileTerminalSheetBase({
+  overlayKind,
+  scope,
+  title,
+  disableExternalEvents,
+  queueExternalEvents,
   extraDropdownGroups,
   containerEnabled,
-}: MobileTerminalSheetProps) {
+}: SheetBaseProps) {
   const { overlay, openOverlay, closeOverlay } = useMobileOverlay();
-  const scope = useBottomTerminalScope();
   const scopeKey = scope.groupKey;
-  const open = overlay === 'terminal';
+  const open = overlay === overlayKind;
 
   // Queue terminal:open / terminal:inject events fired while the sheet is
   // closed (TerminalManager unmounted, so no listener exists) and replay
@@ -35,12 +52,13 @@ export function MobileTerminalSheet({
   }, [open]);
 
   useEffect(() => {
+    if (!queueExternalEvents) return;
     function makeHandler(name: string) {
       return (e: Event) => {
         if (openRef.current) return;
         const detail = (e as CustomEvent).detail;
         pendingRef.current.push({ name, detail });
-        openOverlay('terminal');
+        openOverlay(overlayKind);
       };
     }
     const handlers = QUEUED_EVENT_NAMES.map((name) => {
@@ -51,7 +69,7 @@ export function MobileTerminalSheet({
     return () => {
       for (const [name, h] of handlers) window.removeEventListener(name, h);
     };
-  }, [openOverlay]);
+  }, [queueExternalEvents, openOverlay, overlayKind]);
 
   useEffect(() => {
     if (!open || pendingRef.current.length === 0) return;
@@ -83,11 +101,11 @@ export function MobileTerminalSheet({
             variant="ghost"
             size="icon"
             onClick={closeOverlay}
-            aria-label="Close terminal"
+            aria-label={`Close ${title.toLowerCase()} terminal`}
           >
             <RiArrowRightSLine className="size-4" />
           </Button>
-          <SheetTitle className="text-xs text-muted-foreground">Terminal</SheetTitle>
+          <SheetTitle className="text-xs text-muted-foreground">{title}</SheetTitle>
           <div className="size-8" aria-hidden />
         </div>
         <div className="flex flex-1 min-h-0 bg-[#0a0a0a]">
@@ -98,10 +116,41 @@ export function MobileTerminalSheet({
               defaultScope={scope}
               extraDropdownGroups={extraDropdownGroups}
               containerEnabled={containerEnabled}
+              disableExternalEvents={disableExternalEvents}
             />
           )}
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+// RIGHT terminal (Claude/agent) — opened from the mobile header. Uses the
+// project/workspace Claude scope and owns the terminal:open/inject events.
+export function MobileTerminalSheet(props: MobileTerminalSheetProps) {
+  const scope = useTerminalScope();
+  return (
+    <MobileTerminalSheetBase
+      overlayKind="terminal"
+      scope={scope}
+      title="Claude"
+      queueExternalEvents
+      {...props}
+    />
+  );
+}
+
+// BOTTOM terminal (plain shell) — opened from the floating toggle. Uses the
+// shell scope and opts out of external events (the Claude sheet owns those).
+export function MobileShellTerminalSheet(props: MobileTerminalSheetProps) {
+  const scope = useBottomTerminalScope();
+  return (
+    <MobileTerminalSheetBase
+      overlayKind="shell"
+      scope={scope}
+      title="Shell"
+      disableExternalEvents
+      {...props}
+    />
   );
 }

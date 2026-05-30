@@ -10,6 +10,7 @@ import {
 } from '@/lib/hooks/use-vertical-panel-resize';
 import { useBottomTerminalScope, deriveShellScope } from './use-terminal-scope';
 import { TerminalManager } from './terminal-manager';
+import { BottomTerminalToggle } from './bottom-terminal-toggle';
 import type { TerminalDropdownGroup } from './types';
 
 const BOTTOM_TERMINAL_SHORTCUT: ShortcutDef = { ctrl: true, key: 'j' };
@@ -45,6 +46,12 @@ interface BottomTerminalSplitProps {
   containerEnabled?: boolean;
 }
 
+// BOTTOM terminal — the plain shell terminal that docks under the page
+// content. Its scope (deriveShellScope) has no `claude` command, and it opts
+// out of the terminal:open/inject events (the RIGHT/Claude TerminalPanel owns
+// those). Toggled by the floating BottomTerminalToggle on desktop; on mobile
+// it surfaces as the MobileShellTerminalSheet. Returns just `children` on
+// mobile (the inline dock is desktop-only).
 export function BottomTerminalSplit({
   children,
   isMobile = false,
@@ -103,7 +110,12 @@ export function BottomTerminalSplit({
   const ctxValue = useMemo(() => ({ collapsed, setCollapsed }), [collapsed, setCollapsed]);
 
   if (isMobile) {
-    return <BottomTerminalProvider value={ctxValue}>{children}</BottomTerminalProvider>;
+    return (
+      <BottomTerminalProvider value={ctxValue}>
+        {children}
+        <BottomTerminalToggle />
+      </BottomTerminalProvider>
+    );
   }
 
   return (
@@ -112,7 +124,9 @@ export function BottomTerminalSplit({
         {/* Page content */}
         <div className="flex flex-1 min-h-0 flex-col overflow-hidden">{children}</div>
 
-        {/* Drag handle — only visible when expanded; toggle moved to project header */}
+        <BottomTerminalToggle />
+
+        {/* Drag handle — only visible when expanded */}
         {!collapsed && (
           <div className="flex items-center shrink-0">
             <div

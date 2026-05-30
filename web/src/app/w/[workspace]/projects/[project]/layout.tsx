@@ -10,8 +10,6 @@ import { WorktreeDropdown } from "@/components/projects/worktree-dropdown";
 import { ManageWorktreesDialog } from "@/components/projects/manage-worktrees-dialog";
 import { sections as tabs } from "@/components/layout/header/sections";
 import { MobileHeader } from "@/components/layout/mobile-header";
-import { TerminalToggleButton } from "@/components/terminal/terminal-toggle-button";
-import { useBottomTerminal } from "@/components/layout/workspace-terminal-context";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +18,6 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
   const pathname = useVirtualPathname();
   const searchParams = useVirtualSearchParams();
   const isMobile = useIsMobile();
-  const terminal = useBottomTerminal();
   const [manageOpen, setManageOpen] = useState(false);
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
@@ -144,15 +141,6 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
           )}
         </TooltipProvider>
         <div className="flex-1" />
-        {terminal && (
-          <div className="flex items-center pr-2">
-            <TerminalToggleButton
-              variant="inline"
-              collapsed={terminal.collapsed}
-              onToggle={() => terminal.setCollapsed(!terminal.collapsed)}
-            />
-          </div>
-        )}
       </nav>
 
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>

@@ -2,7 +2,11 @@
 
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
-type MobileOverlay = 'files' | 'terminal' | null;
+// Mobile full-screen overlays (only one open at a time):
+//   'files'    — the left files sidebar
+//   'terminal' — the RIGHT terminal (Claude/agent), opened from the mobile header
+//   'shell'    — the BOTTOM terminal (plain shell), opened from the floating toggle
+type MobileOverlay = 'files' | 'terminal' | 'shell' | null;
 
 interface MobileOverlayContextValue {
   overlay: MobileOverlay;

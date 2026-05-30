@@ -14,6 +14,7 @@ import { parseTerminalActivity } from "./parse-terminal-activity";
 import { createActivityTracker } from "./activity-tracker";
 import { ReconnectingSocket } from "./reconnecting-socket";
 import { MobileTerminalControls } from "./mobile-terminal-controls";
+import { shouldSendResize } from "./terminal-resize";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 export interface TerminalActions {
@@ -84,7 +85,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     setShowScrollButton(false);
   }, []);
 
-  const handleResize = useCallback(() => {
+  const fitAndSyncResize = useCallback(() => {
     const container = containerRef.current;
     const fitAddon = fitAddonRef.current;
     const term = xtermRef.current;
@@ -96,7 +97,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     fitAddon.fit();
 
     // Only send resize to server when dimensions actually changed
-    if (term.cols === lastSentColsRef.current && term.rows === lastSentRowsRef.current) return;
+    if (!shouldSendResize(term.cols, term.rows, lastSentColsRef.current, lastSentRowsRef.current)) return;
     lastSentColsRef.current = term.cols;
     lastSentRowsRef.current = term.rows;
 
@@ -181,6 +182,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       });
     };
     container.addEventListener('wheel', handleWheel, { passive: true });
+    // focusin bubbles from xterm's textarea (unlike focus), so any click/keyboard
+    // focus re-syncs PTY size when the viewport changed while the panel was hidden.
+    container.addEventListener('focusin', fitAndSyncResize);
 
     const scheduleScroll = () => {
       if (!scrollRafRef.current) {
@@ -201,12 +205,16 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     const socket = new ReconnectingSocket({
       urlFactory: () => buildWsUrl(tab),
       callbacks: {
-        onOpen: (ws) => {
+        onOpen: () => {
           console.log(`[terminal-ui] WS open for session ${sessionId}`);
           onStatusChange(sessionId, 'active');
-          lastSentColsRef.current = term.cols;
-          lastSentRowsRef.current = term.rows;
-          ws.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
+          // Reset the last-sent guard so every (re)connect re-asserts real, post-fit
+          // dimensions. The PTY may have (re)spawned at the URL default (80x24), and
+          // these refs persist across socket reconnects — without the reset a matching
+          // guard could suppress the resize and leave the PTY stuck at the stale size.
+          lastSentColsRef.current = 0;
+          lastSentRowsRef.current = 0;
+          fitAndSyncResize();
         },
         onMessage: (event) => {
           let msg: { t: string; d?: string; buffer?: string[]; exitCode?: number };
@@ -301,7 +309,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       activityTracker.resetOnUserInput();
     });
 
-    const resizeObserver = new ResizeObserver(handleResize);
+    const resizeObserver = new ResizeObserver(fitAndSyncResize);
     resizeObserver.observe(containerRef.current);
 
     return () => {
@@ -312,6 +320,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       activityTracker.dispose();
       scrollSub.dispose();
       container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('focusin', fitAndSyncResize);
       resizeObserver.disconnect();
       onReady?.(sessionId, null);
       socket.close();
@@ -320,10 +329,10 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       fitAddonRef.current = null;
       socketRef.current = null;
     };
-    // Intentionally only depends on sessionId and handleResize — do NOT add tab or scope
+    // Intentionally only depends on sessionId and fitAndSyncResize — do NOT add tab or scope
     // to avoid reconnecting when props change. sessionId is stable per tab lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, handleResize]);
+  }, [sessionId, fitAndSyncResize]);
 
   useEffect(() => {
     if (xtermRef.current && xtermTheme) {
@@ -331,10 +340,10 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     }
   }, [xtermTheme]);
 
-  // Repaint terminal when the dockview panel becomes visible (tab switch).
+  // Repaint and refit terminal when the dockview panel becomes visible (tab switch).
   // xterm's renderer pauses while display:none → need refresh() to repaint.
-  // ResizeObserver already handles actual size changes (fires when container
-  // transitions from 0x0 to actual dimensions), so explicit resize is not needed.
+  // fitAndSyncResize re-syncs PTY dimensions in case the viewport changed while
+  // the panel was hidden (e.g. mobile ↔ desktop switch).
   useEffect(() => {
     if (!panelApi) return;
     const disposable = panelApi.onDidVisibilityChange((e) => {
@@ -342,11 +351,12 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
         requestAnimationFrame(() => {
           const term = xtermRef.current;
           if (term) term.refresh(0, term.rows - 1);
+          fitAndSyncResize();
         });
       }
     });
     return () => disposable.dispose();
-  }, [panelApi]);
+  }, [panelApi, fitAndSyncResize]);
 
   return (
     <div className="flex size-full">

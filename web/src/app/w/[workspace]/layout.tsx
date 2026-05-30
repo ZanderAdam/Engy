@@ -14,7 +14,10 @@ import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
 import { MobileOverlayProvider } from '@/components/layout/mobile-overlay-context';
-import { MobileTerminalSheet } from '@/components/layout/mobile-terminal-sheet';
+import {
+  MobileTerminalSheet,
+  MobileShellTerminalSheet,
+} from '@/components/layout/mobile-terminal-sheet';
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
 import { BottomTerminalSplit } from '@/components/terminal/bottom-terminal-split';
 import type { TerminalDropdownGroup } from '@/components/terminal/types';
@@ -313,7 +316,13 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       {isMobile ? (
         <MobileOverlayProvider>
           {content}
+          {/* RIGHT terminal (Claude) — opened from the mobile header */}
           <MobileTerminalSheet
+            extraDropdownGroups={allDropdownGroups}
+            containerEnabled={isContainerEnabled}
+          />
+          {/* BOTTOM terminal (shell) — opened from the floating toggle */}
+          <MobileShellTerminalSheet
             extraDropdownGroups={allDropdownGroups}
             containerEnabled={isContainerEnabled}
           />

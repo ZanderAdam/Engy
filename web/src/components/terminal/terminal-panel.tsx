@@ -12,6 +12,11 @@ interface TerminalPanelProps {
 
 const noop = () => {};
 
+// RIGHT terminal — the Claude/agent terminal. Its scope (useTerminalScope)
+// carries the `claude` command, and it owns the terminal:open/inject events.
+// On desktop it's the ThreePanelLayout right panel; on mobile it's the
+// MobileTerminalSheet opened from the header. The plain shell lives in
+// BottomTerminalSplit (the BOTTOM terminal).
 export function TerminalPanel({ onCollapse, extraDropdownGroups, containerEnabled }: TerminalPanelProps) {
   const scope = useTerminalScope();
   const scopeKey = scope.groupKey;
