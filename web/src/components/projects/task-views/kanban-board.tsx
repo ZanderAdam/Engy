@@ -16,6 +16,8 @@ import { TaskCard } from '@/components/projects/task-card';
 import { DraggableTaskCard } from '@/components/projects/task-views/draggable-task-card';
 import { DroppableZone } from '@/components/projects/task-views/droppable-zone';
 import { CollapsedLaneStrip } from '@/components/projects/task-views/collapsed-lane-strip';
+import { CollapsedLaneRail } from '@/components/projects/task-views/collapsed-lane-rail';
+import { laneCollapsed } from '@/components/projects/task-views/kanban-collapse';
 import {
   taskStatusOptions,
   taskStatusLabels,
@@ -53,7 +55,9 @@ export function KanbanBoard({
   const isMobile = useIsMobile();
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [pendingMoves, setPendingMoves] = useState<Record<number, TaskStatus>>({});
-  const [backlogExpanded, setBacklogExpanded] = useState(false);
+  const [collapseOverrides, setCollapseOverrides] = useState<
+    Partial<Record<TaskStatus, boolean>>
+  >({});
 
   const [expandedStatus, setExpandedStatus] = useState<TaskStatus>(() => {
     const priority: TaskStatus[] = ['in_progress', 'todo', 'review', 'done', 'backlog'];
@@ -113,10 +117,16 @@ export function KanbanBoard({
     updateTask.mutate({ id: task.id, status: newStatus });
   }
 
-  const backlogCount = effectiveTasks.filter((t) => t.status === 'backlog').length;
-  const visibleStatuses = taskStatusOptions.filter(
-    (s) => s !== 'backlog' && !(backlogExpanded && s === 'done'),
-  );
+  const hasAnyTasks = effectiveTasks.length > 0;
+  const laneCount = (status: TaskStatus) =>
+    effectiveTasks.filter((t) => t.status === status).length;
+  const isCollapsed = (status: TaskStatus) =>
+    laneCollapsed(status, laneCount(status), collapseOverrides[status], hasAnyTasks);
+  const toggleLane = (status: TaskStatus) =>
+    setCollapseOverrides((prev) => ({
+      ...prev,
+      [status]: !laneCollapsed(status, laneCount(status), prev[status], hasAnyTasks),
+    }));
 
   const mobileStatusOrder: TaskStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
 
@@ -163,65 +173,43 @@ export function KanbanBoard({
         <div
           className="grid min-h-0 flex-1 gap-px bg-border"
           style={{
-            gridTemplateColumns: backlogExpanded
-              ? `repeat(${visibleStatuses.length + 1}, minmax(0, 1fr))`
-              : `auto repeat(${visibleStatuses.length}, minmax(0, 1fr))`,
+            gridTemplateColumns: taskStatusOptions
+              .map((status) => (isCollapsed(status) ? 'auto' : 'minmax(0, 1fr)'))
+              .join(' '),
           }}
         >
-          {/* Backlog column — collapsed by default */}
-          {backlogExpanded ? (
-            <KanbanColumn
-              status="backlog"
-              tasks={effectiveTasks}
-              sortedDoneTasks={sortedDoneTasks}
-              doneLimit={doneLimit}
-              onTaskClick={onTaskClick}
-              selectable={selectable}
-              selectedIds={selectedIds}
-              onTaskSelect={onTaskSelect}
-              headerAction={
-                <button
-                  type="button"
-                  onClick={() => setBacklogExpanded(false)}
-                  className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
-                >
-                  <RiArrowRightSLine className="size-4 rotate-180" />
-                </button>
-              }
-            />
-          ) : (
-            <DroppableZone
-              id="backlog"
-              className="flex min-h-0 flex-col items-center bg-background py-3"
-            >
-              <button
-                type="button"
-                onClick={() => setBacklogExpanded(true)}
-                className="flex shrink-0 flex-col items-center gap-1 text-muted-foreground/60 hover:text-muted-foreground"
-              >
-                <span className="text-xs font-medium">{backlogCount}</span>
-                <RiArrowRightSLine className="size-3.5" />
-                <span className="text-[10px] font-medium tracking-wider [writing-mode:vertical-lr]">
-                  Backlog
-                </span>
-              </button>
-            </DroppableZone>
+          {taskStatusOptions.map((status) =>
+            isCollapsed(status) ? (
+              <CollapsedLaneRail
+                key={status}
+                droppableId={status}
+                label={taskStatusLabels[status]}
+                count={laneCount(status)}
+                onExpand={() => toggleLane(status)}
+              />
+            ) : (
+              <KanbanColumn
+                key={status}
+                status={status}
+                tasks={effectiveTasks}
+                sortedDoneTasks={sortedDoneTasks}
+                doneLimit={doneLimit}
+                onTaskClick={onTaskClick}
+                selectable={selectable}
+                selectedIds={selectedIds}
+                onTaskSelect={onTaskSelect}
+                headerAction={
+                  <button
+                    type="button"
+                    onClick={() => toggleLane(status)}
+                    className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
+                  >
+                    <RiArrowRightSLine className="size-4 rotate-180" />
+                  </button>
+                }
+              />
+            ),
           )}
-
-          {/* Regular columns — Done is hidden when Backlog is expanded */}
-          {visibleStatuses.map((status) => (
-            <KanbanColumn
-              key={status}
-              status={status}
-              tasks={effectiveTasks}
-              sortedDoneTasks={sortedDoneTasks}
-              doneLimit={doneLimit}
-              onTaskClick={onTaskClick}
-              selectable={selectable}
-              selectedIds={selectedIds}
-              onTaskSelect={onTaskSelect}
-            />
-          ))}
         </div>
       )}
       <DragOverlay dropAnimation={null}>
