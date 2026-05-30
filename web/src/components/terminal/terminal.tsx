@@ -89,6 +89,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     const container = containerRef.current;
     const fitAddon = fitAddonRef.current;
     const term = xtermRef.current;
+    const socket = socketRef.current;
     if (!container || !fitAddon || !term) return;
 
     // Skip when panel is hidden (display:none gives 0 dimensions)
@@ -98,10 +99,16 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
 
     // Only send resize to server when dimensions actually changed
     if (!shouldSendResize(term.cols, term.rows, lastSentColsRef.current, lastSentRowsRef.current)) return;
+
+    // Record the size only once it's actually on the wire. ReconnectingSocket
+    // drops sends while the socket isn't OPEN (e.g. mid-reconnect/remount), so
+    // updating the guard before a dropped send would leave term.cols === lastSent
+    // — a later focus/resize would then see "no change" and never re-sync the
+    // PTY, leaving it stuck until a collapse/expand changed the row count.
+    if (socket?.readyState !== WebSocket.OPEN) return;
     lastSentColsRef.current = term.cols;
     lastSentRowsRef.current = term.rows;
-
-    socketRef.current?.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
+    socket.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
   }, [sessionId]);
 
   useEffect(() => {
