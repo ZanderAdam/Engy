@@ -127,6 +127,33 @@ describe('shell utilities', () => {
       expect(result).not.toContain('pull request');
       expect(result).not.toContain('merging');
     });
+
+    it('should include EARS-BDD instruction when earsBdd is true', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+        earsBdd: true,
+      });
+      expect(result).toContain('EARS-BDD mode is enabled for this workspace');
+      expect(result).toContain('EARS → BDD requirements flow');
+    });
+
+    it('should not include EARS-BDD instruction when earsBdd is false', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+        earsBdd: false,
+      });
+      expect(result).not.toContain('EARS-BDD');
+    });
+
+    it('should not include EARS-BDD instruction when earsBdd is undefined', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+      });
+      expect(result).not.toContain('EARS-BDD');
+    });
   });
 
   describe('buildClaudeCommand', () => {

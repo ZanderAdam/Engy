@@ -18,6 +18,7 @@ export function deriveScope(
   workspaceId: number,
   projectSlug?: string,
   projectId?: number,
+  earsBdd?: boolean,
 ): TerminalScope {
   if (projectSlug && projectId !== undefined) {
     const projectDir = `${workspaceDir}/projects/${projectSlug}`;
@@ -25,6 +26,7 @@ export function deriveScope(
       workspace: { id: workspaceId, slug: workspaceSlug },
       project: { id: projectId, slug: projectSlug, dir: projectDir },
       repos,
+      earsBdd,
     });
     return {
       scopeType: 'project',
@@ -39,6 +41,7 @@ export function deriveScope(
   const systemPrompt = buildContextBlock({
     workspace: { id: workspaceId, slug: workspaceSlug },
     repos,
+    earsBdd,
   });
   return {
     scopeType: 'workspace',
@@ -103,5 +106,5 @@ export function useTerminalScope(): TerminalScope {
 
   const repos = Array.isArray(workspace.repos) ? (workspace.repos as string[]) : [];
 
-  return deriveScope(workspaceSlug, workspace.resolvedDir, repos, workspace.id, projectSlug, project?.id);
+  return deriveScope(workspaceSlug, workspace.resolvedDir, repos, workspace.id, projectSlug, project?.id, workspace.earsBdd ?? false);
 }

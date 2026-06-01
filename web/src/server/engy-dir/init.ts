@@ -24,6 +24,7 @@ export function resolveProjectDir(
 interface WorkspaceSkills {
   planSkill?: string | null;
   implementSkill?: string | null;
+  earsBdd?: boolean;
 }
 
 export function writeWorkspaceYaml(
@@ -38,6 +39,7 @@ export function writeWorkspaceYaml(
   if (docsDir) config.docsDir = docsDir;
   if (skills?.planSkill) config.planSkill = skills.planSkill;
   if (skills?.implementSkill) config.implementSkill = skills.implementSkill;
+  if (skills?.earsBdd) config.earsBdd = true;
   fs.writeFileSync(path.join(dir, 'workspace.yaml'), yaml.dump(config, { lineWidth: -1 }));
 }
 

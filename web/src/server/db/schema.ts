@@ -25,6 +25,7 @@ export const workspaces = sqliteTable('workspaces', {
   docsDir: text('docs_dir'),
   planSkill: text('plan_skill'),
   implementSkill: text('implement_skill'),
+  earsBdd: integer('ears_bdd', { mode: 'boolean' }).default(false),
   containerEnabled: integer('container_enabled', { mode: 'boolean' }).default(false),
   containerConfig: text('container_config', { mode: 'json' }).$type<ContainerConfig>(),
   executionBackend: text('execution_backend', { enum: ['devcontainer', 'coder'] }).default('devcontainer'),

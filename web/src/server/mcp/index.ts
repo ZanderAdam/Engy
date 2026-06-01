@@ -387,6 +387,29 @@ function registerWorkspaceTools(mcp: McpServer): void {
       }
     },
   );
+
+  mcp.tool(
+    'setWorkspaceEarsBdd',
+    'Enable or disable EARS-BDD mode for a workspace — controls whether the EARS → BDD requirements flow is injected into the agent system prompt.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      enabled: z.boolean().describe('Whether to enable EARS-BDD mode'),
+    },
+    async ({ workspaceId, enabled }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const updated = db
+        .update(workspaces)
+        .set({ earsBdd: enabled, updatedAt: new Date().toISOString() })
+        .where(eq(workspaces.id, workspaceId))
+        .returning()
+        .get();
+
+      return mcpResult({ id: updated.id, slug: updated.slug, earsBdd: updated.earsBdd });
+    },
+  );
 }
 
 function registerTaskTools(mcp: McpServer): void {

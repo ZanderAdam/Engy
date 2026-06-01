@@ -12,6 +12,7 @@ interface ContextBlockInput {
   project?: { id: number; slug: string; dir: string };
   repos: string[];
   autoAgentCompletion?: 'pr' | 'merge';
+  earsBdd?: boolean;
 }
 
 export function buildContextBlock({
@@ -19,6 +20,7 @@ export function buildContextBlock({
   project,
   repos,
   autoAgentCompletion,
+  earsBdd,
 }: ContextBlockInput): string {
   const lines: string[] = [`Workspace: ${workspace.slug} (id: ${workspace.id})`];
   if (project) {
@@ -36,6 +38,11 @@ export function buildContextBlock({
   } else if (autoAgentCompletion === 'merge') {
     lines.push(
       'When done, commit your changes. The system will handle merging automatically.',
+    );
+  }
+  if (earsBdd) {
+    lines.push(
+      'EARS-BDD mode is enabled for this workspace — when implementing, follow the EARS → BDD requirements flow: establish/trace the functional requirements (FRs), write FR-tagged tests, and verify coverage.',
     );
   }
   return lines.join('\n');

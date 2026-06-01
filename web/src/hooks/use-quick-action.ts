@@ -38,6 +38,7 @@ export function useQuickAction() {
       workspace: { id: workspace.id, slug: workspaceSlug },
       project: { id: project.id, slug: projectSlug, dir: projectDir },
       repos,
+      earsBdd: workspace.earsBdd ?? false,
     });
     const isContainer = opts.containerMode === 'container';
     const scope: TerminalScope = {

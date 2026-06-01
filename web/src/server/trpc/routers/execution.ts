@@ -104,6 +104,7 @@ function buildResumeFlags(taskId: number): string[] {
     project: { id: project.id, slug: project.slug, dir: projectDir },
     repos,
     autoAgentCompletion: workspace.autoAgentCompletion as 'pr' | 'merge' | undefined,
+    earsBdd: workspace.earsBdd ?? false,
   });
   const flags: string[] = [];
   if (systemPrompt) flags.push('--append-system-prompt', systemPrompt);
@@ -113,7 +114,7 @@ function buildResumeFlags(taskId: number): string[] {
 
 function buildPromptForTask(
   task: { id: number; title: string; description: string | null },
-  workspace: { slug: string; id: number; implementSkill: string | null; autoAgentCompletion: string | null },
+  workspace: { slug: string; id: number; implementSkill: string | null; autoAgentCompletion: string | null; earsBdd: boolean | null },
   project: { slug: string; id: number },
   projectDir: string,
   repos: string[],
@@ -126,13 +127,14 @@ function buildPromptForTask(
     project: { id: project.id, slug: project.slug, dir: projectDir },
     repos,
     autoAgentCompletion: workspace.autoAgentCompletion as 'pr' | 'merge' | undefined,
+    earsBdd: workspace.earsBdd ?? false,
   });
   return { prompt, systemPrompt };
 }
 
 function buildPromptForPlan(
   task: { id: number; title: string; description: string | null },
-  workspace: { slug: string; id: number; planSkill: string | null; autoAgentCompletion: string | null },
+  workspace: { slug: string; id: number; planSkill: string | null; autoAgentCompletion: string | null; earsBdd: boolean | null },
   project: { slug: string; id: number },
   projectDir: string,
   repos: string[],
@@ -145,13 +147,14 @@ function buildPromptForPlan(
     project: { id: project.id, slug: project.slug, dir: projectDir },
     repos,
     autoAgentCompletion: workspace.autoAgentCompletion as 'pr' | 'merge' | undefined,
+    earsBdd: workspace.earsBdd ?? false,
   });
   return { prompt, systemPrompt };
 }
 
 function buildPromptForMilestone(
   milestoneRef: string,
-  workspace: { slug: string; id: number },
+  workspace: { slug: string; id: number; earsBdd: boolean | null },
   project: { slug: string; id: number },
   projectDir: string,
   repos: string[],
@@ -161,6 +164,7 @@ function buildPromptForMilestone(
     workspace: { id: workspace.id, slug: workspace.slug },
     project: { id: project.id, slug: project.slug, dir: projectDir },
     repos,
+    earsBdd: workspace.earsBdd ?? false,
   });
   return { prompt, systemPrompt };
 }
@@ -472,6 +476,7 @@ export const executionRouter = router({
           workspace: { id: resolved.workspace.id, slug: resolved.workspace.slug },
           project: { id: resolved.project.id, slug: resolved.project.slug, dir: resolved.projectDir },
           repos: resolved.repos,
+          earsBdd: resolved.workspace.earsBdd ?? false,
         });
       } else {
         const milestoneRef = String(input.id);
@@ -1033,6 +1038,7 @@ export const executionRouter = router({
         workspace: { id: workspace.id, slug: workspace.slug },
         project: { id: project.id, slug: project.slug, dir: projectDir },
         repos,
+        earsBdd: workspace.earsBdd ?? false,
       });
 
       // Create session linked to first task
