@@ -106,5 +106,13 @@ export function useTerminalScope(): TerminalScope {
 
   const repos = Array.isArray(workspace.repos) ? (workspace.repos as string[]) : [];
 
-  return deriveScope(workspaceSlug, workspace.resolvedDir, repos, workspace.id, projectSlug, project?.id, workspace.earsBdd ?? false);
+  return deriveScope(
+    workspaceSlug,
+    workspace.resolvedDir,
+    repos,
+    workspace.id,
+    projectSlug,
+    project?.id,
+    workspace.earsBdd ?? false,
+  );
 }

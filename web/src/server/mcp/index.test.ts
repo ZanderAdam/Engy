@@ -1707,4 +1707,34 @@ describe('MCP Server', () => {
       expect(isError).toBe(true);
     });
   });
+
+  describe('setWorkspaceEarsBdd tool', () => {
+    it('should toggle earsBdd in the DB and workspace.yaml', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const created = await caller.workspace.create({ name: 'Ears MCP' });
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.slug, created.slug)).get()!;
+
+      const { data, isError } = await callTool(getMcpServer(), 'setWorkspaceEarsBdd')({
+        workspaceId: ws.id,
+        enabled: true,
+      });
+      expect(isError).toBe(false);
+      expect(data.earsBdd).toBe(true);
+
+      const row = db.select().from(workspaces).where(eq(workspaces.id, ws.id)).get()!;
+      expect(row.earsBdd).toBe(true);
+
+      const yamlPath = path.join(ctx.tmpDir, ws.slug, 'workspace.yaml');
+      expect(fs.readFileSync(yamlPath, 'utf-8')).toContain('earsBdd: true');
+    });
+
+    it('should error for an unknown workspace', async () => {
+      const { isError } = await callTool(getMcpServer(), 'setWorkspaceEarsBdd')({
+        workspaceId: 99999,
+        enabled: true,
+      });
+      expect(isError).toBe(true);
+    });
+  });
 });

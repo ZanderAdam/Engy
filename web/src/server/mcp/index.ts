@@ -20,7 +20,7 @@ import {
   frontmatter,
 } from '../db/schema';
 import { validateDependencies, attachBlockedBy } from '../tasks/validation';
-import { getWorkspaceDir, resolveProjectDir } from '../engy-dir/init';
+import { getWorkspaceDir, resolveProjectDir, writeWorkspaceYaml } from '../engy-dir/init';
 import { readTaskPlan } from '../plan/service';
 import { broadcastTaskChange, broadcastQuestionChange } from '../ws/broadcast';
 import { taskStatusSchema } from '@/lib/task-status';
@@ -406,6 +406,14 @@ function registerWorkspaceTools(mcp: McpServer): void {
         .where(eq(workspaces.id, workspaceId))
         .returning()
         .get();
+
+      // Keep workspace.yaml in sync with the DB, mirroring the tRPC update path.
+      const dir = getWorkspaceDir(updated);
+      writeWorkspaceYaml(dir, updated.name, updated.slug, updated.repos ?? [], updated.docsDir, {
+        planSkill: updated.planSkill,
+        implementSkill: updated.implementSkill,
+        earsBdd: updated.earsBdd ?? false,
+      });
 
       return mcpResult({ id: updated.id, slug: updated.slug, earsBdd: updated.earsBdd });
     },
