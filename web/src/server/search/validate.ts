@@ -10,9 +10,10 @@ import { execFileSync } from 'node:child_process';
 import matter from 'gray-matter';
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client';
-import { permanentMemories, frontmatter, fleetingMemories } from '../db/schema';
+import { permanentMemories, frontmatter, fleetingMemories, workspaces } from '../db/schema';
 import { getWorkspaceDir } from '../engy-dir/init';
 import { update as indexerUpdate } from './indexer';
+import { getWorkspaceMatrix } from './trace';
 
 type Severity = 'error' | 'warning' | 'info';
 
@@ -405,6 +406,70 @@ async function checkIndexStatus(workspaceSlug: string): Promise<Finding[]> {
   return findings;
 }
 
+// ── Check: requirements traceability ──────────────────────────────────
+
+/**
+ * Cross-reference EARS FRs declared in system/features against the FR tags in
+ * the workspace's test suite. Surfaces format violations, coverage gaps, and
+ * orphaned tags — the feedback signal for the EARS → BDD test → implement loop.
+ */
+function checkRequirements(workspaceId: number): Finding[] {
+  const db = getDb();
+  const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+  if (!ws) return [];
+
+  const matrix = getWorkspaceMatrix(ws);
+  if (matrix.definitions.length === 0) return []; // no feature FRs authored yet
+
+  const findings: Finding[] = [];
+
+  // Format contract — malformed rows and duplicate ids break the parser's
+  // determinism, so they are errors regardless of whether code is scanned.
+  for (const m of matrix.malformed) {
+    findings.push({
+      severity: 'error',
+      check: 'requirements-format',
+      message: `Malformed requirement row (${m.reason}): ${m.raw}`,
+      path: m.file,
+    });
+  }
+  for (const id of matrix.duplicateIds) {
+    findings.push({
+      severity: 'error',
+      check: 'requirements-format',
+      message: `FR id ${id} is declared more than once — ids must be unique and never reused`,
+    });
+  }
+
+  const codeRoots = (ws.repos ?? []).filter((r) => fs.existsSync(r));
+  if (codeRoots.length === 0) {
+    findings.push({
+      severity: 'info',
+      check: 'requirements-traceability',
+      message: `${matrix.definitions.length} FR(s) declared; skipping test-coverage scan (no repos configured)`,
+    });
+    return findings;
+  }
+
+  for (const tag of matrix.orphanTags) {
+    findings.push({
+      severity: 'error',
+      check: 'requirements-traceability',
+      message: `Test references ${tag.id} but no feature doc declares it (typo or orphaned tag)`,
+      path: `${tag.testFile}:${tag.line}`,
+    });
+  }
+  for (const id of matrix.uncovered) {
+    findings.push({
+      severity: 'warning',
+      check: 'requirements-traceability',
+      message: `${id} has no tagged test — coverage gap`,
+    });
+  }
+
+  return findings;
+}
+
 // ── Public entry point ─────────────────────────────────────────────────
 
 export async function validateWorkspace(ws: WorkspaceRow): Promise<ValidationReport> {
@@ -419,6 +484,7 @@ export async function validateWorkspace(ws: WorkspaceRow): Promise<ValidationRep
     ...checkOrphanedContent(ws.id, workspaceDir),
     ...checkLifecycleConsistency(ws.id),
     ...checkCommitMessages(workspaceDir),
+    ...checkRequirements(ws.id),
     ...(await checkIndexStatus(ws.slug)),
   ];
 

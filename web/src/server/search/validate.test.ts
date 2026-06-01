@@ -1,3 +1,5 @@
+// @rtm-ignore — embeds example [FR-…] tags as string fixtures, not real test
+// titles; exclude from the repo-wide tag scan.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -538,6 +540,83 @@ describe('validateWorkspace', () => {
 
       const staleWarnings = report.findings.filter((f) => f.check === 'stale-memory');
       expect(staleWarnings).toHaveLength(0);
+    });
+  });
+
+  describe('requirements traceability', () => {
+    const FEATURE_DOC = `# Search
+
+## Requirements
+
+| ID | Requirement (EARS) |
+|----|--------------------|
+| FR-SEARCH-001 | The system SHALL rank results by score. |
+| FR-SEARCH-002 | The system SHALL anchor on filters. |
+`;
+
+    function setRepos(repos: string[]): void {
+      const db = getDb();
+      db.update(workspaces).set({ repos }).where(eq(workspaces.id, ws.id)).run();
+    }
+
+    function writeTaggedTest(code: string): string {
+      const codeDir = path.join(ctx.tmpDir, 'repo', 'src');
+      fs.mkdirSync(codeDir, { recursive: true });
+      fs.writeFileSync(path.join(codeDir, 'rank.test.ts'), code);
+      return path.join(ctx.tmpDir, 'repo');
+    }
+
+    it('should emit no findings when no feature FRs are declared', async () => {
+      const report = await validateWorkspace(ws);
+      expect(report.findings.filter((f) => f.check.startsWith('requirements-'))).toHaveLength(0);
+    });
+
+    it('should warn on an FR with no tagged test', async () => {
+      writeFile('system/features/search.md', FEATURE_DOC);
+      const repo = writeTaggedTest(`it('[FR-SEARCH-001] ranks', () => {});`);
+      setRepos([repo]);
+
+      const report = await validateWorkspace(ws);
+      const uncovered = report.findings.filter(
+        (f) => f.check === 'requirements-traceability' && /FR-SEARCH-002/.test(f.message),
+      );
+      expect(uncovered).toHaveLength(1);
+      expect(uncovered[0].severity).toBe('warning');
+    });
+
+    it('should error on a test tag that no feature doc declares', async () => {
+      writeFile('system/features/search.md', FEATURE_DOC);
+      const repo = writeTaggedTest(
+        `it('[FR-SEARCH-001] ranks', () => {});\nit('[FR-SEARCH-404] orphan', () => {});`,
+      );
+      setRepos([repo]);
+
+      const report = await validateWorkspace(ws);
+      const orphan = report.findings.filter(
+        (f) => f.check === 'requirements-traceability' && /FR-SEARCH-404/.test(f.message),
+      );
+      expect(orphan).toHaveLength(1);
+      expect(orphan[0].severity).toBe('error');
+    });
+
+    it('should error on a malformed requirement row', async () => {
+      writeFile(
+        'system/features/bad.md',
+        `## Requirements\n\n| ID | Requirement (EARS) |\n|----|----|\n| FR-BAD-001 | This requirement omits the keyword. |\n`,
+      );
+      const report = await validateWorkspace(ws);
+      const format = report.findings.filter((f) => f.check === 'requirements-format');
+      expect(format.some((f) => /missing SHALL/.test(f.message))).toBe(true);
+    });
+
+    it('should emit an info finding when no repos are configured', async () => {
+      writeFile('system/features/search.md', FEATURE_DOC);
+      const report = await validateWorkspace(ws);
+      const info = report.findings.filter(
+        (f) => f.check === 'requirements-traceability' && f.severity === 'info',
+      );
+      expect(info).toHaveLength(1);
+      expect(info[0].message).toMatch(/no repos configured/);
     });
   });
 

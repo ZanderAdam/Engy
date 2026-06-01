@@ -67,7 +67,7 @@ Tools are registered by domain in separate `register*Tools(mcp)` functions:
 - `registerMemoryTools` — `createFleetingMemory`, `listMemories`, `createPermanentMemory`, `updatePermanentMemory`, `promoteMemory`
 - `registerQuestionTools` — `askQuestion`
 - `registerIndexTools` — `reindex`, `indexStatus`, `validateWorkspace`
-- `registerSearchTools` — `search` (unified; replaces `listMemories` for discovery use cases)
+- `registerSearchTools` — `search` (unified; replaces `listMemories` for discovery use cases), `trace` (requirements traceability: FR ↔ tests ↔ source, via `search/trace.ts`)
 
 ## Session Lifecycle
 

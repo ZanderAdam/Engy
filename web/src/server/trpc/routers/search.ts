@@ -8,6 +8,7 @@ import { workspaces, frontmatter, tasks, projects } from '../../db/schema';
 import { runQmdSearch } from '../../search/qmd-search';
 import { applySubtypeAffinity } from '../../search/subtype-affinity';
 import { getSupersededMemoryPaths } from '../../search/memory-queries';
+import { traceWorkspace } from '../../search/trace';
 
 const filtersSchema = z.object({
   type: z.string().optional(),
@@ -243,6 +244,19 @@ export const searchRouter = router({
 
     return [];
   }),
+
+  trace: publicProcedure
+    .input(
+      z.object({
+        workspaceSlug: z.string().min(1),
+        fr: z.string().optional(),
+        file: z.string().optional(),
+      }),
+    )
+    .query(({ input }) => {
+      const ws = resolveWorkspace(input.workspaceSlug);
+      return traceWorkspace(ws, { fr: input.fr, file: input.file });
+    }),
 });
 
 async function queryOnlyMode(

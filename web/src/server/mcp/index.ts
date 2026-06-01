@@ -33,6 +33,7 @@ import { runQmdSearch, type QmdSearchMode } from '../search/qmd-search';
 import { applySubtypeAffinity } from '../search/subtype-affinity';
 import { projectCompletionService } from '../services/project-completion';
 import { getSupersededMemoryPaths } from '../search/memory-queries';
+import { traceWorkspace } from '../search/trace';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 
@@ -1404,6 +1405,33 @@ function registerSearchTools(mcp: McpServer): void {
           );
         }
         return mcpError(`Search failed: ${message}`);
+      }
+    },
+  );
+
+  mcp.tool(
+    'trace',
+    'Requirements traceability: map an EARS functional requirement (FR) to the tests that verify it and the source they cover, or vice versa. With no fr/file, returns a workspace coverage summary (uncovered FRs, orphan tags, malformed rows). Drives the EARS → BDD test → implement loop.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      fr: z
+        .string()
+        .optional()
+        .describe('FR id, e.g. FR-SEARCH-003 — returns its requirement text, tests, and source'),
+      file: z
+        .string()
+        .optional()
+        .describe('Source or test path — returns the FRs defined in or covered by that file'),
+    },
+    async ({ workspaceId, fr, file }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      try {
+        return mcpResult(traceWorkspace(ws, { fr, file }));
+      } catch (err) {
+        return mcpError(`Trace failed: ${(err as Error).message}`);
       }
     },
   );

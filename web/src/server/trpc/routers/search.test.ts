@@ -15,7 +15,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
-import { frontmatter, permanentMemories, tasks, projects } from '../../db/schema';
+import { getDb } from '../../db/client';
+import { frontmatter, permanentMemories, tasks, projects, workspaces } from '../../db/schema';
 import { _resetStoreCache } from '../../search/qmd-store';
 import { update } from '../../search/indexer';
 
@@ -136,7 +137,7 @@ describe('search router', () => {
 
   describe('filters-only mode', () => {
     describe('scalar filter: type', () => {
-      it('should return rows matching type scalar field', async () => {
+      it('[FR-SEARCH-009] should return rows matching type scalar field', async () => {
         insertFrontmatter('system', 'system/overview.md', {
           title: 'System Overview',
           type: 'architecture',
@@ -207,7 +208,7 @@ describe('search router', () => {
     });
 
     describe('array filter: tags membership', () => {
-      it('should return rows where tags array includes the requested tag', async () => {
+      it('[FR-SEARCH-009] should return rows where tags array includes the requested tag', async () => {
         insertFrontmatter('docs', 'docs/auth-guide.md', {
           title: 'Auth Guide',
           tags: ['auth', 'jwt'],
@@ -344,7 +345,7 @@ describe('search router', () => {
     });
 
     describe('cross-collection grouping', () => {
-      it('should return results grouped by collection', async () => {
+      it('[FR-SEARCH-001] should return results grouped by collection', async () => {
         insertFrontmatter('system', 'system/arch.md', { title: 'Architecture', tags: ['core'] });
         insertFrontmatter('docs', 'docs/guide.md', { title: 'Guide', tags: ['core'] });
         insertFrontmatter('projects', 'projects/plan.md', { title: 'Plan', tags: ['core'] });
@@ -571,7 +572,7 @@ describe('search router', () => {
         process.env.QMD_SKIP = '1';
       });
 
-      it('should return grouped results by collection from qmd', async () => {
+      it('[FR-SEARCH-001] should return grouped results by collection from qmd', async () => {
         writeFile('docs/auth-guide.md', '---\ntitle: Auth Guide\n---\n\nJWT authentication flow.\n');
         await update(workspaceSlug, 'docs');
 
@@ -581,7 +582,7 @@ describe('search router', () => {
         expect(collectionNames).toContain('docs');
       });
 
-      it('should include path and score in results', async () => {
+      it('[FR-SEARCH-002] should include path and score in results', async () => {
         writeFile('docs/auth.md', '---\ntitle: Auth\n---\n\nAuth content.\n');
         await update(workspaceSlug, 'docs');
 
@@ -633,7 +634,7 @@ describe('search router', () => {
         process.env.QMD_SKIP = '1';
       });
 
-      it('should narrow qmd results by frontmatter filter', async () => {
+      it('[FR-SEARCH-003] should narrow qmd results by frontmatter filter', async () => {
         writeFile(
           'docs/auth-jwt.md',
           '---\ntitle: Auth JWT\ntags: [auth]\n---\n\nJWT authentication flow.\n',
@@ -745,7 +746,7 @@ describe('search router — mocked qmd store', () => {
       expect(memoryGroup!.results[0].path).toBe('memory/decisions/001.md');
     });
 
-    it('should surface PRECONDITION_FAILED when model is downloading', async () => {
+    it('[FR-SEARCH-004] should surface PRECONDITION_FAILED when model is downloading', async () => {
       getStoreSpy.mockRejectedValue(new Error('Downloading model weights...'));
 
       await expect(
@@ -827,7 +828,7 @@ describe('search router — mocked qmd store', () => {
       expect(fileGroups).toHaveLength(0);
     });
 
-    it('should surface PRECONDITION_FAILED on model download in query+filter mode', async () => {
+    it('[FR-SEARCH-004] should surface PRECONDITION_FAILED on model download in query+filter mode', async () => {
       getStoreSpy.mockRejectedValue(new Error('model download in progress'));
 
       await expect(
@@ -851,7 +852,7 @@ describe('search router — mocked qmd store', () => {
       ).rejects.toThrow('Disk I/O failure');
     });
 
-    it('should sort results by score descending within each collection group', async () => {
+    it('[FR-SEARCH-003] should sort results by score descending within each collection group', async () => {
       insertFrontmatter('memory', 'memory/decisions/a.md', { title: 'A', tags: ['x'] });
       insertFrontmatter('memory', 'memory/decisions/b.md', { title: 'B', tags: ['x'] });
 
@@ -886,7 +887,7 @@ describe('search router — mocked qmd store', () => {
   });
 
   describe('mode + intent plumbing', () => {
-    it('default mode passes through to store.search and forwards intent', async () => {
+    it('[FR-SEARCH-002] default mode passes through to store.search and forwards intent', async () => {
       const searchSpy = vi.fn().mockResolvedValue([
         {
           file: 'qmd://memory/decisions/x.md',
@@ -913,7 +914,7 @@ describe('search router — mocked qmd store', () => {
       );
     });
 
-    it("mode='lex' calls searchLex (BM25) and maps filepath to file", async () => {
+    it("[FR-SEARCH-010] mode='lex' calls searchLex (BM25) and maps filepath to file", async () => {
       const searchLexSpy = vi.fn().mockResolvedValue([
         {
           filepath: 'qmd://memory/facts/y.md',
@@ -944,7 +945,7 @@ describe('search router — mocked qmd store', () => {
       expect(memGroup?.results[0].path).toBe('memory/facts/y.md');
     });
 
-    it("mode='vector' calls searchVector and maps filepath to file", async () => {
+    it("[FR-SEARCH-010] mode='vector' calls searchVector and maps filepath to file", async () => {
       const searchVectorSpy = vi.fn().mockResolvedValue([
         {
           filepath: 'qmd://memory/patterns/z.md',
@@ -973,7 +974,7 @@ describe('search router — mocked qmd store', () => {
   });
 
   describe('subtype affinity reweighting', () => {
-    it('should promote decision over pattern for "why" queries', async () => {
+    it('[FR-SEARCH-005] should promote decision over pattern for "why" queries', async () => {
       insertFrontmatter('memory', 'memory/patterns/workspaces-vs-projects.md', {
         title: 'Workspaces vs projects',
         subtype: 'pattern',
@@ -1010,7 +1011,7 @@ describe('search router — mocked qmd store', () => {
       expect(memGroup!.results[1].path).toBe('memory/patterns/workspaces-vs-projects.md');
     });
 
-    it('should promote fact over pattern for "where" queries', async () => {
+    it('[FR-SEARCH-006] should promote fact over pattern for "where" queries', async () => {
       insertFrontmatter('memory', 'memory/patterns/frontmatter-graph.md', {
         title: 'Frontmatter table as graph',
         subtype: 'pattern',
@@ -1046,7 +1047,7 @@ describe('search router — mocked qmd store', () => {
       expect(memGroup!.results[0].path).toBe('memory/facts/sqlite-location.md');
     });
 
-    it('should promote fact over convention for bare UPPER_SNAKE_CASE identifier', async () => {
+    it('[FR-SEARCH-007] should promote fact over convention for bare UPPER_SNAKE_CASE identifier', async () => {
       insertFrontmatter('memory', 'memory/conventions/dev-env.md', {
         title: 'Use .dev.env per worktree',
         subtype: 'convention',
@@ -1135,7 +1136,7 @@ describe('search router — mocked qmd store', () => {
     });
   });
 
-  describe('superseded memory filtering', () => {
+  describe('[FR-SEARCH-008] superseded memory filtering', () => {
     function insertPermanentMemory(filePath: string, supersededById: number | null = null) {
       ctx.db
         .insert(permanentMemories)
@@ -1250,5 +1251,64 @@ describe('search router — mocked qmd store', () => {
       expect(paths).not.toContain('memory/facts/old.md');
       expect(paths).toContain('memory/facts/new.md');
     });
+  });
+});
+
+describe('search router — trace', () => {
+  let ctx: TestContext;
+  let wsSlug: string;
+
+  beforeEach(async () => {
+    ctx = setupTestDb();
+    const caller = appRouter.createCaller({ state: ctx.state });
+    const created = await caller.workspace.create({ name: 'Trace Router WS' });
+    wsSlug = created.slug;
+    const db = getDb();
+    const ws = db.select().from(workspaces).where(eq(workspaces.slug, wsSlug)).get()!;
+
+    const codeDir = path.join(ctx.tmpDir, 'repo', 'src');
+    fs.mkdirSync(codeDir, { recursive: true });
+    fs.writeFileSync(path.join(codeDir, 'rank.ts'), 'export const rank = () => {};');
+    fs.writeFileSync(
+      path.join(codeDir, 'rank.test.ts'),
+      `it('[FR-SEARCH-001] ranks by score', () => {});`,
+    );
+    db.update(workspaces)
+      .set({ repos: [path.join(ctx.tmpDir, 'repo')] })
+      .where(eq(workspaces.id, ws.id))
+      .run();
+
+    const featuresDir = path.join(ctx.tmpDir, wsSlug, 'system', 'features');
+    fs.mkdirSync(featuresDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(featuresDir, 'search.md'),
+      `## Requirements\n\n| ID | Requirement (EARS) |\n|----|----|\n| FR-SEARCH-001 | The system SHALL rank by score. |\n| FR-SEARCH-002 | The system SHALL anchor on filters. |\n`,
+    );
+  });
+
+  afterEach(() => {
+    ctx.cleanup();
+  });
+
+  it('should trace an FR to its tests and source', async () => {
+    const caller = appRouter.createCaller({ state: ctx.state });
+    const result = await caller.search.trace({ workspaceSlug: wsSlug, fr: 'FR-SEARCH-001' });
+    expect(result.kind).toBe('fr');
+    if (result.kind !== 'fr') throw new Error('unreachable');
+    expect(result.covered).toBe(true);
+    expect(result.sources).toEqual(['src/rank.ts']);
+  });
+
+  it('should return a coverage summary with no fr/file', async () => {
+    const caller = appRouter.createCaller({ state: ctx.state });
+    const result = await caller.search.trace({ workspaceSlug: wsSlug });
+    expect(result.kind).toBe('summary');
+    if (result.kind !== 'summary') throw new Error('unreachable');
+    expect(result.uncovered).toEqual(['FR-SEARCH-002']);
+  });
+
+  it('should throw NOT_FOUND for an unknown workspace', async () => {
+    const caller = appRouter.createCaller({ state: ctx.state });
+    await expect(caller.search.trace({ workspaceSlug: 'nope' })).rejects.toThrow();
   });
 });

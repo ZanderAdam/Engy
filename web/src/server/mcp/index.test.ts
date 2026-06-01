@@ -1655,4 +1655,56 @@ describe('MCP Server', () => {
       });
     });
   });
+
+  describe('trace tool', () => {
+    function seedTraceWorkspace(): number {
+      const db = getDb();
+      const codeDir = path.join(ctx.tmpDir, 'repo');
+      const src = path.join(codeDir, 'src');
+      fs.mkdirSync(src, { recursive: true });
+      fs.writeFileSync(path.join(src, 'rank.ts'), 'export const rank = () => {};');
+      fs.writeFileSync(
+        path.join(src, 'rank.test.ts'),
+        `it('[FR-SEARCH-001] ranks by score', () => {});`,
+      );
+
+      const ws = db
+        .insert(workspaces)
+        .values({ name: 'Trace WS', slug: 'trace-ws', repos: [codeDir] })
+        .returning()
+        .get();
+
+      const featuresDir = path.join(ctx.tmpDir, ws.slug, 'system', 'features');
+      fs.mkdirSync(featuresDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(featuresDir, 'search.md'),
+        `## Requirements\n\n| ID | Requirement (EARS) |\n|----|----|\n| FR-SEARCH-001 | The system SHALL rank by score. |\n| FR-SEARCH-002 | The system SHALL anchor on filters. |\n`,
+      );
+      return ws.id;
+    }
+
+    it('should trace an FR to its tests and colocated source', async () => {
+      const wsId = seedTraceWorkspace();
+      const { data, isError } = await callTool(getMcpServer(), 'trace')({
+        workspaceId: wsId,
+        fr: 'FR-SEARCH-001',
+      });
+      expect(isError).toBe(false);
+      expect(data.kind).toBe('fr');
+      expect(data.covered).toBe(true);
+      expect(data.sources).toEqual(['src/rank.ts']);
+    });
+
+    it('should return a coverage summary with no fr/file', async () => {
+      const wsId = seedTraceWorkspace();
+      const { data } = await callTool(getMcpServer(), 'trace')({ workspaceId: wsId });
+      expect(data.kind).toBe('summary');
+      expect(data.uncovered).toEqual(['FR-SEARCH-002']);
+    });
+
+    it('should error for an unknown workspace', async () => {
+      const { isError } = await callTool(getMcpServer(), 'trace')({ workspaceId: 99999 });
+      expect(isError).toBe(true);
+    });
+  });
 });
