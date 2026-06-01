@@ -453,6 +453,34 @@ describe('WorkspaceIndexer', () => {
       expect(supersededRow!.supersededById).toBe(replacementRow!.id);
     });
 
+    it('should resolve supersededById when the superseder is processed later (forward reference)', async () => {
+      // Superseded file sorts BEFORE its replacement, so it is upserted first and
+      // the replacement has no DB row when its path is first seen. The second-pass
+      // resolver must still link them — guards against order-dependent loss on a
+      // full rebuild from files.
+      const supersededFile = 'memory/facts/202501010041-fwd-superseded.md';
+      const replacementFile = 'memory/facts/202501010099-fwd-replacement.md';
+      writeFixture(
+        supersededFile,
+        `---\ntitle: Fwd Superseded\nsubtype: fact\nsupersededBy: ${replacementFile}\n---\n\nOld.\n`,
+      );
+      writeFixture(
+        replacementFile,
+        `---\ntitle: Fwd Replacement\nsubtype: fact\n---\n\nNew.\n`,
+      );
+
+      await syncPermanentMemoryMirror(workspaceSlug);
+
+      const rows = ctx.db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.workspaceId, workspaceId))
+        .all();
+      const replacementRow = rows.find((r) => r.filePath === replacementFile);
+      const supersededRow = rows.find((r) => r.filePath === supersededFile);
+      expect(supersededRow!.supersededById).toBe(replacementRow!.id);
+    });
+
     it('should preserve supersededById on re-sync (disk has no concept of supersession)', async () => {
       const memFile = 'memory/facts/202501010040-old-fact.md';
       writeFixture(

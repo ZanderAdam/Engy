@@ -265,6 +265,37 @@ describe('memory router', () => {
       expect(raw).toContain(replacement.filePath!);
     });
 
+    it('should preserve supersededBy in frontmatter on an unrelated edit', async () => {
+      const created = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Superseded Fact',
+        content: 'Old content.',
+      });
+      const replacement = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Replacement Fact',
+        content: 'New content.',
+      });
+      await caller.memory.update({ id: created.id, supersededById: replacement.id });
+
+      // Edit something unrelated WITHOUT re-passing supersededById.
+      await caller.memory.update({ id: created.id, title: 'Superseded Fact (retitled)' });
+
+      const wsDir = path.join(ctx.tmpDir, workspaceSlug);
+      const raw = fs.readFileSync(path.join(wsDir, created.filePath!), 'utf8');
+      expect(raw).toContain('supersededBy:');
+      expect(raw).toContain(replacement.filePath!);
+
+      const row = ctx.db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, created.id))
+        .get();
+      expect(row!.supersededById).toBe(replacement.id);
+    });
+
     it('should trigger an incremental reindex after updating', async () => {
       const mockUpdate = vi.mocked(indexerUpdate);
       mockUpdate.mockClear();

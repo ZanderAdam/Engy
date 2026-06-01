@@ -151,6 +151,11 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
   const workspaceDir = getWorkspaceDir(ws);
   const db = getDb();
 
+  // supersededBy paths are resolved to ids in a second pass, after every row is
+  // upserted — otherwise a forward reference (superseder file processed after the
+  // superseded one, e.g. on a full rebuild) would resolve to a missing row.
+  const supersededRefs: { relPath: string; supersededByPath: string }[] = [];
+
   for (const subtype of MEMORY_SUBTYPES) {
     const subtypeDir = path.join(workspaceDir, 'memory', subtype);
     const mdFiles = collectMdFiles(subtypeDir);
@@ -192,22 +197,11 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
 
       const now = new Date().toISOString();
 
-      // Resolve supersededBy path -> supersededById only when frontmatter has it set.
-      // When the file has no supersededBy key, preserve the existing DB value rather
-      // than resetting to null — the DB is the authoritative source for supersession.
-      let supersededByIdUpdate: { supersededById: number | null } | Record<string, never> = {};
+      // Defer supersededBy resolution to the second pass below. When the file has
+      // no supersededBy key, leave supersededById untouched on update (preserve the
+      // DB value — it is authoritative when the file is silent).
       if (typeof fm.supersededBy === 'string' && fm.supersededBy) {
-        const superseder = db
-          .select({ id: permanentMemories.id })
-          .from(permanentMemories)
-          .where(
-            and(
-              eq(permanentMemories.workspaceId, ws.id),
-              eq(permanentMemories.filePath, fm.supersededBy as string),
-            ),
-          )
-          .get();
-        supersededByIdUpdate = { supersededById: superseder?.id ?? null };
+        supersededRefs.push({ relPath, supersededByPath: fm.supersededBy });
       }
 
       if (existing) {
@@ -226,7 +220,6 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
               : [],
             scenarioIds: Array.isArray(fm.scenarioIds) ? (fm.scenarioIds as string[]) : [],
             sources: Array.isArray(fm.sources) ? (fm.sources as string[]) : [],
-            ...supersededByIdUpdate,
             updatedAt: now,
           })
           .where(eq(permanentMemories.id, existing.id))
@@ -249,7 +242,6 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
               : [],
             scenarioIds: Array.isArray(fm.scenarioIds) ? (fm.scenarioIds as string[]) : [],
             sources: Array.isArray(fm.sources) ? (fm.sources as string[]) : [],
-            ...supersededByIdUpdate,
             createdAt: now,
             updatedAt: now,
           })
@@ -282,6 +274,29 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
         .where(inArray(permanentMemories.id, orphanIds))
         .run();
     }
+  }
+
+  // Second pass: resolve supersededBy paths to ids now that every row exists.
+  // Order-independent — a forward reference (superseder upserted after the
+  // superseded row) resolves correctly here. A dangling path (superseder file
+  // absent) resolves to null.
+  for (const { relPath, supersededByPath } of supersededRefs) {
+    const superseder = db
+      .select({ id: permanentMemories.id })
+      .from(permanentMemories)
+      .where(
+        and(
+          eq(permanentMemories.workspaceId, ws.id),
+          eq(permanentMemories.filePath, supersededByPath),
+        ),
+      )
+      .get();
+    db.update(permanentMemories)
+      .set({ supersededById: superseder?.id ?? null })
+      .where(
+        and(eq(permanentMemories.workspaceId, ws.id), eq(permanentMemories.filePath, relPath)),
+      )
+      .run();
   }
 }
 

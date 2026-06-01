@@ -202,7 +202,6 @@ export async function writePermanentMemory(
     scenarioIds: fm.scenarioIds ?? [],
     sources: fm.sources ?? [],
   };
-  if (fm.supersededBy) safeFm.supersededBy = fm.supersededBy;
 
   const slug = toSlug(fm.title);
   const ts = nowTimestamp();
@@ -290,20 +289,18 @@ export async function writeSourceSnapshot(
   const sourcesDir = path.join(workspaceDir, 'memory', 'sources');
   fs.mkdirSync(sourcesDir, { recursive: true });
 
-  if (fs.existsSync(sourcesDir)) {
-    for (const fname of fs.readdirSync(sourcesDir)) {
-      if (!fname.endsWith('.md')) continue;
-      const fpath = path.join(sourcesDir, fname);
-      try {
-        const raw = fs.readFileSync(fpath, 'utf8');
-        const parsed = matter(raw);
-        if ((parsed.data as Record<string, unknown>).content_hash === hash) {
-          const relPath = path.relative(workspaceDir, fpath).replace(/\\/g, '/');
-          return { filePath: relPath, deduplicated: true };
-        }
-      } catch {
-        // skip unreadable files
+  for (const fname of fs.readdirSync(sourcesDir)) {
+    if (!fname.endsWith('.md')) continue;
+    const fpath = path.join(sourcesDir, fname);
+    try {
+      const raw = fs.readFileSync(fpath, 'utf8');
+      const parsed = matter(raw);
+      if ((parsed.data as Record<string, unknown>).content_hash === hash) {
+        const relPath = path.relative(workspaceDir, fpath).replace(/\\/g, '/');
+        return { filePath: relPath, deduplicated: true };
       }
+    } catch {
+      // skip unreadable files
     }
   }
 
@@ -348,8 +345,10 @@ export function readSourceSnapshot(filePath: string): SourceSnapshotFile {
     frontmatter: {
       title: data.title as string,
       url: typeof data.url === 'string' ? data.url : undefined,
+      origin: typeof data.origin === 'string' ? data.origin : undefined,
       source_type: data.source_type as string,
       ingester: typeof data.ingester === 'string' ? data.ingester : undefined,
+      ingested_at: typeof data.ingested_at === 'string' ? data.ingested_at : undefined,
       content_hash: typeof data.content_hash === 'string' ? data.content_hash : '',
     },
     body: parsed.content,
@@ -452,7 +451,6 @@ export async function rewritePermanentMemory(
     scenarioIds: fm.scenarioIds ?? [],
     sources: fm.sources ?? [],
   };
-  if (fm.supersededBy) safeFm.supersededBy = fm.supersededBy;
 
   const safeBody = escapeIndexMarkers(body);
   const fileContent = matter.stringify(safeBody, safeFm);

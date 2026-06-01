@@ -193,12 +193,16 @@ export const memoryRouter = router({
 
     if (existing.filePath) {
       const workspaceDir = getWorkspaceDir(ws);
+      // Use the explicitly-passed supersededById when present; otherwise carry the
+      // existing value so an unrelated edit does not strip supersededBy from the file.
+      const effectiveSupersededById =
+        updates.supersededById !== undefined ? updates.supersededById : existing.supersededById;
       let supersededByPath: string | undefined;
-      if (updates.supersededById != null) {
+      if (effectiveSupersededById != null) {
         const superseder = db
           .select({ filePath: permanentMemories.filePath })
           .from(permanentMemories)
-          .where(eq(permanentMemories.id, updates.supersededById))
+          .where(eq(permanentMemories.id, effectiveSupersededById))
           .get();
         supersededByPath = superseder?.filePath ?? undefined;
       }

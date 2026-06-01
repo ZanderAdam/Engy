@@ -34,7 +34,13 @@ const mockGetStore = getStore as MockedFunction<typeof getStore>;
 function callTool(mcp: ReturnType<typeof getMcpServer>, name: string) {
   const tools = (mcp as any)._registeredTools;
   return async (params: Record<string, unknown> = {}) => {
-    const result = await tools[name].handler(params, {} as any);
+    // Mirror the production call path: validate + apply the tool's schema defaults
+    // before invoking the handler. On invalid input, fall through with the raw
+    // params so error-path assertions still reach the handler.
+    const tool = tools[name];
+    const parsed = tool.inputSchema?.safeParse?.(params);
+    const args = parsed?.success ? parsed.data : params;
+    const result = await tool.handler(args, {} as any);
     return {
       raw: result,
       data: JSON.parse(result.content[0].text),

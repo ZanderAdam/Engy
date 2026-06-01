@@ -720,8 +720,7 @@ function registerMemoryTools(mcp: McpServer): void {
         .default('fleeting')
         .describe("Which memory store to query: 'fleeting' (default), 'permanent', or 'both'"),
     },
-    async ({ workspaceId, compact, scope: scopeParam }) => {
-      const scope = scopeParam ?? 'fleeting';
+    async ({ workspaceId, compact, scope }) => {
       const db = getDb();
       const result: Record<string, unknown> = {};
 
@@ -853,13 +852,17 @@ function registerMemoryTools(mcp: McpServer): void {
       const resolvedContent = updates.content ?? existing.content;
       const resolvedSubtype = existing.subtype;
 
-      // Resolve supersededBy path for frontmatter when supersededById is set
+      // Resolve supersededBy path for frontmatter. Use the explicitly-passed
+      // supersededById when present; otherwise carry the existing value so an
+      // unrelated edit (e.g. retitle) does not strip supersededBy from the file.
+      const effectiveSupersededById =
+        'supersededById' in updates ? updates.supersededById : existing.supersededById;
       let supersededByPath: string | undefined;
-      if (updates.supersededById != null) {
+      if (effectiveSupersededById != null) {
         const superseder = db
           .select({ filePath: permanentMemories.filePath })
           .from(permanentMemories)
-          .where(eq(permanentMemories.id, updates.supersededById))
+          .where(eq(permanentMemories.id, effectiveSupersededById))
           .get();
         supersededByPath = superseder?.filePath ?? undefined;
       }
