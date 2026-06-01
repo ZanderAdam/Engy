@@ -15,7 +15,7 @@ Unlike `/engy:propose-sysdocs` (which proposes a batch of updates after project 
 - `getWorkspaceDetails` — resolve workspace paths (`paths.workspaceDir`, `paths.systemDir`)
 - `search` — find relevant existing system docs by topic _(skip gracefully if not yet available)_
 
-All file operations use **built-in tools** (Glob, Read, Write, Edit) against absolute paths under `{workspaceDir}/system/`. The MCP server does not expose file IO — tRPC procedures are not callable from this context.
+All file operations use **built-in tools** (Glob, Read, Write, Edit, and Bash for the canonical-path check below) against absolute paths under `{workspaceDir}/system/`. The MCP server does not expose file IO — tRPC procedures are not callable from this context.
 
 ## Process
 
@@ -29,7 +29,13 @@ Identify the active workspace from session/route context:
 
 Set `systemDir = paths.systemDir` (= `{workspaceDir}/system/`).
 
-**Scope rule (load-bearing):** before every Read/Write/Edit, resolve the target path to its canonical form using `realpath` (following all symlinks, collapsing `..` segments). The resolved absolute path must still begin with `${systemDir}`. Refuse any path whose canonical form escapes `systemDir` — this includes paths containing `..` segments that traverse above `systemDir` and symlinks whose final target is outside `system/`. A string-prefix check on the raw input is not sufficient; the canonical check is required. For non-system context (codebase files, memories, project specs), use Read/Glob directly on those paths, never proxy them through this skill's edit flow.
+**Scope rule (load-bearing):** before every Read/Write/Edit, resolve the target path to its canonical form and confirm it stays inside `systemDir`. Run the check with the Bash tool so symlinks and `..` segments are actually resolved — a string-prefix check on the raw input is not sufficient:
+
+```
+Bash({ command: 'realpath -m "<targetPath>"' })   # then verify the output begins with <systemDir>
+```
+
+Refuse any path whose canonical form escapes `systemDir` — including `..` segments that traverse above it and symlinks whose final target is outside `system/`. For non-system context (codebase files, memories, project specs), use Read/Glob directly on those paths, never proxy them through this skill's edit flow.
 
 ### Step 2: List Existing System Docs
 
@@ -52,7 +58,7 @@ system/
     websocket-protocol.md
 ```
 
-If Glob returns nothing, the `system/` tree is empty — suggest running `/engy:bootstrap-sysdocs` first and exit.
+If Glob returns nothing, the `system/` tree is empty (rare — `init.ts` seeds `system/overview.md` on workspace creation, so this only happens for an externally-managed or corrupted workspace dir): suggest running `/engy:bootstrap-sysdocs` first and exit.
 
 ### Step 3: Select a File to Edit
 
@@ -75,6 +81,7 @@ Ask the user what they want to change or add. Common intents:
 - Add a missing feature doc
 - Correct an outdated architectural description
 - Improve clarity, structure, or cross-references
+- **Reorder docs** — pure reordering means updating `order:` values on the affected files and calling `reindex({ workspaceId, collection: 'system' })` to regenerate the README index; no body content changes needed
 
 If the request is ambiguous, ask one clarifying question before proceeding.
 
@@ -85,9 +92,11 @@ For non-trivial edits — especially those touching architectural decisions, int
 ```
 Task({
   subagent_type: 'engy:research',
-  prompt: '<topic of the edit> — context: workspace=<slug>, doc=<relative path>, intent=<user request summary>'
+  prompt: '<topic of the edit> — context: workspaceId=<workspaceId>, workspace=<slug>, doc=<relative path>, intent=<user request summary>'
 })
 ```
+
+The `engy:research` agent **requires the numeric `workspaceId`** in the prompt (it errors with `Error: workspaceId missing from prompt` if absent) — pass the integer from Step 1, not the slug. If the digest reports no results (the line `No relevant prior knowledge found for this question.` or footer `Distinct findings: 0 (after dedup)`), simply add no citations to the edit.
 
 Fold the returned `## Findings` digest into the proposed edit as inline citations. Skip this step for straightforward factual corrections or wording improvements.
 
@@ -95,7 +104,19 @@ Fold the returned `## Findings` digest into the proposed edit as inline citation
 
 1. Show the user a **before/after diff** (or, for new files, a content preview) of the proposed change. Never write silently.
 2. On user approval, apply the change with built-in Edit (existing file) or Write (new file). Per the scope rule in Step 1, the `file_path` must be an absolute path under `${systemDir}`.
-3. Confirm the write and remind the user: "Change is uncommitted — review it in the diff viewer when ready."
+   - **For new files:** include an `order:` integer in the frontmatter (slot it relative to existing docs in the same directory — read their `order:` values first). Also ensure the target directory has a `README.md`; create it if missing with a `description:` frontmatter (its blurb in the parent index), a 1–3 sentence prose intro, and the empty index markers (do not populate links between them):
+     ```markdown
+     ---
+     description: <one-line summary of what this directory holds>
+     ---
+
+     <1–3 sentence prose intro>
+
+     <!-- INDEX START -->
+     <!-- INDEX END -->
+     ```
+3. If the edit adds a new doc, removes a doc, or changes any `order:` values, call `reindex({ workspaceId, collection: 'system' })` after writing to refresh the README index blocks and update the search index.
+4. Confirm the write and remind the user: "Change is uncommitted — review it in the diff viewer when ready."
 
 ### Step 7: Continue or Exit
 

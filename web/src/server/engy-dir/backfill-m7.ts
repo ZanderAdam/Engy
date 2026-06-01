@@ -44,19 +44,22 @@ export async function backfillM7(workspaceSlug: string): Promise<void> {
 
   initMemoryDirs(workspaceDir);
 
+  // Populate the qmd store and frontmatter table for this workspace. This also
+  // (re)generates the system/ README index files, so it must run BEFORE the
+  // commit — otherwise those README writes are left uncommitted and a second
+  // backfill run would commit them, breaking idempotency.
+  try {
+    await indexerUpdate(workspaceSlug);
+  } catch (err) {
+    console.error(`[backfillM7] indexer update failed for ${workspaceSlug}:`, err);
+  }
+
   // Commit any newly created files if inside a git repo
   const git = simpleGit(workspaceDir);
   const status = await git.status();
   if (status.files.length > 0) {
     await git.add('.');
     await git.commit('memory(init): backfill knowledge-layer directories');
-  }
-
-  // Populate the qmd store and frontmatter table for this workspace.
-  try {
-    await indexerUpdate(workspaceSlug);
-  } catch (err) {
-    console.error(`[backfillM7] indexer update failed for ${workspaceSlug}:`, err);
   }
 }
 

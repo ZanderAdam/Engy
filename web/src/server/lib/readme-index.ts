@@ -61,9 +61,34 @@ function extractDescription(filePath: string): string {
   return path.basename(filePath, '.md');
 }
 
+// ── Reading-order extraction ─────────────────────────────────────────
+
+/**
+ * Read the numeric `order` frontmatter field — the reading position of a doc
+ * within its directory. Files without it sort last (Infinity), then alphabetically.
+ */
+function extractOrder(filePath: string): number {
+  if (!fs.existsSync(filePath)) return Infinity;
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const order = (matter(raw).data as Record<string, unknown>).order;
+    if (typeof order === 'number' && Number.isFinite(order)) return order;
+  } catch {
+    // fall through
+  }
+  return Infinity;
+}
+
 // ── Index generation ─────────────────────────────────────────────────
 
-function buildIndexBlock(dirPath: string): string {
+function subdirBullet(dirPath: string, subdir: string, noun: string): string {
+  const desc = extractDescription(path.join(dirPath, subdir, 'README.md'));
+  const count = countMdFiles(path.join(dirPath, subdir));
+  const countStr = count > 0 ? ` (${count} ${noun}s)` : '';
+  return `- [${escapeTocEntry(subdir)}](${subdir}/) — ${escapeTocEntry(desc)}${countStr}`;
+}
+
+function buildIndexBlock(dirPath: string, noun: string): string {
   if (!fs.existsSync(dirPath)) return `${INDEX_START}\n${INDEX_END}`;
 
   const entries = fs.readdirSync(dirPath, { withFileTypes: true });
@@ -73,59 +98,38 @@ function buildIndexBlock(dirPath: string): string {
     .map((e) => e.name)
     .sort();
 
+  // Files sort by `order` frontmatter first (curated reading order), then alphabetically.
   const files = entries
     .filter((e) => e.isFile() && e.name.endsWith('.md') && e.name !== 'README.md')
-    .map((e) => e.name)
-    .sort();
+    .map((e) => {
+      const filePath = path.join(dirPath, e.name);
+      return { name: e.name, order: extractOrder(filePath), desc: extractDescription(filePath) };
+    })
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+
+  const fileBullet = (f: { name: string; desc: string }) =>
+    `- [${escapeTocEntry(f.name)}](${f.name}) — ${escapeTocEntry(f.desc)}`;
+  const filesHeader = `**${noun.charAt(0).toUpperCase()}${noun.slice(1)}s**`;
 
   const lines: string[] = [INDEX_START];
 
   if (subdirs.length > 0 && files.length > 0) {
     // Mixed dir: emit both sections
-    lines.push('');
-    lines.push('**Sections**');
-    lines.push('');
-    for (const subdir of subdirs) {
-      const readmePath = path.join(dirPath, subdir, 'README.md');
-      const desc = extractDescription(readmePath);
-      const fileCount = countMdFiles(path.join(dirPath, subdir));
-      const countStr = fileCount > 0 ? ` (${fileCount} notes)` : '';
-      lines.push(`- [${escapeTocEntry(subdir)}](${subdir}/) — ${escapeTocEntry(desc)}${countStr}`);
-    }
-    lines.push('');
-    lines.push('**Notes**');
-    lines.push('');
-    for (const file of files) {
-      const filePath = path.join(dirPath, file);
-      const desc = extractDescription(filePath);
-      lines.push(`- [${escapeTocEntry(file)}](${file}) — ${escapeTocEntry(desc)}`);
-    }
+    lines.push('', '**Sections**', '');
+    for (const subdir of subdirs) lines.push(subdirBullet(dirPath, subdir, noun));
+    lines.push('', filesHeader, '');
+    for (const f of files) lines.push(fileBullet(f));
   } else if (subdirs.length > 0) {
-    // Subdirs only
     lines.push('');
-    for (const subdir of subdirs) {
-      const readmePath = path.join(dirPath, subdir, 'README.md');
-      const desc = extractDescription(readmePath);
-      const fileCount = countMdFiles(path.join(dirPath, subdir));
-      const countStr = fileCount > 0 ? ` (${fileCount} notes)` : '';
-      lines.push(`- [${escapeTocEntry(subdir)}](${subdir}/) — ${escapeTocEntry(desc)}${countStr}`);
-    }
+    for (const subdir of subdirs) lines.push(subdirBullet(dirPath, subdir, noun));
   } else if (files.length > 0) {
-    // Files only
     lines.push('');
-    for (const file of files) {
-      const filePath = path.join(dirPath, file);
-      const desc = extractDescription(filePath);
-      lines.push(`- [${escapeTocEntry(file)}](${file}) — ${escapeTocEntry(desc)}`);
-    }
+    for (const f of files) lines.push(fileBullet(f));
   } else {
-    // Empty
-    lines.push('');
-    lines.push('- (empty)');
+    lines.push('', '- (empty)');
   }
 
-  lines.push('');
-  lines.push(INDEX_END);
+  lines.push('', INDEX_END);
   return lines.join('\n');
 }
 
@@ -140,7 +144,7 @@ function countMdFiles(dirPath: string): number {
 
 // ── updateReadmeIndex ─────────────────────────────────────────────────
 
-export function updateReadmeIndex(dirPath: string): void {
+export function updateReadmeIndex(dirPath: string, noun: string = 'note'): void {
   const readmePath = path.join(dirPath, 'README.md');
 
   let existing = '';
@@ -148,7 +152,7 @@ export function updateReadmeIndex(dirPath: string): void {
     existing = fs.readFileSync(readmePath, 'utf8');
   }
 
-  const newBlock = buildIndexBlock(dirPath);
+  const newBlock = buildIndexBlock(dirPath, noun);
 
   const startIdx = existing.indexOf(INDEX_START);
   const endIdx = existing.indexOf(INDEX_END);
@@ -193,5 +197,24 @@ export function regenerateReadmeChain(filePath: string): void {
     const parent = path.dirname(dir);
     if (parent === dir) break; // filesystem root
     dir = parent;
+  }
+}
+
+// ── regenerateSystemReadmes ───────────────────────────────────────────
+
+/**
+ * Regenerate the README index for the `system/` collection and its two
+ * standard subdirectories. Unlike memory, system docs are written by skills
+ * (not through a server write path), so this is driven by the reindex flow.
+ * Uses the `doc` noun and sorts each index by the `order` frontmatter field.
+ */
+export function regenerateSystemReadmes(workspaceDir: string): void {
+  const systemDir = path.join(workspaceDir, 'system');
+  if (!fs.existsSync(systemDir)) return;
+
+  updateReadmeIndex(systemDir, 'doc');
+  for (const subdir of ['features', 'technical']) {
+    const dir = path.join(systemDir, subdir);
+    if (fs.existsSync(dir)) updateReadmeIndex(dir, 'doc');
   }
 }

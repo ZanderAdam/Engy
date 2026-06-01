@@ -108,6 +108,27 @@ describe('WorkspaceIndexer', () => {
         expect(overview!.collection).toBe('system');
       });
 
+      it('should regenerate system README indexes ordered by the order field', async () => {
+        writeFixture(
+          'system/features/b-feature.md',
+          `---\norder: 1\ndescription: First feature\n---\n# B\n`,
+        );
+        writeFixture(
+          'system/features/a-feature.md',
+          `---\norder: 2\ndescription: Second feature\n---\n# A\n`,
+        );
+
+        await update(workspaceSlug, 'system');
+
+        const featReadme = fs.readFileSync(
+          path.join(wsDir, 'system', 'features', 'README.md'),
+          'utf8',
+        );
+        // order:1 (b-feature) precedes order:2 (a-feature) despite alphabetical order.
+        expect(featReadme.indexOf('b-feature.md')).toBeLessThan(featReadme.indexOf('a-feature.md'));
+        expect(featReadme).toContain('First feature');
+      });
+
       it('should handle files without frontmatter gracefully', async () => {
         writeFixture('docs/no-fm.md', '# Just a heading\n\nNo frontmatter here.\n');
 

@@ -6,6 +6,7 @@ import { getStore } from './qmd-store';
 import { getDb } from '../db/client';
 import { workspaces, frontmatter, permanentMemories } from '../db/schema';
 import { getWorkspaceDir } from '../engy-dir/init';
+import { regenerateSystemReadmes } from '../lib/readme-index';
 
 // Collections managed by the indexer.
 const COLLECTIONS = ['system', 'docs', 'projects', 'memory'] as const;
@@ -319,6 +320,10 @@ export async function update(
   const results: IndexResult[] = [];
 
   for (const col of targets) {
+    // System READMEs are skill-authored, not written through a server path, so
+    // refresh their index blocks here before qmd hashes the collection.
+    if (col === 'system') regenerateSystemReadmes(workspaceDir);
+
     const qmdResult = await store.update({ collections: [col] });
 
     syncFrontmatterTable(ws.id, workspaceDir, col);
@@ -376,6 +381,8 @@ export async function forceFullReindex(workspaceSlug: string): Promise<IndexResu
       path: path.join(workspaceDir, col),
       pattern: '**/*.md',
     });
+
+    if (col === 'system') regenerateSystemReadmes(workspaceDir);
 
     const qmdResult = await store.update({ collections: [col] });
 

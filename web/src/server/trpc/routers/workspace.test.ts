@@ -127,6 +127,14 @@ describe('workspace router', () => {
       expect(fs.existsSync(path.join(customDir, 'memory'))).toBe(true);
       expect(fs.existsSync(path.join(customDir, 'system', 'overview.md'))).toBe(true);
 
+      // System directories are seeded with README index files.
+      expect(fs.existsSync(path.join(customDir, 'system', 'README.md'))).toBe(true);
+      expect(fs.existsSync(path.join(customDir, 'system', 'features', 'README.md'))).toBe(true);
+      expect(fs.existsSync(path.join(customDir, 'system', 'technical', 'README.md'))).toBe(true);
+      expect(fs.readFileSync(path.join(customDir, 'system', 'README.md'), 'utf8')).toContain(
+        '<!-- INDEX START -->',
+      );
+
       // Default ENGY_DIR path should NOT have been created
       expect(fs.existsSync(path.join(ctx.tmpDir, 'my-project'))).toBe(false);
     });

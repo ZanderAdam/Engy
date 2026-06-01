@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { updateReadmeIndex, regenerateReadmeChain } from './readme-index';
+import { updateReadmeIndex, regenerateReadmeChain, regenerateSystemReadmes } from './readme-index';
 
 const INDEX_START = '<!-- INDEX START -->';
 const INDEX_END = '<!-- INDEX END -->';
@@ -154,6 +154,39 @@ describe('readme-index', () => {
       expect(content).toContain('**Sections**');
       expect(content).toContain('**Notes**');
     });
+
+    it('should sort files by order frontmatter, then alphabetically', () => {
+      fs.writeFileSync(path.join(tmpDir, 'third.md'), '---\norder: 3\ndescription: Third\n---\n');
+      fs.writeFileSync(path.join(tmpDir, 'first.md'), '---\norder: 1\ndescription: First\n---\n');
+      fs.writeFileSync(path.join(tmpDir, 'second.md'), '---\norder: 2\ndescription: Second\n---\n');
+      // Unordered files (order = Infinity) fall after ordered ones, alphabetically.
+      fs.writeFileSync(path.join(tmpDir, 'zzz.md'), '# Zzz\nNo order.');
+      fs.writeFileSync(path.join(tmpDir, 'aaa.md'), '# Aaa\nNo order.');
+
+      updateReadmeIndex(tmpDir);
+      const block = extractIndexBlock(fs.readFileSync(path.join(tmpDir, 'README.md'), 'utf8'));
+      const idx = (name: string) => block.indexOf(name);
+
+      expect(idx('first.md')).toBeLessThan(idx('second.md'));
+      expect(idx('second.md')).toBeLessThan(idx('third.md'));
+      expect(idx('third.md')).toBeLessThan(idx('aaa.md'));
+      expect(idx('aaa.md')).toBeLessThan(idx('zzz.md'));
+    });
+
+    it('should label the files section with the provided noun', () => {
+      const subdir = path.join(tmpDir, 'sub');
+      fs.mkdirSync(subdir);
+      fs.writeFileSync(path.join(subdir, 'README.md'), '---\ndescription: Sub\n---\n');
+      fs.writeFileSync(path.join(subdir, 'd1.md'), '# D1');
+      fs.writeFileSync(path.join(subdir, 'd2.md'), '# D2');
+      fs.writeFileSync(path.join(tmpDir, 'file.md'), '# File\nContent.');
+
+      updateReadmeIndex(tmpDir, 'doc');
+      const content = fs.readFileSync(path.join(tmpDir, 'README.md'), 'utf8');
+      expect(content).toContain('**Docs**');
+      expect(content).toContain('(2 docs)');
+      expect(content).not.toContain('**Notes**');
+    });
   });
 
   describe('regenerateReadmeChain', () => {
@@ -181,6 +214,55 @@ describe('readme-index', () => {
 
       const parentReadme = path.join(tmpDir, 'memory', 'README.md');
       expect(fs.existsSync(parentReadme)).toBe(true);
+    });
+  });
+
+  describe('regenerateSystemReadmes', () => {
+    function seedSystem(): string {
+      const sys = path.join(tmpDir, 'system');
+      fs.mkdirSync(path.join(sys, 'features'), { recursive: true });
+      fs.mkdirSync(path.join(sys, 'technical'), { recursive: true });
+      fs.writeFileSync(path.join(sys, 'overview.md'), '---\ndescription: Overview\n---\n# Overview');
+      fs.writeFileSync(
+        path.join(sys, 'features', 'b-feature.md'),
+        '---\norder: 1\ndescription: First feature\n---\n',
+      );
+      fs.writeFileSync(
+        path.join(sys, 'features', 'a-feature.md'),
+        '---\norder: 2\ndescription: Second feature\n---\n',
+      );
+      return sys;
+    }
+
+    it('should build README indexes for system/ and its subdirs, ordered by order field', () => {
+      const sys = seedSystem();
+      regenerateSystemReadmes(tmpDir);
+
+      const featReadme = fs.readFileSync(path.join(sys, 'features', 'README.md'), 'utf8');
+      // order:1 (b-feature) sorts before order:2 (a-feature), despite alphabetical order.
+      expect(featReadme.indexOf('b-feature.md')).toBeLessThan(featReadme.indexOf('a-feature.md'));
+
+      const sysReadme = fs.readFileSync(path.join(sys, 'README.md'), 'utf8');
+      expect(sysReadme).toContain('**Sections**'); // features/ + technical/
+      expect(sysReadme).toContain('**Docs**'); // overview.md, labelled with the 'doc' noun
+      expect(sysReadme).toContain('overview.md');
+    });
+
+    it('should preserve init-seeded prose above the index markers', () => {
+      const sys = seedSystem();
+      const featReadme = path.join(sys, 'features', 'README.md');
+      fs.writeFileSync(featReadme, 'Intro prose for features.\n\n<!-- INDEX START -->\n<!-- INDEX END -->\n');
+
+      regenerateSystemReadmes(tmpDir);
+
+      const content = fs.readFileSync(featReadme, 'utf8');
+      expect(content).toContain('Intro prose for features.');
+      expect(content).toContain('b-feature.md');
+    });
+
+    it('should no-op when system/ does not exist', () => {
+      expect(() => regenerateSystemReadmes(tmpDir)).not.toThrow();
+      expect(fs.existsSync(path.join(tmpDir, 'system', 'README.md'))).toBe(false);
     });
   });
 });

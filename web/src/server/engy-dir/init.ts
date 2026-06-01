@@ -61,6 +61,9 @@ export function initWorkspaceDir(
     path.join(dir, 'system', 'overview.md'),
     `# ${name}\n\nWorkspace overview — edit this file to describe your project.\n`,
   );
+  seedReadme(path.join(dir, 'system'), 'system');
+  seedReadme(path.join(dir, 'system', 'features'), 'system/features');
+  seedReadme(path.join(dir, 'system', 'technical'), 'system/technical');
 
   fs.mkdirSync(path.join(dir, 'projects'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
@@ -72,6 +75,18 @@ const MEMORY_SUBTYPES = ['decisions', 'patterns', 'facts', 'conventions', 'insig
 const INGESTION_DIRS = ['sources', 'references'] as const;
 
 const README_DESCRIPTIONS: Record<string, { prose: string; description: string }> = {
+  'system': {
+    description: 'Workspace system documentation — overview, features, and technical concerns',
+    prose: "This directory holds the workspace's living system documentation. Start with `overview.md` for the high-level narrative, then read the `features/` and `technical/` docs in order.",
+  },
+  'system/features': {
+    description: 'Major feature areas of the workspace',
+    prose: 'One doc per major feature area, ordered for top-to-bottom reading.',
+  },
+  'system/technical': {
+    description: 'Cross-cutting technical concerns and architecture',
+    prose: 'One doc per major architectural concern, ordered for top-to-bottom reading.',
+  },
   'memory': {
     description: 'Workspace knowledge base — permanent notes, source snapshots, and references',
     prose: 'This directory holds the workspace knowledge base organised into the Zettelkasten permanent note subtypes, source ingestion snapshots, and durable reference records.',

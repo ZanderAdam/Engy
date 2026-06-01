@@ -13,7 +13,7 @@ Terminal skill that produces the initial set of system documentation files for a
 - `getWorkspaceDetails` — resolve workspace paths (`paths.workspaceDir`, `paths.systemDir`) and `repos[]`
 - `search` — locate any existing system docs to avoid clobbering (skip gracefully if the workspace has no system collection yet)
 
-All codebase exploration uses the built-in **Glob**, **Grep**, and **Read** tools directly against the absolute repo paths returned in `workspace.repos[]`. All file writes use the built-in **Write** tool against absolute paths under `{workspaceDir}/system/`.
+All codebase exploration uses the built-in **Glob**, **Grep**, and **Read** tools directly against the absolute repo paths in the top-level `repos[]` array returned by `getWorkspaceDetails`. All file writes use the built-in **Write** tool against absolute paths under `{workspaceDir}/system/`.
 
 ## Process
 
@@ -29,20 +29,20 @@ Identify the active workspace from session/route context:
 
 ### Step 2: Check Existing System Docs
 
-Use **Glob** against `{systemDir}/**/*.md` to enumerate any existing docs. If `search` is available, also run:
+Use **Glob** against `{systemDir}/**/*.md` to enumerate any existing docs, then run:
 
 ```
 search({ workspaceId, query: 'overview architecture', collection: 'system', limit: 10 })
 ```
 
-**Non-destructive rule:** never overwrite an existing file. For each planned output path, check whether the file already exists:
+If `search` returns an error (e.g. the index has never been built or embeddings are not yet available), treat it as "no existing docs found" and proceed — the Glob enumeration is the authoritative list.
 
-- If the file does **not** exist, write it normally.
-- If the file **already exists**, write the new content to `<name>.draft.md` instead (e.g., `overview.draft.md`, `features/auth.draft.md`) and note it in the Step 7 summary as `DRAFT` rather than `NEW`.
+**Write in place.** Every write is uncommitted: it lands as a working-tree change the user reviews in the diff viewer's "Latest Changes" mode and keeps (commit) or discards (revert). Git is the safety net, so overwrite freely and never create `.draft` files — the user can see exactly what changed in the diff.
 
-If any existing files are detected, print once before proceeding: "Existing system docs found. New content will be written as `.draft.md` files — merge manually and delete the drafts when done."
+- If a planned output path does **not** exist, create it (`NEW` in the Step 7 summary).
+- If it **already exists** — including the server-seeded placeholder `overview.md` that `init.ts` writes on workspace creation — overwrite it in place (`UPDATED`).
 
-No confirmation prompt is required; the non-destructive draft approach means it is always safe to proceed.
+No confirmation prompt is required.
 
 ### Step 3: Discover Codebase Structure
 
@@ -62,9 +62,11 @@ Invoke the `engy:research` subagent to surface any existing workspace knowledge 
 ```
 Task({
   subagent_type: 'engy:research',
-  prompt: 'Existing architectural decisions, patterns, and conventions for this workspace — context: workspace=<slug>, repos=<workspace.repos[]>'
+  prompt: 'Existing architectural decisions, patterns, and conventions for this workspace — context: workspaceId=<workspaceId>, workspace=<slug>, repos=<repos[]>'
 })
 ```
+
+The `engy:research` agent **requires the numeric `workspaceId`** in the prompt (it errors with `Error: workspaceId missing from prompt` if absent) — pass the integer from Step 1, not the slug.
 
 The subagent returns a `## Findings` digest with cited sources. Hold this digest for Step 5.
 
@@ -98,7 +100,8 @@ Use this frontmatter and structure for every generated file:
 ```markdown
 ---
 description: <one-line summary of what this doc covers>
-sources:
+order: <integer>          # reading position within this directory (lower = earlier)
+memoryRefs:               # optional — omit entirely if no supporting memories
   - memory/<path-to-supporting-memory>.md
 ---
 
@@ -113,13 +116,50 @@ sources:
 <!-- /engy:research -->
 ```
 
-**Zero-findings handler:** if the `engy:research` subagent returns `Findings: 0`, do NOT emit the `<!-- engy:research -->` marker block. Instead, write a single inline line under `## Sources`: `No prior knowledge found.` Omit the `sources:` frontmatter key entirely when there are no supporting memories.
+**Assign `order:` values deliberately** — foundational docs should come before advanced ones within each directory. Suggested ordering: `system/overview.md` is standalone (no `order:` needed there as it is the entry point). Within `features/`, order by conceptual dependency (e.g., authentication before anything that builds on it). Within `technical/`, order foundational concerns (data storage, core protocol) before cross-cutting concerns (caching, observability).
+
+Use `memoryRefs:` (not `sources:`) for the supporting-memory paths — `sources` is a reserved memory-frontmatter key meaning ingestion-snapshot paths, and reusing it here would pollute `search({ filters: { sources } })`.
+
+**Zero-findings handler:** the `engy:research` agent signals no results with the body line `No relevant prior knowledge found for this question.` and the footer `Distinct findings: 0 (after dedup)`. When you see either, do NOT emit the `<!-- engy:research -->` marker block — instead write a single inline line under `## Sources`: `No prior knowledge found.` and omit the `memoryRefs:` frontmatter key entirely.
+
+**Cite only verified symbols:** every file path, table/column name, tool name, or API symbol you put in a doc must be one you confirmed exists via Glob/Grep/Read in this run — do not copy claims from `CLAUDE.md` or other docs without checking, as those can be stale.
 
 ### Step 6: Write Files
 
-Use the **Write** tool to write each generated doc to its absolute path under `{systemDir}`. Apply the non-destructive rule from Step 2: write to `<name>.draft.md` if the canonical path already exists.
+Use the **Write** tool to write each generated doc to its absolute path under `{systemDir}`, overwriting in place per Step 2.
+
+After writing all docs, ensure each system directory has a `README.md` with a prose intro and empty index markers. Create or refresh these three files:
+
+- **`system/README.md`** — 1–3 sentences describing what the `system/` collection holds and that `overview.md` is the starting narrative, followed by the empty marker pair.
+- **`system/features/README.md`** — 1–3 sentences describing the feature docs and that they are ordered for top-to-bottom reading.
+- **`system/technical/README.md`** — 1–3 sentences describing the architectural concern docs and their reading order.
+
+Each README has a `description:` frontmatter (used as the directory's blurb in the parent README's index), a prose intro, and the empty marker pair — nothing between the markers, as the link list is populated by the reindex step:
+
+```markdown
+---
+description: <one-line summary of what this directory holds>
+---
+
+<1–3 sentence prose intro + suggested reading order>
+
+<!-- INDEX START -->
+<!-- INDEX END -->
+```
+
+If `init.ts` has pre-seeded a README, overwrite it in place (refresh the `description:` and prose, preserve the markers).
 
 Files are written **uncommitted** — they appear as working-tree changes visible in the diff viewer's "Latest Changes" view. The user reviews and commits them when satisfied.
+
+### Step 6b: Reindex
+
+After all doc files and READMEs are written, call:
+
+```
+reindex({ workspaceId, collection: 'system' })
+```
+
+This populates the `<!-- INDEX START --> ... <!-- INDEX END -->` blocks in each README with an ordered link list (sorted by `order:`, using each doc's `description:` as the link text) and refreshes the search index for the `system` collection.
 
 ### Step 7: Print Summary
 
@@ -129,10 +169,15 @@ After writing all files, print:
 System docs bootstrap complete.
 
 Files written:
-  NEW     system/overview.md                     — workspace overview, stack, structure
-  NEW     system/features/auth.md                — OAuth2 + session handling
-  DRAFT   system/technical/ws-protocol.draft.md  — WebSocket REGISTER handshake (existing file preserved)
+  NEW      system/overview.md                — workspace overview, stack, structure
+  NEW      system/features/auth.md           — OAuth2 + session handling  (order: 1)
+  UPDATED  system/technical/ws-protocol.md   — WebSocket REGISTER handshake  (order: 1)
   ...
+
+READMEs generated/updated:
+  system/README.md
+  system/features/README.md
+  system/technical/README.md
 
 Research digest: <N> findings from <N> sources walked.   (or: No prior knowledge found.)
 
@@ -140,16 +185,16 @@ Review changes in the diff viewer (Latest Changes mode), then commit or revert.
 Next step: refine individual docs with /engy:sysdoc-assistant.
 ```
 
-Each line includes: disposition (`NEW` for freshly created files, `DRAFT` for files written as `.draft.md` because the canonical path already existed), relative path, and a one-line rationale.
+Each line includes: disposition (`NEW` for a freshly created file, `UPDATED` for an in-place overwrite of an existing file), relative path, and a one-line rationale.
 
 ## Key Principles
 
 - **Scope only `system/`** — never write to `docs/`, `memory/`, `projects/`, or anywhere outside `{workspaceDir}/system/`.
-- **Non-destructive** — never overwrite an existing file; write drafts as `<name>.draft.md` and tell the user to merge manually.
+- **Write in place** — overwrite existing docs directly; never create `.draft` files. Writes are uncommitted, so the diff viewer's "Latest Changes" view and commit/revert are the review and safety net.
 - **No automatic commit** — writes land as working-tree changes for the user to review.
 - **Breadth first** — prefer a working overview of all major areas over deep coverage of one area.
 - **Cite sources** — when research findings inform a doc, cite them inline under `## Sources`. When there are none, say so explicitly.
-- **Use built-in file tools** — codebase exploration is Glob/Grep/Read against the absolute paths in `workspace.repos[]`; writes are the Write tool against absolute paths under `systemDir`.
+- **Use built-in file tools** — codebase exploration is Glob/Grep/Read against the absolute paths in the `repos[]` array from `getWorkspaceDetails`; writes are the Write tool against absolute paths under `systemDir`.
 - **LLM analysis is in-context** — codebase mapping and gap analysis run in the main agent; the only external dispatch is the `engy:research` subagent.
 
 ## Flow Position

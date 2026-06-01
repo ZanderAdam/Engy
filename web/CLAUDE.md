@@ -118,19 +118,21 @@ Both share DB and AppState but have separate implementations (intentional duplic
 
 ### Data Storage Split
 
-- **SQLite** (Drizzle ORM + better-sqlite3) — execution state: workspaces, projects, milestones, tasks, memories. WAL mode. At `{ENGY_DIR}/engy.db`.
+- **SQLite** (Drizzle ORM + better-sqlite3) — execution state: workspaces, projects, task groups, tasks, memories. WAL mode. At `{ENGY_DIR}/engy.db`. (Milestones are **not** a SQLite table — they are markdown plan files on disk, referenced by a `milestoneRef` column on task groups/tasks.)
 - **Filesystem** (`{ENGY_DIR}/{workspace-slug}/`) — knowledge: `workspace.yaml`, `system/`, `specs/`, `docs/`, `memory/`. Git-trackable markdown files.
 
 ### Database Schema Hierarchy
 
 ```
-Workspace → Project(s) → Milestone(s) → TaskGroup(s) → Task(s)
+Workspace → Project(s) → Milestone(s)* → TaskGroup(s) → Task(s)
                                                       → AgentSession(s)
                        → Task(s) (directly on project)
          → FleetingMemory(ies)   # DB-only; workspace-scoped; no projectId
          → PermanentMemory(ies)  # DB row + markdown file in {workspaceDir}/memory/{subtype}/
          → Comment(s) (by document_path)
 ```
+
+*Milestones are markdown plan files on disk (managed by `plan/service.ts` + the `milestone.ts` router), not a SQLite table — task groups and tasks reference them via a `milestoneRef` text column.
 
 - **`fleetingMemories`** — quick-capture notes (content, type, source, tags, sources[]). DB-only; no corresponding filesystem file. Workspace-scoped (no `projectId`). Promoted via `promoteMemory` which creates a `permanentMemories` row + markdown file and sets `promoted=true`, `promotedFromId`, `promotedAt`.
 - **`permanentMemories`** — Zettelkasten-style notes persisted as both a DB row and a markdown file in `{workspaceDir}/memory/{subtype}/`. Full metadata: subtype (decision/pattern/fact/convention/insight), title, content, repo (optional provenance), confidence, keywords, themes, tags, linkedMemories, scenarioIds, sources, supersededById. The `filePath` column stores the workspace-relative path to the markdown file.
