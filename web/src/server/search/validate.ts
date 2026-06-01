@@ -14,6 +14,8 @@ import { permanentMemories, frontmatter, fleetingMemories, workspaces } from '..
 import { getWorkspaceDir } from '../engy-dir/init';
 import { update as indexerUpdate } from './indexer';
 import { getWorkspaceMatrix } from './trace';
+import { localRepoAdapter, type RepoFileAdapter } from '../lib/requirements';
+import { resolveWorktreeRoots } from '../trpc/routers/shared';
 
 type Severity = 'error' | 'warning' | 'info';
 
@@ -413,12 +415,17 @@ async function checkIndexStatus(workspaceSlug: string): Promise<Finding[]> {
  * the workspace's test suite. Surfaces format violations, coverage gaps, and
  * orphaned tags — the feedback signal for the EARS → BDD test → implement loop.
  */
-function checkRequirements(workspaceId: number): Finding[] {
+async function checkRequirements(
+  workspaceId: number,
+  sessionId?: string,
+  adapter: RepoFileAdapter = localRepoAdapter,
+): Promise<Finding[]> {
   const db = getDb();
   const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
   if (!ws) return [];
 
-  const matrix = getWorkspaceMatrix(ws);
+  const codeRootsOverride = resolveWorktreeRoots(sessionId);
+  const matrix = await getWorkspaceMatrix(ws, codeRootsOverride, adapter);
   if (matrix.definitions.length === 0) return []; // no feature FRs authored yet
 
   const findings: Finding[] = [];
@@ -441,7 +448,11 @@ function checkRequirements(workspaceId: number): Finding[] {
     });
   }
 
-  const codeRoots = (ws.repos ?? []).filter((r) => fs.existsSync(r));
+  // Determine which roots exist — use the adapter so daemon-backed paths work.
+  const roots = codeRootsOverride ?? (ws.repos ?? []);
+  const rootChecks = await Promise.all(roots.map((r) => adapter.exists(r)));
+  const codeRoots = roots.filter((_, i) => rootChecks[i]);
+
   if (codeRoots.length === 0) {
     findings.push({
       severity: 'info',
@@ -472,7 +483,11 @@ function checkRequirements(workspaceId: number): Finding[] {
 
 // ── Public entry point ─────────────────────────────────────────────────
 
-export async function validateWorkspace(ws: WorkspaceRow): Promise<ValidationReport> {
+export async function validateWorkspace(
+  ws: WorkspaceRow,
+  sessionId?: string,
+  adapter: RepoFileAdapter = localRepoAdapter,
+): Promise<ValidationReport> {
   const workspaceDir = getWorkspaceDir(ws);
 
   const allFindings: Finding[] = [
@@ -484,7 +499,7 @@ export async function validateWorkspace(ws: WorkspaceRow): Promise<ValidationRep
     ...checkOrphanedContent(ws.id, workspaceDir),
     ...checkLifecycleConsistency(ws.id),
     ...checkCommitMessages(workspaceDir),
-    ...checkRequirements(ws.id),
+    ...(await checkRequirements(ws.id, sessionId, adapter)),
     ...(await checkIndexStatus(ws.slug)),
   ];
 

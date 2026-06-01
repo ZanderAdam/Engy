@@ -13,6 +13,7 @@ interface ContextBlockInput {
   repos: string[];
   autoAgentCompletion?: 'pr' | 'merge';
   earsBdd?: boolean;
+  sessionId?: string;
 }
 
 export function buildContextBlock({
@@ -21,6 +22,7 @@ export function buildContextBlock({
   repos,
   autoAgentCompletion,
   earsBdd,
+  sessionId,
 }: ContextBlockInput): string {
   const lines: string[] = [`Workspace: ${workspace.slug} (id: ${workspace.id})`];
   if (project) {
@@ -43,6 +45,11 @@ export function buildContextBlock({
   if (earsBdd) {
     lines.push(
       'EARS-BDD mode is enabled for this workspace — when implementing, follow the EARS → BDD requirements flow: establish/trace the functional requirements (FRs), write FR-tagged tests, and verify coverage.',
+    );
+  }
+  if (sessionId) {
+    lines.push(
+      `Engy session id: ${sessionId} — pass this as sessionId to trace/validateWorkspace MCP tools so they scan your worktree, not the main checkout.`,
     );
   }
   return lines.join('\n');

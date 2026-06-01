@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { eq } from 'drizzle-orm';
 import { WebSocket } from 'ws';
 import type { AppState } from '../trpc/context';
-import { createWebSocketServer, dispatchValidation, dispatchFileSearch } from './server';
+import { createWebSocketServer, dispatchValidation, dispatchFileSearch, dispatchGlobFiles } from './server';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { agentSessions, tasks, projects, workspaces, fleetingMemories } from '../db/schema';
 
@@ -81,6 +81,7 @@ describe('WebSocket Server', () => {
       pendingExecutionStop: new Map(),
       pendingDirList: new Map(),
       pendingFileRead: new Map(),
+      pendingGlobFiles: new Map(),
       pendingFileWrite: new Map(),
       pendingRemoteFilePull: new Map(),
       pendingRemoteFilePush: new Map(),
@@ -108,18 +109,24 @@ describe('WebSocket Server', () => {
 
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
-      await vi.waitFor(() => {
-        expect(state.daemon).not.toBeNull();
-      });
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
     });
 
     it('should replace daemon when a second client registers', async () => {
       const ws1 = await connectClient(port);
       ws1.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
-      await vi.waitFor(() => {
-        expect(state.daemon).not.toBeNull();
-      });
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
 
       const firstDaemon = state.daemon;
       const ws2 = await connectClient(port);
@@ -134,9 +141,12 @@ describe('WebSocket Server', () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
-      await vi.waitFor(() => {
-        expect(state.daemon).not.toBeNull();
-      });
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
 
       ws.close();
 
@@ -214,9 +224,12 @@ describe('WebSocket Server', () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
-      await vi.waitFor(() => {
-        expect(state.daemon).not.toBeNull();
-      });
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
 
       const messagePromise = waitForMessage(ws);
       const validationPromise = dispatchValidation(['/src/index.ts'], state);
@@ -250,9 +263,12 @@ describe('WebSocket Server', () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
-      await vi.waitFor(() => {
-        expect(state.daemon).not.toBeNull();
-      });
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
 
       const validationPromise = dispatchValidation(['/slow.ts'], state, 50);
 
@@ -266,9 +282,12 @@ describe('WebSocket Server', () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
-      await vi.waitFor(() => {
-        expect(state.daemon).not.toBeNull();
-      });
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
 
       const messagePromise = waitForMessage(ws);
       const searchPromise = dispatchFileSearch(['/tmp/repo'], 'index', 20, state);
@@ -306,14 +325,114 @@ describe('WebSocket Server', () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
-      await vi.waitFor(() => {
-        expect(state.daemon).not.toBeNull();
-      });
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
 
       const searchPromise = dispatchFileSearch(['/tmp'], '', 20, state, 50);
 
       await expect(searchPromise).rejects.toThrow('File search timed out');
       expect(state.pendingFileSearches.size).toBe(0);
+    });
+  });
+
+  describe('GLOB_FILES_RESPONSE', () => {
+    it('should resolve with files on success response', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
+
+      const messagePromise = waitForMessage(ws);
+      const globPromise = dispatchGlobFiles('/tmp/repo', ['*.test.ts', '*.test.tsx'], state);
+
+      const request = (await messagePromise) as {
+        type: string;
+        payload: { requestId: string; repoDir: string; patterns: string[] };
+      };
+      expect(request.type).toBe('GLOB_FILES_REQUEST');
+      expect(request.payload.repoDir).toBe('/tmp/repo');
+      expect(request.payload.patterns).toEqual(['*.test.ts', '*.test.tsx']);
+
+      ws.send(
+        JSON.stringify({
+          type: 'GLOB_FILES_RESPONSE',
+          payload: {
+            requestId: request.payload.requestId,
+            files: ['src/foo.test.ts', 'src/bar.test.tsx'],
+          },
+        }),
+      );
+
+      const result = await globPromise;
+      expect(result).toEqual({ files: ['src/foo.test.ts', 'src/bar.test.tsx'] });
+    });
+
+    it('should reject on error payload', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
+
+      const messagePromise = waitForMessage(ws);
+      const globPromise = dispatchGlobFiles('/tmp/repo', ['*.test.ts'], state);
+
+      const request = (await messagePromise) as {
+        type: string;
+        payload: { requestId: string };
+      };
+
+      ws.send(
+        JSON.stringify({
+          type: 'GLOB_FILES_RESPONSE',
+          payload: {
+            requestId: request.payload.requestId,
+            error: 'git command failed',
+          },
+        }),
+      );
+
+      await expect(globPromise).rejects.toThrow('git command failed');
+      expect(state.pendingGlobFiles.size).toBe(0);
+    });
+
+    it('should reject if no daemon is connected', async () => {
+      await expect(dispatchGlobFiles('/tmp/repo', ['*.test.ts'], state)).rejects.toThrow(
+        'No daemon connected',
+      );
+    });
+
+    it('should reject all pending glob ops when daemon disconnects', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
+
+      // Start a glob op but don't respond — then close the daemon
+      const globPromise = dispatchGlobFiles('/tmp/repo', ['*.test.ts'], state);
+
+      ws.close();
+
+      await expect(globPromise).rejects.toThrow('Daemon disconnected');
+      expect(state.pendingGlobFiles.size).toBe(0);
     });
   });
 

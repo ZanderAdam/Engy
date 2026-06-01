@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { sortMilestones, sortTaskGroups } from './milestone-list';
 import type { Task } from './types';
+import type { TaskStatus } from '@/lib/task-status';
 
 const ms = (num: number, status: string) => ({
   ref: `m${num}`,
@@ -58,7 +59,7 @@ const tg = (id: number) => ({
   status: 'active' as const,
 });
 
-const task = (id: number, taskGroupId: number, status: string): Task => ({
+const task = (id: number, taskGroupId: number, status: TaskStatus): Task => ({
   id,
   projectId: 1,
   milestoneRef: 'm1',

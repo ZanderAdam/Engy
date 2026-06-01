@@ -65,11 +65,15 @@ If a `.test.ts` file legitimately embeds example `[FR-…]` tags as **string fix
 
 ## `trace` quick reference
 
+When running inside an agent session, always pass `sessionId` so the scanner reads your worktree rather than the main checkout. Omitting it scans the main checkout, which will not see your uncommitted changes.
+
 | Call | Returns |
 |---|---|
-| `trace({ workspaceId, fr })` | requirement text, tagged tests, colocated source; `covered` / `found` flags |
-| `trace({ workspaceId, file })` | FRs defined in that feature doc, FRs whose tests/source map to that file |
-| `trace({ workspaceId })` | coverage summary: totals, `uncovered`, `orphanTags`, `duplicateIds`, `malformed` |
+| `trace({ workspaceId, fr, sessionId })` | requirement text, tagged tests, colocated source; `covered` / `found` flags |
+| `trace({ workspaceId, file, sessionId })` | FRs defined in that feature doc, FRs whose tests/source map to that file |
+| `trace({ workspaceId, sessionId })` | coverage summary: totals, `uncovered`, `orphanTags`, `duplicateIds`, `malformed` |
+
+Your Engy session id is injected into your context block under `Engy session id: <value>`. Use that value as `sessionId` in all `trace` and `validateWorkspace` calls.
 
 After editing `system/features/*.md` (during implementation or feature-doc maintenance — **not** during planning, which only edits plan docs), run `engy:reindex` so structured search (`search({ filters: { frs: […] } })`) reflects the new FRs. `trace` reads the filesystem live and needs no reindex.
 
@@ -78,6 +82,16 @@ After editing `system/features/*.md` (during implementation or feature-doc maint
 These additions apply only when EARS-BDD is enabled for the workspace (see each planning skill's EARS-BDD gate note). They make the planning funnel **pre-plan the durable FR contracts** so implementation has a fixed target instead of minting ids mid-build. The FR ids flow down one funnel — spec → milestone → task → implementation — in a single `FR-<AREA>-<NNN>` namespace.
 
 Resolve workspace paths first: call `getProjectDetails(projectId)` (or `getWorkspaceDetails`) and read the workspace dir and `workspace.id`. `systemDir` is `{workspaceDir}/system`; feature docs live in `systemDir/features/`.
+
+### Orient from existing FRs first
+
+Before eliciting requirements or exploring code, use the affected area's existing FRs as the map. They are the system's **contracted behaviour, already linked to their tests and source** — so they short-circuit re-deriving any of that from scratch. This step runs during the plan's internal/codebase-exploration pass.
+
+1. **Read the area's current FRs.** From `system/features/<area>.md` (plus the SRS and any upstream plan), list the FRs the change touches. These state what the system already guarantees, in EARS terms — no need to reverse-engineer current behaviour from code.
+2. **Classify the change against each relevant FR.** For each, decide: *unaffected* / *extend* (add a sibling FR) / *modify* (edit text in place when the behaviour identity holds, else supersede) / *supersede* (delete + new id). This is what decides which ids you reuse vs. allocate, and it surfaces ripple effects before you write a line of the plan.
+3. **Navigate to code and tests via `trace`, not blind grep.** For each relevant existing FR, run `trace({ workspaceId, fr, sessionId })` to get its tagged tests and colocated source — that is the precise blast radius; start codebase exploration there. Use `trace({ workspaceId, file, sessionId })` for the reverse: which FRs a file you intend to touch already carries (so you don't break a contract unknowingly). Pass your Engy session id as `sessionId` to scan your worktree.
+
+If the area is new or greenfield (no FRs yet), this step is a no-op — fall through to allocation. `trace` reads the filesystem live, so it needs no reindex.
 
 ### Allocate durable ids, not local numbering
 
@@ -143,7 +157,7 @@ it('[FR-AREA-NNN] <behaviour the FR specifies>', () => { /* … */ });
 
 Before marking the work done, run the coverage check:
 
-1. `trace({ workspaceId, fr: '<id>' })` for each target FR, or `trace({ workspaceId })` for the workspace summary.
+1. `trace({ workspaceId, fr: '<id>', sessionId })` for each target FR, or `trace({ workspaceId, sessionId })` for the workspace summary. Pass your Engy session id (from the context block) as `sessionId` so the scanner reads your worktree — omitting it scans the main checkout and will miss your uncommitted tests.
 2. Confirm every target FR reports `covered: true` and the summary shows **no** `orphanTags`, `duplicateIds`, or `malformed` rows. (`engy:validate` runs the same check.)
 3. If a target FR is uncovered, return to Step 4 and add the missing tagged test before completing.
 

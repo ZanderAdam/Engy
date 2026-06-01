@@ -97,7 +97,7 @@ function buildResumeConfig(
 // Rebuilds the `--append-system-prompt` and `--add-dir` flags that
 // startExecution passes, so the resumed agent has the same context block and
 // structured-output instructions as the original run.
-function buildResumeFlags(taskId: number): string[] {
+function buildResumeFlags(taskId: number, resumeSessionId: string): string[] {
   const { workspace, project, projectDir, repos, dirs } = resolveTaskContext(taskId);
   const systemPrompt = buildContextBlock({
     workspace: { id: workspace.id, slug: workspace.slug },
@@ -105,6 +105,7 @@ function buildResumeFlags(taskId: number): string[] {
     repos,
     autoAgentCompletion: workspace.autoAgentCompletion as 'pr' | 'merge' | undefined,
     earsBdd: workspace.earsBdd ?? false,
+    sessionId: resumeSessionId,
   });
   const flags: string[] = [];
   if (systemPrompt) flags.push('--append-system-prompt', systemPrompt);
@@ -118,6 +119,7 @@ function buildPromptForTask(
   project: { slug: string; id: number },
   projectDir: string,
   repos: string[],
+  sessionId: string,
 ) {
   const taskSlug = taskPlanSlug(workspace.slug, task.id);
   const implementSkill = workspace.implementSkill || '/engy:implement';
@@ -128,6 +130,7 @@ function buildPromptForTask(
     repos,
     autoAgentCompletion: workspace.autoAgentCompletion as 'pr' | 'merge' | undefined,
     earsBdd: workspace.earsBdd ?? false,
+    sessionId,
   });
   return { prompt, systemPrompt };
 }
@@ -138,6 +141,7 @@ function buildPromptForPlan(
   project: { slug: string; id: number },
   projectDir: string,
   repos: string[],
+  sessionId: string,
 ) {
   const taskSlug = taskPlanSlug(workspace.slug, task.id);
   const planSkill = workspace.planSkill || '/engy:plan';
@@ -148,6 +152,7 @@ function buildPromptForPlan(
     repos,
     autoAgentCompletion: workspace.autoAgentCompletion as 'pr' | 'merge' | undefined,
     earsBdd: workspace.earsBdd ?? false,
+    sessionId,
   });
   return { prompt, systemPrompt };
 }
@@ -158,6 +163,7 @@ function buildPromptForMilestone(
   project: { slug: string; id: number },
   projectDir: string,
   repos: string[],
+  sessionId: string,
 ) {
   const prompt = `Use /engy:implement-milestone for ${milestoneRef} in project ${project.slug}`;
   const systemPrompt = buildContextBlock({
@@ -165,6 +171,7 @@ function buildPromptForMilestone(
     project: { id: project.id, slug: project.slug, dir: projectDir },
     repos,
     earsBdd: workspace.earsBdd ?? false,
+    sessionId,
   });
   return { prompt, systemPrompt };
 }
@@ -425,6 +432,7 @@ export const executionRouter = router({
             resolved.project,
             resolved.projectDir,
             resolved.repos,
+            sessionId,
           );
           prompt = built.prompt;
           systemPrompt = built.systemPrompt;
@@ -446,6 +454,7 @@ export const executionRouter = router({
           resolved.project,
           resolved.projectDir,
           resolved.repos,
+          sessionId,
         );
         prompt = built.prompt;
         systemPrompt = built.systemPrompt;
@@ -477,6 +486,7 @@ export const executionRouter = router({
           project: { id: resolved.project.id, slug: resolved.project.slug, dir: resolved.projectDir },
           repos: resolved.repos,
           earsBdd: resolved.workspace.earsBdd ?? false,
+          sessionId,
         });
       } else {
         const milestoneRef = String(input.id);
@@ -506,6 +516,7 @@ export const executionRouter = router({
           resolved.project,
           resolved.projectDir,
           resolved.repos,
+          sessionId,
         );
         prompt = built.prompt;
         systemPrompt = built.systemPrompt;
@@ -702,7 +713,7 @@ export const executionRouter = router({
         .where(eq(agentSessions.sessionId, input.sessionId))
         .run();
 
-      const baseFlags = original.taskId ? buildResumeFlags(original.taskId) : [];
+      const baseFlags = original.taskId ? buildResumeFlags(original.taskId, input.sessionId) : [];
       const flags: string[] = [...baseFlags, '--resume', input.sessionId];
       const resumeConfig = original.taskId
         ? buildResumeConfig(original.taskId, original.worktreePath)
@@ -789,7 +800,7 @@ export const executionRouter = router({
           ctx.state,
           input.sessionId,
           resumePrompt,
-          [...buildResumeFlags(session.taskId), '--resume', input.sessionId],
+          [...buildResumeFlags(session.taskId, input.sessionId), '--resume', input.sessionId],
           buildResumeConfig(session.taskId, session.worktreePath),
         );
       } catch (err) {
@@ -1039,6 +1050,7 @@ export const executionRouter = router({
         project: { id: project.id, slug: project.slug, dir: projectDir },
         repos,
         earsBdd: workspace.earsBdd ?? false,
+        sessionId,
       });
 
       // Create session linked to first task

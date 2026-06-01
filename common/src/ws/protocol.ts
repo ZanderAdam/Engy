@@ -214,6 +214,22 @@ export interface FileReadResponseMessage {
     | { requestId: string; error: string };
 }
 
+export interface GlobFilesRequestMessage {
+  type: 'GLOB_FILES_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    patterns: string[];
+  };
+}
+
+export interface GlobFilesResponseMessage {
+  type: 'GLOB_FILES_RESPONSE';
+  payload:
+    | { requestId: string; files: string[] }
+    | { requestId: string; error: string };
+}
+
 export interface FileWriteRequestMessage {
   type: 'FILE_WRITE_REQUEST';
   payload: {
@@ -462,6 +478,8 @@ export type WsMessage =
   | DirListResponseMessage
   | FileReadRequestMessage
   | FileReadResponseMessage
+  | GlobFilesRequestMessage
+  | GlobFilesResponseMessage
   | FileWriteRequestMessage
   | FileWriteResponseMessage
   | RemoteFilePullRequestMessage
@@ -499,6 +517,7 @@ export type ClientToServerMessage =
   | GitBranchFilesResponseMessage
   | DirListResponseMessage
   | FileReadResponseMessage
+  | GlobFilesResponseMessage
   | FileWriteResponseMessage
   | RemoteFilePullResponseMessage
   | RemoteFilePushResponseMessage
@@ -525,6 +544,7 @@ export type ServerToClientMessage =
   | GitBranchFilesRequestMessage
   | DirListRequestMessage
   | FileReadRequestMessage
+  | GlobFilesRequestMessage
   | FileWriteRequestMessage
   | RemoteFilePullRequestMessage
   | RemoteFilePushRequestMessage

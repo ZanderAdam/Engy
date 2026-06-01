@@ -21,6 +21,7 @@ import type {
   ExecutionStopResult,
   DirListResult,
   FileReadResult,
+  GlobFilesResult,
   FileWriteResult,
   RemoteFilePullResult,
   RemoteFilePushResult,
@@ -90,6 +91,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingExecutionStop,
     state.pendingDirList,
     state.pendingFileRead,
+    state.pendingGlobFiles,
     state.pendingFileWrite,
     state.pendingRemoteFilePull,
     state.pendingRemoteFilePush,
@@ -184,6 +186,11 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'FILE_READ_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingFileRead, (p) => ({
         content: p.content,
+      }));
+      break;
+    case 'GLOB_FILES_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGlobFiles, (p) => ({
+        files: p.files,
       }));
       break;
     case 'FILE_WRITE_RESPONSE':
@@ -772,6 +779,17 @@ export function dispatchFileRead(
     repoDir,
     filePath,
     ref,
+  });
+}
+
+export function dispatchGlobFiles(
+  repoDir: string,
+  patterns: string[],
+  state: AppState,
+): Promise<GlobFilesResult> {
+  return dispatchDaemonOp(state, state.pendingGlobFiles, 'GLOB_FILES_REQUEST', {
+    repoDir,
+    patterns,
   });
 }
 

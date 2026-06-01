@@ -69,6 +69,10 @@ export interface FileReadResult {
   content: string;
 }
 
+export interface GlobFilesResult {
+  files: string[];
+}
+
 export interface FileWriteResult {
   success: boolean;
 }
@@ -187,6 +191,13 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingGlobFiles: Map<
+    string,
+    {
+      resolve: (result: GlobFilesResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   pendingFileWrite: Map<
     string,
     {
@@ -253,6 +264,7 @@ export function getAppState(): AppState {
       pendingExecutionStop: new Map(),
       pendingDirList: new Map(),
       pendingFileRead: new Map(),
+      pendingGlobFiles: new Map(),
       pendingFileWrite: new Map(),
       pendingRemoteFilePull: new Map(),
       pendingRemoteFilePush: new Map(),

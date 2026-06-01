@@ -8,7 +8,7 @@ import { eq } from 'drizzle-orm';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { getDb } from '../db/client';
 import { appRouter } from '../trpc/root';
-import { permanentMemories, fleetingMemories, workspaces } from '../db/schema';
+import { permanentMemories, fleetingMemories, workspaces, agentSessions } from '../db/schema';
 import { validateWorkspace } from './validate';
 
 type WorkspaceRow = typeof workspaces.$inferSelect;
@@ -617,6 +617,36 @@ describe('validateWorkspace', () => {
       );
       expect(info).toHaveLength(1);
       expect(info[0].message).toMatch(/no repos configured/);
+    });
+
+    it('should use the worktree path when a valid sessionId is provided', async () => {
+      writeFile('system/features/search.md', FEATURE_DOC);
+      const repo = writeTaggedTest(`it('[FR-SEARCH-001] ranks', () => {});`);
+
+      const db = getDb();
+      db.insert(agentSessions).values({ sessionId: 'sess-wt', worktreePath: repo }).run();
+
+      // ws.repos is empty — without sessionId this would produce "no repos configured"
+      const report = await validateWorkspace(ws, 'sess-wt');
+      const info = report.findings.filter(
+        (f) => f.check === 'requirements-traceability' && f.severity === 'info',
+      );
+      expect(info).toHaveLength(0);
+
+      const uncovered = report.findings.filter(
+        (f) => f.check === 'requirements-traceability' && /FR-SEARCH-002/.test(f.message),
+      );
+      expect(uncovered).toHaveLength(1);
+    });
+
+    it('should use ws.repos when no sessionId is given', async () => {
+      writeFile('system/features/search.md', FEATURE_DOC);
+      // no repos set on ws, no sessionId → info finding expected
+      const report = await validateWorkspace(ws);
+      const info = report.findings.filter(
+        (f) => f.check === 'requirements-traceability' && f.severity === 'info',
+      );
+      expect(info).toHaveLength(1);
     });
   });
 

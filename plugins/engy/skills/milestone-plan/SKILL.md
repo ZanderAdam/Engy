@@ -9,7 +9,7 @@ The spec already contains a high-level list of milestones. This skill plans **on
 
 ## EARS-BDD Mode
 
-Check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (`earsBdd: true`). When enabled, each TG's `### Requirements` lists the durable `FR-<AREA>-<NNN>` ids it delivers (drawn from the SRS, reused verbatim — replacing the `FR-TG1.N` local numbering); allocate a new durable id only for milestone-level detail the SRS did not capture. Follow the planning augmentations in `plugins/engy/skills/implement/references/ears-bdd.md` for the id scheme, allocation rule, and funnel discipline. When disabled, use the hierarchical `FR-TG1.N` scheme below unchanged.
+Check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (`earsBdd: true`). When enabled, each TG's `### Requirements` lists the durable `FR-<AREA>-<NNN>` ids it delivers (drawn from the SRS, reused verbatim — replacing the `FR-TG1.N` local numbering); allocate a new durable id only for milestone-level detail the SRS did not capture. Follow the planning augmentations in `plugins/engy/skills/implement/references/ears-bdd.md` for FR-graph orientation (use the area's existing FRs + `trace` to find current behaviour, tests, and code before exploring), the id scheme, allocation rule, and funnel discipline. When disabled, use the hierarchical `FR-TG1.N` scheme below unchanged.
 
 ## Multi-Repo Task Scoping
 

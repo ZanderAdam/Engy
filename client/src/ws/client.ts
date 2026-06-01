@@ -25,6 +25,7 @@ import type {
   RemoteFilePullRequestMessage,
   RemoteFilePushRequestMessage,
   WorktreeMergeRequestMessage,
+  GlobFilesRequestMessage,
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
@@ -36,6 +37,7 @@ import {
   getBranchFiles,
   getFileContent,
   writeFileContent,
+  globTestFiles,
 } from '../git/index.js';
 import { ContainerManager } from '../container/manager.js';
 import { CoderManager } from '../container/coder-manager.js';
@@ -443,6 +445,9 @@ export class WsClient {
       case 'FILE_READ_REQUEST':
         this.handleFileReadRequest(message as FileReadRequestMessage);
         break;
+      case 'GLOB_FILES_REQUEST':
+        this.handleGlobFilesRequest(message as GlobFilesRequestMessage);
+        break;
       case 'FILE_WRITE_REQUEST':
         this.handleFileWriteRequest(message as FileWriteRequestMessage);
         break;
@@ -654,6 +659,22 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'FILE_READ_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleGlobFilesRequest(message: GlobFilesRequestMessage): Promise<void> {
+    const { requestId, repoDir, patterns } = message.payload;
+    try {
+      const files = await globTestFiles(repoDir, patterns);
+      this.send({
+        type: 'GLOB_FILES_RESPONSE',
+        payload: { requestId, files },
+      });
+    } catch (err) {
+      this.send({
+        type: 'GLOB_FILES_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }

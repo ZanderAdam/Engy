@@ -13,6 +13,7 @@ import {
   buildTraceabilityMatrix,
   nextFreeId,
   FR_ID_PATTERN,
+  type RepoFileAdapter,
 } from './requirements';
 
 const REQ_DOC = `---
@@ -35,6 +36,29 @@ Some prose that mentions FR-SEARCH-001 outside the section — must be ignored.
 
 More prose mentioning FR-SEARCH-999 that is not a real requirement.
 `;
+
+/**
+ * Build an in-memory RepoFileAdapter from a map of absolute path → file content.
+ * globTestFiles returns all keys under the given root that match *.test.ts(x).
+ */
+function makeFakeAdapter(map: Map<string, string>): RepoFileAdapter {
+  return {
+    globTestFiles(root: string): Promise<string[]> {
+      const files = [...map.keys()].filter(
+        (p) => p.startsWith(root) && /\.test\.tsx?$/.test(p),
+      );
+      return Promise.resolve(files);
+    },
+    readFile(absPath: string): Promise<string> {
+      const content = map.get(absPath);
+      if (content === undefined) return Promise.reject(new Error(`not found: ${absPath}`));
+      return Promise.resolve(content);
+    },
+    exists(absPath: string): Promise<boolean> {
+      return Promise.resolve(map.has(absPath));
+    },
+  };
+}
 
 describe('requirements', () => {
   let tmpDir: string;
@@ -185,7 +209,7 @@ title: [unterminated
   });
 
   describe('findTestTags', () => {
-    it('should find FR tags in test titles with file and line', () => {
+    it('should find FR tags in test titles with file and line', async () => {
       const dir = path.join(tmpDir, 'src');
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(
@@ -198,53 +222,53 @@ title: [unterminated
       // non-test file with a tag-like string must be ignored
       fs.writeFileSync(path.join(dir, 'foo.ts'), `// [FR-SEARCH-001] not a test`);
 
-      const tags = findTestTags([dir], tmpDir);
+      const tags = await findTestTags([dir], tmpDir);
       expect(tags.map((t) => t.id).sort()).toEqual(['FR-SEARCH-001', 'FR-SEARCH-002']);
       const first = tags.find((t) => t.id === 'FR-SEARCH-002')!;
       expect(first.testFile).toBe('src/foo.test.ts');
       expect(first.line).toBe(1);
     });
 
-    it('should skip node_modules and dist', () => {
+    it('should skip node_modules and dist', async () => {
       const nm = path.join(tmpDir, 'node_modules', 'pkg');
       fs.mkdirSync(nm, { recursive: true });
       fs.writeFileSync(path.join(nm, 'x.test.ts'), `it('[FR-A-001] noise', () => {});`);
-      expect(findTestTags([tmpDir], tmpDir)).toEqual([]);
+      expect(await findTestTags([tmpDir], tmpDir)).toEqual([]);
     });
 
-    it('should skip files carrying the @rtm-ignore marker', () => {
+    it('should skip files carrying the @rtm-ignore marker', async () => {
       const dir = path.join(tmpDir, 'src');
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(
         path.join(dir, 'fixtures.test.ts'),
         `// @rtm-ignore\nit('[FR-A-001] example fixture, not a real test', () => {});`,
       );
-      expect(findTestTags([dir], tmpDir)).toEqual([]);
+      expect(await findTestTags([dir], tmpDir)).toEqual([]);
     });
 
-    it('should dedupe overlapping code roots', () => {
+    it('should dedupe overlapping code roots', async () => {
       const dir = path.join(tmpDir, 'src');
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'a.test.ts'), `it('[FR-A-001] x', () => {});`);
-      const tags = findTestTags([tmpDir, dir], tmpDir);
+      const tags = await findTestTags([tmpDir, dir], tmpDir);
       expect(tags).toHaveLength(1);
     });
   });
 
   describe('mapTestToSource', () => {
-    it('should map a colocated source that exists on disk', () => {
+    it('should map a colocated source that exists on disk', async () => {
       const dir = path.join(tmpDir, 'src');
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'foo.ts'), 'export const x = 1;');
-      expect(mapTestToSource('src/foo.test.ts', tmpDir)).toBe('src/foo.ts');
+      expect(await mapTestToSource('src/foo.test.ts', tmpDir)).toBe('src/foo.ts');
     });
 
-    it('should return null when the source does not exist', () => {
-      expect(mapTestToSource('src/missing.test.ts', tmpDir)).toBeNull();
+    it('should return null when the source does not exist', async () => {
+      expect(await mapTestToSource('src/missing.test.ts', tmpDir)).toBeNull();
     });
 
-    it('should return null for a non-test path', () => {
-      expect(mapTestToSource('src/foo.ts', tmpDir)).toBeNull();
+    it('should return null for a non-test path', async () => {
+      expect(await mapTestToSource('src/foo.ts', tmpDir)).toBeNull();
     });
   });
 
@@ -278,9 +302,9 @@ it('[FR-SEARCH-404] orphan tag, no such FR', () => {});
       return { featuresDir, srcDir };
     }
 
-    it('should join FR → tests → source for covered FRs', () => {
+    it('should join FR → tests → source for covered FRs', async () => {
       const { featuresDir, srcDir } = fixture();
-      const m = buildTraceabilityMatrix({
+      const m = await buildTraceabilityMatrix({
         featureDirs: [featuresDir],
         codeRoots: [srcDir],
         relativeTo: tmpDir,
@@ -292,9 +316,9 @@ it('[FR-SEARCH-404] orphan tag, no such FR', () => {});
       expect(fr1.sources).toEqual(['src/rank.ts']);
     });
 
-    it('should expose the from-docs and from-tests lists for comparison', () => {
+    it('should expose the from-docs and from-tests lists for comparison', async () => {
       const { featuresDir, srcDir } = fixture();
-      const m = buildTraceabilityMatrix({
+      const m = await buildTraceabilityMatrix({
         featureDirs: [featuresDir],
         codeRoots: [srcDir],
         relativeTo: tmpDir,
@@ -311,9 +335,9 @@ it('[FR-SEARCH-404] orphan tag, no such FR', () => {});
       ]);
     });
 
-    it('should flag uncovered FRs (declared, never tagged)', () => {
+    it('should flag uncovered FRs (declared, never tagged)', async () => {
       const { featuresDir, srcDir } = fixture();
-      const m = buildTraceabilityMatrix({
+      const m = await buildTraceabilityMatrix({
         featureDirs: [featuresDir],
         codeRoots: [srcDir],
         relativeTo: tmpDir,
@@ -321,9 +345,9 @@ it('[FR-SEARCH-404] orphan tag, no such FR', () => {});
       expect(m.uncovered).toEqual(['FR-SEARCH-003']);
     });
 
-    it('should flag orphan tags (tagged, never declared)', () => {
+    it('should flag orphan tags (tagged, never declared)', async () => {
       const { featuresDir, srcDir } = fixture();
-      const m = buildTraceabilityMatrix({
+      const m = await buildTraceabilityMatrix({
         featureDirs: [featuresDir],
         codeRoots: [srcDir],
         relativeTo: tmpDir,
@@ -331,15 +355,55 @@ it('[FR-SEARCH-404] orphan tag, no such FR', () => {});
       expect(m.orphanTags.map((t) => t.id)).toEqual(['FR-SEARCH-404']);
     });
 
-    it('should treat everything as uncovered when no code roots are scanned', () => {
+    it('should treat everything as uncovered when no code roots are scanned', async () => {
       const { featuresDir } = fixture();
-      const m = buildTraceabilityMatrix({
+      const m = await buildTraceabilityMatrix({
         featureDirs: [featuresDir],
         codeRoots: [],
         relativeTo: tmpDir,
       });
       expect(m.uncovered).toHaveLength(3);
       expect(m.orphanTags).toEqual([]);
+    });
+
+    it('should use an injected adapter for repo file reads', async () => {
+      const featuresDir = path.join(tmpDir, 'system', 'features');
+      fs.mkdirSync(featuresDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(featuresDir, 'search.md'),
+        `## Requirements
+
+| ID | Requirement (EARS) |
+|----|--------------------|
+| FR-SEARCH-001 | The system SHALL rank by score. |
+| FR-SEARCH-002 | The system SHALL anchor on filters. |
+`,
+      );
+
+      // In-memory repo: one test file tagging FR-SEARCH-001, a colocated source
+      const repoRoot = '/fake/repo';
+      const testFile = `${repoRoot}/src/rank.test.ts`;
+      const sourceFile = `${repoRoot}/src/rank.ts`;
+      const fileMap = new Map<string, string>([
+        [testFile, `it('[FR-SEARCH-001] ranks by score', () => {});`],
+        [sourceFile, `export const rank = () => {};`],
+      ]);
+      const adapter = makeFakeAdapter(fileMap);
+
+      const m = await buildTraceabilityMatrix({
+        featureDirs: [featuresDir],
+        codeRoots: [repoRoot],
+        relativeTo: repoRoot,
+        adapter,
+      });
+
+      expect(m.tags.map((t) => t.id)).toEqual(['FR-SEARCH-001']);
+      expect(m.uncovered).toEqual(['FR-SEARCH-002']);
+      expect(m.orphanTags).toEqual([]);
+
+      const fr1 = m.entries.find((e) => e.fr.id === 'FR-SEARCH-001')!;
+      expect(fr1.tests).toHaveLength(1);
+      expect(fr1.sources).toEqual(['src/rank.ts']);
     });
   });
 

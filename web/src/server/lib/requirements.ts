@@ -102,6 +102,20 @@ export interface TraceabilityMatrix {
   malformed: MalformedRow[];
 }
 
+/**
+ * Seam for repo file operations. The default implementation (localRepoAdapter)
+ * uses the local filesystem directly. Prod callers inject a daemon-backed
+ * adapter so the server never touches user repos itself.
+ */
+export interface RepoFileAdapter {
+  /** Return absolute paths of all test files (*.test.ts / *.test.tsx) under root. */
+  globTestFiles(root: string): Promise<string[]>;
+  /** Read a file as UTF-8 text. */
+  readFile(absPath: string): Promise<string>;
+  /** Return true if the absolute path exists on the repo filesystem. */
+  exists(absPath: string): Promise<boolean>;
+}
+
 interface TraceOptions {
   /** Absolute dirs holding feature docs (`system/features`). */
   featureDirs: string[];
@@ -109,6 +123,11 @@ interface TraceOptions {
   codeRoots: string[];
   /** Base for display paths (default: `process.cwd()`). */
   relativeTo?: string;
+  /**
+   * Adapter for repo file I/O. Defaults to localRepoAdapter (local fs).
+   * Inject a daemon-backed adapter to route reads through the client daemon.
+   */
+  adapter?: RepoFileAdapter;
 }
 
 // ── Markdown table parsing ───────────────────────────────────────────
@@ -223,6 +242,11 @@ function toDisplayPath(absPath: string, relativeTo: string): string {
   return path.relative(relativeTo, absPath).replace(/\\/g, '/');
 }
 
+/**
+ * Synchronous recursive file walker for server-owned data (ENGY_DIR markdown).
+ * This path is intentionally NOT routed through RepoFileAdapter — it reads
+ * feature docs from the server's own data directory, not from user repos.
+ */
 function collectFiles(dir: string, match: (name: string) => boolean): string[] {
   if (!fs.existsSync(dir)) return [];
   const results: string[] = [];
@@ -241,11 +265,34 @@ function collectFiles(dir: string, match: (name: string) => boolean): string[] {
 const isMarkdown = (name: string): boolean => name.endsWith('.md');
 const isTestFile = (name: string): boolean => /\.test\.tsx?$/.test(name);
 
+// ── Default local-fs RepoFileAdapter ─────────────────────────────────
+
+/**
+ * Default adapter that reads repo files directly from the local filesystem.
+ * Reproduces the original synchronous behaviour via async wrappers so colocated
+ * dev and existing tests are unchanged when no adapter is injected.
+ */
+export const localRepoAdapter: RepoFileAdapter = {
+  globTestFiles(root: string): Promise<string[]> {
+    return Promise.resolve(collectFiles(root, isTestFile));
+  },
+
+  readFile(absPath: string): Promise<string> {
+    return Promise.resolve(fs.readFileSync(absPath, 'utf8'));
+  },
+
+  exists(absPath: string): Promise<boolean> {
+    return Promise.resolve(fs.existsSync(absPath));
+  },
+};
+
 // ── Public: collect across the tree ──────────────────────────────────
 
 /**
  * Parse FR definitions from every feature doc under the given dirs.
  * `malformed` and `duplicateIds` aggregate the format violations across docs.
+ *
+ * Reads server-owned ENGY_DIR markdown — stays SYNC, NOT routed through adapter.
  */
 export function collectFrDefinitions(
   featureDirs: string[],
@@ -293,15 +340,17 @@ function lineOfId(raw: string, id: string): number {
 }
 
 /** Find every `[FR-…]` tag across the test files under the given roots. */
-export function findTestTags(
+export async function findTestTags(
   codeRoots: string[],
   relativeTo: string = process.cwd(),
-): TestTag[] {
+  adapter: RepoFileAdapter = localRepoAdapter,
+): Promise<TestTag[]> {
   const tags: TestTag[] = [];
   const seenFiles = new Set<string>();
 
   for (const root of codeRoots) {
-    for (const absPath of collectFiles(root, isTestFile)) {
+    const files = await adapter.globTestFiles(root);
+    for (const absPath of files) {
       // Roots may overlap or nest — dedupe on the resolved file path so a test
       // discovered via two roots is scanned once.
       const resolved = path.resolve(absPath);
@@ -310,7 +359,7 @@ export function findTestTags(
 
       let content: string;
       try {
-        content = fs.readFileSync(absPath, 'utf8');
+        content = await adapter.readFile(absPath);
       } catch {
         continue;
       }
@@ -330,11 +379,15 @@ export function findTestTags(
  * Map a test file to its colocated source via the `foo.test.ts ↔ foo.ts`
  * convention. Returns the source display path if it exists on disk, else null.
  */
-export function mapTestToSource(testDisplayPath: string, relativeTo: string): string | null {
+export async function mapTestToSource(
+  testDisplayPath: string,
+  relativeTo: string,
+  adapter: RepoFileAdapter = localRepoAdapter,
+): Promise<string | null> {
   const sourceRel = testDisplayPath.replace(/\.test\.(tsx?)$/, '.$1');
   if (sourceRel === testDisplayPath) return null;
   const abs = path.resolve(relativeTo, sourceRel);
-  return fs.existsSync(abs) ? sourceRel : null;
+  return (await adapter.exists(abs)) ? sourceRel : null;
 }
 
 // ── Public: the matrix ───────────────────────────────────────────────
@@ -344,13 +397,14 @@ export function mapTestToSource(testDisplayPath: string, relativeTo: string): st
  * a traceability matrix. Both lists are exposed so callers can compare them
  * directly; the derived `uncovered` / `orphanTags` are the two-way diff.
  */
-export function buildTraceabilityMatrix(opts: TraceOptions): TraceabilityMatrix {
+export async function buildTraceabilityMatrix(opts: TraceOptions): Promise<TraceabilityMatrix> {
   const relativeTo = opts.relativeTo ?? process.cwd();
+  const adapter = opts.adapter ?? localRepoAdapter;
   const { definitions, malformed, duplicateIds } = collectFrDefinitions(
     opts.featureDirs,
     relativeTo,
   );
-  const tags = findTestTags(opts.codeRoots, relativeTo);
+  const tags = await findTestTags(opts.codeRoots, relativeTo, adapter);
 
   const definedIds = new Set(definitions.map((d) => d.id));
   const tagsById = new Map<string, TestTag[]>();
@@ -360,15 +414,16 @@ export function buildTraceabilityMatrix(opts: TraceOptions): TraceabilityMatrix 
     tagsById.set(tag.id, list);
   }
 
-  const entries: TraceEntry[] = definitions.map((fr) => {
-    const frTests = tagsById.get(fr.id) ?? [];
-    const sources = [
-      ...new Set(
-        frTests.map((t) => mapTestToSource(t.testFile, relativeTo)).filter((s): s is string => !!s),
-      ),
-    ].sort();
-    return { fr, tests: frTests, sources };
-  });
+  const entries: TraceEntry[] = await Promise.all(
+    definitions.map(async (fr) => {
+      const frTests = tagsById.get(fr.id) ?? [];
+      const sourcePaths = await Promise.all(
+        frTests.map((t) => mapTestToSource(t.testFile, relativeTo, adapter)),
+      );
+      const sources = [...new Set(sourcePaths.filter((s): s is string => !!s))].sort();
+      return { fr, tests: frTests, sources };
+    }),
+  );
 
   const uncovered = entries.filter((e) => e.tests.length === 0).map((e) => e.fr.id);
   const orphanTags = tags.filter((t) => !definedIds.has(t.id));

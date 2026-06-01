@@ -9,6 +9,8 @@ import { runQmdSearch } from '../../search/qmd-search';
 import { applySubtypeAffinity } from '../../search/subtype-affinity';
 import { getSupersededMemoryPaths } from '../../search/memory-queries';
 import { traceWorkspace } from '../../search/trace';
+import { chooseRepoAdapter } from '../../search/repo-adapter';
+import { resolveWorktreeRoots } from './shared';
 
 const filtersSchema = z.object({
   type: z.string().optional(),
@@ -251,11 +253,14 @@ export const searchRouter = router({
         workspaceSlug: z.string().min(1),
         fr: z.string().optional(),
         file: z.string().optional(),
+        sessionId: z.string().optional(),
       }),
     )
-    .query(({ input }) => {
+    .query(async ({ input, ctx }) => {
       const ws = resolveWorkspace(input.workspaceSlug);
-      return traceWorkspace(ws, { fr: input.fr, file: input.file });
+      const codeRootsOverride = resolveWorktreeRoots(input.sessionId);
+      const adapter = chooseRepoAdapter(ctx.state);
+      return await traceWorkspace(ws, { fr: input.fr, file: input.file }, codeRootsOverride, adapter);
     }),
 });
 

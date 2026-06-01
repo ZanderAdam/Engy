@@ -1421,12 +1421,10 @@ describe('MCP Server', () => {
 
   describe('search tool', () => {
     let wsId: number;
-    let wsSlugForSearch: string;
 
     beforeEach(async () => {
       const caller = appRouter.createCaller({ state: ctx.state });
       const ws = await caller.workspace.create({ name: 'Search Test WS' });
-      wsSlugForSearch = ws.slug;
       const db = getDb();
       const wsRow = db.select().from(workspaces).where(eq(workspaces.slug, ws.slug)).get()!;
       wsId = wsRow.id;

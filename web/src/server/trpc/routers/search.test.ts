@@ -16,7 +16,7 @@ import { eq } from 'drizzle-orm';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
 import { getDb } from '../../db/client';
-import { frontmatter, permanentMemories, tasks, projects, workspaces } from '../../db/schema';
+import { frontmatter, permanentMemories, tasks, projects, workspaces, agentSessions } from '../../db/schema';
 import { _resetStoreCache } from '../../search/qmd-store';
 import { update } from '../../search/indexer';
 
@@ -1310,5 +1310,42 @@ describe('search router — trace', () => {
   it('should throw NOT_FOUND for an unknown workspace', async () => {
     const caller = appRouter.createCaller({ state: ctx.state });
     await expect(caller.search.trace({ workspaceSlug: 'nope' })).rejects.toThrow();
+  });
+
+  it('should use the worktree path when a valid sessionId is provided', async () => {
+    const db = getDb();
+    const ws = db.select().from(workspaces).where(eq(workspaces.slug, wsSlug)).get()!;
+
+    // Seed a separate worktree repo with only FR-SEARCH-001 tagged
+    const worktreeRepo = path.join(ctx.tmpDir, 'worktree-repo');
+    const wtSrc = path.join(worktreeRepo, 'src');
+    fs.mkdirSync(wtSrc, { recursive: true });
+    fs.writeFileSync(
+      path.join(wtSrc, 'worktree.test.ts'),
+      `it('[FR-SEARCH-001] worktree test', () => {});`,
+    );
+
+    db.insert(agentSessions)
+      .values({ sessionId: 'sess-trace', worktreePath: worktreeRepo })
+      .run();
+
+    // Clear ws.repos so without sessionId we'd get no coverage
+    db.update(workspaces).set({ repos: [] }).where(eq(workspaces.id, ws.id)).run();
+
+    const caller = appRouter.createCaller({ state: ctx.state });
+    const result = await caller.search.trace({ workspaceSlug: wsSlug, sessionId: 'sess-trace' });
+    expect(result.kind).toBe('summary');
+    if (result.kind !== 'summary') throw new Error('unreachable');
+    // FR-SEARCH-001 covered by worktree test; FR-SEARCH-002 not
+    expect(result.uncovered).toEqual(['FR-SEARCH-002']);
+  });
+
+  it('should use ws.repos when no sessionId is given', async () => {
+    const caller = appRouter.createCaller({ state: ctx.state });
+    const result = await caller.search.trace({ workspaceSlug: wsSlug });
+    expect(result.kind).toBe('summary');
+    if (result.kind !== 'summary') throw new Error('unreachable');
+    // ws.repos has the repo seeded in beforeEach; FR-SEARCH-001 covered
+    expect(result.uncovered).toEqual(['FR-SEARCH-002']);
   });
 });

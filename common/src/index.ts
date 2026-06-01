@@ -24,6 +24,8 @@ export type {
   DirListResponseMessage,
   FileReadRequestMessage,
   FileReadResponseMessage,
+  GlobFilesRequestMessage,
+  GlobFilesResponseMessage,
   FileWriteRequestMessage,
   FileWriteResponseMessage,
   RemoteFilePullRequestMessage,

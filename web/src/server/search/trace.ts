@@ -7,11 +7,12 @@
  * `../lib/requirements`. Shared by the `trace` MCP tool, the `trace` tRPC
  * procedure, and the requirements check in `./validate`.
  */
-import fs from 'node:fs';
 import path from 'node:path';
 import { getWorkspaceDir } from '../engy-dir/init';
 import {
   buildTraceabilityMatrix,
+  localRepoAdapter,
+  type RepoFileAdapter,
   type TraceabilityMatrix,
   type TraceEntry,
   type TestTag,
@@ -62,13 +63,24 @@ type TraceResult = FrTraceResult | FileTraceResult | SummaryTraceResult;
  * `{workspaceDir}/system/features`; tagged tests are scanned across the
  * workspace's `repos[]` (existing paths only). Display paths are relative to
  * the first repo when present, else the workspace dir.
+ *
+ * @param codeRootsOverride - When provided, replaces ws.repos as the set of
+ *   roots to scan (e.g. an agent's worktree path resolved from its sessionId).
+ * @param adapter - Repo file adapter for I/O (defaults to local-fs).
  */
-export function getWorkspaceMatrix(ws: WorkspaceLike): TraceabilityMatrix {
+export async function getWorkspaceMatrix(
+  ws: WorkspaceLike,
+  codeRootsOverride?: string[],
+  adapter: RepoFileAdapter = localRepoAdapter,
+): Promise<TraceabilityMatrix> {
   const workspaceDir = getWorkspaceDir(ws);
   const featuresDir = path.join(workspaceDir, 'system', 'features');
-  const codeRoots = (ws.repos ?? []).filter((r) => fs.existsSync(r));
-  const relativeTo = codeRoots[0] ?? workspaceDir;
-  return buildTraceabilityMatrix({ featureDirs: [featuresDir], codeRoots, relativeTo });
+  const rawRoots = codeRootsOverride ?? ws.repos ?? [];
+  const codeRoots = await Promise.all(rawRoots.map((r) => adapter.exists(r))).then((exists) =>
+    rawRoots.filter((_, i) => exists[i]),
+  );
+  const relativeTo = codeRootsOverride?.[0] ?? codeRoots[0] ?? workspaceDir;
+  return buildTraceabilityMatrix({ featureDirs: [featuresDir], codeRoots, relativeTo, adapter });
 }
 
 /** Suffix-tolerant path match — accepts `foo.ts`, `src/foo.ts`, or absolute. */
@@ -136,8 +148,13 @@ function traceSummary(matrix: TraceabilityMatrix): SummaryTraceResult {
  *   - `{ file }` → FRs defined in, or covered by, that file.
  *   - `{}`       → workspace-wide coverage summary (uncovered, orphans, etc.).
  */
-export function traceWorkspace(ws: WorkspaceLike, query: TraceQuery = {}): TraceResult {
-  const matrix = getWorkspaceMatrix(ws);
+export async function traceWorkspace(
+  ws: WorkspaceLike,
+  query: TraceQuery = {},
+  codeRootsOverride?: string[],
+  adapter?: RepoFileAdapter,
+): Promise<TraceResult> {
+  const matrix = await getWorkspaceMatrix(ws, codeRootsOverride, adapter);
   if (query.fr) return traceFr(matrix, query.fr);
   if (query.file) return traceFile(matrix, query.file);
   return traceSummary(matrix);

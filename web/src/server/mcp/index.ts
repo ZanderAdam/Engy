@@ -34,6 +34,9 @@ import { applySubtypeAffinity } from '../search/subtype-affinity';
 import { projectCompletionService } from '../services/project-completion';
 import { getSupersededMemoryPaths } from '../search/memory-queries';
 import { traceWorkspace } from '../search/trace';
+import { getAppState } from '../trpc/context';
+import { chooseRepoAdapter } from '../search/repo-adapter';
+import { resolveWorktreeRoots } from '../trpc/routers/shared';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 
@@ -1158,14 +1161,22 @@ function registerIndexTools(mcp: McpServer): void {
     'Run integrity checks on workspace knowledge files and report findings grouped by severity.',
     {
       workspaceId: z.number().describe('Workspace ID'),
+      sessionId: z
+        .string()
+        .optional()
+        .describe(
+          'Agent session ID — scopes the requirements scan to the calling agent\'s worktree instead of ws.repos',
+        ),
     },
-    async ({ workspaceId }) => {
+    async ({ workspaceId, sessionId }) => {
       const db = getDb();
       const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
       if (!ws) return mcpError('Workspace not found');
 
       try {
-        const report = await runValidateWorkspace(ws);
+        const state = getAppState();
+        const adapter = chooseRepoAdapter(state);
+        const report = await runValidateWorkspace(ws, sessionId, adapter);
         return mcpResult(report);
       } catch (err) {
         return mcpError(`Validation failed: ${(err as Error).message}`);
@@ -1453,14 +1464,23 @@ function registerSearchTools(mcp: McpServer): void {
         .string()
         .optional()
         .describe('Source or test path — returns the FRs defined in or covered by that file'),
+      sessionId: z
+        .string()
+        .optional()
+        .describe(
+          'Agent session ID — scopes the code scan to the calling agent\'s worktree instead of ws.repos',
+        ),
     },
-    async ({ workspaceId, fr, file }) => {
+    async ({ workspaceId, fr, file, sessionId }) => {
       const db = getDb();
       const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
       if (!ws) return mcpError('Workspace not found');
 
       try {
-        return mcpResult(traceWorkspace(ws, { fr, file }));
+        const state = getAppState();
+        const codeRootsOverride = resolveWorktreeRoots(sessionId);
+        const adapter = chooseRepoAdapter(state);
+        return mcpResult(await traceWorkspace(ws, { fr, file }, codeRootsOverride, adapter));
       } catch (err) {
         return mcpError(`Trace failed: ${(err as Error).message}`);
       }
