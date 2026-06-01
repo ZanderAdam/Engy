@@ -15,6 +15,8 @@ Implements a single task or plan document end-to-end: context gathering, TDD imp
 
 ## Step 1: Gather Context
 
+**EARS-BDD mode:** check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (e.g. an `earsBdd: true` flag or similar). When enabled, follow `references/ears-bdd.md`, which adds FR-establishment before Step 4, FR-tagging to the Red step, and coverage verification to Step 5. When disabled, run the steps below unchanged.
+
 ### A. From an Engy Task
 
 1. `getTask(id)` — read the task's title, description, and status.
