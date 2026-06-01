@@ -176,7 +176,7 @@ Review complete.
 
 **Typical trigger:** after `/engy:complete-project` distillation phase, or standalone maintenance.
 
-**Next step (optional):** `/engy:propose-sysdocs` to surface patterns identified during review into system documentation.
+**Next step (optional):** `/engy:write-sysdocs` (refresh mode) to surface patterns identified during review into system documentation.
 
 ## Additional Resources
 

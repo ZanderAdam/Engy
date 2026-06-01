@@ -47,9 +47,9 @@ Skill({ skill: 'engy:review-memories' })
 
 Pause and ask: "Memory review is complete. Generate system doc proposals from the project's completed tasks and promoted memories? [yes/skip]"
 
-- **yes** — invoke `engy:propose-sysdocs` via the Skill tool:
+- **yes** — invoke `engy:write-sysdocs` (refresh mode) via the Skill tool:
   ```
-  Skill({ skill: 'engy:propose-sysdocs' })
+  Skill({ skill: 'engy:write-sysdocs', args: 'refresh' })
   ```
   `Skill(...)` runs the inner skill to completion and returns control here before Phase 5 begins; do not advance until it returns. The invoked skill re-resolves workspace/project context itself — surface the active project name and workspace slug to the user before invoking so the inner skill targets the right scope. Changes land uncommitted under `{workspaceDir}/system/` for diff-viewer review.
 - **skip** — continue to Phase 5.
