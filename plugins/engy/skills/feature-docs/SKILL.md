@@ -7,7 +7,7 @@ description: This skill should be used when the user asks to "bootstrap feature 
 
 Owns `system/features/<area>.md` as ONE artifact per area: prose body + `## Requirements` EARS table + `## Sources` + frontmatter. Establishes the EARS functional-requirement (FR) baseline for an existing codebase by reverse-engineering FRs from implemented, tested behaviour. Where a feature doc is missing entirely, it is created (prose intro + requirements); where it exists without a `## Requirements` section, the section is added.
 
-Consult [`../write-sysdocs/references/doc-format.md`](../write-sysdocs/references/doc-format.md) for frontmatter, `## Sources`, README template, and reindex conventions — feature docs must be shaped identically to prose docs. Consult `plugins/engy/skills/implement/references/ears-bdd.md` for EARS patterns, id scheme, and format contract. Authoring is delegated to `engy:feature-author`; this skill orchestrates the area list, the task loop, and the human gates.
+Consult [`../write-sysdocs/references/doc-format.md`](../write-sysdocs/references/doc-format.md) for frontmatter, `## Sources`, README template, and reindex conventions — feature docs must be shaped identically to prose docs. Consult `plugins/engy/skills/implement/references/ears-bdd.md` for EARS patterns, id scheme, format contract, and the FR lifecycle rules (editing, reordering, retiring FRs over time). Authoring is delegated to `engy:feature-author`; this skill orchestrates the area list, the task loop, and the human gates.
 
 ## The Pipeline: code/tests → BDD → EARS
 

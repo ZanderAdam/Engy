@@ -7,6 +7,10 @@ description: "This skill should be used when the user asks to 'plan my project',
 
 The spec already contains a high-level list of milestones. This skill plans **one milestone at a time** in detail — defining task groups, individual tasks, dependencies, and priorities. Everything is presented to the user for approval before creating anything in the system.
 
+## EARS-BDD Mode
+
+Check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (`earsBdd: true`). When enabled, each TG's `### Requirements` lists the durable `FR-<AREA>-<NNN>` ids it delivers (drawn from the SRS, reused verbatim — replacing the `FR-TG1.N` local numbering); allocate a new durable id only for milestone-level detail the SRS did not capture. Follow the planning augmentations in `plugins/engy/skills/implement/references/ears-bdd.md` for the id scheme, allocation rule, and funnel discipline. When disabled, use the hierarchical `FR-TG1.N` scheme below unchanged.
+
 ## Multi-Repo Task Scoping
 
 When a workspace manages multiple repos, task scoping rules apply:
@@ -196,6 +200,8 @@ depend on others, and what specifically they depend on.}
 {One paragraph: what this group delivers and why it's sequenced here.}
 
 ### Requirements
+
+<!-- EARS-BDD off: local `FR-TG<N>.<M>` ids as shown below. EARS-BDD on: durable `FR-<AREA>-<NNN>` EARS rows — see "EARS-BDD Mode" above. -->
 
 1. The system shall {concrete, testable behavior}. *(source: user request | inferred | elicited)* (FR-TG1.1)
 2. ...

@@ -56,6 +56,8 @@ Chain dependencies with `TaskUpdate` (`addBlockedBy`) so tasks execute in order.
 
 ## Step 4: Implement via TDD (Red-Green-Refactor)
 
+**EARS-BDD mode:** before the first test, establish the target FR ids — run the "Before Step 4 — establish target FR ids" hand-off in `references/ears-bdd.md` (locate pre-planned ids in the plan/spec, or dispatch `engy:feature-author`), then tag each Red test with its FR id and verify coverage in Step 5. Skip this when EARS-BDD is disabled.
+
 For each implementation task, follow the TDD cycle strictly:
 
 1. Mark the session task `in_progress`.

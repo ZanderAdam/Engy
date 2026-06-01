@@ -31,6 +31,10 @@ Determine mode from user intent and filesystem state:
 - **Validate mode** — `spec.md` exists and user asks to validate/review/check (read-only analysis + fixes)
 - **Context mode** — User asks to save/add/manage context files, or substantial context is gathered during conversation
 
+## EARS-BDD Mode
+
+Check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (`earsBdd: true`). When enabled, the SRS is the **first allocation point** for durable `FR-<AREA>-<NNN>` requirements: milestone FR lists in Section 6 carry EARS SHALL rows with durable ids (instead of `FR-N.M`), and those ids flow unchanged through milestone planning, task planning, and implementation. Follow the planning augmentations in `plugins/engy/skills/implement/references/ears-bdd.md` for the id scheme, EARS patterns, allocation rule, and funnel discipline. When disabled, author FRs using the milestone-keyed scheme below unchanged.
+
 ## Process
 
 ### Step 1: Locate Spec Template
@@ -71,7 +75,7 @@ After generation, automatically proceed to validation (Validate Mode below).
 Source documents have changed (new context files added, vision doc revised, milestones updated). Incrementally update the existing `spec.md`:
 
 1. **Diff source material** — Compare gathered source docs against what the current SRS covers. Identify new content, changed content, and removed content.
-2. **Add new requirements** — For new behaviors/features in source docs, add FRs to the appropriate milestone section using the next available FR ID. Add corresponding stimulus/response entries.
+2. **Add new requirements** — For new behaviors/features in source docs, add FRs to the appropriate milestone section using the next available FR ID. Add corresponding stimulus/response entries. (In EARS-BDD mode, allocate the next durable `FR-<AREA>-<NNN>` id per the reference's allocation rule — read the area's high-water mark from the spec and feature docs — and never renumber or reuse an existing durable id, even if the source content it referenced was removed.)
 3. **Update changed requirements** — For revised source content, update the corresponding FRs and data model entries to match.
 4. **Flag removals** — If source content was removed, flag the orphaned FRs for human review rather than deleting (the removal may be intentional or accidental).
 5. **Update milestone sections** — Adjust exit criteria for affected milestones.

@@ -15,8 +15,9 @@ FRs are durable contracts. Author conservatively, ground every FR in behaviour t
 - The **BDD working doc path** — `<scratchDir>/<area>.md` containing the behaviour inventory.
 - `systemDir` — absolute path to `{workspaceDir}/system` (feature docs live in `systemDir/features/`).
 - `repos[]` — absolute repo paths to read for grounding.
+- **Target FR ids (optional)** — pre-planned `FR-<AREA>-<NNN>` ids with their EARS text, supplied when a spec/plan already fixed the FR contracts (EARS-BDD planning). When provided, author **those exact ids verbatim** — do not re-allocate or renumber them; only ground them in code and write the rows. Allocate new ids only for behaviour beyond the supplied set.
 
-If any are missing, state what is missing and stop — do not guess paths.
+If any required input (area, BDD working doc, `systemDir`, `repos[]`) is missing, state what is missing and stop — do not guess paths.
 
 ## Conventions
 
@@ -41,7 +42,7 @@ Write the complete feature doc for the area. The doc is ONE artifact combining:
 
 **`## Requirements` table:** one EARS FR per distinct behaviour gap from Phase 1.
 
-- Allocate the **next free id** per area (e.g. existing max `FR-SEARCH-011` → `FR-SEARCH-015`). Never renumber or reuse an id.
+- If pre-planned target ids were supplied, use them verbatim. Otherwise allocate the **next free id** per area (e.g. existing max `FR-SEARCH-011` → `FR-SEARCH-015`); a brand-new area with no existing FRs starts at `FR-<AREA>-010`. Never renumber or reuse an id.
 - Each FR is atomic, testable, SHALL-bearing, and in one of the five EARS patterns (or a prose `shall` fallback for structural/data requirements).
 - Table format: `| FR-<AREA>-<NNN> | <EARS text> |`. A malformed row or a missing SHALL will fail `engy:validate`.
 

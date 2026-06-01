@@ -15,6 +15,10 @@ Write a validated implementation plan for a standalone task using a codebase-awa
 
 Use MCP to discover context, then Read/Glob/Grep for codebase exploration and spec reading.
 
+## EARS-BDD Mode
+
+Check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (`earsBdd: true`). When enabled, the `## Functional Requirements` section is written as `| FR-<AREA>-<NNN> | <EARS SHALL text> |` table rows (the reference's format) — **not** the numbered "The system shall…" list with source tags shown in the templates below. Reuse the spec/milestone ids the task draws on, and allocate a new durable id only for behaviour the task itself introduces. Follow the planning augmentations in `plugins/engy/skills/implement/references/ears-bdd.md` for the id scheme, allocation rule, and funnel discipline. When disabled, write FRs using the format in the templates below unchanged.
+
 ## Step 0: Triage
 
 Assess complexity before committing to the full process:
