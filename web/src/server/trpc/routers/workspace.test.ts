@@ -93,6 +93,20 @@ describe('workspace router', () => {
       expect(parsed.implementSkill).toBe('/engy:implement');
     });
 
+    it('should default earsBdd to false on creation', async () => {
+      const ws = await caller.workspace.create({ name: 'Ears Default' });
+      expect(ws.earsBdd).toBe(false);
+    });
+
+    it('should persist earsBdd and write it to workspace.yaml when enabled', async () => {
+      const ws = await caller.workspace.create({ name: 'Ears On', earsBdd: true });
+      expect(ws.earsBdd).toBe(true);
+      const parsed = yaml.load(
+        fs.readFileSync(path.join(ctx.tmpDir, ws.slug, 'workspace.yaml'), 'utf-8'),
+      ) as Record<string, unknown>;
+      expect(parsed.earsBdd).toBe(true);
+    });
+
     it('should write workspace.yaml using js-yaml', async () => {
       const ws = await caller.workspace.create({ name: 'YAML Check' });
       const yamlPath = path.join(ctx.tmpDir, ws.slug, 'workspace.yaml');
@@ -300,6 +314,15 @@ describe('workspace router', () => {
       const updated = await caller.workspace.update({ id: ws.id, name: 'Renamed' });
       expect(updated.planSkill).toBe('/engy:plan');
       expect(updated.implementSkill).toBe('/engy:implement');
+    });
+
+    it('should toggle earsBdd and preserve it when not included in update', async () => {
+      const ws = await caller.workspace.create({ name: 'Ears Toggle' });
+      expect(ws.earsBdd).toBe(false);
+      const enabled = await caller.workspace.update({ id: ws.id, earsBdd: true });
+      expect(enabled.earsBdd).toBe(true);
+      const renamed = await caller.workspace.update({ id: ws.id, name: 'Ears Renamed' });
+      expect(renamed.earsBdd).toBe(true);
     });
 
     describe('devcontainer config generation', () => {
