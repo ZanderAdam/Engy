@@ -58,7 +58,7 @@ Typed discriminated union in `@engy/common` (~40 message types spanning registra
 | `PORT` | web | `3000` | HTTP server port |
 | `ENGY_SERVER_URL` | client | `http://localhost:3000` | Server URL for daemon |
 
-Dev overrides are in `.dev.env` (gitignored), which sets `ENGY_DIR=.dev-engy/` for project-local data. When working in a worktree, edit `.dev.env` to use a different port (e.g., `PORT=4002` and `ENGY_SERVER_URL=http://localhost:4002`) to avoid conflicts with the main dev instance.
+Dev overrides are in `.dev.env` (gitignored), which sets `ENGY_DIR=.dev-engy/` for project-local data. `pnpm dev` auto-selects a free port if the preferred one (`PORT=4000`) is busy — no need to edit `.dev.env` for worktrees. Read the running URL from the startup log line: `[dev] web + client running on http://localhost:<port>`.
 
 
 ## Subagents

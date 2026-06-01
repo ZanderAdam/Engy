@@ -2,6 +2,9 @@
   "ignore": [],
   "ignoreDependencies": ["prettier"],
   "workspaces": {
+    ".": {
+      "entry": ["scripts/*.mjs"]
+    },
     "web": {
       "entry": ["src/server/db/migrate.ts", "src/server/ws/events-server.ts", "src/app/**/*.{ts,tsx}", "src/**/test-helpers.ts", "src/lib/utils.ts"],
       "project": ["**/*.{ts,tsx}"],
