@@ -91,7 +91,10 @@ describe('AgentSpawner', () => {
                 type: 'object',
                 properties: {
                   content: { type: 'string' },
-                  type: { type: 'string' },
+                  type: {
+                    type: 'string',
+                    enum: ['capture', 'question', 'blocker', 'idea', 'reference'],
+                  },
                 },
                 required: ['content'],
               },

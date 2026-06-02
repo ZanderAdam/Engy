@@ -166,7 +166,7 @@ function sha256(text: string): string {
 
 // ── Git helpers ──────────────────────────────────────────────────────
 
-async function commitFile(
+export async function commitFile(
   workspaceDir: string,
   filePaths: string[],
   message: string,
@@ -482,7 +482,7 @@ export async function rewritePermanentMemory(
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-function collectReadmePaths(workspaceDir: string, filePath: string): string[] {
+export function collectReadmePaths(workspaceDir: string, filePath: string): string[] {
   const results: string[] = [];
   let dir = path.dirname(filePath);
   const root = workspaceDir;

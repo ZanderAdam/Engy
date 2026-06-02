@@ -30,12 +30,14 @@ Default to **full process**. The simple path is the exception, not the rule.
 
 ## Step 0.5: Research Prior Knowledge
 
-Before writing the plan body, dispatch the `engy:research` subagent to surface relevant prior decisions, patterns, and gotchas from the workspace knowledge graph:
+Before writing the plan body, dispatch the `engy:research` subagent to surface relevant prior decisions, patterns, and gotchas from the workspace knowledge graph.
+
+**Resolve `workspaceId` first.** If not already known from context, call `listWorkspaces` (or `getWorkspaceDetails`) to obtain it before dispatching — `engy:research` hard-errors without it.
 
 ```
 Task({
   subagent_type: 'engy:research',
-  prompt: '<task description> — context: project=<slug>, milestone=<id>, repo=<repo-or-empty>'
+  prompt: '<task description> — context: project=<slug>, milestone=<id>, repo=<repo-or-empty> workspaceId=<id>'
 })
 ```
 
@@ -49,7 +51,7 @@ The subagent returns a digest with 3–8 cited findings. Fold the digest directl
 
 Place this block in the **Overview** section or immediately before the **Implementation Sequence**. The markers let future readers identify LLM-synthesized content and re-run the research step against current memory state.
 
-If the subagent returns `Findings: 0`, omit the marker block entirely — do not write an empty block.
+If the subagent returns `No relevant prior knowledge found for this question.` (i.e., `Distinct findings: 0 (after dedup)` in the footer), omit the marker block entirely — do not write an empty block.
 
 When the work is repo-local, include `filters.repo` in the prompt so the subagent applies repo-scoped ranking. Skip this step only for **Simple** (lightweight) plans where the task is clearly understood from the codebase alone.
 

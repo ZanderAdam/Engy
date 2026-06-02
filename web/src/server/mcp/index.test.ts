@@ -1106,7 +1106,7 @@ describe('MCP Server', () => {
         search: async () => [
           {
             file: 'qmd://memory/facts/related-fact.md',
-            displayPath: 'facts/related-fact.md',
+            displayPath: 'memory/facts/related-fact.md',
             title: 'Related Fact',
             score: 0.9,
           },

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import type { FleetingMemoryType } from '@engy/common';
 import type { ContainerManager } from '../container/manager.js';
 import type { CoderManager } from '../container/coder-manager.js';
 
@@ -20,8 +21,18 @@ export interface SpawnConfig {
 
 export interface CompletionMemory {
   content: string;
-  type?: string;
+  type?: FleetingMemoryType;
 }
+
+// Mirrors the fleeting_memories.type enum (web/src/server/db/schema.ts); the
+// `satisfies` clause makes drift from the shared FleetingMemoryType a compile error.
+const FLEETING_MEMORY_TYPES = [
+  'capture',
+  'question',
+  'blocker',
+  'idea',
+  'reference',
+] as const satisfies readonly FleetingMemoryType[];
 
 export interface SpawnResult {
   sessionId: string;
@@ -41,7 +52,7 @@ export const TASK_COMPLETION_SCHEMA = JSON.stringify({
         type: 'object',
         properties: {
           content: { type: 'string' },
-          type: { type: 'string' },
+          type: { type: 'string', enum: FLEETING_MEMORY_TYPES },
         },
         required: ['content'],
       },

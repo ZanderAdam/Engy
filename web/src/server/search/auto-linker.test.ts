@@ -139,7 +139,7 @@ describe('auto-linker', () => {
 
       const mockStore = {
         search: vi.fn().mockResolvedValue([
-          makeSearchResult('facts/202501010002-candidate.md', 0.9, 'Candidate Memory'),
+          makeSearchResult('memory/facts/202501010002-candidate.md', 0.9, 'Candidate Memory'),
         ]),
       };
       mockGetStore.mockResolvedValue(mockStore as any);
@@ -176,7 +176,7 @@ describe('auto-linker', () => {
 
       const mockStore = {
         search: vi.fn().mockResolvedValue([
-          makeSearchResult('facts/202501010002-low.md', 0.5, 'Low Score Memory'),
+          makeSearchResult('memory/facts/202501010002-low.md', 0.5, 'Low Score Memory'),
         ]),
       };
       mockGetStore.mockResolvedValue(mockStore as any);
@@ -212,7 +212,7 @@ describe('auto-linker', () => {
       const mockStore = {
         search: vi.fn().mockResolvedValue(
           candidatePaths.map((p, idx) =>
-            makeSearchResult(`facts/${p.split('/').pop()!}`, 0.95 - idx * 0.01, `Cand ${idx + 2}`),
+            makeSearchResult(`memory/facts/${p.split('/').pop()!}`, 0.95 - idx * 0.01, `Cand ${idx + 2}`),
           ),
         ),
       };
@@ -244,7 +244,7 @@ describe('auto-linker', () => {
 
       const mockStore = {
         search: vi.fn().mockResolvedValue([
-          makeSearchResult('facts/202501010002-dedup-cand.md', 0.92, 'Dedup Candidate'),
+          makeSearchResult('memory/facts/202501010002-dedup-cand.md', 0.92, 'Dedup Candidate'),
         ]),
       };
       mockGetStore.mockResolvedValue(mockStore as any);
@@ -274,7 +274,7 @@ describe('auto-linker', () => {
       const mockStore = {
         search: vi.fn().mockResolvedValue([
           // Same file returned from qmd (score above threshold)
-          makeSearchResult('facts/202501010001-self.md', 0.99, 'Self Memory'),
+          makeSearchResult('memory/facts/202501010001-self.md', 0.99, 'Self Memory'),
         ]),
       };
       mockGetStore.mockResolvedValue(mockStore as any);

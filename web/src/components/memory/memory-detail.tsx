@@ -57,6 +57,7 @@ function PermanentDetail({
   const utils = trpc.useUtils();
   const editorRef = useRef<DocumentEditorHandle>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const { data: memory, isLoading } = trpc.memory.get.useQuery({ id });
 
@@ -73,6 +74,9 @@ function PermanentDetail({
     onSuccess: async () => {
       await utils.memory.list.invalidate();
       onDeleted?.();
+    },
+    onError: (err) => {
+      setDeleteError(err.message);
     },
   });
 
@@ -164,6 +168,9 @@ function PermanentDetail({
           </Button>
         </div>
       </div>
+      {deleteError && (
+        <p className="text-xs text-destructive px-4 py-1 border-b border-border">{deleteError}</p>
+      )}
 
       {/* Editor */}
       <div className="flex-1 min-h-0 overflow-hidden">

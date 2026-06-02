@@ -11,9 +11,11 @@ import { getWorkspaceDir } from '../../engy-dir/init';
 import {
   writePermanentMemory,
   rewritePermanentMemory,
+  collectReadmePaths,
+  commitFile,
   type PermanentMemoryFrontmatter,
 } from '../../lib/memory-files';
-import { simpleGit } from 'simple-git';
+import { regenerateReadmeChain } from '../../lib/readme-index';
 import { autoLink } from '../../search/auto-linker';
 import { proposeMemoryMetadata } from '../../lib/promote-proposal';
 import { update as indexerUpdate } from '../../search/indexer';
@@ -117,10 +119,10 @@ async function deleteMemoryFile(workspaceDir: string, filePath: string, title: s
   const absPath = path.isAbsolute(filePath) ? filePath : path.join(workspaceDir, filePath);
   if (fs.existsSync(absPath)) {
     fs.unlinkSync(absPath);
-    const git = simpleGit(workspaceDir);
+    regenerateReadmeChain(absPath);
+    const readmePaths = collectReadmePaths(workspaceDir, absPath);
     const relPath = path.relative(workspaceDir, absPath).replace(/\\/g, '/');
-    await git.add([relPath]);
-    await git.commit(`memory(delete): ${title}\n\nmemory_id: ${relPath}`, { '--allow-empty': null });
+    await commitFile(workspaceDir, [absPath, ...readmePaths], `memory(delete): ${title}\n\nmemory_id: ${relPath}`);
   }
 }
 
@@ -273,6 +275,28 @@ export const memoryRouter = router({
     }
     return memory;
   }),
+
+  // Resolves a workspace-relative filePath to a memory. Only permanent memories
+  // are path-addressable; fleeting memories have no file and are never resolved here.
+  getByPath: publicProcedure
+    .input(z.object({ workspaceSlug: z.string().min(1), filePath: z.string().min(1) }))
+    .query(({ input }) => {
+      const ws = resolveWorkspace(input.workspaceSlug);
+      const db = getDb();
+
+      const permanent = db
+        .select({ id: permanentMemories.id })
+        .from(permanentMemories)
+        .where(
+          and(
+            eq(permanentMemories.workspaceId, ws.id),
+            eq(permanentMemories.filePath, input.filePath),
+          ),
+        )
+        .get();
+
+      return permanent ? { id: permanent.id, kind: 'permanent' as const } : null;
+    }),
 
   list: publicProcedure.input(listInput).query(({ input }) => {
     const ws = resolveWorkspace(input.workspaceSlug);

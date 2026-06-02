@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import {
   CommandDialog,
@@ -133,7 +133,7 @@ function SearchDialogContent({ onClose }: SearchDialogContentProps) {
         )}
         {!isFetching &&
           sortedGroups.map((group, idx) => (
-            <span key={group.collection}>
+            <Fragment key={group.collection}>
               {idx > 0 && <CommandSeparator />}
               <CommandGroup heading={COLLECTION_LABELS[group.collection] ?? group.collection}>
                 {group.results.map((result) => (
@@ -157,7 +157,7 @@ function SearchDialogContent({ onClose }: SearchDialogContentProps) {
                   </CommandItem>
                 ))}
               </CommandGroup>
-            </span>
+            </Fragment>
           ))}
       </CommandList>
     </>

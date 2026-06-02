@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useVirtualParams, useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
@@ -31,26 +31,31 @@ export default function MemoryPage() {
   const { data: workspace, isLoading } = trpc.workspace.get.useQuery({ slug: params.workspace });
   const utils = trpc.useUtils();
 
-  // Resolve ?path= query param to a numeric selection so the detail panel opens immediately.
-  const { data: memoriesForPath } = trpc.memory.list.useQuery(
-    { workspaceSlug: params.workspace, limit: 200 },
+  // Resolve ?path= query param server-side so deep links work regardless of list pagination.
+  const { data: pathResolution, isFetched: pathResolutionFetched } = trpc.memory.getByPath.useQuery(
+    { workspaceSlug: params.workspace, filePath: initialPath ?? '' },
     { enabled: !!initialPath, staleTime: 60_000 },
   );
 
-  const pathResolved: MemorySelection | null = useMemo(() => {
-    if (!initialPath || !memoriesForPath) return null;
-    const match = memoriesForPath.find((m) => m.filePath === initialPath);
-    return match ? { id: match.id, kind: 'permanent' } : null;
-  }, [initialPath, memoriesForPath]);
+  const pathResolved: MemorySelection | null =
+    initialPath && pathResolutionFetched ? (pathResolution ?? null) : null;
+
+  const pathNotFound = !!initialPath && pathResolutionFetched && pathResolution === null;
 
   // User's explicit click overrides the URL-derived selection; path-resolved is the fallback.
   const effectiveSelected = selected ?? pathResolved;
+
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const createMutation = trpc.memory.create.useMutation({
     onSuccess: async (result) => {
       await utils.memory.list.invalidate();
       setCreateOpen(false);
+      setCreateError(null);
       setSelected({ id: result.id, kind: 'permanent' });
+    },
+    onError: (err) => {
+      setCreateError(err.message);
     },
   });
 
@@ -102,7 +107,9 @@ export default function MemoryPage() {
             />
           ) : (
             <div className="flex flex-1 items-center justify-center h-full">
-              <p className="text-sm text-muted-foreground">Select a memory to view</p>
+              <p className="text-sm text-muted-foreground">
+                {pathNotFound ? 'Memory not found' : 'Select a memory to view'}
+              </p>
             </div>
           )
         }
@@ -113,6 +120,7 @@ export default function MemoryPage() {
           <DialogHeader>
             <DialogTitle>New Permanent Memory</DialogTitle>
           </DialogHeader>
+          {createError && <p className="text-xs text-destructive px-1">{createError}</p>}
           <MemoryForm
             repos={repos}
             onSubmit={handleCreate}

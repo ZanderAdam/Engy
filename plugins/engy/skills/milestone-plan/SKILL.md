@@ -42,12 +42,14 @@ For single-repo workspaces, these rules are effectively no-ops — all tasks nat
 
 ### Level 1.5: Research Prior Knowledge
 
-Before writing the milestone plan body, dispatch the `engy:research` subagent to surface relevant prior decisions, patterns, and architectural context from the workspace knowledge graph:
+Before writing the milestone plan body, dispatch the `engy:research` subagent to surface relevant prior decisions, patterns, and architectural context from the workspace knowledge graph.
+
+**Resolve `workspaceId` first.** If not already known from context, call `listWorkspaces` (or `getWorkspaceDetails`) to obtain it before dispatching — `engy:research` hard-errors without it.
 
 ```
 Task({
   subagent_type: 'engy:research',
-  prompt: '<milestone name and domain description> — context: project=<slug>, milestone=<id>, repo=<repo-or-empty>'
+  prompt: '<milestone name and domain description> — context: project=<slug>, milestone=<id>, repo=<repo-or-empty> workspaceId=<id>'
 })
 ```
 
@@ -61,7 +63,7 @@ The subagent returns a digest with 3–8 cited findings. Fold it into the milest
 
 The markers let future readers identify LLM-synthesized content and re-run the research step.
 
-If the subagent returns `Findings: 0`, omit the marker block entirely — do not write an empty block.
+If the subagent returns `No relevant prior knowledge found for this question.` (i.e., `Distinct findings: 0 (after dedup)` in the footer), omit the marker block entirely — do not write an empty block.
 
 When the milestone is repo-local, mention the repo path in the prompt so the subagent applies `filters.repo`. This step runs after Level 1 (milestone selection confirmed) and before writing the plan document.
 

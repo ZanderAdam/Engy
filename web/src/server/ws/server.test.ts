@@ -1036,6 +1036,56 @@ describe('CREATE_MEMORIES_REQUEST', () => {
     expect(inserted[1].source).toBe('agent');
   });
 
+  it('should coerce an invalid memory type to capture', async () => {
+    const workspace = ctx.db
+      .insert(workspaces)
+      .values({ name: 'BadTypeWs', slug: 'bad-type-ws' })
+      .returning()
+      .get();
+    const project = ctx.db
+      .insert(projects)
+      .values({ workspaceId: workspace.id, name: 'Bad Type Project', slug: 'bad-type-proj' })
+      .returning()
+      .get();
+    const task = ctx.db
+      .insert(tasks)
+      .values({ title: 'Bad type task', projectId: project.id, status: 'in_progress' })
+      .returning()
+      .get();
+    ctx.db
+      .insert(agentSessions)
+      .values({ sessionId: 'bad-type-session', taskId: task.id, status: 'active' })
+      .run();
+
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+    ws.send(
+      JSON.stringify({
+        type: 'CREATE_MEMORIES_REQUEST',
+        sessionId: 'bad-type-session',
+        memories: [{ content: 'An agent emitted a bogus type', type: 'note' }],
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const inserted = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.workspaceId, workspace.id))
+        .all();
+      expect(inserted).toHaveLength(1);
+    });
+
+    const inserted = ctx.db
+      .select()
+      .from(fleetingMemories)
+      .where(eq(fleetingMemories.workspaceId, workspace.id))
+      .all();
+    expect(inserted[0].type).toBe('capture');
+  });
+
   it('should default memory type to capture when not specified', async () => {
     const workspace = ctx.db
       .insert(workspaces)

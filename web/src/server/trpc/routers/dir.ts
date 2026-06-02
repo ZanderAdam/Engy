@@ -27,6 +27,21 @@ function detectCollection(dirPath: string): IndexedCollection | null {
   return null;
 }
 
+/**
+ * Best-effort reindex of the collection a workspace path belongs to.
+ * Reindex failures are logged but never surfaced — they must not fail the
+ * triggering file write/delete.
+ */
+async function reindexCollection(workspaceSlug: string, dirPath: string): Promise<void> {
+  const collection = detectCollection(dirPath);
+  if (!collection) return;
+  try {
+    await updateAndEmbed(workspaceSlug, collection);
+  } catch (err) {
+    console.error('[dir] reindex failed', err);
+  }
+}
+
 function validatePath(base: string, target: string): string {
   if (path.isAbsolute(target)) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: `Absolute paths not allowed: ${target}` });
@@ -196,10 +211,7 @@ export const dirRouter = router({
       fs.writeFileSync(resolved, input.content, 'utf-8');
 
       if (input.workspaceSlug) {
-        const collection = detectCollection(input.dirPath);
-        if (collection) {
-          await updateAndEmbed(input.workspaceSlug, collection);
-        }
+        await reindexCollection(input.workspaceSlug, input.dirPath);
       }
 
       return { success: true };
@@ -236,10 +248,7 @@ export const dirRouter = router({
       fs.unlinkSync(resolved);
 
       if (input.workspaceSlug) {
-        const collection = detectCollection(input.dirPath);
-        if (collection) {
-          await updateAndEmbed(input.workspaceSlug, collection);
-        }
+        await reindexCollection(input.workspaceSlug, input.dirPath);
       }
 
       return { success: true };

@@ -450,10 +450,12 @@ export interface ExecutionCompleteEventMessage {
   };
 }
 
+export type FleetingMemoryType = 'capture' | 'question' | 'blocker' | 'idea' | 'reference';
+
 export interface CreateMemoriesRequestMessage {
   type: 'CREATE_MEMORIES_REQUEST';
   sessionId: string;
-  memories: Array<{ content: string; type?: string }>;
+  memories: Array<{ content: string; type?: FleetingMemoryType }>;
 }
 
 export type WsMessage =

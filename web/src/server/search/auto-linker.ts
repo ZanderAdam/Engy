@@ -20,11 +20,6 @@ export const MAX_LINKS = 5;
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-function collectionFromVirtualPath(virtualPath: string): string {
-  const match = /^qmd:\/\/([^/]+)/.exec(virtualPath);
-  return match ? match[1] : 'memory';
-}
-
 /**
  * Read an existing memory file's frontmatter and body without validation errors.
  * Returns null if the file doesn't exist or can't be parsed.
@@ -194,12 +189,11 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
       }
 
       // Filter: above threshold, not self
+      // hit.displayPath is already collection-prefixed (e.g. "memory/facts/foo.md")
       const eligible = candidates.filter((hit) => {
         if (hit.score < SIMILARITY_THRESHOLD) return false;
-        const col = collectionFromVirtualPath(hit.file);
-        const candidatePath = `${col}/${hit.displayPath}`;
         const normalizedOwn = ownFilePath.replace(/^memory\//, '');
-        const normalizedCandidate = candidatePath.replace(/^memory\//, '');
+        const normalizedCandidate = hit.displayPath.replace(/^memory\//, '');
         return normalizedOwn !== normalizedCandidate;
       });
 
@@ -210,8 +204,8 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
   const touchedPaths: string[] = [];
 
   for (const hit of toLink) {
-    const col = collectionFromVirtualPath(hit.file);
-    const candidateRelPath = `${col}/${hit.displayPath}`;
+    // hit.displayPath is already collection-prefixed (e.g. "memory/facts/foo.md")
+    const candidateRelPath = hit.displayPath;
 
     // Validate both paths before touching any files
     let candidateAbsPath: string;

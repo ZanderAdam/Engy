@@ -52,6 +52,7 @@ export type {
   ExecutionStatusEventMessage,
   ExecutionCompleteEventMessage,
   CreateMemoriesRequestMessage,
+  FleetingMemoryType,
   TerminalSpawnCmd,
   TerminalInputCmd,
   TerminalResizeCmd,

@@ -8,6 +8,7 @@ import type {
   SearchFilesRequestMessage,
   ContainerUpRequestMessage,
   ExecutionStartConfig,
+  FleetingMemoryType,
 } from '@engy/common';
 import type {
   AppState,
@@ -507,6 +508,17 @@ function handleExecutionCompleteEvent(
   }
 }
 
+// Compile-time guard: schema enum must stay assignable to the shared protocol
+// type, so a schema-only edit can't silently make the clamp cast unsound.
+const _schemaTypesMatch: readonly FleetingMemoryType[] = fleetingMemories.type.enumValues;
+void _schemaTypesMatch;
+
+const VALID_MEMORY_TYPES: ReadonlySet<string> = new Set(fleetingMemories.type.enumValues);
+
+function clampMemoryType(type: string | undefined): FleetingMemoryType {
+  return VALID_MEMORY_TYPES.has(type ?? '') ? (type as FleetingMemoryType) : 'capture';
+}
+
 function handleCreateMemoriesRequest(msg: {
   type: 'CREATE_MEMORIES_REQUEST';
   sessionId: string;
@@ -541,16 +553,20 @@ function handleCreateMemoriesRequest(msg: {
   const rows = memories.map((m) => ({
     workspaceId,
     content: m.content,
-    type: (m.type ?? 'capture') as typeof fleetingMemories.$inferInsert.type,
+    type: clampMemoryType(m.type),
     source: 'agent' as const,
     tags: [] as string[],
     createdAt: now,
   }));
 
-  db.insert(fleetingMemories).values(rows).run();
-  console.log(
-    `[ws-main-server] Inserted ${rows.length} fleeting memories for workspaceId=${workspaceId}`,
-  );
+  try {
+    db.insert(fleetingMemories).values(rows).run();
+    console.log(
+      `[ws-main-server] Inserted ${rows.length} fleeting memories for workspaceId=${workspaceId}`,
+    );
+  } catch (err) {
+    console.error('[ws-main-server] CREATE_MEMORIES_REQUEST insert failed:', err);
+  }
 }
 
 /** Resolve workspaceId from a session's task (for memory insertion) */

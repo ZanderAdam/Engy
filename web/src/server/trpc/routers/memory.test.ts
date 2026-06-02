@@ -387,8 +387,70 @@ describe('memory router', () => {
       expect(row).toBeUndefined();
     });
 
+    it('should remove the deleted file from the parent README index', async () => {
+      const created = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Fact to delete from README',
+        content: 'Content that should vanish from the index.',
+      });
+
+      const wsDir = path.join(ctx.tmpDir, workspaceSlug);
+      const subtypeReadme = path.join(wsDir, 'memory', 'facts', 'README.md');
+
+      // README should reference the file after creation
+      expect(fs.existsSync(subtypeReadme)).toBe(true);
+      const beforeDelete = fs.readFileSync(subtypeReadme, 'utf8');
+      const filename = path.basename(created.filePath!);
+      expect(beforeDelete).toContain(filename);
+
+      await caller.memory.delete({ id: created.id });
+
+      // README should no longer reference the deleted file
+      const afterDelete = fs.readFileSync(subtypeReadme, 'utf8');
+      expect(afterDelete).not.toContain(filename);
+    });
+
     it('should throw NOT_FOUND for non-existent id', async () => {
       await expect(caller.memory.delete({ id: 99999 })).rejects.toThrow('not found');
+    });
+  });
+
+  describe('getByPath', () => {
+    it('should return id and kind=permanent for a matching permanent memory', async () => {
+      const created = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Path-resolved fact',
+        content: 'Resolved by path.',
+      });
+
+      const result = await caller.memory.getByPath({
+        workspaceSlug,
+        filePath: created.filePath!,
+      });
+
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(created.id);
+      expect(result!.kind).toBe('permanent');
+    });
+
+    it('should return null for a path that does not exist', async () => {
+      const result = await caller.memory.getByPath({
+        workspaceSlug,
+        filePath: 'memory/facts/no-such-file.md',
+      });
+
+      expect(result).toBeNull();
+    });
+
+    it('should throw NOT_FOUND for an unknown workspace', async () => {
+      await expect(
+        caller.memory.getByPath({
+          workspaceSlug: 'no-such-ws',
+          filePath: 'memory/facts/any.md',
+        }),
+      ).rejects.toThrow('not found');
     });
   });
 
