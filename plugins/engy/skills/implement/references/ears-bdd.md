@@ -27,7 +27,7 @@ A prose `shall` fallback is allowed for structural/data requirements — keep th
 - Format: `FR-<AREA>-<NNN>` where `<AREA>` is SCREAMING-KEBAB and `<NNN>` is a zero-padded integer.
 - **Allocate with gaps** — e.g. existing max `FR-SEARCH-011` → next is `FR-SEARCH-015`. Gaps leave room for related FRs to be inserted nearby.
 - **Never renumber, never reuse** — once used, a number is spent: a retired FR is deleted outright (no tombstone — see "Changing FRs over time"), and its number is not reused for new behaviour. Allocate a new id for any replacement. Renumbering breaks the trace graph.
-- To pick the next free number, read the area's current max from the docs (see the allocation rule under "Augmentations to planning skills") — `trace` reports coverage, not a next-id.
+- To pick the next free number, read the area's current max from the docs (see the allocation rule under "Augmentations to planning skills"). `trace` reports coverage, not a next-id.
 
 ## Test-tagging convention
 

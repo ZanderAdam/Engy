@@ -27,7 +27,7 @@ Consult `plugins/engy/skills/implement/references/ears-bdd.md` for the EARS patt
 
 Read-only analysis. Establish what already exists before writing anything.
 
-1. **Enumerate existing FRs.** Glob `systemDir/features/*.md`, Read each, and extract every FR from its `## Requirements` table (rows matching `FR-<AREA>-<NNN>`). Build a map of `area → [{id, text}]` and note the max id number per area.
+1. **Enumerate existing FRs.** Glob `systemDir/features/*.md`, Read each, and extract every FR from its `## Requirements` table (rows matching `FR-<AREA>-<NNN>`). Build a map of `area → [{id, text}]` and note the max id number per area. When target ids are supplied (pre-planned), this max scan governs only *additional* allocations beyond the supplied set — the supplied ids are authored verbatim, never re-derived.
 2. **Read the BDD working doc.** Read `<scratchDir>/<area>.md` in full — this is the inventoried behaviour list that drives authoring.
 3. **Ground in code and tests.** Glob/Grep/Read the relevant source under `repos[]` to confirm the actual behaviour. Cite real symbols/paths. Read existing tests too — they encode verified behaviour and are the best signal for atomic, testable FRs. Do **not** edit tests (tagging is the skill's separate step).
 4. **Diff.** Determine which inventoried behaviours no existing FR covers. These are the gaps to author. Behaviours already covered map to existing FR ids — reuse them, never duplicate.

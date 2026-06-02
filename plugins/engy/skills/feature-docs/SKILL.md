@@ -37,7 +37,7 @@ The skill accepts an optional area selection argument:
 ## MCP Tools
 
 - `getWorkspaceDetails` — resolve `paths.workspaceDir`, `paths.systemDir`, and `repos[]`
-- `trace` — `trace({ workspaceId })` for current FR/coverage state; `trace({ workspaceId, file })` to inspect a single area doc
+- `trace` — `trace({ workspaceId, sessionId })` for current FR/coverage state; `trace({ workspaceId, file, sessionId })` to inspect a single area doc. Pass your Engy `sessionId` when running inside an agent session so the tag scan sees your **uncommitted** feature docs and test tags; omit it only when editing the main checkout directly. (See the `trace` quick reference in `../implement/references/ears-bdd.md`.)
 - `reindex` — refresh the `system` collection after authoring
 
 Internal progress is tracked with session task tools (`TaskCreate`, `TaskUpdate`) — the same mechanism `engy:implement` uses.
@@ -123,7 +123,7 @@ For each area task in order:
    })
    ```
 
-   Also run: `trace({ workspaceId, file: 'system/features/<area>.md' })` and confirm no `malformed`/`duplicateIds`/`orphanTags`.
+   Also run: `trace({ workspaceId, file: 'system/features/<area>.md', sessionId })` and confirm no `malformed`/`duplicateIds`/`orphanTags`. Pass your `sessionId` so the tag scan sees the **uncommitted** tags added in step 4 — without it, `trace` reads the main checkout and can report a false "clean".
 
 6. **Human gate #2.** Present the complete doc, FR table, test tags, coverage gaps, and validator verdicts. Ask the human to **approve**, **edit** (apply corrections, then re-validate), or **redo** (re-dispatch with guidance). Do not advance until approved.
 
