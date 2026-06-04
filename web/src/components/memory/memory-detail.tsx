@@ -4,6 +4,16 @@ import { useRef, useCallback, useMemo, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { DynamicDocumentEditor, type DocumentEditorHandle } from '@/components/editor/dynamic-document-editor';
 import { EngyThreadStore } from '@/components/editor/document-editor';
@@ -58,6 +68,7 @@ function PermanentDetail({
   const editorRef = useRef<DocumentEditorHandle>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const { data: memory, isLoading } = trpc.memory.get.useQuery({ id });
 
@@ -95,10 +106,9 @@ function PermanentDetail({
     [id, memory, updateMutation],
   );
 
-  function handleDelete() {
-    if (!memory) return;
-    if (!confirm(`Delete memory "${memory.title}"? This cannot be undone.`)) return;
+  function confirmDelete() {
     deleteMutation.mutate({ id });
+    setDeleteOpen(false);
   }
 
   if (isLoading) {
@@ -159,7 +169,7 @@ function PermanentDetail({
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={handleDelete}
+            onClick={() => setDeleteOpen(true)}
             disabled={deleteMutation.isPending}
             className="text-muted-foreground hover:text-destructive"
             title="Delete memory"
@@ -276,6 +286,30 @@ function PermanentDetail({
           </div>
         </div>
       </ScrollArea>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete &ldquo;{memory.title}&rdquo;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes the memory and its markdown file. This action cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                confirmDelete();
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
