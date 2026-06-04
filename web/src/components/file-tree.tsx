@@ -44,6 +44,7 @@ import {
   RiFileTextLine,
   RiFolderAddLine,
   RiFolderLine,
+  RiLoopLeftLine,
   RiMore2Line,
   RiPencilLine,
   RiSearchLine,
@@ -51,6 +52,7 @@ import {
   RiSortDesc,
 } from "@remixicon/react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 type FileEntry = { path: string; mtime: number };
 type SortMode = "modified" | "name";
@@ -69,6 +71,8 @@ interface FileTreeProps {
   onDeleteDir?: (dirPath: string) => void;
   onRenameFile?: (oldPath: string, newPath: string) => void;
   onRenameDir?: (oldPath: string, newPath: string) => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
 
 interface DirNode {
@@ -450,6 +454,8 @@ export function FileTree({
   onDeleteDir,
   onRenameFile,
   onRenameDir,
+  onRefresh,
+  isRefreshing,
 }: FileTreeProps) {
   const [sortMode, setSortMode] = useState<SortMode>("modified");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -515,6 +521,18 @@ export function FileTree({
           {label}
         </h3>
         <div className="flex items-center gap-0.5">
+          {onRefresh && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className="h-6 w-6 p-0"
+              title="Refresh"
+            >
+              <RiLoopLeftLine className={cn("size-3.5", isRefreshing && "animate-spin")} />
+            </Button>
+          )}
           <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
             <SelectTrigger className="h-6 w-24 text-xs border-0 bg-transparent px-1">
               <SelectValue />

@@ -28,7 +28,7 @@ export function DirFileTree({
   label?: string;
 }) {
   const utils = trpc.useUtils();
-  const { data, isLoading, error } = trpc.dir.listFiles.useQuery({ dirPath });
+  const { data, isLoading, isFetching, error, refetch } = trpc.dir.listFiles.useQuery({ dirPath });
 
   const writeMutation = trpc.dir.write.useMutation({
     onSuccess: () => utils.dir.listFiles.invalidate({ dirPath }),
@@ -158,6 +158,8 @@ export function DirFileTree({
       onDeleteDir={handleDeleteDir}
       onRenameFile={handleRenameFile}
       onRenameDir={handleRenameDir}
+      onRefresh={() => refetch()}
+      isRefreshing={isFetching}
       label={label || path.basename(dirPath) || dirPath}
       rootAbsPath={dirPath}
     />

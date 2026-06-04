@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { RiFolderLine, RiSearchLine } from '@remixicon/react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { RiFolderLine, RiLoopLeftLine, RiSearchLine } from '@remixicon/react';
 import { ChevronRight } from 'lucide-react';
 import { TreeView, type TreeDataItem, type TreeRenderItemParams } from '@/components/tree-view';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 // ── Static file tree (from a known list of file paths) ──────────────────────
@@ -144,6 +145,7 @@ interface LazyFileTreeProps {
   onSelectFile: (path: string) => void;
   listDir: (dirPath: string) => Promise<{ dirs: string[]; files: string[] }>;
   searchFiles: (query: string) => Promise<{ label: string; path: string }[]>;
+  onRefresh?: () => void | Promise<void>;
 }
 
 interface DirEntry {
@@ -157,6 +159,7 @@ export function LazyFileTree({
   onSelectFile,
   listDir,
   searchFiles,
+  onRefresh,
 }: LazyFileTreeProps) {
   const [expandedDirs, setExpandedDirs] = useState<Map<string, DirEntry>>(new Map());
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
@@ -165,6 +168,7 @@ export function LazyFileTree({
     null,
   );
   const [isSearching, setIsSearching] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Reset and load root on rootDir change (derived state pattern)
   const [loadedRoot, setLoadedRoot] = useState<string | null>(null);
@@ -173,6 +177,11 @@ export function LazyFileTree({
     setExpandedDirs(new Map());
     setLoadingDirs(new Set([rootDir]));
   }
+
+  // Tracks the latest rootDir so an in-flight refresh can detect that the user
+  // switched roots and avoid clobbering the new root's freshly-loaded contents.
+  const rootDirRef = useRef(rootDir);
+  rootDirRef.current = rootDir;
 
   useEffect(() => {
     let cancelled = false;
@@ -201,6 +210,22 @@ export function LazyFileTree({
       next.delete(dirPath);
       return next;
     });
+  };
+
+  const handleRefresh = async () => {
+    const target = rootDir;
+    setIsRefreshing(true);
+    setLoadingDirs(new Set([target]));
+    setExpandedDirs(new Map());
+    try {
+      await onRefresh?.();
+      const result = await listDir(target);
+      if (rootDirRef.current !== target) return; // user switched roots mid-refresh
+      setExpandedDirs(new Map([[target, result]]));
+    } finally {
+      if (rootDirRef.current === target) setLoadingDirs(new Set());
+      setIsRefreshing(false);
+    }
   };
 
   const handleSearch = async (query: string) => {
@@ -258,6 +283,18 @@ export function LazyFileTree({
           placeholder="Search files..."
           className="h-5 flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
         />
+        {onRefresh && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="h-5 w-5 shrink-0 p-0"
+            title="Refresh"
+          >
+            <RiLoopLeftLine className={cn('size-3', isRefreshing && 'animate-spin')} />
+          </Button>
+        )}
       </div>
       <div className="flex-1 overflow-auto">
         {!rootEntry ? (

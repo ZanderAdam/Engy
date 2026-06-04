@@ -149,6 +149,7 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
               onSelectFile={setSelectedFile}
               listDir={listDir}
               searchFiles={searchFiles}
+              onRefresh={() => trpcUtils.file.listDir.invalidate({ dirPath: effectiveRoot })}
             />
           ) : (
             <div className="flex h-full items-center justify-center">
