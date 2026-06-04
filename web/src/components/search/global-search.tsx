@@ -178,6 +178,7 @@ export function GlobalSearch({ open, onOpenChange, sessionKey }: GlobalSearchPro
       onOpenChange={onOpenChange}
       title="Search workspace"
       description="Search docs, memory, tasks, and more"
+      shouldFilter={false}
     >
       <SearchDialogContent key={sessionKey} onClose={() => onOpenChange(false)} />
     </CommandDialog>
