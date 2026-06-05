@@ -31,6 +31,6 @@ See `../trpc/routers/CLAUDE.md` for the parity rule from the tRPC side.
 
 ## Sessions & transport
 
-- One `McpServer` instance per session, kept alive in the `activeSessions` map keyed by `mcp-session-id`. Don't add a second transport type.
-- Sessions are cleaned up on `DELETE /mcp` or transport `onclose`. Don't leak transports.
+- One `McpServer` instance per session, kept alive in the `activeSessions` map keyed by `mcp-session-id`. Don't add a second transport type. Per-session input schemas are hoisted to module scope (the `*Input` consts) so the zod graph is built once and shared — never inline schemas back into `mcp.tool(...)` calls, that reintroduces a per-session closure leak.
+- **Authoritative cleanup is the idle reaper**, not `DELETE`/`onclose`. `evictIdleSessions()` runs on a `setInterval` (`SESSION_SWEEP_MS = 5 * 60_000`) started once from `attachMCP` (guarded on `globalThis` against HMR, like the AppState singleton). Any session whose last POST/GET is older than `SESSION_IDLE_TTL_MS = 30 * 60_000` is `transport.close()`d, removed from `activeSessions`, and logged. `DELETE /mcp` and `onclose` still remove sessions eagerly, but cannot be relied on: clients routinely drop the connection without a `DELETE`, and in SDK 1.27 `onclose` is coupled to TCP keepalive (upstream [#1852](https://github.com/modelcontextprotocol/typescript-sdk/issues/1852)) so it fires unpredictably. The reaper is the backstop that guarantees transports don't leak.
 - Do not introduce auth that diverges from tRPC (currently both are unauthenticated, single-user).

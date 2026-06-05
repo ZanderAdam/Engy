@@ -45,6 +45,140 @@ function omitKey<T extends Record<string, unknown>, K extends keyof T>(
   });
 }
 
+// ── Tool Input Schemas ────────────────────────────────────────────
+// Hoisted to module scope so each zod schema (and its closures) is built
+// once and shared across every McpServer instance, instead of rebuilt on
+// every session. Per-session rebuilds were the source of a closure leak.
+
+const getWorkspaceDetailsInput = {
+  workspaceId: z.number().describe('Workspace ID'),
+};
+
+const listProjectsInput = {
+  workspaceId: z.number().optional().describe('Filter by workspace ID'),
+};
+
+const getProjectDetailsInput = {
+  projectId: z.number().describe('Project ID'),
+};
+
+const createTaskInput = {
+  projectId: z.number().optional().describe('Project ID'),
+  milestoneRef: z.string().optional().describe('Milestone ref (e.g. "m1")'),
+  taskGroupId: z.number().optional().describe('Task group ID'),
+  title: z.string().describe('Task title'),
+  description: z.string().optional().describe('Task description'),
+  type: z.enum(['ai', 'human']).default('human').describe('Task type'),
+  importance: z
+    .enum(['important', 'not_important'])
+    .default('not_important')
+    .describe('Importance level'),
+  urgency: z.enum(['urgent', 'not_urgent']).default('not_urgent').describe('Urgency level'),
+  needsPlan: z.boolean().default(true).describe('Whether task needs a plan before implementation'),
+  blockedBy: z.array(z.number()).default([]).describe('IDs of tasks that block this task'),
+  specId: z.string().optional().describe('Specification ID'),
+};
+
+const updateTaskInput = {
+  id: z.number().describe('Task ID'),
+  title: z.string().optional().describe('New title'),
+  description: z.string().optional().describe('New description'),
+  status: taskStatusSchema.optional().describe('New status'),
+  type: z.enum(['ai', 'human']).optional().describe('New type'),
+  importance: z.enum(['important', 'not_important']).optional().describe('New importance'),
+  urgency: z.enum(['urgent', 'not_urgent']).optional().describe('New urgency'),
+  needsPlan: z.boolean().optional().describe('Whether task needs a plan before implementation'),
+  blockedBy: z.array(z.number()).optional().describe('IDs of tasks that block this task'),
+  milestoneRef: z.string().nullable().optional().describe('New milestone ref (e.g. "m1")'),
+  taskGroupId: z.number().nullable().optional().describe('New task group ID'),
+  projectId: z.number().nullable().optional().describe('New project ID'),
+  specId: z.string().nullable().optional().describe('New specification ID'),
+};
+
+const listTasksInput = {
+  projectId: z.number().optional().describe('Filter by project ID'),
+  milestoneRef: z.string().optional().describe('Filter by milestone ref (e.g. "m1")'),
+  taskGroupId: z.number().optional().describe('Filter by task group ID'),
+  status: taskStatusSchema.optional().describe('Filter by status'),
+  compact: z.boolean().default(true).describe('Omit description field (default true)'),
+};
+
+const taskIdInput = {
+  id: z.number().describe('Task ID'),
+};
+
+const createTaskGroupInput = {
+  projectId: z.number().optional().describe('Project ID'),
+  milestoneRef: z.string().describe('Milestone ref (e.g. "m1")'),
+  name: z.string().describe('Task group name'),
+  repos: z.array(z.string()).optional().describe('Repository paths'),
+};
+
+const listTaskGroupsInput = {
+  projectId: z.number().optional().describe('Filter by project ID'),
+  milestoneRef: z.string().optional().describe('Filter by milestone ref (e.g. "m1")'),
+};
+
+const taskGroupIdInput = {
+  id: z.number().describe('Task group ID'),
+};
+
+const updateTaskGroupInput = {
+  id: z.number().describe('Task group ID'),
+  name: z.string().optional().describe('New name'),
+  status: z.enum(['planned', 'active', 'review', 'complete']).optional().describe('New status'),
+  repos: z.array(z.string()).optional().describe('New repository paths'),
+};
+
+const createFleetingMemoryInput = {
+  workspaceId: z.number().describe('Workspace ID'),
+  content: z.string().describe('Memory content'),
+  type: z
+    .enum(['capture', 'question', 'blocker', 'idea', 'reference'])
+    .default('capture')
+    .describe('Memory type'),
+  source: z.enum(['agent', 'user', 'system']).default('agent').describe('Memory source'),
+  projectId: z.number().optional().describe('Project ID'),
+  tags: z.array(z.string()).default([]).describe('Tags for organization'),
+};
+
+const listMemoriesInput = {
+  workspaceId: z.number().optional().describe('Filter by workspace ID'),
+  projectId: z.number().optional().describe('Filter by project ID'),
+  compact: z.boolean().default(true).describe('Omit content field (default true)'),
+};
+
+const askQuestionInput = {
+  sessionId: z.string().describe('Agent session ID asking the question'),
+  taskId: z
+    .number()
+    .optional()
+    .describe('Task being worked on (optional for session-scoped questions)'),
+  documentPath: z.string().optional().describe('Path to spec/plan doc for context tab'),
+  context: z
+    .string()
+    .optional()
+    .describe('1 paragraph explaining why these questions matter and what you need to decide'),
+  questions: z
+    .array(
+      z.object({
+        question: z.string().describe('The question text'),
+        header: z.string().max(12).describe('Short chip label for tab header'),
+        multiSelect: z.boolean().optional().default(false),
+        options: z.array(
+          z.object({
+            label: z.string(),
+            description: z.string(),
+            preview: z.string().optional().describe('Markdown content for visual preview'),
+          }),
+        ),
+      }),
+    )
+    .min(1)
+    .max(4)
+    .describe('1-4 batched questions per call'),
+};
+
 // ── McpServer Factory ─────────────────────────────────────────────
 
 export function getMcpServer(): McpServer {
@@ -64,9 +198,18 @@ export function getMcpServer(): McpServer {
 
 // ── HTTP Mount ─────────────────────────────────────────────────────
 
-const activeSessions = new Map<string, StreamableHTTPServerTransport>();
+export const activeSessions = new Map<string, StreamableHTTPServerTransport>();
+
+// Last request time per session id, consulted by the idle reaper below.
+const lastActivity = new Map<string, number>();
+
+export function touchSession(sessionId: string): void {
+  lastActivity.set(sessionId, Date.now());
+}
 
 export function attachMCP(server: HttpServer): void {
+  startSessionReaper();
+
   server.on('request', (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
@@ -77,6 +220,7 @@ export function attachMCP(server: HttpServer): void {
     if (req.method === 'POST') {
       const transport = sessionId ? activeSessions.get(sessionId) : undefined;
       if (transport) {
+        if (sessionId) touchSession(sessionId);
         transport.handleRequest(req, res);
       } else {
         handleNewSession(req, res);
@@ -93,15 +237,51 @@ export function attachMCP(server: HttpServer): void {
       }
       if (req.method === 'DELETE') {
         activeSessions.delete(sessionId);
+        lastActivity.delete(sessionId);
         transport.close();
         res.writeHead(200).end();
       } else {
+        touchSession(sessionId);
         transport.handleRequest(req, res);
       }
     } else {
       res.writeHead(405).end('Method Not Allowed');
     }
   });
+}
+
+// ── Idle Session Reaper ─────────────────────────────────────────────
+// MCP clients (Claude Code CLI, the reconnecting daemon) routinely drop the
+// connection without a DELETE, and in SDK 1.27 transport `onclose` is coupled
+// to TCP keepalive rather than true session end (upstream issue #1852), so it
+// fires unpredictably. Without a reaper, every agent run would leak a full
+// McpServer + zod graph forever. This is the authoritative cleanup path.
+
+const SESSION_IDLE_TTL_MS = 30 * 60_000;
+const SESSION_SWEEP_MS = 5 * 60_000;
+const REAPER_KEY = '__engy_mcp_session_reaper__' as const;
+
+export function evictIdleSessions(now: number = Date.now()): void {
+  for (const [sessionId, transport] of activeSessions) {
+    const last = lastActivity.get(sessionId) ?? now;
+    if (now - last <= SESSION_IDLE_TTL_MS) continue;
+
+    const idleMin = Math.round((now - last) / 60_000);
+    console.log(`[mcp] evicting idle session ${sessionId} (idle ${idleMin}m)`);
+    transport.close();
+    activeSessions.delete(sessionId);
+    lastActivity.delete(sessionId);
+  }
+}
+
+// Started once from attachMCP; guarded on globalThis so Next.js HMR re-imports
+// don't register a second interval (same pattern as the AppState singleton).
+function startSessionReaper(): void {
+  const g = globalThis as Record<string, unknown>;
+  if (g[REAPER_KEY]) return;
+  const timer = setInterval(() => evictIdleSessions(), SESSION_SWEEP_MS);
+  timer.unref();
+  g[REAPER_KEY] = timer;
 }
 
 async function handleNewSession(
@@ -112,12 +292,14 @@ async function handleNewSession(
     sessionIdGenerator: () => randomUUID(),
     onsessioninitialized: (sessionId) => {
       activeSessions.set(sessionId, transport);
+      touchSession(sessionId);
     },
   });
 
   transport.onclose = () => {
     if (transport.sessionId) {
       activeSessions.delete(transport.sessionId);
+      lastActivity.delete(transport.sessionId);
     }
   };
 
@@ -193,9 +375,7 @@ function registerWorkspaceTools(mcp: McpServer): void {
   mcp.tool(
     'getWorkspaceDetails',
     'Get workspace details with filesystem paths for direct file access',
-    {
-      workspaceId: z.number().describe('Workspace ID'),
-    },
+    getWorkspaceDetailsInput,
     async ({ workspaceId }) => {
       const db = getDb();
       const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
@@ -218,9 +398,7 @@ function registerWorkspaceTools(mcp: McpServer): void {
   mcp.tool(
     'listProjects',
     'List projects (id, name, slug) optionally filtered by workspace',
-    {
-      workspaceId: z.number().optional().describe('Filter by workspace ID'),
-    },
+    listProjectsInput,
     async ({ workspaceId }) => {
       const db = getDb();
       const rows = workspaceId
@@ -233,9 +411,7 @@ function registerWorkspaceTools(mcp: McpServer): void {
   mcp.tool(
     'getProjectDetails',
     'Get project details with workspace context and filesystem paths',
-    {
-      projectId: z.number().describe('Project ID'),
-    },
+    getProjectDetailsInput,
     async ({ projectId }) => {
       const db = getDb();
       const project = db.select().from(projects).where(eq(projects.id, projectId)).get();
@@ -348,19 +524,7 @@ function registerTaskTools(mcp: McpServer): void {
   mcp.tool(
     'createTask',
     'Create a new task',
-    {
-      projectId: z.number().optional().describe('Project ID'),
-      milestoneRef: z.string().optional().describe('Milestone ref (e.g. "m1")'),
-      taskGroupId: z.number().optional().describe('Task group ID'),
-      title: z.string().describe('Task title'),
-      description: z.string().optional().describe('Task description'),
-      type: z.enum(['ai', 'human']).default('human').describe('Task type'),
-      importance: z.enum(['important', 'not_important']).default('not_important').describe('Importance level'),
-      urgency: z.enum(['urgent', 'not_urgent']).default('not_urgent').describe('Urgency level'),
-      needsPlan: z.boolean().default(true).describe('Whether task needs a plan before implementation'),
-      blockedBy: z.array(z.number()).default([]).describe('IDs of tasks that block this task'),
-      specId: z.string().optional().describe('Specification ID'),
-    },
+    createTaskInput,
     async ({ blockedBy: rawBlockedBy, ...values }) => {
       let dedupedBlockedBy: number[];
       try {
@@ -386,21 +550,7 @@ function registerTaskTools(mcp: McpServer): void {
   mcp.tool(
     'updateTask',
     'Update an existing task',
-    {
-      id: z.number().describe('Task ID'),
-      title: z.string().optional().describe('New title'),
-      description: z.string().optional().describe('New description'),
-      status: taskStatusSchema.optional().describe('New status'),
-      type: z.enum(['ai', 'human']).optional().describe('New type'),
-      importance: z.enum(['important', 'not_important']).optional().describe('New importance'),
-      urgency: z.enum(['urgent', 'not_urgent']).optional().describe('New urgency'),
-      needsPlan: z.boolean().optional().describe('Whether task needs a plan before implementation'),
-      blockedBy: z.array(z.number()).optional().describe('IDs of tasks that block this task'),
-      milestoneRef: z.string().nullable().optional().describe('New milestone ref (e.g. "m1")'),
-      taskGroupId: z.number().nullable().optional().describe('New task group ID'),
-      projectId: z.number().nullable().optional().describe('New project ID'),
-      specId: z.string().nullable().optional().describe('New specification ID'),
-    },
+    updateTaskInput,
     async ({ id, blockedBy, ...updates }) => {
       const db = getDb();
 
@@ -438,13 +588,7 @@ function registerTaskTools(mcp: McpServer): void {
   mcp.tool(
     'listTasks',
     'List tasks with combined filters (AND logic). Compact mode (default) omits descriptions.',
-    {
-      projectId: z.number().optional().describe('Filter by project ID'),
-      milestoneRef: z.string().optional().describe('Filter by milestone ref (e.g. "m1")'),
-      taskGroupId: z.number().optional().describe('Filter by task group ID'),
-      status: taskStatusSchema.optional().describe('Filter by status'),
-      compact: z.boolean().default(true).describe('Omit description field (default true)'),
-    },
+    listTasksInput,
     async ({ projectId, milestoneRef, taskGroupId, status, compact }) => {
       const db = getDb();
 
@@ -469,7 +613,7 @@ function registerTaskTools(mcp: McpServer): void {
   mcp.tool(
     'getTask',
     'Get a task by ID',
-    { id: z.number().describe('Task ID') },
+    taskIdInput,
     async ({ id }) => {
       const db = getDb();
       const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
@@ -499,7 +643,7 @@ function registerTaskTools(mcp: McpServer): void {
   mcp.tool(
     'deleteTask',
     'Delete a task by ID',
-    { id: z.number().describe('Task ID') },
+    taskIdInput,
     async ({ id }) => {
       const db = getDb();
       const deleted = db.delete(tasks).where(eq(tasks.id, id)).returning().get();
@@ -514,12 +658,7 @@ function registerTaskGroupTools(mcp: McpServer): void {
   mcp.tool(
     'createTaskGroup',
     'Create a new task group within a milestone. Returns the new group ID.',
-    {
-      projectId: z.number().optional().describe('Project ID'),
-      milestoneRef: z.string().describe('Milestone ref (e.g. "m1")'),
-      name: z.string().describe('Task group name'),
-      repos: z.array(z.string()).optional().describe('Repository paths'),
-    },
+    createTaskGroupInput,
     async ({ projectId, milestoneRef, name, repos }) => {
       const db = getDb();
       const group = db
@@ -534,10 +673,7 @@ function registerTaskGroupTools(mcp: McpServer): void {
   mcp.tool(
     'listTaskGroups',
     'List task groups with combined filters (AND logic)',
-    {
-      projectId: z.number().optional().describe('Filter by project ID'),
-      milestoneRef: z.string().optional().describe('Filter by milestone ref (e.g. "m1")'),
-    },
+    listTaskGroupsInput,
     async ({ projectId, milestoneRef }) => {
       const db = getDb();
       const conditions: SQL[] = [];
@@ -554,7 +690,7 @@ function registerTaskGroupTools(mcp: McpServer): void {
   mcp.tool(
     'getTaskGroup',
     'Get a task group by ID',
-    { id: z.number().describe('Task group ID') },
+    taskGroupIdInput,
     async ({ id }) => {
       const db = getDb();
       const group = db.select().from(taskGroups).where(eq(taskGroups.id, id)).get();
@@ -566,12 +702,7 @@ function registerTaskGroupTools(mcp: McpServer): void {
   mcp.tool(
     'updateTaskGroup',
     'Update an existing task group',
-    {
-      id: z.number().describe('Task group ID'),
-      name: z.string().optional().describe('New name'),
-      status: z.enum(['planned', 'active', 'review', 'complete']).optional().describe('New status'),
-      repos: z.array(z.string()).optional().describe('New repository paths'),
-    },
+    updateTaskGroupInput,
     async ({ id, ...updates }) => {
       const db = getDb();
       const result = db
@@ -588,7 +719,7 @@ function registerTaskGroupTools(mcp: McpServer): void {
   mcp.tool(
     'deleteTaskGroup',
     'Delete a task group by ID',
-    { id: z.number().describe('Task group ID') },
+    taskGroupIdInput,
     async ({ id }) => {
       const db = getDb();
       const deleted = db.delete(taskGroups).where(eq(taskGroups.id, id)).returning().get();
@@ -602,17 +733,7 @@ function registerMemoryTools(mcp: McpServer): void {
   mcp.tool(
     'createFleetingMemory',
     'Create a fleeting memory note for quick capture',
-    {
-      workspaceId: z.number().describe('Workspace ID'),
-      content: z.string().describe('Memory content'),
-      type: z
-        .enum(['capture', 'question', 'blocker', 'idea', 'reference'])
-        .default('capture')
-        .describe('Memory type'),
-      source: z.enum(['agent', 'user', 'system']).default('agent').describe('Memory source'),
-      projectId: z.number().optional().describe('Project ID'),
-      tags: z.array(z.string()).default([]).describe('Tags for organization'),
-    },
+    createFleetingMemoryInput,
     async (args) => {
       const db = getDb();
       const memory = db.insert(fleetingMemories).values(args).returning().get();
@@ -623,11 +744,7 @@ function registerMemoryTools(mcp: McpServer): void {
   mcp.tool(
     'listMemories',
     'List fleeting memories. Compact mode (default) omits content.',
-    {
-      workspaceId: z.number().optional().describe('Filter by workspace ID'),
-      projectId: z.number().optional().describe('Filter by project ID'),
-      compact: z.boolean().default(true).describe('Omit content field (default true)'),
-    },
+    listMemoriesInput,
     async ({ workspaceId, projectId, compact }) => {
       const db = getDb();
 
@@ -651,39 +768,7 @@ function registerQuestionTools(mcp: McpServer): void {
   mcp.tool(
     'askQuestion',
     'Ask the user 1-4 batched questions with selectable options. Blocks the task until answered.',
-    {
-      sessionId: z.string().describe('Agent session ID asking the question'),
-      taskId: z
-        .number()
-        .optional()
-        .describe('Task being worked on (optional for session-scoped questions)'),
-      documentPath: z
-        .string()
-        .optional()
-        .describe('Path to spec/plan doc for context tab'),
-      context: z
-        .string()
-        .optional()
-        .describe('1 paragraph explaining why these questions matter and what you need to decide'),
-      questions: z
-        .array(
-          z.object({
-            question: z.string().describe('The question text'),
-            header: z.string().max(12).describe('Short chip label for tab header'),
-            multiSelect: z.boolean().optional().default(false),
-            options: z.array(
-              z.object({
-                label: z.string(),
-                description: z.string(),
-                preview: z.string().optional().describe('Markdown content for visual preview'),
-              }),
-            ),
-          }),
-        )
-        .min(1)
-        .max(4)
-        .describe('1-4 batched questions per call'),
-    },
+    askQuestionInput,
     async ({ sessionId, taskId, documentPath, context, questions: questionItems }) => {
       const db = getDb();
 

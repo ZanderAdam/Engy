@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { getMcpServer } from './index';
+import type { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { getMcpServer, activeSessions, evictIdleSessions, touchSession } from './index';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { getDb } from '../db/client';
 import {
@@ -266,9 +267,7 @@ describe('MCP Server', () => {
         const db = getDb();
         const taskA = db.insert(tasks).values({ title: 'A', projectId }).returning().get();
         const taskB = db.insert(tasks).values({ title: 'B', projectId }).returning().get();
-        db.insert(taskDependencies)
-          .values({ taskId: taskB.id, blockerTaskId: taskA.id })
-          .run();
+        db.insert(taskDependencies).values({ taskId: taskB.id, blockerTaskId: taskA.id }).run();
 
         const mcp = getMcpServer();
         const call = callTool(mcp, 'updateTask');
@@ -282,9 +281,7 @@ describe('MCP Server', () => {
     describe('listTasks', () => {
       it('should omit description by default (compact)', async () => {
         const db = getDb();
-        db.insert(tasks)
-          .values({ title: 'T1', projectId, description: 'Details here' })
-          .run();
+        db.insert(tasks).values({ title: 'T1', projectId, description: 'Details here' }).run();
 
         const mcp = getMcpServer();
         const call = callTool(mcp, 'listTasks');
@@ -297,9 +294,7 @@ describe('MCP Server', () => {
 
       it('should include description when compact is false', async () => {
         const db = getDb();
-        db.insert(tasks)
-          .values({ title: 'T1', projectId, description: 'Details here' })
-          .run();
+        db.insert(tasks).values({ title: 'T1', projectId, description: 'Details here' }).run();
 
         const mcp = getMcpServer();
         const call = callTool(mcp, 'listTasks');
@@ -372,9 +367,7 @@ describe('MCP Server', () => {
         db.insert(tasks)
           .values({ title: 'A', projectId, milestoneRef: 'm1', taskGroupId: grp.id })
           .run();
-        db.insert(tasks)
-          .values({ title: 'B', projectId, milestoneRef: 'm1' })
-          .run();
+        db.insert(tasks).values({ title: 'B', projectId, milestoneRef: 'm1' }).run();
         db.insert(tasks)
           .values({ title: 'C', projectId, milestoneRef: 'm2', taskGroupId: grp.id })
           .run();
@@ -543,11 +536,7 @@ describe('MCP Server', () => {
     describe('updateTaskGroup', () => {
       it('should return success true', async () => {
         const db = getDb();
-        const grp = db
-          .insert(taskGroups)
-          .values({ milestoneRef, name: 'Old' })
-          .returning()
-          .get();
+        const grp = db.insert(taskGroups).values({ milestoneRef, name: 'Old' }).returning().get();
 
         const mcp = getMcpServer();
         const call = callTool(mcp, 'updateTaskGroup');
@@ -560,11 +549,7 @@ describe('MCP Server', () => {
 
       it('should update status', async () => {
         const db = getDb();
-        const grp = db
-          .insert(taskGroups)
-          .values({ milestoneRef, name: 'G1' })
-          .returning()
-          .get();
+        const grp = db.insert(taskGroups).values({ milestoneRef, name: 'G1' }).returning().get();
 
         const mcp = getMcpServer();
         const call = callTool(mcp, 'updateTaskGroup');
@@ -588,11 +573,7 @@ describe('MCP Server', () => {
     describe('deleteTaskGroup', () => {
       it('should delete a group and return success', async () => {
         const db = getDb();
-        const grp = db
-          .insert(taskGroups)
-          .values({ milestoneRef, name: 'G1' })
-          .returning()
-          .get();
+        const grp = db.insert(taskGroups).values({ milestoneRef, name: 'G1' }).returning().get();
 
         const mcp = getMcpServer();
         const call = callTool(mcp, 'deleteTaskGroup');
@@ -719,6 +700,86 @@ describe('MCP Server', () => {
       const { data } = await call();
 
       expect(data).toHaveLength(1);
+    });
+  });
+});
+
+// Mirrors SESSION_IDLE_TTL_MS in index.ts (private constant).
+const SESSION_IDLE_TTL_MS = 30 * 60_000;
+
+function fakeTransport() {
+  const close = vi.fn();
+  return { transport: { close } as unknown as StreamableHTTPServerTransport, close };
+}
+
+describe('session reaper', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    activeSessions.clear();
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    activeSessions.clear();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  describe('evictIdleSessions', () => {
+    it('should close and remove a session idle past the TTL', () => {
+      const { transport, close } = fakeTransport();
+      activeSessions.set('idle', transport);
+      touchSession('idle');
+
+      vi.advanceTimersByTime(SESSION_IDLE_TTL_MS + 1);
+      evictIdleSessions();
+
+      expect(close).toHaveBeenCalledOnce();
+      expect(activeSessions.has('idle')).toBe(false);
+      expect(console.log).toHaveBeenCalledWith(expect.stringContaining('idle'));
+    });
+
+    it('should retain a session active within the TTL', () => {
+      const { transport, close } = fakeTransport();
+      activeSessions.set('fresh', transport);
+      touchSession('fresh');
+
+      vi.advanceTimersByTime(SESSION_IDLE_TTL_MS - 1);
+      evictIdleSessions();
+
+      expect(close).not.toHaveBeenCalled();
+      expect(activeSessions.has('fresh')).toBe(true);
+    });
+
+    it('should evict only the idle session in a mixed set', () => {
+      const idle = fakeTransport();
+      activeSessions.set('idle', idle.transport);
+      touchSession('idle');
+
+      vi.advanceTimersByTime(SESSION_IDLE_TTL_MS + 1);
+
+      const fresh = fakeTransport();
+      activeSessions.set('fresh', fresh.transport);
+      touchSession('fresh');
+
+      evictIdleSessions();
+
+      expect(idle.close).toHaveBeenCalledOnce();
+      expect(activeSessions.has('idle')).toBe(false);
+      expect(fresh.close).not.toHaveBeenCalled();
+      expect(activeSessions.has('fresh')).toBe(true);
+    });
+
+    it('should retain a session with no recorded activity (treated as just-seen)', () => {
+      const { transport, close } = fakeTransport();
+      activeSessions.set('unknown', transport);
+
+      vi.advanceTimersByTime(SESSION_IDLE_TTL_MS + 1);
+      evictIdleSessions();
+
+      expect(close).not.toHaveBeenCalled();
+      expect(activeSessions.has('unknown')).toBe(true);
     });
   });
 });
