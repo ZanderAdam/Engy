@@ -78,13 +78,27 @@ describe('AgentSpawner', () => {
   });
 
   describe('TASK_COMPLETION_SCHEMA', () => {
-    it('should define the expected JSON schema', () => {
+    it('should define the expected JSON schema with memories array', () => {
       expect(TASK_COMPLETION_SCHEMA).toBe(
         JSON.stringify({
           type: 'object',
           properties: {
             taskCompleted: { type: 'boolean' },
             summary: { type: 'string' },
+            memories: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  content: { type: 'string' },
+                  type: {
+                    type: 'string',
+                    enum: ['capture', 'question', 'blocker', 'idea', 'reference'],
+                  },
+                },
+                required: ['content'],
+              },
+            },
           },
           required: ['taskCompleted', 'summary'],
         }),
@@ -655,6 +669,66 @@ describe('AgentSpawner', () => {
         success: true,
         completion: undefined,
       });
+    });
+
+    it('should parse memories from structured output when present', async () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const promise = spawner.spawn({
+        sessionId: 'test-session',
+        prompt: 'Do something',
+        flags: [],
+        containerMode: false,
+        workingDir: '/workspace',
+      });
+
+      const output = JSON.stringify({
+        structured_output: {
+          taskCompleted: true,
+          summary: 'Done',
+          memories: [
+            { content: 'Learned that X', type: 'capture' },
+            { content: 'Found a gotcha with Y' },
+          ],
+        },
+      });
+      proc.stdout.emit('data', Buffer.from(output));
+      proc.emit('close', 0);
+
+      const result = await promise;
+
+      expect(result.completion).toEqual({
+        taskCompleted: true,
+        summary: 'Done',
+        memories: [
+          { content: 'Learned that X', type: 'capture' },
+          { content: 'Found a gotcha with Y' },
+        ],
+      });
+    });
+
+    it('should return undefined memories when not present in output', async () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const promise = spawner.spawn({
+        sessionId: 'test-session',
+        prompt: 'Do something',
+        flags: [],
+        containerMode: false,
+        workingDir: '/workspace',
+      });
+
+      const output = JSON.stringify({
+        structured_output: { taskCompleted: true, summary: 'Done' },
+      });
+      proc.stdout.emit('data', Buffer.from(output));
+      proc.emit('close', 0);
+
+      const result = await promise;
+
+      expect(result.completion?.memories).toBeUndefined();
     });
 
     it('should handle chunked stdout', async () => {

@@ -127,6 +127,65 @@ describe('shell utilities', () => {
       expect(result).not.toContain('pull request');
       expect(result).not.toContain('merging');
     });
+
+    it('should include EARS-BDD instruction when earsBdd is true', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+        earsBdd: true,
+      });
+      expect(result).toContain('EARS-BDD mode is enabled for this workspace');
+      expect(result).toContain('EARS → BDD requirements flow');
+    });
+
+    it('should not include EARS-BDD instruction when earsBdd is false', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+        earsBdd: false,
+      });
+      expect(result).not.toContain('EARS-BDD');
+    });
+
+    it('should not include EARS-BDD instruction when earsBdd is undefined', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+      });
+      expect(result).not.toContain('EARS-BDD');
+    });
+
+    it('should include session id line when sessionId is provided', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+        sessionId: 'abc-123-def',
+      });
+      expect(result).toContain('Engy session id: abc-123-def');
+      expect(result).toContain('sessionId');
+      expect(result).toContain('trace/validateWorkspace');
+    });
+
+    it('should not include session id line when sessionId is undefined', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+      });
+      expect(result).not.toContain('Engy session id');
+    });
+
+    it('should include session id after all other fields', () => {
+      const result = buildContextBlock({
+        workspace: { id: 2, slug: 'acme' },
+        project: { id: 10, slug: 'api', dir: '/projects/api' },
+        repos: ['/repos/backend'],
+        earsBdd: true,
+        sessionId: 'sess-xyz',
+      });
+      const lines = result.split('\n');
+      const sessionLine = lines.findIndex((l) => l.startsWith('Engy session id:'));
+      expect(sessionLine).toBe(lines.length - 1);
+    });
   });
 
   describe('buildClaudeCommand', () => {

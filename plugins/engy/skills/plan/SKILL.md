@@ -15,6 +15,10 @@ Write a validated implementation plan for a standalone task using a codebase-awa
 
 Use MCP to discover context, then Read/Glob/Grep for codebase exploration and spec reading.
 
+## EARS-BDD Mode
+
+Check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (`earsBdd: true`). When enabled, the `## Functional Requirements` section is written as `| FR-<AREA>-<NNN> | <EARS SHALL text> |` table rows (the reference's format) — **not** the numbered "The system shall…" list with source tags shown in the templates below. Reuse the spec/milestone ids the task draws on, and allocate a new durable id only for behaviour the task itself introduces. Follow the planning augmentations in `plugins/engy/skills/implement/references/ears-bdd.md` for FR-graph orientation (use the area's existing FRs + `trace` to find current behaviour, tests, and code before exploring), the id scheme, allocation rule, and funnel discipline. When disabled, write FRs using the format in the templates below unchanged.
+
 ## Step 0: Triage
 
 Assess complexity before committing to the full process:
@@ -23,6 +27,33 @@ Assess complexity before committing to the full process:
 - **Complex** (ambiguous scope, 3+ components, new patterns, cross-cutting concerns, or user explicitly requested planning): Proceed to Step 1. Output uses the **Standard Template** below.
 
 Default to **full process**. The simple path is the exception, not the rule.
+
+## Step 0.5: Research Prior Knowledge
+
+Before writing the plan body, dispatch the `engy:research` subagent to surface relevant prior decisions, patterns, and gotchas from the workspace knowledge graph.
+
+**Resolve `workspaceId` first.** If not already known from context, call `listWorkspaces` (or `getWorkspaceDetails`) to obtain it before dispatching — `engy:research` hard-errors without it.
+
+```
+Task({
+  subagent_type: 'engy:research',
+  prompt: '<task description> — context: project=<slug>, milestone=<id>, repo=<repo-or-empty> workspaceId=<id>'
+})
+```
+
+The subagent returns a digest with 3–8 cited findings. Fold the digest directly into the plan document, wrapped in markers:
+
+```markdown
+<!-- engy:research synthesized YYYY-MM-DD -->
+<digest content>
+<!-- /engy:research -->
+```
+
+Place this block in the **Overview** section or immediately before the **Implementation Sequence**. The markers let future readers identify LLM-synthesized content and re-run the research step against current memory state.
+
+If the subagent returns `No relevant prior knowledge found for this question.` (i.e., `Distinct findings: 0 (after dedup)` in the footer), omit the marker block entirely — do not write an empty block.
+
+When the work is repo-local, include `filters.repo` in the prompt so the subagent applies repo-scoped ranking. Skip this step only for **Simple** (lightweight) plans where the task is clearly understood from the codebase alone.
 
 ## Step 1: Elicit (Internal Pass, then External Pass)
 

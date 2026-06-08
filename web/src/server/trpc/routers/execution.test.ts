@@ -168,6 +168,20 @@ describe('execution router', () => {
       expect(systemPrompt).toContain('Repos: /Users/me/repo1, /Users/me/repo2');
     });
 
+    it('should include the Engy session id in the system prompt', async () => {
+      const { proj } = await seedProject(caller);
+      const task = await caller.task.create({ projectId: proj.id, title: 'Session id task' });
+      const { sent } = createMockDaemon(ctx);
+
+      const result = await caller.execution.startExecution({ scope: 'task', id: task.id });
+
+      const msg = JSON.parse(sent[0]);
+      const flagIndex = (msg.payload.flags as string[]).indexOf('--append-system-prompt');
+      const systemPrompt = (msg.payload.flags as string[])[flagIndex + 1];
+      expect(systemPrompt).toContain(`Engy session id: ${result.sessionId}`);
+      expect(systemPrompt).toContain('sessionId');
+    });
+
     it('should throw when task not found', async () => {
       createMockDaemon(ctx);
 

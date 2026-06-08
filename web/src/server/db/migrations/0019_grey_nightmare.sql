@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `ears_bdd` integer DEFAULT false;

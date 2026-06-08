@@ -68,6 +68,7 @@ export const workspaceRouter = router({
         docsDir: z.string().optional(),
         planSkill: z.string().optional(),
         implementSkill: z.string().optional(),
+        earsBdd: z.boolean().optional(),
         containerEnabled: z.boolean().optional(),
         containerConfig: containerConfigSchema,
         executionBackend: executionBackendSchema,
@@ -112,6 +113,7 @@ export const workspaceRouter = router({
           docsDir: input.docsDir ?? null,
           planSkill: input.planSkill || DEFAULT_PLAN_SKILL,
           implementSkill: input.implementSkill || DEFAULT_IMPLEMENT_SKILL,
+          earsBdd: input.earsBdd ?? false,
           containerEnabled: input.containerEnabled,
           containerConfig: input.containerConfig,
           executionBackend: input.executionBackend,
@@ -127,6 +129,7 @@ export const workspaceRouter = router({
         initWorkspaceDir(input.name, slug, input.repos, input.docsDir, {
           planSkill: workspace.planSkill,
           implementSkill: workspace.implementSkill,
+          earsBdd: workspace.earsBdd ?? false,
         });
       } catch (err) {
         db.delete(workspaces).where(eq(workspaces.id, workspace.id)).run();
@@ -178,6 +181,7 @@ export const workspaceRouter = router({
         docsDir: z.string().nullable().optional(),
         planSkill: z.string().nullable().optional(),
         implementSkill: z.string().nullable().optional(),
+        earsBdd: z.boolean().optional(),
         containerEnabled: z.boolean().nullable().optional(),
         containerConfig: containerConfigSchema.nullable().optional(),
         executionBackend: executionBackendSchema.nullable().optional(),
@@ -200,6 +204,7 @@ export const workspaceRouter = router({
       const newPlanSkill = input.planSkill !== undefined ? input.planSkill : existing.planSkill;
       const newImplementSkill =
         input.implementSkill !== undefined ? input.implementSkill : existing.implementSkill;
+      const newEarsBdd = input.earsBdd !== undefined ? input.earsBdd : existing.earsBdd;
       const newContainerEnabled =
         input.containerEnabled !== undefined ? input.containerEnabled : existing.containerEnabled;
       const newContainerConfig =
@@ -271,6 +276,7 @@ export const workspaceRouter = router({
           docsDir: newDocsDir,
           planSkill: newPlanSkill,
           implementSkill: newImplementSkill,
+          earsBdd: newEarsBdd,
           containerEnabled: newContainerEnabled,
           containerConfig: newContainerConfig,
           executionBackend: newExecutionBackend,
@@ -304,6 +310,7 @@ export const workspaceRouter = router({
       writeWorkspaceYaml(dir, updated.name, updated.slug, newRepos, updated.docsDir, {
         planSkill: updated.planSkill,
         implementSkill: updated.implementSkill,
+        earsBdd: updated.earsBdd ?? false,
       });
 
       const backend = updated.executionBackend ?? 'devcontainer';

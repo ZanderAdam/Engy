@@ -7,12 +7,12 @@ import {
   useVirtualSearchParams,
 } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
-import { DirFileTree } from '@/components/dir-browser';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
 import { DocDockManager, type DocDockHandle } from '@/components/docs/doc-dock-manager';
 import { WorkspaceDocDockPanel } from '@/components/docs/doc-dock-panel';
 import { useDocDockHandlers } from '@/components/docs/use-doc-dock-handlers';
 import { workspaceDocGroupKey, type DocScope } from '@/components/docs/types';
+import { DocsSectionTree } from './docs-tree';
 
 const SIDEBAR_CONFIG = {
   defaultWidth: 256,
@@ -50,8 +50,7 @@ export default function WorkspaceDocsPage() {
     [updateUrl],
   );
 
-  const { onSelectFile, onRenameFile, onDeleteFile, onRenameDir, onDeleteDir } =
-    useDocDockHandlers(dockRef);
+  const { onSelectFile } = useDocDockHandlers(dockRef);
 
   const repos: string[] = Array.isArray(workspace?.repos) ? (workspace.repos as string[]) : [];
 
@@ -79,15 +78,10 @@ export default function WorkspaceDocsPage() {
       className="flex-1 min-h-0"
       left={SIDEBAR_CONFIG}
       leftContent={
-        <DirFileTree
-          dirPath={workspace.resolvedDir}
+        <DocsSectionTree
+          rootDir={workspace.resolvedDir}
           selectedFile={activeFile}
           onSelectFile={onSelectFile}
-          onRenameFile={onRenameFile}
-          onDeleteFile={onDeleteFile}
-          onRenameDir={onRenameDir}
-          onDeleteDir={onDeleteDir}
-          label="Files"
         />
       }
       centerContent={

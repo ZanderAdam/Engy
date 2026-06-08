@@ -30,6 +30,7 @@ import type {
   WorktreeAddErrorCode,
   WorktreeRemoveRequestMessage,
   WorktreeRemoveErrorCode,
+  GlobFilesRequestMessage,
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
@@ -44,6 +45,7 @@ import {
   listWorktrees,
   localGitRunner,
   type GitRunner,
+  globTestFiles,
 } from '../git/index.js';
 import { ContainerManager } from '../container/manager.js';
 import { CoderManager } from '../container/coder-manager.js';
@@ -495,6 +497,9 @@ export class WsClient {
       case 'FILE_READ_REQUEST':
         this.handleFileReadRequest(message as FileReadRequestMessage);
         break;
+      case 'GLOB_FILES_REQUEST':
+        this.handleGlobFilesRequest(message as GlobFilesRequestMessage);
+        break;
       case 'FILE_WRITE_REQUEST':
         this.handleFileWriteRequest(message as FileWriteRequestMessage);
         break;
@@ -741,9 +746,32 @@ export class WsClient {
         payload: { requestId, content },
       });
     } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[ws-main] FILE_READ_REQUEST failed repoDir=${repoDir} filePath=${filePath}: ${error}`);
       this.send({
         type: 'FILE_READ_RESPONSE',
-        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+        payload: { requestId, error },
+      });
+    }
+  }
+
+  private async handleGlobFilesRequest(message: GlobFilesRequestMessage): Promise<void> {
+    const { requestId, repoDir, patterns } = message.payload;
+    try {
+      const files = await globTestFiles(repoDir, patterns);
+      console.log(
+        `[ws-main] GLOB_FILES_REQUEST repoDir=${repoDir} patterns=${patterns.join(',')} -> ${files.length} file(s)`,
+      );
+      this.send({
+        type: 'GLOB_FILES_RESPONSE',
+        payload: { requestId, files },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[ws-main] GLOB_FILES_REQUEST failed repoDir=${repoDir}: ${error}`);
+      this.send({
+        type: 'GLOB_FILES_RESPONSE',
+        payload: { requestId, error },
       });
     }
   }

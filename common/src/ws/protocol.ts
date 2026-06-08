@@ -243,6 +243,22 @@ export interface FileReadResponseMessage {
     | { requestId: string; error: string };
 }
 
+export interface GlobFilesRequestMessage {
+  type: 'GLOB_FILES_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    patterns: string[];
+  };
+}
+
+export interface GlobFilesResponseMessage {
+  type: 'GLOB_FILES_RESPONSE';
+  payload:
+    | { requestId: string; files: string[] }
+    | { requestId: string; error: string };
+}
+
 export interface FileWriteRequestMessage {
   type: 'FILE_WRITE_REQUEST';
   payload: {
@@ -506,6 +522,14 @@ export interface ExecutionCompleteEventMessage {
   };
 }
 
+export type FleetingMemoryType = 'capture' | 'question' | 'blocker' | 'idea' | 'reference';
+
+export interface CreateMemoriesRequestMessage {
+  type: 'CREATE_MEMORIES_REQUEST';
+  sessionId: string;
+  memories: Array<{ content: string; type?: FleetingMemoryType }>;
+}
+
 export type WsMessage =
   | RegisterMessage
   | WorkspacesSyncMessage
@@ -530,6 +554,8 @@ export type WsMessage =
   | DirListResponseMessage
   | FileReadRequestMessage
   | FileReadResponseMessage
+  | GlobFilesRequestMessage
+  | GlobFilesResponseMessage
   | FileWriteRequestMessage
   | FileWriteResponseMessage
   | RemoteFilePullRequestMessage
@@ -556,7 +582,8 @@ export type WsMessage =
   | ExecutionStopRequestMessage
   | ExecutionStopResponseMessage
   | ExecutionStatusEventMessage
-  | ExecutionCompleteEventMessage;
+  | ExecutionCompleteEventMessage
+  | CreateMemoriesRequestMessage;
 
 export type ClientToServerMessage =
   | RegisterMessage
@@ -571,6 +598,7 @@ export type ClientToServerMessage =
   | GitWorktreeListResponseMessage
   | DirListResponseMessage
   | FileReadResponseMessage
+  | GlobFilesResponseMessage
   | FileWriteResponseMessage
   | RemoteFilePullResponseMessage
   | RemoteFilePushResponseMessage
@@ -585,7 +613,8 @@ export type ClientToServerMessage =
   | ExecutionStartResponseMessage
   | ExecutionStopResponseMessage
   | ExecutionStatusEventMessage
-  | ExecutionCompleteEventMessage;
+  | ExecutionCompleteEventMessage
+  | CreateMemoriesRequestMessage;
 
 export type ServerToClientMessage =
   | WorkspacesSyncMessage
@@ -599,6 +628,7 @@ export type ServerToClientMessage =
   | GitWorktreeListRequestMessage
   | DirListRequestMessage
   | FileReadRequestMessage
+  | GlobFilesRequestMessage
   | FileWriteRequestMessage
   | RemoteFilePullRequestMessage
   | RemoteFilePushRequestMessage

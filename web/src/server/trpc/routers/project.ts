@@ -10,6 +10,7 @@ import { uniqueProjectSlug } from '../utils';
 import { getWorkspaceDir } from '../../engy-dir/init';
 import { resolveEffectiveWorkspace } from '../../engy-dir/effective';
 import type { AppState } from '../context';
+import { projectCompletionService } from '../../services/project-completion';
 import {
   listProjectFiles,
   getProjectSpec,
@@ -667,5 +668,19 @@ export const projectRouter = router({
         if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
         throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
       }
+    }),
+
+  // ── Completion flow ──────────────────────────────────────────────
+
+  startCompletion: publicProcedure
+    .input(z.object({ projectId: z.number() }))
+    .mutation(({ input }) => {
+      return projectCompletionService.startCompletion(input.projectId);
+    }),
+
+  archive: publicProcedure
+    .input(z.object({ projectId: z.number() }))
+    .mutation(({ input }) => {
+      return projectCompletionService.archive(input.projectId);
     }),
 });

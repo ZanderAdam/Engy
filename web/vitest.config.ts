@@ -4,6 +4,9 @@ import path from 'node:path';
 export default defineConfig({
   test: {
     globals: true,
+    // Suppress qmd model initialisation in all tests by default. Individual test
+    // files that need real qmd search (search.test.ts) clear this flag selectively.
+    env: { QMD_SKIP: '1' },
     include: [
       'src/server/**/*.test.ts',
       'src/lib/**/*.test.ts',

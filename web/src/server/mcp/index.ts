@@ -3,24 +3,40 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { eq, and, desc, inArray, type SQL } from 'drizzle-orm';
+import { eq, and, desc, inArray, like, or, sql as drizzleSql, type SQL } from 'drizzle-orm';
 import path from 'node:path';
 import { getDb } from '../db/client';
+import { jsonObjectArrayContains } from '../db/json';
 import {
   tasks,
   taskDependencies,
   taskGroups,
   fleetingMemories,
+  permanentMemories,
   workspaces,
   projects,
   agentSessions,
   questions,
+  frontmatter,
 } from '../db/schema';
 import { validateDependencies, attachBlockedBy } from '../tasks/validation';
-import { getWorkspaceDir, resolveProjectDir } from '../engy-dir/init';
+import { getWorkspaceDir, resolveProjectDir, writeWorkspaceYaml } from '../engy-dir/init';
 import { readTaskPlan } from '../plan/service';
 import { broadcastTaskChange, broadcastQuestionChange } from '../ws/broadcast';
 import { taskStatusSchema } from '@/lib/task-status';
+import { writePermanentMemory, rewritePermanentMemory, writeSourceSnapshot } from '../lib/memory-files';
+import { update as indexerUpdate, forceFullReindex, updateAndEmbed } from '../search/indexer';
+import { autoLink } from '../search/auto-linker';
+import { validateWorkspace as runValidateWorkspace } from '../search/validate';
+import { getStore } from '../search/qmd-store';
+import { runQmdSearch, type QmdSearchMode } from '../search/qmd-search';
+import { applySubtypeAffinity } from '../search/subtype-affinity';
+import { projectCompletionService } from '../services/project-completion';
+import { getSupersededMemoryPaths } from '../search/memory-queries';
+import { traceWorkspace } from '../search/trace';
+import { getAppState } from '../trpc/context';
+import { chooseRepoAdapter } from '../search/repo-adapter';
+import { resolveWorktreeRoots } from '../trpc/routers/shared';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 
@@ -79,22 +95,6 @@ const createTaskInput = {
   specId: z.string().optional().describe('Specification ID'),
 };
 
-const updateTaskInput = {
-  id: z.number().describe('Task ID'),
-  title: z.string().optional().describe('New title'),
-  description: z.string().optional().describe('New description'),
-  status: taskStatusSchema.optional().describe('New status'),
-  type: z.enum(['ai', 'human']).optional().describe('New type'),
-  importance: z.enum(['important', 'not_important']).optional().describe('New importance'),
-  urgency: z.enum(['urgent', 'not_urgent']).optional().describe('New urgency'),
-  needsPlan: z.boolean().optional().describe('Whether task needs a plan before implementation'),
-  blockedBy: z.array(z.number()).optional().describe('IDs of tasks that block this task'),
-  milestoneRef: z.string().nullable().optional().describe('New milestone ref (e.g. "m1")'),
-  taskGroupId: z.number().nullable().optional().describe('New task group ID'),
-  projectId: z.number().nullable().optional().describe('New project ID'),
-  specId: z.string().nullable().optional().describe('New specification ID'),
-};
-
 const listTasksInput = {
   projectId: z.number().optional().describe('Filter by project ID'),
   milestoneRef: z.string().optional().describe('Filter by milestone ref (e.g. "m1")'),
@@ -130,55 +130,6 @@ const updateTaskGroupInput = {
   repos: z.array(z.string()).optional().describe('New repository paths'),
 };
 
-const createFleetingMemoryInput = {
-  workspaceId: z.number().describe('Workspace ID'),
-  content: z.string().describe('Memory content'),
-  type: z
-    .enum(['capture', 'question', 'blocker', 'idea', 'reference'])
-    .default('capture')
-    .describe('Memory type'),
-  source: z.enum(['agent', 'user', 'system']).default('agent').describe('Memory source'),
-  projectId: z.number().optional().describe('Project ID'),
-  tags: z.array(z.string()).default([]).describe('Tags for organization'),
-};
-
-const listMemoriesInput = {
-  workspaceId: z.number().optional().describe('Filter by workspace ID'),
-  projectId: z.number().optional().describe('Filter by project ID'),
-  compact: z.boolean().default(true).describe('Omit content field (default true)'),
-};
-
-const askQuestionInput = {
-  sessionId: z.string().describe('Agent session ID asking the question'),
-  taskId: z
-    .number()
-    .optional()
-    .describe('Task being worked on (optional for session-scoped questions)'),
-  documentPath: z.string().optional().describe('Path to spec/plan doc for context tab'),
-  context: z
-    .string()
-    .optional()
-    .describe('1 paragraph explaining why these questions matter and what you need to decide'),
-  questions: z
-    .array(
-      z.object({
-        question: z.string().describe('The question text'),
-        header: z.string().max(12).describe('Short chip label for tab header'),
-        multiSelect: z.boolean().optional().default(false),
-        options: z.array(
-          z.object({
-            label: z.string(),
-            description: z.string(),
-            preview: z.string().optional().describe('Markdown content for visual preview'),
-          }),
-        ),
-      }),
-    )
-    .min(1)
-    .max(4)
-    .describe('1-4 batched questions per call'),
-};
-
 // ── McpServer Factory ─────────────────────────────────────────────
 
 export function getMcpServer(): McpServer {
@@ -192,6 +143,8 @@ export function getMcpServer(): McpServer {
   registerTaskGroupTools(mcp);
   registerMemoryTools(mcp);
   registerQuestionTools(mcp);
+  registerIndexTools(mcp);
+  registerSearchTools(mcp);
 
   return mcp;
 }
@@ -518,6 +471,67 @@ function registerWorkspaceTools(mcp: McpServer): void {
       });
     },
   );
+
+  mcp.tool(
+    'startProjectCompletion',
+    'Begin project completion flow — sets status to `completing` and returns ranked candidate fleeting memories for distillation review.',
+    {
+      projectId: z.number().describe('Project ID'),
+    },
+    async ({ projectId }) => {
+      try {
+        return mcpResult(projectCompletionService.startCompletion(projectId));
+      } catch (err) {
+        return mcpError((err as Error).message);
+      }
+    },
+  );
+
+  mcp.tool(
+    'archiveProject',
+    'Archive a project — marks status `archived` and removes associated agent sessions. Plan, tasks, and promoted memories are preserved.',
+    {
+      projectId: z.number().describe('Project ID'),
+    },
+    async ({ projectId }) => {
+      try {
+        return mcpResult(projectCompletionService.archive(projectId));
+      } catch (err) {
+        return mcpError((err as Error).message);
+      }
+    },
+  );
+
+  mcp.tool(
+    'setWorkspaceEarsBdd',
+    'Enable or disable EARS-BDD mode for a workspace — controls whether the EARS → BDD requirements flow is injected into the agent system prompt.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      enabled: z.boolean().describe('Whether to enable EARS-BDD mode'),
+    },
+    async ({ workspaceId, enabled }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const updated = db
+        .update(workspaces)
+        .set({ earsBdd: enabled, updatedAt: new Date().toISOString() })
+        .where(eq(workspaces.id, workspaceId))
+        .returning()
+        .get();
+
+      // Keep workspace.yaml in sync with the DB, mirroring the tRPC update path.
+      const dir = getWorkspaceDir(updated);
+      writeWorkspaceYaml(dir, updated.name, updated.slug, updated.repos ?? [], updated.docsDir, {
+        planSkill: updated.planSkill,
+        implementSkill: updated.implementSkill,
+        earsBdd: updated.earsBdd ?? false,
+      });
+
+      return mcpResult({ id: updated.id, slug: updated.slug, earsBdd: updated.earsBdd });
+    },
+  );
 }
 
 function registerTaskTools(mcp: McpServer): void {
@@ -549,9 +563,35 @@ function registerTaskTools(mcp: McpServer): void {
 
   mcp.tool(
     'updateTask',
-    'Update an existing task',
-    updateTaskInput,
-    async ({ id, blockedBy, ...updates }) => {
+    'Update an existing task. Optionally pass memories[] to capture learnings from the task implementation as fleeting memories scoped to the task\'s workspace.',
+    {
+      id: z.number().describe('Task ID'),
+      title: z.string().optional().describe('New title'),
+      description: z.string().optional().describe('New description'),
+      status: taskStatusSchema.optional().describe('New status'),
+      type: z.enum(['ai', 'human']).optional().describe('New type'),
+      importance: z.enum(['important', 'not_important']).optional().describe('New importance'),
+      urgency: z.enum(['urgent', 'not_urgent']).optional().describe('New urgency'),
+      needsPlan: z.boolean().optional().describe('Whether task needs a plan before implementation'),
+      blockedBy: z.array(z.number()).optional().describe('IDs of tasks that block this task'),
+      milestoneRef: z.string().nullable().optional().describe('New milestone ref (e.g. "m1")'),
+      taskGroupId: z.number().nullable().optional().describe('New task group ID'),
+      projectId: z.number().nullable().optional().describe('New project ID'),
+      specId: z.string().nullable().optional().describe('New specification ID'),
+      memories: z
+        .array(
+          z.object({
+            content: z.string().describe('Memory content'),
+            type: z
+              .enum(['capture', 'question', 'blocker', 'idea', 'reference'])
+              .optional()
+              .describe('Memory type (default: capture)'),
+          }),
+        )
+        .optional()
+        .describe('Learnings captured during task implementation — stored as fleeting memories on the workspace'),
+    },
+    async ({ id, blockedBy, memories, ...updates }) => {
       const db = getDb();
 
       let dedupedBlockedBy: number[] | undefined;
@@ -571,12 +611,38 @@ function registerTaskTools(mcp: McpServer): void {
           }
         }
 
-        return tx
+        const updated = tx
           .update(tasks)
           .set({ ...updates, updatedAt: new Date().toISOString() })
           .where(eq(tasks.id, id))
           .returning()
           .get();
+
+        if (!updated) return null;
+
+        if (memories && memories.length > 0 && updated.projectId != null) {
+          const project = tx
+            .select()
+            .from(projects)
+            .where(eq(projects.id, updated.projectId))
+            .get();
+          if (project) {
+            for (const mem of memories) {
+              tx
+                .insert(fleetingMemories)
+                .values({
+                  workspaceId: project.workspaceId,
+                  content: mem.content,
+                  type: mem.type ?? 'capture',
+                  source: 'agent',
+                  tags: [],
+                })
+                .run();
+            }
+          }
+        }
+
+        return updated;
       });
       if (!result) return mcpError('Task not found');
 
@@ -732,34 +798,468 @@ function registerTaskGroupTools(mcp: McpServer): void {
 function registerMemoryTools(mcp: McpServer): void {
   mcp.tool(
     'createFleetingMemory',
-    'Create a fleeting memory note for quick capture',
-    createFleetingMemoryInput,
-    async (args) => {
+    'Create a fleeting memory note for quick capture. Pass sources[] with paths under memory/sources/ or memory/references/ that triggered this note.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      content: z.string().describe('Memory content'),
+      type: z
+        .enum(['capture', 'question', 'blocker', 'idea', 'reference'])
+        .default('capture')
+        .describe('Memory type'),
+      source: z.enum(['agent', 'user', 'system']).default('agent').describe('Memory source'),
+      tags: z.array(z.string()).default([]).describe('Tags for organization'),
+      sources: z
+        .array(z.string())
+        .optional()
+        .describe('Paths under memory/sources/ or memory/references/ that triggered this note'),
+    },
+    async ({ sources, ...rest }) => {
       const db = getDb();
-      const memory = db.insert(fleetingMemories).values(args).returning().get();
+      const memory = db
+        .insert(fleetingMemories)
+        .values({ ...rest, sources: sources ?? [] })
+        .returning()
+        .get();
       return mcpResult(memory);
     },
   );
 
   mcp.tool(
     'listMemories',
-    'List fleeting memories. Compact mode (default) omits content.',
-    listMemoriesInput,
-    async ({ workspaceId, projectId, compact }) => {
+    'List memories for a workspace. Compact mode (default) omits content. Use scope to include permanent memories.',
+    {
+      workspaceId: z.number().optional().describe('Filter by workspace ID'),
+      compact: z.boolean().default(true).describe('Omit content field (default true)'),
+      scope: z
+        .enum(['fleeting', 'permanent', 'both'])
+        .default('fleeting')
+        .describe("Which memory store to query: 'fleeting' (default), 'permanent', or 'both'"),
+    },
+    async ({ workspaceId, compact, scope }) => {
       const db = getDb();
+      const result: Record<string, unknown> = {};
 
-      const conditions: SQL[] = [];
-      if (workspaceId !== undefined) conditions.push(eq(fleetingMemories.workspaceId, workspaceId));
-      if (projectId !== undefined) conditions.push(eq(fleetingMemories.projectId, projectId));
-
-      const rows = conditions.length > 0
-        ? db.select().from(fleetingMemories).where(and(...conditions)).all()
-        : db.select().from(fleetingMemories).all();
-
-      if (compact !== false) {
-        return mcpResult(omitKey(rows, 'content'));
+      if (scope === 'fleeting' || scope === 'both') {
+        const rows = workspaceId !== undefined
+          ? db.select().from(fleetingMemories).where(eq(fleetingMemories.workspaceId, workspaceId)).all()
+          : db.select().from(fleetingMemories).all();
+        result.fleeting = compact !== false ? omitKey(rows, 'content') : rows;
       }
-      return mcpResult(rows);
+
+      if (scope === 'permanent' || scope === 'both') {
+        const rows = workspaceId !== undefined
+          ? db.select().from(permanentMemories).where(eq(permanentMemories.workspaceId, workspaceId)).all()
+          : db.select().from(permanentMemories).all();
+        result.permanent = compact !== false ? omitKey(rows, 'content') : rows;
+      }
+
+      // Back-compat: fleeting-only scope returns a flat array (same as before)
+      if (scope === 'fleeting') {
+        return mcpResult(result.fleeting);
+      }
+      return mcpResult(result);
+    },
+  );
+
+  mcp.tool(
+    'createPermanentMemory',
+    'Create a permanent memory with full metadata — writes a DB row and a markdown file in the workspace memory directory',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      subtype: z
+        .enum(['decision', 'pattern', 'fact', 'convention', 'insight'])
+        .describe('Memory subtype'),
+      title: z.string().describe('Memory title'),
+      content: z.string().describe('Memory body content (markdown)'),
+      repo: z.string().optional().describe('Optional repo provenance (e.g. "api-server")'),
+      confidence: z.number().min(0).max(1).optional().describe('Confidence score 0–1'),
+      keywords: z.array(z.string()).optional().describe('Low-level retrieval terms'),
+      themes: z.array(z.string()).optional().describe('High-level conceptual themes'),
+      tags: z.array(z.string()).optional().describe('Organizational tags'),
+      scenarioIds: z.array(z.string()).optional().describe('FR/scenario ID anchors'),
+      sources: z
+        .array(z.string())
+        .optional()
+        .describe('Paths to memory/sources/ or memory/references/ records that triggered this note'),
+      linkedMemories: z
+        .array(z.string())
+        .optional()
+        .describe('Paths to related permanent memory files (memory/{subtype}/...)'),
+    },
+    async ({ workspaceId, subtype, title, content, ...metadata }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const workspaceDir = getWorkspaceDir(ws);
+
+      let filePath: string;
+      try {
+        filePath = await writePermanentMemory(workspaceDir, { subtype, title, ...metadata }, content);
+      } catch (err) {
+        return mcpError(`Failed to write memory file: ${(err as Error).message}`);
+      }
+
+      const memory = db
+        .insert(permanentMemories)
+        .values({
+          workspaceId,
+          subtype,
+          title,
+          content,
+          repo: metadata.repo,
+          confidence: metadata.confidence,
+          keywords: metadata.keywords ?? [],
+          themes: metadata.themes ?? [],
+          tags: metadata.tags ?? [],
+          scenarioIds: metadata.scenarioIds ?? [],
+          sources: metadata.sources ?? [],
+          linkedMemories: metadata.linkedMemories ?? [],
+          filePath,
+        })
+        .returning()
+        .get();
+
+      autoLink(memory.id, ws.slug).catch((err) =>
+        console.error('[autoLink] createPermanentMemory failed:', err),
+      );
+
+      return mcpResult({ id: memory.id, filePath });
+    },
+  );
+
+  mcp.tool(
+    'updatePermanentMemory',
+    'Update a permanent memory by ID — syncs both the DB record and the markdown file',
+    {
+      id: z.number().describe('Permanent memory ID'),
+      title: z.string().optional().describe('New title'),
+      content: z.string().optional().describe('New body content (markdown)'),
+      repo: z.string().nullable().optional().describe('New repo provenance'),
+      confidence: z.number().min(0).max(1).nullable().optional().describe('New confidence score'),
+      keywords: z.array(z.string()).optional().describe('New keywords'),
+      themes: z.array(z.string()).optional().describe('New themes'),
+      tags: z.array(z.string()).optional().describe('New tags'),
+      scenarioIds: z.array(z.string()).optional().describe('New scenario ID anchors'),
+      sources: z.array(z.string()).optional().describe('New source paths'),
+      linkedMemories: z.array(z.string()).optional().describe('New linked memory paths'),
+      supersededById: z.number().nullable().optional().describe('ID of the memory that supersedes this one'),
+    },
+    async ({ id, ...updates }) => {
+      const db = getDb();
+      const existing = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, id))
+        .get();
+      if (!existing) return mcpError('Permanent memory not found');
+
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, existing.workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const workspaceDir = getWorkspaceDir(ws);
+
+      if (!existing.filePath) {
+        return mcpError('Memory has no file path — cannot update in place');
+      }
+
+      const resolvedTitle = updates.title ?? existing.title;
+      const resolvedContent = updates.content ?? existing.content;
+      const resolvedSubtype = existing.subtype;
+
+      // Resolve supersededBy path for frontmatter. Use the explicitly-passed
+      // supersededById when present; otherwise carry the existing value so an
+      // unrelated edit (e.g. retitle) does not strip supersededBy from the file.
+      const effectiveSupersededById =
+        'supersededById' in updates ? updates.supersededById : existing.supersededById;
+      let supersededByPath: string | undefined;
+      if (effectiveSupersededById != null) {
+        const superseder = db
+          .select({ filePath: permanentMemories.filePath })
+          .from(permanentMemories)
+          .where(eq(permanentMemories.id, effectiveSupersededById))
+          .get();
+        supersededByPath = superseder?.filePath ?? undefined;
+      }
+
+      const resolvedRepo = 'repo' in updates ? updates.repo : existing.repo;
+      const resolvedConfidence = 'confidence' in updates ? updates.confidence : existing.confidence;
+
+      const fm = {
+        subtype: resolvedSubtype,
+        title: resolvedTitle,
+        keywords: (updates.keywords ?? existing.keywords ?? []) as string[],
+        themes: (updates.themes ?? existing.themes ?? []) as string[],
+        tags: (updates.tags ?? existing.tags ?? []) as string[],
+        scenarioIds: (updates.scenarioIds ?? existing.scenarioIds ?? []) as string[],
+        sources: (updates.sources ?? existing.sources ?? []) as string[],
+        linkedMemories: (updates.linkedMemories ?? existing.linkedMemories ?? []) as string[],
+        ...(resolvedRepo != null ? { repo: resolvedRepo as string } : {}),
+        ...(resolvedConfidence != null ? { confidence: resolvedConfidence as number } : {}),
+        ...(supersededByPath != null ? { supersededBy: supersededByPath } : {}),
+      };
+
+      let filePath: string;
+      try {
+        filePath = await rewritePermanentMemory(workspaceDir, existing.filePath, fm, resolvedContent);
+      } catch (err) {
+        return mcpError(`Failed to rewrite memory file: ${(err as Error).message}`);
+      }
+
+      const supersededByIdUpdate =
+        'supersededById' in updates ? { supersededById: updates.supersededById } : {};
+
+      db.update(permanentMemories)
+        .set({ ...updates, ...supersededByIdUpdate, filePath, updatedAt: new Date().toISOString() })
+        .where(eq(permanentMemories.id, id))
+        .run();
+
+      // Fire-and-forget incremental reindex so next search returns fresh content.
+      // Edit feedback is fast; the local change is already reflected in the DB/file.
+      indexerUpdate(ws.slug, 'memory').catch((err) =>
+        console.error('[updatePermanentMemory] reindex error:', err),
+      );
+
+      return mcpResult({ success: true, filePath });
+    },
+  );
+
+  mcp.tool(
+    'promoteMemory',
+    'Promote a fleeting memory to a permanent memory — creates the permanent record and file, then marks the fleeting as promoted',
+    {
+      fleetingMemoryId: z.number().describe('Fleeting memory ID to promote'),
+      subtype: z
+        .enum(['decision', 'pattern', 'fact', 'convention', 'insight'])
+        .describe('Permanent memory subtype'),
+      title: z.string().describe('Title for the permanent memory'),
+      repo: z.string().optional().describe('Optional repo provenance'),
+      confidence: z.number().min(0).max(1).optional().describe('Confidence score 0–1'),
+      keywords: z.array(z.string()).optional().describe('Low-level retrieval terms'),
+      themes: z.array(z.string()).optional().describe('High-level conceptual themes'),
+      tags: z.array(z.string()).optional().describe('Organizational tags'),
+      scenarioIds: z.array(z.string()).optional().describe('FR/scenario ID anchors'),
+      sources: z.array(z.string()).optional().describe('Source paths'),
+      linkedMemories: z.array(z.string()).optional().describe('Linked memory paths'),
+    },
+    async ({ fleetingMemoryId, subtype, title, ...metadata }) => {
+      const db = getDb();
+      const fleeting = db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, fleetingMemoryId))
+        .get();
+      if (!fleeting) return mcpError('Fleeting memory not found');
+      if (fleeting.promoted) return mcpError('Fleeting memory is already promoted');
+
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, fleeting.workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const workspaceDir = getWorkspaceDir(ws);
+
+      let filePath: string;
+      try {
+        filePath = await writePermanentMemory(
+          workspaceDir,
+          { subtype, title, ...metadata },
+          fleeting.content,
+        );
+      } catch (err) {
+        return mcpError(`Failed to write memory file: ${(err as Error).message}`);
+      }
+
+      const result = db.transaction((tx) => {
+        const permanent = tx
+          .insert(permanentMemories)
+          .values({
+            workspaceId: fleeting.workspaceId,
+            subtype,
+            title,
+            content: fleeting.content,
+            repo: metadata.repo,
+            confidence: metadata.confidence,
+            keywords: metadata.keywords ?? [],
+            themes: metadata.themes ?? [],
+            tags: metadata.tags ?? [],
+            scenarioIds: metadata.scenarioIds ?? [],
+            sources: metadata.sources ?? [],
+            linkedMemories: metadata.linkedMemories ?? [],
+            filePath,
+          })
+          .returning()
+          .get();
+
+        tx.update(fleetingMemories)
+          .set({
+            promoted: true,
+            promotedFromId: permanent.id,
+            promotedAt: new Date().toISOString(),
+          })
+          .where(eq(fleetingMemories.id, fleetingMemoryId))
+          .run();
+
+        return permanent;
+      });
+
+      try {
+        await autoLink(result.id, ws.slug);
+      } catch (err) {
+        console.error('[autoLink] promoteMemory failed:', err);
+      }
+
+      // Re-read the row so linkedMemories reflects whatever autoLink wrote.
+      const promoted = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, result.id))
+        .get();
+      const linkedMemories = (promoted?.linkedMemories as string[]) ?? [];
+
+      return mcpResult({ permanentMemoryId: result.id, filePath, linkedMemories });
+    },
+  );
+
+  mcp.tool(
+    'writeSourceSnapshot',
+    'Write a source snapshot to memory/sources/ — deduplicates by SHA-256 of content. Returns the file path and whether the content was reused.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      title: z.string().describe('Title for the source snapshot'),
+      content: z.string().describe('Full text content of the source'),
+      url: z.string().optional().describe('Source URL'),
+      origin: z.string().optional().describe('Origin identifier (e.g. domain or tool name)'),
+      sourceType: z.string().describe('Source type (e.g. "web", "file", "paste")'),
+      ingestedAt: z.string().optional().describe('ISO timestamp of ingestion (defaults to now)'),
+    },
+    async ({ workspaceId, title, content, url, origin, sourceType, ingestedAt }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const workspaceDir = getWorkspaceDir(ws);
+
+      let result: { filePath: string; reused: boolean };
+      try {
+        const snapshotFm: Parameters<typeof writeSourceSnapshot>[1] = {
+          title,
+          source_type: sourceType,
+          ingester: 'mcp',
+          ingested_at: ingestedAt ?? new Date().toISOString(),
+        };
+        if (url !== undefined) snapshotFm.url = url;
+        if (origin !== undefined) snapshotFm.origin = origin;
+        const { filePath, deduplicated } = await writeSourceSnapshot(
+          workspaceDir,
+          snapshotFm,
+          content,
+        );
+        result = { filePath, reused: deduplicated };
+      } catch (err) {
+        return mcpError(`Failed to write source snapshot: ${(err as Error).message}`);
+      }
+
+      return mcpResult(result);
+    },
+  );
+}
+
+function registerIndexTools(mcp: McpServer): void {
+  mcp.tool(
+    'reindex',
+    'Re-index workspace content into the qmd hybrid search store. Returns per-collection counts.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      collection: z
+        .enum(['system', 'docs', 'projects', 'memory'])
+        .optional()
+        .describe('Limit to one collection (default: all four)'),
+      full: z
+        .boolean()
+        .default(false)
+        .describe('Force full rebuild — clears and re-adds every collection from scratch'),
+    },
+    async ({ workspaceId, collection, full }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const started = Date.now();
+      let results;
+      try {
+        if (full) {
+          results = await forceFullReindex(ws.slug);
+          // Trigger embed pass after full rebuild; errors are non-fatal
+          getStore(ws.slug)
+            .then((store) => store.embed())
+            .catch((err) => console.error('[reindex] embed error after full reindex:', err));
+        } else {
+          results = await updateAndEmbed(ws.slug, collection);
+        }
+      } catch (err) {
+        return mcpError(`Reindex failed: ${(err as Error).message}`);
+      }
+
+      return mcpResult({
+        durationMs: Date.now() - started,
+        collections: results,
+      });
+    },
+  );
+
+  mcp.tool(
+    'indexStatus',
+    'Report per-collection index status without modifying content. unchanged === fileCount means up-to-date.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+    },
+    async ({ workspaceId }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const started = Date.now();
+      let results;
+      try {
+        results = await indexerUpdate(ws.slug);
+      } catch (err) {
+        return mcpError(`Status check failed: ${(err as Error).message}`);
+      }
+
+      const totalNeedsEmbedding = results.reduce((sum, r) => sum + r.needsEmbedding, 0);
+      return mcpResult({
+        durationMs: Date.now() - started,
+        upToDate: totalNeedsEmbedding === 0,
+        needsEmbedding: totalNeedsEmbedding,
+        collections: results,
+      });
+    },
+  );
+
+  mcp.tool(
+    'validateWorkspace',
+    'Run integrity checks on workspace knowledge files and report findings grouped by severity.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      sessionId: z
+        .string()
+        .optional()
+        .describe(
+          'Agent session ID — scopes the requirements scan to the calling agent\'s worktree instead of ws.repos',
+        ),
+    },
+    async ({ workspaceId, sessionId }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      try {
+        const state = getAppState();
+        const adapter = chooseRepoAdapter(state);
+        const report = await runValidateWorkspace(ws, sessionId, adapter);
+        return mcpResult(report);
+      } catch (err) {
+        return mcpError(`Validation failed: ${(err as Error).message}`);
+      }
     },
   );
 }
@@ -768,7 +1268,39 @@ function registerQuestionTools(mcp: McpServer): void {
   mcp.tool(
     'askQuestion',
     'Ask the user 1-4 batched questions with selectable options. Blocks the task until answered.',
-    askQuestionInput,
+    {
+      sessionId: z.string().describe('Agent session ID asking the question'),
+      taskId: z
+        .number()
+        .optional()
+        .describe('Task being worked on (optional for session-scoped questions)'),
+      documentPath: z
+        .string()
+        .optional()
+        .describe('Path to spec/plan doc for context tab'),
+      context: z
+        .string()
+        .optional()
+        .describe('1 paragraph explaining why these questions matter and what you need to decide'),
+      questions: z
+        .array(
+          z.object({
+            question: z.string().describe('The question text'),
+            header: z.string().max(12).describe('Short chip label for tab header'),
+            multiSelect: z.boolean().optional().default(false),
+            options: z.array(
+              z.object({
+                label: z.string(),
+                description: z.string(),
+                preview: z.string().optional().describe('Markdown content for visual preview'),
+              }),
+            ),
+          }),
+        )
+        .min(1)
+        .max(4)
+        .describe('1-4 batched questions per call'),
+    },
     async ({ sessionId, taskId, documentPath, context, questions: questionItems }) => {
       const db = getDb();
 
@@ -807,4 +1339,405 @@ function registerQuestionTools(mcp: McpServer): void {
       return mcpResult({ status: 'blocked', questionIds: result });
     },
   );
+}
+
+// ── Search helpers (shared with registerSearchTools) ──────────────────
+
+interface SearchResult {
+  path: string;
+  title: string;
+  snippet?: string;
+  score?: number;
+}
+
+interface SearchResultGroup {
+  collection: string;
+  results: SearchResult[];
+}
+
+function collectionFromVirtualPath(virtualPath: string): string {
+  const match = /^qmd:\/\/([^/]+)/.exec(virtualPath);
+  return match ? match[1] : 'docs';
+}
+
+function titleFromPath(filePath: string): string {
+  const base = filePath.split('/').pop() ?? filePath;
+  return base.replace(/\.md$/, '').replace(/[-_]/g, ' ');
+}
+
+function extractTitle(dataJson: string, filePath: string): string {
+  try {
+    const data = JSON.parse(dataJson) as Record<string, unknown>;
+    if (typeof data.title === 'string' && data.title) return data.title;
+  } catch {
+    // ignore
+  }
+  return titleFromPath(filePath);
+}
+
+function buildFrontmatterWhereCondition(
+  workspaceId: number,
+  filters: Record<string, unknown>,
+  collection?: string,
+) {
+  const conditions: ReturnType<typeof eq>[] = [
+    eq(frontmatter.workspaceId, workspaceId) as ReturnType<typeof eq>,
+  ];
+
+  if (collection && collection !== 'tasks') {
+    conditions.push(
+      eq(frontmatter.collection, collection as 'system' | 'docs' | 'projects' | 'memory') as ReturnType<typeof eq>,
+    );
+  }
+
+  for (const scalar of ['type', 'subtype', 'repo'] as const) {
+    const val = filters[scalar];
+    if (typeof val === 'string' && val) {
+      conditions.push(
+        drizzleSql`json_extract(${frontmatter.data}, '$.' || ${scalar}) = ${val}` as ReturnType<typeof eq>,
+      );
+    }
+  }
+
+  for (const field of ['tags', 'themes', 'scenarioIds', 'sources', 'linkedMemories'] as const) {
+    const values = filters[field];
+    if (Array.isArray(values) && values.length > 0) {
+      for (const value of values as string[]) {
+        conditions.push(jsonObjectArrayContains(frontmatter.data, field, value));
+      }
+    }
+  }
+
+  return and(...conditions)!;
+}
+
+function groupFrontmatterRows(
+  rows: Array<{ collection: string; path: string; data: string }>,
+): SearchResultGroup[] {
+  const byCollection = new Map<string, SearchResult[]>();
+  for (const row of rows) {
+    const group = byCollection.get(row.collection) ?? [];
+    group.push({ path: row.path, title: extractTitle(row.data, row.path) });
+    byCollection.set(row.collection, group);
+  }
+  return Array.from(byCollection.entries()).map(([col, results]) => ({ collection: col, results }));
+}
+
+function searchTasksByQuery(workspaceId: number, query: string, limit: number): SearchResult[] {
+  const db = getDb();
+  const pattern = `%${query}%`;
+  const rows = db
+    .select({ id: tasks.id, title: tasks.title, description: tasks.description })
+    .from(tasks)
+    .innerJoin(projects, eq(tasks.projectId, projects.id))
+    .where(and(eq(projects.workspaceId, workspaceId), or(like(tasks.title, pattern), like(tasks.description, pattern))!))
+    .limit(limit)
+    .all();
+  return rows.map((t) => ({
+    path: `task:${t.id}`,
+    title: t.title,
+    snippet: t.description ? t.description.slice(0, 150) : undefined,
+  }));
+}
+
+function filterTasksByStatus(workspaceId: number, status: string, limit: number): SearchResult[] {
+  const db = getDb();
+  const rows = db
+    .select({ id: tasks.id, title: tasks.title })
+    .from(tasks)
+    .innerJoin(projects, eq(tasks.projectId, projects.id))
+    .where(and(eq(projects.workspaceId, workspaceId), eq(tasks.status, status as (typeof tasks.status)['_']['data'])))
+    .limit(limit)
+    .all();
+  return rows.map((t) => ({ path: `task:${t.id}`, title: t.title }));
+}
+
+const searchFiltersSchema = z.object({
+  type: z.string().optional(),
+  subtype: z.string().optional(),
+  repo: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  themes: z.array(z.string()).optional(),
+  scenarioIds: z.array(z.string()).optional(),
+  sources: z.array(z.string()).optional(),
+  linkedMemories: z.array(z.string()).optional(),
+  status: z.string().optional(),
+});
+
+function registerSearchTools(mcp: McpServer): void {
+  mcp.tool(
+    'search',
+    'Unified search across all workspace collections. Supports semantic query, structured filters, or both. Replaces listMemories for discovery use cases.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      query: z.string().optional().describe('Semantic search query (hybrid BM25 + vector + rerank)'),
+      collection: z
+        .enum(['system', 'docs', 'projects', 'memory', 'tasks'])
+        .optional()
+        .describe('Scope to a single collection'),
+      filters: searchFiltersSchema
+        .optional()
+        .describe(
+          'Structured filters on frontmatter: tags, themes, scenarioIds, sources, linkedMemories (array membership), type/subtype/repo (scalar), status (tasks only)',
+        ),
+      limit: z.number().min(1).max(500).default(50).describe('Max results per collection'),
+      mode: z
+        .enum(['hybrid', 'lex', 'vector'])
+        .optional()
+        .describe("Search mode (default 'hybrid'). 'lex' = BM25 only, 'vector' = embedding only."),
+      intent: z
+        .string()
+        .optional()
+        .describe(
+          "Intent token for qmd reranker — see engy:research playbook for the question-shape table.",
+        ),
+    },
+    async ({ workspaceId, query, collection, filters, limit, mode, intent }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const hasQuery = typeof query === 'string' && query.trim().length > 0;
+      const hasFilters =
+        filters !== undefined && Object.values(filters).some((v) => v !== undefined);
+
+      if (!hasQuery && !hasFilters) {
+        return mcpError('Provide at least one of: query or filters');
+      }
+
+      try {
+        const groups = await runMcpSearch(
+          ws.id,
+          ws.slug,
+          query,
+          collection,
+          filters,
+          limit,
+          mode ?? 'hybrid',
+          intent,
+        );
+        return mcpResult(groups);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes('download') || message.includes('model')) {
+          return mcpError(
+            'Embedding model not yet available. Run `reindex` to initialise the search index.',
+          );
+        }
+        return mcpError(`Search failed: ${message}`);
+      }
+    },
+  );
+
+  mcp.tool(
+    'trace',
+    'Requirements traceability: map an EARS functional requirement (FR) to the tests that verify it and the source they cover, or vice versa. With no fr/file, returns a workspace coverage summary (uncovered FRs, orphan tags, malformed rows). Drives the EARS → BDD test → implement loop.',
+    {
+      workspaceId: z.number().describe('Workspace ID'),
+      fr: z
+        .string()
+        .optional()
+        .describe('FR id, e.g. FR-SEARCH-003 — returns its requirement text, tests, and source'),
+      file: z
+        .string()
+        .optional()
+        .describe('Source or test path — returns the FRs defined in or covered by that file'),
+      sessionId: z
+        .string()
+        .optional()
+        .describe(
+          'Agent session ID — scopes the code scan to the calling agent\'s worktree instead of ws.repos',
+        ),
+    },
+    async ({ workspaceId, fr, file, sessionId }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      try {
+        const state = getAppState();
+        const codeRootsOverride = resolveWorktreeRoots(sessionId);
+        const adapter = chooseRepoAdapter(state);
+        return mcpResult(await traceWorkspace(ws, { fr, file }, codeRootsOverride, adapter));
+      } catch (err) {
+        return mcpError(`Trace failed: ${(err as Error).message}`);
+      }
+    },
+  );
+}
+
+async function runMcpSearch(
+  workspaceId: number,
+  workspaceSlug: string,
+  query: string | undefined,
+  collection: string | undefined,
+  filters: Record<string, unknown> | undefined,
+  limit: number,
+  mode: QmdSearchMode,
+  intent: string | undefined,
+): Promise<SearchResultGroup[]> {
+  const hasQuery = typeof query === 'string' && query.trim().length > 0;
+  const hasFilters = filters !== undefined && Object.values(filters).some((v) => v !== undefined);
+
+  if (hasQuery && !hasFilters) {
+    return mcpQueryOnly(workspaceId, workspaceSlug, query!, collection, limit, mode, intent);
+  }
+  if (!hasQuery && hasFilters) {
+    return mcpFiltersOnly(workspaceId, filters!, collection, limit);
+  }
+  return mcpQueryWithFilters(
+    workspaceId,
+    workspaceSlug,
+    query!,
+    filters!,
+    collection,
+    limit,
+    mode,
+    intent,
+  );
+}
+
+async function mcpQueryOnly(
+  workspaceId: number,
+  workspaceSlug: string,
+  query: string,
+  collection: string | undefined,
+  limit: number,
+  mode: QmdSearchMode,
+  intent: string | undefined,
+): Promise<SearchResultGroup[]> {
+  const groups: SearchResultGroup[] = [];
+
+  if (!collection || collection === 'tasks') {
+    const taskResults = searchTasksByQuery(workspaceId, query, limit);
+    if (taskResults.length > 0) groups.push({ collection: 'tasks', results: taskResults });
+  }
+
+  if (process.env.QMD_SKIP === '1') return groups;
+
+  const rawHits = await runQmdSearch(workspaceSlug, query, collection, limit, mode, intent);
+  const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
+  const supersededPaths = getSupersededMemoryPaths(workspaceId);
+  const byCollection = new Map<string, SearchResult[]>();
+  for (const hit of qmdResults) {
+    if (supersededPaths.has(hit.displayPath)) continue;
+    const col = collectionFromVirtualPath(hit.file);
+    const group = byCollection.get(col) ?? [];
+    group.push({
+      path: hit.displayPath,
+      title: hit.title || titleFromPath(hit.displayPath),
+      snippet: hit.snippet,
+      score: hit.score,
+    });
+    byCollection.set(col, group);
+  }
+  for (const [col, results] of byCollection.entries()) {
+    groups.push({ collection: col, results });
+  }
+  return groups;
+}
+
+async function mcpFiltersOnly(
+  workspaceId: number,
+  filters: Record<string, unknown>,
+  collection: string | undefined,
+  limit: number,
+): Promise<SearchResultGroup[]> {
+  const db = getDb();
+  const groups: SearchResultGroup[] = [];
+
+  if (!collection || collection !== 'tasks') {
+    const condition = buildFrontmatterWhereCondition(workspaceId, filters, collection);
+    const rows = db
+      .select({ collection: frontmatter.collection, path: frontmatter.path, data: frontmatter.data })
+      .from(frontmatter)
+      .where(condition)
+      .limit(limit)
+      .all();
+    const supersededPaths = getSupersededMemoryPaths(workspaceId);
+    groups.push(...groupFrontmatterRows(rows.filter((r) => !supersededPaths.has(r.path))));
+  }
+
+  const statusVal = filters.status;
+  if (typeof statusVal === 'string' && statusVal && (!collection || collection === 'tasks')) {
+    const taskResults = filterTasksByStatus(workspaceId, statusVal, limit);
+    if (taskResults.length > 0) groups.push({ collection: 'tasks', results: taskResults });
+  }
+
+  return groups;
+}
+
+async function mcpQueryWithFilters(
+  workspaceId: number,
+  workspaceSlug: string,
+  query: string,
+  filters: Record<string, unknown>,
+  collection: string | undefined,
+  limit: number,
+  mode: QmdSearchMode,
+  intent: string | undefined,
+): Promise<SearchResultGroup[]> {
+  const db = getDb();
+  const groups: SearchResultGroup[] = [];
+
+  const statusVal = filters.status;
+  if (typeof statusVal === 'string' && statusVal && (!collection || collection === 'tasks')) {
+    const taskResults = filterTasksByStatus(workspaceId, statusVal, limit);
+    if (taskResults.length > 0) groups.push({ collection: 'tasks', results: taskResults });
+  }
+
+  if (process.env.QMD_SKIP === '1') return groups;
+
+  const subtypeFilter = typeof filters.subtype === 'string' && filters.subtype ? filters.subtype : null;
+  // With a subtype filter the relevant subset is small; go wide so qmd scores cover it.
+  const candidateLimit = subtypeFilter ? Math.min(500, limit * 8) : limit * 2;
+  const rawHits = await runQmdSearch(workspaceSlug, query, collection, candidateLimit, mode, intent);
+  const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
+  const supersededPaths = getSupersededMemoryPaths(workspaceId);
+
+  const scoreByPath = new Map<string, number>();
+  for (const hit of qmdResults) {
+    if (supersededPaths.has(hit.displayPath)) continue;
+    scoreByPath.set(hit.displayPath, hit.score);
+  }
+
+  // Anchor on the filter: every filter-matching row is returned, with qmd score
+  // where available and fallback ordering otherwise. Without this, any
+  // filter-matching doc qmd missed in its top-N would silently disappear.
+  const condition = buildFrontmatterWhereCondition(workspaceId, filters, collection);
+  const filteredRows = db
+    .select({ collection: frontmatter.collection, path: frontmatter.path, data: frontmatter.data })
+    .from(frontmatter)
+    .where(condition)
+    .all()
+    .filter((r) => !supersededPaths.has(r.path));
+
+  const byCollection = new Map<string, SearchResult[]>();
+  for (const row of filteredRows) {
+    const group = byCollection.get(row.collection) ?? [];
+    group.push({
+      path: row.path,
+      title: extractTitle(row.data, row.path),
+      score: scoreByPath.get(row.path),
+    });
+    byCollection.set(row.collection, group);
+  }
+
+  for (const [col, results] of byCollection.entries()) {
+    groups.push({
+      collection: col,
+      results: results
+        .sort((a, b) => {
+          const aScored = typeof a.score === 'number';
+          const bScored = typeof b.score === 'number';
+          if (aScored && bScored) return (b.score ?? 0) - (a.score ?? 0);
+          if (aScored) return -1;
+          if (bScored) return 1;
+          return a.path.localeCompare(b.path);
+        })
+        .slice(0, limit),
+    });
+  }
+
+  return groups;
 }

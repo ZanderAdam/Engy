@@ -5,8 +5,42 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { dispatchFileSearch } from '../../ws/server';
+import { updateAndEmbed } from '../../search/indexer';
 
 const MAX_DEPTH = 5;
+
+const INDEXED_COLLECTIONS = ['system', 'docs', 'projects', 'memory'] as const;
+type IndexedCollection = (typeof INDEXED_COLLECTIONS)[number];
+
+/**
+ * Detect which knowledge collection a dirPath belongs to.
+ * Returns the collection name if the dirPath ends with one of the four
+ * collection directories (or is a subdirectory thereof), otherwise null.
+ */
+function detectCollection(dirPath: string): IndexedCollection | null {
+  const normalized = dirPath.replace(/\\/g, '/').replace(/\/$/, '');
+  for (const col of INDEXED_COLLECTIONS) {
+    if (normalized.endsWith(`/${col}`) || normalized.includes(`/${col}/`)) {
+      return col;
+    }
+  }
+  return null;
+}
+
+/**
+ * Best-effort reindex of the collection a workspace path belongs to.
+ * Reindex failures are logged but never surfaced — they must not fail the
+ * triggering file write/delete.
+ */
+async function reindexCollection(workspaceSlug: string, dirPath: string): Promise<void> {
+  const collection = detectCollection(dirPath);
+  if (!collection) return;
+  try {
+    await updateAndEmbed(workspaceSlug, collection);
+  } catch (err) {
+    console.error('[dir] reindex failed', err);
+  }
+}
 
 function validatePath(base: string, target: string): string {
   if (path.isAbsolute(target)) {
@@ -160,14 +194,26 @@ export const dirRouter = router({
     }),
 
   write: publicProcedure
-    .input(z.object({ dirPath: z.string().min(1), filePath: z.string().min(1), content: z.string() }))
-    .mutation(({ input }) => {
+    .input(
+      z.object({
+        dirPath: z.string().min(1),
+        filePath: z.string().min(1),
+        content: z.string(),
+        workspaceSlug: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
       if (!input.filePath.endsWith('.md')) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Only .md files are supported` });
       }
       const resolved = validatePath(input.dirPath, input.filePath);
       fs.mkdirSync(path.dirname(resolved), { recursive: true });
       fs.writeFileSync(resolved, input.content, 'utf-8');
+
+      if (input.workspaceSlug) {
+        await reindexCollection(input.workspaceSlug, input.dirPath);
+      }
+
       return { success: true };
     }),
 
@@ -180,8 +226,14 @@ export const dirRouter = router({
     }),
 
   deleteFile: publicProcedure
-    .input(z.object({ dirPath: z.string().min(1), filePath: z.string().min(1) }))
-    .mutation(({ input }) => {
+    .input(
+      z.object({
+        dirPath: z.string().min(1),
+        filePath: z.string().min(1),
+        workspaceSlug: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
       if (!input.filePath.endsWith('.md')) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only .md files are supported' });
       }
@@ -194,6 +246,11 @@ export const dirRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Not a file: ${input.filePath}` });
       }
       fs.unlinkSync(resolved);
+
+      if (input.workspaceSlug) {
+        await reindexCollection(input.workspaceSlug, input.dirPath);
+      }
+
       return { success: true };
     }),
 

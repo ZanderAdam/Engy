@@ -42,6 +42,7 @@ function makeState(): AppState {
     pendingWorktreeAdd: new Map(),
     pendingWorktreeRemove: new Map(),
     pendingGitWorktreeList: new Map(),
+    pendingGlobFiles: new Map(),
   };
 }
 

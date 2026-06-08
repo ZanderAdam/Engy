@@ -14,7 +14,10 @@ export function isInsideGitRepo(dir: string): boolean {
 
 export async function ensureGitRepo(dir: string): Promise<boolean> {
   if (!fs.existsSync(dir)) return false;
-  if (isInsideGitRepo(dir)) return false;
+  // The workspace must be its own git repo so memory operations get a self-contained
+  // history and the parent's .gitignore doesn't apply. A nested git repo is a clean
+  // boundary — git stops walking at the inner .git, so this is safe inside another tree.
+  if (fs.existsSync(path.join(dir, '.git'))) return false;
 
   const git = simpleGit(dir);
   await git.init();

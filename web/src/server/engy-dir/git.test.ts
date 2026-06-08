@@ -66,13 +66,34 @@ describe('git helpers', () => {
       expect(result).toBe(false);
     });
 
-    it('should skip if directory is inside a parent git repo', async () => {
+    it('should init a fresh repo even when nested inside a parent git tree', async () => {
       await simpleGit(tmpDir).init();
       const childDir = path.join(tmpDir, 'workspace');
       fs.mkdirSync(childDir);
+      fs.writeFileSync(path.join(childDir, 'test.txt'), 'hello');
 
       const result = await ensureGitRepo(childDir);
-      expect(result).toBe(false);
+      expect(result).toBe(true);
+      expect(fs.existsSync(path.join(childDir, '.git'))).toBe(true);
+
+      const log = await simpleGit(childDir).log();
+      expect(log.total).toBe(1);
+    });
+
+    it('should add and commit even when parent .gitignore would exclude the workspace path', async () => {
+      await simpleGit(tmpDir).init();
+      fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'workspace/\n');
+      const childDir = path.join(tmpDir, 'workspace');
+      fs.mkdirSync(childDir);
+      fs.writeFileSync(path.join(childDir, 'memory.md'), '---\ntitle: test\n---\n');
+
+      const result = await ensureGitRepo(childDir);
+      expect(result).toBe(true);
+
+      const log = await simpleGit(childDir).log();
+      expect(log.total).toBe(1);
+      const status = await simpleGit(childDir).status();
+      expect(status.files).toHaveLength(0);
     });
 
     it('should return false if directory does not exist', async () => {

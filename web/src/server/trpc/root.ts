@@ -11,6 +11,8 @@ import { fileRouter } from './routers/file';
 import { executionRouter } from './routers/execution';
 import { questionRouter } from './routers/question';
 import { worktreeRouter } from './routers/worktree';
+import { memoryRouter } from './routers/memory';
+import { searchRouter } from './routers/search';
 
 export const appRouter = router({
   workspace: workspaceRouter,
@@ -25,6 +27,8 @@ export const appRouter = router({
   execution: executionRouter,
   question: questionRouter,
   worktree: worktreeRouter,
+  memory: memoryRouter,
+  search: searchRouter,
 });
 
 /** @public Used by tRPC client setup */

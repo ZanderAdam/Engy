@@ -15,6 +15,8 @@ Implements a single task or plan document end-to-end: context gathering, TDD imp
 
 ## Step 1: Gather Context
 
+**EARS-BDD mode:** check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (e.g. an `earsBdd: true` flag or similar). When enabled, follow `references/ears-bdd.md`, which adds FR-establishment before Step 4, FR-tagging to the Red step, and coverage verification to Step 5. When disabled, run the steps below unchanged.
+
 ### A. From an Engy Task
 
 1. `getTask(id)` — read the task's title, description, and status.
@@ -54,6 +56,8 @@ Chain dependencies with `TaskUpdate` (`addBlockedBy`) so tasks execute in order.
 
 ## Step 4: Implement via TDD (Red-Green-Refactor)
 
+**EARS-BDD mode:** before the first test, establish the target FR ids — run the "Before Step 4 — establish target FR ids" hand-off in `references/ears-bdd.md` (locate pre-planned ids in the plan/spec, or dispatch `engy:feature-author`), then tag each Red test with its FR id and verify coverage in Step 5. Skip this when EARS-BDD is disabled.
+
 For each implementation task, follow the TDD cycle strictly:
 
 1. Mark the session task `in_progress`.
@@ -75,6 +79,20 @@ After all implementation tasks are done:
 4. **Circuit breaker:** after 3 failed validation/review cycles, stop and report to user with diagnostics.
 5. Run any manual checks specified in project config (e.g., test in Chrome).
 6. On success: commit the changes, mark all session tasks completed.
+
+## Capture Learnings as Memories
+
+When you discover non-obvious patterns, gotchas, or architectural decisions during implementation:
+
+- **In-flight capture**: call `updateTask(id, { memories: [{ content, type? }] })` alongside any status update. Do this immediately when you learn something surprising — don't wait until the end.
+- **Completion output**: include a `memories` array in your structured completion JSON for any learnings not already captured mid-task.
+
+What makes a good memory: short, concrete, surprising. Save what would force a future agent to re-learn through trial and error. Do not save things discoverable by reading the code (file structures, function signatures) — save the reasoning, gotchas, and non-obvious decisions.
+
+**Examples of good memories:**
+- "drizzle-kit generate must run after any schema.ts change or migrations won't include the new column"
+- "the AppState singleton uses globalThis to survive Next.js HMR — never instantiate it inside a request handler"
+- "WebSocket request-response uses a pending map pattern — response handler must delete the map entry or memory leaks"
 
 ## Engy Task Status Flow
 

@@ -1,0 +1,71 @@
+---
+name: engy:complete-project
+description: "This skill should be used when the user asks to 'complete a project', 'wrap up a project', 'archive a project', or 'run project completion'."
+---
+
+# Project Completion Orchestrator
+
+Guides a project through its full completion lifecycle: distillation, memory review, system doc proposals, and archival. Each phase pauses for user confirmation so nothing is irreversible without explicit approval.
+
+## MCP Tools
+
+- `listWorkspaces` — resolve the active workspace and obtain its `workspaceId` before calling `listProjects`.
+- `getProjectDetails` — fetch project metadata, status, and workspace context.
+- `listProjects` — find the active project if not provided.
+- `startProjectCompletion` — set status to `completing` and return ranked candidate fleeting memories for distillation review.
+- `archiveProject` — mark project as `archived` and remove agent sessions. Plan, tasks, and promoted memories are preserved.
+
+## Phase 1: Resolve Project
+
+1. Identify the current project from session context (active project name/slug or the user's explicit mention).
+2. Call `getProjectDetails({ projectId })` to confirm the project exists and retrieve its workspace slug and status.
+3. **Branch on status:**
+   - If `status` is `archived`: print "Project is already archived; nothing to do." and stop.
+   - If `status` is `completing`: ask the user "Project is mid-completion. Resume from Phase 3 (review memories) or restart from Phase 2 (distillation)?" and proceed based on their answer.
+   - Otherwise: print the project name and current status, then continue to Phase 2.
+
+## Phase 2: Distillation
+
+1. Call `startProjectCompletion({ projectId })`.
+   - This sets the project status to `completing`.
+   - It returns `{ candidates: FleetingMemory[] }` — unpromoted fleeting memories scoped to the workspace, ranked by signal score.
+2. Print the count of candidate fleetings (e.g., "Found 12 candidate memories for review").
+3. **Pause.** Present the candidates briefly and ask the user: "Ready to proceed to memory review? This will hand off to `/engy:review-memories`."
+4. Wait for explicit user confirmation before continuing.
+
+## Phase 3: Memory Review
+
+After user confirms, invoke `engy:review-memories` directly via the Skill tool:
+
+```
+Skill({ skill: 'engy:review-memories' })
+```
+
+`Skill(...)` runs the inner skill to completion and returns control here before Phase 4 begins; do not advance until it returns. The invoked skill re-resolves workspace/project context itself — surface the active project name and workspace slug to the user before invoking so they can confirm the inner skill will target the right scope. The review skill is interactive — the user works through each candidate (approve, edit, supersede, contradict, skip). Do not rush or batch-skip. When it returns, continue to Phase 4.
+
+## Phase 4: System Doc Proposals
+
+Pause and ask: "Memory review is complete. Generate system doc proposals from the project's completed tasks and promoted memories? [yes/skip]"
+
+- **yes** — invoke `engy:write-sysdocs` (refresh mode) via the Skill tool:
+  ```
+  Skill({ skill: 'engy:write-sysdocs', args: 'refresh' })
+  ```
+  `Skill(...)` runs the inner skill to completion and returns control here before Phase 5 begins; do not advance until it returns. The invoked skill re-resolves workspace/project context itself — surface the active project name and workspace slug to the user before invoking so the inner skill targets the right scope. Changes land uncommitted under `{workspaceDir}/system/` for diff-viewer review.
+- **skip** — continue to Phase 5.
+
+## Phase 5: Archive
+
+1. **Pause.** Confirm with the user: "Memory review and doc proposals are complete. Archive the project now? This will mark it archived and preserve all tasks, plan content, and promoted memories."
+2. On confirmation, call `archiveProject({ projectId })`.
+3. Print confirmation: "Project archived. Agent sessions and execution logs have been removed. Plan, tasks, and memories are preserved."
+
+## Key Principles
+
+- **Pause between phases.** Never run phases back-to-back without user confirmation. Each pause is a checkpoint where the user can stop, inspect, or continue later.
+- **Phases are resumable.** If the user stops mid-flow, they can re-invoke `/engy:complete-project` and pick up from where they left off by checking the project's current status via `getProjectDetails`.
+- **Archival is final.** Make sure the user understands archival removes agent sessions and execution logs before calling `archiveProject`.
+
+## Flow Position
+
+**Previous:** Active project with tasks in `done` status | **Next:** Knowledge available via workspace-level memory for future projects

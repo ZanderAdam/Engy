@@ -143,6 +143,26 @@ describe('dir router', () => {
   });
 
   describe('write', () => {
+    describe('reindex on write', () => {
+      it('should persist the file and return success when dirPath maps to an indexed collection', async () => {
+        // Use a dirPath ending with /docs so detectCollection returns 'docs'.
+        // The workspaceSlug does not exist in the DB, so updateAndEmbed will throw
+        // internally — but the try/catch must swallow it and still return { success: true }.
+        const docsDir = path.join(testDir, 'docs');
+        fs.mkdirSync(docsDir, { recursive: true });
+
+        const result = await caller.dir.write({
+          dirPath: docsDir,
+          filePath: 'note.md',
+          content: '# Indexed',
+          workspaceSlug: 'nonexistent-workspace',
+        });
+
+        expect(result.success).toBe(true);
+        expect(fs.readFileSync(path.join(docsDir, 'note.md'), 'utf-8')).toBe('# Indexed');
+      });
+    });
+
     it('should write content to an existing file', async () => {
       await caller.dir.write({ dirPath: testDir, filePath: 'readme.md', content: '# Updated' });
       expect(fs.readFileSync(path.join(testDir, 'readme.md'), 'utf-8')).toBe('# Updated');
@@ -185,6 +205,25 @@ describe('dir router', () => {
   });
 
   describe('deleteFile', () => {
+    describe('reindex on delete', () => {
+      it('should delete the file and return success when dirPath maps to an indexed collection', async () => {
+        // Same as write reindex test: use /docs dirPath so detectCollection fires,
+        // and a nonexistent workspaceSlug so updateAndEmbed throws — must be swallowed.
+        const docsDir = path.join(testDir, 'docs');
+        fs.mkdirSync(docsDir, { recursive: true });
+        fs.writeFileSync(path.join(docsDir, 'to-delete.md'), '# Gone');
+
+        const result = await caller.dir.deleteFile({
+          dirPath: docsDir,
+          filePath: 'to-delete.md',
+          workspaceSlug: 'nonexistent-workspace',
+        });
+
+        expect(result.success).toBe(true);
+        expect(fs.existsSync(path.join(docsDir, 'to-delete.md'))).toBe(false);
+      });
+    });
+
     it('should delete an existing md file', async () => {
       expect(fs.existsSync(path.join(testDir, 'readme.md'))).toBe(true);
       const result = await caller.dir.deleteFile({ dirPath: testDir, filePath: 'readme.md' });

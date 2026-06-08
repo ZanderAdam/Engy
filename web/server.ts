@@ -9,7 +9,7 @@ import {
 import { createEventsWebSocketServer } from './src/server/ws/events-server';
 import { broadcastTerminalSessionsChange } from './src/server/ws/broadcast';
 import { attachMCP } from './src/server/mcp/index';
-import { runMigrations } from './src/server/db/migrate';
+import { runMigrations, runPostMigrationBackfills } from './src/server/db/migrate';
 
 const dev = process.env.NODE_ENV !== 'production';
 const port = parseInt(process.env.PORT || '3000', 10);
@@ -19,6 +19,9 @@ const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   runMigrations();
+  runPostMigrationBackfills().catch((err) =>
+    console.error('[db] Post-migration backfills failed:', err),
+  );
 
   const state = getAppState();
 

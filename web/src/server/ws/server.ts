@@ -10,6 +10,7 @@ import type {
   ExecutionStartConfig,
   WorktreeAddErrorCode,
   WorktreeRemoveErrorCode,
+  FleetingMemoryType,
 } from '@engy/common';
 import type {
   AppState,
@@ -24,6 +25,7 @@ import type {
   ExecutionStopResult,
   DirListResult,
   FileReadResult,
+  GlobFilesResult,
   FileWriteResult,
   RemoteFilePullResult,
   RemoteFilePushResult,
@@ -31,7 +33,7 @@ import type {
   WorktreeAddResult,
 } from '../trpc/context';
 import { getDb } from '../db/client';
-import { workspaces, agentSessions, tasks, projects } from '../db/schema';
+import { workspaces, agentSessions, tasks, projects, fleetingMemories } from '../db/schema';
 import { handleSpecFileChange } from '../spec/watcher';
 import { taskPlanSlug } from '../plan/service';
 import { broadcastFileChange, broadcastTaskChange } from './broadcast';
@@ -94,6 +96,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingExecutionStop,
     state.pendingDirList,
     state.pendingFileRead,
+    state.pendingGlobFiles,
     state.pendingFileWrite,
     state.pendingRemoteFilePull,
     state.pendingRemoteFilePush,
@@ -198,6 +201,11 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
         content: p.content,
       }));
       break;
+    case 'GLOB_FILES_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGlobFiles, (p) => ({
+        files: p.files,
+      }));
+      break;
     case 'FILE_WRITE_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingFileWrite, (p) => ({
         success: p.success,
@@ -230,6 +238,9 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       break;
     case 'EXECUTION_COMPLETE_EVENT':
       handleExecutionCompleteEvent(msg.payload, state);
+      break;
+    case 'CREATE_MEMORIES_REQUEST':
+      handleCreateMemoriesRequest(msg);
       break;
   }
 }
@@ -515,6 +526,83 @@ function handleExecutionCompleteEvent(
   }
 }
 
+// Compile-time guard: schema enum must stay assignable to the shared protocol
+// type, so a schema-only edit can't silently make the clamp cast unsound.
+const _schemaTypesMatch: readonly FleetingMemoryType[] = fleetingMemories.type.enumValues;
+void _schemaTypesMatch;
+
+const VALID_MEMORY_TYPES: ReadonlySet<string> = new Set(fleetingMemories.type.enumValues);
+
+function clampMemoryType(type: string | undefined): FleetingMemoryType {
+  return VALID_MEMORY_TYPES.has(type ?? '') ? (type as FleetingMemoryType) : 'capture';
+}
+
+function handleCreateMemoriesRequest(msg: {
+  type: 'CREATE_MEMORIES_REQUEST';
+  sessionId: string;
+  memories: Array<{ content: string; type?: string }>;
+}): void {
+  const { sessionId, memories } = msg;
+  console.log(
+    `[ws-main-server] CREATE_MEMORIES_REQUEST: session=${sessionId} count=${memories.length}`,
+  );
+
+  const db = getDb();
+  const session = db
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.sessionId, sessionId))
+    .get();
+
+  if (!session) {
+    console.warn(`[ws-main-server] CREATE_MEMORIES_REQUEST for unknown session: ${sessionId}`);
+    return;
+  }
+
+  const workspaceId = resolveWorkspaceIdFromSession(db, session.taskId);
+  if (!workspaceId) {
+    console.warn(
+      `[ws-main-server] CREATE_MEMORIES_REQUEST: cannot resolve workspaceId for session=${sessionId}`,
+    );
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const rows = memories.map((m) => ({
+    workspaceId,
+    content: m.content,
+    type: clampMemoryType(m.type),
+    source: 'agent' as const,
+    tags: [] as string[],
+    createdAt: now,
+  }));
+
+  try {
+    db.insert(fleetingMemories).values(rows).run();
+    console.log(
+      `[ws-main-server] Inserted ${rows.length} fleeting memories for workspaceId=${workspaceId}`,
+    );
+  } catch (err) {
+    console.error('[ws-main-server] CREATE_MEMORIES_REQUEST insert failed:', err);
+  }
+}
+
+/** Resolve workspaceId from a session's task (for memory insertion) */
+function resolveWorkspaceIdFromSession(
+  db: ReturnType<typeof getDb>,
+  taskId: number | null,
+): number | null {
+  if (!taskId) return null;
+
+  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+  if (!task?.projectId) return null;
+
+  const project = db.select().from(projects).where(eq(projects.id, task.projectId)).get();
+  if (!project) return null;
+
+  return project.workspaceId;
+}
+
 /** Resolve workspace and project context from a task ID (for post-completion actions) */
 function resolveWorkspaceContext(
   db: ReturnType<typeof getDb>,
@@ -793,6 +881,17 @@ export function dispatchFileRead(
     filePath,
     ref,
     coderWorkspace,
+  });
+}
+
+export function dispatchGlobFiles(
+  repoDir: string,
+  patterns: string[],
+  state: AppState,
+): Promise<GlobFilesResult> {
+  return dispatchDaemonOp(state, state.pendingGlobFiles, 'GLOB_FILES_REQUEST', {
+    repoDir,
+    patterns,
   });
 }
 

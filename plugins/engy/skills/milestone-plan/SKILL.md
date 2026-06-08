@@ -7,6 +7,10 @@ description: "This skill should be used when the user asks to 'plan my project',
 
 The spec already contains a high-level list of milestones. This skill plans **one milestone at a time** in detail — defining task groups, individual tasks, dependencies, and priorities. Everything is presented to the user for approval before creating anything in the system.
 
+## EARS-BDD Mode
+
+Check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (`earsBdd: true`). When enabled, each TG's `### Requirements` lists the durable `FR-<AREA>-<NNN>` ids it delivers (drawn from the SRS, reused verbatim — replacing the `FR-TG1.N` local numbering); allocate a new durable id only for milestone-level detail the SRS did not capture. Follow the planning augmentations in `plugins/engy/skills/implement/references/ears-bdd.md` for FR-graph orientation (use the area's existing FRs + `trace` to find current behaviour, tests, and code before exploring), the id scheme, allocation rule, and funnel discipline. When disabled, use the hierarchical `FR-TG1.N` scheme below unchanged.
+
 ## Multi-Repo Task Scoping
 
 When a workspace manages multiple repos, task scoping rules apply:
@@ -36,6 +40,33 @@ For single-repo workspaces, these rules are effectively no-ops — all tasks nat
 
 **One milestone per run.** Do not plan multiple milestones unless the user explicitly asks.
 
+### Level 1.5: Research Prior Knowledge
+
+Before writing the milestone plan body, dispatch the `engy:research` subagent to surface relevant prior decisions, patterns, and architectural context from the workspace knowledge graph.
+
+**Resolve `workspaceId` first.** If not already known from context, call `listWorkspaces` (or `getWorkspaceDetails`) to obtain it before dispatching — `engy:research` hard-errors without it.
+
+```
+Task({
+  subagent_type: 'engy:research',
+  prompt: '<milestone name and domain description> — context: project=<slug>, milestone=<id>, repo=<repo-or-empty> workspaceId=<id>'
+})
+```
+
+The subagent returns a digest with 3–8 cited findings. Fold it into the milestone plan document in the **Codebase Context** section or immediately after the **Overview**, wrapped in markers:
+
+```markdown
+<!-- engy:research synthesized YYYY-MM-DD -->
+<digest content>
+<!-- /engy:research -->
+```
+
+The markers let future readers identify LLM-synthesized content and re-run the research step.
+
+If the subagent returns `No relevant prior knowledge found for this question.` (i.e., `Distinct findings: 0 (after dedup)` in the footer), omit the marker block entirely — do not write an empty block.
+
+When the milestone is repo-local, mention the repo path in the prompt so the subagent applies `filters.repo`. This step runs after Level 1 (milestone selection confirmed) and before writing the plan document.
+
 ### Level 2: Plan Milestone Details (Groups and Tasks)
 
 For the selected milestone:
@@ -43,7 +74,7 @@ For the selected milestone:
 0. **Confirm the correct projectId.** Use `listProjects` to find the project whose `specDir` matches the spec you're working with. Do NOT assume projectId=1.
 1. **Discover workspace repos.** Call `getProjectDetails(projectId)` and check `workspace.repos`. If the workspace has multiple repos, apply the multi-repo task scoping rules (see above) throughout the remaining steps.
 2. Review the milestone scope against the spec.
-3. Break the milestone into **task groups**. Each group is a single deliverable — think one PR. Groups are ordered so they can be reviewed and merged as stacked PRs, making large milestones easier to review incrementally. For multi-repo workspaces, set the `repos` field on each group to the repos its tasks touch. **For each group, define its functional requirements** using hierarchical numbering (e.g., `FR-DC.1` for Dev Containers group). FRs live under each TG, not at the top level — this keeps each group self-contained for agent dispatch.
+3. Break the milestone into **task groups**. Each group is a single deliverable — think one PR. Groups are ordered so they can be reviewed and merged as stacked PRs, making large milestones easier to review incrementally. For multi-repo workspaces, set the `repos` field on each group to the repos its tasks touch. **For each group, define its functional requirements** using hierarchical numbering (e.g., `FR-DC.1` for Dev Containers group) — or, in EARS-BDD mode, durable `FR-<AREA>-<NNN>` ids (see "EARS-BDD Mode" above). FRs live under each TG, not at the top level — this keeps each group self-contained for agent dispatch.
 4. Within each group, define 1 or more tasks that together produce that deliverable. Follow the vertical slicing and granularity guidelines below. **Each task must target a single repo** — include the target repo/package in the task title or description (e.g., "Implement auth middleware in `web/`"). For cross-repo dependencies, use `blockedBy` to order upstream tasks before downstream consumers.
 5. For each task, specify:
    - Title and description (including target repo for multi-repo workspaces)
@@ -183,6 +214,8 @@ depend on others, and what specifically they depend on.}
 {One paragraph: what this group delivers and why it's sequenced here.}
 
 ### Requirements
+
+<!-- EARS-BDD off: local `FR-TG<N>.<M>` ids as shown below. EARS-BDD on: durable `FR-<AREA>-<NNN>` EARS rows — see "EARS-BDD Mode" above. -->
 
 1. The system shall {concrete, testable behavior}. *(source: user request | inferred | elicited)* (FR-TG1.1)
 2. ...

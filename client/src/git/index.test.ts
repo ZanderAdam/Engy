@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { simpleGit } from 'simple-git';
@@ -12,6 +12,7 @@ import {
   getShow,
   parsePorcelainStatus,
   parseWorktreeList,
+  globTestFiles,
 } from './index.js';
 
 describe('git integration', () => {
@@ -336,6 +337,55 @@ describe('git integration', () => {
         isMain: false,
         isLocked: true,
       });
+    });
+  });
+
+  describe('globTestFiles', () => {
+    it('returns absolute paths for staged and unstaged test files, excluding non-test files', async () => {
+      repoDir = await createTempRepo();
+
+      // Create a nested src/ directory
+      await mkdir(join(repoDir, 'src'), { recursive: true });
+
+      // Committed test file
+      await commitFile(repoDir, 'src/foo.test.ts', 'test content');
+
+      // Committed non-test file (should not be returned)
+      await commitFile(repoDir, 'src/foo.ts', 'source content');
+
+      // Committed non-test file at root (should not be returned)
+      await commitFile(repoDir, 'README.md', 'readme');
+
+      // Unstaged (untracked) new test file — NOT git-added
+      await writeFile(join(repoDir, 'src/bar.test.ts'), 'unstaged test');
+
+      const files = await globTestFiles(repoDir, ['*.test.ts', '*.test.tsx']);
+
+      expect(files).toHaveLength(2);
+      expect(files).toContain(join(repoDir, 'src/foo.test.ts'));
+      expect(files).toContain(join(repoDir, 'src/bar.test.ts'));
+      // Non-test files must not appear
+      expect(files.some((f) => f.endsWith('foo.ts') && !f.endsWith('foo.test.ts'))).toBe(false);
+      expect(files.some((f) => f.endsWith('README.md'))).toBe(false);
+    });
+
+    it('falls back to recursive readdir for non-git directories', async () => {
+      const nonGitDir = await mkdtemp(join(tmpdir(), 'engy-nongit-test-'));
+      try {
+        await mkdir(join(nonGitDir, 'src'), { recursive: true });
+        await writeFile(join(nonGitDir, 'src/util.test.ts'), 'test');
+        await writeFile(join(nonGitDir, 'src/util.ts'), 'source');
+        await writeFile(join(nonGitDir, 'src/comp.test.tsx'), 'test tsx');
+
+        const files = await globTestFiles(nonGitDir, ['*.test.ts', '*.test.tsx']);
+
+        expect(files).toHaveLength(2);
+        expect(files).toContain(join(nonGitDir, 'src/util.test.ts'));
+        expect(files).toContain(join(nonGitDir, 'src/comp.test.tsx'));
+        expect(files.some((f) => f.endsWith('util.ts') && !f.endsWith('util.test.ts'))).toBe(false);
+      } finally {
+        await rm(nonGitDir, { recursive: true, force: true });
+      }
     });
   });
 });

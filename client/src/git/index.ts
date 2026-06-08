@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { join, isAbsolute, resolve } from 'node:path';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, readdir } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { simpleGit } from 'simple-git';
 import type { GitFileStatus, GitWorktreeEntry } from '@engy/common';
@@ -363,4 +363,76 @@ export async function writeFileContent(
 ): Promise<void> {
   const fullPath = resolveAndValidatePath(dir, filePath);
   await writeFile(fullPath, content, 'utf-8');
+}
+
+const GLOB_SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '__pycache__']);
+const GLOB_MAX_READDIR_DEPTH = 10;
+
+async function listDirFilesRecursiveForGlob(
+  rootDir: string,
+  currentDir: string,
+  depth: number,
+): Promise<string[]> {
+  if (depth <= 0) return [];
+  let entries;
+  try {
+    entries = await readdir(currentDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const files: string[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') || GLOB_SKIP_DIRS.has(entry.name)) continue;
+    const fullPath = join(currentDir, entry.name);
+    if (entry.isFile()) {
+      files.push(fullPath);
+    } else if (entry.isDirectory()) {
+      files.push(...(await listDirFilesRecursiveForGlob(rootDir, fullPath, depth - 1)));
+    }
+  }
+  return files;
+}
+
+function matchesPatterns(filePath: string, patterns: string[]): boolean {
+  return patterns.some((pattern) => {
+    // Patterns like '*.test.ts' — match by suffix
+    const suffix = pattern.startsWith('*') ? pattern.slice(1) : pattern;
+    return filePath.endsWith(suffix);
+  });
+}
+
+async function isGitRepo(dir: string): Promise<boolean> {
+  try {
+    await execFileAsync('git', ['-C', dir, 'rev-parse', '--git-dir'], {
+      maxBuffer: EXEC_MAX_BUFFER,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function globTestFiles(repoDir: string, patterns: string[]): Promise<string[]> {
+  if (await isGitRepo(repoDir)) {
+    const args = [
+      '-C',
+      repoDir,
+      'ls-files',
+      '--cached',
+      '--others',
+      '--exclude-standard',
+      '--',
+      ...patterns,
+    ];
+    const { stdout } = await execFileAsync('git', args, { maxBuffer: EXEC_MAX_BUFFER });
+    return stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => join(repoDir, line));
+  }
+
+  // Non-git directory: recursive readdir fallback, filter by pattern suffixes
+  const allFiles = await listDirFilesRecursiveForGlob(repoDir, repoDir, GLOB_MAX_READDIR_DEPTH);
+  return allFiles.filter((filePath) => matchesPatterns(filePath, patterns));
 }
