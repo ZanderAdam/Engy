@@ -244,20 +244,15 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
               activityTracker.bumpActivity();
             }
 
-            if (isPinnedRef.current) {
-              term.write(msg.d);
-              scheduleScroll();
-            } else {
-              // Preserve viewport position when unpinned — xterm's write() can
-              // auto-scroll the viewport even when the user has scrolled up.
-              const savedY = term.buffer.active.viewportY;
-              term.write(msg.d, () => {
-                const currentY = term.buffer.active.viewportY;
-                if (currentY !== savedY) {
-                  term.scrollLines(savedY - currentY);
-                }
-              });
-            }
+            // xterm natively preserves the viewport while the user is scrolled
+            // up (its BufferService.isUserScrolling flag, set whenever we or the
+            // wheel handler scroll into the scrollback) and follows the bottom otherwise.
+            // Writing plainly leans on that. The previous manual save/restore raced
+            // back-to-back async writes — write #2 captured savedY after write #1
+            // had already auto-scrolled to the bottom, so the restore became a
+            // no-op and the viewport snapped to the bottom during fast output.
+            term.write(msg.d);
+            if (isPinnedRef.current) scheduleScroll();
           } else if (msg.t === 'reconnected' && msg.buffer) {
             console.log(`[terminal-ui] Reconnected session ${sessionId}, buffer lines: ${msg.buffer.length}`);
             activityTracker.suppress();
