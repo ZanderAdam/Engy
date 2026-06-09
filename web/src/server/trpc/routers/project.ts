@@ -20,6 +20,7 @@ import {
   writeProjectContextFile,
   deleteProjectContextFile,
   readProjectFile,
+  readProjectImage,
   writeProjectFile,
   mkdirProject,
   deleteProjectFile,
@@ -136,16 +137,10 @@ export const projectRouter = router({
       return project;
     }),
 
-  list: publicProcedure
-    .input(z.object({ workspaceId: z.number() }))
-    .query(({ input }) => {
-      const db = getDb();
-      return db
-        .select()
-        .from(projects)
-        .where(eq(projects.workspaceId, input.workspaceId))
-        .all();
-    }),
+  list: publicProcedure.input(z.object({ workspaceId: z.number() })).query(({ input }) => {
+    const db = getDb();
+    return db.select().from(projects).where(eq(projects.workspaceId, input.workspaceId)).all();
+  }),
 
   get: publicProcedure.input(z.object({ id: z.number() })).query(({ input }) => {
     const db = getDb();
@@ -220,7 +215,11 @@ export const projectRouter = router({
 
       let effectiveDocsDir: string | null = null;
       if (workspace && input.worktreeBranch) {
-        const effective = await resolveEffectiveWorkspace(workspace, input.worktreeBranch, ctx.state);
+        const effective = await resolveEffectiveWorkspace(
+          workspace,
+          input.worktreeBranch,
+          ctx.state,
+        );
         effectiveDocsDir = effective.docsDir;
       }
       return enrichProject(project, workspace, effectiveDocsDir);
@@ -237,11 +236,7 @@ export const projectRouter = router({
         .all();
 
       return allProjects.map((project) => {
-        const projectTasks = db
-          .select()
-          .from(tasks)
-          .where(eq(tasks.projectId, project.id))
-          .all();
+        const projectTasks = db.select().from(tasks).where(eq(tasks.projectId, project.id)).all();
 
         return {
           ...project,
@@ -278,7 +273,11 @@ export const projectRouter = router({
     const project = db.select().from(projects).where(eq(projects.id, input.id)).get();
     if (!project) return { success: true };
 
-    const workspace = db.select().from(workspaces).where(eq(workspaces.id, project.workspaceId)).get();
+    const workspace = db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, project.workspaceId))
+      .get();
 
     db.delete(projects).where(eq(projects.id, input.id)).run();
 
@@ -408,14 +407,44 @@ export const projectRouter = router({
       }
     }),
 
+  // Mirrors `readFile`'s error mapping (not found → NOT_FOUND, else BAD_REQUEST),
+  // but returns image bytes as a base64 data URI for previewing rather than text.
+  readImage: publicProcedure
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string(),
+        filePath: z.string(),
+        worktreeBranch: worktreeBranchSchema,
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      const { project, effective } = await loadProjectForFile(
+        input.workspaceSlug,
+        input.projectSlug,
+        input.worktreeBranch,
+        ctx.state,
+      );
+      try {
+        return { dataUri: readProjectImage(effective, project.projectDir!, input.filePath) };
+      } catch (e) {
+        const msg = errorMessage(e);
+        if (msg.includes('not found')) throw new TRPCError({ code: 'NOT_FOUND', message: msg });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: msg });
+      }
+    }),
+
   writeFile: publicProcedure
     .input(
       z.object({
         workspaceSlug: z.string(),
         projectSlug: z.string(),
-        filePath: z.string().min(1).refine((p) => p !== 'spec.md', {
-          message: 'Use project.updateSpec to modify spec.md',
-        }),
+        filePath: z
+          .string()
+          .min(1)
+          .refine((p) => p !== 'spec.md', {
+            message: 'Use project.updateSpec to modify spec.md',
+          }),
         content: z.string(),
         worktreeBranch: worktreeBranchSchema,
       }),
@@ -464,7 +493,9 @@ export const projectRouter = router({
       z.object({
         workspaceSlug: z.string(),
         projectSlug: z.string(),
-        filePath: z.string().min(1)
+        filePath: z
+          .string()
+          .min(1)
           .refine((p) => p.endsWith('.md'), { message: 'Only .md files are supported' })
           .refine((p) => p !== 'spec.md', { message: 'Cannot delete spec.md' }),
         worktreeBranch: worktreeBranchSchema,
@@ -518,10 +549,15 @@ export const projectRouter = router({
       z.object({
         workspaceSlug: z.string(),
         projectSlug: z.string(),
-        oldPath: z.string().min(1)
+        oldPath: z
+          .string()
+          .min(1)
           .refine((p) => p.endsWith('.md'), { message: 'Only .md files are supported' })
           .refine((p) => p !== 'spec.md', { message: 'Cannot rename spec.md' }),
-        newPath: z.string().min(1).refine((p) => p.endsWith('.md'), { message: 'Only .md files are supported' }),
+        newPath: z
+          .string()
+          .min(1)
+          .refine((p) => p.endsWith('.md'), { message: 'Only .md files are supported' }),
         worktreeBranch: worktreeBranchSchema,
       }),
     )
@@ -678,9 +714,7 @@ export const projectRouter = router({
       return projectCompletionService.startCompletion(input.projectId);
     }),
 
-  archive: publicProcedure
-    .input(z.object({ projectId: z.number() }))
-    .mutation(({ input }) => {
-      return projectCompletionService.archive(input.projectId);
-    }),
+  archive: publicProcedure.input(z.object({ projectId: z.number() })).mutation(({ input }) => {
+    return projectCompletionService.archive(input.projectId);
+  }),
 });

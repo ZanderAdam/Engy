@@ -6,6 +6,13 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { dispatchFileSearch } from '../../ws/server';
 import { updateAndEmbed } from '../../search/indexer';
+import { isImagePath } from '@/lib/file-types';
+import { readImageAsDataUri } from '../../files/image';
+
+/** Files surfaced in the document tree: editable markdown plus previewable images. */
+function isViewableFile(name: string): boolean {
+  return name.endsWith('.md') || isImagePath(name);
+}
 
 const MAX_DEPTH = 5;
 
@@ -86,7 +93,7 @@ function collectMarkdownFilesAndDirs(
   for (const entry of entries) {
     if (entry.name.startsWith('.')) continue;
     const fullPath = path.join(currentDir, entry.name);
-    if (entry.isFile() && entry.name.endsWith('.md')) {
+    if (entry.isFile() && isViewableFile(entry.name)) {
       try {
         const stat = fs.statSync(fullPath);
         files.push({ path: path.relative(rootDir, fullPath), mtime: stat.mtimeMs });
@@ -131,50 +138,44 @@ function listDir(dirPath: string): { dirs: string[]; files: string[] } {
 export const dirRouter = router({
   home: publicProcedure.query(() => ({ path: os.homedir() })),
 
-  listDirs: publicProcedure
-    .input(z.object({ dirPath: z.string().min(1) }))
-    .query(({ input }) => {
-      try {
-        const entries = fs.readdirSync(input.dirPath, { withFileTypes: true });
-        const dirs = entries
-          .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
-          .map((e) => e.name)
-          .sort();
-        return { dirs };
-      } catch {
-        return { dirs: [] };
-      }
-    }),
+  listDirs: publicProcedure.input(z.object({ dirPath: z.string().min(1) })).query(({ input }) => {
+    try {
+      const entries = fs.readdirSync(input.dirPath, { withFileTypes: true });
+      const dirs = entries
+        .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+        .map((e) => e.name)
+        .sort();
+      return { dirs };
+    } catch {
+      return { dirs: [] };
+    }
+  }),
 
-  listFiles: publicProcedure
-    .input(z.object({ dirPath: z.string().min(1) }))
-    .query(({ input }) => {
-      if (!fs.existsSync(input.dirPath)) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: `Directory not found: ${input.dirPath}` });
-      }
-      const stat = fs.statSync(input.dirPath);
-      if (!stat.isDirectory()) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: `Not a directory: ${input.dirPath}` });
-      }
-      const result = collectMarkdownFilesAndDirs(input.dirPath, input.dirPath, MAX_DEPTH);
-      return {
-        files: result.files.sort((a, b) => a.path.localeCompare(b.path)),
-        dirs: result.dirs.sort(),
-      };
-    }),
+  listFiles: publicProcedure.input(z.object({ dirPath: z.string().min(1) })).query(({ input }) => {
+    if (!fs.existsSync(input.dirPath)) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: `Directory not found: ${input.dirPath}` });
+    }
+    const stat = fs.statSync(input.dirPath);
+    if (!stat.isDirectory()) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: `Not a directory: ${input.dirPath}` });
+    }
+    const result = collectMarkdownFilesAndDirs(input.dirPath, input.dirPath, MAX_DEPTH);
+    return {
+      files: result.files.sort((a, b) => a.path.localeCompare(b.path)),
+      dirs: result.dirs.sort(),
+    };
+  }),
 
-  list: publicProcedure
-    .input(z.object({ dirPath: z.string().min(1) }))
-    .query(({ input }) => {
-      if (!fs.existsSync(input.dirPath)) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: `Directory not found: ${input.dirPath}` });
-      }
-      const stat = fs.statSync(input.dirPath);
-      if (!stat.isDirectory()) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: `Not a directory: ${input.dirPath}` });
-      }
-      return listDir(input.dirPath);
-    }),
+  list: publicProcedure.input(z.object({ dirPath: z.string().min(1) })).query(({ input }) => {
+    if (!fs.existsSync(input.dirPath)) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: `Directory not found: ${input.dirPath}` });
+    }
+    const stat = fs.statSync(input.dirPath);
+    if (!stat.isDirectory()) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: `Not a directory: ${input.dirPath}` });
+    }
+    return listDir(input.dirPath);
+  }),
 
   read: publicProcedure
     .input(z.object({ dirPath: z.string().min(1), filePath: z.string().min(1) }))
@@ -191,6 +192,31 @@ export const dirRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Not a file: ${input.filePath}` });
       }
       return { content: fs.readFileSync(resolved, 'utf-8') };
+    }),
+
+  // Mirrors `read` (existence check → NOT_FOUND, other failures → BAD_REQUEST),
+  // but returns image bytes as a base64 data URI for previewing rather than text.
+  readImage: publicProcedure
+    .input(z.object({ dirPath: z.string().min(1), filePath: z.string().min(1) }))
+    .query(({ input }) => {
+      if (!isImagePath(input.filePath)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Not a supported image: ${input.filePath}`,
+        });
+      }
+      const resolved = validatePath(input.dirPath, input.filePath);
+      if (!fs.existsSync(resolved)) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `File not found: ${input.filePath}` });
+      }
+      try {
+        return { dataUri: readImageAsDataUri(resolved, input.filePath) };
+      } catch (e) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
     }),
 
   write: publicProcedure
@@ -273,11 +299,13 @@ export const dirRouter = router({
     }),
 
   renameFile: publicProcedure
-    .input(z.object({
-      dirPath: z.string().min(1),
-      oldPath: z.string().min(1),
-      newPath: z.string().min(1),
-    }))
+    .input(
+      z.object({
+        dirPath: z.string().min(1),
+        oldPath: z.string().min(1),
+        newPath: z.string().min(1),
+      }),
+    )
     .mutation(({ input }) => {
       if (!input.oldPath.endsWith('.md') || !input.newPath.endsWith('.md')) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only .md files are supported' });
@@ -299,23 +327,34 @@ export const dirRouter = router({
     }),
 
   renameDir: publicProcedure
-    .input(z.object({
-      dirPath: z.string().min(1),
-      oldSubDir: z.string().min(1),
-      newSubDir: z.string().min(1),
-    }))
+    .input(
+      z.object({
+        dirPath: z.string().min(1),
+        oldSubDir: z.string().min(1),
+        newSubDir: z.string().min(1),
+      }),
+    )
     .mutation(({ input }) => {
       const resolvedOld = validatePath(input.dirPath, input.oldSubDir);
       const resolvedNew = validatePath(input.dirPath, input.newSubDir);
       if (!fs.existsSync(resolvedOld)) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: `Directory not found: ${input.oldSubDir}` });
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `Directory not found: ${input.oldSubDir}`,
+        });
       }
       const stat = fs.statSync(resolvedOld);
       if (!stat.isDirectory()) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: `Not a directory: ${input.oldSubDir}` });
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Not a directory: ${input.oldSubDir}`,
+        });
       }
       if (fs.existsSync(resolvedNew)) {
-        throw new TRPCError({ code: 'CONFLICT', message: `Directory already exists: ${input.newSubDir}` });
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: `Directory already exists: ${input.newSubDir}`,
+        });
       }
       fs.mkdirSync(path.dirname(resolvedNew), { recursive: true });
       fs.renameSync(resolvedOld, resolvedNew);

@@ -5,6 +5,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
 
+const PNG_1X1_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
 describe('dir router', () => {
   let ctx: TestContext;
   let caller: ReturnType<typeof appRouter.createCaller>;
@@ -33,6 +36,8 @@ describe('dir router', () => {
     fs.writeFileSync(path.join(testDir, 'empty-sub', 'not-markdown.txt'), 'text file');
     fs.mkdirSync(path.join(testDir, 'deep', 'nested'), { recursive: true });
     fs.writeFileSync(path.join(testDir, 'deep', 'nested', 'deep.md'), '# Deep');
+    // 1x1 transparent PNG
+    fs.writeFileSync(path.join(testDir, 'diagram.png'), Buffer.from(PNG_1X1_BASE64, 'base64'));
   });
 
   afterEach(() => {
@@ -94,9 +99,7 @@ describe('dir router', () => {
     });
 
     it('should throw BAD_REQUEST for a file path', async () => {
-      await expect(
-        caller.dir.list({ dirPath: path.join(testDir, 'readme.md') }),
-      ).rejects.toThrow();
+      await expect(caller.dir.list({ dirPath: path.join(testDir, 'readme.md') })).rejects.toThrow();
     });
 
     it('should return sorted results', async () => {
@@ -118,9 +121,9 @@ describe('dir router', () => {
     });
 
     it('should throw NOT_FOUND for missing file', async () => {
-      await expect(
-        caller.dir.read({ dirPath: testDir, filePath: 'missing.md' }),
-      ).rejects.toThrow('not found');
+      await expect(caller.dir.read({ dirPath: testDir, filePath: 'missing.md' })).rejects.toThrow(
+        'not found',
+      );
     });
 
     it('should reject path traversal', async () => {
@@ -136,9 +139,42 @@ describe('dir router', () => {
     });
 
     it('should reject non-md files', async () => {
+      await expect(caller.dir.read({ dirPath: testDir, filePath: 'notes.txt' })).rejects.toThrow();
+    });
+  });
+
+  describe('readImage', () => {
+    it('should return a base64 data URI for an image', async () => {
+      const result = await caller.dir.readImage({ dirPath: testDir, filePath: 'diagram.png' });
+      expect(result.dataUri).toBe(`data:image/png;base64,${PNG_1X1_BASE64}`);
+    });
+
+    it('should reject non-image files', async () => {
       await expect(
-        caller.dir.read({ dirPath: testDir, filePath: 'notes.txt' }),
-      ).rejects.toThrow();
+        caller.dir.readImage({ dirPath: testDir, filePath: 'readme.md' }),
+      ).rejects.toThrow('Not a supported image');
+    });
+
+    it('should throw NOT_FOUND for a missing image', async () => {
+      await expect(
+        caller.dir.readImage({ dirPath: testDir, filePath: 'missing.png' }),
+      ).rejects.toThrow('not found');
+    });
+
+    it('should reject path traversal', async () => {
+      await expect(
+        caller.dir.readImage({ dirPath: testDir, filePath: '../secret.png' }),
+      ).rejects.toThrow('traversal');
+    });
+  });
+
+  describe('listFiles', () => {
+    it('should include image files alongside markdown', async () => {
+      const result = await caller.dir.listFiles({ dirPath: testDir });
+      const paths = result.files.map((f) => f.path);
+      expect(paths).toContain('diagram.png');
+      expect(paths).toContain('readme.md');
+      expect(paths).not.toContain('empty-sub/not-markdown.txt');
     });
   });
 
@@ -174,7 +210,11 @@ describe('dir router', () => {
     });
 
     it('should create parent directories as needed', async () => {
-      await caller.dir.write({ dirPath: testDir, filePath: 'new-dir/file.md', content: '# Nested' });
+      await caller.dir.write({
+        dirPath: testDir,
+        filePath: 'new-dir/file.md',
+        content: '# Nested',
+      });
       expect(fs.readFileSync(path.join(testDir, 'new-dir', 'file.md'), 'utf-8')).toBe('# Nested');
     });
 
@@ -279,26 +319,32 @@ describe('dir router', () => {
     });
 
     it('should reject path traversal', async () => {
-      await expect(
-        caller.dir.deleteDir({ dirPath: testDir, subDir: '../../tmp' }),
-      ).rejects.toThrow('traversal');
+      await expect(caller.dir.deleteDir({ dirPath: testDir, subDir: '../../tmp' })).rejects.toThrow(
+        'traversal',
+      );
     });
   });
 
   describe('renameFile', () => {
     it('should rename a file', async () => {
       const result = await caller.dir.renameFile({
-        dirPath: testDir, oldPath: 'readme.md', newPath: 'renamed.md',
+        dirPath: testDir,
+        oldPath: 'readme.md',
+        newPath: 'renamed.md',
       });
       expect(result.success).toBe(true);
       expect(fs.existsSync(path.join(testDir, 'readme.md'))).toBe(false);
       expect(fs.existsSync(path.join(testDir, 'renamed.md'))).toBe(true);
-      expect(fs.readFileSync(path.join(testDir, 'renamed.md'), 'utf-8')).toBe('# Readme\nHello world');
+      expect(fs.readFileSync(path.join(testDir, 'renamed.md'), 'utf-8')).toBe(
+        '# Readme\nHello world',
+      );
     });
 
     it('should rename a file in a subdirectory', async () => {
       const result = await caller.dir.renameFile({
-        dirPath: testDir, oldPath: 'sub/sub-note.md', newPath: 'sub/renamed-note.md',
+        dirPath: testDir,
+        oldPath: 'sub/sub-note.md',
+        newPath: 'sub/renamed-note.md',
       });
       expect(result.success).toBe(true);
       expect(fs.existsSync(path.join(testDir, 'sub', 'sub-note.md'))).toBe(false);
@@ -325,13 +371,21 @@ describe('dir router', () => {
 
     it('should reject path traversal on source', async () => {
       await expect(
-        caller.dir.renameFile({ dirPath: testDir, oldPath: '../../etc/secret.md', newPath: 'new.md' }),
+        caller.dir.renameFile({
+          dirPath: testDir,
+          oldPath: '../../etc/secret.md',
+          newPath: 'new.md',
+        }),
       ).rejects.toThrow('traversal');
     });
 
     it('should reject path traversal on destination', async () => {
       await expect(
-        caller.dir.renameFile({ dirPath: testDir, oldPath: 'readme.md', newPath: '../../escape.md' }),
+        caller.dir.renameFile({
+          dirPath: testDir,
+          oldPath: 'readme.md',
+          newPath: '../../escape.md',
+        }),
       ).rejects.toThrow('traversal');
     });
   });
@@ -339,7 +393,9 @@ describe('dir router', () => {
   describe('renameDir', () => {
     it('should rename a directory', async () => {
       const result = await caller.dir.renameDir({
-        dirPath: testDir, oldSubDir: 'sub', newSubDir: 'renamed-sub',
+        dirPath: testDir,
+        oldSubDir: 'sub',
+        newSubDir: 'renamed-sub',
       });
       expect(result.success).toBe(true);
       expect(fs.existsSync(path.join(testDir, 'sub'))).toBe(false);

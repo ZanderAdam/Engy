@@ -6,6 +6,7 @@ import { getDb } from '../db/client';
 import { workspaces, tasks } from '../db/schema';
 import {
   listProjectFiles,
+  readProjectImage,
   initProjectDir,
   removeProjectDir,
   getProjectSpec,
@@ -18,6 +19,9 @@ import {
 } from './service';
 
 type Workspace = { slug: string; docsDir: string | null };
+
+const PNG_1X1_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 describe('project service', () => {
   let ctx: TestContext;
@@ -72,6 +76,45 @@ describe('project service', () => {
     it('should reject path traversal', () => {
       expect(() => listProjectFiles(workspace, '../../../etc')).toThrow('Path traversal');
     });
+
+    it('should include image files alongside markdown', () => {
+      initProjectDir(workspace, 'auth-feature');
+      const projDir = path.join(ctx.tmpDir, 'test', 'projects', 'auth-feature');
+      fs.writeFileSync(path.join(projDir, 'diagram.png'), Buffer.from(PNG_1X1_BASE64, 'base64'));
+      const result = listProjectFiles(workspace, 'auth-feature');
+      const paths = result.files.map((f) => f.path);
+      expect(paths).toContain('diagram.png');
+      expect(paths).toContain('spec.md');
+    });
+  });
+
+  describe('readProjectImage', () => {
+    beforeEach(() => {
+      initProjectDir(workspace, 'auth-feature');
+      const projDir = path.join(ctx.tmpDir, 'test', 'projects', 'auth-feature');
+      fs.writeFileSync(path.join(projDir, 'diagram.png'), Buffer.from(PNG_1X1_BASE64, 'base64'));
+    });
+
+    it('should return a base64 data URI for an image', () => {
+      const dataUri = readProjectImage(workspace, 'auth-feature', 'diagram.png');
+      expect(dataUri).toBe(`data:image/png;base64,${PNG_1X1_BASE64}`);
+    });
+
+    it('should reject non-image files', () => {
+      expect(() => readProjectImage(workspace, 'auth-feature', 'spec.md')).toThrow(
+        'Not a supported image',
+      );
+    });
+
+    it('should throw for a missing image', () => {
+      expect(() => readProjectImage(workspace, 'auth-feature', 'missing.png')).toThrow('not found');
+    });
+
+    it('should reject path traversal', () => {
+      expect(() => readProjectImage(workspace, 'auth-feature', '../../secret.png')).toThrow(
+        'Path traversal',
+      );
+    });
   });
 
   describe('getProjectSpec', () => {
@@ -115,17 +158,17 @@ describe('project service', () => {
     });
 
     it('should reject invalid status transition draft → approved', () => {
-      expect(() =>
-        updateProjectSpec(workspace, 'auth-feature', { status: 'approved' }),
-      ).toThrow('Invalid status transition');
+      expect(() => updateProjectSpec(workspace, 'auth-feature', { status: 'approved' })).toThrow(
+        'Invalid status transition',
+      );
     });
 
     it('should block draft → ready with incomplete tasks', () => {
       const db = getDb();
       db.insert(tasks).values({ title: 'T1', specId: 'auth-feature', status: 'todo' }).run();
-      expect(() =>
-        updateProjectSpec(workspace, 'auth-feature', { status: 'ready' }),
-      ).toThrow('incomplete tasks');
+      expect(() => updateProjectSpec(workspace, 'auth-feature', { status: 'ready' })).toThrow(
+        'incomplete tasks',
+      );
     });
   });
 
@@ -169,9 +212,9 @@ describe('project service', () => {
     });
 
     it('should throw when reading non-existent context file', () => {
-      expect(() =>
-        readProjectContextFile(workspace, 'auth-feature', 'missing.md'),
-      ).toThrow('not found');
+      expect(() => readProjectContextFile(workspace, 'auth-feature', 'missing.md')).toThrow(
+        'not found',
+      );
     });
 
     it('should reject path traversal in context file operations', () => {

@@ -5,7 +5,9 @@ import { useCallback, useMemo } from 'react';
 import { trpc } from '@/lib/trpc';
 import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
 import { EngyThreadStore } from '@/components/editor/document-editor';
+import { ImagePreview } from '@/components/editor/image-preview';
 import { FileTree } from '@/components/file-tree';
+import { isImagePath } from '@/lib/file-types';
 import { RiFolderOpenLine } from '@remixicon/react';
 
 export function DirFileTree({
@@ -89,10 +91,7 @@ export function DirFileTree({
 
   const handleDeleteDir = useCallback(
     (subDir: string) => {
-      deleteDirMutation.mutate(
-        { dirPath, subDir },
-        { onSuccess: () => onDeleteDir?.(subDir) },
-      );
+      deleteDirMutation.mutate({ dirPath, subDir }, { onSuccess: () => onDeleteDir?.(subDir) });
     },
     [deleteDirMutation, dirPath, onDeleteDir],
   );
@@ -177,16 +176,22 @@ export function DirFileEditor({
 }) {
   const utils = trpc.useUtils();
   const absoluteFilePath = path.join(dirPath, relPath);
+  const isImage = isImagePath(relPath);
 
   const threadStore = useMemo(
-    () => (comments ? new EngyThreadStore(undefined, absoluteFilePath) : undefined),
-    [comments, absoluteFilePath],
+    () => (comments && !isImage ? new EngyThreadStore(undefined, absoluteFilePath) : undefined),
+    [comments, isImage, absoluteFilePath],
   );
 
-  const { data, isLoading, error } = trpc.dir.read.useQuery({
-    dirPath,
-    filePath: relPath,
-  });
+  const { data, isLoading, error } = trpc.dir.read.useQuery(
+    { dirPath, filePath: relPath },
+    { enabled: !isImage },
+  );
+
+  const imageQuery = trpc.dir.readImage.useQuery(
+    { dirPath, filePath: relPath },
+    { enabled: isImage },
+  );
 
   const writeMutation = trpc.dir.write.useMutation({
     onSuccess: () => utils.dir.read.invalidate({ dirPath, filePath: relPath }),
@@ -198,6 +203,25 @@ export function DirFileEditor({
     },
     [writeMutation, dirPath, relPath],
   );
+
+  if (isImage) {
+    if (imageQuery.isLoading) {
+      return (
+        <div className="flex items-center justify-center py-20">
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        </div>
+      );
+    }
+    if (imageQuery.error) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 py-20">
+          <p className="text-sm font-medium">Failed to load image</p>
+          <p className="text-xs text-muted-foreground">{imageQuery.error.message}</p>
+        </div>
+      );
+    }
+    return <ImagePreview dataUri={imageQuery.data!.dataUri} fileName={path.basename(relPath)} />;
+  }
 
   if (isLoading) {
     return (

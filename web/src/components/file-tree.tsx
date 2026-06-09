@@ -1,17 +1,17 @@
-"use client";
+'use client';
 
-import { useMemo, useState } from "react";
-import { TreeView, type TreeDataItem } from "@/components/tree-view";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { useMemo, useState } from 'react';
+import { TreeView, type TreeDataItem } from '@/components/tree-view';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,21 +21,21 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from '@/components/ui/alert-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from '@/components/ui/dropdown-menu';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from '@/components/ui/select';
 import {
   RiAddLine,
   RiDeleteBinLine,
@@ -44,19 +44,21 @@ import {
   RiFileTextLine,
   RiFolderAddLine,
   RiFolderLine,
+  RiImageLine,
   RiLoopLeftLine,
   RiMore2Line,
   RiPencilLine,
   RiSearchLine,
   RiSortAsc,
   RiSortDesc,
-} from "@remixicon/react";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+} from '@remixicon/react';
+import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { isImagePath } from '@/lib/file-types';
 
 type FileEntry = { path: string; mtime: number };
-type SortMode = "modified" | "name";
-type SortDir = "asc" | "desc";
+type SortMode = 'modified' | 'name';
+type SortDir = 'asc' | 'desc';
 
 interface FileTreeProps {
   files: FileEntry[];
@@ -85,7 +87,7 @@ function buildTrie(files: FileEntry[], dirs: string[]): DirNode {
   const root: DirNode = { children: new Map(), files: [], maxMtime: 0 };
 
   for (const f of files) {
-    const parts = f.path.split("/");
+    const parts = f.path.split('/');
     const fileName = parts.pop()!;
     let node = root;
     for (const segment of parts) {
@@ -101,7 +103,7 @@ function buildTrie(files: FileEntry[], dirs: string[]): DirNode {
 
   // Ensure empty directories are represented in the trie
   for (const d of dirs) {
-    const parts = d.split("/");
+    const parts = d.split('/');
     let node = root;
     for (const segment of parts) {
       if (!node.children.has(segment)) {
@@ -122,22 +124,22 @@ function trieToTreeItems(
   dirActions?: (dirPath: string) => React.ReactNode,
   fileActions?: (filePath: string) => React.ReactNode,
 ): TreeDataItem[] {
-  const sortMul = sortDir === "asc" ? 1 : -1;
+  const sortMul = sortDir === 'asc' ? 1 : -1;
 
   const sortedFiles = [...node.files].sort((a, b) => {
-    if (sortMode === "modified") return (a.mtime - b.mtime) * sortMul;
+    if (sortMode === 'modified') return (a.mtime - b.mtime) * sortMul;
     return a.name.localeCompare(b.name) * sortMul;
   });
 
   const fileItems: TreeDataItem[] = sortedFiles.map((f) => ({
     id: f.path,
     name: f.name,
-    icon: RiFileTextLine,
+    icon: isImagePath(f.name) ? RiImageLine : RiFileTextLine,
     actions: fileActions?.(f.path),
   }));
 
   const dirEntries = [...node.children.entries()];
-  if (sortMode === "modified") {
+  if (sortMode === 'modified') {
     dirEntries.sort((a, b) => (a[1].maxMtime - b[1].maxMtime) * sortMul);
   } else {
     dirEntries.sort((a, b) => a[0].localeCompare(b[0]) * sortMul);
@@ -158,8 +160,8 @@ function trieToTreeItems(
 }
 
 function parentPrefix(itemPath: string): string {
-  const idx = itemPath.lastIndexOf("/");
-  return idx >= 0 ? itemPath.substring(0, idx + 1) : "";
+  const idx = itemPath.lastIndexOf('/');
+  return idx >= 0 ? itemPath.substring(0, idx + 1) : '';
 }
 
 function buildFileTree(
@@ -181,7 +183,7 @@ function buildFileTree(
     : dirs;
 
   const root = buildTrie(filtered, filteredDirs);
-  return trieToTreeItems(root, "", sortMode, sortDir, dirActions, fileActions);
+  return trieToTreeItems(root, '', sortMode, sortDir, dirActions, fileActions);
 }
 
 function ItemActions({
@@ -193,9 +195,9 @@ function ItemActions({
   onCreateDir,
   onDelete,
   onRename,
-  size = "sm",
+  size = 'sm',
 }: {
-  type: "file" | "dir";
+  type: 'file' | 'dir';
   itemPath: string;
   itemName: string;
   rootAbsPath?: string;
@@ -203,35 +205,35 @@ function ItemActions({
   onCreateDir?: (dirPath: string) => void;
   onDelete?: () => void;
   onRename?: (newName: string) => void;
-  size?: "sm" | "xs";
+  size?: 'sm' | 'xs';
 }) {
   const [createOpen, setCreateOpen] = useState(false);
-  const [createMode, setCreateMode] = useState<"file" | "folder">("file");
-  const [createName, setCreateName] = useState("");
+  const [createMode, setCreateMode] = useState<'file' | 'folder'>('file');
+  const [createName, setCreateName] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
-  const [renameName, setRenameName] = useState("");
+  const [renameName, setRenameName] = useState('');
 
-  const hasCreateActions = type === "dir" && (!!onCreateFile || !!onCreateDir);
+  const hasCreateActions = type === 'dir' && (!!onCreateFile || !!onCreateDir);
 
   function handleCreateSubmit() {
     const trimmed = createName.trim();
     if (!trimmed) return;
 
-    if (createMode === "file") {
-      const finalName = trimmed.endsWith(".md") ? trimmed : `${trimmed}.md`;
+    if (createMode === 'file') {
+      const finalName = trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
       onCreateFile?.(itemPath, finalName);
     } else {
       onCreateDir?.(itemPath ? `${itemPath}/${trimmed}` : trimmed);
     }
 
     setCreateOpen(false);
-    setCreateName("");
+    setCreateName('');
   }
 
-  function openCreate(m: "file" | "folder") {
+  function openCreate(m: 'file' | 'folder') {
     setCreateMode(m);
-    setCreateName("");
+    setCreateName('');
     setCreateOpen(true);
   }
 
@@ -244,14 +246,13 @@ function ItemActions({
     const trimmed = renameName.trim();
     if (!trimmed || trimmed === itemName) return;
 
-    const finalName =
-      type === "file" && !trimmed.endsWith(".md") ? `${trimmed}.md` : trimmed;
+    const finalName = type === 'file' && !trimmed.endsWith('.md') ? `${trimmed}.md` : trimmed;
     onRename?.(finalName);
     setRenameOpen(false);
   }
 
-  const iconSize = size === "xs" ? "size-3" : "size-3.5";
-  const btnSize = size === "xs" ? "size-5" : "size-6";
+  const iconSize = size === 'xs' ? 'size-3' : 'size-3.5';
+  const btnSize = size === 'xs' ? 'size-5' : 'size-6';
 
   return (
     <>
@@ -271,14 +272,14 @@ function ItemActions({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-          {type === "dir" && onCreateFile && (
-            <DropdownMenuItem onClick={() => openCreate("file")}>
+          {type === 'dir' && onCreateFile && (
+            <DropdownMenuItem onClick={() => openCreate('file')}>
               <RiFileAddLine className="size-4" />
               New File
             </DropdownMenuItem>
           )}
-          {type === "dir" && onCreateDir && (
-            <DropdownMenuItem onClick={() => openCreate("folder")}>
+          {type === 'dir' && onCreateDir && (
+            <DropdownMenuItem onClick={() => openCreate('folder')}>
               <RiFolderAddLine className="size-4" />
               New Folder
             </DropdownMenuItem>
@@ -296,17 +297,17 @@ function ItemActions({
               onClick={() => setDeleteOpen(true)}
             >
               <RiDeleteBinLine className="size-4" />
-              Delete {type === "file" ? "File" : "Folder"}
+              Delete {type === 'file' ? 'File' : 'Folder'}
             </DropdownMenuItem>
           )}
-          {itemPath !== "" && (
+          {itemPath !== '' && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => {
                   navigator.clipboard
                     .writeText(itemPath)
-                    .then(() => toast.success("Relative path copied"));
+                    .then(() => toast.success('Relative path copied'));
                 }}
               >
                 <RiFileCopyLine className="size-4" />
@@ -317,7 +318,7 @@ function ItemActions({
                   onClick={() => {
                     navigator.clipboard
                       .writeText(`${rootAbsPath}/${itemPath}`)
-                      .then(() => toast.success("Full path copied"));
+                      .then(() => toast.success('Full path copied'));
                   }}
                 >
                   <RiFileCopyLine className="size-4" />
@@ -333,7 +334,7 @@ function ItemActions({
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogContent className="max-w-xs" onClick={(e) => e.stopPropagation()}>
             <DialogHeader>
-              <DialogTitle>{createMode === "file" ? "New File" : "New Folder"}</DialogTitle>
+              <DialogTitle>{createMode === 'file' ? 'New File' : 'New Folder'}</DialogTitle>
             </DialogHeader>
             <form
               onSubmit={(e) => {
@@ -345,7 +346,7 @@ function ItemActions({
                 autoFocus
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
-                placeholder={createMode === "folder" ? "folder-name" : "filename.md"}
+                placeholder={createMode === 'folder' ? 'folder-name' : 'filename.md'}
                 className="h-8 text-sm"
               />
               <DialogFooter className="mt-3">
@@ -370,7 +371,7 @@ function ItemActions({
         <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
           <DialogContent className="max-w-xs" onClick={(e) => e.stopPropagation()}>
             <DialogHeader>
-              <DialogTitle>Rename {type === "file" ? "File" : "Folder"}</DialogTitle>
+              <DialogTitle>Rename {type === 'file' ? 'File' : 'Folder'}</DialogTitle>
             </DialogHeader>
             <form
               onSubmit={(e) => {
@@ -411,13 +412,11 @@ function ItemActions({
         <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
           <AlertDialogContent onClick={(e) => e.stopPropagation()}>
             <AlertDialogHeader>
-              <AlertDialogTitle>
-                Delete &ldquo;{itemName}&rdquo;?
-              </AlertDialogTitle>
+              <AlertDialogTitle>Delete &ldquo;{itemName}&rdquo;?</AlertDialogTitle>
               <AlertDialogDescription>
-                {type === "dir"
-                  ? "This will permanently delete this folder and all its contents."
-                  : "This will permanently delete this file."}{" "}
+                {type === 'dir'
+                  ? 'This will permanently delete this folder and all its contents.'
+                  : 'This will permanently delete this file.'}{' '}
                 This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -446,7 +445,7 @@ export function FileTree({
   dirs = [],
   selectedFile,
   onSelectFile,
-  label = "Files",
+  label = 'Files',
   rootAbsPath,
   onCreateFile,
   onCreateDir,
@@ -457,9 +456,9 @@ export function FileTree({
   onRefresh,
   isRefreshing,
 }: FileTreeProps) {
-  const [sortMode, setSortMode] = useState<SortMode>("modified");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [filterText, setFilterText] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>('modified');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [filterText, setFilterText] = useState('');
 
   const hasCreateActions = !!onCreateFile || !!onCreateDir;
 
@@ -470,7 +469,7 @@ export function FileTree({
             <ItemActions
               type="dir"
               itemPath={dirPath}
-              itemName={dirPath.split("/").pop() ?? dirPath}
+              itemName={dirPath.split('/').pop() ?? dirPath}
               rootAbsPath={rootAbsPath}
               onCreateFile={onCreateFile}
               onCreateDir={onCreateDir}
@@ -490,21 +489,28 @@ export function FileTree({
   const fileActions = useMemo(
     () =>
       onDeleteFile || onRenameFile
-        ? (filePath: string) => (
-            <ItemActions
-              type="file"
-              itemPath={filePath}
-              itemName={filePath.split("/").pop() ?? filePath}
-              rootAbsPath={rootAbsPath}
-              onDelete={onDeleteFile ? () => onDeleteFile(filePath) : undefined}
-              onRename={
-                onRenameFile
-                  ? (newName: string) => onRenameFile(filePath, `${parentPrefix(filePath)}${newName}`)
-                  : undefined
-              }
-              size="xs"
-            />
-          )
+        ? (filePath: string) => {
+            // Rename/delete are markdown-only on the server, and the rename
+            // dialog auto-appends ".md" — both would corrupt or reject images.
+            // Images stay preview-only (copy-path remains available).
+            const manageable = !isImagePath(filePath);
+            return (
+              <ItemActions
+                type="file"
+                itemPath={filePath}
+                itemName={filePath.split('/').pop() ?? filePath}
+                rootAbsPath={rootAbsPath}
+                onDelete={onDeleteFile && manageable ? () => onDeleteFile(filePath) : undefined}
+                onRename={
+                  onRenameFile && manageable
+                    ? (newName: string) =>
+                        onRenameFile(filePath, `${parentPrefix(filePath)}${newName}`)
+                    : undefined
+                }
+                size="xs"
+              />
+            );
+          }
         : undefined,
     [rootAbsPath, onDeleteFile, onRenameFile],
   );
@@ -530,7 +536,7 @@ export function FileTree({
               className="h-6 w-6 p-0"
               title="Refresh"
             >
-              <RiLoopLeftLine className={cn("size-3.5", isRefreshing && "animate-spin")} />
+              <RiLoopLeftLine className={cn('size-3.5', isRefreshing && 'animate-spin')} />
             </Button>
           )}
           <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
@@ -544,11 +550,11 @@ export function FileTree({
           </Select>
           <button
             type="button"
-            onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+            onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
             className="flex items-center justify-center size-6 text-muted-foreground hover:text-foreground transition-colors"
-            title={sortDir === "asc" ? "Ascending" : "Descending"}
+            title={sortDir === 'asc' ? 'Ascending' : 'Descending'}
           >
-            {sortDir === "asc" ? (
+            {sortDir === 'asc' ? (
               <RiSortAsc className="size-3.5" />
             ) : (
               <RiSortDesc className="size-3.5" />
@@ -578,7 +584,7 @@ export function FileTree({
         {treeData.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-10 px-4">
             <p className="text-sm text-muted-foreground">
-              {filterText ? "No matching files" : "No files yet"}
+              {filterText ? 'No matching files' : 'No files yet'}
             </p>
           </div>
         ) : (

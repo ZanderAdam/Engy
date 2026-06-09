@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
+import { isImagePath } from '@/lib/file-types';
+import { readImageAsDataUri } from '../files/image';
 import { getWorkspaceDir } from '../engy-dir/init';
 import { getDb } from '../db/client';
 import { tasks } from '../db/schema';
@@ -66,6 +68,7 @@ function collectMarkdownFilesAndDirs(
   rootDir: string,
   currentDir: string,
   depth: number,
+  includeImages = false,
 ): { files: FileEntry[]; dirs: string[] } {
   if (depth <= 0) return { files: [], dirs: [] };
   let entries: fs.Dirent[];
@@ -75,12 +78,14 @@ function collectMarkdownFilesAndDirs(
     return { files: [], dirs: [] };
   }
 
+  const isViewable = (name: string) => name.endsWith('.md') || (includeImages && isImagePath(name));
+
   const files: FileEntry[] = [];
   const dirs: string[] = [];
   for (const entry of entries) {
     if (entry.name.startsWith('.')) continue;
     const fullPath = path.join(currentDir, entry.name);
-    if (entry.isFile() && entry.name.endsWith('.md')) {
+    if (entry.isFile() && isViewable(entry.name)) {
       try {
         const stat = fs.statSync(fullPath);
         files.push({ path: path.relative(rootDir, fullPath), mtime: stat.mtimeMs });
@@ -88,7 +93,7 @@ function collectMarkdownFilesAndDirs(
         // file may have been deleted between readdir and stat
       }
     } else if (entry.isDirectory()) {
-      const sub = collectMarkdownFilesAndDirs(rootDir, fullPath, depth - 1);
+      const sub = collectMarkdownFilesAndDirs(rootDir, fullPath, depth - 1, includeImages);
       files.push(...sub.files);
       dirs.push(...sub.dirs);
       if (sub.files.length === 0) {
@@ -103,7 +108,7 @@ export function listProjectFiles(workspace: Workspace, projectDir: string): Proj
   const dir = projectsDir(workspace);
   const projDir = validatePath(dir, projectDir);
   const result = fs.existsSync(projDir)
-    ? collectMarkdownFilesAndDirs(projDir, projDir, MAX_PROJECT_DEPTH)
+    ? collectMarkdownFilesAndDirs(projDir, projDir, MAX_PROJECT_DEPTH, true)
     : { files: [], dirs: [] };
 
   let type: SpecType | null = null;
@@ -257,7 +262,11 @@ export function deleteProjectContextFile(
   fs.unlinkSync(filePath);
 }
 
-export function readProjectFile(workspace: Workspace, projectSlug: string, filePath: string): string {
+export function readProjectFile(
+  workspace: Workspace,
+  projectSlug: string,
+  filePath: string,
+): string {
   const dir = projectsDir(workspace);
   const projDir = validatePath(dir, projectSlug);
   const resolved = validatePath(projDir, filePath);
@@ -267,6 +276,22 @@ export function readProjectFile(workspace: Workspace, projectSlug: string, fileP
   }
 
   return fs.readFileSync(resolved, 'utf-8');
+}
+
+export function readProjectImage(
+  workspace: Workspace,
+  projectSlug: string,
+  filePath: string,
+): string {
+  const dir = projectsDir(workspace);
+  const projDir = validatePath(dir, projectSlug);
+  const resolved = validatePath(projDir, filePath);
+
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`File "${filePath}" not found in project "${projectSlug}"`);
+  }
+
+  return readImageAsDataUri(resolved, filePath);
 }
 
 export function writeProjectFile(
@@ -290,7 +315,11 @@ export function mkdirProject(workspace: Workspace, projectSlug: string, subDir: 
   fs.mkdirSync(resolved, { recursive: true });
 }
 
-export function deleteProjectFile(workspace: Workspace, projectSlug: string, filePath: string): void {
+export function deleteProjectFile(
+  workspace: Workspace,
+  projectSlug: string,
+  filePath: string,
+): void {
   const dir = projectsDir(workspace);
   const projDir = validatePath(dir, projectSlug);
   const resolved = validatePath(projDir, filePath);
@@ -306,7 +335,11 @@ export function deleteProjectFile(workspace: Workspace, projectSlug: string, fil
   fs.unlinkSync(resolved);
 }
 
-export function deleteProjectSubDir(workspace: Workspace, projectSlug: string, subDir: string): void {
+export function deleteProjectSubDir(
+  workspace: Workspace,
+  projectSlug: string,
+  subDir: string,
+): void {
   const dir = projectsDir(workspace);
   const projDir = validatePath(dir, projectSlug);
   const resolved = validatePath(projDir, subDir);
@@ -392,9 +425,7 @@ function validateStatusTransition(
   const allowed = transitions[current] ?? [];
 
   if (!allowed.includes(next)) {
-    throw new Error(
-      `Invalid status transition for ${type} spec: "${current}" → "${next}"`,
-    );
+    throw new Error(`Invalid status transition for ${type} spec: "${current}" → "${next}"`);
   }
 
   if (type === 'buildable' && current === 'draft' && next === 'ready') {
