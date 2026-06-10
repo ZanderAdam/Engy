@@ -38,9 +38,10 @@ function MobileTerminalSheetBase({
   extraDropdownGroups,
   containerEnabled,
 }: SheetBaseProps) {
-  const { overlay, openOverlay, closeOverlay } = useMobileOverlay();
+  const { overlay, openOverlay, closeOverlay, headerHeight } = useMobileOverlay();
   const scopeKey = scope.groupKey;
   const open = overlay === overlayKind;
+  const headerOffset = `${headerHeight}px`;
 
   // Queue terminal:open / terminal:inject events fired while the sheet is
   // closed (TerminalManager unmounted, so no listener exists) and replay
@@ -93,8 +94,13 @@ function MobileTerminalSheetBase({
     >
       <SheetContent
         side="right"
-        className="flex h-full w-full flex-col gap-0 border-l border-border bg-background p-0"
+        // h-auto (not h-full) so the sheet is sized by top + the inherited
+        // bottom:0, sitting below the sticky mobile header to keep it visible
+        // for quick project switching. Inline top wins over the class top:0.
+        className="flex h-auto w-full flex-col gap-0 border-l border-border bg-background p-0"
         showCloseButton={false}
+        style={{ top: headerOffset }}
+        overlayStyle={{ top: headerOffset }}
       >
         <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-2">
           <Button

@@ -52,14 +52,18 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  // Divergence from generator output: lets a caller offset/restyle the backdrop
+  // (e.g. the mobile terminal sheet sits below the header). Re-add `sheet` -> restore.
+  overlayStyle,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  overlayStyle?: React.CSSProperties
 }) {
   return (
     <SheetPortal>
-      <SheetOverlay />
+      <SheetOverlay style={overlayStyle} />
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(

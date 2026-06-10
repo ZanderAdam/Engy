@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import {
   RiArrowDownSLine,
   RiCheckLine,
@@ -53,7 +54,24 @@ export function MobileHeader({ workspace, project, onOpenManageWorktrees }: Mobi
   const searchParams = useVirtualSearchParams();
   const navigate = useVirtualNavigate();
   const tabsList = useTabsList();
-  const { overlay, openOverlay, closeOverlay } = useMobileOverlay();
+  const { overlay, openOverlay, closeOverlay, setHeaderHeight } = useMobileOverlay();
+  const headerRef = useRef<HTMLElement>(null);
+
+  // Publish the header's live height so full-screen overlays (terminal sheets)
+  // can offset below it instead of covering it. Resets to 0 on unmount so
+  // overlays go full-screen on routes without the header.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const apply = () => setHeaderHeight(el.offsetHeight);
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      setHeaderHeight(0);
+    };
+  }, [setHeaderHeight]);
 
   const workspaceRepoCount = ((workspace?.repos as string[] | null) ?? []).length;
 
@@ -90,7 +108,7 @@ export function MobileHeader({ workspace, project, onOpenManageWorktrees }: Mobi
     current?.segment === 'docs' || current?.segment === 'diffs' || current?.segment === 'code';
 
   return (
-    <header className="sticky top-0 z-30 flex shrink-0 flex-col bg-background">
+    <header ref={headerRef} className="sticky top-0 z-30 flex shrink-0 flex-col bg-background">
       {/* Row 1 — Identity bar */}
       <div className="flex h-11 items-center justify-between border-b border-border bg-card px-2">
         <nav

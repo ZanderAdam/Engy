@@ -12,12 +12,18 @@ interface MobileOverlayContextValue {
   overlay: MobileOverlay;
   openOverlay: (kind: Exclude<MobileOverlay, null>) => void;
   closeOverlay: () => void;
+  // Measured height of the mobile header (0 when absent), so full-screen
+  // overlays can sit below it. Scoped per provider — i.e. per open tab — so
+  // background tabs (rendered but hidden) can't clobber the active tab's value.
+  headerHeight: number;
+  setHeaderHeight: (height: number) => void;
 }
 
 const Ctx = createContext<MobileOverlayContextValue | null>(null);
 
 export function MobileOverlayProvider({ children }: { children: React.ReactNode }) {
   const [overlay, setOverlay] = useState<MobileOverlay>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
 
   const openOverlay = useCallback((kind: Exclude<MobileOverlay, null>) => {
     setOverlay(kind);
@@ -28,8 +34,8 @@ export function MobileOverlayProvider({ children }: { children: React.ReactNode 
   }, []);
 
   const value = useMemo(
-    () => ({ overlay, openOverlay, closeOverlay }),
-    [overlay, openOverlay, closeOverlay],
+    () => ({ overlay, openOverlay, closeOverlay, headerHeight, setHeaderHeight }),
+    [overlay, openOverlay, closeOverlay, headerHeight],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
