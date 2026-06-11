@@ -14,6 +14,7 @@ import {
   validateSourcePath,
   validateLinkedMemoryPath,
   escapeIndexMarkers,
+  commitFile,
 } from './memory-files';
 
 async function initGitRepo(dir: string): Promise<void> {
@@ -429,6 +430,282 @@ describe('memory-files', () => {
       const p = path.join(workspaceDir, 'memory', 'references', 'bad.md');
       fs.writeFileSync(p, '---\ntitle: No URL\ntype: doc\n---\n');
       expect(() => readReferenceRecord(p)).toThrow('non-empty string url');
+    });
+  });
+
+  describe('writePermanentMemory op parameter (finding 3)', () => {
+    it('should use memory(promote): prefix by default', async () => {
+      await writePermanentMemory(
+        workspaceDir,
+        { title: 'Default Op', subtype: 'fact' as const },
+        'body',
+      );
+      const git = simpleGit(workspaceDir);
+      const log = await git.log();
+      expect(log.latest?.message).toContain('memory(promote):');
+    });
+
+    it('should use memory(create): prefix when op=create', async () => {
+      await writePermanentMemory(
+        workspaceDir,
+        { title: 'Create Op', subtype: 'fact' as const },
+        'body',
+        'create',
+      );
+      const git = simpleGit(workspaceDir);
+      const log = await git.log();
+      expect(log.latest?.message).toContain('memory(create):');
+    });
+  });
+
+  describe('sanitizeCommitSubject — malicious title injection (finding 4)', () => {
+    it('should collapse newlines in title into spaces so subject stays single-line', async () => {
+      const maliciousTitle = 'Legit Title\n\ninjected: fake-field\nother: value';
+      await writePermanentMemory(
+        workspaceDir,
+        { title: maliciousTitle, subtype: 'fact' as const },
+        'body',
+      );
+      const git = simpleGit(workspaceDir);
+      const log = await git.log();
+      // The commit message body must not have injected fake key:value lines from the title.
+      const fullMsg = log.latest?.body ?? '';
+      expect(fullMsg).not.toContain('injected: fake-field');
+    });
+
+    it('should cap the subject at 72 chars', async () => {
+      const longTitle = 'A'.repeat(100);
+      await writePermanentMemory(
+        workspaceDir,
+        { title: longTitle, subtype: 'fact' as const },
+        'body',
+      );
+      const git = simpleGit(workspaceDir);
+      const log = await git.log();
+      const subject = log.latest?.message ?? '';
+      // "memory(promote): " is 17 chars; title capped at 72 → total subject ≤ 89 chars
+      expect(subject.length).toBeLessThanOrEqual(90);
+      expect(subject).not.toContain('A'.repeat(80));
+    });
+  });
+
+  describe('commitFile skip when nothing staged (finding 5)', () => {
+    it('should return skipped when staging already-committed files with no changes', async () => {
+      const filePath = path.join(workspaceDir, 'already-committed.md');
+      fs.writeFileSync(filePath, 'content');
+      const git = simpleGit(workspaceDir);
+      await git.add([filePath]);
+      await git.commit('initial');
+
+      const result = await commitFile(workspaceDir, [filePath], 'should be skipped');
+      expect(result).toBe('skipped');
+
+      const log = await git.log();
+      expect(log.latest?.message).toBe('initial');
+    });
+
+    it('should return committed when there are staged changes', async () => {
+      const filePath = path.join(workspaceDir, 'new-file.md');
+      fs.writeFileSync(filePath, 'new content');
+      const result = await commitFile(workspaceDir, [filePath], 'test commit');
+      expect(result).toBe('committed');
+    });
+  });
+
+  describe('parseMatterSafe delimiter edge cases (finding 6)', () => {
+    it('should parse valid frontmatter when body contains a markdown HR (\\n---\\n)', () => {
+      const p = path.join(workspaceDir, 'memory', 'decisions', 'hr-body.md');
+      fs.writeFileSync(p, '---\ntitle: HR Test\nsubtype: decision\n---\nIntro\n\n---\n\nAfter HR.');
+      const result = readPermanentMemory(p, workspaceDir);
+      expect(result.frontmatter.title).toBe('HR Test');
+      expect(result.content).toContain('After HR.');
+    });
+
+    it('should parse CRLF frontmatter correctly', () => {
+      const p = path.join(workspaceDir, 'memory', 'decisions', 'crlf.md');
+      fs.writeFileSync(p, '---\r\ntitle: CRLF Test\r\nsubtype: decision\r\n---\r\nbody text');
+      const result = readPermanentMemory(p, workspaceDir);
+      expect(result.frontmatter.title).toBe('CRLF Test');
+    });
+
+    it('should throw for genuinely unclosed frontmatter', () => {
+      const p = path.join(workspaceDir, 'memory', 'decisions', 'unclosed.md');
+      fs.writeFileSync(p, '---\ntitle: No Close\nsubtype: decision\n');
+      expect(() => readPermanentMemory(p, workspaceDir)).toThrow('Malformed frontmatter');
+    });
+  });
+
+  describe('rewritePermanentMemory rejects absolute paths (finding 7)', () => {
+    it('should throw when given an absolute path instead of a relative one', async () => {
+      const absPath = path.join(workspaceDir, 'memory', 'facts', 'some-file.md');
+      await expect(
+        rewritePermanentMemory(
+          workspaceDir,
+          absPath,
+          { title: 'Abs Path Test', subtype: 'fact' as const },
+          'body',
+        ),
+      ).rejects.toThrow('must be relative');
+    });
+  });
+
+  describe('writePermanentMemory rollback on commit failure', () => {
+    it('should delete the written file when the git commit throws', async () => {
+      // Place a stale .git/index.lock file before calling writePermanentMemory.
+      // git will refuse to proceed ("Unable to create .git/index.lock: File exists"),
+      // causing commitFile to throw after the markdown file has been written.
+      const lockFile = path.join(workspaceDir, '.git', 'index.lock');
+      fs.writeFileSync(lockFile, '', 'utf8');
+
+      let error: Error | undefined;
+      let resolvedDir: string | undefined;
+      try {
+        await writePermanentMemory(
+          workspaceDir,
+          { title: 'Rollback Test', subtype: 'fact' as const },
+          'body that should be rolled back',
+        );
+      } catch (err) {
+        error = err as Error;
+        // Figure out where the file would have been written so we can assert absence.
+        resolvedDir = path.join(workspaceDir, 'memory', 'facts');
+      } finally {
+        // Remove the lock so later tests can use this workspaceDir for git ops.
+        try { fs.unlinkSync(lockFile); } catch { /* already gone */ }
+      }
+
+      // The commit must have thrown.
+      expect(error).toBeDefined();
+
+      // The rollback must have cleaned up: no markdown files in the facts dir.
+      if (resolvedDir && fs.existsSync(resolvedDir)) {
+        const mdFiles = fs
+          .readdirSync(resolvedDir)
+          .filter((f) => f.endsWith('.md') && f !== 'README.md');
+        expect(mdFiles).toHaveLength(0);
+      }
+    });
+  });
+
+  describe('rewritePermanentMemory subtype relocation', () => {
+    it('should move the file to the new subtype directory when subtype changes', async () => {
+      const relPath = await writePermanentMemory(
+        workspaceDir,
+        { title: 'Relocate Me', subtype: 'fact' as const },
+        'original body',
+      );
+
+      fs.mkdirSync(path.join(workspaceDir, 'memory', 'decisions'), { recursive: true });
+
+      const newRelPath = await rewritePermanentMemory(
+        workspaceDir,
+        relPath,
+        { title: 'Relocate Me', subtype: 'decision' as const },
+        'updated body',
+      );
+
+      // New path is under decisions/
+      expect(newRelPath).toMatch(/^memory\/decisions\//);
+      expect(newRelPath).not.toBe(relPath);
+
+      // New file exists, old file is gone
+      expect(fs.existsSync(path.join(workspaceDir, newRelPath))).toBe(true);
+      expect(fs.existsSync(path.join(workspaceDir, relPath))).toBe(false);
+    });
+
+    it('should repoint inbound linkedMemories references when the file relocates', async () => {
+      fs.mkdirSync(path.join(workspaceDir, 'memory', 'decisions'), { recursive: true });
+
+      const targetPath = await writePermanentMemory(
+        workspaceDir,
+        { title: 'Link Target', subtype: 'fact' as const },
+        'target body',
+      );
+      const linkerPath = await writePermanentMemory(
+        workspaceDir,
+        { title: 'Linker', subtype: 'insight' as const, linkedMemories: [targetPath] },
+        'linker body',
+      );
+
+      const newTargetPath = await rewritePermanentMemory(
+        workspaceDir,
+        targetPath,
+        { title: 'Link Target', subtype: 'decision' as const },
+        'target body',
+      );
+
+      const linkerRaw = fs.readFileSync(path.join(workspaceDir, linkerPath), 'utf8');
+      expect(linkerRaw).toContain(newTargetPath);
+      expect(linkerRaw).not.toContain(targetPath);
+    });
+
+    it('should return the same path when subtype is unchanged', async () => {
+      const relPath = await writePermanentMemory(
+        workspaceDir,
+        { title: 'Stable Subtype', subtype: 'fact' as const },
+        'body',
+      );
+
+      const returnedPath = await rewritePermanentMemory(
+        workspaceDir,
+        relPath,
+        { title: 'Stable Subtype updated', subtype: 'fact' as const },
+        'new body',
+      );
+
+      expect(returnedPath).toBe(relPath);
+    });
+
+    it('should commit both old and new paths in one memory(edit) commit when subtype changes', async () => {
+      fs.mkdirSync(path.join(workspaceDir, 'memory', 'patterns'), { recursive: true });
+
+      const relPath = await writePermanentMemory(
+        workspaceDir,
+        { title: 'Move To Pattern', subtype: 'insight' as const },
+        'body',
+      );
+
+      await rewritePermanentMemory(
+        workspaceDir,
+        relPath,
+        { title: 'Move To Pattern', subtype: 'pattern' as const },
+        'body',
+      );
+
+      const git = simpleGit(workspaceDir);
+      const log = await git.log();
+      expect(log.latest?.message).toContain('memory(edit)');
+    });
+
+    it('should regenerate README chains for both old and new directories', async () => {
+      fs.mkdirSync(path.join(workspaceDir, 'memory', 'conventions'), { recursive: true });
+
+      const relPath = await writePermanentMemory(
+        workspaceDir,
+        { title: 'README Chain Test', subtype: 'fact' as const },
+        'body',
+      );
+
+      const filename = path.basename(relPath);
+
+      await rewritePermanentMemory(
+        workspaceDir,
+        relPath,
+        { title: 'README Chain Test', subtype: 'convention' as const },
+        'body',
+      );
+
+      // Old README should no longer reference the moved file
+      const oldReadme = path.join(workspaceDir, 'memory', 'facts', 'README.md');
+      if (fs.existsSync(oldReadme)) {
+        expect(fs.readFileSync(oldReadme, 'utf8')).not.toContain(filename);
+      }
+
+      // New README should reference the file
+      const newReadme = path.join(workspaceDir, 'memory', 'conventions', 'README.md');
+      if (fs.existsSync(newReadme)) {
+        expect(fs.readFileSync(newReadme, 'utf8')).toContain(filename);
+      }
     });
   });
 });

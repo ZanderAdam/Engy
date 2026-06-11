@@ -13,12 +13,15 @@ import {
   rewritePermanentMemory,
   collectReadmePaths,
   commitFile,
+  sanitizeCommitSubject,
   type PermanentMemoryFrontmatter,
 } from '../../lib/memory-files';
+import { withWorkspaceLock } from '../../lib/workspace-lock';
 import { regenerateReadmeChain } from '../../lib/readme-index';
 import { autoLink } from '../../search/auto-linker';
 import { proposeMemoryMetadata } from '../../lib/promote-proposal';
 import { update as indexerUpdate } from '../../search/indexer';
+import { broadcastMemoryChange } from '../../ws/broadcast';
 
 const memorySubtypeSchema = z.enum(['decision', 'pattern', 'fact', 'convention', 'insight']);
 
@@ -114,7 +117,6 @@ function resolveWorkspace(workspaceSlug: string) {
   return ws;
 }
 
-
 async function deleteMemoryFile(workspaceDir: string, filePath: string, title: string): Promise<void> {
   const absPath = path.isAbsolute(filePath) ? filePath : path.join(workspaceDir, filePath);
   if (fs.existsSync(absPath)) {
@@ -122,7 +124,14 @@ async function deleteMemoryFile(workspaceDir: string, filePath: string, title: s
     regenerateReadmeChain(absPath);
     const readmePaths = collectReadmePaths(workspaceDir, absPath);
     const relPath = path.relative(workspaceDir, absPath).replace(/\\/g, '/');
-    await commitFile(workspaceDir, [absPath, ...readmePaths], `memory(delete): ${title}\n\nmemory_id: ${relPath}`);
+    const safeTitle = sanitizeCommitSubject(title);
+    await withWorkspaceLock(workspaceDir, () =>
+      commitFile(
+        workspaceDir,
+        [absPath, ...readmePaths],
+        `memory(delete): ${safeTitle}\n\nmemory_id: ${relPath}`,
+      ),
+    );
   }
 }
 
@@ -132,12 +141,8 @@ export const memoryRouter = router({
     const db = getDb();
     const workspaceDir = getWorkspaceDir(ws);
 
-    const filePath = await writePermanentMemory(
-      workspaceDir,
-      buildMemoryFrontmatter(input),
-      input.content,
-    );
-
+    // Insert DB row first so a file-write failure can be compensated by
+    // deleting the row (workspace.create reference pattern).
     const memory = db
       .insert(permanentMemories)
       .values({
@@ -153,16 +158,41 @@ export const memoryRouter = router({
         linkedMemories: input.linkedMemories ?? [],
         scenarioIds: input.scenarioIds ?? [],
         sources: input.sources ?? [],
-        filePath,
+        filePath: null,
       })
       .returning()
       .get();
 
-    autoLink(memory.id, ws.slug).catch((err) =>
+    let filePath: string;
+    try {
+      filePath = await writePermanentMemory(
+        workspaceDir,
+        buildMemoryFrontmatter(input),
+        input.content,
+        'create',
+      );
+    } catch (err) {
+      db.delete(permanentMemories).where(eq(permanentMemories.id, memory.id)).run();
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: `Failed to write memory file: ${(err as Error).message}`,
+      });
+    }
+
+    const updated = db
+      .update(permanentMemories)
+      .set({ filePath })
+      .where(eq(permanentMemories.id, memory.id))
+      .returning()
+      .get()!;
+
+    broadcastMemoryChange('created', ws.id, updated.id);
+
+    autoLink(updated.id, ws.slug).catch((err) =>
       console.error('[autoLink] create failed:', err),
     );
 
-    return memory;
+    return updated;
   }),
 
   update: publicProcedure.input(updateInput).mutation(async ({ input }) => {
@@ -193,6 +223,8 @@ export const memoryRouter = router({
       sources: updates.sources ?? (existing.sources as string[]) ?? [],
     };
 
+    let resolvedFilePath: string | null = existing.filePath ?? null;
+
     if (existing.filePath) {
       const workspaceDir = getWorkspaceDir(ws);
       // Use the explicitly-passed supersededById when present; otherwise carry the
@@ -210,7 +242,7 @@ export const memoryRouter = router({
       }
       const fm = buildMemoryFrontmatter(merged);
       if (supersededByPath) fm.supersededBy = supersededByPath;
-      await rewritePermanentMemory(workspaceDir, existing.filePath, fm, merged.content);
+      resolvedFilePath = await rewritePermanentMemory(workspaceDir, existing.filePath, fm, merged.content);
     }
 
     const supersededByIdUpdate =
@@ -218,7 +250,7 @@ export const memoryRouter = router({
 
     const updated = db
       .update(permanentMemories)
-      .set({ ...merged, ...supersededByIdUpdate, updatedAt: new Date().toISOString() })
+      .set({ ...merged, ...supersededByIdUpdate, filePath: resolvedFilePath, updatedAt: new Date().toISOString() })
       .where(eq(permanentMemories.id, id))
       .returning()
       .get();
@@ -226,6 +258,8 @@ export const memoryRouter = router({
     if (!updated) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Memory not found' });
     }
+
+    broadcastMemoryChange('updated', ws.id, updated.id);
 
     // Fire-and-forget incremental reindex so next search returns fresh content.
     // Edit feedback is fast; the local change is already reflected in the DB/file.
@@ -253,12 +287,15 @@ export const memoryRouter = router({
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
     }
 
-    db.delete(permanentMemories).where(eq(permanentMemories.id, input.id)).run();
-
+    // Delete the file first so a failure leaves the DB row intact (recoverable state).
     if (existing.filePath) {
       const workspaceDir = getWorkspaceDir(ws);
       await deleteMemoryFile(workspaceDir, existing.filePath, existing.title);
     }
+
+    db.delete(permanentMemories).where(eq(permanentMemories.id, input.id)).run();
+
+    broadcastMemoryChange('deleted', ws.id, input.id);
 
     return { success: true };
   }),
@@ -321,9 +358,7 @@ export const memoryRouter = router({
     }
     if (input.tags && input.tags.length > 0) {
       for (const tag of input.tags) {
-        conditions.push(
-          jsonArrayContains(permanentMemories.tags, tag),
-        );
+        conditions.push(jsonArrayContains(permanentMemories.tags, tag));
       }
     }
 
@@ -365,18 +400,16 @@ export const memoryRouter = router({
     const content = input.content ?? fleeting.content;
 
     const promoteTags = input.tags ?? (fleeting.tags as string[]) ?? [];
-    const promoteSources = input.sources ?? (fleeting.sources as string[]) ?? [];
+    // Preserve the fleeting's own sources when the caller doesn't supply them,
+    // so the ingest→distillation→permanent provenance chain is never severed.
+    const fleetingSources = (fleeting.sources as string[] | null) ?? [];
+    const callerSources = input.sources ?? null;
+    const promoteSources =
+      callerSources !== null
+        ? [...new Set([...callerSources, ...fleetingSources])]
+        : fleetingSources;
 
-    const filePath = await writePermanentMemory(
-      workspaceDir,
-      buildMemoryFrontmatter({
-        ...input,
-        tags: promoteTags,
-        sources: promoteSources,
-      }),
-      content,
-    );
-
+    // Insert DB rows first so a file-write failure can be compensated by rollback.
     const result = db.transaction((tx) => {
       const permanent = tx
         .insert(permanentMemories)
@@ -393,7 +426,7 @@ export const memoryRouter = router({
           linkedMemories: input.linkedMemories ?? [],
           scenarioIds: input.scenarioIds ?? [],
           sources: promoteSources,
-          filePath,
+          filePath: null,
         })
         .returning()
         .get();
@@ -411,11 +444,46 @@ export const memoryRouter = router({
       return permanent;
     });
 
-    autoLink(result.id, ws.slug).catch((err) =>
+    let filePath: string;
+    try {
+      filePath = await writePermanentMemory(
+        workspaceDir,
+        buildMemoryFrontmatter({
+          ...input,
+          tags: promoteTags,
+          sources: promoteSources,
+        }),
+        content,
+      );
+    } catch (err) {
+      db.transaction((tx) => {
+        tx.delete(permanentMemories).where(eq(permanentMemories.id, result.id)).run();
+        tx
+          .update(fleetingMemories)
+          .set({ promoted: false, promotedAt: null, promotedFromId: null })
+          .where(eq(fleetingMemories.id, input.fleetingMemoryId))
+          .run();
+      });
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: `Failed to write memory file: ${(err as Error).message}`,
+      });
+    }
+
+    const promoted = db
+      .update(permanentMemories)
+      .set({ filePath })
+      .where(eq(permanentMemories.id, result.id))
+      .returning()
+      .get()!;
+
+    broadcastMemoryChange('promoted', ws.id, promoted.id);
+
+    autoLink(promoted.id, ws.slug).catch((err) =>
       console.error('[autoLink] promote failed:', err),
     );
 
-    return result;
+    return promoted;
   }),
 
   reviewCandidates: publicProcedure

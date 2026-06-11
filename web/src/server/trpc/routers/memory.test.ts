@@ -94,6 +94,32 @@ describe('memory router', () => {
       ).rejects.toThrow('not found');
     });
 
+    it('should leave no orphan DB row when file write fails', async () => {
+      const wsDir = path.join(ctx.tmpDir, workspaceSlug);
+      const memoryDir = path.join(wsDir, 'memory', 'facts');
+
+      // Ensure the parent directory exists, then make it unwritable so
+      // writePermanentMemory throws on the file create.
+      fs.mkdirSync(memoryDir, { recursive: true });
+      fs.chmodSync(memoryDir, 0o555);
+
+      try {
+        await expect(
+          caller.memory.create({
+            workspaceSlug,
+            subtype: 'fact',
+            title: 'Orphan test fact',
+            content: 'This write should fail.',
+          }),
+        ).rejects.toThrow();
+      } finally {
+        fs.chmodSync(memoryDir, 0o755);
+      }
+
+      const rows = ctx.db.select().from(permanentMemories).all();
+      expect(rows).toHaveLength(0);
+    });
+
     it('should store all optional metadata fields', async () => {
       const result = await caller.memory.create({
         workspaceSlug,
@@ -359,6 +385,48 @@ describe('memory router', () => {
           .get();
         expect(row?.content).toContain(uniqueNewToken);
       });
+    });
+  });
+
+  describe('update subtype relocation', () => {
+    it('should move file to new subtype dir and update filePath in DB', async () => {
+      const created = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Relocatable memory',
+        content: 'Content to move.',
+      });
+
+      const originalFilePath = created.filePath!;
+      expect(originalFilePath).toMatch(/^memory\/facts\//);
+
+      const updated = await caller.memory.update({
+        id: created.id,
+        subtype: 'decision',
+      });
+
+      expect(updated.filePath).toMatch(/^memory\/decisions\//);
+      expect(updated.filePath).not.toBe(originalFilePath);
+
+      const wsDir = path.join(ctx.tmpDir, workspaceSlug);
+      expect(fs.existsSync(path.join(wsDir, updated.filePath!))).toBe(true);
+      expect(fs.existsSync(path.join(wsDir, originalFilePath))).toBe(false);
+    });
+
+    it('should keep filePath unchanged when subtype is not modified', async () => {
+      const created = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Stable path fact',
+        content: 'Content stays.',
+      });
+
+      const updated = await caller.memory.update({
+        id: created.id,
+        title: 'Stable path fact updated',
+      });
+
+      expect(updated.filePath).toBe(created.filePath);
     });
   });
 
@@ -691,6 +759,66 @@ describe('memory router', () => {
           title: 'X',
         }),
       ).rejects.toThrow('not found');
+    });
+
+    it('should inherit fleeting sources when caller supplies none', async () => {
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+
+      const fleeting = ctx.db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId: ws.id,
+          content: 'Insight from the analysis.',
+          type: 'capture',
+          source: 'agent',
+          sources: ['memory/sources/doc-abc.md', 'memory/sources/doc-xyz.md'],
+        })
+        .returning()
+        .get();
+
+      const result = await caller.memory.promote({
+        fleetingMemoryId: fleeting.id,
+        subtype: 'insight',
+        title: 'Key insight from analysis',
+        // no sources supplied — should inherit from fleeting
+      });
+
+      expect(result.sources).toEqual(['memory/sources/doc-abc.md', 'memory/sources/doc-xyz.md']);
+
+      const wsDir = path.join(ctx.tmpDir, workspaceSlug);
+      const raw = fs.readFileSync(path.join(wsDir, result.filePath!), 'utf8');
+      expect(raw).toContain('doc-abc.md');
+    });
+
+    it('should union caller-supplied and fleeting sources', async () => {
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+
+      const fleeting = ctx.db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId: ws.id,
+          content: 'Insight from analysis.',
+          type: 'capture',
+          source: 'agent',
+          sources: ['memory/sources/shared.md', 'memory/sources/only-fleeting.md'],
+        })
+        .returning()
+        .get();
+
+      const result = await caller.memory.promote({
+        fleetingMemoryId: fleeting.id,
+        subtype: 'insight',
+        title: 'Unioned sources insight',
+        sources: ['memory/sources/shared.md', 'memory/sources/only-caller.md'],
+      });
+
+      const sources = result.sources as string[];
+      expect(sources).toContain('memory/sources/shared.md');
+      expect(sources).toContain('memory/sources/only-fleeting.md');
+      expect(sources).toContain('memory/sources/only-caller.md');
+      // No duplicates
+      const unique = [...new Set(sources)];
+      expect(sources.length).toBe(unique.length);
     });
 
     it('should throw BAD_REQUEST when fleeting is already promoted', async () => {

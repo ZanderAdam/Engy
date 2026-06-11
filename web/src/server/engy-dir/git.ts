@@ -28,6 +28,8 @@ export async function ensureGitRepo(dir: string): Promise<boolean> {
   // no signing key and would otherwise fail at the initial commit.
   await git.addConfig('commit.gpgsign', 'false');
   await git.add('.');
-  await git.commit('Initial workspace structure');
+  // memory(init) prefix keeps the commit conformant with the memory(<op>):
+  // convention checked by validateWorkspace (the commit seeds memory/ READMEs).
+  await git.commit('memory(init): initial workspace structure');
   return true;
 }

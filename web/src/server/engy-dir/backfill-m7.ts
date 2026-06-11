@@ -42,6 +42,13 @@ export async function backfillM7(workspaceSlug: string): Promise<void> {
     }
   }
 
+  // Capture untracked/modified paths before init so we know exactly what to stage.
+  // --untracked-files=all expands untracked directories so files inside a new
+  // memory/ dir are listed individually rather than collapsed to one entry.
+  const git = simpleGit(workspaceDir);
+  const beforeStatus = await git.status(['--untracked-files=all']);
+  const beforePaths = new Set(beforeStatus.files.map((f) => f.path));
+
   initMemoryDirs(workspaceDir);
 
   // Populate the qmd store and frontmatter table for this workspace. This also
@@ -54,22 +61,25 @@ export async function backfillM7(workspaceSlug: string): Promise<void> {
     console.error(`[backfillM7] indexer update failed for ${workspaceSlug}:`, err);
   }
 
-  // Commit any newly created files if inside a git repo
-  const git = simpleGit(workspaceDir);
-  const status = await git.status();
-  if (status.files.length > 0) {
-    await git.add('.');
+  // Stage only the paths created/modified by this backfill, not any pre-existing user changes.
+  const afterStatus = await git.status(['--untracked-files=all']);
+  const newPaths = afterStatus.files
+    .map((f) => f.path)
+    .filter((p) => !beforePaths.has(p));
+
+  if (newPaths.length > 0) {
+    await git.add(newPaths);
     await git.commit('memory(init): backfill knowledge-layer directories');
   }
 }
 
 /**
- * Returns true if the workspace looks like it was created before the
- * knowledge-layer (has a memory/ dir but no memory/README.md).
+ * Returns true if memory/README.md is absent — regardless of whether memory/ exists.
+ * This catches both pre-M7 workspaces that already have a memory/ dir and fresh
+ * workspaces that never had one (both need the backfill).
  */
 export function needsM7Backfill(workspaceDir: string): boolean {
-  const memoryDir = path.join(workspaceDir, 'memory');
-  const memoryReadme = path.join(memoryDir, 'README.md');
-  return fs.existsSync(memoryDir) && !fs.existsSync(memoryReadme);
+  const memoryReadme = path.join(workspaceDir, 'memory', 'README.md');
+  return !fs.existsSync(memoryReadme);
 }
 

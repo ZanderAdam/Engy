@@ -5,6 +5,7 @@ import matter from 'gray-matter';
 import { simpleGit } from 'simple-git';
 import type { MemorySubtype } from '../db/schema';
 import { regenerateReadmeChain } from './readme-index';
+import { withWorkspaceLock } from './workspace-lock';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -122,12 +123,16 @@ function requireStringArray(data: Record<string, unknown>, field: string): strin
   return val as string[];
 }
 
+// Matches a closing --- fence at start-of-line followed by newline or EOF.
+// Prevents false-positive matches on markdown HRs embedded in the body.
+const CLOSING_FENCE_RE = /\r?\n---(?:\r?\n|$)/;
+
 function parseMatterSafe(content: string): matter.GrayMatterFile<string> {
+  // Accept both LF and CRLF opening fences
   if (!content.startsWith('---')) {
     throw new Error('Missing frontmatter: file must start with --- delimiters');
   }
-  const secondDelim = content.indexOf('\n---', 3);
-  if (secondDelim === -1) {
+  if (!CLOSING_FENCE_RE.test(content.slice(3))) {
     throw new Error('Malformed frontmatter: missing closing --- delimiter');
   }
   try {
@@ -135,6 +140,12 @@ function parseMatterSafe(content: string): matter.GrayMatterFile<string> {
   } catch (err) {
     throw new Error(`Invalid YAML frontmatter: ${(err as Error).message}`);
   }
+}
+
+// ── Commit subject sanitization ──────────────────────────────────────
+
+export function sanitizeCommitSubject(title: string): string {
+  return title.replace(/\r\n|\r|\n/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 72);
 }
 
 // ── Slug/timestamp helpers ────────────────────────────────────────────
@@ -170,12 +181,16 @@ export async function commitFile(
   workspaceDir: string,
   filePaths: string[],
   message: string,
-): Promise<void> {
+): Promise<'committed' | 'skipped'> {
   const git = simpleGit(workspaceDir);
-  // Add relative paths to git
   const relPaths = filePaths.map((p) => path.relative(workspaceDir, p));
   await git.add(relPaths);
-  await git.commit(message, { '--allow-empty': null });
+  const status = await git.status();
+  if (status.staged.length === 0) {
+    return 'skipped';
+  }
+  await git.commit(message);
+  return 'committed';
 }
 
 
@@ -185,6 +200,7 @@ export async function writePermanentMemory(
   workspaceDir: string,
   fm: PermanentMemoryFrontmatter,
   body: string,
+  op: 'create' | 'promote' = 'promote',
 ): Promise<string> {
   if (fm.sources) {
     for (const s of fm.sources) validateSourcePath(s, workspaceDir);
@@ -215,6 +231,7 @@ export async function writePermanentMemory(
   fs.writeFileSync(filePath, fileContent, 'utf8');
 
   const relPath = path.relative(workspaceDir, filePath).replace(/\\/g, '/');
+  const safeTitle = sanitizeCommitSubject(fm.title);
   const msgBody = [
     `subtype: ${fm.subtype}`,
     fm.repo ? `repo: ${fm.repo}` : null,
@@ -226,11 +243,23 @@ export async function writePermanentMemory(
   regenerateReadmeChain(filePath);
 
   const readmePaths = collectReadmePaths(workspaceDir, filePath);
-  await commitFile(
-    workspaceDir,
-    [filePath, ...readmePaths],
-    `memory(promote): ${fm.title}\n\nmemory_id: ${relPath}\n${msgBody}`,
-  );
+  try {
+    await withWorkspaceLock(workspaceDir, () =>
+      commitFile(
+        workspaceDir,
+        [filePath, ...readmePaths],
+        `memory(${op}): ${safeTitle}\n\nmemory_id: ${relPath}\n${msgBody}`,
+      ),
+    );
+  } catch (err) {
+    try {
+      fs.unlinkSync(filePath);
+      regenerateReadmeChain(filePath);
+    } catch {
+      // best-effort cleanup — ignore secondary failure
+    }
+    throw err;
+  }
 
   return relPath;
 }
@@ -285,7 +314,10 @@ export async function writeSourceSnapshot(
 ): Promise<{ filePath: string; deduplicated: boolean }> {
   const hash = sha256(body);
 
-  // Dedup: scan existing sources for matching hash
+  // Dedup: scan existing sources for matching hash.
+  // A cheap partial read of each file head avoids parsing full bodies.
+  // A DB-backed index would reduce the O(n) scan but adding a db dependency
+  // here would be invasive; source snapshot counts are bounded (KISS).
   const sourcesDir = path.join(workspaceDir, 'memory', 'sources');
   fs.mkdirSync(sourcesDir, { recursive: true });
 
@@ -293,8 +325,13 @@ export async function writeSourceSnapshot(
     if (!fname.endsWith('.md')) continue;
     const fpath = path.join(sourcesDir, fname);
     try {
-      const raw = fs.readFileSync(fpath, 'utf8');
-      const parsed = matter(raw);
+      const fd = fs.openSync(fpath, 'r');
+      const buf = Buffer.alloc(512);
+      const bytesRead = fs.readSync(fd, buf, 0, 512, 0);
+      fs.closeSync(fd);
+      const head = buf.slice(0, bytesRead).toString('utf8');
+      if (!head.includes(hash)) continue;
+      const parsed = matter(fs.readFileSync(fpath, 'utf8'));
       if ((parsed.data as Record<string, unknown>).content_hash === hash) {
         const relPath = path.relative(workspaceDir, fpath).replace(/\\/g, '/');
         return { filePath: relPath, deduplicated: true };
@@ -315,13 +352,16 @@ export async function writeSourceSnapshot(
   fs.writeFileSync(filePath, fileContent, 'utf8');
 
   const relPath = path.relative(workspaceDir, filePath).replace(/\\/g, '/');
+  const safeTitle = sanitizeCommitSubject(fm.title);
 
   regenerateReadmeChain(filePath);
   const readmePaths = collectReadmePaths(workspaceDir, filePath);
-  await commitFile(
-    workspaceDir,
-    [filePath, ...readmePaths],
-    `memory(ingest): ${fm.title}\n\nsource_path: ${relPath}\nsource_type: ${fm.source_type}`,
+  await withWorkspaceLock(workspaceDir, () =>
+    commitFile(
+      workspaceDir,
+      [filePath, ...readmePaths],
+      `memory(ingest): ${safeTitle}\n\nsource_path: ${relPath}\nsource_type: ${fm.source_type}`,
+    ),
   );
 
   return { filePath: relPath, deduplicated: false };
@@ -373,13 +413,16 @@ export async function writeReferenceRecord(
   fs.writeFileSync(filePath, fileContent, 'utf8');
 
   const relPath = path.relative(workspaceDir, filePath).replace(/\\/g, '/');
+  const safeTitle = sanitizeCommitSubject(fm.title);
 
   regenerateReadmeChain(filePath);
   const readmePaths = collectReadmePaths(workspaceDir, filePath);
-  await commitFile(
-    workspaceDir,
-    [filePath, ...readmePaths],
-    `memory(ingest): ${fm.title} reference\n\nsource_path: ${relPath}`,
+  await withWorkspaceLock(workspaceDir, () =>
+    commitFile(
+      workspaceDir,
+      [filePath, ...readmePaths],
+      `memory(ingest): ${safeTitle} reference\n\nsource_path: ${relPath}`,
+    ),
   );
 
   return relPath;
@@ -416,14 +459,48 @@ export function readReferenceRecord(filePath: string): ReferenceRecordFile {
 // ── Rewrite: Permanent Memory ────────────────────────────────────────
 
 /**
- * Rewrite an existing permanent memory file in place.
+ * Rewrite every memory file whose linkedMemories references oldRelPath to
+ * point at newRelPath instead. Returns the absolute paths of rewritten files
+ * so the caller can include them in its commit. The DB mirror catches up via
+ * the post-mutation indexer sync.
+ */
+function rewriteInboundLinks(
+  workspaceDir: string,
+  oldRelPath: string,
+  newRelPath: string,
+): string[] {
+  const rewritten: string[] = [];
+  for (const dirName of Object.values(SUBTYPE_DIR_MAP)) {
+    const dir = path.join(workspaceDir, 'memory', dirName);
+    if (!fs.existsSync(dir)) continue;
+    for (const file of fs.readdirSync(dir)) {
+      if (!file.endsWith('.md') || file.toLowerCase() === 'readme.md') continue;
+      const absPath = path.join(dir, file);
+      let parsed: matter.GrayMatterFile<string>;
+      try {
+        parsed = matter(fs.readFileSync(absPath, 'utf8'));
+      } catch {
+        continue;
+      }
+      const linked = parsed.data.linkedMemories;
+      if (!Array.isArray(linked) || !linked.includes(oldRelPath)) continue;
+      parsed.data.linkedMemories = linked.map((l) => (l === oldRelPath ? newRelPath : l));
+      fs.writeFileSync(absPath, matter.stringify(parsed.content, parsed.data), 'utf8');
+      rewritten.push(absPath);
+    }
+  }
+  return rewritten;
+}
+
+/**
+ * Rewrite an existing permanent memory file in place (or relocate it when the
+ * subtype changes). When the new subtype differs from the directory in
+ * existingRelPath, the file is written at memory/{newSubtype}/{same filename},
+ * the old file is removed, README chains are regenerated for both directories,
+ * inbound linkedMemories references are repointed to the new path,
+ * and all touched paths are committed in a single memory(edit): commit.
  *
- * Unlike writePermanentMemory, this does NOT generate a new timestamped filename.
- * It reads the existing filePath, validates it lives under memory/{subtype}/,
- * overwrites it with the new frontmatter + body, regenerates the README chain,
- * and commits with a memory(edit) message.
- *
- * @returns The (unchanged) relative filePath.
+ * @returns The (potentially new) relative filePath.
  */
 export async function rewritePermanentMemory(
   workspaceDir: string,
@@ -454,12 +531,32 @@ export async function rewritePermanentMemory(
 
   const safeBody = escapeIndexMarkers(body);
   const fileContent = matter.stringify(safeBody, safeFm);
-  const absPath = path.isAbsolute(existingRelPath)
-    ? existingRelPath
-    : path.join(workspaceDir, existingRelPath);
-  fs.writeFileSync(absPath, fileContent, 'utf8');
 
-  const relPath = path.relative(workspaceDir, absPath).replace(/\\/g, '/');
+  const oldAbsPath = path.join(workspaceDir, existingRelPath);
+  const expectedDir = `memory/${SUBTYPE_DIR_MAP[fm.subtype]}`;
+  const existingDir = existingRelPath.split('/').slice(0, 2).join('/');
+  const subtypeChanged = existingDir !== expectedDir;
+
+  let newAbsPath: string;
+  let newRelPath: string;
+
+  if (subtypeChanged) {
+    const newDir = path.join(workspaceDir, 'memory', SUBTYPE_DIR_MAP[fm.subtype]);
+    fs.mkdirSync(newDir, { recursive: true });
+    newAbsPath = path.join(newDir, path.basename(existingRelPath));
+    newRelPath = path.relative(workspaceDir, newAbsPath).replace(/\\/g, '/');
+  } else {
+    newAbsPath = oldAbsPath;
+    newRelPath = existingRelPath;
+  }
+
+  fs.writeFileSync(newAbsPath, fileContent, 'utf8');
+
+  if (subtypeChanged) {
+    fs.unlinkSync(oldAbsPath);
+  }
+
+  const safeTitle = sanitizeCommitSubject(fm.title);
   const msgBody = [
     `subtype: ${fm.subtype}`,
     fm.repo ? `repo: ${fm.repo}` : null,
@@ -468,16 +565,27 @@ export async function rewritePermanentMemory(
     .filter(Boolean)
     .join('\n');
 
-  regenerateReadmeChain(absPath);
+  regenerateReadmeChain(newAbsPath);
+  const newReadmePaths = collectReadmePaths(workspaceDir, newAbsPath);
+  const pathsToCommit: string[] = [newAbsPath, ...newReadmePaths];
 
-  const readmePaths = collectReadmePaths(workspaceDir, absPath);
-  await commitFile(
-    workspaceDir,
-    [absPath, ...readmePaths],
-    `memory(edit): ${fm.title}\n\nmemory_id: ${relPath}\n${msgBody}`,
+  if (subtypeChanged) {
+    // Regenerate README chain for the old directory too, then stage it.
+    regenerateReadmeChain(oldAbsPath);
+    const oldReadmePaths = collectReadmePaths(workspaceDir, oldAbsPath);
+    pathsToCommit.push(oldAbsPath, ...oldReadmePaths);
+    pathsToCommit.push(...rewriteInboundLinks(workspaceDir, existingRelPath, newRelPath));
+  }
+
+  await withWorkspaceLock(workspaceDir, () =>
+    commitFile(
+      workspaceDir,
+      pathsToCommit,
+      `memory(edit): ${safeTitle}\n\nmemory_id: ${newRelPath}\n${msgBody}`,
+    ),
   );
 
-  return relPath;
+  return newRelPath;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────

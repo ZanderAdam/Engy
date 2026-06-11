@@ -40,11 +40,21 @@ interface TerminalSessionsChangeEvent {
   };
 }
 
+interface MemoryChangeEvent {
+  type: 'MEMORY_CHANGE';
+  payload: {
+    action: 'created' | 'updated' | 'deleted' | 'promoted';
+    workspaceId: number;
+    memoryId?: number;
+  };
+}
+
 type ServerEvent =
   | FileChangeEvent
   | TaskChangeEvent
   | QuestionChangeEvent
-  | TerminalSessionsChangeEvent;
+  | TerminalSessionsChangeEvent
+  | MemoryChangeEvent;
 
 // ── Generic Broadcast ───────────────────────────────────────────────
 
@@ -100,5 +110,16 @@ export function broadcastTerminalSessionsChange(
   broadcastEvent({
     type: 'TERMINAL_SESSIONS_CHANGE',
     payload: { action, sessionId, groupKey, newLabel },
+  });
+}
+
+export function broadcastMemoryChange(
+  action: MemoryChangeEvent['payload']['action'],
+  workspaceId: number,
+  memoryId?: number,
+): void {
+  broadcastEvent({
+    type: 'MEMORY_CHANGE',
+    payload: { action, workspaceId, memoryId },
   });
 }

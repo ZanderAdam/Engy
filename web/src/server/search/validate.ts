@@ -152,6 +152,8 @@ function checkSchemaCompliance(workspaceId: number, workspaceDir: string): Findi
     // Only memory/{subtype}/ files need title + subtype (not sources/ or references/).
     const isSubtypeFile = /^memory\/(decisions|patterns|facts|conventions|insights)\//.test(row.path);
     if (!isSubtypeFile) continue;
+    // Generated TOC files, not memories.
+    if (path.basename(row.path).toLowerCase() === 'readme.md') continue;
 
     if (!fm.title) {
       findings.push({
@@ -243,7 +245,7 @@ function walkMemoryFiles(workspaceDir: string): string[] {
     const dir = path.join(workspaceDir, 'memory', subtype);
     if (!fs.existsSync(dir)) continue;
     for (const entry of fs.readdirSync(dir)) {
-      if (entry.endsWith('.md')) {
+      if (entry.endsWith('.md') && entry.toLowerCase() !== 'readme.md') {
         filePaths.push(`memory/${subtype}/${entry}`);
       }
     }
@@ -344,7 +346,7 @@ function checkCommitMessages(workspaceDir: string): Finding[] {
   try {
     const log = execFileSync(
       'git',
-      ['log', '--oneline', '--diff-filter=A', '--name-only', '--format=%H %s', '-50'],
+      ['log', '--oneline', '--name-only', '--format=%H %s', '-50'],
       { cwd: workspaceDir, timeout: 5000, encoding: 'utf8' },
     );
 

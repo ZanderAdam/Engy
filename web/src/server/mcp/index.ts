@@ -3,10 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { eq, and, desc, inArray, like, or, sql as drizzleSql, type SQL } from 'drizzle-orm';
+import { eq, and, desc, inArray, type SQL } from 'drizzle-orm';
 import path from 'node:path';
 import { getDb } from '../db/client';
-import { jsonObjectArrayContains } from '../db/json';
 import {
   tasks,
   taskDependencies,
@@ -22,7 +21,18 @@ import {
 import { validateDependencies, attachBlockedBy } from '../tasks/validation';
 import { getWorkspaceDir, resolveProjectDir, writeWorkspaceYaml } from '../engy-dir/init';
 import { readTaskPlan } from '../plan/service';
-import { broadcastTaskChange, broadcastQuestionChange } from '../ws/broadcast';
+import { broadcastTaskChange, broadcastQuestionChange, broadcastMemoryChange } from '../ws/broadcast';
+import {
+  type SearchResult,
+  type SearchResultGroup,
+  titleFromPath,
+  extractTitle,
+  buildFrontmatterWhereCondition,
+  groupFrontmatterRows,
+  collectionFromVirtualPath,
+  searchTasksByQuery,
+  filterTasksByStatus,
+} from '../search/frontmatter-filter';
 import { taskStatusSchema } from '@/lib/task-status';
 import { writePermanentMemory, rewritePermanentMemory, writeSourceSnapshot } from '../lib/memory-files';
 import { update as indexerUpdate, forceFullReindex, updateAndEmbed } from '../search/indexer';
@@ -128,6 +138,99 @@ const updateTaskGroupInput = {
   name: z.string().optional().describe('New name'),
   status: z.enum(['planned', 'active', 'review', 'complete']).optional().describe('New status'),
   repos: z.array(z.string()).optional().describe('New repository paths'),
+};
+
+const createFleetingMemoryInput = {
+  workspaceId: z.number().describe('Workspace ID'),
+  content: z.string().describe('Memory content'),
+  type: z
+    .enum(['capture', 'question', 'blocker', 'idea', 'reference'])
+    .default('capture')
+    .describe('Memory type'),
+  source: z.enum(['agent', 'user', 'system']).default('agent').describe('Memory source'),
+  tags: z.array(z.string()).default([]).describe('Tags for organization'),
+  sources: z
+    .array(z.string())
+    .optional()
+    .describe('Paths under memory/sources/ or memory/references/ that triggered this note'),
+};
+
+const listMemoriesInput = {
+  workspaceId: z.number().optional().describe('Filter by workspace ID'),
+  compact: z.boolean().default(true).describe('Omit content field (default true)'),
+  scope: z
+    .enum(['fleeting', 'permanent', 'both'])
+    .default('fleeting')
+    .describe("Which memory store to query: 'fleeting' (default), 'permanent', or 'both'"),
+};
+
+const createPermanentMemoryInput = {
+  workspaceId: z.number().describe('Workspace ID'),
+  subtype: z
+    .enum(['decision', 'pattern', 'fact', 'convention', 'insight'])
+    .describe('Memory subtype'),
+  title: z.string().describe('Memory title'),
+  content: z.string().describe('Memory body content (markdown)'),
+  repo: z.string().optional().describe('Optional repo provenance (e.g. "api-server")'),
+  confidence: z.number().min(0).max(1).optional().describe('Confidence score 0–1'),
+  keywords: z.array(z.string()).optional().describe('Low-level retrieval terms'),
+  themes: z.array(z.string()).optional().describe('High-level conceptual themes'),
+  tags: z.array(z.string()).optional().describe('Organizational tags'),
+  scenarioIds: z.array(z.string()).optional().describe('FR/scenario ID anchors'),
+  sources: z
+    .array(z.string())
+    .optional()
+    .describe('Paths to memory/sources/ or memory/references/ records that triggered this note'),
+  linkedMemories: z
+    .array(z.string())
+    .optional()
+    .describe('Paths to related permanent memory files (memory/{subtype}/...)'),
+};
+
+const updatePermanentMemoryInput = {
+  id: z.number().describe('Permanent memory ID'),
+  subtype: z
+    .enum(['decision', 'pattern', 'fact', 'convention', 'insight'])
+    .optional()
+    .describe('New memory subtype'),
+  title: z.string().optional().describe('New title'),
+  content: z.string().optional().describe('New body content (markdown)'),
+  repo: z.string().nullable().optional().describe('New repo provenance'),
+  confidence: z.number().min(0).max(1).nullable().optional().describe('New confidence score'),
+  keywords: z.array(z.string()).optional().describe('New keywords'),
+  themes: z.array(z.string()).optional().describe('New themes'),
+  tags: z.array(z.string()).optional().describe('New tags'),
+  scenarioIds: z.array(z.string()).optional().describe('New scenario ID anchors'),
+  sources: z.array(z.string()).optional().describe('New source paths'),
+  linkedMemories: z.array(z.string()).optional().describe('New linked memory paths'),
+  supersededById: z.number().nullable().optional().describe('ID of the memory that supersedes this one'),
+};
+
+const promoteMemoryInput = {
+  fleetingMemoryId: z.number().describe('Fleeting memory ID to promote'),
+  subtype: z
+    .enum(['decision', 'pattern', 'fact', 'convention', 'insight'])
+    .describe('Permanent memory subtype'),
+  title: z.string().describe('Title for the permanent memory'),
+  content: z.string().optional().describe('Override content (defaults to fleeting content)'),
+  repo: z.string().optional().describe('Optional repo provenance'),
+  confidence: z.number().min(0).max(1).optional().describe('Confidence score 0–1'),
+  keywords: z.array(z.string()).optional().describe('Low-level retrieval terms'),
+  themes: z.array(z.string()).optional().describe('High-level conceptual themes'),
+  tags: z.array(z.string()).optional().describe('Organizational tags'),
+  scenarioIds: z.array(z.string()).optional().describe('FR/scenario ID anchors'),
+  sources: z.array(z.string()).optional().describe('Source paths'),
+  linkedMemories: z.array(z.string()).optional().describe('Linked memory paths'),
+};
+
+const writeSourceSnapshotInput = {
+  workspaceId: z.number().describe('Workspace ID'),
+  title: z.string().describe('Title for the source snapshot'),
+  content: z.string().describe('Full text content of the source'),
+  url: z.string().optional().describe('Source URL'),
+  origin: z.string().optional().describe('Origin identifier (e.g. domain or tool name)'),
+  sourceType: z.string().describe('Source type (e.g. "web", "file", "paste")'),
+  ingestedAt: z.string().optional().describe('ISO timestamp of ingestion (defaults to now)'),
 };
 
 // ── McpServer Factory ─────────────────────────────────────────────
@@ -799,20 +902,7 @@ function registerMemoryTools(mcp: McpServer): void {
   mcp.tool(
     'createFleetingMemory',
     'Create a fleeting memory note for quick capture. Pass sources[] with paths under memory/sources/ or memory/references/ that triggered this note.',
-    {
-      workspaceId: z.number().describe('Workspace ID'),
-      content: z.string().describe('Memory content'),
-      type: z
-        .enum(['capture', 'question', 'blocker', 'idea', 'reference'])
-        .default('capture')
-        .describe('Memory type'),
-      source: z.enum(['agent', 'user', 'system']).default('agent').describe('Memory source'),
-      tags: z.array(z.string()).default([]).describe('Tags for organization'),
-      sources: z
-        .array(z.string())
-        .optional()
-        .describe('Paths under memory/sources/ or memory/references/ that triggered this note'),
-    },
+    createFleetingMemoryInput,
     async ({ sources, ...rest }) => {
       const db = getDb();
       const memory = db
@@ -827,14 +917,7 @@ function registerMemoryTools(mcp: McpServer): void {
   mcp.tool(
     'listMemories',
     'List memories for a workspace. Compact mode (default) omits content. Use scope to include permanent memories.',
-    {
-      workspaceId: z.number().optional().describe('Filter by workspace ID'),
-      compact: z.boolean().default(true).describe('Omit content field (default true)'),
-      scope: z
-        .enum(['fleeting', 'permanent', 'both'])
-        .default('fleeting')
-        .describe("Which memory store to query: 'fleeting' (default), 'permanent', or 'both'"),
-    },
+    listMemoriesInput,
     async ({ workspaceId, compact, scope }) => {
       const db = getDb();
       const result: Record<string, unknown> = {};
@@ -864,28 +947,7 @@ function registerMemoryTools(mcp: McpServer): void {
   mcp.tool(
     'createPermanentMemory',
     'Create a permanent memory with full metadata — writes a DB row and a markdown file in the workspace memory directory',
-    {
-      workspaceId: z.number().describe('Workspace ID'),
-      subtype: z
-        .enum(['decision', 'pattern', 'fact', 'convention', 'insight'])
-        .describe('Memory subtype'),
-      title: z.string().describe('Memory title'),
-      content: z.string().describe('Memory body content (markdown)'),
-      repo: z.string().optional().describe('Optional repo provenance (e.g. "api-server")'),
-      confidence: z.number().min(0).max(1).optional().describe('Confidence score 0–1'),
-      keywords: z.array(z.string()).optional().describe('Low-level retrieval terms'),
-      themes: z.array(z.string()).optional().describe('High-level conceptual themes'),
-      tags: z.array(z.string()).optional().describe('Organizational tags'),
-      scenarioIds: z.array(z.string()).optional().describe('FR/scenario ID anchors'),
-      sources: z
-        .array(z.string())
-        .optional()
-        .describe('Paths to memory/sources/ or memory/references/ records that triggered this note'),
-      linkedMemories: z
-        .array(z.string())
-        .optional()
-        .describe('Paths to related permanent memory files (memory/{subtype}/...)'),
-    },
+    createPermanentMemoryInput,
     async ({ workspaceId, subtype, title, content, ...metadata }) => {
       const db = getDb();
       const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
@@ -893,13 +955,8 @@ function registerMemoryTools(mcp: McpServer): void {
 
       const workspaceDir = getWorkspaceDir(ws);
 
-      let filePath: string;
-      try {
-        filePath = await writePermanentMemory(workspaceDir, { subtype, title, ...metadata }, content);
-      } catch (err) {
-        return mcpError(`Failed to write memory file: ${(err as Error).message}`);
-      }
-
+      // Insert DB row first so a file-write failure can be compensated by
+      // deleting the row (workspace.create reference pattern).
       const memory = db
         .insert(permanentMemories)
         .values({
@@ -915,36 +972,45 @@ function registerMemoryTools(mcp: McpServer): void {
           scenarioIds: metadata.scenarioIds ?? [],
           sources: metadata.sources ?? [],
           linkedMemories: metadata.linkedMemories ?? [],
-          filePath,
+          filePath: null,
         })
         .returning()
         .get();
 
-      autoLink(memory.id, ws.slug).catch((err) =>
+      let filePath: string;
+      try {
+        filePath = await writePermanentMemory(
+          workspaceDir,
+          { subtype, title, ...metadata },
+          content,
+          'create',
+        );
+      } catch (err) {
+        db.delete(permanentMemories).where(eq(permanentMemories.id, memory.id)).run();
+        return mcpError(`Failed to write memory file: ${(err as Error).message}`);
+      }
+
+      const updated = db
+        .update(permanentMemories)
+        .set({ filePath })
+        .where(eq(permanentMemories.id, memory.id))
+        .returning()
+        .get()!;
+
+      broadcastMemoryChange('created', workspaceId, updated.id);
+
+      autoLink(updated.id, ws.slug).catch((err) =>
         console.error('[autoLink] createPermanentMemory failed:', err),
       );
 
-      return mcpResult({ id: memory.id, filePath });
+      return mcpResult({ id: updated.id, filePath });
     },
   );
 
   mcp.tool(
     'updatePermanentMemory',
     'Update a permanent memory by ID — syncs both the DB record and the markdown file',
-    {
-      id: z.number().describe('Permanent memory ID'),
-      title: z.string().optional().describe('New title'),
-      content: z.string().optional().describe('New body content (markdown)'),
-      repo: z.string().nullable().optional().describe('New repo provenance'),
-      confidence: z.number().min(0).max(1).nullable().optional().describe('New confidence score'),
-      keywords: z.array(z.string()).optional().describe('New keywords'),
-      themes: z.array(z.string()).optional().describe('New themes'),
-      tags: z.array(z.string()).optional().describe('New tags'),
-      scenarioIds: z.array(z.string()).optional().describe('New scenario ID anchors'),
-      sources: z.array(z.string()).optional().describe('New source paths'),
-      linkedMemories: z.array(z.string()).optional().describe('New linked memory paths'),
-      supersededById: z.number().nullable().optional().describe('ID of the memory that supersedes this one'),
-    },
+    updatePermanentMemoryInput,
     async ({ id, ...updates }) => {
       const db = getDb();
       const existing = db
@@ -965,7 +1031,7 @@ function registerMemoryTools(mcp: McpServer): void {
 
       const resolvedTitle = updates.title ?? existing.title;
       const resolvedContent = updates.content ?? existing.content;
-      const resolvedSubtype = existing.subtype;
+      const resolvedSubtype = updates.subtype ?? existing.subtype;
 
       // Resolve supersededBy path for frontmatter. Use the explicitly-passed
       // supersededById when present; otherwise carry the existing value so an
@@ -1014,6 +1080,8 @@ function registerMemoryTools(mcp: McpServer): void {
         .where(eq(permanentMemories.id, id))
         .run();
 
+      broadcastMemoryChange('updated', existing.workspaceId, id);
+
       // Fire-and-forget incremental reindex so next search returns fresh content.
       // Edit feedback is fast; the local change is already reflected in the DB/file.
       indexerUpdate(ws.slug, 'memory').catch((err) =>
@@ -1027,21 +1095,7 @@ function registerMemoryTools(mcp: McpServer): void {
   mcp.tool(
     'promoteMemory',
     'Promote a fleeting memory to a permanent memory — creates the permanent record and file, then marks the fleeting as promoted',
-    {
-      fleetingMemoryId: z.number().describe('Fleeting memory ID to promote'),
-      subtype: z
-        .enum(['decision', 'pattern', 'fact', 'convention', 'insight'])
-        .describe('Permanent memory subtype'),
-      title: z.string().describe('Title for the permanent memory'),
-      repo: z.string().optional().describe('Optional repo provenance'),
-      confidence: z.number().min(0).max(1).optional().describe('Confidence score 0–1'),
-      keywords: z.array(z.string()).optional().describe('Low-level retrieval terms'),
-      themes: z.array(z.string()).optional().describe('High-level conceptual themes'),
-      tags: z.array(z.string()).optional().describe('Organizational tags'),
-      scenarioIds: z.array(z.string()).optional().describe('FR/scenario ID anchors'),
-      sources: z.array(z.string()).optional().describe('Source paths'),
-      linkedMemories: z.array(z.string()).optional().describe('Linked memory paths'),
-    },
+    promoteMemoryInput,
     async ({ fleetingMemoryId, subtype, title, ...metadata }) => {
       const db = getDb();
       const fleeting = db
@@ -1057,17 +1111,18 @@ function registerMemoryTools(mcp: McpServer): void {
 
       const workspaceDir = getWorkspaceDir(ws);
 
-      let filePath: string;
-      try {
-        filePath = await writePermanentMemory(
-          workspaceDir,
-          { subtype, title, ...metadata },
-          fleeting.content,
-        );
-      } catch (err) {
-        return mcpError(`Failed to write memory file: ${(err as Error).message}`);
-      }
+      const content = metadata.content ?? fleeting.content;
 
+      // Preserve the fleeting's own sources when the caller doesn't supply them,
+      // so the ingest→distillation→permanent provenance chain is never severed.
+      const fleetingSources = (fleeting.sources as string[] | null) ?? [];
+      const callerSources = metadata.sources ?? null;
+      const promoteSources =
+        callerSources !== null
+          ? [...new Set([...callerSources, ...fleetingSources])]
+          : fleetingSources;
+
+      // Insert DB rows first so a file-write failure can be compensated by rollback.
       const result = db.transaction((tx) => {
         const permanent = tx
           .insert(permanentMemories)
@@ -1075,16 +1130,16 @@ function registerMemoryTools(mcp: McpServer): void {
             workspaceId: fleeting.workspaceId,
             subtype,
             title,
-            content: fleeting.content,
+            content,
             repo: metadata.repo,
             confidence: metadata.confidence,
             keywords: metadata.keywords ?? [],
             themes: metadata.themes ?? [],
             tags: metadata.tags ?? [],
             scenarioIds: metadata.scenarioIds ?? [],
-            sources: metadata.sources ?? [],
+            sources: promoteSources,
             linkedMemories: metadata.linkedMemories ?? [],
-            filePath,
+            filePath: null,
           })
           .returning()
           .get();
@@ -1100,6 +1155,33 @@ function registerMemoryTools(mcp: McpServer): void {
 
         return permanent;
       });
+
+      const { content: _, ...metadataWithoutContent } = metadata;
+      let filePath: string;
+      try {
+        filePath = await writePermanentMemory(
+          workspaceDir,
+          { subtype, title, ...metadataWithoutContent, sources: promoteSources },
+          content,
+        );
+      } catch (err) {
+        db.transaction((tx) => {
+          tx.delete(permanentMemories).where(eq(permanentMemories.id, result.id)).run();
+          tx
+            .update(fleetingMemories)
+            .set({ promoted: false, promotedAt: null, promotedFromId: null })
+            .where(eq(fleetingMemories.id, fleetingMemoryId))
+            .run();
+        });
+        return mcpError(`Failed to write memory file: ${(err as Error).message}`);
+      }
+
+      db.update(permanentMemories)
+        .set({ filePath })
+        .where(eq(permanentMemories.id, result.id))
+        .run();
+
+      broadcastMemoryChange('promoted', fleeting.workspaceId, result.id);
 
       try {
         await autoLink(result.id, ws.slug);
@@ -1122,15 +1204,7 @@ function registerMemoryTools(mcp: McpServer): void {
   mcp.tool(
     'writeSourceSnapshot',
     'Write a source snapshot to memory/sources/ — deduplicates by SHA-256 of content. Returns the file path and whether the content was reused.',
-    {
-      workspaceId: z.number().describe('Workspace ID'),
-      title: z.string().describe('Title for the source snapshot'),
-      content: z.string().describe('Full text content of the source'),
-      url: z.string().optional().describe('Source URL'),
-      origin: z.string().optional().describe('Origin identifier (e.g. domain or tool name)'),
-      sourceType: z.string().describe('Source type (e.g. "web", "file", "paste")'),
-      ingestedAt: z.string().optional().describe('ISO timestamp of ingestion (defaults to now)'),
-    },
+    writeSourceSnapshotInput,
     async ({ workspaceId, title, content, url, origin, sourceType, ingestedAt }) => {
       const db = getDb();
       const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
@@ -1339,117 +1413,6 @@ function registerQuestionTools(mcp: McpServer): void {
       return mcpResult({ status: 'blocked', questionIds: result });
     },
   );
-}
-
-// ── Search helpers (shared with registerSearchTools) ──────────────────
-
-interface SearchResult {
-  path: string;
-  title: string;
-  snippet?: string;
-  score?: number;
-}
-
-interface SearchResultGroup {
-  collection: string;
-  results: SearchResult[];
-}
-
-function collectionFromVirtualPath(virtualPath: string): string {
-  const match = /^qmd:\/\/([^/]+)/.exec(virtualPath);
-  return match ? match[1] : 'docs';
-}
-
-function titleFromPath(filePath: string): string {
-  const base = filePath.split('/').pop() ?? filePath;
-  return base.replace(/\.md$/, '').replace(/[-_]/g, ' ');
-}
-
-function extractTitle(dataJson: string, filePath: string): string {
-  try {
-    const data = JSON.parse(dataJson) as Record<string, unknown>;
-    if (typeof data.title === 'string' && data.title) return data.title;
-  } catch {
-    // ignore
-  }
-  return titleFromPath(filePath);
-}
-
-function buildFrontmatterWhereCondition(
-  workspaceId: number,
-  filters: Record<string, unknown>,
-  collection?: string,
-) {
-  const conditions: ReturnType<typeof eq>[] = [
-    eq(frontmatter.workspaceId, workspaceId) as ReturnType<typeof eq>,
-  ];
-
-  if (collection && collection !== 'tasks') {
-    conditions.push(
-      eq(frontmatter.collection, collection as 'system' | 'docs' | 'projects' | 'memory') as ReturnType<typeof eq>,
-    );
-  }
-
-  for (const scalar of ['type', 'subtype', 'repo'] as const) {
-    const val = filters[scalar];
-    if (typeof val === 'string' && val) {
-      conditions.push(
-        drizzleSql`json_extract(${frontmatter.data}, '$.' || ${scalar}) = ${val}` as ReturnType<typeof eq>,
-      );
-    }
-  }
-
-  for (const field of ['tags', 'themes', 'scenarioIds', 'sources', 'linkedMemories'] as const) {
-    const values = filters[field];
-    if (Array.isArray(values) && values.length > 0) {
-      for (const value of values as string[]) {
-        conditions.push(jsonObjectArrayContains(frontmatter.data, field, value));
-      }
-    }
-  }
-
-  return and(...conditions)!;
-}
-
-function groupFrontmatterRows(
-  rows: Array<{ collection: string; path: string; data: string }>,
-): SearchResultGroup[] {
-  const byCollection = new Map<string, SearchResult[]>();
-  for (const row of rows) {
-    const group = byCollection.get(row.collection) ?? [];
-    group.push({ path: row.path, title: extractTitle(row.data, row.path) });
-    byCollection.set(row.collection, group);
-  }
-  return Array.from(byCollection.entries()).map(([col, results]) => ({ collection: col, results }));
-}
-
-function searchTasksByQuery(workspaceId: number, query: string, limit: number): SearchResult[] {
-  const db = getDb();
-  const pattern = `%${query}%`;
-  const rows = db
-    .select({ id: tasks.id, title: tasks.title, description: tasks.description })
-    .from(tasks)
-    .innerJoin(projects, eq(tasks.projectId, projects.id))
-    .where(and(eq(projects.workspaceId, workspaceId), or(like(tasks.title, pattern), like(tasks.description, pattern))!))
-    .limit(limit)
-    .all();
-  return rows.map((t) => ({
-    path: `task:${t.id}`,
-    title: t.title,
-    snippet: t.description ? t.description.slice(0, 150) : undefined,
-  }));
-}
-
-function filterTasksByStatus(workspaceId: number, status: string, limit: number): SearchResult[] {
-  const db = getDb();
-  const rows = db
-    .select({ id: tasks.id, title: tasks.title })
-    .from(tasks)
-    .innerJoin(projects, eq(tasks.projectId, projects.id))
-    .where(and(eq(projects.workspaceId, workspaceId), eq(tasks.status, status as (typeof tasks.status)['_']['data'])))
-    .limit(limit)
-    .all();
-  return rows.map((t) => ({ path: `task:${t.id}`, title: t.title }));
 }
 
 const searchFiltersSchema = z.object({

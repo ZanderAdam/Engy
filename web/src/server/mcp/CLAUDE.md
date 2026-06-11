@@ -76,7 +76,7 @@ Tools are registered by domain in separate `register*Tools(mcp)` functions:
 - `registerWorkspaceTools` — `listWorkspaces`, `getWorkspaceDetails`, `listProjects`, `getProjectDetails`, `startProjectCompletion`, `archiveProject`, `setWorkspaceEarsBdd` (toggles EARS-BDD mode; updates DB + workspace.yaml)
 - `registerTaskTools` — `createTask`, `updateTask` (with `memories[]` passthrough to fleeting memories), `listTasks`, `getTask`, `deleteTask`
 - `registerTaskGroupTools` — `createTaskGroup`, `listTaskGroups`, `getTaskGroup`, `updateTaskGroup`, `deleteTaskGroup`
-- `registerMemoryTools` — `createFleetingMemory`, `listMemories`, `createPermanentMemory`, `updatePermanentMemory`, `promoteMemory`
+- `registerMemoryTools` — `createFleetingMemory`, `listMemories`, `createPermanentMemory`, `updatePermanentMemory`, `promoteMemory`, `writeSourceSnapshot`
 - `registerQuestionTools` — `askQuestion`
 - `registerIndexTools` — `reindex`, `indexStatus`, `validateWorkspace`
 - `registerSearchTools` — `search` (unified; replaces `listMemories` for discovery use cases), `trace` (requirements traceability: FR ↔ tests ↔ source, via `search/trace.ts`)

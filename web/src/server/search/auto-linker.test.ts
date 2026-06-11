@@ -552,4 +552,77 @@ describe('auto-linker', () => {
       }
     });
   });
+
+  describe('cross-workspace isolation', () => {
+    it('should not update a candidate in a different workspace that shares the same filePath', async () => {
+      const db = getDb();
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      // Create a second workspace
+      const ws2 = await caller.workspace.create({ name: 'Other WS' });
+      const ws2Row = db.select().from(workspaces).where(eq(workspaces.slug, ws2.slug)).get()!;
+      const ws2Dir = path.join(ctx.tmpDir, ws2.slug);
+      const sharedRelPath = 'memory/facts/shared-path.md';
+
+      // Write the same relative path in both workspace dirs
+      writeMemoryFile(wsDir, 'memory/facts/source.md', 'Source Memory');
+      writeMemoryFile(wsDir, sharedRelPath, 'WS1 Candidate');
+      writeMemoryFile(ws2Dir, sharedRelPath, 'WS2 Decoy');
+
+      // Insert source memory in ws1
+      const srcMem = db
+        .insert(permanentMemories)
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Source Memory',
+          content: 'body',
+          filePath: 'memory/facts/source.md',
+        })
+        .returning()
+        .get();
+
+      // Insert candidate with same path in ws1
+      db.insert(permanentMemories)
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'WS1 Candidate',
+          content: 'body',
+          filePath: sharedRelPath,
+        })
+        .run();
+
+      // Insert decoy memory in ws2 with the same filePath
+      const ws2Mem = db
+        .insert(permanentMemories)
+        .values({
+          workspaceId: ws2Row.id,
+          subtype: 'fact',
+          title: 'WS2 Decoy',
+          content: 'body',
+          filePath: sharedRelPath,
+        })
+        .returning()
+        .get();
+
+      // Mock qmd to return sharedRelPath as the top candidate
+      const mockStore = {
+        search: vi.fn().mockResolvedValue([
+          makeSearchResult(`memory/facts/shared-path.md`, 0.95, 'WS1 Candidate'),
+        ]),
+      };
+      mockGetStore.mockResolvedValue(mockStore as any);
+
+      await autoLink(srcMem.id, wsSlug);
+
+      // The ws2 decoy should not have been touched
+      const ws2MemAfter = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, ws2Mem.id))
+        .get()!;
+      expect((ws2MemAfter.linkedMemories as string[]) ?? []).toHaveLength(0);
+    });
+  });
 });
