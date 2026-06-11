@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { RiAddLine, RiCloseLine, RiDeleteBinLine } from '@remixicon/react';
+import { RiDeleteBinLine } from '@remixicon/react';
 import { trpc } from '@/lib/trpc';
 import {
   AlertDialog,
@@ -27,6 +27,7 @@ import {
   useConfirmCreateDirs,
 } from '@/components/confirm-create-dirs';
 import { DirPathInput } from '@/components/dir-path-input';
+import { RepoPathsField } from '@/components/repo-paths-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -110,20 +111,6 @@ export function EditWorkspaceDialog({
   });
 
   const confirmDirs = useConfirmCreateDirs({ mutate, onError: setError });
-
-  function addRepo() {
-    setRepos([...repos, '']);
-  }
-
-  function removeRepo(index: number) {
-    setRepos(repos.filter((_, i) => i !== index));
-  }
-
-  function updateRepo(index: number, value: string) {
-    const updated = [...repos];
-    updated[index] = value;
-    setRepos(updated);
-  }
 
   function mutate(createMissingDirs: boolean) {
     const filteredRepos = repos.map((r) => r.trim()).filter((r) => r !== '');
@@ -253,41 +240,7 @@ export function EditWorkspaceDialog({
                     Leave blank to use the default Engy data directory.
                   </p>
                 </div>
-                <div className="flex flex-col gap-2">
-                  <Label>Repository paths</Label>
-                  {repos.map((repo, i) => (
-                    <div key={i} className="flex gap-2">
-                      <DirPathInput
-                        className="flex-1"
-                        variant="dropdown"
-                        value={repo}
-                        onChange={(value) => updateRepo(i, value)}
-                        placeholder="/path/to/repo"
-                      />
-                      {repos.length > 1 && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Remove path ${i + 1}`}
-                          onClick={() => removeRepo(i)}
-                        >
-                          <RiCloseLine />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="w-fit"
-                    onClick={addRepo}
-                  >
-                    <RiAddLine data-icon="inline-start" />
-                    Add path
-                  </Button>
-                </div>
+                <RepoPathsField repos={repos} onChange={setRepos} />
                 <div className="flex flex-col gap-2">
                   <Label>Task skills</Label>
                   <p className="text-xs text-muted-foreground">

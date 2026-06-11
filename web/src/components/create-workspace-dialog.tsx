@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useVirtualNavigate } from '@/components/tabs/tab-context';
-import { RiAddLine, RiCloseLine } from '@remixicon/react';
+import { RiAddLine } from '@remixicon/react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,6 +20,7 @@ import {
   useConfirmCreateDirs,
 } from '@/components/confirm-create-dirs';
 import { DirPathInput } from '@/components/dir-path-input';
+import { RepoPathsField } from '@/components/repo-paths-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
@@ -52,20 +53,6 @@ export function CreateWorkspaceDialog() {
     setRepos(['']);
     setError(null);
     confirmDirs.reset();
-  }
-
-  function addRepo() {
-    setRepos([...repos, '']);
-  }
-
-  function removeRepo(index: number) {
-    setRepos(repos.filter((_, i) => i !== index));
-  }
-
-  function updateRepo(index: number, value: string) {
-    const updated = [...repos];
-    updated[index] = value;
-    setRepos(updated);
   }
 
   function mutate(createMissingDirs: boolean) {
@@ -131,35 +118,7 @@ export function CreateWorkspaceDialog() {
                 Custom path for workspace files. Defaults to Engy data directory.
               </p>
             </div>
-            <div className="flex flex-col gap-2">
-              <Label>Repository paths</Label>
-              {repos.map((repo, i) => (
-                <div key={i} className="flex gap-2">
-                  <DirPathInput
-                    className="flex-1"
-                    variant="dropdown"
-                    value={repo}
-                    onChange={(value) => updateRepo(i, value)}
-                    placeholder="/path/to/repo"
-                  />
-                  {repos.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Remove path ${i + 1}`}
-                      onClick={() => removeRepo(i)}
-                    >
-                      <RiCloseLine />
-                    </Button>
-                  )}
-                </div>
-              ))}
-              <Button type="button" variant="ghost" size="sm" className="w-fit" onClick={addRepo}>
-                <RiAddLine data-icon="inline-start" />
-                Add path
-              </Button>
-            </div>
+            <RepoPathsField repos={repos} onChange={setRepos} />
             {error && <p className="text-xs text-destructive">{error}</p>}
           </div>
           <DialogFooter>
