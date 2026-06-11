@@ -13,7 +13,7 @@ import {
   dispatchWorktreeRemove,
 } from './server';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { agentSessions, tasks, projects, workspaces, fleetingMemories } from '../db/schema';
+import { agentSessions, tasks, taskGroups, projects, workspaces, fleetingMemories } from '../db/schema';
 
 let openClients: WebSocket[] = [];
 
@@ -1171,7 +1171,7 @@ describe('Execution event handling', () => {
   });
 });
 
-describe('CREATE_MEMORIES_REQUEST', () => {
+describe('CREATE_MEMORIES_EVENT', () => {
   let ctx: TestContext;
   let server: Server;
   let port: number;
@@ -1223,12 +1223,14 @@ describe('CREATE_MEMORIES_REQUEST', () => {
 
     ws.send(
       JSON.stringify({
-        type: 'CREATE_MEMORIES_REQUEST',
-        sessionId: 'mem-session',
-        memories: [
-          { content: 'Always use transactions for batch inserts', type: 'capture' },
-          { content: 'Watch out for migration order' },
-        ],
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: {
+          sessionId: 'mem-session',
+          memories: [
+            { content: 'Always use transactions for batch inserts', type: 'capture' },
+            { content: 'Watch out for migration order' },
+          ],
+        },
       }),
     );
 
@@ -1255,6 +1257,61 @@ describe('CREATE_MEMORIES_REQUEST', () => {
     expect(inserted[1].content).toBe('Watch out for migration order');
     expect(inserted[1].type).toBe('capture');
     expect(inserted[1].source).toBe('agent');
+  });
+
+  it('should insert fleeting memories scoped via taskGroupId when no taskId', async () => {
+    const workspace = ctx.db
+      .insert(workspaces)
+      .values({ name: 'TGWs', slug: 'tg-ws' })
+      .returning()
+      .get();
+    const project = ctx.db
+      .insert(projects)
+      .values({ workspaceId: workspace.id, name: 'TG Project', slug: 'tg-proj' })
+      .returning()
+      .get();
+    const [taskGroup] = ctx.db
+      .insert(taskGroups)
+      .values({ projectId: project.id, milestoneRef: 'm1', name: 'TG 1' })
+      .returning()
+      .all();
+    ctx.db
+      .insert(agentSessions)
+      .values({ sessionId: 'tg-session', taskGroupId: taskGroup.id, status: 'active' })
+      .run();
+
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+    ws.send(
+      JSON.stringify({
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: {
+          sessionId: 'tg-session',
+          memories: [{ content: 'Task-group scoped memory', type: 'idea' }],
+        },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const inserted = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.workspaceId, workspace.id))
+        .all();
+      expect(inserted).toHaveLength(1);
+    });
+
+    const [m] = ctx.db
+      .select()
+      .from(fleetingMemories)
+      .where(eq(fleetingMemories.workspaceId, workspace.id))
+      .all();
+    expect(m.content).toBe('Task-group scoped memory');
+    expect(m.type).toBe('idea');
+    expect(m.source).toBe('agent');
+    expect(m.workspaceId).toBe(workspace.id);
   });
 
   it('should coerce an invalid memory type to capture', async () => {
@@ -1284,9 +1341,11 @@ describe('CREATE_MEMORIES_REQUEST', () => {
 
     ws.send(
       JSON.stringify({
-        type: 'CREATE_MEMORIES_REQUEST',
-        sessionId: 'bad-type-session',
-        memories: [{ content: 'An agent emitted a bogus type', type: 'note' }],
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: {
+          sessionId: 'bad-type-session',
+          memories: [{ content: 'An agent emitted a bogus type', type: 'note' }],
+        },
       }),
     );
 
@@ -1334,9 +1393,11 @@ describe('CREATE_MEMORIES_REQUEST', () => {
 
     ws.send(
       JSON.stringify({
-        type: 'CREATE_MEMORIES_REQUEST',
-        sessionId: 'def-session',
-        memories: [{ content: 'A memory without type' }],
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: {
+          sessionId: 'def-session',
+          memories: [{ content: 'A memory without type' }],
+        },
       }),
     );
 
@@ -1357,6 +1418,184 @@ describe('CREATE_MEMORIES_REQUEST', () => {
     expect(m.type).toBe('capture');
   });
 
+  it('should cap memories at 50 per event and warn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const workspace = ctx.db
+      .insert(workspaces)
+      .values({ name: 'CapsWs', slug: 'caps-ws' })
+      .returning()
+      .get();
+    const project = ctx.db
+      .insert(projects)
+      .values({ workspaceId: workspace.id, name: 'Caps Project', slug: 'caps-proj' })
+      .returning()
+      .get();
+    const task = ctx.db
+      .insert(tasks)
+      .values({ title: 'Caps task', projectId: project.id, status: 'in_progress' })
+      .returning()
+      .get();
+    ctx.db
+      .insert(agentSessions)
+      .values({ sessionId: 'caps-session', taskId: task.id, status: 'active' })
+      .run();
+
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+    const memories = Array.from({ length: 60 }, (_, i) => ({ content: `Memory ${i}` }));
+    ws.send(
+      JSON.stringify({
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: { sessionId: 'caps-session', memories },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const inserted = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.workspaceId, workspace.id))
+        .all();
+      expect(inserted).toHaveLength(50);
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('capping to 50'));
+    warnSpy.mockRestore();
+  });
+
+  it('should not let invalid entries crowd out valid entries past the cap', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const workspace = ctx.db
+      .insert(workspaces)
+      .values({ name: 'MixWs', slug: 'mix-ws' })
+      .returning()
+      .get();
+    const project = ctx.db
+      .insert(projects)
+      .values({ workspaceId: workspace.id, name: 'Mix Project', slug: 'mix-proj' })
+      .returning()
+      .get();
+    const task = ctx.db
+      .insert(tasks)
+      .values({ title: 'Mix task', projectId: project.id, status: 'in_progress' })
+      .returning()
+      .get();
+    ctx.db
+      .insert(agentSessions)
+      .values({ sessionId: 'mix-session', taskId: task.id, status: 'active' })
+      .run();
+
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+    // 10 oversized (invalid) entries followed by 55 valid entries.
+    // With cap-before-filter the invalid entries consume 10 slots leaving only 40
+    // valid entries visible (capped at 50 total). With filter-before-cap all 55
+    // valid entries are filtered first, then capped at 50, so exactly 50 get stored.
+    const oversized = Array.from({ length: 10 }, () => ({ content: 'x'.repeat(10_001) }));
+    const valid = Array.from({ length: 55 }, (_, i) => ({ content: `Valid memory ${i}` }));
+    ws.send(
+      JSON.stringify({
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: { sessionId: 'mix-session', memories: [...oversized, ...valid] },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const inserted = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.workspaceId, workspace.id))
+        .all();
+      expect(inserted).toHaveLength(50);
+    });
+
+    warnSpy.mockRestore();
+  });
+
+  it('should drop memories whose content exceeds 10_000 chars and warn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const workspace = ctx.db
+      .insert(workspaces)
+      .values({ name: 'LongWs', slug: 'long-ws' })
+      .returning()
+      .get();
+    const project = ctx.db
+      .insert(projects)
+      .values({ workspaceId: workspace.id, name: 'Long Project', slug: 'long-proj' })
+      .returning()
+      .get();
+    const task = ctx.db
+      .insert(tasks)
+      .values({ title: 'Long task', projectId: project.id, status: 'in_progress' })
+      .returning()
+      .get();
+    ctx.db
+      .insert(agentSessions)
+      .values({ sessionId: 'long-session', taskId: task.id, status: 'active' })
+      .run();
+
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+    ws.send(
+      JSON.stringify({
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: {
+          sessionId: 'long-session',
+          memories: [
+            { content: 'x'.repeat(10_001) },
+            { content: 'Short and valid' },
+          ],
+        },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const inserted = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.workspaceId, workspace.id))
+        .all();
+      expect(inserted).toHaveLength(1);
+    });
+
+    const [m] = ctx.db
+      .select()
+      .from(fleetingMemories)
+      .where(eq(fleetingMemories.workspaceId, workspace.id))
+      .all();
+    expect(m.content).toBe('Short and valid');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('10000 chars'));
+    warnSpy.mockRestore();
+  });
+
+  it('should not crash on a malformed payload', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+    ws.send(JSON.stringify({ type: 'CREATE_MEMORIES_EVENT' }));
+    ws.send(JSON.stringify({ type: 'CREATE_MEMORIES_EVENT', payload: { sessionId: 123 } }));
+    ws.send(JSON.stringify({ type: 'CREATE_MEMORIES_EVENT', payload: { sessionId: 's', memories: 'bad' } }));
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const all = ctx.db.select().from(fleetingMemories).all();
+    expect(all).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it('should log warning and skip when sessionId is unknown', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -1366,9 +1605,11 @@ describe('CREATE_MEMORIES_REQUEST', () => {
 
     ws.send(
       JSON.stringify({
-        type: 'CREATE_MEMORIES_REQUEST',
-        sessionId: 'ghost-session',
-        memories: [{ content: 'Should not be inserted' }],
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: {
+          sessionId: 'ghost-session',
+          memories: [{ content: 'Should not be inserted' }],
+        },
       }),
     );
 
@@ -1382,7 +1623,7 @@ describe('CREATE_MEMORIES_REQUEST', () => {
     warnSpy.mockRestore();
   });
 
-  it('should log warning and skip when session has no taskId', async () => {
+  it('should log warning and skip when session has no taskId or taskGroupId', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     ctx.db
@@ -1396,9 +1637,11 @@ describe('CREATE_MEMORIES_REQUEST', () => {
 
     ws.send(
       JSON.stringify({
-        type: 'CREATE_MEMORIES_REQUEST',
-        sessionId: 'no-task-session',
-        memories: [{ content: 'Should not be inserted' }],
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: {
+          sessionId: 'no-task-session',
+          memories: [{ content: 'Should not be inserted' }],
+        },
       }),
     );
 
@@ -1410,5 +1653,65 @@ describe('CREATE_MEMORIES_REQUEST', () => {
     expect(all).toHaveLength(0);
 
     warnSpy.mockRestore();
+  });
+
+  it('should persist memories sent immediately before EXECUTION_COMPLETE_EVENT', async () => {
+    const workspace = ctx.db
+      .insert(workspaces)
+      .values({ name: 'RtWs', slug: 'rt-ws' })
+      .returning()
+      .get();
+    const project = ctx.db
+      .insert(projects)
+      .values({ workspaceId: workspace.id, name: 'RT Project', slug: 'rt-proj' })
+      .returning()
+      .get();
+    const task = ctx.db
+      .insert(tasks)
+      .values({ title: 'RT task', projectId: project.id, status: 'in_progress' })
+      .returning()
+      .get();
+    ctx.db
+      .insert(agentSessions)
+      .values({ sessionId: 'rt-session', taskId: task.id, status: 'active' })
+      .run();
+
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+    ws.send(
+      JSON.stringify({
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: {
+          sessionId: 'rt-session',
+          memories: [{ content: 'Memory before completion', type: 'capture' }],
+        },
+      }),
+    );
+    ws.send(
+      JSON.stringify({
+        type: 'EXECUTION_COMPLETE_EVENT',
+        payload: { sessionId: 'rt-session', exitCode: 0, success: true },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const session = ctx.db
+        .select()
+        .from(agentSessions)
+        .where(eq(agentSessions.sessionId, 'rt-session'))
+        .get();
+      expect(session!.status).toBe('completed');
+    });
+
+    const inserted = ctx.db
+      .select()
+      .from(fleetingMemories)
+      .where(eq(fleetingMemories.workspaceId, workspace.id))
+      .all();
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0].content).toBe('Memory before completion');
+    expect(inserted[0].source).toBe('agent');
   });
 });

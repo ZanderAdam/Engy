@@ -58,6 +58,13 @@ class ProjectCompletionService {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
     }
 
+    if (project.status !== 'completing') {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `Project must be in 'completing' status before archiving (current: '${project.status}'). Call startCompletion first.`,
+      });
+    }
+
     const projectTaskIds = db
       .select({ id: tasks.id })
       .from(tasks)

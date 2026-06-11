@@ -33,7 +33,7 @@ import type {
   WorktreeAddResult,
 } from '../trpc/context';
 import { getDb } from '../db/client';
-import { workspaces, agentSessions, tasks, projects, fleetingMemories } from '../db/schema';
+import { workspaces, agentSessions, tasks, taskGroups, projects, fleetingMemories } from '../db/schema';
 import { handleSpecFileChange } from '../spec/watcher';
 import { taskPlanSlug } from '../plan/service';
 import { broadcastFileChange, broadcastTaskChange } from './broadcast';
@@ -239,8 +239,8 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'EXECUTION_COMPLETE_EVENT':
       handleExecutionCompleteEvent(msg.payload, state);
       break;
-    case 'CREATE_MEMORIES_REQUEST':
-      handleCreateMemoriesRequest(msg);
+    case 'CREATE_MEMORIES_EVENT':
+      handleCreateMemoriesEvent(msg);
       break;
   }
 }
@@ -537,14 +537,58 @@ function clampMemoryType(type: string | undefined): FleetingMemoryType {
   return VALID_MEMORY_TYPES.has(type ?? '') ? (type as FleetingMemoryType) : 'capture';
 }
 
-function handleCreateMemoriesRequest(msg: {
-  type: 'CREATE_MEMORIES_REQUEST';
-  sessionId: string;
-  memories: Array<{ content: string; type?: string }>;
-}): void {
-  const { sessionId, memories } = msg;
+const MAX_MEMORIES_PER_EVENT = 50;
+const MAX_MEMORY_CONTENT_LENGTH = 10_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function handleCreateMemoriesEvent(msg: unknown): void {
+  const payload = isRecord(msg) ? msg.payload : undefined;
+  if (!isRecord(payload)) {
+    console.warn('[ws-main-server] CREATE_MEMORIES_EVENT: malformed message, missing payload');
+    return;
+  }
+
+  const sessionId = payload.sessionId;
+  const memories = payload.memories;
+
+  if (typeof sessionId !== 'string' || !sessionId) {
+    console.warn('[ws-main-server] CREATE_MEMORIES_EVENT: missing or invalid sessionId');
+    return;
+  }
+
+  if (!Array.isArray(memories)) {
+    console.warn(
+      `[ws-main-server] CREATE_MEMORIES_EVENT: memories must be an array for session=${sessionId}`,
+    );
+    return;
+  }
+
+  const allValid = memories.filter((m): m is { content: string; type?: string } => {
+    const content = isRecord(m) ? m.content : undefined;
+    if (typeof content !== 'string') {
+      return false;
+    }
+    if (content.length > MAX_MEMORY_CONTENT_LENGTH) {
+      console.warn(
+        `[ws-main-server] CREATE_MEMORIES_EVENT: session=${sessionId} memory content exceeds ${MAX_MEMORY_CONTENT_LENGTH} chars, dropping`,
+      );
+      return false;
+    }
+    return true;
+  });
+
+  const validated = allValid.slice(0, MAX_MEMORIES_PER_EVENT);
+  if (validated.length < allValid.length) {
+    console.warn(
+      `[ws-main-server] CREATE_MEMORIES_EVENT: session=${sessionId} sent ${allValid.length} valid memories, capping to ${MAX_MEMORIES_PER_EVENT}`,
+    );
+  }
+
   console.log(
-    `[ws-main-server] CREATE_MEMORIES_REQUEST: session=${sessionId} count=${memories.length}`,
+    `[ws-main-server] CREATE_MEMORIES_EVENT: session=${sessionId} count=${validated.length}`,
   );
 
   const db = getDb();
@@ -555,20 +599,22 @@ function handleCreateMemoriesRequest(msg: {
     .get();
 
   if (!session) {
-    console.warn(`[ws-main-server] CREATE_MEMORIES_REQUEST for unknown session: ${sessionId}`);
+    console.warn(`[ws-main-server] CREATE_MEMORIES_EVENT for unknown session: ${sessionId}`);
     return;
   }
 
-  const workspaceId = resolveWorkspaceIdFromSession(db, session.taskId);
+  const workspaceId = resolveWorkspaceIdFromSession(db, session.taskId, session.taskGroupId);
   if (!workspaceId) {
     console.warn(
-      `[ws-main-server] CREATE_MEMORIES_REQUEST: cannot resolve workspaceId for session=${sessionId}`,
+      `[ws-main-server] CREATE_MEMORIES_EVENT: cannot resolve workspaceId for session=${sessionId}`,
     );
     return;
   }
 
+  if (validated.length === 0) return;
+
   const now = new Date().toISOString();
-  const rows = memories.map((m) => ({
+  const rows = validated.map((m) => ({
     workspaceId,
     content: m.content,
     type: clampMemoryType(m.type),
@@ -583,24 +629,33 @@ function handleCreateMemoriesRequest(msg: {
       `[ws-main-server] Inserted ${rows.length} fleeting memories for workspaceId=${workspaceId}`,
     );
   } catch (err) {
-    console.error('[ws-main-server] CREATE_MEMORIES_REQUEST insert failed:', err);
+    console.error('[ws-main-server] CREATE_MEMORIES_EVENT insert failed:', err);
   }
 }
 
-/** Resolve workspaceId from a session's task (for memory insertion) */
+/** Resolve workspaceId from a session's task or task group (for memory insertion) */
 function resolveWorkspaceIdFromSession(
   db: ReturnType<typeof getDb>,
-  taskId: number | null,
+  taskId: number | null | undefined,
+  taskGroupId?: number | null,
 ): number | null {
-  if (!taskId) return null;
+  if (taskId) {
+    const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+    if (task?.projectId) {
+      const project = db.select().from(projects).where(eq(projects.id, task.projectId)).get();
+      if (project) return project.workspaceId;
+    }
+  }
 
-  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
-  if (!task?.projectId) return null;
+  if (taskGroupId) {
+    const taskGroup = db.select().from(taskGroups).where(eq(taskGroups.id, taskGroupId)).get();
+    if (taskGroup?.projectId) {
+      const project = db.select().from(projects).where(eq(projects.id, taskGroup.projectId)).get();
+      if (project) return project.workspaceId;
+    }
+  }
 
-  const project = db.select().from(projects).where(eq(projects.id, task.projectId)).get();
-  if (!project) return null;
-
-  return project.workspaceId;
+  return null;
 }
 
 /** Resolve workspace and project context from a task ID (for post-completion actions) */

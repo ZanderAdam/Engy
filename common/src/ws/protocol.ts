@@ -524,10 +524,12 @@ export interface ExecutionCompleteEventMessage {
 
 export type FleetingMemoryType = 'capture' | 'question' | 'blocker' | 'idea' | 'reference';
 
-export interface CreateMemoriesRequestMessage {
-  type: 'CREATE_MEMORIES_REQUEST';
-  sessionId: string;
-  memories: Array<{ content: string; type?: FleetingMemoryType }>;
+export interface CreateMemoriesEventMessage {
+  type: 'CREATE_MEMORIES_EVENT';
+  payload: {
+    sessionId: string;
+    memories: Array<{ content: string; type?: FleetingMemoryType }>;
+  };
 }
 
 export type WsMessage =
@@ -583,7 +585,7 @@ export type WsMessage =
   | ExecutionStopResponseMessage
   | ExecutionStatusEventMessage
   | ExecutionCompleteEventMessage
-  | CreateMemoriesRequestMessage;
+  | CreateMemoriesEventMessage;
 
 export type ClientToServerMessage =
   | RegisterMessage
@@ -614,7 +616,7 @@ export type ClientToServerMessage =
   | ExecutionStopResponseMessage
   | ExecutionStatusEventMessage
   | ExecutionCompleteEventMessage
-  | CreateMemoriesRequestMessage;
+  | CreateMemoriesEventMessage;
 
 export type ServerToClientMessage =
   | WorkspacesSyncMessage
