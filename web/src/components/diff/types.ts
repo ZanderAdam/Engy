@@ -4,6 +4,7 @@ export interface ChangedFile {
   path: string;
   status: GitFileStatus;
   staged: boolean;
+  oldPath?: string;
   additions?: number;
   deletions?: number;
 }

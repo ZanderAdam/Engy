@@ -16,6 +16,7 @@ import { WorktreeSelector } from './worktree-selector';
 import type { WorktreeSelection } from './worktree-selector';
 import { ReviewActions } from './review-actions';
 import { useDiffComments, extractFilePathFromDocPath } from './use-diff-comments';
+import { resolveFileReadError } from './diff-content-state';
 import { useAutoSave } from './use-auto-save';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { RiGitBranchLine } from '@remixicon/react';
@@ -151,7 +152,12 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   );
 
   // Commit diff data (for file list)
-  const { data: commitDiffData } = trpc.diff.getCommitDiff.useQuery(
+  const {
+    data: commitDiffData,
+    isLoading: isCommitDiffLoading,
+    error: commitDiffError,
+    refetch: refetchCommitDiff,
+  } = trpc.diff.getCommitDiff.useQuery(
     {
       repoDir: selectedRepo!,
       commitHash: selectedCommit!,
@@ -227,11 +233,11 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     [files, selectedFile],
   );
 
-  // File content: original
-  const { data: originalData } = trpc.file.read.useQuery(
+  // File content: original (renamed files read their previous path)
+  const { data: originalData, error: originalError } = trpc.file.read.useQuery(
     {
       repoDir: selectedRepo!,
-      filePath: selectedFile!,
+      filePath: selectedFileData?.oldPath ?? selectedFile!,
       ref: originalRef,
       worktreePath: selectedWorktree?.worktreePath,
       coderWorkspace: selectedWorktree?.coderWorkspace,
@@ -240,7 +246,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   );
 
   // File content: modified
-  const { data: modifiedData } = trpc.file.read.useQuery(
+  const { data: modifiedData, error: modifiedError } = trpc.file.read.useQuery(
     {
       repoDir: selectedRepo!,
       filePath: selectedFile!,
@@ -249,6 +255,12 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
       coderWorkspace: selectedWorktree?.coderWorkspace,
     },
     { enabled: !!selectedRepo && !!selectedFile, retry: false },
+  );
+
+  const fileReadError = resolveFileReadError(
+    selectedFileData?.status,
+    originalError?.message ?? null,
+    modifiedError?.message ?? null,
   );
 
   // Resolve file content (handle added/deleted files)
@@ -357,7 +369,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
             <div className="flex flex-1 min-h-0 flex-col">
               <div className={cn(
                 'overflow-auto',
-                selectedCommit && commitDiffData ? 'max-h-[25%]' : 'flex-1',
+                selectedCommit ? 'max-h-[25%]' : 'flex-1',
               )}>
                 <CommitList
                   commits={logData?.commits ?? []}
@@ -369,16 +381,31 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                   isLoading={isLogLoading}
                 />
               </div>
-              {selectedCommit && commitDiffData && (
+              {selectedCommit && (
                 <div className="flex-1 min-h-0 border-t border-border overflow-auto">
-                  <FileListPanel
-                    files={files}
-                    selectedFile={selectedFile}
-                    onSelectFile={setSelectedFile}
-                    onRefresh={() => {}}
-                    isLoading={false}
-                    commentCounts={fileCommentCounts}
-                  />
+                  {commitDiffError ? (
+                    <div className="space-y-2 px-3 py-2">
+                      <p className="text-xs text-destructive">
+                        Failed to load commit changes: {commitDiffError.message}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => refetchCommitDiff()}
+                        className="border border-border px-2 py-1 text-xs text-foreground hover:bg-muted"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : (
+                    <FileListPanel
+                      files={files}
+                      selectedFile={selectedFile}
+                      onSelectFile={setSelectedFile}
+                      onRefresh={() => refetchCommitDiff()}
+                      isLoading={isCommitDiffLoading}
+                      commentCounts={fileCommentCounts}
+                    />
+                  )}
                 </div>
               )}
             </div>
@@ -438,6 +465,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                     modifiedContent={modifiedContent}
                     viewMode={isMobile ? 'unified' : viewMode}
                     filePath={selectedFile}
+                    loadError={fileReadError}
                     onChange={diffViewMode === 'latest' ? save : undefined}
                     fileComments={fileComments}
                     onAddComment={handleAddComment}

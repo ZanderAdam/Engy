@@ -18,6 +18,7 @@ const GIT_STATUS_MAP: Record<string, GitFileStatus> = {
   M: 'modified',
   D: 'deleted',
   R: 'renamed',
+  C: 'renamed',
 };
 
 interface BranchInfo {
@@ -59,17 +60,21 @@ function mapStatusCode(
 
 function parseNameStatusOutput(
   output: string,
-): Array<{ path: string; status: GitFileStatus }> {
+): Array<{ path: string; status: GitFileStatus; oldPath?: string }> {
   return output
     .trim()
     .split('\n')
     .filter(Boolean)
     .map((line) => {
       const [code, ...rest] = line.split('\t');
-      return {
-        path: rest[rest.length - 1] ?? '',
-        status: GIT_STATUS_MAP[code.charAt(0)] ?? 'modified',
-      };
+      const statusChar = code.charAt(0);
+      const path = rest[rest.length - 1] ?? '';
+      const status = GIT_STATUS_MAP[statusChar] ?? 'modified';
+      // Renames/copies list two paths: `R<score>\told\tnew`
+      if ((statusChar === 'R' || statusChar === 'C') && rest.length >= 2) {
+        return { path, status, oldPath: rest[0] };
+      }
+      return { path, status };
     });
 }
 
@@ -254,28 +259,30 @@ export async function getShow(
   dir: string,
   commitHash: string,
   runGit: GitRunner = localGitRunner,
-): Promise<{ diff: string; files: Array<{ path: string; status: GitFileStatus }> }> {
-  const { stdout: diffOutput } = await runGit([
-    '-C',
-    dir,
-    'show',
-    '--format=',
-    commitHash,
-  ]);
+): Promise<{ files: Array<{ path: string; status: GitFileStatus; oldPath?: string }> }> {
+  // `diff-tree <hash>` prints nothing for merge commits, so diff against the
+  // first parent explicitly (GitHub behavior). Root commits have no parent —
+  // fall back to `--root`.
+  let hasParent = true;
+  try {
+    await runGit(['-C', dir, 'rev-parse', '--verify', '--quiet', `${commitHash}^1`]);
+  } catch {
+    hasParent = false;
+  }
 
-  const { stdout: nameStatusOutput } = await runGit([
+  const refArgs = hasParent ? [`${commitHash}^1`, commitHash] : ['--root', commitHash];
+  const { stdout } = await runGit([
     '-C',
     dir,
     'diff-tree',
-    '--root',
     '--no-commit-id',
     '-r',
+    '-M',
     '--name-status',
-    commitHash,
+    ...refArgs,
   ]);
 
-  const files = parseNameStatusOutput(nameStatusOutput);
-  return { diff: diffOutput, files };
+  return { files: parseNameStatusOutput(stdout) };
 }
 
 export async function getBranchFiles(

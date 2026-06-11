@@ -12,6 +12,7 @@ interface DiffViewerPanelProps {
   modifiedContent: string;
   viewMode: ViewMode;
   filePath?: string;
+  loadError?: string | null;
   onChange?: (value: string) => void;
   fileComments?: DiffComment[];
   onAddComment?: (lineNumber: number, side: 'modified' | 'original', text: string) => void;
@@ -26,6 +27,7 @@ export function DiffViewerPanel({
   modifiedContent,
   viewMode,
   filePath,
+  loadError,
   onChange,
   fileComments = [],
   onAddComment,
@@ -54,6 +56,14 @@ export function DiffViewerPanel({
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         No file selected
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-sm text-destructive">
+        Failed to load file content: {loadError}
       </div>
     );
   }

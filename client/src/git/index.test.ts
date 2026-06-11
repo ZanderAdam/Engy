@@ -249,7 +249,7 @@ describe('git integration', () => {
   });
 
   describe('getShow', () => {
-    it('returns diff and changed files for a commit', async () => {
+    it('returns changed files for a root commit', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'file.txt', 'content');
       const git = simpleGit(repoDir);
@@ -258,9 +258,40 @@ describe('git integration', () => {
 
       const result = await getShow(repoDir, hash);
 
-      expect(result.diff).toContain('+content');
       expect(result.files).toHaveLength(1);
       expect(result.files[0]).toEqual({ path: 'file.txt', status: 'added' });
+    });
+
+    it('diffs merge commits against the first parent', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await commitFile(repoDir, 'feature.txt', 'feature');
+      await git.checkout(mainBranch);
+      await commitFile(repoDir, 'main.txt', 'main');
+      await git.merge(['feature', '--no-ff']);
+      const mergeHash = (await git.log()).latest!.hash;
+
+      const result = await getShow(repoDir, mergeHash);
+
+      expect(result.files).toEqual([{ path: 'feature.txt', status: 'added' }]);
+    });
+
+    it('reports renames with the old path', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'old-name.txt', 'stable content for rename detection');
+      const git = simpleGit(repoDir);
+      await git.mv('old-name.txt', 'new-name.txt');
+      await git.commit('rename file');
+      const hash = (await git.log()).latest!.hash;
+
+      const result = await getShow(repoDir, hash);
+
+      expect(result.files).toEqual([
+        { path: 'new-name.txt', status: 'renamed', oldPath: 'old-name.txt' },
+      ]);
     });
   });
 

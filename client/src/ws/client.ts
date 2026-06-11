@@ -660,7 +660,7 @@ export class WsClient {
       const result = await getShow(repoDir, commitHash, this.gitRunnerFor(coderWorkspace));
       this.send({
         type: 'GIT_SHOW_RESPONSE',
-        payload: { requestId, diff: result.diff, files: result.files },
+        payload: { requestId, files: result.files },
       });
     } catch (err) {
       this.send({

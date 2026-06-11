@@ -75,6 +75,12 @@ export function MonacoDiffEditor({
         lineDecorationsWidth: isMobile ? 0 : 10,
         renderIndicators: !isMobile,
         renderMarginRevertIcon: !isMobile,
+        hideUnchangedRegions: {
+          enabled: true,
+          revealLineCount: 20,
+          minimumLineCount: 3,
+          contextLineCount: 3,
+        },
         fontSize: 12,
         fontFamily: "'JetBrains Mono', Consolas, Courier, monospace",
         lineHeight: 18,

@@ -36,12 +36,11 @@ export interface GitLogResult {
 }
 
 export interface GitShowResult {
-  diff: string;
-  files: Array<{ path: string; status: GitFileStatus }>;
+  files: Array<{ path: string; status: GitFileStatus; oldPath?: string }>;
 }
 
 export interface GitBranchFilesResult {
-  files: Array<{ path: string; status: GitFileStatus }>;
+  files: Array<{ path: string; status: GitFileStatus; oldPath?: string }>;
 }
 
 export interface ContainerUpResult {

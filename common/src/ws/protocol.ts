@@ -153,8 +153,7 @@ export interface GitShowResponseMessage {
   payload:
     | {
         requestId: string;
-        diff: string;
-        files: Array<{ path: string; status: GitFileStatus }>;
+        files: Array<{ path: string; status: GitFileStatus; oldPath?: string }>;
       }
     | {
         requestId: string;
@@ -177,7 +176,7 @@ export interface GitBranchFilesResponseMessage {
   payload:
     | {
         requestId: string;
-        files: Array<{ path: string; status: GitFileStatus }>;
+        files: Array<{ path: string; status: GitFileStatus; oldPath?: string }>;
       }
     | {
         requestId: string;

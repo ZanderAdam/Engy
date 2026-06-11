@@ -142,7 +142,6 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       break;
     case 'GIT_SHOW_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGitShow, (p) => ({
-        diff: p.diff,
         files: p.files,
       }));
       break;
