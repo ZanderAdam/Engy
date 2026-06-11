@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useVirtualParams, useVirtualNavigate, useTabId } from "@/components/tabs/tab-context";
+import {
+  useVirtualParams,
+  useVirtualNavigate,
+  useVirtualSearchParams,
+  useTabId,
+} from "@/components/tabs/tab-context";
+import { parseTaskId } from "@/components/search/task-id";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { EisenhowerMatrix } from "@/components/projects/task-views/eisenhower-matrix";
@@ -30,6 +36,7 @@ export default function TasksPage() {
   const params = useVirtualParams<{ workspace: string }>();
   const tabId = useTabId();
   const nav = useVirtualNavigate();
+  const searchParams = useVirtualSearchParams();
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
   const { data: allProjects } = trpc.project.list.useQuery(
     { workspaceId: workspace?.id ?? 0 },
@@ -106,6 +113,18 @@ export default function TasksPage() {
     window.addEventListener('task:open', handler);
     return () => window.removeEventListener('task:open', handler);
   }, [tabId]);
+
+  // Deep-link: open a task when ?task=<id> is present in the URL (e.g. from global
+  // search). Adjust-state-during-render so each param *change* opens the dialog —
+  // including a second deep-link while the page stays mounted — without overriding
+  // manual selection between changes.
+  const taskParam = searchParams.get('task');
+  const [lastTaskParam, setLastTaskParam] = useState<string | null>(null);
+  if (taskParam !== lastTaskParam) {
+    setLastTaskParam(taskParam);
+    const id = parseTaskId(taskParam);
+    if (id !== null) setSelectedTaskId(id);
+  }
 
   useOnFileChange(
     useCallback(
@@ -213,6 +232,13 @@ export default function TasksPage() {
             if (!open) {
               setSelectedTaskId(null);
               setSelectedTaskTab(undefined);
+              // Clear the ?task= param so the dialog doesn't reopen on re-render.
+              if (searchParams.has('task')) {
+                const next = new URLSearchParams(searchParams.toString());
+                next.delete('task');
+                const query = next.toString();
+                nav.push(`/w/${params.workspace}/tasks${query ? `?${query}` : ''}`);
+              }
             }
           }}
         />

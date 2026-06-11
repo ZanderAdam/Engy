@@ -1,4 +1,4 @@
-import { and, eq, like, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { jsonObjectArrayContains } from '../db/json';
 import { getDb } from '../db/client';
 import { frontmatter, tasks, projects } from '../db/schema';
@@ -32,6 +32,37 @@ export function extractTitle(dataJson: string, filePath: string): string {
     // ignore parse errors
   }
   return titleFromPath(filePath);
+}
+
+/**
+ * Batch-fetch frontmatter titles for a list of workspace-relative paths.
+ * Returns a Map<path, title> for rows that have a non-empty `$.title` field.
+ * Paths without a frontmatter row, or without a title, are absent from the map
+ * so callers can fall back to their existing title logic.
+ */
+export function resolveDisplayTitles(workspaceId: number, paths: string[]): Map<string, string> {
+  if (paths.length === 0) return new Map();
+  const db = getDb();
+  const rows = db
+    .select({
+      path: frontmatter.path,
+      title: sql<string | null>`json_extract(${frontmatter.data}, '$.title')`,
+    })
+    .from(frontmatter)
+    .where(
+      and(
+        eq(frontmatter.workspaceId, workspaceId),
+        inArray(frontmatter.path, paths),
+      )!,
+    )
+    .all();
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    if (typeof row.title === 'string' && row.title) {
+      map.set(row.path, row.title);
+    }
+  }
+  return map;
 }
 
 // ── Frontmatter WHERE condition builder ──────────────────────────────

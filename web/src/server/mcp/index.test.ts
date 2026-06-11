@@ -1785,6 +1785,167 @@ describe('MCP Server', () => {
       });
     });
 
+    describe('query-only mode with mocked qmd store', () => {
+      beforeEach(() => {
+        delete process.env.QMD_SKIP;
+      });
+      afterEach(() => {
+        delete process.env.QMD_SKIP;
+        mockGetStore.mockReset();
+        vi.restoreAllMocks();
+      });
+
+      function mockQmdSearch(
+        hits: Array<{ file: string; displayPath: string; title: string; bestChunk: string; score: number }>,
+      ) {
+        mockGetStore.mockResolvedValue({
+          search: vi.fn().mockResolvedValue(hits),
+          searchLex: vi.fn().mockResolvedValue([]),
+          searchVector: vi.fn().mockResolvedValue([]),
+        } as unknown as Awaited<ReturnType<typeof import('../search/qmd-store').getStore>>);
+      }
+
+      it('should replace slug title with frontmatter title when present', async () => {
+        const db = getDb();
+        db.insert(frontmatter)
+          .values({
+            workspaceId: wsId,
+            collection: 'memory',
+            path: 'memory/decisions/20260610221554-jwt-access-tokens-rotate-every-15-minutes.md',
+            data: JSON.stringify({ title: 'JWT access tokens rotate every 15 minutes' }),
+            indexedAt: new Date().toISOString(),
+          })
+          .run();
+
+        mockQmdSearch([
+          {
+            file: 'qmd://memory/decisions/20260610221554-jwt-access-tokens-rotate-every-15-minutes.md',
+            displayPath: 'memory/decisions/20260610221554-jwt-access-tokens-rotate-every-15-minutes.md',
+            title: '20260610221554-jwt-access-tokens-rotate-every-15-minutes',
+            bestChunk: 'JWT tokens expire after 15 minutes.',
+            score: 0.88,
+          },
+        ]);
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          query: 'JWT token rotation',
+        });
+
+        expect(isError).toBe(false);
+        const memGroup = data.find((g: { collection: string }) => g.collection === 'memory');
+        expect(memGroup).toBeDefined();
+        expect(memGroup.results[0].title).toBe('JWT access tokens rotate every 15 minutes');
+      });
+
+      it('should fall back to qmd title when no frontmatter row exists', async () => {
+        mockQmdSearch([
+          {
+            file: 'qmd://docs/no-frontmatter.md',
+            displayPath: 'docs/no-frontmatter.md',
+            title: 'qmd title',
+            bestChunk: 'Some content.',
+            score: 0.7,
+          },
+        ]);
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          query: 'content',
+        });
+
+        expect(isError).toBe(false);
+        const docsGroup = data.find((g: { collection: string }) => g.collection === 'docs');
+        expect(docsGroup!.results[0].title).toBe('qmd title');
+      });
+
+      it('should drop readme.md hits from query results', async () => {
+        mockQmdSearch([
+          {
+            file: 'qmd://memory/decisions/readme.md',
+            displayPath: 'memory/decisions/readme.md',
+            title: 'Decisions README',
+            bestChunk: 'Table of contents.',
+            score: 0.93,
+          },
+          {
+            file: 'qmd://memory/decisions/20260610-jwt-rotation.md',
+            displayPath: 'memory/decisions/20260610-jwt-rotation.md',
+            title: 'JWT rotation',
+            bestChunk: 'Rotate every 15 minutes.',
+            score: 0.82,
+          },
+        ]);
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          query: 'JWT rotation',
+        });
+
+        expect(isError).toBe(false);
+        const memGroup = data.find((g: { collection: string }) => g.collection === 'memory');
+        const paths = (memGroup?.results ?? []).map((r: { path: string }) => r.path);
+        expect(paths).not.toContain('memory/decisions/readme.md');
+        expect(paths).toContain('memory/decisions/20260610-jwt-rotation.md');
+      });
+
+      it('should fall back to path-derived title when qmd hit has no title', async () => {
+        mockQmdSearch([
+          {
+            file: 'qmd://docs/my-doc.md',
+            displayPath: 'docs/my-doc.md',
+            title: '',
+            bestChunk: 'Some content.',
+            score: 0.7,
+          },
+        ]);
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          query: 'content',
+        });
+
+        expect(isError).toBe(false);
+        const docsGroup = data.find((g: { collection: string }) => g.collection === 'docs');
+        expect(docsGroup!.results[0].title).toBe('my doc');
+      });
+
+      it('should drop README.MD hits case-insensitively', async () => {
+        mockQmdSearch([
+          {
+            file: 'qmd://docs/README.MD',
+            displayPath: 'docs/README.MD',
+            title: 'Docs index',
+            bestChunk: 'Overview.',
+            score: 0.91,
+          },
+          {
+            file: 'qmd://docs/guide.md',
+            displayPath: 'docs/guide.md',
+            title: 'Guide',
+            bestChunk: 'The guide.',
+            score: 0.75,
+          },
+        ]);
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          query: 'guide',
+        });
+
+        expect(isError).toBe(false);
+        const docsGroup = data.find((g: { collection: string }) => g.collection === 'docs');
+        const paths = (docsGroup?.results ?? []).map((r: { path: string }) => r.path);
+        expect(paths).not.toContain('docs/README.MD');
+        expect(paths).toContain('docs/guide.md');
+      });
+    });
+
     describe('query + filters mode (QMD_SKIP=1)', () => {
       beforeEach(() => {
         process.env.QMD_SKIP = '1';

@@ -32,6 +32,7 @@ import {
   collectionFromVirtualPath,
   searchTasksByQuery,
   filterTasksByStatus,
+  resolveDisplayTitles,
 } from '../search/frontmatter-filter';
 import { taskStatusSchema } from '@/lib/task-status';
 import { writePermanentMemory, rewritePermanentMemory, writeSourceSnapshot } from '../lib/memory-files';
@@ -39,7 +40,7 @@ import { update as indexerUpdate, forceFullReindex, updateAndEmbed } from '../se
 import { autoLink } from '../search/auto-linker';
 import { validateWorkspace as runValidateWorkspace } from '../search/validate';
 import { getStore } from '../search/qmd-store';
-import { runQmdSearch, type QmdSearchMode } from '../search/qmd-search';
+import { runQmdSearch, isReadme, type QmdSearchMode } from '../search/qmd-search';
 import { applySubtypeAffinity } from '../search/subtype-affinity';
 import { projectCompletionService } from '../services/project-completion';
 import { getSupersededMemoryPaths } from '../search/memory-queries';
@@ -1581,14 +1582,20 @@ async function mcpQueryOnly(
   const rawHits = await runQmdSearch(workspaceSlug, query, collection, limit, mode, intent);
   const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
   const supersededPaths = getSupersededMemoryPaths(workspaceId);
+
+  const visibleHits = qmdResults.filter((hit) => !supersededPaths.has(hit.displayPath));
+  const fmTitles = resolveDisplayTitles(
+    workspaceId,
+    visibleHits.map((h) => h.displayPath),
+  );
+
   const byCollection = new Map<string, SearchResult[]>();
-  for (const hit of qmdResults) {
-    if (supersededPaths.has(hit.displayPath)) continue;
+  for (const hit of visibleHits) {
     const col = collectionFromVirtualPath(hit.file);
     const group = byCollection.get(col) ?? [];
     group.push({
       path: hit.displayPath,
-      title: hit.title || titleFromPath(hit.displayPath),
+      title: fmTitles.get(hit.displayPath) || hit.title || titleFromPath(hit.displayPath),
       snippet: hit.snippet,
       score: hit.score,
     });
@@ -1618,7 +1625,11 @@ async function mcpFiltersOnly(
       .limit(limit)
       .all();
     const supersededPaths = getSupersededMemoryPaths(workspaceId);
-    groups.push(...groupFrontmatterRows(rows.filter((r) => !supersededPaths.has(r.path))));
+    groups.push(
+      ...groupFrontmatterRows(
+        rows.filter((r) => !supersededPaths.has(r.path) && !isReadme(r.path)),
+      ),
+    );
   }
 
   const statusVal = filters.status;
@@ -1673,7 +1684,7 @@ async function mcpQueryWithFilters(
     .from(frontmatter)
     .where(condition)
     .all()
-    .filter((r) => !supersededPaths.has(r.path));
+    .filter((r) => !supersededPaths.has(r.path) && !isReadme(r.path));
 
   const byCollection = new Map<string, SearchResult[]>();
   for (const row of filteredRows) {

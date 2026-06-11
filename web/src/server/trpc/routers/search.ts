@@ -4,7 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { workspaces, frontmatter } from '../../db/schema';
-import { runQmdSearch } from '../../search/qmd-search';
+import { runQmdSearch, isReadme } from '../../search/qmd-search';
 import { applySubtypeAffinity } from '../../search/subtype-affinity';
 import { getSupersededMemoryPaths } from '../../search/memory-queries';
 import { traceWorkspace } from '../../search/trace';
@@ -20,6 +20,7 @@ import {
   collectionFromVirtualPath,
   searchTasksByQuery,
   filterTasksByStatus,
+  resolveDisplayTitles,
 } from '../../search/frontmatter-filter';
 
 const filtersSchema = z.object({
@@ -141,14 +142,20 @@ async function queryOnlyMode(
     const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
     const supersededPaths = getSupersededMemoryPaths(workspaceId);
 
+    const visibleHits = qmdResults.filter((hit) => !supersededPaths.has(hit.displayPath));
+    const fmTitles = resolveDisplayTitles(
+      workspaceId,
+      visibleHits.map((h) => toFrontmatterPath(collectionFromVirtualPath(h.file), h.displayPath)),
+    );
+
     const byCollection = new Map<string, SearchResult[]>();
-    for (const hit of qmdResults) {
-      if (supersededPaths.has(hit.displayPath)) continue;
+    for (const hit of visibleHits) {
       const col = collectionFromVirtualPath(hit.file);
+      const fmPath = toFrontmatterPath(col, hit.displayPath);
       const group = byCollection.get(col) ?? [];
       group.push({
-        path: toFrontmatterPath(col, hit.displayPath),
-        title: hit.title || titleFromPath(hit.displayPath),
+        path: fmPath,
+        title: fmTitles.get(fmPath) || hit.title || titleFromPath(fmPath),
         snippet: hit.snippet,
         score: hit.score,
       });
@@ -197,7 +204,11 @@ async function filtersOnlyMode(
       .all();
 
     const supersededPaths = getSupersededMemoryPaths(workspaceId);
-    groups.push(...groupFrontmatterRows(rows.filter((r) => !supersededPaths.has(r.path))));
+    groups.push(
+      ...groupFrontmatterRows(
+        rows.filter((r) => !supersededPaths.has(r.path) && !isReadme(r.path)),
+      ),
+    );
   }
 
   // Tasks collection: status filter
@@ -274,7 +285,7 @@ async function queryWithFiltersMode(
       .from(frontmatter)
       .where(condition)
       .all()
-      .filter((r) => !supersededPaths.has(r.path));
+      .filter((r) => !supersededPaths.has(r.path) && !isReadme(r.path));
 
     const byCollection = new Map<string, SearchResult[]>();
     for (const row of filteredRows) {

@@ -12,7 +12,7 @@ See root `CLAUDE.md` for monorepo commands and the nested CLAUDE.md index.
   - `trpc/routers/` — tRPC v11 procedures (browser UI)
   - `mcp/` — MCP tools (AI agents) — kept in parity with tRPC
   - `ws/` — daemon control channel, terminal relay, browser broadcast
-  - `search/` — BM25/vector search, indexer, auto-linker, integrity validation
+  - `search/` — BM25/vector search, indexer, auto-linker, integrity validation. `qmd-search.ts` exports `isReadme` — import it in both tRPC and MCP filter modes to exclude README rows from all search surfaces.
   - `engy-dir/`, `project/`, `spec/`, `plan/`, `tasks/` — server-owned `{ENGY_DIR}` operations and pure helpers
 - `src/app/` — Next.js routes (`/`, `/open`, `/w/[workspace]/...`). All pages are `"use client"`.
 - `src/components/` — feature components + shadcn primitives in `components/ui/`. See `components/CLAUDE.md`.
@@ -44,7 +44,7 @@ src/server/
 │   └── index.ts                  # /mcp — StreamableHTTPServerTransport for AI agents
 ├── search/
 │   ├── qmd-store.ts              # Per-workspace qmd store singleton (lazy init, cached)
-│   ├── qmd-search.ts             # Unified BM25/vector/hybrid dispatch; normalises result shape
+│   ├── qmd-search.ts             # Unified BM25/vector/hybrid dispatch; normalises result shape; drops README hits; oversamples at min(ceil(limit×1.5), 500); exports isReadme for filter-mode callers
 │   ├── subtype-affinity.ts       # Post-hoc score reweighting from query-shape signals
 │   ├── memory-queries.ts         # getSupersededMemoryPaths() — exclude superseded from results
 │   ├── frontmatter-filter.ts     # buildFrontmatterWhereCondition() for JSON1 structured filters
