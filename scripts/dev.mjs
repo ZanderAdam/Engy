@@ -8,8 +8,13 @@ const port = await getPort(process.env.PORT ? { port: parseInt(process.env.PORT,
 
 console.log(`[dev] web + client running on http://localhost:${port}`);
 
-const child = spawn('turbo', ['run', 'dev'], {
+// shell:true so Windows resolves the `turbo.cmd` shim — a bare spawn('turbo')
+// can't exec a .cmd by name and throws ENOENT on Windows. The command is passed
+// as a single string (not an args array) to avoid Node's DEP0190 warning under
+// shell:true; the arguments are static, so there is no injection risk.
+const child = spawn('turbo run dev', {
   stdio: 'inherit',
+  shell: true,
   env: {
     ...process.env,
     PORT: String(port),
