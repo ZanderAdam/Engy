@@ -21,6 +21,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  collectDirPaths,
+  ConfirmCreateDirsDialog,
+  useConfirmCreateDirs,
+} from '@/components/confirm-create-dirs';
 import { DirPathInput } from '@/components/dir-path-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -75,8 +80,6 @@ export function EditWorkspaceDialog({
   const [implementSkill, setImplementSkill] = useState(workspace.implementSkill ?? '');
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [validating, setValidating] = useState(false);
-  const [dirsToCreate, setDirsToCreate] = useState<string[] | null>(null);
   const containerDataRef = useRef<ContainerSettingsData>({
     containerEnabled: workspace.containerEnabled ?? false,
     containerConfig: workspace.containerConfig ?? {},
@@ -105,6 +108,8 @@ export function EditWorkspaceDialog({
     },
     onError: (err) => setError(err.message),
   });
+
+  const confirmDirs = useConfirmCreateDirs({ mutate, onError: setError });
 
   function addRepo() {
     setRepos([...repos, '']);
@@ -144,39 +149,13 @@ export function EditWorkspaceDialog({
     });
   }
 
-  async function submit() {
-    setError(null);
-    const filteredRepos = repos.map((r) => r.trim()).filter((r) => r !== '');
-    const trimmedDocsDir = docsDir.trim();
-    const paths = [...new Set([...filteredRepos, ...(trimmedDocsDir ? [trimmedDocsDir] : [])])];
-    if (paths.length === 0) {
-      mutate(false);
-      return;
-    }
-
-    setValidating(true);
-    try {
-      const { results } = await utils.file.validatePaths.fetch({ paths }, { staleTime: 0 });
-      const missing = results.filter((r) => !r.exists).map((r) => r.path);
-      if (missing.length > 0) {
-        setDirsToCreate(missing);
-        return;
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      return;
-    } finally {
-      setValidating(false);
-    }
-    mutate(false);
-  }
-
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    void submit();
+    setError(null);
+    void confirmDirs.submit(collectDirPaths(repos, docsDir));
   }
 
-  const pending = updateMutation.isPending || validating;
+  const pending = updateMutation.isPending || confirmDirs.validating;
 
   function deriveSlug(value: string): string {
     return value
@@ -204,8 +183,7 @@ export function EditWorkspaceDialog({
       setImplementSkill(workspace.implementSkill ?? '');
       setError(null);
       setDeleteConfirmOpen(false);
-      setValidating(false);
-      setDirsToCreate(null);
+      confirmDirs.reset();
       containerDataRef.current = {
         containerEnabled: workspace.containerEnabled ?? false,
         containerConfig: workspace.containerConfig ?? {},
@@ -369,39 +347,12 @@ export function EditWorkspaceDialog({
         </form>
       </DialogContent>
 
-      <AlertDialog
-        open={dirsToCreate !== null}
-        onOpenChange={(val) => {
-          if (!val) setDirsToCreate(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Create missing directories?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The following directories don&apos;t exist and will be created:
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <ul className="flex flex-col gap-1">
-            {(dirsToCreate ?? []).map((dir) => (
-              <li key={dir} className="font-mono text-xs">
-                {dir}
-              </li>
-            ))}
-          </ul>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setDirsToCreate(null);
-                mutate(true);
-              }}
-            >
-              Create and save
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmCreateDirsDialog
+        dirs={confirmDirs.dirsToCreate}
+        actionLabel="Create and save"
+        onConfirm={confirmDirs.confirm}
+        onCancel={confirmDirs.cancel}
+      />
 
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>

@@ -6,16 +6,6 @@ import { RiAddLine, RiCloseLine } from '@remixicon/react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -24,6 +14,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  collectDirPaths,
+  ConfirmCreateDirsDialog,
+  useConfirmCreateDirs,
+} from '@/components/confirm-create-dirs';
 import { DirPathInput } from '@/components/dir-path-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,8 +31,6 @@ export function CreateWorkspaceDialog() {
   const [docsDir, setDocsDir] = useState('');
   const [repos, setRepos] = useState<string[]>(['']);
   const [error, setError] = useState<string | null>(null);
-  const [validating, setValidating] = useState(false);
-  const [dirsToCreate, setDirsToCreate] = useState<string[] | null>(null);
 
   const createMutation = trpc.workspace.create.useMutation({
     onSuccess: (workspace) => {
@@ -51,13 +44,14 @@ export function CreateWorkspaceDialog() {
     },
   });
 
+  const confirmDirs = useConfirmCreateDirs({ mutate, onError: setError });
+
   function resetForm() {
     setName('');
     setDocsDir('');
     setRepos(['']);
     setError(null);
-    setValidating(false);
-    setDirsToCreate(null);
+    confirmDirs.reset();
   }
 
   function addRepo() {
@@ -74,12 +68,6 @@ export function CreateWorkspaceDialog() {
     setRepos(updated);
   }
 
-  function collectPaths(): string[] {
-    const filteredRepos = repos.map((r) => r.trim()).filter((r) => r !== '');
-    const trimmedDocsDir = docsDir.trim();
-    return [...new Set([...filteredRepos, ...(trimmedDocsDir ? [trimmedDocsDir] : [])])];
-  }
-
   function mutate(createMissingDirs: boolean) {
     const filteredRepos = repos.map((r) => r.trim()).filter((r) => r !== '');
     const trimmedDocsDir = docsDir.trim();
@@ -91,37 +79,13 @@ export function CreateWorkspaceDialog() {
     });
   }
 
-  async function submit() {
-    setError(null);
-    const paths = collectPaths();
-    if (paths.length === 0) {
-      mutate(false);
-      return;
-    }
-
-    setValidating(true);
-    try {
-      const { results } = await utils.file.validatePaths.fetch({ paths }, { staleTime: 0 });
-      const missing = results.filter((r) => !r.exists).map((r) => r.path);
-      if (missing.length > 0) {
-        setDirsToCreate(missing);
-        return;
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      return;
-    } finally {
-      setValidating(false);
-    }
-    mutate(false);
-  }
-
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    void submit();
+    setError(null);
+    void confirmDirs.submit(collectDirPaths(repos, docsDir));
   }
 
-  const pending = createMutation.isPending || validating;
+  const pending = createMutation.isPending || confirmDirs.validating;
 
   return (
     <Dialog
@@ -205,39 +169,12 @@ export function CreateWorkspaceDialog() {
           </DialogFooter>
         </form>
 
-        <AlertDialog
-          open={dirsToCreate !== null}
-          onOpenChange={(val) => {
-            if (!val) setDirsToCreate(null);
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Create missing directories?</AlertDialogTitle>
-              <AlertDialogDescription>
-                The following directories don&apos;t exist and will be created:
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <ul className="flex flex-col gap-1">
-              {(dirsToCreate ?? []).map((dir) => (
-                <li key={dir} className="font-mono text-xs">
-                  {dir}
-                </li>
-              ))}
-            </ul>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Back</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => {
-                  setDirsToCreate(null);
-                  mutate(true);
-                }}
-              >
-                Create and continue
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <ConfirmCreateDirsDialog
+          dirs={confirmDirs.dirsToCreate}
+          actionLabel="Create and continue"
+          onConfirm={confirmDirs.confirm}
+          onCancel={confirmDirs.cancel}
+        />
       </DialogContent>
     </Dialog>
   );
