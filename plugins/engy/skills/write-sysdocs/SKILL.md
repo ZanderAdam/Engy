@@ -27,6 +27,7 @@ Select the mode from the user's phrasing (see trigger phrases in description) or
 - `listTasks` — fetch completed tasks (refresh mode only)
 - `listMemories` — fetch promoted permanent memories (refresh mode only)
 - `search` — find relevant existing system docs (skip gracefully if collection not yet available)
+- `reindex` — refresh the `system` collection after all writes (Step 5)
 
 All codebase reads use **Glob**, **Grep**, and **Read** against absolute paths in `repos[]`. All doc writes use **Write** or **Edit** against absolute paths under `{workspaceDir}/system/`. The MCP server does not expose file IO.
 

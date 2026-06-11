@@ -57,7 +57,7 @@ Every stage of the SDD loop is driven through the terminal via **Claude Code ski
 | Spec page                         | `specs/{slug}/`        | `engy:spec-assistant` — drafting, research tasks, context files                | Writes scoped to spec dir       |
 | Project overview / Tasks          | Project's primary repo | `engy:project-assistant` — milestone planning, group creation, task management | Writes to repo via worktrees    |
 | Diffs tab                         | Task group's worktree  | No special agent — CLI with diff context injected                              | Ad-hoc feedback, "explain this" |
-| System docs page                  | `system/`              | `engy:sysdoc-assistant` — editing system docs                                  | Writes scoped to system dir     |
+| System docs page                  | `system/`              | `engy:write-sysdocs` — editing system docs                                     | Writes scoped to system dir     |
 | Default project / workspace Tasks | Workspace root         | `engy:workspace-assistant` — quick bugs, one-offs, ad-hoc queries              | General purpose                 |
 | Home page                         | No terminal            | —                                                                              | —                               |
 

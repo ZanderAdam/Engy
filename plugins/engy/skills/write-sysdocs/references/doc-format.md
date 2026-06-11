@@ -16,7 +16,7 @@ memoryRefs:               # optional — omit entirely if no supporting memories
 - `description:` — used as the link text in the parent README's auto-generated index; make it scan-friendly.
 - `order:` — assign deliberately. Foundational docs before advanced ones within each directory. Read sibling `order:` values first and slot the new doc accordingly. Preserve existing `order:` values when editing unless reordering is the explicit intent.
 - `memoryRefs:` — omit the key entirely when there are no supporting memories. Do **not** use `sources:` for memory paths — that key is reserved for ingestion-snapshot paths in the memory schema.
-- `scenarioIds:` — include when FRs are relevant (feature docs). Omit for prose/technical docs.
+- `scenarioIds:` — **anchoring mechanism for files that reference requirements, not for the feature doc that defines them.** Include in memory notes, technical docs, or any file that anchors its claims against specific FRs. Do **not** include in feature docs (`system/features/<area>.md`): the `## Requirements` body table is the canonical and only copy of an area's FR ids — duplicating them into frontmatter creates drift and false search hits. Omit for prose/technical docs that carry no FR anchors.
 
 ## Body Structure
 

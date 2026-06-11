@@ -1,6 +1,6 @@
 ---
 title: Knowledge Layer
-status: planned
+status: completed
 ---
 
 # Plan: M7 Knowledge Layer
@@ -210,7 +210,7 @@ The foundational data layer for permanent memories. Evolves the schema, creates 
 
 ### Completion Summary
 
-{Updated after TG completes}
+Shipped as planned. `permanentMemories` table with full metadata, `frontmatter` index table, and `fleetingMemories` schema changes merged. `web/src/server/lib/memory-files.ts` implements write/read for permanent memories, source snapshots, and reference records with server-side git commits, SHA-256 dedup, README chain regeneration, and INDEX-marker escaping. Memory tRPC router and MCP memory tools (`createFleetingMemory`, `createPermanentMemory`, `updatePermanentMemory`, `promoteMemory`, `writeSourceSnapshot`) all functional.
 
 ## TG2: Knowledge UI (Docs + Memory Tabs)
 
@@ -399,7 +399,7 @@ Closes the knowledge feedback loop. On project completion: distill memories, pro
 
 1. The system shall surface unpromoted fleeting memories as promotion candidates on project completion (server-side, no agent). Since fleeting memories are workspace-scoped (no `projectId`), distillation surfaces all unpromoted fleetings workspace-wide — identical in shape to ongoing `/engy:review-memories` maintenance, with project completion just acting as a natural batch trigger. The Memory tab's "Review Candidates" section displays them; deduplication against existing permanent memories happens during the review step (qmd search), not pre-distillation. *(source: FR-7.10, simplified)* (FR-TG4.1)
 
-2. The system shall provide a `/engy:propose-sysdocs` terminal skill that proposes system doc updates based on project context — writes proposed changes to `{workspaceDir}/system/`, reviewable via diff viewer's "Latest Changes" using the batched review model. *(source: FR-7.11)* (FR-TG4.2)
+2. The system shall provide a terminal skill that proposes system doc updates based on project context (shipped as `engy:write-sysdocs` refresh mode) — writes proposed changes to `{workspaceDir}/system/`, reviewable via diff viewer's "Latest Changes" using the batched review model. *(source: FR-7.11)* (FR-TG4.2)
 
 3. The system shall archive completed projects: compact (preserve plan content, milestones, groups, task structure, key decisions, final statuses), discard agent session state and execution logs. Fleeting memories are NOT deleted on archive — they're workspace-scoped, cheap, and the user manages them via `/engy:review-memories` on their own cadence. *(source: FR-7.12, simplified)* (FR-TG4.3)
 
@@ -411,7 +411,7 @@ Closes the knowledge feedback loop. On project completion: distill memories, pro
 
 7. The system shall provide a bootstrap skill that reads codebase via client connection and proposes initial system docs for review. *(source: FR-7.14)* (FR-TG4.7)
 
-8. The system shall provide an `engy:sysdoc-assistant` Claude Code skill for editing system docs. *(source: FR-7.15)* (FR-TG4.8)
+8. The system shall provide a Claude Code skill for editing system docs. *(source: FR-7.15)* (shipped as `engy:write-sysdocs` interactive mode) (FR-TG4.8)
 
 9. The system shall provide an `/engy:review-memories` terminal skill that uses LLM + qmd search to review unpromoted fleeting memories: proposes type/subtype/title, suggests keywords/themes/tags, checks for duplicates and contradictions via `search`, handles supersession — user approves/rejects each candidate. Detects conflicts: supersession (same topic, newer info) and contradiction (conflicting statements). *(source: user request + v1 REQ-CONFLICT-001–006)* (FR-TG4.9)
 
@@ -459,7 +459,7 @@ For **knowledge research**: any skill can dispatch the `engy:research` subagent 
 
 2. **System doc proposal skill** (depends on TG1, depends on task 6 for `engy:research`)
 
-   * Files: `plugins/engy/skills/propose-sysdocs/SKILL.md` [NEW]
+   * Files: `plugins/engy/skills/propose-sysdocs/SKILL.md` [NEW] (shipped as the `refresh` mode of `engy:write-sysdocs`)
 
    * Implements FR-TG4.2
 
@@ -483,7 +483,7 @@ For **knowledge research**: any skill can dispatch the `engy:research` subagent 
 
 5. **Skill updates (implement, plan, milestone-plan, complete-project, bootstrap, sysdoc-assistant)** (depends on TG1-T3 for `updateTask` memories param, depends on task 3 for completion output schema, depends on task 6 for `engy:research`)
 
-   * Files: `plugins/engy/skills/implement/SKILL.md` [MODIFY], `plugins/engy/skills/plan/SKILL.md` [MODIFY], `plugins/engy/skills/milestone-plan/SKILL.md` [MODIFY], `plugins/engy/skills/complete-project/SKILL.md` [NEW], `plugins/engy/skills/bootstrap-sysdocs/SKILL.md` [NEW], `plugins/engy/skills/sysdoc-assistant/SKILL.md` [NEW]
+   * Files: `plugins/engy/skills/implement/SKILL.md` [MODIFY], `plugins/engy/skills/plan/SKILL.md` [MODIFY], `plugins/engy/skills/milestone-plan/SKILL.md` [MODIFY], `plugins/engy/skills/complete-project/SKILL.md` [NEW], `plugins/engy/skills/bootstrap-sysdocs/SKILL.md` [NEW] (shipped as `engy:write-sysdocs` init mode), `plugins/engy/skills/sysdoc-assistant/SKILL.md` [NEW] (shipped as `engy:write-sysdocs` interactive mode)
 
    * Implements FR-TG4.4, FR-TG4.6, FR-TG4.7, FR-TG4.8
 
@@ -499,7 +499,7 @@ For **knowledge research**: any skill can dispatch the `engy:research` subagent 
 
 6. **Research subagent + thin wrapper skill** (depends on TG3-T3 for `search.query` tRPC and TG3-T5 for the `search` MCP tool with frontmatter filters)
 
-   * Files: `plugins/engy/agents/engy-research.md` [NEW], `plugins/engy/skills/research/SKILL.md` [NEW]
+   * Files: `plugins/engy/agents/engy-research.md` [NEW], `plugins/engy/skills/research/SKILL.md` [NEW] (shipped as `skills/knowledge-research/SKILL.md`)
 
    * Implements FR-TG4.11
 
@@ -535,7 +535,7 @@ For **knowledge research**: any skill can dispatch the `engy:research` subagent 
 
 ### Completion Summary
 
-{Updated after TG completes}
+Shipped with consolidations: `propose-sysdocs` + `bootstrap-sysdocs` + `sysdoc-assistant` were merged into `engy:write-sysdocs` (init/refresh/interactive modes); the thin research wrapper shipped as `skills/knowledge-research/SKILL.md` (not `skills/research/SKILL.md`). All other tasks shipped as planned: project completion pipeline, `engy:review-memories`, `engy:ingest`, `engy:research` subagent, and skill updates for `engy:implement`, `engy:plan`, `engy:milestone-plan`, and `engy:complete-project`.
 
 ## Out of Scope
 

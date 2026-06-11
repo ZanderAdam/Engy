@@ -14,6 +14,7 @@ Batch-review unpromoted fleeting memories, enrich each one with LLM-proposed met
 - `search` — find similar permanent memories
 - `promoteMemory` — promote approved fleeting to permanent (writes DB row + markdown file)
 - `updatePermanentMemory` — mark existing permanent as superseded via `supersededById`
+- `createFleetingMemory` — create a new fleeting memory (used in the contradict action to record the conflict durably)
 
 ## Process
 
@@ -108,19 +109,20 @@ Call `promoteMemory` with:
   keywords: <proposed>,
   themes: <proposed>,
   tags: <proposed>,
-  repo: <proposed or omitted>
+  repo: <proposed or omitted>,
+  sources: <fleeting.sources — forward the fleeting's sources array to preserve provenance>
 }
 ```
 After promotion, run the **sibling evolution step** (3f) on the newly linked memories.
 Print: `Promoted → <permanent memory title>`
 
 **edit**
-Ask the user which fields to revise. Show the current proposed values; accept corrections. Re-display the revised block for confirmation, then call `promoteMemory` with the revised values.
+Ask the user which fields to revise. Show the current proposed values; accept corrections. Re-display the revised block for confirmation, then call `promoteMemory` with the revised values (including `sources: <fleeting.sources>`).
 After promotion, run the **sibling evolution step** (3f) on the newly linked memories.
 Print: `Promoted (edited) → <permanent memory title>`
 
 **supersede**
-1. Call `promoteMemory` with proposed metadata → get back `permanentMemoryId`.
+1. Call `promoteMemory` with proposed metadata (including `sources: <fleeting.sources>`) → get back `permanentMemoryId`.
 2. For each flagged existing permanent memory that this supersedes, call:
    `updatePermanentMemory({ id: <existing id>, supersededById: <new permanentMemoryId> })`
    This writes `supersededById` into both the DB record and the memory's markdown frontmatter, so the supersession is durable on disk.

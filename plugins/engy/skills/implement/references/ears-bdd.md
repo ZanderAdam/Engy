@@ -75,7 +75,7 @@ When running inside an agent session, always pass `sessionId` so the scanner rea
 
 Your Engy session id is injected into your context block under `Engy session id: <value>`. Use that value as `sessionId` in all `trace` and `validateWorkspace` calls.
 
-After editing `system/features/*.md` (during implementation or feature-doc maintenance — **not** during planning, which only edits plan docs), run `engy:reindex` so structured search (`search({ filters: { frs: […] } })`) reflects the new FRs. `trace` reads the filesystem live and needs no reindex.
+After editing `system/features/*.md` (during implementation or feature-doc maintenance — **not** during planning, which only edits plan docs), run `engy:reindex` so structured search (`search({ filters: { scenarioIds: […] } })`) reflects the new FRs. `trace` reads the filesystem live and needs no reindex.
 
 ## Augmentations to planning skills (`engy:write-spec`, `engy:milestone-plan`, `engy:plan`)
 

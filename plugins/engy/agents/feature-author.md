@@ -36,7 +36,7 @@ Read-only analysis. Establish what already exists before writing anything.
 
 Write the complete feature doc for the area. The doc is ONE artifact combining:
 
-**Frontmatter:** follow `doc-format.md` — `description:`, `order:`, optional `memoryRefs:`, `scenarioIds:` listing the authored FR ids.
+**Frontmatter:** follow `doc-format.md` — `description:`, `order:`, optional `memoryRefs:`. Do **not** include `scenarioIds:` listing the area's own FRs — the `## Requirements` body table is the canonical copy; duplicating ids into frontmatter creates drift. `scenarioIds:` in frontmatter is the mechanism for *other* files (memories, notes) that anchor against these FRs, not for the feature doc itself.
 
 **Prose body:** a narrative of the feature area grounded in the code read. Cover what the feature does, key components/files involved (cite paths), and notable design decisions. Aim for a scan-friendly summary a developer can read in 2 minutes.
 

@@ -1,8 +1,8 @@
 ---
 name: engy:research
 model: sonnet
-disallowedTools: Bash, Glob, Grep, Write, Edit, NotebookEdit
 description: Multi-collection knowledge researcher. Dispatch via Task tool to surface relevant prior decisions, patterns, facts, and conventions for a given question or planning context.
+tools: Read, mcp__Engy__search, mcp__EngyWorktree__search
 ---
 
 Research agent that surfaces relevant prior knowledge from the workspace knowledge graph.
