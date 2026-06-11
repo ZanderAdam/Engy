@@ -11,6 +11,7 @@ import {
   dispatchGitWorktreeList,
   dispatchWorktreeAdd,
   dispatchWorktreeRemove,
+  dispatchCreateDir,
 } from './server';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { agentSessions, tasks, projects, workspaces, fleetingMemories } from '../db/schema';
@@ -97,6 +98,8 @@ describe('WebSocket Server', () => {
       pendingWorktreeAdd: new Map(),
       pendingWorktreeRemove: new Map(),
       pendingGitWorktreeList: new Map(),
+      pendingCreateDirs: new Map(),
+      daemonHomeDir: null,
     };
     const result = await startServer(state);
     server = result.server;
@@ -654,6 +657,143 @@ describe('WebSocket Server', () => {
       );
 
       await expect(promise).rejects.toMatchObject({ message: 'is dirty', code: 'DIRTY' });
+    });
+  });
+
+  describe('CREATE_DIR_RESPONSE', () => {
+    it('should resolve with results on success response', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
+
+      const messagePromise = waitForMessage(ws);
+      const createDirPromise = dispatchCreateDir(['/tmp/newdir', '/tmp/anotherdir'], state);
+
+      const request = (await messagePromise) as {
+        type: string;
+        payload: { requestId: string; paths: string[] };
+      };
+      expect(request.type).toBe('CREATE_DIR_REQUEST');
+      expect(request.payload.paths).toEqual(['/tmp/newdir', '/tmp/anotherdir']);
+
+      ws.send(
+        JSON.stringify({
+          type: 'CREATE_DIR_RESPONSE',
+          payload: {
+            requestId: request.payload.requestId,
+            results: [
+              { path: '/tmp/newdir', success: true },
+              { path: '/tmp/anotherdir', success: true },
+            ],
+          },
+        }),
+      );
+
+      const result = await createDirPromise;
+      expect(result).toEqual({
+        results: [
+          { path: '/tmp/newdir', success: true },
+          { path: '/tmp/anotherdir', success: true },
+        ],
+      });
+    });
+
+    it('should reject if no daemon is connected', async () => {
+      await expect(dispatchCreateDir(['/tmp/newdir'], state)).rejects.toThrow(
+        'No daemon connected',
+      );
+    });
+
+    it('should time out if no response arrives', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
+
+      const createDirPromise = dispatchCreateDir(['/tmp/slow'], state, 50);
+
+      await expect(createDirPromise).rejects.toThrow('timed out');
+      expect(state.pendingCreateDirs.size).toBe(0);
+    });
+
+    it('should reject pending dirs when daemon disconnects and clear daemonHomeDir', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: { homeDir: '/home/testuser' } }));
+
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
+
+      expect(state.daemonHomeDir).toBe('/home/testuser');
+
+      const createDirPromise = dispatchCreateDir(['/tmp/pending'], state);
+
+      ws.close();
+
+      await expect(createDirPromise).rejects.toThrow('Daemon disconnected');
+      expect(state.pendingCreateDirs.size).toBe(0);
+
+      await vi.waitFor(() => {
+        expect(state.daemonHomeDir).toBeNull();
+      });
+    });
+  });
+
+  describe('REGISTER homeDir', () => {
+    it('should store homeDir from REGISTER payload', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: { homeDir: '/home/alice' } }));
+
+      await vi.waitFor(
+        () => {
+          expect(state.daemonHomeDir).toBe('/home/alice');
+        },
+        { timeout: 5000 },
+      );
+    });
+
+    it('should set daemonHomeDir to null when homeDir is absent from payload', async () => {
+      state.daemonHomeDir = '/old/home';
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
+
+      expect(state.daemonHomeDir).toBeNull();
+    });
+
+    it('should clear daemonHomeDir when daemon disconnects', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: { homeDir: '/home/bob' } }));
+
+      await vi.waitFor(() => {
+        expect(state.daemonHomeDir).toBe('/home/bob');
+      });
+
+      ws.close();
+
+      await vi.waitFor(() => {
+        expect(state.daemonHomeDir).toBeNull();
+      });
     });
   });
 
@@ -1385,10 +1525,7 @@ describe('CREATE_MEMORIES_REQUEST', () => {
   it('should log warning and skip when session has no taskId', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    ctx.db
-      .insert(agentSessions)
-      .values({ sessionId: 'no-task-session', status: 'active' })
-      .run();
+    ctx.db.insert(agentSessions).values({ sessionId: 'no-task-session', status: 'active' }).run();
 
     const ws = await connectClient(port);
     ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));

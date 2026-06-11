@@ -138,19 +138,6 @@ function listDir(dirPath: string): { dirs: string[]; files: string[] } {
 export const dirRouter = router({
   home: publicProcedure.query(() => ({ path: os.homedir() })),
 
-  listDirs: publicProcedure.input(z.object({ dirPath: z.string().min(1) })).query(({ input }) => {
-    try {
-      const entries = fs.readdirSync(input.dirPath, { withFileTypes: true });
-      const dirs = entries
-        .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
-        .map((e) => e.name)
-        .sort();
-      return { dirs };
-    } catch {
-      return { dirs: [] };
-    }
-  }),
-
   listFiles: publicProcedure.input(z.object({ dirPath: z.string().min(1) })).query(({ input }) => {
     if (!fs.existsSync(input.dirPath)) {
       throw new TRPCError({ code: 'NOT_FOUND', message: `Directory not found: ${input.dirPath}` });

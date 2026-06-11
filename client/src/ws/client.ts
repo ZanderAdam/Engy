@@ -1,12 +1,14 @@
 import WebSocket from 'ws';
 import path from 'node:path';
-import { access, readdir } from 'node:fs/promises';
+import os from 'node:os';
+import { access, mkdir, readdir } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type {
   ClientToServerMessage,
   WorkspacesSyncMessage,
   ValidatePathsRequestMessage,
+  CreateDirRequestMessage,
   SearchFilesRequestMessage,
   GitStatusRequestMessage,
   GitDiffRequestMessage,
@@ -70,7 +72,7 @@ function errorText(err: unknown): string {
 function classifyWorktreeAddError(msg: string): WorktreeAddErrorCode {
   const lower = msg.toLowerCase();
   if (
-    lower.includes("a branch named") ||
+    lower.includes('a branch named') ||
     (lower.includes('already exists') && (lower.includes('branch') || lower.includes('refs/heads')))
   ) {
     return 'BRANCH_EXISTS';
@@ -357,7 +359,7 @@ export class WsClient {
       if (this.ws !== ws) return;
       console.log('[ws-main] Connected');
       this.attempt = 0;
-      this.send({ type: 'REGISTER', payload: {} });
+      this.send({ type: 'REGISTER', payload: { homeDir: os.homedir() } });
       this.startPing('main');
     });
 
@@ -536,6 +538,9 @@ export class WsClient {
       case 'EXECUTION_STOP_REQUEST':
         this.handleExecutionStopRequest(message as ExecutionStopRequestMessage);
         break;
+      case 'CREATE_DIR_REQUEST':
+        this.handleCreateDirRequest(message as CreateDirRequestMessage);
+        break;
     }
   }
 
@@ -625,7 +630,13 @@ export class WsClient {
   private async handleGitDiffRequest(message: GitDiffRequestMessage): Promise<void> {
     const { requestId, repoDir, filePath, base, staged, coderWorkspace } = message.payload;
     try {
-      const diff = await getDiff(repoDir, filePath, base, staged, this.gitRunnerFor(coderWorkspace));
+      const diff = await getDiff(
+        repoDir,
+        filePath,
+        base,
+        staged,
+        this.gitRunnerFor(coderWorkspace),
+      );
       this.send({
         type: 'GIT_DIFF_RESPONSE',
         payload: { requestId, diff },
@@ -726,6 +737,35 @@ export class WsClient {
     }
   }
 
+  private async handleCreateDirRequest(message: CreateDirRequestMessage): Promise<void> {
+    const { requestId, paths } = message.payload;
+    try {
+      const results = await Promise.all(
+        paths.map(async (p) => {
+          try {
+            await mkdir(p, { recursive: true });
+            return { path: p, success: true };
+          } catch (err) {
+            return {
+              path: p,
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            };
+          }
+        }),
+      );
+      this.send({
+        type: 'CREATE_DIR_RESPONSE',
+        payload: { requestId, results },
+      });
+    } catch (err) {
+      this.send({
+        type: 'CREATE_DIR_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
   private async handleFileReadRequest(message: FileReadRequestMessage): Promise<void> {
     const { requestId, repoDir, filePath, ref, coderWorkspace } = message.payload;
     try {
@@ -735,7 +775,9 @@ export class WsClient {
           content = await getFileContent(repoDir, filePath, ref, this.gitRunnerFor(coderWorkspace));
         } else {
           const posixPath = filePath.startsWith('/') ? filePath : `${repoDir}/${filePath}`;
-          const { stdout } = await this.coderManager.execCapture(coderWorkspace, 'cat', [posixPath]);
+          const { stdout } = await this.coderManager.execCapture(coderWorkspace, 'cat', [
+            posixPath,
+          ]);
           content = stdout;
         }
       } else {
@@ -747,7 +789,9 @@ export class WsClient {
       });
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
-      console.error(`[ws-main] FILE_READ_REQUEST failed repoDir=${repoDir} filePath=${filePath}: ${error}`);
+      console.error(
+        `[ws-main] FILE_READ_REQUEST failed repoDir=${repoDir} filePath=${filePath}: ${error}`,
+      );
       this.send({
         type: 'FILE_READ_RESPONSE',
         payload: { requestId, error },

@@ -156,7 +156,7 @@ describe('WsClient', () => {
 
     const ws = await connPromise;
     const msg = await waitForMessage(ws);
-    expect(JSON.parse(msg)).toEqual({ type: 'REGISTER', payload: {} });
+    expect(JSON.parse(msg)).toEqual({ type: 'REGISTER', payload: { homeDir: os.homedir() } });
   });
 
   it('calls onWorkspacesSync when receiving WORKSPACES_SYNC', async () => {
@@ -238,7 +238,7 @@ describe('WsClient', () => {
 
     const ws2 = await connPromise;
     const msg = await waitForMessage(ws2);
-    expect(JSON.parse(msg)).toEqual({ type: 'REGISTER', payload: {} });
+    expect(JSON.parse(msg)).toEqual({ type: 'REGISTER', payload: { homeDir: os.homedir() } });
   });
 
   it('does not reconnect after intentional close', async () => {
@@ -1282,9 +1282,8 @@ describe('WsClient worktree add/remove handlers', () => {
     port = (server.address() as { port: number }).port;
     tmpDir = mkdtempSync(nodePath.join(os.tmpdir(), 'engy-ws-wt-test-'));
 
-    const realChildProcess = await vi.importActual<typeof import('node:child_process')>(
-      'node:child_process',
-    );
+    const realChildProcess =
+      await vi.importActual<typeof import('node:child_process')>('node:child_process');
     const realExecFileAsync = promisify(realChildProcess.execFile);
     mockedExecFile[promisify.custom].mockImplementation(
       (...args: Parameters<typeof realExecFileAsync>) => realExecFileAsync(...args),
@@ -1798,7 +1797,12 @@ describe('WsClient search files handler', () => {
     expect(response.type).toBe('SEARCH_FILES_RESPONSE');
     const paths = (response.payload.results as Array<{ path: string }>).map((r) => r.path);
     expect(paths).toEqual(
-      expect.arrayContaining(['.env', 'README.md', 'node_modules/pkg.json', '.config/settings.json']),
+      expect.arrayContaining([
+        '.env',
+        'README.md',
+        'node_modules/pkg.json',
+        '.config/settings.json',
+      ]),
     );
     // Confirm the fallback path was actually exercised (getGitRoot probed and failed).
     const gitProbe = mockedExecFile[promisify.custom].mock.calls[0]?.[1];
@@ -1834,5 +1838,128 @@ describe('WsClient search files handler', () => {
     const gitCalls = mockedExecFile[promisify.custom].mock.calls;
     expect(gitCalls[0]?.[1]).toEqual(expect.arrayContaining(['rev-parse', '--show-toplevel']));
     expect(gitCalls[1]?.[1]).toEqual(expect.arrayContaining(['ls-files']));
+  });
+});
+
+describe('WsClient CREATE_DIR_REQUEST handler', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+  let tmpDir: string;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => wss.once('connection', resolve));
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => ws.once('message', (data) => resolve(data.toString())));
+  }
+
+  beforeEach(async () => {
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) resolve();
+      else server.on('listening', () => resolve());
+    });
+    port = (server.address() as { port: number }).port;
+    tmpDir = mkdtempSync(nodePath.join(os.tmpdir(), 'create-dir-test-'));
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  async function setupAndSend(req: object): Promise<string> {
+    const connPromise = waitForConnection(server);
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+    ws.send(JSON.stringify(req));
+    return waitForMessage(ws);
+  }
+
+  describe('CREATE_DIR_REQUEST', () => {
+    it('should resolve batch creation with per-path results', async () => {
+      const dir1 = nodePath.join(tmpDir, 'new-dir-1');
+      const dir2 = nodePath.join(tmpDir, 'nested', 'new-dir-2');
+
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'CREATE_DIR_REQUEST',
+          payload: { requestId: 'cdr-1', paths: [dir1, dir2] },
+        }),
+      );
+
+      expect(response.type).toBe('CREATE_DIR_RESPONSE');
+      expect(response.payload.requestId).toBe('cdr-1');
+      expect(response.payload.results).toEqual([
+        { path: dir1, success: true },
+        { path: dir2, success: true },
+      ]);
+      expect(nodeFs.existsSync(dir1)).toBe(true);
+      expect(nodeFs.existsSync(dir2)).toBe(true);
+    });
+
+    it('should report per-path error when path parent is a file without failing the batch', async () => {
+      const blockingFile = nodePath.join(tmpDir, 'blocker');
+      nodeFs.writeFileSync(blockingFile, 'I am a file');
+      const badPath = nodePath.join(blockingFile, 'subdir');
+      const goodPath = nodePath.join(tmpDir, 'good-sibling');
+
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'CREATE_DIR_REQUEST',
+          payload: { requestId: 'cdr-2', paths: [badPath, goodPath] },
+        }),
+      );
+
+      expect(response.type).toBe('CREATE_DIR_RESPONSE');
+      const results = response.payload.results as Array<{
+        path: string;
+        success: boolean;
+        error?: string;
+      }>;
+      const badResult = results.find((r) => r.path === badPath);
+      const goodResult = results.find((r) => r.path === goodPath);
+      expect(badResult?.success).toBe(false);
+      expect(badResult?.error).toBeDefined();
+      expect(goodResult?.success).toBe(true);
+      expect(nodeFs.existsSync(goodPath)).toBe(true);
+    });
+
+    it('should succeed idempotently for nested and duplicate paths', async () => {
+      const repoDir = nodePath.join(tmpDir, 'repo');
+      const docsDir = nodePath.join(repoDir, 'docs');
+
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'CREATE_DIR_REQUEST',
+          payload: { requestId: 'cdr-3', paths: [repoDir, docsDir, repoDir] },
+        }),
+      );
+
+      expect(response.type).toBe('CREATE_DIR_RESPONSE');
+      const results = response.payload.results as Array<{ path: string; success: boolean }>;
+      expect(results.every((r) => r.success)).toBe(true);
+      expect(nodeFs.existsSync(docsDir)).toBe(true);
+    });
+  });
+
+  describe('REGISTER with homeDir', () => {
+    it('should include homeDir in REGISTER payload', async () => {
+      const connPromise = waitForConnection(server);
+      client = new WsClient({ serverUrl: `http://localhost:${port}` });
+      client.connect();
+
+      const ws = await connPromise;
+      const msg = JSON.parse(await waitForMessage(ws));
+
+      expect(msg.type).toBe('REGISTER');
+      expect(typeof msg.payload.homeDir).toBe('string');
+      expect(msg.payload.homeDir.length).toBeGreaterThan(0);
+    });
   });
 });

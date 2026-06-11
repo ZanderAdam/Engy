@@ -6,6 +6,8 @@ export type {
   WorkspacesSyncMessage,
   ValidatePathsRequestMessage,
   ValidatePathsResponseMessage,
+  CreateDirRequestMessage,
+  CreateDirResponseMessage,
   SearchFilesRequestMessage,
   SearchFilesResponseMessage,
   FileChangeMessage,

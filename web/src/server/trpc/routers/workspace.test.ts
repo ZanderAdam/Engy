@@ -542,6 +542,220 @@ describe('workspace router', () => {
     });
   });
 
+  describe('createMissingDirs flag', () => {
+    interface MockDaemon {
+      readyState: number;
+      OPEN: number;
+      send: ReturnType<typeof vi.fn>;
+    }
+
+    function attachMockDaemon(): MockDaemon {
+      const daemon: MockDaemon = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: vi.fn(),
+      };
+      ctx.state.daemon = daemon as unknown as WebSocket;
+      return daemon;
+    }
+
+    function findRequestOfType(daemon: MockDaemon, type: string) {
+      for (const call of daemon.send.mock.calls) {
+        const msg = JSON.parse(call[0] as string);
+        if (msg.type === type) return msg;
+      }
+      return undefined;
+    }
+
+    function resolveValidationRequest(
+      daemon: MockDaemon,
+      results: Array<{ path: string; exists: boolean }>,
+    ): void {
+      const msg = findRequestOfType(daemon, 'VALIDATE_PATHS_REQUEST');
+      if (!msg) throw new Error('no validation request captured');
+      ctx.state.pendingValidations.get(msg.payload.requestId)?.resolve(results);
+    }
+
+    function resolveCreateDirRequest(
+      daemon: MockDaemon,
+      results: Array<{ path: string; success: boolean; error?: string }>,
+    ): void {
+      const msg = findRequestOfType(daemon, 'CREATE_DIR_REQUEST');
+      if (!msg) throw new Error('no create dir request captured');
+      ctx.state.pendingCreateDirs.get(msg.payload.requestId)?.resolve({ results });
+    }
+
+    describe('workspace.create', () => {
+      it('should throw BAD_REQUEST when paths are missing and flag is absent', async () => {
+        const daemon = attachMockDaemon();
+        const createPromise = caller.workspace.create({
+          name: 'Missing Dirs WS',
+          repos: ['/nonexistent/repo'],
+        });
+
+        await vi.waitFor(() =>
+          expect(findRequestOfType(daemon, 'VALIDATE_PATHS_REQUEST')).toBeDefined(),
+        );
+        resolveValidationRequest(daemon, [{ path: '/nonexistent/repo', exists: false }]);
+
+        await expect(createPromise).rejects.toThrow('Invalid paths');
+      });
+
+      it('should create missing dirs and proceed when flag is true', async () => {
+        const repoDir = path.join(ctx.tmpDir, 'new-repo');
+        const daemon = attachMockDaemon();
+
+        const createPromise = caller.workspace.create({
+          name: 'Create Dirs WS',
+          repos: [repoDir],
+          createMissingDirs: true,
+        });
+
+        await vi.waitFor(() =>
+          expect(findRequestOfType(daemon, 'VALIDATE_PATHS_REQUEST')).toBeDefined(),
+        );
+        resolveValidationRequest(daemon, [{ path: repoDir, exists: false }]);
+
+        await vi.waitFor(() =>
+          expect(findRequestOfType(daemon, 'CREATE_DIR_REQUEST')).toBeDefined(),
+        );
+
+        const createMsg = findRequestOfType(daemon, 'CREATE_DIR_REQUEST');
+        expect(createMsg.payload.paths).toEqual([repoDir]);
+        resolveCreateDirRequest(daemon, [{ path: repoDir, success: true }]);
+
+        const ws = await createPromise;
+        expect(ws.name).toBe('Create Dirs WS');
+      });
+
+      it('should throw BAD_REQUEST with path and reason when directory creation fails', async () => {
+        const daemon = attachMockDaemon();
+        const createPromise = caller.workspace.create({
+          name: 'Fail Dirs WS',
+          repos: ['/readonly/repo'],
+          createMissingDirs: true,
+        });
+
+        await vi.waitFor(() =>
+          expect(findRequestOfType(daemon, 'VALIDATE_PATHS_REQUEST')).toBeDefined(),
+        );
+        resolveValidationRequest(daemon, [{ path: '/readonly/repo', exists: false }]);
+
+        await vi.waitFor(() =>
+          expect(findRequestOfType(daemon, 'CREATE_DIR_REQUEST')).toBeDefined(),
+        );
+        resolveCreateDirRequest(daemon, [
+          { path: '/readonly/repo', success: false, error: 'Permission denied' },
+        ]);
+
+        await expect(createPromise).rejects.toThrow('Failed to create');
+        await createPromise.catch((e: Error) => {
+          expect(e.message).toContain('/readonly/repo');
+          expect(e.message).toContain('Permission denied');
+        });
+      });
+
+      it('should deduplicate missing paths before creating', async () => {
+        const daemon = attachMockDaemon();
+        const createPromise = caller.workspace.create({
+          name: 'Dedup WS',
+          repos: ['/dup/path', '/dup/path'],
+          createMissingDirs: true,
+        });
+
+        await vi.waitFor(() =>
+          expect(findRequestOfType(daemon, 'VALIDATE_PATHS_REQUEST')).toBeDefined(),
+        );
+        resolveValidationRequest(daemon, [
+          { path: '/dup/path', exists: false },
+          { path: '/dup/path', exists: false },
+        ]);
+
+        await vi.waitFor(() =>
+          expect(findRequestOfType(daemon, 'CREATE_DIR_REQUEST')).toBeDefined(),
+        );
+        const createMsg = findRequestOfType(daemon, 'CREATE_DIR_REQUEST');
+        expect(createMsg.payload.paths).toEqual(['/dup/path']);
+        resolveCreateDirRequest(daemon, [{ path: '/dup/path', success: true }]);
+
+        const ws = await createPromise;
+        expect(ws.name).toBe('Dedup WS');
+      });
+    });
+
+    describe('workspace.update', () => {
+      it('should throw BAD_REQUEST when paths are missing and flag is absent', async () => {
+        const ws = await caller.workspace.create({ name: 'Update Missing' });
+        const daemon = attachMockDaemon();
+
+        const updatePromise = caller.workspace.update({
+          id: ws.id,
+          repos: ['/nonexistent/repo'],
+        });
+
+        await vi.waitFor(() =>
+          expect(findRequestOfType(daemon, 'VALIDATE_PATHS_REQUEST')).toBeDefined(),
+        );
+        resolveValidationRequest(daemon, [{ path: '/nonexistent/repo', exists: false }]);
+
+        await expect(updatePromise).rejects.toThrow('Invalid paths');
+      });
+
+      it('should create missing dirs and proceed when flag is true', async () => {
+        const ws = await caller.workspace.create({ name: 'Update Create Dirs' });
+        const repoDir = path.join(ctx.tmpDir, 'new-update-repo');
+        const daemon = attachMockDaemon();
+
+        const updatePromise = caller.workspace.update({
+          id: ws.id,
+          repos: [repoDir],
+          createMissingDirs: true,
+        });
+
+        await vi.waitFor(() =>
+          expect(findRequestOfType(daemon, 'VALIDATE_PATHS_REQUEST')).toBeDefined(),
+        );
+        resolveValidationRequest(daemon, [{ path: repoDir, exists: false }]);
+
+        await vi.waitFor(() =>
+          expect(findRequestOfType(daemon, 'CREATE_DIR_REQUEST')).toBeDefined(),
+        );
+
+        const createMsg = findRequestOfType(daemon, 'CREATE_DIR_REQUEST');
+        expect(createMsg.payload.paths).toEqual([repoDir]);
+        resolveCreateDirRequest(daemon, [{ path: repoDir, success: true }]);
+
+        const updated = await updatePromise;
+        expect(updated.repos).toEqual([repoDir]);
+      });
+
+      it('should throw BAD_REQUEST with path and reason when directory creation fails', async () => {
+        const ws = await caller.workspace.create({ name: 'Update Fail Dirs' });
+        const daemon = attachMockDaemon();
+
+        const updatePromise = caller.workspace.update({
+          id: ws.id,
+          repos: ['/unwritable/path'],
+          createMissingDirs: true,
+        });
+
+        await vi.waitFor(() =>
+          expect(findRequestOfType(daemon, 'VALIDATE_PATHS_REQUEST')).toBeDefined(),
+        );
+        resolveValidationRequest(daemon, [{ path: '/unwritable/path', exists: false }]);
+
+        await vi.waitFor(() =>
+          expect(findRequestOfType(daemon, 'CREATE_DIR_REQUEST')).toBeDefined(),
+        );
+        resolveCreateDirRequest(daemon, [
+          { path: '/unwritable/path', success: false, error: 'EACCES' },
+        ]);
+
+        await expect(updatePromise).rejects.toThrow('Failed to create');
+      });
+    });
+  });
+
   describe('engy-dir validation', () => {
     it('initWorkspaceDir should reject slugs containing path separators', () => {
       expect(() => initWorkspaceDir('Bad', '../etc', [])).toThrow('Invalid workspace slug');

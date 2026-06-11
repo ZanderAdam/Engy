@@ -1,6 +1,6 @@
 export interface RegisterMessage {
   type: 'REGISTER';
-  payload: Record<string, never>;
+  payload: { homeDir?: string };
 }
 
 export interface WorkspacesSyncMessage {
@@ -31,6 +31,27 @@ export interface ValidatePathsResponseMessage {
       exists: boolean;
     }>;
   };
+}
+
+export interface CreateDirRequestMessage {
+  type: 'CREATE_DIR_REQUEST';
+  payload: {
+    requestId: string;
+    paths: string[];
+  };
+}
+
+export interface CreateDirResponseMessage {
+  type: 'CREATE_DIR_RESPONSE';
+  payload:
+    | {
+        requestId: string;
+        results: Array<{ path: string; success: boolean; error?: string }>;
+      }
+    | {
+        requestId: string;
+        error: string;
+      };
 }
 
 export interface SearchFilesRequestMessage {
@@ -534,6 +555,8 @@ export type WsMessage =
   | WorkspacesSyncMessage
   | ValidatePathsRequestMessage
   | ValidatePathsResponseMessage
+  | CreateDirRequestMessage
+  | CreateDirResponseMessage
   | SearchFilesRequestMessage
   | SearchFilesResponseMessage
   | FileChangeMessage
@@ -587,6 +610,7 @@ export type WsMessage =
 export type ClientToServerMessage =
   | RegisterMessage
   | ValidatePathsResponseMessage
+  | CreateDirResponseMessage
   | SearchFilesResponseMessage
   | FileChangeMessage
   | GitStatusResponseMessage
@@ -618,6 +642,7 @@ export type ClientToServerMessage =
 export type ServerToClientMessage =
   | WorkspacesSyncMessage
   | ValidatePathsRequestMessage
+  | CreateDirRequestMessage
   | SearchFilesRequestMessage
   | GitStatusRequestMessage
   | GitDiffRequestMessage

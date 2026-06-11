@@ -21,10 +21,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { DirPathInput } from '@/components/dir-path-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ContainerSettings, type ContainerSettingsData } from '@/components/workspace/container-settings';
+import {
+  ContainerSettings,
+  type ContainerSettingsData,
+} from '@/components/workspace/container-settings';
 import type { ContainerConfig, CoderConfig, ExecutionBackend } from '@/server/db/schema';
 
 interface EditWorkspaceDialogProps {
@@ -71,6 +75,8 @@ export function EditWorkspaceDialog({
   const [implementSkill, setImplementSkill] = useState(workspace.implementSkill ?? '');
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [dirsToCreate, setDirsToCreate] = useState<string[] | null>(null);
   const containerDataRef = useRef<ContainerSettingsData>({
     containerEnabled: workspace.containerEnabled ?? false,
     containerConfig: workspace.containerConfig ?? {},
@@ -114,10 +120,7 @@ export function EditWorkspaceDialog({
     setRepos(updated);
   }
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-
+  function mutate(createMissingDirs: boolean) {
     const filteredRepos = repos.map((r) => r.trim()).filter((r) => r !== '');
     const trimmedDocsDir = docsDir.trim();
     const container = containerDataRef.current;
@@ -137,8 +140,43 @@ export function EditWorkspaceDialog({
       maxConcurrency: container.maxConcurrency,
       autoStart: container.autoStart,
       autoAgentCompletion: container.autoAgentCompletion,
+      ...(createMissingDirs ? { createMissingDirs: true } : {}),
     });
   }
+
+  async function submit() {
+    setError(null);
+    const filteredRepos = repos.map((r) => r.trim()).filter((r) => r !== '');
+    const trimmedDocsDir = docsDir.trim();
+    const paths = [...new Set([...filteredRepos, ...(trimmedDocsDir ? [trimmedDocsDir] : [])])];
+    if (paths.length === 0) {
+      mutate(false);
+      return;
+    }
+
+    setValidating(true);
+    try {
+      const { results } = await utils.file.validatePaths.fetch({ paths }, { staleTime: 0 });
+      const missing = results.filter((r) => !r.exists).map((r) => r.path);
+      if (missing.length > 0) {
+        setDirsToCreate(missing);
+        return;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return;
+    } finally {
+      setValidating(false);
+    }
+    mutate(false);
+  }
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    void submit();
+  }
+
+  const pending = updateMutation.isPending || validating;
 
   function deriveSlug(value: string): string {
     return value
@@ -166,6 +204,8 @@ export function EditWorkspaceDialog({
       setImplementSkill(workspace.implementSkill ?? '');
       setError(null);
       setDeleteConfirmOpen(false);
+      setValidating(false);
+      setDirsToCreate(null);
       containerDataRef.current = {
         containerEnabled: workspace.containerEnabled ?? false,
         containerConfig: workspace.containerConfig ?? {},
@@ -224,10 +264,11 @@ export function EditWorkspaceDialog({
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="edit-workspace-docs-dir">Docs location</Label>
-                  <Input
+                  <DirPathInput
                     id="edit-workspace-docs-dir"
+                    variant="dropdown"
                     value={docsDir}
-                    onChange={(e) => setDocsDir(e.target.value)}
+                    onChange={setDocsDir}
                     placeholder="/path/to/docs"
                   />
                   <p className="text-xs text-muted-foreground">
@@ -238,10 +279,11 @@ export function EditWorkspaceDialog({
                   <Label>Repository paths</Label>
                   {repos.map((repo, i) => (
                     <div key={i} className="flex gap-2">
-                      <Input
+                      <DirPathInput
                         className="flex-1"
+                        variant="dropdown"
                         value={repo}
-                        onChange={(e) => updateRepo(i, e.target.value)}
+                        onChange={(value) => updateRepo(i, value)}
                         placeholder="/path/to/repo"
                       />
                       {repos.length > 1 && (
@@ -320,12 +362,46 @@ export function EditWorkspaceDialog({
               <RiDeleteBinLine data-icon="inline-start" />
               Delete workspace
             </Button>
-            <Button type="submit" disabled={updateMutation.isPending || !name.trim()}>
-              {updateMutation.isPending ? 'Saving...' : 'Save'}
+            <Button type="submit" disabled={pending || !name.trim()}>
+              {pending ? 'Saving...' : 'Save'}
             </Button>
           </div>
         </form>
       </DialogContent>
+
+      <AlertDialog
+        open={dirsToCreate !== null}
+        onOpenChange={(val) => {
+          if (!val) setDirsToCreate(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Create missing directories?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The following directories don&apos;t exist and will be created:
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="flex flex-col gap-1">
+            {(dirsToCreate ?? []).map((dir) => (
+              <li key={dir} className="font-mono text-xs">
+                {dir}
+              </li>
+            ))}
+          </ul>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setDirsToCreate(null);
+                mutate(true);
+              }}
+            >
+              Create and save
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>

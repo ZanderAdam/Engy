@@ -4,6 +4,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { eq } from 'drizzle-orm';
 import type {
   ClientToServerMessage,
+  RegisterMessage,
   ValidatePathsRequestMessage,
   SearchFilesRequestMessage,
   ContainerUpRequestMessage,
@@ -31,6 +32,7 @@ import type {
   RemoteFilePushResult,
   WorktreeMergeResult,
   WorktreeAddResult,
+  CreateDirResult,
 } from '../trpc/context';
 import { getDb } from '../db/client';
 import { workspaces, agentSessions, tasks, projects, fleetingMemories } from '../db/schema';
@@ -68,6 +70,7 @@ export function createWebSocketServer(state: AppState): WebSocketServer {
       );
       if (wasDaemon) {
         state.daemon = null;
+        state.daemonHomeDir = null;
         rejectAllPending(state);
       }
     });
@@ -104,6 +107,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingWorktreeAdd,
     state.pendingWorktreeRemove,
     state.pendingGitWorktreeList,
+    state.pendingCreateDirs,
   ] as const;
 
   const error = new Error('Daemon disconnected');
@@ -118,7 +122,7 @@ function rejectAllPending(state: AppState): void {
 function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppState): void {
   switch (msg.type) {
     case 'REGISTER':
-      handleRegister(ws, state);
+      handleRegister(ws, msg, state);
       break;
     case 'VALIDATE_PATHS_RESPONSE':
       handleValidatePathsResponse(msg, state);
@@ -232,6 +236,11 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'WORKTREE_REMOVE_RESULT':
       handleWorktreeRemoveResult(msg.payload, state);
       break;
+    case 'CREATE_DIR_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingCreateDirs, (p) => ({
+        results: p.results,
+      }));
+      break;
     case 'EXECUTION_STATUS_EVENT':
       handleExecutionStatusEvent(msg.payload);
       break;
@@ -244,13 +253,14 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
   }
 }
 
-function handleRegister(ws: WebSocket, state: AppState): void {
+function handleRegister(ws: WebSocket, msg: RegisterMessage, state: AppState): void {
   const oldDaemon = state.daemon !== ws ? state.daemon : null;
   console.log(`[ws-main-server] REGISTER: hadOldDaemon=${oldDaemon !== null}`);
 
   // Replace first, then terminate the old one. terminate() (not close()) sends no
   // close frame, so the client's closure guard (this.ws !== ws) handles it silently.
   state.daemon = ws;
+  state.daemonHomeDir = msg.payload.homeDir ?? null;
   if (oldDaemon) {
     oldDaemon.terminate();
   }
@@ -866,6 +876,20 @@ export function dispatchGitWorktreeList(
 
 export function dispatchDirList(dirPath: string, state: AppState): Promise<DirListResult> {
   return dispatchDaemonOp(state, state.pendingDirList, 'DIR_LIST_REQUEST', { dirPath });
+}
+
+export function dispatchCreateDir(
+  paths: string[],
+  state: AppState,
+  timeoutMs: number = VALIDATION_TIMEOUT_MS,
+): Promise<CreateDirResult> {
+  return dispatchDaemonOp(
+    state,
+    state.pendingCreateDirs,
+    'CREATE_DIR_REQUEST',
+    { paths },
+    timeoutMs,
+  );
 }
 
 export function dispatchFileRead(

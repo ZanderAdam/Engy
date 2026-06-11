@@ -6,6 +6,10 @@ import type {
   WorktreeRemoveErrorCode,
 } from '@engy/common';
 
+export interface CreateDirResult {
+  results: Array<{ path: string; success: boolean; error?: string }>;
+}
+
 export interface FileChangeEvent {
   workspaceSlug: string;
   path: string;
@@ -268,6 +272,14 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingCreateDirs: Map<
+    string,
+    {
+      resolve: (result: CreateDirResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  daemonHomeDir: string | null;
   specLastChanged: Map<string, number>;
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
   /** Maps sessionId → set of browser WebSockets for multi-attach terminal I/O relay */
@@ -314,6 +326,8 @@ export function getAppState(): AppState {
       pendingWorktreeAdd: new Map(),
       pendingWorktreeRemove: new Map(),
       pendingGitWorktreeList: new Map(),
+      pendingCreateDirs: new Map(),
+      daemonHomeDir: null,
       specLastChanged: new Map(),
       specDebounceTimers: new Map(),
       terminalSessions: new Map(),

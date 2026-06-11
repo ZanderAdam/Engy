@@ -52,36 +52,6 @@ describe('dir router', () => {
     });
   });
 
-  describe('listDirs', () => {
-    it('should return all non-hidden subdirectories', async () => {
-      const result = await caller.dir.listDirs({ dirPath: testDir });
-      expect(result.dirs).toContain('sub');
-      expect(result.dirs).toContain('deep');
-      expect(result.dirs).toContain('empty-sub'); // unlike list, empty-sub has no md but is still a dir
-    });
-
-    it('should exclude dotfiles', async () => {
-      fs.mkdirSync(path.join(testDir, '.hidden'));
-      const result = await caller.dir.listDirs({ dirPath: testDir });
-      expect(result.dirs).not.toContain('.hidden');
-    });
-
-    it('should return sorted results', async () => {
-      const result = await caller.dir.listDirs({ dirPath: testDir });
-      expect(result.dirs).toEqual([...result.dirs].sort());
-    });
-
-    it('should return empty dirs for non-existent path', async () => {
-      const result = await caller.dir.listDirs({ dirPath: path.join(testDir, 'does-not-exist') });
-      expect(result.dirs).toEqual([]);
-    });
-
-    it('should return empty dirs for a file path', async () => {
-      const result = await caller.dir.listDirs({ dirPath: path.join(testDir, 'readme.md') });
-      expect(result.dirs).toEqual([]);
-    });
-  });
-
   describe('list', () => {
     it('should return md files and subdirs containing md files', async () => {
       const result = await caller.dir.list({ dirPath: testDir });

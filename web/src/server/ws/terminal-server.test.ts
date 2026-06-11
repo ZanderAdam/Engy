@@ -43,6 +43,8 @@ function makeState(): AppState {
     pendingWorktreeRemove: new Map(),
     pendingGitWorktreeList: new Map(),
     pendingGlobFiles: new Map(),
+    pendingCreateDirs: new Map(),
+    daemonHomeDir: null,
   };
 }
 

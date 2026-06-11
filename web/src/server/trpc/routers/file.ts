@@ -1,8 +1,45 @@
 import { z } from 'zod';
+import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
-import { dispatchDirList, dispatchFileRead, dispatchFileWrite } from '../../ws/server';
+import {
+  dispatchDirList,
+  dispatchFileRead,
+  dispatchFileWrite,
+  dispatchValidation,
+} from '../../ws/server';
 
 export const fileRouter = router({
+  validatePaths: publicProcedure
+    .input(
+      z.object({
+        paths: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      try {
+        const results = await dispatchValidation(input.paths, ctx.state);
+        return { results };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Path validation failed: ${(err as Error).message}`,
+        });
+      }
+    }),
+
+  home: publicProcedure.query(({ ctx }) => {
+    if (!ctx.state.daemon) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'No daemon connected' });
+    }
+    if (ctx.state.daemonHomeDir === null) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Daemon did not report a home directory — update the engy client daemon',
+      });
+    }
+    return { path: ctx.state.daemonHomeDir };
+  }),
+
   listDir: publicProcedure
     .input(
       z.object({

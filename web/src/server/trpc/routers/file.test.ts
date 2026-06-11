@@ -1,28 +1,96 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { WebSocket } from 'ws';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
 
 describe('file router', () => {
   let ctx: TestContext;
 
+  beforeEach(() => {
+    ctx = setupTestDb();
+  });
+
   afterEach(() => {
     ctx?.cleanup();
   });
 
-  describe('listDir', () => {
-    it('throws when no daemon is connected', async () => {
-      ctx = setupTestDb();
+  describe('validatePaths', () => {
+    it('should throw when no daemon is connected', async () => {
       const caller = appRouter.createCaller({ state: ctx.state });
 
-      await expect(
-        caller.file.listDir({ dirPath: '/tmp/repo' }),
-      ).rejects.toThrow('No daemon connected');
+      await expect(caller.file.validatePaths({ paths: ['/tmp/some-path'] })).rejects.toThrow(
+        'No daemon connected',
+      );
+    });
+
+    it('should pass paths through to daemon and return results', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      const fakeSocket = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'VALIDATE_PATHS_REQUEST') {
+            const pending = ctx.state.pendingValidations.get(msg.payload.requestId);
+            if (pending) {
+              pending.resolve([
+                { path: '/tmp/exists', exists: true },
+                { path: '/tmp/missing', exists: false },
+              ]);
+            }
+          }
+        },
+      };
+      ctx.state.daemon = fakeSocket as unknown as WebSocket;
+
+      const result = await caller.file.validatePaths({
+        paths: ['/tmp/exists', '/tmp/missing'],
+      });
+
+      expect(result.results).toEqual([
+        { path: '/tmp/exists', exists: true },
+        { path: '/tmp/missing', exists: false },
+      ]);
+    });
+  });
+
+  describe('home', () => {
+    it('should throw PRECONDITION_FAILED when no daemon is connected', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(caller.file.home()).rejects.toThrow('No daemon connected');
+    });
+
+    it('should throw PRECONDITION_FAILED when daemon reported no home directory', async () => {
+      ctx.state.daemon = { readyState: WebSocket.OPEN, OPEN: WebSocket.OPEN } as WebSocket;
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(caller.file.home()).rejects.toThrow('did not report a home directory');
+    });
+
+    it('should return daemonHomeDir when set', async () => {
+      ctx.state.daemon = { readyState: WebSocket.OPEN, OPEN: WebSocket.OPEN } as WebSocket;
+      ctx.state.daemonHomeDir = '/home/alice';
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      const result = await caller.file.home();
+      expect(result).toEqual({ path: '/home/alice' });
+    });
+  });
+
+  describe('listDir', () => {
+    it('throws when no daemon is connected', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(caller.file.listDir({ dirPath: '/tmp/repo' })).rejects.toThrow(
+        'No daemon connected',
+      );
     });
   });
 
   describe('read', () => {
     it('throws when no daemon is connected', async () => {
-      ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 
       await expect(
@@ -31,10 +99,8 @@ describe('file router', () => {
     });
 
     it('uses worktreePath as effective dir when provided', async () => {
-      ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 
-      // Still throws no-daemon, but with worktreePath — confirms the input shape is accepted
       await expect(
         caller.file.read({
           repoDir: '/tmp/repo',
@@ -45,7 +111,6 @@ describe('file router', () => {
     });
 
     it('accepts coderWorkspace in input', async () => {
-      ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 
       await expect(
@@ -60,7 +125,6 @@ describe('file router', () => {
 
   describe('write', () => {
     it('throws when no daemon is connected', async () => {
-      ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 
       await expect(
@@ -69,7 +133,6 @@ describe('file router', () => {
     });
 
     it('uses worktreePath as effective dir when provided', async () => {
-      ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 
       await expect(
@@ -83,7 +146,6 @@ describe('file router', () => {
     });
 
     it('accepts coderWorkspace in input', async () => {
-      ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 
       await expect(

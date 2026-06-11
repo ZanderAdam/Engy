@@ -14,7 +14,11 @@ import {
 } from '../../engy-dir/init';
 import { ensureGitRepo } from '../../engy-dir/git';
 import { initProjectDir } from '../../project/service';
-import { dispatchValidation, dispatchDevcontainerGenerate } from '../../ws/server';
+import {
+  dispatchValidation,
+  dispatchDevcontainerGenerate,
+  dispatchCreateDir,
+} from '../../ws/server';
 import type { AppState } from '../context';
 
 const containerConfigSchema = z
@@ -39,6 +43,42 @@ const autoAgentCompletionSchema = z.enum(['pr', 'merge']).optional();
 
 const DEFAULT_PLAN_SKILL = '/engy:plan';
 const DEFAULT_IMPLEMENT_SKILL = '/engy:implement';
+
+async function validatePathsOrCreateMissing(
+  paths: string[],
+  createMissingDirs: boolean | undefined,
+  state: AppState,
+): Promise<void> {
+  if (paths.length === 0) return;
+
+  try {
+    const results = await dispatchValidation(paths, state);
+    const missing = [...new Set(results.filter((r) => !r.exists).map((r) => r.path))];
+    if (missing.length > 0) {
+      if (!createMissingDirs) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Invalid paths: ${missing.join(', ')}`,
+          cause: { invalidPaths: missing },
+        });
+      }
+      const created = await dispatchCreateDir(missing, state);
+      const failed = created.results.filter((r) => !r.success);
+      if (failed.length > 0) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Failed to create: ${failed.map((r) => `${r.path} (${r.error})`).join(', ')}`,
+        });
+      }
+    }
+  } catch (err) {
+    if (err instanceof TRPCError) throw err;
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: `Path validation failed: ${(err as Error).message}`,
+    });
+  }
+}
 
 function broadcastWorkspacesSync(state: AppState): void {
   if (!state.daemon || state.daemon.readyState !== 1) return;
@@ -76,6 +116,7 @@ export const workspaceRouter = router({
         maxConcurrency: z.number().min(1).optional(),
         autoAgentCompletion: autoAgentCompletionSchema,
         autoStart: z.boolean().optional(),
+        createMissingDirs: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
@@ -83,26 +124,7 @@ export const workspaceRouter = router({
       const slug = await uniqueWorkspaceSlug(input.name);
 
       const pathsToValidate = [...input.repos, ...(input.docsDir ? [input.docsDir] : [])];
-
-      if (pathsToValidate.length > 0) {
-        try {
-          const results = await dispatchValidation(pathsToValidate, ctx.state);
-          const invalid = results.filter((r) => !r.exists);
-          if (invalid.length > 0) {
-            throw new TRPCError({
-              code: 'BAD_REQUEST',
-              message: `Invalid paths: ${invalid.map((r) => r.path).join(', ')}`,
-              cause: { invalidPaths: invalid.map((r) => r.path) },
-            });
-          }
-        } catch (err) {
-          if (err instanceof TRPCError) throw err;
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: `Path validation failed: ${(err as Error).message}`,
-          });
-        }
-      }
+      await validatePathsOrCreateMissing(pathsToValidate, input.createMissingDirs, ctx.state);
 
       const workspace = db
         .insert(workspaces)
@@ -190,6 +212,7 @@ export const workspaceRouter = router({
         autoAgentCompletion: autoAgentCompletionSchema.nullable().optional(),
         remoteEnabled: z.boolean().nullable().optional(),
         autoStart: z.boolean().nullable().optional(),
+        createMissingDirs: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
@@ -247,25 +270,7 @@ export const workspaceRouter = router({
         pathsToValidate.push(input.docsDir);
       }
 
-      if (pathsToValidate.length > 0) {
-        try {
-          const results = await dispatchValidation(pathsToValidate, ctx.state);
-          const invalid = results.filter((r) => !r.exists);
-          if (invalid.length > 0) {
-            throw new TRPCError({
-              code: 'BAD_REQUEST',
-              message: `Invalid paths: ${invalid.map((r) => r.path).join(', ')}`,
-              cause: { invalidPaths: invalid.map((r) => r.path) },
-            });
-          }
-        } catch (err) {
-          if (err instanceof TRPCError) throw err;
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: `Path validation failed: ${(err as Error).message}`,
-          });
-        }
-      }
+      await validatePathsOrCreateMissing(pathsToValidate, input.createMissingDirs, ctx.state);
 
       const updated = db
         .update(workspaces)
