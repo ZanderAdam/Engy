@@ -5,9 +5,10 @@
     "dev": "dotenv -e .dev.env -- node scripts/dev.mjs",
     "start": "dotenv -e .env -- turbo run start",
     "build": "turbo run build",
-    "lint": "turbo run lint:eslint && knip && jscpd",
+    "lint": "turbo run lint:eslint && knip && pnpm jscpd",
     "test": "turbo run test",
-    "blt": "turbo run build lint:eslint test && knip && jscpd",
+    "blt": "turbo run build lint:eslint test && knip && pnpm jscpd",
+    "jscpd": "jscpd && jscpd --min-lines 30 --exitCode 2 --silent",
     "postinstall": "chmod +x node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true"
   },
   "devDependencies": {

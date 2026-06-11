@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { eq } from 'drizzle-orm';
 import { WebSocket } from 'ws';
-import type { AppState } from '../trpc/context';
+import { createAppState, type AppState } from '../trpc/context';
 import {
   createWebSocketServer,
   dispatchValidation,
@@ -65,42 +65,7 @@ describe('WebSocket Server', () => {
 
   beforeEach(async () => {
     openClients = [];
-    state = {
-      daemon: null,
-      fileChanges: new Map(),
-      pendingValidations: new Map(),
-      pendingFileSearches: new Map(),
-      pendingGitStatus: new Map(),
-      pendingGitLog: new Map(),
-      pendingGitShow: new Map(),
-      pendingGitBranchFiles: new Map(),
-      pendingContainerUp: new Map(),
-      pendingContainerDown: new Map(),
-      pendingContainerStatus: new Map(),
-      pendingDevcontainerGenerate: new Map(),
-      specLastChanged: new Map(),
-      specDebounceTimers: new Map(),
-      terminalSessions: new Map(),
-      terminalSessionMeta: new Map(),
-      pendingReconnects: new Map(),
-      terminalDaemon: null,
-      fileChangeListeners: new Set(),
-      containerProgressListeners: new Map(),
-      pendingExecutionStart: new Map(),
-      pendingExecutionStop: new Map(),
-      pendingDirList: new Map(),
-      pendingFileRead: new Map(),
-      pendingGlobFiles: new Map(),
-      pendingFileWrite: new Map(),
-      pendingRemoteFilePull: new Map(),
-      pendingRemoteFilePush: new Map(),
-      pendingWorktreeMerge: new Map(),
-      pendingWorktreeAdd: new Map(),
-      pendingWorktreeRemove: new Map(),
-      pendingGitWorktreeList: new Map(),
-      pendingCreateDirs: new Map(),
-      daemonHomeDir: null,
-    };
+    state = createAppState();
     const result = await startServer(state);
     server = result.server;
     port = result.port;

@@ -1,52 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { WebSocket } from 'ws';
-import type { AppState } from '../trpc/context';
+import { createAppState, type AppState } from '../trpc/context';
 import {
   createTerminalWebSocketServer,
   createTerminalRelayWebSocketServer,
 } from './terminal-server';
 
 let openClients: WebSocket[] = [];
-
-function makeState(): AppState {
-  return {
-    daemon: null,
-    fileChanges: new Map(),
-    pendingValidations: new Map(),
-    pendingFileSearches: new Map(),
-    pendingGitStatus: new Map(),
-    pendingGitLog: new Map(),
-    pendingGitShow: new Map(),
-    pendingGitBranchFiles: new Map(),
-    specLastChanged: new Map(),
-    specDebounceTimers: new Map(),
-    terminalSessions: new Map(),
-    terminalSessionMeta: new Map(),
-    pendingReconnects: new Map(),
-    terminalDaemon: null,
-    fileChangeListeners: new Set(),
-    containerProgressListeners: new Map(),
-    pendingContainerUp: new Map(),
-    pendingContainerDown: new Map(),
-    pendingContainerStatus: new Map(),
-    pendingDevcontainerGenerate: new Map(),
-    pendingExecutionStart: new Map(),
-    pendingExecutionStop: new Map(),
-    pendingDirList: new Map(),
-    pendingFileRead: new Map(),
-    pendingFileWrite: new Map(),
-    pendingRemoteFilePull: new Map(),
-    pendingRemoteFilePush: new Map(),
-    pendingWorktreeMerge: new Map(),
-    pendingWorktreeAdd: new Map(),
-    pendingWorktreeRemove: new Map(),
-    pendingGitWorktreeList: new Map(),
-    pendingGlobFiles: new Map(),
-    pendingCreateDirs: new Map(),
-    daemonHomeDir: null,
-  };
-}
 
 function startServer(state: AppState): Promise<{ server: Server; port: number }> {
   return new Promise((resolve) => {
@@ -122,7 +83,7 @@ describe('Terminal WebSocket Server', () => {
 
   beforeEach(async () => {
     openClients = [];
-    state = makeState();
+    state = createAppState();
     const result = await startServer(state);
     server = result.server;
     port = result.port;

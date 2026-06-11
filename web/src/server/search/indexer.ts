@@ -125,18 +125,11 @@ function syncFrontmatterTable(
     .where(and(eq(frontmatter.workspaceId, workspaceId), eq(frontmatter.collection, collection)))
     .all();
 
-  const toDelete = existingRows
-    .map((r) => r.path)
-    .filter((p) => !activePaths.includes(p));
+  const toDelete = existingRows.map((r) => r.path).filter((p) => !activePaths.includes(p));
 
   if (toDelete.length > 0) {
     db.delete(frontmatter)
-      .where(
-        and(
-          eq(frontmatter.workspaceId, workspaceId),
-          inArray(frontmatter.path, toDelete),
-        ),
-      )
+      .where(and(eq(frontmatter.workspaceId, workspaceId), inArray(frontmatter.path, toDelete)))
       .run();
   }
 }
@@ -189,10 +182,7 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
         .select({ id: permanentMemories.id })
         .from(permanentMemories)
         .where(
-          and(
-            eq(permanentMemories.workspaceId, ws.id),
-            eq(permanentMemories.filePath, relPath),
-          ),
+          and(eq(permanentMemories.workspaceId, ws.id), eq(permanentMemories.filePath, relPath)),
         )
         .get();
 
@@ -216,9 +206,7 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
             keywords: Array.isArray(fm.keywords) ? (fm.keywords as string[]) : [],
             themes: Array.isArray(fm.themes) ? (fm.themes as string[]) : [],
             tags: Array.isArray(fm.tags) ? (fm.tags as string[]) : [],
-            linkedMemories: Array.isArray(fm.linkedMemories)
-              ? (fm.linkedMemories as string[])
-              : [],
+            linkedMemories: Array.isArray(fm.linkedMemories) ? (fm.linkedMemories as string[]) : [],
             scenarioIds: Array.isArray(fm.scenarioIds) ? (fm.scenarioIds as string[]) : [],
             sources: Array.isArray(fm.sources) ? (fm.sources as string[]) : [],
             updatedAt: now,
@@ -238,9 +226,7 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
             keywords: Array.isArray(fm.keywords) ? (fm.keywords as string[]) : [],
             themes: Array.isArray(fm.themes) ? (fm.themes as string[]) : [],
             tags: Array.isArray(fm.tags) ? (fm.tags as string[]) : [],
-            linkedMemories: Array.isArray(fm.linkedMemories)
-              ? (fm.linkedMemories as string[])
-              : [],
+            linkedMemories: Array.isArray(fm.linkedMemories) ? (fm.linkedMemories as string[]) : [],
             scenarioIds: Array.isArray(fm.scenarioIds) ? (fm.scenarioIds as string[]) : [],
             sources: Array.isArray(fm.sources) ? (fm.sources as string[]) : [],
             createdAt: now,
@@ -271,9 +257,7 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
       .map((r) => r.id);
 
     if (orphanIds.length > 0) {
-      db.delete(permanentMemories)
-        .where(inArray(permanentMemories.id, orphanIds))
-        .run();
+      db.delete(permanentMemories).where(inArray(permanentMemories.id, orphanIds)).run();
     }
   }
 
@@ -294,11 +278,42 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
       .get();
     db.update(permanentMemories)
       .set({ supersededById: superseder?.id ?? null })
-      .where(
-        and(eq(permanentMemories.workspaceId, ws.id), eq(permanentMemories.filePath, relPath)),
-      )
+      .where(and(eq(permanentMemories.workspaceId, ws.id), eq(permanentMemories.filePath, relPath)))
       .run();
   }
+}
+
+/**
+ * Index a single collection: refresh system READMEs, run the qmd update,
+ * sync the frontmatter table, and mirror permanent memories.
+ */
+async function indexCollection(
+  store: Awaited<ReturnType<typeof getStore>>,
+  col: Collection,
+  workspaceSlug: string,
+  workspaceId: number,
+  workspaceDir: string,
+): Promise<IndexResult> {
+  // System READMEs are skill-authored, not written through a server path, so
+  // refresh their index blocks here before qmd hashes the collection.
+  if (col === 'system') regenerateSystemReadmes(workspaceDir);
+
+  const qmdResult = await store.update({ collections: [col] });
+
+  syncFrontmatterTable(workspaceId, workspaceDir, col);
+
+  if (col === 'memory') {
+    await syncPermanentMemoryMirror(workspaceSlug);
+  }
+
+  return {
+    collection: col,
+    indexed: qmdResult.indexed,
+    updated: qmdResult.updated,
+    unchanged: qmdResult.unchanged,
+    removed: qmdResult.removed,
+    needsEmbedding: qmdResult.needsEmbedding,
+  };
 }
 
 /**
@@ -320,26 +335,7 @@ export async function update(
   const results: IndexResult[] = [];
 
   for (const col of targets) {
-    // System READMEs are skill-authored, not written through a server path, so
-    // refresh their index blocks here before qmd hashes the collection.
-    if (col === 'system') regenerateSystemReadmes(workspaceDir);
-
-    const qmdResult = await store.update({ collections: [col] });
-
-    syncFrontmatterTable(ws.id, workspaceDir, col);
-
-    if (col === 'memory') {
-      await syncPermanentMemoryMirror(workspaceSlug);
-    }
-
-    results.push({
-      collection: col,
-      indexed: qmdResult.indexed,
-      updated: qmdResult.updated,
-      unchanged: qmdResult.unchanged,
-      removed: qmdResult.removed,
-      needsEmbedding: qmdResult.needsEmbedding,
-    });
+    results.push(await indexCollection(store, col, workspaceSlug, ws.id, workspaceDir));
   }
 
   return results;
@@ -382,24 +378,7 @@ export async function forceFullReindex(workspaceSlug: string): Promise<IndexResu
       pattern: '**/*.md',
     });
 
-    if (col === 'system') regenerateSystemReadmes(workspaceDir);
-
-    const qmdResult = await store.update({ collections: [col] });
-
-    syncFrontmatterTable(ws.id, workspaceDir, col);
-
-    if (col === 'memory') {
-      await syncPermanentMemoryMirror(workspaceSlug);
-    }
-
-    results.push({
-      collection: col,
-      indexed: qmdResult.indexed,
-      updated: qmdResult.updated,
-      unchanged: qmdResult.unchanged,
-      removed: qmdResult.removed,
-      needsEmbedding: qmdResult.needsEmbedding,
-    });
+    results.push(await indexCollection(store, col, workspaceSlug, ws.id, workspaceDir));
   }
 
   return results;

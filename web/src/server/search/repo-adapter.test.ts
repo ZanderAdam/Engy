@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { WebSocket } from 'ws';
-import type { AppState } from '../trpc/context';
+import { createAppState, type AppState } from '../trpc/context';
 import { createWebSocketServer } from '../ws/server';
 import { makeDaemonRepoAdapter, chooseRepoAdapter } from './repo-adapter';
 import { localRepoAdapter } from '../lib/requirements';
@@ -40,45 +40,6 @@ function closeServer(server: Server): Promise<void> {
   });
 }
 
-function makeState(): AppState {
-  return {
-    daemon: null,
-    fileChanges: new Map(),
-    pendingValidations: new Map(),
-    pendingFileSearches: new Map(),
-    pendingGitStatus: new Map(),
-    pendingGitLog: new Map(),
-    pendingGitShow: new Map(),
-    pendingGitBranchFiles: new Map(),
-    pendingContainerUp: new Map(),
-    pendingContainerDown: new Map(),
-    pendingContainerStatus: new Map(),
-    pendingDevcontainerGenerate: new Map(),
-    specLastChanged: new Map(),
-    specDebounceTimers: new Map(),
-    terminalSessions: new Map(),
-    terminalSessionMeta: new Map(),
-    pendingReconnects: new Map(),
-    terminalDaemon: null,
-    fileChangeListeners: new Set(),
-    containerProgressListeners: new Map(),
-    pendingExecutionStart: new Map(),
-    pendingExecutionStop: new Map(),
-    pendingDirList: new Map(),
-    pendingFileRead: new Map(),
-    pendingGlobFiles: new Map(),
-    pendingFileWrite: new Map(),
-    pendingRemoteFilePull: new Map(),
-    pendingRemoteFilePush: new Map(),
-    pendingWorktreeMerge: new Map(),
-    pendingWorktreeAdd: new Map(),
-    pendingWorktreeRemove: new Map(),
-    pendingGitWorktreeList: new Map(),
-    pendingCreateDirs: new Map(),
-    daemonHomeDir: null,
-  };
-}
-
 /** Wait for the next message from a WS and return it parsed. */
 function waitForMessage(ws: WebSocket): Promise<unknown> {
   return new Promise((resolve) => {
@@ -95,7 +56,7 @@ describe('makeDaemonRepoAdapter', () => {
 
   beforeEach(async () => {
     openClients = [];
-    state = makeState();
+    state = createAppState();
     const result = await startServer(state);
     server = result.server;
     port = result.port;
@@ -305,13 +266,13 @@ describe('makeDaemonRepoAdapter', () => {
 
 describe('chooseRepoAdapter', () => {
   it('should return localRepoAdapter when no daemon is connected', () => {
-    const state = makeState();
+    const state = createAppState();
     const adapter = chooseRepoAdapter(state);
     expect(adapter).toBe(localRepoAdapter);
   });
 
   it('should return localRepoAdapter when daemon is not OPEN', () => {
-    const state = makeState();
+    const state = createAppState();
     // Simulate a daemon that is closing (readyState !== OPEN)
     state.daemon = { readyState: WebSocket.CLOSING } as unknown as WebSocket;
     const adapter = chooseRepoAdapter(state);
@@ -320,7 +281,7 @@ describe('chooseRepoAdapter', () => {
 
   it('should return daemon adapter when daemon is connected and OPEN', async () => {
     const openClients: WebSocket[] = [];
-    const state = makeState();
+    const state = createAppState();
     const result = await new Promise<{ server: Server; port: number }>((resolve) => {
       const server = createServer();
       const wss = createWebSocketServer(state);

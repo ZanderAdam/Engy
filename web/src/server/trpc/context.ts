@@ -298,45 +298,49 @@ export interface AppState {
 
 const GLOBAL_KEY = '__engy_app_state__' as const;
 
+export function createAppState(): AppState {
+  return {
+    daemon: null,
+    fileChanges: new Map(),
+    pendingValidations: new Map(),
+    pendingFileSearches: new Map(),
+    pendingGitStatus: new Map(),
+    pendingGitLog: new Map(),
+    pendingGitShow: new Map(),
+    pendingGitBranchFiles: new Map(),
+    pendingContainerUp: new Map(),
+    pendingContainerDown: new Map(),
+    pendingContainerStatus: new Map(),
+    pendingDevcontainerGenerate: new Map(),
+    pendingExecutionStart: new Map(),
+    pendingExecutionStop: new Map(),
+    pendingDirList: new Map(),
+    pendingFileRead: new Map(),
+    pendingGlobFiles: new Map(),
+    pendingFileWrite: new Map(),
+    pendingRemoteFilePull: new Map(),
+    pendingRemoteFilePush: new Map(),
+    pendingWorktreeMerge: new Map(),
+    pendingWorktreeAdd: new Map(),
+    pendingWorktreeRemove: new Map(),
+    pendingGitWorktreeList: new Map(),
+    pendingCreateDirs: new Map(),
+    daemonHomeDir: null,
+    specLastChanged: new Map(),
+    specDebounceTimers: new Map(),
+    terminalSessions: new Map(),
+    terminalSessionMeta: new Map(),
+    pendingReconnects: new Map(),
+    terminalDaemon: null,
+    fileChangeListeners: new Set(),
+    containerProgressListeners: new Map(),
+  };
+}
+
 export function getAppState(): AppState {
   const g = globalThis as Record<string, unknown>;
   if (!g[GLOBAL_KEY]) {
-    g[GLOBAL_KEY] = {
-      daemon: null,
-      fileChanges: new Map(),
-      pendingValidations: new Map(),
-      pendingFileSearches: new Map(),
-      pendingGitStatus: new Map(),
-      pendingGitLog: new Map(),
-      pendingGitShow: new Map(),
-      pendingGitBranchFiles: new Map(),
-      pendingContainerUp: new Map(),
-      pendingContainerDown: new Map(),
-      pendingContainerStatus: new Map(),
-      pendingDevcontainerGenerate: new Map(),
-      pendingExecutionStart: new Map(),
-      pendingExecutionStop: new Map(),
-      pendingDirList: new Map(),
-      pendingFileRead: new Map(),
-      pendingGlobFiles: new Map(),
-      pendingFileWrite: new Map(),
-      pendingRemoteFilePull: new Map(),
-      pendingRemoteFilePush: new Map(),
-      pendingWorktreeMerge: new Map(),
-      pendingWorktreeAdd: new Map(),
-      pendingWorktreeRemove: new Map(),
-      pendingGitWorktreeList: new Map(),
-      pendingCreateDirs: new Map(),
-      daemonHomeDir: null,
-      specLastChanged: new Map(),
-      specDebounceTimers: new Map(),
-      terminalSessions: new Map(),
-      terminalSessionMeta: new Map(),
-      pendingReconnects: new Map(),
-      terminalDaemon: null,
-      fileChangeListeners: new Set(),
-      containerProgressListeners: new Map(),
-    };
+    g[GLOBAL_KEY] = createAppState();
   }
   return g[GLOBAL_KEY] as AppState;
 }
