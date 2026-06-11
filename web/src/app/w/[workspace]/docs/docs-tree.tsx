@@ -1,6 +1,5 @@
 'use client';
 
-import path from 'path';
 import { useCallback, useMemo, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import { TreeView, type TreeDataItem } from '@/components/tree-view';
@@ -80,7 +79,7 @@ function trieToTreeItems(
 }
 
 function useDocsSectionQuery(rootDir: string, section: 'system' | 'docs') {
-  const sectionDir = path.join(rootDir, section);
+  const sectionDir = `${rootDir}/${section}`;
   const utils = trpc.useUtils();
   const { data, isLoading, error } = trpc.dir.listFiles.useQuery({ dirPath: sectionDir });
   const writeMutation = trpc.dir.write.useMutation({

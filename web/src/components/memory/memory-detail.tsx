@@ -15,19 +15,16 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { DynamicDocumentEditor, type DocumentEditorHandle } from '@/components/editor/dynamic-document-editor';
+import {
+  DynamicDocumentEditor,
+  type DocumentEditorHandle,
+} from '@/components/editor/dynamic-document-editor';
 import { EngyThreadStore } from '@/components/editor/document-editor';
 import { PromoteDialog } from './promote-dialog';
 import { RiDeleteBinLine, RiArrowUpLine, RiExternalLinkLine } from '@remixicon/react';
 import { VLink } from '@/components/tabs/virtual-link';
 import { cn } from '@/lib/utils';
-
-type MemoryKind = 'permanent' | 'fleeting';
-
-interface MemorySelection {
-  id: number;
-  kind: MemoryKind;
-}
+import { type MemorySelection, SUBTYPE_COLORS } from './types';
 
 interface MemoryDetailProps {
   selection: MemorySelection;
@@ -35,14 +32,6 @@ interface MemoryDetailProps {
   repos?: string[];
   onDeleted?: () => void;
 }
-
-const SUBTYPE_COLORS: Record<string, string> = {
-  decision: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
-  pattern: 'bg-purple-500/15 text-purple-400 border-purple-500/20',
-  fact: 'bg-green-500/15 text-green-400 border-green-500/20',
-  convention: 'bg-orange-500/15 text-orange-400 border-orange-500/20',
-  insight: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
-};
 
 function MetaChip({ label, value }: { label: string; value: string }) {
   return (
@@ -315,38 +304,15 @@ function PermanentDetail({
 }
 
 function FleetingDetail({
-  id,
+  fleeting,
   workspaceSlug,
   repos,
 }: {
-  id: number;
+  fleeting: { id: number; content: string; type: string; tags?: unknown; createdAt: string };
   workspaceSlug: string;
   repos: string[];
 }) {
   const [promoteOpen, setPromoteOpen] = useState(false);
-
-  const { data: candidates, isLoading } = trpc.memory.reviewCandidates.useQuery({
-    workspaceSlug,
-    limit: 200,
-  });
-
-  const fleeting = candidates?.find((c) => c.id === id);
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-xs text-muted-foreground">Loading…</p>
-      </div>
-    );
-  }
-
-  if (!fleeting) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-xs text-muted-foreground">Fleeting memory not found</p>
-      </div>
-    );
-  }
 
   const tags = Array.isArray(fleeting.tags) ? (fleeting.tags as string[]) : [];
 
@@ -362,11 +328,7 @@ function FleetingDetail({
             {new Date(fleeting.createdAt).toLocaleDateString()}
           </span>
         </div>
-        <Button
-          size="sm"
-          onClick={() => setPromoteOpen(true)}
-          className="h-7 gap-1"
-        >
+        <Button size="sm" onClick={() => setPromoteOpen(true)} className="h-7 gap-1">
           <RiArrowUpLine className="size-3.5" />
           Promote…
         </Button>
@@ -403,20 +365,29 @@ function FleetingDetail({
   );
 }
 
-export function MemoryDetail({ selection, workspaceSlug, repos = [], onDeleted }: MemoryDetailProps) {
+export function MemoryDetail({
+  selection,
+  workspaceSlug,
+  repos = [],
+  onDeleted,
+}: MemoryDetailProps) {
   if (selection.kind === 'permanent') {
     return (
-      <PermanentDetail
-        id={selection.id}
-        workspaceSlug={workspaceSlug}
-        onDeleted={onDeleted}
-      />
+      <PermanentDetail id={selection.id} workspaceSlug={workspaceSlug} onDeleted={onDeleted} />
+    );
+  }
+
+  if (!selection.fleetingData) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-xs text-muted-foreground">Fleeting memory not found</p>
+      </div>
     );
   }
 
   return (
     <FleetingDetail
-      id={selection.id}
+      fleeting={selection.fleetingData}
       workspaceSlug={workspaceSlug}
       repos={repos}
     />

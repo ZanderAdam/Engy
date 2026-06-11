@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { trpc } from '@/lib/trpc';
+import { useOnServerEvent } from '@/contexts/events-context';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,21 +11,9 @@ import { MemoryFilters, type MemoryFiltersValue } from './memory-filters';
 import { PromoteDialog } from './promote-dialog';
 import { RiAddLine, RiArrowUpLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
+import { type MemorySelection, type FleetingRecord, SUBTYPE_COLORS } from './types';
 
-export type MemoryKind = 'permanent' | 'fleeting';
-
-export interface MemorySelection {
-  id: number;
-  kind: MemoryKind;
-}
-
-const SUBTYPE_COLORS: Record<string, string> = {
-  decision: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
-  pattern: 'bg-purple-500/15 text-purple-400 border-purple-500/20',
-  fact: 'bg-green-500/15 text-green-400 border-green-500/20',
-  convention: 'bg-orange-500/15 text-orange-400 border-orange-500/20',
-  insight: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
-};
+export type { MemorySelection };
 
 const DEFAULT_FILTERS: MemoryFiltersValue = {
   search: '',
@@ -149,31 +138,24 @@ function PermanentList({
   );
 }
 
-interface FleetingMemory {
-  id: number;
-  content: string;
-  type: string;
-  tags?: unknown;
-  createdAt: string;
-}
+type FleetingMemory = FleetingRecord;
 
 function ReviewCandidatesList({
   workspaceSlug,
   repos,
+  candidates,
+  isLoading,
   selected,
   onSelect,
 }: {
   workspaceSlug: string;
   repos: string[];
+  candidates: FleetingMemory[] | undefined;
+  isLoading: boolean;
   selected: MemorySelection | null;
   onSelect: (selection: MemorySelection) => void;
 }) {
   const [promoteTarget, setPromoteTarget] = useState<FleetingMemory | null>(null);
-
-  const { data: candidates, isLoading } = trpc.memory.reviewCandidates.useQuery({
-    workspaceSlug,
-    limit: 100,
-  });
 
   if (isLoading) {
     return (
@@ -201,7 +183,7 @@ function ReviewCandidatesList({
                 'w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:bg-muted/50',
                 selected?.kind === 'fleeting' && selected.id === mem.id && 'bg-muted/70',
               )}
-              onClick={() => onSelect({ id: mem.id, kind: 'fleeting' })}
+              onClick={() => onSelect({ id: mem.id, kind: 'fleeting', fleetingData: mem })}
             >
               <div className="flex items-start justify-between gap-2 mb-1">
                 <span className="text-[10px] font-mono text-muted-foreground shrink-0">
@@ -215,7 +197,7 @@ function ReviewCandidatesList({
                     className="h-5 px-1.5 text-[10px] gap-0.5"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setPromoteTarget(mem as FleetingMemory);
+                      setPromoteTarget(mem);
                     }}
                     title="Promote to permanent memory"
                   >
@@ -269,12 +251,17 @@ export function MemoryBrowser({
   onCreateNew,
 }: MemoryBrowserProps) {
   const [permanentFilters, setPermanentFilters] = useState<MemoryFiltersValue>(DEFAULT_FILTERS);
+  const utils = trpc.useUtils();
 
-  const { data: candidates } = trpc.memory.reviewCandidates.useQuery({
-    workspaceSlug,
-    limit: 200,
+  const { data: reviewCandidates, isLoading: candidatesLoading } =
+    trpc.memory.reviewCandidates.useQuery({ workspaceSlug, limit: 100 });
+  const candidateCount = reviewCandidates?.length ?? 0;
+
+  useOnServerEvent('MEMORY_CHANGE', () => {
+    utils.memory.list.invalidate();
+    utils.memory.reviewCandidates.invalidate();
+    utils.memory.get.invalidate();
   });
-  const candidateCount = candidates?.length ?? 0;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -329,6 +316,8 @@ export function MemoryBrowser({
             <ReviewCandidatesList
               workspaceSlug={workspaceSlug}
               repos={repos}
+              candidates={reviewCandidates as FleetingMemory[] | undefined}
+              isLoading={candidatesLoading}
               selected={selected}
               onSelect={onSelect}
             />

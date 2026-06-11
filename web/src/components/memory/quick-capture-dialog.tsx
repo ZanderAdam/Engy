@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import {
   Dialog,
@@ -24,7 +24,6 @@ export function QuickCaptureDialog({ open, onOpenChange, workspaceSlug }: QuickC
   const [content, setContent] = useState('');
   const [tagsInput, setTagsInput] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const utils = trpc.useUtils();
 
@@ -37,12 +36,6 @@ export function QuickCaptureDialog({ open, onOpenChange, workspaceSlug }: QuickC
       setError(err.message);
     },
   });
-
-  useEffect(() => {
-    if (open) {
-      setTimeout(() => textareaRef.current?.focus(), 50);
-    }
-  }, [open]);
 
   function resetAndClose() {
     setContent('');
@@ -97,7 +90,7 @@ export function QuickCaptureDialog({ open, onOpenChange, workspaceSlug }: QuickC
               <Label htmlFor="capture-content">Thought</Label>
               <Textarea
                 id="capture-content"
-                ref={textareaRef}
+                autoFocus
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 onKeyDown={handleKeyDown}

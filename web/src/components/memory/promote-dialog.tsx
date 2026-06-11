@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import {
   Dialog,
@@ -13,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { MemoryForm, type MemoryFormValues, type MemorySubtype } from './memory-form';
+import { toRelativeMemoryPath } from './path-utils';
 import { cn } from '@/lib/utils';
 
 interface FleetingMemory {
@@ -22,11 +24,10 @@ interface FleetingMemory {
   tags?: unknown;
 }
 
-interface PermanentMemory {
-  id: number;
+interface SimilarMemory {
+  path: string;
   title: string;
-  content: string;
-  filePath?: string | null;
+  snippet?: string;
 }
 
 interface PromoteDialogProps {
@@ -51,8 +52,8 @@ export function PromoteDialog({
   const utils = trpc.useUtils();
   const [step, setStep] = useState<'form' | 'dedup'>('form');
   const [pendingValues, setPendingValues] = useState<MemoryFormValues | null>(null);
-  const [similarMemories, setSimilarMemories] = useState<PermanentMemory[]>([]);
-  const [selectedSupersede, setSelectedSupersede] = useState<number | null>(null);
+  const [similarMemories, setSimilarMemories] = useState<SimilarMemory[]>([]);
+  const [selectedSupersedePath, setSelectedSupersedePath] = useState<string | null>(null);
 
   const proposalQuery = trpc.memory.proposePromotion.useQuery(
     { fleetingMemoryId: fleeting.id },
@@ -79,10 +80,11 @@ export function PromoteDialog({
     },
   });
 
-  const searchQuery = trpc.memory.list.useQuery(
+  const searchQuery = trpc.search.query.useQuery(
     {
       workspaceSlug,
-      search: fleeting.content.slice(0, 60),
+      query: fleeting.content.slice(0, 120),
+      collection: 'memory',
       limit: 5,
     },
     { enabled: false },
@@ -92,7 +94,7 @@ export function PromoteDialog({
     setStep('form');
     setPendingValues(null);
     setSimilarMemories([]);
-    setSelectedSupersede(null);
+    setSelectedSupersedePath(null);
   }
 
   async function handleFormSubmit(values: MemoryFormValues) {
@@ -100,9 +102,15 @@ export function PromoteDialog({
 
     try {
       const result = await searchQuery.refetch();
-      const similar = result.data ?? [];
+      const groups = result.data ?? [];
+      const memoryGroup = groups.find((g) => g.collection === 'memory');
+      const similar: SimilarMemory[] = (memoryGroup?.results ?? []).map((r) => ({
+        path: r.path,
+        title: r.title,
+        snippet: r.snippet,
+      }));
       if (similar.length > 0) {
-        setSimilarMemories(similar as PermanentMemory[]);
+        setSimilarMemories(similar);
         setStep('dedup');
         return;
       }
@@ -123,17 +131,35 @@ export function PromoteDialog({
     }
 
     const linkedMemories =
-      choice === 'supersede' && selectedSupersede
-        ? [similarMemories.find((m) => m.id === selectedSupersede)?.filePath ?? ''].filter(Boolean)
+      choice === 'supersede' && selectedSupersedePath
+        ? [toRelativeMemoryPath(selectedSupersedePath)]
         : [];
 
-    const promoted = await doPromote(pendingValues, linkedMemories.length > 0 ? linkedMemories : null);
+    const promoted = await doPromote(
+      pendingValues,
+      linkedMemories.length > 0 ? linkedMemories : null,
+    );
 
-    if (choice === 'supersede' && selectedSupersede && promoted) {
-      await updateMutation.mutateAsync({
-        id: selectedSupersede,
-        supersededById: promoted.id,
-      });
+    if (choice === 'supersede' && selectedSupersedePath && promoted) {
+      const supersededTitle =
+        similarMemories.find((m) => m.path === selectedSupersedePath)?.title ??
+        selectedSupersedePath;
+      try {
+        const resolved = await utils.memory.getByPath.fetch({
+          workspaceSlug,
+          filePath: toRelativeMemoryPath(selectedSupersedePath),
+        });
+        if (resolved) {
+          await updateMutation.mutateAsync({
+            id: resolved.id,
+            supersededById: promoted.id,
+          });
+        } else {
+          toast.warning(`Promoted, but failed to mark "${supersededTitle}" as superseded`);
+        }
+      } catch {
+        toast.warning(`Promoted, but failed to mark "${supersededTitle}" as superseded`);
+      }
     }
   }
 
@@ -227,22 +253,26 @@ export function PromoteDialog({
 
             <ul className="flex flex-col gap-1.5 my-2">
               {similarMemories.map((mem) => (
-                <li key={mem.id}>
+                <li key={mem.path}>
                   <button
                     type="button"
                     onClick={() =>
-                      setSelectedSupersede(selectedSupersede === mem.id ? null : mem.id)
+                      setSelectedSupersedePath(
+                        selectedSupersedePath === mem.path ? null : mem.path,
+                      )
                     }
                     className={cn(
                       'w-full text-left p-2 border border-border text-xs transition-colors hover:bg-muted/50',
-                      selectedSupersede === mem.id && 'border-primary bg-muted/70',
+                      selectedSupersedePath === mem.path && 'border-primary bg-muted/70',
                     )}
                   >
                     <p className="font-medium mb-0.5">{mem.title}</p>
-                    <p className="text-muted-foreground line-clamp-2">
-                      {mem.content.slice(0, 120)}
-                      {mem.content.length > 120 && '…'}
-                    </p>
+                    {mem.snippet && (
+                      <p className="text-muted-foreground line-clamp-2">
+                        {mem.snippet.slice(0, 120)}
+                        {mem.snippet.length > 120 && '…'}
+                      </p>
+                    )}
                   </button>
                 </li>
               ))}
@@ -269,7 +299,7 @@ export function PromoteDialog({
                 size="sm"
                 onClick={() => handleDedupChoice('supersede')}
                 disabled={
-                  !selectedSupersede || promoteMutation.isPending || updateMutation.isPending
+                  !selectedSupersedePath || promoteMutation.isPending || updateMutation.isPending
                 }
               >
                 Supersede selected
