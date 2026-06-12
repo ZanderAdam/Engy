@@ -99,6 +99,19 @@ describe('git integration', () => {
     });
   });
 
+  describe('getStatusDetailed (no-commit repo)', () => {
+    it('returns the real branch name for a fresh repo with no commits', async () => {
+      repoDir = await createTempRepo();
+      // No commits — git emits "## No commits yet on <branch>"
+
+      const result = await getStatusDetailed(repoDir);
+
+      expect(result.files).toEqual([]);
+      // Branch must be the real default branch, not 'No'
+      expect(['main', 'master']).toContain(result.branch);
+    });
+  });
+
   describe('getStatusDetailed', () => {
     it('returns empty files and branch for a clean repo', async () => {
       repoDir = await createTempRepo();
@@ -321,6 +334,19 @@ describe('git integration', () => {
       const result = parsePorcelainStatus(out);
       expect(result.branch).toBe('HEAD');
       expect(result.entries).toEqual([]);
+    });
+
+    it('reports the real branch name for a repo with no commits yet', () => {
+      const out = '## No commits yet on main\0';
+      const result = parsePorcelainStatus(out);
+      expect(result.branch).toBe('main');
+      expect(result.entries).toEqual([]);
+    });
+
+    it('reports the real branch name for a no-commit repo on a custom branch', () => {
+      const out = '## No commits yet on feature/new\0';
+      const result = parsePorcelainStatus(out);
+      expect(result.branch).toBe('feature/new');
     });
   });
 

@@ -19,8 +19,13 @@ interface SpecWatcherOptions {
 const DEFAULT_USE_POLLING = true;
 const DEFAULT_POLLING_INTERVAL_MS = 1_000;
 
+interface WatcherEntry {
+  watcher: FSWatcher;
+  docsDir: string | null | undefined;
+}
+
 export class SpecWatcher {
-  private watchers = new Map<string, FSWatcher>();
+  private watchers = new Map<string, WatcherEntry>();
   private readonly engyDir: string;
   private readonly wsClient: WsClient;
   private readonly options: SpecWatcherOptions;
@@ -34,25 +39,31 @@ export class SpecWatcher {
   sync(workspaces: WatchedWorkspace[]): void {
     const desired = new Set(workspaces.map((w) => w.slug));
 
-    for (const [slug, watcher] of this.watchers) {
+    for (const [slug, entry] of this.watchers) {
       if (!desired.has(slug)) {
-        watcher.close();
+        entry.watcher.close();
         this.watchers.delete(slug);
       }
     }
 
     for (const ws of workspaces) {
-      if (!this.watchers.has(ws.slug)) {
-        this.startWatching(ws);
+      const existing = this.watchers.get(ws.slug);
+      if (existing && existing.docsDir === ws.docsDir) continue;
+
+      if (existing) {
+        existing.watcher.close();
+        this.watchers.delete(ws.slug);
       }
+
+      this.startWatching(ws);
     }
   }
 
   waitForReady(slug: string): Promise<void> {
-    const watcher = this.watchers.get(slug);
-    if (!watcher) return Promise.resolve();
+    const entry = this.watchers.get(slug);
+    if (!entry) return Promise.resolve();
     return new Promise((resolve) => {
-      watcher.on('ready', resolve);
+      entry.watcher.on('ready', resolve);
     });
   }
 
@@ -94,11 +105,11 @@ export class SpecWatcher {
       });
     });
 
-    this.watchers.set(ws.slug, watcher);
+    this.watchers.set(ws.slug, { watcher, docsDir: ws.docsDir });
   }
 
   async closeAll(): Promise<void> {
-    const closes = Array.from(this.watchers.values()).map((w) => w.close());
+    const closes = Array.from(this.watchers.values()).map((e) => e.watcher.close());
     await Promise.all(closes);
     this.watchers.clear();
   }

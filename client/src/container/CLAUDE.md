@@ -13,7 +13,7 @@ Handles WS requests: `CONTAINER_UP/DOWN/STATUS_*`, `CONTAINER_PROGRESS_EVENT`, `
 ## Devcontainer (`manager.ts`)
 
 - `up()` shells `devcontainer up --workspace-folder <path>`, parses **stdout** as JSON (`{ outcome, containerId, message }`). Build progress streams from **stderr**, one line at a time, via the optional `onProgress` callback — that callback is what backs `CONTAINER_PROGRESS_EVENT` frames.
-- `status()` probes with `devcontainer up --expect-existing-container` — won't start a container if one isn't already running. Any failure is treated as "not running" (try/catch returns `{ running: false }`).
+- `status()` uses a read-only `docker ps -a --filter label=devcontainer.local_folder=<path>` probe — never starts a container. Returns `running: true` if **any** matching line's status starts with `up` (handles the case where a stopped orphan and a running container both match the label). Any failure is treated as "not running" (try/catch returns `{ running: false }`).
 - `down()` has no native `devcontainer` equivalent; we resolve the containerId via `status()` and `docker stop` it. If status reports nothing, `down()` is a no-op.
 - `exec()` returns a `ChildProcess` (not a promise) so callers stream — used by both the terminal manager and the agent spawner. Env vars become `--remote-env KEY=VAL` flags.
 

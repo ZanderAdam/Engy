@@ -180,11 +180,11 @@ describe('ContainerManager', () => {
 
   describe('down', () => {
     it('should stop the container when running', async () => {
-      // First call: status check (devcontainer up --expect-existing-container)
+      // First call: status check (docker ps)
       // Second call: docker stop
       mockExecFileAsync
         .mockResolvedValueOnce({
-          stdout: JSON.stringify({ outcome: 'success', containerId: 'abc123' }),
+          stdout: 'abc123\tUp 2 hours',
           stderr: '',
         })
         .mockResolvedValueOnce({ stdout: '', stderr: '' });
@@ -200,7 +200,7 @@ describe('ContainerManager', () => {
     });
 
     it('should do nothing when container is not running', async () => {
-      mockExecFileAsync.mockRejectedValue(new Error('no container'));
+      mockExecFileAsync.mockResolvedValueOnce({ stdout: '', stderr: '' });
 
       await manager.down('/workspace/project');
 
@@ -209,9 +209,9 @@ describe('ContainerManager', () => {
   });
 
   describe('status', () => {
-    it('should return running=true with containerId when container exists', async () => {
+    it('should return running=true with containerId when container is up', async () => {
       mockExecFileAsync.mockResolvedValue({
-        stdout: JSON.stringify({ outcome: 'success', containerId: 'abc123' }),
+        stdout: 'abc123\tUp 2 hours',
         stderr: '',
       });
 
@@ -219,29 +219,77 @@ describe('ContainerManager', () => {
 
       expect(result).toEqual({ running: true, containerId: 'abc123' });
       expect(mockExecFileAsync).toHaveBeenCalledWith(
-        'devcontainer',
-        ['up', '--workspace-folder', '/workspace/project', '--expect-existing-container'],
+        'docker',
+        [
+          'ps',
+          '-a',
+          '--filter',
+          'label=devcontainer.local_folder=/workspace/project',
+          '--format',
+          '{{.ID}}\t{{.Status}}',
+        ],
         expect.objectContaining({ maxBuffer: 10 * 1024 * 1024 }),
       );
     });
 
-    it('should return running=false when no container exists', async () => {
-      mockExecFileAsync.mockRejectedValue(new Error('no container'));
+    it('should return running=false when no container matches the label', async () => {
+      mockExecFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
 
       const result = await manager.status('/workspace/project');
 
       expect(result).toEqual({ running: false });
     });
 
-    it('should return running=false when outcome is not success', async () => {
+    it('should return running=false when container is stopped (Exited)', async () => {
       mockExecFileAsync.mockResolvedValue({
-        stdout: JSON.stringify({ outcome: 'error' }),
+        stdout: 'abc123\tExited (0) 5 minutes ago',
         stderr: '',
       });
 
       const result = await manager.status('/workspace/project');
 
       expect(result).toEqual({ running: false });
+    });
+
+    it('should return running=false on docker command failure', async () => {
+      mockExecFileAsync.mockRejectedValue(new Error('docker not found'));
+
+      const result = await manager.status('/workspace/project');
+
+      expect(result).toEqual({ running: false });
+    });
+
+    it('should return running=true when a running container appears after a stopped orphan', async () => {
+      // Stopped orphan on first line, running container on second — must pick the running one.
+      mockExecFileAsync.mockResolvedValue({
+        stdout: 'dead0001\tExited (0) 10 minutes ago\nlive0002\tUp 3 hours',
+        stderr: '',
+      });
+
+      const result = await manager.status('/workspace/project');
+
+      expect(result).toEqual({ running: true, containerId: 'live0002' });
+    });
+
+    it('should return running=false when all matched containers are stopped', async () => {
+      mockExecFileAsync.mockResolvedValue({
+        stdout: 'dead0001\tExited (0) 10 minutes ago\ndead0002\tExited (1) 2 minutes ago',
+        stderr: '',
+      });
+
+      const result = await manager.status('/workspace/project');
+
+      expect(result).toEqual({ running: false });
+    });
+
+    it('should not invoke devcontainer up (no side effects)', async () => {
+      mockExecFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
+
+      await manager.status('/workspace/project');
+
+      const calls = mockExecFileAsync.mock.calls as unknown[][];
+      const devcontainerCalls = calls.filter((c) => c[0] === 'devcontainer');
+      expect(devcontainerCalls).toHaveLength(0);
     });
   });
 });

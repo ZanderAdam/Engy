@@ -120,6 +120,8 @@ export function parsePorcelainStatus(output: string): ParsedPorcelainStatus {
       const rest = tok.slice(3);
       if (rest.startsWith('HEAD (no branch)')) {
         branch = 'HEAD';
+      } else if (rest.startsWith('No commits yet on ')) {
+        branch = rest.slice('No commits yet on '.length).split(/\.\.\.| /)[0] ?? 'HEAD';
       } else {
         branch = rest.split(/\.\.\.| /)[0] ?? 'HEAD';
       }

@@ -93,18 +93,23 @@ export class ContainerManager {
 
   /**
    * Check if a container is running for the given workspace folder.
-   * Uses `devcontainer up --expect-existing-container` to probe without starting.
+   * Uses a read-only `docker ps` filtered by the devcontainer workspace-folder
+   * label so a stopped container is never inadvertently started.
    */
   async status(workspaceFolder: string): Promise<{ running: boolean; containerId?: string }> {
     try {
+      const label = `devcontainer.local_folder=${workspaceFolder}`;
       const { stdout } = await execFileAsync(
-        'devcontainer',
-        ['up', '--workspace-folder', workspaceFolder, '--expect-existing-container'],
+        'docker',
+        ['ps', '-a', '--filter', `label=${label}`, '--format', '{{.ID}}\t{{.Status}}'],
         { maxBuffer: EXEC_MAX_BUFFER },
       );
-      const result = JSON.parse(stdout);
-      if (result.outcome === 'success' && result.containerId) {
-        return { running: true, containerId: result.containerId };
+      const lines = stdout.trim().split('\n').filter(Boolean);
+      if (lines.length === 0) return { running: false };
+      const running = lines.find((l) => l.split('\t')[1]?.toLowerCase().startsWith('up'));
+      if (running) {
+        const containerId = running.split('\t')[0];
+        return { running: true, containerId };
       }
       return { running: false };
     } catch {
