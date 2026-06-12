@@ -389,7 +389,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         }}
       />
       <div className="relative flex w-full h-full overflow-hidden">
-        <div className="relative flex-1 min-w-0 overflow-hidden">
+        <div className="relative flex-1 min-w-[280px] overflow-hidden">
           <div className="h-full overflow-y-auto">
             <BlockNoteViewEditor />
           </div>

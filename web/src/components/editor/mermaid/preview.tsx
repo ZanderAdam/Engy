@@ -28,12 +28,15 @@ export function MermaidPreview({
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const generationRef = useRef(0);
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
 
+    const generation = ++generationRef.current;
     timerRef.current = setTimeout(async () => {
       const result = await renderDiagram(blockId, code, theme);
+      if (generationRef.current !== generation) return;
       if ('svg' in result) {
         setSvg(result.svg);
         setError(null);

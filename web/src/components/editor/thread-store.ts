@@ -8,6 +8,7 @@ import {
 } from '@blocknote/core/comments';
 import { createTRPCClient, httpBatchLink } from '@trpc/client';
 import superjson from 'superjson';
+import { toast } from 'sonner';
 import type { AppRouter } from '@/server/trpc/root';
 import { randomId } from '@/lib/random-id';
 
@@ -292,13 +293,19 @@ export class EngyThreadStore extends ThreadStore implements CommentStore {
     this.threads.set(threadId, thread);
     this.notify();
 
-    this.client.comment.createThread.mutate({
-      workspaceSlug: this.workspaceSlug,
-      documentPath: this.documentPath,
-      threadId,
-      initialComment: { id: commentId, body: options.initialComment.body, metadata: options.initialComment.metadata },
-      metadata: options.metadata,
-    });
+    this.client.comment.createThread
+      .mutate({
+        workspaceSlug: this.workspaceSlug,
+        documentPath: this.documentPath,
+        threadId,
+        initialComment: { id: commentId, body: options.initialComment.body, metadata: options.initialComment.metadata },
+        metadata: options.metadata,
+      })
+      .catch((err: unknown) => {
+        this.threads.delete(threadId);
+        this.notify();
+        toast.error('Failed to save comment', { description: err instanceof Error ? err.message : undefined });
+      });
 
     return thread;
   }
@@ -327,13 +334,22 @@ export class EngyThreadStore extends ThreadStore implements CommentStore {
       this.notify();
     }
 
-    this.client.comment.addComment.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-      commentId,
-      body: options.comment.body,
-      metadata: options.comment.metadata,
-    });
+    this.client.comment.addComment
+      .mutate({
+        workspaceSlug: this.workspaceSlug,
+        threadId: options.threadId,
+        commentId,
+        body: options.comment.body,
+        metadata: options.comment.metadata,
+      })
+      .catch((err: unknown) => {
+        const t = this.threads.get(options.threadId);
+        if (t) {
+          t.comments = t.comments.filter((c) => c.id !== commentId);
+          this.notify();
+        }
+        toast.error('Failed to save comment', { description: err instanceof Error ? err.message : undefined });
+      });
 
     return commentData;
   }
@@ -344,51 +360,91 @@ export class EngyThreadStore extends ThreadStore implements CommentStore {
     commentId: string;
   }): Promise<void> {
     const thread = this.threads.get(options.threadId);
+    let prevBody: CommentBody | undefined;
+    let prevUpdatedAt: Date | undefined;
     if (thread) {
       const comment = thread.comments.find((c) => c.id === options.commentId);
       if (comment && !comment.deletedAt) {
+        prevBody = (comment as { body: CommentBody }).body;
+        prevUpdatedAt = comment.updatedAt;
         (comment as { body: CommentBody }).body = options.comment.body;
         comment.updatedAt = new Date();
       }
       this.notify();
     }
 
-    this.client.comment.updateComment.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-      commentId: options.commentId,
-      body: options.comment.body,
-      metadata: options.comment.metadata,
-    });
+    this.client.comment.updateComment
+      .mutate({
+        workspaceSlug: this.workspaceSlug,
+        threadId: options.threadId,
+        commentId: options.commentId,
+        body: options.comment.body,
+        metadata: options.comment.metadata,
+      })
+      .catch((err: unknown) => {
+        const t = this.threads.get(options.threadId);
+        if (t && prevBody !== undefined) {
+          const comment = t.comments.find((c) => c.id === options.commentId);
+          if (comment) {
+            (comment as { body: CommentBody }).body = prevBody;
+            comment.updatedAt = prevUpdatedAt!;
+            this.notify();
+          }
+        }
+        toast.error('Failed to update comment', { description: err instanceof Error ? err.message : undefined });
+      });
   }
 
   async deleteComment(options: { threadId: string; commentId: string }): Promise<void> {
     const thread = this.threads.get(options.threadId);
-    if (thread) {
-      const remaining = thread.comments.filter((c) => c.id !== options.commentId);
-      if (remaining.length > 0) {
-        this.threads.set(options.threadId, { ...thread, comments: remaining, updatedAt: new Date() });
-        this.notify();
-      } else {
-        await this.deleteThread({ threadId: options.threadId });
-      }
+    if (!thread) return;
+
+    const remaining = thread.comments.filter((c) => c.id !== options.commentId);
+    if (remaining.length === 0) {
+      await this.deleteThread({ threadId: options.threadId });
+      return;
     }
 
-    this.client.comment.deleteComment.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-      commentId: options.commentId,
-    });
+    const prevThread = {
+      ...thread,
+      comments: thread.comments.map((c) => ({
+        ...c,
+        reactions: c.reactions.map((r) => ({ ...r, userIds: [...r.userIds] })),
+      })),
+    };
+    this.threads.set(options.threadId, { ...thread, comments: remaining, updatedAt: new Date() });
+    this.notify();
+
+    this.client.comment.deleteComment
+      .mutate({
+        workspaceSlug: this.workspaceSlug,
+        threadId: options.threadId,
+        commentId: options.commentId,
+      })
+      .catch((err: unknown) => {
+        this.threads.set(options.threadId, prevThread);
+        this.notify();
+        toast.error('Failed to delete comment', { description: err instanceof Error ? err.message : undefined });
+      });
   }
 
   async deleteThread(options: { threadId: string }): Promise<void> {
+    const prevThread = this.threads.get(options.threadId);
     this.threads.delete(options.threadId);
     this.notify();
 
-    this.client.comment.deleteThread.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-    });
+    this.client.comment.deleteThread
+      .mutate({
+        workspaceSlug: this.workspaceSlug,
+        threadId: options.threadId,
+      })
+      .catch((err: unknown) => {
+        if (prevThread) {
+          this.threads.set(options.threadId, prevThread);
+          this.notify();
+        }
+        toast.error('Failed to delete thread', { description: err instanceof Error ? err.message : undefined });
+      });
   }
 
   async resolveThread(options: { threadId: string }): Promise<void> {
@@ -400,14 +456,27 @@ export class EngyThreadStore extends ThreadStore implements CommentStore {
       this.notify();
     }
 
-    this.client.comment.resolveThread.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-    });
+    this.client.comment.resolveThread
+      .mutate({
+        workspaceSlug: this.workspaceSlug,
+        threadId: options.threadId,
+      })
+      .catch((err: unknown) => {
+        const t = this.threads.get(options.threadId);
+        if (t) {
+          t.resolved = false;
+          t.resolvedBy = undefined;
+          t.resolvedUpdatedAt = undefined;
+          this.notify();
+        }
+        toast.error('Failed to resolve thread', { description: err instanceof Error ? err.message : undefined });
+      });
   }
 
   async unresolveThread(options: { threadId: string }): Promise<void> {
     const thread = this.threads.get(options.threadId);
+    const prevResolvedBy = thread?.resolvedBy;
+    const prevResolvedUpdatedAt = thread?.resolvedUpdatedAt;
     if (thread) {
       thread.resolved = false;
       thread.resolvedBy = undefined;
@@ -415,14 +484,26 @@ export class EngyThreadStore extends ThreadStore implements CommentStore {
       this.notify();
     }
 
-    this.client.comment.unresolveThread.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-    });
+    this.client.comment.unresolveThread
+      .mutate({
+        workspaceSlug: this.workspaceSlug,
+        threadId: options.threadId,
+      })
+      .catch((err: unknown) => {
+        const t = this.threads.get(options.threadId);
+        if (t) {
+          t.resolved = true;
+          t.resolvedBy = prevResolvedBy;
+          t.resolvedUpdatedAt = prevResolvedUpdatedAt;
+          this.notify();
+        }
+        toast.error('Failed to unresolve thread', { description: err instanceof Error ? err.message : undefined });
+      });
   }
 
   async addReaction(options: { threadId: string; commentId: string; emoji: string }): Promise<void> {
     const thread = this.threads.get(options.threadId);
+    let wasNew = false;
     if (thread) {
       const comment = thread.comments.find((c) => c.id === options.commentId);
       if (comment) {
@@ -430,25 +511,46 @@ export class EngyThreadStore extends ThreadStore implements CommentStore {
         if (existing) {
           if (!existing.userIds.includes(USER_ID)) existing.userIds.push(USER_ID);
         } else {
+          wasNew = true;
           comment.reactions.push({ emoji: options.emoji, createdAt: new Date(), userIds: [USER_ID] });
         }
         this.notify();
       }
     }
 
-    this.client.comment.addReaction.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-      commentId: options.commentId,
-      emoji: options.emoji,
-    });
+    this.client.comment.addReaction
+      .mutate({
+        workspaceSlug: this.workspaceSlug,
+        threadId: options.threadId,
+        commentId: options.commentId,
+        emoji: options.emoji,
+      })
+      .catch((err: unknown) => {
+        const t = this.threads.get(options.threadId);
+        if (t) {
+          const comment = t.comments.find((c) => c.id === options.commentId);
+          if (comment) {
+            if (wasNew) {
+              comment.reactions = comment.reactions.filter((r) => r.emoji !== options.emoji);
+            } else {
+              const r = comment.reactions.find((rx) => rx.emoji === options.emoji);
+              if (r) r.userIds = r.userIds.filter((id) => id !== USER_ID);
+            }
+            this.notify();
+          }
+        }
+        toast.error('Failed to add reaction', { description: err instanceof Error ? err.message : undefined });
+      });
   }
 
   async deleteReaction(options: { threadId: string; commentId: string; emoji: string }): Promise<void> {
+    type Reaction = CommentData['reactions'][number];
     const thread = this.threads.get(options.threadId);
+    let prevReactions: Reaction[] | undefined;
     if (thread) {
       const comment = thread.comments.find((c) => c.id === options.commentId);
       if (comment) {
+        prevReactions = comment.reactions.map((r) => ({ ...r, userIds: [...r.userIds] }));
         comment.reactions = comment.reactions
           .map((r) =>
             r.emoji === options.emoji ? { ...r, userIds: r.userIds.filter((id) => id !== USER_ID) } : r,
@@ -458,12 +560,24 @@ export class EngyThreadStore extends ThreadStore implements CommentStore {
       }
     }
 
-    this.client.comment.deleteReaction.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId: options.threadId,
-      commentId: options.commentId,
-      emoji: options.emoji,
-    });
+    this.client.comment.deleteReaction
+      .mutate({
+        workspaceSlug: this.workspaceSlug,
+        threadId: options.threadId,
+        commentId: options.commentId,
+        emoji: options.emoji,
+      })
+      .catch((err: unknown) => {
+        const t = this.threads.get(options.threadId);
+        if (t && prevReactions !== undefined) {
+          const comment = t.comments.find((c) => c.id === options.commentId);
+          if (comment) {
+            comment.reactions = prevReactions;
+            this.notify();
+          }
+        }
+        toast.error('Failed to remove reaction', { description: err instanceof Error ? err.message : undefined });
+      });
   }
 
   getThread(threadId: string): ThreadData {
@@ -484,11 +598,20 @@ export class EngyThreadStore extends ThreadStore implements CommentStore {
   setThreadMetadata(threadId: string, anchor: Record<string, unknown>): void {
     const thread = this.threads.get(threadId);
     if (!thread) return;
+    const prevMetadata = thread.metadata;
     thread.metadata = { ...(thread.metadata as Record<string, unknown> | undefined), ...anchor };
-    this.client.comment.updateThreadMetadata.mutate({
-      workspaceSlug: this.workspaceSlug,
-      threadId,
-      metadata: thread.metadata as Record<string, unknown>,
-    });
+    this.client.comment.updateThreadMetadata
+      .mutate({
+        workspaceSlug: this.workspaceSlug,
+        threadId,
+        metadata: thread.metadata as Record<string, unknown>,
+      })
+      .catch((err: unknown) => {
+        const t = this.threads.get(threadId);
+        if (t) {
+          t.metadata = prevMetadata;
+        }
+        toast.error('Failed to save comment anchor', { description: err instanceof Error ? err.message : undefined });
+      });
   }
 }

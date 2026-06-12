@@ -4,6 +4,9 @@ import type { PmNode, TextQuoteSelector } from "./types";
  * Convert a character offset in doc.textContent into a ProseMirror position.
  * doc.textContent concatenates text nodes with no separators; we count text
  * characters in traversal order to produce a consistent mapping.
+ *
+ * Accepts textOffset === total text length as the position just after the
+ * final text node (fixes orphaned end-of-document anchors).
  */
 function textOffsetToPmPos(doc: PmNode, textOffset: number): number {
   let count = 0;
@@ -12,7 +15,7 @@ function textOffsetToPmPos(doc: PmNode, textOffset: number): number {
     if (result !== -1) return false;
     if (node.isText) {
       const len = node.text!.length;
-      if (count + len > textOffset) {
+      if (count + len >= textOffset) {
         result = pos + (textOffset - count);
         return false;
       }
@@ -74,29 +77,78 @@ export function findTextQuoteMatch(
   const fullText = doc.textContent;
 
   // 1. Exact match
-  let occurrences = findOccurrences(fullText, selector.exact);
-  let searchText = fullText;
-  let matchLen = selector.exact.length;
+  const occurrences = findOccurrences(fullText, selector.exact);
+  const matchLen = selector.exact.length;
 
-  // 2. Normalised fallback
+  // 2. Normalised fallback — build a position map so normalized match offsets
+  //    translate back to the correct original-document offsets.
+  //    map[i] = index in fullText corresponding to normStr[i].
   if (occurrences.length === 0) {
-    const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
-    const normFull = norm(fullText);
-    const normExact = norm(selector.exact);
+    const normExact = selector.exact.replace(/\s+/g, ' ').trim().toLowerCase();
     if (normExact) {
-      occurrences = findOccurrences(normFull, normExact);
-      searchText = normFull;
-      matchLen = normExact.length;
+      const map: number[] = [];
+      let normStr = '';
+      let inWhitespace = false;
+      for (let i = 0; i < fullText.length; i++) {
+        const ch = fullText[i];
+        if (/\s/.test(ch)) {
+          if (normStr.length === 0) continue; // trim leading
+          if (!inWhitespace) {
+            map.push(i);
+            normStr += ' ';
+            inWhitespace = true;
+          }
+        } else {
+          inWhitespace = false;
+          map.push(i);
+          normStr += ch.toLowerCase();
+        }
+      }
+      // trim trailing space (mirrors .trim())
+      if (normStr.endsWith(' ')) {
+        normStr = normStr.slice(0, -1);
+        map.pop();
+      }
+
+      const normOccurrences = findOccurrences(normStr, normExact);
+      if (normOccurrences.length > 0) {
+        // Context scoring stays in normalised space; use a normalised selector
+        // so suffix window offset uses normExact.length, not original length.
+        const normSelector = {
+          exact: normExact,
+          prefix: selector.prefix.replace(/\s+/g, ' ').toLowerCase(),
+          suffix: selector.suffix.replace(/\s+/g, ' ').toLowerCase(),
+        };
+        let bestNormStart = normOccurrences[0];
+        let bestScore = contextScore(normStr, bestNormStart, normSelector);
+        for (let i = 1; i < normOccurrences.length; i++) {
+          const s = contextScore(normStr, normOccurrences[i], normSelector);
+          if (s > bestScore) {
+            bestScore = s;
+            bestNormStart = normOccurrences[i];
+          }
+        }
+        // Map normalized start/end back to original offsets.
+        const normEnd = bestNormStart + normExact.length - 1;
+        const origFrom = map[bestNormStart];
+        const origTo =
+          normEnd < map.length ? map[normEnd] + 1 : fullText.length;
+
+        const from = textOffsetToPmPos(doc, origFrom);
+        const to = textOffsetToPmPos(doc, origTo);
+        if (from === -1 || to === -1) return null;
+        return { from, to };
+      }
     }
   }
 
   if (occurrences.length === 0) return null;
 
-  // Pick best candidate by context score
+  // Pick best candidate by context score (exact-match path)
   let bestStart = occurrences[0];
-  let bestScore = contextScore(searchText, bestStart, selector);
+  let bestScore = contextScore(fullText, bestStart, selector);
   for (let i = 1; i < occurrences.length; i++) {
-    const s = contextScore(searchText, occurrences[i], selector);
+    const s = contextScore(fullText, occurrences[i], selector);
     if (s > bestScore) {
       bestScore = s;
       bestStart = occurrences[i];

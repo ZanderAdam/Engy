@@ -46,6 +46,20 @@ export function MonacoDiffEditor({
     [onEditorMount],
   );
 
+  // Dispose the widget before its TextModels are disposed (which happens when
+  // the @monaco-editor/react DiffEditor unmounts or swaps language/file).
+  // Without this, Monaco throws "TextModel got disposed before DiffEditorWidget
+  // model got reset" on every file switch.
+  useEffect(() => {
+    return () => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      editor.setModel(null);
+      editor.dispose();
+      editorRef.current = null;
+    };
+  }, []);
+
   const language = getLanguageFromPath(filePath);
 
   const maxLines = Math.max(
