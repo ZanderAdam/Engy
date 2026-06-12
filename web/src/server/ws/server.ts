@@ -336,6 +336,8 @@ function handleSearchFilesResponse(
 
 // ── Execution event handlers ────────────────────────────────────────────────
 
+const VALID_SUB_STATUSES = new Set<string>(['planning', 'implementing', 'blocked', 'failed', 'plan_review']);
+
 function handleExecutionStatusEvent(payload: {
   sessionId: string;
   status: string;
@@ -369,12 +371,18 @@ function handleExecutionStatusEvent(payload: {
     .run();
 
   const taskId = payload.taskId ?? session.taskId;
-  if (taskId) {
+  if (taskId && VALID_SUB_STATUSES.has(payload.status)) {
     const subStatus = payload.status as typeof tasks.$inferInsert.subStatus;
     db.update(tasks).set({ subStatus, updatedAt: now }).where(eq(tasks.id, taskId)).run();
     broadcastTaskChange('updated', taskId);
+  } else if (taskId && !VALID_SUB_STATUSES.has(payload.status)) {
+    console.log(
+      `[ws-main-server] Ignoring out-of-enum subStatus '${payload.status}' for task=${taskId}`,
+    );
   }
 }
+
+const TERMINAL_SESSION_STATUSES = new Set(['completed', 'stopped', 'paused', 'submitted']);
 
 function handleExecutionCompleteEvent(
   payload: {
@@ -399,6 +407,14 @@ function handleExecutionCompleteEvent(
   if (!session) {
     console.warn(
       `[ws-main-server] EXECUTION_COMPLETE_EVENT for unknown session: ${payload.sessionId}`,
+    );
+    return;
+  }
+
+  // Idempotency guard: ignore duplicate complete events for sessions already in a terminal state
+  if (TERMINAL_SESSION_STATUSES.has(session.status)) {
+    console.log(
+      `[ws-main-server] Ignoring duplicate EXECUTION_COMPLETE_EVENT for already-terminal session=${payload.sessionId} status=${session.status}`,
     );
     return;
   }
@@ -492,10 +508,19 @@ function handleExecutionCompleteEvent(
       if (workspaceContext.workspace.executionBackend === 'coder' && coderCfg?.workspace) {
         const planSlug = taskPlanSlug(workspaceContext.workspace.slug, session.taskId);
         const planFilePath = `plans/${planSlug}.plan.md`;
+        const taskIdForPull = session.taskId;
         dispatchRemoteFilePull(state, coderCfg.workspace, planFilePath).catch((err) => {
           console.error(
             `[ws-main-server] Failed to pull plan file for session=${payload.sessionId}: ${err.message}`,
           );
+          const failNow = new Date().toISOString();
+          const db = getDb();
+          const reverted = db.update(tasks)
+            .set({ subStatus: 'failed' as typeof tasks.$inferInsert.subStatus, updatedAt: failNow })
+            .where(eq(tasks.id, taskIdForPull))
+            .returning()
+            .get();
+          if (reverted) broadcastTaskChange('updated', taskIdForPull, reverted.projectId ?? undefined);
         });
       }
     } else if (
@@ -519,11 +544,26 @@ function handleExecutionCompleteEvent(
         const repoDir = coderCfg
           ? posix.join(coderCfg.repoBasePath, path.basename(repos[0]))
           : repos[0];
+        const taskIdForMerge = session.taskId;
         dispatchWorktreeMerge(state, session.worktreePath, repoDir, coderCfg?.workspace).catch(
           (err) => {
             console.error(
               `[ws-main-server] Failed to merge worktree for session=${payload.sessionId}: ${err.message}`,
             );
+            if (taskIdForMerge) {
+              const failNow = new Date().toISOString();
+              const db = getDb();
+              const reverted = db.update(tasks)
+                .set({
+                  status: 'in_progress' as typeof tasks.$inferInsert.status,
+                  subStatus: 'failed' as typeof tasks.$inferInsert.subStatus,
+                  updatedAt: failNow,
+                })
+                .where(eq(tasks.id, taskIdForMerge))
+                .returning()
+                .get();
+              if (reverted) broadcastTaskChange('updated', taskIdForMerge, reverted.projectId ?? undefined);
+            }
           },
         );
       }
@@ -531,7 +571,8 @@ function handleExecutionCompleteEvent(
   }
 
   if (session.taskId) {
-    broadcastTaskChange('updated', session.taskId);
+    const taskRow = db.select().from(tasks).where(eq(tasks.id, session.taskId)).get();
+    broadcastTaskChange('updated', session.taskId, taskRow?.projectId ?? undefined);
   }
 }
 

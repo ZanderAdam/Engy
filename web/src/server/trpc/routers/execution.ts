@@ -83,7 +83,7 @@ function buildLocalExecutionConfig(
 // Reuses the same resolution that startExecution uses, plus carries the
 // original worktree so `claude --resume` runs from the cwd it was created in
 // (otherwise it errors with "No conversation found with session ID").
-function buildResumeConfig(
+export function buildResumeConfig(
   taskId: number,
   worktreePath: string | null,
 ): ExecutionStartConfig {
@@ -97,7 +97,7 @@ function buildResumeConfig(
 // Rebuilds the `--append-system-prompt` and `--add-dir` flags that
 // startExecution passes, so the resumed agent has the same context block and
 // structured-output instructions as the original run.
-function buildResumeFlags(taskId: number, resumeSessionId: string): string[] {
+export function buildResumeFlags(taskId: number, resumeSessionId: string): string[] {
   const { workspace, project, projectDir, repos, dirs } = resolveTaskContext(taskId);
   const systemPrompt = buildContextBlock({
     workspace: { id: workspace.id, slug: workspace.slug },
@@ -359,13 +359,15 @@ export async function triggerAutoStart(
     console.error(`[auto-start] Failed for task ${taskId}:`, err);
     try {
       const db = getDb();
-      db.update(tasks)
+      const reverted = db.update(tasks)
         .set({
           subStatus: 'failed' as typeof tasks.$inferInsert.subStatus,
           updatedAt: new Date().toISOString(),
         })
         .where(eq(tasks.id, taskId))
-        .run();
+        .returning()
+        .get();
+      if (reverted) broadcastTaskChange('updated', taskId, reverted.projectId ?? undefined);
     } catch (updateErr) {
       console.error(`[auto-start] Failed to set subStatus for task ${taskId}:`, updateErr);
     }
@@ -562,6 +564,14 @@ export const executionRouter = router({
         });
       }
 
+      // Validate remote precondition before any writes
+      if (input.remote && !repos[0]) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Remote execution requires at least one repository configured in the workspace',
+        });
+      }
+
       db.insert(agentSessions)
         .values({
           sessionId,
@@ -594,13 +604,6 @@ export const executionRouter = router({
       if (!input.remote) {
         if (systemPrompt) flags.push('--append-system-prompt', systemPrompt);
         for (const dir of additionalDirs) flags.push('--add-dir', dir);
-      }
-
-      if (input.remote && !repos[0]) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Remote execution requires at least one repository configured in the workspace',
-        });
       }
 
       const isCoder = workspace.executionBackend === 'coder';
@@ -645,14 +648,16 @@ export const executionRouter = router({
           .where(eq(agentSessions.sessionId, sessionId))
           .run();
         if (taskId && (input.scope === 'task' || input.scope === 'planning')) {
-          db.update(tasks)
+          const reverted = db.update(tasks)
             .set({
               status: (previousTaskStatus ?? 'todo') as typeof tasks.$inferInsert.status,
               subStatus: 'failed' as typeof tasks.$inferInsert.subStatus,
               updatedAt: now,
             })
             .where(eq(tasks.id, taskId))
-            .run();
+            .returning()
+            .get();
+          if (reverted) broadcastTaskChange('updated', taskId, reverted.projectId ?? undefined);
         }
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -1095,14 +1100,16 @@ export const executionRouter = router({
           .where(eq(agentSessions.sessionId, sessionId))
           .run();
         for (const task of batchTasks) {
-          db.update(tasks)
+          const reverted = db.update(tasks)
             .set({
               status: (previousStatuses.get(task.id) ?? 'todo') as typeof tasks.$inferInsert.status,
               subStatus: 'failed' as typeof tasks.$inferInsert.subStatus,
               updatedAt: now,
             })
             .where(eq(tasks.id, task.id))
-            .run();
+            .returning()
+            .get();
+          if (reverted) broadcastTaskChange('updated', task.id, reverted.projectId ?? undefined);
         }
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',

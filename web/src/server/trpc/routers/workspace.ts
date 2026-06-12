@@ -99,11 +99,24 @@ function broadcastWorkspacesSync(state: AppState): void {
   );
 }
 
+const nameSchema = z
+  .string()
+  .min(1, 'Name is required')
+  .refine((v) => !/[/\\]/.test(v), 'Name must not contain path separators (/ or \\)');
+
+const slugSchema = z
+  .string()
+  .min(1)
+  .regex(
+    /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/,
+    'Slug must contain only lowercase letters, numbers, and hyphens (e.g., "my-workspace")',
+  );
+
 export const workspaceRouter = router({
   create: publicProcedure
     .input(
       z.object({
-        name: z.string().min(1, 'Name is required'),
+        name: nameSchema,
         repos: z.array(z.string()).default([]),
         docsDir: z.string().optional(),
         planSkill: z.string().optional(),
@@ -197,8 +210,8 @@ export const workspaceRouter = router({
     .input(
       z.object({
         id: z.number(),
-        name: z.string().min(1).optional(),
-        slug: z.string().min(1).optional(),
+        name: nameSchema.optional(),
+        slug: slugSchema.optional(),
         repos: z.array(z.string()).optional(),
         docsDir: z.string().nullable().optional(),
         planSkill: z.string().nullable().optional(),
@@ -300,10 +313,46 @@ export const workspaceRouter = router({
         try {
           renameWorkspaceDir(existing.slug, updated.slug);
         } catch (err) {
+          // Restore all fields that were written — not just slug
           db.update(workspaces)
-            .set({ slug: existing.slug })
+            .set({
+              name: existing.name,
+              slug: existing.slug,
+              repos: existing.repos,
+              docsDir: existing.docsDir,
+              planSkill: existing.planSkill,
+              implementSkill: existing.implementSkill,
+              earsBdd: existing.earsBdd,
+              containerEnabled: existing.containerEnabled,
+              containerConfig: existing.containerConfig,
+              executionBackend: existing.executionBackend,
+              coderConfig: existing.coderConfig,
+              maxConcurrency: existing.maxConcurrency,
+              autoAgentCompletion: existing.autoAgentCompletion,
+              remoteEnabled: existing.remoteEnabled,
+              autoStart: existing.autoStart,
+            })
             .where(eq(workspaces.id, input.id))
             .run();
+          // Re-sync yaml and daemon with restored state so they stay consistent
+          const restoredDir = getWorkspaceDir(existing);
+          try {
+            writeWorkspaceYaml(
+              restoredDir,
+              existing.name,
+              existing.slug,
+              (existing.repos as string[]) ?? [],
+              existing.docsDir,
+              {
+                planSkill: existing.planSkill,
+                implementSkill: existing.implementSkill,
+                earsBdd: existing.earsBdd ?? false,
+              },
+            );
+          } catch {
+            // Best-effort — don't mask the rename error
+          }
+          broadcastWorkspacesSync(ctx.state);
           throw new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
             message: `Failed to rename workspace directory: ${(err as Error).message}`,

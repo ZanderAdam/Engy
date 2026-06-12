@@ -597,6 +597,41 @@ describe('execution router', () => {
       await expect(
         caller.execution.startExecution({ scope: 'task', id: task.id, remote: true }),
       ).rejects.toThrow('Remote execution requires at least one repository');
+
+      // Bug A fix: validation must happen BEFORE any DB writes
+      const db = getDb();
+      const sessions = db.select().from(agentSessions).all();
+      expect(sessions).toHaveLength(0);
+
+      // Task must remain unchanged (not in_progress)
+      const unchanged = db.select().from(tasks).where(eq(tasks.id, task.id)).get();
+      expect(unchanged!.status).toBe('todo');
+      expect(unchanged!.subStatus).toBeNull();
+    });
+
+    it('should broadcast task change when dispatch fails (rollback path)', async () => {
+      const { proj } = await seedProject(caller);
+      const task = await caller.task.create({ projectId: proj.id, title: 'Broadcast rollback' });
+      createFailingDaemon(ctx, 'Dispatch error');
+
+      const broadcasts: Array<{ action: string; taskId: number }> = [];
+      const origBroadcast = (await import('../../ws/broadcast')).broadcastTaskChange;
+      vi.spyOn(await import('../../ws/broadcast'), 'broadcastTaskChange').mockImplementation(
+        (action, taskId) => {
+          broadcasts.push({ action, taskId });
+          return origBroadcast(action, taskId);
+        },
+      );
+
+      await expect(
+        caller.execution.startExecution({ scope: 'task', id: task.id }),
+      ).rejects.toThrow();
+
+      // Should have broadcast: once for in_progress, once for the rollback
+      const rollbackBroadcast = broadcasts.find((b) => b.taskId === task.id);
+      expect(rollbackBroadcast).toBeDefined();
+
+      vi.restoreAllMocks();
     });
 
     it('should block duplicate remote sessions for the same task', async () => {

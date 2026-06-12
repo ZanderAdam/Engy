@@ -1186,7 +1186,18 @@ describe('Execution event handling', () => {
       const received: Array<{ type: string; payload: Record<string, unknown> }> = [];
       const ws = await connectClient(port);
       ws.on('message', (data) => {
-        received.push(JSON.parse(data.toString()));
+        const msg = JSON.parse(data.toString()) as { type: string; payload: Record<string, unknown> };
+        received.push(msg);
+        // Resolve the merge request so the pending promise completes cleanly
+        // (avoids leaking a rejected pending into the next test via rejectAllPending)
+        if (msg.type === 'WORKTREE_MERGE_REQUEST') {
+          const requestId = msg.payload.requestId as string;
+          const pending = ctx.state.pendingWorktreeMerge.get(requestId);
+          if (pending) {
+            ctx.state.pendingWorktreeMerge.delete(requestId);
+            pending.resolve({ success: true, branch: 'feature' });
+          }
+        }
       });
 
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
@@ -1208,6 +1219,141 @@ describe('Execution event handling', () => {
         expect(mergeMsg).toBeDefined();
         expect(mergeMsg!.payload.worktreePath).toBe('/tmp/worktree-branch');
         expect(mergeMsg!.payload.repoDir).toBe('/tmp/main-repo');
+      });
+    });
+
+    it('should ignore duplicate complete events for already-terminal sessions', async () => {
+      const task = ctx.db
+        .insert(tasks)
+        .values({ title: 'Dup complete task', status: 'done', subStatus: null })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({ sessionId: 'dup-complete', taskId: task.id, status: 'completed' })
+        .run();
+
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+      ws.send(
+        JSON.stringify({
+          type: 'EXECUTION_COMPLETE_EVENT',
+          payload: { sessionId: 'dup-complete', exitCode: 0, success: false },
+        }),
+      );
+
+      // The session is already terminal so the handler returns early.
+      // Poll until the session row is unchanged to confirm the guard fired.
+      await vi.waitFor(() => {
+        const session = ctx.db
+          .select()
+          .from(agentSessions)
+          .where(eq(agentSessions.sessionId, 'dup-complete'))
+          .get();
+        expect(session!.status).toBe('completed');
+      });
+
+      // Task must remain done (not be changed to failed by duplicate event)
+      const updatedTask = ctx.db.select().from(tasks).where(eq(tasks.id, task.id)).get();
+      expect(updatedTask!.status).toBe('done');
+      expect(updatedTask!.subStatus).toBeNull();
+    });
+
+    it('should not update subStatus for out-of-enum status values like running', async () => {
+      const task = ctx.db
+        .insert(tasks)
+        .values({ title: 'Running status task', status: 'in_progress', subStatus: 'implementing' })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({ sessionId: 'running-status', taskId: task.id, status: 'active' })
+        .run();
+
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+      ws.send(
+        JSON.stringify({
+          type: 'EXECUTION_STATUS_EVENT',
+          payload: { sessionId: 'running-status', status: 'running', taskId: task.id },
+        }),
+      );
+
+      // Wait briefly then verify subStatus was NOT overwritten
+      await new Promise((r) => setTimeout(r, 50));
+
+      const updatedTask = ctx.db.select().from(tasks).where(eq(tasks.id, task.id)).get();
+      expect(updatedTask!.subStatus).toBe('implementing');
+    });
+
+    it('should set task subStatus to failed and broadcast when merge dispatch fails', async () => {
+      const ws0 = ctx.db
+        .insert(workspaces)
+        .values({
+          name: 'MergeFailWs',
+          slug: 'merge-fail-ws',
+          autoAgentCompletion: 'merge',
+          repos: ['/tmp/main-repo'],
+        })
+        .returning()
+        .get();
+      const proj = ctx.db
+        .insert(projects)
+        .values({ workspaceId: ws0.id, name: 'Merge Fail Project', slug: 'merge-fail-proj' })
+        .returning()
+        .get();
+      const task = ctx.db
+        .insert(tasks)
+        .values({
+          title: 'Merge fail task',
+          projectId: proj.id,
+          status: 'in_progress',
+          subStatus: 'implementing',
+        })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'merge-fail-complete',
+          taskId: task.id,
+          status: 'active',
+          executionMode: 'task',
+          worktreePath: '/tmp/worktree-branch',
+        })
+        .run();
+
+      const ws = await connectClient(port);
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString()) as { type: string; payload: { requestId: string } };
+        if (msg.type === 'WORKTREE_MERGE_REQUEST') {
+          // Reject the pending merge request to simulate a failed merge
+          const pending = ctx.state.pendingWorktreeMerge.get(msg.payload.requestId);
+          if (pending) {
+            ctx.state.pendingWorktreeMerge.delete(msg.payload.requestId);
+            pending.reject(new Error('merge conflict'));
+          }
+        }
+      });
+
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+      ws.send(
+        JSON.stringify({
+          type: 'EXECUTION_COMPLETE_EVENT',
+          payload: { sessionId: 'merge-fail-complete', exitCode: 0, success: true },
+        }),
+      );
+
+      // Task first moves to done (pre-merge), then after merge fails it should be set to failed
+      await vi.waitFor(() => {
+        const updatedTask = ctx.db.select().from(tasks).where(eq(tasks.id, task.id)).get();
+        expect(updatedTask!.subStatus).toBe('failed');
       });
     });
 

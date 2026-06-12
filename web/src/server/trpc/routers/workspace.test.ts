@@ -262,9 +262,9 @@ describe('workspace router', () => {
 
     it('should reject invalid slug format', async () => {
       const ws = await caller.workspace.create({ name: 'Bad Slug' });
-      await expect(caller.workspace.update({ id: ws.id, slug: 'Invalid Slug!' })).rejects.toThrow(
-        'Invalid slug format',
-      );
+      await expect(
+        caller.workspace.update({ id: ws.id, slug: 'Invalid Slug!' }),
+      ).rejects.toThrow();
     });
 
     it('should reject duplicate slug', async () => {
@@ -452,6 +452,71 @@ describe('workspace router', () => {
       // Verify slug was rolled back
       const fetched = await caller.workspace.get({ slug: ws.slug });
       expect(fetched.slug).toBe(ws.slug);
+    });
+
+    it('should rollback ALL fields (not just slug) when rename fails', async () => {
+      const ws = await caller.workspace.create({ name: 'Full Rollback' });
+
+      // Pre-create target directory to force rename failure
+      fs.mkdirSync(path.join(ctx.tmpDir, 'new-slug-fail'), { recursive: true });
+
+      await expect(
+        caller.workspace.update({
+          id: ws.id,
+          slug: 'new-slug-fail',
+          name: 'Changed Name',
+          earsBdd: true,
+          maxConcurrency: 5,
+        }),
+      ).rejects.toThrow('Failed to rename workspace directory');
+
+      // All fields must be at their prior values
+      const fetched = await caller.workspace.get({ slug: ws.slug });
+      expect(fetched.slug).toBe(ws.slug);
+      expect(fetched.name).toBe('Full Rollback');
+      expect(fetched.earsBdd).toBe(false);
+      expect(fetched.maxConcurrency).toBe(1); // DB default — not changed by failed update
+    });
+  });
+
+  describe('name/slug validation', () => {
+    describe('create', () => {
+      it('should reject a name containing a forward slash', async () => {
+        await expect(caller.workspace.create({ name: 'my/workspace' })).rejects.toThrow(
+          'path separators',
+        );
+      });
+
+      it('should reject a name containing a backslash', async () => {
+        await expect(caller.workspace.create({ name: 'my\\workspace' })).rejects.toThrow(
+          'path separators',
+        );
+      });
+
+      it('should accept a name without path separators', async () => {
+        const ws = await caller.workspace.create({ name: 'Valid Name 123' });
+        expect(ws.name).toBe('Valid Name 123');
+      });
+    });
+
+    describe('update', () => {
+      it('should reject a slug containing a forward slash', async () => {
+        const ws = await caller.workspace.create({ name: 'Slug Test' });
+        await expect(caller.workspace.update({ id: ws.id, slug: 'my/slug' })).rejects.toThrow();
+      });
+
+      it('should reject a name update with path separator', async () => {
+        const ws = await caller.workspace.create({ name: 'Name Test' });
+        await expect(
+          caller.workspace.update({ id: ws.id, name: 'bad/name' }),
+        ).rejects.toThrow('path separators');
+      });
+
+      it('should accept a valid slug update', async () => {
+        const ws = await caller.workspace.create({ name: 'Valid Slug' });
+        const updated = await caller.workspace.update({ id: ws.id, slug: 'valid-slug-2' });
+        expect(updated.slug).toBe('valid-slug-2');
+      });
     });
   });
 

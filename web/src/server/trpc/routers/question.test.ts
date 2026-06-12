@@ -318,7 +318,7 @@ describe('question router', () => {
       expect(updatedTask!.subStatus).toBeNull();
     });
 
-    it('should dispatch EXECUTION_START_REQUEST with resume and answer prompt', async () => {
+    it('should dispatch EXECUTION_START_REQUEST reusing the original session row', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({
         projectId: proj.id,
@@ -357,12 +357,56 @@ describe('question router', () => {
       expect(msg.payload.flags).toContain('--resume');
       expect(msg.payload.flags).toContain('original-sess');
 
-      // Verify a new session was created
+      // Fix: must reuse the original session row (not insert a new one)
       const sessions = db.select().from(agentSessions).all();
-      expect(sessions).toHaveLength(2);
-      const newSession = sessions.find((s) => s.sessionId !== 'original-sess');
-      expect(newSession!.status).toBe('active');
-      expect(newSession!.taskId).toBe(task.id);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].sessionId).toBe('original-sess');
+      expect(sessions[0].status).toBe('active');
+
+      // The dispatched sessionId must be the original session id (so claude --resume finds the right JSONL)
+      expect(msg.payload.sessionId).toBe('original-sess');
+    });
+
+    it('should leave no orphaned active row and broadcast when dispatch fails', async () => {
+      const { proj } = await seedProject(caller);
+      const task = await caller.task.create({ projectId: proj.id, title: 'T1', subStatus: 'blocked' });
+      const db = getDb();
+
+      const q1 = insertQuestion(db, { taskId: task.id, question: 'Q1', sessionId: 'sess-1' });
+
+      db.insert(agentSessions)
+        .values({
+          sessionId: 'original-sess',
+          executionMode: 'task',
+          status: 'active',
+          taskId: task.id,
+        })
+        .run();
+
+      // Failing daemon
+      const mock = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'EXECUTION_START_REQUEST') {
+            const pending = ctx.state.pendingExecutionStart.get(msg.payload.requestId);
+            if (pending) {
+              ctx.state.pendingExecutionStart.delete(msg.payload.requestId);
+              pending.reject(new Error('daemon crashed'));
+            }
+          }
+        },
+      };
+      ctx.state.daemon = mock as unknown as WebSocket;
+
+      await expect(
+        caller.question.submitAnswers({ answers: [{ questionId: q1.id, answer: 'Yes' }] }),
+      ).rejects.toThrow('Failed to resume execution');
+
+      // Session must be marked stopped, not left active
+      const session = db.select().from(agentSessions).where(eq(agentSessions.sessionId, 'original-sess')).get();
+      expect(session!.status).toBe('stopped');
     });
 
     it('should throw when no daemon connected for resume', async () => {

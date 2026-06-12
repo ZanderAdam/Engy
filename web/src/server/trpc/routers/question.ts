@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { eq, and, isNull, sql, desc } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
@@ -6,7 +5,8 @@ import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { questions, tasks, agentSessions } from '../../db/schema';
 import { dispatchExecutionStart } from '../../ws/server';
-import { broadcastQuestionChange } from '../../ws/broadcast';
+import { broadcastQuestionChange, broadcastTaskChange } from '../../ws/broadcast';
+import { buildResumeConfig, buildResumeFlags } from './execution';
 
 export const questionRouter = router({
   list: publicProcedure
@@ -160,23 +160,50 @@ export const questionRouter = router({
         .get();
 
       if (latestSession) {
-        const newSessionId = randomUUID();
-
-        db.insert(agentSessions)
-          .values({
-            sessionId: newSessionId,
-            executionMode: latestSession.executionMode,
-            status: 'active',
-            worktreePath: latestSession.worktreePath,
-            taskId: latestSession.taskId,
-            taskGroupId: latestSession.taskGroupId,
-          })
+        // Mirror sendFeedback: reuse the original session row (claude --resume appends to the
+        // original JSONL; a new row leaves the UI polling an empty file forever).
+        db.update(agentSessions)
+          .set({ status: 'active', completionSummary: null, updatedAt: now })
+          .where(eq(agentSessions.sessionId, latestSession.sessionId))
           .run();
 
-        await dispatchExecutionStart(ctx.state, newSessionId, resumePrompt, [
-          '--resume',
-          latestSession.sessionId,
-        ]);
+        const baseFlags = latestSession.taskId
+          ? buildResumeFlags(latestSession.taskId, latestSession.sessionId)
+          : [];
+        const resumeConfig = latestSession.taskId
+          ? buildResumeConfig(latestSession.taskId, latestSession.worktreePath)
+          : undefined;
+
+        try {
+          await dispatchExecutionStart(
+            ctx.state,
+            latestSession.sessionId,
+            resumePrompt,
+            [...baseFlags, '--resume', latestSession.sessionId],
+            resumeConfig,
+          );
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          db.update(agentSessions)
+            .set({ status: 'stopped', completionSummary: errorMessage, updatedAt: now })
+            .where(eq(agentSessions.sessionId, latestSession.sessionId))
+            .run();
+          if (latestSession.taskId) {
+            const reverted = db.update(tasks)
+              .set({ subStatus: 'failed' as typeof tasks.$inferInsert.subStatus, updatedAt: now })
+              .where(eq(tasks.id, latestSession.taskId))
+              .returning()
+              .get();
+            if (reverted) {
+              broadcastTaskChange('updated', latestSession.taskId, reverted.projectId ?? undefined);
+            }
+          }
+          broadcastQuestionChange('answered', firstQuestion.taskId ?? undefined, firstQuestion.sessionId);
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: `Failed to resume execution: ${errorMessage}`,
+          });
+        }
       }
 
       broadcastQuestionChange('answered', firstQuestion.taskId ?? undefined, firstQuestion.sessionId);
