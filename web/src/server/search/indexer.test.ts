@@ -570,6 +570,15 @@ describe('WorkspaceIndexer', () => {
       expect(readFrontmatterRows('system').find((r) => r.path === 'system/spec.md')).toBeDefined();
       expect(readFrontmatterRows('docs').find((r) => r.path === 'docs/ref.md')).toBeDefined();
     });
+
+    it('should return index results for all four collections even when dirs are empty', async () => {
+      // No files written — forceFullReindex must still complete without error,
+      // returning one IndexResult per collection with collection names intact.
+      const results = await forceFullReindex(workspaceSlug);
+
+      const collections = results.map((r) => r.collection).sort();
+      expect(collections).toEqual(['docs', 'memory', 'projects', 'system']);
+    });
   });
 
   describe.skipIf(!QMD_AVAILABLE)('embed-dependent assertions', () => {

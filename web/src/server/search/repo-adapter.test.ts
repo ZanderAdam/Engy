@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { WebSocket } from 'ws';
 import { createAppState, type AppState } from '../trpc/context';
@@ -49,6 +49,20 @@ function waitForMessage(ws: WebSocket): Promise<unknown> {
   });
 }
 
+/**
+ * Register the daemon and wait until state.daemon is set.
+ * Consumes the WORKSPACES_SYNC response sent by the server on REGISTER,
+ * so subsequent waitForMessage calls see only the intended request.
+ */
+async function registerDaemon(daemon: WebSocket, state: AppState): Promise<void> {
+  const syncPromise = waitForMessage(daemon);
+  daemon.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+  await syncPromise; // consume WORKSPACES_SYNC
+  await vi.waitFor(() => {
+    expect(state.daemon).not.toBeNull();
+  });
+}
+
 describe('makeDaemonRepoAdapter', () => {
   let state: AppState;
   let server: Server;
@@ -75,15 +89,7 @@ describe('makeDaemonRepoAdapter', () => {
   describe('globTestFiles', () => {
     it('should send GLOB_FILES_REQUEST with test patterns and return absolute paths', async () => {
       const daemon = await connectClient(port);
-      daemon.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
-      await new Promise<void>((resolve) => {
-        const interval = setInterval(() => {
-          if (state.daemon) {
-            clearInterval(interval);
-            resolve();
-          }
-        }, 5);
-      });
+      await registerDaemon(daemon, state);
 
       const adapter = makeDaemonRepoAdapter(state);
       const msgPromise = waitForMessage(daemon);
@@ -115,15 +121,7 @@ describe('makeDaemonRepoAdapter', () => {
 
     it('should pass through absolute paths from daemon unchanged', async () => {
       const daemon = await connectClient(port);
-      daemon.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
-      await new Promise<void>((resolve) => {
-        const interval = setInterval(() => {
-          if (state.daemon) {
-            clearInterval(interval);
-            resolve();
-          }
-        }, 5);
-      });
+      await registerDaemon(daemon, state);
 
       const adapter = makeDaemonRepoAdapter(state);
       const msgPromise = waitForMessage(daemon);
@@ -152,15 +150,7 @@ describe('makeDaemonRepoAdapter', () => {
   describe('readFile', () => {
     it('should send FILE_READ_REQUEST with dirname as repoDir and basename as filePath', async () => {
       const daemon = await connectClient(port);
-      daemon.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
-      await new Promise<void>((resolve) => {
-        const interval = setInterval(() => {
-          if (state.daemon) {
-            clearInterval(interval);
-            resolve();
-          }
-        }, 5);
-      });
+      await registerDaemon(daemon, state);
 
       const adapter = makeDaemonRepoAdapter(state);
       const msgPromise = waitForMessage(daemon);
@@ -192,15 +182,7 @@ describe('makeDaemonRepoAdapter', () => {
   describe('exists', () => {
     it('should send VALIDATE_PATHS_REQUEST and return per-path exists boolean', async () => {
       const daemon = await connectClient(port);
-      daemon.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
-      await new Promise<void>((resolve) => {
-        const interval = setInterval(() => {
-          if (state.daemon) {
-            clearInterval(interval);
-            resolve();
-          }
-        }, 5);
-      });
+      await registerDaemon(daemon, state);
 
       const adapter = makeDaemonRepoAdapter(state);
       const msgPromise = waitForMessage(daemon);
@@ -229,15 +211,7 @@ describe('makeDaemonRepoAdapter', () => {
 
     it('should return false when the path does not exist', async () => {
       const daemon = await connectClient(port);
-      daemon.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
-      await new Promise<void>((resolve) => {
-        const interval = setInterval(() => {
-          if (state.daemon) {
-            clearInterval(interval);
-            resolve();
-          }
-        }, 5);
-      });
+      await registerDaemon(daemon, state);
 
       const adapter = makeDaemonRepoAdapter(state);
       const msgPromise = waitForMessage(daemon);
@@ -303,15 +277,7 @@ describe('chooseRepoAdapter', () => {
       daemon.on('open', resolve);
       daemon.on('error', reject);
     });
-    daemon.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
-    await new Promise<void>((resolve) => {
-      const interval = setInterval(() => {
-        if (state.daemon) {
-          clearInterval(interval);
-          resolve();
-        }
-      }, 5);
-    });
+    await registerDaemon(daemon, state);
 
     const adapter = chooseRepoAdapter(state);
     expect(adapter).not.toBe(localRepoAdapter);

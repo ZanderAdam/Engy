@@ -1,5 +1,8 @@
 import { getStore } from '../search/qmd-store';
 import { runQmdSearch } from '../search/qmd-search';
+import { eq } from 'drizzle-orm';
+import { getDb } from '../db/client';
+import { workspaces } from '../db/schema';
 
 interface MemoryProposal {
   title: string;
@@ -92,9 +95,13 @@ export async function proposeMemoryMetadata(
     return null;
   }
 
+  const db = getDb();
+  const ws = db.select().from(workspaces).where(eq(workspaces.slug, workspaceSlug)).get();
+  if (!ws) return null;
+
   let similarTitles: string[] = [];
   try {
-    const hits = await runQmdSearch(workspaceSlug, content, 'memory', 5, 'hybrid', undefined);
+    const hits = await runQmdSearch(ws, content, 'memory', 5, 'hybrid', undefined);
     similarTitles = hits.map((h) => h.title).filter(Boolean);
   } catch {
     // similarity search is best-effort; proceed without it
@@ -103,7 +110,7 @@ export async function proposeMemoryMetadata(
   const prompt = buildPrompt(content, similarTitles);
 
   try {
-    const store = await getStore(workspaceSlug);
+    const store = await getStore(ws);
     const llm = store.internal.llm;
     if (!llm) return null;
 

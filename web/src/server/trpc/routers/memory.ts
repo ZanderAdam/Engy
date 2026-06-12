@@ -121,7 +121,7 @@ async function deleteMemoryFile(workspaceDir: string, filePath: string, title: s
   const absPath = path.isAbsolute(filePath) ? filePath : path.join(workspaceDir, filePath);
   if (fs.existsSync(absPath)) {
     fs.unlinkSync(absPath);
-    regenerateReadmeChain(absPath);
+    regenerateReadmeChain(absPath, workspaceDir);
     const readmePaths = collectReadmePaths(workspaceDir, absPath);
     const relPath = path.relative(workspaceDir, absPath).replace(/\\/g, '/');
     const safeTitle = sanitizeCommitSubject(title);

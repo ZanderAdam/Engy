@@ -196,7 +196,7 @@ describe('readme-index', () => {
       const filePath = path.join(subdir, '202601010000-some-decision.md');
       fs.writeFileSync(filePath, '---\ntitle: Some Decision\nsubtype: decision\n---\nBody.');
 
-      regenerateReadmeChain(filePath);
+      regenerateReadmeChain(filePath, tmpDir);
 
       const readme = path.join(subdir, 'README.md');
       expect(fs.existsSync(readme)).toBe(true);
@@ -210,10 +210,38 @@ describe('readme-index', () => {
       const filePath = path.join(subdir, 'note.md');
       fs.writeFileSync(filePath, '# Note\nContent.');
 
-      regenerateReadmeChain(filePath);
+      regenerateReadmeChain(filePath, tmpDir);
 
       const parentReadme = path.join(tmpDir, 'memory', 'README.md');
       expect(fs.existsSync(parentReadme)).toBe(true);
+    });
+
+    it('should not write a README above the workspace root', () => {
+      const workspaceRoot = path.join(tmpDir, 'my-workspace');
+      const subdir = path.join(workspaceRoot, 'memory', 'decisions');
+      fs.mkdirSync(subdir, { recursive: true });
+      const filePath = path.join(subdir, 'note.md');
+      fs.writeFileSync(filePath, '# Note\nContent.');
+
+      regenerateReadmeChain(filePath, workspaceRoot);
+
+      // README above the workspace root must not be created.
+      expect(fs.existsSync(path.join(tmpDir, 'README.md'))).toBe(false);
+      // READMEs within the workspace root are fine.
+      expect(fs.existsSync(path.join(workspaceRoot, 'memory', 'decisions', 'README.md'))).toBe(true);
+      expect(fs.existsSync(path.join(workspaceRoot, 'memory', 'README.md'))).toBe(true);
+      expect(fs.existsSync(path.join(workspaceRoot, 'README.md'))).toBe(true);
+    });
+
+    it('should include the workspace root README', () => {
+      const subdir = path.join(tmpDir, 'memory', 'decisions');
+      fs.mkdirSync(subdir, { recursive: true });
+      const filePath = path.join(subdir, 'note.md');
+      fs.writeFileSync(filePath, '# Note\nContent.');
+
+      regenerateReadmeChain(filePath, tmpDir);
+
+      expect(fs.existsSync(path.join(tmpDir, 'README.md'))).toBe(true);
     });
   });
 

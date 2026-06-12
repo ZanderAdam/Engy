@@ -30,14 +30,14 @@ export function isReadme(displayPath: string): boolean {
  * in one place.
  */
 export async function runQmdSearch(
-  workspaceSlug: string,
+  workspace: { slug: string; docsDir: string | null },
   query: string,
   collection: string | undefined,
   limit: number,
   mode: QmdSearchMode,
   intent: string | undefined,
 ): Promise<QmdSearchHit[]> {
-  const store = await getStore(workspaceSlug);
+  const store = await getStore(workspace);
   const oversampledLimit = Math.min(Math.ceil(limit * 1.5), QMD_CANDIDATE_CAP);
 
   if (mode === 'lex' || mode === 'vector') {

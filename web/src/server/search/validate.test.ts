@@ -419,11 +419,9 @@ describe('validateWorkspace', () => {
 
       const report = await validateWorkspace(ws);
 
-      // workspace init seeds README.md files in each subtype dir; exclude them since
-      // they are infrastructure files, not user-created memories.
-      const orphans = report.findings.filter(
-        (f) => f.check === 'orphaned-content' && !f.path?.endsWith('README.md'),
-      );
+      // validate.ts excludes README.md files from orphaned-content checks, so
+      // no workaround is needed here — orphan count must be exactly zero.
+      const orphans = report.findings.filter((f) => f.check === 'orphaned-content');
       expect(orphans).toHaveLength(0);
     });
   });

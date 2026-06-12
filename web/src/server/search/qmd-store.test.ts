@@ -38,9 +38,9 @@ describe('qmd store', () => {
       const workspaceDir = path.join(tmpDir, slug);
       fs.mkdirSync(workspaceDir, { recursive: true });
 
-      const store = await getStore(slug);
+      const store = await getStore({ slug, docsDir: null });
 
-      const dbPath = getQmdDbPath(slug);
+      const dbPath = getQmdDbPath({ slug, docsDir: null });
       expect(fs.existsSync(dbPath)).toBe(true);
       expect(store).toBeDefined();
 
@@ -52,8 +52,8 @@ describe('qmd store', () => {
       const workspaceDir = path.join(tmpDir, slug);
       fs.mkdirSync(workspaceDir, { recursive: true });
 
-      const first = await getStore(slug);
-      const second = await getStore(slug);
+      const first = await getStore({ slug, docsDir: null });
+      const second = await getStore({ slug, docsDir: null });
 
       expect(first).toBe(second);
 
@@ -67,7 +67,7 @@ describe('qmd store', () => {
         fs.mkdirSync(path.join(workspaceDir, dir), { recursive: true });
       }
 
-      const store = await getStore(slug);
+      const store = await getStore({ slug, docsDir: null });
       const collections = await store.listCollections();
       const names = collections.map((c) => c.name).sort();
 
@@ -82,7 +82,10 @@ describe('qmd store', () => {
       fs.mkdirSync(workspaceDir, { recursive: true });
 
       // Fire two concurrent getStore calls before either resolves.
-      const [first, second] = await Promise.all([getStore(slug), getStore(slug)]);
+      const [first, second] = await Promise.all([
+        getStore({ slug, docsDir: null }),
+        getStore({ slug, docsDir: null }),
+      ]);
 
       expect(first).toBe(second);
 
@@ -95,14 +98,25 @@ describe('qmd store', () => {
       fs.mkdirSync(path.join(tmpDir, slugA), { recursive: true });
       fs.mkdirSync(path.join(tmpDir, slugB), { recursive: true });
 
-      const storeA = await getStore(slugA);
-      const storeB = await getStore(slugB);
+      const storeA = await getStore({ slug: slugA, docsDir: null });
+      const storeB = await getStore({ slug: slugB, docsDir: null });
 
       expect(storeA).not.toBe(storeB);
       expect(storeA.dbPath).not.toBe(storeB.dbPath);
 
       await storeA.close();
       await storeB.close();
+    });
+
+    it('should use docsDir as workspace root when provided', async () => {
+      const customDir = path.join(tmpDir, 'custom-docs-dir');
+      fs.mkdirSync(customDir, { recursive: true });
+
+      const store = await getStore({ slug: 'ws-with-docsdir', docsDir: customDir });
+
+      expect(store.dbPath).toContain(customDir);
+
+      await store.close();
     });
   });
 
@@ -122,11 +136,11 @@ describe('qmd store', () => {
       const slug = 'evict-workspace';
       fs.mkdirSync(path.join(tmpDir, slug), { recursive: true });
 
-      await getStore(slug);
+      await getStore({ slug, docsDir: null });
 
       evictStore(slug);
 
-      const second = await getStore(slug);
+      const second = await getStore({ slug, docsDir: null });
       expect(second).toBeDefined();
 
       await second.close();
@@ -136,7 +150,7 @@ describe('qmd store', () => {
       const slug = 'evict-close-workspace';
       fs.mkdirSync(path.join(tmpDir, slug), { recursive: true });
 
-      const store = await getStore(slug);
+      const store = await getStore({ slug, docsDir: null });
       let closeCalled = false;
       const origClose = store.close.bind(store);
       store.close = async () => {
@@ -157,7 +171,7 @@ describe('qmd store', () => {
       fs.mkdirSync(path.join(tmpDir, slug), { recursive: true });
 
       // Kick off creation but don't await — store is now inflight.
-      const creationPromise = getStore(slug);
+      const creationPromise = getStore({ slug, docsDir: null });
 
       // Evict before the creation settles.
       evictStore(slug);
@@ -169,7 +183,7 @@ describe('qmd store', () => {
       await new Promise((r) => setTimeout(r, 10));
 
       // The store should have been closed — a second getStore call creates a new one.
-      const fresh = await getStore(slug);
+      const fresh = await getStore({ slug, docsDir: null });
       expect(fresh).not.toBe(store);
 
       await fresh.close();
@@ -190,8 +204,14 @@ describe('qmd store', () => {
 
     it('should return the expected database path for a workspace slug', () => {
       const slug = 'my-ws';
-      const dbPath = getQmdDbPath(slug);
+      const dbPath = getQmdDbPath({ slug, docsDir: null });
       expect(dbPath).toBe(path.join(tmpDir, slug, '.qmd', 'qmd.db'));
+    });
+
+    it('should use docsDir as the base when provided', () => {
+      const customDir = path.join(tmpDir, 'custom-docs');
+      const dbPath = getQmdDbPath({ slug: 'any', docsDir: customDir });
+      expect(dbPath).toBe(path.join(customDir, '.qmd', 'qmd.db'));
     });
   });
 });

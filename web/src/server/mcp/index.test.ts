@@ -1641,6 +1641,39 @@ describe('MCP Server', () => {
         expect(taskGroup.results[0].title).toBe('Done Task');
       });
 
+      it('should return only tasks and not frontmatter docs when status is the sole filter', async () => {
+        const db = getDb();
+        const proj = db
+          .insert(projects)
+          .values({ workspaceId: wsId, name: 'P1b', slug: 'p1b-search' })
+          .returning()
+          .get();
+        db.insert(tasks).values({ title: 'Found Task', projectId: proj.id, status: 'done' }).run();
+        db.insert(frontmatter)
+          .values({
+            workspaceId: wsId,
+            collection: 'docs',
+            path: 'docs/should-not-appear.md',
+            data: JSON.stringify({ title: 'Should Not Appear' }),
+            indexedAt: new Date().toISOString(),
+          })
+          .run();
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          filters: { status: 'done' },
+        });
+
+        expect(isError).toBe(false);
+        const collections = data.map((g: { collection: string }) => g.collection);
+        expect(collections).not.toContain('docs');
+        expect(collections).not.toContain('memory');
+        const taskGroup = data.find((g: { collection: string }) => g.collection === 'tasks');
+        expect(taskGroup).toBeDefined();
+        expect(taskGroup.results.some((r: { title: string }) => r.title === 'Found Task')).toBe(true);
+      });
+
       it('should filter frontmatter by tags using JSON1 membership', async () => {
         const db = getDb();
         db.insert(frontmatter)

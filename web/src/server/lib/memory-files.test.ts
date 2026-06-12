@@ -15,6 +15,7 @@ import {
   validateLinkedMemoryPath,
   escapeIndexMarkers,
   commitFile,
+  collectReadmePaths,
 } from './memory-files';
 
 async function initGitRepo(dir: string): Promise<void> {
@@ -706,6 +707,52 @@ describe('memory-files', () => {
       if (fs.existsSync(newReadme)) {
         expect(fs.readFileSync(newReadme, 'utf8')).toContain(filename);
       }
+    });
+  });
+
+  describe('collectReadmePaths', () => {
+    it('should collect README paths from file dir up to and including workspace root', () => {
+      const subdir = path.join(workspaceDir, 'memory', 'decisions');
+      fs.mkdirSync(subdir, { recursive: true });
+      const filePath = path.join(subdir, 'note.md');
+
+      // Seed README files at each level
+      fs.writeFileSync(path.join(subdir, 'README.md'), '');
+      fs.writeFileSync(path.join(workspaceDir, 'memory', 'README.md'), '');
+      fs.writeFileSync(path.join(workspaceDir, 'README.md'), '');
+
+      const readmePaths = collectReadmePaths(workspaceDir, filePath);
+
+      expect(readmePaths).toContain(path.join(subdir, 'README.md'));
+      expect(readmePaths).toContain(path.join(workspaceDir, 'memory', 'README.md'));
+      expect(readmePaths).toContain(path.join(workspaceDir, 'README.md'));
+    });
+
+    it('should not collect README paths above the workspace root', () => {
+      const subdir = path.join(workspaceDir, 'memory', 'facts');
+      fs.mkdirSync(subdir, { recursive: true });
+      const filePath = path.join(subdir, 'note.md');
+
+      // Seed a README above the workspace root
+      const parentDir = path.dirname(workspaceDir);
+      const parentReadme = path.join(parentDir, 'README.md');
+      fs.writeFileSync(parentReadme, '');
+
+      try {
+        const readmePaths = collectReadmePaths(workspaceDir, filePath);
+        expect(readmePaths).not.toContain(parentReadme);
+      } finally {
+        try { fs.unlinkSync(parentReadme); } catch { /* ignore */ }
+      }
+    });
+
+    it('should return empty array when no README files exist in the chain', () => {
+      const subdir = path.join(workspaceDir, 'memory', 'patterns');
+      fs.mkdirSync(subdir, { recursive: true });
+      const filePath = path.join(subdir, 'note.md');
+
+      const readmePaths = collectReadmePaths(workspaceDir, filePath);
+      expect(readmePaths).toHaveLength(0);
     });
   });
 });

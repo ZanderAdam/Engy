@@ -82,7 +82,7 @@ export const searchRouter = router({
       filters !== undefined && Object.values(filters).some((v) => v !== undefined);
 
     if (hasQuery && !hasFilters) {
-      return queryOnlyMode(ws.id, ws.slug, query!, collection, limit, mode, intent);
+      return queryOnlyMode(ws, query!, collection, limit, mode, intent);
     }
 
     if (!hasQuery && hasFilters) {
@@ -90,7 +90,7 @@ export const searchRouter = router({
     }
 
     if (hasQuery && hasFilters) {
-      return queryWithFiltersMode(ws.id, ws.slug, query!, filters!, collection, limit, mode, intent);
+      return queryWithFiltersMode(ws, query!, filters!, collection, limit, mode, intent);
     }
 
     return [];
@@ -113,9 +113,29 @@ export const searchRouter = router({
     }),
 });
 
+/**
+ * Maps qmd/store errors to typed TRPCErrors so clients can display
+ * meaningful messages instead of a generic 500 or indefinite spinner.
+ */
+function mapSearchError(err: unknown): TRPCError {
+  if (err instanceof TRPCError) return err;
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.includes('download') || message.includes('model')) {
+    return new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message:
+        'Embedding model is not yet available. Run `engy:reindex` to initialise the search index.',
+    });
+  }
+  return new TRPCError({
+    code: 'INTERNAL_SERVER_ERROR',
+    message: `Search index unavailable: ${message}. Run \`/engy:reindex\` to rebuild or check server logs.`,
+    cause: err,
+  });
+}
+
 async function queryOnlyMode(
-  workspaceId: number,
-  workspaceSlug: string,
+  ws: { id: number; slug: string; docsDir: string | null },
   query: string,
   collection: string | undefined,
   limit: number,
@@ -126,7 +146,7 @@ async function queryOnlyMode(
 
   // Always search tasks via SQLite LIKE — fast, no model needed.
   if (!collection || collection === 'tasks') {
-    const taskResults = searchTasksByQuery(workspaceId, query, limit);
+    const taskResults = searchTasksByQuery(ws.id, query, limit);
     if (taskResults.length > 0) {
       groups.push({ collection: 'tasks', results: taskResults });
     }
@@ -138,13 +158,13 @@ async function queryOnlyMode(
   }
 
   try {
-    const rawHits = await runQmdSearch(workspaceSlug, query, collection, limit, mode, intent);
-    const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
-    const supersededPaths = getSupersededMemoryPaths(workspaceId);
+    const rawHits = await runQmdSearch(ws, query, collection, limit, mode, intent);
+    const qmdResults = applySubtypeAffinity(rawHits, query, ws.id);
+    const supersededPaths = getSupersededMemoryPaths(ws.id);
 
     const visibleHits = qmdResults.filter((hit) => !supersededPaths.has(hit.displayPath));
     const fmTitles = resolveDisplayTitles(
-      workspaceId,
+      ws.id,
       visibleHits.map((h) => toFrontmatterPath(collectionFromVirtualPath(h.file), h.displayPath)),
     );
 
@@ -166,18 +186,21 @@ async function queryOnlyMode(
       groups.push({ collection: col, results });
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('download') || message.includes('model')) {
-      throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
-        message:
-          'Embedding model is not yet available. Run `engy:reindex` to initialise the search index.',
-      });
-    }
-    throw err;
+    throw mapSearchError(err);
   }
 
   return groups;
+}
+
+/**
+ * Returns true when every set filter key is task-only (status).
+ * Used to skip the frontmatter query entirely when no file-collection
+ * filter is present — prevents a status-only query from returning
+ * arbitrary non-task documents.
+ */
+function hasOnlyTaskFilters(filters: SearchFilters): boolean {
+  const { status, ...rest } = filters;
+  return Object.values(rest).every((v) => v === undefined);
 }
 
 async function filtersOnlyMode(
@@ -189,8 +212,12 @@ async function filtersOnlyMode(
   const db = getDb();
   const groups: SearchResultGroup[] = [];
 
-  // File collections: frontmatter JSON1 filter
-  if (!collection || collection !== 'tasks') {
+  // File collections: frontmatter JSON1 filter.
+  // Skip entirely when the only filter is status (a task-only field) — running
+  // the frontmatter query with no JSON1 conditions on data would return all rows.
+  const skipFrontmatter = hasOnlyTaskFilters(filters);
+
+  if (!skipFrontmatter && (!collection || collection !== 'tasks')) {
     const condition = buildFrontmatterWhereCondition(workspaceId, filters, collection);
     const rows = db
       .select({
@@ -223,8 +250,7 @@ async function filtersOnlyMode(
 }
 
 async function queryWithFiltersMode(
-  workspaceId: number,
-  workspaceSlug: string,
+  ws: { id: number; slug: string; docsDir: string | null },
   query: string,
   filters: SearchFilters,
   collection: string | undefined,
@@ -237,7 +263,7 @@ async function queryWithFiltersMode(
 
   // Always apply task status filter — fast SQLite, no model needed.
   if (filters.status && (!collection || collection === 'tasks')) {
-    const taskResults = filterTasksByStatus(workspaceId, filters.status, limit);
+    const taskResults = filterTasksByStatus(ws.id, filters.status, limit);
     if (taskResults.length > 0) {
       groups.push({ collection: 'tasks', results: taskResults });
     }
@@ -253,16 +279,9 @@ async function queryWithFiltersMode(
     // With a subtype filter the relevant subset is small (≤ corpus size for that subtype),
     // so go wide enough to almost always intersect.
     const candidateLimit = filters.subtype ? Math.min(500, limit * 8) : limit * 2;
-    const rawHits = await runQmdSearch(
-      workspaceSlug,
-      query,
-      collection,
-      candidateLimit,
-      mode,
-      intent,
-    );
-    const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
-    const supersededPaths = getSupersededMemoryPaths(workspaceId);
+    const rawHits = await runQmdSearch(ws, query, collection, candidateLimit, mode, intent);
+    const qmdResults = applySubtypeAffinity(rawHits, query, ws.id);
+    const supersededPaths = getSupersededMemoryPaths(ws.id);
 
     // Build a set of workspace-relative paths from qmd results (skip superseded)
     const scoreByFrontmatterPath = new Map<string, number>();
@@ -275,7 +294,7 @@ async function queryWithFiltersMode(
 
     // Always run the frontmatter filter so the response includes filter-matching docs
     // even when qmd missed them entirely (e.g. when subtype is the dominant signal).
-    const condition = buildFrontmatterWhereCondition(workspaceId, filters, collection);
+    const condition = buildFrontmatterWhereCondition(ws.id, filters, collection);
     const filteredRows = db
       .select({
         collection: frontmatter.collection,
@@ -316,15 +335,7 @@ async function queryWithFiltersMode(
       });
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('download') || message.includes('model')) {
-      throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
-        message:
-          'Embedding model is not yet available. Run `engy:reindex` to initialise the search index.',
-      });
-    }
-    throw err;
+    throw mapSearchError(err);
   }
 
   return groups;

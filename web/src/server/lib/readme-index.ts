@@ -177,25 +177,32 @@ export function updateReadmeIndex(dirPath: string, noun: string = 'note'): void 
 
 // ── regenerateReadmeChain ─────────────────────────────────────────────
 
-export function regenerateReadmeChain(filePath: string): void {
-  // Walk up from the file's directory, regenerating READMEs at each level.
-  // One level of subdirs under collection roots is supported — we walk up
-  // until we hit the workspace dir (two levels up from collection root).
+/**
+ * Walk up from the file's directory regenerating README indexes at each level,
+ * stopping at and including `workspaceRoot`. Never writes above the workspace
+ * root so a badly-placed file cannot pollute parent directories.
+ */
+export function regenerateReadmeChain(filePath: string, workspaceRoot: string): void {
   let dir = path.dirname(filePath);
   const visited = new Set<string>();
 
-  // Walk up at most 4 levels (file → subtype dir → memory → workspace root)
-  for (let i = 0; i < 4; i++) {
+  while (true) {
     if (visited.has(dir)) break;
     visited.add(dir);
 
-    // Only update if a README exists or there are markdown files here
     if (fs.existsSync(dir)) {
       updateReadmeIndex(dir);
     }
 
+    // Stop after processing the workspace root — never go above it.
+    if (dir === workspaceRoot) break;
+
     const parent = path.dirname(dir);
-    if (parent === dir) break; // filesystem root
+    if (parent === dir) break; // filesystem root guard
+
+    // Stay within workspace bounds.
+    if (!parent.startsWith(workspaceRoot + path.sep) && parent !== workspaceRoot) break;
+
     dir = parent;
   }
 }

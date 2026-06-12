@@ -28,7 +28,7 @@ The `search` MCP tool funnels into four internal functions based on what the cal
 | `filters` only | `mcpFiltersOnly` |
 | `query` + `filters` | `mcpQueryWithFilters` |
 
-`runMcpSearch(workspaceId, workspaceSlug, query, collection, filters, limit, mode, intent)` inspects `hasQuery` / `hasFilters` booleans and routes to the appropriate function. All three return `SearchResultGroup[]` (collection-keyed).
+`runMcpSearch(ws, query, collection, filters, limit, mode, intent)` — where `ws` is the full workspace row `{ id, slug, docsDir }` — inspects `hasQuery` / `hasFilters` booleans and routes to the appropriate function. All three return `SearchResultGroup[]` (collection-keyed).
 
 ### `mcpQueryOnly`
 - Runs SQLite `LIKE` on tasks (always, unless collection-scoped to non-tasks).

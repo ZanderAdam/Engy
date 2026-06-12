@@ -240,7 +240,7 @@ export async function writePermanentMemory(
     .filter(Boolean)
     .join('\n');
 
-  regenerateReadmeChain(filePath);
+  regenerateReadmeChain(filePath, workspaceDir);
 
   const readmePaths = collectReadmePaths(workspaceDir, filePath);
   try {
@@ -254,7 +254,7 @@ export async function writePermanentMemory(
   } catch (err) {
     try {
       fs.unlinkSync(filePath);
-      regenerateReadmeChain(filePath);
+      regenerateReadmeChain(filePath, workspaceDir);
     } catch {
       // best-effort cleanup — ignore secondary failure
     }
@@ -354,7 +354,7 @@ export async function writeSourceSnapshot(
   const relPath = path.relative(workspaceDir, filePath).replace(/\\/g, '/');
   const safeTitle = sanitizeCommitSubject(fm.title);
 
-  regenerateReadmeChain(filePath);
+  regenerateReadmeChain(filePath, workspaceDir);
   const readmePaths = collectReadmePaths(workspaceDir, filePath);
   await withWorkspaceLock(workspaceDir, () =>
     commitFile(
@@ -415,7 +415,7 @@ export async function writeReferenceRecord(
   const relPath = path.relative(workspaceDir, filePath).replace(/\\/g, '/');
   const safeTitle = sanitizeCommitSubject(fm.title);
 
-  regenerateReadmeChain(filePath);
+  regenerateReadmeChain(filePath, workspaceDir);
   const readmePaths = collectReadmePaths(workspaceDir, filePath);
   await withWorkspaceLock(workspaceDir, () =>
     commitFile(
@@ -565,13 +565,13 @@ export async function rewritePermanentMemory(
     .filter(Boolean)
     .join('\n');
 
-  regenerateReadmeChain(newAbsPath);
+  regenerateReadmeChain(newAbsPath, workspaceDir);
   const newReadmePaths = collectReadmePaths(workspaceDir, newAbsPath);
   const pathsToCommit: string[] = [newAbsPath, ...newReadmePaths];
 
   if (subtypeChanged) {
     // Regenerate README chain for the old directory too, then stage it.
-    regenerateReadmeChain(oldAbsPath);
+    regenerateReadmeChain(oldAbsPath, workspaceDir);
     const oldReadmePaths = collectReadmePaths(workspaceDir, oldAbsPath);
     pathsToCommit.push(oldAbsPath, ...oldReadmePaths);
     pathsToCommit.push(...rewriteInboundLinks(workspaceDir, existingRelPath, newRelPath));
@@ -594,9 +594,12 @@ export function collectReadmePaths(workspaceDir: string, filePath: string): stri
   const results: string[] = [];
   let dir = path.dirname(filePath);
   const root = workspaceDir;
-  while (dir !== root && dir.startsWith(root)) {
+
+  // Walk up from the file's directory, inclusive of workspaceDir itself.
+  while (dir.startsWith(root + path.sep) || dir === root) {
     const readme = path.join(dir, 'README.md');
     if (fs.existsSync(readme)) results.push(readme);
+    if (dir === root) break;
     dir = path.dirname(dir);
   }
   return results;

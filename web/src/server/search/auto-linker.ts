@@ -171,7 +171,7 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
 
     let store;
     try {
-      store = await getStore(workspaceSlug);
+      store = await getStore(ws);
     } catch {
       // If the store fails to init, fall through to the tag pass only.
     }

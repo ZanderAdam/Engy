@@ -1264,7 +1264,7 @@ function registerIndexTools(mcp: McpServer): void {
         if (full) {
           results = await forceFullReindex(ws.slug);
           // Trigger embed pass after full rebuild; errors are non-fatal
-          getStore(ws.slug)
+          getStore(ws)
             .then((store) => store.embed())
             .catch((err) => console.error('[reindex] embed error after full reindex:', err));
         } else {
@@ -1471,8 +1471,7 @@ function registerSearchTools(mcp: McpServer): void {
 
       try {
         const groups = await runMcpSearch(
-          ws.id,
-          ws.slug,
+          ws,
           query,
           collection,
           filters,
@@ -1531,8 +1530,7 @@ function registerSearchTools(mcp: McpServer): void {
 }
 
 async function runMcpSearch(
-  workspaceId: number,
-  workspaceSlug: string,
+  ws: { id: number; slug: string; docsDir: string | null },
   query: string | undefined,
   collection: string | undefined,
   filters: Record<string, unknown> | undefined,
@@ -1544,26 +1542,16 @@ async function runMcpSearch(
   const hasFilters = filters !== undefined && Object.values(filters).some((v) => v !== undefined);
 
   if (hasQuery && !hasFilters) {
-    return mcpQueryOnly(workspaceId, workspaceSlug, query!, collection, limit, mode, intent);
+    return mcpQueryOnly(ws, query!, collection, limit, mode, intent);
   }
   if (!hasQuery && hasFilters) {
-    return mcpFiltersOnly(workspaceId, filters!, collection, limit);
+    return mcpFiltersOnly(ws.id, filters!, collection, limit);
   }
-  return mcpQueryWithFilters(
-    workspaceId,
-    workspaceSlug,
-    query!,
-    filters!,
-    collection,
-    limit,
-    mode,
-    intent,
-  );
+  return mcpQueryWithFilters(ws, query!, filters!, collection, limit, mode, intent);
 }
 
 async function mcpQueryOnly(
-  workspaceId: number,
-  workspaceSlug: string,
+  ws: { id: number; slug: string; docsDir: string | null },
   query: string,
   collection: string | undefined,
   limit: number,
@@ -1573,19 +1561,19 @@ async function mcpQueryOnly(
   const groups: SearchResultGroup[] = [];
 
   if (!collection || collection === 'tasks') {
-    const taskResults = searchTasksByQuery(workspaceId, query, limit);
+    const taskResults = searchTasksByQuery(ws.id, query, limit);
     if (taskResults.length > 0) groups.push({ collection: 'tasks', results: taskResults });
   }
 
   if (process.env.QMD_SKIP === '1') return groups;
 
-  const rawHits = await runQmdSearch(workspaceSlug, query, collection, limit, mode, intent);
-  const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
-  const supersededPaths = getSupersededMemoryPaths(workspaceId);
+  const rawHits = await runQmdSearch(ws, query, collection, limit, mode, intent);
+  const qmdResults = applySubtypeAffinity(rawHits, query, ws.id);
+  const supersededPaths = getSupersededMemoryPaths(ws.id);
 
   const visibleHits = qmdResults.filter((hit) => !supersededPaths.has(hit.displayPath));
   const fmTitles = resolveDisplayTitles(
-    workspaceId,
+    ws.id,
     visibleHits.map((h) => h.displayPath),
   );
 
@@ -1607,6 +1595,15 @@ async function mcpQueryOnly(
   return groups;
 }
 
+/**
+ * Returns true when every set filter key is task-only (status).
+ * Used to skip the frontmatter query when no file-collection filter is present —
+ * a status-only frontmatter query degenerates to workspaceId = ? and returns all docs.
+ */
+function mcpHasOnlyTaskFilters(filters: Record<string, unknown>): boolean {
+  return Object.entries(filters).every(([k, v]) => k === 'status' || v === undefined);
+}
+
 async function mcpFiltersOnly(
   workspaceId: number,
   filters: Record<string, unknown>,
@@ -1616,7 +1613,10 @@ async function mcpFiltersOnly(
   const db = getDb();
   const groups: SearchResultGroup[] = [];
 
-  if (!collection || collection !== 'tasks') {
+  // Skip the frontmatter query when the only filter is status (a task-only field).
+  const skipFrontmatter = mcpHasOnlyTaskFilters(filters);
+
+  if (!skipFrontmatter && (!collection || collection !== 'tasks')) {
     const condition = buildFrontmatterWhereCondition(workspaceId, filters, collection);
     const rows = db
       .select({ collection: frontmatter.collection, path: frontmatter.path, data: frontmatter.data })
@@ -1642,8 +1642,7 @@ async function mcpFiltersOnly(
 }
 
 async function mcpQueryWithFilters(
-  workspaceId: number,
-  workspaceSlug: string,
+  ws: { id: number; slug: string; docsDir: string | null },
   query: string,
   filters: Record<string, unknown>,
   collection: string | undefined,
@@ -1656,7 +1655,7 @@ async function mcpQueryWithFilters(
 
   const statusVal = filters.status;
   if (typeof statusVal === 'string' && statusVal && (!collection || collection === 'tasks')) {
-    const taskResults = filterTasksByStatus(workspaceId, statusVal, limit);
+    const taskResults = filterTasksByStatus(ws.id, statusVal, limit);
     if (taskResults.length > 0) groups.push({ collection: 'tasks', results: taskResults });
   }
 
@@ -1665,9 +1664,9 @@ async function mcpQueryWithFilters(
   const subtypeFilter = typeof filters.subtype === 'string' && filters.subtype ? filters.subtype : null;
   // With a subtype filter the relevant subset is small; go wide so qmd scores cover it.
   const candidateLimit = subtypeFilter ? Math.min(500, limit * 8) : limit * 2;
-  const rawHits = await runQmdSearch(workspaceSlug, query, collection, candidateLimit, mode, intent);
-  const qmdResults = applySubtypeAffinity(rawHits, query, workspaceId);
-  const supersededPaths = getSupersededMemoryPaths(workspaceId);
+  const rawHits = await runQmdSearch(ws, query, collection, candidateLimit, mode, intent);
+  const qmdResults = applySubtypeAffinity(rawHits, query, ws.id);
+  const supersededPaths = getSupersededMemoryPaths(ws.id);
 
   const scoreByPath = new Map<string, number>();
   for (const hit of qmdResults) {
@@ -1678,7 +1677,7 @@ async function mcpQueryWithFilters(
   // Anchor on the filter: every filter-matching row is returned, with qmd score
   // where available and fallback ordering otherwise. Without this, any
   // filter-matching doc qmd missed in its top-N would silently disappear.
-  const condition = buildFrontmatterWhereCondition(workspaceId, filters, collection);
+  const condition = buildFrontmatterWhereCondition(ws.id, filters, collection);
   const filteredRows = db
     .select({ collection: frontmatter.collection, path: frontmatter.path, data: frontmatter.data })
     .from(frontmatter)

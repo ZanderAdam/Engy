@@ -429,14 +429,13 @@ describe('search router', () => {
     describe('title extraction', () => {
       it('should fall back to path-derived title when frontmatter data is invalid JSON', async () => {
         // Insert a row with deliberately broken JSON to exercise the catch branch in extractTitle.
-        // The status-only filter runs a frontmatter query with no JSON1 conditions, so the broken
-        // row passes through and extractTitle must silently handle the parse failure.
+        // Use a real filter (tags) so the frontmatter query runs and the broken row passes through.
         insertFrontmatter('docs', 'docs/broken-json.md', 'NOT_VALID_JSON');
 
-        // status-only filter → frontmatter query returns ALL rows (no JSON1 condition on data)
+        // Add a tags filter so the frontmatter query executes (status-only filters skip frontmatter).
         const result = await caller.search.query({
           workspaceSlug,
-          filters: { status: 'done' },
+          filters: { tags: [] },
         });
 
         // Should not throw; broken row gets a path-derived title
@@ -444,6 +443,25 @@ describe('search router', () => {
         const item = docsGroup?.results.find((r) => r.path === 'docs/broken-json.md');
         expect(item).toBeDefined();
         expect(item!.title).toBe('broken json');
+      });
+
+      it('should return only tasks when status is the sole filter', async () => {
+        // A status-only filter must not leak into the frontmatter table.
+        insertFrontmatter('docs', 'docs/should-not-appear.md', { title: 'Leaked Doc' });
+        await insertTaskInWorkspace('Found Task', undefined, 'done');
+
+        const result = await caller.search.query({
+          workspaceSlug,
+          filters: { status: 'done' },
+        });
+
+        const collections = result.map((g) => g.collection);
+        expect(collections).not.toContain('docs');
+        expect(collections).not.toContain('memory');
+        expect(collections).not.toContain('system');
+        expect(collections).not.toContain('projects');
+        const taskGroup = result.find((g) => g.collection === 'tasks');
+        expect(taskGroup).toBeDefined();
       });
 
       it('should extract title from frontmatter data JSON', async () => {
@@ -754,12 +772,12 @@ describe('search router — mocked qmd store', () => {
       ).rejects.toThrow('Embedding model is not yet available');
     });
 
-    it('should propagate non-model errors from qmd', async () => {
+    it('should propagate non-model errors from qmd as INTERNAL_SERVER_ERROR', async () => {
       getStoreSpy.mockRejectedValue(new Error('Database corruption detected'));
 
       await expect(
         caller.search.query({ workspaceSlug, query: 'test' }),
-      ).rejects.toThrow('Database corruption detected');
+      ).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR', message: expect.stringContaining('Database corruption detected') });
     });
 
     it('should fall back to path-derived title when qmd hit has no title', async () => {
@@ -840,7 +858,7 @@ describe('search router — mocked qmd store', () => {
       ).rejects.toThrow('Embedding model is not yet available');
     });
 
-    it('should propagate non-model errors from qmd in query+filter mode', async () => {
+    it('should propagate non-model errors from qmd in query+filter mode as INTERNAL_SERVER_ERROR', async () => {
       getStoreSpy.mockRejectedValue(new Error('Disk I/O failure'));
 
       await expect(
@@ -849,7 +867,7 @@ describe('search router — mocked qmd store', () => {
           query: 'test',
           filters: { subtype: 'decision' },
         }),
-      ).rejects.toThrow('Disk I/O failure');
+      ).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR', message: expect.stringContaining('Disk I/O failure') });
     });
 
     it('[FR-SEARCH-003] should sort results by score descending within each collection group', async () => {

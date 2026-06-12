@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { eq, and, inArray, like } from 'drizzle-orm';
-import { getStore } from './qmd-store';
+import { getStore, COLLECTION_CONTEXTS } from './qmd-store';
 import { getDb } from '../db/client';
 import { workspaces, frontmatter, permanentMemories } from '../db/schema';
 import { getWorkspaceDir } from '../engy-dir/init';
@@ -333,7 +333,7 @@ export async function update(
 ): Promise<IndexResult[]> {
   const ws = getWorkspace(workspaceSlug);
   const workspaceDir = getWorkspaceDir(ws);
-  const store = await getStore(workspaceSlug);
+  const store = await getStore(ws);
 
   const targets: Collection[] = collection ? [collection] : [...COLLECTIONS];
   const results: IndexResult[] = [];
@@ -350,7 +350,11 @@ export async function update(
  * Used after a dir mutation to generate embeddings without blocking the response.
  */
 function spawnEmbedPass(workspaceSlug: string): void {
-  getStore(workspaceSlug)
+  // Embed pass uses slug-only lookup; the store is already cached from update().
+  const db = getDb();
+  const ws = db.select().from(workspaces).where(eq(workspaces.slug, workspaceSlug)).get();
+  if (!ws) return;
+  getStore(ws)
     .then((store) => store.embed())
     .then((result) => {
       console.log(
@@ -368,19 +372,27 @@ function spawnEmbedPass(workspaceSlug: string): void {
  * then running a full update.
  */
 export async function forceFullReindex(workspaceSlug: string): Promise<IndexResult[]> {
-  const store = await getStore(workspaceSlug);
   const ws = getWorkspace(workspaceSlug);
   const workspaceDir = getWorkspaceDir(ws);
+  const store = await getStore(ws);
 
   const results: IndexResult[] = [];
 
   for (const col of COLLECTIONS) {
-    // Reset the collection in qmd so all content is re-hashed from scratch.
+    // Remove and re-add the collection so qmd re-hashes all content from scratch.
+    // Removing also deletes the stored documents, ensuring unchanged files are
+    // re-embedded on the next embed pass rather than treated as unchanged.
     await store.removeCollection(col);
     await store.addCollection(col, {
       path: path.join(workspaceDir, col),
       pattern: '**/*.md',
     });
+    // Restore the context description — addCollection does not accept context,
+    // so we set it explicitly via addContext after re-adding the collection.
+    const contextText = COLLECTION_CONTEXTS[col];
+    if (contextText) {
+      await store.addContext(col, '.', contextText);
+    }
 
     results.push(await indexCollection(store, col, workspaceSlug, ws.id, workspaceDir));
   }
