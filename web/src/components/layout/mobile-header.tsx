@@ -55,13 +55,14 @@ export function MobileHeader({ workspace, project, onOpenManageWorktrees }: Mobi
   const navigate = useVirtualNavigate();
   const tabsList = useTabsList();
   const { overlay, openOverlay, closeOverlay, setHeaderHeight } = useMobileOverlay();
-  const headerRef = useRef<HTMLElement>(null);
+  const identityRowRef = useRef<HTMLDivElement>(null);
 
-  // Publish the header's live height so full-screen overlays (terminal sheets)
-  // can offset below it instead of covering it. Resets to 0 on unmount so
+  // Publish the identity bar's live height so full-screen overlays (terminal
+  // sheets) sit just below it — covering the section-tabs row but keeping
+  // workspace/project/tab switching reachable. Resets to 0 on unmount so
   // overlays go full-screen on routes without the header.
   useEffect(() => {
-    const el = headerRef.current;
+    const el = identityRowRef.current;
     if (!el) return;
     const apply = () => setHeaderHeight(el.offsetHeight);
     apply();
@@ -108,9 +109,12 @@ export function MobileHeader({ workspace, project, onOpenManageWorktrees }: Mobi
     current?.segment === 'docs' || current?.segment === 'diffs' || current?.segment === 'code';
 
   return (
-    <header ref={headerRef} className="sticky top-0 z-30 flex shrink-0 flex-col bg-background">
+    <header className="sticky top-0 z-30 flex shrink-0 flex-col bg-background">
       {/* Row 1 — Identity bar */}
-      <div className="flex h-11 items-center justify-between border-b border-border bg-card px-2">
+      <div
+        ref={identityRowRef}
+        className="flex h-11 items-center justify-between border-b border-border bg-card px-2"
+      >
         <nav
           aria-label="Breadcrumb"
           className="flex min-w-0 flex-1 items-center gap-0"

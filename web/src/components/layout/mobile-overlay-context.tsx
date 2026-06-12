@@ -12,8 +12,9 @@ interface MobileOverlayContextValue {
   overlay: MobileOverlay;
   openOverlay: (kind: Exclude<MobileOverlay, null>) => void;
   closeOverlay: () => void;
-  // Measured height of the mobile header (0 when absent), so full-screen
-  // overlays can sit below it. Scoped per provider — i.e. per open tab — so
+  // Measured height of the mobile header's identity bar (0 when absent), so
+  // full-screen overlays sit below it — only workspace/project/tab switching
+  // stays visible above them. Scoped per provider — i.e. per open tab — so
   // background tabs (rendered but hidden) can't clobber the active tab's value.
   headerHeight: number;
   setHeaderHeight: (height: number) => void;
