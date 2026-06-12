@@ -46,13 +46,19 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
     return () => disposable.dispose();
   }, [api]);
 
-  const label = tab.scope.scopeLabel;
+  const scopeLabel = tab.scope.scopeLabel;
+  const label = tab.oscTitle ?? scopeLabel;
   const isDir = tab.scope.scopeType === 'dir';
+  const displayLabel = isDir && !tab.oscTitle ? collapseLabel(scopeLabel) : label;
 
-  function commitRename(value: string) {
+  function commitRename(value: string, viaEnter: boolean) {
     const trimmed = value.trim();
     setIsEditing(false);
-    if (trimmed && trimmed !== editStartLabel) {
+    if (!trimmed) return;
+    // Pressing Enter on an unchanged OSC title still renames — it pins the
+    // title so the program can no longer overwrite it. Blur with unchanged
+    // text stays a no-op so an accidental double-click doesn't pin.
+    if (trimmed !== editStartLabel || (viaEnter && tab.oscTitle)) {
       renameTerminal(tab.sessionId, trimmed);
     }
   }
@@ -60,7 +66,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       e.stopPropagation();
-      commitRename(e.currentTarget.value);
+      commitRename(e.currentTarget.value, true);
     } else if (e.key === 'Escape') {
       e.stopPropagation();
       setIsEditing(false);
@@ -68,7 +74,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   }
 
   function handleBlur(e: React.FocusEvent<HTMLInputElement>) {
-    commitRename(e.currentTarget.value);
+    commitRename(e.currentTarget.value, false);
   }
 
   const editInput = (
@@ -86,7 +92,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
 
   const labelSpan = (
     <span className="min-w-0 truncate" onDoubleClick={() => { setEditStartLabel(label); setIsEditing(true); }}>
-      {isDir ? collapseLabel(label) : label}
+      {displayLabel}
     </span>
   );
 
@@ -100,17 +106,16 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
       <RiTerminalLine className={cn('size-[11px] shrink-0', getTerminalIconStyle(tab))} />
       {isEditing ? (
         editInput
-      ) : isDir ? (
+      ) : (
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>{labelSpan}</TooltipTrigger>
             <TooltipContent side="bottom">
               <p className="font-mono">{label}</p>
+              {tab.oscTitle && <p className="font-mono opacity-70">{scopeLabel}</p>}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-      ) : (
-        labelSpan
       )}
       {tab.status === 'exited' && (
         <span className="shrink-0 text-[9px] text-muted-foreground">[exited]</span>

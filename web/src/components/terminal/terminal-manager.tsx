@@ -10,6 +10,7 @@ import { TerminalDockTab } from "./terminal-dock-tab";
 import { TerminalDockWatermark } from "./terminal-dock-watermark";
 import { TerminalDockActions } from "./terminal-dock-actions";
 import { useOnServerEvent } from "@/contexts/events-context";
+import { applyOscTitle } from "./osc-title";
 import { useOptionalTab } from "@/components/tabs/tab-context";
 import { randomId } from "@/lib/random-id";
 
@@ -178,23 +179,41 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     );
   }, [disableExternalEvents, myTabId]);
 
+  const commitTab = useCallback((sessionId: string, updated: TerminalTab) => {
+    tabsRef.current.set(sessionId, updated);
+    const panel = dockviewApiRef.current?.getPanel(sessionId);
+    panel?.api.updateParameters({ tab: updated } satisfies TerminalPanelParams);
+  }, []);
+
+  const scheduleLayoutSave = useCallback(() => {
+    if (restoringRef.current) return;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const api = dockviewApiRef.current;
+      const scope = defaultScopeRef.current;
+      if (!api || !scope) return;
+
+      if (api.panels.length === 0) {
+        clearLayout(scope);
+      } else {
+        saveLayout(api, scope);
+      }
+    }, 200);
+  }, []);
+
   const handleStatusChange = useCallback(
     (sessionId: string, status: TerminalTab['status']) => {
       const existing = tabsRef.current.get(sessionId);
       if (!existing) return;
-      const updated = { ...existing, status, activityState: status === 'exited' ? 'idle' as const : existing.activityState };
-      tabsRef.current.set(sessionId, updated);
-
-      const api = dockviewApiRef.current;
-      const panel = api?.getPanel(sessionId);
-      panel?.api.updateParameters({ tab: updated } satisfies TerminalPanelParams);
+      commitTab(sessionId, { ...existing, status, activityState: status === 'exited' ? 'idle' as const : existing.activityState });
 
       if (status === 'exited') {
         dispatchActivityEvent(sessionId, 'idle');
         broadcastActive();
       }
     },
-    [broadcastActive, dispatchActivityEvent],
+    [broadcastActive, commitTab, dispatchActivityEvent],
   );
 
   const handleActivity = useCallback(
@@ -205,16 +224,10 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       const activityState: TerminalActivityState = event === 'start' ? 'active' : event;
       if (existing.activityState === activityState) return;
 
-      const updated = { ...existing, activityState };
-      tabsRef.current.set(sessionId, updated);
-
-      const api = dockviewApiRef.current;
-      const panel = api?.getPanel(sessionId);
-      panel?.api.updateParameters({ tab: updated } satisfies TerminalPanelParams);
-
+      commitTab(sessionId, { ...existing, activityState });
       dispatchActivityEvent(sessionId, activityState);
     },
-    [dispatchActivityEvent],
+    [commitTab, dispatchActivityEvent],
   );
 
   const handleReady = useCallback(
@@ -232,12 +245,24 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     const existing = tabsRef.current.get(sessionId);
     if (!existing) return;
 
-    const updated = { ...existing, scope: { ...existing.scope, scopeLabel: newLabel } };
-    tabsRef.current.set(sessionId, updated);
+    // Manual renames pin the label so OSC title updates no longer overwrite it.
+    commitTab(sessionId, {
+      ...existing,
+      oscTitle: undefined,
+      titlePinned: true,
+      scope: { ...existing.scope, scopeLabel: newLabel },
+    });
+    // Persist the pin into the saved layout — nothing else saves on rename.
+    scheduleLayoutSave();
+  }, [commitTab, scheduleLayoutSave]);
 
-    const panel = dockviewApiRef.current?.getPanel(sessionId);
-    panel?.api.updateParameters({ tab: updated } satisfies TerminalPanelParams);
-  }, []);
+  const handleOscTitle = useCallback((sessionId: string, title: string) => {
+    const existing = tabsRef.current.get(sessionId);
+    if (!existing) return;
+
+    const updated = applyOscTitle(existing, title);
+    if (updated) commitTab(sessionId, updated);
+  }, [commitTab]);
 
   const renameTerminal = useCallback((sessionId: string, newLabel: string) => {
     updateTabLabel(sessionId, newLabel);
@@ -359,23 +384,6 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     // 'attached'/'detached' are informational — no action needed
   }, [updateTabLabel]));
 
-  const scheduleLayoutSave = useCallback(() => {
-    if (restoringRef.current) return;
-
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      const api = dockviewApiRef.current;
-      const scope = defaultScopeRef.current;
-      if (!api || !scope) return;
-
-      if (api.panels.length === 0) {
-        clearLayout(scope);
-      } else {
-        saveLayout(api, scope);
-      }
-    }, 200);
-  }, []);
-
   const handleDockviewReady = useCallback(
     (event: { api: DockviewApi }) => {
       const api = event.api;
@@ -424,6 +432,10 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
             if (allAlive) {
               for (const [id, panel] of Object.entries(savedLayout.panels)) {
                 const tab = sessionToTab(sessionMap.get(id)!, fallbackGroupKey);
+                // Carry the rename pin across reloads — the renamed label itself
+                // is server-side (scopeLabel), but without the pin a running
+                // program's OSC titles would overwrite it again.
+                tab.titlePinned = (panel.params as TerminalPanelParams | undefined)?.tab?.titlePinned;
                 tabsRef.current.set(id, tab);
                 panel.params = { tab } satisfies TerminalPanelParams;
               }
@@ -485,13 +497,14 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       handleStatusChange,
       handleActivity,
       handleReady,
+      handleOscTitle,
       renameTerminal,
       onCollapse,
       extraDropdownGroups,
       containerEnabled,
       defaultScope,
     }),
-    [openTerminal, handleStatusChange, handleActivity, handleReady, renameTerminal, onCollapse, extraDropdownGroups, containerEnabled, defaultScope],
+    [openTerminal, handleStatusChange, handleActivity, handleReady, handleOscTitle, renameTerminal, onCollapse, extraDropdownGroups, containerEnabled, defaultScope],
   );
 
   const dockviewRef = useRef<HTMLDivElement>(null);
