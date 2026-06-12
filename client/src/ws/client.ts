@@ -16,6 +16,7 @@ import type {
   GitShowRequestMessage,
   GitBranchFilesRequestMessage,
   GitWorktreeListRequestMessage,
+  DirListEntry,
   DirListRequestMessage,
   FileReadRequestMessage,
   FileWriteRequestMessage,
@@ -255,6 +256,18 @@ async function searchFilesInDirs(
   }
 
   return results;
+}
+
+function resolveContainedPath(rootDir: string, relPath: string, label: string): string {
+  if (path.isAbsolute(relPath)) {
+    throw new Error(`${label} must be relative, got: ${relPath}`);
+  }
+  const resolved = path.resolve(rootDir, relPath);
+  const rel = path.relative(path.resolve(rootDir), resolved);
+  if (rel === '..' || rel.startsWith(`..${path.sep}`)) {
+    throw new Error(`Path traversal rejected for ${label}: ${relPath}`);
+  }
+  return resolved;
 }
 
 export class WsClient {
@@ -727,20 +740,20 @@ export class WsClient {
     const { requestId, dirPath } = message.payload;
     try {
       const entries = await readdir(dirPath, { withFileTypes: true });
-      const dirs: string[] = [];
-      const fileEntries: Array<{ name: string; mtime: number }> = [];
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          dirs.push(entry.name);
-        } else if (entry.isFile()) {
-          try {
-            const s = await stat(path.join(dirPath, entry.name));
-            fileEntries.push({ name: entry.name, mtime: s.mtimeMs });
-          } catch {
-            // Entry deleted between readdir and stat — skip it
-          }
-        }
-      }
+      const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+      const statted = await Promise.all(
+        entries
+          .filter((e) => e.isFile())
+          .map(async (e): Promise<DirListEntry | null> => {
+            try {
+              const s = await stat(path.join(dirPath, e.name));
+              return { name: e.name, mtime: s.mtimeMs };
+            } catch {
+              return null; // Entry deleted between readdir and stat — skip it
+            }
+          }),
+      );
+      const fileEntries = statted.filter((e): e is DirListEntry => e !== null);
       dirs.sort();
       fileEntries.sort((a, b) => a.name.localeCompare(b.name));
       this.send({
@@ -787,15 +800,8 @@ export class WsClient {
   private async handleFsDeleteRequest(message: FsDeleteRequestMessage): Promise<void> {
     const { requestId, rootDir, relPath } = message.payload;
     try {
-      if (path.isAbsolute(relPath)) {
-        throw new Error(`relPath must be relative, got: ${relPath}`);
-      }
-      const resolved = path.resolve(rootDir, relPath);
-      const resolvedRoot = path.resolve(rootDir);
-      if (path.relative(resolvedRoot, resolved).startsWith('..')) {
-        throw new Error(`Path traversal rejected: ${relPath}`);
-      }
-      if (resolved === resolvedRoot) {
+      const resolved = resolveContainedPath(rootDir, relPath, 'relPath');
+      if (resolved === path.resolve(rootDir)) {
         throw new Error('Cannot delete root directory');
       }
       await rm(resolved, { recursive: true });
@@ -814,21 +820,8 @@ export class WsClient {
   private async handleFsRenameRequest(message: FsRenameRequestMessage): Promise<void> {
     const { requestId, rootDir, oldRelPath, newRelPath } = message.payload;
     try {
-      if (path.isAbsolute(oldRelPath)) {
-        throw new Error(`oldRelPath must be relative, got: ${oldRelPath}`);
-      }
-      if (path.isAbsolute(newRelPath)) {
-        throw new Error(`newRelPath must be relative, got: ${newRelPath}`);
-      }
-      const resolvedRoot = path.resolve(rootDir);
-      const resolvedOld = path.resolve(rootDir, oldRelPath);
-      const resolvedNew = path.resolve(rootDir, newRelPath);
-      if (path.relative(resolvedRoot, resolvedOld).startsWith('..')) {
-        throw new Error(`Path traversal rejected for oldRelPath: ${oldRelPath}`);
-      }
-      if (path.relative(resolvedRoot, resolvedNew).startsWith('..')) {
-        throw new Error(`Path traversal rejected for newRelPath: ${newRelPath}`);
-      }
+      const resolvedOld = resolveContainedPath(rootDir, oldRelPath, 'oldRelPath');
+      const resolvedNew = resolveContainedPath(rootDir, newRelPath, 'newRelPath');
       try {
         await stat(resolvedNew);
         throw new Error(`Target already exists: ${newRelPath}`);

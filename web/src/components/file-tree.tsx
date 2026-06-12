@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { TreeView, type TreeDataItem } from '@/components/tree-view';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
@@ -61,8 +61,6 @@ import {
   parentPrefix,
   applyDefaultExtension,
 } from '@/components/file-tree-helpers';
-
-export type { FileEntry };
 
 interface FileTreeProps {
   files: FileEntry[];
@@ -366,13 +364,15 @@ export function FileTree({
   const [filterText, setFilterText] = useState('');
   const [searchResults, setSearchResults] = useState<string[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const searchRequestRef = useRef(0);
 
   const hasCreateActions = !!onCreateFile || !!onCreateDir;
 
   async function handleFilterChange(query: string) {
     setFilterText(query);
     if (!searchFiles) return;
-    if (!query) {
+    const requestId = ++searchRequestRef.current;
+    if (!query.trim()) {
       setSearchResults(null);
       setIsSearching(false);
       return;
@@ -380,9 +380,14 @@ export function FileTree({
     setIsSearching(true);
     try {
       const results = await searchFiles(query);
-      setSearchResults(results);
+      // Fast typing can resolve out of order — only the latest query may land
+      if (searchRequestRef.current === requestId) setSearchResults(results);
+    } catch (err) {
+      if (searchRequestRef.current === requestId) {
+        toast.error(err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      setIsSearching(false);
+      if (searchRequestRef.current === requestId) setIsSearching(false);
     }
   }
 
@@ -517,8 +522,8 @@ export function FileTree({
       <div className="relative px-3 py-1.5 border-b border-border">
         <RiSearchLine
           className={cn(
-            'absolute left-5 top-1/2 -translate-y-1/2 size-3.5',
-            isSearching ? 'animate-spin text-muted-foreground' : 'text-muted-foreground',
+            'absolute left-5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground',
+            isSearching && 'animate-spin',
           )}
         />
         <Input

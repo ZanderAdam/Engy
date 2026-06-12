@@ -162,7 +162,6 @@ export function DirFileTree({
       label={label || path.basename(dirPath) || dirPath}
       rootAbsPath={dirPath}
       defaultExtension=".md"
-      canManageFile={(p) => !isImagePath(p)}
     />
   );
 }

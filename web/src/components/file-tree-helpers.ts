@@ -7,7 +7,7 @@ export type FileEntry = { path: string; mtime: number };
 export type SortMode = 'modified' | 'name';
 export type SortDir = 'asc' | 'desc';
 
-export interface DirNode {
+interface DirNode {
   children: Map<string, DirNode>;
   files: { name: string; path: string; mtime: number }[];
   maxMtime: number;

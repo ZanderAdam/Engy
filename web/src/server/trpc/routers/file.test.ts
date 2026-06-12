@@ -163,7 +163,7 @@ describe('file router', () => {
     it('should throw when no daemon is connected', async () => {
       const caller = appRouter.createCaller({ state: ctx.state });
 
-      await expect(caller.file.createDir({ dirPath: '/tmp/newdir' })).rejects.toThrow(
+      await expect(caller.file.createDir({ rootDir: '/tmp/repo', relPath: 'newdir' })).rejects.toThrow(
         'No daemon connected',
       );
     });
@@ -180,7 +180,7 @@ describe('file router', () => {
             const pending = ctx.state.pendingCreateDirs.get(msg.payload.requestId);
             if (pending) {
               pending.resolve({
-                results: [{ path: '/tmp/newdir', success: true }],
+                results: [{ path: '/tmp/repo/newdir', success: true }],
               });
             }
           }
@@ -188,7 +188,7 @@ describe('file router', () => {
       };
       ctx.state.daemon = fakeSocket as unknown as WebSocket;
 
-      const result = await caller.file.createDir({ dirPath: '/tmp/newdir' });
+      const result = await caller.file.createDir({ rootDir: '/tmp/repo', relPath: 'newdir' });
       expect(result).toEqual({ success: true });
     });
 
@@ -204,7 +204,7 @@ describe('file router', () => {
             const pending = ctx.state.pendingCreateDirs.get(msg.payload.requestId);
             if (pending) {
               pending.resolve({
-                results: [{ path: '/tmp/newdir', success: false, error: 'Permission denied' }],
+                results: [{ path: '/tmp/repo/newdir', success: false, error: 'Permission denied' }],
               });
             }
           }
@@ -212,9 +212,25 @@ describe('file router', () => {
       };
       ctx.state.daemon = fakeSocket as unknown as WebSocket;
 
-      await expect(caller.file.createDir({ dirPath: '/tmp/newdir' })).rejects.toThrow(
+      await expect(caller.file.createDir({ rootDir: '/tmp/repo', relPath: 'newdir' })).rejects.toThrow(
         'Permission denied',
       );
+    });
+
+    it('should reject traversal in relPath without contacting the daemon', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(
+        caller.file.createDir({ rootDir: '/tmp/repo', relPath: '../evil' }),
+      ).rejects.toThrow(/traversal/i);
+    });
+
+    it('should reject absolute relPath without contacting the daemon', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(
+        caller.file.createDir({ rootDir: '/tmp/repo', relPath: '/etc/evil' }),
+      ).rejects.toThrow(/absolute/i);
     });
   });
 

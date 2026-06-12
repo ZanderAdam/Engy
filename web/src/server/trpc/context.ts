@@ -1,5 +1,6 @@
 import type WebSocket from 'ws';
 import type {
+  DirListEntry,
   GitFileStatus,
   GitWorktreeEntry,
   WorktreeAddErrorCode,
@@ -70,7 +71,7 @@ export interface ExecutionStopResult {
 
 export interface DirListResult {
   dirs: string[];
-  files: Array<{ name: string; mtime: number }>;
+  files: DirListEntry[];
 }
 
 export interface FsDeleteResult {

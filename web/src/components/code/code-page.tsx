@@ -112,6 +112,7 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
         <div className="w-[280px] flex-shrink-0 border-r border-border">
           {effectiveRoot && selectedRepo ? (
             <RepoFileTree
+              key={effectiveRoot}
               rootDir={effectiveRoot}
               repoDir={selectedRepo}
               worktreePath={overrideWorktreePath}

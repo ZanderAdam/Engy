@@ -2129,6 +2129,24 @@ describe('WsClient FS_DELETE_REQUEST handler', () => {
       expect(response.payload.error).toMatch(/relative/i);
     });
 
+    it('should allow deleting an entry whose name starts with dots', async () => {
+      const filePath = nodePath.join(tmpDir, '..weird-name');
+      nodeFs.writeFileSync(filePath, 'bye');
+
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FS_DELETE_REQUEST',
+          payload: { requestId: 'del-dots', rootDir: tmpDir, relPath: '..weird-name' },
+        }),
+      );
+
+      expect(response).toEqual({
+        type: 'FS_DELETE_RESPONSE',
+        payload: { requestId: 'del-dots', success: true },
+      });
+      expect(nodeFs.existsSync(filePath)).toBe(false);
+    });
+
     it('should reject deleting the rootDir itself', async () => {
       const response = JSON.parse(
         await setupAndSend({

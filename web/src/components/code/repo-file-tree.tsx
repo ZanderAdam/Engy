@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { FileTree } from '@/components/file-tree';
@@ -28,6 +28,9 @@ function showError(error: { message: string }): void {
   toast.error(error.message);
 }
 
+// Repo files have no docs-style image restriction — everything is manageable.
+const allFilesManageable = () => true;
+
 export function RepoFileTree({
   rootDir,
   repoDir,
@@ -39,17 +42,11 @@ export function RepoFileTree({
   const [loaded, setLoaded] = useState<Map<string, LoadedDir>>(new Map());
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Guards against a stale in-flight load landing after the user switched roots.
-  const rootRef = useRef(rootDir);
-  rootRef.current = rootDir;
-
   const loadDir = useCallback(
     async (relDir: string) => {
-      const root = rootDir;
       const result = await trpcUtils.file.listDir.fetch({
-        dirPath: relDir ? `${root}/${relDir}` : root,
+        dirPath: relDir ? `${rootDir}/${relDir}` : rootDir,
       });
-      if (rootRef.current !== root) return;
       setLoaded((prev) => new Map(prev).set(relDir, result));
     },
     [trpcUtils, rootDir],
@@ -64,13 +61,8 @@ export function RepoFileTree({
     [trpcUtils, rootDir, loadDir],
   );
 
-  // Reset and reload when the root changes (derived state pattern)
-  const [prevRoot, setPrevRoot] = useState(rootDir);
-  if (prevRoot !== rootDir) {
-    setPrevRoot(rootDir);
-    setLoaded(new Map());
-  }
-
+  // The owner remounts this component per root (key={rootDir}), so loaded
+  // state never spans two roots and this effect runs once per instance.
   useEffect(() => {
     loadDir('').catch(showError);
   }, [loadDir]);
@@ -133,7 +125,7 @@ export function RepoFileTree({
   const handleCreateDir = useCallback(
     (relSubDir: string) => {
       createDirMutation.mutate(
-        { dirPath: `${rootDir}/${relSubDir}` },
+        { rootDir, relPath: relSubDir },
         { onSuccess: () => void refreshDir(parentRelDir(relSubDir)) },
       );
     },
@@ -213,7 +205,7 @@ export function RepoFileTree({
       rootAbsPath={rootDir}
       onDirClick={handleDirClick}
       searchFiles={searchFiles}
-      canManageFile={() => true}
+      canManageFile={allFilesManageable}
       onCreateFile={handleCreateFile}
       onCreateDir={handleCreateDir}
       onDeleteFile={handleDeleteFile}
