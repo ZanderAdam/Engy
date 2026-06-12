@@ -63,7 +63,7 @@ function waitForMessage(ws: WebSocket, type: string): Promise<unknown> {
  * got dropped (no listener yet) or polluted the next waitForMessage call.
  */
 async function registerDaemon(daemon: WebSocket): Promise<void> {
-  const synced = waitForMessage(daemon);
+  const synced = waitForMessage(daemon, 'WORKSPACES_SYNC');
   daemon.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
   await synced;
 }
