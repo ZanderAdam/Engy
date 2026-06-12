@@ -10,6 +10,7 @@ import type {
   CreateMemoriesEventMessage,
 } from '@engy/common';
 import type { SpawnConfig, SpawnResult } from './agent-spawner.js';
+import { shellQuote } from '../container/coder-manager.js';
 
 export type { SpawnConfig, SpawnResult };
 
@@ -38,10 +39,16 @@ export interface AgentProcess {
 
 export interface AgentSpawner {
   spawn(config: SpawnConfig): Promise<SpawnResult>;
-  getProcess(): AgentProcess | null;
+  getProcess(sessionId: string): AgentProcess | null;
 }
 
 type SendFn = (message: ClientToServerMessage) => void;
+
+interface SessionEntry {
+  worktreePath: string;
+  config: RunnerConfig;
+  stopped: boolean;
+}
 
 // ── Runner ───────────────────────────────────────────────────────────────────
 
@@ -53,9 +60,7 @@ function generateShortId(): string {
 }
 
 export class Runner {
-  private currentSessionId: string | null = null;
-  private currentWorktreePath: string | null = null;
-  private currentConfig: RunnerConfig | null = null;
+  private sessions = new Map<string, SessionEntry>();
   private readonly spawner: AgentSpawner;
   private readonly send: SendFn;
 
@@ -103,12 +108,12 @@ export class Runner {
         '--',
         'git',
         '-C',
-        remoteRepoPath,
+        shellQuote(remoteRepoPath),
         'worktree',
         'add',
-        worktreePath,
+        shellQuote(worktreePath),
         '-b',
-        branchName,
+        shellQuote(branchName),
         'main',
       ];
       try {
@@ -138,9 +143,7 @@ export class Runner {
       console.log(`[runner] Worktree created`);
     }
 
-    this.currentWorktreePath = worktreePath;
-    this.currentSessionId = sessionId;
-    this.currentConfig = config;
+    this.sessions.set(sessionId, { worktreePath, config, stopped: false });
 
     this.emitStatusEvent(sessionId, worktreePath);
     console.log(`[runner] Spawning agent with ${flags.length} flags, prompt=${prompt.length} chars`);
@@ -175,14 +178,27 @@ export class Runner {
       });
   }
 
-  stop(): void {
-    const proc = this.spawner.getProcess();
-    if (!proc) {
-      console.log(`[runner] Stop called but no active process`);
+  stop(sessionId: string): void {
+    const entry = this.sessions.get(sessionId);
+    if (!entry) {
+      console.log(`[runner] Stop called but no session found: sessionId=${sessionId}`);
       return;
     }
 
-    console.log(`[runner] Stopping session=${this.currentSessionId}`);
+    const proc = this.spawner.getProcess(sessionId);
+    if (!proc) {
+      console.log(`[runner] Stop called but no active process for session=${sessionId}`);
+      // The process may have already exited but handleCompletion hasn't run yet.
+      // Mark stopped so the natural completion path emits no duplicate event.
+      entry.stopped = true;
+      return;
+    }
+
+    console.log(`[runner] Stopping session=${sessionId}`);
+
+    // Mark stopped before killing so handleCompletion skips the real exit event.
+    entry.stopped = true;
+
     proc.kill('SIGTERM');
 
     const killTimer = setTimeout(() => {
@@ -191,20 +207,20 @@ export class Runner {
     killTimer.unref();
 
     this.emitCompleteEvent({
-      sessionId: this.currentSessionId!,
+      sessionId,
       exitCode: 1,
       success: false,
     });
   }
 
   async retry(sessionId: string): Promise<void> {
-    console.log(`[runner] Retrying session=${sessionId} worktree=${this.currentWorktreePath}`);
-    if (!this.currentWorktreePath) {
+    const entry = this.sessions.get(sessionId);
+    console.log(`[runner] Retrying session=${sessionId} worktree=${entry?.worktreePath ?? null}`);
+    if (!entry) {
       throw new Error(`No worktree found for session ${sessionId}`);
     }
 
-    const worktreePath = this.currentWorktreePath;
-
+    const { worktreePath, config } = entry;
     this.emitStatusEvent(sessionId, worktreePath);
 
     const spawnResult = await this.spawner.spawn({
@@ -213,21 +229,35 @@ export class Runner {
       flags: [],
       resumeSessionId: sessionId,
       workingDir: worktreePath,
-      containerMode: this.currentConfig?.containerMode ?? false,
-      containerWorkspaceFolder: this.currentConfig?.containerWorkspaceFolder,
-      coderWorkspace: this.currentConfig?.coderWorkspace,
-      coderRepoBasePath: this.currentConfig?.coderRepoBasePath,
-      serverPort: this.currentConfig?.serverPort,
-      env: this.currentConfig?.env,
+      containerMode: config.containerMode ?? false,
+      containerWorkspaceFolder: config.containerWorkspaceFolder,
+      coderWorkspace: config.coderWorkspace,
+      coderRepoBasePath: config.coderRepoBasePath,
+      serverPort: config.serverPort,
+      env: config.env,
     });
 
     await this.handleCompletion(spawnResult);
   }
 
   private handleCompletion(result: SpawnResult): void {
+    const entry = this.sessions.get(result.sessionId);
+
+    // If stop() already emitted a complete event for this session, ignore the
+    // real exit so exactly one EXECUTION_COMPLETE_EVENT is emitted per session.
+    if (entry?.stopped) {
+      console.log(
+        `[runner] Ignoring post-stop completion for session=${result.sessionId}`,
+      );
+      this.sessions.delete(result.sessionId);
+      return;
+    }
+
     console.log(
       `[runner] Emitting complete: session=${result.sessionId} exit=${result.exitCode} success=${result.success}`,
     );
+
+    this.sessions.delete(result.sessionId);
 
     const memories = result.completion?.memories;
     if (memories && memories.length > 0) {

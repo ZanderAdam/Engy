@@ -17,7 +17,7 @@ function streamLines(chunk: Buffer, cb: (line: string) => void): void {
 // single quotes as '\''. Leading '~/' is kept outside the quotes so the
 // remote shell still performs tilde expansion (quoting `~/foo` would leave
 // it as a literal path).
-function shellQuote(arg: string): string {
+export function shellQuote(arg: string): string {
   if (arg.startsWith('~/')) {
     return `~/${quoteInner(arg.slice(2))}`;
   }

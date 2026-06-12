@@ -45,14 +45,16 @@ function createMockSpawner(
 ): AgentSpawner & { spawn: ReturnType<typeof vi.fn>; getProcess: ReturnType<typeof vi.fn> } {
   const mockProcess: AgentProcess = { kill: vi.fn() };
   return {
-    spawn: vi.fn(async () => ({
-      sessionId: 'session-abc',
+    spawn: vi.fn(async (config: { sessionId: string }) => ({
+      sessionId: config.sessionId,
       exitCode: 0,
       success: true,
       completion: { taskCompleted: true, summary: 'Task completed successfully' },
       ...spawnResult,
+      // Always return the requested sessionId unless overridden.
+      ...(spawnResult?.sessionId ? {} : { sessionId: config.sessionId }),
     })),
-    getProcess: vi.fn(() => mockProcess),
+    getProcess: vi.fn((_sessionId: string) => mockProcess),
   };
 }
 
@@ -138,7 +140,6 @@ describe('Runner', () => {
     it('should emit EXECUTION_COMPLETE_EVENT on agent success', async () => {
       createMockGit();
       const spawner = createMockSpawner({
-        sessionId: 'session-abc',
         exitCode: 0,
         success: true,
         completion: { taskCompleted: true, summary: 'Done building feature' },
@@ -199,16 +200,43 @@ describe('Runner', () => {
             '--',
             'git',
             '-C',
-            '~/dev/engy',
+            "~/'dev/engy'",
             'worktree',
             'add',
-            '~/dev/engy/.claude/worktrees/engy-session-a1b2c3',
+            "~/'dev/engy/.claude/worktrees/engy-session-a1b2c3'",
             '-b',
-            'engy/session-a1b2c3',
+            "'engy/session-a1b2c3'",
             'main',
           ],
           expect.any(Function),
         );
+      });
+
+      it('should shell-quote paths containing spaces in coder remote command', async () => {
+        mockExecFileSuccess();
+        const spawner = createMockSpawner();
+        const runner = new Runner(spawner, send);
+
+        await runner.start('session-abc', 'implement feature X', [], {
+          repoPath: '/local/path/to/my repo',
+          containerMode: true,
+          coderWorkspace: 'ZanderAdam/AleksGPT',
+          coderRepoBasePath: '~/My Projects',
+        });
+
+        // Paths with spaces must be single-quoted for the remote shell.
+        // shellQuote preserves leading ~/ outside quotes, so ~/My Projects/repo
+        // becomes ~/'My Projects/repo'.
+        const call = (mockedExecFile.mock.calls[0] as unknown[]);
+        const args = call[1] as string[];
+        // -C arg (remoteRepoPath) must be quoted
+        const cIdx = args.indexOf('-C');
+        expect(cIdx).toBeGreaterThan(-1);
+        expect(args[cIdx + 1]).toBe("~/'My Projects/my repo'");
+        // worktree add path must also be quoted
+        const addIdx = args.indexOf('add');
+        expect(addIdx).toBeGreaterThan(-1);
+        expect(args[addIdx + 1]).toContain("~/'My Projects/my repo/");
       });
 
       it('should also handle coderRepoBasePath without trailing slash', async () => {
@@ -225,7 +253,7 @@ describe('Runner', () => {
 
         expect(mockedExecFile).toHaveBeenCalledWith(
           'coder',
-          expect.arrayContaining(['-C', '~/dev/engy']),
+          expect.arrayContaining(['-C', "~/'dev/engy'"]),
           expect.any(Function),
         );
       });
@@ -261,41 +289,57 @@ describe('Runner', () => {
             coderWorkspace: 'ZanderAdam/AleksGPT',
             coderRepoBasePath: '~/dev',
           }),
-        ).rejects.toThrow(/coder ssh ZanderAdam\/AleksGPT/);
+        ).rejects.toThrow(/coder ssh/);
       });
     });
   });
 
   describe('stop', () => {
-    it('should send SIGTERM to the agent process', async () => {
+    it('should send SIGTERM to the named session process', async () => {
       createMockGit();
-      const spawner = createMockSpawner();
+
+      let resolveSpawn!: (result: SpawnResult) => void;
+      const spawnPromise = new Promise<SpawnResult>((res) => { resolveSpawn = res; });
+      const mockProcess: AgentProcess = { kill: vi.fn() };
+      const spawner: AgentSpawner & { spawn: ReturnType<typeof vi.fn>; getProcess: ReturnType<typeof vi.fn> } = {
+        spawn: vi.fn(() => spawnPromise),
+        getProcess: vi.fn((_id: string) => mockProcess),
+      };
       const runner = new Runner(spawner, send);
 
-      // Start to initialize internal state
-      await runner.start('session-abc', 'implement feature X', [], {
+      // Fire-and-forget start so the entry is created but spawn hasn't completed yet.
+      runner.start('session-abc', 'implement feature X', [], {
         repoPath: '/path/to/repo',
         containerMode: false,
-      });
+      }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 10));
 
-      runner.stop();
+      runner.stop('session-abc');
 
-      const proc = spawner.getProcess();
-      expect(proc!.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(mockProcess.kill).toHaveBeenCalledWith('SIGTERM');
+      resolveSpawn({ sessionId: 'session-abc', exitCode: 1, success: false });
     });
 
     it('should emit EXECUTION_COMPLETE_EVENT with success=false', async () => {
       createMockGit();
-      const spawner = createMockSpawner();
+
+      let resolveSpawn!: (result: SpawnResult) => void;
+      const spawnPromise = new Promise<SpawnResult>((res) => { resolveSpawn = res; });
+      const mockProcess: AgentProcess = { kill: vi.fn() };
+      const spawner: AgentSpawner & { spawn: ReturnType<typeof vi.fn>; getProcess: ReturnType<typeof vi.fn> } = {
+        spawn: vi.fn(() => spawnPromise),
+        getProcess: vi.fn((_id: string) => mockProcess),
+      };
       const runner = new Runner(spawner, send);
 
-      await runner.start('session-abc', 'implement feature X', [], {
+      runner.start('session-abc', 'implement feature X', [], {
         repoPath: '/path/to/repo',
         containerMode: false,
-      });
-
+      }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 10));
       send.mockClear();
-      runner.stop();
+
+      runner.stop('session-abc');
 
       expect(send).toHaveBeenCalledWith({
         type: 'EXECUTION_COMPLETE_EVENT',
@@ -305,81 +349,269 @@ describe('Runner', () => {
           success: false,
         },
       });
+      resolveSpawn({ sessionId: 'session-abc', exitCode: 1, success: false });
     });
 
     it('should retain the worktree when stopped', async () => {
       const git = createMockGit();
-      const spawner = createMockSpawner();
+
+      let resolveSpawn!: (result: SpawnResult) => void;
+      const spawnPromise = new Promise<SpawnResult>((res) => { resolveSpawn = res; });
+      const mockProcess: AgentProcess = { kill: vi.fn() };
+      const spawner: AgentSpawner & { spawn: ReturnType<typeof vi.fn>; getProcess: ReturnType<typeof vi.fn> } = {
+        spawn: vi.fn(() => spawnPromise),
+        getProcess: vi.fn((_id: string) => mockProcess),
+      };
       const runner = new Runner(spawner, send);
 
-      await runner.start('session-abc', 'implement feature X', [], {
+      runner.start('session-abc', 'implement feature X', [], {
         repoPath: '/path/to/repo',
         containerMode: false,
-      });
+      }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 10));
 
-      runner.stop();
+      runner.stop('session-abc');
 
       // Only the initial worktree add, no remove
       expect(git.raw).toHaveBeenCalledTimes(1);
+      resolveSpawn({ sessionId: 'session-abc', exitCode: 1, success: false });
     });
 
-    it('should do nothing when no process is running', () => {
+    it('should do nothing when no session is found', () => {
       const spawner = createMockSpawner();
-      spawner.getProcess.mockReturnValue(null);
       const runner = new Runner(spawner, send);
 
       // stop() should not throw
-      runner.stop();
+      runner.stop('nonexistent-session');
 
       expect(send).not.toHaveBeenCalled();
+    });
+
+    it('should only kill the named session, not others', async () => {
+      createMockGit();
+
+      // Two separate mock processes keyed by sessionId.
+      const procA: AgentProcess = { kill: vi.fn() };
+      const procB: AgentProcess = { kill: vi.fn() };
+      const processes: Record<string, AgentProcess> = {
+        'session-a': procA,
+        'session-b': procB,
+      };
+
+      const spawnPromises: Record<string, { resolve: (r: SpawnResult) => void }> = {};
+      const spawner: AgentSpawner & { spawn: ReturnType<typeof vi.fn>; getProcess: ReturnType<typeof vi.fn> } = {
+        spawn: vi.fn((config: { sessionId: string }) => new Promise<SpawnResult>((res) => {
+          spawnPromises[config.sessionId] = { resolve: res };
+        })),
+        getProcess: vi.fn((id: string) => processes[id] ?? null),
+      };
+
+      const runner = new Runner(spawner, send);
+
+      runner.start('session-a', 'task A', [], { repoPath: '/path/to/repo', containerMode: false }).catch(() => {});
+      runner.start('session-b', 'task B', [], { repoPath: '/path/to/repo', containerMode: false }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 10));
+
+      send.mockClear();
+      runner.stop('session-a');
+
+      // Only session-a's process killed
+      expect(procA.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(procB.kill).not.toHaveBeenCalled();
+
+      // Complete event only for session-a
+      const completeCalls = (send.mock.calls as unknown[][])
+        .map((c) => c[0] as { type: string; payload: { sessionId: string } })
+        .filter((m) => m.type === 'EXECUTION_COMPLETE_EVENT');
+      expect(completeCalls).toHaveLength(1);
+      expect(completeCalls[0]!.payload.sessionId).toBe('session-a');
+
+      spawnPromises['session-a']?.resolve({ sessionId: 'session-a', exitCode: 1, success: false });
+      spawnPromises['session-b']?.resolve({ sessionId: 'session-b', exitCode: 0, success: true });
+    });
+  });
+
+  describe('stop + process close (duplicate-complete suppression)', () => {
+    it('should emit exactly one EXECUTION_COMPLETE_EVENT after stop() followed by process close', async () => {
+      createMockGit();
+
+      let resolveSpawn!: (result: SpawnResult) => void;
+      const spawnPromise = new Promise<SpawnResult>((res) => {
+        resolveSpawn = res;
+      });
+
+      const mockProcess: AgentProcess = { kill: vi.fn() };
+      const spawner: AgentSpawner & { spawn: ReturnType<typeof vi.fn>; getProcess: ReturnType<typeof vi.fn> } = {
+        spawn: vi.fn(() => spawnPromise),
+        getProcess: vi.fn((_id: string) => mockProcess),
+      };
+
+      const runner = new Runner(spawner, send);
+
+      // Fire-and-forget start (don't await — spawn won't settle until we resolve it)
+      runner.start('session-abc', 'task', [], {
+        repoPath: '/path/to/repo',
+        containerMode: false,
+      }).catch(() => {});
+
+      // Give start() time to register the session and call spawn
+      await new Promise((r) => setTimeout(r, 10));
+      send.mockClear();
+
+      // stop() emits the synthetic complete
+      runner.stop('session-abc');
+
+      const completeAfterStop = (send.mock.calls as unknown[][])
+        .filter((c) => (c[0] as { type: string }).type === 'EXECUTION_COMPLETE_EVENT');
+      expect(completeAfterStop).toHaveLength(1);
+      expect((completeAfterStop[0]![0] as { payload: { success: boolean } }).payload.success).toBe(false);
+
+      send.mockClear();
+
+      // Now the process "dies" and the spawn promise resolves
+      resolveSpawn({ sessionId: 'session-abc', exitCode: 1, success: false });
+      await new Promise((r) => setTimeout(r, 10));
+
+      // No second EXECUTION_COMPLETE_EVENT
+      const completeAfterExit = (send.mock.calls as unknown[][])
+        .filter((c) => (c[0] as { type: string }).type === 'EXECUTION_COMPLETE_EVENT');
+      expect(completeAfterExit).toHaveLength(0);
+    });
+
+    it('should not send CREATE_MEMORIES_REQUEST after stop()', async () => {
+      createMockGit();
+
+      let resolveSpawn!: (result: SpawnResult) => void;
+      const spawnPromise = new Promise<SpawnResult>((res) => {
+        resolveSpawn = res;
+      });
+
+      const mockProcess: AgentProcess = { kill: vi.fn() };
+      const spawner: AgentSpawner & { spawn: ReturnType<typeof vi.fn>; getProcess: ReturnType<typeof vi.fn> } = {
+        spawn: vi.fn(() => spawnPromise),
+        getProcess: vi.fn((_id: string) => mockProcess),
+      };
+
+      const runner = new Runner(spawner, send);
+
+      runner.start('session-abc', 'task', [], {
+        repoPath: '/path/to/repo',
+        containerMode: false,
+      }).catch(() => {});
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      runner.stop('session-abc');
+      send.mockClear();
+
+      // Process exits with memories attached — must be suppressed
+      resolveSpawn({
+        sessionId: 'session-abc',
+        exitCode: 0,
+        success: true,
+        completion: {
+          taskCompleted: true,
+          summary: 'done',
+          memories: [{ content: 'some memory' }],
+        },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      const memoriesCalls = (send.mock.calls as unknown[][]).filter(
+        (c) => (c[0] as { type: string }).type === 'CREATE_MEMORIES_EVENT',
+      );
+      expect(memoriesCalls).toHaveLength(0);
+
+      const completeCalls = (send.mock.calls as unknown[][]).filter(
+        (c) => (c[0] as { type: string }).type === 'EXECUTION_COMPLETE_EVENT',
+      );
+      expect(completeCalls).toHaveLength(0);
     });
   });
 
   describe('retry', () => {
+    // Use a deferred spawn for the initial start so the session entry exists
+    // (handleCompletion hasn't run yet) when retry is called. This matches
+    // production behaviour where a completed session is retried before cleanup.
+    function startAndHold(
+      runner: Runner,
+      sessionId: string,
+      spawnResult?: Partial<SpawnResult>,
+    ): { resolveFirstSpawn: (r: SpawnResult) => void } {
+      let resolveFirstSpawn!: (r: SpawnResult) => void;
+      const firstSpawnPromise = new Promise<SpawnResult>((res) => {
+        resolveFirstSpawn = res;
+      });
+      // Rebuild spawner with deferred first spawn; subsequent calls resolve immediately.
+      let callCount = 0;
+      const spawnerOnRunner = (runner as unknown as { spawner: AgentSpawner }).spawner as {
+        spawn: ReturnType<typeof vi.fn>;
+        getProcess: ReturnType<typeof vi.fn>;
+      };
+      const mockProcess: AgentProcess = { kill: vi.fn() };
+      spawnerOnRunner.spawn = vi.fn((config: { sessionId: string }) => {
+        if (callCount++ === 0) return firstSpawnPromise;
+        return Promise.resolve({
+          sessionId: config.sessionId,
+          exitCode: 0,
+          success: true,
+          completion: { taskCompleted: true, summary: 'Retry succeeded' },
+          ...spawnResult,
+          ...(spawnResult?.sessionId ? {} : { sessionId: config.sessionId }),
+        });
+      });
+      spawnerOnRunner.getProcess = vi.fn((_id: string) => mockProcess);
+      runner.start(sessionId, 'implement feature X', [], {
+        repoPath: '/path/to/repo',
+        containerMode: false,
+      }).catch(() => {});
+      return { resolveFirstSpawn };
+    }
+
     it('should spawn agent with --resume flag in the same worktree', async () => {
       createMockGit();
       const spawner = createMockSpawner();
       const runner = new Runner(spawner, send);
+      const { resolveFirstSpawn } = startAndHold(runner, 'session-abc');
+      await new Promise((r) => setTimeout(r, 10));
 
-      // Start first to establish worktree
-      await runner.start('session-abc', 'implement feature X', [], {
-        repoPath: '/path/to/repo',
-        containerMode: false,
-      });
-
-      spawner.spawn.mockClear();
+      const retrySpawn = (runner as unknown as { spawner: { spawn: ReturnType<typeof vi.fn> } }).spawner.spawn;
+      retrySpawn.mockClear();
       send.mockClear();
 
-      await runner.retry('abc-123');
+      // Retry runs while the first spawn is still pending — entry exists.
+      const retryPromise = runner.retry('session-abc');
+      resolveFirstSpawn({ sessionId: 'session-abc', exitCode: 0, success: true });
+      await retryPromise;
 
-      expect(spawner.spawn).toHaveBeenCalledWith({
-        sessionId: 'abc-123',
-        prompt: '',
-        flags: [],
-        resumeSessionId: 'abc-123',
-        workingDir: '/path/to/repo/.claude/worktrees/engy-session-a1b2c3',
-        containerMode: false,
-      });
+      expect(retrySpawn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 'session-abc',
+          prompt: '',
+          flags: [],
+          resumeSessionId: 'session-abc',
+          workingDir: '/path/to/repo/.claude/worktrees/engy-session-a1b2c3',
+          containerMode: false,
+        }),
+      );
     });
 
     it('should emit EXECUTION_STATUS_EVENT on retry', async () => {
       createMockGit();
       const spawner = createMockSpawner();
       const runner = new Runner(spawner, send);
-
-      await runner.start('session-abc', 'implement feature X', [], {
-        repoPath: '/path/to/repo',
-        containerMode: false,
-      });
-
+      const { resolveFirstSpawn } = startAndHold(runner, 'session-abc');
+      await new Promise((r) => setTimeout(r, 10));
       send.mockClear();
 
-      await runner.retry('abc-123');
+      const retryPromise = runner.retry('session-abc');
+      resolveFirstSpawn({ sessionId: 'session-abc', exitCode: 0, success: true });
+      await retryPromise;
 
       expect(send).toHaveBeenCalledWith({
         type: 'EXECUTION_STATUS_EVENT',
         payload: {
-          sessionId: 'abc-123',
+          sessionId: 'session-abc',
           worktreePath: '/path/to/repo/.claude/worktrees/engy-session-a1b2c3',
           status: 'running',
         },
@@ -388,27 +620,24 @@ describe('Runner', () => {
 
     it('should emit EXECUTION_COMPLETE_EVENT after retry completes', async () => {
       createMockGit();
-      const spawner = createMockSpawner({
-        sessionId: 'retry-session',
+      const spawner = createMockSpawner();
+      const runner = new Runner(spawner, send);
+      const { resolveFirstSpawn } = startAndHold(runner, 'session-abc', {
         exitCode: 0,
         success: true,
         completion: { taskCompleted: true, summary: 'Retry succeeded' },
       });
-      const runner = new Runner(spawner, send);
-
-      await runner.start('session-abc', 'implement feature X', [], {
-        repoPath: '/path/to/repo',
-        containerMode: false,
-      });
-
+      await new Promise((r) => setTimeout(r, 10));
       send.mockClear();
 
-      await runner.retry('abc-123');
+      const retryPromise = runner.retry('session-abc');
+      resolveFirstSpawn({ sessionId: 'session-abc', exitCode: 0, success: true });
+      await retryPromise;
 
       expect(send).toHaveBeenCalledWith({
         type: 'EXECUTION_COMPLETE_EVENT',
         payload: {
-          sessionId: 'retry-session',
+          sessionId: 'session-abc',
           exitCode: 0,
           success: true,
           completionSummary: 'Retry succeeded',
@@ -426,11 +655,106 @@ describe('Runner', () => {
     });
   });
 
+  describe('session entry cleanup', () => {
+    it('should remove the session entry after normal completion so retry() throws', async () => {
+      createMockGit();
+      const spawner = createMockSpawner({ exitCode: 0, success: true });
+      const runner = new Runner(spawner, send);
+
+      await runner.start('session-abc', 'task', [], {
+        repoPath: '/path/to/repo',
+        containerMode: false,
+      });
+
+      // After completion, the entry must be gone — retry() should throw, not silently no-op.
+      await expect(runner.retry('session-abc')).rejects.toThrow(
+        'No worktree found for session session-abc',
+      );
+    });
+
+    it('should remove the session entry after stop() + process close so retry() throws', async () => {
+      createMockGit();
+
+      let resolveSpawn!: (result: SpawnResult) => void;
+      const spawnPromise = new Promise<SpawnResult>((res) => {
+        resolveSpawn = res;
+      });
+
+      const mockProcess: AgentProcess = { kill: vi.fn() };
+      const spawner: AgentSpawner & { spawn: ReturnType<typeof vi.fn>; getProcess: ReturnType<typeof vi.fn> } = {
+        spawn: vi.fn(() => spawnPromise),
+        getProcess: vi.fn((_id: string) => mockProcess),
+      };
+
+      const runner = new Runner(spawner, send);
+
+      runner.start('session-abc', 'task', [], {
+        repoPath: '/path/to/repo',
+        containerMode: false,
+      }).catch(() => {});
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      runner.stop('session-abc');
+
+      // Simulate process exit after stop
+      resolveSpawn({ sessionId: 'session-abc', exitCode: 1, success: false });
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Entry must be cleaned up — retry() should throw
+      await expect(runner.retry('session-abc')).rejects.toThrow(
+        'No worktree found for session session-abc',
+      );
+    });
+
+    it('should not emit duplicate complete when stop() races with natural exit (proc=null)', async () => {
+      createMockGit();
+
+      let resolveSpawn!: (result: SpawnResult) => void;
+      const spawnPromise = new Promise<SpawnResult>((res) => {
+        resolveSpawn = res;
+      });
+
+      const spawner: AgentSpawner & { spawn: ReturnType<typeof vi.fn>; getProcess: ReturnType<typeof vi.fn> } = {
+        spawn: vi.fn(() => spawnPromise),
+        // getProcess returns null — process already exited before stop() was called
+        getProcess: vi.fn((_id: string) => null),
+      };
+
+      const runner = new Runner(spawner, send);
+
+      runner.start('session-abc', 'task', [], {
+        repoPath: '/path/to/repo',
+        containerMode: false,
+      }).catch(() => {});
+
+      await new Promise((r) => setTimeout(r, 10));
+      send.mockClear();
+
+      // stop() finds entry but no live proc; marks stopped
+      runner.stop('session-abc');
+
+      // No complete event emitted when proc is null
+      const completeAfterStop = (send.mock.calls as unknown[][]).filter(
+        (c) => (c[0] as { type: string }).type === 'EXECUTION_COMPLETE_EVENT',
+      );
+      expect(completeAfterStop).toHaveLength(0);
+
+      // Process "exits" naturally — handleCompletion sees stopped=true and suppresses
+      resolveSpawn({ sessionId: 'session-abc', exitCode: 0, success: true });
+      await new Promise((r) => setTimeout(r, 10));
+
+      const completeAfterExit = (send.mock.calls as unknown[][]).filter(
+        (c) => (c[0] as { type: string }).type === 'EXECUTION_COMPLETE_EVENT',
+      );
+      expect(completeAfterExit).toHaveLength(0);
+    });
+  });
+
   describe('completion handling', () => {
     it('should handle agent exit without completion data', async () => {
       createMockGit();
       const spawner = createMockSpawner({
-        sessionId: 'session-abc',
         exitCode: 1,
         success: false,
         completion: undefined,
@@ -456,7 +780,6 @@ describe('Runner', () => {
     it('should send CREATE_MEMORIES_EVENT before EXECUTION_COMPLETE_EVENT when memories present', async () => {
       createMockGit();
       const spawner = createMockSpawner({
-        sessionId: 'session-abc',
         exitCode: 0,
         success: true,
         completion: {
@@ -499,7 +822,6 @@ describe('Runner', () => {
     it('should not send CREATE_MEMORIES_EVENT when memories are absent', async () => {
       createMockGit();
       const spawner = createMockSpawner({
-        sessionId: 'session-abc',
         exitCode: 0,
         success: true,
         completion: { taskCompleted: true, summary: 'Done' },
@@ -520,7 +842,6 @@ describe('Runner', () => {
     it('should not send CREATE_MEMORIES_EVENT when memories array is empty', async () => {
       createMockGit();
       const spawner = createMockSpawner({
-        sessionId: 'session-abc',
         exitCode: 0,
         success: true,
         completion: { taskCompleted: true, summary: 'Done', memories: [] },

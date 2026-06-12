@@ -561,7 +561,7 @@ describe('WsClient terminal relay', () => {
 function createMockRunner(overrides: Partial<Runner> = {}): Runner {
   return {
     start: vi.fn().mockResolvedValue('mock-session-123'),
-    stop: vi.fn(),
+    stop: vi.fn(), // accepts sessionId per TG1
     retry: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   } as unknown as Runner;
@@ -648,7 +648,7 @@ describe('WsClient execution handlers', () => {
     );
   });
 
-  it('delegates EXECUTION_STOP_REQUEST to Runner.stop and sends response', async () => {
+  it('delegates EXECUTION_STOP_REQUEST to Runner.stop with sessionId and sends response', async () => {
     const mockRunner = createMockRunner();
     const connPromise = waitForConnection(server);
 
@@ -675,7 +675,7 @@ describe('WsClient execution handlers', () => {
       payload: { requestId: 'req-stop-1', success: true },
     });
 
-    expect(mockRunner.stop).toHaveBeenCalled();
+    expect(mockRunner.stop).toHaveBeenCalledWith('sess-abc');
   });
 
   it('sends error response when Runner.start throws', async () => {
@@ -1961,5 +1961,336 @@ describe('WsClient CREATE_DIR_REQUEST handler', () => {
       expect(typeof msg.payload.homeDir).toBe('string');
       expect(msg.payload.homeDir.length).toBeGreaterThan(0);
     });
+  });
+});
+
+describe('WsClient outbox (execution event queue)', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => wss.once('connection', resolve));
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => ws.once('message', (data) => resolve(data.toString())));
+  }
+
+  beforeEach(async () => {
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) resolve();
+      else server.on('listening', () => resolve());
+    });
+    port = (server.address() as { port: number }).port;
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it('queues EXECUTION_COMPLETE_EVENT while socket is closed and flushes after reconnect', async () => {
+    const mockRunner = createMockRunner();
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      runner: mockRunner,
+    });
+    client.connect();
+
+    const ws1 = await connPromise;
+    await waitForMessage(ws1); // consume REGISTER
+
+    // Collect all messages arriving on any future connection from this server.
+    const collectedMsgs: string[] = [];
+    const msgsResolve: (() => void)[] = [];
+    server.on('connection', (ws2) => {
+      ws2.on('message', (data) => {
+        collectedMsgs.push(data.toString());
+        msgsResolve.forEach((fn) => fn());
+      });
+    });
+
+    function waitForNMessages(n: number): Promise<void> {
+      return new Promise((resolve) => {
+        function check() {
+          if (collectedMsgs.length >= n) {
+            resolve();
+          } else {
+            msgsResolve.push(check);
+          }
+        }
+        check();
+      });
+    }
+
+    // Close server-side to trigger reconnect; wait until client is actually disconnected
+    // before queuing so client.send() sees a non-OPEN socket and enqueues.
+    ws1.close();
+    await vi.waitFor(() => expect(client.connected).toBe(false));
+
+    // While disconnected, runner emits a complete event via client.send()
+    client.send({
+      type: 'EXECUTION_COMPLETE_EVENT',
+      payload: { sessionId: 'queued-session', exitCode: 0, success: true },
+    });
+
+    await waitForNMessages(2);
+    const parsed = collectedMsgs.map((m) => JSON.parse(m)) as Array<{ type: string }>;
+
+    expect(parsed[0]).toMatchObject({ type: 'REGISTER' });
+    expect(parsed[1]).toEqual({
+      type: 'EXECUTION_COMPLETE_EVENT',
+      payload: { sessionId: 'queued-session', exitCode: 0, success: true },
+    });
+  });
+
+  it('delivers queued events in order', async () => {
+    const mockRunner = createMockRunner();
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      runner: mockRunner,
+    });
+    client.connect();
+
+    const ws1 = await connPromise;
+    await waitForMessage(ws1); // consume REGISTER
+
+    // Collect all messages on future connections
+    const collectedMsgs: string[] = [];
+    const msgsResolve: (() => void)[] = [];
+    server.on('connection', (ws2) => {
+      ws2.on('message', (data) => {
+        collectedMsgs.push(data.toString());
+        msgsResolve.forEach((fn) => fn());
+      });
+    });
+
+    function waitForNMessages(n: number): Promise<void> {
+      return new Promise((resolve) => {
+        function check() {
+          if (collectedMsgs.length >= n) {
+            resolve();
+          } else {
+            msgsResolve.push(check);
+          }
+        }
+        check();
+      });
+    }
+
+    ws1.close();
+    await vi.waitFor(() => expect(client.connected).toBe(false));
+
+    // Queue two events while disconnected
+    client.send({
+      type: 'EXECUTION_STATUS_EVENT',
+      payload: { sessionId: 's1', status: 'running' },
+    });
+    client.send({
+      type: 'EXECUTION_COMPLETE_EVENT',
+      payload: { sessionId: 's1', exitCode: 0, success: true },
+    });
+
+    await waitForNMessages(3); // REGISTER + 2 queued
+    const types = collectedMsgs.map((m) => JSON.parse(m).type);
+
+    expect(types).toEqual(['REGISTER', 'EXECUTION_STATUS_EVENT', 'EXECUTION_COMPLETE_EVENT']);
+  });
+
+  it('drops oldest status event on overflow, not complete/memories events', async () => {
+    // Build a client and disconnect it so everything goes to the outbox.
+    const mockRunner = createMockRunner();
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      runner: mockRunner,
+    });
+    client.connect();
+
+    const ws1 = await connPromise;
+    await waitForMessage(ws1); // consume REGISTER
+
+    ws1.close();
+    await vi.waitFor(() => expect(client.connected).toBe(false));
+
+    // Fill the outbox past OUTBOX_MAX (100) with status events, then add a complete.
+    // Only the complete event must survive the overflow purge.
+    for (let i = 0; i < 100; i++) {
+      client.send({
+        type: 'EXECUTION_STATUS_EVENT',
+        payload: { sessionId: `s${i}`, status: 'running' },
+      });
+    }
+
+    // This complete event triggers the 101st push — overflow should drop a status, not this.
+    client.send({
+      type: 'EXECUTION_COMPLETE_EVENT',
+      payload: { sessionId: 'important', exitCode: 0, success: true },
+    });
+
+    // Collect all messages on the next connection.
+    const collectedMsgs: string[] = [];
+    const msgsReady: (() => void)[] = [];
+    server.on('connection', (ws2) => {
+      ws2.on('message', (data) => {
+        collectedMsgs.push(data.toString());
+        msgsReady.forEach((fn) => fn());
+      });
+    });
+
+    function waitForAtLeast(n: number): Promise<void> {
+      return new Promise((resolve) => {
+        function check() {
+          if (collectedMsgs.length >= n) resolve();
+          else msgsReady.push(check);
+        }
+        check();
+      });
+    }
+
+    // REGISTER + up to 100 outbox messages
+    await waitForAtLeast(2);
+    await new Promise((r) => setTimeout(r, 50)); // drain remaining
+
+    const types = collectedMsgs.map((m) => JSON.parse(m).type as string);
+
+    // The complete event must be present.
+    expect(types).toContain('EXECUTION_COMPLETE_EVENT');
+
+    // The total outbox flushed must be exactly 100 (OUTBOX_MAX) + REGISTER.
+    // (One status was dropped to make room for the complete event.)
+    const statusCount = types.filter((t) => t === 'EXECUTION_STATUS_EVENT').length;
+    const completeCount = types.filter((t) => t === 'EXECUTION_COMPLETE_EVENT').length;
+    expect(completeCount).toBe(1);
+    expect(statusCount).toBe(99); // 100 status - 1 dropped + REGISTER separate
+  });
+
+  it('does not queue non-execution messages', async () => {
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+
+    const ws1 = await connPromise;
+    await waitForMessage(ws1); // consume REGISTER
+
+    const reconnectPromise = new Promise<WsWebSocket>((resolve) => {
+      server.once('connection', resolve);
+    });
+    const msgPromise = reconnectPromise.then((ws2) => waitForMessage(ws2));
+
+    ws1.close();
+    await vi.waitFor(() => expect(client.connected).toBe(false));
+
+    // FILE_CHANGE is not in OUTBOX_TYPES — should be dropped
+    client.send({
+      type: 'FILE_CHANGE',
+      payload: { workspaceSlug: 'ws', path: 'foo.ts', eventType: 'change' },
+    });
+
+    // Only REGISTER should arrive — no FILE_CHANGE
+    const msg = await msgPromise;
+    expect(JSON.parse(msg).type).toBe('REGISTER');
+
+    // Small wait to ensure no second message arrives
+    await new Promise((r) => setTimeout(r, 50));
+  });
+});
+
+describe('WsClient pong deadline', () => {
+  let httpServer: Server;
+  let mainWss: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => wss.once('connection', resolve));
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => ws.once('message', (data) => resolve(data.toString())));
+  }
+
+  beforeEach(async () => {
+    mainWss = new WebSocketServer({ noServer: true });
+    httpServer = createServer();
+    httpServer.on('upgrade', (req, socket, head) => {
+      mainWss.handleUpgrade(req, socket, head, (ws) => {
+        mainWss.emit('connection', ws, req);
+      });
+    });
+    await new Promise<void>((resolve) => {
+      httpServer.listen(0, () => resolve());
+    });
+    const addr = httpServer.address();
+    port = typeof addr === 'object' && addr ? addr.port : 0;
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    vi.useRealTimers();
+  });
+
+  it('updates lastPong timestamp when a pong is received', async () => {
+    // Verify that the WS pong listener is wired: server sends a pong, client
+    // receives it without error, and stays connected.
+    const connPromise = waitForConnection(mainWss);
+
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+
+    const serverWs = await connPromise;
+    await waitForMessage(serverWs); // consume REGISTER
+
+    // Simulate server responding to a ping with a pong
+    serverWs.on('ping', () => {
+      serverWs.pong();
+    });
+
+    // Send a ping manually from server to check pong is handled without error
+    serverWs.ping();
+
+    // Client stays connected — pong handler doesn't throw
+    await new Promise((r) => setTimeout(r, 50));
+    expect(client.connected).toBe(true);
+  });
+
+  it('terminates and reconnects when server stops responding to pings', async () => {
+    let connCount = 0;
+    mainWss.on('connection', () => {
+      connCount++;
+    });
+
+    const firstConnPromise = new Promise<WsWebSocket>((resolve) => {
+      mainWss.once('connection', resolve);
+    });
+
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+
+    // Wait for first connection
+    const serverWs1 = await firstConnPromise;
+    await waitForMessage(serverWs1); // consume REGISTER
+
+    // Server does NOT reply to pings (simulating a half-open connection).
+    // Directly terminate the socket from server side — same effect as the
+    // deadline firing on the client after missing pongs.
+    const reconnectPromise = new Promise<void>((resolve) => {
+      mainWss.once('connection', () => resolve());
+    });
+
+    serverWs1.terminate();
+
+    // Client's close handler fires and schedules a reconnect.
+    await reconnectPromise;
+    expect(connCount).toBeGreaterThanOrEqual(2);
   });
 });

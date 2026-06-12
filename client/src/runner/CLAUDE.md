@@ -47,9 +47,9 @@ Claude's `--output-format json` emits one JSON line. Use `extractJsonOutput(stdo
 ## Lifecycle & timeouts
 
 - `Runner.start()` is fire-and-forget — the `spawner.spawn(...)` promise chain emits the complete event itself. Don't `await` it from the WS handler.
-- `Runner.stop()` sends `SIGTERM`, schedules `SIGKILL` after 5s grace (timer is `.unref()`ed so it doesn't keep the process alive). Emits a synthetic `complete` event with `success: false` immediately — don't wait for the real exit.
+- `Runner.stop(sessionId)` looks up the session entry and the live process via `spawner.getProcess(sessionId)`. If a live process exists: marks `entry.stopped`, sends SIGTERM, schedules SIGKILL after 5s (timer `.unref()`ed), then emits a synthetic `EXECUTION_COMPLETE_EVENT` with `success: false` immediately. If no live process is found (it exited before `stop()` ran): marks `entry.stopped = true` so the natural completion path in `handleCompletion` emits no duplicate event.
+- Session state is tracked in `Runner.sessions: Map<sessionId, SessionEntry>`. Each entry holds `worktreePath`, `config`, and `stopped`. The entry is deleted by `handleCompletion` after the complete event is emitted (both normal and post-stop paths).
 - Default timeout is 30 minutes (`DEFAULT_TIMEOUT_MS`). Configurable per `SpawnConfig.timeoutMs`.
-- One process at a time per `AgentSpawner` instance (`currentProcess`). Multiple concurrent sessions need multiple spawners.
 
 ## Tests
 

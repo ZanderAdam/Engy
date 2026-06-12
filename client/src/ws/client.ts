@@ -105,6 +105,16 @@ const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
 const JITTER_FACTOR = 0.2;
 const PING_INTERVAL_MS = 30_000;
+// Terminate a half-open socket if two consecutive pings receive no pong.
+const PONG_DEADLINE_INTERVALS = 2;
+
+// Message types that must survive a reconnect (execution lifecycle events).
+const OUTBOX_TYPES = new Set([
+  'EXECUTION_STATUS_EVENT',
+  'EXECUTION_COMPLETE_EVENT',
+  'CREATE_MEMORIES_EVENT',
+]);
+const OUTBOX_MAX = 100;
 
 interface WsClientOptions {
   serverUrl: string;
@@ -267,6 +277,10 @@ export class WsClient {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private terminalPingTimer: ReturnType<typeof setInterval> | null = null;
   private intentionallyClosed = false;
+  // Outbox for execution-critical messages queued while the socket is not OPEN.
+  private outbox: ClientToServerMessage[] = [];
+  // Last-pong timestamps for half-open detection.
+  private lastPong: Record<'main' | 'terminal', number> = { main: 0, terminal: 0 };
   private readonly wsUrl: string;
   private readonly terminalRelayUrl: string;
   private readonly serverPort: number;
@@ -295,6 +309,29 @@ export class WsClient {
   send(message: ClientToServerMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
+      return;
+    }
+
+    if (OUTBOX_TYPES.has(message.type)) {
+      // Cap to bound memory; on overflow prefer dropping the oldest status event
+      // so complete/memories events are never silently discarded.
+      if (this.outbox.length >= OUTBOX_MAX) {
+        const statusIdx = this.outbox.findIndex((m) => m.type === 'EXECUTION_STATUS_EVENT');
+        if (statusIdx !== -1) {
+          this.outbox.splice(statusIdx, 1);
+        } else {
+          this.outbox.shift();
+        }
+      }
+      this.outbox.push(message);
+    }
+  }
+
+  private flushOutbox(): void {
+    if (this.outbox.length === 0 || this.ws?.readyState !== WebSocket.OPEN) return;
+    const pending = this.outbox.splice(0);
+    for (const msg of pending) {
+      this.ws.send(JSON.stringify(msg));
     }
   }
 
@@ -322,11 +359,22 @@ export class WsClient {
 
   private startPing(which: 'main' | 'terminal'): void {
     this.stopPing(which);
+    // Seed so the first interval doesn't false-positive immediately.
+    this.lastPong[which] = Date.now();
+
     const timer = setInterval(() => {
       const ws = which === 'main' ? this.ws : this.terminalWs;
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.ping();
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      const elapsed = Date.now() - this.lastPong[which];
+      const deadline = PING_INTERVAL_MS * PONG_DEADLINE_INTERVALS;
+      if (elapsed > deadline) {
+        console.warn(`[ws-${which}] No pong in ${elapsed}ms — terminating half-open connection`);
+        ws.terminate();
+        return;
       }
+
+      ws.ping();
     }, PING_INTERVAL_MS);
 
     if (which === 'main') {
@@ -361,6 +409,12 @@ export class WsClient {
       this.attempt = 0;
       this.send({ type: 'REGISTER', payload: { homeDir: os.homedir() } });
       this.startPing('main');
+      this.flushOutbox();
+    });
+
+    ws.on('pong', () => {
+      if (this.ws !== ws) return;
+      this.lastPong.main = Date.now();
     });
 
     ws.on('message', (data) => {
@@ -392,6 +446,11 @@ export class WsClient {
     console.log(`[ws-terminal] Connecting to ${this.terminalRelayUrl}`);
     const ws = new WebSocket(this.terminalRelayUrl);
     this.terminalWs = ws;
+
+    ws.on('pong', () => {
+      if (this.terminalWs !== ws) return;
+      this.lastPong.terminal = Date.now();
+    });
 
     ws.on('open', () => {
       if (this.terminalWs !== ws) return;
@@ -1150,9 +1209,9 @@ export class WsClient {
   }
 
   private handleExecutionStopRequest(message: ExecutionStopRequestMessage): void {
-    const { requestId } = message.payload;
+    const { requestId, sessionId } = message.payload;
     try {
-      this.runner.stop();
+      this.runner.stop(sessionId);
       this.send({
         type: 'EXECUTION_STOP_RESPONSE',
         payload: { requestId, success: true },

@@ -90,7 +90,7 @@ function extractJsonOutput(stdout: string): { structured_output?: { taskComplete
 }
 
 export class AgentSpawner {
-  private currentProcess: ChildProcess | null = null;
+  private processes = new Map<string, ChildProcess>();
 
   constructor(
     private containerManager: ContainerManager,
@@ -109,7 +109,7 @@ export class AgentSpawner {
     console.log(`[agent-spawner] Args: ${args.filter((a) => !a.startsWith('{')).join(' ')}`);
 
     const proc = this.spawnProcess(config, args);
-    this.currentProcess = proc;
+    this.processes.set(sessionId, proc);
     console.log(`[agent-spawner] Process spawned: pid=${proc.pid}`);
 
     proc.stderr?.on('data', (chunk: Buffer) => {
@@ -127,15 +127,15 @@ export class AgentSpawner {
     }
 
     const result = await this.waitForExit(proc, sessionId, config.timeoutMs ?? DEFAULT_TIMEOUT_MS, config.remote);
-    this.currentProcess = null;
+    this.processes.delete(sessionId);
     console.log(
       `[agent-spawner] Exit: code=${result.exitCode} success=${result.success} completion=${result.completion ? 'yes' : 'no'}`,
     );
     return result;
   }
 
-  getProcess(): ChildProcess | null {
-    return this.currentProcess;
+  getProcess(sessionId: string): ChildProcess | null {
+    return this.processes.get(sessionId) ?? null;
   }
 
   private validateConfig(config: SpawnConfig): void {
