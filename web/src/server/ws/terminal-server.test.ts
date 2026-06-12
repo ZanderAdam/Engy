@@ -506,6 +506,73 @@ describe('Terminal WebSocket Server', () => {
       const msg = JSON.parse(raw);
       expect(msg).toEqual({ t: 'error', message: 'No daemon connected' });
     });
+
+    it('should retain session meta when browser reconnects while relay daemon is down', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      await connectBrowser(port, { sessionId: 'meta-retain-sess', workingDir: '/tmp' });
+      await spawnPromise;
+
+      expect(state.terminalSessionMeta.has('meta-retain-sess')).toBe(true);
+
+      // Disconnect the relay daemon
+      daemonWs.close();
+      await vi.waitFor(() => expect(state.terminalDaemon).toBeNull());
+
+      // Browser reconnects while daemon is down — meta must be kept, not deleted
+      const gotMessage = new Promise<string>((resolve) => {
+        const ws = new WebSocket(
+          `ws://127.0.0.1:${port}/ws/terminal?sessionId=meta-retain-sess&workingDir=/tmp`,
+        );
+        openClients.push(ws);
+        ws.on('message', (data) => resolve(data.toString()));
+      });
+
+      const raw = await gotMessage;
+      const msg = JSON.parse(raw);
+      expect(msg).toEqual({ t: 'error', message: 'No daemon connected' });
+
+      // Meta must still be there for the eventual daemon reconnect + sync
+      expect(state.terminalSessionMeta.has('meta-retain-sess')).toBe(true);
+    });
+  });
+
+  describe('concurrent browser reconnects', () => {
+    it('should deliver reconnected buffer to all concurrently-reconnecting browsers', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      // First browser establishes the session
+      const browser1 = await connectBrowser(port, { sessionId: 'sess-conc', workingDir: '/tmp' });
+      await spawnPromise;
+
+      // Two more browsers reconnect concurrently — both should get the buffer
+      const reconnect1Promise = waitForMessage(daemonWs);
+      const browser2 = await connectBrowser(port, { sessionId: 'sess-conc', workingDir: '/tmp' });
+      // Consume reconnect for browser2
+      await reconnect1Promise;
+
+      // browser3 reconnects before the daemon replies — second pending entry
+      const reconnect2Promise = waitForMessage(daemonWs);
+      const browser3 = await connectBrowser(port, { sessionId: 'sess-conc', workingDir: '/tmp' });
+      await reconnect2Promise;
+
+      // Daemon sends one reconnected reply — both browser2 and browser3 should receive it
+      const buf2Promise = waitForMessage(browser2);
+      const buf3Promise = waitForMessage(browser3);
+      const reconnectedMsg = JSON.stringify({
+        t: 'reconnected',
+        sessionId: 'sess-conc',
+        buffer: ['line1', 'line2'],
+      });
+      daemonWs.send(reconnectedMsg);
+
+      expect(await buf2Promise).toBe(reconnectedMsg);
+      expect(await buf3Promise).toBe(reconnectedMsg);
+
+      browser1.close();
+    });
   });
 
   describe('sessionId extraction anchoring', () => {

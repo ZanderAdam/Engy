@@ -21,18 +21,47 @@ function isProcessRunning(pid: number): boolean {
 }
 
 function acquirePidFile(): void {
+  fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
+
   try {
-    const existing = fs.readFileSync(PID_FILE, 'utf-8').trim();
-    const pid = parseInt(existing, 10);
-    if (!isNaN(pid) && pid !== process.pid && isProcessRunning(pid)) {
-      console.error(`[daemon] Another daemon is already running (pid=${pid}). Exiting.`);
+    fs.writeFileSync(PID_FILE, String(process.pid), { flag: 'wx' });
+    return;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+  }
+
+  // File already exists — check if the owning process is still live.
+  let existingPid: number | null = null;
+  try {
+    const content = fs.readFileSync(PID_FILE, 'utf-8').trim();
+    const parsed = parseInt(content, 10);
+    if (!isNaN(parsed)) existingPid = parsed;
+  } catch {
+    // Unreadable — treat as stale.
+  }
+
+  if (existingPid !== null && existingPid !== process.pid && isProcessRunning(existingPid)) {
+    console.error(`[daemon] Another daemon is already running (pid=${existingPid}). Exiting.`);
+    process.exit(1);
+  }
+
+  // Stale pidfile — remove and claim atomically.
+  try {
+    fs.unlinkSync(PID_FILE);
+  } catch {
+    // May have been removed by the dying process — ignore.
+  }
+
+  try {
+    fs.writeFileSync(PID_FILE, String(process.pid), { flag: 'wx' });
+  } catch (err) {
+    // Another process raced us and claimed the file first.
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+      console.error('[daemon] Lost pidfile race to another starting daemon. Exiting.');
       process.exit(1);
     }
-  } catch {
-    // No PID file or unreadable — proceed
+    throw err;
   }
-  fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
-  fs.writeFileSync(PID_FILE, String(process.pid));
 }
 
 function releasePidFile(): void {
@@ -52,6 +81,7 @@ function main(): void {
   console.log(`[daemon] SERVER_URL=${SERVER_URL} ENGY_DIR=${ENGY_DIR}`);
 
   const sessions = new SessionManager();
+  sessions.start();
   const terminalManager = new TerminalManager(sessions);
 
   const wsClient = new WsClient({
@@ -69,6 +99,7 @@ function main(): void {
   const shutdown = (signal: string) => {
     console.log(`[daemon] Shutting down (${signal}), killing ${terminalManager.getAllSessions().length} sessions`);
     releasePidFile();
+    sessions.stop();
     terminalManager.killAll();
     specWatcher.closeAll().then(() => {
       wsClient.close();

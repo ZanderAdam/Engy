@@ -119,6 +119,18 @@ export class TerminalManager {
 
     console.log(`[terminal] PTY spawned for session ${sessionId}, pid=${ptyProcess.pid}`);
 
+    // Kill any existing PTY for this id before overwriting — the old onExit identity
+    // guard will see a mismatch and skip its cleanup, so we do it here.
+    const existing = this.sessions.get(sessionId);
+    if (existing) {
+      console.log(`[terminal] Replacing existing PTY for session ${sessionId}, killing old pid=${existing.ptyProcess.pid}`);
+      try {
+        existing.ptyProcess.kill('SIGKILL');
+      } catch {
+        // already dead
+      }
+    }
+
     const outputBuffer = new CircularBuffer(1000);
     const session: PersistentSession = {
       ptyProcess,
@@ -153,6 +165,11 @@ export class TerminalManager {
       console.log(
         `[terminal] Session ${sessionId} exited: code=${code} signal=${signal ?? 'null'} state=${session.state} pid=${ptyProcess.pid}`,
       );
+      // Only act if this PTY is still the registered instance — a respawn may have replaced it.
+      if (this.sessions.get(sessionId) !== session) {
+        console.log(`[terminal] Session ${sessionId} exit ignored — PTY was replaced`);
+        return;
+      }
       this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: code }));
       this.sessions.delete(sessionId);
       console.log(`[terminal] Remaining sessions: [${this.sessions.all().map((s) => s.sessionId).join(', ')}]`);

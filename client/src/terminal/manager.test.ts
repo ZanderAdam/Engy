@@ -250,6 +250,48 @@ describe('TerminalManager', () => {
     expect(mockPtyProcess.write).not.toHaveBeenCalled();
   });
 
+  describe('PTY identity guards', () => {
+    it('should not emit exit or remove the new session when the stale PTY exits after respawn', () => {
+      // Capture exit callbacks indexed by spawn call order
+      const exitCallbacks: Array<(ev: { exitCode: number; signal?: number }) => void> = [];
+      mockPtyProcess.onExit.mockImplementation((cb: (ev: { exitCode: number; signal?: number }) => void) => {
+        exitCallbacks.push(cb);
+        onExitCallback = cb;
+        return { dispose: vi.fn() };
+      });
+
+      // Spawn first PTY for sessionId 'abc'
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      const firstExitCb = exitCallbacks[0];
+      expect(sessions.get('abc')).toBeDefined();
+
+      // Respawn the same sessionId — replaces the entry
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      const newSession = sessions.get('abc');
+      expect(newSession).toBeDefined();
+
+      // Clear sent messages from spawns
+      sent.length = 0;
+
+      // Old PTY's onExit fires (SIGTERM grace period expired)
+      firstExitCb({ exitCode: 143 });
+
+      // Should NOT send exit, NOT remove the new session
+      expect(sent).toHaveLength(0);
+      expect(sessions.get('abc')).toBe(newSession);
+    });
+
+    it('should kill the existing PTY when respawning the same sessionId', () => {
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      // Clear the kill mock to isolate the respawn
+      mockPtyProcess.kill.mockClear();
+
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+
+      expect(mockPtyProcess.kill).toHaveBeenCalledWith('SIGKILL');
+    });
+  });
+
   describe('security', () => {
     it('should block --dangerously-skip-permissions on host', () => {
       manager.spawn({

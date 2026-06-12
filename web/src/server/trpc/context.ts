@@ -286,8 +286,8 @@ export interface AppState {
   terminalSessions: Map<string, Set<WebSocket>>;
   /** Persists terminal session metadata across browser disconnects for session restoration */
   terminalSessionMeta: Map<string, TerminalSessionMeta>;
-  /** Tracks which browser WS is awaiting a reconnect buffer replay (not broadcast to all) */
-  pendingReconnects: Map<string, WebSocket>;
+  /** Tracks which browser WSes are awaiting a reconnect buffer replay (not broadcast to all) */
+  pendingReconnects: Map<string, Set<WebSocket>>;
   /** Dedicated daemon WebSocket for terminal traffic (zero-parse relay) */
   terminalDaemon: WebSocket | null;
   /** Browser WebSockets subscribed to file change events */

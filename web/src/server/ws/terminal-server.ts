@@ -216,9 +216,13 @@ async function handleTerminalConnection(
     );
     // Remove this browser from the session's WS set — keep terminalSessionMeta for restoration
     removeBrowserWs(state, sessionId, ws);
-    // Only clear pending reconnect if this WS is the one awaiting the buffer
-    if (state.pendingReconnects.get(sessionId) === ws) {
-      state.pendingReconnects.delete(sessionId);
+    // Remove this WS from the pending reconnect set if present
+    const pendingSet = state.pendingReconnects.get(sessionId);
+    if (pendingSet) {
+      pendingSet.delete(ws);
+      if (pendingSet.size === 0) {
+        state.pendingReconnects.delete(sessionId);
+      }
     }
     const meta = state.terminalSessionMeta.get(sessionId);
     broadcastTerminalSessionsChange('detached', sessionId, meta?.groupKey);
@@ -229,12 +233,17 @@ async function handleTerminalConnection(
     if (daemon && daemon.readyState === daemon.OPEN) {
       console.log(`[terminal] sending reconnect to daemon for sid=${short}`);
       // Track this WS so the reconnected buffer is replayed only to it, not all browsers
-      state.pendingReconnects.set(sessionId, ws);
+      let pendingSet = state.pendingReconnects.get(sessionId);
+      if (!pendingSet) {
+        pendingSet = new Set();
+        state.pendingReconnects.set(sessionId, pendingSet);
+      }
+      pendingSet.add(ws);
       daemon.send(JSON.stringify({ t: 'reconnect', sessionId } satisfies TerminalReconnectCmd));
       broadcastTerminalSessionsChange('attached', sessionId, existingMeta?.groupKey);
     } else {
-      console.log(`[terminal] reconnect path but no daemon — clearing meta sid=${short}`);
-      state.terminalSessionMeta.delete(sessionId);
+      // Retain meta so the sync handler can respawn the session when the daemon reconnects.
+      console.log(`[terminal] reconnect path but no daemon — keeping meta sid=${short}`);
       sendTerminalError(ws, 'No daemon connected');
     }
   } else {
@@ -388,12 +397,14 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         );
       }
 
-      // Reconnected buffer replayed only to the browser that requested it
+      // Reconnected buffer replayed only to the browsers that requested it, not all attached browsers
       if (str.startsWith('{"t":"reconnected"')) {
-        const reconnectWs = state.pendingReconnects.get(sessionId);
+        const pendingSet = state.pendingReconnects.get(sessionId);
         state.pendingReconnects.delete(sessionId);
-        if (reconnectWs) {
-          sendRaw(reconnectWs, str);
+        if (pendingSet && pendingSet.size > 0) {
+          for (const pendingWs of pendingSet) {
+            sendRaw(pendingWs, str);
+          }
         } else {
           console.warn(`[terminal-relay] Reconnected buffer for ${sessionId} dropped — no pending browser`);
         }
