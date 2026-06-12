@@ -14,6 +14,7 @@ import {
   listMilestones,
   readPlanFile,
   writePlanFile,
+  planFileExists,
   deletePlanFile,
   slugify,
 } from '../../plan/service';
@@ -106,7 +107,27 @@ export const milestoneRouter = router({
         input.worktreeBranch,
         ctx.state,
       );
+
+      // Reject duplicate milestone numbers — two files sharing the same m{num} ref
+      // makes milestoneRef lookups ambiguous.
+      const existing = listMilestones(specsDir, specSlug);
+      if (existing.some((m) => m.num === input.num)) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: `Milestone m${input.num} already exists`,
+        });
+      }
+
       const filename = `m${input.num}-${slugify(input.title)}.plan.md`;
+
+      // Guard against overwriting an existing file (e.g. same num+title combo).
+      if (planFileExists(specsDir, specSlug, filename)) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: `Milestone file "${filename}" already exists`,
+        });
+      }
+
       const content = buildMilestoneFrontmatter(input.title, 'planned', input.scope);
       writePlanFile(specsDir, specSlug, filename, content);
       return {

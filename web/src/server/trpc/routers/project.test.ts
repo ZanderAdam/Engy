@@ -252,9 +252,9 @@ describe('project router', () => {
     });
 
     it('should block draft → ready with incomplete tasks', async () => {
-      await caller.project.create({ workspaceSlug: 'test-ws', name: 'Auth' });
+      const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Auth' });
       const db = getDb();
-      db.insert(tasks).values({ title: 'T1', specId: 'auth', status: 'todo' }).run();
+      db.insert(tasks).values({ title: 'T1', projectId: proj.id, status: 'todo' }).run();
 
       await expect(
         caller.project.updateSpec({
@@ -263,6 +263,25 @@ describe('project router', () => {
           status: 'ready',
         }),
       ).rejects.toThrow('incomplete tasks');
+    });
+
+    it('should not block draft → ready due to tasks from another workspace project with same slug', async () => {
+      // Create a second workspace with a project sharing the same slug.
+      const ws2 = await caller.workspace.create({ name: 'Other WS' });
+      const otherProj = await caller.project.create({ workspaceSlug: ws2.slug, name: 'Auth' });
+      const db = getDb();
+      // Add an incomplete task to the other workspace's project.
+      db.insert(tasks).values({ title: 'T-other', projectId: otherProj.id, status: 'todo' }).run();
+
+      // Our project has no tasks — should be ready.
+      await caller.project.create({ workspaceSlug: 'test-ws', name: 'Auth' });
+      await expect(
+        caller.project.updateSpec({
+          workspaceSlug: 'test-ws',
+          projectSlug: 'auth',
+          status: 'ready',
+        }),
+      ).resolves.toMatchObject({ status: 'ready' });
     });
   });
 
@@ -325,6 +344,66 @@ describe('project router', () => {
         projectSlug: 'auth',
       });
       expect(files).toEqual([]);
+    });
+  });
+
+  describe('writeFile spec.md path bypass guard', () => {
+    beforeEach(async () => {
+      await caller.project.create({ workspaceSlug: 'test-ws', name: 'Auth' });
+    });
+
+    it('should reject ./spec.md', async () => {
+      await expect(
+        caller.project.writeFile({
+          workspaceSlug: 'test-ws',
+          projectSlug: 'auth',
+          filePath: './spec.md',
+          content: 'overwrite',
+        }),
+      ).rejects.toThrow();
+    });
+
+    it('should reject docs/../spec.md', async () => {
+      await expect(
+        caller.project.writeFile({
+          workspaceSlug: 'test-ws',
+          projectSlug: 'auth',
+          filePath: 'docs/../spec.md',
+          content: 'overwrite',
+        }),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('deleteDir "." guard', () => {
+    beforeEach(async () => {
+      await caller.project.create({ workspaceSlug: 'test-ws', name: 'Auth' });
+    });
+
+    it('should reject "." as subDir', async () => {
+      await expect(
+        caller.project.deleteDir({
+          workspaceSlug: 'test-ws',
+          projectSlug: 'auth',
+          subDir: '.',
+        }),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('project.create does not overwrite existing spec.md', () => {
+    it('should preserve hand-authored spec.md when dir already exists on disk', async () => {
+      const ws = await caller.workspace.create({ name: 'Preserve WS' });
+      // Pre-create the project directory with a hand-authored spec.md.
+      const projDir = path.join(ctx.tmpDir, 'preserve-ws', 'projects', 'hand-authored');
+      fs.mkdirSync(projDir, { recursive: true });
+      const originalContent = '---\ntitle: Hand authored\nstatus: active\ntype: vision\n---\n# Custom\n';
+      fs.writeFileSync(path.join(projDir, 'spec.md'), originalContent);
+
+      await caller.project.create({ workspaceSlug: ws.slug, name: 'Hand authored' });
+
+      const actual = fs.readFileSync(path.join(projDir, 'spec.md'), 'utf-8');
+      expect(actual).toBe(originalContent);
     });
   });
 

@@ -38,7 +38,8 @@ export async function backfillM7(workspaceSlug: string): Promise<void> {
   } else {
     const existing = fs.readFileSync(gitignorePath, 'utf8');
     if (!existing.includes('.qmd')) {
-      fs.writeFileSync(gitignorePath, `${existing}.qmd/\n`, 'utf8');
+      const separator = existing.endsWith('\n') ? '' : '\n';
+      fs.writeFileSync(gitignorePath, `${existing}${separator}.qmd/\n`, 'utf8');
     }
   }
 

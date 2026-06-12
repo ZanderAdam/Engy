@@ -49,6 +49,46 @@ describe('backfill-m7', () => {
     ctx.cleanup();
   });
 
+  describe('.gitignore newline guard', () => {
+    it('should append .qmd/ on a new line when existing content has no trailing newline', async () => {
+      const wsDir = path.join(ctx.tmpDir, 'gitignore-no-newline-test');
+      await setupPreM7Workspace(wsDir);
+      // Write .gitignore without a trailing newline.
+      fs.writeFileSync(path.join(wsDir, '.gitignore'), 'node_modules', 'utf8');
+
+      ctx.db
+        .insert(workspaces)
+        .values({ name: 'Gitignore No Newline', slug: 'gitignore-no-newline-test', docsDir: wsDir })
+        .run();
+
+      await backfillM7('gitignore-no-newline-test');
+
+      const content = fs.readFileSync(path.join(wsDir, '.gitignore'), 'utf8');
+      const lines = content.split('\n').filter(Boolean);
+      expect(lines).toContain('node_modules');
+      expect(lines).toContain('.qmd/');
+      // The last rule must not be corrupted (node_modules.qmd/ would be the corruption).
+      expect(lines.every((l) => !l.includes('node_modules.qmd'))).toBe(true);
+    });
+
+    it('should append .qmd/ without extra blank line when existing content already has trailing newline', async () => {
+      const wsDir = path.join(ctx.tmpDir, 'gitignore-with-newline-test');
+      await setupPreM7Workspace(wsDir);
+      fs.writeFileSync(path.join(wsDir, '.gitignore'), 'node_modules\n', 'utf8');
+
+      ctx.db
+        .insert(workspaces)
+        .values({ name: 'Gitignore With Newline', slug: 'gitignore-with-newline-test', docsDir: wsDir })
+        .run();
+
+      await backfillM7('gitignore-with-newline-test');
+
+      const content = fs.readFileSync(path.join(wsDir, '.gitignore'), 'utf8');
+      const lines = content.split('\n').filter(Boolean);
+      expect(lines).toEqual(['node_modules', '.qmd/']);
+    });
+  });
+
   describe('needsM7Backfill', () => {
     it('should return true when memory/ exists but memory/README.md does not', () => {
       const dir = path.join(ctx.tmpDir, 'test-ws');

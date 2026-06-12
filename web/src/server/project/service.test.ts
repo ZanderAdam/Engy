@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { getDb } from '../db/client';
-import { workspaces, tasks } from '../db/schema';
+import { workspaces, projects, tasks } from '../db/schema';
 import {
   listProjectFiles,
   readProjectImage,
@@ -16,6 +16,10 @@ import {
   writeProjectContextFile,
   deleteProjectContextFile,
   checkProjectReadiness,
+  writeProjectFile,
+  deleteProjectFile,
+  renameProjectFile,
+  deleteProjectSubDir,
 } from './service';
 
 type Workspace = { slug: string; docsDir: string | null };
@@ -54,6 +58,18 @@ describe('project service', () => {
       expect(
         fs.existsSync(path.join(ctx.tmpDir, 'test', 'projects', 'auth-feature', 'spec.md')),
       ).toBe(true);
+    });
+
+    it('should not overwrite an existing spec.md', () => {
+      const projDir = path.join(ctx.tmpDir, 'test', 'projects', 'auth-feature');
+      fs.mkdirSync(projDir, { recursive: true });
+      const existingContent = '---\ntitle: hand-authored\nstatus: active\ntype: vision\n---\n# Hand-authored\n';
+      fs.writeFileSync(path.join(projDir, 'spec.md'), existingContent);
+
+      initProjectDir(workspace, 'auth-feature');
+
+      const actual = fs.readFileSync(path.join(projDir, 'spec.md'), 'utf-8');
+      expect(actual).toBe(existingContent);
     });
   });
 
@@ -136,7 +152,17 @@ describe('project service', () => {
   });
 
   describe('updateProjectSpec', () => {
+    let projectId: number;
+
     beforeEach(() => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).all()[0];
+      const proj = db
+        .insert(projects)
+        .values({ workspaceId: ws.id, name: 'auth-feature', slug: 'auth-feature', projectDir: 'auth-feature' })
+        .returning()
+        .get();
+      projectId = proj.id;
       initProjectDir(workspace, 'auth-feature');
     });
 
@@ -165,7 +191,7 @@ describe('project service', () => {
 
     it('should block draft → ready with incomplete tasks', () => {
       const db = getDb();
-      db.insert(tasks).values({ title: 'T1', specId: 'auth-feature', status: 'todo' }).run();
+      db.insert(tasks).values({ title: 'T1', projectId, status: 'todo' }).run();
       expect(() => updateProjectSpec(workspace, 'auth-feature', { status: 'ready' })).toThrow(
         'incomplete tasks',
       );
@@ -224,21 +250,93 @@ describe('project service', () => {
     });
   });
 
+  describe('spec.md path guard (normalized)', () => {
+    beforeEach(() => {
+      initProjectDir(workspace, 'auth-feature');
+    });
+
+    it('should reject ./spec.md in writeProjectFile', () => {
+      expect(() =>
+        writeProjectFile(workspace, 'auth-feature', './spec.md', 'overwrite'),
+      ).toThrow('updateProjectSpec');
+    });
+
+    it('should reject docs/../spec.md in writeProjectFile', () => {
+      expect(() =>
+        writeProjectFile(workspace, 'auth-feature', 'docs/../spec.md', 'overwrite'),
+      ).toThrow('updateProjectSpec');
+    });
+
+    it('should reject ./spec.md in deleteProjectFile', () => {
+      expect(() =>
+        deleteProjectFile(workspace, 'auth-feature', './spec.md'),
+      ).toThrow('Cannot delete spec.md');
+    });
+
+    it('should reject docs/../spec.md in deleteProjectFile', () => {
+      expect(() =>
+        deleteProjectFile(workspace, 'auth-feature', 'docs/../spec.md'),
+      ).toThrow('Cannot delete spec.md');
+    });
+
+    it('should reject renaming ./spec.md', () => {
+      expect(() =>
+        renameProjectFile(workspace, 'auth-feature', './spec.md', 'new-name.md'),
+      ).toThrow('Cannot rename spec.md');
+    });
+
+    it('should reject "." as deleteDir target (project root)', () => {
+      expect(() =>
+        deleteProjectSubDir(workspace, 'auth-feature', '.'),
+      ).toThrow('project root');
+    });
+  });
+
   describe('checkProjectReadiness', () => {
+    let projectId: number;
+
+    beforeEach(() => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).all()[0];
+      const proj = db
+        .insert(projects)
+        .values({ workspaceId: ws.id, name: 'test-proj', slug: 'test-proj', projectDir: 'test-proj' })
+        .returning()
+        .get();
+      projectId = proj.id;
+    });
+
     it('should return true when all tasks are done', () => {
       const db = getDb();
-      db.insert(tasks).values({ title: 'T1', specId: 'test-proj', status: 'done' }).run();
-      expect(checkProjectReadiness('test-proj')).toBe(true);
+      db.insert(tasks).values({ title: 'T1', projectId, status: 'done' }).run();
+      expect(checkProjectReadiness(projectId)).toBe(true);
     });
 
     it('should return false when some tasks are not done', () => {
       const db = getDb();
-      db.insert(tasks).values({ title: 'T1', specId: 'test-proj', status: 'todo' }).run();
-      expect(checkProjectReadiness('test-proj')).toBe(false);
+      db.insert(tasks).values({ title: 'T1', projectId, status: 'todo' }).run();
+      expect(checkProjectReadiness(projectId)).toBe(false);
     });
 
     it('should return true when no tasks exist', () => {
-      expect(checkProjectReadiness('no-tasks')).toBe(true);
+      expect(checkProjectReadiness(projectId)).toBe(true);
+    });
+
+    it('should ignore tasks from a different project', () => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).all()[0];
+      const otherProj = db
+        .insert(projects)
+        .values({
+          workspaceId: ws.id,
+          name: 'other-proj',
+          slug: 'other-proj',
+          projectDir: 'other-proj',
+        })
+        .returning()
+        .get();
+      db.insert(tasks).values({ title: 'T-other', projectId: otherProj.id, status: 'todo' }).run();
+      expect(checkProjectReadiness(projectId)).toBe(true);
     });
   });
 });

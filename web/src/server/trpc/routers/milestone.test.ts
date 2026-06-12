@@ -60,6 +60,34 @@ describe('milestone router', () => {
       });
       expect(milestone.scope).toBe('REST endpoints only');
     });
+
+    it('should reject duplicate milestone number', async () => {
+      await caller.milestone.create({ projectId, num: 1, title: 'Foundation' });
+      await expect(
+        caller.milestone.create({ projectId, num: 1, title: 'Foundation Again' }),
+      ).rejects.toThrow('already exists');
+    });
+
+    it('should not overwrite an existing file when num and title match', async () => {
+      await caller.milestone.create({ projectId, num: 2, title: 'Auth' });
+      await expect(
+        caller.milestone.create({ projectId, num: 2, title: 'Auth' }),
+      ).rejects.toThrow('already exists');
+    });
+
+    it('should round-trip multi-line scope through create + list', async () => {
+      await caller.milestone.create({
+        projectId,
+        num: 3,
+        title: 'Payments',
+        scope: 'Stripe integration\nRefund flow\nWebhooks',
+      });
+      const list = await caller.milestone.list({ projectId });
+      const m = list.find((m) => m.num === 3);
+      expect(m).toBeDefined();
+      // Newlines are collapsed to spaces
+      expect(m!.scope).toBe('Stripe integration Refund flow Webhooks');
+    });
   });
 
   describe('list', () => {

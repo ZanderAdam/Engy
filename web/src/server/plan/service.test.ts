@@ -12,7 +12,12 @@ import {
   titleFromFilename,
   taskPlanSlug,
   readTaskPlan,
+  buildMilestoneFrontmatter,
+  listMilestones,
+  planFileExists,
 } from './service';
+
+const VALID_STATUSES = ['planned', 'planning', 'active', 'complete'] as const;
 
 describe('plan service', () => {
   let tmpDir: string;
@@ -210,6 +215,77 @@ describe('plan service', () => {
 
     it('should handle single-char slugs', () => {
       expect(taskPlanSlug('x', 1)).toBe('x-T1');
+    });
+  });
+
+  describe('buildMilestoneFrontmatter', () => {
+    it('should produce a round-trippable frontmatter for simple values', () => {
+      const fm = buildMilestoneFrontmatter('My Milestone', 'planned', 'Backend only');
+      expect(fm).toContain('title: My Milestone');
+      expect(fm).toContain('status: planned');
+      expect(fm).toContain('scope: Backend only');
+    });
+
+    it('should quote title containing a colon', () => {
+      const fm = buildMilestoneFrontmatter('Auth: Login & Signup', 'planned');
+      expect(fm).toContain('title: "Auth: Login & Signup"');
+    });
+
+    it('should collapse multi-line scope to a single quoted line', () => {
+      const fm = buildMilestoneFrontmatter('M1', 'planned', 'Line one\nLine two\nLine three');
+      expect(fm).not.toContain('\n\n');
+      expect(fm).toContain('scope: "Line one Line two Line three"');
+    });
+
+    it('should round-trip through writePlanFile + listMilestones', () => {
+      const filename = 'm1-test.plan.md';
+      const scope = 'Multi\nline\nscope content';
+      const content = buildMilestoneFrontmatter('Test Milestone', 'active', scope);
+      writePlanFile(specsDir, specSlug, filename, content);
+
+      const milestones = listMilestones(specsDir, specSlug);
+      expect(milestones).toHaveLength(1);
+      expect(milestones[0].title).toBe('Test Milestone');
+      expect(milestones[0].status).toBe('active');
+      // Newlines are collapsed to spaces on serialization
+      expect(milestones[0].scope).toBe('Multi line scope content');
+    });
+  });
+
+  describe('listMilestones status normalization', () => {
+    it('should normalize unknown status to "planned"', () => {
+      const content = '---\ntitle: Test\nstatus: draft\n---\n';
+      writePlanFile(specsDir, specSlug, 'm1-test.plan.md', content);
+      const milestones = listMilestones(specsDir, specSlug);
+      expect(milestones[0].status).toBe('planned');
+    });
+
+    it('should preserve valid statuses', () => {
+      for (const status of ['planned', 'planning', 'active', 'complete'] as const) {
+        const content = `---\ntitle: Test\nstatus: ${status}\n---\n`;
+        const filename = `m${VALID_STATUSES.indexOf(status) + 1}-test.plan.md`;
+        writePlanFile(specsDir, specSlug, filename, content);
+      }
+      const milestones = listMilestones(specsDir, specSlug);
+      expect(milestones.map((m) => m.status)).toEqual(['planned', 'planning', 'active', 'complete']);
+    });
+
+    it('should normalize empty status to "planned"', () => {
+      const content = '---\ntitle: Test\n---\n';
+      writePlanFile(specsDir, specSlug, 'm1-test.plan.md', content);
+      const milestones = listMilestones(specsDir, specSlug);
+      expect(milestones[0].status).toBe('planned');
+    });
+  });
+
+  describe('planFileExists', () => {
+    it('should return false for a non-existent file', () => {
+      expect(planFileExists(specsDir, specSlug, 'm1-missing.plan.md')).toBe(false);
+    });
+
+    it('should return true after writing a file', () => {
+      writePlanFile(specsDir, specSlug, 'm1-exists.plan.md', 'content');
+      expect(planFileExists(specsDir, specSlug, 'm1-exists.plan.md')).toBe(true);
     });
   });
 

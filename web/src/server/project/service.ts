@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { isImagePath } from '@/lib/file-types';
 import { readImageAsDataUri } from '../files/image';
 import { getWorkspaceDir } from '../engy-dir/init';
 import { getDb } from '../db/client';
-import { tasks } from '../db/schema';
+import { tasks, projects, workspaces } from '../db/schema';
 import {
   parseFrontmatter,
   serializeFrontmatter,
@@ -140,9 +140,12 @@ export function initProjectDir(workspace: Workspace, slug: string): void {
   const projDir = path.join(dir, slug);
   fs.mkdirSync(projDir, { recursive: true });
 
-  const frontmatter: SpecFrontmatter = { title: slug, status: 'draft', type: 'buildable' };
-  const body = `# ${slug}\n`;
-  fs.writeFileSync(path.join(projDir, 'spec.md'), serializeFrontmatter(frontmatter, body));
+  const specMdPath = path.join(projDir, 'spec.md');
+  if (!fs.existsSync(specMdPath)) {
+    const frontmatter: SpecFrontmatter = { title: slug, status: 'draft', type: 'buildable' };
+    const body = `# ${slug}\n`;
+    fs.writeFileSync(specMdPath, serializeFrontmatter(frontmatter, body));
+  }
 }
 
 export function removeProjectDir(workspace: Workspace, slug: string): void {
@@ -189,7 +192,25 @@ export function updateProjectSpec(
   const { frontmatter, body, raw } = parseFrontmatter(content);
 
   if (updates.status && updates.status !== frontmatter.status) {
-    validateStatusTransition(frontmatter.type, frontmatter.status, updates.status, projectSlug);
+    const db = getDb();
+    const ws = db.select().from(workspaces).where(eq(workspaces.slug, workspace.slug)).get();
+    if (!ws) {
+      throw new Error(`Workspace "${workspace.slug}" not found`);
+    }
+    const project = db
+      .select()
+      .from(projects)
+      .where(and(eq(projects.workspaceId, ws.id), eq(projects.slug, projectSlug)))
+      .get();
+    if (!project) {
+      throw new Error(`Project "${projectSlug}" not found in workspace "${workspace.slug}"`);
+    }
+    validateStatusTransition(
+      frontmatter.type,
+      frontmatter.status,
+      updates.status,
+      project.id,
+    );
   }
 
   const newFrontmatter: SpecFrontmatter = {
@@ -304,6 +325,10 @@ export function writeProjectFile(
   const projDir = validatePath(dir, projectSlug);
   const resolved = validatePath(projDir, filePath);
 
+  if (resolved === path.join(projDir, 'spec.md')) {
+    throw new Error('Use updateProjectSpec to modify spec.md');
+  }
+
   fs.mkdirSync(path.dirname(resolved), { recursive: true });
   fs.writeFileSync(resolved, content);
 }
@@ -324,6 +349,10 @@ export function deleteProjectFile(
   const projDir = validatePath(dir, projectSlug);
   const resolved = validatePath(projDir, filePath);
 
+  if (resolved === path.join(projDir, 'spec.md')) {
+    throw new Error('Cannot delete spec.md');
+  }
+
   if (!fs.existsSync(resolved)) {
     throw new Error(`File "${filePath}" not found in project "${projectSlug}"`);
   }
@@ -343,6 +372,11 @@ export function deleteProjectSubDir(
   const dir = projectsDir(workspace);
   const projDir = validatePath(dir, projectSlug);
   const resolved = validatePath(projDir, subDir);
+
+  // Reject attempts to delete the project root itself.
+  if (resolved === projDir) {
+    throw new Error(`Cannot delete project root directory`);
+  }
 
   if (!fs.existsSync(resolved)) {
     throw new Error(`Directory "${subDir}" not found in project "${projectSlug}"`);
@@ -365,6 +399,10 @@ export function renameProjectFile(
   const projDir = validatePath(dir, projectSlug);
   const resolvedOld = validatePath(projDir, oldPath);
   const resolvedNew = validatePath(projDir, newPath);
+
+  if (resolvedOld === path.join(projDir, 'spec.md')) {
+    throw new Error('Cannot rename spec.md');
+  }
 
   if (!fs.existsSync(resolvedOld)) {
     throw new Error(`File "${oldPath}" not found in project "${projectSlug}"`);
@@ -407,9 +445,9 @@ export function renameProjectSubDir(
   fs.renameSync(resolvedOld, resolvedNew);
 }
 
-export function checkProjectReadiness(projectSlug: string): boolean {
+export function checkProjectReadiness(projectId: number): boolean {
   const db = getDb();
-  const projectTasks = db.select().from(tasks).where(eq(tasks.specId, projectSlug)).all();
+  const projectTasks = db.select().from(tasks).where(eq(tasks.projectId, projectId)).all();
   return projectTasks.length === 0 || projectTasks.every((t) => t.status === 'done');
 }
 
@@ -419,7 +457,7 @@ function validateStatusTransition(
   type: SpecType,
   current: SpecStatus,
   next: SpecStatus,
-  projectSlug: string,
+  projectId: number,
 ): void {
   const transitions = type === 'vision' ? VISION_TRANSITIONS : BUILDABLE_TRANSITIONS;
   const allowed = transitions[current] ?? [];
@@ -429,7 +467,7 @@ function validateStatusTransition(
   }
 
   if (type === 'buildable' && current === 'draft' && next === 'ready') {
-    if (!checkProjectReadiness(projectSlug)) {
+    if (!checkProjectReadiness(projectId)) {
       throw new Error('Cannot mark spec as ready: incomplete tasks exist');
     }
   }

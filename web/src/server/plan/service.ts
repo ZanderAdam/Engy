@@ -49,6 +49,12 @@ export function writePlanFile(
   fs.writeFileSync(filePath, content);
 }
 
+export function planFileExists(specsDir: string, specSlug: string, filename: string): boolean {
+  const specDir = validatePath(specsDir, specSlug);
+  const filePath = validatePath(specDir, filename);
+  return fs.existsSync(filePath);
+}
+
 export function readPlanFile(
   specsDir: string,
   specSlug: string,
@@ -90,6 +96,13 @@ export function deletePlanFile(
 
 export type MilestoneStatus = 'planned' | 'planning' | 'active' | 'complete';
 
+const VALID_MILESTONE_STATUSES: readonly MilestoneStatus[] = [
+  'planned',
+  'planning',
+  'active',
+  'complete',
+];
+
 type FilesystemMilestone = {
   ref: string;
   num: number;
@@ -106,9 +119,34 @@ function parseFrontmatter(content: string): Record<string, string> {
   for (const line of match[1].split('\n')) {
     const sep = line.indexOf(':');
     if (sep === -1) continue;
-    result[line.slice(0, sep).trim()] = line.slice(sep + 1).trim();
+    const key = line.slice(0, sep).trim();
+    let value = line.slice(sep + 1).trim();
+    // Strip surrounding double quotes (written by quoteFrontmatterValue).
+    if (value.startsWith('"') && value.endsWith('"')) {
+      value = value.slice(1, -1).replace(/\\"/g, '"');
+    }
+    result[key] = value;
   }
   return result;
+}
+
+function quoteFrontmatterValue(value: string): string {
+  // Wrap in double quotes if the value contains characters that would break
+  // the simple line-based parse (newlines, leading/trailing spaces, colons at start).
+  // Newlines are replaced with spaces — they can't safely round-trip as-is.
+  const normalized = value.replace(/\n+/g, ' ').trim();
+  if (normalized.includes('"') || normalized.includes(':') || normalized !== value.trim()) {
+    return `"${normalized.replace(/"/g, '\\"')}"`;
+  }
+  return normalized;
+}
+
+function normalizeMilestoneStatus(raw: string): MilestoneStatus {
+  if ((VALID_MILESTONE_STATUSES as readonly string[]).includes(raw)) {
+    return raw as MilestoneStatus;
+  }
+  console.warn(`[plan] unknown milestone status "${raw}", defaulting to "planned"`);
+  return 'planned';
 }
 
 function parseMilestoneFilename(filename: string): { num: number } | null {
@@ -122,8 +160,8 @@ export function buildMilestoneFrontmatter(
   status: MilestoneStatus,
   scope?: string,
 ): string {
-  const lines = ['---', `title: ${title}`, `status: ${status}`];
-  if (scope) lines.push(`scope: ${scope}`);
+  const lines = ['---', `title: ${quoteFrontmatterValue(title)}`, `status: ${status}`];
+  if (scope) lines.push(`scope: ${quoteFrontmatterValue(scope)}`);
   lines.push('---\n');
   return lines.join('\n');
 }
@@ -149,7 +187,7 @@ export function listMilestones(specsDir: string, specSlug: string): FilesystemMi
       num: parsed.num,
       filename,
       title: fm.title ?? titleFromFilename(filename),
-      status: (fm.status as MilestoneStatus) ?? 'planned',
+      status: normalizeMilestoneStatus(fm.status ?? ''),
       scope: fm.scope || undefined,
     });
   }
