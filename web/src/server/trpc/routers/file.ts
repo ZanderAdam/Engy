@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
@@ -6,7 +7,28 @@ import {
   dispatchFileRead,
   dispatchFileWrite,
   dispatchValidation,
+  dispatchCreateDir,
+  dispatchFsDelete,
+  dispatchFsRename,
 } from '../../ws/server';
+
+/**
+ * Compose rootDir + relPath into an absolute path for the daemon, rejecting
+ * escapes. FS_DELETE/FS_RENAME validate on the daemon side; CREATE_DIR is a
+ * raw mkdir op (also used with absolute paths by workspace creation), so the
+ * containment check for dir creation lives here instead.
+ */
+function resolveContainedDirPath(rootDir: string, relPath: string): string {
+  if (path.isAbsolute(relPath)) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: `Absolute paths not allowed: ${relPath}` });
+  }
+  const resolved = path.resolve(rootDir, relPath);
+  const rel = path.relative(path.resolve(rootDir), resolved);
+  if (rel === '' || rel === '..' || rel.startsWith(`..${path.sep}`)) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: `Path traversal detected: ${relPath}` });
+  }
+  return resolved;
+}
 
 export const fileRouter = router({
   validatePaths: publicProcedure
@@ -78,5 +100,48 @@ export const fileRouter = router({
     .mutation(async ({ input, ctx }) => {
       const dir = input.worktreePath ?? input.repoDir;
       return dispatchFileWrite(dir, input.filePath, input.content, ctx.state, input.coderWorkspace);
+    }),
+
+  createDir: publicProcedure
+    .input(
+      z.object({
+        rootDir: z.string().min(1),
+        relPath: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const dirPath = resolveContainedDirPath(input.rootDir, input.relPath);
+      const result = await dispatchCreateDir([dirPath], ctx.state);
+      const entry = result.results.find((r) => r.path === dirPath);
+      if (entry && !entry.success) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: entry.error ?? 'Failed to create directory',
+        });
+      }
+      return { success: true };
+    }),
+
+  deleteEntry: publicProcedure
+    .input(
+      z.object({
+        rootDir: z.string().min(1),
+        relPath: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      return dispatchFsDelete(input.rootDir, input.relPath, ctx.state);
+    }),
+
+  renameEntry: publicProcedure
+    .input(
+      z.object({
+        rootDir: z.string().min(1),
+        oldRelPath: z.string().min(1),
+        newRelPath: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      return dispatchFsRename(input.rootDir, input.oldRelPath, input.newRelPath, ctx.state);
     }),
 });

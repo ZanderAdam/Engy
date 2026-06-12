@@ -230,6 +230,11 @@ export interface GitWorktreeListResponseMessage {
 
 // ── File operations (server ↔ daemon) ────────────────────────────────────────
 
+export interface DirListEntry {
+  name: string;
+  mtime: number;
+}
+
 export interface DirListRequestMessage {
   type: 'DIR_LIST_REQUEST';
   payload: {
@@ -241,7 +246,40 @@ export interface DirListRequestMessage {
 export interface DirListResponseMessage {
   type: 'DIR_LIST_RESPONSE';
   payload:
-    | { requestId: string; dirs: string[]; files: string[] }
+    | { requestId: string; dirs: string[]; files: DirListEntry[] }
+    | { requestId: string; error: string };
+}
+
+export interface FsDeleteRequestMessage {
+  type: 'FS_DELETE_REQUEST';
+  payload: {
+    requestId: string;
+    rootDir: string;
+    relPath: string;
+  };
+}
+
+export interface FsDeleteResponseMessage {
+  type: 'FS_DELETE_RESPONSE';
+  payload:
+    | { requestId: string; success: boolean }
+    | { requestId: string; error: string };
+}
+
+export interface FsRenameRequestMessage {
+  type: 'FS_RENAME_REQUEST';
+  payload: {
+    requestId: string;
+    rootDir: string;
+    oldRelPath: string;
+    newRelPath: string;
+  };
+}
+
+export interface FsRenameResponseMessage {
+  type: 'FS_RENAME_RESPONSE';
+  payload:
+    | { requestId: string; success: boolean }
     | { requestId: string; error: string };
 }
 
@@ -582,6 +620,10 @@ export type WsMessage =
   | GlobFilesResponseMessage
   | FileWriteRequestMessage
   | FileWriteResponseMessage
+  | FsDeleteRequestMessage
+  | FsDeleteResponseMessage
+  | FsRenameRequestMessage
+  | FsRenameResponseMessage
   | RemoteFilePullRequestMessage
   | RemoteFilePullResponseMessage
   | RemoteFilePushRequestMessage
@@ -625,6 +667,8 @@ export type ClientToServerMessage =
   | FileReadResponseMessage
   | GlobFilesResponseMessage
   | FileWriteResponseMessage
+  | FsDeleteResponseMessage
+  | FsRenameResponseMessage
   | RemoteFilePullResponseMessage
   | RemoteFilePushResponseMessage
   | WorktreeMergeResultMessage
@@ -656,6 +700,8 @@ export type ServerToClientMessage =
   | FileReadRequestMessage
   | GlobFilesRequestMessage
   | FileWriteRequestMessage
+  | FsDeleteRequestMessage
+  | FsRenameRequestMessage
   | RemoteFilePullRequestMessage
   | RemoteFilePushRequestMessage
   | WorktreeMergeRequestMessage

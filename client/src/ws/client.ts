@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 import path from 'node:path';
 import os from 'node:os';
-import { access, mkdir, readdir } from 'node:fs/promises';
+import { access, mkdir, readdir, rm, rename, stat } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type {
@@ -16,6 +16,7 @@ import type {
   GitShowRequestMessage,
   GitBranchFilesRequestMessage,
   GitWorktreeListRequestMessage,
+  DirListEntry,
   DirListRequestMessage,
   FileReadRequestMessage,
   FileWriteRequestMessage,
@@ -33,6 +34,8 @@ import type {
   WorktreeRemoveRequestMessage,
   WorktreeRemoveErrorCode,
   GlobFilesRequestMessage,
+  FsDeleteRequestMessage,
+  FsRenameRequestMessage,
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
@@ -253,6 +256,18 @@ async function searchFilesInDirs(
   }
 
   return results;
+}
+
+function resolveContainedPath(rootDir: string, relPath: string, label: string): string {
+  if (path.isAbsolute(relPath)) {
+    throw new Error(`${label} must be relative, got: ${relPath}`);
+  }
+  const resolved = path.resolve(rootDir, relPath);
+  const rel = path.relative(path.resolve(rootDir), resolved);
+  if (rel === '..' || rel.startsWith(`..${path.sep}`)) {
+    throw new Error(`Path traversal rejected for ${label}: ${relPath}`);
+  }
+  return resolved;
 }
 
 export class WsClient {
@@ -541,6 +556,12 @@ export class WsClient {
       case 'CREATE_DIR_REQUEST':
         this.handleCreateDirRequest(message as CreateDirRequestMessage);
         break;
+      case 'FS_DELETE_REQUEST':
+        this.handleFsDeleteRequest(message as FsDeleteRequestMessage);
+        break;
+      case 'FS_RENAME_REQUEST':
+        this.handleFsRenameRequest(message as FsRenameRequestMessage);
+        break;
     }
   }
 
@@ -719,15 +740,25 @@ export class WsClient {
     const { requestId, dirPath } = message.payload;
     try {
       const entries = await readdir(dirPath, { withFileTypes: true });
-      const dirs: string[] = [];
-      const files: string[] = [];
-      for (const entry of entries) {
-        if (entry.isDirectory()) dirs.push(entry.name);
-        else if (entry.isFile()) files.push(entry.name);
-      }
+      const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+      const statted = await Promise.all(
+        entries
+          .filter((e) => e.isFile())
+          .map(async (e): Promise<DirListEntry | null> => {
+            try {
+              const s = await stat(path.join(dirPath, e.name));
+              return { name: e.name, mtime: s.mtimeMs };
+            } catch {
+              return null; // Entry deleted between readdir and stat — skip it
+            }
+          }),
+      );
+      const fileEntries = statted.filter((e): e is DirListEntry => e !== null);
+      dirs.sort();
+      fileEntries.sort((a, b) => a.name.localeCompare(b.name));
       this.send({
         type: 'DIR_LIST_RESPONSE',
-        payload: { requestId, dirs: dirs.sort(), files: files.sort() },
+        payload: { requestId, dirs, files: fileEntries },
       });
     } catch (err) {
       this.send({
@@ -761,6 +792,53 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'CREATE_DIR_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleFsDeleteRequest(message: FsDeleteRequestMessage): Promise<void> {
+    const { requestId, rootDir, relPath } = message.payload;
+    try {
+      const resolved = resolveContainedPath(rootDir, relPath, 'relPath');
+      if (resolved === path.resolve(rootDir)) {
+        throw new Error('Cannot delete root directory');
+      }
+      await rm(resolved, { recursive: true });
+      this.send({
+        type: 'FS_DELETE_RESPONSE',
+        payload: { requestId, success: true },
+      });
+    } catch (err) {
+      this.send({
+        type: 'FS_DELETE_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleFsRenameRequest(message: FsRenameRequestMessage): Promise<void> {
+    const { requestId, rootDir, oldRelPath, newRelPath } = message.payload;
+    try {
+      const resolvedOld = resolveContainedPath(rootDir, oldRelPath, 'oldRelPath');
+      const resolvedNew = resolveContainedPath(rootDir, newRelPath, 'newRelPath');
+      try {
+        await stat(resolvedNew);
+        throw new Error(`Target already exists: ${newRelPath}`);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw err;
+        }
+      }
+      await mkdir(path.dirname(resolvedNew), { recursive: true });
+      await rename(resolvedOld, resolvedNew);
+      this.send({
+        type: 'FS_RENAME_RESPONSE',
+        payload: { requestId, success: true },
+      });
+    } catch (err) {
+      this.send({
+        type: 'FS_RENAME_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }

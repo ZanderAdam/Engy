@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { TreeView, type TreeDataItem } from '@/components/tree-view';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
@@ -43,8 +43,6 @@ import {
   RiFileCopyLine,
   RiFileTextLine,
   RiFolderAddLine,
-  RiFolderLine,
-  RiImageLine,
   RiLoopLeftLine,
   RiMore2Line,
   RiPencilLine,
@@ -55,10 +53,14 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { isImagePath } from '@/lib/file-types';
-
-type FileEntry = { path: string; mtime: number };
-type SortMode = 'modified' | 'name';
-type SortDir = 'asc' | 'desc';
+import {
+  type FileEntry,
+  type SortMode,
+  type SortDir,
+  buildFileTree,
+  parentPrefix,
+  applyDefaultExtension,
+} from '@/components/file-tree-helpers';
 
 interface FileTreeProps {
   files: FileEntry[];
@@ -75,115 +77,10 @@ interface FileTreeProps {
   onRenameDir?: (oldPath: string, newPath: string) => void;
   onRefresh?: () => void;
   isRefreshing?: boolean;
-}
-
-interface DirNode {
-  children: Map<string, DirNode>;
-  files: { name: string; path: string; mtime: number }[];
-  maxMtime: number;
-}
-
-function buildTrie(files: FileEntry[], dirs: string[]): DirNode {
-  const root: DirNode = { children: new Map(), files: [], maxMtime: 0 };
-
-  for (const f of files) {
-    const parts = f.path.split('/');
-    const fileName = parts.pop()!;
-    let node = root;
-    for (const segment of parts) {
-      if (!node.children.has(segment)) {
-        node.children.set(segment, { children: new Map(), files: [], maxMtime: 0 });
-      }
-      node = node.children.get(segment)!;
-      if (f.mtime > node.maxMtime) node.maxMtime = f.mtime;
-    }
-    node.files.push({ name: fileName, path: f.path, mtime: f.mtime });
-    if (f.mtime > root.maxMtime) root.maxMtime = f.mtime;
-  }
-
-  // Ensure empty directories are represented in the trie
-  for (const d of dirs) {
-    const parts = d.split('/');
-    let node = root;
-    for (const segment of parts) {
-      if (!node.children.has(segment)) {
-        node.children.set(segment, { children: new Map(), files: [], maxMtime: 0 });
-      }
-      node = node.children.get(segment)!;
-    }
-  }
-
-  return root;
-}
-
-function trieToTreeItems(
-  node: DirNode,
-  parentPath: string,
-  sortMode: SortMode,
-  sortDir: SortDir,
-  dirActions?: (dirPath: string) => React.ReactNode,
-  fileActions?: (filePath: string) => React.ReactNode,
-): TreeDataItem[] {
-  const sortMul = sortDir === 'asc' ? 1 : -1;
-
-  const sortedFiles = [...node.files].sort((a, b) => {
-    if (sortMode === 'modified') return (a.mtime - b.mtime) * sortMul;
-    return a.name.localeCompare(b.name) * sortMul;
-  });
-
-  const fileItems: TreeDataItem[] = sortedFiles.map((f) => ({
-    id: f.path,
-    name: f.name,
-    icon: isImagePath(f.name) ? RiImageLine : RiFileTextLine,
-    actions: fileActions?.(f.path),
-  }));
-
-  const dirEntries = [...node.children.entries()];
-  if (sortMode === 'modified') {
-    dirEntries.sort((a, b) => (a[1].maxMtime - b[1].maxMtime) * sortMul);
-  } else {
-    dirEntries.sort((a, b) => a[0].localeCompare(b[0]) * sortMul);
-  }
-
-  const dirItems: TreeDataItem[] = dirEntries.map(([dirName, dirNode]) => {
-    const dirPath = parentPath ? `${parentPath}/${dirName}` : dirName;
-    return {
-      id: `dir:${dirPath}`,
-      name: dirName,
-      icon: RiFolderLine,
-      children: trieToTreeItems(dirNode, dirPath, sortMode, sortDir, dirActions, fileActions),
-      actions: dirActions?.(dirPath),
-    };
-  });
-
-  return [...dirItems, ...fileItems];
-}
-
-function parentPrefix(itemPath: string): string {
-  const idx = itemPath.lastIndexOf('/');
-  return idx >= 0 ? itemPath.substring(0, idx + 1) : '';
-}
-
-function buildFileTree(
-  files: FileEntry[],
-  dirs: string[],
-  sortMode: SortMode,
-  sortDir: SortDir,
-  filterText: string,
-  dirActions?: (dirPath: string) => React.ReactNode,
-  fileActions?: (filePath: string) => React.ReactNode,
-): TreeDataItem[] {
-  const lowerFilter = filterText.toLowerCase();
-  const filtered = lowerFilter
-    ? files.filter((f) => f.path.toLowerCase().includes(lowerFilter))
-    : files;
-
-  const filteredDirs = lowerFilter
-    ? dirs.filter((d) => d.toLowerCase().includes(lowerFilter))
-    : dirs;
-
-  const root = buildTrie(filtered, filteredDirs);
-  return trieToTreeItems(root, '', sortMode, sortDir, dirActions, fileActions);
+  onDirClick?: (dirPath: string) => void;
+  searchFiles?: (query: string) => Promise<string[]>;
+  defaultExtension?: string;
+  canManageFile?: (relPath: string) => boolean;
 }
 
 function ItemActions({
@@ -196,6 +93,7 @@ function ItemActions({
   onDelete,
   onRename,
   size = 'sm',
+  defaultExtension,
 }: {
   type: 'file' | 'dir';
   itemPath: string;
@@ -206,6 +104,7 @@ function ItemActions({
   onDelete?: () => void;
   onRename?: (newName: string) => void;
   size?: 'sm' | 'xs';
+  defaultExtension?: string;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [createMode, setCreateMode] = useState<'file' | 'folder'>('file');
@@ -221,8 +120,7 @@ function ItemActions({
     if (!trimmed) return;
 
     if (createMode === 'file') {
-      const finalName = trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
-      onCreateFile?.(itemPath, finalName);
+      onCreateFile?.(itemPath, applyDefaultExtension(trimmed, defaultExtension));
     } else {
       onCreateDir?.(itemPath ? `${itemPath}/${trimmed}` : trimmed);
     }
@@ -246,11 +144,12 @@ function ItemActions({
     const trimmed = renameName.trim();
     if (!trimmed || trimmed === itemName) return;
 
-    const finalName = type === 'file' && !trimmed.endsWith('.md') ? `${trimmed}.md` : trimmed;
+    const finalName = type === 'file' ? applyDefaultExtension(trimmed, defaultExtension) : trimmed;
     onRename?.(finalName);
     setRenameOpen(false);
   }
 
+  const filePlaceholder = `filename${defaultExtension ?? ''}`;
   const iconSize = size === 'xs' ? 'size-3' : 'size-3.5';
   const btnSize = size === 'xs' ? 'size-5' : 'size-6';
 
@@ -346,7 +245,7 @@ function ItemActions({
                 autoFocus
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
-                placeholder={createMode === 'folder' ? 'folder-name' : 'filename.md'}
+                placeholder={createMode === 'folder' ? 'folder-name' : filePlaceholder}
                 className="h-8 text-sm"
               />
               <DialogFooter className="mt-3">
@@ -455,12 +354,42 @@ export function FileTree({
   onRenameDir,
   onRefresh,
   isRefreshing,
+  onDirClick,
+  searchFiles,
+  defaultExtension,
+  canManageFile,
 }: FileTreeProps) {
   const [sortMode, setSortMode] = useState<SortMode>('modified');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [filterText, setFilterText] = useState('');
+  const [searchResults, setSearchResults] = useState<string[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchRequestRef = useRef(0);
 
   const hasCreateActions = !!onCreateFile || !!onCreateDir;
+
+  async function handleFilterChange(query: string) {
+    setFilterText(query);
+    if (!searchFiles) return;
+    const requestId = ++searchRequestRef.current;
+    if (!query.trim()) {
+      setSearchResults(null);
+      setIsSearching(false);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const results = await searchFiles(query);
+      // Fast typing can resolve out of order — only the latest query may land
+      if (searchRequestRef.current === requestId) setSearchResults(results);
+    } catch (err) {
+      if (searchRequestRef.current === requestId) {
+        toast.error(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (searchRequestRef.current === requestId) setIsSearching(false);
+    }
+  }
 
   const dirActions = useMemo(
     () =>
@@ -480,20 +409,18 @@ export function FileTree({
                   : undefined
               }
               size="xs"
+              defaultExtension={defaultExtension}
             />
           )
         : undefined,
-    [hasCreateActions, rootAbsPath, onCreateFile, onCreateDir, onDeleteDir, onRenameDir],
+    [hasCreateActions, rootAbsPath, onCreateFile, onCreateDir, onDeleteDir, onRenameDir, defaultExtension],
   );
 
   const fileActions = useMemo(
     () =>
       onDeleteFile || onRenameFile
         ? (filePath: string) => {
-            // Rename/delete are markdown-only on the server, and the rename
-            // dialog auto-appends ".md" — both would corrupt or reject images.
-            // Images stay preview-only (copy-path remains available).
-            const manageable = !isImagePath(filePath);
+            const manageable = canManageFile ? canManageFile(filePath) : !isImagePath(filePath);
             return (
               <ItemActions
                 type="file"
@@ -508,17 +435,37 @@ export function FileTree({
                     : undefined
                 }
                 size="xs"
+                defaultExtension={defaultExtension}
               />
             );
           }
         : undefined,
-    [rootAbsPath, onDeleteFile, onRenameFile],
+    [rootAbsPath, onDeleteFile, onRenameFile, canManageFile, defaultExtension],
   );
 
-  const treeData: TreeDataItem[] = useMemo(
-    () => buildFileTree(files, dirs, sortMode, sortDir, filterText, dirActions, fileActions),
-    [files, dirs, sortMode, sortDir, filterText, dirActions, fileActions],
-  );
+  const treeData: TreeDataItem[] = useMemo(() => {
+    const activeFiles: FileEntry[] =
+      searchFiles && searchResults !== null
+        ? searchResults.map((p) => ({ path: p, mtime: 0 }))
+        : files;
+    const activeDirs = searchFiles && searchResults !== null ? [] : dirs;
+    const activeFilter = searchFiles ? '' : filterText;
+    return buildFileTree(
+      activeFiles,
+      activeDirs,
+      sortMode,
+      sortDir,
+      activeFilter,
+      dirActions,
+      fileActions,
+      onDirClick,
+    );
+  }, [files, dirs, searchFiles, searchResults, filterText, sortMode, sortDir, dirActions, fileActions, onDirClick]);
+
+  const searchPlaceholder = searchFiles ? 'Search files...' : 'Filter files...';
+  const emptyMessage = filterText || (searchResults !== null && searchResults.length === 0)
+    ? 'No matching files'
+    : 'No files yet';
 
   return (
     <div className="flex h-full flex-col">
@@ -567,25 +514,35 @@ export function FileTree({
               itemName=""
               onCreateFile={onCreateFile}
               onCreateDir={onCreateDir}
+              defaultExtension={defaultExtension}
             />
           )}
         </div>
       </div>
       <div className="relative px-3 py-1.5 border-b border-border">
-        <RiSearchLine className="absolute left-5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+        <RiSearchLine
+          className={cn(
+            'absolute left-5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground',
+            isSearching && 'animate-spin',
+          )}
+        />
         <Input
           value={filterText}
-          onChange={(e) => setFilterText(e.target.value)}
-          placeholder="Filter files..."
+          onChange={(e) => {
+            if (searchFiles) {
+              void handleFilterChange(e.target.value);
+            } else {
+              setFilterText(e.target.value);
+            }
+          }}
+          placeholder={searchPlaceholder}
           className="h-6 pl-6 text-xs border-0 bg-transparent focus-visible:ring-0"
         />
       </div>
       <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block">
         {treeData.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-10 px-4">
-            <p className="text-sm text-muted-foreground">
-              {filterText ? 'No matching files' : 'No files yet'}
-            </p>
+            <p className="text-sm text-muted-foreground">{emptyMessage}</p>
           </div>
         ) : (
           <div className="p-2">
