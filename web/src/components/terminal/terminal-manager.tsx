@@ -114,6 +114,18 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     myTabIdRef.current = myTabId;
   }, [myTabId]);
 
+  // Tracks whether tabCtx.isActive is true — kept in a ref so event handlers
+  // registered once (e.g. dockview's onReady) always read the latest value
+  // without needing to be re-registered (standard latest-ref pattern).
+  const isActiveRef = useRef(tabCtx?.isActive ?? true);
+  useEffect(() => {
+    isActiveRef.current = tabCtx?.isActive ?? true;
+  }, [tabCtx?.isActive]);
+
+  // True when this manager last wrote window.__engy_terminal_active = true,
+  // so cleanup knows whether it should clear the global.
+  const wroteActiveTrueRef = useRef(false);
+
   const tabsRef = useRef<Map<string, TerminalTab>>(new Map());
   const tabWsRefs = useRef<Map<string, TerminalActions>>(new Map());
   const dockviewApiRef = useRef<DockviewApi | null>(null);
@@ -131,10 +143,26 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     const api = dockviewApiRef.current;
     if (!api) return;
 
+    // Suffix duplicate labels with an ordinal so two tabs with the same scope
+    // are distinguishable (e.g. "project: initial" vs "project: initial (2)").
+    const baseLabel = finalScope.scopeLabel;
+    const existingLabels = new Set(
+      [...tabsRef.current.values()].map((t) => t.scope.scopeLabel),
+    );
+    let label = baseLabel;
+    if (existingLabels.has(baseLabel)) {
+      let ordinal = 2;
+      while (existingLabels.has(`${baseLabel} (${ordinal})`)) ordinal++;
+      label = `${baseLabel} (${ordinal})`;
+    }
+
     const sessionId = randomId();
+    const scopeWithLabel: TerminalScope = label !== baseLabel
+      ? { ...finalScope, scopeLabel: label }
+      : finalScope;
     const newTab: TerminalTab = {
       sessionId,
-      scope: finalScope,
+      scope: scopeWithLabel,
       status: 'connecting',
     };
     tabsRef.current.set(sessionId, newTab);
@@ -143,7 +171,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       id: sessionId,
       component: 'terminal',
       tabComponent: 'terminal-tab',
-      title: finalScope.scopeLabel,
+      title: label,
       params: { tab: newTab } satisfies TerminalPanelParams,
       renderer: 'always',
       ...(position && { position }),
@@ -162,21 +190,37 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     const activeId = api?.activePanel?.id;
     const tab = activeId != null ? tabsRef.current.get(activeId) : undefined;
     const hasActiveTab = tab != null && tab.status !== 'exited';
-    // Only the active project tab (or a tab-less manager) writes the global flag
-    if (!myTabId || tabCtx?.isActive) {
-      window.__engy_terminal_active = hasActiveTab;
+    const tabId = myTabIdRef.current;
+
+    // Write per-tab map so useTerminalActive can seed correctly for any tab.
+    if (tabId) {
+      window.__engy_terminal_active_by_tab = {
+        ...window.__engy_terminal_active_by_tab,
+        [tabId]: hasActiveTab,
+      };
     }
+
+    // Only the active project tab (or a tab-less manager) writes the global flag.
+    // Read isActiveRef.current so handlers registered at mount always see the
+    // latest active state rather than the mount-time snapshot.
+    if (!tabId || isActiveRef.current) {
+      window.__engy_terminal_active = hasActiveTab;
+      wroteActiveTrueRef.current = hasActiveTab;
+    }
+
     window.dispatchEvent(
-      new CustomEvent('terminal:active-changed', { detail: { hasActiveTab, tabId: myTabId } }),
+      new CustomEvent('terminal:active-changed', { detail: { hasActiveTab, tabId } }),
     );
-  }, [disableExternalEvents, myTabId, tabCtx?.isActive]);
+  }, [disableExternalEvents]);
 
   const dispatchActivityEvent = useCallback((sessionId: string, activityState: TerminalActivityState) => {
     if (disableExternalEvents) return;
     window.dispatchEvent(
-      new CustomEvent('terminal:activity-changed', { detail: { sessionId, activityState, tabId: myTabId } }),
+      new CustomEvent('terminal:activity-changed', {
+        detail: { sessionId, activityState, tabId: myTabIdRef.current },
+      }),
     );
-  }, [disableExternalEvents, myTabId]);
+  }, [disableExternalEvents]);
 
   const handleStatusChange = useCallback(
     (sessionId: string, status: TerminalTab['status']) => {
@@ -253,8 +297,20 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     if (disableExternalEvents) return;
     return () => {
       const tabId = myTabIdRef.current;
-      // Only clear the global flag if we were the active tab (or no TabContext)
-      if (!tabId) window.__engy_terminal_active = false;
+
+      // Clear per-tab map entry
+      if (tabId && window.__engy_terminal_active_by_tab) {
+        const { [tabId]: _removed, ...rest } = window.__engy_terminal_active_by_tab;
+        window.__engy_terminal_active_by_tab = rest;
+      }
+
+      // Clear the global flag only if this manager last set it to true —
+      // i.e. this tab owned the active state. Without this guard, closing a
+      // non-owning tab would incorrectly zero out the flag for the real owner.
+      if (wroteActiveTrueRef.current) {
+        window.__engy_terminal_active = false;
+      }
+
       window.dispatchEvent(
         new CustomEvent('terminal:active-changed', { detail: { hasActiveTab: false, tabId } }),
       );

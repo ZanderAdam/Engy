@@ -46,7 +46,7 @@ describe('TerminalManager tabId filter predicate', () => {
 describe('broadcastActive global flag gate', () => {
   /**
    * The logic for writing window.__engy_terminal_active:
-   *   if (!myTabId || isActive) { window.__engy_terminal_active = hasActiveTab; }
+   *   if (!tabId || isActiveRef.current) { window.__engy_terminal_active = hasActiveTab; }
    *
    * Returns true if the global flag should be written.
    */
@@ -66,6 +66,38 @@ describe('broadcastActive global flag gate', () => {
   it('should NOT write global flag when current tab is inactive', () => {
     expect(shouldWriteGlobalFlag('tab-a', false)).toBe(false);
     expect(shouldWriteGlobalFlag('tab-b', false)).toBe(false);
+  });
+});
+
+describe('flag ownership cleanup (Bug B fix)', () => {
+  /**
+   * Simulates the cleanup logic:
+   *   if (wroteActiveTrueRef.current) window.__engy_terminal_active = false;
+   *
+   * Previously: cleanup cleared only when !tabId (never, since every manager
+   * has a tabId) — leaving the global stuck at true after tab close.
+   */
+  function simulateCleanup(
+    wroteActiveTrue: boolean,
+    globalBefore: boolean,
+  ): boolean {
+    let global = globalBefore;
+    if (wroteActiveTrue) global = false;
+    return global;
+  }
+
+  it('clears global when this manager last wrote true', () => {
+    expect(simulateCleanup(true, true)).toBe(false);
+  });
+
+  it('does NOT clear global when this manager never wrote true', () => {
+    // Tab B (inactive) unmounts — should leave Tab A's flag intact
+    expect(simulateCleanup(false, true)).toBe(true);
+  });
+
+  it('is a no-op when global was already false', () => {
+    expect(simulateCleanup(true, false)).toBe(false);
+    expect(simulateCleanup(false, false)).toBe(false);
   });
 });
 

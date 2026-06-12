@@ -10,7 +10,7 @@ import type { DockviewPanelApi } from "dockview";
 import { DARK_XTERM_THEME } from "@/hooks/use-xterm-theme";
 import { RiArrowDownSLine } from "@remixicon/react";
 import type { ActivityEvent, TerminalTab } from "./types";
-import { parseTerminalActivity } from "./parse-terminal-activity";
+import { createTerminalActivityParser } from "./parse-terminal-activity";
 import { createActivityTracker } from "./activity-tracker";
 import { ReconnectingSocket } from "./reconnecting-socket";
 import { MobileTerminalControls } from "./mobile-terminal-controls";
@@ -140,6 +140,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     // Activity detection via OSC title changes and PTY output bytes parsed from
     // raw WebSocket data. This works even when the terminal tab is hidden
     // (display:none), unlike xterm's onTitleChange which defers processing.
+    // One stateful parser instance per session so OSC sequences split across
+    // WS chunks are reassembled before title/bell detection.
+    const activityParser = createTerminalActivityParser();
     let lastTitle = '';
     const activityTracker = createActivityTracker({
       debounceMs: ACTIVITY_DEBOUNCE_MS,
@@ -234,7 +237,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
           if (msg.t === 'o' && msg.d) {
             // Parse activity from raw data before writing to xterm — this works
             // even when the terminal tab is hidden (xterm defers processing).
-            const activity = parseTerminalActivity(msg.d);
+            const activity = activityParser.parse(msg.d);
             for (const title of activity.titles) handleTitleChange(title);
             if (activity.hasBell) {
               activityTracker.handleBell();
