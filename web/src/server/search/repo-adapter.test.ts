@@ -40,12 +40,20 @@ function closeServer(server: Server): Promise<void> {
   });
 }
 
-/** Wait for the next message from a WS and return it parsed. */
-function waitForMessage(ws: WebSocket): Promise<unknown> {
+/**
+ * Wait for the next message of the given type and return it parsed.
+ * Registration triggers an unrelated WORKSPACES_SYNC push that can race
+ * ahead of the request under test — skip anything that doesn't match.
+ */
+function waitForMessage(ws: WebSocket, type: string): Promise<unknown> {
   return new Promise((resolve) => {
-    ws.once('message', (data) => {
-      resolve(JSON.parse(data.toString()));
-    });
+    const onMessage = (data: WebSocket.RawData) => {
+      const msg = JSON.parse(data.toString()) as { type: string };
+      if (msg.type !== type) return;
+      ws.off('message', onMessage);
+      resolve(msg);
+    };
+    ws.on('message', onMessage);
   });
 }
 
@@ -86,7 +94,7 @@ describe('makeDaemonRepoAdapter', () => {
       });
 
       const adapter = makeDaemonRepoAdapter(state);
-      const msgPromise = waitForMessage(daemon);
+      const msgPromise = waitForMessage(daemon, 'GLOB_FILES_REQUEST');
       const globPromise = adapter.globTestFiles('/repo/root');
 
       const request = (await msgPromise) as {
@@ -126,7 +134,7 @@ describe('makeDaemonRepoAdapter', () => {
       });
 
       const adapter = makeDaemonRepoAdapter(state);
-      const msgPromise = waitForMessage(daemon);
+      const msgPromise = waitForMessage(daemon, 'GLOB_FILES_REQUEST');
       const globPromise = adapter.globTestFiles('/repo/root');
 
       const request = (await msgPromise) as {
@@ -163,7 +171,7 @@ describe('makeDaemonRepoAdapter', () => {
       });
 
       const adapter = makeDaemonRepoAdapter(state);
-      const msgPromise = waitForMessage(daemon);
+      const msgPromise = waitForMessage(daemon, 'FILE_READ_REQUEST');
       const readPromise = adapter.readFile('/repo/root/src/foo.test.ts');
 
       const request = (await msgPromise) as {
@@ -203,7 +211,7 @@ describe('makeDaemonRepoAdapter', () => {
       });
 
       const adapter = makeDaemonRepoAdapter(state);
-      const msgPromise = waitForMessage(daemon);
+      const msgPromise = waitForMessage(daemon, 'VALIDATE_PATHS_REQUEST');
       const existsPromise = adapter.exists('/repo/root/src/foo.ts');
 
       const request = (await msgPromise) as {
@@ -240,7 +248,7 @@ describe('makeDaemonRepoAdapter', () => {
       });
 
       const adapter = makeDaemonRepoAdapter(state);
-      const msgPromise = waitForMessage(daemon);
+      const msgPromise = waitForMessage(daemon, 'VALIDATE_PATHS_REQUEST');
       const existsPromise = adapter.exists('/repo/root/src/missing.ts');
 
       const request = (await msgPromise) as {
