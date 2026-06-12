@@ -182,6 +182,32 @@ describe('createActivityTracker', () => {
 
       expect(events).toEqual([]);
     });
+
+    it('should emit idle when user types after a bell', () => {
+      const { tracker, events } = setup();
+      skipInitialSuppress();
+
+      tracker.handleBell();
+      expect(events).toEqual(['waiting']);
+
+      tracker.resetOnUserInput();
+
+      expect(events).toEqual(['waiting', 'idle']);
+    });
+
+    it('should emit idle when user types after debounce-triggered waiting', () => {
+      const { tracker, events } = setup();
+      skipInitialSuppress();
+
+      tracker.bumpActivity();
+      tracker.bumpActivity();
+      vi.advanceTimersByTime(DEBOUNCE_MS + 1);
+      expect(events).toEqual(['start', 'waiting']);
+
+      tracker.resetOnUserInput();
+
+      expect(events).toEqual(['start', 'waiting', 'idle']);
+    });
   });
 
   describe('suppress window (reconnect)', () => {
