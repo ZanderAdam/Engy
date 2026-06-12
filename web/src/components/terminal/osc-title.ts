@@ -22,11 +22,10 @@ export function sanitizeOscTitle(raw: string): string {
 
 /**
  * Apply an OSC title update to a tab. Returns the updated tab, or null when
- * no state change is needed (title pinned by a manual rename, or unchanged
- * after sanitization) so callers can skip redundant re-renders.
+ * the title is unchanged after sanitization so callers can skip redundant
+ * re-renders.
  */
 export function applyOscTitle(tab: TerminalTab, rawTitle: string): TerminalTab | null {
-  if (tab.titlePinned) return null;
   const oscTitle = sanitizeOscTitle(rawTitle) || undefined;
   if (tab.oscTitle === oscTitle) return null;
   return { ...tab, oscTitle };

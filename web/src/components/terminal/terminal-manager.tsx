@@ -245,16 +245,8 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     const existing = tabsRef.current.get(sessionId);
     if (!existing) return;
 
-    // Manual renames pin the label so OSC title updates no longer overwrite it.
-    commitTab(sessionId, {
-      ...existing,
-      oscTitle: undefined,
-      titlePinned: true,
-      scope: { ...existing.scope, scopeLabel: newLabel },
-    });
-    // Persist the pin into the saved layout — nothing else saves on rename.
-    scheduleLayoutSave();
-  }, [commitTab, scheduleLayoutSave]);
+    commitTab(sessionId, { ...existing, scope: { ...existing.scope, scopeLabel: newLabel } });
+  }, [commitTab]);
 
   const handleOscTitle = useCallback((sessionId: string, title: string) => {
     const existing = tabsRef.current.get(sessionId);
@@ -432,10 +424,6 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
             if (allAlive) {
               for (const [id, panel] of Object.entries(savedLayout.panels)) {
                 const tab = sessionToTab(sessionMap.get(id)!, fallbackGroupKey);
-                // Carry the rename pin across reloads — the renamed label itself
-                // is server-side (scopeLabel), but without the pin a running
-                // program's OSC titles would overwrite it again.
-                tab.titlePinned = (panel.params as TerminalPanelParams | undefined)?.tab?.titlePinned;
                 tabsRef.current.set(id, tab);
                 panel.params = { tab } satisfies TerminalPanelParams;
               }

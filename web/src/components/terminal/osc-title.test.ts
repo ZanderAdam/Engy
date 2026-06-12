@@ -65,11 +65,6 @@ describe('applyOscTitle', () => {
       expect(applyOscTitle(tab, ' build ')).toBeNull();
     });
 
-    it('should return null when the title is pinned by a manual rename', () => {
-      const tab = makeTab({ titlePinned: true });
-      expect(applyOscTitle(tab, 'anything')).toBeNull();
-    });
-
     it('should return null for an empty title on a tab without one', () => {
       expect(applyOscTitle(makeTab(), '')).toBeNull();
     });

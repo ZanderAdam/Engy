@@ -39,10 +39,8 @@ export interface TerminalTab {
   scope: TerminalScope;
   status: TerminalStatus;
   activityState?: TerminalActivityState;
-  /** Dynamic title from OSC 0/2 escape sequences; takes precedence over scopeLabel. */
+  /** Dynamic title from OSC 0/2 escape sequences, shown as subtitle under scopeLabel. */
   oscTitle?: string;
-  /** Set on manual rename — OSC title updates are ignored afterwards. */
-  titlePinned?: boolean;
 }
 
 export interface TerminalPanelParams {

@@ -47,18 +47,14 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   }, [api]);
 
   const scopeLabel = tab.scope.scopeLabel;
-  const label = tab.oscTitle ?? scopeLabel;
+  const label = scopeLabel;
   const isDir = tab.scope.scopeType === 'dir';
-  const displayLabel = isDir && !tab.oscTitle ? collapseLabel(scopeLabel) : label;
+  const displayLabel = isDir ? collapseLabel(scopeLabel) : scopeLabel;
 
-  function commitRename(value: string, viaEnter: boolean) {
+  function commitRename(value: string) {
     const trimmed = value.trim();
     setIsEditing(false);
-    if (!trimmed) return;
-    // Pressing Enter on an unchanged OSC title still renames — it pins the
-    // title so the program can no longer overwrite it. Blur with unchanged
-    // text stays a no-op so an accidental double-click doesn't pin.
-    if (trimmed !== editStartLabel || (viaEnter && tab.oscTitle)) {
+    if (trimmed && trimmed !== editStartLabel) {
       renameTerminal(tab.sessionId, trimmed);
     }
   }
@@ -66,7 +62,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       e.stopPropagation();
-      commitRename(e.currentTarget.value, true);
+      commitRename(e.currentTarget.value);
     } else if (e.key === 'Escape') {
       e.stopPropagation();
       setIsEditing(false);
@@ -74,7 +70,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   }
 
   function handleBlur(e: React.FocusEvent<HTMLInputElement>) {
-    commitRename(e.currentTarget.value, false);
+    commitRename(e.currentTarget.value);
   }
 
   const editInput = (
@@ -91,8 +87,18 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   );
 
   const labelSpan = (
-    <span className="min-w-0 truncate" onDoubleClick={() => { setEditStartLabel(label); setIsEditing(true); }}>
-      {displayLabel}
+    <span
+      className="flex min-w-0 flex-col justify-center gap-0.5"
+      onDoubleClick={() => { setEditStartLabel(label); setIsEditing(true); }}
+    >
+      <span className="truncate leading-tight">{displayLabel}</span>
+      {tab.oscTitle ? (
+        <span className="truncate font-mono text-[9px] leading-none text-muted-foreground">
+          {tab.oscTitle}
+        </span>
+      ) : (
+        <span aria-hidden className="h-2.5" />
+      )}
     </span>
   );
 
@@ -111,8 +117,8 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
           <Tooltip>
             <TooltipTrigger asChild>{labelSpan}</TooltipTrigger>
             <TooltipContent side="bottom">
-              <p className="font-mono">{label}</p>
-              {tab.oscTitle && <p className="font-mono opacity-70">{scopeLabel}</p>}
+              <p className="font-mono">{scopeLabel}</p>
+              {tab.oscTitle && <p className="font-mono opacity-70">{tab.oscTitle}</p>}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
