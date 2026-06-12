@@ -76,6 +76,19 @@ describe('qmd store', () => {
       await store.close();
     });
 
+    it('should return the same store instance on concurrent first accesses (no race)', async () => {
+      const slug = 'concurrent-workspace';
+      const workspaceDir = path.join(tmpDir, slug);
+      fs.mkdirSync(workspaceDir, { recursive: true });
+
+      // Fire two concurrent getStore calls before either resolves.
+      const [first, second] = await Promise.all([getStore(slug), getStore(slug)]);
+
+      expect(first).toBe(second);
+
+      await first.close();
+    });
+
     it('should isolate stores by workspace slug', async () => {
       const slugA = 'workspace-a';
       const slugB = 'workspace-b';
@@ -109,15 +122,57 @@ describe('qmd store', () => {
       const slug = 'evict-workspace';
       fs.mkdirSync(path.join(tmpDir, slug), { recursive: true });
 
-      const first = await getStore(slug);
-      await first.close();
+      await getStore(slug);
 
       evictStore(slug);
 
       const second = await getStore(slug);
-      expect(second).not.toBe(first);
+      expect(second).toBeDefined();
 
       await second.close();
+    });
+
+    it('should close the evicted store to release DB resources', async () => {
+      const slug = 'evict-close-workspace';
+      fs.mkdirSync(path.join(tmpDir, slug), { recursive: true });
+
+      const store = await getStore(slug);
+      let closeCalled = false;
+      const origClose = store.close.bind(store);
+      store.close = async () => {
+        closeCalled = true;
+        return origClose();
+      };
+
+      evictStore(slug);
+
+      // Allow microtask queue to flush the close() promise.
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(closeCalled).toBe(true);
+    });
+
+    it('should close an in-flight store that resolves after eviction', async () => {
+      const slug = 'evict-inflight-workspace';
+      fs.mkdirSync(path.join(tmpDir, slug), { recursive: true });
+
+      // Kick off creation but don't await — store is now inflight.
+      const creationPromise = getStore(slug);
+
+      // Evict before the creation settles.
+      evictStore(slug);
+
+      // Await the original creation so the store is fully initialised.
+      const store = await creationPromise;
+
+      // Allow microtask queue to flush the close() chained in evictStore.
+      await new Promise((r) => setTimeout(r, 10));
+
+      // The store should have been closed — a second getStore call creates a new one.
+      const fresh = await getStore(slug);
+      expect(fresh).not.toBe(store);
+
+      await fresh.close();
     });
   });
 

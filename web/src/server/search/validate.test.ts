@@ -132,6 +132,31 @@ describe('validateWorkspace', () => {
       expect(schemaIssues.some((f) => f.message.includes('title'))).toBe(true);
     });
 
+    it('should not warn about README files in subtype directories', async () => {
+      const { frontmatter } = await import('../db/schema');
+      const db = getDb();
+      writeFile(
+        'memory/decisions/README.md',
+        '---\ndescription: Choices made with rationale\n---\n\nTOC.\n',
+      );
+      db.insert(frontmatter)
+        .values({
+          workspaceId: ws.id,
+          collection: 'memory',
+          path: 'memory/decisions/README.md',
+          data: JSON.stringify({ description: 'Choices made with rationale' }),
+          indexedAt: new Date().toISOString(),
+        })
+        .run();
+
+      const report = await validateWorkspace(ws);
+
+      const readmeIssues = report.findings.filter(
+        (f) => f.check === 'schema-compliance' && f.path === 'memory/decisions/README.md',
+      );
+      expect(readmeIssues).toEqual([]);
+    });
+
     it('should warn when a memory file is missing the subtype frontmatter field', async () => {
       const { frontmatter } = await import('../db/schema');
       const db = getDb();
@@ -294,6 +319,36 @@ describe('validateWorkspace', () => {
         (f) => f.check === 'commit-message-conformance' && f.severity === 'warning',
       );
       expect(commitWarnings).toHaveLength(0);
+    });
+
+    it('should report a violation for an edit commit touching a memory file with a non-conformant message', async () => {
+      // Behavioral test: the git log scan must include EDIT (non-add) commits, not
+      // only the initial add. We commit a memory file with a conformant message, then
+      // make a second EDIT commit using a non-conformant message and verify the
+      // validator reports it.
+      const gitDir = wsDir;
+      fs.rmSync(path.join(gitDir, '.git'), { recursive: true, force: true });
+      fs.mkdirSync(path.join(gitDir, 'memory', 'decisions'), { recursive: true });
+      execFileSync('git', ['init'], { cwd: gitDir });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: gitDir });
+      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: gitDir });
+
+      const memFile = 'memory/decisions/edit-check.md';
+      writeFile(memFile, '---\ntitle: Edit Check\nsubtype: decision\n---\n');
+      execFileSync('git', ['add', memFile], { cwd: gitDir });
+      execFileSync('git', ['commit', '-m', 'memory(add): initial add'], { cwd: gitDir });
+
+      // Edit the file and commit with a non-conformant message.
+      writeFile(memFile, '---\ntitle: Edit Check\nsubtype: decision\n---\n\nUpdated content.\n');
+      execFileSync('git', ['add', memFile], { cwd: gitDir });
+      execFileSync('git', ['commit', '-m', 'fix stuff'], { cwd: gitDir });
+
+      const report = await validateWorkspace(ws);
+
+      const commitIssues = report.findings.filter(
+        (f) => f.check === 'commit-message-conformance' && f.severity === 'warning',
+      );
+      expect(commitIssues.some((f) => f.message.includes('fix stuff'))).toBe(true);
     });
 
     it('should emit an info finding when workspace dir is not a git repo', async () => {

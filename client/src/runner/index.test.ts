@@ -453,7 +453,7 @@ describe('Runner', () => {
       });
     });
 
-    it('should send CREATE_MEMORIES_REQUEST before EXECUTION_COMPLETE_EVENT when memories present', async () => {
+    it('should send CREATE_MEMORIES_EVENT before EXECUTION_COMPLETE_EVENT when memories present', async () => {
       createMockGit();
       const spawner = createMockSpawner({
         sessionId: 'session-abc',
@@ -476,16 +476,18 @@ describe('Runner', () => {
       });
 
       const calls = send.mock.calls.map((c: unknown[]) => c[0]) as Array<{ type: string }>;
-      const memoriesCall = calls.find((m) => m.type === 'CREATE_MEMORIES_REQUEST');
+      const memoriesCall = calls.find((m) => m.type === 'CREATE_MEMORIES_EVENT');
       const completeCall = calls.find((m) => m.type === 'EXECUTION_COMPLETE_EVENT');
 
       expect(memoriesCall).toEqual({
-        type: 'CREATE_MEMORIES_REQUEST',
-        sessionId: 'session-abc',
-        memories: [
-          { content: 'Pattern: always use transactions', type: 'capture' },
-          { content: 'Gotcha: migration order matters' },
-        ],
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: {
+          sessionId: 'session-abc',
+          memories: [
+            { content: 'Pattern: always use transactions', type: 'capture' },
+            { content: 'Gotcha: migration order matters' },
+          ],
+        },
       });
 
       expect(completeCall).toBeDefined();
@@ -494,7 +496,7 @@ describe('Runner', () => {
       expect(calls.indexOf(memoriesCall!)).toBeLessThan(calls.indexOf(completeCall!));
     });
 
-    it('should not send CREATE_MEMORIES_REQUEST when memories are absent', async () => {
+    it('should not send CREATE_MEMORIES_EVENT when memories are absent', async () => {
       createMockGit();
       const spawner = createMockSpawner({
         sessionId: 'session-abc',
@@ -510,12 +512,12 @@ describe('Runner', () => {
       });
 
       const memoriesCall = (send.mock.calls as unknown[][]).find(
-        (c) => (c[0] as { type: string }).type === 'CREATE_MEMORIES_REQUEST',
+        (c) => (c[0] as { type: string }).type === 'CREATE_MEMORIES_EVENT',
       );
       expect(memoriesCall).toBeUndefined();
     });
 
-    it('should not send CREATE_MEMORIES_REQUEST when memories array is empty', async () => {
+    it('should not send CREATE_MEMORIES_EVENT when memories array is empty', async () => {
       createMockGit();
       const spawner = createMockSpawner({
         sessionId: 'session-abc',
@@ -531,7 +533,7 @@ describe('Runner', () => {
       });
 
       const memoriesCall = (send.mock.calls as unknown[][]).find(
-        (c) => (c[0] as { type: string }).type === 'CREATE_MEMORIES_REQUEST',
+        (c) => (c[0] as { type: string }).type === 'CREATE_MEMORIES_EVENT',
       );
       expect(memoriesCall).toBeUndefined();
     });

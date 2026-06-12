@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { appRouter } from '../trpc/root';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { getDb } from '../db/client';
-import { fleetingMemories, agentSessions, tasks, taskGroups } from '../db/schema';
+import { fleetingMemories, agentSessions, tasks, taskGroups, projects } from '../db/schema';
 import { eq } from 'drizzle-orm';
 
 describe('ProjectCompletionService', () => {
@@ -112,10 +112,29 @@ describe('ProjectCompletionService', () => {
   });
 
   describe('archive', () => {
-    it('should set project status to archived', async () => {
+    it('should set project status to archived when in completing status', async () => {
+      await caller.project.startCompletion({ projectId });
       await caller.project.archive({ projectId });
       const project = await caller.project.get({ id: projectId });
       expect(project.status).toBe('archived');
+    });
+
+    it('should throw PRECONDITION_FAILED when archiving from planning status', async () => {
+      await expect(caller.project.archive({ projectId })).rejects.toThrow(
+        "Project must be in 'completing' status",
+      );
+    });
+
+    it('should throw PRECONDITION_FAILED when archiving from active status', async () => {
+      const db = getDb();
+      db.update(projects)
+        .set({ status: 'active' })
+        .where(eq(projects.id, projectId))
+        .run();
+
+      await expect(caller.project.archive({ projectId })).rejects.toThrow(
+        "Project must be in 'completing' status",
+      );
     });
 
     it('should delete agent sessions linked to project tasks', async () => {
@@ -130,6 +149,7 @@ describe('ProjectCompletionService', () => {
         })
         .run();
 
+      await caller.project.startCompletion({ projectId });
       await caller.project.archive({ projectId });
 
       const remaining = db
@@ -156,6 +176,7 @@ describe('ProjectCompletionService', () => {
         })
         .run();
 
+      await caller.project.startCompletion({ projectId });
       await caller.project.archive({ projectId });
 
       const remaining = db
@@ -182,6 +203,7 @@ describe('ProjectCompletionService', () => {
         .values({ sessionId: 'sess-g', taskGroupId: taskGroup.id, executionMode: 'group', status: 'completed' })
         .run();
 
+      await caller.project.startCompletion({ projectId });
       await caller.project.archive({ projectId });
 
       const allSessions = db.select().from(agentSessions).all();
@@ -195,6 +217,7 @@ describe('ProjectCompletionService', () => {
         .values({ projectId, milestoneRef: 'm1', name: 'Preserved Group' })
         .run();
 
+      await caller.project.startCompletion({ projectId });
       await caller.project.archive({ projectId });
 
       const remainingTasks = db.select().from(tasks).where(eq(tasks.projectId, projectId)).all();
@@ -214,6 +237,7 @@ describe('ProjectCompletionService', () => {
         .values({ workspaceId, content: 'Keep me', source: 'user', promoted: false })
         .run();
 
+      await caller.project.startCompletion({ projectId });
       await caller.project.archive({ projectId });
 
       const memories = db.select().from(fleetingMemories).all();
@@ -232,6 +256,7 @@ describe('ProjectCompletionService', () => {
         .values({ sessionId: 'sess-other', taskId: otherTask.id, executionMode: 'task', status: 'completed' })
         .run();
 
+      await caller.project.startCompletion({ projectId });
       await caller.project.archive({ projectId });
 
       const otherSession = db
@@ -243,6 +268,7 @@ describe('ProjectCompletionService', () => {
     });
 
     it('should succeed when project has no tasks or sessions', async () => {
+      await caller.project.startCompletion({ projectId });
       const result = await caller.project.archive({ projectId });
       expect(result.success).toBe(true);
     });

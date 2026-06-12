@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
-import { useTabId, useVirtualNavigate } from '@/components/tabs/tab-context';
+import {
+  useTabId,
+  useVirtualNavigate,
+  useVirtualPathname,
+  useVirtualSearchParams,
+} from '@/components/tabs/tab-context';
+import { parseTaskId } from '@/components/search/task-id';
 import { useOnFileChange } from '@/contexts/events-context';
 import { useTaskSelection } from '@/hooks/use-task-selection';
 import { TaskDialog } from '@/components/projects/task-dialog';
@@ -50,6 +56,29 @@ export function useTaskPageController({ planReviewUrl, onPlanChange }: TaskPageC
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const selection = useTaskSelection();
+
+  // Deep-link: open a task when ?task=<id> is present in the URL (e.g. from
+  // global search). Adjust-state-during-render so each param *change* opens the
+  // dialog — including a second deep-link while the page stays mounted —
+  // without overriding manual selection between changes.
+  const pathname = useVirtualPathname();
+  const searchParams = useVirtualSearchParams();
+  const taskParam = searchParams.get('task');
+  const [lastTaskParam, setLastTaskParam] = useState<string | null>(null);
+  if (taskParam !== lastTaskParam) {
+    setLastTaskParam(taskParam);
+    const id = parseTaskId(taskParam);
+    if (id !== null) setSelectedTaskId(id);
+  }
+
+  // Strip the ?task= param (on dialog close) so the dialog doesn't reopen.
+  const clearTaskParam = useCallback(() => {
+    if (!searchParams.has('task')) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('task');
+    const query = next.toString();
+    nav.push(`${pathname}${query ? `?${query}` : ''}`);
+  }, [searchParams, pathname, nav]);
 
   const bulkDelete = trpc.task.bulkDelete.useMutation({
     onSuccess: (data) => {
@@ -137,6 +166,7 @@ export function useTaskPageController({ planReviewUrl, onPlanChange }: TaskPageC
     setSelectedTaskId,
     selectedTaskTab,
     setSelectedTaskTab,
+    clearTaskParam,
     showNewTask,
     setShowNewTask,
     showGroupDialog,
@@ -213,6 +243,7 @@ export function TaskPageDialogs({ controller, milestones, createProjectId }: Tas
             if (!open) {
               controller.setSelectedTaskId(null);
               controller.setSelectedTaskTab(undefined);
+              controller.clearTaskParam();
             }
           }}
         />

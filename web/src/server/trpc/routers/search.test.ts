@@ -886,6 +886,49 @@ describe('search router — mocked qmd store', () => {
     });
   });
 
+  describe('oversampling and README filtering', () => {
+    it('should not return more results than the requested limit', async () => {
+      const hits = Array.from({ length: 20 }, (_, i) => ({
+        file: `qmd://docs/doc-${i}.md`,
+        displayPath: `docs/doc-${i}.md`,
+        title: `Doc ${i}`,
+        bestChunk: `Content ${i}.`,
+        score: 1 - i * 0.01,
+      }));
+      mockSearchResults(hits);
+
+      const result = await caller.search.query({ workspaceSlug, query: 'docs', limit: 5 });
+
+      const docsGroup = result.find((g) => g.collection === 'docs');
+      expect((docsGroup?.results ?? []).length).toBeLessThanOrEqual(5);
+    });
+
+    it('should gracefully underfill when all hits in the window are READMEs', async () => {
+      mockSearchResults([
+        {
+          file: 'qmd://docs/readme.md',
+          displayPath: 'docs/readme.md',
+          title: 'Index',
+          bestChunk: 'Overview.',
+          score: 0.9,
+        },
+        {
+          file: 'qmd://memory/decisions/readme.md',
+          displayPath: 'memory/decisions/readme.md',
+          title: 'Decisions Index',
+          bestChunk: 'Table of contents.',
+          score: 0.8,
+        },
+      ]);
+
+      const result = await caller.search.query({ workspaceSlug, query: 'overview', limit: 10 });
+
+      const allResults = result.flatMap((g) => g.results);
+      expect(allResults.length).toBeLessThan(10);
+      expect(allResults.every((r) => !r.path.toLowerCase().endsWith('readme.md'))).toBe(true);
+    });
+  });
+
   describe('mode + intent plumbing', () => {
     it('[FR-SEARCH-002] default mode passes through to store.search and forwards intent', async () => {
       const searchSpy = vi.fn().mockResolvedValue([
@@ -939,7 +982,7 @@ describe('search router — mocked qmd store', () => {
 
       expect(searchLexSpy).toHaveBeenCalledWith(
         'pnpm blt',
-        expect.objectContaining({ collection: undefined, limit: 50 }),
+        expect.objectContaining({ collection: undefined, limit: 75 }),
       );
       const memGroup = result.find((g) => g.collection === 'memory');
       expect(memGroup?.results[0].path).toBe('memory/facts/y.md');
@@ -1133,6 +1176,121 @@ describe('search router — mocked qmd store', () => {
 
       const docsGroup = result.find((g) => g.collection === 'docs');
       expect(docsGroup!.results[0].score).toBe(0.8);
+    });
+  });
+
+  describe('frontmatter title resolution in query-only mode', () => {
+    it('should use frontmatter title instead of qmd slug title when present', async () => {
+      insertFrontmatter('memory', 'memory/decisions/20260610221554-jwt-access-tokens-rotate-every-15-minutes.md', {
+        title: 'JWT access tokens rotate every 15 minutes',
+        subtype: 'decision',
+      });
+
+      mockSearchResults([
+        {
+          file: 'qmd://memory/decisions/20260610221554-jwt-access-tokens-rotate-every-15-minutes.md',
+          displayPath: 'memory/decisions/20260610221554-jwt-access-tokens-rotate-every-15-minutes.md',
+          title: '20260610221554-jwt-access-tokens-rotate-every-15-minutes',
+          bestChunk: 'JWT tokens expire after 15 minutes.',
+          score: 0.88,
+        },
+      ]);
+
+      const result = await caller.search.query({ workspaceSlug, query: 'JWT token rotation' });
+
+      const memGroup = result.find((g) => g.collection === 'memory');
+      expect(memGroup).toBeDefined();
+      expect(memGroup!.results[0].title).toBe('JWT access tokens rotate every 15 minutes');
+    });
+
+    it('should fall back to qmd title when no frontmatter row exists', async () => {
+      mockSearchResults([
+        {
+          file: 'qmd://docs/no-frontmatter.md',
+          displayPath: 'docs/no-frontmatter.md',
+          title: 'qmd title',
+          bestChunk: 'Some content.',
+          score: 0.7,
+        },
+      ]);
+
+      const result = await caller.search.query({ workspaceSlug, query: 'content' });
+
+      const docsGroup = result.find((g) => g.collection === 'docs');
+      expect(docsGroup!.results[0].title).toBe('qmd title');
+    });
+
+    it('should fall back to path-derived title when frontmatter row has no title', async () => {
+      insertFrontmatter('docs', 'docs/my-great-guide.md', { tags: ['no-title'] });
+
+      mockSearchResults([
+        {
+          file: 'qmd://docs/my-great-guide.md',
+          displayPath: 'docs/my-great-guide.md',
+          title: '',
+          bestChunk: 'Content.',
+          score: 0.6,
+        },
+      ]);
+
+      const result = await caller.search.query({ workspaceSlug, query: 'guide' });
+
+      const docsGroup = result.find((g) => g.collection === 'docs');
+      expect(docsGroup!.results[0].title).toBe('my great guide');
+    });
+  });
+
+  describe('readme filtering in query-only mode', () => {
+    it('should drop hits whose displayPath basename is readme.md', async () => {
+      mockSearchResults([
+        {
+          file: 'qmd://memory/decisions/readme.md',
+          displayPath: 'memory/decisions/readme.md',
+          title: 'Decisions README',
+          bestChunk: 'Table of contents.',
+          score: 0.93,
+        },
+        {
+          file: 'qmd://memory/decisions/20260610-jwt-rotation.md',
+          displayPath: 'memory/decisions/20260610-jwt-rotation.md',
+          title: 'JWT rotation',
+          bestChunk: 'Rotate every 15 minutes.',
+          score: 0.82,
+        },
+      ]);
+
+      const result = await caller.search.query({ workspaceSlug, query: 'JWT rotation' });
+
+      const memGroup = result.find((g) => g.collection === 'memory');
+      const paths = memGroup?.results.map((r) => r.path) ?? [];
+      expect(paths).not.toContain('memory/decisions/readme.md');
+      expect(paths).toContain('memory/decisions/20260610-jwt-rotation.md');
+    });
+
+    it('should drop readme.md hits case-insensitively (README.MD)', async () => {
+      mockSearchResults([
+        {
+          file: 'qmd://docs/README.MD',
+          displayPath: 'docs/README.MD',
+          title: 'Docs index',
+          bestChunk: 'Overview.',
+          score: 0.91,
+        },
+        {
+          file: 'qmd://docs/guide.md',
+          displayPath: 'docs/guide.md',
+          title: 'Guide',
+          bestChunk: 'The guide.',
+          score: 0.75,
+        },
+      ]);
+
+      const result = await caller.search.query({ workspaceSlug, query: 'guide' });
+
+      const docsGroup = result.find((g) => g.collection === 'docs');
+      const paths = docsGroup?.results.map((r) => r.path) ?? [];
+      expect(paths).not.toContain('docs/README.MD');
+      expect(paths).toContain('docs/guide.md');
     });
   });
 

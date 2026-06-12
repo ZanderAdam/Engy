@@ -4,6 +4,9 @@ import path from 'node:path';
 export default defineConfig({
   test: {
     globals: true,
+    // Workspace-creating hooks (fresh ENGY_DIR + git init) can exceed the 10s
+    // default under full-suite parallel load — see m7-validation.md Phase 1.
+    hookTimeout: 30_000,
     // Suppress qmd model initialisation in all tests by default. Individual test
     // files that need real qmd search (search.test.ts) clear this flag selectively.
     env: { QMD_SKIP: '1' },

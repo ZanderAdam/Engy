@@ -1,5 +1,14 @@
 # System-Doc Skills — Validation Report
 
+> **Note (2026-06-10):** After this validation ran, the three skills it references
+> (`bootstrap-sysdocs`, `propose-sysdocs`, `sysdoc-assistant`) were consolidated into a
+> single `engy:write-sysdocs` skill (init / refresh / interactive modes) before M7 merged
+> to main. The file-and-line citations below (e.g. `bootstrap-sysdocs/SKILL.md:65`,
+> `propose-sysdocs/SKILL.md:68`, `sysdoc-assistant/SKILL.md:88`) no longer exist;
+> the equivalent code now lives in `plugins/engy/skills/write-sysdocs/SKILL.md` and its
+> `references/` subdirectory. The historical findings and fix descriptions are preserved
+> below as the audit trail.
+
 **Date:** 2026-05-29
 **Branch:** worktree-knowledge-system
 **Scope:** The three system-doc skills added in this worktree —

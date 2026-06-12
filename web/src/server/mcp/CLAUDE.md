@@ -53,7 +53,8 @@ All search functions in `index.ts` delegate to shared helpers — never reimplem
 
 | Helper | File | Purpose |
 |---|---|---|
-| `runQmdSearch` | `search/qmd-search.ts` | Unified BM25 / vector / hybrid dispatch; normalises result shape across all three qmd modes |
+| `runQmdSearch` | `search/qmd-search.ts` | Unified BM25 / vector / hybrid dispatch; normalises result shape across all three qmd modes. Drops README hits in every mode; oversamples at min(ceil(limit × 1.5), 500) so the filter rarely underfills. |
+| `isReadme` | `search/qmd-search.ts` | Returns true when a displayPath basename is `readme.md` (case-insensitive). Import and apply to frontmatter-anchored row sets in filters-only and query+filters modes so READMEs never appear in any search surface. |
 | `getStore` | `search/qmd-store.ts` | Per-workspace qmd store singleton (lazy init, cached) |
 | `applySubtypeAffinity` | `search/subtype-affinity.ts` | Post-hoc score reweighting from query-shape signals (`why`, `where`, UPPER_SNAKE) |
 | `getSupersededMemoryPaths` | `search/memory-queries.ts` | Set of `filePath` values for superseded permanent memories — exclude from all result sets |
@@ -76,7 +77,7 @@ Tools are registered by domain in separate `register*Tools(mcp)` functions:
 - `registerWorkspaceTools` — `listWorkspaces`, `getWorkspaceDetails`, `listProjects`, `getProjectDetails`, `startProjectCompletion`, `archiveProject`, `setWorkspaceEarsBdd` (toggles EARS-BDD mode; updates DB + workspace.yaml)
 - `registerTaskTools` — `createTask`, `updateTask` (with `memories[]` passthrough to fleeting memories), `listTasks`, `getTask`, `deleteTask`
 - `registerTaskGroupTools` — `createTaskGroup`, `listTaskGroups`, `getTaskGroup`, `updateTaskGroup`, `deleteTaskGroup`
-- `registerMemoryTools` — `createFleetingMemory`, `listMemories`, `createPermanentMemory`, `updatePermanentMemory`, `promoteMemory`
+- `registerMemoryTools` — `createFleetingMemory`, `listMemories`, `createPermanentMemory`, `updatePermanentMemory`, `promoteMemory`, `writeSourceSnapshot`
 - `registerQuestionTools` — `askQuestion`
 - `registerIndexTools` — `reindex`, `indexStatus`, `validateWorkspace`
 - `registerSearchTools` — `search` (unified; replaces `listMemories` for discovery use cases), `trace` (requirements traceability: FR ↔ tests ↔ source, via `search/trace.ts`)

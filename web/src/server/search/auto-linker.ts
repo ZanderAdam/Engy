@@ -8,7 +8,8 @@ import { eq, and, ne } from 'drizzle-orm';
 import { getWorkspaceDir } from '../engy-dir/init';
 import { getStore } from './qmd-store';
 import type { HybridQueryResult } from '@tobilu/qmd';
-import { validateLinkedMemoryPath, escapeIndexMarkers } from '../lib/memory-files';
+import { validateLinkedMemoryPath, escapeIndexMarkers, sanitizeCommitSubject } from '../lib/memory-files';
+import { withWorkspaceLock } from '../lib/workspace-lock';
 
 // ── Tunables ─────────────────────────────────────────────────────────
 
@@ -201,142 +202,161 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
     }
   }
 
-  const touchedPaths: string[] = [];
+  // ── Locked section: file writes + DB updates + git commit ────────────
+  // The entire link-writing section runs inside a single workspace lock to
+  // prevent concurrent autoLink runs from interleaving writes on the same files.
+  await withWorkspaceLock(workspaceDir, async () => {
+    const touchedPaths: string[] = [];
 
-  for (const hit of toLink) {
-    // hit.displayPath is already collection-prefixed (e.g. "memory/facts/foo.md")
-    const candidateRelPath = hit.displayPath;
+    for (const hit of toLink) {
+      // hit.displayPath is already collection-prefixed (e.g. "memory/facts/foo.md")
+      const candidateRelPath = hit.displayPath;
 
-    // Validate both paths before touching any files
-    let candidateAbsPath: string;
-    try {
-      validateLinkedMemoryPath(ownFilePath, workspaceDir);
-      validateLinkedMemoryPath(candidateRelPath, workspaceDir);
-      candidateAbsPath = path.join(workspaceDir, candidateRelPath);
-    } catch {
-      continue;
-    }
-
-    if (!fs.existsSync(candidateAbsPath)) continue;
-
-    // Update source memory's linkedMemories (DB + file)
-    const existingSrcLinks = (memory.linkedMemories as string[]) ?? [];
-    const updatedSrcLinks = unionLinks(existingSrcLinks, candidateRelPath);
-
-    if (updatedSrcLinks.length > existingSrcLinks.length) {
+      // Validate both paths before touching any files
+      let candidateAbsPath: string;
       try {
-        updateLinkedMemoriesInFile(workspaceDir, ownFilePath, updatedSrcLinks, touchedPaths);
-        db.update(permanentMemories)
-          .set({ linkedMemories: updatedSrcLinks, updatedAt: new Date().toISOString() })
-          .where(eq(permanentMemories.id, memoryId))
-          .run();
-        // Keep local state in sync for next iteration
-        memory.linkedMemories = updatedSrcLinks;
-      } catch {
-        // non-fatal
-      }
-    }
-
-    // Update candidate memory's linkedMemories (DB + file)
-    const candidateRow = db
-      .select()
-      .from(permanentMemories)
-      .where(eq(permanentMemories.filePath, candidateRelPath))
-      .get();
-
-    const existingCandLinks = (candidateRow?.linkedMemories as string[]) ?? [];
-    const updatedCandLinks = unionLinks(existingCandLinks, ownFilePath);
-
-    if (updatedCandLinks.length > existingCandLinks.length) {
-      try {
-        updateLinkedMemoriesInFile(workspaceDir, candidateRelPath, updatedCandLinks, touchedPaths);
-        if (candidateRow) {
-          db.update(permanentMemories)
-            .set({ linkedMemories: updatedCandLinks, updatedAt: new Date().toISOString() })
-            .where(eq(permanentMemories.id, candidateRow.id))
-            .run();
-        }
-      } catch {
-        // non-fatal
-      }
-    }
-  }
-
-  // ── Secondary pass: tag/theme siblings ────────────────────────────────
-  // If the similarity pass left room under MAX_LINKS, fill with thematic siblings.
-
-  const currentLinks = (memory.linkedMemories as string[]) ?? [];
-  const remaining = MAX_LINKS - currentLinks.length;
-
-  if (remaining > 0) {
-    const srcTags = (memory.tags as string[]) ?? [];
-    const srcThemes = (memory.themes as string[]) ?? [];
-    const tagSiblings = findTagThemeSiblings(
-      memoryId,
-      memory.workspaceId,
-      srcTags,
-      srcThemes,
-      currentLinks,
-      remaining,
-    );
-
-    for (const sibling of tagSiblings) {
-      // Validate path before touching files
-      let siblingAbsPath: string;
-      try {
-        validateLinkedMemoryPath(sibling.filePath, workspaceDir);
-        siblingAbsPath = path.join(workspaceDir, sibling.filePath);
+        validateLinkedMemoryPath(ownFilePath, workspaceDir);
+        validateLinkedMemoryPath(candidateRelPath, workspaceDir);
+        candidateAbsPath = path.join(workspaceDir, candidateRelPath);
       } catch {
         continue;
       }
 
-      if (!fs.existsSync(siblingAbsPath)) continue;
+      if (!fs.existsSync(candidateAbsPath)) continue;
 
-      // Update source memory
-      const latestSrcLinks = (memory.linkedMemories as string[]) ?? [];
-      const updatedSrcLinks = unionLinks(latestSrcLinks, sibling.filePath);
+      // Update source memory's linkedMemories (DB + file)
+      const existingSrcLinks = (memory.linkedMemories as string[]) ?? [];
+      const updatedSrcLinks = unionLinks(existingSrcLinks, candidateRelPath);
 
-      if (updatedSrcLinks.length > latestSrcLinks.length) {
+      if (updatedSrcLinks.length > existingSrcLinks.length) {
         try {
           updateLinkedMemoriesInFile(workspaceDir, ownFilePath, updatedSrcLinks, touchedPaths);
           db.update(permanentMemories)
             .set({ linkedMemories: updatedSrcLinks, updatedAt: new Date().toISOString() })
             .where(eq(permanentMemories.id, memoryId))
             .run();
+          // Keep local state in sync for next iteration
           memory.linkedMemories = updatedSrcLinks;
         } catch {
           // non-fatal
         }
       }
 
-      // Update sibling memory
-      const siblingRow = db
+      // Update candidate memory's linkedMemories (DB + file)
+      const candidateRow = db
         .select()
         .from(permanentMemories)
-        .where(eq(permanentMemories.id, sibling.id))
+        .where(and(eq(permanentMemories.workspaceId, memory.workspaceId), eq(permanentMemories.filePath, candidateRelPath)))
         .get();
 
-      const existingSiblingLinks = (siblingRow?.linkedMemories as string[]) ?? [];
-      const updatedSiblingLinks = unionLinks(existingSiblingLinks, ownFilePath);
+      const existingCandLinks = (candidateRow?.linkedMemories as string[]) ?? [];
+      const updatedCandLinks = unionLinks(existingCandLinks, ownFilePath);
 
-      if (updatedSiblingLinks.length > existingSiblingLinks.length) {
+      if (updatedCandLinks.length > existingCandLinks.length) {
         try {
-          updateLinkedMemoriesInFile(workspaceDir, sibling.filePath, updatedSiblingLinks, touchedPaths);
-          db.update(permanentMemories)
-            .set({ linkedMemories: updatedSiblingLinks, updatedAt: new Date().toISOString() })
-            .where(eq(permanentMemories.id, sibling.id))
-            .run();
+          updateLinkedMemoriesInFile(workspaceDir, candidateRelPath, updatedCandLinks, touchedPaths);
+          if (candidateRow) {
+            db.update(permanentMemories)
+              .set({ linkedMemories: updatedCandLinks, updatedAt: new Date().toISOString() })
+              .where(eq(permanentMemories.id, candidateRow.id))
+              .run();
+          }
         } catch {
           // non-fatal
         }
       }
     }
-  }
 
-  // ── Batched commit ────────────────────────────────────────────────────
-  if (touchedPaths.length > 0) {
-    const git = simpleGit(workspaceDir);
-    await git.add(touchedPaths);
-    await git.commit(`memory(autolink): link ${memory.title}`);
-  }
+    // ── Secondary pass: tag/theme siblings ──────────────────────────────
+    // If the similarity pass left room under MAX_LINKS, fill with thematic siblings.
+
+    // Re-read from DB to pick up any writes made during the similarity pass.
+    const freshMemory = db.select().from(permanentMemories).where(eq(permanentMemories.id, memoryId)).get();
+    const currentLinks = (freshMemory?.linkedMemories as string[]) ?? [];
+    const remaining = MAX_LINKS - currentLinks.length;
+
+    if (remaining > 0) {
+      const srcTags = (memory.tags as string[]) ?? [];
+      const srcThemes = (memory.themes as string[]) ?? [];
+      const tagSiblings = findTagThemeSiblings(
+        memoryId,
+        memory.workspaceId,
+        srcTags,
+        srcThemes,
+        currentLinks,
+        remaining,
+      );
+
+      for (const sibling of tagSiblings) {
+        // Validate path before touching files
+        let siblingAbsPath: string;
+        try {
+          validateLinkedMemoryPath(sibling.filePath, workspaceDir);
+          siblingAbsPath = path.join(workspaceDir, sibling.filePath);
+        } catch {
+          continue;
+        }
+
+        if (!fs.existsSync(siblingAbsPath)) continue;
+
+        // Update source memory
+        const latestSrcLinks = (memory.linkedMemories as string[]) ?? [];
+        const updatedSrcLinks = unionLinks(latestSrcLinks, sibling.filePath);
+
+        if (updatedSrcLinks.length > latestSrcLinks.length) {
+          try {
+            updateLinkedMemoriesInFile(workspaceDir, ownFilePath, updatedSrcLinks, touchedPaths);
+            db.update(permanentMemories)
+              .set({ linkedMemories: updatedSrcLinks, updatedAt: new Date().toISOString() })
+              .where(eq(permanentMemories.id, memoryId))
+              .run();
+            memory.linkedMemories = updatedSrcLinks;
+          } catch {
+            // non-fatal
+          }
+        }
+
+        // Update sibling memory
+        const siblingRow = db
+          .select()
+          .from(permanentMemories)
+          .where(eq(permanentMemories.id, sibling.id))
+          .get();
+
+        const existingSiblingLinks = (siblingRow?.linkedMemories as string[]) ?? [];
+        const updatedSiblingLinks = unionLinks(existingSiblingLinks, ownFilePath);
+
+        if (updatedSiblingLinks.length > existingSiblingLinks.length) {
+          try {
+            updateLinkedMemoriesInFile(workspaceDir, sibling.filePath, updatedSiblingLinks, touchedPaths);
+            db.update(permanentMemories)
+              .set({ linkedMemories: updatedSiblingLinks, updatedAt: new Date().toISOString() })
+              .where(eq(permanentMemories.id, sibling.id))
+              .run();
+          } catch {
+            // non-fatal
+          }
+        }
+      }
+    }
+
+    // ── Batched commit ──────────────────────────────────────────────────
+    if (touchedPaths.length > 0) {
+      const linkedPaths = touchedPaths.filter((p) => p !== ownFilePath).join(', ');
+      const commitBody = `memory_id: ${memoryId}\nlinked: [${linkedPaths}]`;
+      const safeTitle = sanitizeCommitSubject(memory.title);
+      const git = simpleGit(workspaceDir);
+      await git.add(touchedPaths);
+      try {
+        await git.commit(`memory(autolink): link ${safeTitle}\n\n${commitBody}`);
+      } catch (err) {
+        console.warn(`[auto-linker] commit failed for "${memory.title}":`, err);
+        try {
+          await git.reset(touchedPaths);
+        } catch {
+          // best-effort unstage
+        }
+      }
+    }
+  });
 }

@@ -5,7 +5,7 @@ description: This skill should be used when the user asks to "ingest", "capture 
 
 # Ingest External Content
 
-Takes a URL, file path, raw text, or transcript reference (e.g., a Granola meeting ID) and walks it through the full knowledge-layer ingestion pipeline: classify → write source record → distill → research → propose edits → reindex.
+Takes a URL, file path, raw text, or transcript reference (e.g., a Granola meeting ID) and walks it through the full knowledge-layer ingestion pipeline: classify → review → write source record → distill → research → propose edits → reindex.
 
 ## MCP Tools
 
@@ -32,14 +32,28 @@ Determine whether the source is **durable** (link) or **non-durable** (snapshot)
 - Blog posts, articles, Medium posts, Substack
 - PDFs from arbitrary URLs, emails, podcasts, whiteboard photos
 
-**URL fetch:** reject non-HTTP schemes (`file://`, `javascript:`, etc.) — print an error and stop. If the fetched body looks pathologically large or the redirect chain looks suspicious, ask the user before continuing.
+**URL fetch validation (hard rules):**
+- Reject non-HTTP/HTTPS schemes (`file://`, `javascript:`, `gopher://`, etc.) — print an error and stop.
+- Abort with an error message if `Content-Length` header exceeds 5 MB, or if the fetched body exceeds 5 MB.
+- Truncate the snapshot body at ~2 MB of markdown with a literal `[truncated — original was N bytes]` marker at the cut point.
+- Treat more than 5 redirects as suspicious — print a warning and ask the user before continuing.
 
 **Granola transcripts:**
 - Fetch via `mcp__claude_ai_Granola__get_meeting_transcript` (or other `mcp__claude_ai_Granola__*` tools as needed).
 - If Granola MCP tools are not present, print: "Granola MCP is not configured. Install and configure the Granola MCP server, then retry." and stop.
 - Treat the result as a snapshot.
 
-### Step 2: Write the Source Record
+### Step 2: PII / Safety Review, then Write the Source Record
+
+**Before writing a snapshot to disk**, review the fetched content for sensitive or personally-identifiable information. For meeting transcripts (Granola and similar), emails, or any content that may contain names, contact details, or confidential discussion:
+
+```
+The snapshot body will be permanently committed to git history.
+If it contains sensitive or personally-identifiable information you want to redact, do so now (edit the content before proceeding), or type "skip" to abort entirely.
+Proceed? [yes / skip]
+```
+
+Redact or abort based on the response. **Do not call `writeSourceSnapshot` until the content has been reviewed.** The tool commits server-side; there is no post-write redaction path.
 
 Write the source record to disk **before** dispatching research. This ensures the research subagent reads from the immutable on-disk artifact, not transient text.
 
@@ -74,7 +88,7 @@ writeSourceSnapshot({
 })
 ```
 
-The tool writes `memory/sources/{YYYYMMDDHHmm}-{slug}.md` (the `ingester` field is set server-side), dedupes by SHA-256, and returns `{ filePath, reused }`. If `reused` is `true`, print "Source already on disk — reusing existing path: `<filePath>`" and proceed with the returned path.
+The tool writes `memory/sources/{YYYYMMDDHHmm}-{slug}.md` (the `ingester` field is set server-side), dedupes by SHA-256, **and commits the file server-side** with a structured `memory(ingest):` message. It returns `{ filePath, reused }`. If `reused` is `true`, print "Source already on disk — reusing existing path: `<filePath>`" and proceed with the returned path.
 
 **Slug generation:** lowercase the title, replace spaces and special characters with hyphens, limit to 40 characters.
 
@@ -110,7 +124,7 @@ createFleetingMemory({
 
 These are conventions enforced at ingest because tag filtering (`search({filters:{tags:['m7']}})`) is only as good as the consistency of tags applied. Don't invent new tag tokens here — let `engy:review-memories` propose richer per-memory tags during promotion.
 
-Note the returned `distillationId` (memory `id`) for the commit message.
+Note the returned `distillationId` (memory `id`) for the ingest summary.
 
 ### Step 4: Dispatch the Research Subagent
 
@@ -119,15 +133,17 @@ Invoke the `engy:research` subagent to find related permanent notes and surface 
 ```
 Task({
   subagent_type: 'engy:research',
-  prompt: '<source content summary> — find related permanent notes and contradictions. Context: workspace=<slug><, repo=<repo-name> if source is repo-related>'
+  prompt: '<source content summary> — find related permanent notes and contradictions. Context: workspaceId=<id>, workspace=<slug><, repo=<repo-name> if source is repo-related>'
 })
 ```
+
+`workspaceId` (the numeric id from `getWorkspaceDetails`) is required — `engy:research` hard-errors without it.
 
 Pass the first ~500 words of the snapshot (or the reference title + description for links) as the source content summary. Include `filters.repo` in the prompt when the source is clearly scoped to one repo.
 
 Hold the returned `## Findings` digest for step 5.
 
-**Partial-failure recovery:** if research fails at this point, do not silently proceed. Print: "Research subagent failed. Recoverable state: source file written to `<filePath>` (not yet committed), fleeting distillation created with id `<distillationId>` (in DB). Re-run `/engy:ingest` with the same source to retry, or continue manually from Step 5." Then stop.
+**Partial-failure recovery:** if research fails at this point, do not silently proceed. Print: "Research subagent failed. Recoverable state: source file written to `<filePath>` (committed by server), fleeting distillation created with id `<distillationId>` (in DB). Re-run `/engy:ingest` with the same source to retry, or continue manually from Step 5." Then stop.
 
 ### Step 5: Propose Candidate Edits
 
@@ -135,40 +151,31 @@ If the research digest identifies existing permanent notes that should be update
 
 1. Read the affected file(s) fully before editing.
 2. Apply the minimum change needed — add a new section, update a claim, or add a cross-reference (`linkedMemories`, `sources`, or `scenarioIds` frontmatter).
-3. Write the change using the Edit tool. Note the edited file paths — they will be included in the single ingest commit in Step 6.
+3. Write the change using the Edit tool. Leave these as **uncommitted working-tree changes** — the user reviews them via the diff viewer's "Latest Changes" mode. Do NOT stage or commit candidate edits.
 
 If no existing notes warrant changes, print "No candidate edits — no existing notes need updating." and continue.
 
-### Step 6: Commit
+### Step 6: Ingest Commit Summary
 
-**PII / safety check before committing a snapshot:** the full source body will be permanently committed to git history. For meeting transcripts (Granola and similar), emails, or any content that may contain names, contact details, or confidential discussion, pause and print:
+The `writeSourceSnapshot` tool already committed the source record server-side (with a structured `memory(ingest):` message per FR-TG1.8). There is **no additional git commit to run** for the source file. Candidate edits from Step 5 remain as uncommitted working-tree changes intentionally — they are for the user to review and commit separately.
 
-```
-The snapshot body will be permanently committed to git history.
-If it contains sensitive or personally-identifiable information you want to redact, do so now (edit the file), or type "skip" to abort the commit entirely.
-Proceed? [yes / skip]
-```
-
-Wait for explicit confirmation before running `git commit`.
-
-After all writes for the ingest are done (source record, distillation, and candidate edits), stage the explicit file paths returned earlier and commit. One commit per ingest run, not per file. Stage ONLY the paths involved — never use `git add -A` or `git add .`, which would sweep unrelated dirty state:
-
-```bash
-git add <source-path> <edited-note-path-1> <edited-note-path-2> ...
-```
-
-Use the structured `memory(ingest):` commit format:
+Print a note referencing the git log for the operations record:
 
 ```
-memory(ingest): <slug>
+Source committed by server — inspect with:
+  git -C <workspaceDir> log --grep='^memory(ingest):' --pretty=oneline
+```
+
+The server-side commit has this shape (written by `writeSourceSnapshot` before Step 3 runs):
+
+```
+memory(ingest): <sanitized title>
 
 source_path: memory/sources/<filename>.md
-distillation_id: <fleeting memory id>
-candidate_edits: <list of edited note paths, or "none">
-contradictions: <list of contradicted note paths, or "none">
+source_type: <article | transcript | slack | email | pdf | podcast | other>
 ```
 
-Use `git log --grep='^memory(ingest):'` to audit the operations log.
+The distillation id, candidate-edit count, and contradiction count are **not** in the commit — they are only available after Steps 3–5 complete. Report them in the ingest summary (Step 7 output) instead.
 
 ### Step 7: Trigger Reindex
 
@@ -202,7 +209,7 @@ Ingest complete.
 
   Source:          memory/sources/20250507-1430-my-article.md   (snapshot)
   Distillation:    fleeting memory #<id>
-  Candidate edits: memory/decisions/my-decision.md              (1 file)
+  Candidate edits: memory/decisions/my-decision.md              (1 file, uncommitted — review in diff viewer)
   Reindex:         3 indexed, 0 unchanged, 2 needsEmbedding
 
 Next: run /engy:review-memories to promote the distillation when ready.
@@ -210,10 +217,12 @@ Next: run /engy:review-memories to promote the distillation when ready.
 
 ## Key Principles
 
+- **PII check before write** — review the fetched content for sensitive information before calling `writeSourceSnapshot`. The server commits server-side immediately; there is no post-write redaction path.
+- **Server owns the source commit** — `writeSourceSnapshot` commits the source record automatically. Do not run an additional `git commit` for the source file.
+- **Candidate edits stay uncommitted** — proposed edits to existing permanent notes are uncommitted working-tree changes for the user to review in the diff viewer. Do not stage or commit them.
 - **Write source record first** — research reads from disk, not from prompt context. Never dispatch research before the source file exists on disk.
 - **No auto-promotion** — the fleeting distillation joins the standard `/engy:review-memories` lifecycle. Ingestion never promotes memories automatically.
 - **Main agent by default** — classify, write, and distill in the main agent context. Dispatch a Task subagent only for very large sources (long transcripts).
-- **Candidate edits land in the ingest commit** — edits to existing permanent notes are staged alongside the source file and committed together in the single ingest commit (Step 6).
 - **No sibling evolution at ingest** — autoLink only fires on permanent memory creation/promotion, not on fleeting creation. Sibling enrichment happens exclusively in `/engy:review-memories` step 3f, where promotion provides the final keywords and themes.
 
 ## Flow Position

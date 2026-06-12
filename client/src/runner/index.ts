@@ -7,7 +7,7 @@ import type {
   ClientToServerMessage,
   ExecutionStatusEventMessage,
   ExecutionCompleteEventMessage,
-  CreateMemoriesRequestMessage,
+  CreateMemoriesEventMessage,
 } from '@engy/common';
 import type { SpawnConfig, SpawnResult } from './agent-spawner.js';
 
@@ -232,10 +232,9 @@ export class Runner {
     const memories = result.completion?.memories;
     if (memories && memories.length > 0) {
       console.log(`[runner] Sending ${memories.length} completion memories for session=${result.sessionId}`);
-      const memoriesMsg: CreateMemoriesRequestMessage = {
-        type: 'CREATE_MEMORIES_REQUEST',
-        sessionId: result.sessionId,
-        memories,
+      const memoriesMsg: CreateMemoriesEventMessage = {
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: { sessionId: result.sessionId, memories },
       };
       this.send(memoriesMsg);
     }

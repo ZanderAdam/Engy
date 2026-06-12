@@ -72,6 +72,11 @@ function collectMdFiles(dir: string): string[] {
  * 2. INSERT OR REPLACE rows for every file found (qmd's SHA check means we trust
  *    the fs as source of truth — cheap upsert on any path qmd touched).
  * 3. DELETE rows for paths that no longer exist on disk (removed files).
+ *
+ * Note: qmd's update() returns only aggregate counts (indexed/updated/unchanged/removed),
+ * not the list of per-file changed paths. Driving this sync from those lists is therefore
+ * not possible — the full walk is the simplest correct approach until qmd exposes a
+ * per-file change API.
  */
 function syncFrontmatterTable(
   workspaceId: number,
@@ -248,9 +253,8 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
       )
       .all();
 
-    const activePaths = new Set(
-      collectMdFiles(subtypeDir).map((p) => toRelativePath(workspaceDir, p)),
-    );
+    // Reuse the mdFiles list gathered above — avoid a second filesystem walk.
+    const activePaths = new Set(mdFiles.map((p) => toRelativePath(workspaceDir, p)));
 
     const orphanIds = existingRows
       .filter((r) => r.filePath && !activePaths.has(r.filePath))

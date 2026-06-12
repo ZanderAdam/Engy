@@ -57,7 +57,7 @@ describe('git helpers', () => {
 
       const log = await simpleGit(tmpDir).log();
       expect(log.total).toBe(1);
-      expect(log.latest?.message).toBe('Initial workspace structure');
+      expect(log.latest?.message).toBe('memory(init): initial workspace structure');
     });
 
     it('should be idempotent — skip if already a git repo', async () => {

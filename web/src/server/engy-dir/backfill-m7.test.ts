@@ -24,6 +24,20 @@ async function setupPreM7Workspace(workspaceDir: string): Promise<void> {
   await git.commit('pre-M7 init');
 }
 
+async function setupNoMemoryWorkspace(workspaceDir: string): Promise<void> {
+  // Simulate a workspace with no memory/ dir at all (the false-negative case)
+  fs.mkdirSync(path.join(workspaceDir, 'system'), { recursive: true });
+  fs.mkdirSync(path.join(workspaceDir, 'docs'), { recursive: true });
+
+  const git = simpleGit(workspaceDir);
+  await git.init();
+  await git.addConfig('user.name', 'Test');
+  await git.addConfig('user.email', 'test@localhost');
+  fs.writeFileSync(path.join(workspaceDir, '.gitkeep'), '');
+  await git.add('.');
+  await git.commit('no-memory init');
+}
+
 describe('backfill-m7', () => {
   let ctx: TestContext;
 
@@ -49,10 +63,12 @@ describe('backfill-m7', () => {
       expect(needsM7Backfill(dir)).toBe(false);
     });
 
-    it('should return false when memory/ does not exist', () => {
+    it('should return true when memory/ does not exist at all', () => {
+      // Regression: pre-M7 workspaces with no memory/ dir at all were previously
+      // returning false and never getting backfilled.
       const dir = path.join(ctx.tmpDir, 'no-memory-ws');
       fs.mkdirSync(dir, { recursive: true });
-      expect(needsM7Backfill(dir)).toBe(false);
+      expect(needsM7Backfill(dir)).toBe(true);
     });
   });
 
@@ -114,6 +130,65 @@ describe('backfill-m7', () => {
       const log = await git.log();
       const lastCommit = log.latest;
       expect(lastCommit?.message).toBe('memory(init): backfill knowledge-layer directories');
+    });
+
+    it('should backfill a workspace that never had a memory/ dir (no-memory-dir regression)', async () => {
+      const wsDir = path.join(ctx.tmpDir, 'no-memory-backfill-test');
+      await setupNoMemoryWorkspace(wsDir);
+
+      ctx.db.insert(workspaces).values({ name: 'No Memory', slug: 'no-memory-backfill-test', docsDir: wsDir }).run();
+
+      await backfillM7('no-memory-backfill-test');
+
+      expect(fs.existsSync(path.join(wsDir, 'memory', 'README.md'))).toBe(true);
+      for (const subtype of MEMORY_SUBTYPES) {
+        expect(
+          fs.existsSync(path.join(wsDir, 'memory', subtype)),
+          `expected memory/${subtype} to exist`,
+        ).toBe(true);
+      }
+
+      const git = simpleGit(wsDir);
+      const log = await git.log();
+      expect(log.latest?.message).toBe('memory(init): backfill knowledge-layer directories');
+    });
+
+    it('should stage and commit READMEs when memory/ exists as an untracked directory', async () => {
+      // Regression: git status without --untracked-files=all collapses an untracked
+      // memory/ directory to a single "memory/" entry. That path is captured in
+      // beforePaths, so the afterStatus diff finds nothing new — the READMEs are
+      // never staged and the commit is skipped.
+      const wsDir = path.join(ctx.tmpDir, 'untracked-memory-test');
+
+      // Set up a repo with memory/ present but NOT committed (untracked directory).
+      fs.mkdirSync(path.join(wsDir, 'memory'), { recursive: true });
+      fs.mkdirSync(path.join(wsDir, 'system'), { recursive: true });
+
+      const git = simpleGit(wsDir);
+      await git.init();
+      await git.addConfig('user.name', 'Test');
+      await git.addConfig('user.email', 'test@localhost');
+      // Commit only a placeholder — memory/ stays untracked.
+      fs.writeFileSync(path.join(wsDir, '.gitkeep'), '');
+      await git.add('.gitkeep');
+      await git.commit('initial commit without memory/');
+
+      ctx.db
+        .insert(workspaces)
+        .values({ name: 'Untracked Memory', slug: 'untracked-memory-test', docsDir: wsDir })
+        .run();
+
+      await backfillM7('untracked-memory-test');
+
+      // memory/README.md must exist and be committed.
+      expect(fs.existsSync(path.join(wsDir, 'memory', 'README.md'))).toBe(true);
+
+      const log = await git.log();
+      expect(log.latest?.message).toBe('memory(init): backfill knowledge-layer directories');
+
+      // Verify the commit contains the README files (not an empty commit).
+      const showResult = await git.show(['--name-only', '--format=', 'HEAD']);
+      expect(showResult).toContain('memory/README.md');
     });
 
     it('should be idempotent — second run does not fail or duplicate commits', async () => {

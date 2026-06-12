@@ -298,6 +298,50 @@ describe('MCP Server', () => {
         expect(isError).toBe(true);
         expect(data.error).toContain('Circular dependency');
       });
+
+      it('should create fleeting memories on the task workspace when memories are passed', async () => {
+        const db = getDb();
+        const ws = db.select().from(workspaces).where(eq(workspaces.slug, 'test')).get()!;
+        const task = db.insert(tasks).values({ title: 'Task with memories', projectId }).returning().get();
+
+        const mcp = getMcpServer();
+        const call = callTool(mcp, 'updateTask');
+        await call({
+          id: task.id,
+          memories: [
+            { content: 'First learning from the task', type: 'capture' },
+            { content: 'Second learning from the task', type: 'idea' },
+          ],
+        });
+
+        const rows = db
+          .select()
+          .from(fleetingMemories)
+          .where(eq(fleetingMemories.workspaceId, ws.id))
+          .all();
+        expect(rows).toHaveLength(2);
+        expect(rows.find((r) => r.content === 'First learning from the task')?.type).toBe('capture');
+        expect(rows.find((r) => r.content === 'Second learning from the task')?.type).toBe('idea');
+        expect(rows.every((r) => r.source === 'agent')).toBe(true);
+      });
+
+      it('should be a no-op for memories when the task has no projectId', async () => {
+        const db = getDb();
+        // Create a task without a projectId so there is no workspace to scope memories to
+        const task = db.insert(tasks).values({ title: 'Unscoped task' }).returning().get();
+
+        const mcp = getMcpServer();
+        const call = callTool(mcp, 'updateTask');
+        const { data, isError } = await call({
+          id: task.id,
+          memories: [{ content: 'This should not be stored', type: 'capture' }],
+        });
+
+        expect(isError).toBe(false);
+        expect(data).toEqual({ success: true });
+        const rows = db.select().from(fleetingMemories).all();
+        expect(rows).toHaveLength(0);
+      });
     });
 
     describe('listTasks', () => {
@@ -1142,6 +1186,146 @@ describe('MCP Server', () => {
       mockGetStore.mockReset();
       void sibling;
     }, 30000);
+
+    it('should use provided content when content override is supplied', async () => {
+      process.env.QMD_SKIP = '1';
+      try {
+        const db = getDb();
+        const fleeting = db
+          .insert(fleetingMemories)
+          .values({ workspaceId: wsId, content: 'Raw fleeting content', type: 'capture', source: 'agent' })
+          .returning()
+          .get();
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'promoteMemory')({
+          fleetingMemoryId: fleeting.id,
+          subtype: 'insight',
+          title: 'Refined Insight',
+          content: 'Refined content for the permanent memory.',
+        });
+
+        expect(isError).toBe(false);
+        const promoted = db
+          .select()
+          .from(permanentMemories)
+          .where(eq(permanentMemories.id, data.permanentMemoryId))
+          .get();
+        expect(promoted?.content).toBe('Refined content for the permanent memory.');
+      } finally {
+        delete process.env.QMD_SKIP;
+      }
+    });
+
+    it('should fall back to fleeting content when no content override is supplied', async () => {
+      process.env.QMD_SKIP = '1';
+      try {
+        const db = getDb();
+        const fleeting = db
+          .insert(fleetingMemories)
+          .values({ workspaceId: wsId, content: 'Original fleeting content', type: 'capture', source: 'agent' })
+          .returning()
+          .get();
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'promoteMemory')({
+          fleetingMemoryId: fleeting.id,
+          subtype: 'insight',
+          title: 'Insight without override',
+        });
+
+        expect(isError).toBe(false);
+        const promoted = db
+          .select()
+          .from(permanentMemories)
+          .where(eq(permanentMemories.id, data.permanentMemoryId))
+          .get();
+        expect(promoted?.content).toBe('Original fleeting content');
+      } finally {
+        delete process.env.QMD_SKIP;
+      }
+    });
+  });
+
+  describe('updatePermanentMemory subtype relocation', () => {
+    let wsId: number;
+    let wsSlug: string;
+    let wsDir: string;
+
+    beforeEach(async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const ws = await caller.workspace.create({ name: 'Update Subtype WS' });
+      wsSlug = ws.slug;
+      const db = getDb();
+      const wsRow = db.select().from(workspaces).where(eq(workspaces.slug, wsSlug)).get()!;
+      wsId = wsRow.id;
+      wsDir = path.join(ctx.tmpDir, wsSlug);
+    });
+
+    afterEach(() => {
+      _resetStoreCache();
+    });
+
+    it('should move the file to the new subtype dir when subtype changes', async () => {
+      process.env.QMD_SKIP = '1';
+      try {
+        const mcp = getMcpServer();
+        const { data: createData } = await callTool(mcp, 'createPermanentMemory')({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Relocatable Memory',
+          content: 'Body to relocate.',
+        });
+
+        const originalFilePath: string = createData.filePath;
+        expect(originalFilePath).toMatch(/^memory\/facts\//);
+
+        const { data: updateData, isError } = await callTool(getMcpServer(), 'updatePermanentMemory')({
+          id: createData.id,
+          subtype: 'decision',
+        });
+
+        expect(isError).toBe(false);
+        expect(updateData.filePath).toMatch(/^memory\/decisions\//);
+        expect(updateData.filePath).not.toBe(originalFilePath);
+
+        expect(fs.existsSync(path.join(wsDir, updateData.filePath))).toBe(true);
+        expect(fs.existsSync(path.join(wsDir, originalFilePath))).toBe(false);
+
+        // Verify DB row has the new filePath
+        const db = getDb();
+        const row = db
+          .select({ filePath: permanentMemories.filePath })
+          .from(permanentMemories)
+          .where(eq(permanentMemories.id, createData.id))
+          .get();
+        expect(row?.filePath).toBe(updateData.filePath);
+      } finally {
+        delete process.env.QMD_SKIP;
+      }
+    });
+
+    it('should keep filePath unchanged when subtype is not modified', async () => {
+      process.env.QMD_SKIP = '1';
+      try {
+        const mcp = getMcpServer();
+        const { data: createData } = await callTool(mcp, 'createPermanentMemory')({
+          workspaceId: wsId,
+          subtype: 'pattern',
+          title: 'Stable Pattern',
+          content: 'Body stays.',
+        });
+
+        const { data: updateData } = await callTool(getMcpServer(), 'updatePermanentMemory')({
+          id: createData.id,
+          title: 'Stable Pattern updated',
+        });
+
+        expect(updateData.filePath).toBe(createData.filePath);
+      } finally {
+        delete process.env.QMD_SKIP;
+      }
+    });
   });
 
   describe('index tools', () => {
@@ -1598,6 +1782,167 @@ describe('MCP Server', () => {
 
         expect(isError).toBe(false);
         expect(data).toEqual([]);
+      });
+    });
+
+    describe('query-only mode with mocked qmd store', () => {
+      beforeEach(() => {
+        delete process.env.QMD_SKIP;
+      });
+      afterEach(() => {
+        delete process.env.QMD_SKIP;
+        mockGetStore.mockReset();
+        vi.restoreAllMocks();
+      });
+
+      function mockQmdSearch(
+        hits: Array<{ file: string; displayPath: string; title: string; bestChunk: string; score: number }>,
+      ) {
+        mockGetStore.mockResolvedValue({
+          search: vi.fn().mockResolvedValue(hits),
+          searchLex: vi.fn().mockResolvedValue([]),
+          searchVector: vi.fn().mockResolvedValue([]),
+        } as unknown as Awaited<ReturnType<typeof import('../search/qmd-store').getStore>>);
+      }
+
+      it('should replace slug title with frontmatter title when present', async () => {
+        const db = getDb();
+        db.insert(frontmatter)
+          .values({
+            workspaceId: wsId,
+            collection: 'memory',
+            path: 'memory/decisions/20260610221554-jwt-access-tokens-rotate-every-15-minutes.md',
+            data: JSON.stringify({ title: 'JWT access tokens rotate every 15 minutes' }),
+            indexedAt: new Date().toISOString(),
+          })
+          .run();
+
+        mockQmdSearch([
+          {
+            file: 'qmd://memory/decisions/20260610221554-jwt-access-tokens-rotate-every-15-minutes.md',
+            displayPath: 'memory/decisions/20260610221554-jwt-access-tokens-rotate-every-15-minutes.md',
+            title: '20260610221554-jwt-access-tokens-rotate-every-15-minutes',
+            bestChunk: 'JWT tokens expire after 15 minutes.',
+            score: 0.88,
+          },
+        ]);
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          query: 'JWT token rotation',
+        });
+
+        expect(isError).toBe(false);
+        const memGroup = data.find((g: { collection: string }) => g.collection === 'memory');
+        expect(memGroup).toBeDefined();
+        expect(memGroup.results[0].title).toBe('JWT access tokens rotate every 15 minutes');
+      });
+
+      it('should fall back to qmd title when no frontmatter row exists', async () => {
+        mockQmdSearch([
+          {
+            file: 'qmd://docs/no-frontmatter.md',
+            displayPath: 'docs/no-frontmatter.md',
+            title: 'qmd title',
+            bestChunk: 'Some content.',
+            score: 0.7,
+          },
+        ]);
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          query: 'content',
+        });
+
+        expect(isError).toBe(false);
+        const docsGroup = data.find((g: { collection: string }) => g.collection === 'docs');
+        expect(docsGroup!.results[0].title).toBe('qmd title');
+      });
+
+      it('should drop readme.md hits from query results', async () => {
+        mockQmdSearch([
+          {
+            file: 'qmd://memory/decisions/readme.md',
+            displayPath: 'memory/decisions/readme.md',
+            title: 'Decisions README',
+            bestChunk: 'Table of contents.',
+            score: 0.93,
+          },
+          {
+            file: 'qmd://memory/decisions/20260610-jwt-rotation.md',
+            displayPath: 'memory/decisions/20260610-jwt-rotation.md',
+            title: 'JWT rotation',
+            bestChunk: 'Rotate every 15 minutes.',
+            score: 0.82,
+          },
+        ]);
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          query: 'JWT rotation',
+        });
+
+        expect(isError).toBe(false);
+        const memGroup = data.find((g: { collection: string }) => g.collection === 'memory');
+        const paths = (memGroup?.results ?? []).map((r: { path: string }) => r.path);
+        expect(paths).not.toContain('memory/decisions/readme.md');
+        expect(paths).toContain('memory/decisions/20260610-jwt-rotation.md');
+      });
+
+      it('should fall back to path-derived title when qmd hit has no title', async () => {
+        mockQmdSearch([
+          {
+            file: 'qmd://docs/my-doc.md',
+            displayPath: 'docs/my-doc.md',
+            title: '',
+            bestChunk: 'Some content.',
+            score: 0.7,
+          },
+        ]);
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          query: 'content',
+        });
+
+        expect(isError).toBe(false);
+        const docsGroup = data.find((g: { collection: string }) => g.collection === 'docs');
+        expect(docsGroup!.results[0].title).toBe('my doc');
+      });
+
+      it('should drop README.MD hits case-insensitively', async () => {
+        mockQmdSearch([
+          {
+            file: 'qmd://docs/README.MD',
+            displayPath: 'docs/README.MD',
+            title: 'Docs index',
+            bestChunk: 'Overview.',
+            score: 0.91,
+          },
+          {
+            file: 'qmd://docs/guide.md',
+            displayPath: 'docs/guide.md',
+            title: 'Guide',
+            bestChunk: 'The guide.',
+            score: 0.75,
+          },
+        ]);
+
+        const mcp = getMcpServer();
+        const { data, isError } = await callTool(mcp, 'search')({
+          workspaceId: wsId,
+          query: 'guide',
+        });
+
+        expect(isError).toBe(false);
+        const docsGroup = data.find((g: { collection: string }) => g.collection === 'docs');
+        const paths = (docsGroup?.results ?? []).map((r: { path: string }) => r.path);
+        expect(paths).not.toContain('docs/README.MD');
+        expect(paths).toContain('docs/guide.md');
       });
     });
 

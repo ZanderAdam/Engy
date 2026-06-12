@@ -7,7 +7,7 @@ Spawns Claude Code CLI processes per agent session, in one of four execution mod
 - `index.ts` — `Runner`: orchestrates session lifecycle (worktree create → spawn → emit events → cleanup). Wires `AgentSpawner` to the WS send function.
 - `agent-spawner.ts` — `AgentSpawner`: builds the `claude` argv, picks a `spawn` strategy (host / container exec / coder ssh exec), waits for exit, extracts the structured-output JSON.
 
-Handles WS requests: `EXECUTION_START_REQUEST`, `EXECUTION_STOP_REQUEST`. Emits: `EXECUTION_STATUS_EVENT` (with `worktreePath`), `EXECUTION_COMPLETE_EVENT` (with `exitCode`, `success`, `completionSummary`).
+Handles WS requests: `EXECUTION_START_REQUEST`, `EXECUTION_STOP_REQUEST`. Emits: `EXECUTION_STATUS_EVENT` (with `worktreePath`), `CREATE_MEMORIES_EVENT` (fire-and-forget; `payload: { sessionId, memories }`), `EXECUTION_COMPLETE_EVENT` (with `exitCode`, `success`, `completionSummary`). When memories are present, `CREATE_MEMORIES_EVENT` is sent **before** `EXECUTION_COMPLETE_EVENT`.
 
 ## Execution modes
 
@@ -26,7 +26,7 @@ Worktree dir is `.claude/worktrees/engy-session-<shortId>` with branch `engy/ses
 
 ## Building argv (`agent-spawner.ts` `buildArgs`)
 
-- Always: `-p --output-format json --json-schema <TASK_COMPLETION_SCHEMA>`. The schema forces Claude to emit `{ taskCompleted, summary }` as structured output.
+- Always: `-p --output-format json --json-schema <TASK_COMPLETION_SCHEMA>`. The schema forces Claude to emit `{ taskCompleted, summary, memories? }` as structured output. The optional `memories` field is an array of `{ content, type? }` objects forwarded as a `CREATE_MEMORIES_EVENT` to the server before the completion event.
 - Permission flag: `--dangerously-skip-permissions` inside container/coder (isolated); `--permission-mode acceptEdits` on host.
 - Session identity is mutually exclusive: `--session-id <sessionId>` for new sessions, `--resume <sessionId>` for resumed ones (caller-supplied `--resume` flag also counts). Setting both is a CLI error.
 - Container/coder modes append `--add-dir <workingDir>` because the worktree isn't the cwd.

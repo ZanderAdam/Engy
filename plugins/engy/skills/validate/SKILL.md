@@ -35,6 +35,8 @@ This runs all checks server-side:
 - **Duplicate IDs** — same `filePath` cannot appear twice in `permanentMemories`
 - **Orphaned content** — DB rows with no matching file on disk
 - **Lifecycle consistency** — promoted fleeting memories must have a valid `promotedFromId`
+- **Stale memory** — permanent memories whose `supersededById` points to a record that itself has been superseded (multi-hop stale chain)
+- **Missing sources** — permanent memories whose `sources[]` array references paths that do not exist under `memory/sources/` or `memory/references/`
 - **Commit-message conformance** — commits touching `memory/` should follow `memory(<op>):` convention
 - **Index status** — files with `needsEmbedding > 0` are reported as awaiting embedding
 

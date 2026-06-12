@@ -762,7 +762,7 @@ The terminal is context-scoped: each location sets a **working directory**, a **
 | Workspace Overview | Workspace root | `engy:workspace-assistant` | General | Workspace config, all projects summary |
 | Workspace Specs tab | `specs/` | `engy:spec-assistant` | Spec files | Workspace specs, system docs (MCP) |
 | Spec Detail | `specs/{slug}/` | `engy:spec-assistant` | This spec dir | Spec content + context files + tasks |
-| Workspace Docs tab | `system/` + `docs/` | `engy:sysdoc-assistant` | System/shared docs | System docs + shared docs |
+| Workspace Docs tab | `system/` + `docs/` | `engy:write-sysdocs` | System/shared docs | System docs + shared docs |
 | Workspace Memory tab | `memory/` | `engy:workspace-assistant` | Memory files | Memory collection, search |
 | Workspace Tasks tab | Workspace root | `engy:workspace-assistant` | General | Default project tasks |
 | Project Overview | Primary repo | `engy:project-assistant` | Via worktrees | Project plan, milestones, agent status |

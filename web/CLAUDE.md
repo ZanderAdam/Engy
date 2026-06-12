@@ -12,7 +12,7 @@ See root `CLAUDE.md` for monorepo commands and the nested CLAUDE.md index.
   - `trpc/routers/` — tRPC v11 procedures (browser UI)
   - `mcp/` — MCP tools (AI agents) — kept in parity with tRPC
   - `ws/` — daemon control channel, terminal relay, browser broadcast
-  - `search/` — BM25/vector search, indexer, auto-linker, integrity validation
+  - `search/` — BM25/vector search, indexer, auto-linker, integrity validation. `qmd-search.ts` exports `isReadme` — import it in both tRPC and MCP filter modes to exclude README rows from all search surfaces.
   - `engy-dir/`, `project/`, `spec/`, `plan/`, `tasks/` — server-owned `{ENGY_DIR}` operations and pure helpers
 - `src/app/` — Next.js routes (`/`, `/open`, `/w/[workspace]/...`). All pages are `"use client"`.
 - `src/components/` — feature components + shadcn primitives in `components/ui/`. See `components/CLAUDE.md`.
@@ -28,22 +28,14 @@ src/server/
 │   ├── client.ts                 # Drizzle ORM singleton (better-sqlite3, WAL mode)
 │   ├── schema.ts                 # Full schema — workspaces, projects, tasks, memories, comments
 │   ├── migrate.ts                # Auto-runs migrations on startup
-│   └── migrations/               # Drizzle Kit migrations (0000–0008)
+│   └── migrations/               # Drizzle Kit generated migrations — do not hand-edit
 ├── trpc/
 │   ├── context.ts                # AppState singleton on globalThis (survives HMR)
 │   ├── trpc.ts                   # tRPC init with superjson transformer
-│   ├── root.ts                   # Router composition (8 routers)
+│   ├── root.ts                   # Router composition — one router per domain; see root.ts for full list
 │   ├── utils.ts                  # generateSlug(), uniqueWorkspaceSlug(), uniqueProjectSlug()
 │   ├── test-helpers.ts           # setupTestDb() — fresh SQLite + ENGY_DIR per test
-│   └── routers/
-│       ├── workspace.ts          # Workspace CRUD (compensating deletes)
-│       ├── project.ts            # Project CRUD + status transitions
-│       ├── milestone.ts          # Milestone management
-│       ├── task-group.ts         # Task group CRUD
-│       ├── task.ts               # Task CRUD + dependency cycle detection
-│       ├── comment.ts            # BlockNote comment threads
-│       ├── dir.ts                # File listing/searching (via daemon)
-│       └── diff.ts               # Git diff operations (via daemon)
+│   └── routers/                  # workspace, project, milestone, task-group, task, comment, dir, diff, file, execution, question, worktree, memory, search
 ├── ws/
 │   ├── server.ts                 # Main /ws — daemon communication + request-response maps
 │   ├── terminal-server.ts        # /ws/terminal — xterm ↔ daemon PTY relay
@@ -52,12 +44,15 @@ src/server/
 │   └── index.ts                  # /mcp — StreamableHTTPServerTransport for AI agents
 ├── search/
 │   ├── qmd-store.ts              # Per-workspace qmd store singleton (lazy init, cached)
-│   ├── qmd-search.ts             # Unified BM25/vector/hybrid dispatch; normalises result shape
+│   ├── qmd-search.ts             # Unified BM25/vector/hybrid dispatch; normalises result shape; drops README hits; oversamples at min(ceil(limit×1.5), 500); exports isReadme for filter-mode callers
 │   ├── subtype-affinity.ts       # Post-hoc score reweighting from query-shape signals
 │   ├── memory-queries.ts         # getSupersededMemoryPaths() — exclude superseded from results
+│   ├── frontmatter-filter.ts     # buildFrontmatterWhereCondition() for JSON1 structured filters
 │   ├── indexer.ts                # update()/forceFullReindex()/syncPermanentMemoryMirror()
 │   ├── auto-linker.ts            # Bidirectional link writing on memory create/promote
-│   └── validate.ts               # Integrity checks (broken links, schema, orphaned content)
+│   ├── trace.ts                  # FR↔test↔source traceability scanner
+│   ├── repo-adapter.ts           # Repo-path normalisation for qmd collection roots
+│   └── validate.ts               # Integrity checks (broken links, schema, orphaned content, stale-memory, missing-sources)
 ├── project/
 │   └── service.ts                # File tree traversal, content reading
 ├── spec/
@@ -69,6 +64,14 @@ src/server/
 ├── engy-dir/
 │   ├── init.ts                   # Workspace/project directory initialization
 │   └── git.ts                    # Server-side git operations (simple-git)
+├── lib/
+│   ├── memory-files.ts           # write/read permanent memories, source snapshots, reference records; server-side git commits
+│   ├── promote-proposal.ts       # Build promotion proposals for fleeting memories
+│   ├── readme-index.ts           # README index block regeneration (updateReadmeIndex, regenerateReadmeChain)
+│   ├── requirements.ts           # Requirements parsing helpers
+│   └── workspace-lock.ts        # Per-workspace async mutex for git operations
+├── services/
+│   └── project-completion.ts    # ProjectCompletionService — distillation + archival
 └── tasks/
     └── validation.ts             # Cycle detection (iterative DFS)
 ```
@@ -85,7 +88,7 @@ src/app/
     ├── layout.tsx                # Three-panel layout + terminal dock
     ├── page.tsx                  # Workspace overview
     ├── tasks/page.tsx            # Task list (kanban, eisenhower, dependency graph)
-    ├── memory/page.tsx           # Fleeting memories
+    ├── memory/page.tsx           # Memory tab — permanent memory browser + fleeting review candidates
     ├── docs/page.tsx             # Doc browser
     ├── specs/page.tsx            # Spec listing
     └── projects/[project]/       # Project detail pages

@@ -1,6 +1,6 @@
 'use client';
 
-import { useDeferredValue, useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -12,10 +12,10 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { RiSearchLine, RiCloseLine } from '@remixicon/react';
+import { type MemorySubtype, SUBTYPES } from './types';
 
+export type { MemorySubtype } from './types';
 export type SortOption = 'date' | 'confidence';
-
-export type MemorySubtype = 'decision' | 'pattern' | 'fact' | 'convention' | 'insight';
 
 export interface MemoryFiltersValue {
   search: string;
@@ -32,30 +32,28 @@ interface MemoryFiltersProps {
   onChange: (filters: MemoryFiltersValue) => void;
 }
 
-const SUBTYPES: { value: MemorySubtype; label: string }[] = [
-  { value: 'decision', label: 'Decision' },
-  { value: 'pattern', label: 'Pattern' },
-  { value: 'fact', label: 'Fact' },
-  { value: 'convention', label: 'Convention' },
-  { value: 'insight', label: 'Insight' },
-];
-
 const DEBOUNCE_MS = 300;
 
 export function MemoryFilters({ filters, repos, disableSubtype, onChange }: MemoryFiltersProps) {
   const [rawSearch, setRawSearch] = useState(filters.search);
   const [tagInput, setTagInput] = useState('');
 
-  const deferredSearch = useDeferredValue(rawSearch);
+  // Keep a ref to the latest filters/onChange to avoid stale-closure issues in
+  // the debounce effect, which only depends on rawSearch.
+  const latestRef = useRef({ filters, onChange });
+  useEffect(() => {
+    latestRef.current = { filters, onChange };
+  }, [filters, onChange]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (deferredSearch !== filters.search) {
-        onChange({ ...filters, search: deferredSearch });
+      const { filters: f, onChange: cb } = latestRef.current;
+      if (rawSearch !== f.search) {
+        cb({ ...f, search: rawSearch });
       }
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [deferredSearch, filters, onChange]);
+  }, [rawSearch]);
 
   function handleSubtypeChange(value: string) {
     onChange({ ...filters, subtype: value === 'all' ? '' : (value as MemorySubtype) });

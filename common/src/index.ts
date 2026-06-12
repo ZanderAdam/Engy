@@ -62,7 +62,7 @@ export type {
   ExecutionStopResponseMessage,
   ExecutionStatusEventMessage,
   ExecutionCompleteEventMessage,
-  CreateMemoriesRequestMessage,
+  CreateMemoriesEventMessage,
   FleetingMemoryType,
   TerminalSpawnCmd,
   TerminalInputCmd,

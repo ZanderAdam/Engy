@@ -92,6 +92,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const basePath = `/w/${params.workspace}`;
   const isProjectRoute = pathname.startsWith(`${basePath}/projects/`);
   const isDocsRoute = pathname.startsWith(`${basePath}/docs`);
+  const isMemoryRoute = pathname.startsWith(`${basePath}/memory`);
 
   const { data: project } = trpc.project.getBySlug.useQuery(
     { workspaceId: workspace?.id ?? 0, slug: params.project ?? '' },
@@ -311,7 +312,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
               <div
                 className={cn(
                   'flex min-h-0 flex-1 flex-col overflow-hidden',
-                  !isDocsRoute && (isMobile ? 'px-2' : 'px-6'),
+                  !isDocsRoute && !isMemoryRoute && (isMobile ? 'px-2' : 'px-6'),
                 )}
               >
                 {children}

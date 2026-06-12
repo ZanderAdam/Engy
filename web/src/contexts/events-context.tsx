@@ -31,11 +31,18 @@ interface TerminalSessionsChangePayload {
   newLabel?: string;
 }
 
+interface MemoryChangePayload {
+  action: 'created' | 'updated' | 'deleted' | 'promoted';
+  workspaceId: number;
+  memoryId?: number;
+}
+
 interface ServerEventMap {
   FILE_CHANGE: FileChangePayload;
   TASK_CHANGE: TaskChangePayload;
   QUESTION_CHANGE: QuestionChangePayload;
   TERMINAL_SESSIONS_CHANGE: TerminalSessionsChangePayload;
+  MEMORY_CHANGE: MemoryChangePayload;
 }
 
 type ServerEventType = keyof ServerEventMap;

@@ -4,6 +4,7 @@ import { createStore, type QMDStore } from '@tobilu/qmd';
 import { getWorkspaceDir } from '../engy-dir/init';
 
 const storeCache = new Map<string, QMDStore>();
+const inflightCreations = new Map<string, Promise<QMDStore>>();
 
 /**
  * Returns the qmd store for the given workspace, creating it lazily on first access.
@@ -12,10 +13,17 @@ const storeCache = new Map<string, QMDStore>();
  * The qmd database lives at {ENGY_DIR}/{workspace-slug}/.qmd/qmd.db.
  * Collections are scoped to the workspace directory with path-specific context
  * descriptions that steer hybrid search relevance.
+ *
+ * Concurrent first-accesses for the same slug share a single creation promise
+ * to prevent opening the same SQLite file twice.
  */
 export async function getStore(workspaceSlug: string): Promise<QMDStore> {
   if (storeCache.has(workspaceSlug)) {
     return storeCache.get(workspaceSlug)!;
+  }
+
+  if (inflightCreations.has(workspaceSlug)) {
+    return inflightCreations.get(workspaceSlug)!;
   }
 
   const workspaceDir = getWorkspaceDir({ slug: workspaceSlug, docsDir: null });
@@ -24,7 +32,7 @@ export async function getStore(workspaceSlug: string): Promise<QMDStore> {
 
   fs.mkdirSync(qmdDir, { recursive: true });
 
-  const store = await createStore({
+  const creation = createStore({
     dbPath,
     config: {
       collections: {
@@ -58,10 +66,20 @@ export async function getStore(workspaceSlug: string): Promise<QMDStore> {
         },
       },
     },
-  });
+  }).then(
+    (store) => {
+      storeCache.set(workspaceSlug, store);
+      inflightCreations.delete(workspaceSlug);
+      return store;
+    },
+    (err) => {
+      inflightCreations.delete(workspaceSlug);
+      throw err;
+    },
+  );
 
-  storeCache.set(workspaceSlug, store);
-  return store;
+  inflightCreations.set(workspaceSlug, creation);
+  return creation;
 }
 
 /**
@@ -74,14 +92,42 @@ export function getQmdDbPath(workspaceSlug: string): string {
 }
 
 /**
- * Removes the cached store for a workspace. The next call to getStore will
- * re-initialize. Call this after renaming or deleting a workspace.
+ * Removes the cached store for a workspace and closes it to release DB resources.
+ * The next call to getStore will re-initialize.
+ * Call this after renaming or deleting a workspace.
+ *
+ * Also cancels any in-flight creation so a store opened concurrently with the
+ * eviction is closed immediately instead of being re-populated into the cache.
  */
 export function evictStore(workspaceSlug: string): void {
+  const store = storeCache.get(workspaceSlug);
   storeCache.delete(workspaceSlug);
+  if (store) {
+    store.close().catch((err) => {
+      console.warn(`[qmd-store] failed to close evicted store for "${workspaceSlug}":`, err);
+    });
+  }
+
+  const inflight = inflightCreations.get(workspaceSlug);
+  inflightCreations.delete(workspaceSlug);
+  if (inflight) {
+    inflight.then(
+      (s) => {
+        // The creation's own .then may have already re-populated the cache;
+        // remove it so a post-eviction getStore gets a fresh store.
+        storeCache.delete(workspaceSlug);
+        s.close().catch(() => undefined);
+      },
+      () => undefined,
+    );
+  }
 }
 
 // Exposed for tests that need to reset state between runs.
 export function _resetStoreCache(): void {
+  for (const store of storeCache.values()) {
+    store.close().catch(() => undefined);
+  }
   storeCache.clear();
+  inflightCreations.clear();
 }

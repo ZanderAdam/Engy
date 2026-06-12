@@ -15,15 +15,9 @@ import {
 import { RiCloseLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
 
-export type MemorySubtype = 'decision' | 'pattern' | 'fact' | 'convention' | 'insight';
+import { type MemorySubtype, SUBTYPES } from './types';
 
-const SUBTYPES: { value: MemorySubtype; label: string }[] = [
-  { value: 'decision', label: 'Decision' },
-  { value: 'pattern', label: 'Pattern' },
-  { value: 'fact', label: 'Fact' },
-  { value: 'convention', label: 'Convention' },
-  { value: 'insight', label: 'Insight' },
-];
+export type { MemorySubtype } from './types';
 
 export interface MemoryFormValues {
   title: string;

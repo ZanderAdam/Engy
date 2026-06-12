@@ -36,6 +36,7 @@ The skill accepts an optional area selection argument:
 
 ## MCP Tools
 
+- `listWorkspaces` — discover workspaceId when not known from context
 - `getWorkspaceDetails` — resolve `paths.workspaceDir`, `paths.systemDir`, and `repos[]`
 - `trace` — `trace({ workspaceId, sessionId })` for current FR/coverage state; `trace({ workspaceId, file, sessionId })` to inspect a single area doc. Pass your Engy `sessionId` when running inside an agent session so the tag scan sees your **uncommitted** feature docs and test tags; omit it only when editing the main checkout directly. (See the `trace` quick reference in `../implement/references/ears-bdd.md`.)
 - `reindex` — refresh the `system` collection after authoring

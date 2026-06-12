@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useState } from 'react';
+import { parseTaskId } from './task-id';
 import { trpc } from '@/lib/trpc';
 import {
   CommandDialog,
@@ -32,8 +33,12 @@ function extractWorkspaceSlug(): string | null {
   return match ? match[1] : null;
 }
 
-function buildNavigationPath(workspaceSlug: string, path: string): string {
+export function buildNavigationPath(workspaceSlug: string, path: string): string {
   if (path.startsWith('task:')) {
+    const numericId = parseTaskId(path.slice('task:'.length));
+    if (numericId !== null) {
+      return `/w/${workspaceSlug}/tasks?task=${numericId}`;
+    }
     return `/w/${workspaceSlug}/tasks`;
   }
   const collection = path.split('/')[0];
