@@ -161,6 +161,8 @@ export function DirFileTree({
       isRefreshing={isFetching}
       label={label || path.basename(dirPath) || dirPath}
       rootAbsPath={dirPath}
+      defaultExtension=".md"
+      canManageFile={(p) => !isImagePath(p)}
     />
   );
 }

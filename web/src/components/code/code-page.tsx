@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import { DynamicMonacoCodeEditor } from '@/components/editor/dynamic-monaco-editors';
 import { useAutoSave } from '@/components/diff/use-auto-save';
 import { RepoSelector } from '@/components/diff/repo-selector';
-import { LazyFileTree } from '@/components/diff/file-tree';
+import { RepoFileTree } from '@/components/code/repo-file-tree';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 
 interface CodePageProps {
@@ -15,6 +15,7 @@ interface CodePageProps {
 
 export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
   const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(null);
+  // Path relative to the effective root
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
@@ -53,45 +54,14 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
     return worktreeRepoMap.get(selectedRepo) ?? selectedRepo;
   }, [selectedRepo, worktreeRepoMap]);
 
-  // Clear the open file when the effective root changes — otherwise the
-  // remembered absolute path is rooted at the *previous* worktree and would
-  // produce a garbage relative read against the new root. Uses the
-  // "set state during render" pattern per React's set-state-in-effect rule.
+  // Clear the open file when the effective root changes — the remembered relative
+  // path may not exist under the new root. Uses the "set state during render"
+  // pattern per React's set-state-in-effect rule.
   const [prevEffectiveRoot, setPrevEffectiveRoot] = useState<string | null>(effectiveRoot);
   if (effectiveRoot !== prevEffectiveRoot) {
     setPrevEffectiveRoot(effectiveRoot);
     setSelectedFile(null);
   }
-
-  const trpcUtils = trpc.useUtils();
-
-  const listDir = useCallback(
-    async (dirPath: string) => {
-      return trpcUtils.file.listDir.fetch({ dirPath });
-    },
-    [trpcUtils],
-  );
-
-  const searchFiles = useCallback(
-    async (query: string) => {
-      if (!effectiveRoot) return [];
-      const result = await trpcUtils.dir.searchRepoFiles.fetch({
-        dirs: [effectiveRoot],
-        query,
-        limit: 50,
-      });
-      return result.results;
-    },
-    [trpcUtils, effectiveRoot],
-  );
-
-  // File path for read is relative to effectiveRoot, but LazyFileTree gives absolute paths
-  const relativeSelectedFile = useMemo(() => {
-    if (!selectedFile || !effectiveRoot) return null;
-    return selectedFile.startsWith(effectiveRoot)
-      ? selectedFile.slice(effectiveRoot.length + 1)
-      : selectedFile;
-  }, [selectedFile, effectiveRoot]);
 
   // Pass repoDir = main repo (preserves identity), worktreePath = effectiveRoot
   // (only when it differs). Symmetric with the Diffs page.
@@ -101,15 +71,15 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
   const { data: fileData } = trpc.file.read.useQuery(
     {
       repoDir: selectedRepo!,
-      filePath: relativeSelectedFile!,
+      filePath: selectedFile!,
       worktreePath: overrideWorktreePath,
     },
-    { enabled: !!selectedRepo && !!relativeSelectedFile, retry: false },
+    { enabled: !!selectedRepo && !!selectedFile, retry: false },
   );
 
   const { status: saveStatus, save } = useAutoSave(
     selectedRepo,
-    relativeSelectedFile,
+    selectedFile,
     overrideWorktreePath,
   );
 
@@ -125,10 +95,8 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
               setSelectedFile(null);
             }}
           />
-          {relativeSelectedFile && (
-            <span className="truncate font-mono text-xs text-muted-foreground">
-              {relativeSelectedFile}
-            </span>
+          {selectedFile && (
+            <span className="truncate font-mono text-xs text-muted-foreground">{selectedFile}</span>
           )}
         </div>
         <div className="ml-auto shrink-0">
@@ -142,14 +110,13 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
 
       <div className="flex flex-1 min-h-0">
         <div className="w-[280px] flex-shrink-0 border-r border-border">
-          {effectiveRoot ? (
-            <LazyFileTree
+          {effectiveRoot && selectedRepo ? (
+            <RepoFileTree
               rootDir={effectiveRoot}
+              repoDir={selectedRepo}
+              worktreePath={overrideWorktreePath}
               selectedFile={selectedFile}
-              onSelectFile={setSelectedFile}
-              listDir={listDir}
-              searchFiles={searchFiles}
-              onRefresh={() => trpcUtils.file.listDir.invalidate({ dirPath: effectiveRoot })}
+              onSelectFile={(relPath) => setSelectedFile(relPath || null)}
             />
           ) : (
             <div className="flex h-full items-center justify-center">

@@ -70,7 +70,15 @@ export interface ExecutionStopResult {
 
 export interface DirListResult {
   dirs: string[];
-  files: string[];
+  files: Array<{ name: string; mtime: number }>;
+}
+
+export interface FsDeleteResult {
+  success: boolean;
+}
+
+export interface FsRenameResult {
+  success: boolean;
 }
 
 export interface FileReadResult {
@@ -279,6 +287,20 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingFsDelete: Map<
+    string,
+    {
+      resolve: (result: FsDeleteResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingFsRename: Map<
+    string,
+    {
+      resolve: (result: FsRenameResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   daemonHomeDir: string | null;
   specLastChanged: Map<string, number>;
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
@@ -325,6 +347,8 @@ export function createAppState(): AppState {
     pendingWorktreeRemove: new Map(),
     pendingGitWorktreeList: new Map(),
     pendingCreateDirs: new Map(),
+    pendingFsDelete: new Map(),
+    pendingFsRename: new Map(),
     daemonHomeDir: null,
     specLastChanged: new Map(),
     specDebounceTimers: new Map(),

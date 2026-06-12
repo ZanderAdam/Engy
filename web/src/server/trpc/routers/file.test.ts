@@ -158,4 +158,185 @@ describe('file router', () => {
       ).rejects.toThrow('No daemon connected');
     });
   });
+
+  describe('createDir', () => {
+    it('should throw when no daemon is connected', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(caller.file.createDir({ dirPath: '/tmp/newdir' })).rejects.toThrow(
+        'No daemon connected',
+      );
+    });
+
+    it('should return success when daemon creates the directory', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      const fakeSocket = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'CREATE_DIR_REQUEST') {
+            const pending = ctx.state.pendingCreateDirs.get(msg.payload.requestId);
+            if (pending) {
+              pending.resolve({
+                results: [{ path: '/tmp/newdir', success: true }],
+              });
+            }
+          }
+        },
+      };
+      ctx.state.daemon = fakeSocket as unknown as WebSocket;
+
+      const result = await caller.file.createDir({ dirPath: '/tmp/newdir' });
+      expect(result).toEqual({ success: true });
+    });
+
+    it('should throw BAD_REQUEST when daemon reports failure for the path', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      const fakeSocket = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'CREATE_DIR_REQUEST') {
+            const pending = ctx.state.pendingCreateDirs.get(msg.payload.requestId);
+            if (pending) {
+              pending.resolve({
+                results: [{ path: '/tmp/newdir', success: false, error: 'Permission denied' }],
+              });
+            }
+          }
+        },
+      };
+      ctx.state.daemon = fakeSocket as unknown as WebSocket;
+
+      await expect(caller.file.createDir({ dirPath: '/tmp/newdir' })).rejects.toThrow(
+        'Permission denied',
+      );
+    });
+  });
+
+  describe('deleteEntry', () => {
+    it('should throw when no daemon is connected', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(
+        caller.file.deleteEntry({ rootDir: '/tmp/repo', relPath: 'src/file.ts' }),
+      ).rejects.toThrow('No daemon connected');
+    });
+
+    it('should return success when daemon deletes the entry', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      const fakeSocket = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'FS_DELETE_REQUEST') {
+            const pending = ctx.state.pendingFsDelete.get(msg.payload.requestId);
+            if (pending) {
+              pending.resolve({ success: true });
+            }
+          }
+        },
+      };
+      ctx.state.daemon = fakeSocket as unknown as WebSocket;
+
+      const result = await caller.file.deleteEntry({ rootDir: '/tmp/repo', relPath: 'file.ts' });
+      expect(result.success).toBe(true);
+    });
+
+    it('should propagate daemon errors', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      const fakeSocket = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'FS_DELETE_REQUEST') {
+            const pending = ctx.state.pendingFsDelete.get(msg.payload.requestId);
+            if (pending) {
+              pending.reject(new Error('Path traversal rejected'));
+            }
+          }
+        },
+      };
+      ctx.state.daemon = fakeSocket as unknown as WebSocket;
+
+      await expect(
+        caller.file.deleteEntry({ rootDir: '/tmp/repo', relPath: '../evil' }),
+      ).rejects.toThrow('Path traversal rejected');
+    });
+  });
+
+  describe('renameEntry', () => {
+    it('should throw when no daemon is connected', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(
+        caller.file.renameEntry({
+          rootDir: '/tmp/repo',
+          oldRelPath: 'old.ts',
+          newRelPath: 'new.ts',
+        }),
+      ).rejects.toThrow('No daemon connected');
+    });
+
+    it('should return success when daemon renames the entry', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      const fakeSocket = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'FS_RENAME_REQUEST') {
+            const pending = ctx.state.pendingFsRename.get(msg.payload.requestId);
+            if (pending) {
+              pending.resolve({ success: true });
+            }
+          }
+        },
+      };
+      ctx.state.daemon = fakeSocket as unknown as WebSocket;
+
+      const result = await caller.file.renameEntry({
+        rootDir: '/tmp/repo',
+        oldRelPath: 'old.ts',
+        newRelPath: 'new.ts',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should propagate daemon errors', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      const fakeSocket = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'FS_RENAME_REQUEST') {
+            const pending = ctx.state.pendingFsRename.get(msg.payload.requestId);
+            if (pending) {
+              pending.reject(new Error('already exists'));
+            }
+          }
+        },
+      };
+      ctx.state.daemon = fakeSocket as unknown as WebSocket;
+
+      await expect(
+        caller.file.renameEntry({
+          rootDir: '/tmp/repo',
+          oldRelPath: 'old.ts',
+          newRelPath: 'existing.ts',
+        }),
+      ).rejects.toThrow('already exists');
+    });
+  });
 });

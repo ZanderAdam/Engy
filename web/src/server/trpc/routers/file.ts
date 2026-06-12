@@ -6,6 +6,9 @@ import {
   dispatchFileRead,
   dispatchFileWrite,
   dispatchValidation,
+  dispatchCreateDir,
+  dispatchFsDelete,
+  dispatchFsRename,
 } from '../../ws/server';
 
 export const fileRouter = router({
@@ -78,5 +81,46 @@ export const fileRouter = router({
     .mutation(async ({ input, ctx }) => {
       const dir = input.worktreePath ?? input.repoDir;
       return dispatchFileWrite(dir, input.filePath, input.content, ctx.state, input.coderWorkspace);
+    }),
+
+  createDir: publicProcedure
+    .input(
+      z.object({
+        dirPath: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const result = await dispatchCreateDir([input.dirPath], ctx.state);
+      const entry = result.results.find((r) => r.path === input.dirPath);
+      if (entry && !entry.success) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: entry.error ?? 'Failed to create directory',
+        });
+      }
+      return { success: true };
+    }),
+
+  deleteEntry: publicProcedure
+    .input(
+      z.object({
+        rootDir: z.string().min(1),
+        relPath: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      return dispatchFsDelete(input.rootDir, input.relPath, ctx.state);
+    }),
+
+  renameEntry: publicProcedure
+    .input(
+      z.object({
+        rootDir: z.string().min(1),
+        oldRelPath: z.string().min(1),
+        newRelPath: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      return dispatchFsRename(input.rootDir, input.oldRelPath, input.newRelPath, ctx.state);
     }),
 });
