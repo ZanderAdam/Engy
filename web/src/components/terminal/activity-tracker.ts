@@ -28,6 +28,7 @@ export function createActivityTracker({
 }: ActivityTrackerOptions): ActivityTracker {
   let activityChunkCount = 0;
   let isActive = false;
+  let isWaiting = false;
   let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
   let suppressActivityUntil = Date.now() + suppressMs;
 
@@ -51,6 +52,7 @@ export function createActivityTracker({
 
     if (!isActive && activityChunkCount >= 2) {
       isActive = true;
+      isWaiting = false;
       onActivity('start');
     }
 
@@ -58,6 +60,7 @@ export function createActivityTracker({
     inactivityTimer = setTimeout(() => {
       inactivityTimer = null;
       if (isActive) {
+        isWaiting = true;
         onActivity('waiting');
       }
       resetCounters();
@@ -66,12 +69,17 @@ export function createActivityTracker({
 
   function handleBell() {
     resetCounters();
+    isWaiting = true;
     onActivity('waiting');
   }
 
   function resetOnUserInput() {
-    if (isActive || inactivityTimer) {
+    // isWaiting persists past resetCounters() — both paths into 'waiting'
+    // reset the counters, which would otherwise make this guard miss and
+    // leave the waiting indicator stuck until the next output burst.
+    if (isActive || inactivityTimer || isWaiting) {
       resetCounters();
+      isWaiting = false;
       onActivity('idle');
     }
   }

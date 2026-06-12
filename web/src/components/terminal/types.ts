@@ -39,6 +39,8 @@ export interface TerminalTab {
   scope: TerminalScope;
   status: TerminalStatus;
   activityState?: TerminalActivityState;
+  /** Dynamic title from OSC 0/2 escape sequences, shown as subtitle under scopeLabel. */
+  oscTitle?: string;
 }
 
 export interface TerminalPanelParams {

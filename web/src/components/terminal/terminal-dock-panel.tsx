@@ -13,7 +13,7 @@ const TerminalInstance = dynamic(
 );
 
 export function TerminalDockPanel({ params, api }: IDockviewPanelProps<TerminalPanelParams>) {
-  const { handleStatusChange, handleActivity, handleReady } = useTerminalDock();
+  const { handleStatusChange, handleActivity, handleReady, handleOscTitle } = useTerminalDock();
   const xtermTheme = useXtermTheme();
   const { taskId, workspaceSlug } = params.tab.scope;
 
@@ -27,6 +27,7 @@ export function TerminalDockPanel({ params, api }: IDockviewPanelProps<TerminalP
           onStatusChange={handleStatusChange}
           onReady={handleReady}
           onActivity={handleActivity}
+          onOscTitle={handleOscTitle}
           panelApi={api}
         />
       </div>

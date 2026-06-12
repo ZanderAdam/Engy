@@ -46,8 +46,10 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
     return () => disposable.dispose();
   }, [api]);
 
-  const label = tab.scope.scopeLabel;
+  const scopeLabel = tab.scope.scopeLabel;
+  const label = scopeLabel;
   const isDir = tab.scope.scopeType === 'dir';
+  const displayLabel = isDir ? collapseLabel(scopeLabel) : scopeLabel;
 
   function commitRename(value: string) {
     const trimmed = value.trim();
@@ -85,8 +87,18 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   );
 
   const labelSpan = (
-    <span className="min-w-0 truncate" onDoubleClick={() => { setEditStartLabel(label); setIsEditing(true); }}>
-      {isDir ? collapseLabel(label) : label}
+    <span
+      className="flex min-w-0 flex-col justify-center gap-0.5"
+      onDoubleClick={() => { setEditStartLabel(label); setIsEditing(true); }}
+    >
+      <span className="truncate leading-tight">{displayLabel}</span>
+      {tab.oscTitle ? (
+        <span className="truncate font-mono text-[9px] leading-none text-muted-foreground">
+          {tab.oscTitle}
+        </span>
+      ) : (
+        <span aria-hidden className="h-2.5" />
+      )}
     </span>
   );
 
@@ -100,17 +112,16 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
       <RiTerminalLine className={cn('size-[11px] shrink-0', getTerminalIconStyle(tab))} />
       {isEditing ? (
         editInput
-      ) : isDir ? (
+      ) : (
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>{labelSpan}</TooltipTrigger>
             <TooltipContent side="bottom">
-              <p className="font-mono">{label}</p>
+              <p className="font-mono">{scopeLabel}</p>
+              {tab.oscTitle && <p className="font-mono opacity-70">{tab.oscTitle}</p>}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-      ) : (
-        labelSpan
       )}
       {tab.status === 'exited' && (
         <span className="shrink-0 text-[9px] text-muted-foreground">[exited]</span>
