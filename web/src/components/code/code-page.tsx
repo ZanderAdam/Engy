@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import { DynamicMonacoCodeEditor } from '@/components/editor/dynamic-monaco-editors';
 import { useAutoSave } from '@/components/diff/use-auto-save';
@@ -13,9 +13,49 @@ interface CodePageProps {
   projectSlug?: string;
 }
 
+interface CodePageState {
+  repo: string | null;
+  file: string | null;
+}
+
+function codeStateKey(workspaceSlug: string, projectSlug: string | undefined): string {
+  return `code-page:${workspaceSlug}:${projectSlug ?? ''}`;
+}
+
+function loadCodeState(workspaceSlug: string, projectSlug: string | undefined): CodePageState {
+  try {
+    const raw = localStorage.getItem(codeStateKey(workspaceSlug, projectSlug));
+    if (!raw) return { repo: null, file: null };
+    return JSON.parse(raw) as CodePageState;
+  } catch {
+    return { repo: null, file: null };
+  }
+}
+
+function saveCodeState(
+  workspaceSlug: string,
+  projectSlug: string | undefined,
+  state: CodePageState,
+): void {
+  try {
+    localStorage.setItem(codeStateKey(workspaceSlug, projectSlug), JSON.stringify(state));
+  } catch {
+    // localStorage may be full or unavailable
+  }
+}
+
 export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
-  const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(
+    () => loadCodeState(workspaceSlug, projectSlug).repo,
+  );
+  const [selectedFile, setSelectedFile] = useState<string | null>(
+    () => loadCodeState(workspaceSlug, projectSlug).file,
+  );
+
+  // Persist both fields together whenever either changes.
+  useEffect(() => {
+    saveCodeState(workspaceSlug, projectSlug, { repo: userSelectedRepo, file: selectedFile });
+  }, [userSelectedRepo, selectedFile, workspaceSlug, projectSlug]);
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
   const { data: taskGroups } = trpc.taskGroup.list.useQuery(

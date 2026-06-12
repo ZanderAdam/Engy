@@ -47,7 +47,18 @@ export const fileRouter = router({
       }),
     )
     .query(async ({ input, ctx }) => {
-      return dispatchDirList(input.dirPath, ctx.state);
+      try {
+        return await dispatchDirList(input.dirPath, ctx.state);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes('ENOENT') || message.toLowerCase().includes('not found')) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: `Directory not found: ${input.dirPath}`,
+          });
+        }
+        throw err;
+      }
     }),
 
   read: publicProcedure

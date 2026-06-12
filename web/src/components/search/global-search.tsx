@@ -84,7 +84,7 @@ function SearchDialogContent({ onClose }: SearchDialogContentProps) {
 
   const enabled = !!workspaceSlug && debouncedQuery.length > 0;
 
-  const { data, isFetching } = trpc.search.query.useQuery(
+  const { data, isFetching, error } = trpc.search.query.useQuery(
     {
       workspaceSlug: workspaceSlug ?? '',
       query: debouncedQuery,
@@ -114,7 +114,7 @@ function SearchDialogContent({ onClose }: SearchDialogContentProps) {
     navigate.push(navPath);
   }
 
-  const showEmpty = !isFetching && enabled && totalResults === 0;
+  const showEmpty = !isFetching && !error && enabled && totalResults === 0;
 
   return (
     <>
@@ -130,6 +130,12 @@ function SearchDialogContent({ onClose }: SearchDialogContentProps) {
             <span className="text-xs text-muted-foreground">Searching…</span>
           </div>
         )}
+        {!isFetching && error && (
+          <div className="flex flex-col items-center justify-center gap-1 py-6 px-4">
+            <span className="text-xs text-destructive text-center">Search unavailable</span>
+            <span className="text-[11px] text-muted-foreground text-center">{error.message}</span>
+          </div>
+        )}
         {showEmpty && <CommandEmpty>No results found.</CommandEmpty>}
         {!workspaceSlug && !isFetching && (
           <div className="py-6 text-center text-xs text-muted-foreground">
@@ -137,6 +143,7 @@ function SearchDialogContent({ onClose }: SearchDialogContentProps) {
           </div>
         )}
         {!isFetching &&
+          !error &&
           sortedGroups.map((group, idx) => (
             <Fragment key={group.collection}>
               {idx > 0 && <CommandSeparator />}

@@ -87,6 +87,52 @@ describe('file router', () => {
         'No daemon connected',
       );
     });
+
+    it('returns NOT_FOUND when daemon reports ENOENT for missing path', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      const fakeSocket = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'DIR_LIST_REQUEST') {
+            const pending = ctx.state.pendingDirList.get(msg.payload.requestId);
+            if (pending) {
+              pending.reject(new Error('ENOENT: no such file or directory'));
+            }
+          }
+        },
+      };
+      ctx.state.daemon = fakeSocket as unknown as WebSocket;
+
+      await expect(
+        caller.file.listDir({ dirPath: '/nonexistent/path' }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('returns NOT_FOUND when daemon reports "not found" for missing path', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      const fakeSocket = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'DIR_LIST_REQUEST') {
+            const pending = ctx.state.pendingDirList.get(msg.payload.requestId);
+            if (pending) {
+              pending.reject(new Error('Directory not found'));
+            }
+          }
+        },
+      };
+      ctx.state.daemon = fakeSocket as unknown as WebSocket;
+
+      await expect(
+        caller.file.listDir({ dirPath: '/nonexistent/path' }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
   });
 
   describe('read', () => {

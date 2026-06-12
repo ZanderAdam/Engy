@@ -73,14 +73,13 @@ export function KanbanBoard({
     onError: () => {
       toast.error('Failed to move task');
     },
-    onSettled: (_data, _err, variables) => {
+    onSettled: async (_data, _err, variables) => {
+      await Promise.all([utils.task.list.invalidate(), utils.task.get.invalidate()]);
       setPendingMoves((prev) => {
         const next = { ...prev };
         delete next[variables.id];
         return next;
       });
-      utils.task.list.invalidate();
-      utils.task.get.invalidate();
     },
   });
 

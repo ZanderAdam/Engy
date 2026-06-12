@@ -66,8 +66,11 @@ export function CreateWorkspaceDialog() {
     });
   }
 
+  const nameError = /[/\\]/.test(name) ? 'Name must not contain path separators (/ or \\)' : null;
+
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (nameError) return;
     setError(null);
     void confirmDirs.submit(collectDirPaths(repos, docsDir));
   }
@@ -104,6 +107,7 @@ export function CreateWorkspaceDialog() {
                 placeholder="my-workspace"
                 required
               />
+              {nameError && <p className="text-xs text-destructive">{nameError}</p>}
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="workspace-docs-dir">Docs location (optional)</Label>
@@ -122,7 +126,7 @@ export function CreateWorkspaceDialog() {
             {error && <p className="text-xs text-destructive">{error}</p>}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={pending || !name.trim()}>
+            <Button type="submit" disabled={pending || !name.trim() || !!nameError}>
               {pending ? 'Creating...' : 'Create'}
             </Button>
           </DialogFooter>

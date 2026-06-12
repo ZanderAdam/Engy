@@ -37,8 +37,17 @@ export function OpenDirDialog({ open, onOpenChange }: OpenDirDialogProps) {
   const openPath =
     inputValue.endsWith('/') && inputValue !== '/' ? inputValue.slice(0, -1) : inputValue;
 
+  const { isError: pathNotFound, isFetching: pathValidating } = trpc.file.listDir.useQuery(
+    { dirPath: openPath },
+    {
+      enabled: open && !!openPath,
+      retry: false,
+      staleTime: 5_000,
+    },
+  );
+
   function handleOpen() {
-    if (!openPath) return;
+    if (!openPath || pathNotFound || pathValidating) return;
     onOpenChange(false);
     nav.push(`/open?path=${encodeURIComponent(openPath)}`);
   }
@@ -63,7 +72,7 @@ export function OpenDirDialog({ open, onOpenChange }: OpenDirDialogProps) {
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button size="sm" disabled={!openPath} onClick={handleOpen}>
+          <Button size="sm" disabled={!openPath || pathNotFound || pathValidating} onClick={handleOpen}>
             Open
           </Button>
         </div>

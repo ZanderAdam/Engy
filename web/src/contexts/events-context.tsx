@@ -73,7 +73,11 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
+    let disposed = false;
+
     function connect() {
+      if (disposed) return;
+
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws/events`);
       wsRef.current = ws;
@@ -104,17 +108,27 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
       };
 
       ws.onclose = () => {
+        ws.onmessage = null;
+        ws.onclose = null;
         wsRef.current = null;
-        reconnectTimer.current = setTimeout(connect, 3000);
+        if (!disposed) {
+          reconnectTimer.current = setTimeout(connect, 3000);
+        }
       };
     }
 
     connect();
 
     return () => {
+      disposed = true;
       clearTimeout(reconnectTimer.current);
-      wsRef.current?.close();
-      wsRef.current = null;
+      const ws = wsRef.current;
+      if (ws) {
+        ws.onmessage = null;
+        ws.onclose = null;
+        ws.close();
+        wsRef.current = null;
+      }
     };
   }, [workspaceSlug]);
 

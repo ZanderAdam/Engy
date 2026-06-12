@@ -57,7 +57,7 @@ function PermanentList({
   selected: MemorySelection | null;
   onSelect: (selection: MemorySelection) => void;
 }) {
-  const { data: memories, isLoading } = trpc.memory.list.useQuery({
+  const { data: memories, isLoading, error } = trpc.memory.list.useQuery({
     workspaceSlug,
     subtype: filters.subtype || undefined,
     repo: filters.repo || undefined,
@@ -80,6 +80,15 @@ function PermanentList({
     return (
       <div className="flex items-center justify-center py-12">
         <p className="text-xs text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-12 px-4">
+        <p className="text-xs text-destructive text-center">Failed to load memories</p>
+        <p className="text-[11px] text-muted-foreground text-center">{error.message}</p>
       </div>
     );
   }
@@ -145,6 +154,7 @@ function ReviewCandidatesList({
   repos,
   candidates,
   isLoading,
+  error,
   selected,
   onSelect,
 }: {
@@ -152,6 +162,7 @@ function ReviewCandidatesList({
   repos: string[];
   candidates: FleetingMemory[] | undefined;
   isLoading: boolean;
+  error: { message: string } | null;
   selected: MemorySelection | null;
   onSelect: (selection: MemorySelection) => void;
 }) {
@@ -161,6 +172,15 @@ function ReviewCandidatesList({
     return (
       <div className="flex items-center justify-center py-12">
         <p className="text-xs text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-12 px-4">
+        <p className="text-xs text-destructive text-center">Failed to load review candidates</p>
+        <p className="text-[11px] text-muted-foreground text-center">{error.message}</p>
       </div>
     );
   }
@@ -253,8 +273,11 @@ export function MemoryBrowser({
   const [permanentFilters, setPermanentFilters] = useState<MemoryFiltersValue>(DEFAULT_FILTERS);
   const utils = trpc.useUtils();
 
-  const { data: reviewCandidates, isLoading: candidatesLoading } =
-    trpc.memory.reviewCandidates.useQuery({ workspaceSlug, limit: 100 });
+  const {
+    data: reviewCandidates,
+    isLoading: candidatesLoading,
+    error: candidatesError,
+  } = trpc.memory.reviewCandidates.useQuery({ workspaceSlug, limit: 100 });
   const candidateCount = reviewCandidates?.length ?? 0;
 
   useOnServerEvent('MEMORY_CHANGE', () => {
@@ -318,6 +341,7 @@ export function MemoryBrowser({
               repos={repos}
               candidates={reviewCandidates as FleetingMemory[] | undefined}
               isLoading={candidatesLoading}
+              error={candidatesError}
               selected={selected}
               onSelect={onSelect}
             />

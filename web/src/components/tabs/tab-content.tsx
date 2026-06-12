@@ -21,8 +21,11 @@ import ProjectClaudePlansPage from '@/app/w/[workspace]/projects/[project]/claud
 
 function NotFound({ path }: { path: string }) {
   return (
-    <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-      No view for {path}
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 py-20">
+      <p className="text-sm font-medium">Page not found</p>
+      <p className="text-xs text-muted-foreground">
+        No view for <span className="font-mono">{path}</span>
+      </p>
     </div>
   );
 }

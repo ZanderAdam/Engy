@@ -335,6 +335,18 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
+  // Build a map of derived title → count so duplicate tabs get ordinal suffixes.
+  // When count > 1, all duplicates get a suffix: (1), (2), etc.
+  const titleCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const tab of tabs) {
+      const base = deriveDefaultTitle(tab.virtualPath);
+      counts.set(base, (counts.get(base) ?? 0) + 1);
+    }
+    return counts;
+  }, [tabs]);
+  const titleOrdinals = new Map<string, number>();
+
   return (
     <div
       className="flex h-11 shrink-0 items-stretch border-b border-border bg-background"
@@ -348,6 +360,14 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           const { segments, worktree } = deriveTabTitle(tab.virtualPath);
+          const base = deriveDefaultTitle(tab.virtualPath);
+          const isDuplicate = (titleCounts.get(base) ?? 0) > 1;
+          let ordinalSuffix = '';
+          if (isDuplicate) {
+            const ordinal = (titleOrdinals.get(base) ?? 0) + 1;
+            titleOrdinals.set(base, ordinal);
+            ordinalSuffix = ` (${ordinal})`;
+          }
           return (
             <div
               key={tab.id}
@@ -400,6 +420,11 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
                         )}
                       >
                         {seg}
+                        {i === segments.length - 1 && ordinalSuffix && (
+                          <span className="font-normal text-muted-foreground">
+                            {ordinalSuffix}
+                          </span>
+                        )}
                       </span>
                     </span>
                   ))}

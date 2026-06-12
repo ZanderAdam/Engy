@@ -7,6 +7,21 @@ export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 const DEBOUNCE_MS = 1_000;
 
+/**
+ * Executes a pending debounced save immediately. Exported for testing.
+ */
+export function flushTimer(
+  timerRef: React.RefObject<ReturnType<typeof setTimeout> | null>,
+  pendingSaveRef: React.RefObject<(() => void) | null>,
+) {
+  if (timerRef.current !== null) {
+    clearTimeout(timerRef.current);
+    timerRef.current = null;
+    pendingSaveRef.current?.();
+    pendingSaveRef.current = null;
+  }
+}
+
 export function useAutoSave(
   repoDir: string | null,
   filePath: string | null,
@@ -16,6 +31,13 @@ export function useAutoSave(
   const [status, setStatus] = useState<SaveStatus>('idle');
   const lastSavedRef = useRef<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Stores the flush function for the currently-pending debounced save.
+  const pendingSaveRef = useRef<(() => void) | null>(null);
+  // Chains writes so they always land in order.
+  const writeChainRef = useRef<Promise<void>>(Promise.resolve());
+  // Sequence counter — only the latest write updates status.
+  const writeSeqRef = useRef(0);
+
   const writeMutation = trpc.file.write.useMutation();
   const mutateRef = useRef(writeMutation.mutateAsync);
   useEffect(() => { mutateRef.current = writeMutation.mutateAsync; }, [writeMutation.mutateAsync]);
@@ -28,19 +50,16 @@ export function useAutoSave(
     setStatus('idle');
   }
 
-  // Clean up timer and refs when file changes
+  // On file change: flush any pending save for the OLD file, then reset refs.
   useEffect(() => {
+    flushTimer(timerRef, pendingSaveRef);
     lastSavedRef.current = null;
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
   }, [resetKey]);
 
-  // Cleanup on unmount
+  // On unmount: flush any pending save.
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      flushTimer(timerRef, pendingSaveRef);
     };
   }, []);
 
@@ -49,18 +68,51 @@ export function useAutoSave(
       if (!repoDir || !filePath) return;
       if (content === lastSavedRef.current) return;
 
-      if (timerRef.current) clearTimeout(timerRef.current);
-
-      timerRef.current = setTimeout(async () => {
+      // Cancel any existing timer.
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
         timerRef.current = null;
+        pendingSaveRef.current = null;
+      }
+
+      // Capture stable references for the closure.
+      const capturedRepoDir = repoDir;
+      const capturedFilePath = filePath;
+      const capturedContent = content;
+      const capturedWorktreePath = worktreePath;
+      const capturedCoderWorkspace = coderWorkspace;
+
+      const doSave = () => {
+        const seq = ++writeSeqRef.current;
         setStatus('saving');
-        try {
-          await mutateRef.current({ repoDir, filePath, content, worktreePath, coderWorkspace });
-          lastSavedRef.current = content;
-          setStatus('saved');
-        } catch {
-          setStatus('error');
-        }
+        writeChainRef.current = writeChainRef.current.then(async () => {
+          // Skip if a newer write has already been enqueued.
+          if (seq < writeSeqRef.current) return;
+          try {
+            await mutateRef.current({
+              repoDir: capturedRepoDir,
+              filePath: capturedFilePath,
+              content: capturedContent,
+              worktreePath: capturedWorktreePath,
+              coderWorkspace: capturedCoderWorkspace,
+            });
+            if (seq === writeSeqRef.current) {
+              lastSavedRef.current = capturedContent;
+              setStatus('saved');
+            }
+          } catch {
+            if (seq === writeSeqRef.current) {
+              setStatus('error');
+            }
+          }
+        });
+      };
+
+      pendingSaveRef.current = doSave;
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        pendingSaveRef.current = null;
+        doSave();
       }, DEBOUNCE_MS);
     },
     [repoDir, filePath, worktreePath, coderWorkspace],

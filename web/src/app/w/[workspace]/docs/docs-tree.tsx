@@ -78,23 +78,24 @@ function trieToTreeItems(
   return [...dirItems, ...fileItems];
 }
 
-function useDocsSectionQuery(rootDir: string, section: 'system' | 'docs') {
-  const sectionDir = `${rootDir}/${section}`;
+function useDocsSectionQuery(sectionDir: string, sectionPrefix: string) {
   const utils = trpc.useUtils();
-  const { data, isLoading, error } = trpc.dir.listFiles.useQuery({ dirPath: sectionDir });
+  const { data, isLoading, error } = trpc.dir.listFiles.useQuery(
+    { dirPath: sectionDir },
+    { retry: false },
+  );
   const writeMutation = trpc.dir.write.useMutation({
     onSuccess: () => utils.dir.listFiles.invalidate({ dirPath: sectionDir }),
   });
 
   const createFile = useCallback(
     (fileName: string, onCreated: (relPath: string) => void) => {
-      const relPath = fileName;
       writeMutation.mutate(
-        { dirPath: sectionDir, filePath: relPath, content: '' },
-        { onSuccess: () => onCreated(`${section}/${relPath}`) },
+        { dirPath: sectionDir, filePath: fileName, content: '' },
+        { onSuccess: () => onCreated(`${sectionPrefix}/${fileName}`) },
       );
     },
-    [writeMutation, sectionDir, section],
+    [writeMutation, sectionDir, sectionPrefix],
   );
 
   return { data, isLoading, error, createFile };
@@ -182,7 +183,8 @@ function DocsSectionPanel({
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? true);
-  const { data, isLoading, createFile } = useDocsSectionQuery(rootDir, section);
+  const sectionDir = `${rootDir}/${section}`;
+  const { data, isLoading, error, createFile } = useDocsSectionQuery(sectionDir, section);
 
   const treeData: TreeDataItem[] = useMemo(() => {
     if (!data) return [];
@@ -222,6 +224,11 @@ function DocsSectionPanel({
         {isLoading ? (
           <div className="flex items-center justify-center py-4">
             <p className="text-xs text-muted-foreground">Loading...</p>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center gap-1 py-4 px-3">
+            <p className="text-xs text-destructive">Failed to load files</p>
+            <p className="text-[10px] text-muted-foreground text-center">{sectionDir}</p>
           </div>
         ) : treeData.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-1 py-4 px-3">

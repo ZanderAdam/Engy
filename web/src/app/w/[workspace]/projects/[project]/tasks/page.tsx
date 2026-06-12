@@ -54,9 +54,7 @@ export default function ProjectTasksPage() {
     const base = emptyFilters();
     const status = searchParams.get("status")?.split(",").filter(Boolean) ?? [];
     const typeParam = searchParams.get("type");
-    const type = typeParam !== null
-      ? typeParam.split(",").filter(Boolean)
-      : currentView === "eisenhower" ? ["human"] : [];
+    const type = typeParam !== null ? typeParam.split(",").filter(Boolean) : [];
     const groupId =
       searchParams
         .get("group")
@@ -73,7 +71,7 @@ export default function ProjectTasksPage() {
     const planStatus =
       searchParams.get("planStatus")?.split(",").filter(Boolean) ?? [];
     return { status, type, groupId, milestoneRef, unassignedOnly, doneLimit, planStatus };
-  }, [searchParams, currentView]);
+  }, [searchParams]);
 
   const filteredTasks = useMemo(
     () => applyTaskFilters(tasks ?? [], filters),

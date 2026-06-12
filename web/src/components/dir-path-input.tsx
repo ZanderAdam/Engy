@@ -54,7 +54,7 @@ export function DirPathInput({
 
   const showSuggestions = variant === 'inline' || focused;
 
-  const { data, isLoading, isError } = trpc.file.listDir.useQuery(
+  const { data, isLoading, isError, error } = trpc.file.listDir.useQuery(
     { dirPath: browsePath },
     {
       enabled: !!browsePath && showSuggestions,
@@ -78,6 +78,9 @@ export function DirPathInput({
         ?.scrollIntoView({ block: 'nearest' });
     }
   }, [selectedIndex]);
+
+  const isNotFound =
+    isError && (error as { data?: { code?: string } } | null)?.data?.code === 'NOT_FOUND';
 
   // No suggestions when the query errored (e.g. no daemon connected).
   const rawDirs = isError ? [] : (data?.dirs ?? []);
@@ -148,12 +151,12 @@ export function DirPathInput({
 
   const canGoUp = !!browsePath && path.dirname(browsePath) !== browsePath;
 
-  const shouldRenderList = showSuggestions && !!browsePath && !isError;
-  const hasList = shouldRenderList && (canGoUp || isLoading || filteredDirs.length > 0);
+  const shouldRenderList = showSuggestions && !!browsePath && (!isError || isNotFound);
+  const hasList = shouldRenderList && (canGoUp || isLoading || isNotFound || filteredDirs.length > 0);
 
   const listContent = shouldRenderList ? (
     <div ref={listRef} className="max-h-56 overflow-y-auto">
-      {canGoUp && (
+      {canGoUp && !isNotFound && (
         <button
           type="button"
           className="flex w-full items-center gap-2 border-b border-border px-3 py-1.5 text-left text-xs hover:bg-accent/50"
@@ -168,6 +171,9 @@ export function DirPathInput({
         <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
           <RiLoader4Line className="size-3 animate-spin" /> Loading…
         </div>
+      )}
+      {isNotFound && (
+        <p className="px-3 py-3 text-xs text-destructive">Directory not found</p>
       )}
       {!isLoading && !isError && filteredDirs.length === 0 && (
         <p className="px-3 py-3 text-xs text-muted-foreground">No matches</p>

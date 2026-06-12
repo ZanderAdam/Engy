@@ -7,10 +7,21 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -180,6 +191,7 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>New Task</DialogTitle>
+            <DialogDescription className="sr-only">Create a new task</DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col gap-3 py-4">
@@ -313,6 +325,7 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
   );
   const [dirty, setDirty] = useState(false);
   const [initialized, setInitialized] = useState(!!task);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('description');
   const [tabInitialized, setTabInitialized] = useState(false);
   const [planMarkdown, setPlanMarkdown] = useState('');
@@ -524,6 +537,7 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
         <DialogContent className="flex h-[90vh] w-[90vw] max-w-[1400px] flex-col gap-0 p-4 sm:max-w-[1400px] [&>*]:min-w-0">
           <DialogHeader>
             <DialogTitle>Loading...</DialogTitle>
+            <DialogDescription className="sr-only">Loading task details</DialogDescription>
           </DialogHeader>
         </DialogContent>
       </Dialog>
@@ -535,6 +549,7 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
       <DialogContent className="flex h-[90vh] w-[90vw] max-w-[1400px] flex-col gap-0 p-4 sm:max-w-[1400px] [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle className="sr-only">Edit Task</DialogTitle>
+          <DialogDescription className="sr-only">Edit task details and settings</DialogDescription>
           <Input
             ref={titleRef}
             defaultValue={task.title}
@@ -681,7 +696,7 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
             variant="outline"
             size="sm"
             className="text-destructive hover:bg-destructive/10"
-            onClick={() => deleteTask.mutate({ id: task.id })}
+            onClick={() => setDeleteConfirmOpen(true)}
           >
             <RiDeleteBinLine className="mr-1 size-3" />
             Delete
@@ -691,6 +706,27 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete task?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete &ldquo;{task.title}&rdquo;. This action cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteTask.mutate({ id: task.id })}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

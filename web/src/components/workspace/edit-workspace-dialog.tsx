@@ -136,8 +136,17 @@ export function EditWorkspaceDialog({
     });
   }
 
+  const nameValidationError = /[/\\]/.test(name)
+    ? 'Name must not contain path separators (/ or \\)'
+    : null;
+  const slugValidationError = slug && !/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug)
+    ? 'Slug must contain only lowercase letters, numbers, and hyphens'
+    : null;
+  const hasValidationError = !!nameValidationError || !!slugValidationError;
+
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (hasValidationError) return;
     setError(null);
     void confirmDirs.submit(collectDirPaths(repos, docsDir));
   }
@@ -210,6 +219,9 @@ export function EditWorkspaceDialog({
                     onChange={(e) => handleNameChange(e.target.value)}
                     required
                   />
+                  {nameValidationError && (
+                    <p className="text-xs text-destructive">{nameValidationError}</p>
+                  )}
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="edit-workspace-slug">Slug</Label>
@@ -223,9 +235,13 @@ export function EditWorkspaceDialog({
                     className="font-mono"
                     required
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Used in the URL: /w/{slug || '...'}
-                  </p>
+                  {slugValidationError ? (
+                    <p className="text-xs text-destructive">{slugValidationError}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Used in the URL: /w/{slug || '...'}
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="edit-workspace-docs-dir">Docs location</Label>
@@ -293,7 +309,7 @@ export function EditWorkspaceDialog({
               <RiDeleteBinLine data-icon="inline-start" />
               Delete workspace
             </Button>
-            <Button type="submit" disabled={pending || !name.trim()}>
+            <Button type="submit" disabled={pending || !name.trim() || hasValidationError}>
               {pending ? 'Saving...' : 'Save'}
             </Button>
           </div>

@@ -92,7 +92,9 @@ export function MilestoneList({
   onTaskClick?: (taskId: number) => void;
   containerEnabled?: boolean;
 }) {
-  const sorted = sortMilestones(milestones);
+  const sorted = sortMilestones(
+    showDone ? milestones : milestones.filter((ms) => ms.status !== 'complete'),
+  );
 
   return (
     <div className="flex flex-col gap-2">
@@ -314,7 +316,9 @@ function TaskGroupRow({
   const done = tasks.filter((t) => t.status === 'done').length;
   const visibleTasks = showDone ? tasks : tasks.filter((t) => t.status !== 'done');
   const allDone = isAllDone(tasks);
-  const isCollapsible = visibleTasks.length > 0;
+  // Expandable whenever there are tasks — even all-done groups should be
+  // openable so users can inspect them without enabling "Show done" globally.
+  const isCollapsible = total > 0;
 
   const activeTask = tgExecStatus === 'active'
     ? tasks.find((t) => t.subStatus === 'implementing' || t.subStatus === 'planning')
@@ -395,6 +399,11 @@ function TaskGroupRow({
             ))}
             {total === 0 && (
               <p className="py-2 text-center text-xs text-muted-foreground">No tasks</p>
+            )}
+            {total > 0 && visibleTasks.length === 0 && (
+              <p className="py-2 text-center text-xs text-muted-foreground">
+                All tasks complete
+              </p>
             )}
           </div>
         </CollapsibleContent>
