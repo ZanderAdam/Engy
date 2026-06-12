@@ -7,11 +7,9 @@ type: buildable
 
 ## Engy — v0.2
 
-**Prepared by:** Aleks\
-**Date:** 2026-03-01\
-**Status:** In Review
+**Prepared by:** Aleks **Date:** 2026-03-01 **Status:** In Review
 
-***
+---
 
 ## 1. Introduction
 
@@ -23,15 +21,11 @@ This document specifies the complete requirements for Engy, an AI-assisted engin
 
 Engy is a single-user, local-first application providing a permanent home for ongoing engineering concerns (workspaces) and ephemeral scopes for bounded work (projects). It will:
 
-* Manage multi-repo workspaces with knowledge persistence across projects
-
-* Provide a rich spec authoring, planning, and review experience
-
-* Orchestrate AI agents for autonomous code execution with human review gates
-
-* Maintain a living knowledge layer (system docs, memory) that evolves with each completed project
-
-* Integrate Claude Code CLI as the interactive action layer and Claude Agent SDK (via Mastra) for background autonomous execution
+- Manage multi-repo workspaces with knowledge persistence across projects
+- Provide a rich spec authoring, planning, and review experience
+- Orchestrate AI agents for autonomous code execution with human review gates
+- Maintain a living knowledge layer (system docs, memory) that evolves with each completed project
+- Integrate Claude Code CLI as the interactive action layer and Claude Agent SDK (via Mastra) for background autonomous execution
 
 Engy will **not** provide: multi-user collaboration, GitLab/Bitbucket support, self-hosting distribution, or cross-workspace project coordination.
 
@@ -45,7 +39,7 @@ Engy will **not** provide: multi-user collaboration, GitLab/Bitbucket support, s
 | Filesystem Structure | `context/filesystem.md`     | Canonical `.engy/` directory layout          |
 | Dev Containers       | `context/dev-containers.md` | Docker sandbox design for async agents       |
 
-***
+---
 
 ## 2. Overall Description
 
@@ -53,15 +47,11 @@ Engy will **not** provide: multi-user collaboration, GitLab/Bitbucket support, s
 
 Engy is a new product. It is a standalone web application with a companion client daemon. It integrates with:
 
-* **Claude Code CLI** — interactive AI terminal (embedded via xterm.js)
-
-* **Claude Agent SDK / Mastra** — autonomous background agent runtime
-
-* **GitHub** — PR creation, CI monitoring, reviewer comments (via `gh` CLI)
-
-* **Git** — worktree management, branch operations, diff computation
-
-* **VS Code** — "Open in VS Code" integration for file editing
+- **Claude Code CLI** — interactive AI terminal (embedded via xterm.js)
+- **Claude Agent SDK / Mastra** — autonomous background agent runtime
+- **GitHub** — PR creation, CI monitoring, reviewer comments (via `gh` CLI)
+- **Git** — worktree management, branch operations, diff computation
+- **VS Code** — "Open in VS Code" integration for file editing
 
 ```text
 ┌──────────────────────┐     ┌──────────────────────┐
@@ -90,27 +80,17 @@ Engy is a new product. It is a standalone web application with a companion clien
 
 ### 2.2 Product Features (Summary)
 
-* **F1** Workspace management — multi-repo topology, `.engy/` initialization, settings hierarchy
-
-* **F2** Spec authoring — tree browser, rich editor, inline comments, spec tasks, lifecycle management
-
-* **F3** Project planning — spec-to-project transition, milestones, task groups, progressive planning, three project views
-
-* **F4** Terminal integration — context-scoped Claude Code CLI panel, multi-tab, auto-start agents
-
-* **F5** Diff viewer & review — three view modes, line-level commenting, batched feedback, pre-commit gate
-
-* **F6** Execution engine — worktree management, task group lifecycle, auto-commit, push, PR creation
-
-* **F7** Knowledge layer — system docs, shared docs, memory architecture, qmd hybrid search, project completion flow
-
-* **F8** Workspace polish — dashboard, notifications, settings, activity feed, cost visibility
-
-* **F9** Async agents — Mastra integration, autonomous agent sessions, feedback routing
-
-* **F10** Dev containers — optional Docker sandbox with network firewall for unattended agent execution
-
-* **F11** PR/CI monitoring — CI failure auto-fix, reviewer comment triage, automated PR lifecycle
+- **F1** Workspace management — multi-repo topology, `.engy/` initialization, settings hierarchy
+- **F2** Spec authoring — tree browser, rich editor, inline comments, spec tasks, lifecycle management
+- **F3** Project planning — spec-to-project transition, milestones, task groups, progressive planning, three project views
+- **F4** Terminal integration — context-scoped Claude Code CLI panel, multi-tab, auto-start agents
+- **F5** Diff viewer & review — three view modes, line-level commenting, batched feedback, pre-commit gate
+- **F6** Execution engine — worktree management, task group lifecycle, auto-commit, push, PR creation
+- **F7** Knowledge layer — system docs, shared docs, memory architecture, qmd hybrid search, project completion flow
+- **F8** Workspace polish — dashboard, notifications, settings, activity feed, cost visibility
+- **F9** Async agents — Mastra integration, autonomous agent sessions, feedback routing
+- **F10** Dev containers — optional Docker sandbox with network firewall for unattended agent execution
+- **F11** PR/CI monitoring — CI failure auto-fix, reviewer comment triage, automated PR lifecycle
 
 ### 2.3 User Classes
 
@@ -120,55 +100,36 @@ Engy is a new product. It is a standalone web application with a companion clien
 
 ### 2.4 Operating Environment
 
-* **Server:** Node.js (Next.js 16 App Router), runs locally or remotely
-
-* **Client daemon:** Node.js, runs on the developer's machine
-
-* **Browser:** Modern Chromium-based browsers (dark mode only), responsive down to mobile (768px breakpoint)
-
-* **Database:** SQLite (WAL mode, via Drizzle ORM + better-sqlite3)
-
-* **Search:** qmd (`@tobilu/qmd` — local hybrid search: BM25 + vector embeddings + LLM reranking)
-
-* **AI:** Anthropic Claude API (Claude Code CLI + Claude Agent SDK)
-
-* **Git provider:** GitHub (via `gh` CLI)
-
-* **Container runtime:** Docker (optional, for dev containers)
-
-* **Package manager:** pnpm (monorepo with Turborepo)
+- **Server:** Node.js (Next.js 16 App Router), runs locally or remotely
+- **Client daemon:** Node.js, runs on the developer's machine
+- **Browser:** Modern Chromium-based browsers (dark mode only), responsive down to mobile (768px breakpoint)
+- **Database:** SQLite (WAL mode, via Drizzle ORM + better-sqlite3)
+- **Search:** qmd (`@tobilu/qmd` — local hybrid search: BM25 + vector embeddings + LLM reranking)
+- **AI:** Anthropic Claude API (Claude Code CLI + Claude Agent SDK)
+- **Git provider:** GitHub (via `gh` CLI)
+- **Container runtime:** Docker (optional, for dev containers)
+- **Package manager:** pnpm (monorepo with Turborepo)
 
 ### 2.5 Constraints
 
-* Single-user only — no authentication, no multi-tenancy
-
-* GitHub only — no GitLab/Bitbucket
-
-* Anthropic Claude only — no OpenAI/other LLM providers
-
-* SQLite only — no PostgreSQL/MySQL
-
-* Mobile is monitoring/review-focused — heavy authoring happens on desktop
-
-* `gh` CLI must be installed and authenticated for PR operations
-
-* Docker must be installed for dev container features (optional)
+- Single-user only — no authentication, no multi-tenancy
+- GitHub only — no GitLab/Bitbucket
+- Anthropic Claude only — no OpenAI/other LLM providers
+- SQLite only — no PostgreSQL/MySQL
+- Mobile is monitoring/review-focused — heavy authoring happens on desktop
+- `gh` CLI must be installed and authenticated for PR operations
+- Docker must be installed for dev container features (optional)
 
 ### 2.6 Assumptions & Dependencies
 
-* User has Node.js, pnpm, and git installed
+- User has Node.js, pnpm, and git installed
+- User has a valid Anthropic API key for Claude Code CLI
+- User has `gh` CLI installed and authenticated for GitHub operations
+- Repos are local git repositories accessible from the client daemon machine
+- Server and client can communicate over WebSocket (local or network)
+- qmd runs in-process via `@tobilu/qmd` SDK (SQLite-backed, no external service required)
 
-* User has a valid Anthropic API key for Claude Code CLI
-
-* User has `gh` CLI installed and authenticated for GitHub operations
-
-* Repos are local git repositories accessible from the client daemon machine
-
-* Server and client can communicate over WebSocket (local or network)
-
-* qmd runs in-process via `@tobilu/qmd` SDK (SQLite-backed, no external service required)
-
-***
+---
 
 ## 3. External Interface Requirements
 
@@ -196,7 +157,7 @@ Pages: Home (workspace list), Workspace (tabbed: Overview, Specs, Docs, Tasks, M
 
 Not applicable. Engy is a pure software application.
 
-***
+---
 
 ## 4. Non-Functional Requirements
 
@@ -251,7 +212,7 @@ Not applicable. Engy is a pure software application.
 | NF-20 | The quality gate (`pnpm blt`) shall include: build, lint, test, dead code detection (knip), and copy-paste detection (jscpd). |
 | NF-21 | Database migrations shall run automatically on server startup.                                                                |
 
-***
+---
 
 ## 5. Data Requirements
 
@@ -290,17 +251,13 @@ Not applicable. Engy is a pure software application.
 
 ### 5.2 Data Retention & Migration
 
-* **Active projects:** Full SQLite state retained until project is archived.
+- **Active projects:** Full SQLite state retained until project is archived.
+- **Archived projects:** Compacted — plan content, milestones, groups, task structure, key decisions, final statuses retained. Agent session state, fleeting memories, execution logs discarded.
+- **Permanent knowledge:** Files in `.engy/` persist indefinitely, versioned via git.
+- **qmd:** Ephemeral — fully rebuildable from source files via `store.update()` + `store.embed()`. No migration needed.
+- **SQLite migrations:** Run automatically on server startup via Drizzle ORM. New migrations generated with Drizzle Kit after schema changes.
 
-* **Archived projects:** Compacted — plan content, milestones, groups, task structure, key decisions, final statuses retained. Agent session state, fleeting memories, execution logs discarded.
-
-* **Permanent knowledge:** Files in `.engy/` persist indefinitely, versioned via git.
-
-* **qmd:** Ephemeral — fully rebuildable from source files via `store.update()` + `store.embed()`. No migration needed.
-
-* **SQLite migrations:** Run automatically on server startup via Drizzle ORM. New migrations generated with Drizzle Kit after schema changes.
-
-***
+---
 
 ## 6. Milestones & Implementation Plan
 
@@ -348,8 +305,7 @@ M11 depends on: M6, M10
 
 ### 6.3 M1: Foundation
 
-**Description:** Workspaces are permanent entities representing ongoing concerns. They define multi-repo topology, hold shared knowledge, and contain ephemeral projects. Each workspace gets an initialized `.engy/` directory with standard structure.\
-**Priority:** High
+**Description:** Workspaces are permanent entities representing ongoing concerns. They define multi-repo topology, hold shared knowledge, and contain ephemeral projects. Each workspace gets an initialized `.engy/` directory with standard structure. **Priority:** High
 
 **Stimulus/Response:**
 
@@ -380,8 +336,7 @@ M11 depends on: M6, M10
 
 ### 6.4 M2: Spec Authoring
 
-**Description:** Specs are pre-project thinking spaces. Users author specs in a tree browser with a rich content editor, manage context files, leave inline review comments, and track spec research tasks. Specs have a lifecycle from Draft through Approved.\
-**Priority:** High
+**Description:** Specs are pre-project thinking spaces. Users author specs in a tree browser with a rich content editor, manage context files, leave inline review comments, and track spec research tasks. Specs have a lifecycle from Draft through Approved. **Priority:** High
 
 **Stimulus/Response:**
 
@@ -416,8 +371,7 @@ M11 depends on: M6, M10
 
 ### 6.5 M3: Project Planning
 
-**Description:** Projects are created from approved specs. They contain milestones, task groups, and tasks. Planning is progressive — project-level first (milestones with rough scope), then milestone-level (groups and tasks), then optionally task-level (implementation plan). Three project views visualize execution state.\
-**Priority:** High
+**Description:** Projects are created from approved specs. They contain milestones, task groups, and tasks. Planning is progressive — project-level first (milestones with rough scope), then milestone-level (groups and tasks), then optionally task-level (implementation plan). Three project views visualize execution state. **Priority:** High
 
 **Stimulus/Response:**
 
@@ -454,8 +408,7 @@ M11 depends on: M6, M10
 
 ### 6.6 M4: Terminal Integration
 
-**Description:** Claude Code CLI is embedded in an xterm.js terminal panel on the right side of every page. The terminal is context-scoped — its working directory and default agent adapt to the current page. Multiple terminals can be open simultaneously as tabs with splits.\
-**Priority:** High
+**Description:** Claude Code CLI is embedded in an xterm.js terminal panel on the right side of every page. The terminal is context-scoped — its working directory and default agent adapt to the current page. Multiple terminals can be open simultaneously as tabs with splits. **Priority:** High
 
 **Stimulus/Response:**
 
@@ -468,27 +421,26 @@ M11 depends on: M6, M10
 
 **Functional Requirements:**
 
-| ID      | Requirement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FR-4.1  | The system shall provide an xterm.js terminal panel on the right side of every page (except Home).                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| FR-4.2  | The system shall support tab-based terminal management with metadata labels showing scope (e.g., "spec: auth-revamp").                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| FR-4.3  | The system shall support vertical and horizontal splits for side-by-side terminal work.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| FR-4.4  | The system shall provide a drag-resizable left edge on the terminal panel.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| FR-4.5  | The system shall provide a collapsible terminal panel (keyboard shortcut + toggle button).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| FR-4.6  | The system shall auto-start the appropriate Claude Code agent based on current page context.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ID      | Requirement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| FR-4.1  | The system shall provide an xterm.js terminal panel on the right side of every page (except Home).                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| FR-4.2  | The system shall support tab-based terminal management with metadata labels showing scope (e.g., "spec: auth-revamp").                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| FR-4.3  | The system shall support vertical and horizontal splits for side-by-side terminal work.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| FR-4.4  | The system shall provide a drag-resizable left edge on the terminal panel.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| FR-4.5  | The system shall provide a collapsible terminal panel (keyboard shortcut + toggle button).                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| FR-4.6  | The system shall auto-start the appropriate Claude Code agent based on current page context.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | FR-4.7  | The system shall scope terminals per page context: Workspace Overview → workspace root + `engy:workspace-assistant`, Workspace Specs tab → `specs/` + `engy:spec-assistant`, Spec Detail → `specs/{slug}/` + `engy:spec-assistant`, Workspace Docs tab → `system/` + `docs/` + `engy:write-sysdocs`, Workspace Memory tab → `memory/` + `engy:workspace-assistant`, Workspace Tasks tab → workspace root + `engy:workspace-assistant`, Project Overview/Tasks/Plan → primary repo + `engy:project-assistant`, Project Diffs/PRs tab → group worktree (no special agent). |
-| FR-4.8  | The system shall preserve terminal scope when navigating pages — open terminals keep their original scope.                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| FR-4.9  | The system shall manage Claude Code CLI processes on the client daemon: spawn, kill, resize.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| FR-4.10 | The system shall provide a WebSocket bridge between xterm frontend and CLI process on client machine.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| FR-4.11 | The system shall pass working directory, agent name, and scope metadata when spawning CLI processes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| FR-4.12 | The system shall enforce read-only access outside the terminal's write scope — agents can search, read, and reference any workspace content via MCP tools, but direct filesystem writes are limited to the scoped directory.                                                                                                                                                                                                                                                                                                                                                |
+| FR-4.8  | The system shall preserve terminal scope when navigating pages — open terminals keep their original scope.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| FR-4.9  | The system shall manage Claude Code CLI processes on the client daemon: spawn, kill, resize.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| FR-4.10 | The system shall provide a WebSocket bridge between xterm frontend and CLI process on client machine.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| FR-4.11 | The system shall pass working directory, agent name, and scope metadata when spawning CLI processes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| FR-4.12 | The system shall enforce read-only access outside the terminal's write scope — agents can search, read, and reference any workspace content via MCP tools, but direct filesystem writes are limited to the scoped directory.                                                                                                                                                                                                                                                                                                                                             |
 
 **Exit Criteria:** xterm.js panel on every page. Context-scoped auto-start for all page contexts. Multi-tab with splits. WebSocket bridge to CLI process on client. Read-only outside write scope. All prior skills auto-start in terminal panel.
 
 ### 6.7 M5: Diff Viewer & Review
 
-**Description:** The diff viewer is the review and commit interface for all code changes. Scoped per task group, it provides three view modes (Latest Changes, Commit History, Branch Diff), line-level commenting, and a batched feedback model (approve or send feedback). A pre-commit gate enforces quality before committing.\
-**Priority:** High
+**Description:** The diff viewer is the review and commit interface for all code changes. Scoped per task group, it provides three view modes (Latest Changes, Commit History, Branch Diff), line-level commenting, and a batched feedback model (approve or send feedback). A pre-commit gate enforces quality before committing. **Priority:** High
 
 **Stimulus/Response:**
 
@@ -521,8 +473,7 @@ M11 depends on: M6, M10
 
 ### 6.8 M6: Execution Engine
 
-**Description:** The execution engine manages worktrees, task group lifecycle, auto-commit, push, and PR creation. Task groups progress through a state machine from Planned through Merged/Cleaned Up. The engine orchestrates sequential task execution within groups.\
-**Priority:** High
+**Description:** The execution engine manages worktrees, task group lifecycle, auto-commit, push, and PR creation. Task groups progress through a state machine from Planned through Merged/Cleaned Up. The engine orchestrates sequential task execution within groups. **Priority:** High
 
 **Stimulus/Response:**
 
@@ -554,8 +505,7 @@ M11 depends on: M6, M10
 
 ### 6.9 M7: Knowledge Layer
 
-**Description:** The knowledge layer encompasses system docs (living source of truth), shared docs (conventions, guides), the memory architecture (fleeting → permanent), qmd hybrid search (BM25 + vector + LLM reranking via `@tobilu/qmd`), and the project completion flow with memory distillation and system doc update proposals.\
-**Priority:** High
+**Description:** The knowledge layer encompasses system docs (living source of truth), shared docs (conventions, guides), the memory architecture (fleeting → permanent), qmd hybrid search (BM25 + vector + LLM reranking via `@tobilu/qmd`), and the project completion flow with memory distillation and system doc update proposals. **Priority:** High
 
 **Stimulus/Response:**
 
@@ -594,8 +544,7 @@ M11 depends on: M6, M10
 
 ### 6.10 M8: Workspace Polish
 
-**Description:** Dashboard refinements, notifications, settings hierarchy, global search polish, activity feed, and cost visibility that make the experience cohesive.\
-**Priority:** Medium
+**Description:** Dashboard refinements, notifications, settings hierarchy, global search polish, activity feed, and cost visibility that make the experience cohesive. **Priority:** Medium
 
 **Stimulus/Response:**
 
@@ -623,8 +572,7 @@ M11 depends on: M6, M10
 
 ### 6.11 M9: Async Agents
 
-**Description:** Mastra integration provides autonomous background agent execution. Agent sessions are persistent, resumable, and crash-recoverable. Feedback from the diff viewer routes back to the originating agent session.\
-**Priority:** Medium
+**Description:** Mastra integration provides autonomous background agent execution. Agent sessions are persistent, resumable, and crash-recoverable. Feedback from the diff viewer routes back to the originating agent session. **Priority:** Medium
 
 **Stimulus/Response:**
 
@@ -655,8 +603,7 @@ M11 depends on: M6, M10
 
 ### 6.12 M10: Dev Containers
 
-**Description:** Optional per-workspace Docker containers provide sandboxed execution for async agents. Agents run with full permissions inside a network-firewalled container, eliminating manual permission approvals for unattended workflows.\
-**Priority:** Low
+**Description:** Optional per-workspace Docker containers provide sandboxed execution for async agents. Agents run with full permissions inside a network-firewalled container, eliminating manual permission approvals for unattended workflows. **Priority:** Low
 
 **Stimulus/Response:**
 
@@ -685,8 +632,7 @@ M11 depends on: M6, M10
 
 ### 6.13 M11: PR/CI Monitoring
 
-**Description:** Automated monitoring of open PRs — CI status polling, CI failure auto-fix dispatch, and reviewer comment triage with selective fix dispatch.\
-**Priority:** Low
+**Description:** Automated monitoring of open PRs — CI status polling, CI failure auto-fix dispatch, and reviewer comment triage with selective fix dispatch. **Priority:** Low
 
 **Stimulus/Response:**
 
@@ -722,35 +668,26 @@ M11 depends on: M6, M10
 | —  | Self-hosting distribution/packaging  | Post-v1     | Developer tool, runs from source                                                  |
 | —  | Cross-workspace project coordination | Post-v1     | Manual coordination sufficient for v1                                             |
 
-***
+---
 
 ## 7. File Map & Implementation Sequence
 
-***
+---
 
 ## 8. Key Decisions
 
 1. **Single-user first.** No authentication, no multi-tenancy. Architecture should support future multi-user without a rewrite, but it is not a design constraint today.
-
 2. **Two AI runtimes.** Claude Code CLI for interactive work (terminal), Claude Agent SDK via Mastra for autonomous background execution. The split keeps interactive work snappy while heavy lifting runs in the background.
-
 3. **Knowledge in files, execution in database.** `.engy/` files (git-tracked) hold permanent knowledge; SQLite holds transient execution state. qmd indexes both but is always rebuildable from source files.
-
 4. **Server never touches user repos directly.** Path validation delegated to client daemon via WebSocket. Enables remote server deployment.
-
 5. **Progressive planning.** Project → milestones (rough scope) → groups/tasks (detailed) → task-level plan (optional). Plan just-in-time with maximum context.
-
 6. **Task groups as the shippable unit.** One worktree, one branch, one agent session, one PR per group. Regrouping after activation requires stop + re-plan.
-
 7. **Batched review model everywhere.** Diffs and documents both use: review → comment → approve or send feedback. One model, two renderings.
-
 8. **Specs are living documents.** Editable at any time during project execution. No artificial freezing.
-
 9. **Short-lived project assumption.** Projects complete in days to weeks. Scope tightly, split large efforts, complete aggressively.
-
 10. **Dev containers are optional.** The system works without containers (standard Claude Code permission model). Containers add network-firewalled sandbox for unattended agent execution.
 
-***
+---
 
 ## 9. Out of Scope (v1)
 
@@ -761,7 +698,7 @@ M11 depends on: M6, M10
 | Self-hosting distribution/packaging  | Runs from source               |
 | Cross-workspace project coordination | Manual coordination sufficient |
 
-***
+---
 
 ## 10. Dependencies
 
@@ -784,25 +721,20 @@ Core technology stack — packages and tools required across milestones:
 | Docker                       | client (optional) | Dev container runtime                                                                            |
 | `gh` CLI                     | client            | GitHub PR operations                                                                             |
 
-***
+---
 
 ## 11. Verification
 
 > Milestone-level verification checklists live in each milestone's plan document. This section defines the system-level acceptance criteria.
 
 1. `pnpm blt` passes (build + lint + test + knip + jscpd) at every milestone
-
 2. Server test coverage meets thresholds: 90% statements, 85% branches, 90% functions, 90% lines
-
 3. Full SDD loop functional end-to-end after M9: spec → project → plan → execute → review → commit → PR → complete
-
 4. Knowledge feedback loop closed after M7: project completion → memory distillation → system doc updates
-
 5. Terminal panel functional on every page after M4 with context-scoped auto-start
-
 6. Dev containers (M10) optional — system works identically without them
 
-***
+---
 
 ## 12. Open Questions
 
@@ -813,7 +745,7 @@ Core technology stack — packages and tools required across milestones:
 | 3 | What is the optimal idle timeout default for dev containers?                                                   | Aleks | Open                                                                      |
 | 4 | Should system doc update proposals from project completion be auto-generated or require explicit user trigger? | Aleks | Resolved (auto-generated, user reviews)                                   |
 
-***
+---
 
 ## 13. Revision History
 
