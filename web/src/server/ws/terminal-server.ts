@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { AppState } from '../trpc/context';
-import type { TerminalSpawnCmd, TerminalReconnectCmd, TerminalErrorEvent, TerminalSyncEvent } from '@engy/common';
+import type {
+  TerminalSpawnCmd,
+  TerminalReconnectCmd,
+  TerminalErrorEvent,
+  TerminalExitEvent,
+  TerminalSyncEvent,
+} from '@engy/common';
 import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { eq } from 'drizzle-orm';
@@ -161,10 +167,13 @@ async function handleTerminalConnection(
     return;
   }
 
-  // Reconnect detection: only check persisted metadata (set after successful spawn).
-  // Using terminalSessions for detection would false-positive on React Strict Mode
-  // double-mount where the first connection's async spawn hasn't completed yet.
-  const isReconnect = state.terminalSessionMeta.has(sessionId);
+  // Initial classification (log only): persisted metadata (set after successful
+  // spawn) or an in-flight spawn for the same sessionId. Using terminalSessions
+  // for detection would false-positive on React Strict Mode double-mount where
+  // the first connection's async spawn hasn't completed yet. The authoritative
+  // classification happens below, after waiting out any in-flight spawn.
+  const isReconnect =
+    state.terminalSessionMeta.has(sessionId) || state.spawningSessions.has(sessionId);
   const short = sessionId.slice(0, 8);
   const existingCount = state.terminalSessions.get(sessionId)?.size ?? 0;
   console.log(
@@ -189,11 +198,21 @@ async function handleTerminalConnection(
         console.log(`[terminal] Kill intercepted for session ${sid}`);
         const killedMeta = state.terminalSessionMeta.get(sid);
         state.terminalSessionMeta.delete(sid);
-        // Close all attached browsers and remove the session
+        // Close all attached browsers and remove the session. Send exit first so
+        // their ReconnectingSocket marks the session final — a bare close would
+        // trigger a reconnect that respawns a ghost PTY (meta is already deleted).
         const wsSet = state.terminalSessions.get(sid);
         if (wsSet) {
+          const exitFrame = JSON.stringify({
+            t: 'exit',
+            sessionId: sid,
+            exitCode: 0,
+          } satisfies TerminalExitEvent);
           for (const bws of wsSet) {
-            if (bws !== ws && bws.readyState === bws.OPEN) bws.close(1001, 'Session killed');
+            if (bws !== ws && bws.readyState === bws.OPEN) {
+              sendRaw(bws, exitFrame);
+              bws.close(1001, 'Session killed');
+            }
           }
         }
         state.terminalSessions.delete(sid);
@@ -224,58 +243,111 @@ async function handleTerminalConnection(
     broadcastTerminalSessionsChange('detached', sessionId, meta?.groupKey);
   });
 
-  if (isReconnect) {
+  // Wait out an in-flight spawn before classifying — the daemon only knows the
+  // session once the originating spawn has been sent. Loop: a waiter that falls
+  // through to a fresh spawn installs a new gate synchronously, so later waiters
+  // re-wait and serialize instead of double-spawning.
+  let inflightSpawn = state.spawningSessions.get(sessionId);
+  while (inflightSpawn) {
+    await inflightSpawn;
+    const currentSet = state.terminalSessions.get(sessionId);
+    if (!currentSet || !currentSet.has(ws)) {
+      console.log(`[terminal] connect abandoned while awaiting spawn for sid=${short}`);
+      return;
+    }
+    inflightSpawn = state.spawningSessions.get(sessionId);
+  }
+
+  // Classify after the wait: meta present → the spawn succeeded, join via
+  // reconnect. Meta absent → the spawn was abandoned or failed; spawn fresh.
+  if (state.terminalSessionMeta.has(sessionId)) {
     const daemon = state.terminalDaemon;
     if (daemon && daemon.readyState === daemon.OPEN) {
       console.log(`[terminal] sending reconnect to daemon for sid=${short}`);
       // Track this WS so the reconnected buffer is replayed only to it, not all browsers
       state.pendingReconnects.set(sessionId, ws);
       daemon.send(JSON.stringify({ t: 'reconnect', sessionId } satisfies TerminalReconnectCmd));
-      broadcastTerminalSessionsChange('attached', sessionId, existingMeta?.groupKey);
+      broadcastTerminalSessionsChange(
+        'attached',
+        sessionId,
+        state.terminalSessionMeta.get(sessionId)?.groupKey,
+      );
     } else {
       console.log(`[terminal] reconnect path but no daemon — clearing meta sid=${short}`);
       state.terminalSessionMeta.delete(sessionId);
       sendTerminalError(ws, 'No daemon connected');
     }
   } else {
-    const spawnCmd: TerminalSpawnCmd = {
-      t: 'spawn',
+    // Gate the spawn so concurrent connects for the same sessionId wait instead of
+    // spawning a duplicate PTY. Installed synchronously (before any await) and
+    // cleared on every exit path, including thrown errors.
+    let resolveSpawn!: () => void;
+    state.spawningSessions.set(
       sessionId,
-      workingDir,
-      command,
-      cols,
-      rows,
-      scopeType,
-      scopeLabel,
-    };
+      new Promise<void>((resolve) => {
+        resolveSpawn = resolve;
+      }),
+    );
 
-    if (workspaceSlug) {
-      const ok = await maybeStartContainer(ws, sessionId, workspaceSlug, spawnCmd, state, containerMode);
-      if (!ok) return;
-    }
+    try {
+      const spawnCmd: TerminalSpawnCmd = {
+        t: 'spawn',
+        sessionId,
+        workingDir,
+        command,
+        cols,
+        rows,
+        scopeType,
+        scopeLabel,
+      };
 
-    // After potential await (container startup), check if this connection was removed
-    // (React Strict Mode double-mount or rapid reconnect). Skip spawn to avoid duplicate PTYs.
-    const currentSet = state.terminalSessions.get(sessionId);
-    if (!currentSet || !currentSet.has(ws)) {
-      console.log(`[terminal] spawn abandoned — connection replaced for sid=${short}`);
-      return;
-    }
+      if (workspaceSlug) {
+        const ok = await maybeStartContainer(
+          ws,
+          sessionId,
+          workspaceSlug,
+          spawnCmd,
+          state,
+          containerMode,
+        );
+        if (!ok) return;
+      }
 
-    // Read daemon AFTER await — it may have reconnected during container startup
-    const daemon = state.terminalDaemon;
-    if (daemon && daemon.readyState === daemon.OPEN) {
-      console.log(`[terminal] sending spawn to daemon for sid=${short}`);
-      daemon.send(JSON.stringify(spawnCmd));
-      // Only persist meta after spawn is sent — prevents false reconnects
-      // from concurrent connections (React Strict Mode double-mount)
-      state.terminalSessionMeta.set(sessionId, {
-        scopeType, scopeLabel, workingDir, command, groupKey, workspaceSlug, containerMode, taskId, cols, rows,
-      });
-      broadcastTerminalSessionsChange('created', sessionId, groupKey);
-    } else {
-      console.log(`[terminal] spawn path but no daemon for sid=${short}`);
-      sendTerminalError(ws, 'No daemon connected');
+      // After potential await (container startup), check if this connection was removed
+      // (React Strict Mode double-mount or rapid reconnect). Skip spawn to avoid duplicate PTYs.
+      const currentSet = state.terminalSessions.get(sessionId);
+      if (!currentSet || !currentSet.has(ws)) {
+        console.log(`[terminal] spawn abandoned — connection replaced for sid=${short}`);
+        return;
+      }
+
+      // Read daemon AFTER await — it may have reconnected during container startup
+      const daemon = state.terminalDaemon;
+      if (daemon && daemon.readyState === daemon.OPEN) {
+        console.log(`[terminal] sending spawn to daemon for sid=${short}`);
+        daemon.send(JSON.stringify(spawnCmd));
+        // Only persist meta after spawn is sent — prevents false reconnects
+        // from concurrent connections (React Strict Mode double-mount)
+        state.terminalSessionMeta.set(sessionId, {
+          scopeType,
+          scopeLabel,
+          workingDir,
+          command,
+          groupKey,
+          workspaceSlug,
+          containerMode,
+          taskId,
+          cols,
+          rows,
+        });
+        broadcastTerminalSessionsChange('created', sessionId, groupKey);
+      } else {
+        console.log(`[terminal] spawn path but no daemon for sid=${short}`);
+        sendTerminalError(ws, 'No daemon connected');
+      }
+    } finally {
+      state.spawningSessions.delete(sessionId);
+      resolveSpawn();
     }
   }
 }

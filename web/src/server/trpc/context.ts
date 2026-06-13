@@ -311,6 +311,12 @@ export interface AppState {
   terminalSessionMeta: Map<string, TerminalSessionMeta>;
   /** Tracks which browser WS is awaiting a reconnect buffer replay (not broadcast to all) */
   pendingReconnects: Map<string, WebSocket>;
+  /**
+   * sessionIds that are mid-spawn — gates concurrent connects to prevent duplicate
+   * PTYs when maybeStartContainer is slow. Resolved (and removed) once the spawn
+   * attempt finishes, whether it succeeded or failed.
+   */
+  spawningSessions: Map<string, Promise<void>>;
   /** Dedicated daemon WebSocket for terminal traffic (zero-parse relay) */
   terminalDaemon: WebSocket | null;
   /** Browser WebSockets subscribed to file change events */
@@ -356,6 +362,7 @@ export function createAppState(): AppState {
     terminalSessions: new Map(),
     terminalSessionMeta: new Map(),
     pendingReconnects: new Map(),
+    spawningSessions: new Map(),
     terminalDaemon: null,
     fileChangeListeners: new Set(),
     containerProgressListeners: new Map(),
