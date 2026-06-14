@@ -10,7 +10,7 @@ import type { DockviewPanelApi } from "dockview";
 import { DARK_XTERM_THEME } from "@/hooks/use-xterm-theme";
 import { RiArrowDownSLine } from "@remixicon/react";
 import type { ActivityEvent, TerminalTab } from "./types";
-import { createTerminalActivityParser } from "./parse-terminal-activity";
+import { createTerminalActivityParser, parseTerminalActivity } from "./parse-terminal-activity";
 import { createActivityTracker } from "./activity-tracker";
 import { ReconnectingSocket } from "./reconnecting-socket";
 import { MobileTerminalControls } from "./mobile-terminal-controls";
@@ -28,6 +28,7 @@ interface TerminalProps {
   onStatusChange: (sessionId: string, status: TerminalTab['status']) => void;
   onReady?: (sessionId: string, actions: TerminalActions | null) => void;
   onActivity?: (sessionId: string, event: ActivityEvent) => void;
+  onOscTitle?: (sessionId: string, title: string) => void;
   panelApi?: DockviewPanelApi;
 }
 
@@ -59,7 +60,7 @@ function buildWsUrl(tab: TerminalTab): string {
   return `${base}/ws/terminal?${params.toString()}`;
 }
 
-export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onActivity, panelApi }: TerminalProps) {
+export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onActivity, onOscTitle, panelApi }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -154,6 +155,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       if (title === lastTitle) return;
       lastTitle = title;
       activityTracker.bumpActivity();
+      onOscTitle?.(sessionId, title);
     };
 
     const scrollSub = term.onScroll(() => {
@@ -260,7 +262,13 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
             console.log(`[terminal-ui] Reconnected session ${sessionId}, buffer lines: ${msg.buffer.length}`);
             activityTracker.suppress();
             term.clear();
-            term.write(msg.buffer.join(''), () => {
+            const replay = msg.buffer.join('');
+            // Re-apply the last OSC title from the replayed scrollback — a
+            // program that set its title once before the reconnect would
+            // otherwise leave the tab on the stale fallback label.
+            const replayTitles = parseTerminalActivity(replay).titles;
+            if (replayTitles.length > 0) handleTitleChange(replayTitles[replayTitles.length - 1]);
+            term.write(replay, () => {
               term.scrollToBottom();
             });
             isPinnedRef.current = true;

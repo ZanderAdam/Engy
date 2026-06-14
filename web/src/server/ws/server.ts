@@ -33,6 +33,8 @@ import type {
   WorktreeMergeResult,
   WorktreeAddResult,
   CreateDirResult,
+  FsDeleteResult,
+  FsRenameResult,
 } from '../trpc/context';
 import { getDb } from '../db/client';
 import { workspaces, agentSessions, tasks, taskGroups, projects, fleetingMemories } from '../db/schema';
@@ -108,6 +110,8 @@ function rejectAllPending(state: AppState): void {
     state.pendingWorktreeRemove,
     state.pendingGitWorktreeList,
     state.pendingCreateDirs,
+    state.pendingFsDelete,
+    state.pendingFsRename,
   ] as const;
 
   const error = new Error('Daemon disconnected');
@@ -239,6 +243,16 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'CREATE_DIR_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingCreateDirs, (p) => ({
         results: p.results,
+      }));
+      break;
+    case 'FS_DELETE_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingFsDelete, (p) => ({
+        success: p.success,
+      }));
+      break;
+    case 'FS_RENAME_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingFsRename, (p) => ({
+        success: p.success,
       }));
       break;
     case 'EXECUTION_STATUS_EVENT':
@@ -1026,6 +1040,30 @@ export function dispatchFileWrite(
     filePath,
     content,
     coderWorkspace,
+  });
+}
+
+export function dispatchFsDelete(
+  rootDir: string,
+  relPath: string,
+  state: AppState,
+): Promise<FsDeleteResult> {
+  return dispatchDaemonOp(state, state.pendingFsDelete, 'FS_DELETE_REQUEST', {
+    rootDir,
+    relPath,
+  });
+}
+
+export function dispatchFsRename(
+  rootDir: string,
+  oldRelPath: string,
+  newRelPath: string,
+  state: AppState,
+): Promise<FsRenameResult> {
+  return dispatchDaemonOp(state, state.pendingFsRename, 'FS_RENAME_REQUEST', {
+    rootDir,
+    oldRelPath,
+    newRelPath,
   });
 }
 

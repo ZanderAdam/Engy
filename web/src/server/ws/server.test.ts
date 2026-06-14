@@ -12,6 +12,8 @@ import {
   dispatchWorktreeAdd,
   dispatchWorktreeRemove,
   dispatchCreateDir,
+  dispatchFsDelete,
+  dispatchFsRename,
 } from './server';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { agentSessions, tasks, taskGroups, projects, workspaces, fleetingMemories } from '../db/schema';
@@ -1961,5 +1963,159 @@ describe('CREATE_MEMORIES_EVENT', () => {
     expect(inserted).toHaveLength(1);
     expect(inserted[0].content).toBe('Memory before completion');
     expect(inserted[0].source).toBe('agent');
+  });
+});
+
+describe('FS_DELETE_RESPONSE', () => {
+  let state: AppState;
+  let server: Server;
+  let port: number;
+
+  beforeEach(async () => {
+    openClients = [];
+    state = createAppState();
+    const result = await startServer(state);
+    server = result.server;
+    port = result.port;
+  });
+
+  afterEach(async () => {
+    for (const ws of openClients) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.terminate();
+      }
+    }
+    openClients = [];
+    await closeServer(server);
+  });
+
+  it('should resolve with success on FS_DELETE_RESPONSE', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const deletePromise = dispatchFsDelete('/tmp/repo', 'src/file.ts', state);
+
+    const request = (await messagePromise) as {
+      type: string;
+      payload: { requestId: string; rootDir: string; relPath: string };
+    };
+    expect(request.type).toBe('FS_DELETE_REQUEST');
+    expect(request.payload.rootDir).toBe('/tmp/repo');
+    expect(request.payload.relPath).toBe('src/file.ts');
+
+    ws.send(
+      JSON.stringify({
+        type: 'FS_DELETE_RESPONSE',
+        payload: { requestId: request.payload.requestId, success: true },
+      }),
+    );
+
+    const result = await deletePromise;
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject on FS_DELETE_RESPONSE error payload', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const deletePromise = dispatchFsDelete('/tmp/repo', 'missing.ts', state);
+
+    const request = (await messagePromise) as { type: string; payload: { requestId: string } };
+
+    ws.send(
+      JSON.stringify({
+        type: 'FS_DELETE_RESPONSE',
+        payload: { requestId: request.payload.requestId, error: 'ENOENT: no such file' },
+      }),
+    );
+
+    await expect(deletePromise).rejects.toThrow('ENOENT: no such file');
+  });
+
+  it('should reject if no daemon is connected', async () => {
+    await expect(dispatchFsDelete('/tmp/repo', 'x.ts', state)).rejects.toThrow(
+      'No daemon connected',
+    );
+  });
+});
+
+describe('FS_RENAME_RESPONSE', () => {
+  let state: AppState;
+  let server: Server;
+  let port: number;
+
+  beforeEach(async () => {
+    openClients = [];
+    state = createAppState();
+    const result = await startServer(state);
+    server = result.server;
+    port = result.port;
+  });
+
+  afterEach(async () => {
+    for (const ws of openClients) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.terminate();
+      }
+    }
+    openClients = [];
+    await closeServer(server);
+  });
+
+  it('should resolve with success on FS_RENAME_RESPONSE', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const renamePromise = dispatchFsRename('/tmp/repo', 'old.ts', 'new.ts', state);
+
+    const request = (await messagePromise) as {
+      type: string;
+      payload: { requestId: string; rootDir: string; oldRelPath: string; newRelPath: string };
+    };
+    expect(request.type).toBe('FS_RENAME_REQUEST');
+    expect(request.payload.rootDir).toBe('/tmp/repo');
+    expect(request.payload.oldRelPath).toBe('old.ts');
+    expect(request.payload.newRelPath).toBe('new.ts');
+
+    ws.send(
+      JSON.stringify({
+        type: 'FS_RENAME_RESPONSE',
+        payload: { requestId: request.payload.requestId, success: true },
+      }),
+    );
+
+    const result = await renamePromise;
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject on FS_RENAME_RESPONSE error payload', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const renamePromise = dispatchFsRename('/tmp/repo', 'old.ts', 'new.ts', state);
+    const request = (await messagePromise) as { type: string; payload: { requestId: string } };
+
+    ws.send(
+      JSON.stringify({
+        type: 'FS_RENAME_RESPONSE',
+        payload: { requestId: request.payload.requestId, error: 'already exists' },
+      }),
+    );
+
+    await expect(renamePromise).rejects.toThrow('already exists');
+  });
+
+  it('should reject if no daemon is connected', async () => {
+    await expect(dispatchFsRename('/tmp/repo', 'old.ts', 'new.ts', state)).rejects.toThrow(
+      'No daemon connected',
+    );
   });
 });

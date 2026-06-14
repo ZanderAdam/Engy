@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { WebSocket } from 'ws';
 import { createAppState, type AppState } from '../trpc/context';
@@ -40,27 +40,32 @@ function closeServer(server: Server): Promise<void> {
   });
 }
 
-/** Wait for the next message from a WS and return it parsed. */
-function waitForMessage(ws: WebSocket): Promise<unknown> {
+/**
+ * Wait for the next message of the given type and return it parsed.
+ * Registration triggers an unrelated WORKSPACES_SYNC push that can race
+ * ahead of the request under test — skip anything that doesn't match.
+ */
+function waitForMessage(ws: WebSocket, type: string): Promise<unknown> {
   return new Promise((resolve) => {
-    ws.once('message', (data) => {
-      resolve(JSON.parse(data.toString()));
-    });
+    const onMessage = (data: WebSocket.RawData) => {
+      const msg = JSON.parse(data.toString()) as { type: string };
+      if (msg.type !== type) return;
+      ws.off('message', onMessage);
+      resolve(msg);
+    };
+    ws.on('message', onMessage);
   });
 }
 
 /**
- * Register the daemon and wait until state.daemon is set.
- * Consumes the WORKSPACES_SYNC response sent by the server on REGISTER,
- * so subsequent waitForMessage calls see only the intended request.
+ * Register a WS as the daemon and consume the WORKSPACES_SYNC the server sends
+ * back. Listening before sending REGISTER avoids a race where the sync either
+ * got dropped (no listener yet) or polluted the next waitForMessage call.
  */
-async function registerDaemon(daemon: WebSocket, state: AppState): Promise<void> {
-  const syncPromise = waitForMessage(daemon);
+async function registerDaemon(daemon: WebSocket): Promise<void> {
+  const synced = waitForMessage(daemon, 'WORKSPACES_SYNC');
   daemon.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
-  await syncPromise; // consume WORKSPACES_SYNC
-  await vi.waitFor(() => {
-    expect(state.daemon).not.toBeNull();
-  });
+  await synced;
 }
 
 describe('makeDaemonRepoAdapter', () => {
@@ -89,10 +94,10 @@ describe('makeDaemonRepoAdapter', () => {
   describe('globTestFiles', () => {
     it('should send GLOB_FILES_REQUEST with test patterns and return absolute paths', async () => {
       const daemon = await connectClient(port);
-      await registerDaemon(daemon, state);
+      await registerDaemon(daemon);
 
       const adapter = makeDaemonRepoAdapter(state);
-      const msgPromise = waitForMessage(daemon);
+      const msgPromise = waitForMessage(daemon, 'GLOB_FILES_REQUEST');
       const globPromise = adapter.globTestFiles('/repo/root');
 
       const request = (await msgPromise) as {
@@ -121,10 +126,10 @@ describe('makeDaemonRepoAdapter', () => {
 
     it('should pass through absolute paths from daemon unchanged', async () => {
       const daemon = await connectClient(port);
-      await registerDaemon(daemon, state);
+      await registerDaemon(daemon);
 
       const adapter = makeDaemonRepoAdapter(state);
-      const msgPromise = waitForMessage(daemon);
+      const msgPromise = waitForMessage(daemon, 'GLOB_FILES_REQUEST');
       const globPromise = adapter.globTestFiles('/repo/root');
 
       const request = (await msgPromise) as {
@@ -150,10 +155,10 @@ describe('makeDaemonRepoAdapter', () => {
   describe('readFile', () => {
     it('should send FILE_READ_REQUEST with dirname as repoDir and basename as filePath', async () => {
       const daemon = await connectClient(port);
-      await registerDaemon(daemon, state);
+      await registerDaemon(daemon);
 
       const adapter = makeDaemonRepoAdapter(state);
-      const msgPromise = waitForMessage(daemon);
+      const msgPromise = waitForMessage(daemon, 'FILE_READ_REQUEST');
       const readPromise = adapter.readFile('/repo/root/src/foo.test.ts');
 
       const request = (await msgPromise) as {
@@ -182,10 +187,10 @@ describe('makeDaemonRepoAdapter', () => {
   describe('exists', () => {
     it('should send VALIDATE_PATHS_REQUEST and return per-path exists boolean', async () => {
       const daemon = await connectClient(port);
-      await registerDaemon(daemon, state);
+      await registerDaemon(daemon);
 
       const adapter = makeDaemonRepoAdapter(state);
-      const msgPromise = waitForMessage(daemon);
+      const msgPromise = waitForMessage(daemon, 'VALIDATE_PATHS_REQUEST');
       const existsPromise = adapter.exists('/repo/root/src/foo.ts');
 
       const request = (await msgPromise) as {
@@ -211,10 +216,10 @@ describe('makeDaemonRepoAdapter', () => {
 
     it('should return false when the path does not exist', async () => {
       const daemon = await connectClient(port);
-      await registerDaemon(daemon, state);
+      await registerDaemon(daemon);
 
       const adapter = makeDaemonRepoAdapter(state);
-      const msgPromise = waitForMessage(daemon);
+      const msgPromise = waitForMessage(daemon, 'VALIDATE_PATHS_REQUEST');
       const existsPromise = adapter.exists('/repo/root/src/missing.ts');
 
       const request = (await msgPromise) as {
@@ -277,7 +282,7 @@ describe('chooseRepoAdapter', () => {
       daemon.on('open', resolve);
       daemon.on('error', reject);
     });
-    await registerDaemon(daemon, state);
+    await registerDaemon(daemon);
 
     const adapter = chooseRepoAdapter(state);
     expect(adapter).not.toBe(localRepoAdapter);

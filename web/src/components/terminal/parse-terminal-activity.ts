@@ -11,6 +11,9 @@ const ESC = '\x1b';
  *
  * Extracts titles from OSC 0 and OSC 2 sequences (both BEL and ST terminators).
  * Detects standalone bell characters that are NOT part of an OSC sequence.
+ *
+ * Known limitation: an OSC sequence split across two data chunks is dropped.
+ * Acceptable because title emitters (e.g. Claude Code) re-emit on every render.
  */
 export function parseTerminalActivity(data: string): TerminalActivityParsed {
   const titles: string[] = [];

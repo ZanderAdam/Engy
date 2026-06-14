@@ -1,5 +1,6 @@
 import type WebSocket from 'ws';
 import type {
+  DirListEntry,
   GitFileStatus,
   GitWorktreeEntry,
   WorktreeAddErrorCode,
@@ -70,7 +71,15 @@ export interface ExecutionStopResult {
 
 export interface DirListResult {
   dirs: string[];
-  files: string[];
+  files: DirListEntry[];
+}
+
+export interface FsDeleteResult {
+  success: boolean;
+}
+
+export interface FsRenameResult {
+  success: boolean;
 }
 
 export interface FileReadResult {
@@ -279,6 +288,20 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingFsDelete: Map<
+    string,
+    {
+      resolve: (result: FsDeleteResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingFsRename: Map<
+    string,
+    {
+      resolve: (result: FsRenameResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   daemonHomeDir: string | null;
   specLastChanged: Map<string, number>;
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
@@ -288,6 +311,12 @@ export interface AppState {
   terminalSessionMeta: Map<string, TerminalSessionMeta>;
   /** Tracks which browser WSes are awaiting a reconnect buffer replay (not broadcast to all) */
   pendingReconnects: Map<string, Set<WebSocket>>;
+  /**
+   * sessionIds that are mid-spawn — gates concurrent connects to prevent duplicate
+   * PTYs when maybeStartContainer is slow. Resolved (and removed) once the spawn
+   * attempt finishes, whether it succeeded or failed.
+   */
+  spawningSessions: Map<string, Promise<void>>;
   /** Dedicated daemon WebSocket for terminal traffic (zero-parse relay) */
   terminalDaemon: WebSocket | null;
   /** Browser WebSockets subscribed to file change events */
@@ -325,12 +354,15 @@ export function createAppState(): AppState {
     pendingWorktreeRemove: new Map(),
     pendingGitWorktreeList: new Map(),
     pendingCreateDirs: new Map(),
+    pendingFsDelete: new Map(),
+    pendingFsRename: new Map(),
     daemonHomeDir: null,
     specLastChanged: new Map(),
     specDebounceTimers: new Map(),
     terminalSessions: new Map(),
     terminalSessionMeta: new Map(),
     pendingReconnects: new Map(),
+    spawningSessions: new Map(),
     terminalDaemon: null,
     fileChangeListeners: new Set(),
     containerProgressListeners: new Map(),

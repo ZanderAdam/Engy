@@ -52,7 +52,7 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
               <RiListUnordered className="size-3" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className="max-w-96">
             {panels.map((panel) => {
               const { tab } = panel.params as TerminalPanelParams;
               const liveTab = { ...tab, activityState: activities[panel.id] ?? tab.activityState };
@@ -62,15 +62,22 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
                 <DropdownMenuItem
                   key={panel.id}
                   onClick={() => panel.api.setActive()}
-                  className={cn(isExited && 'opacity-60')}
+                  className={cn('items-start', isExited && 'opacity-60')}
                   aria-current={isActive || undefined}
                 >
-                  <RiTerminalLine className={cn('size-3', getTerminalIconStyle(liveTab))} />
-                  <span className="truncate">{tab.scope.scopeLabel}</span>
+                  <RiTerminalLine className={cn('mt-0.5 size-3', getTerminalIconStyle(liveTab))} />
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate leading-tight">{tab.scope.scopeLabel}</span>
+                    {tab.oscTitle && (
+                      <span className="truncate font-mono text-[9px] leading-none text-muted-foreground">
+                        {tab.oscTitle}
+                      </span>
+                    )}
+                  </span>
                   {isActive && (
                     <span
                       aria-hidden
-                      className="ml-auto size-1.5 rounded-full bg-foreground"
+                      className="ml-auto mt-1 size-1.5 rounded-full bg-foreground"
                     />
                   )}
                 </DropdownMenuItem>

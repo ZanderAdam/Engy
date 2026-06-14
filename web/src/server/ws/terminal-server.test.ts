@@ -381,6 +381,47 @@ describe('Terminal WebSocket Server', () => {
       expect(reconnectMsg).toEqual({ t: 'reconnect', sessionId: 'sess-refresh' });
     });
 
+    it('should send exit to other attached browsers before closing them on kill', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      const browser1 = await connectBrowser(port, {
+        sessionId: 'sess-kill-ma',
+        workingDir: '/tmp',
+      });
+      await spawnPromise;
+
+      const reconnectPromise = waitForMessage(daemonWs);
+      const browser2 = await connectBrowser(port, {
+        sessionId: 'sess-kill-ma',
+        workingDir: '/tmp',
+      });
+      await reconnectPromise;
+
+      // Record browser2's events in arrival order — exit must precede close
+      const events: Array<{ kind: 'message'; data: string } | { kind: 'close'; code: number }> = [];
+      browser2.on('message', (data) => events.push({ kind: 'message', data: data.toString() }));
+      const closed = new Promise<void>((resolve) => {
+        browser2.once('close', (code) => {
+          events.push({ kind: 'close', code });
+          resolve();
+        });
+      });
+
+      browser1.send(JSON.stringify({ t: 'kill', sessionId: 'sess-kill-ma' }));
+      await closed;
+
+      expect(events).toHaveLength(2);
+      const [exitEvent, closeEvent] = events;
+      if (exitEvent.kind !== 'message') throw new Error('expected exit message before close');
+      expect(JSON.parse(exitEvent.data)).toEqual({
+        t: 'exit',
+        sessionId: 'sess-kill-ma',
+        exitCode: 0,
+      });
+      expect(closeEvent).toEqual({ kind: 'close', code: 1001 });
+    });
+
     it('should clean up metadata when browser sends kill', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
@@ -626,6 +667,109 @@ describe('Terminal WebSocket Server', () => {
 
       // Session should still be alive
       expect(state.terminalSessions.has('sess-safe')).toBe(true);
+    });
+  });
+
+  describe('concurrent connect during spawn', () => {
+    it('should route concurrent connect through reconnect once in-flight spawn completes', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+
+      // Simulate another connection's spawn still in flight for this sessionId
+      let resolveSpawn!: () => void;
+      state.spawningSessions.set(
+        'sess-conc',
+        new Promise<void>((r) => {
+          resolveSpawn = r;
+        }),
+      );
+
+      const daemonMessages: string[] = [];
+      daemonWs.on('message', (data) => daemonMessages.push(data.toString()));
+
+      await connectBrowser(port, { sessionId: 'sess-conc', workingDir: '/tmp' });
+
+      // While the spawn is in flight, no second spawn (or premature reconnect) reaches the daemon
+      await new Promise((r) => setTimeout(r, 50));
+      expect(daemonMessages).toHaveLength(0);
+
+      // Originating spawn completes: meta persisted, gate cleared, promise resolved
+      state.terminalSessionMeta.set('sess-conc', {
+        scopeType: 'workspace',
+        scopeLabel: 'test',
+        workingDir: '/tmp',
+        cols: 80,
+        rows: 24,
+      });
+      state.spawningSessions.delete('sess-conc');
+      resolveSpawn();
+
+      await vi.waitFor(() => {
+        expect(daemonMessages).toHaveLength(1);
+      });
+      expect(JSON.parse(daemonMessages[0])).toEqual({ t: 'reconnect', sessionId: 'sess-conc' });
+    });
+
+    it('should clear the spawn gate after a successful spawn', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      await connectBrowser(port, { sessionId: 'sess-gate', workingDir: '/tmp' });
+      await spawnPromise;
+
+      await vi.waitFor(() => {
+        expect(state.spawningSessions.has('sess-gate')).toBe(false);
+      });
+    });
+
+    it('should clear the spawn gate when spawn fails (no daemon)', async () => {
+      const gotMessage = new Promise<string>((resolve) => {
+        const ws = new WebSocket(
+          `ws://127.0.0.1:${port}/ws/terminal?sessionId=sess-gate-fail&workingDir=/tmp`,
+        );
+        openClients.push(ws);
+        ws.on('message', (data) => resolve(data.toString()));
+      });
+
+      const raw = await gotMessage;
+      expect(JSON.parse(raw)).toEqual({ t: 'error', message: 'No daemon connected' });
+      expect(state.spawningSessions.has('sess-gate-fail')).toBe(false);
+    });
+
+    it('should fall through to a fresh spawn when the in-flight spawn was abandoned', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+
+      // In-flight spawn that gets abandoned (e.g. Strict Mode double-mount torn
+      // down mid-container-start): promise resolves but no meta is ever set
+      let resolveSpawn!: () => void;
+      state.spawningSessions.set(
+        'sess-conc-fail',
+        new Promise<void>((r) => {
+          resolveSpawn = r;
+        }),
+      );
+
+      const daemonMessages: string[] = [];
+      daemonWs.on('message', (data) => daemonMessages.push(data.toString()));
+
+      await connectBrowser(port, {
+        sessionId: 'sess-conc-fail',
+        workingDir: '/tmp',
+      });
+
+      state.spawningSessions.delete('sess-conc-fail');
+      resolveSpawn();
+
+      // The waiter must recover by spawning its own PTY, not error out
+      await vi.waitFor(() => {
+        expect(daemonMessages).toHaveLength(1);
+      });
+      expect(JSON.parse(daemonMessages[0])).toMatchObject({
+        t: 'spawn',
+        sessionId: 'sess-conc-fail',
+        workingDir: '/tmp',
+      });
+      expect(state.terminalSessionMeta.has('sess-conc-fail')).toBe(true);
+      expect(state.spawningSessions.has('sess-conc-fail')).toBe(false);
     });
   });
 

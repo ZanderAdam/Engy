@@ -1697,14 +1697,17 @@ describe('WsClient dir list handler', () => {
     );
 
     const response = JSON.parse(await waitForMessage(ws));
-    expect(response).toEqual({
-      type: 'DIR_LIST_RESPONSE',
-      payload: {
-        requestId: 'list-1',
-        dirs: ['node_modules', 'src'],
-        files: ['.env', '.gitignore', 'README.md'],
-      },
-    });
+    expect(response.type).toBe('DIR_LIST_RESPONSE');
+    expect(response.payload.requestId).toBe('list-1');
+    expect(response.payload.dirs).toEqual(['node_modules', 'src']);
+    const fileNames = (response.payload.files as Array<{ name: string; mtime: number }>).map(
+      (f) => f.name,
+    );
+    expect(fileNames).toEqual(['.env', '.gitignore', 'README.md']);
+    for (const f of response.payload.files as Array<{ name: string; mtime: number }>) {
+      expect(typeof f.mtime).toBe('number');
+      expect(f.mtime).toBeGreaterThan(0);
+    }
   });
 
   it('returns error for unreadable path', async () => {
@@ -1960,6 +1963,358 @@ describe('WsClient CREATE_DIR_REQUEST handler', () => {
       expect(msg.type).toBe('REGISTER');
       expect(typeof msg.payload.homeDir).toBe('string');
       expect(msg.payload.homeDir.length).toBeGreaterThan(0);
+    });
+  });
+});
+
+describe('WsClient dir list mtime', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+  let tmpDir: string;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => wss.once('connection', resolve));
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => ws.once('message', (data) => resolve(data.toString())));
+  }
+
+  beforeEach(async () => {
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) resolve();
+      else server.on('listening', () => resolve());
+    });
+    port = (server.address() as { port: number }).port;
+    tmpDir = mkdtempSync(nodePath.join(os.tmpdir(), 'dir-mtime-'));
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should return file entries with name and numeric mtime', async () => {
+    nodeFs.writeFileSync(nodePath.join(tmpDir, 'alpha.ts'), 'export {}');
+    nodeFs.writeFileSync(nodePath.join(tmpDir, 'beta.ts'), 'export {}');
+    nodeFs.mkdirSync(nodePath.join(tmpDir, 'src'));
+
+    const connPromise = waitForConnection(server);
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+    const ws = await connPromise;
+    await waitForMessage(ws);
+
+    ws.send(
+      JSON.stringify({
+        type: 'DIR_LIST_REQUEST',
+        payload: { requestId: 'mtime-1', dirPath: tmpDir },
+      }),
+    );
+
+    const response = JSON.parse(await waitForMessage(ws));
+    expect(response.type).toBe('DIR_LIST_RESPONSE');
+    expect(response.payload.dirs).toEqual(['src']);
+    const files = response.payload.files as Array<{ name: string; mtime: number }>;
+    expect(files.map((f) => f.name)).toEqual(['alpha.ts', 'beta.ts']);
+    for (const f of files) {
+      expect(typeof f.mtime).toBe('number');
+      expect(f.mtime).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('WsClient FS_DELETE_REQUEST handler', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+  let tmpDir: string;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => wss.once('connection', resolve));
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => ws.once('message', (data) => resolve(data.toString())));
+  }
+
+  async function setupAndSend(req: object): Promise<string> {
+    const connPromise = waitForConnection(server);
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+    const ws = await connPromise;
+    await waitForMessage(ws);
+    ws.send(JSON.stringify(req));
+    return waitForMessage(ws);
+  }
+
+  beforeEach(async () => {
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) resolve();
+      else server.on('listening', () => resolve());
+    });
+    port = (server.address() as { port: number }).port;
+    tmpDir = mkdtempSync(nodePath.join(os.tmpdir(), 'fs-delete-'));
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  describe('FS_DELETE_REQUEST', () => {
+    it('should delete a file and respond with success', async () => {
+      const filePath = nodePath.join(tmpDir, 'to-delete.txt');
+      nodeFs.writeFileSync(filePath, 'bye');
+
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FS_DELETE_REQUEST',
+          payload: { requestId: 'del-1', rootDir: tmpDir, relPath: 'to-delete.txt' },
+        }),
+      );
+
+      expect(response).toEqual({
+        type: 'FS_DELETE_RESPONSE',
+        payload: { requestId: 'del-1', success: true },
+      });
+      expect(nodeFs.existsSync(filePath)).toBe(false);
+    });
+
+    it('should delete a directory recursively and respond with success', async () => {
+      const subDir = nodePath.join(tmpDir, 'subdir');
+      nodeFs.mkdirSync(subDir);
+      nodeFs.writeFileSync(nodePath.join(subDir, 'nested.txt'), 'content');
+
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FS_DELETE_REQUEST',
+          payload: { requestId: 'del-2', rootDir: tmpDir, relPath: 'subdir' },
+        }),
+      );
+
+      expect(response).toEqual({
+        type: 'FS_DELETE_RESPONSE',
+        payload: { requestId: 'del-2', success: true },
+      });
+      expect(nodeFs.existsSync(subDir)).toBe(false);
+    });
+
+    it('should reject traversal with ../ in relPath', async () => {
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FS_DELETE_REQUEST',
+          payload: { requestId: 'del-trav', rootDir: tmpDir, relPath: '../outside' },
+        }),
+      );
+
+      expect(response.type).toBe('FS_DELETE_RESPONSE');
+      expect(response.payload.error).toMatch(/traversal/i);
+    });
+
+    it('should reject absolute relPath', async () => {
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FS_DELETE_REQUEST',
+          payload: { requestId: 'del-abs', rootDir: tmpDir, relPath: '/etc/passwd' },
+        }),
+      );
+
+      expect(response.type).toBe('FS_DELETE_RESPONSE');
+      expect(response.payload.error).toMatch(/relative/i);
+    });
+
+    it('should allow deleting an entry whose name starts with dots', async () => {
+      const filePath = nodePath.join(tmpDir, '..weird-name');
+      nodeFs.writeFileSync(filePath, 'bye');
+
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FS_DELETE_REQUEST',
+          payload: { requestId: 'del-dots', rootDir: tmpDir, relPath: '..weird-name' },
+        }),
+      );
+
+      expect(response).toEqual({
+        type: 'FS_DELETE_RESPONSE',
+        payload: { requestId: 'del-dots', success: true },
+      });
+      expect(nodeFs.existsSync(filePath)).toBe(false);
+    });
+
+    it('should reject deleting the rootDir itself', async () => {
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FS_DELETE_REQUEST',
+          payload: { requestId: 'del-root', rootDir: tmpDir, relPath: '.' },
+        }),
+      );
+
+      expect(response.type).toBe('FS_DELETE_RESPONSE');
+      expect(response.payload.error).toMatch(/root/i);
+    });
+
+    it('should error when the path does not exist', async () => {
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FS_DELETE_REQUEST',
+          payload: { requestId: 'del-missing', rootDir: tmpDir, relPath: 'nonexistent.txt' },
+        }),
+      );
+
+      expect(response.type).toBe('FS_DELETE_RESPONSE');
+      expect(response.payload.error).toBeDefined();
+    });
+  });
+});
+
+describe('WsClient FS_RENAME_REQUEST handler', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+  let tmpDir: string;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => wss.once('connection', resolve));
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => ws.once('message', (data) => resolve(data.toString())));
+  }
+
+  async function setupAndSend(req: object): Promise<string> {
+    const connPromise = waitForConnection(server);
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+    const ws = await connPromise;
+    await waitForMessage(ws);
+    ws.send(JSON.stringify(req));
+    return waitForMessage(ws);
+  }
+
+  beforeEach(async () => {
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) resolve();
+      else server.on('listening', () => resolve());
+    });
+    port = (server.address() as { port: number }).port;
+    tmpDir = mkdtempSync(nodePath.join(os.tmpdir(), 'fs-rename-'));
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  describe('FS_RENAME_REQUEST', () => {
+    it('should rename a file and respond with success', async () => {
+      nodeFs.writeFileSync(nodePath.join(tmpDir, 'old.txt'), 'hello');
+
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FS_RENAME_REQUEST',
+          payload: {
+            requestId: 'ren-1',
+            rootDir: tmpDir,
+            oldRelPath: 'old.txt',
+            newRelPath: 'new.txt',
+          },
+        }),
+      );
+
+      expect(response).toEqual({
+        type: 'FS_RENAME_RESPONSE',
+        payload: { requestId: 'ren-1', success: true },
+      });
+      expect(nodeFs.existsSync(nodePath.join(tmpDir, 'old.txt'))).toBe(false);
+      expect(nodeFs.readFileSync(nodePath.join(tmpDir, 'new.txt'), 'utf8')).toBe('hello');
+    });
+
+    it('should create intermediate parent directories for the target', async () => {
+      nodeFs.writeFileSync(nodePath.join(tmpDir, 'file.txt'), 'content');
+
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FS_RENAME_REQUEST',
+          payload: {
+            requestId: 'ren-2',
+            rootDir: tmpDir,
+            oldRelPath: 'file.txt',
+            newRelPath: 'deep/nested/file.txt',
+          },
+        }),
+      );
+
+      expect(response).toEqual({
+        type: 'FS_RENAME_RESPONSE',
+        payload: { requestId: 'ren-2', success: true },
+      });
+      expect(
+        nodeFs.readFileSync(nodePath.join(tmpDir, 'deep', 'nested', 'file.txt'), 'utf8'),
+      ).toBe('content');
+    });
+
+    it('should error when target already exists', async () => {
+      nodeFs.writeFileSync(nodePath.join(tmpDir, 'src.txt'), 'a');
+      nodeFs.writeFileSync(nodePath.join(tmpDir, 'dst.txt'), 'b');
+
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FS_RENAME_REQUEST',
+          payload: {
+            requestId: 'ren-exists',
+            rootDir: tmpDir,
+            oldRelPath: 'src.txt',
+            newRelPath: 'dst.txt',
+          },
+        }),
+      );
+
+      expect(response.type).toBe('FS_RENAME_RESPONSE');
+      expect(response.payload.error).toMatch(/already exists/i);
+    });
+
+    it('should reject traversal in oldRelPath', async () => {
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FS_RENAME_REQUEST',
+          payload: {
+            requestId: 'ren-trav-old',
+            rootDir: tmpDir,
+            oldRelPath: '../outside.txt',
+            newRelPath: 'inside.txt',
+          },
+        }),
+      );
+
+      expect(response.type).toBe('FS_RENAME_RESPONSE');
+      expect(response.payload.error).toMatch(/traversal/i);
+    });
+
+    it('should reject traversal in newRelPath', async () => {
+      nodeFs.writeFileSync(nodePath.join(tmpDir, 'src.txt'), 'x');
+
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FS_RENAME_REQUEST',
+          payload: {
+            requestId: 'ren-trav-new',
+            rootDir: tmpDir,
+            oldRelPath: 'src.txt',
+            newRelPath: '../escape.txt',
+          },
+        }),
+      );
+
+      expect(response.type).toBe('FS_RENAME_RESPONSE');
+      expect(response.payload.error).toMatch(/traversal/i);
     });
   });
 });

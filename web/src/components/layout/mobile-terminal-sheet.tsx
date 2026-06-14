@@ -95,8 +95,9 @@ function MobileTerminalSheetBase({
       <SheetContent
         side="right"
         // h-auto (not h-full) so the sheet is sized by top + the inherited
-        // bottom:0, sitting below the sticky mobile header to keep it visible
-        // for quick project switching. Inline top wins over the class top:0.
+        // bottom:0, sitting below the header's identity bar so workspace/
+        // project/tab switching stays reachable while the section-tabs row
+        // is covered. Inline top wins over the class top:0.
         className="flex h-auto w-full flex-col gap-0 border-l border-border bg-background p-0"
         showCloseButton={false}
         style={{ top: headerOffset }}
