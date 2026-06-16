@@ -91,6 +91,14 @@ describe('parseTerminalActivity', () => {
       expect(parseTerminalActivity('user@host ~/dev ❯ ').hasPrompt).toBe(false);
     });
 
+    it('should not flag a version string after a ❯ glyph', () => {
+      expect(parseTerminalActivity('release ❯ 2.5.0 ready').hasPrompt).toBe(false);
+    });
+
+    it('should not flag prose that merely mentions pressing enter', () => {
+      expect(parseTerminalActivity('you can press enter at any time to skip').hasPrompt).toBe(false);
+    });
+
     it('should not flag ordinary output as a prompt', () => {
       expect(parseTerminalActivity('Building project... done in 1.2s\r\n').hasPrompt).toBe(false);
     });

@@ -10,7 +10,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useTabId } from '@/components/tabs/tab-context';
 import { useTerminalScope } from './use-terminal-scope';
-import { useTerminalSessions } from './terminal-session-store';
+import { useTerminalSessions, terminalRailKey } from './terminal-session-store';
 import { TerminalSessionLabel } from './terminal-session-label';
 import { getTerminalIconStyle } from './types';
 
@@ -24,7 +24,7 @@ import { getTerminalIconStyle } from './types';
 export function TerminalRail() {
   const scope = useTerminalScope();
   const tabId = useTabId();
-  const { tabs, activeId } = useTerminalSessions(scope.groupKey);
+  const { tabs, activeId } = useTerminalSessions(terminalRailKey(tabId, scope.groupKey));
 
   function focusSession(sessionId: string) {
     window.dispatchEvent(new CustomEvent('terminal:focus', { detail: { sessionId, tabId } }));
@@ -57,7 +57,7 @@ export function TerminalRail() {
               <button
                 type="button"
                 onClick={() => focusSession(tab.sessionId)}
-                aria-label={`Focus terminal ${tab.scope.scopeLabel}`}
+                aria-label={`Focus terminal ${tab.scope.scopeLabel}${tab.oscTitle ? `: ${tab.oscTitle}` : ''}`}
                 aria-current={tab.sessionId === activeId || undefined}
                 className={cn(
                   'flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted',

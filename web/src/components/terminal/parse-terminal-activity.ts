@@ -14,9 +14,11 @@ const ESC = '\x1b';
 const PROMPT_PATTERNS: readonly RegExp[] = [
   /\((?:y\/n|yes\/no|y\/N|Y\/n|n\/y)\)/i,
   /\[(?:y\/n|yes\/no|y\/N|Y\/n)\]/i,
-  /press\s+(?:enter|return|any key)\b/i,
+  /press\s+(?:enter|return|any key)\s+to\s+continue/i,
   /do you want to (?:proceed|continue)/i,
-  /❯\s*\d+\./,
+  // Numbered selection menu ("❯ 1. Yes") — the trailing space before the label
+  // avoids matching version strings like "❯ 2.5.0".
+  /❯\s*\d+\.\s/,
 ];
 
 /** True when the chunk contains a strong "waiting for input" indicator. */

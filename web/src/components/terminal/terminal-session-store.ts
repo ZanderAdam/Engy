@@ -17,6 +17,13 @@ const EMPTY: TerminalSessionsSnapshot = { tabs: [], activeId: null };
 const byKey = new Map<string, TerminalSessionsSnapshot>();
 const listeners = new Set<() => void>();
 
+// Keyed by tab + scope so two browser tabs viewing the same scope (same
+// groupKey) each get their own entry — otherwise one tab's unmount would clear
+// the rail for the other.
+export function terminalRailKey(tabId: string | null, groupKey: string): string {
+  return `${tabId ?? 'default'}:${groupKey}`;
+}
+
 function emit() {
   for (const listener of listeners) listener();
 }

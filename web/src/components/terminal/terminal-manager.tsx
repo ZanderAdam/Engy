@@ -13,7 +13,7 @@ import { useOnServerEvent } from "@/contexts/events-context";
 import { applyOscTitle } from "./osc-title";
 import { useOptionalTab } from "@/components/tabs/tab-context";
 import { randomId } from "@/lib/random-id";
-import { publishTerminalSessions, clearTerminalSessions } from "./terminal-session-store";
+import { publishTerminalSessions, clearTerminalSessions, terminalRailKey } from "./terminal-session-store";
 
 interface InjectEvent {
   context: string;
@@ -551,20 +551,21 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   );
 
   // Publish the live tab snapshot for the terminal rail whenever tabs or the
-  // active panel change. Cleared on unmount so a scope switch doesn't leave a
-  // stale list (the rail subscribes by groupKey).
+  // active panel change. Keyed by tab + scope and cleared on unmount so a scope
+  // switch (or another tab on the same scope) doesn't leave a stale list.
+  const railKey = publishKey ? terminalRailKey(myTabId, publishKey) : null;
   useEffect(() => {
-    if (!publishKey) return;
-    publishTerminalSessions(publishKey, {
+    if (!railKey) return;
+    publishTerminalSessions(railKey, {
       tabs: [...tabsRef.current.values()],
       activeId: dockviewApiRef.current?.activePanel?.id ?? null,
     });
-  }, [publishKey, tabsVersion]);
+  }, [railKey, tabsVersion]);
 
   useEffect(() => {
-    if (!publishKey) return;
-    return () => clearTerminalSessions(publishKey);
-  }, [publishKey]);
+    if (!railKey) return;
+    return () => clearTerminalSessions(railKey);
+  }, [railKey]);
 
   const contextValue = useMemo<TerminalDockContextValue>(
     () => ({
