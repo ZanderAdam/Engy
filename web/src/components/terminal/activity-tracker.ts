@@ -1,9 +1,10 @@
-import type { ActivityEvent } from './types';
+import type { ActivityEvent, TerminalActivityState } from './types';
 
 interface ActivityTracker {
-  bumpActivity: () => void;
+  bumpActivity: (hasPrompt?: boolean) => void;
   handleBell: () => void;
   resetOnUserInput: () => void;
+  acknowledge: () => void;
   suppress: () => void;
   dispose: () => void;
 }
@@ -15,20 +16,29 @@ interface ActivityTrackerOptions {
 }
 
 /**
- * Factory for terminal activity state machine: idle → active → waiting → idle.
+ * Factory for the terminal activity state machine (after agent-deck / herdr):
+ *   idle → active → (done | waiting) → idle
  *
  * Activity is signalled by output chunks (bumpActivity) or bell (handleBell).
  * Two or more chunks within the debounce window trigger the 'start' event.
- * Inactivity for debounceMs emits 'waiting'. User input resets to idle.
+ * When output goes quiet for debounceMs the burst *settles*: to 'waiting' if a
+ * bell or input-prompt was seen (blocked on the user), otherwise to 'done'
+ * (finished but unseen). User input (resetOnUserInput) or viewing the terminal
+ * (acknowledge) returns it to idle.
  */
 export function createActivityTracker({
   debounceMs,
   suppressMs,
   onActivity,
 }: ActivityTrackerOptions): ActivityTracker {
-  let activityChunkCount = 0;
-  let isActive = false;
-  let isWaiting = false;
+  let chunkCount = 0;
+  // Sticky "the program wants the user" flag: set by a bell or a detected input
+  // prompt and held until the user acknowledges, so trailing output (e.g. a
+  // shell redrawing its prompt after the bell) can't downgrade 'waiting' to
+  // 'done'. Cleared only on idle/suppress.
+  let wantsInput = false;
+  // Last emitted state, so the settle/clear paths know what to transition from.
+  let current: TerminalActivityState = 'idle';
   let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
   let suppressActivityUntil = Date.now() + suppressMs;
 
@@ -39,59 +49,69 @@ export function createActivityTracker({
     }
   }
 
-  function resetCounters() {
-    activityChunkCount = 0;
-    isActive = false;
-    clearInactivityTimer();
+  function settleIdle() {
+    if (current !== 'idle' || inactivityTimer) {
+      clearInactivityTimer();
+      chunkCount = 0;
+      wantsInput = false;
+      current = 'idle';
+      onActivity('idle');
+    }
   }
 
-  function bumpActivity() {
+  function bumpActivity(hasPrompt = false) {
     if (Date.now() < suppressActivityUntil) return;
 
-    activityChunkCount++;
+    if (hasPrompt) wantsInput = true;
+    chunkCount++;
 
-    if (!isActive && activityChunkCount >= 2) {
-      isActive = true;
-      isWaiting = false;
+    if (current !== 'active' && chunkCount >= 2) {
+      current = 'active';
       onActivity('start');
     }
 
     clearInactivityTimer();
     inactivityTimer = setTimeout(() => {
       inactivityTimer = null;
-      if (isActive) {
-        isWaiting = true;
-        onActivity('waiting');
+      if (current === 'active') {
+        current = wantsInput ? 'waiting' : 'done';
+        onActivity(current);
       }
-      resetCounters();
+      chunkCount = 0;
     }, debounceMs);
   }
 
   function handleBell() {
-    resetCounters();
-    isWaiting = true;
-    onActivity('waiting');
+    clearInactivityTimer();
+    chunkCount = 0;
+    wantsInput = true;
+    if (current !== 'waiting') {
+      current = 'waiting';
+      onActivity('waiting');
+    }
   }
 
+  // User typed into the terminal — clears any active/done/waiting indicator.
   function resetOnUserInput() {
-    // isWaiting persists past resetCounters() — both paths into 'waiting'
-    // reset the counters, which would otherwise make this guard miss and
-    // leave the waiting indicator stuck until the next output burst.
-    if (isActive || inactivityTimer || isWaiting) {
-      resetCounters();
-      isWaiting = false;
-      onActivity('idle');
-    }
+    settleIdle();
+  }
+
+  // User viewed/focused the terminal — a done/waiting session is now "seen".
+  function acknowledge() {
+    settleIdle();
   }
 
   function suppress() {
     suppressActivityUntil = Date.now() + suppressMs;
-    resetCounters();
+    clearInactivityTimer();
+    chunkCount = 0;
+    wantsInput = false;
+    current = 'idle';
   }
 
   function dispose() {
     clearInactivityTimer();
   }
 
-  return { bumpActivity, handleBell, resetOnUserInput, suppress, dispose };
+  return { bumpActivity, handleBell, resetOnUserInput, acknowledge, suppress, dispose };
 }

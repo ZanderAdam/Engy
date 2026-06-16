@@ -70,11 +70,38 @@ describe('parseTerminalActivity', () => {
     });
   });
 
+  describe('prompt detection', () => {
+    it('should detect a (y/n) confirmation prompt', () => {
+      expect(parseTerminalActivity('Overwrite file? (y/n) ').hasPrompt).toBe(true);
+    });
+
+    it('should detect a [Y/n] confirmation prompt', () => {
+      expect(parseTerminalActivity('Proceed [Y/n]').hasPrompt).toBe(true);
+    });
+
+    it('should detect a "press enter to continue" prompt', () => {
+      expect(parseTerminalActivity('Press Enter to continue...').hasPrompt).toBe(true);
+    });
+
+    it('should detect a numbered selection menu', () => {
+      expect(parseTerminalActivity('\x1b[2m❯ 1. Yes\x1b[0m').hasPrompt).toBe(true);
+    });
+
+    it('should not flag a bare ❯ shell prompt as waiting', () => {
+      expect(parseTerminalActivity('user@host ~/dev ❯ ').hasPrompt).toBe(false);
+    });
+
+    it('should not flag ordinary output as a prompt', () => {
+      expect(parseTerminalActivity('Building project... done in 1.2s\r\n').hasPrompt).toBe(false);
+    });
+  });
+
   describe('mixed content', () => {
     it('should return empty results for plain text', () => {
       const result = parseTerminalActivity('hello world\r\n');
       expect(result.titles).toEqual([]);
       expect(result.hasBell).toBe(false);
+      expect(result.hasPrompt).toBe(false);
     });
 
     it('should handle data with ANSI escape sequences but no OSC', () => {

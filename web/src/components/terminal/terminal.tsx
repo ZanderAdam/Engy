@@ -195,8 +195,13 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     };
     container.addEventListener('wheel', handleWheel, { passive: true });
     // focusin bubbles from xterm's textarea (unlike focus), so any click/keyboard
-    // focus re-syncs PTY size when the viewport changed while the panel was hidden.
-    container.addEventListener('focusin', fitAndSyncResize);
+    // focus re-syncs PTY size when the viewport changed while the panel was hidden,
+    // and acknowledges the session so a done/waiting indicator clears once viewed.
+    const handleFocusIn = () => {
+      fitAndSyncResize();
+      activityTracker.acknowledge();
+    };
+    container.addEventListener('focusin', handleFocusIn);
 
     const scheduleScroll = () => {
       if (!scrollRafRef.current) {
@@ -245,8 +250,10 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
               activityTracker.handleBell();
             } else if (msg.d.length > 0) {
               // Any non-bell PTY output is an activity signal. Bell is handled
-              // separately because it transitions directly to 'waiting'.
-              activityTracker.bumpActivity();
+              // separately because it transitions directly to 'waiting'. A
+              // detected input-prompt biases the eventual settle to 'waiting'
+              // (blocked) rather than 'done' (finished).
+              activityTracker.bumpActivity(activity.hasPrompt);
             }
 
             // xterm natively preserves the viewport while the user is scrolled
@@ -333,7 +340,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       activityTracker.dispose();
       scrollSub.dispose();
       container.removeEventListener('wheel', handleWheel);
-      container.removeEventListener('focusin', fitAndSyncResize);
+      container.removeEventListener('focusin', handleFocusIn);
       resizeObserver.disconnect();
       onReady?.(sessionId, null);
       socket.close();

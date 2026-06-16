@@ -50,7 +50,7 @@ describe('createActivityTracker', () => {
       expect(events).toEqual(['start']);
     });
 
-    it('should emit waiting after debounce with no new output', () => {
+    it('should emit done after debounce with no new output (no prompt seen)', () => {
       const { tracker, events } = setup();
       skipInitialSuppress();
 
@@ -60,7 +60,7 @@ describe('createActivityTracker', () => {
 
       vi.advanceTimersByTime(DEBOUNCE_MS);
 
-      expect(events).toEqual(['start', 'waiting']);
+      expect(events).toEqual(['start', 'done']);
     });
 
     it('should reset inactivity timer on each new output chunk', () => {
@@ -76,13 +76,13 @@ describe('createActivityTracker', () => {
       for (let i = 0; i < 10; i++) {
         vi.advanceTimersByTime(1000);
         tracker.bumpActivity();
-        // Should not emit waiting yet
+        // Should not settle yet
         expect(events).toEqual(['start']);
       }
 
-      // Now wait 3s after the last chunk — should emit waiting
+      // Now wait 3s after the last chunk — should settle to done
       vi.advanceTimersByTime(DEBOUNCE_MS);
-      expect(events).toEqual(['start', 'waiting']);
+      expect(events).toEqual(['start', 'done']);
     });
 
     it('should emit only one start even with many chunks', () => {
@@ -132,6 +132,23 @@ describe('createActivityTracker', () => {
 
       // No extra waiting — bell already emitted it and reset counters
       expect(events).toEqual(['start', 'waiting']);
+    });
+
+    it('should stay waiting (not done) when output continues after a bell', () => {
+      const { tracker, events } = setup();
+      skipInitialSuppress();
+
+      tracker.handleBell();
+      expect(events).toEqual(['waiting']);
+
+      // Trailing output (e.g. shell redrawing its prompt) flips to active...
+      tracker.bumpActivity();
+      tracker.bumpActivity();
+      expect(events).toEqual(['waiting', 'start']);
+
+      // ...but the sticky wantsInput flag settles it back to waiting, not done.
+      vi.advanceTimersByTime(DEBOUNCE_MS);
+      expect(events).toEqual(['waiting', 'start', 'waiting']);
     });
   });
 
@@ -195,18 +212,81 @@ describe('createActivityTracker', () => {
       expect(events).toEqual(['waiting', 'idle']);
     });
 
-    it('should emit idle when user types after debounce-triggered waiting', () => {
+    it('should emit idle when user types after debounce-triggered done', () => {
       const { tracker, events } = setup();
       skipInitialSuppress();
 
       tracker.bumpActivity();
       tracker.bumpActivity();
       vi.advanceTimersByTime(DEBOUNCE_MS + 1);
-      expect(events).toEqual(['start', 'waiting']);
+      expect(events).toEqual(['start', 'done']);
 
       tracker.resetOnUserInput();
 
-      expect(events).toEqual(['start', 'waiting', 'idle']);
+      expect(events).toEqual(['start', 'done', 'idle']);
+    });
+  });
+
+  describe('prompt detection (waiting vs done)', () => {
+    it('should settle to waiting when an input-prompt was seen in output', () => {
+      const { tracker, events } = setup();
+      skipInitialSuppress();
+
+      tracker.bumpActivity();
+      tracker.bumpActivity(true); // chunk carried an input prompt
+      expect(events).toEqual(['start']);
+
+      vi.advanceTimersByTime(DEBOUNCE_MS);
+
+      expect(events).toEqual(['start', 'waiting']);
+    });
+
+    it('should settle to done when no prompt was seen', () => {
+      const { tracker, events } = setup();
+      skipInitialSuppress();
+
+      tracker.bumpActivity();
+      tracker.bumpActivity(false);
+      vi.advanceTimersByTime(DEBOUNCE_MS);
+
+      expect(events).toEqual(['start', 'done']);
+    });
+  });
+
+  describe('acknowledge (view/focus)', () => {
+    it('should emit idle when a done session is acknowledged', () => {
+      const { tracker, events } = setup();
+      skipInitialSuppress();
+
+      tracker.bumpActivity();
+      tracker.bumpActivity();
+      vi.advanceTimersByTime(DEBOUNCE_MS + 1);
+      expect(events).toEqual(['start', 'done']);
+
+      tracker.acknowledge();
+
+      expect(events).toEqual(['start', 'done', 'idle']);
+    });
+
+    it('should emit idle when a waiting (bell) session is acknowledged', () => {
+      const { tracker, events } = setup();
+      skipInitialSuppress();
+
+      tracker.handleBell();
+      expect(events).toEqual(['waiting']);
+
+      tracker.acknowledge();
+
+      expect(events).toEqual(['waiting', 'idle']);
+    });
+
+    it('should not emit idle when acknowledging an already-idle session', () => {
+      const { tracker, events } = setup();
+      skipInitialSuppress();
+
+      tracker.acknowledge();
+
+      expect(events).toEqual([]);
     });
   });
 

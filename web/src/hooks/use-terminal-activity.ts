@@ -29,7 +29,9 @@ if (typeof window !== 'undefined') {
   window.addEventListener('terminal:activity-changed', handleEvent);
 }
 
-const PRIORITY: Record<TerminalActivityState, number> = { idle: 0, active: 1, waiting: 2 };
+// Rollup urgency (after herdr's Blocked > Working > Done > Idle ordering):
+// a waiting (blocked) session dominates, then active work, then done/unseen.
+const PRIORITY: Record<TerminalActivityState, number> = { idle: 0, done: 1, active: 2, waiting: 3 };
 
 function getHighestPriority(sessionIds: string[]): TerminalActivityState {
   let highest: TerminalActivityState = 'idle';

@@ -1,10 +1,28 @@
 interface TerminalActivityParsed {
   titles: string[];
   hasBell: boolean;
+  hasPrompt: boolean;
 }
 
 const BEL = '\x07';
 const ESC = '\x1b';
+
+// High-precision markers that a program is waiting for user input. Kept
+// conservative so normal output (and shell prompts like starship's bare "❯")
+// don't trip a false "waiting" — the numbered "❯ 1." form is required, and
+// confirmation literals are specific enough to be safe unanchored.
+const PROMPT_PATTERNS: readonly RegExp[] = [
+  /\((?:y\/n|yes\/no|y\/N|Y\/n|n\/y)\)/i,
+  /\[(?:y\/n|yes\/no|y\/N|Y\/n)\]/i,
+  /press\s+(?:enter|return|any key)\b/i,
+  /do you want to (?:proceed|continue)/i,
+  /❯\s*\d+\./,
+];
+
+/** True when the chunk contains a strong "waiting for input" indicator. */
+function detectPrompt(data: string): boolean {
+  return PROMPT_PATTERNS.some((re) => re.test(data));
+}
 
 /**
  * Parse raw terminal data for OSC title changes and standalone bell characters.
@@ -66,7 +84,7 @@ export function parseTerminalActivity(data: string): TerminalActivityParsed {
     }
   }
 
-  return { titles, hasBell };
+  return { titles, hasBell, hasPrompt: detectPrompt(data) };
 }
 
 /**
@@ -136,7 +154,7 @@ export function createTerminalActivityParser(): TerminalActivityParser {
         }
       }
 
-      return { titles, hasBell };
+      return { titles, hasBell, hasPrompt: detectPrompt(data) };
     },
   };
 }
