@@ -29,6 +29,7 @@ export function TerminalPanel({ onCollapse, extraDropdownGroups, containerEnable
         defaultScope={scope}
         extraDropdownGroups={extraDropdownGroups}
         containerEnabled={containerEnabled}
+        publishKey={scope.groupKey}
       />
     </div>
   );

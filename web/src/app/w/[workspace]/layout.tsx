@@ -19,6 +19,7 @@ import {
   MobileShellTerminalSheet,
 } from '@/components/layout/mobile-terminal-sheet';
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
+import { TerminalRail } from '@/components/terminal/terminal-rail';
 import { BottomTerminalSplit } from '@/components/terminal/bottom-terminal-split';
 import type { TerminalDropdownGroup } from '@/components/terminal/types';
 import { useWorktreeSessions } from '@/components/terminal/use-worktree-sessions';
@@ -296,6 +297,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             </div>
           </nav>
         )}
+        <div className="flex flex-1 min-h-0">
         <ThreePanelLayout
           className="flex-1 min-h-0"
           right={TERMINAL_CONFIG}
@@ -327,6 +329,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             />
           }
         />
+        {!isMobile && <TerminalRail />}
+        </div>
       </div>
     </>
   );

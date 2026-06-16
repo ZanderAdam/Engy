@@ -21,7 +21,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useTerminalDock } from './terminal-dock-context';
-import { getTerminalIconStyle, toContainerScope, type TerminalPanelParams } from './types';
+import { toContainerScope, type TerminalPanelParams } from './types';
+import { TerminalSessionLabel } from './terminal-session-label';
 import { useTerminalActivities } from '@/hooks/use-terminal-activity';
 
 export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActionsProps) {
@@ -65,15 +66,7 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
                   className={cn('items-start', isExited && 'opacity-60')}
                   aria-current={isActive || undefined}
                 >
-                  <RiTerminalLine className={cn('mt-0.5 size-3', getTerminalIconStyle(liveTab))} />
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="truncate leading-tight">{tab.scope.scopeLabel}</span>
-                    {tab.oscTitle && (
-                      <span className="truncate font-mono text-[9px] leading-none text-muted-foreground">
-                        {tab.oscTitle}
-                      </span>
-                    )}
-                  </span>
+                  <TerminalSessionLabel tab={liveTab} />
                   {isActive && (
                     <span
                       aria-hidden

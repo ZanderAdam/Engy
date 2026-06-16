@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useMemo } from "react";
+import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { DockviewReact, type DockviewApi, type SerializedDockview } from "dockview";
 import type { TerminalActions } from "./terminal";
 import type { ActivityEvent, TerminalActivityState, TerminalTab, TerminalScope, TerminalPanelParams, SplitPosition, TerminalDropdownGroup } from "./types";
@@ -13,6 +13,7 @@ import { useOnServerEvent } from "@/contexts/events-context";
 import { applyOscTitle } from "./osc-title";
 import { useOptionalTab } from "@/components/tabs/tab-context";
 import { randomId } from "@/lib/random-id";
+import { publishTerminalSessions, clearTerminalSessions } from "./terminal-session-store";
 
 interface InjectEvent {
   context: string;
@@ -36,6 +37,9 @@ interface TerminalManagerProps {
   extraDropdownGroups?: TerminalDropdownGroup[];
   containerEnabled?: boolean;
   disableExternalEvents?: boolean;
+  // When set, this manager publishes its live tab list to the terminal session
+  // store under this key (the scope groupKey) for the terminal rail to consume.
+  publishKey?: string;
 }
 
 interface SessionListItem {
@@ -106,7 +110,7 @@ function sessionToTab(s: SessionListItem, fallbackGroupKey: string): TerminalTab
   };
 }
 
-export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled, disableExternalEvents = false }: TerminalManagerProps) {
+export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled, disableExternalEvents = false, publishKey }: TerminalManagerProps) {
   const tabCtx = useOptionalTab();
   const myTabId = tabCtx?.tabId ?? null;
 
@@ -136,6 +140,11 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   useEffect(() => {
     defaultScopeRef.current = defaultScope;
   }, [defaultScope]);
+
+  // Bumped whenever the tab set or active panel changes, to re-publish the
+  // snapshot for the rail (see the publish effect below).
+  const [tabsVersion, setTabsVersion] = useState(0);
+  const bumpTabs = useCallback(() => setTabsVersion((v) => v + 1), []);
 
   const openTerminal = useCallback((scope?: TerminalScope, position?: SplitPosition) => {
     const finalScope = scope ?? defaultScopeRef.current;
@@ -227,7 +236,8 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     tabsRef.current.set(sessionId, updated);
     const panel = dockviewApiRef.current?.getPanel(sessionId);
     panel?.api.updateParameters({ tab: updated } satisfies TerminalPanelParams);
-  }, []);
+    bumpTabs();
+  }, [bumpTabs]);
 
   const scheduleLayoutSave = useCallback(() => {
     if (restoringRef.current) return;
@@ -440,13 +450,18 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       api.onDidActivePanelChange(() => {
         broadcastActive();
         scheduleLayoutSave();
+        bumpTabs();
       });
       api.onDidRemovePanel((panel) => {
         cleanupTerminal(panel.id);
         broadcastActive();
         scheduleLayoutSave();
+        bumpTabs();
       });
-      api.onDidAddPanel(() => scheduleLayoutSave());
+      api.onDidAddPanel(() => {
+        scheduleLayoutSave();
+        bumpTabs();
+      });
       api.onDidMovePanel(() => scheduleLayoutSave());
       api.onDidAddGroup(() => scheduleLayoutSave());
       api.onDidRemoveGroup(() => scheduleLayoutSave());
@@ -532,8 +547,24 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
         })
         .catch((err: unknown) => console.error('Failed to restore terminal sessions:', err));
     },
-    [broadcastActive, cleanupTerminal, scheduleLayoutSave],
+    [broadcastActive, cleanupTerminal, scheduleLayoutSave, bumpTabs],
   );
+
+  // Publish the live tab snapshot for the terminal rail whenever tabs or the
+  // active panel change. Cleared on unmount so a scope switch doesn't leave a
+  // stale list (the rail subscribes by groupKey).
+  useEffect(() => {
+    if (!publishKey) return;
+    publishTerminalSessions(publishKey, {
+      tabs: [...tabsRef.current.values()],
+      activeId: dockviewApiRef.current?.activePanel?.id ?? null,
+    });
+  }, [publishKey, tabsVersion]);
+
+  useEffect(() => {
+    if (!publishKey) return;
+    return () => clearTerminalSessions(publishKey);
+  }, [publishKey]);
 
   const contextValue = useMemo<TerminalDockContextValue>(
     () => ({
