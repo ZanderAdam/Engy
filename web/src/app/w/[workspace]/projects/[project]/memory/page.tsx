@@ -3,13 +3,13 @@
 import { useVirtualParams } from '@/components/tabs/tab-context';
 import { MemoryWorkspaceView } from '@/components/memory/memory-workspace-view';
 
-export default function MemoryPage() {
-  const params = useVirtualParams<{ workspace: string }>();
+export default function ProjectMemoryPage() {
+  const params = useVirtualParams<{ workspace: string; project: string }>();
 
   return (
     <MemoryWorkspaceView
       workspaceSlug={params.workspace}
-      sidebarStorageKey="engy-workspace-memory-sidebar-width"
+      sidebarStorageKey="engy-project-memory-sidebar-width"
     />
   );
 }

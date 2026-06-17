@@ -3,6 +3,7 @@ import {
   RiFileTextLine,
   RiTaskLine,
   RiBrainLine,
+  RiBrain2Line,
   RiGitPullRequestLine,
   RiCodeLine,
   RiGitMergeLine,
@@ -24,6 +25,7 @@ export const sections: readonly SectionDef[] = [
   { label: 'Claude Plans', segment: 'claude-plans', icon: RiBrainLine },
   { label: 'Diffs', segment: 'diffs', icon: RiGitMergeLine },
   { label: 'Code', segment: 'code', icon: RiCodeLine },
+  { label: 'Memory', segment: 'memory', icon: RiBrain2Line },
   { label: 'PRs', segment: 'prs', icon: RiGitPullRequestLine, disabled: true, hint: 'Coming soon' },
 ] as const;
 
