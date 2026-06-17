@@ -89,7 +89,7 @@ function DialogBody({ blockId, initialCode, onChange, onClose }: DialogBodyProps
         />
       </div>
       <div className="flex-1 min-h-0 min-w-0 bg-muted/30">
-        <MermaidPreview code={source} blockId={blockId} className="h-full" />
+        <MermaidPreview code={source} blockId={blockId} className="h-full" interactive />
       </div>
     </div>
   );

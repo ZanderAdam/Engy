@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { renderDiagram, type MermaidTheme } from "./render";
+import { ZoomPan } from "./zoom-pan";
 import { cn } from "@/lib/utils";
 
 interface MermaidPreviewProps {
@@ -11,6 +12,12 @@ interface MermaidPreviewProps {
   className?: string;
   /** Debounce delay in ms before rendering after `code` changes. */
   debounceMs?: number;
+  /** Enables pan/zoom controls on the preview. Defaults to false. */
+  interactive?: boolean;
+  /** Show a fullscreen button in the control bar (only when interactive). */
+  showFullscreen?: boolean;
+  /** Called when the fullscreen button is clicked. */
+  onFullscreen?: () => void;
 }
 
 export function MermaidPreview({
@@ -18,6 +25,9 @@ export function MermaidPreview({
   blockId,
   className,
   debounceMs = 300,
+  interactive = false,
+  showFullscreen = false,
+  onFullscreen,
 }: MermaidPreviewProps) {
   const { resolvedTheme } = useTheme();
   const theme: MermaidTheme = resolvedTheme === 'dark' ? 'dark' : 'default';
@@ -52,31 +62,60 @@ export function MermaidPreview({
   }, [code, theme, blockId, debounceMs]);
 
   const hasContent = svg !== '';
-  const displaySvg = svg;
 
-  return (
+  const svgHost = hasContent ? (
     <div
-      className={cn(
-        'w-full min-h-24 overflow-auto p-4',
-        className,
-      )}
-      contentEditable={false}
-    >
-      {hasContent ? (
-        <div
-          className="mermaid-svg-host w-full [&>svg]:block [&>svg]:mx-auto [&>svg]:h-auto"
-          dangerouslySetInnerHTML={{ __html: displaySvg }}
-        />
-      ) : (
-        !error && (
-          <div className="text-xs text-muted-foreground text-center">Rendering...</div>
-        )
+      className="mermaid-svg-host w-full [&>svg]:block [&>svg]:mx-auto [&>svg]:h-auto"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  ) : null;
+
+  const loadingOrError = (
+    <>
+      {!hasContent && !error && (
+        <div className="text-xs text-muted-foreground text-center">Rendering...</div>
       )}
       {error && (
         <div className="mt-2 text-xs text-destructive font-mono whitespace-pre-wrap">
           {error}
         </div>
       )}
+    </>
+  );
+
+  if (interactive) {
+    return (
+      <div
+        className={cn('w-full min-h-24 relative', className)}
+        contentEditable={false}
+      >
+        {hasContent ? (
+          <ZoomPan
+            className="w-full h-full min-h-24"
+            showFullscreen={showFullscreen}
+            onFullscreen={onFullscreen}
+          >
+            {svgHost}
+          </ZoomPan>
+        ) : (
+          <div className="p-4">{loadingOrError}</div>
+        )}
+        {hasContent && error && (
+          <div className="px-4 pb-2 text-xs text-destructive font-mono whitespace-pre-wrap">
+            {error}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn('w-full min-h-24 overflow-auto p-4', className)}
+      contentEditable={false}
+    >
+      {svgHost}
+      {loadingOrError}
     </div>
   );
 }

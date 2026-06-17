@@ -7,6 +7,13 @@ import { RiPencilLine, RiFlowChart } from "@remixicon/react";
 import { MermaidPreview } from "./preview";
 import { MermaidEditDialog } from "./edit-dialog";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export const mermaidBlockSpec = createReactBlockSpec(
   {
@@ -23,6 +30,8 @@ export const mermaidBlockSpec = createReactBlockSpec(
       const code = (block as any).props.code as string;
       // eslint-disable-next-line react-hooks/rules-of-hooks
       const [open, setOpen] = useState(false);
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      const [fsOpen, setFsOpen] = useState(false);
 
       const handleChange = (next: string) => {
         editor.updateBlock(block, {
@@ -40,14 +49,14 @@ export const mermaidBlockSpec = createReactBlockSpec(
           contentEditable={false}
         >
           {hasCode ? (
-            <button
-              type="button"
-              className="block w-full text-left cursor-pointer"
-              onClick={() => isEditable && setOpen(true)}
-              aria-label="Edit mermaid diagram"
-            >
-              <MermaidPreview code={code} blockId={block.id} className="max-h-96" />
-            </button>
+            <MermaidPreview
+              code={code}
+              blockId={block.id}
+              className="max-h-96"
+              interactive
+              showFullscreen
+              onFullscreen={() => setFsOpen(true)}
+            />
           ) : (
             <button
               type="button"
@@ -58,12 +67,17 @@ export const mermaidBlockSpec = createReactBlockSpec(
               <span className="text-xs">Click to edit diagram</span>
             </button>
           )}
+
+          {/* Edit button — offset right when diagram is shown to avoid overlapping the zoom controls */}
           {isEditable && (
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="absolute top-2 right-2 h-6 px-2 text-xs opacity-0 group-hover/mermaid:opacity-100 transition-opacity bg-background/80 backdrop-blur-sm"
+              className={cn(
+                "absolute top-2 h-6 px-2 text-xs opacity-0 group-hover/mermaid:opacity-100 transition-opacity bg-background/80 backdrop-blur-sm",
+                hasCode ? "right-28" : "right-2",
+              )}
               onClick={(e) => {
                 e.stopPropagation();
                 setOpen(true);
@@ -73,6 +87,7 @@ export const mermaidBlockSpec = createReactBlockSpec(
               Edit
             </Button>
           )}
+
           {isEditable && (
             <MermaidEditDialog
               open={open}
@@ -82,6 +97,24 @@ export const mermaidBlockSpec = createReactBlockSpec(
               onChange={handleChange}
             />
           )}
+
+          {/* Fullscreen read-only viewer */}
+          <Dialog open={fsOpen} onOpenChange={setFsOpen}>
+            <DialogContent className="max-w-[95vw] w-[95vw] h-[95vh] p-0 sm:max-w-[95vw] flex flex-col gap-0 ring-1">
+              <DialogTitle className="sr-only">Mermaid diagram fullscreen</DialogTitle>
+              <DialogDescription className="sr-only">
+                Fullscreen read-only view of the mermaid diagram. Use scroll and drag to pan and zoom.
+              </DialogDescription>
+              {fsOpen && (
+                <MermaidPreview
+                  code={code}
+                  blockId={`${block.id}-fs`}
+                  className="h-full"
+                  interactive
+                />
+              )}
+            </DialogContent>
+          </Dialog>
         </div>
       );
     },
