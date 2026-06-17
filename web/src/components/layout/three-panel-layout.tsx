@@ -44,6 +44,15 @@ interface ThreePanelLayoutProps {
   leftContent?: React.ReactNode;
   centerContent: React.ReactNode;
   rightContent?: React.ReactNode;
+  // Rendered immediately left of the right panel (desktop), receiving the
+  // panel's collapse state so it can own the collapse control. Because it sits
+  // before the collapsible panel, it lands at the screen edge when that panel
+  // collapses to zero width — no repositioning logic needed. When provided, the
+  // legacy collapse-button column is replaced by a bare resize handle + the rail.
+  rightRail?: (controls: {
+    collapsed: boolean;
+    setCollapsed: (collapsed: boolean) => void;
+  }) => React.ReactNode;
   leftCollapsed?: boolean;
   onLeftCollapsedChange?: (collapsed: boolean) => void;
   rightCollapsed?: boolean;
@@ -101,6 +110,7 @@ export function ThreePanelLayout({
   leftContent,
   centerContent,
   rightContent,
+  rightRail,
   leftCollapsed: controlledLeftCollapsed,
   onLeftCollapsedChange,
   rightCollapsed: controlledRightCollapsed,
@@ -281,38 +291,59 @@ export function ThreePanelLayout({
       {/* Right panel — desktop: fixed width, mobile: full width */}
       {rightPanel && !isMobile && (
         <>
-          {!isRightCollapsed && (
-            <div className="flex flex-col items-center flex-shrink-0">
-              <ShortcutButton
-                onClick={() => setRightCollapsed(true)}
-                side="left"
-                label="Collapse panel"
-                keys={rightKeys}
-                icon={RiArrowRightSLine}
-              />
+          {rightRail ? (
+            // Rail owns the collapse control; only the bare resize handle lives
+            // here, as the leftmost edge (no handle when collapsed — nothing to
+            // resize).
+            !isRightCollapsed && (
               <div
                 className={cn(
-                  'flex-1 w-1 bg-border hover:bg-blue-500 cursor-col-resize transition-colors',
+                  'w-1 flex-shrink-0 bg-border hover:bg-blue-500 cursor-col-resize transition-colors',
                   rightPanel.isResizing && 'bg-blue-500',
                 )}
                 onMouseDown={rightPanel.handleMouseDown}
                 onDoubleClick={() => setRightCollapsed(true)}
                 title="Drag to resize panel"
               />
-            </div>
+            )
+          ) : (
+            <>
+              {!isRightCollapsed && (
+                <div className="flex flex-col items-center flex-shrink-0">
+                  <ShortcutButton
+                    onClick={() => setRightCollapsed(true)}
+                    side="left"
+                    label="Collapse panel"
+                    keys={rightKeys}
+                    icon={RiArrowRightSLine}
+                  />
+                  <div
+                    className={cn(
+                      'flex-1 w-1 bg-border hover:bg-blue-500 cursor-col-resize transition-colors',
+                      rightPanel.isResizing && 'bg-blue-500',
+                    )}
+                    onMouseDown={rightPanel.handleMouseDown}
+                    onDoubleClick={() => setRightCollapsed(true)}
+                    title="Drag to resize panel"
+                  />
+                </div>
+              )}
+
+              {isRightCollapsed && (
+                <div className="flex items-start pt-2">
+                  <ShortcutButton
+                    onClick={() => setRightCollapsed(false)}
+                    side="left"
+                    label="Show panel"
+                    keys={rightKeys}
+                    icon={RiArrowLeftSLine}
+                  />
+                </div>
+              )}
+            </>
           )}
 
-          {isRightCollapsed && (
-            <div className="flex items-start pt-2">
-              <ShortcutButton
-                onClick={() => setRightCollapsed(false)}
-                side="left"
-                label="Show panel"
-                keys={rightKeys}
-                icon={RiArrowLeftSLine}
-              />
-            </div>
-          )}
+          {rightRail?.({ collapsed: isRightCollapsed, setCollapsed: setRightCollapsed })}
 
           <div
             className={cn(

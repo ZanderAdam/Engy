@@ -297,40 +297,44 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             </div>
           </nav>
         )}
-        <div className="flex flex-1 min-h-0">
-          <ThreePanelLayout
-            className="flex-1 min-h-0"
-            right={TERMINAL_CONFIG}
-            rightCollapsed={terminalCollapsed}
-            onRightCollapsedChange={setTerminalCollapsed}
-            rightShortcut={TERMINAL_SHORTCUT}
-            isMobile={isMobile}
-            centerContent={
-              <BottomTerminalSplit
-                isMobile={isMobile}
-                extraDropdownGroups={allDropdownGroups}
-                containerEnabled={isContainerEnabled}
+        <ThreePanelLayout
+          className="flex-1 min-h-0"
+          right={TERMINAL_CONFIG}
+          rightCollapsed={terminalCollapsed}
+          onRightCollapsedChange={setTerminalCollapsed}
+          rightShortcut={TERMINAL_SHORTCUT}
+          isMobile={isMobile}
+          rightRail={
+            !isMobile
+              ? ({ collapsed, setCollapsed }) => (
+                  <TerminalRail collapsed={collapsed} setCollapsed={setCollapsed} />
+                )
+              : undefined
+          }
+          centerContent={
+            <BottomTerminalSplit
+              isMobile={isMobile}
+              extraDropdownGroups={allDropdownGroups}
+              containerEnabled={isContainerEnabled}
+            >
+              <div
+                className={cn(
+                  'flex min-h-0 flex-1 flex-col overflow-hidden',
+                  !isDocsRoute && !isMemoryRoute && (isMobile ? 'px-2' : 'px-6'),
+                )}
               >
-                <div
-                  className={cn(
-                    'flex min-h-0 flex-1 flex-col overflow-hidden',
-                    !isDocsRoute && !isMemoryRoute && (isMobile ? 'px-2' : 'px-6'),
-                  )}
-                >
-                  {children}
-                </div>
-              </BottomTerminalSplit>
-            }
-            rightContent={
-              <TerminalPanel
-                onCollapse={handleCollapse}
-                extraDropdownGroups={allDropdownGroups}
-                containerEnabled={isContainerEnabled}
-              />
-            }
-          />
-          {!isMobile && <TerminalRail />}
-        </div>
+                {children}
+              </div>
+            </BottomTerminalSplit>
+          }
+          rightContent={
+            <TerminalPanel
+              onCollapse={handleCollapse}
+              extraDropdownGroups={allDropdownGroups}
+              containerEnabled={isContainerEnabled}
+            />
+          }
+        />
       </div>
     </>
   );

@@ -69,6 +69,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
   const scrollRafRef = useRef(0);
   const lastSentColsRef = useRef(0);
   const lastSentRowsRef = useRef(0);
+  const activityTrackerRef = useRef<ReturnType<typeof createActivityTracker> | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const sessionId = tab.sessionId;
   const isMobile = useIsMobile();
@@ -110,6 +111,10 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     lastSentColsRef.current = term.cols;
     lastSentRowsRef.current = term.rows;
     socket.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
+    // A resize makes the program redraw (e.g. while the dock collapse/expand
+    // animation steps through widths). That redraw is not agent activity, so
+    // suppress the tracker briefly to avoid flipping a done/idle dot to active.
+    activityTrackerRef.current?.suppress();
   }, [sessionId]);
 
   useEffect(() => {
@@ -150,6 +155,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       suppressMs: TITLE_SUPPRESS_MS,
       onActivity: (event: ActivityEvent) => onActivity?.(sessionId, event),
     });
+    activityTrackerRef.current = activityTracker;
 
     const handleTitleChange = (title: string) => {
       if (title === lastTitle) return;
@@ -338,6 +344,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
       scrollRafRef.current = 0;
       activityTracker.dispose();
+      activityTrackerRef.current = null;
       scrollSub.dispose();
       container.removeEventListener('wheel', handleWheel);
       container.removeEventListener('focusin', handleFocusIn);

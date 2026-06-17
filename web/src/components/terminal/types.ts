@@ -28,6 +28,21 @@ export function getTerminalIconStyle(tab: TerminalTab): string | undefined {
   return undefined;
 }
 
+// Filled-box variant for the rail dots, where colouring the whole box (not just
+// the icon stroke) makes the activity state legible at small size.
+const TERMINAL_ACTIVITY_BOX_STYLES: Record<TerminalActivityState, string> = {
+  idle: 'bg-muted text-muted-foreground',
+  active: 'bg-blue-500 text-white animate-pulse',
+  waiting: 'bg-amber-400 text-black animate-pulse',
+  done: 'bg-emerald-500 text-white',
+};
+
+export function getTerminalRailBoxStyle(tab: TerminalTab): string {
+  if (tab.status === 'connecting') return 'bg-muted text-muted-foreground animate-pulse';
+  if (tab.status === 'exited') return 'bg-muted/40 text-muted-foreground';
+  return TERMINAL_ACTIVITY_BOX_STYLES[tab.activityState ?? 'idle'];
+}
+
 export interface TerminalScope {
   scopeType: TerminalScopeType;
   scopeLabel: string;
