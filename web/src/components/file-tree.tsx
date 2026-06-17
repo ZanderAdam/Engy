@@ -61,6 +61,7 @@ import {
   parentPrefix,
   applyDefaultExtension,
 } from '@/components/file-tree-helpers';
+import { copyToClipboard } from '@/lib/clipboard';
 
 interface FileTreeProps {
   files: FileEntry[];
@@ -204,9 +205,11 @@ function ItemActions({
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => {
-                  navigator.clipboard
-                    .writeText(itemPath)
-                    .then(() => toast.success('Relative path copied'));
+                  copyToClipboard(itemPath).then((ok) => {
+                    toast[ok ? 'success' : 'error'](
+                      ok ? 'Relative path copied' : 'Copy failed — clipboard unavailable',
+                    );
+                  });
                 }}
               >
                 <RiFileCopyLine className="size-4" />
@@ -215,9 +218,11 @@ function ItemActions({
               {rootAbsPath && (
                 <DropdownMenuItem
                   onClick={() => {
-                    navigator.clipboard
-                      .writeText(`${rootAbsPath}/${itemPath}`)
-                      .then(() => toast.success('Full path copied'));
+                    copyToClipboard(`${rootAbsPath}/${itemPath}`).then((ok) => {
+                      toast[ok ? 'success' : 'error'](
+                        ok ? 'Full path copied' : 'Copy failed — clipboard unavailable',
+                      );
+                    });
                   }}
                 >
                   <RiFileCopyLine className="size-4" />

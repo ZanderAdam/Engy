@@ -8,6 +8,7 @@ import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { useExecutionStatus } from '@/hooks/use-execution-status';
 import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
+import { copyToClipboard } from '@/lib/clipboard';
 import { generateDiffFeedback } from './feedback-markdown';
 import type { DiffComment } from './use-diff-comments';
 
@@ -62,7 +63,8 @@ export function ReviewActions({ repoDir, diffComments, taskId }: ReviewActionsPr
   const handleCopyFeedback = useCallback(async () => {
     const feedback = buildFeedback();
     if (!feedback) return;
-    await navigator.clipboard.writeText(feedback);
+    const ok = await copyToClipboard(feedback);
+    if (!ok) toast.error('Copy failed — clipboard unavailable');
   }, [buildFeedback]);
 
   const handleOpenInVSCode = useCallback(() => {

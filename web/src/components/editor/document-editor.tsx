@@ -38,6 +38,7 @@ import { reconcileAnchors } from "./comments/reconcile";
 import { formatCommentsForExport } from "./format-comments";
 import { SendToTerminalButton } from "../terminal/send-to-terminal-button";
 import { trpc } from "@/lib/trpc";
+import { copyToClipboard } from "@/lib/clipboard";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { stripFrontmatter } from "./frontmatter";
 import { normalizeMarkdown } from "./remark-normalize";
@@ -301,7 +302,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     const formatted = getFormattedComments();
     if (!formatted) return;
 
-    navigator.clipboard.writeText(formatted).then(() => {
+    copyToClipboard(formatted).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -315,7 +317,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   }, [editor]);
 
   const handleCopyMarkdown = useCallback(() => {
-    navigator.clipboard.writeText(getCurrentMarkdown()).then(() => {
+    copyToClipboard(getCurrentMarkdown()).then((ok) => {
+      if (!ok) return;
       setCopiedMarkdown(true);
       setTimeout(() => setCopiedMarkdown(false), 2000);
     });

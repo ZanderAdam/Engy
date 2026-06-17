@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useVirtualParams } from '@/components/tabs/tab-context';
 import { RiFileCopyLine, RiCheckLine } from '@remixicon/react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { copyToClipboard } from '@/lib/clipboard';
 
 interface CopyTaskSlugProps {
   taskId: number;
@@ -16,10 +17,11 @@ export function CopyTaskSlug({ taskId }: CopyTaskSlugProps) {
   const fullSlug = `${workspaceSlug}-T${taskId}`;
 
   function copySlug() {
-    navigator.clipboard.writeText(fullSlug).then(() => {
+    copyToClipboard(fullSlug).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    }, () => {});
+    });
   }
 
   function handleClick(e: React.SyntheticEvent) {
