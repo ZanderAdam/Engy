@@ -18,6 +18,7 @@ import ProjectDocsPage from '@/app/w/[workspace]/projects/[project]/docs/page';
 import ProjectDiffsPage from '@/app/w/[workspace]/projects/[project]/diffs/page';
 import ProjectCodePage from '@/app/w/[workspace]/projects/[project]/code/page';
 import ProjectClaudePlansPage from '@/app/w/[workspace]/projects/[project]/claude-plans/page';
+import ProjectMemoryPage from '@/app/w/[workspace]/projects/[project]/memory/page';
 
 function NotFound({ path }: { path: string }) {
   return (
@@ -44,6 +45,8 @@ function dispatchProject(section: string | undefined): React.ReactNode {
       return <ProjectCodePage />;
     case 'claude-plans':
       return <ProjectClaudePlansPage />;
+    case 'memory':
+      return <ProjectMemoryPage />;
     default:
       return <NotFound path={`project/${section}`} />;
   }
