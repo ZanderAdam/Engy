@@ -1,0 +1,1 @@
+ALTER TABLE `task_groups` ADD `num_in_milestone` integer DEFAULT 0 NOT NULL;

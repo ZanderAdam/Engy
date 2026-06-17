@@ -556,6 +556,78 @@ describe('MCP Server', () => {
 
         expect(data).toEqual({ id: expect.any(Number) });
       });
+
+      it('should assign sequential numInMilestone within a milestone', async () => {
+        const db = getDb();
+        const proj = db.select().from(projects).get();
+
+        const mcp = getMcpServer();
+        const call = callTool(mcp, 'createTaskGroup');
+        const { data: d1 } = await call({ projectId: proj!.id, milestoneRef, name: 'TG1' });
+        const { data: d2 } = await call({ projectId: proj!.id, milestoneRef, name: 'TG2' });
+        const { data: d3 } = await call({ projectId: proj!.id, milestoneRef, name: 'TG3' });
+
+        const tg1 = db.select().from(taskGroups).where(eq(taskGroups.id, d1.id)).get();
+        const tg2 = db.select().from(taskGroups).where(eq(taskGroups.id, d2.id)).get();
+        const tg3 = db.select().from(taskGroups).where(eq(taskGroups.id, d3.id)).get();
+
+        expect(tg1!.numInMilestone).toBe(1);
+        expect(tg2!.numInMilestone).toBe(2);
+        expect(tg3!.numInMilestone).toBe(3);
+      });
+
+      it('should restart at 1 for a different milestone', async () => {
+        const db = getDb();
+        const proj = db.select().from(projects).get();
+
+        const mcp = getMcpServer();
+        const call = callTool(mcp, 'createTaskGroup');
+        await call({ projectId: proj!.id, milestoneRef: 'm1', name: 'M1-TG1' });
+        await call({ projectId: proj!.id, milestoneRef: 'm1', name: 'M1-TG2' });
+        const { data: d } = await call({ projectId: proj!.id, milestoneRef: 'm2', name: 'M2-TG1' });
+
+        const tg = db.select().from(taskGroups).where(eq(taskGroups.id, d.id)).get();
+        expect(tg!.numInMilestone).toBe(1);
+      });
+
+      it('should number independently per project', async () => {
+        const db = getDb();
+        const ws = db.select().from(workspaces).get();
+        const projB = db
+          .insert(projects)
+          .values({ workspaceId: ws!.id, name: 'P2', slug: 'p2' })
+          .returning()
+          .get();
+        const projA = db.select().from(projects).where(eq(projects.slug, 'p1')).get();
+
+        const mcp = getMcpServer();
+        const call = callTool(mcp, 'createTaskGroup');
+        await call({ projectId: projA!.id, milestoneRef, name: 'A-TG1' });
+        await call({ projectId: projA!.id, milestoneRef, name: 'A-TG2' });
+        const { data: d } = await call({ projectId: projB.id, milestoneRef, name: 'B-TG1' });
+
+        const tg = db.select().from(taskGroups).where(eq(taskGroups.id, d.id)).get();
+        expect(tg!.numInMilestone).toBe(1);
+      });
+
+      it('delete should not renumber survivors', async () => {
+        const db = getDb();
+        const proj = db.select().from(projects).get();
+
+        const mcp = getMcpServer();
+        const create = callTool(mcp, 'createTaskGroup');
+        await create({ projectId: proj!.id, milestoneRef, name: 'TG1' });
+        const { data: d2 } = await create({ projectId: proj!.id, milestoneRef, name: 'TG2' });
+        await create({ projectId: proj!.id, milestoneRef, name: 'TG3' });
+
+        const del = callTool(mcp, 'deleteTaskGroup');
+        await del({ id: d2.id });
+
+        const list = callTool(mcp, 'listTaskGroups');
+        const { data } = await list({ projectId: proj!.id, milestoneRef });
+        const nums = (data as Array<{ numInMilestone: number }>).map((g) => g.numInMilestone).sort();
+        expect(nums).toEqual([1, 3]);
+      });
     });
 
     describe('listTaskGroups', () => {

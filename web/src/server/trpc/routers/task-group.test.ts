@@ -109,6 +109,72 @@ describe('task-group router', () => {
     });
   });
 
+  describe('create numInMilestone', () => {
+    it('should assign 1 to the first group in a milestone', async () => {
+      const ws = await caller.workspace.create({ name: 'Num WS' });
+      const proj = await caller.project.create({ workspaceSlug: ws.slug, name: 'Num Proj' });
+      const tg = await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'TG1' });
+      expect(tg.numInMilestone).toBe(1);
+    });
+
+    it('should assign sequential nums within a milestone', async () => {
+      const ws = await caller.workspace.create({ name: 'Seq WS' });
+      const proj = await caller.project.create({ workspaceSlug: ws.slug, name: 'Seq Proj' });
+      const tg1 = await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'TG1' });
+      const tg2 = await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'TG2' });
+      const tg3 = await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'TG3' });
+      expect(tg1.numInMilestone).toBe(1);
+      expect(tg2.numInMilestone).toBe(2);
+      expect(tg3.numInMilestone).toBe(3);
+    });
+
+    it('should restart at 1 for a different milestone in the same project', async () => {
+      const ws = await caller.workspace.create({ name: 'Restart WS' });
+      const proj = await caller.project.create({ workspaceSlug: ws.slug, name: 'Restart Proj' });
+      await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'M1-TG1' });
+      await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'M1-TG2' });
+      const m2tg1 = await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm2', name: 'M2-TG1' });
+      expect(m2tg1.numInMilestone).toBe(1);
+    });
+
+    it('should number independently per project', async () => {
+      const ws = await caller.workspace.create({ name: 'Indep WS 2' });
+      const projA = await caller.project.create({ workspaceSlug: ws.slug, name: 'Proj A' });
+      const projB = await caller.project.create({ workspaceSlug: ws.slug, name: 'Proj B' });
+
+      await caller.taskGroup.create({ projectId: projA.id, milestoneRef: 'm1', name: 'A-TG1' });
+      await caller.taskGroup.create({ projectId: projA.id, milestoneRef: 'm1', name: 'A-TG2' });
+      const bTg1 = await caller.taskGroup.create({ projectId: projB.id, milestoneRef: 'm1', name: 'B-TG1' });
+      expect(bTg1.numInMilestone).toBe(1);
+    }, 15000);
+
+    it('list should return numInMilestone field', async () => {
+      const ws = await caller.workspace.create({ name: 'List Num WS' });
+      const proj = await caller.project.create({ workspaceSlug: ws.slug, name: 'List Num Proj' });
+      await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'TG1' });
+      await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'TG2' });
+      const groups = await caller.taskGroup.list({ projectId: proj.id, milestoneRef: 'm1' });
+      expect(groups[0]).toHaveProperty('numInMilestone');
+      const nums = groups.map((g) => g.numInMilestone).sort();
+      expect(nums).toEqual([1, 2]);
+    });
+
+    it('delete should not renumber survivors — gaps are allowed', async () => {
+      const ws = await caller.workspace.create({ name: 'Gap WS' });
+      const proj = await caller.project.create({ workspaceSlug: ws.slug, name: 'Gap Proj' });
+      await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'TG1' });
+      const tg2 = await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'TG2' });
+      await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'TG3' });
+
+      await caller.taskGroup.delete({ id: tg2.id });
+
+      const survivors = await caller.taskGroup.list({ projectId: proj.id, milestoneRef: 'm1' });
+      const nums = survivors.map((g) => g.numInMilestone).sort();
+      // TG2 deleted, survivors keep their original nums (1 and 3)
+      expect(nums).toEqual([1, 3]);
+    });
+  });
+
   describe('update', () => {
     it('should update task group name', async () => {
       const group = await caller.taskGroup.create({ milestoneRef, name: 'Original Name' });

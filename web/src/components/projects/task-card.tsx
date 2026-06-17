@@ -76,6 +76,29 @@ const typeIcons: Record<string, { icon: React.ComponentType<{ className?: string
   ai: { icon: RiRobotLine, label: 'AI' },
 };
 
+function TaskGroupBadge({ task }: { task: Task }) {
+  const { data: groups } = trpc.taskGroup.list.useQuery(
+    {
+      projectId: task.projectId ?? undefined,
+      milestoneRef: task.milestoneRef ?? undefined,
+    },
+    { enabled: task.taskGroupId != null },
+  );
+  const group = groups?.find((g) => g.id === task.taskGroupId);
+  if (!group) return null;
+  const num = group.numInMilestone;
+  return (
+    <span
+      className={cn(
+        'rounded px-1 py-0.5 text-[10px] font-medium leading-none',
+        colorByIndex(num, groupColors),
+      )}
+    >
+      TG{num}
+    </span>
+  );
+}
+
 export function TaskCard({
   task,
   projectSlug,
@@ -226,11 +249,7 @@ export function TaskCard({
                 </span>
               );
             })()}
-            {task.taskGroupId && (
-              <span className={cn('rounded px-1 py-0.5 text-[10px] font-medium leading-none', colorByIndex(task.taskGroupId, groupColors))}>
-                TG{task.taskGroupId}
-              </span>
-            )}
+            {task.taskGroupId && <TaskGroupBadge task={task} />}
             <TaskTerminalButton sessions={terminalSessions} />
             {execStatus === 'plan_review' ? (
               <button

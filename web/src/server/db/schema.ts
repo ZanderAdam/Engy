@@ -93,6 +93,7 @@ export const taskGroups = sqliteTable('task_groups', {
   })
     .notNull()
     .default('planned'),
+  numInMilestone: integer('num_in_milestone').notNull().default(0),
   repos: text('repos', { mode: 'json' }).$type<string[]>(),
   createdAt: text('created_at')
     .notNull()

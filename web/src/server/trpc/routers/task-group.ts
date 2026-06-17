@@ -4,6 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { taskGroups, projects } from '../../db/schema';
+import { nextNumInMilestone } from '../../tasks/task-group-numbering';
 
 export const taskGroupRouter = router({
   create: publicProcedure
@@ -17,16 +18,20 @@ export const taskGroupRouter = router({
     )
     .mutation(({ input }) => {
       const db = getDb();
-      return db
-        .insert(taskGroups)
-        .values({
-          projectId: input.projectId,
-          milestoneRef: input.milestoneRef,
-          name: input.name,
-          repos: input.repos,
-        })
-        .returning()
-        .get();
+      return db.transaction((tx) => {
+        const numInMilestone = nextNumInMilestone(tx, input.projectId, input.milestoneRef);
+        return tx
+          .insert(taskGroups)
+          .values({
+            projectId: input.projectId,
+            milestoneRef: input.milestoneRef,
+            name: input.name,
+            repos: input.repos,
+            numInMilestone,
+          })
+          .returning()
+          .get();
+      });
     }),
 
   list: publicProcedure

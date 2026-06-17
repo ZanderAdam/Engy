@@ -19,6 +19,7 @@ import {
   frontmatter,
 } from '../db/schema';
 import { validateDependencies, attachBlockedBy } from '../tasks/validation';
+import { nextNumInMilestone } from '../tasks/task-group-numbering';
 import { getWorkspaceDir, resolveProjectDir, writeWorkspaceYaml } from '../engy-dir/init';
 import { readTaskPlan } from '../plan/service';
 import { broadcastTaskChange, broadcastQuestionChange, broadcastMemoryChange } from '../ws/broadcast';
@@ -831,11 +832,14 @@ function registerTaskGroupTools(mcp: McpServer): void {
     createTaskGroupInput,
     async ({ projectId, milestoneRef, name, repos }) => {
       const db = getDb();
-      const group = db
-        .insert(taskGroups)
-        .values({ projectId, milestoneRef, name, repos })
-        .returning()
-        .get();
+      const group = db.transaction((tx) => {
+        const numInMilestone = nextNumInMilestone(tx, projectId, milestoneRef);
+        return tx
+          .insert(taskGroups)
+          .values({ projectId, milestoneRef, name, repos, numInMilestone })
+          .returning()
+          .get();
+      });
       return mcpResult({ id: group.id });
     },
   );

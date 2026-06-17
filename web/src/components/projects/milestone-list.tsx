@@ -40,7 +40,7 @@ type Milestone = {
   filename: string;
 };
 
-type TaskGroup = { id: number; milestoneRef: string | null; name: string; status: string };
+type TaskGroup = { id: number; milestoneRef: string | null; name: string; status: string; numInMilestone: number };
 
 export function sortMilestones(milestones: Milestone[]): Milestone[] {
   return [...milestones].sort((a, b) => {
@@ -63,7 +63,7 @@ export function sortTaskGroups(
     const aAllDone = isAllDone(tasksByGroup.get(a.id) ?? []) ? 1 : 0;
     const bAllDone = isAllDone(tasksByGroup.get(b.id) ?? []) ? 1 : 0;
     if (aAllDone !== bAllDone) return aAllDone - bAllDone;
-    return a.id - b.id;
+    return a.numInMilestone - b.numInMilestone;
   });
 }
 
@@ -347,7 +347,11 @@ function TaskGroupRow({
         />
       )}
       {total > 0 && done < total && (
-        <TaskGroupQuickAction taskGroupId={taskGroup.id} milestoneRef={milestoneRef} />
+        <TaskGroupQuickAction
+          taskGroupId={taskGroup.id}
+          milestoneRef={milestoneRef}
+          numInMilestone={taskGroup.numInMilestone}
+        />
       )}
       <div className="flex flex-1 flex-col gap-0.5">
         <span className="text-xs font-medium">{taskGroup.name}</span>
@@ -415,9 +419,11 @@ function TaskGroupRow({
 function TaskGroupQuickAction({
   taskGroupId,
   milestoneRef,
+  numInMilestone,
 }: {
   taskGroupId: number;
   milestoneRef: string;
+  numInMilestone: number;
 }) {
   const { disabled, launch, projectSlug } = useQuickAction();
   const {
@@ -428,8 +434,8 @@ function TaskGroupQuickAction({
 
   function handleImplementTaskGroup() {
     launch({
-      prompt: `Use /engy:implement-milestone for ${milestoneRef} TG${taskGroupId} in project ${projectSlug}`,
-      scopeLabel: `impl-tg: ${milestoneRef} TG${taskGroupId}`,
+      prompt: `Use /engy:implement-milestone for ${milestoneRef} TG${numInMilestone} in project ${projectSlug}`,
+      scopeLabel: `impl-tg: ${milestoneRef} TG${numInMilestone}`,
     });
   }
 

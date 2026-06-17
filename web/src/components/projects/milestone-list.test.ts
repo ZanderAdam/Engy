@@ -57,6 +57,7 @@ const tg = (id: number) => ({
   milestoneRef: 'm1',
   name: `Phase ${id}`,
   status: 'active' as const,
+  numInMilestone: id,
 });
 
 const task = (id: number, taskGroupId: number, status: TaskStatus): Task => ({
