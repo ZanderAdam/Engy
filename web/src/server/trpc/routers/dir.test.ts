@@ -108,8 +108,23 @@ describe('dir router', () => {
       ).rejects.toThrow('Absolute paths not allowed');
     });
 
-    it('should reject non-md files', async () => {
-      await expect(caller.dir.read({ dirPath: testDir, filePath: 'notes.txt' })).rejects.toThrow();
+    it('should read a .txt file', async () => {
+      const result = await caller.dir.read({ dirPath: testDir, filePath: 'empty-sub/not-markdown.txt' });
+      expect(result.content).toBe('text file');
+    });
+
+    it('should reject binary files', async () => {
+      await expect(
+        caller.dir.read({ dirPath: testDir, filePath: 'diagram.png' }),
+      ).rejects.toThrow('not a readable text file');
+    });
+
+    it('should reject files over the size cap', async () => {
+      const bigContent = 'x'.repeat(2_000_001);
+      fs.writeFileSync(path.join(testDir, 'big.txt'), bigContent);
+      await expect(
+        caller.dir.read({ dirPath: testDir, filePath: 'big.txt' }),
+      ).rejects.toThrow('too large to preview');
     });
   });
 
@@ -139,12 +154,12 @@ describe('dir router', () => {
   });
 
   describe('listFiles', () => {
-    it('should include image files alongside markdown', async () => {
+    it('should include all files (md, images, text, binary)', async () => {
       const result = await caller.dir.listFiles({ dirPath: testDir });
       const paths = result.files.map((f) => f.path);
       expect(paths).toContain('diagram.png');
       expect(paths).toContain('readme.md');
-      expect(paths).not.toContain('empty-sub/not-markdown.txt');
+      expect(paths).toContain('empty-sub/not-markdown.txt');
     });
   });
 
@@ -200,10 +215,15 @@ describe('dir router', () => {
       ).rejects.toThrow('Absolute paths not allowed');
     });
 
-    it('should reject non-md files', async () => {
+    it('should write a .txt file', async () => {
+      await caller.dir.write({ dirPath: testDir, filePath: 'notes.txt', content: 'plain text' });
+      expect(fs.readFileSync(path.join(testDir, 'notes.txt'), 'utf-8')).toBe('plain text');
+    });
+
+    it('should reject binary file extensions', async () => {
       await expect(
-        caller.dir.write({ dirPath: testDir, filePath: 'evil.sh', content: 'bad' }),
-      ).rejects.toThrow();
+        caller.dir.write({ dirPath: testDir, filePath: 'archive.zip', content: 'bad' }),
+      ).rejects.toThrow('not a writable text file');
     });
 
     it('should round-trip read/write correctly', async () => {
@@ -253,10 +273,13 @@ describe('dir router', () => {
       ).rejects.toThrow('not found');
     });
 
-    it('should reject non-md files', async () => {
-      await expect(
-        caller.dir.deleteFile({ dirPath: testDir, filePath: 'evil.sh' }),
-      ).rejects.toThrow('Only .md files');
+    it('should delete a .txt file', async () => {
+      const result = await caller.dir.deleteFile({
+        dirPath: testDir,
+        filePath: 'empty-sub/not-markdown.txt',
+      });
+      expect(result.success).toBe(true);
+      expect(fs.existsSync(path.join(testDir, 'empty-sub', 'not-markdown.txt'))).toBe(false);
     });
 
     it('should reject path traversal', async () => {
@@ -333,10 +356,25 @@ describe('dir router', () => {
       ).rejects.toThrow('not found');
     });
 
-    it('should reject non-md files', async () => {
-      await expect(
-        caller.dir.renameFile({ dirPath: testDir, oldPath: 'readme.txt', newPath: 'new.txt' }),
-      ).rejects.toThrow('Only .md files');
+    it('should rename a .txt file to .txt', async () => {
+      const result = await caller.dir.renameFile({
+        dirPath: testDir,
+        oldPath: 'empty-sub/not-markdown.txt',
+        newPath: 'empty-sub/renamed.txt',
+      });
+      expect(result.success).toBe(true);
+      expect(fs.existsSync(path.join(testDir, 'empty-sub', 'not-markdown.txt'))).toBe(false);
+      expect(fs.existsSync(path.join(testDir, 'empty-sub', 'renamed.txt'))).toBe(true);
+    });
+
+    it('should rename a .txt file to extensionless', async () => {
+      const result = await caller.dir.renameFile({
+        dirPath: testDir,
+        oldPath: 'empty-sub/not-markdown.txt',
+        newPath: 'empty-sub/LICENSE',
+      });
+      expect(result.success).toBe(true);
+      expect(fs.existsSync(path.join(testDir, 'empty-sub', 'LICENSE'))).toBe(true);
     });
 
     it('should reject path traversal on source', async () => {

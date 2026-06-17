@@ -1,7 +1,7 @@
 import type React from 'react';
 import type { TreeDataItem } from '@/components/tree-view';
-import { RiFileTextLine, RiFolderLine, RiImageLine } from '@remixicon/react';
-import { isImagePath } from '@/lib/file-types';
+import { RiFile2Line, RiFileTextLine, RiFolderLine, RiImageLine } from '@remixicon/react';
+import { fileKind } from '@/lib/file-types';
 
 export type FileEntry = { path: string; mtime: number };
 export type SortMode = 'modified' | 'name';
@@ -61,12 +61,16 @@ export function trieToTreeItems(
     return a.name.localeCompare(b.name) * sortMul;
   });
 
-  const fileItems: TreeDataItem[] = sortedFiles.map((f) => ({
-    id: f.path,
-    name: f.name,
-    icon: isImagePath(f.name) ? RiImageLine : RiFileTextLine,
-    actions: fileActions?.(f.path),
-  }));
+  const fileItems: TreeDataItem[] = sortedFiles.map((f) => {
+    const kind = fileKind(f.name);
+    const icon = kind === 'image' ? RiImageLine : kind === 'binary' ? RiFile2Line : RiFileTextLine;
+    return {
+      id: f.path,
+      name: f.name,
+      icon,
+      actions: fileActions?.(f.path),
+    };
+  });
 
   const dirEntries = [...node.children.entries()];
   if (sortMode === 'modified') {

@@ -6,15 +6,11 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { dispatchFileSearch } from '../../ws/server';
 import { updateAndEmbed } from '../../search/indexer';
-import { isImagePath } from '@/lib/file-types';
+import { isImagePath, isTextPath } from '@/lib/file-types';
 import { readImageAsDataUri } from '../../files/image';
 
-/** Files surfaced in the document tree: editable markdown plus previewable images. */
-function isViewableFile(name: string): boolean {
-  return name.endsWith('.md') || isImagePath(name);
-}
-
 const MAX_DEPTH = 5;
+const MAX_TEXT_BYTES = 2_000_000;
 
 const INDEXED_COLLECTIONS = ['system', 'docs', 'projects', 'memory'] as const;
 type IndexedCollection = (typeof INDEXED_COLLECTIONS)[number];
@@ -93,7 +89,7 @@ function collectMarkdownFilesAndDirs(
   for (const entry of entries) {
     if (entry.name.startsWith('.')) continue;
     const fullPath = path.join(currentDir, entry.name);
-    if (entry.isFile() && isViewableFile(entry.name)) {
+    if (entry.isFile()) {
       try {
         const stat = fs.statSync(fullPath);
         files.push({ path: path.relative(rootDir, fullPath), mtime: stat.mtimeMs });
@@ -167,8 +163,8 @@ export const dirRouter = router({
   read: publicProcedure
     .input(z.object({ dirPath: z.string().min(1), filePath: z.string().min(1) }))
     .query(({ input }) => {
-      if (!input.filePath.endsWith('.md')) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: `Only .md files are supported` });
+      if (!isTextPath(input.filePath)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `File is not a readable text file` });
       }
       const resolved = validatePath(input.dirPath, input.filePath);
       if (!fs.existsSync(resolved)) {
@@ -177,6 +173,9 @@ export const dirRouter = router({
       const stat = fs.statSync(resolved);
       if (!stat.isFile()) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Not a file: ${input.filePath}` });
+      }
+      if (stat.size > MAX_TEXT_BYTES) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `File is too large to preview` });
       }
       return { content: fs.readFileSync(resolved, 'utf-8') };
     }),
@@ -216,8 +215,8 @@ export const dirRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      if (!input.filePath.endsWith('.md')) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: `Only .md files are supported` });
+      if (!isTextPath(input.filePath)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `File is not a writable text file` });
       }
       const resolved = validatePath(input.dirPath, input.filePath);
       fs.mkdirSync(path.dirname(resolved), { recursive: true });
@@ -247,9 +246,6 @@ export const dirRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      if (!input.filePath.endsWith('.md')) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only .md files are supported' });
-      }
       const resolved = validatePath(input.dirPath, input.filePath);
       if (!fs.existsSync(resolved)) {
         throw new TRPCError({ code: 'NOT_FOUND', message: `File not found: ${input.filePath}` });
@@ -294,9 +290,6 @@ export const dirRouter = router({
       }),
     )
     .mutation(({ input }) => {
-      if (!input.oldPath.endsWith('.md') || !input.newPath.endsWith('.md')) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only .md files are supported' });
-      }
       const resolvedOld = validatePath(input.dirPath, input.oldPath);
       const resolvedNew = validatePath(input.dirPath, input.newPath);
       if (!fs.existsSync(resolvedOld)) {

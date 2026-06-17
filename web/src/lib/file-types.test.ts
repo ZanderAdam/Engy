@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isImagePath, imageMimeType } from './file-types';
+import { isImagePath, imageMimeType, isMarkdownPath, isTextPath, fileKind } from './file-types';
 
 describe('file-types', () => {
   describe('isImagePath', () => {
@@ -42,6 +42,52 @@ describe('file-types', () => {
 
     it('should return null for non-image paths', () => {
       expect(imageMimeType('a.md')).toBeNull();
+    });
+  });
+
+  describe('isMarkdownPath', () => {
+    it('should accept markdown extensions', () => {
+      for (const p of ['readme.md', 'NOTES.MARKDOWN', 'doc.mdx']) {
+        expect(isMarkdownPath(p)).toBe(true);
+      }
+    });
+
+    it('should reject non-markdown paths', () => {
+      for (const p of ['notes.txt', 'code.ts', 'diagram.png', 'LICENSE']) {
+        expect(isMarkdownPath(p)).toBe(false);
+      }
+    });
+  });
+
+  describe('isTextPath', () => {
+    it('should accept common text and code extensions', () => {
+      for (const p of ['a.txt', 'a.ts', 'a.json', 'a.yaml', 'a.csv', 'a.sql', 'a.md']) {
+        expect(isTextPath(p)).toBe(true);
+      }
+    });
+
+    it('should treat extensionless files as text', () => {
+      for (const p of ['LICENSE', 'Dockerfile', 'docs/Makefile']) {
+        expect(isTextPath(p)).toBe(true);
+      }
+    });
+
+    it('should reject images and known binaries', () => {
+      for (const p of ['photo.png', 'archive.zip', 'movie.mp4', 'font.woff2']) {
+        expect(isTextPath(p)).toBe(false);
+      }
+    });
+  });
+
+  describe('fileKind', () => {
+    it('should classify markdown, image, text, and binary', () => {
+      expect(fileKind('readme.md')).toBe('markdown');
+      expect(fileKind('diagram.png')).toBe('image');
+      expect(fileKind('notes.txt')).toBe('text');
+      expect(fileKind('config.json')).toBe('text');
+      expect(fileKind('LICENSE')).toBe('text');
+      expect(fileKind('archive.zip')).toBe('binary');
+      expect(fileKind('movie.mp4')).toBe('binary');
     });
   });
 });

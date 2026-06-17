@@ -9,7 +9,9 @@ import { SpecTasks } from '@/components/specs/spec-tasks';
 import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
 import { EngyThreadStore } from '@/components/editor/document-editor';
 import { ImagePreview } from '@/components/editor/image-preview';
-import { isImagePath } from '@/lib/file-types';
+import { TextFileEditor } from '@/components/editor/text-file-editor';
+import { UnsupportedFilePreview } from '@/components/editor/unsupported-file-preview';
+import { fileKind } from '@/lib/file-types';
 import { useOnFileChange } from '@/contexts/events-context';
 import { useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { useDocDock } from './doc-dock-context';
@@ -21,7 +23,7 @@ export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelPara
   if (!projectSlug) throw new Error('ProjectDocDockPanel requires project scope');
   const filePath = params.tab.filePath;
   const isSpecMd = filePath === 'spec.md';
-  const isImage = isImagePath(filePath);
+  const kind = isSpecMd ? 'markdown' : fileKind(filePath);
 
   const utils = trpc.useUtils();
   const searchParams = useVirtualSearchParams();
@@ -39,14 +41,14 @@ export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelPara
         if (!changedPath.endsWith('/' + filePath)) return;
         if (isSpecMd) {
           utils.project.getSpec.invalidate({ workspaceSlug, projectSlug, worktreeBranch });
-        } else if (isImage) {
+        } else if (kind === 'image') {
           utils.project.readImage.invalidate({
             workspaceSlug,
             projectSlug,
             filePath,
             worktreeBranch,
           });
-        } else {
+        } else if (kind === 'markdown' || kind === 'text') {
           utils.project.readFile.invalidate({
             workspaceSlug,
             projectSlug,
@@ -55,7 +57,7 @@ export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelPara
           });
         }
       },
-      [utils, workspaceSlug, projectSlug, filePath, isSpecMd, isImage, worktreeBranch],
+      [utils, workspaceSlug, projectSlug, filePath, isSpecMd, kind, worktreeBranch],
     ),
   );
 
@@ -65,8 +67,9 @@ export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelPara
   ];
 
   const threadStore = useMemo(
-    () => new EngyThreadStore(workspaceSlug, `${projectSlug}/${filePath}`),
-    [workspaceSlug, projectSlug, filePath],
+    () =>
+      kind === 'markdown' ? new EngyThreadStore(workspaceSlug, `${projectSlug}/${filePath}`) : undefined,
+    [workspaceSlug, projectSlug, filePath, kind],
   );
 
   const {
@@ -82,12 +85,12 @@ export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelPara
 
   const { data: fileData, isLoading: isFileLoading } = trpc.project.readFile.useQuery(
     { workspaceSlug, projectSlug, filePath, worktreeBranch },
-    { enabled: !isSpecMd && !isImage },
+    { enabled: !isSpecMd && (kind === 'markdown' || kind === 'text') },
   );
 
   const imageQuery = trpc.project.readImage.useQuery(
     { workspaceSlug, projectSlug, filePath, worktreeBranch },
-    { enabled: isImage },
+    { enabled: kind === 'image' },
   );
 
   const specUpdateMutation = trpc.project.updateSpec.useMutation({
@@ -129,12 +132,15 @@ export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelPara
   );
 
   const editorBody = isSpecMd ? (spec?.body ?? '') : (fileData?.content ?? '');
+  const fileName = filePath.split('/').pop() ?? filePath;
 
   let isContentReady: boolean;
-  if (isImage) {
+  if (kind === 'image') {
     isContentReady = !imageQuery.isLoading;
   } else if (isSpecMd) {
     isContentReady = !isSpecLoading;
+  } else if (kind === 'binary') {
+    isContentReady = true;
   } else {
     isContentReady = !isFileLoading;
   }
@@ -146,16 +152,24 @@ export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelPara
         <p className="text-sm text-muted-foreground">Loading...</p>
       </div>
     );
-  } else if (isImage) {
+  } else if (kind === 'image') {
     editor = imageQuery.error ? (
       <div className="flex flex-col items-center justify-center gap-2 flex-1">
         <p className="text-sm font-medium">Failed to load image</p>
         <p className="text-xs text-muted-foreground">{imageQuery.error.message}</p>
       </div>
     ) : (
-      <ImagePreview
-        dataUri={imageQuery.data!.dataUri}
-        fileName={filePath.split('/').pop() ?? filePath}
+      <ImagePreview dataUri={imageQuery.data!.dataUri} fileName={fileName} />
+    );
+  } else if (kind === 'binary') {
+    editor = <UnsupportedFilePreview fileName={fileName} />;
+  } else if (kind === 'text') {
+    editor = (
+      <TextFileEditor
+        key={filePath}
+        content={fileData?.content ?? ''}
+        onSave={handleSave}
+        fileName={fileName}
       />
     );
   } else {

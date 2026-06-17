@@ -407,6 +407,91 @@ describe('project router', () => {
     });
   });
 
+  describe('readFile', () => {
+    beforeEach(async () => {
+      await caller.project.create({ workspaceSlug: 'test-ws', name: 'Read Ops' });
+    });
+
+    it('should read a non-markdown text file', async () => {
+      const projDir = path.join(ctx.tmpDir, 'test-ws', 'projects', 'read-ops');
+      fs.writeFileSync(path.join(projDir, 'config.json'), '{"a":1}');
+      const result = await caller.project.readFile({
+        workspaceSlug: 'test-ws',
+        projectSlug: 'read-ops',
+        filePath: 'config.json',
+      });
+      expect(result.content).toBe('{"a":1}');
+    });
+
+    it('should reject reading a binary file', async () => {
+      await expect(
+        caller.project.readFile({
+          workspaceSlug: 'test-ws',
+          projectSlug: 'read-ops',
+          filePath: 'archive.zip',
+        }),
+      ).rejects.toThrow('not a readable text file');
+    });
+  });
+
+  describe('deleteFile', () => {
+    beforeEach(async () => {
+      await caller.project.create({ workspaceSlug: 'test-ws', name: 'File Ops' });
+    });
+
+    it('should delete a .txt file', async () => {
+      const projDir = path.join(ctx.tmpDir, 'test-ws', 'projects', 'file-ops');
+      fs.writeFileSync(path.join(projDir, 'notes.txt'), 'data');
+      const result = await caller.project.deleteFile({
+        workspaceSlug: 'test-ws',
+        projectSlug: 'file-ops',
+        filePath: 'notes.txt',
+      });
+      expect(result.success).toBe(true);
+      expect(fs.existsSync(path.join(projDir, 'notes.txt'))).toBe(false);
+    });
+
+    it('should still reject deleting spec.md', async () => {
+      await expect(
+        caller.project.deleteFile({
+          workspaceSlug: 'test-ws',
+          projectSlug: 'file-ops',
+          filePath: 'spec.md',
+        }),
+      ).rejects.toThrow('Cannot delete spec.md');
+    });
+  });
+
+  describe('renameFile', () => {
+    beforeEach(async () => {
+      await caller.project.create({ workspaceSlug: 'test-ws', name: 'Rename Ops' });
+    });
+
+    it('should rename a .txt file', async () => {
+      const projDir = path.join(ctx.tmpDir, 'test-ws', 'projects', 'rename-ops');
+      fs.writeFileSync(path.join(projDir, 'notes.txt'), 'data');
+      const result = await caller.project.renameFile({
+        workspaceSlug: 'test-ws',
+        projectSlug: 'rename-ops',
+        oldPath: 'notes.txt',
+        newPath: 'renamed.txt',
+      });
+      expect(result.success).toBe(true);
+      expect(fs.existsSync(path.join(projDir, 'renamed.txt'))).toBe(true);
+    });
+
+    it('should still reject renaming spec.md', async () => {
+      await expect(
+        caller.project.renameFile({
+          workspaceSlug: 'test-ws',
+          projectSlug: 'rename-ops',
+          oldPath: 'spec.md',
+          newPath: 'other.md',
+        }),
+      ).rejects.toThrow('Cannot rename spec.md');
+    });
+  });
+
   describe('worktreeBranch docs re-rooting', () => {
     it('is a no-op when docsDir is outside any repo (ENGY_DIR case)', async () => {
       // The default test workspace has no repos and docsDir is null, so the helper

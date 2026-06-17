@@ -18,10 +18,13 @@ import {
   RiAddLine,
   RiArrowDownSLine,
   RiArrowRightSLine,
+  RiFile2Line,
   RiFileTextLine,
   RiFolderLine,
   RiFolderOpenLine,
+  RiImageLine,
 } from '@remixicon/react';
+import { fileKind } from '@/lib/file-types';
 
 type FileEntry = { path: string; mtime: number };
 
@@ -55,12 +58,16 @@ function trieToTreeItems(
 ): TreeDataItem[] {
   const fileItems: TreeDataItem[] = [...node.files]
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((f) => ({
-      id: `${sectionPrefix}/${f.path}`,
-      name: f.name,
-      icon: RiFileTextLine,
-      onClick: () => onSelectFile(`${sectionPrefix}/${f.path}`),
-    }));
+    .map((f) => {
+      const kind = fileKind(f.name);
+      const icon = kind === 'image' ? RiImageLine : kind === 'binary' ? RiFile2Line : RiFileTextLine;
+      return {
+        id: `${sectionPrefix}/${f.path}`,
+        name: f.name,
+        icon,
+        onClick: () => onSelectFile(`${sectionPrefix}/${f.path}`),
+      };
+    });
 
   const dirItems: TreeDataItem[] = [...node.children.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))

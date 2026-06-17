@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { eq, and } from 'drizzle-orm';
-import { isImagePath } from '@/lib/file-types';
 import { readImageAsDataUri } from '../files/image';
 import { getWorkspaceDir } from '../engy-dir/init';
 import { getDb } from '../db/client';
@@ -64,11 +63,13 @@ function validatePath(base: string, target: string): string {
 
 const MAX_PROJECT_DEPTH = 5;
 
+/** Upper bound for reading a file as previewable text (mirrors dir.read). */
+const MAX_TEXT_BYTES = 2_000_000;
+
 function collectMarkdownFilesAndDirs(
   rootDir: string,
   currentDir: string,
   depth: number,
-  includeImages = false,
 ): { files: FileEntry[]; dirs: string[] } {
   if (depth <= 0) return { files: [], dirs: [] };
   let entries: fs.Dirent[];
@@ -78,14 +79,12 @@ function collectMarkdownFilesAndDirs(
     return { files: [], dirs: [] };
   }
 
-  const isViewable = (name: string) => name.endsWith('.md') || (includeImages && isImagePath(name));
-
   const files: FileEntry[] = [];
   const dirs: string[] = [];
   for (const entry of entries) {
     if (entry.name.startsWith('.')) continue;
     const fullPath = path.join(currentDir, entry.name);
-    if (entry.isFile() && isViewable(entry.name)) {
+    if (entry.isFile()) {
       try {
         const stat = fs.statSync(fullPath);
         files.push({ path: path.relative(rootDir, fullPath), mtime: stat.mtimeMs });
@@ -93,7 +92,7 @@ function collectMarkdownFilesAndDirs(
         // file may have been deleted between readdir and stat
       }
     } else if (entry.isDirectory()) {
-      const sub = collectMarkdownFilesAndDirs(rootDir, fullPath, depth - 1, includeImages);
+      const sub = collectMarkdownFilesAndDirs(rootDir, fullPath, depth - 1);
       files.push(...sub.files);
       dirs.push(...sub.dirs);
       if (sub.files.length === 0) {
@@ -108,7 +107,7 @@ export function listProjectFiles(workspace: Workspace, projectDir: string): Proj
   const dir = projectsDir(workspace);
   const projDir = validatePath(dir, projectDir);
   const result = fs.existsSync(projDir)
-    ? collectMarkdownFilesAndDirs(projDir, projDir, MAX_PROJECT_DEPTH, true)
+    ? collectMarkdownFilesAndDirs(projDir, projDir, MAX_PROJECT_DEPTH)
     : { files: [], dirs: [] };
 
   let type: SpecType | null = null;
@@ -294,6 +293,9 @@ export function readProjectFile(
 
   if (!fs.existsSync(resolved)) {
     throw new Error(`File "${filePath}" not found in project "${projectSlug}"`);
+  }
+  if (fs.statSync(resolved).size > MAX_TEXT_BYTES) {
+    throw new Error(`File "${filePath}" is too large to preview`);
   }
 
   return fs.readFileSync(resolved, 'utf-8');

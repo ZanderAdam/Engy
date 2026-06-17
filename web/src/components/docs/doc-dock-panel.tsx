@@ -6,7 +6,9 @@ import { trpc } from '@/lib/trpc';
 import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
 import { EngyThreadStore } from '@/components/editor/document-editor';
 import { ImagePreview } from '@/components/editor/image-preview';
-import { isImagePath } from '@/lib/file-types';
+import { TextFileEditor } from '@/components/editor/text-file-editor';
+import { UnsupportedFilePreview } from '@/components/editor/unsupported-file-preview';
+import { fileKind } from '@/lib/file-types';
 import { useOnFileChange } from '@/contexts/events-context';
 import { useDocDock } from './doc-dock-context';
 import type { DocPanelParams } from './types';
@@ -15,7 +17,7 @@ export function WorkspaceDocDockPanel({ params }: IDockviewPanelProps<DocPanelPa
   const { scope, repos } = useDocDock();
   const { workspaceSlug, rootDir } = scope;
   const filePath = params.tab.filePath;
-  const isImage = isImagePath(filePath);
+  const kind = fileKind(filePath);
 
   const utils = trpc.useUtils();
 
@@ -23,30 +25,33 @@ export function WorkspaceDocDockPanel({ params }: IDockviewPanelProps<DocPanelPa
     useCallback(
       (changedPath: string) => {
         if (!changedPath.endsWith('/' + filePath)) return;
-        if (isImage) {
+        if (kind === 'image') {
           utils.dir.readImage.invalidate({ dirPath: rootDir, filePath });
-        } else {
+        } else if (kind === 'markdown' || kind === 'text') {
           utils.dir.read.invalidate({ dirPath: rootDir, filePath });
         }
       },
-      [utils, rootDir, filePath, isImage],
+      [utils, rootDir, filePath, kind],
     ),
   );
 
   const threadStore = useMemo(
-    () => new EngyThreadStore(workspaceSlug, filePath),
-    [workspaceSlug, filePath],
+    () => (kind === 'markdown' ? new EngyThreadStore(workspaceSlug, filePath) : undefined),
+    [workspaceSlug, filePath, kind],
   );
 
   const {
     data: fileData,
     isLoading,
     error,
-  } = trpc.dir.read.useQuery({ dirPath: rootDir, filePath }, { enabled: !isImage });
+  } = trpc.dir.read.useQuery(
+    { dirPath: rootDir, filePath },
+    { enabled: kind === 'markdown' || kind === 'text' },
+  );
 
   const imageQuery = trpc.dir.readImage.useQuery(
     { dirPath: rootDir, filePath },
-    { enabled: isImage },
+    { enabled: kind === 'image' },
   );
 
   const writeMutation = trpc.dir.write.useMutation({
@@ -59,13 +64,15 @@ export function WorkspaceDocDockPanel({ params }: IDockviewPanelProps<DocPanelPa
   }, [writeMutation.mutate]);
 
   const handleSave = useCallback(
-    (markdown: string) => {
-      mutateRef.current({ dirPath: rootDir, filePath, content: markdown });
+    (content: string) => {
+      mutateRef.current({ dirPath: rootDir, filePath, content });
     },
     [rootDir, filePath],
   );
 
-  if (isImage) {
+  const fileName = filePath.split('/').pop() ?? filePath;
+
+  if (kind === 'image') {
     if (imageQuery.isLoading) {
       return (
         <div className="flex items-center justify-center py-20">
@@ -81,12 +88,11 @@ export function WorkspaceDocDockPanel({ params }: IDockviewPanelProps<DocPanelPa
         </div>
       );
     }
-    return (
-      <ImagePreview
-        dataUri={imageQuery.data!.dataUri}
-        fileName={filePath.split('/').pop() ?? filePath}
-      />
-    );
+    return <ImagePreview dataUri={imageQuery.data!.dataUri} fileName={fileName} />;
+  }
+
+  if (kind === 'binary') {
+    return <UnsupportedFilePreview fileName={fileName} />;
   }
 
   if (isLoading) {
@@ -103,6 +109,17 @@ export function WorkspaceDocDockPanel({ params }: IDockviewPanelProps<DocPanelPa
         <p className="text-sm font-medium">Failed to load file</p>
         <p className="text-xs text-muted-foreground">{error.message}</p>
       </div>
+    );
+  }
+
+  if (kind === 'text') {
+    return (
+      <TextFileEditor
+        key={filePath}
+        content={fileData?.content ?? ''}
+        onSave={handleSave}
+        fileName={fileName}
+      />
     );
   }
 

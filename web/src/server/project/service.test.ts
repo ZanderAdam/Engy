@@ -20,6 +20,7 @@ import {
   deleteProjectFile,
   renameProjectFile,
   deleteProjectSubDir,
+  readProjectFile,
 } from './service';
 
 type Workspace = { slug: string; docsDir: string | null };
@@ -93,14 +94,84 @@ describe('project service', () => {
       expect(() => listProjectFiles(workspace, '../../../etc')).toThrow('Path traversal');
     });
 
-    it('should include image files alongside markdown', () => {
+    it('should list all files including images and non-md', () => {
       initProjectDir(workspace, 'auth-feature');
       const projDir = path.join(ctx.tmpDir, 'test', 'projects', 'auth-feature');
       fs.writeFileSync(path.join(projDir, 'diagram.png'), Buffer.from(PNG_1X1_BASE64, 'base64'));
+      fs.writeFileSync(path.join(projDir, 'notes.txt'), 'plain text notes');
       const result = listProjectFiles(workspace, 'auth-feature');
       const paths = result.files.map((f) => f.path);
       expect(paths).toContain('diagram.png');
       expect(paths).toContain('spec.md');
+      expect(paths).toContain('notes.txt');
+    });
+  });
+
+  describe('readProjectFile', () => {
+    beforeEach(() => {
+      initProjectDir(workspace, 'auth-feature');
+    });
+
+    it('should read a text file', () => {
+      const projDir = path.join(ctx.tmpDir, 'test', 'projects', 'auth-feature');
+      fs.writeFileSync(path.join(projDir, 'notes.txt'), 'hello');
+      expect(readProjectFile(workspace, 'auth-feature', 'notes.txt')).toBe('hello');
+    });
+
+    it('should throw for a missing file', () => {
+      expect(() => readProjectFile(workspace, 'auth-feature', 'missing.txt')).toThrow('not found');
+    });
+
+    it('should reject a file that exceeds the size cap', () => {
+      const projDir = path.join(ctx.tmpDir, 'test', 'projects', 'auth-feature');
+      fs.writeFileSync(path.join(projDir, 'big.txt'), 'x'.repeat(2_000_001));
+      expect(() => readProjectFile(workspace, 'auth-feature', 'big.txt')).toThrow('too large');
+    });
+  });
+
+  describe('deleteProjectFile', () => {
+    beforeEach(() => {
+      initProjectDir(workspace, 'auth-feature');
+    });
+
+    it('should delete a non-md file', () => {
+      const projDir = path.join(ctx.tmpDir, 'test', 'projects', 'auth-feature');
+      fs.writeFileSync(path.join(projDir, 'notes.txt'), 'data');
+      deleteProjectFile(workspace, 'auth-feature', 'notes.txt');
+      expect(fs.existsSync(path.join(projDir, 'notes.txt'))).toBe(false);
+    });
+
+    it('should throw for a missing file', () => {
+      expect(() => deleteProjectFile(workspace, 'auth-feature', 'missing.txt')).toThrow('not found');
+    });
+  });
+
+  describe('renameProjectFile', () => {
+    beforeEach(() => {
+      initProjectDir(workspace, 'auth-feature');
+    });
+
+    it('should rename a non-md file', () => {
+      const projDir = path.join(ctx.tmpDir, 'test', 'projects', 'auth-feature');
+      fs.writeFileSync(path.join(projDir, 'notes.txt'), 'data');
+      renameProjectFile(workspace, 'auth-feature', 'notes.txt', 'renamed.txt');
+      expect(fs.existsSync(path.join(projDir, 'notes.txt'))).toBe(false);
+      expect(fs.existsSync(path.join(projDir, 'renamed.txt'))).toBe(true);
+    });
+
+    it('should throw for a missing source file', () => {
+      expect(() =>
+        renameProjectFile(workspace, 'auth-feature', 'missing.txt', 'new.txt'),
+      ).toThrow('not found');
+    });
+
+    it('should throw when destination already exists', () => {
+      const projDir = path.join(ctx.tmpDir, 'test', 'projects', 'auth-feature');
+      fs.writeFileSync(path.join(projDir, 'a.txt'), 'a');
+      fs.writeFileSync(path.join(projDir, 'b.txt'), 'b');
+      expect(() => renameProjectFile(workspace, 'auth-feature', 'a.txt', 'b.txt')).toThrow(
+        'already exists',
+      );
     });
   });
 

@@ -6,8 +6,10 @@ import { trpc } from '@/lib/trpc';
 import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
 import { EngyThreadStore } from '@/components/editor/document-editor';
 import { ImagePreview } from '@/components/editor/image-preview';
+import { TextFileEditor } from '@/components/editor/text-file-editor';
+import { UnsupportedFilePreview } from '@/components/editor/unsupported-file-preview';
 import { FileTree } from '@/components/file-tree';
-import { isImagePath } from '@/lib/file-types';
+import { fileKind } from '@/lib/file-types';
 import { RiFolderOpenLine } from '@remixicon/react';
 
 export function DirFileTree({
@@ -177,21 +179,21 @@ export function DirFileEditor({
 }) {
   const utils = trpc.useUtils();
   const absoluteFilePath = path.join(dirPath, relPath);
-  const isImage = isImagePath(relPath);
+  const kind = fileKind(relPath);
 
   const threadStore = useMemo(
-    () => (comments && !isImage ? new EngyThreadStore(undefined, absoluteFilePath) : undefined),
-    [comments, isImage, absoluteFilePath],
+    () => (comments && kind === 'markdown' ? new EngyThreadStore(undefined, absoluteFilePath) : undefined),
+    [comments, kind, absoluteFilePath],
   );
 
   const { data, isLoading, error } = trpc.dir.read.useQuery(
     { dirPath, filePath: relPath },
-    { enabled: !isImage },
+    { enabled: kind === 'markdown' || kind === 'text' },
   );
 
   const imageQuery = trpc.dir.readImage.useQuery(
     { dirPath, filePath: relPath },
-    { enabled: isImage },
+    { enabled: kind === 'image' },
   );
 
   const writeMutation = trpc.dir.write.useMutation({
@@ -199,13 +201,15 @@ export function DirFileEditor({
   });
 
   const handleSave = useCallback(
-    (markdown: string) => {
-      writeMutation.mutate({ dirPath, filePath: relPath, content: markdown });
+    (content: string) => {
+      writeMutation.mutate({ dirPath, filePath: relPath, content });
     },
     [writeMutation, dirPath, relPath],
   );
 
-  if (isImage) {
+  const fileName = path.basename(relPath);
+
+  if (kind === 'image') {
     if (imageQuery.isLoading) {
       return (
         <div className="flex items-center justify-center py-20">
@@ -221,7 +225,11 @@ export function DirFileEditor({
         </div>
       );
     }
-    return <ImagePreview dataUri={imageQuery.data!.dataUri} fileName={path.basename(relPath)} />;
+    return <ImagePreview dataUri={imageQuery.data!.dataUri} fileName={fileName} />;
+  }
+
+  if (kind === 'binary') {
+    return <UnsupportedFilePreview fileName={fileName} />;
   }
 
   if (isLoading) {
@@ -238,6 +246,17 @@ export function DirFileEditor({
         <p className="text-sm font-medium">Failed to load file</p>
         <p className="text-xs text-muted-foreground">{error.message}</p>
       </div>
+    );
+  }
+
+  if (kind === 'text') {
+    return (
+      <TextFileEditor
+        key={absoluteFilePath}
+        content={data?.content ?? ''}
+        onSave={handleSave}
+        fileName={fileName}
+      />
     );
   }
 

@@ -30,6 +30,7 @@ import {
   initProjectDir,
   removeProjectDir,
 } from '../../project/service';
+import { isTextPath } from '@/lib/file-types';
 
 function getWorkspace(workspaceSlug: string) {
   const db = getDb();
@@ -392,6 +393,9 @@ export const projectRouter = router({
       }),
     )
     .query(async ({ input, ctx }) => {
+      if (!isTextPath(input.filePath)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'File is not a readable text file' });
+      }
       const { project, effective } = await loadProjectForFile(
         input.workspaceSlug,
         input.projectSlug,
@@ -496,7 +500,6 @@ export const projectRouter = router({
         filePath: z
           .string()
           .min(1)
-          .refine((p) => p.endsWith('.md'), { message: 'Only .md files are supported' })
           .refine((p) => p !== 'spec.md', { message: 'Cannot delete spec.md' }),
         worktreeBranch: worktreeBranchSchema,
       }),
@@ -552,12 +555,8 @@ export const projectRouter = router({
         oldPath: z
           .string()
           .min(1)
-          .refine((p) => p.endsWith('.md'), { message: 'Only .md files are supported' })
           .refine((p) => p !== 'spec.md', { message: 'Cannot rename spec.md' }),
-        newPath: z
-          .string()
-          .min(1)
-          .refine((p) => p.endsWith('.md'), { message: 'Only .md files are supported' }),
+        newPath: z.string().min(1),
         worktreeBranch: worktreeBranchSchema,
       }),
     )
