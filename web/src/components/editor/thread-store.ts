@@ -224,10 +224,17 @@ function toThreadData(db: Record<string, unknown>): ThreadData {
   };
 }
 
+type TrpcClient = ReturnType<typeof createTRPCClient<AppRouter>>;
+
+// The tRPC client is a callable proxy. Keeping it as an instance field makes it
+// reachable by React's dev render-logging, which deep-walks component props and
+// invokes the proxy — throwing "client[procedureType] is not a function". Holding
+// it in a side WeakMap keeps it off the instance's own properties entirely.
+const trpcClients = new WeakMap<EngyThreadStore, TrpcClient>();
+
 export class EngyThreadStore extends ThreadStore implements CommentStore {
   private threads: Map<string, ThreadData> = new Map();
   private subscribers: Set<(threads: Map<string, ThreadData>) => void> = new Set();
-  private readonly client: ReturnType<typeof createTRPCClient<AppRouter>>;
   private readonly workspaceSlug: string | undefined;
   private readonly documentPath: string;
 
@@ -237,10 +244,17 @@ export class EngyThreadStore extends ThreadStore implements CommentStore {
     super(new DefaultThreadStoreAuth(USER_ID, 'editor'));
     this.workspaceSlug = workspaceSlug;
     this.documentPath = documentPath;
-    this.client = createTRPCClient<AppRouter>({
-      links: [httpBatchLink({ url: '/api/trpc', transformer: superjson })],
-    });
+    trpcClients.set(
+      this,
+      createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: '/api/trpc', transformer: superjson })],
+      }),
+    );
     this.ready = this.loadFromDb();
+  }
+
+  private get client(): TrpcClient {
+    return trpcClients.get(this)!;
   }
 
   private async loadFromDb(): Promise<void> {
