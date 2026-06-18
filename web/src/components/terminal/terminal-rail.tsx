@@ -41,6 +41,7 @@ export function TerminalRail({ collapsed, setCollapsed }: TerminalRailProps) {
   const tabId = useTabId();
   const { tabs, activeId } = useTerminalSessions(terminalRailKey(tabId, scope.groupKey));
   const [listExpanded, setListExpanded] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   function focusSession(sessionId: string) {
     window.dispatchEvent(new CustomEvent('terminal:focus', { detail: { sessionId, tabId } }));
@@ -48,6 +49,16 @@ export function TerminalRail({ collapsed, setCollapsed }: TerminalRailProps) {
 
   function openNew() {
     window.dispatchEvent(new CustomEvent('terminal:open', { detail: { scope, tabId } }));
+  }
+
+  function commitRename(sessionId: string, value: string, currentLabel: string) {
+    setEditingId(null);
+    const trimmed = value.trim();
+    if (trimmed && trimmed !== currentLabel) {
+      window.dispatchEvent(
+        new CustomEvent('terminal:rename', { detail: { sessionId, newLabel: trimmed, tabId } }),
+      );
+    }
   }
 
   const ctrlButton =
@@ -112,20 +123,36 @@ export function TerminalRail({ collapsed, setCollapsed }: TerminalRailProps) {
             {tabs.length === 0 ? (
               <p className="px-2 py-1.5 text-[11px] text-muted-foreground">No terminals</p>
             ) : (
-              tabs.map((tab) => (
-                <button
-                  key={tab.sessionId}
-                  type="button"
-                  onClick={() => focusSession(tab.sessionId)}
-                  aria-current={tab.sessionId === activeId || undefined}
-                  className={cn(
-                    'flex items-start rounded-sm px-2 py-1.5 text-left text-xs hover:bg-muted',
-                    tab.sessionId === activeId && 'bg-muted',
-                  )}
-                >
-                  <TerminalSessionLabel tab={tab} />
-                </button>
-              ))
+              tabs.map((tab) =>
+                editingId === tab.sessionId ? (
+                  <input
+                    key={tab.sessionId}
+                    className="rounded-sm border border-border bg-transparent px-2 py-1.5 text-xs font-mono outline-none"
+                    defaultValue={tab.scope.scopeLabel}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitRename(tab.sessionId, e.currentTarget.value, tab.scope.scopeLabel);
+                      else if (e.key === 'Escape') setEditingId(null);
+                    }}
+                    onBlur={(e) => commitRename(tab.sessionId, e.currentTarget.value, tab.scope.scopeLabel)}
+                  />
+                ) : (
+                  <button
+                    key={tab.sessionId}
+                    type="button"
+                    onClick={() => focusSession(tab.sessionId)}
+                    onDoubleClick={() => setEditingId(tab.sessionId)}
+                    aria-current={tab.sessionId === activeId || undefined}
+                    title="Double-click to rename"
+                    className={cn(
+                      'flex items-start rounded-sm px-2 py-1.5 text-left text-xs hover:bg-muted',
+                      tab.sessionId === activeId && 'bg-muted',
+                    )}
+                  >
+                    <TerminalSessionLabel tab={tab} />
+                  </button>
+                ),
+              )
             )}
           </div>
         ) : (

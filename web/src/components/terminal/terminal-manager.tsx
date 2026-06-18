@@ -31,6 +31,12 @@ interface TerminalFocusEvent {
   tabId?: string;
 }
 
+interface TerminalRenameEvent {
+  sessionId: string;
+  newLabel: string;
+  tabId?: string;
+}
+
 interface TerminalManagerProps {
   onCollapse: () => void;
   defaultScope?: TerminalScope;
@@ -394,6 +400,20 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     window.addEventListener('terminal:focus', onFocus);
     return () => window.removeEventListener('terminal:focus', onFocus);
   }, [broadcastActive, myTabId]);
+
+  // terminal:rename — intentional user action from the rail's expanded list
+  // (double-click to edit), mirroring the dock tab's rename. Reuses
+  // renameTerminal (optimistic local label update + persist via the API).
+  useEffect(() => {
+    function onRename(e: Event) {
+      const { sessionId, newLabel, tabId } = (e as CustomEvent<TerminalRenameEvent>).detail;
+      if (tabId !== undefined && tabId !== myTabId) return;
+      renameTerminal(sessionId, newLabel);
+    }
+
+    window.addEventListener('terminal:rename', onRename);
+    return () => window.removeEventListener('terminal:rename', onRename);
+  }, [renameTerminal, myTabId]);
 
   // Cross-browser session sync: when another browser creates a session for this groupKey,
   // fetch updated session list and add any new sessions as tabs
