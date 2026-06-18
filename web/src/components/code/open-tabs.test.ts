@@ -81,6 +81,11 @@ describe('open-tabs', () => {
       const state = closeTab(open(['a.ts', 'b.ts', 'c.ts']), 'b.ts');
       expect(state.history).not.toContain('b.ts');
     });
+
+    it('should keep historyIndex pointing at the active tab after closing the active one', () => {
+      const state = closeTab(open(['a.ts', 'b.ts', 'c.ts']), 'c.ts');
+      expect(state.history[state.historyIndex]).toBe(state.active);
+    });
   });
 
   describe('navigation', () => {

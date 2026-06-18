@@ -54,6 +54,11 @@ describe('code-page-state', () => {
       expect(parseCodeState(raw).tabs).toEqual(['a.ts', 'b.ts']);
     });
 
+    it('should dedupe repeated tab entries', () => {
+      const raw = JSON.stringify({ tabs: ['a.ts', 'b.ts', 'a.ts'] });
+      expect(parseCodeState(raw).tabs).toEqual(['a.ts', 'b.ts']);
+    });
+
     it('should fall back to default view prefs when absent', () => {
       const parsed = parseCodeState(JSON.stringify({ repo: '/r' }));
       expect(parsed.wordWrap).toBe(false);

@@ -458,6 +458,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                     content={modifiedContent}
                     filePath={selectedFile}
                     repoRoot={selectedWorktree?.worktreePath ?? selectedRepo ?? ''}
+                    modelNamespace="diff"
                     onChange={save}
                   />
                 ) : (

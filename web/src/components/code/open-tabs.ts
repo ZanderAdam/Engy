@@ -56,8 +56,19 @@ export function closeTab(state: TabsState, path: string): TabsState {
     active = tabs[idx] ?? tabs[idx - 1] ?? null;
   }
 
-  let historyIndex = active ? history.lastIndexOf(active) : -1;
-  if (historyIndex === -1) historyIndex = history.length - 1;
+  // Keep historyIndex pointing at the active tab. If the new active path somehow
+  // isn't in the pruned history, append it so the index and `active` never desync
+  // (which would make the first back/forward jump to an unexpected file).
+  let historyIndex: number;
+  if (active) {
+    historyIndex = history.lastIndexOf(active);
+    if (historyIndex === -1) {
+      history.push(active);
+      historyIndex = history.length - 1;
+    }
+  } else {
+    historyIndex = history.length - 1;
+  }
 
   return { tabs, active, history, historyIndex };
 }

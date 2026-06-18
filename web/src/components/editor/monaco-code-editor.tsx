@@ -19,6 +19,12 @@ interface MonacoCodeEditorProps {
   filePath: string;
   /** Absolute repo root — folded into the model URI so each file gets a stable, unique model. */
   repoRoot: string;
+  /**
+   * Namespaces the model URI so distinct surfaces (e.g. the code page vs. the diff
+   * page's edit view) never share a Monaco model for the same file path. The
+   * model cache in @monaco-editor/react is module-global and keyed only on path.
+   */
+  modelNamespace?: string;
   readOnly?: boolean;
   wordWrap?: boolean;
   minimap?: boolean;
@@ -31,6 +37,7 @@ export function MonacoCodeEditor({
   content,
   filePath,
   repoRoot,
+  modelNamespace = 'file',
   readOnly = false,
   wordWrap = false,
   minimap = true,
@@ -72,7 +79,7 @@ export function MonacoCodeEditor({
   // A stable, unique path per file drives @monaco-editor/react's model + view-state
   // cache, so switching tabs preserves each file's cursor, scroll, undo history and
   // language-service model.
-  const path = buildModelPath(repoRoot, filePath);
+  const path = `${modelNamespace}:${buildModelPath(repoRoot, filePath)}`;
   const language = getLanguageFromPath(filePath);
 
   return (

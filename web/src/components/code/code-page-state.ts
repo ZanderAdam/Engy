@@ -36,7 +36,12 @@ export function parseCodeState(raw: string | null): CodePageState {
 
   const obj = parsed as Record<string, unknown>;
   const repo = typeof obj.repo === 'string' ? obj.repo : null;
-  const tabs = Array.isArray(obj.tabs) ? obj.tabs.filter((t): t is string => typeof t === 'string') : [];
+  const rawTabs = Array.isArray(obj.tabs)
+    ? obj.tabs.filter((t): t is string => typeof t === 'string')
+    : [];
+  // Dedupe — corrupted/hand-edited storage could repeat a path, and openTab only
+  // guards against duplicates for new opens, not initial hydration.
+  const tabs = [...new Set(rawTabs)];
   // Back-compat: older state persisted a single `file` instead of tabs.
   if (tabs.length === 0 && typeof obj.file === 'string') tabs.push(obj.file);
 

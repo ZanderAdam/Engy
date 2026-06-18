@@ -141,22 +141,33 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
 
   const { status: saveStatus, save } = useAutoSave(selectedRepo, selectedFile, overrideWorktreePath);
 
+  // The status bar cursor belongs to the previous file until Monaco emits a new
+  // position; reset it on every tab switch so it never shows a stale Ln/Col.
+  const [prevSelectedFile, setPrevSelectedFile] = useState<string | null>(selectedFile);
+  if (selectedFile !== prevSelectedFile) {
+    setPrevSelectedFile(selectedFile);
+    setCursor(null);
+  }
+
   const openFile = useCallback((relPath: string) => {
     if (!relPath) return;
     setTabs((state) => openTab(state, relPath));
   }, []);
 
-  // Ctrl/Cmd+P opens the fuzzy file finder.
+  // Ctrl/Cmd+P opens the fuzzy file finder — only when a repo root is available
+  // (otherwise QuickOpen can't render), and without stealing browser print
+  // elsewhere on the route.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') {
+        if (!effectiveRoot) return;
         e.preventDefault();
         setQuickOpenOpen(true);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [effectiveRoot]);
 
   const language = selectedFile ? getLanguageFromPath(selectedFile) : '';
 
