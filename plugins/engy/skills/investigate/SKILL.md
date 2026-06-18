@@ -90,6 +90,7 @@ Exact exploration trail so the implementer doesn't repeat work:
 - Read: `path/to/file.ts` lines N–M → noted <observation>
 - Explore agent: "<prompt>" → key finding
 
+## Final task
 run /engy:review, run pnpm blt and test in chrome
 ```
 

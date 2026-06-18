@@ -19,20 +19,20 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 
   if (typeof document === 'undefined') return false;
 
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-9999px';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
   try {
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.setAttribute('readonly', '');
-    textarea.style.position = 'fixed';
-    textarea.style.top = '-9999px';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
     textarea.focus();
     textarea.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(textarea);
-    return ok;
+    return document.execCommand('copy');
   } catch {
     return false;
+  } finally {
+    document.body.removeChild(textarea);
   }
 }

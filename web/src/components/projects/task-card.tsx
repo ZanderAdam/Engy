@@ -241,14 +241,11 @@ export function TaskCard({
         <TaskStatusBadge taskId={task.id} status={task.status} clickable className="shrink-0" />
         {(task.milestoneRef || task.taskGroupId || execStatus || unansweredCount > 0 || terminalSessions.length > 0) && (
           <div className="ml-auto flex items-center gap-1">
-            {task.milestoneRef && (() => {
-              const num = parseMilestoneNum(task.milestoneRef);
-              return (
-                <span className={cn('rounded px-1 py-0.5 text-[10px] font-medium leading-none', colorByIndex(num, milestoneColors))}>
-                  M{num}
-                </span>
-              );
-            })()}
+            {task.milestoneRef && (
+              <span className={cn('rounded px-1 py-0.5 text-[10px] font-medium leading-none', colorByIndex(parseMilestoneNum(task.milestoneRef), milestoneColors))}>
+                M{parseMilestoneNum(task.milestoneRef)}
+              </span>
+            )}
             {task.taskGroupId && <TaskGroupBadge task={task} />}
             <TaskTerminalButton sessions={terminalSessions} />
             {execStatus === 'plan_review' ? (

@@ -206,9 +206,8 @@ function ItemActions({
               <DropdownMenuItem
                 onClick={() => {
                   copyToClipboard(itemPath).then((ok) => {
-                    toast[ok ? 'success' : 'error'](
-                      ok ? 'Relative path copied' : 'Copy failed — clipboard unavailable',
-                    );
+                    if (ok) toast.success('Relative path copied');
+                    else toast.error('Copy failed — clipboard unavailable');
                   });
                 }}
               >
@@ -219,9 +218,8 @@ function ItemActions({
                 <DropdownMenuItem
                   onClick={() => {
                     copyToClipboard(`${rootAbsPath}/${itemPath}`).then((ok) => {
-                      toast[ok ? 'success' : 'error'](
-                        ok ? 'Full path copied' : 'Copy failed — clipboard unavailable',
-                      );
+                      if (ok) toast.success('Full path copied');
+                      else toast.error('Copy failed — clipboard unavailable');
                     });
                   }}
                 >
