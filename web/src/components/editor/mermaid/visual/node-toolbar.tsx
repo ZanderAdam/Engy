@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { RiFileCopyLine, RiDeleteBin6Line, RiShapeLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,6 +22,8 @@ interface NodeToolbarProps {
   onShapeChange: (shape: NodeShape) => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  /** When true, focus and select the label field (set on double-click to edit). */
+  autoFocus?: boolean;
 }
 
 export function NodeToolbar({
@@ -32,8 +34,17 @@ export function NodeToolbar({
   onShapeChange,
   onDuplicate,
   onDelete,
+  autoFocus = false,
 }: NodeToolbarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus the label field when requested (double-click to edit).
+  useEffect(() => {
+    if (autoFocus) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [autoFocus]);
 
   // Uncontrolled field so typing never re-renders the canvas. `key={node.label}`
   // remounts it when the label changes externally (e.g. edited in the code pane),

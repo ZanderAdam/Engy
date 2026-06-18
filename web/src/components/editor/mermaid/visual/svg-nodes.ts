@@ -56,26 +56,45 @@ export function collectNodeBoxes(container: HTMLElement, svg: SVGElement): NodeB
   return boxes;
 }
 
-/** The topmost node whose box contains the given container-relative point. */
-export function nodeAtPoint(boxes: NodeBox[], x: number, y: number): NodeBox | undefined {
+/**
+ * The topmost node whose box (optionally grown by `pad` px) contains the point.
+ * Padding gives hover a stable margin so connect-handles sitting on the border
+ * don't flicker the hover state as the pointer crosses the node edge.
+ */
+export function nodeAtPoint(boxes: NodeBox[], x: number, y: number, pad = 0): NodeBox | undefined {
   // Iterate in reverse so later (visually on-top) nodes win ties.
   for (let i = boxes.length - 1; i >= 0; i--) {
     const b = boxes[i];
-    if (x >= b.left && x <= b.left + b.width && y >= b.top && y <= b.top + b.height) {
+    if (
+      x >= b.left - pad &&
+      x <= b.left + b.width + pad &&
+      y >= b.top - pad &&
+      y <= b.top + b.height + pad
+    ) {
       return b;
     }
   }
   return undefined;
 }
 
-/** Edge paths in declaration order — index maps to model.edges[index]. */
+/** Edge paths in declaration order. */
 export function edgePathElements(svg: SVGElement): SVGElement[] {
-  const paths = svg.querySelectorAll<SVGElement>('g.edgePaths > path, path.flowchart-link');
-  return [...paths];
+  return [...svg.querySelectorAll<SVGElement>('g.edgePaths > path, path.flowchart-link')];
 }
 
-/** Edge label groups in declaration order — index maps to model.edges[index]. */
+/** Edge label groups in declaration order (one per edge). */
 export function edgeLabelElements(svg: SVGElement): SVGElement[] {
-  const labels = svg.querySelectorAll<SVGElement>('g.edgeLabels .edgeLabel, .edgeLabel');
-  return [...labels];
+  return [...svg.querySelectorAll<SVGElement>('g.edgeLabels > g.edgeLabel')];
+}
+
+/**
+ * Parse the source/target node ids from a mermaid edge path id, which looks
+ * like `mermaid-<uuid>-<n>-L_<source>_<target>_<counter>`. Returns null when the
+ * id doesn't match (e.g. node ids containing underscores) so callers can fall
+ * back. Since the model forbids duplicate source→target edges, this pair is a
+ * stable key into model.edges — more robust than relying on DOM order.
+ */
+export function edgeEndpointsFromPath(el: Element): { source: string; target: string } | null {
+  const m = el.id.match(/L_(.+?)_(.+?)_\d+$/);
+  return m ? { source: m[1], target: m[2] } : null;
 }

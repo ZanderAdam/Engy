@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nodeIdFromElement, nodeAtPoint, type NodeBox } from './svg-nodes';
+import { nodeIdFromElement, nodeAtPoint, edgeEndpointsFromPath, type NodeBox } from './svg-nodes';
 
 /** Minimal stand-in for the parts of Element that nodeIdFromElement reads. */
 function el(id: string, dataId: string | null = null): Element {
@@ -21,6 +21,20 @@ describe('mermaid visual editor svg-nodes', () => {
     it('falls back to a trailing-counter id, then the raw id', () => {
       expect(nodeIdFromElement(el('A-0'))).toBe('A');
       expect(nodeIdFromElement(el('plain'))).toBe('plain');
+    });
+  });
+
+  describe('edgeEndpointsFromPath', () => {
+    it('extracts source and target from a mermaid edge path id', () => {
+      expect(edgeEndpointsFromPath(el('mermaid-uuid-3-L_A_B_0'))).toEqual({ source: 'A', target: 'B' });
+      expect(edgeEndpointsFromPath(el('mermaid-uuid-3-L_Node1_Node2_1'))).toEqual({
+        source: 'Node1',
+        target: 'Node2',
+      });
+    });
+
+    it('returns null when the id has no edge marker', () => {
+      expect(edgeEndpointsFromPath(el('flowchart-A-0'))).toBeNull();
     });
   });
 

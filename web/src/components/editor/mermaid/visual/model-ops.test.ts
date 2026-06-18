@@ -7,6 +7,7 @@ import {
   deleteEdge,
   updateNodeLabel,
   updateNodeShape,
+  updateEdgeLabel,
   duplicateNode,
 } from './model-ops';
 import { parseFlowchart } from './parse';
@@ -58,6 +59,12 @@ describe('mermaid visual editor model-ops', () => {
     next = updateNodeShape(next, 'A', 'cylinder');
     const a = next.nodes.find((n) => n.id === 'A')!;
     expect(a).toMatchObject({ label: 'Start', shape: 'cylinder' });
+  });
+
+  it('updates an edge label', () => {
+    const base = model('flowchart TD\n A --> B');
+    const next = updateEdgeLabel(base, base.edges[0].id, 'yes');
+    expect(next.edges[0].label).toBe('yes');
   });
 
   it('duplicates a node into the same subgraph', () => {

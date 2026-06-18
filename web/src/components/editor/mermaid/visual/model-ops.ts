@@ -93,6 +93,13 @@ export function updateNodeShape(model: FlowModel, id: string, shape: NodeShape):
   return next;
 }
 
+export function updateEdgeLabel(model: FlowModel, id: string, label: string): FlowModel {
+  const next = clone(model);
+  const edge = next.edges.find((e) => e.id === id);
+  if (edge) edge.label = label;
+  return next;
+}
+
 export function duplicateNode(
   model: FlowModel,
   id: string,

@@ -19,14 +19,17 @@ import {
   duplicateNode,
   updateNodeLabel,
   updateNodeShape,
+  updateEdgeLabel,
 } from './model-ops';
-import type { FlowModel, NodeShape } from './flow-model';
+import { type FlowModel, type NodeShape, PALETTE_SHAPES, SHAPE_LABELS } from './flow-model';
+import { ShapeIcon } from './shape-icon';
 import {
   collectNodeBoxes,
   nodeAtPoint,
   nodeIdFromElement,
   edgeLabelElements,
   edgePathElements,
+  edgeEndpointsFromPath,
   type NodeBox,
 } from './svg-nodes';
 import { NodeToolbar } from './node-toolbar';
@@ -37,8 +40,12 @@ const MAX_SCALE = 8;
 const ZOOM_FACTOR = 1.1;
 const RENDER_DEBOUNCE_MS = 200;
 
+const HOVER_PAD = 16;
+
 type Selection = { type: 'node'; id: string } | { type: 'edge'; id: string } | null;
 type Connecting = { sourceId: string; x: number; y: number } | null;
+/** A connection dropped on empty canvas, awaiting a shape choice for the new node. */
+type PendingNode = { sourceId: string; x: number; y: number } | null;
 
 interface MermaidVisualEditorProps {
   code: string;
@@ -60,6 +67,8 @@ export function MermaidVisualEditor({ code, onCodeChange, className }: MermaidVi
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState<Connecting>(null);
   const [panning, setPanning] = useState(false);
+  const [pendingNode, setPendingNode] = useState<PendingNode>(null);
+  const [autoFocusLabel, setAutoFocusLabel] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const svgHostRef = useRef<HTMLDivElement>(null);
@@ -189,7 +198,8 @@ export function MermaidVisualEditor({ code, onCodeChange, className }: MermaidVi
         if (target && target.id !== c.sourceId) {
           mutate((m) => addEdge(m, c.sourceId, target.id));
         } else if (!target) {
-          mutateAndSelectNode((m) => addConnectedNode(m, c.sourceId));
+          // Dropped on empty canvas: ask which shape the new node should be.
+          setPendingNode({ sourceId: c.sourceId, x, y });
         }
       }
       setConnecting(null);
@@ -201,7 +211,7 @@ export function MermaidVisualEditor({ code, onCodeChange, className }: MermaidVi
       window.removeEventListener('pointerup', onUp);
     };
     // Re-bind only when a connection drag starts or ends, not on every move.
-  }, [isConnecting, mutate, mutateAndSelectNode]);
+  }, [isConnecting, mutate]);
 
   // Delete/Escape on the current selection (ignored while typing).
   useEffect(() => {
@@ -215,24 +225,37 @@ export function MermaidVisualEditor({ code, onCodeChange, className }: MermaidVi
         if (sel.type === 'node') mutate((m) => deleteNode(m, sel.id));
         else mutate((m) => deleteEdge(m, sel.id));
         setSelection(null);
-      } else if (e.key === 'Escape') {
-        setSelection(null);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [mutate]);
 
+  const selectEdgeByEndpoints = (source: string, target: string): boolean => {
+    const edge = model?.edges.find((e) => e.source === source && e.target === target);
+    if (edge) {
+      setSelection({ type: 'edge', id: edge.id });
+      return true;
+    }
+    return false;
+  };
+
   const selectEdgeFromElement = (svgEl: SVGElement, el: Element): boolean => {
     if (!model) return false;
-    const labelMatch = el.closest('.edgeLabel');
-    const list = labelMatch ? edgeLabelElements(svgEl) : edgePathElements(svgEl);
-    const hit = labelMatch ?? el.closest('g.edgePaths > path, path.flowchart-link');
-    if (!hit) return false;
-    const index = list.indexOf(hit as SVGElement);
-    if (index >= 0 && index < model.edges.length) {
-      setSelection({ type: 'edge', id: model.edges[index].id });
-      return true;
+    // Clicking the line itself: identify by the path's source/target id (robust).
+    const path = el.closest('g.edgePaths > path, path.flowchart-link');
+    if (path) {
+      const ends = edgeEndpointsFromPath(path);
+      if (ends && selectEdgeByEndpoints(ends.source, ends.target)) return true;
+    }
+    // Clicking the label: map its index to the matching path, then to the edge.
+    const label = el.closest('g.edgeLabels > g.edgeLabel');
+    if (label) {
+      const labels = edgeLabelElements(svgEl);
+      const paths = edgePathElements(svgEl);
+      const index = labels.indexOf(label as SVGElement);
+      const ends = index >= 0 && index < paths.length ? edgeEndpointsFromPath(paths[index]) : null;
+      if (ends && selectEdgeByEndpoints(ends.source, ends.target)) return true;
     }
     return false;
   };
@@ -240,6 +263,7 @@ export function MermaidVisualEditor({ code, onCodeChange, className }: MermaidVi
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const target = e.target as Element;
     const svgEl = svgHostRef.current?.querySelector('svg');
+    setAutoFocusLabel(false);
     const nodeEl = target.closest('g.node');
     if (nodeEl) {
       const id = nodeIdFromElement(nodeEl);
@@ -248,11 +272,27 @@ export function MermaidVisualEditor({ code, onCodeChange, className }: MermaidVi
     }
     if (svgEl && selectEdgeFromElement(svgEl, target)) return;
 
-    // Empty canvas: deselect and begin panning.
+    // Empty canvas: dismiss any picker, deselect and begin panning.
+    setPendingNode(null);
     setSelection(null);
     panRef.current = { active: true, x: e.clientX, y: e.clientY };
     setPanning(true);
     e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as Element;
+    const nodeEl = target.closest('g.node');
+    if (nodeEl) {
+      const id = nodeIdFromElement(nodeEl);
+      if (id) {
+        setSelection({ type: 'node', id });
+        setAutoFocusLabel(true);
+      }
+      return;
+    }
+    const svgEl = svgHostRef.current?.querySelector('svg');
+    if (svgEl && selectEdgeFromElement(svgEl, target)) setAutoFocusLabel(true);
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -265,8 +305,12 @@ export function MermaidVisualEditor({ code, onCodeChange, className }: MermaidVi
       return;
     }
     if (!connecting) {
-      const nodeEl = (e.target as Element).closest('g.node');
-      setHoveredId(nodeEl ? nodeIdFromElement(nodeEl) : null);
+      // Hover by geometry (padded) so handles on the node border don't flicker.
+      const origin = containerRef.current?.getBoundingClientRect();
+      if (origin) {
+        const hit = nodeAtPoint(boxes, e.clientX - origin.left, e.clientY - origin.top, HOVER_PAD);
+        setHoveredId(hit ? hit.id : null);
+      }
     }
   };
 
@@ -338,12 +382,13 @@ export function MermaidVisualEditor({ code, onCodeChange, className }: MermaidVi
       <div
         ref={containerRef}
         className={cn(
-          'relative flex-1 min-h-0 overflow-hidden bg-muted/10',
+          'relative flex-1 min-h-0 overflow-hidden bg-muted/10 select-none',
           panning ? 'cursor-grabbing' : 'cursor-grab',
         )}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onDoubleClick={onDoubleClick}
         onPointerLeave={() => setHoveredId(null)}
       >
         {/* Transformed diagram layer */}
@@ -410,6 +455,7 @@ export function MermaidVisualEditor({ code, onCodeChange, className }: MermaidVi
             node={selectedNode}
             left={selectedBox.left + selectedBox.width / 2}
             top={selectedBox.top}
+            autoFocus={autoFocusLabel}
             onRename={(label) => mutate((m) => updateNodeLabel(m, selectedNode.id, label))}
             onShapeChange={(shape: NodeShape) => mutate((m) => updateNodeShape(m, selectedNode.id, shape))}
             onDuplicate={() => mutateAndSelectNode((m) => duplicateNode(m, selectedNode.id))}
@@ -418,6 +464,58 @@ export function MermaidVisualEditor({ code, onCodeChange, className }: MermaidVi
               setSelection(null);
             }}
           />
+        )}
+
+        {/* Edge label editor — appears at the edge midpoint when an edge is selected */}
+        {selection?.type === 'edge' && selectedEdgeBoxes && (
+          <input
+            key={selection.id}
+            autoFocus={autoFocusLabel}
+            defaultValue={model?.edges.find((e) => e.id === selection.id)?.label ?? ''}
+            placeholder="Edge label"
+            aria-label="Edge label"
+            className="absolute z-20 h-6 w-28 -translate-x-1/2 -translate-y-1/2 bg-popover border border-border px-1.5 text-xs outline-none focus:border-ring shadow-md"
+            style={{
+              left: (selectedEdgeBoxes.s.cx + selectedEdgeBoxes.t.cx) / 2,
+              top: (selectedEdgeBoxes.s.cy + selectedEdgeBoxes.t.cy) / 2,
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onBlur={(e) => {
+              const id = selection.id;
+              const current = model?.edges.find((ed) => ed.id === id)?.label ?? '';
+              if (e.target.value !== current) mutate((m) => updateEdgeLabel(m, id, e.target.value));
+            }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur();
+            }}
+          />
+        )}
+
+        {/* Shape picker after dropping a connection on empty canvas */}
+        {pendingNode && (
+          <div
+            className="absolute z-30 grid grid-cols-3 gap-0.5 bg-popover border border-border p-1 shadow-md -translate-x-1/2"
+            style={{ left: pendingNode.x, top: pendingNode.y }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {PALETTE_SHAPES.map((shape) => (
+              <button
+                key={shape}
+                type="button"
+                title={SHAPE_LABELS[shape]}
+                aria-label={`New ${SHAPE_LABELS[shape]}`}
+                className="flex items-center justify-center p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                onClick={() => {
+                  const sourceId = pendingNode.sourceId;
+                  setPendingNode(null);
+                  mutateAndSelectNode((m) => addConnectedNode(m, sourceId, shape));
+                }}
+              >
+                <ShapeIcon shape={shape} />
+              </button>
+            ))}
+          </div>
         )}
 
         {isFlowchart && (
