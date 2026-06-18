@@ -39,6 +39,7 @@ const TERMINAL_ACTIVITY_BOX_STYLES: Record<TerminalActivityState, string> = {
 
 export function getTerminalRailBoxStyle(tab: TerminalTab): string {
   if (tab.status === 'connecting') return 'bg-muted text-muted-foreground animate-pulse';
+  if (tab.status === 'error') return 'bg-destructive/25 text-destructive';
   if (tab.status === 'exited') return 'bg-muted/40 text-muted-foreground';
   return TERMINAL_ACTIVITY_BOX_STYLES[tab.activityState ?? 'idle'];
 }

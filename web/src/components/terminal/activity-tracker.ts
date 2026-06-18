@@ -6,6 +6,7 @@ interface ActivityTracker {
   resetOnUserInput: () => void;
   acknowledge: () => void;
   suppress: () => void;
+  suppressOutput: (ms: number) => void;
   dispose: () => void;
 }
 
@@ -101,6 +102,8 @@ export function createActivityTracker({
     settleIdle();
   }
 
+  // Heavy reset for reconnect: the daemon replays the scrollback buffer, so
+  // drop all state and ignore the replayed bytes for the full window.
   function suppress() {
     suppressActivityUntil = Date.now() + suppressMs;
     clearInactivityTimer();
@@ -109,9 +112,18 @@ export function createActivityTracker({
     current = 'idle';
   }
 
+  // Light, short ignore window for a resize-triggered redraw (collapse/expand,
+  // tab reselect, drag-resize). Unlike suppress() this preserves the current
+  // state and any pending settle timer, so a quiet done/active dot stays put and
+  // a real settle still fires — the redraw burst is simply not counted.
+  function suppressOutput(ms: number) {
+    suppressActivityUntil = Date.now() + ms;
+    chunkCount = 0;
+  }
+
   function dispose() {
     clearInactivityTimer();
   }
 
-  return { bumpActivity, handleBell, resetOnUserInput, acknowledge, suppress, dispose };
+  return { bumpActivity, handleBell, resetOnUserInput, acknowledge, suppress, suppressOutput, dispose };
 }

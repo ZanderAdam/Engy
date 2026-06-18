@@ -333,6 +333,53 @@ describe('createActivityTracker', () => {
     });
   });
 
+  describe('suppressOutput (resize redraw)', () => {
+    it('should ignore output within the window without disturbing a settled done', () => {
+      const { tracker, events } = setup();
+      skipInitialSuppress();
+
+      tracker.bumpActivity();
+      tracker.bumpActivity();
+      vi.advanceTimersByTime(DEBOUNCE_MS + 1);
+      expect(events).toEqual(['start', 'done']);
+
+      // A resize redraw arrives; it must not flip done back to active.
+      tracker.suppressOutput(1000);
+      tracker.bumpActivity();
+      tracker.bumpActivity();
+
+      expect(events).toEqual(['start', 'done']);
+    });
+
+    it('should leave a pending settle timer intact (no stuck active)', () => {
+      const { tracker, events } = setup();
+      skipInitialSuppress();
+
+      tracker.bumpActivity();
+      tracker.bumpActivity();
+      expect(events).toEqual(['start']);
+
+      // Resize while active: the existing inactivity timer must still settle.
+      tracker.suppressOutput(1000);
+      vi.advanceTimersByTime(DEBOUNCE_MS);
+
+      expect(events).toEqual(['start', 'done']);
+    });
+
+    it('should resume counting output after the window expires', () => {
+      const { tracker, events } = setup();
+      skipInitialSuppress();
+
+      tracker.suppressOutput(1000);
+      vi.advanceTimersByTime(1001);
+
+      tracker.bumpActivity();
+      tracker.bumpActivity();
+
+      expect(events).toEqual(['start']);
+    });
+  });
+
   describe('dispose', () => {
     it('should not fire inactivity callback after dispose', () => {
       const { tracker, events } = setup();

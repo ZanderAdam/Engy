@@ -34,6 +34,10 @@ interface TerminalProps {
 
 const ACTIVITY_DEBOUNCE_MS = 3000;
 const TITLE_SUPPRESS_MS = 3000;
+// Short window to ignore the redraw a PTY emits in response to a resize
+// (dock collapse/expand animation, tab reselect, drag-resize) — long enough to
+// cover the redraw, short enough not to mask genuine activity.
+const RESIZE_SUPPRESS_MS = 1000;
 
 function getWsBase(): string {
   if (typeof window === 'undefined') return '';
@@ -112,9 +116,10 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     lastSentRowsRef.current = term.rows;
     socket.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
     // A resize makes the program redraw (e.g. while the dock collapse/expand
-    // animation steps through widths). That redraw is not agent activity, so
-    // suppress the tracker briefly to avoid flipping a done/idle dot to active.
-    activityTrackerRef.current?.suppress();
+    // animation steps through widths, or on tab reselect). That redraw is not
+    // agent activity, so ignore the burst briefly — without disturbing the
+    // current dot or a pending settle — to avoid flipping done/idle to active.
+    activityTrackerRef.current?.suppressOutput(RESIZE_SUPPRESS_MS);
   }, [sessionId]);
 
   useEffect(() => {
