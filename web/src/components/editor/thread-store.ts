@@ -254,7 +254,11 @@ export class EngyThreadStore extends ThreadStore implements CommentStore {
   }
 
   private get client(): TrpcClient {
-    return trpcClients.get(this)!;
+    const client = trpcClients.get(this);
+    if (!client) {
+      throw new Error('EngyThreadStore: tRPC client accessed before construction completed');
+    }
+    return client;
   }
 
   private async loadFromDb(): Promise<void> {
