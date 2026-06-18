@@ -1,62 +1,83 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { RiFileSearchLine } from '@remixicon/react';
 import { trpc } from '@/lib/trpc';
 import { DynamicMonacoCodeEditor } from '@/components/editor/dynamic-monaco-editors';
 import { useAutoSave } from '@/components/diff/use-auto-save';
 import { RepoSelector } from '@/components/diff/repo-selector';
 import { RepoFileTree } from '@/components/code/repo-file-tree';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
+import { Button } from '@/components/ui/button';
+import { getLanguageFromPath } from '@/components/editor/language-map';
+import type { CursorPosition } from '@/components/editor/monaco-code-editor';
+import { EditorTabs } from './editor-tabs';
+import { EditorStatusBar } from './editor-status-bar';
+import { QuickOpen } from './quick-open';
+import {
+  canGoBack,
+  canGoForward,
+  closeTab,
+  emptyTabsState,
+  navigateBack,
+  navigateForward,
+  openTab,
+  type TabsState,
+} from './open-tabs';
+import {
+  codeStateKey,
+  parseCodeState,
+  serializeCodeState,
+  type CodePageState,
+} from './code-page-state';
 
 interface CodePageProps {
   workspaceSlug: string;
   projectSlug?: string;
 }
 
-interface CodePageState {
-  repo: string | null;
-  file: string | null;
-}
-
-function codeStateKey(workspaceSlug: string, projectSlug: string | undefined): string {
-  return `code-page:${workspaceSlug}:${projectSlug ?? ''}`;
-}
-
 function loadCodeState(workspaceSlug: string, projectSlug: string | undefined): CodePageState {
   try {
-    const raw = localStorage.getItem(codeStateKey(workspaceSlug, projectSlug));
-    if (!raw) return { repo: null, file: null };
-    return JSON.parse(raw) as CodePageState;
+    return parseCodeState(localStorage.getItem(codeStateKey(workspaceSlug, projectSlug)));
   } catch {
-    return { repo: null, file: null };
-  }
-}
-
-function saveCodeState(
-  workspaceSlug: string,
-  projectSlug: string | undefined,
-  state: CodePageState,
-): void {
-  try {
-    localStorage.setItem(codeStateKey(workspaceSlug, projectSlug), JSON.stringify(state));
-  } catch {
-    // localStorage may be full or unavailable
+    return parseCodeState(null);
   }
 }
 
 export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
-  const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(
-    () => loadCodeState(workspaceSlug, projectSlug).repo,
-  );
-  // Path relative to the effective root
-  const [selectedFile, setSelectedFile] = useState<string | null>(
-    () => loadCodeState(workspaceSlug, projectSlug).file,
-  );
+  const [initialState] = useState(() => loadCodeState(workspaceSlug, projectSlug));
 
-  // Persist both fields together whenever either changes.
+  const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(initialState.repo);
+  const [tabs, setTabs] = useState<TabsState>(() => ({
+    tabs: initialState.tabs,
+    active: initialState.active,
+    history: initialState.active ? [initialState.active] : [],
+    historyIndex: initialState.active ? 0 : -1,
+  }));
+  const [wordWrap, setWordWrap] = useState(initialState.wordWrap);
+  const [minimap, setMinimap] = useState(initialState.minimap);
+  const [quickOpenOpen, setQuickOpenOpen] = useState(false);
+  const [cursor, setCursor] = useState<CursorPosition | null>(null);
+
+  const selectedFile = tabs.active;
+
+  // Persist repo, open tabs and view prefs together whenever any change.
   useEffect(() => {
-    saveCodeState(workspaceSlug, projectSlug, { repo: userSelectedRepo, file: selectedFile });
-  }, [userSelectedRepo, selectedFile, workspaceSlug, projectSlug]);
+    try {
+      localStorage.setItem(
+        codeStateKey(workspaceSlug, projectSlug),
+        serializeCodeState({
+          repo: userSelectedRepo,
+          tabs: tabs.tabs,
+          active: tabs.active,
+          wordWrap,
+          minimap,
+        }),
+      );
+    } catch {
+      // localStorage may be full or unavailable
+    }
+  }, [userSelectedRepo, tabs, wordWrap, minimap, workspaceSlug, projectSlug]);
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
   const { data: taskGroups } = trpc.taskGroup.list.useQuery(
@@ -94,13 +115,14 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
     return worktreeRepoMap.get(selectedRepo) ?? selectedRepo;
   }, [selectedRepo, worktreeRepoMap]);
 
-  // Clear the open file when the effective root changes — the remembered relative
-  // path may not exist under the new root. Uses the "set state during render"
+  // Reset the open tabs when the effective root changes — the remembered relative
+  // paths may not exist under the new root. Uses the "set state during render"
   // pattern per React's set-state-in-effect rule.
   const [prevEffectiveRoot, setPrevEffectiveRoot] = useState<string | null>(effectiveRoot);
   if (effectiveRoot !== prevEffectiveRoot) {
     setPrevEffectiveRoot(effectiveRoot);
-    setSelectedFile(null);
+    setTabs(emptyTabsState);
+    setCursor(null);
   }
 
   // Pass repoDir = main repo (preserves identity), worktreePath = effectiveRoot
@@ -117,11 +139,26 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
     { enabled: !!selectedRepo && !!selectedFile, retry: false },
   );
 
-  const { status: saveStatus, save } = useAutoSave(
-    selectedRepo,
-    selectedFile,
-    overrideWorktreePath,
-  );
+  const { status: saveStatus, save } = useAutoSave(selectedRepo, selectedFile, overrideWorktreePath);
+
+  const openFile = useCallback((relPath: string) => {
+    if (!relPath) return;
+    setTabs((state) => openTab(state, relPath));
+  }, []);
+
+  // Ctrl/Cmd+P opens the fuzzy file finder.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        setQuickOpenOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const language = selectedFile ? getLanguageFromPath(selectedFile) : '';
 
   return (
     <div className="flex flex-1 min-h-0 flex-col">
@@ -132,12 +169,20 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
             selectedRepo={selectedRepo ?? ''}
             onSelectRepo={(repo) => {
               setUserSelectedRepo(repo);
-              setSelectedFile(null);
+              setTabs(emptyTabsState);
             }}
           />
-          {selectedFile && (
-            <span className="truncate font-mono text-xs text-muted-foreground">{selectedFile}</span>
-          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 text-xs text-muted-foreground"
+            disabled={!effectiveRoot}
+            onClick={() => setQuickOpenOpen(true)}
+          >
+            <RiFileSearchLine className="size-3.5" />
+            Go to File
+            <kbd className="ml-1 hidden rounded-sm bg-muted px-1 text-[10px] sm:inline">⌘P</kbd>
+          </Button>
         </div>
         <div className="ml-auto shrink-0">
           {saveStatus !== 'idle' && (
@@ -157,7 +202,7 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
               repoDir={selectedRepo}
               worktreePath={overrideWorktreePath}
               selectedFile={selectedFile}
-              onSelectFile={(relPath) => setSelectedFile(relPath || null)}
+              onSelectFile={openFile}
             />
           ) : (
             <div className="flex h-full items-center justify-center">
@@ -166,20 +211,59 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
           )}
         </div>
 
-        <div className="flex-1 min-w-0">
-          {!selectedFile ? (
-            <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-muted-foreground">Select a file to edit</p>
-            </div>
-          ) : (
-            <DynamicMonacoCodeEditor
-              content={fileData?.content ?? ''}
-              filePath={selectedFile}
-              onChange={(value) => save(value)}
+        <div className="flex flex-1 min-w-0 flex-col">
+          {tabs.tabs.length > 0 && (
+            <EditorTabs
+              tabs={tabs.tabs}
+              active={tabs.active}
+              canGoBack={canGoBack(tabs)}
+              canGoForward={canGoForward(tabs)}
+              onSelect={openFile}
+              onClose={(path) => setTabs((state) => closeTab(state, path))}
+              onBack={() => setTabs(navigateBack)}
+              onForward={() => setTabs(navigateForward)}
+            />
+          )}
+
+          <div className="flex-1 min-h-0">
+            {!selectedFile || !effectiveRoot ? (
+              <div className="flex h-full items-center justify-center">
+                <p className="text-sm text-muted-foreground">Select a file to edit</p>
+              </div>
+            ) : (
+              <DynamicMonacoCodeEditor
+                content={fileData?.content ?? ''}
+                filePath={selectedFile}
+                repoRoot={effectiveRoot}
+                wordWrap={wordWrap}
+                minimap={minimap}
+                onChange={(value) => save(value)}
+                onCursorChange={setCursor}
+              />
+            )}
+          </div>
+
+          {selectedFile && (
+            <EditorStatusBar
+              language={language}
+              cursor={cursor}
+              wordWrap={wordWrap}
+              minimap={minimap}
+              onToggleWordWrap={() => setWordWrap((v) => !v)}
+              onToggleMinimap={() => setMinimap((v) => !v)}
             />
           )}
         </div>
       </div>
+
+      {effectiveRoot && (
+        <QuickOpen
+          open={quickOpenOpen}
+          onOpenChange={setQuickOpenOpen}
+          rootDir={effectiveRoot}
+          onSelectFile={openFile}
+        />
+      )}
     </div>
   );
 }

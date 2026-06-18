@@ -457,6 +457,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                   <DynamicMonacoCodeEditor
                     content={modifiedContent}
                     filePath={selectedFile}
+                    repoRoot={selectedWorktree?.worktreePath ?? selectedRepo ?? ''}
                     onChange={save}
                   />
                 ) : (
