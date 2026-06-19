@@ -5,9 +5,7 @@ import { useCallback, useMemo } from 'react';
 import { trpc } from '@/lib/trpc';
 import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
 import { EngyThreadStore } from '@/components/editor/document-editor';
-import { ImagePreview } from '@/components/editor/image-preview';
-import { TextFileEditor } from '@/components/editor/text-file-editor';
-import { UnsupportedFilePreview } from '@/components/editor/unsupported-file-preview';
+import { FileContentPreview } from '@/components/editor/file-content-preview';
 import { FileTree } from '@/components/file-tree';
 import { fileKind } from '@/lib/file-types';
 import { RiFolderOpenLine } from '@remixicon/react';
@@ -209,69 +207,29 @@ export function DirFileEditor({
 
   const fileName = path.basename(relPath);
 
-  if (kind === 'image') {
-    if (imageQuery.isLoading) {
-      return (
-        <div className="flex items-center justify-center py-20">
-          <p className="text-sm text-muted-foreground">Loading...</p>
-        </div>
-      );
-    }
-    if (imageQuery.error) {
-      return (
-        <div className="flex flex-col items-center justify-center gap-2 py-20">
-          <p className="text-sm font-medium">Failed to load image</p>
-          <p className="text-xs text-muted-foreground">{imageQuery.error.message}</p>
-        </div>
-      );
-    }
-    return <ImagePreview dataUri={imageQuery.data!.dataUri} fileName={fileName} />;
-  }
-
-  if (kind === 'binary') {
-    return <UnsupportedFilePreview fileName={fileName} />;
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 py-20">
-        <p className="text-sm font-medium">Failed to load file</p>
-        <p className="text-xs text-muted-foreground">{error.message}</p>
-      </div>
-    );
-  }
-
-  if (kind === 'text') {
-    return (
-      <TextFileEditor
-        key={absoluteFilePath}
-        content={data?.content ?? ''}
-        onSave={handleSave}
-        fileName={fileName}
-      />
-    );
-  }
-
   return (
-    <div className="flex h-full flex-col">
-      <DynamicDocumentEditor
-        key={absoluteFilePath}
-        initialMarkdown={data?.content ?? ''}
-        onSave={handleSave}
-        comments={comments}
-        threadStore={threadStore}
-        filePath={relPath}
-        mentionDirs={[dirPath]}
-      />
-    </div>
+    <FileContentPreview
+      kind={kind}
+      fileName={fileName}
+      image={{ isLoading: imageQuery.isLoading, error: imageQuery.error, dataUri: imageQuery.data?.dataUri }}
+      fileLoading={isLoading}
+      fileError={error}
+      textContent={data?.content ?? ''}
+      textKey={absoluteFilePath}
+      onSaveText={handleSave}
+    >
+      <div className="flex h-full flex-col">
+        <DynamicDocumentEditor
+          key={absoluteFilePath}
+          initialMarkdown={data?.content ?? ''}
+          onSave={handleSave}
+          comments={comments}
+          threadStore={threadStore}
+          filePath={relPath}
+          mentionDirs={[dirPath]}
+        />
+      </div>
+    </FileContentPreview>
   );
 }
 

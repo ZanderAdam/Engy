@@ -5,9 +5,7 @@ import type { IDockviewPanelProps } from 'dockview';
 import { trpc } from '@/lib/trpc';
 import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
 import { EngyThreadStore } from '@/components/editor/document-editor';
-import { ImagePreview } from '@/components/editor/image-preview';
-import { TextFileEditor } from '@/components/editor/text-file-editor';
-import { UnsupportedFilePreview } from '@/components/editor/unsupported-file-preview';
+import { FileContentPreview } from '@/components/editor/file-content-preview';
 import { fileKind } from '@/lib/file-types';
 import { useOnFileChange } from '@/contexts/events-context';
 import { useDocDock } from './doc-dock-context';
@@ -72,65 +70,25 @@ export function WorkspaceDocDockPanel({ params }: IDockviewPanelProps<DocPanelPa
 
   const fileName = filePath.split('/').pop() ?? filePath;
 
-  if (kind === 'image') {
-    if (imageQuery.isLoading) {
-      return (
-        <div className="flex items-center justify-center py-20">
-          <p className="text-sm text-muted-foreground">Loading...</p>
-        </div>
-      );
-    }
-    if (imageQuery.error) {
-      return (
-        <div className="flex flex-col items-center justify-center gap-2 py-20">
-          <p className="text-sm font-medium">Failed to load image</p>
-          <p className="text-xs text-muted-foreground">{imageQuery.error.message}</p>
-        </div>
-      );
-    }
-    return <ImagePreview dataUri={imageQuery.data!.dataUri} fileName={fileName} />;
-  }
-
-  if (kind === 'binary') {
-    return <UnsupportedFilePreview fileName={fileName} />;
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 py-20">
-        <p className="text-sm font-medium">Failed to load file</p>
-        <p className="text-xs text-muted-foreground">{error.message}</p>
-      </div>
-    );
-  }
-
-  if (kind === 'text') {
-    return (
-      <TextFileEditor
-        key={filePath}
-        content={fileData?.content ?? ''}
-        onSave={handleSave}
-        fileName={fileName}
-      />
-    );
-  }
-
   return (
-    <DynamicDocumentEditor
-      initialMarkdown={fileData?.content ?? ''}
-      onSave={handleSave}
-      comments={true}
-      threadStore={threadStore}
-      filePath={filePath}
-      mentionDirs={repos.length > 0 ? repos : undefined}
-    />
+    <FileContentPreview
+      kind={kind}
+      fileName={fileName}
+      image={{ isLoading: imageQuery.isLoading, error: imageQuery.error, dataUri: imageQuery.data?.dataUri }}
+      fileLoading={isLoading}
+      fileError={error}
+      textContent={fileData?.content ?? ''}
+      textKey={filePath}
+      onSaveText={handleSave}
+    >
+      <DynamicDocumentEditor
+        initialMarkdown={fileData?.content ?? ''}
+        onSave={handleSave}
+        comments={true}
+        threadStore={threadStore}
+        filePath={filePath}
+        mentionDirs={repos.length > 0 ? repos : undefined}
+      />
+    </FileContentPreview>
   );
 }
