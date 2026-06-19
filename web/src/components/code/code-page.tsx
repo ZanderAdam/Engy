@@ -89,7 +89,10 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
     { enabled: !!workspace && !!projectSlug },
   );
 
-  const { repoMap: worktreeRepoMap } = useProjectWorktreeMap({ projectId: project?.id });
+  const { repoMap: worktreeRepoMap } = useProjectWorktreeMap({
+    projectId: project?.id,
+    combined: workspace?.combinedWorktrees,
+  });
 
   const allRepos = useMemo(() => {
     const repoSet = new Set<string>();

@@ -11,7 +11,7 @@ import {
 import { useBottomTerminalScope, deriveShellScope } from './use-terminal-scope';
 import { TerminalManager } from './terminal-manager';
 import { BottomTerminalToggle } from './bottom-terminal-toggle';
-import type { TerminalDropdownGroup } from './types';
+import type { TerminalDropdownEntry, TerminalDropdownGroup } from './types';
 
 const BOTTOM_TERMINAL_SHORTCUT: ShortcutDef = { ctrl: true, key: 'j' };
 
@@ -24,6 +24,17 @@ const BOTTOM_TERMINAL_CONFIG: VerticalPanelConfig = {
 
 const COLLAPSED_STORAGE_KEY = 'engy-bottom-terminal-expanded';
 
+function toShellEntry(entry: TerminalDropdownEntry): TerminalDropdownEntry {
+  if (entry.children) {
+    return { ...entry, children: entry.children.map(toShellEntry) };
+  }
+  return {
+    ...entry,
+    label: entry.label.replace('claude: ', ''),
+    scope: entry.scope ? deriveShellScope(entry.scope) : undefined,
+  };
+}
+
 function toShellDropdownGroups(
   groups: TerminalDropdownGroup[] | undefined,
 ): TerminalDropdownGroup[] | undefined {
@@ -31,11 +42,7 @@ function toShellDropdownGroups(
   return groups.map((group) => ({
     ...group,
     label: group.label?.replace('Claude in', 'Shell in'),
-    entries: group.entries.map((entry) => ({
-      ...entry,
-      label: entry.label.replace('claude: ', ''),
-      scope: deriveShellScope(entry.scope),
-    })),
+    entries: group.entries.map(toShellEntry),
   }));
 }
 

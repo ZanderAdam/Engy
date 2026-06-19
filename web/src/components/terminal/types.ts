@@ -57,6 +57,9 @@ export interface TerminalScope {
   // project/worktree scopes; workspace/dir scopes don't roll up to a project.
   projectId?: number;
   projectSlug?: string;
+  // Worktree branch this terminal targets (undefined = default branch). Used to
+  // group terminals by worktree in combined mode; does not affect groupKey.
+  worktreeBranch?: string;
 }
 
 export interface TerminalTab {
@@ -81,7 +84,11 @@ export interface TerminalDropdownEntry {
   id: string;
   label: string;
   tooltip?: string;
-  scope: TerminalScope;
+  // A leaf entry carries a `scope` (clicking opens that terminal). A branch
+  // entry carries `children` and renders as a submenu (e.g. a repo with its
+  // worktrees). Exactly one of the two is set.
+  scope?: TerminalScope;
+  children?: TerminalDropdownEntry[];
   icon?: ElementType;
 }
 

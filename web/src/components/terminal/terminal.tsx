@@ -61,6 +61,7 @@ function buildWsUrl(tab: TerminalTab): string {
   if (scope.workspaceSlug) params.set('workspaceSlug', scope.workspaceSlug);
   if (scope.projectId != null) params.set('projectId', String(scope.projectId));
   if (scope.projectSlug) params.set('projectSlug', scope.projectSlug);
+  if (scope.worktreeBranch) params.set('worktreeBranch', scope.worktreeBranch);
   if (scope.containerMode) params.set('containerMode', scope.containerMode);
   if (scope.taskId != null) params.set('taskId', String(scope.taskId));
   return `${base}/ws/terminal?${params.toString()}`;

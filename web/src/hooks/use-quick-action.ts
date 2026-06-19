@@ -13,7 +13,6 @@ export function useQuickAction() {
   const searchParams = useVirtualSearchParams();
   const workspaceSlug = params.workspace ?? '';
   const projectSlug = params.project ?? '';
-  const worktreeBranch = normalizeWtParam(searchParams.get('wt'));
 
   const { data: workspace } = trpc.workspace.get.useQuery(
     { slug: workspaceSlug },
@@ -24,8 +23,14 @@ export function useQuickAction() {
     { enabled: !!workspace && !!projectSlug },
   );
 
+  // Combined mode runs quick actions on the default branch (worktrees are a
+  // terminal-only dimension), so `?wt` is ignored for cwd and groupKey.
+  const combined = workspace?.combinedWorktrees ?? false;
+  const worktreeBranch = combined ? undefined : normalizeWtParam(searchParams.get('wt'));
+
   const { repoMap: worktreeRepoMap } = useProjectWorktreeMap({
     projectId: project?.id,
+    combined,
   });
 
   const { openNewTerminal } = useSendToTerminal();

@@ -5,6 +5,7 @@ import {
   RiArrowDownSLine,
   RiCheckLine,
   RiFolderLine,
+  RiGitBranchLine,
   RiTerminalLine,
 } from '@remixicon/react';
 import {
@@ -36,6 +37,7 @@ interface WorkspaceLike {
   slug: string;
   name: string;
   repos: unknown;
+  combinedWorktrees?: boolean;
 }
 
 interface ProjectLike {
@@ -229,14 +231,25 @@ export function MobileHeader({ workspace, project, onOpenManageWorktrees }: Mobi
           </DropdownMenu>
 
           <div className="flex shrink-0 items-center gap-1 border-l border-border px-1.5">
-            {workspaceRepoCount > 0 && onOpenManageWorktrees && (
-              <WorktreeDropdown
-                projectId={project.id}
-                workspaceRepoCount={workspaceRepoCount}
-                onOpenManage={onOpenManageWorktrees}
-                hideManageButton
-              />
-            )}
+            {workspaceRepoCount > 0 &&
+              onOpenManageWorktrees &&
+              (workspace?.combinedWorktrees ? (
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="Manage worktrees"
+                  onClick={onOpenManageWorktrees}
+                >
+                  <RiGitBranchLine className="size-3.5" />
+                </Button>
+              ) : (
+                <WorktreeDropdown
+                  projectId={project.id}
+                  workspaceRepoCount={workspaceRepoCount}
+                  onOpenManage={onOpenManageWorktrees}
+                  hideManageButton
+                />
+              ))}
             {/* Opens the RIGHT terminal (Claude/agent). The BOTTOM shell
                 terminal is opened from the floating toggle, not here. */}
             <Button

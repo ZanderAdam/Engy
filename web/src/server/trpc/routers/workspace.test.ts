@@ -545,6 +545,20 @@ describe('workspace router', () => {
       const result = await caller.workspace.get({ slug: 'get-docsdir' });
       expect(result.docsDir).toBeNull();
     });
+
+    it('should report combinedWorktrees true by default (standard engy dir)', async () => {
+      await caller.workspace.create({ name: 'Combined Default' });
+      const result = await caller.workspace.get({ slug: 'combined-default' });
+      expect(result.splitWorktrees).toBe(false);
+      expect(result.combinedWorktrees).toBe(true);
+    });
+
+    it('should report combinedWorktrees false when splitWorktrees is enabled', async () => {
+      const ws = await caller.workspace.create({ name: 'Split On', splitWorktrees: true });
+      const result = await caller.workspace.get({ slug: ws.slug });
+      expect(result.splitWorktrees).toBe(true);
+      expect(result.combinedWorktrees).toBe(false);
+    });
   });
 
   describe('delete', () => {

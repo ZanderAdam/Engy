@@ -35,6 +35,12 @@ interface ProjectWorktreeMap {
  */
 export function useProjectWorktreeMap(args: {
   projectId: number | undefined;
+  /**
+   * Combined-worktree mode: `?wt` no longer rebases content to a worktree, so
+   * `branch`/`repoMap` collapse to the default branch. `allGroups` is still
+   * returned (the new-terminal menu and manage dialog need it).
+   */
+  combined?: boolean;
 }): ProjectWorktreeMap {
   const searchParams = useVirtualSearchParams();
   const wtParam = searchParams.get('wt');
@@ -45,9 +51,10 @@ export function useProjectWorktreeMap(args: {
   );
 
   const allGroups: WorktreeGroup[] = data?.groups ?? [];
+  const combined = args.combined ?? false;
 
   return useMemo(() => {
-    if (!wtParam) {
+    if (combined || !wtParam) {
       return { branch: null, repoMap: new Map(), allGroups, isLoading };
     }
     const group = allGroups.find((g) => g.branch === wtParam);
@@ -58,5 +65,5 @@ export function useProjectWorktreeMap(args: {
     const repoMap = new Map<string, string>();
     for (const r of group.repos) repoMap.set(r.repoPath, r.worktreePath);
     return { branch: group.branch, repoMap, allGroups, isLoading };
-  }, [wtParam, allGroups, isLoading]);
+  }, [combined, wtParam, allGroups, isLoading]);
 }

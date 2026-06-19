@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
@@ -99,6 +100,33 @@ function broadcastWorkspacesSync(state: AppState): void {
   );
 }
 
+/**
+ * Combined worktrees (one project view across all worktrees) is only safe when
+ * the docs directory is NOT inside a repo — otherwise content is itself
+ * worktree-dependent (see `effectiveDocsDirForBranch`) and must stay split.
+ */
+function isDocsDirInsideRepo(docsDir: string | null, repos: string[]): boolean {
+  if (!docsDir) return false;
+  const normalizedDocs = path.resolve(docsDir);
+  return repos.some((repoPath) => {
+    const normalizedRepo = path.resolve(repoPath);
+    return (
+      normalizedDocs === normalizedRepo ||
+      normalizedDocs.startsWith(normalizedRepo + path.sep)
+    );
+  });
+}
+
+function deriveCombinedWorktrees(workspace: {
+  splitWorktrees: boolean | null;
+  docsDir: string | null;
+  repos: unknown;
+}): boolean {
+  if (workspace.splitWorktrees) return false;
+  const repos = (workspace.repos as string[] | null | undefined) ?? [];
+  return !isDocsDirInsideRepo(workspace.docsDir, repos);
+}
+
 const nameSchema = z
   .string()
   .min(1, 'Name is required')
@@ -122,6 +150,7 @@ export const workspaceRouter = router({
         planSkill: z.string().optional(),
         implementSkill: z.string().optional(),
         earsBdd: z.boolean().optional(),
+        splitWorktrees: z.boolean().optional(),
         containerEnabled: z.boolean().optional(),
         containerConfig: containerConfigSchema,
         executionBackend: executionBackendSchema,
@@ -149,6 +178,7 @@ export const workspaceRouter = router({
           planSkill: input.planSkill || DEFAULT_PLAN_SKILL,
           implementSkill: input.implementSkill || DEFAULT_IMPLEMENT_SKILL,
           earsBdd: input.earsBdd ?? false,
+          splitWorktrees: input.splitWorktrees ?? false,
           containerEnabled: input.containerEnabled,
           containerConfig: input.containerConfig,
           executionBackend: input.executionBackend,
@@ -217,6 +247,7 @@ export const workspaceRouter = router({
         planSkill: z.string().nullable().optional(),
         implementSkill: z.string().nullable().optional(),
         earsBdd: z.boolean().optional(),
+        splitWorktrees: z.boolean().optional(),
         containerEnabled: z.boolean().nullable().optional(),
         containerConfig: containerConfigSchema.nullable().optional(),
         executionBackend: executionBackendSchema.nullable().optional(),
@@ -241,6 +272,8 @@ export const workspaceRouter = router({
       const newImplementSkill =
         input.implementSkill !== undefined ? input.implementSkill : existing.implementSkill;
       const newEarsBdd = input.earsBdd !== undefined ? input.earsBdd : existing.earsBdd;
+      const newSplitWorktrees =
+        input.splitWorktrees !== undefined ? input.splitWorktrees : existing.splitWorktrees;
       const newContainerEnabled =
         input.containerEnabled !== undefined ? input.containerEnabled : existing.containerEnabled;
       const newContainerConfig =
@@ -295,6 +328,7 @@ export const workspaceRouter = router({
           planSkill: newPlanSkill,
           implementSkill: newImplementSkill,
           earsBdd: newEarsBdd,
+          splitWorktrees: newSplitWorktrees,
           containerEnabled: newContainerEnabled,
           containerConfig: newContainerConfig,
           executionBackend: newExecutionBackend,
@@ -323,6 +357,7 @@ export const workspaceRouter = router({
               planSkill: existing.planSkill,
               implementSkill: existing.implementSkill,
               earsBdd: existing.earsBdd,
+              splitWorktrees: existing.splitWorktrees,
               containerEnabled: existing.containerEnabled,
               containerConfig: existing.containerConfig,
               executionBackend: existing.executionBackend,
@@ -408,7 +443,11 @@ export const workspaceRouter = router({
     if (!workspace) {
       throw new TRPCError({ code: 'NOT_FOUND', message: `Workspace "${input.slug}" not found` });
     }
-    return { ...workspace, resolvedDir: getWorkspaceDir(workspace) };
+    return {
+      ...workspace,
+      resolvedDir: getWorkspaceDir(workspace),
+      combinedWorktrees: deriveCombinedWorktrees(workspace),
+    };
   }),
 
   delete: publicProcedure.input(z.object({ id: z.number() })).mutation(({ input, ctx }) => {

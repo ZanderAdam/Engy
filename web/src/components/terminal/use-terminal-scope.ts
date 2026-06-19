@@ -42,6 +42,7 @@ export function deriveScope(
       workspaceSlug,
       projectId,
       projectSlug,
+      worktreeBranch,
     };
   }
 
@@ -79,17 +80,19 @@ export function useTerminalScope(): TerminalScope {
   const searchParams = useVirtualSearchParams();
   const workspaceSlug = params.workspace ?? '';
   const projectSlug = params.project;
-  // Use the raw `?wt` URL param so each branch (even pre-materialization) gets
-  // its own groupKey. Path substitution below uses the resolved repoMap, which
-  // is empty until a worktree directory exists — so an unmaterialized worktree
-  // still gets a unique groupKey, but `--add-dir` flags still point at the
-  // main repo paths until the worktree is created.
-  const worktreeBranch = normalizeWtParam(searchParams.get('wt'));
 
   const { data: workspace } = trpc.workspace.get.useQuery(
     { slug: workspaceSlug },
     { enabled: !!workspaceSlug },
   );
+
+  // In combined mode all worktrees share one project-level groupKey, so the
+  // default terminal targets the default branch and ignores `?wt`. In split mode
+  // each branch gets its own groupKey (path substitution below uses the resolved
+  // repoMap, empty until the worktree exists — so an unmaterialized branch still
+  // gets a unique groupKey while `--add-dir` flags fall back to the main repos).
+  const combined = workspace?.combinedWorktrees ?? false;
+  const worktreeBranch = combined ? undefined : normalizeWtParam(searchParams.get('wt'));
 
   const { data: project } = trpc.project.getBySlug.useQuery(
     { workspaceId: workspace?.id ?? 0, slug: projectSlug ?? '' },

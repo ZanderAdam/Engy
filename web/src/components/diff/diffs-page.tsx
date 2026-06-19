@@ -66,6 +66,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
   const { branch: projectWorktreeBranch, repoMap: projectRepoMap } = useProjectWorktreeMap({
     projectId: project?.id,
+    combined: workspace?.combinedWorktrees,
   });
 
   // When a project-level worktree activates, drop any local per-repo worktree

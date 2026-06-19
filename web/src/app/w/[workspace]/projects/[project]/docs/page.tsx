@@ -38,8 +38,12 @@ export default function ProjectDocsPage() {
   const dockRef = useRef<DocDockHandle>(null);
   const [activeFile, setActiveFile] = useState<string | null>(initialFile);
 
-  const worktreeBranch = searchParams.get('wt') ?? undefined;
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
+  // Combined mode always reads the default branch; `?wt` only rebases content
+  // in split mode.
+  const worktreeBranch = workspace?.combinedWorktrees
+    ? undefined
+    : (searchParams.get('wt') ?? undefined);
   const { data: projectData, error: projectError } = trpc.project.getBySlug.useQuery(
     { workspaceId: workspace?.id ?? 0, slug: params.project, worktreeBranch },
     { enabled: !!workspace, retry: false },

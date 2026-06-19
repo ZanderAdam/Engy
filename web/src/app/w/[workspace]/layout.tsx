@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { RiGitRepositoryLine, RiGitRepositoryFill, RiComputerLine, RiBox3Line } from '@remixicon/react';
+import { RiGitRepositoryLine, RiGitRepositoryFill, RiComputerLine, RiBox3Line, RiGitBranchLine } from '@remixicon/react';
 import {
   useVirtualParams,
   useVirtualPathname,
@@ -21,7 +21,7 @@ import {
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
 import { TerminalRail } from '@/components/terminal/terminal-rail';
 import { BottomTerminalSplit } from '@/components/terminal/bottom-terminal-split';
-import type { TerminalDropdownGroup } from '@/components/terminal/types';
+import type { TerminalDropdownGroup, TerminalDropdownEntry } from '@/components/terminal/types';
 import { useWorktreeSessions } from '@/components/terminal/use-worktree-sessions';
 import { EventsProvider } from '@/contexts/events-context';
 import { useTaskAutoInvalidation } from '@/hooks/use-task-auto-invalidation';
@@ -103,14 +103,15 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   const isContainerEnabled = workspace?.containerEnabled ?? false;
 
-  const { repoMap: worktreeRepoMap } = useProjectWorktreeMap({
+  const combined = workspace?.combinedWorktrees ?? false;
+  const { repoMap: worktreeRepoMap, allGroups: worktreeGroups } = useProjectWorktreeMap({
     projectId: isProjectRoute ? project?.id : undefined,
+    combined,
   });
   // Use the raw `?wt` URL param (not the resolved/materialized branch) so the
   // groupKey isolates terminal sessions per tab even when the worktree hasn't
-  // been created yet for this repo. Path substitution still falls back to the
-  // main repo path when no worktree exists.
-  const worktreeBranch = normalizeWtParam(searchParams.get('wt'));
+  // been created yet for this repo. Ignored in combined mode (one groupKey).
+  const worktreeBranch = combined ? undefined : normalizeWtParam(searchParams.get('wt'));
 
   const extraDropdownGroups = useMemo<TerminalDropdownGroup[] | undefined>(() => {
     if (!isProjectRoute || !workspace) return undefined;
@@ -132,97 +133,211 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           })
         : undefined;
 
-    // Single source of truth: `projectGroupKey` keeps this in lockstep with the
-    // default scope in `useTerminalScope`. Always include the URL `?wt` even when
-    // the worktree for this specific repo isn't materialized yet, so terminal
-    // sessions stay isolated to this tab (not shared with the no-?wt tab).
-    const groupKeyForEntry = projectGroupKey(params.workspace, projectSlug ?? '', worktreeBranch);
-
-    /** Map a main repo path to its worktree-effective path (or main path if no match). */
-    function effectiveRepo(repoPath: string): string {
-      return worktreeRepoMap.get(repoPath) ?? repoPath;
-    }
-
-    function makeRepoEntry(
-      repoPath: string,
-      mode: 'host' | 'container' | undefined,
-    ): TerminalDropdownGroup['entries'][number] {
-      const effective = effectiveRepo(repoPath);
-      const dirName = effective.split('/').filter(Boolean).pop() ?? effective;
-      const isContainer = mode === 'container';
-      return {
-        id: `${isContainer ? 'container:' : ''}repo:${repoPath}`,
-        label: isContainer ? `${dirName} (Container)` : dirName,
-        tooltip: effective,
-        scope: {
-          scopeType: 'project',
-          scopeLabel: `claude: ${dirName}`,
-          workingDir: effective,
-          command: buildClaudeCommand({
-            systemPrompt,
-            additionalDirs: projectDir ? [projectDir] : undefined,
-            dangerouslySkipPermissions: isContainer,
-          }),
-          groupKey: groupKeyForEntry,
-          workspaceSlug: params.workspace,
-          containerMode: mode,
-          projectId: project?.id,
-          projectSlug: params.project,
-        },
-        icon: isContainer ? RiBox3Line : isContainerEnabled ? RiComputerLine : RiGitRepositoryLine,
-      };
-    }
-
-    function makeAllReposEntry(
-      mode: 'host' | 'container' | undefined,
-    ): TerminalDropdownGroup['entries'][number] {
-      const effectiveRepos = repos.map(effectiveRepo);
-      const isContainer = mode === 'container';
-      // Prefer a materialized worktree as the primary cwd when one exists.
-      const primary = repos.find((r) => worktreeRepoMap.has(r));
-      const primaryEffective = primary ? effectiveRepo(primary) : effectiveRepos[0];
-      const additional = effectiveRepos.filter((r) => r !== primaryEffective);
-      return {
-        id: `${isContainer ? 'container:' : ''}repo:all`,
-        label: isContainer ? 'All Repos (Container)' : 'All Repos',
-        tooltip: effectiveRepos.join(', '),
-        scope: {
-          scopeType: 'project',
-          scopeLabel: 'claude: all repos',
-          workingDir: primaryEffective,
-          command: buildClaudeCommand({
-            systemPrompt,
-            additionalDirs: [...(projectDir ? [projectDir] : []), ...additional],
-            dangerouslySkipPermissions: isContainer,
-          }),
-          groupKey: groupKeyForEntry,
-          workspaceSlug: params.workspace,
-          containerMode: mode,
-          projectId: project?.id,
-          projectSlug: params.project,
-        },
-        icon: isContainer ? RiBox3Line : isContainerEnabled ? RiComputerLine : RiGitRepositoryFill,
-      };
-    }
-
     const hostMode = isContainerEnabled ? ('host' as const) : undefined;
-    const entries: TerminalDropdownGroup['entries'] = [];
 
-    for (const repoPath of repos) {
-      entries.push(makeRepoEntry(repoPath, hostMode));
-      if (isContainerEnabled) {
-        entries.push(makeRepoEntry(repoPath, 'container'));
+    /**
+     * Build a "Claude in Repos" dropdown group for one worktree. `branch` is the
+     * worktree branch (undefined = default). `repoMap` maps each main repo path
+     * to its worktree checkout for this branch; missing repos fall back to main.
+     * All entries share `groupKey` so combined mode keeps every worktree's
+     * terminals in a single manager, while `scope.worktreeBranch` drives grouping.
+     */
+    function buildRepoGroup(
+      label: string,
+      branch: string | undefined,
+      repoMap: Map<string, string>,
+      groupKey: string,
+    ): TerminalDropdownGroup {
+      // Split mode keeps the pre-combined labels (no branch suffix) — the whole
+      // panel is already scoped to the active `?wt`. `worktreeBranch` is still
+      // set so every split terminal stays in one rail group (no header).
+      const effectiveRepo = (repoPath: string): string => repoMap.get(repoPath) ?? repoPath;
+
+      function makeRepoEntry(
+        repoPath: string,
+        mode: 'host' | 'container' | undefined,
+      ): TerminalDropdownGroup['entries'][number] {
+        const effective = effectiveRepo(repoPath);
+        const dirName = effective.split('/').filter(Boolean).pop() ?? effective;
+        const isContainer = mode === 'container';
+        return {
+          id: `${isContainer ? 'container:' : ''}repo:${repoPath}:${branch ?? ''}`,
+          label: isContainer ? `${dirName} (Container)` : dirName,
+          tooltip: effective,
+          scope: {
+            scopeType: 'project',
+            scopeLabel: `claude: ${dirName}`,
+            workingDir: effective,
+            command: buildClaudeCommand({
+              systemPrompt,
+              additionalDirs: projectDir ? [projectDir] : undefined,
+              dangerouslySkipPermissions: isContainer,
+            }),
+            groupKey,
+            workspaceSlug: params.workspace,
+            containerMode: mode,
+            projectId: project?.id,
+            projectSlug: params.project,
+            worktreeBranch: branch,
+          },
+          icon: isContainer ? RiBox3Line : isContainerEnabled ? RiComputerLine : RiGitRepositoryLine,
+        };
       }
+
+      function makeAllReposEntry(
+        mode: 'host' | 'container' | undefined,
+      ): TerminalDropdownGroup['entries'][number] {
+        const effectiveRepos = repos.map(effectiveRepo);
+        const isContainer = mode === 'container';
+        const primary = repos.find((r) => repoMap.has(r));
+        const primaryEffective = primary ? effectiveRepo(primary) : effectiveRepos[0];
+        const additional = effectiveRepos.filter((r) => r !== primaryEffective);
+        return {
+          id: `${isContainer ? 'container:' : ''}repo:all:${branch ?? ''}`,
+          label: isContainer ? 'All Repos (Container)' : 'All Repos',
+          tooltip: effectiveRepos.join(', '),
+          scope: {
+            scopeType: 'project',
+            scopeLabel: `claude: all repos`,
+            workingDir: primaryEffective,
+            command: buildClaudeCommand({
+              systemPrompt,
+              additionalDirs: [...(projectDir ? [projectDir] : []), ...additional],
+              dangerouslySkipPermissions: isContainer,
+            }),
+            groupKey,
+            workspaceSlug: params.workspace,
+            containerMode: mode,
+            projectId: project?.id,
+            projectSlug: params.project,
+            worktreeBranch: branch,
+          },
+          icon: isContainer ? RiBox3Line : isContainerEnabled ? RiComputerLine : RiGitRepositoryFill,
+        };
+      }
+
+      const entries: TerminalDropdownGroup['entries'] = [];
+      for (const repoPath of repos) {
+        entries.push(makeRepoEntry(repoPath, hostMode));
+        if (isContainerEnabled) entries.push(makeRepoEntry(repoPath, 'container'));
+      }
+      if (repos.length > 1) {
+        entries.push(makeAllReposEntry(hostMode));
+        if (isContainerEnabled) entries.push(makeAllReposEntry('container'));
+      }
+      return { label, entries };
     }
 
-    if (repos.length > 1) {
-      entries.push(makeAllReposEntry(hostMode));
-      if (isContainerEnabled) {
-        entries.push(makeAllReposEntry('container'));
+    // Combined mode: organise the menu BY REPO. Each repo is a submenu whose
+    // items are "default branch" + that repo's worktrees (so a repo with many
+    // worktrees stays one compact row). All entries share one project-level
+    // groupKey; `scope.worktreeBranch` drives rail grouping of open terminals.
+    if (combined) {
+      const groupKey = projectGroupKey(params.workspace, projectSlug ?? '');
+      const basename = (p: string): string => p.split('/').filter(Boolean).pop() ?? p;
+      const modes: Array<'host' | 'container' | undefined> = isContainerEnabled
+        ? ['host', 'container']
+        : [undefined];
+
+      function leaf(
+        id: string,
+        label: string,
+        scopeLabel: string,
+        workingDir: string,
+        branch: string | undefined,
+        additionalDirs: string[] | undefined,
+        mode: 'host' | 'container' | undefined,
+        icon: TerminalDropdownEntry['icon'],
+      ): TerminalDropdownEntry {
+        const isContainer = mode === 'container';
+        return {
+          id,
+          label: isContainer ? `${label} (Container)` : label,
+          tooltip: workingDir,
+          scope: {
+            scopeType: 'project',
+            scopeLabel,
+            workingDir,
+            command: buildClaudeCommand({
+              systemPrompt,
+              additionalDirs: additionalDirs ?? (projectDir ? [projectDir] : undefined),
+              dangerouslySkipPermissions: isContainer,
+            }),
+            groupKey,
+            workspaceSlug: params.workspace,
+            containerMode: mode,
+            projectId: project?.id,
+            projectSlug: params.project,
+            worktreeBranch: branch,
+          },
+          icon,
+        };
       }
+
+      function repoSubmenu(repoPath: string): TerminalDropdownEntry {
+        const dirName = basename(repoPath);
+        const children: TerminalDropdownEntry[] = [];
+        for (const mode of modes) {
+          children.push(
+            leaf(`repo:${repoPath}::${mode ?? ''}`, 'default branch', `claude: ${dirName}`,
+              repoPath, undefined, undefined, mode, RiGitRepositoryLine),
+          );
+        }
+        for (const g of worktreeGroups) {
+          const wt = g.repos.find((r) => r.repoPath === repoPath)?.worktreePath;
+          if (!wt) continue;
+          for (const mode of modes) {
+            children.push(
+              leaf(`repo:${repoPath}:${g.branch}:${mode ?? ''}`, g.branch,
+                `claude: ${dirName} (${g.branch})`, wt, g.branch, undefined, mode, RiGitBranchLine),
+            );
+          }
+        }
+        return {
+          id: `repo-submenu:${repoPath}`,
+          label: dirName,
+          children,
+          icon: isContainerEnabled ? RiComputerLine : RiGitRepositoryLine,
+        };
+      }
+
+      function allReposSubmenu(): TerminalDropdownEntry {
+        const children: TerminalDropdownEntry[] = [];
+        const addRow = (branch: string | undefined, effective: (r: string) => string) => {
+          const eff = repos.map(effective);
+          // Prefer a materialized worktree checkout as the primary cwd so the
+          // terminal opens inside the worktree (not the main repo) when repos[0]
+          // has no checkout for this branch.
+          const primaryIdx = repos.findIndex((r) => effective(r) !== r);
+          const resolvedPrimaryIdx = primaryIdx >= 0 ? primaryIdx : 0;
+          const primary = eff[resolvedPrimaryIdx];
+          // Filter by index (not value) so two repos resolving to the same path
+          // can't silently drop one from the --add-dir list.
+          const additional = eff.filter((_, i) => i !== resolvedPrimaryIdx);
+          for (const mode of modes) {
+            children.push(
+              leaf(`all:${branch ?? ''}:${mode ?? ''}`, branch ?? 'default branch',
+                branch ? `claude: all repos (${branch})` : 'claude: all repos',
+                primary, branch, [...(projectDir ? [projectDir] : []), ...additional], mode,
+                RiGitRepositoryFill),
+            );
+          }
+        };
+        addRow(undefined, (r) => r);
+        for (const g of worktreeGroups) {
+          const map = new Map(g.repos.map((r) => [r.repoPath, r.worktreePath]));
+          addRow(g.branch, (r) => map.get(r) ?? r);
+        }
+        return { id: 'repo-submenu:all', label: 'All Repos', children, icon: RiGitRepositoryFill };
+      }
+
+      const entries: TerminalDropdownEntry[] = repos.map(repoSubmenu);
+      if (repos.length > 1) entries.push(allReposSubmenu());
+      return [{ label: 'Claude in Repos', entries }];
     }
 
-    return [{ label: 'Claude in Repos', entries }];
+    const groupKey = projectGroupKey(params.workspace, projectSlug ?? '', worktreeBranch);
+    return [buildRepoGroup('Claude in Repos', worktreeBranch, worktreeRepoMap, groupKey)];
   }, [
     isProjectRoute,
     workspace,
@@ -230,8 +345,10 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     params.project,
     params.workspace,
     isContainerEnabled,
+    combined,
     worktreeBranch,
     worktreeRepoMap,
+    worktreeGroups,
   ]);
 
   const worktreeGroup = useWorktreeSessions(params.workspace);
@@ -312,7 +429,12 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           rightRail={
             !isMobile
               ? ({ collapsed, setCollapsed }) => (
-                  <TerminalRail collapsed={collapsed} setCollapsed={setCollapsed} />
+                  <TerminalRail
+                    collapsed={collapsed}
+                    setCollapsed={setCollapsed}
+                    extraDropdownGroups={allDropdownGroups}
+                    containerEnabled={isContainerEnabled}
+                  />
                 )
               : undefined
           }
