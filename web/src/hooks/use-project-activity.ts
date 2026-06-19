@@ -24,7 +24,7 @@ function recompute() {
   const next = new Map<string, ProjectActivityCounts>();
   for (const { projectSlug, state } of bySession.values()) {
     if (state === 'idle') continue;
-    const c = next.get(projectSlug) ?? { active: 0, waiting: 0, done: 0 };
+    const c = next.get(projectSlug) ?? { ...EMPTY };
     if (state === 'active') c.active++;
     else if (state === 'waiting') c.waiting++;
     else if (state === 'done') c.done++;

@@ -39,7 +39,17 @@ export class TerminalManager {
     this.sessions = sessions;
     this.sessions.setExpireCallback((sessionId) => {
       this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: -1 }));
+      this.disposeActivity(sessionId);
     });
+  }
+
+  // Tear down a session's activity tracker. Safe to call multiple times and for
+  // unknown ids — covers every removal path (exit, replace, kill, expire) since
+  // the onExit respawn guard skips its own cleanup when a session was already
+  // removed (kill/expire delete it first).
+  private disposeActivity(sessionId: string): void {
+    this.activity.get(sessionId)?.tracker.dispose();
+    this.activity.delete(sessionId);
   }
 
   setSendCallback(cb: (msg: string) => void): void {
@@ -138,8 +148,7 @@ export class TerminalManager {
     const existing = this.sessions.get(sessionId);
     if (existing) {
       console.log(`[terminal] Replacing existing PTY for session ${sessionId}, killing old pid=${existing.ptyProcess.pid}`);
-      this.activity.get(sessionId)?.tracker.dispose();
-      this.activity.delete(sessionId);
+      this.disposeActivity(sessionId);
       try {
         existing.ptyProcess.kill('SIGKILL');
       } catch {
@@ -207,8 +216,7 @@ export class TerminalManager {
       }
       this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: code }));
       this.sessions.delete(sessionId);
-      this.activity.get(sessionId)?.tracker.dispose();
-      this.activity.delete(sessionId);
+      this.disposeActivity(sessionId);
       console.log(`[terminal] Remaining sessions: [${this.sessions.all().map((s) => s.sessionId).join(', ')}]`);
     });
   }
@@ -269,6 +277,7 @@ export class TerminalManager {
     // Clear timer if process exits on its own
     session.ptyProcess.onExit(() => clearTimeout(killTimer));
     this.sessions.delete(sessionId);
+    this.disposeActivity(sessionId);
   }
 
   handleReconnect(sessionId: string): void {
