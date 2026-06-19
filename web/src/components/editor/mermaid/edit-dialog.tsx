@@ -27,7 +27,8 @@ interface DialogBodyProps {
   blockId: string;
   initialCode: string;
   onChange: (code: string) => void;
-  onClose: () => void;
+  /** Pointed at the visual editor's Escape-dismiss handler (picker/selection). */
+  dismissRef: { current: (() => boolean) | null };
 }
 
 /**
@@ -35,7 +36,7 @@ interface DialogBodyProps {
  * (via conditional rendering on `open`), so initial state is taken straight
  * from `initialCode` without needing a sync-from-props effect.
  */
-function DialogBody({ blockId, initialCode, onChange, onClose }: DialogBodyProps) {
+function DialogBody({ blockId, initialCode, onChange, dismissRef }: DialogBodyProps) {
   const [source, setSource] = useState(initialCode);
   const canVisual = detectDiagramType(source) === "flowchart";
   const [mode, setMode] = useState<EditMode>(
@@ -75,12 +76,7 @@ function DialogBody({ blockId, initialCode, onChange, onClose }: DialogBodyProps
   }, [initialCode]);
 
   return (
-    <div
-      className="flex-1 min-h-0 flex flex-col"
-      onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
-      }}
-    >
+    <div className="flex-1 min-h-0 flex flex-col">
       <div className="flex items-center gap-2 border-b border-border px-2 py-1.5">
         <div className="flex items-center gap-0.5">
           <Button
@@ -115,7 +111,7 @@ function DialogBody({ blockId, initialCode, onChange, onClose }: DialogBodyProps
 
       <div className="flex-1 min-h-0">
         {effectiveMode === "visual" ? (
-          <MermaidVisualEditor code={source} onCodeChange={setSource} />
+          <MermaidVisualEditor code={source} onCodeChange={setSource} dismissRef={dismissRef} />
         ) : (
           <div className="flex h-full min-h-0 flex-col md:flex-row">
             <div className="flex-1 min-h-0 min-w-0 border-b md:border-b-0 md:border-r border-border">
@@ -148,9 +144,17 @@ export function MermaidEditDialog({
   initialCode,
   onChange,
 }: MermaidEditDialogProps) {
+  // Lets the visual editor consume Escape (close picker/selection) before the
+  // dialog itself closes.
+  const dismissRef = useRef<(() => boolean) | null>(null);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[98vw] w-[98vw] h-[95vh] p-0 sm:max-w-[98vw] flex flex-col gap-0 ring-1">
+      <DialogContent
+        className="max-w-[98vw] w-[98vw] h-[95vh] p-0 sm:max-w-[98vw] flex flex-col gap-0 ring-1"
+        onEscapeKeyDown={(e) => {
+          if (dismissRef.current?.()) e.preventDefault();
+        }}
+      >
         <DialogTitle className="sr-only">Edit Mermaid diagram</DialogTitle>
         <DialogDescription className="sr-only">
           Edit the diagram visually on a canvas or as mermaid source code.
@@ -160,7 +164,7 @@ export function MermaidEditDialog({
             blockId={blockId}
             initialCode={initialCode}
             onChange={onChange}
-            onClose={() => onOpenChange(false)}
+            dismissRef={dismissRef}
           />
         )}
       </DialogContent>

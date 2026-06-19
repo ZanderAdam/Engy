@@ -51,9 +51,14 @@ interface MermaidVisualEditorProps {
   code: string;
   onCodeChange: (code: string) => void;
   className?: string;
+  /**
+   * The dialog points this at a handler that dismisses any open picker/selection.
+   * It returns true when it consumed an Escape, so the dialog can keep itself open.
+   */
+  dismissRef?: { current: (() => boolean) | null };
 }
 
-export function MermaidVisualEditor({ code, onCodeChange, className }: MermaidVisualEditorProps) {
+export function MermaidVisualEditor({ code, onCodeChange, className, dismissRef }: MermaidVisualEditorProps) {
   const { resolvedTheme } = useTheme();
   const theme: MermaidTheme = resolvedTheme === 'dark' ? 'dark' : 'default';
 
@@ -83,6 +88,10 @@ export function MermaidVisualEditor({ code, onCodeChange, className }: MermaidVi
   const boxesRef = useRef(boxes);
   const connectingRef = useRef(connecting);
   const selectionRef = useRef(selection);
+  const pendingNodeRef = useRef(pendingNode);
+  useEffect(() => {
+    pendingNodeRef.current = pendingNode;
+  }, [pendingNode]);
   useEffect(() => {
     codeRef.current = code;
   }, [code]);
@@ -160,6 +169,26 @@ export function MermaidVisualEditor({ code, onCodeChange, className }: MermaidVi
     },
     [onCodeChange],
   );
+
+  // Expose a dismiss handler so the dialog can let Escape close a picker/selection
+  // before falling through to closing the whole dialog.
+  useEffect(() => {
+    if (!dismissRef) return;
+    dismissRef.current = () => {
+      if (pendingNodeRef.current) {
+        setPendingNode(null);
+        return true;
+      }
+      if (selectionRef.current) {
+        setSelection(null);
+        return true;
+      }
+      return false;
+    };
+    return () => {
+      dismissRef.current = null;
+    };
+  }, [dismissRef]);
 
   // Wheel-to-zoom toward the cursor (non-passive so we can preventDefault).
   useEffect(() => {
