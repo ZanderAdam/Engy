@@ -67,6 +67,8 @@ export function useQuickAction() {
       workspaceSlug,
       containerMode: opts.containerMode,
       taskId: opts.taskId,
+      projectId: project.id,
+      projectSlug,
     };
     openNewTerminal(scope);
   }

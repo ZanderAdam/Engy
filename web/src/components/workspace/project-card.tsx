@@ -3,6 +3,7 @@
 import { VLink } from "@/components/tabs/virtual-link";
 import { Progress } from "@/components/ui/progress";
 import { ProjectStatusBadge } from "@/components/projects/project-status-badge";
+import { ProjectActivityBadge } from "@/components/projects/project-activity-badge";
 
 type ProjectWithProgress = {
   id: number;
@@ -29,9 +30,12 @@ export function ProjectCard({
       href={`/w/${workspaceSlug}/projects/${project.slug}`}
       className="flex flex-col gap-2 border border-border p-4 transition-colors hover:bg-muted/50"
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-medium">{project.name}</span>
-        <ProjectStatusBadge projectId={project.id} status={project.status} clickable />
+        <div className="flex items-center gap-2">
+          <ProjectActivityBadge projectSlug={project.slug} />
+          <ProjectStatusBadge projectId={project.id} status={project.status} clickable />
+        </div>
       </div>
       <div className="flex items-center gap-2">
         <Progress value={pct} className="flex-1" />

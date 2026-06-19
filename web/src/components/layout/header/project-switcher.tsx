@@ -12,6 +12,7 @@ import {
 import { trpc } from '@/lib/trpc';
 import { useVirtualNavigate } from '@/components/tabs/tab-context';
 import { cn } from '@/lib/utils';
+import { ProjectActivityBadge } from '@/components/projects/project-activity-badge';
 
 interface ProjectSwitcherProps {
   workspaceId: number;
@@ -51,7 +52,8 @@ export function ProjectSwitcher({
               className={cn(isActive && 'font-medium')}
             >
               <span className="truncate">{p.name}</span>
-              {isActive && <RiCheckLine className="ml-auto size-3" />}
+              <ProjectActivityBadge projectSlug={p.slug} className="ml-auto" />
+              {isActive && <RiCheckLine className="size-3" />}
             </DropdownMenuItem>
           );
         })}

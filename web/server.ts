@@ -68,6 +68,22 @@ app.prepare().then(() => {
       return;
     }
 
+    // Per-project terminal activity snapshot — initial hydration for the
+    // per-project badges. Returns every project-scoped session's current state;
+    // live updates arrive via the TERMINAL_ACTIVITY_CHANGE broadcast.
+    if (req.method === 'GET' && url.pathname === '/api/terminal/activity') {
+      const sessions = Array.from(state.terminalSessionMeta.entries())
+        .filter(([, m]) => m.projectSlug != null)
+        .map(([sessionId, m]) => ({
+          sessionId,
+          projectSlug: m.projectSlug,
+          state: m.activityState ?? 'idle',
+        }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ sessions }));
+      return;
+    }
+
     // Terminal session rename endpoint
     if (req.method === 'POST' && url.pathname === '/api/terminal/sessions/rename') {
       let body = '';

@@ -40,6 +40,8 @@ export function deriveScope(
       command: buildClaudeCommand({ systemPrompt, additionalDirs: repos }),
       groupKey: projectGroupKey(workspaceSlug, projectSlug, worktreeBranch),
       workspaceSlug,
+      projectId,
+      projectSlug,
     };
   }
 
@@ -119,6 +121,7 @@ export function useTerminalScope(): TerminalScope {
       command: buildClaudeCommand(),
       groupKey: projectGroupKey(workspaceSlug, projectSlug, worktreeBranch),
       workspaceSlug,
+      projectSlug,
     };
   }
 

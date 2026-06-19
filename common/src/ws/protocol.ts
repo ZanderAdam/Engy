@@ -792,9 +792,25 @@ export interface TerminalSyncEvent {
   sessionIds: string[];
 }
 
+/**
+ * Terminal activity state, computed daemon-side from PTY output/input so it is
+ * available even when no browser has the terminal mounted. `active` = producing
+ * output (busy), `waiting` = blocked on user input (bell/prompt), `done` =
+ * finished but unacknowledged, `idle` = nothing pending.
+ */
+export type TerminalActivityState = 'idle' | 'active' | 'waiting' | 'done';
+
+/** Daemon → server: a session's activity state changed (emitted on transitions). */
+export interface TerminalActivityEvent {
+  t: 'act';
+  sessionId: string;
+  state: TerminalActivityState;
+}
+
 export type TerminalRelayEvent =
   | TerminalOutputEvent
   | TerminalExitEvent
   | TerminalReconnectedEvent
   | TerminalErrorEvent
-  | TerminalSyncEvent;
+  | TerminalSyncEvent
+  | TerminalActivityEvent;

@@ -53,6 +53,10 @@ export interface TerminalScope {
   workspaceSlug: string;
   containerMode?: ContainerMode;
   taskId?: number;
+  // Project identity for per-project activity rollup (badges). Only set for
+  // project/worktree scopes; workspace/dir scopes don't roll up to a project.
+  projectId?: number;
+  projectSlug?: string;
 }
 
 export interface TerminalTab {

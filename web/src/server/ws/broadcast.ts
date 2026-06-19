@@ -1,4 +1,5 @@
 import { WebSocket } from 'ws';
+import type { TerminalActivityState } from '@engy/common';
 import { getAppState } from '../trpc/context';
 
 // ── Event Types ─────────────────────────────────────────────────────
@@ -49,12 +50,24 @@ interface MemoryChangeEvent {
   };
 }
 
+interface TerminalActivityChangeEvent {
+  type: 'TERMINAL_ACTIVITY_CHANGE';
+  payload: {
+    sessionId: string;
+    projectSlug?: string;
+    state?: TerminalActivityState;
+    // True when the session ended — consumers drop it from the rollup.
+    removed?: boolean;
+  };
+}
+
 type ServerEvent =
   | FileChangeEvent
   | TaskChangeEvent
   | QuestionChangeEvent
   | TerminalSessionsChangeEvent
-  | MemoryChangeEvent;
+  | MemoryChangeEvent
+  | TerminalActivityChangeEvent;
 
 // ── Generic Broadcast ───────────────────────────────────────────────
 
@@ -122,4 +135,10 @@ export function broadcastMemoryChange(
     type: 'MEMORY_CHANGE',
     payload: { action, workspaceId, memoryId },
   });
+}
+
+export function broadcastTerminalActivityChange(
+  payload: TerminalActivityChangeEvent['payload'],
+): void {
+  broadcastEvent({ type: 'TERMINAL_ACTIVITY_CHANGE', payload });
 }

@@ -8,12 +8,13 @@ import type {
   TerminalErrorEvent,
   TerminalExitEvent,
   TerminalSyncEvent,
+  TerminalActivityEvent,
 } from '@engy/common';
 import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { dispatchContainerUp } from './server';
-import { broadcastTerminalSessionsChange } from './broadcast';
+import { broadcastTerminalSessionsChange, broadcastTerminalActivityChange } from './broadcast';
 
 function parseQueryParams(url: string): URLSearchParams {
   const idx = url.indexOf('?');
@@ -161,6 +162,11 @@ async function handleTerminalConnection(
   const taskIdRaw = params.get('taskId');
   const taskIdParsed = taskIdRaw ? parseInt(taskIdRaw, 10) : NaN;
   const taskId = Number.isInteger(taskIdParsed) && taskIdParsed > 0 ? taskIdParsed : undefined;
+  const projectIdRaw = params.get('projectId');
+  const projectIdParsed = projectIdRaw ? parseInt(projectIdRaw, 10) : NaN;
+  const projectId =
+    Number.isInteger(projectIdParsed) && projectIdParsed > 0 ? projectIdParsed : undefined;
+  const projectSlug = params.get('projectSlug') ?? undefined;
 
   if (!sessionId || !workingDir) {
     ws.close(1008, 'Missing sessionId or workingDir');
@@ -217,6 +223,9 @@ async function handleTerminalConnection(
         }
         state.terminalSessions.delete(sid);
         broadcastTerminalSessionsChange('destroyed', sid, killedMeta?.groupKey);
+        if (killedMeta?.projectSlug) {
+          broadcastTerminalActivityChange({ sessionId: sid, projectSlug: killedMeta.projectSlug, removed: true });
+        }
       }
     }
 
@@ -346,6 +355,8 @@ async function handleTerminalConnection(
           workspaceSlug,
           containerMode,
           taskId,
+          projectId,
+          projectSlug,
           cols,
           rows,
         });
@@ -457,6 +468,27 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         return;
       }
 
+      // Activity transitions: persist on the session meta (so badges work for
+      // unmounted terminals) and broadcast a per-project delta. Not forwarded to
+      // the browser terminal sockets — they only consume raw PTY output.
+      if (str.startsWith('{"t":"act"')) {
+        try {
+          const act = JSON.parse(str) as TerminalActivityEvent;
+          const meta = state.terminalSessionMeta.get(act.sessionId);
+          if (meta) {
+            meta.activityState = act.state;
+            broadcastTerminalActivityChange({
+              sessionId: act.sessionId,
+              projectSlug: meta.projectSlug,
+              state: act.state,
+            });
+          }
+        } catch {
+          console.warn('[terminal-relay] Failed to parse act message');
+        }
+        return;
+      }
+
       const sessionId = extractSessionId(str);
       if (!sessionId) return;
 
@@ -492,6 +524,9 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         state.terminalSessions.delete(sessionId);
         state.terminalSessionMeta.delete(sessionId);
         broadcastTerminalSessionsChange('destroyed', sessionId, exitMeta?.groupKey);
+        if (exitMeta?.projectSlug) {
+          broadcastTerminalActivityChange({ sessionId, projectSlug: exitMeta.projectSlug, removed: true });
+        }
       }
     });
 

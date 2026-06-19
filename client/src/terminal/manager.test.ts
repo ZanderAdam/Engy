@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { IPty } from 'node-pty';
 import { CircularBuffer } from './circular-buffer.js';
 import { SessionManager } from './session-manager.js';
@@ -348,6 +348,54 @@ describe('TerminalManager', () => {
       const msg = JSON.parse(sent[0]);
       expect(msg.t).toBe('exit');
       expect(msg.exitCode).toBe(1);
+    });
+  });
+
+  describe('activity events', () => {
+    let sessions: SessionManager;
+    let manager: TerminalManager;
+    let sent: string[];
+    let onDataCallback: ((data: string) => void) | null;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      vi.useFakeTimers();
+      sent = [];
+      onDataCallback = null;
+      mockPtyProcess.onData.mockImplementation((cb: (data: string) => void) => {
+        onDataCallback = cb;
+        return { dispose: vi.fn() };
+      });
+      mockPtyProcess.onExit.mockImplementation(() => ({ dispose: vi.fn() }));
+      sessions = new SessionManager();
+      manager = new TerminalManager(sessions);
+      manager.setSendCallback((msg) => sent.push(msg));
+    });
+
+    afterEach(() => vi.useRealTimers());
+
+    function acts() {
+      return sent.map((m) => JSON.parse(m)).filter((m) => m.t === 'act');
+    }
+
+    it('emits an act:active then act:done as output flows then quiets', () => {
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      vi.advanceTimersByTime(3001); // past the initial suppress window
+      onDataCallback?.('a');
+      onDataCallback?.('b');
+      expect(acts().map((m) => m.state)).toEqual(['active']);
+      vi.advanceTimersByTime(3000);
+      expect(acts().map((m) => m.state)).toEqual(['active', 'done']);
+    });
+
+    it('emits act:idle on user input', () => {
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      vi.advanceTimersByTime(3001);
+      onDataCallback?.('a');
+      onDataCallback?.('b');
+      vi.advanceTimersByTime(3000);
+      manager.write('abc', 'x');
+      expect(acts().map((m) => m.state)).toEqual(['active', 'done', 'idle']);
     });
   });
 });

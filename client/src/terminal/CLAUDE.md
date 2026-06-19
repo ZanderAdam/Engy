@@ -22,6 +22,7 @@ Server expects these literal short keys — **don't expand to verbose keys** (ba
 | `{ t: 'o', sessionId, d }` | Output chunk |
 | `{ t: 'exit', sessionId, exitCode }` | PTY exited / expired / blocked |
 | `{ t: 'reconnected', sessionId, buffer }` | Resume with replay |
+| `{ t: 'act', sessionId, state }` | Activity transition (`idle`/`active`/`waiting`/`done`) — for per-project badges; emitted even while suspended |
 
 Use `this.sendToServer?.(JSON.stringify({...}))` — no helper today, but if you add one, keep the wire shape identical.
 

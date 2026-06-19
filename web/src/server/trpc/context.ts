@@ -3,6 +3,7 @@ import type {
   DirListEntry,
   GitFileStatus,
   GitWorktreeEntry,
+  TerminalActivityState,
   WorktreeAddErrorCode,
   WorktreeRemoveErrorCode,
 } from '@engy/common';
@@ -27,6 +28,11 @@ export interface TerminalSessionMeta {
   workspaceSlug?: string;
   containerMode?: string;
   taskId?: number;
+  projectId?: number;
+  projectSlug?: string;
+  // Activity state computed daemon-side (per-project badges); updated by the
+  // relay 'act' handler, available even when no browser has the terminal mounted.
+  activityState?: TerminalActivityState;
   cols: number;
   rows: number;
 }

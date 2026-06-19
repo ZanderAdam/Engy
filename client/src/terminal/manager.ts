@@ -1,10 +1,23 @@
 import pty from 'node-pty';
+import type { TerminalActivityState } from '@engy/common';
 import { CircularBuffer } from './circular-buffer.js';
 import { SessionManager } from './session-manager.js';
+import { createTerminalActivityParser, type TerminalActivityParser } from './activity-parse.js';
+import { createActivityTracker } from './activity-tracker.js';
 import type { PersistentSession } from './types.js';
 
 const SIGTERM_TIMEOUT_MS = 3_000;
 const DANGEROUS_FLAG_RE = /(?:^|\s)--dangerously-skip-permissions(?:\s|$)/;
+
+// Activity detection timings — mirror the browser tracker (terminal.tsx).
+const ACTIVITY_DEBOUNCE_MS = 3_000;
+const ACTIVITY_SUPPRESS_MS = 3_000;
+const RESIZE_SUPPRESS_MS = 1_000;
+
+interface SessionActivity {
+  parser: TerminalActivityParser;
+  tracker: ReturnType<typeof createActivityTracker>;
+}
 
 interface SpawnOptions {
   sessionId: string;
@@ -19,6 +32,7 @@ interface SpawnOptions {
 
 export class TerminalManager {
   private readonly sessions: SessionManager;
+  private readonly activity = new Map<string, SessionActivity>();
   private sendToServer: ((msg: string) => void) | null = null;
 
   constructor(sessions: SessionManager = new SessionManager()) {
@@ -124,6 +138,8 @@ export class TerminalManager {
     const existing = this.sessions.get(sessionId);
     if (existing) {
       console.log(`[terminal] Replacing existing PTY for session ${sessionId}, killing old pid=${existing.ptyProcess.pid}`);
+      this.activity.get(sessionId)?.tracker.dispose();
+      this.activity.delete(sessionId);
       try {
         existing.ptyProcess.kill('SIGKILL');
       } catch {
@@ -144,9 +160,28 @@ export class TerminalManager {
     };
     this.sessions.set(sessionId, session);
 
+    // Activity detection (badges): runs regardless of whether a browser is
+    // attached, so per-project status is available for unmounted terminals.
+    const activityParser = createTerminalActivityParser();
+    const activityTracker = createActivityTracker({
+      debounceMs: ACTIVITY_DEBOUNCE_MS,
+      suppressMs: ACTIVITY_SUPPRESS_MS,
+      onActivity: (event) => {
+        const state: TerminalActivityState = event === 'start' ? 'active' : event;
+        this.sendToServer?.(JSON.stringify({ t: 'act', sessionId, state }));
+      },
+    });
+    this.activity.set(sessionId, { parser: activityParser, tracker: activityTracker });
+
     ptyProcess.onData((data) => {
       session.lastActivity = Date.now();
       outputBuffer.write(data);
+
+      // Feed activity detection before the attach check — badges must reflect
+      // output even while the session is suspended (no browser attached).
+      const { hasBell, hasPrompt } = activityParser.parse(data);
+      if (hasBell) activityTracker.handleBell();
+      else if (data.length > 0) activityTracker.bumpActivity(hasPrompt);
 
       // Send initial command once we get first output (shell is ready)
       if (command && !session.initialCommandSent) {
@@ -172,6 +207,8 @@ export class TerminalManager {
       }
       this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: code }));
       this.sessions.delete(sessionId);
+      this.activity.get(sessionId)?.tracker.dispose();
+      this.activity.delete(sessionId);
       console.log(`[terminal] Remaining sessions: [${this.sessions.all().map((s) => s.sessionId).join(', ')}]`);
     });
   }
@@ -184,6 +221,7 @@ export class TerminalManager {
     }
     try {
       session.ptyProcess.write(data);
+      this.activity.get(sessionId)?.tracker.resetOnUserInput();
     } catch (err) {
       console.warn(`[terminal] write failed for session ${sessionId}:`, err);
     }
@@ -197,6 +235,8 @@ export class TerminalManager {
     }
     try {
       session.ptyProcess.resize(cols, rows);
+      // The PTY redraws on resize; don't count that burst as activity.
+      this.activity.get(sessionId)?.tracker.suppressOutput(RESIZE_SUPPRESS_MS);
     } catch (err) {
       console.warn(`[terminal] resize failed for session ${sessionId}:`, err);
     }

@@ -14,6 +14,8 @@
     "**/.turbo/**",
     "**/eslint.config.mjs",
     "**/migrations/**",
-    "**/.playwright-cli/**"
+    "**/.playwright-cli/**",
+    "**/client/src/terminal/activity-parse.ts",
+    "**/client/src/terminal/activity-tracker.ts"
   ]
 }

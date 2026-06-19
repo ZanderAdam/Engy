@@ -201,6 +201,25 @@ describe('Terminal WebSocket Server', () => {
       expect(received).toBe(outputMsg);
     });
 
+    it('should persist activity state on the session meta from an act message', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      await connectBrowser(port, {
+        sessionId: 'sess-act',
+        workingDir: '/tmp',
+        scopeType: 'project',
+        projectSlug: 'my-proj',
+      });
+      await spawnPromise;
+
+      daemonWs.send(JSON.stringify({ t: 'act', sessionId: 'sess-act', state: 'waiting' }));
+
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.get('sess-act')?.activityState).toBe('waiting');
+      });
+    });
+
     it('should forward exit to browser and clean up both session maps', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);

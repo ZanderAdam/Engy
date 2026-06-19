@@ -14,9 +14,11 @@ import {
   deriveTabTitle,
   loadPersisted,
   normalizeVirtualPath,
+  parseVirtualPath,
   savePersisted,
   type Tab,
 } from './tab-state';
+import { ProjectActivityBadge } from '@/components/projects/project-activity-badge';
 
 const PERSIST_DEBOUNCE_MS = 200;
 
@@ -360,6 +362,7 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           const { segments, worktree } = deriveTabTitle(tab.virtualPath);
+          const projectSlug = parseVirtualPath(tab.virtualPath).project;
           const base = deriveDefaultTitle(tab.virtualPath);
           const isDuplicate = (titleCounts.get(base) ?? 0) > 1;
           let ordinalSuffix = '';
@@ -444,6 +447,7 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
                   <span aria-hidden className="h-2.5" />
                 )}
               </span>
+              <ProjectActivityBadge projectSlug={projectSlug} className="shrink-0" />
               <button
                 type="button"
                 aria-label={`Close ${tab.title}`}

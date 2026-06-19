@@ -80,5 +80,7 @@ export type {
   TerminalReconnectedEvent,
   TerminalErrorEvent,
   TerminalSyncEvent,
+  TerminalActivityState,
+  TerminalActivityEvent,
   TerminalRelayEvent,
 } from './ws/protocol.js';

@@ -15,6 +15,7 @@ import {
 } from '@/components/tabs/tab-context';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { ProjectActivityBadge } from '@/components/projects/project-activity-badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -146,6 +147,7 @@ export function MobileHeader({ workspace, project, onOpenManageWorktrees }: Mobi
                   {project.name}
                 </Button>
               </ProjectSwitcher>
+              <ProjectActivityBadge projectSlug={project.slug} />
             </>
           )}
           <span className="text-muted-foreground px-0.5">›</span>

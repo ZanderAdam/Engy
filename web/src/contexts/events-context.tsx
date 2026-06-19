@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import type { TerminalActivityState } from '@engy/common';
 
 // ── Event Types ─────────────────────────────────────────────────────
 
@@ -37,12 +38,20 @@ interface MemoryChangePayload {
   memoryId?: number;
 }
 
+interface TerminalActivityChangePayload {
+  sessionId: string;
+  projectSlug?: string;
+  state?: TerminalActivityState;
+  removed?: boolean;
+}
+
 interface ServerEventMap {
   FILE_CHANGE: FileChangePayload;
   TASK_CHANGE: TaskChangePayload;
   QUESTION_CHANGE: QuestionChangePayload;
   TERMINAL_SESSIONS_CHANGE: TerminalSessionsChangePayload;
   MEMORY_CHANGE: MemoryChangePayload;
+  TERMINAL_ACTIVITY_CHANGE: TerminalActivityChangePayload;
 }
 
 type ServerEventType = keyof ServerEventMap;

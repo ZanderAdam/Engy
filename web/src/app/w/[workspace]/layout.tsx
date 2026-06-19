@@ -26,6 +26,7 @@ import { useWorktreeSessions } from '@/components/terminal/use-worktree-sessions
 import { EventsProvider } from '@/contexts/events-context';
 import { useTaskAutoInvalidation } from '@/hooks/use-task-auto-invalidation';
 import { useQuestionAutoInvalidation } from '@/hooks/use-question-auto-invalidation';
+import { useProjectActivityFeed } from '@/hooks/use-project-activity';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { projectGroupKey, normalizeWtParam } from '@/components/terminal/group-key';
 import { buildClaudeCommand, buildContextBlock } from '@/lib/shell';
@@ -165,6 +166,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           groupKey: groupKeyForEntry,
           workspaceSlug: params.workspace,
           containerMode: mode,
+          projectId: project?.id,
+          projectSlug: params.project,
         },
         icon: isContainer ? RiBox3Line : isContainerEnabled ? RiComputerLine : RiGitRepositoryLine,
       };
@@ -195,6 +198,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           groupKey: groupKeyForEntry,
           workspaceSlug: params.workspace,
           containerMode: mode,
+          projectId: project?.id,
+          projectSlug: params.project,
         },
         icon: isContainer ? RiBox3Line : isContainerEnabled ? RiComputerLine : RiGitRepositoryFill,
       };
@@ -365,5 +370,6 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 function AutoInvalidation() {
   useTaskAutoInvalidation();
   useQuestionAutoInvalidation();
+  useProjectActivityFeed();
   return null;
 }
