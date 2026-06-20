@@ -1,8 +1,15 @@
+import { randomId } from '@/lib/random-id';
+
 export interface Tab {
   id: string;
   virtualPath: string;
   title: string;
   lastActiveAt: number;
+}
+
+export interface TabsState {
+  tabs: Tab[];
+  activeTabId: string;
 }
 
 interface PersistedTabsV1 {
@@ -151,6 +158,46 @@ export function dedupeProjectTabs(tabs: Tab[]): Tab[] {
     }
   }
   return result;
+}
+
+export function makeTab(virtualPath: string): Tab {
+  const path = normalizeVirtualPath(virtualPath);
+  return {
+    id: randomId(),
+    virtualPath: path,
+    title: deriveDefaultTitle(path),
+    lastActiveAt: Date.now(),
+  };
+}
+
+export function navigateTab(tabs: Tab[], tabId: string, path: string): Tab[] {
+  return tabs.map((t) =>
+    t.id === tabId
+      ? { ...t, virtualPath: path, title: deriveDefaultTitle(path), lastActiveAt: Date.now() }
+      : t,
+  );
+}
+
+/**
+ * Resolve the tab set to start from on load. Collapses project-tab duplicates
+ * persisted before dedup existed, then reuses an existing project tab matching
+ * the bootstrap URL (navigating it to the requested section) rather than opening
+ * a duplicate. Falls back to prepending a fresh active tab.
+ */
+export function computeInitialTabs(urlPath: string, persistedTabs: Tab[]): TabsState {
+  const savedTabs = dedupeProjectTabs(persistedTabs);
+  if (savedTabs.length > 0) {
+    const exact = savedTabs.find((t) => t.virtualPath === urlPath);
+    if (exact) return { tabs: savedTabs, activeTabId: exact.id };
+    const reusable = findReusableProjectTab(savedTabs, urlPath);
+    if (reusable) {
+      return { tabs: navigateTab(savedTabs, reusable.id, urlPath), activeTabId: reusable.id };
+    }
+    const newActive = makeTab(urlPath);
+    return { tabs: [newActive, ...savedTabs], activeTabId: newActive.id };
+  }
+  const initial = makeTab(urlPath);
+  return { tabs: [initial], activeTabId: initial.id };
 }
 
 export function loadPersisted(): PersistedTabsV1 | null {

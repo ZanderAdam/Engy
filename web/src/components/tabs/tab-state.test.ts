@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  computeInitialTabs,
   dedupeProjectTabs,
   findReusableProjectTab,
   projectTabKey,
@@ -34,6 +35,12 @@ describe('tab-state dedup', () => {
       const wt = projectTabKey('/w/eng/projects/initial/code?wt=feature');
       expect(def).toBe('eng/initial@');
       expect(def).not.toBe(wt);
+    });
+
+    it('should treat an empty wt param the same as an absent one (both default branch)', () => {
+      expect(projectTabKey('/w/eng/projects/initial/code?wt=')).toBe(
+        projectTabKey('/w/eng/projects/initial/code'),
+      );
     });
 
     it('should return null for non-project paths', () => {
@@ -88,6 +95,63 @@ describe('tab-state dedup', () => {
         tab({ id: 'h2', virtualPath: '/' }),
       ]);
       expect(result).toHaveLength(2);
+    });
+
+    it('should keep the most-recently-active duplicate at the first occurrence position', () => {
+      const result = dedupeProjectTabs([
+        tab({ id: 'old', virtualPath: '/w/eng/projects/initial/code', lastActiveAt: 1 }),
+        tab({ id: 'home', virtualPath: '/' }),
+        tab({ id: 'new', virtualPath: '/w/eng/projects/initial/docs', lastActiveAt: 9 }),
+      ]);
+      expect(result.map((t) => t.id)).toEqual(['new', 'home']);
+    });
+  });
+
+  describe('computeInitialTabs', () => {
+    const PATH = '/w/eng/projects/initial/code?wt=feature';
+
+    it('should open a single fresh tab when nothing is persisted', () => {
+      const { tabs, activeTabId } = computeInitialTabs(PATH, []);
+      expect(tabs).toHaveLength(1);
+      expect(tabs[0].virtualPath).toBe(PATH);
+      expect(activeTabId).toBe(tabs[0].id);
+    });
+
+    it('should activate an exact-path match without adding a tab', () => {
+      const persisted = [tab({ id: 'home', virtualPath: '/' }), tab({ id: 'exact', virtualPath: PATH })];
+      const { tabs, activeTabId } = computeInitialTabs(PATH, persisted);
+      expect(tabs).toHaveLength(2);
+      expect(activeTabId).toBe('exact');
+    });
+
+    it('should reuse and navigate a same project+worktree tab on a different section', () => {
+      const persisted = [
+        tab({ id: 'home', virtualPath: '/' }),
+        tab({ id: 'reuse', virtualPath: '/w/eng/projects/initial/docs?wt=feature' }),
+      ];
+      const { tabs, activeTabId } = computeInitialTabs(PATH, persisted);
+      expect(tabs).toHaveLength(2);
+      expect(activeTabId).toBe('reuse');
+      expect(tabs.find((t) => t.id === 'reuse')?.virtualPath).toBe(PATH);
+    });
+
+    it('should prepend a new active tab when no match exists', () => {
+      const persisted = [tab({ id: 'home', virtualPath: '/' })];
+      const { tabs, activeTabId } = computeInitialTabs(PATH, persisted);
+      expect(tabs).toHaveLength(2);
+      expect(tabs[0].virtualPath).toBe(PATH);
+      expect(activeTabId).toBe(tabs[0].id);
+    });
+
+    it('should collapse duplicate project tabs already persisted', () => {
+      const persisted = [
+        tab({ id: 'old', virtualPath: '/w/eng/projects/initial/code?wt=feature', lastActiveAt: 1 }),
+        tab({ id: 'new', virtualPath: '/w/eng/projects/initial/docs?wt=feature', lastActiveAt: 5 }),
+      ];
+      const { tabs, activeTabId } = computeInitialTabs(PATH, persisted);
+      expect(tabs).toHaveLength(1);
+      expect(activeTabId).toBe('new');
+      expect(tabs[0].virtualPath).toBe(PATH);
     });
   });
 });

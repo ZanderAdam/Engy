@@ -4,35 +4,27 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { usePathname, useSearchParams } from 'next/navigation';
 import { RiAddLine, RiCloseLine, RiGitBranchLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
-import { randomId } from '@/lib/random-id';
 import { HeaderActions } from '@/components/header-actions';
 import { TabContext, TabsListContext, type TabContextValue, type TabsListContextValue } from './tab-context';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { TabContent } from './tab-content';
 import {
-  dedupeProjectTabs,
+  computeInitialTabs,
   deriveDefaultTitle,
   deriveTabTitle,
   findReusableProjectTab,
   loadPersisted,
+  makeTab,
+  navigateTab,
   normalizeVirtualPath,
   parseVirtualPath,
   savePersisted,
   type Tab,
+  type TabsState,
 } from './tab-state';
 import { ProjectActivityBadge } from '@/components/projects/project-activity-badge';
 
 const PERSIST_DEBOUNCE_MS = 200;
-
-function makeTab(virtualPath: string): Tab {
-  const path = normalizeVirtualPath(virtualPath);
-  return {
-    id: randomId(),
-    virtualPath: path,
-    title: deriveDefaultTitle(path),
-    lastActiveAt: Date.now(),
-  };
-}
 
 const SUBSCRIBE_NOOP = () => () => {};
 
@@ -42,36 +34,6 @@ function useIsClient(): boolean {
     () => true,
     () => false,
   );
-}
-
-interface InitialState {
-  tabs: Tab[];
-  activeTabId: string;
-}
-
-function navigateTab(tabs: Tab[], tabId: string, path: string): Tab[] {
-  return tabs.map((t) =>
-    t.id === tabId
-      ? { ...t, virtualPath: path, title: deriveDefaultTitle(path), lastActiveAt: Date.now() }
-      : t,
-  );
-}
-
-function computeInitialState(urlPath: string): InitialState {
-  const persisted = loadPersisted();
-  const savedTabs = dedupeProjectTabs(persisted?.tabs ?? []);
-  if (savedTabs.length > 0) {
-    const exact = savedTabs.find((t) => t.virtualPath === urlPath);
-    if (exact) return { tabs: savedTabs, activeTabId: exact.id };
-    const reusable = findReusableProjectTab(savedTabs, urlPath);
-    if (reusable) {
-      return { tabs: navigateTab(savedTabs, reusable.id, urlPath), activeTabId: reusable.id };
-    }
-    const newActive = makeTab(urlPath);
-    return { tabs: [newActive, ...savedTabs], activeTabId: newActive.id };
-  }
-  const initial = makeTab(urlPath);
-  return { tabs: [initial], activeTabId: initial.id };
 }
 
 export function TabShell() {
@@ -108,7 +70,9 @@ interface HistoryState {
 }
 
 function TabShellClient({ initialUrlPath }: TabShellClientProps) {
-  const [state, setState] = useState<InitialState>(() => computeInitialState(initialUrlPath));
+  const [state, setState] = useState<TabsState>(() =>
+    computeInitialTabs(initialUrlPath, loadPersisted()?.tabs ?? []),
+  );
   const { tabs, activeTabId } = state;
   const isMobile = useIsMobile();
 
@@ -200,10 +164,10 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
       const existing = findReusableProjectTab(s.tabs, path);
       if (existing) {
         openedId = existing.id;
-        return {
-          tabs: navigateTab(s.tabs, existing.id, path),
-          activeTabId: activate ? existing.id : s.activeTabId,
-        };
+        // Background opens must not disturb the visible tab — only re-point the
+        // reused tab to the requested section when we're actually focusing it.
+        if (!activate) return s;
+        return { tabs: navigateTab(s.tabs, existing.id, path), activeTabId: existing.id };
       }
       return {
         tabs: [...s.tabs, newTab],
