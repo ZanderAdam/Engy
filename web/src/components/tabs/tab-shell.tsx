@@ -10,8 +10,10 @@ import { TabContext, TabsListContext, type TabContextValue, type TabsListContext
 import { useIsMobile } from '@/hooks/use-mobile';
 import { TabContent } from './tab-content';
 import {
+  dedupeProjectTabs,
   deriveDefaultTitle,
   deriveTabTitle,
+  findReusableProjectTab,
   loadPersisted,
   normalizeVirtualPath,
   parseVirtualPath,
@@ -47,12 +49,24 @@ interface InitialState {
   activeTabId: string;
 }
 
+function navigateTab(tabs: Tab[], tabId: string, path: string): Tab[] {
+  return tabs.map((t) =>
+    t.id === tabId
+      ? { ...t, virtualPath: path, title: deriveDefaultTitle(path), lastActiveAt: Date.now() }
+      : t,
+  );
+}
+
 function computeInitialState(urlPath: string): InitialState {
   const persisted = loadPersisted();
-  const savedTabs = persisted?.tabs ?? [];
+  const savedTabs = dedupeProjectTabs(persisted?.tabs ?? []);
   if (savedTabs.length > 0) {
-    const matching = savedTabs.find((t) => t.virtualPath === urlPath);
-    if (matching) return { tabs: savedTabs, activeTabId: matching.id };
+    const exact = savedTabs.find((t) => t.virtualPath === urlPath);
+    if (exact) return { tabs: savedTabs, activeTabId: exact.id };
+    const reusable = findReusableProjectTab(savedTabs, urlPath);
+    if (reusable) {
+      return { tabs: navigateTab(savedTabs, reusable.id, urlPath), activeTabId: reusable.id };
+    }
     const newActive = makeTab(urlPath);
     return { tabs: [newActive, ...savedTabs], activeTabId: newActive.id };
   }
@@ -181,11 +195,22 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
   const openNewTab = useCallback((rawPath: string, activate = true): string => {
     const path = normalizeVirtualPath(rawPath);
     const newTab = makeTab(path);
-    setState((s) => ({
-      tabs: [...s.tabs, newTab],
-      activeTabId: activate ? newTab.id : s.activeTabId,
-    }));
-    return newTab.id;
+    let openedId = newTab.id;
+    setState((s) => {
+      const existing = findReusableProjectTab(s.tabs, path);
+      if (existing) {
+        openedId = existing.id;
+        return {
+          tabs: navigateTab(s.tabs, existing.id, path),
+          activeTabId: activate ? existing.id : s.activeTabId,
+        };
+      }
+      return {
+        tabs: [...s.tabs, newTab],
+        activeTabId: activate ? newTab.id : s.activeTabId,
+      };
+    });
+    return openedId;
   }, []);
 
   const activateTab = useCallback((id: string) => {

@@ -81,8 +81,7 @@ interface TabTitle {
 
 export function deriveTabTitle(virtualPath: string): TabTitle {
   const segments = deriveTitleSegments(virtualPath);
-  const idx = virtualPath.indexOf('?');
-  const wt = idx >= 0 ? new URLSearchParams(virtualPath.slice(idx + 1)).get('wt') : null;
+  const wt = searchParam(virtualPath, 'wt');
   if (wt) return { segments, worktree: wt };
   // Project routes that haven't picked a worktree are on the default branch —
   // show that explicitly so the second-row chip doesn't render as a blank gap.
@@ -95,6 +94,63 @@ export function deriveDefaultTitle(virtualPath: string): string {
   const { segments, worktree } = deriveTabTitle(virtualPath);
   const base = segments.join(' › ');
   return worktree ? `${base} (${worktree})` : base;
+}
+
+function searchParam(virtualPath: string, name: string): string | null {
+  const idx = virtualPath.indexOf('?');
+  if (idx < 0) return null;
+  return new URLSearchParams(virtualPath.slice(idx + 1)).get(name);
+}
+
+/**
+ * Stable identity for a "project tab": a workspace + project + worktree combo,
+ * independent of which section (code/docs/tasks/diffs) is showing. Returns null
+ * for non-project paths (home, open-directory) so those never get deduplicated.
+ */
+export function projectTabKey(virtualPath: string): string | null {
+  const { workspace, project } = parseVirtualPath(virtualPath);
+  if (!workspace || !project) return null;
+  const worktree = searchParam(virtualPath, 'wt') ?? '';
+  return `${workspace}/${project}@${worktree}`;
+}
+
+/**
+ * Find an open tab already showing the same project + worktree as `virtualPath`,
+ * so callers can focus it instead of opening a duplicate. Returns undefined for
+ * non-project paths or when no match exists.
+ */
+export function findReusableProjectTab(tabs: Tab[], virtualPath: string): Tab | undefined {
+  const key = projectTabKey(virtualPath);
+  if (!key) return undefined;
+  return tabs.find((t) => projectTabKey(t.virtualPath) === key);
+}
+
+/**
+ * Collapse tabs that point at the same project + worktree, keeping the most
+ * recently active one and preserving order. Non-project tabs are never merged.
+ * Used on load to clean up duplicates persisted before dedup existed.
+ */
+export function dedupeProjectTabs(tabs: Tab[]): Tab[] {
+  const keptByKey = new Map<string, Tab>();
+  const result: Tab[] = [];
+  for (const tab of tabs) {
+    const key = projectTabKey(tab.virtualPath);
+    if (!key) {
+      result.push(tab);
+      continue;
+    }
+    const existing = keptByKey.get(key);
+    if (!existing) {
+      keptByKey.set(key, tab);
+      result.push(tab);
+      continue;
+    }
+    if (tab.lastActiveAt > existing.lastActiveAt) {
+      result[result.indexOf(existing)] = tab;
+      keptByKey.set(key, tab);
+    }
+  }
+  return result;
 }
 
 export function loadPersisted(): PersistedTabsV1 | null {
