@@ -5,6 +5,7 @@ import { useVirtualParams, useVirtualPathname, useVirtualSearchParams } from "@/
 import { VLink } from "@/components/tabs/virtual-link";
 import { trpc } from "@/lib/trpc";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { RiGitBranchLine } from "@remixicon/react";
 import { ProjectStatusBadge } from "@/components/projects/project-status-badge";
 import { WorktreeDropdown } from "@/components/projects/worktree-dropdown";
 import { ManageWorktreesDialog } from "@/components/projects/manage-worktrees-dialog";
@@ -36,6 +37,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
 
   const basePath = `/w/${params.workspace}/projects/${params.project}`;
   const workspaceRepoCount = ((workspace.repos as string[] | null) ?? []).length;
+  const combinedWorktrees = workspace.combinedWorktrees ?? false;
   const searchString = searchParams.toString();
 
   function tabHref(segment: string): string {
@@ -88,13 +90,25 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
           <span className="opacity-60">›</span>
         </nav>
         <h1 className="text-sm font-semibold">{project.name}</h1>
-        {workspaceRepoCount > 0 && (
-          <WorktreeDropdown
-            projectId={project.id}
-            workspaceRepoCount={workspaceRepoCount}
-            onOpenManage={() => setManageOpen(true)}
-          />
-        )}
+        {workspaceRepoCount > 0 &&
+          (combinedWorktrees ? (
+            <button
+              type="button"
+              aria-label="Manage worktrees"
+              title="Manage worktrees"
+              onClick={() => setManageOpen(true)}
+              className="flex items-center gap-1 rounded-sm border border-input/40 bg-input/30 px-2 py-0.5 text-xs hover:bg-muted"
+            >
+              <RiGitBranchLine className="size-3 shrink-0 text-muted-foreground" />
+              <span>Worktrees</span>
+            </button>
+          ) : (
+            <WorktreeDropdown
+              projectId={project.id}
+              workspaceRepoCount={workspaceRepoCount}
+              onOpenManage={() => setManageOpen(true)}
+            />
+          ))}
         <ProjectStatusBadge projectId={project.id} status={project.status} clickable />
         {workspace.autoStart && (
           <TooltipProvider>

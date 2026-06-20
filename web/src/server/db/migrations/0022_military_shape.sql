@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `split_worktrees` integer DEFAULT false;

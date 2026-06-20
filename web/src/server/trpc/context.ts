@@ -30,6 +30,11 @@ export interface TerminalSessionMeta {
   taskId?: number;
   projectId?: number;
   projectSlug?: string;
+  // Which worktree branch this terminal runs against (undefined = default
+  // branch). Drives grouping-by-worktree in the rail and dropdowns; persisted so
+  // grouping survives reloads. Independent of groupKey (combined mode keeps a
+  // single project-level groupKey across all worktrees).
+  worktreeBranch?: string;
   // Activity state computed daemon-side (per-project badges); updated by the
   // relay 'act' handler, available even when no browser has the terminal mounted.
   activityState?: TerminalActivityState;

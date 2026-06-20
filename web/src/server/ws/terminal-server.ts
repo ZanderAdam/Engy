@@ -167,6 +167,7 @@ async function handleTerminalConnection(
   const projectId =
     Number.isInteger(projectIdParsed) && projectIdParsed > 0 ? projectIdParsed : undefined;
   const projectSlug = params.get('projectSlug') ?? undefined;
+  const worktreeBranch = params.get('worktreeBranch') ?? undefined;
 
   if (!sessionId || !workingDir) {
     ws.close(1008, 'Missing sessionId or workingDir');
@@ -357,6 +358,7 @@ async function handleTerminalConnection(
           taskId,
           projectId,
           projectSlug,
+          worktreeBranch,
           cols,
           rows,
         });

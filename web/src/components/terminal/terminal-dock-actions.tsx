@@ -3,12 +3,10 @@
 import { Fragment, useEffect, useState } from 'react';
 import {
   RiAddLine,
+  RiArrowLeftSLine,
   RiArrowRightSLine,
-  RiBox3Line,
+  RiGitBranchLine,
   RiListUnordered,
-  RiSplitCellsHorizontal,
-  RiSplitCellsVertical,
-  RiTerminalLine,
 } from '@remixicon/react';
 import type { IDockviewHeaderActionsProps } from 'dockview';
 import { cn } from '@/lib/utils';
@@ -21,15 +19,22 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useTerminalDock } from './terminal-dock-context';
-import { toContainerScope, type TerminalPanelParams } from './types';
+import { type TerminalPanelParams } from './types';
 import { TerminalSessionLabel } from './terminal-session-label';
+import { TerminalNewMenuContent } from './terminal-new-menu';
+import { groupTabsByWorktree } from './worktree-grouping';
 import { useTerminalActivities } from '@/hooks/use-terminal-activity';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActionsProps) {
   const { openTerminal, onCollapse, extraDropdownGroups, containerEnabled, defaultScope } =
     useTerminalDock();
+  const isMobile = useIsMobile();
   const activities = useTerminalActivities(panels.map((p) => p.id));
   const [, forceRender] = useState(0);
+  // Mobile: the cramped "all terminals" dropdown is replaced by a full-screen
+  // worktree-grouped list (the mobile equivalent of the desktop rail).
+  const [showList, setShowList] = useState(false);
 
   useEffect(() => {
     const disposables = panels.map((panel) =>
@@ -40,45 +45,79 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
     };
   }, [panels]);
 
+  const panelById = new Map(panels.map((p) => [p.id, p]));
+  const liveTabs = panels.map((panel) => {
+    const { tab } = panel.params as TerminalPanelParams;
+    return { ...tab, activityState: activities[panel.id] ?? tab.activityState };
+  });
+  const groups = groupTabsByWorktree(liveTabs);
+  const showGroupHeaders = groups.length > 1;
+
+  function focusPanel(sessionId: string) {
+    panelById.get(sessionId)?.api.setActive();
+    setShowList(false);
+  }
+
   return (
     <div className="flex shrink-0 items-center border-l border-border">
-      {panels.length > 1 && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground border-r border-border"
-              aria-label="List terminals"
-              title="All terminals"
-            >
-              <RiListUnordered className="size-3" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="max-w-96">
-            {panels.map((panel) => {
-              const { tab } = panel.params as TerminalPanelParams;
-              const liveTab = { ...tab, activityState: activities[panel.id] ?? tab.activityState };
-              const isExited = tab.status === 'exited';
-              const isActive = activePanel?.id === panel.id;
-              return (
-                <DropdownMenuItem
-                  key={panel.id}
-                  onClick={() => panel.api.setActive()}
-                  className={cn('items-start', isExited && 'opacity-60')}
-                  aria-current={isActive || undefined}
-                >
-                  <TerminalSessionLabel tab={liveTab} />
-                  {isActive && (
-                    <span
-                      aria-hidden
-                      className="ml-auto mt-1 size-1.5 rounded-full bg-foreground"
-                    />
+      {panels.length > 1 &&
+        (isMobile ? (
+          <button
+            className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground border-r border-border"
+            aria-label="List terminals"
+            onClick={() => setShowList(true)}
+          >
+            <RiListUnordered className="size-3" />
+          </button>
+        ) : (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground border-r border-border"
+                aria-label="List terminals"
+                title="All terminals"
+              >
+                <RiListUnordered className="size-3" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="max-w-96">
+              {groups.map((group, gi) => (
+                <Fragment key={group.branch ?? '__default__'}>
+                  {showGroupHeaders && (
+                    <>
+                      {gi > 0 && <DropdownMenuSeparator />}
+                      <DropdownMenuLabel className="flex items-center gap-1.5 text-xs font-semibold">
+                        <RiGitBranchLine className="size-3 text-muted-foreground" />
+                        <span className="truncate font-mono">{group.label}</span>
+                      </DropdownMenuLabel>
+                    </>
                   )}
-                </DropdownMenuItem>
-              );
-            })}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+                  {group.tabs.map((liveTab) => {
+                    const panel = panelById.get(liveTab.sessionId)!;
+                    const isExited = liveTab.status === 'exited';
+                    const isActive = activePanel?.id === panel.id;
+                    return (
+                      <DropdownMenuItem
+                        key={panel.id}
+                        onClick={() => panel.api.setActive()}
+                        className={cn('items-start', isExited && 'opacity-60')}
+                        aria-current={isActive || undefined}
+                      >
+                        <TerminalSessionLabel tab={liveTab} />
+                        {isActive && (
+                          <span
+                            aria-hidden
+                            className="ml-auto mt-1 size-1.5 rounded-full bg-foreground"
+                          />
+                        )}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </Fragment>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ))}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -90,66 +129,17 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            onClick={() =>
-              containerEnabled && defaultScope
-                ? openTerminal({ ...defaultScope, containerMode: 'host' })
-                : openTerminal()
+          <TerminalNewMenuContent
+            openTerminal={openTerminal}
+            extraDropdownGroups={extraDropdownGroups}
+            containerEnabled={containerEnabled}
+            defaultScope={defaultScope}
+            inline={isMobile}
+            onSplit={(direction) =>
+              openTerminal(undefined, { referencePanel: activePanel!.id, direction })
             }
-          >
-            <RiAddLine className="size-3" />
-            New Terminal
-          </DropdownMenuItem>
-          {containerEnabled && defaultScope && (
-            <DropdownMenuItem
-              onClick={() =>
-                openTerminal(toContainerScope(defaultScope))
-              }
-            >
-              <RiBox3Line className="size-3" />
-              New Terminal (Container)
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuItem
-            onClick={() =>
-              openTerminal(undefined, { referencePanel: activePanel!.id, direction: 'right' })
-            }
-            disabled={!activePanel}
-          >
-            <RiSplitCellsHorizontal className="size-3" />
-            Split Right
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() =>
-              openTerminal(undefined, { referencePanel: activePanel!.id, direction: 'below' })
-            }
-            disabled={!activePanel}
-          >
-            <RiSplitCellsVertical className="size-3" />
-            Split Down
-          </DropdownMenuItem>
-
-          {extraDropdownGroups?.map((group, gi) => (
-            <Fragment key={gi}>
-              <DropdownMenuSeparator />
-              {group.label && (
-                <DropdownMenuLabel className="text-[10px]">{group.label}</DropdownMenuLabel>
-              )}
-              {group.entries.map((entry) => {
-                const Icon = entry.icon ?? RiTerminalLine;
-                return (
-                  <DropdownMenuItem
-                    key={entry.id}
-                    onClick={() => openTerminal(entry.scope)}
-                    title={entry.tooltip}
-                  >
-                    <Icon className="size-3" />
-                    <span className="truncate">{entry.label}</span>
-                  </DropdownMenuItem>
-                );
-              })}
-            </Fragment>
-          ))}
+            splitDisabled={!activePanel}
+          />
         </DropdownMenuContent>
       </DropdownMenu>
       <button
@@ -160,6 +150,84 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
       >
         <RiArrowRightSLine className="size-3" />
       </button>
+
+      {/* Rendered inline (NOT portaled to document.body): the manager lives
+          inside the mobile sheet's Radix dialog, which disables pointer events
+          on everything outside it — a body portal would let taps fall through to
+          the terminal (popping the keyboard) instead of hitting the list rows.
+          No transformed ancestors, so `fixed` still covers the viewport. */}
+      {isMobile && showList && (
+        <div className="fixed inset-0 z-[60] flex flex-col bg-background">
+          <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-2">
+            <button
+              onClick={() => setShowList(false)}
+              aria-label="Back to terminal"
+              className="flex size-8 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <RiArrowLeftSLine className="size-4" />
+            </button>
+            <span className="text-xs font-medium text-muted-foreground">Terminals</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  aria-label="New terminal"
+                  className="flex size-8 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <RiAddLine className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-[70vh] overflow-y-auto">
+                <TerminalNewMenuContent
+                  openTerminal={(scope, position) => {
+                    openTerminal(scope, position);
+                    setShowList(false);
+                  }}
+                  extraDropdownGroups={extraDropdownGroups}
+                  containerEnabled={containerEnabled}
+                  defaultScope={defaultScope}
+                  inline
+                />
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <div className="flex-1 overflow-y-auto p-1.5">
+            {groups.map((group) => (
+              <div key={group.branch ?? '__default__'} className="flex flex-col gap-0.5">
+                {showGroupHeaders && (
+                  <p className="flex items-center gap-1.5 px-2 pt-2 pb-1 text-xs font-semibold text-foreground/80">
+                    <RiGitBranchLine className="size-3 shrink-0 text-muted-foreground" />
+                    <span className="truncate font-mono">{group.label}</span>
+                  </p>
+                )}
+                <div
+                  className={cn(
+                    'flex flex-col gap-0.5',
+                    showGroupHeaders && 'ml-3 border-l border-border/60 pl-1',
+                  )}
+                >
+                  {group.tabs.map((liveTab) => {
+                    const isActive = activePanel?.id === liveTab.sessionId;
+                    return (
+                      <button
+                        key={liveTab.sessionId}
+                        onClick={() => focusPanel(liveTab.sessionId)}
+                        aria-current={isActive || undefined}
+                        className={cn(
+                          'flex w-full items-start rounded-sm px-2 py-2.5 text-left hover:bg-muted',
+                          isActive && 'bg-muted',
+                          liveTab.status === 'exited' && 'opacity-60',
+                        )}
+                      >
+                        <TerminalSessionLabel tab={liveTab} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

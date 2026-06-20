@@ -30,6 +30,7 @@ import { DirPathInput } from '@/components/dir-path-input';
 import { RepoPathsField } from '@/components/repo-paths-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   ContainerSettings,
@@ -44,6 +45,7 @@ interface EditWorkspaceDialogProps {
     slug: string;
     repos: string[] | null;
     docsDir: string | null;
+    splitWorktrees: boolean | null;
     planSkill: string | null;
     implementSkill: string | null;
     containerEnabled: boolean | null;
@@ -77,6 +79,7 @@ export function EditWorkspaceDialog({
   const [slugTouched, setSlugTouched] = useState(false);
   const [docsDir, setDocsDir] = useState(workspace.docsDir ?? '');
   const [repos, setRepos] = useState<string[]>(initialRepos(workspace.repos));
+  const [splitWorktrees, setSplitWorktrees] = useState(workspace.splitWorktrees ?? false);
   const [planSkill, setPlanSkill] = useState(workspace.planSkill ?? '');
   const [implementSkill, setImplementSkill] = useState(workspace.implementSkill ?? '');
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +125,7 @@ export function EditWorkspaceDialog({
       slug: slug !== workspace.slug ? slug : undefined,
       repos: filteredRepos,
       docsDir: trimmedDocsDir || null,
+      splitWorktrees,
       planSkill: planSkill.trim() || null,
       implementSkill: implementSkill.trim() || null,
       containerEnabled: container.containerEnabled,
@@ -153,6 +157,18 @@ export function EditWorkspaceDialog({
 
   const pending = updateMutation.isPending || confirmDirs.validating;
 
+  // Combined worktrees is unavailable when docs sit inside a repo (content would
+  // be worktree-dependent), so split is forced on. Mirror the server's
+  // containment check with a simple path-prefix test (no node:path on client).
+  const docsInsideRepo = (() => {
+    const docs = docsDir.trim().replace(/\/+$/, '');
+    if (!docs) return false;
+    return repos
+      .map((r) => r.trim().replace(/\/+$/, ''))
+      .filter((r) => r !== '')
+      .some((repo) => docs === repo || docs.startsWith(repo + '/'));
+  })();
+
   function deriveSlug(value: string): string {
     return value
       .toLowerCase()
@@ -175,6 +191,7 @@ export function EditWorkspaceDialog({
       setSlugTouched(false);
       setDocsDir(workspace.docsDir ?? '');
       setRepos(initialRepos(workspace.repos));
+      setSplitWorktrees(workspace.splitWorktrees ?? false);
       setPlanSkill(workspace.planSkill ?? '');
       setImplementSkill(workspace.implementSkill ?? '');
       setError(null);
@@ -257,6 +274,24 @@ export function EditWorkspaceDialog({
                   </p>
                 </div>
                 <RepoPathsField repos={repos} onChange={setRepos} />
+                {repos.some((r) => r.trim() !== '') && (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="edit-workspace-split-worktrees">Split worktrees</Label>
+                      <Switch
+                        id="edit-workspace-split-worktrees"
+                        checked={splitWorktrees || docsInsideRepo}
+                        disabled={docsInsideRepo}
+                        onCheckedChange={setSplitWorktrees}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {docsInsideRepo
+                        ? 'Forced on — the docs directory lives inside a repo, so each worktree needs its own project view.'
+                        : 'Off (default): all worktrees share one project view; terminals are grouped by worktree. On: one project tab per worktree, like before.'}
+                    </p>
+                  </div>
+                )}
                 <div className="flex flex-col gap-2">
                   <Label>Task skills</Label>
                   <p className="text-xs text-muted-foreground">

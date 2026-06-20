@@ -3,10 +3,23 @@ import { createServer, type Server } from 'node:http';
 import { WebSocket } from 'ws';
 import { createAppState, type AppState } from '../trpc/context';
 import { createWebSocketServer } from '../ws/server';
+import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { makeDaemonRepoAdapter, chooseRepoAdapter } from './repo-adapter';
 import { localRepoAdapter } from '../lib/requirements';
 
 let openClients: WebSocket[] = [];
+
+// Daemon registration sends WORKSPACES_SYNC, which reads the workspaces table.
+// Without an isolated, migrated DB the read would hit the ambient ~/.engy data
+// and break whenever the schema is ahead of that DB — so give every test here a
+// fresh migrated DB (registration uses the getDb() singleton, not local state).
+let dbCtx: TestContext;
+beforeEach(() => {
+  dbCtx = setupTestDb();
+});
+afterEach(() => {
+  dbCtx.cleanup();
+});
 
 function startServer(state: AppState): Promise<{ server: Server; port: number }> {
   return new Promise((resolve) => {

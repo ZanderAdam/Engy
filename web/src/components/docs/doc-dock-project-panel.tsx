@@ -27,9 +27,13 @@ export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelPara
 
   const utils = trpc.useUtils();
   const searchParams = useVirtualSearchParams();
-  const worktreeBranch = searchParams.get('wt') ?? undefined;
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
+  // Combined mode always reads the default branch; `?wt` only rebases content
+  // in split mode.
+  const worktreeBranch = workspace?.combinedWorktrees
+    ? undefined
+    : (searchParams.get('wt') ?? undefined);
   const { data: projectData } = trpc.project.getBySlug.useQuery(
     { workspaceId: workspace?.id ?? 0, slug: projectSlug, worktreeBranch },
     { enabled: !!workspace },

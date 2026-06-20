@@ -57,6 +57,7 @@ app.prepare().then(() => {
             groupKey: m.groupKey,
             workspaceSlug: m.workspaceSlug,
             taskId: m.taskId,
+            worktreeBranch: m.worktreeBranch,
             status: browserCount > 0 ? 'active' as const : 'suspended' as const,
             browserCount,
           };

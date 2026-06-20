@@ -57,6 +57,7 @@ interface SessionListItem {
   groupKey?: string;
   workspaceSlug?: string;
   taskId?: number;
+  worktreeBranch?: string;
   status: 'active' | 'suspended';
   browserCount: number;
 }
@@ -111,6 +112,7 @@ function sessionToTab(s: SessionListItem, fallbackGroupKey: string): TerminalTab
       groupKey: s.groupKey ?? fallbackGroupKey,
       workspaceSlug: s.workspaceSlug ?? '',
       taskId: s.taskId,
+      worktreeBranch: s.worktreeBranch,
     },
     status: 'connecting',
   };
