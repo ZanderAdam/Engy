@@ -52,6 +52,17 @@ function MobileTerminalSheetBase({
     openRef.current = open;
   }, [open]);
 
+  // Switching project/workspace changes the terminal's scope, and re-scoping a
+  // live session in place isn't supported. Close the sheet on scope change so
+  // the user lands on the newly selected project instead of staying on the
+  // previous project's terminal.
+  const prevScopeKeyRef = useRef(scopeKey);
+  useEffect(() => {
+    if (prevScopeKeyRef.current === scopeKey) return;
+    prevScopeKeyRef.current = scopeKey;
+    if (openRef.current) closeOverlay();
+  }, [scopeKey, closeOverlay]);
+
   useEffect(() => {
     if (!queueExternalEvents) return;
     function makeHandler(name: string) {
