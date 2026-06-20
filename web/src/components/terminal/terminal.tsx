@@ -187,15 +187,24 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     // runs, isPinnedRef reflects whether xterm already scrolled a full line.
     const container = containerRef.current;
     const handleWheel = (e: WheelEvent) => {
-      // When scrolling towards scrollback while pinned, force one-line scroll
-      // to escape the auto-scroll zone. Without this, scrollToBottom() and
-      // xterm's write-triggered auto-scroll reset the native scrollbar every
-      // frame, preventing small trackpad deltas from accumulating.
-      if (isPinnedRef.current && e.deltaY < 0 && term.buffer.active.baseY > 0) {
-        term.scrollLines(-1);
+      // Any upward scroll unpins immediately and durably — output must never
+      // snap the view back while the user is reading scrollback. When pinned,
+      // also force a one-line scroll so small trackpad deltas escape the
+      // auto-scroll zone (scrollToBottom would otherwise reset the native
+      // scrollbar every frame, preventing small deltas from accumulating).
+      if (e.deltaY < 0) {
+        if (isPinnedRef.current && term.buffer.active.baseY > 0) {
+          term.scrollLines(-1);
+        }
+        isPinnedRef.current = false;
+        setShowScrollButton(true);
+        return;
       }
 
-      // Re-pin when user scrolls to the bottom
+      // Re-pin only on a downward scroll that reaches the bottom. Checking on
+      // the next frame lets xterm settle the viewport; if streaming output has
+      // pushed the bottom further away by then, viewportY stays below baseY and
+      // we correctly remain unpinned.
       requestAnimationFrame(() => {
         const t = xtermRef.current;
         if (!t) return;
