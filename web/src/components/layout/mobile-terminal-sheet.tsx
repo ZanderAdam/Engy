@@ -88,6 +88,11 @@ function MobileTerminalSheetBase({
   return (
     <Sheet
       open={open}
+      // Non-modal so the header above the sheet stays interactive while the
+      // terminal is open. Modal mode disables page pointer events + traps
+      // focus, which made the first header tap merely dismiss the sheet
+      // (requiring a second tap to open the project switcher).
+      modal={false}
       onOpenChange={(o) => {
         if (!o) closeOverlay();
       }}
@@ -102,6 +107,11 @@ function MobileTerminalSheetBase({
         showCloseButton={false}
         style={{ top: headerOffset }}
         overlayStyle={{ top: headerOffset }}
+        // Non-modal sheets have no backdrop, so tapping the header (project/
+        // workspace/tab switching) or its portaled dropdowns must not dismiss
+        // the terminal — switching projects and back returns to the same
+        // terminal. Close via the chevron, onCollapse, or the header toggle.
+        onInteractOutside={(e) => e.preventDefault()}
       >
         <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-2">
           <Button
