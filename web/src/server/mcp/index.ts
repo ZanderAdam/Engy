@@ -144,7 +144,11 @@ const updateTaskGroupInput = {
 
 const createFleetingMemoryInput = {
   workspaceId: z.number().describe('Workspace ID'),
-  content: z.string().describe('Memory content'),
+  content: z
+    .string()
+    .describe(
+      'Memory body. Structure it as: Core claim / What surprised / Connects to / Contradicts (or "nothing identified").',
+    ),
   type: z
     .enum(['capture', 'question', 'blocker', 'idea', 'reference'])
     .default('capture')
@@ -906,7 +910,7 @@ function registerTaskGroupTools(mcp: McpServer): void {
 function registerMemoryTools(mcp: McpServer): void {
   mcp.tool(
     'createFleetingMemory',
-    'Create a fleeting memory note for quick capture. Pass sources[] with paths under memory/sources/ or memory/references/ that triggered this note.',
+    'Capture a durable, non-obvious learning the repo itself will not record — a decision made in conversation and its rationale, a gotcha found the hard way, a rejected approach and why, or a convention not enforced by code. Skip anything already in the diff or commit message. One claim per note — capture liberally; dedup happens later. Drafts are promoted later via the review-memories flow. Pass sources[] with paths under memory/sources/ or memory/references/ that triggered this note.',
     createFleetingMemoryInput,
     async ({ sources, ...rest }) => {
       const db = getDb();

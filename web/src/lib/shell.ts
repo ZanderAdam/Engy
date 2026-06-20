@@ -13,6 +13,15 @@ export const ENGY_ORIENTATION = [
   '- listTaskGroups / listTasks / getTask — tasks and task groups',
   '- search — prior decisions, specs, and conventions',
   '- createTask / updateTask — track work items',
+  '- createFleetingMemory — capture a durable learning for later promotion',
+  '',
+  'Before starting substantial work, consult prior decisions, conventions, and gotchas',
+  'via the search tool — reuse what was already learned instead of rediscovering it.',
+  '',
+  'Before you finish substantial work, capture any durable, non-obvious learnings this',
+  'session produced — a decision and its rationale, a gotcha found the hard way, a',
+  'rejected approach — via createFleetingMemory (workspace id below). One claim per note;',
+  'skip anything the diff or commits would already reveal.',
 ].join('\n');
 
 export function buildAddDirFlags(dirs: string[]): string {

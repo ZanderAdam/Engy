@@ -56,6 +56,24 @@ describe('shell utilities', () => {
       expect(result).toContain('mcp__Engy__*');
     });
 
+    it('should instruct the agent to capture durable learnings via createFleetingMemory', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+      });
+      expect(result).toContain('createFleetingMemory');
+      expect(result).toContain('durable, non-obvious learnings');
+    });
+
+    it('should instruct the agent to consult prior learnings before starting work', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+      });
+      expect(result).toContain('Before starting substantial work');
+      expect(result).toContain('search tool');
+    });
+
     it('should return workspace-only context when no project', () => {
       const result = buildContextBlock({
         workspace: { id: 1, slug: 'engy' },
