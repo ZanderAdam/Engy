@@ -2,6 +2,19 @@ export function shellEscape(s: string): string {
   return s.replace(/'/g, "'\\''");
 }
 
+export const ENGY_ORIENTATION = [
+  'You are running inside Engy, a single-user AI-assisted engineering workspace.',
+  'Workspaces hold ongoing work; projects are bounded scopes within them.',
+  'The IDs below identify your current workspace and project; Engy MCP tools',
+  '(mcp__Engy__*) take them to scope their operations.',
+  '',
+  'Engy MCP tools:',
+  '- getWorkspaceDetails / getProjectDetails — filesystem paths (specs, docs) and execution context',
+  '- listTaskGroups / listTasks / getTask — tasks and task groups',
+  '- search — prior decisions, specs, and conventions',
+  '- createTask / updateTask — track work items',
+].join('\n');
+
 export function buildAddDirFlags(dirs: string[]): string {
   if (dirs.length === 0) return '';
   return dirs.map((d) => ` --add-dir '${shellEscape(d)}'`).join('');
@@ -24,7 +37,11 @@ export function buildContextBlock({
   earsBdd,
   sessionId,
 }: ContextBlockInput): string {
-  const lines: string[] = [`Workspace: ${workspace.slug} (id: ${workspace.id})`];
+  const lines: string[] = [
+    ENGY_ORIENTATION,
+    '',
+    `Workspace: ${workspace.slug} (id: ${workspace.id})`,
+  ];
   if (project) {
     lines.push(`Project: ${project.slug} (id: ${project.id})`);
     lines.push(`Project dir: ${project.dir}`);

@@ -5,7 +5,10 @@ import {
   buildContextBlock,
   buildClaudeCommand,
   buildQuickActionDirs,
+  ENGY_ORIENTATION,
 } from './shell';
+
+const PREAMBLE = `${ENGY_ORIENTATION}\n\n`;
 
 describe('shell utilities', () => {
   describe('shellEscape', () => {
@@ -43,12 +46,22 @@ describe('shell utilities', () => {
   });
 
   describe('buildContextBlock', () => {
+    it('should prepend the Engy orientation preamble before the data lines', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+      });
+      expect(result.startsWith(ENGY_ORIENTATION)).toBe(true);
+      expect(result).toContain('running inside Engy');
+      expect(result).toContain('mcp__Engy__*');
+    });
+
     it('should return workspace-only context when no project', () => {
       const result = buildContextBlock({
         workspace: { id: 1, slug: 'engy' },
         repos: [],
       });
-      expect(result).toBe('Workspace: engy (id: 1)');
+      expect(result).toBe(`${PREAMBLE}Workspace: engy (id: 1)`);
     });
 
     it('should include project fields when project provided', () => {
@@ -58,11 +71,12 @@ describe('shell utilities', () => {
         repos: [],
       });
       expect(result).toBe(
-        [
-          'Workspace: engy (id: 1)',
-          'Project: initial (id: 5)',
-          'Project dir: /home/user/.engy/workspaces/engy/projects/initial',
-        ].join('\n'),
+        PREAMBLE +
+          [
+            'Workspace: engy (id: 1)',
+            'Project: initial (id: 5)',
+            'Project dir: /home/user/.engy/workspaces/engy/projects/initial',
+          ].join('\n'),
       );
     });
 
@@ -71,7 +85,7 @@ describe('shell utilities', () => {
         workspace: { id: 1, slug: 'engy' },
         repos: ['/Users/me/repo1'],
       });
-      expect(result).toBe('Workspace: engy (id: 1)\nRepo: /Users/me/repo1');
+      expect(result).toBe(`${PREAMBLE}Workspace: engy (id: 1)\nRepo: /Users/me/repo1`);
     });
 
     it('should include plural repos label for multiple repos', () => {
@@ -80,7 +94,7 @@ describe('shell utilities', () => {
         repos: ['/Users/me/repo1', '/Users/me/repo2'],
       });
       expect(result).toBe(
-        'Workspace: engy (id: 1)\nRepos: /Users/me/repo1, /Users/me/repo2',
+        `${PREAMBLE}Workspace: engy (id: 1)\nRepos: /Users/me/repo1, /Users/me/repo2`,
       );
     });
 
@@ -91,12 +105,13 @@ describe('shell utilities', () => {
         repos: ['/repos/backend', '/repos/shared'],
       });
       expect(result).toBe(
-        [
-          'Workspace: acme (id: 2)',
-          'Project: api (id: 10)',
-          'Project dir: /projects/api',
-          'Repos: /repos/backend, /repos/shared',
-        ].join('\n'),
+        PREAMBLE +
+          [
+            'Workspace: acme (id: 2)',
+            'Project: api (id: 10)',
+            'Project dir: /projects/api',
+            'Repos: /repos/backend, /repos/shared',
+          ].join('\n'),
       );
     });
 
