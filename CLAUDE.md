@@ -30,8 +30,14 @@ Subdirectory CLAUDE.mds codify patterns at the point of use (auto-loaded when Cl
 ## Commands
 
 ```bash
-pnpm dev          # Start web + client 
+pnpm dev          # Dev: web + client with hot reload (tsx watch)
 pnpm blt          # Pre-commit gate: build + lint + test + knip + jscpd
+
+# Production (PM2-managed, see ecosystem.config.js). Requires a prior `pnpm build`.
+pnpm start        # Start web + client as two PM2 processes (engy-web, engy-client)
+pnpm cycle-web    # Rebuild + restart ONLY engy-web; the daemon keeps running and
+                  #   reconnects over WS (preserves live terminal/agent sessions)
+pnpm stop         # Stop + remove both PM2 processes
 
 # Single test file
 cd web && pnpm vitest run src/server/trpc/routers/workspace.test.ts
