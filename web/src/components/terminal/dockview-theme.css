@@ -40,3 +40,16 @@
 .dockview-theme-engy .dv-default-tab-action {
   display: none;
 }
+
+/* The tab strip is a fixed-height (32px) horizontal row, but dockview's base
+   rule sets `overflow: auto`. When tabs overflow horizontally the resulting
+   scrollbar steals vertical space, which triggers a spurious vertical scrollbar
+   that overlaps the tab text. Constrain scrolling to the horizontal axis.
+   Applies to every engy dockview instance (terminal dock + docs dock), which
+   all share this theme and hit the same structural bug.
+   overflow-x is re-declared because we're overriding the base `overflow: auto`
+   shorthand — setting only overflow-y would leave the x-axis reset to visible. */
+.dockview-theme-engy .dv-tabs-container {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
