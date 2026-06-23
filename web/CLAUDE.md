@@ -6,7 +6,7 @@ See root `CLAUDE.md` for monorepo commands and the nested CLAUDE.md index.
 
 ## Orientation
 
-- `server.ts` — composition root. One `http.Server` handles Next.js, three WebSocket upgrade paths, and the MCP transport.
+- `server.ts` — composition root. One `http.Server` handles Next.js, four WebSocket upgrade paths, and the MCP transport.
 - `src/server/` — backend services. Subdirs each have their own CLAUDE.md with authoring rules:
   - `db/` — Drizzle ORM + better-sqlite3 schema & migrations
   - `trpc/routers/` — tRPC v11 procedures (browser UI)
@@ -38,7 +38,8 @@ src/server/
 │   └── routers/                  # workspace, project, milestone, task-group, task, comment, dir, diff, file, execution, question, worktree, memory, search
 ├── ws/
 │   ├── server.ts                 # Main /ws — daemon communication + request-response maps
-│   ├── terminal-server.ts        # /ws/terminal — xterm ↔ daemon PTY relay
+│   ├── terminal-server.ts        # /ws/terminal + /ws/terminal-relay — browser xterm connection and daemon PTY relay
+│   ├── broadcast.ts              # Shared broadcast helpers (terminal sessions change, etc.)
 │   └── events-server.ts          # /ws/events — file change broadcasts to browsers
 ├── mcp/
 │   └── index.ts                  # /mcp — StreamableHTTPServerTransport for AI agents
@@ -92,10 +93,14 @@ src/app/
     ├── docs/page.tsx             # Doc browser
     ├── specs/page.tsx            # Spec listing
     └── projects/[project]/       # Project detail pages
+        ├── layout.tsx            # Project layout
         ├── page.tsx              # Project overview
         ├── tasks/page.tsx        # Project tasks
         ├── docs/page.tsx         # Project docs
-        └── diffs/page.tsx        # Git diff viewer
+        ├── diffs/page.tsx        # Git diff viewer
+        ├── memory/page.tsx       # Project memory
+        ├── code/page.tsx         # Code browser
+        └── claude-plans/page.tsx # Claude plan files
 
 src/components/
 ├── ui/                           # shadcn primitives (button, card, dialog, etc.)
@@ -169,7 +174,7 @@ Migrations auto-run on startup via `runMigrations()`. After schema changes: `pnp
 
 ### Real-Time Updates
 
-`src/contexts/file-change-context.tsx` (e.g., `useFileChangeContext`) subscribes to `/ws/events` for file change broadcasts from the daemon (via the server relay). Components never open WebSockets directly.
+`src/contexts/events-context.tsx` (e.g., `useOnFileChange`) subscribes to `/ws/events` for file change broadcasts from the daemon (via the server relay). Components never open WebSockets directly.
 
 Detailed conventions in `src/components/CLAUDE.md` and `src/components/ui/CLAUDE.md`.
 
@@ -182,7 +187,7 @@ Detailed conventions in `src/components/CLAUDE.md` and `src/components/ui/CLAUDE
 Not atomic — uses compensating deletes: if filesystem init fails after DB insert, DB row is deleted. If default project insert fails, both are rolled back. Reference implementation: `workspace.create`.
 
 ### Cycle Detection
-Iterative DFS via `detectCycle()` in `tasks/validation.ts` for task dependencies. Same logic also duplicated in `mcp/index.ts` — known debt.
+Iterative DFS via `detectCycle()` in `tasks/validation.ts` for task dependencies. `mcp/index.ts` imports `validateDependencies`/`attachBlockedBy` from there — shared, not duplicated.
 
 ### WebSocket Request-Response
 Server sends requests to daemon (e.g., `VALIDATE_PATHS_REQUEST`) and stores a promise resolver in a pending map. Daemon response resolves the promise. Timeouts: validation 5s, file search 10s, git ops 15s.

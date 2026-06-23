@@ -11,7 +11,7 @@ One router per domain (`<domain>.ts` + colocated `<domain>.test.ts`), exported a
 - DB access: `getDb()` from `../../db/client` per call — never cache the handle.
 - Errors: throw `TRPCError` with explicit `code` (`NOT_FOUND`, `BAD_REQUEST`, `CONFLICT`, `PRECONDITION_FAILED`, `INTERNAL_SERVER_ERROR`). Include a human message; attach machine-readable detail in `cause`.
 - Slugs: `generateSlug()` / `uniqueWorkspaceSlug()` / `uniqueProjectSlug()` from `../utils.ts`. Don't re-implement.
-- Dependency cycles: `validateDependencies()` / `attachBlockedBy()` from `../../tasks/validation`. The same logic is duplicated in `../../mcp/index.ts` — see MCP Parity below.
+- Dependency cycles: `validateDependencies()` / `attachBlockedBy()` from `../../tasks/validation`. `../../mcp/index.ts` imports the same helpers — shared, not duplicated. See MCP Parity below.
 
 ## Side effects
 
@@ -26,7 +26,8 @@ One router per domain (`<domain>.ts` + colocated `<domain>.test.ts`), exported a
   - Tasks → `broadcastTaskChange(action, taskId, projectId?)`
   - Questions → `broadcastQuestionChange(action, taskId?, sessionId?)`
   - Terminal sessions → `broadcastTerminalSessionsChange(action, sessionId, groupKey?, newLabel?)`
-  - Workspaces → `broadcastWorkspacesSync(state)` (local helper in `workspace.ts`, sends to daemon)
+  - Memories → `broadcastMemoryChange(action, workspaceId, memoryId?)`
+  - Workspaces → `broadcastWorkspacesSync(state)` (private helper local to `workspace.ts`, not in `broadcast.ts` — sends to daemon)
 - Don't expose `broadcastEvent` directly — add a typed wrapper to `broadcast.ts` first.
 - Fire-and-forget side effects (e.g., devcontainer generate) must `.catch()` and log — never block the mutation's response on a daemon roundtrip unless the response depends on it.
 
@@ -44,5 +45,5 @@ The MCP server in `../../mcp/index.ts` exposes the same domain operations to AI 
 
 - Adding or changing a tRPC procedure with the same domain semantics → update the matching MCP tool in `../../mcp/index.ts`. Procedure name, input shape, and error semantics should stay aligned.
 - Pure helpers (`validateDependencies`, `attachBlockedBy`, `generateSlug`, `getWorkspaceDir`, broadcasts) live outside both layers and **are** shared — import, don't copy.
-- Cycle detection is currently duplicated between `../../tasks/validation.ts` and `../../mcp/index.ts`. Known debt: changes to cycle rules must be made in both spots until consolidated.
+- Cycle detection lives in `../../tasks/validation.ts` and is imported by both this layer and `../../mcp/index.ts` — shared, not duplicated.
 - Don't introduce auth/session concerns here that MCP can't honor (or vice versa) without a plan to reconcile both surfaces.

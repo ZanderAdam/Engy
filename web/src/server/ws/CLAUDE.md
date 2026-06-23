@@ -19,7 +19,7 @@ All control messages between server and daemon are typed in `@engy/common` as a 
 
 - Server → daemon RPCs use the **pending-map pattern**: store a `{ resolve, reject, timeoutId }` in `state.pending<Op>` keyed by `requestId`, send the request, resolve when the matching response arrives in `handleMessage`.
 - Use `dispatchDaemonOp(...)` for new ops — it handles map insertion, timeout, no-daemon rejection, and cleanup uniformly. Don't roll a parallel implementation.
-- Public dispatcher exports follow `dispatch<Op>(args, state)`. Routers import these; they never construct WebSocket payloads themselves.
+- Public dispatcher exports have no single signature convention — some take `state` first (e.g., `dispatchContainerUp`, `dispatchExecutionStart`), others take it last (e.g., `dispatchGitStatus`, `dispatchFileSearch`). Match the most similar existing dispatcher when adding one. Routers import these; they never construct WebSocket payloads themselves.
 - **Always** set a timeout. Defaults: validation 5s, file search 10s, git 15s, container 300s. Pick the closest existing constant rather than inventing new ones.
 - Daemon disconnect rejects **all** pending maps with `Error('Daemon disconnected')` — make sure new pending maps are added to the `pendingMaps` tuple in `rejectAllPending()`.
 
@@ -36,5 +36,5 @@ All control messages between server and daemon are typed in `@engy/common` as a 
 
 ## Tests
 
-- WS tests in this dir mock `WebSocketServer` and use async `waitFor()` helpers from the test setup. Don't spin up real sockets here — see `client/src/ws/*.test.ts` for the integration side.
+- WS tests in this dir bind **real** `WebSocketServer` instances on an ephemeral-port HTTP server, with local `waitForMessage`/`waitForClose` Promise helpers (not mocks). Note: sandboxed runs hang on `listen` EPERM — run vitest/blt unsandboxed.
 - When adding a dispatcher, test both the happy path (response resolves) and the timeout/no-daemon path (rejects with a useful error).

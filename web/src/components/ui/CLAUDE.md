@@ -9,7 +9,7 @@ These files are **shadcn-generated** wrappers around `radix-ui` primitives (lyra
 - **Preserve the style choices** when re-adding or updating:
   - No border radius (`rounded-none` is intentional, not an oversight).
   - JetBrains Mono font + zinc palette + dark-mode-only (no `light:` variants needed).
-  - Variants use `cva` + `cn()` from `@/lib/utils`; sizes include `xs`, `sm`, `default`, `lg`, `icon`, `icon-xs`.
+  - Variants use `cva` + `cn()` from `@/lib/utils`; sizes include `xs`, `sm`, `default`, `lg`, `icon`, `icon-xs`, `icon-sm`, `icon-lg`.
 - **Imports**: `import { Slot } from "radix-ui"` (umbrella package), not `@radix-ui/react-slot`. Match the existing pattern when adding new primitives.
 - **Don't edit** a primitive to fix a one-off bug in a consumer. Wrap or compose at the call site instead.
 

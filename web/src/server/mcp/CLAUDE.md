@@ -12,10 +12,10 @@ The MCP surface and tRPC surface expose the same domain operations (workspace/ta
 - Shared helpers live outside both layers and **must be imported**, not copied:
   - `validateDependencies`, `attachBlockedBy` from `../tasks/validation`
   - `getWorkspaceDir`, `resolveProjectDir` from `../engy-dir/init`
-  - `broadcastTaskChange`, `broadcastQuestionChange` from `../ws/broadcast`
+  - `broadcastTaskChange`, `broadcastQuestionChange`, `broadcastMemoryChange` from `../ws/broadcast`
   - `taskStatusSchema` from `@/lib/task-status`
   - `readTaskPlan` from `../plan/service`
-- Cycle detection is currently duplicated here — known tech debt. If you change cycle rules, update both spots until consolidation.
+- Cycle detection is **not** reimplemented here — `validateDependencies`/`attachBlockedBy` are imported from `../tasks/validation` (see above) and shared with the tRPC layer.
 - File system / git on user repos still goes through the daemon via `../ws/server` dispatchers. MCP must not call `fs`/`simple-git` on user repos directly, just like tRPC.
 
 ## Search Dispatch — `runMcpSearch`

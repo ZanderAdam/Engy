@@ -6,7 +6,7 @@ Consumed by `web/` and `client/` via the `@engy/common` workspace alias. Re-expo
 
 ## What lives here
 
-- `src/ws/protocol.ts` — discriminated union of every WebSocket message between server and daemon (~40 message types) plus the typed sub-union for the terminal relay.
+- `src/ws/protocol.ts` — discriminated union of every WebSocket message between server and daemon (~60 message types) plus the typed sub-union for the terminal relay.
 - `src/index.ts` — flat re-export surface. **All public types must be re-exported here**; consumers import from `@engy/common`, never from a deep path.
 
 ## What does **not** belong here
@@ -26,7 +26,7 @@ Single discriminated union on `type`. Aggregate unions exported alongside the le
 
 ### Categories (editorial overlay, not enforced)
 
-Messages cluster into six domains: **registration / sync**, **file system** (validation, search, change events, dir/file I/O, remote pull/push), **git** (status, diff, log, show, branch-files, worktree list/merge), **container lifecycle** (up/down/status/progress, devcontainer config generation), **agent execution** (start/stop, status/complete events), and **terminal relay**. Grep `type:` in `protocol.ts` for the leaf list.
+Messages cluster into six domains: **registration / sync**, **file system** (validation, search, change events, dir/file I/O, remote pull/push), **git** (status, diff, log, show, branch-files, worktree list/merge/add/remove), **container lifecycle** (up/down/status/progress, devcontainer config generation), **agent execution** (start/stop, status/complete events), and **terminal relay**. Grep `type:` in `protocol.ts` for the leaf list.
 
 ## Adding a new message type
 
@@ -40,7 +40,7 @@ Messages cluster into six domains: **registration / sync**, **file system** (val
 
 ## Conventions
 
-- Naming: `<DOMAIN>_<VERB>_REQUEST` / `<DOMAIN>_<VERB>_RESPONSE`; fire-and-forget messages end in `_EVENT`.
+- Naming: `<DOMAIN>_<VERB>_REQUEST` / `<DOMAIN>_<VERB>_RESPONSE` (or `_RESULT` for worktree operations); fire-and-forget messages end in `_EVENT`.
 - Every request carries a `requestId: string`; the matching response echoes it. The server uses this to resolve the pending-map entry.
 - Payload shapes are flat (no nested envelopes beyond `{ type, payload }`). Keep them minimal — the WS link is hot.
 - No `unknown`, `any`, or open-ended record types in payloads. If a field's shape isn't known, push it into a named sub-interface.
