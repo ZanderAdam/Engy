@@ -85,11 +85,11 @@ After update, automatically proceed to validation (Validate Mode below).
 
 #### Validate Mode
 
-Dispatch the `engy-srs-reviewer` agent to validate and fix the SRS in place:
+Dispatch the `engy:srs-reviewer` agent to validate and fix the SRS in place:
 
 ```
 Agent tool:
-  subagent_type: engy-srs-reviewer
+  subagent_type: engy:srs-reviewer
   mode: bypassPermissions
   prompt: |
     Validate the SRS at [path/to/spec.md] against all source documents

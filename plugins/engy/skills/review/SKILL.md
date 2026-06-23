@@ -5,7 +5,7 @@ description: "This skill should be used when the user asks to 'review changes', 
 
 # Code Review Orchestrator
 
-Dispatch the `engy-reviewer` agent to simplify code directly, then surface severity-ordered findings.
+Dispatch the `engy:reviewer` agent to simplify code directly, then surface severity-ordered findings.
 
 ## Inputs
 
@@ -25,13 +25,13 @@ Determine what are the features being implemented. Pass file paths to any releva
 2. Arguments passed when invoked (e.g., "last commit", "staged changes")
 3. Auto-detect: uncommitted changes (`git diff HEAD`) → last commit (`git diff HEAD~1..HEAD`) → branch diff against default branch
 
-### Step 1: Dispatch engy-reviewer
+### Step 1: Dispatch engy:reviewer
 
-Spawn the `engy-reviewer` agent via the Agent tool:
+Spawn the `engy:reviewer` agent via the Agent tool:
 
 ```
 Agent tool:
-  subagent_type: engy-reviewer
+  subagent_type: engy:reviewer
   mode: bypassPermissions
   prompt: |
     Review the following files changed in [scope description]:
