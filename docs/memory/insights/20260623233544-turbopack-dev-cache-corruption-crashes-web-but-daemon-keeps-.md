@@ -18,7 +18,17 @@ tags:
   - dev-environment
   - gotcha
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/insights/20260623230445-pnpm-install-at-root-can-symlink-engy-common-into-the-wrong-.md
+  - >-
+    memory/insights/20260623233107-parallel-workflow-agents-sharing-a-git-worktree-can-silently.md
+  - >-
+    memory/insights/20260623233118-web-ws-search-test-suites-flake-under-blt-need-isolated-engy.md
+  - >-
+    memory/insights/20260623230537-map-dev-server-listeners-to-worktrees-with-lsof-before-brows.md
+  - >-
+    memory/insights/20260623233026-web-src-server-ws-tests-bind-real-sockets-run-with-bash-sand.md
 scenarioIds: []
 ---
 **Core claim:** The Next 16 (turbopack canary) `pnpm dev` web server can crash mid-session with a Rust panic that corrupts the persistent dev cache: `Failed to restore task data (corrupted database or bug)` → `Unable to open static sorted file 00000XXX.sst: No such file or directory`.

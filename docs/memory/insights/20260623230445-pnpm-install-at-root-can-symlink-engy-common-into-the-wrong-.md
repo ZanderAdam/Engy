@@ -28,6 +28,8 @@ linkedMemories:
     memory/insights/20260623233107-parallel-workflow-agents-sharing-a-git-worktree-can-silently.md
   - >-
     memory/insights/20260623233118-web-ws-search-test-suites-flake-under-blt-need-isolated-engy.md
+  - >-
+    memory/insights/20260623233544-turbopack-dev-cache-corruption-crashes-web-but-daemon-keeps-.md
 scenarioIds: []
 ---
 Running `pnpm install` at the repo root while another Claude session is active in a `.claude/worktrees/*` worktree can leave `client/node_modules/@engy/common` symlinked into the OTHER worktree's `common/` (e.g. `client/node_modules/@engy/common -> ../../../.claude/worktrees/m7-review-fixes/common`).
