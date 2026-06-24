@@ -22,6 +22,8 @@ linkedMemories:
     memory/insights/20260623230445-pnpm-install-at-root-can-symlink-engy-common-into-the-wrong-.md
   - >-
     memory/insights/20260623233026-web-src-server-ws-tests-bind-real-sockets-run-with-bash-sand.md
+  - >-
+    memory/insights/20260623233107-parallel-workflow-agents-sharing-a-git-worktree-can-silently.md
 scenarioIds: []
 sources: []
 ---
