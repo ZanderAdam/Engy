@@ -9,13 +9,21 @@ import { FileContentPreview } from '@/components/editor/file-content-preview';
 import { fileKind } from '@/lib/file-types';
 import { useOnFileChange } from '@/contexts/events-context';
 import { useDocDock } from './doc-dock-context';
+import { usePanelOutline } from './use-panel-outline';
 import type { DocPanelParams } from './types';
 
-export function WorkspaceDocDockPanel({ params }: IDockviewPanelProps<DocPanelParams>) {
+export function WorkspaceDocDockPanel({ params, api }: IDockviewPanelProps<DocPanelParams>) {
   const { scope, repos } = useDocDock();
+  const { editorRef, onOutlineChange } = usePanelOutline(api);
   const { workspaceSlug, rootDir } = scope;
   const filePath = params.tab.filePath;
   const kind = fileKind(filePath);
+
+  // Non-markdown tabs render no editor, so clear the outline rather than leave
+  // a previously-active document's headings showing.
+  useEffect(() => {
+    if (kind !== 'markdown') onOutlineChange([]);
+  }, [kind, onOutlineChange]);
 
   const utils = trpc.useUtils();
 
@@ -82,12 +90,14 @@ export function WorkspaceDocDockPanel({ params }: IDockviewPanelProps<DocPanelPa
       onSaveText={handleSave}
     >
       <DynamicDocumentEditor
+        ref={editorRef}
         initialMarkdown={fileData?.content ?? ''}
         onSave={handleSave}
         comments={true}
         threadStore={threadStore}
         filePath={filePath}
         mentionDirs={repos.length > 0 ? repos : undefined}
+        onOutlineChange={onOutlineChange}
       />
     </FileContentPreview>
   );

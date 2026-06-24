@@ -82,6 +82,7 @@ interface FileTreeProps {
   searchFiles?: (query: string) => Promise<string[]>;
   defaultExtension?: string;
   canManageFile?: (relPath: string) => boolean;
+  headerExtra?: React.ReactNode;
 }
 
 function ItemActions({
@@ -361,6 +362,7 @@ export function FileTree({
   searchFiles,
   defaultExtension,
   canManageFile,
+  headerExtra,
 }: FileTreeProps) {
   const [sortMode, setSortMode] = useState<SortMode>('modified');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -477,6 +479,7 @@ export function FileTree({
           {label}
         </h3>
         <div className="flex items-center gap-0.5">
+          {headerExtra}
           {onRefresh && (
             <Button
               variant="ghost"

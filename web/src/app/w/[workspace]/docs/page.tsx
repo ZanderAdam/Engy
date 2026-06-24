@@ -10,7 +10,9 @@ import { trpc } from '@/lib/trpc';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
 import { DocDockManager, type DocDockHandle } from '@/components/docs/doc-dock-manager';
 import { WorkspaceDocDockPanel } from '@/components/docs/doc-dock-panel';
+import { DocsSidebar } from '@/components/docs/docs-sidebar';
 import { useDocDockHandlers } from '@/components/docs/use-doc-dock-handlers';
+import type { DocOutlineState } from '@/components/docs/doc-outline';
 import { workspaceDocGroupKey, type DocScope } from '@/components/docs/types';
 import { DocsSectionTree } from './docs-tree';
 
@@ -29,6 +31,7 @@ export default function WorkspaceDocsPage() {
 
   const dockRef = useRef<DocDockHandle>(null);
   const [activeFile, setActiveFile] = useState<string | null>(initialFile);
+  const [outline, setOutline] = useState<DocOutlineState | null>(null);
 
   const { data: workspace, isLoading } = trpc.workspace.get.useQuery({ slug: params.workspace });
 
@@ -72,16 +75,23 @@ export default function WorkspaceDocsPage() {
   }
 
   if (!workspace?.resolvedDir || !scope) return null;
+  const resolvedDir = workspace.resolvedDir;
 
   return (
     <ThreePanelLayout
       className="flex-1 min-h-0"
       left={SIDEBAR_CONFIG}
       leftContent={
-        <DocsSectionTree
-          rootDir={workspace.resolvedDir}
-          selectedFile={activeFile}
-          onSelectFile={onSelectFile}
+        <DocsSidebar
+          outline={outline}
+          renderFiles={(headerExtra) => (
+            <DocsSectionTree
+              rootDir={resolvedDir}
+              selectedFile={activeFile}
+              onSelectFile={onSelectFile}
+              headerExtra={headerExtra}
+            />
+          )}
         />
       }
       centerContent={
@@ -92,6 +102,7 @@ export default function WorkspaceDocsPage() {
           panelComponent={WorkspaceDocDockPanel}
           initialFile={initialFile}
           onActiveFileChange={handleActiveFileChange}
+          onOutlineChange={setOutline}
         />
       }
     />

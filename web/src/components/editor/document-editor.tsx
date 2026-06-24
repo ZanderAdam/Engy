@@ -45,6 +45,7 @@ import { normalizeMarkdown } from "./remark-normalize";
 import { mermaidBlockSpec } from "./mermaid/block";
 import { insertMermaidItem } from "./mermaid/slash-menu";
 import { codeBlockToMermaid, mermaidToCodeBlock } from "./mermaid/markdown-bridge";
+import { extractOutline, type OutlineHeading } from "../docs/doc-outline";
 
 const schema = BlockNoteSchema.create({
   blockSpecs: {
@@ -85,6 +86,8 @@ interface DocumentEditorProps {
   filePath?: string;
   /** Directories to index for @ file mentions */
   mentionDirs?: string[];
+  /** Called with the document's headings on load and on every edit. */
+  onOutlineChange?: (headings: OutlineHeading[]) => void;
 }
 
 /** Imperative handle for DocumentEditor. Callers hold a ref to flush pending saves. */
@@ -96,6 +99,8 @@ export interface DocumentEditorHandle {
    * without waiting for the autosave debounce.
    */
   flush: () => string;
+  /** Scroll the editor so the heading with the given block id is at the top. */
+  scrollToHeading: (headingId: string) => void;
 }
 
 const AUTOSAVE_DELAY_MS = 1500;
@@ -107,6 +112,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   threadStore: externalThreadStore,
   filePath,
   mentionDirs,
+  onOutlineChange,
 }, handleRef) {
   const { resolvedTheme } = useTheme();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -122,6 +128,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onSaveRef = useRef(onSave);
   useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
+  const onOutlineChangeRef = useRef(onOutlineChange);
+  useEffect(() => { onOutlineChangeRef.current = onOutlineChange; }, [onOutlineChange]);
 
   const internalStore = useMemo(() => {
     const auth = new DefaultThreadStoreAuth(USER_ID, 'editor');
@@ -195,6 +203,11 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
 
   const readyRef = useRef(false);
 
+  const emitOutline = useCallback(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onOutlineChangeRef.current?.(extractOutline(editor.document as any));
+  }, [editor]);
+
   useEffect(() => {
     if (initialMarkdown == null) return;
     const { header, body } = stripFrontmatter(initialMarkdown);
@@ -226,13 +239,15 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         reconcileAnchors((editor as any)._tiptapEditor, threadStore);
       }
+      emitOutline();
       setTimeout(() => { readyRef.current = true; }, 500);
     }
     loadContent();
-  }, [editor, initialMarkdown, comments, threadStore]);
+  }, [editor, initialMarkdown, comments, threadStore, emitOutline]);
 
   const handleChange = useCallback(() => {
     if (!readyRef.current) return;
+    emitOutline();
     if (timerRef.current) clearTimeout(timerRef.current);
 
     timerRef.current = setTimeout(async () => {
@@ -253,7 +268,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       setShowSaved(true);
       savedTimerRef.current = setTimeout(() => setShowSaved(false), 2000);
     }, AUTOSAVE_DELAY_MS);
-  }, [editor, comments, threadStore]);
+  }, [editor, comments, threadStore, emitOutline]);
 
   useImperativeHandle(
     handleRef,
@@ -282,6 +297,12 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           onSaveRef.current(full);
         }
         return full;
+      },
+      scrollToHeading: (headingId: string) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const dom = (editor as any)._tiptapEditor?.view?.dom as HTMLElement | undefined;
+        const el = dom?.querySelector(`[data-id="${CSS.escape(headingId)}"]`);
+        el?.scrollIntoView({ block: 'start', behavior: 'smooth' });
       },
     }),
     [editor, comments, threadStore],

@@ -19,6 +19,7 @@ export function DirFileTree({
   onRenameDir,
   onDeleteDir,
   label,
+  headerExtra,
 }: {
   dirPath: string;
   selectedFile: string | null;
@@ -28,6 +29,7 @@ export function DirFileTree({
   onRenameDir?: (oldSubDir: string, newSubDir: string) => void;
   onDeleteDir?: (subDir: string) => void;
   label?: string;
+  headerExtra?: React.ReactNode;
 }) {
   const utils = trpc.useUtils();
   const { data, isLoading, isFetching, error, refetch } = trpc.dir.listFiles.useQuery({ dirPath });
@@ -162,6 +164,7 @@ export function DirFileTree({
       label={label || path.basename(dirPath) || dirPath}
       rootAbsPath={dirPath}
       defaultExtension=".md"
+      headerExtra={headerExtra}
     />
   );
 }

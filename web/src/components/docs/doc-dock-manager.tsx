@@ -9,6 +9,7 @@ import {
 import { DocDockContext, type DocDockContextValue } from './doc-dock-context';
 import { DocDockTab } from './doc-dock-tab';
 import { DocDockWatermark } from './doc-dock-watermark';
+import type { DocOutlineState } from './doc-outline';
 import type { DocPanelParams, DocScope, DocTab } from './types';
 import { clearLayout, loadLayout, saveLayout } from './doc-dock-storage';
 
@@ -38,10 +39,12 @@ interface DocDockManagerProps {
   panelComponent: React.ComponentType<IDockviewPanelProps<DocPanelParams>>;
   initialFile: string | null;
   onActiveFileChange: (filePath: string | null) => void;
+  /** Receives the active document's outline, or null when no document is open. */
+  onOutlineChange: (outline: DocOutlineState | null) => void;
 }
 
 export const DocDockManager = forwardRef<DocDockHandle, DocDockManagerProps>(function DocDockManager(
-  { scope, repos, panelComponent, initialFile, onActiveFileChange },
+  { scope, repos, panelComponent, initialFile, onActiveFileChange, onOutlineChange },
   ref,
 ) {
   const dockviewApiRef = useRef<DockviewApi | null>(null);
@@ -49,6 +52,7 @@ export const DocDockManager = forwardRef<DocDockHandle, DocDockManagerProps>(fun
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const groupKeyRef = useRef(scope.groupKey);
   const onActiveFileChangeRef = useRef(onActiveFileChange);
+  const onOutlineChangeRef = useRef(onOutlineChange);
   const initialFileRef = useRef(initialFile);
 
   useEffect(() => {
@@ -58,6 +62,14 @@ export const DocDockManager = forwardRef<DocDockHandle, DocDockManagerProps>(fun
   useEffect(() => {
     onActiveFileChangeRef.current = onActiveFileChange;
   }, [onActiveFileChange]);
+
+  useEffect(() => {
+    onOutlineChangeRef.current = onOutlineChange;
+  }, [onOutlineChange]);
+
+  const publishOutline = useCallback((outline: DocOutlineState) => {
+    onOutlineChangeRef.current(outline);
+  }, []);
 
   const components = useMemo(
     () => ({ doc: panelComponent as React.FunctionComponent<IDockviewPanelProps> }),
@@ -201,6 +213,9 @@ export const DocDockManager = forwardRef<DocDockHandle, DocDockManagerProps>(fun
 
       api.onDidActivePanelChange((panel) => {
         onActiveFileChangeRef.current(panel?.id ?? null);
+        // The newly-active panel re-publishes its own outline; clear when the
+        // last panel closes so the sidebar shows an empty outline, not a stale one.
+        if (!panel) onOutlineChangeRef.current(null);
         scheduleLayoutSave();
       });
       api.onDidRemovePanel(() => scheduleLayoutSave());
@@ -240,8 +255,8 @@ export const DocDockManager = forwardRef<DocDockHandle, DocDockManagerProps>(fun
   );
 
   const contextValue = useMemo<DocDockContextValue>(
-    () => ({ scope, repos, openDoc, closeDoc, renameDoc }),
-    [scope, repos, openDoc, closeDoc, renameDoc],
+    () => ({ scope, repos, openDoc, closeDoc, renameDoc, publishOutline }),
+    [scope, repos, openDoc, closeDoc, renameDoc, publishOutline],
   );
 
   const dockviewRef = useRef<HTMLDivElement>(null);

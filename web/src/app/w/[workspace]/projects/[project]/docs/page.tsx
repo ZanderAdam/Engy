@@ -12,7 +12,9 @@ import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { DocDockManager, type DocDockHandle } from '@/components/docs/doc-dock-manager';
 import { ProjectDocDockPanel } from '@/components/docs/doc-dock-project-panel';
+import { DocsSidebar } from '@/components/docs/docs-sidebar';
 import { useDocDockHandlers } from '@/components/docs/use-doc-dock-handlers';
+import type { DocOutlineState } from '@/components/docs/doc-outline';
 import { projectDocGroupKey, type DocScope } from '@/components/docs/types';
 
 const SIDEBAR_CONFIG = {
@@ -37,6 +39,7 @@ export default function ProjectDocsPage() {
 
   const dockRef = useRef<DocDockHandle>(null);
   const [activeFile, setActiveFile] = useState<string | null>(initialFile);
+  const [outline, setOutline] = useState<DocOutlineState | null>(null);
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
   // Combined mode always reads the default branch; `?wt` only rebases content
@@ -78,6 +81,7 @@ export default function ProjectDocsPage() {
     useDocDockHandlers(dockRef, { onAfterSelect });
 
   const repos: string[] = Array.isArray(workspace?.repos) ? (workspace.repos as string[]) : [];
+  const projectDir = projectData?.projectDir;
 
   const scope: DocScope | null = projectData?.projectDir
     ? {
@@ -97,16 +101,22 @@ export default function ProjectDocsPage() {
       leftCollapsed={sidebarCollapsed}
       onLeftCollapsedChange={setSidebarCollapsed}
       leftContent={
-        projectData?.projectDir ? (
-          <DirFileTree
-            dirPath={projectData.projectDir}
-            selectedFile={activeFile}
-            onSelectFile={onSelectFile}
-            onRenameFile={onRenameFile}
-            onDeleteFile={onDeleteFile}
-            onRenameDir={onRenameDir}
-            onDeleteDir={onDeleteDir}
-            label="Files"
+        projectDir ? (
+          <DocsSidebar
+            outline={outline}
+            renderFiles={(headerExtra) => (
+              <DirFileTree
+                dirPath={projectDir}
+                selectedFile={activeFile}
+                onSelectFile={onSelectFile}
+                onRenameFile={onRenameFile}
+                onDeleteFile={onDeleteFile}
+                onRenameDir={onRenameDir}
+                onDeleteDir={onDeleteDir}
+                label="Files"
+                headerExtra={headerExtra}
+              />
+            )}
           />
         ) : projectError ? (
           <div className="flex flex-col items-center justify-center gap-1 py-10 px-4">
@@ -128,6 +138,7 @@ export default function ProjectDocsPage() {
             panelComponent={ProjectDocDockPanel}
             initialFile={initialFile}
             onActiveFileChange={handleActiveFileChange}
+            onOutlineChange={setOutline}
           />
         ) : (
           <div className="flex items-center justify-center py-20">

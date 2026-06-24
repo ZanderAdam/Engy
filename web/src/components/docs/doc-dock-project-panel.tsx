@@ -15,15 +15,23 @@ import { fileKind } from '@/lib/file-types';
 import { useOnFileChange } from '@/contexts/events-context';
 import { useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { useDocDock } from './doc-dock-context';
+import { usePanelOutline } from './use-panel-outline';
 import type { DocPanelParams } from './types';
 
-export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelParams>) {
+export function ProjectDocDockPanel({ params, api }: IDockviewPanelProps<DocPanelParams>) {
   const { scope, repos } = useDocDock();
+  const { editorRef, onOutlineChange } = usePanelOutline(api);
   const { workspaceSlug, projectSlug } = scope;
   if (!projectSlug) throw new Error('ProjectDocDockPanel requires project scope');
   const filePath = params.tab.filePath;
   const isSpecMd = filePath === 'spec.md';
   const kind = isSpecMd ? 'markdown' : fileKind(filePath);
+
+  // Non-markdown tabs render no editor, so clear the outline rather than leave
+  // a previously-active document's headings showing.
+  useEffect(() => {
+    if (kind !== 'markdown') onOutlineChange([]);
+  }, [kind, onOutlineChange]);
 
   const utils = trpc.useUtils();
   const searchParams = useVirtualSearchParams();
@@ -179,12 +187,14 @@ export function ProjectDocDockPanel({ params }: IDockviewPanelProps<DocPanelPara
   } else {
     editor = (
       <DynamicDocumentEditor
+        ref={editorRef}
         initialMarkdown={editorBody}
         onSave={handleSave}
         comments={true}
         threadStore={threadStore}
         filePath={`${projectSlug}/${filePath}`}
         mentionDirs={mentionDirs.length > 0 ? mentionDirs : undefined}
+        onOutlineChange={onOutlineChange}
       />
     );
   }

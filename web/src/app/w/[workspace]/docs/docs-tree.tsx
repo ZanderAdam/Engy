@@ -263,10 +263,12 @@ export function DocsSectionTree({
   rootDir,
   selectedFile,
   onSelectFile,
+  headerExtra,
 }: {
   rootDir: string;
   selectedFile: string | null;
   onSelectFile: (relPath: string) => void;
+  headerExtra?: React.ReactNode;
 }) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -274,6 +276,7 @@ export function DocsSectionTree({
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider truncate">
           Docs
         </h3>
+        {headerExtra}
       </div>
       <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <DocsSectionPanel
