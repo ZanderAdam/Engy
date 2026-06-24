@@ -12,5 +12,6 @@ Permanent notes on insights — observations, hypotheses, and learnings that do 
 - [20260623233026-web-src-server-ws-tests-bind-real-sockets-run-with-bash-sand.md](20260623233026-web-src-server-ws-tests-bind-real-sockets-run-with-bash-sand.md) — web/src/server/ws/*.test.ts suites bind real sockets (server.listen\) — under the
 - [20260623233107-parallel-workflow-agents-sharing-a-git-worktree-can-silently.md](20260623233107-parallel-workflow-agents-sharing-a-git-worktree-can-silently.md) — Parallel Workflow agents editing the same git worktree can silently wipe each ot
 - [20260623233118-web-ws-search-test-suites-flake-under-blt-need-isolated-engy.md](20260623233118-web-ws-search-test-suites-flake-under-blt-need-isolated-engy.md) — web WS/search test suites (src/server/search/repo-adapter.test.ts, validate.test
+- [20260623233544-turbopack-dev-cache-corruption-crashes-web-but-daemon-keeps-.md](20260623233544-turbopack-dev-cache-corruption-crashes-web-but-daemon-keeps-.md) — **Core claim:** The Next 16 (turbopack canary\) `pnpm dev` web server can crash m
 
 <!-- INDEX END -->
