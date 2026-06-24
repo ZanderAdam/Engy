@@ -10,5 +10,6 @@ Permanent notes on insights — observations, hypotheses, and learnings that do 
 - [20260623230537-map-dev-server-listeners-to-worktrees-with-lsof-before-brows.md](20260623230537-map-dev-server-listeners-to-worktrees-with-lsof-before-brows.md) — When multiple dev servers run across worktrees, port 3000 may belong to a differ
 - [20260623232850-terminal-tab-title-pin-titlepinned-is-browser-local-lost-in-.md](20260623232850-terminal-tab-title-pin-titlepinned-is-browser-local-lost-in-.md) — Known debt — terminal tab title pin (titlePinned\) is browser-local only. A manua
 - [20260623233026-web-src-server-ws-tests-bind-real-sockets-run-with-bash-sand.md](20260623233026-web-src-server-ws-tests-bind-real-sockets-run-with-bash-sand.md) — web/src/server/ws/*.test.ts suites bind real sockets (server.listen\) — under the
+- [20260623233107-parallel-workflow-agents-sharing-a-git-worktree-can-silently.md](20260623233107-parallel-workflow-agents-sharing-a-git-worktree-can-silently.md) — Parallel Workflow agents editing the same git worktree can silently wipe each ot
 
 <!-- INDEX END -->
