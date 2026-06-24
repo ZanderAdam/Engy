@@ -22,6 +22,8 @@ sources: []
 linkedMemories:
   - >-
     memory/insights/20260623230537-map-dev-server-listeners-to-worktrees-with-lsof-before-brows.md
+  - >-
+    memory/insights/20260623233026-web-src-server-ws-tests-bind-real-sockets-run-with-bash-sand.md
 scenarioIds: []
 ---
 Running `pnpm install` at the repo root while another Claude session is active in a `.claude/worktrees/*` worktree can leave `client/node_modules/@engy/common` symlinked into the OTHER worktree's `common/` (e.g. `client/node_modules/@engy/common -> ../../../.claude/worktrees/m7-review-fixes/common`).
