@@ -17,7 +17,9 @@ tags:
   - worktrees
   - gotcha
   - dx
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/insights/20260623230445-pnpm-install-at-root-can-symlink-engy-common-into-the-wrong-.md
 scenarioIds: []
 sources: []
 ---
