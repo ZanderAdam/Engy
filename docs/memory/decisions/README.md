@@ -8,5 +8,6 @@ Permanent notes capturing significant decisions — what was chosen, what altern
 
 - [20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md](20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md) — T449 (per-project terminal activity badges\): activity detection is computed daem
 - [20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md](20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md) — T449 design divergence: the daemon tracker omits acknowledge(\)-on-view (it has n
+- [20260623233531-docs-outline-derives-headings-live-from-active-blocknote-edi.md](20260623233531-docs-outline-derives-headings-live-from-active-blocknote-edi.md) — **Core claim:** The docs outline (table of contents\) derives headings live from 
 
 <!-- INDEX END -->
