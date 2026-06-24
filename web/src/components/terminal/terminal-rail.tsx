@@ -147,7 +147,7 @@ export function TerminalRail({
           title="Double-click to rename"
           className="flex min-w-0 flex-1 items-start px-2 py-1.5 text-left text-xs"
         >
-          <TerminalSessionLabel tab={tab} />
+          <TerminalSessionLabel tab={tab} iconBox />
         </button>
         <button
           type="button"
