@@ -8,6 +8,7 @@ import {
   useTerminalScope,
   useBottomTerminalScope,
 } from '@/components/terminal/use-terminal-scope';
+import { useTabId } from '@/components/tabs/tab-context';
 import { TerminalManager } from '@/components/terminal/terminal-manager';
 import type { TerminalDropdownGroup, TerminalScope } from '@/components/terminal/types';
 import { useMobileOverlay } from './mobile-overlay-context';
@@ -39,6 +40,7 @@ function MobileTerminalSheetBase({
   containerEnabled,
 }: SheetBaseProps) {
   const { overlay, openOverlay, closeOverlay, headerHeight } = useMobileOverlay();
+  const myTabId = useTabId();
   const scopeKey = scope.groupKey;
   const open = overlay === overlayKind;
   const headerOffset = `${headerHeight}px`;
@@ -69,6 +71,11 @@ function MobileTerminalSheetBase({
       return (e: Event) => {
         if (openRef.current) return;
         const detail = (e as CustomEvent).detail;
+        // Each open tab mounts its own sheet listening on window, and the Sheet
+        // portals to document.body (escaping the hidden tab's display:none) — so
+        // only the tab that fired the event may respond. Mirrors TerminalManager.
+        const tabId = (detail as { tabId?: string | null } | undefined)?.tabId;
+        if (tabId !== undefined && tabId !== myTabId) return;
         pendingRef.current.push({ name, detail });
         openOverlay(overlayKind);
       };
@@ -81,7 +88,7 @@ function MobileTerminalSheetBase({
     return () => {
       for (const [name, h] of handlers) window.removeEventListener(name, h);
     };
-  }, [queueExternalEvents, openOverlay, overlayKind]);
+  }, [queueExternalEvents, openOverlay, overlayKind, myTabId]);
 
   useEffect(() => {
     if (!open || pendingRef.current.length === 0) return;
