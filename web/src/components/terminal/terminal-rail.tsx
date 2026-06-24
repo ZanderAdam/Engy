@@ -5,6 +5,7 @@ import {
   RiAddLine,
   RiArrowLeftSLine,
   RiArrowRightSLine,
+  RiCloseLine,
   RiGitBranchLine,
   RiListUnordered,
   RiTerminalLine,
@@ -15,6 +16,17 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { useTabId } from '@/components/tabs/tab-context';
 import { useTerminalScope } from './use-terminal-scope';
@@ -64,9 +76,18 @@ export function TerminalRail({
   const { tabs, activeId } = useTerminalSessions(terminalRailKey(tabId, scope.groupKey));
   const [listExpanded, setListExpanded] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [closingTab, setClosingTab] = useState<TerminalTab | null>(null);
+  const isMobile = useIsMobile();
 
   function focusSession(sessionId: string) {
     window.dispatchEvent(new CustomEvent('terminal:focus', { detail: { sessionId, tabId } }));
+  }
+
+  // Closing from the rail mirrors the dock tab's close: dispatch terminal:close
+  // so the manager removes the dockview panel, triggering the same
+  // onDidRemovePanel cleanup (which kills the session).
+  function closeSession(sessionId: string) {
+    window.dispatchEvent(new CustomEvent('terminal:close', { detail: { sessionId, tabId } }));
   }
 
   // The rail lives outside the dockview, so it opens terminals the same way the
@@ -111,20 +132,35 @@ export function TerminalRail({
         onBlur={(e) => commitRename(tab.sessionId, e.currentTarget.value, tab.scope.scopeLabel)}
       />
     ) : (
-      <button
+      <div
         key={tab.sessionId}
-        type="button"
-        onClick={() => focusSession(tab.sessionId)}
-        onDoubleClick={() => setEditingId(tab.sessionId)}
-        aria-current={tab.sessionId === activeId || undefined}
-        title="Double-click to rename"
         className={cn(
-          'flex items-start rounded-sm px-2 py-1.5 text-left text-xs hover:bg-muted',
+          'group flex items-start rounded-sm hover:bg-muted',
           tab.sessionId === activeId && 'bg-muted',
         )}
       >
-        <TerminalSessionLabel tab={tab} />
-      </button>
+        <button
+          type="button"
+          onClick={() => focusSession(tab.sessionId)}
+          onDoubleClick={() => setEditingId(tab.sessionId)}
+          aria-current={tab.sessionId === activeId || undefined}
+          title="Double-click to rename"
+          className="flex min-w-0 flex-1 items-start px-2 py-1.5 text-left text-xs"
+        >
+          <TerminalSessionLabel tab={tab} />
+        </button>
+        <button
+          type="button"
+          onClick={() => setClosingTab(tab)}
+          aria-label={`Close terminal ${tab.scope.scopeLabel}`}
+          className={cn(
+            'mr-1 mt-1 shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground',
+            isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          )}
+        >
+          <RiCloseLine className="size-3" />
+        </button>
+      </div>
     );
   }
 
@@ -267,6 +303,39 @@ export function TerminalRail({
           ))
         )}
       </div>
+
+      <AlertDialog
+        open={closingTab !== null}
+        onOpenChange={(open) => {
+          if (!open) setClosingTab(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close terminal?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will end the session for{' '}
+              <span className="font-mono">{closingTab?.scope.scopeLabel}</span> and cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              // dispatchEvent is synchronous, so without this defer the panel
+              // removal + session kill would run inside Radix's click handler.
+              // queueMicrotask lets the dialog finish its own close/cleanup
+              // (focus restore, pointer-events unlock) first.
+              onClick={() => {
+                const sessionId = closingTab!.sessionId;
+                queueMicrotask(() => closeSession(sessionId));
+              }}
+            >
+              Close terminal
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </TooltipProvider>
   );
 }

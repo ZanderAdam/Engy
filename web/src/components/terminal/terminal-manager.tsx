@@ -37,6 +37,11 @@ interface TerminalRenameEvent {
   tabId?: string;
 }
 
+interface TerminalCloseEvent {
+  sessionId: string;
+  tabId?: string;
+}
+
 interface TerminalManagerProps {
   onCollapse: () => void;
   defaultScope?: TerminalScope;
@@ -416,6 +421,24 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     window.addEventListener('terminal:rename', onRename);
     return () => window.removeEventListener('terminal:rename', onRename);
   }, [renameTerminal, myTabId]);
+
+  // terminal:close — intentional user action from the rail's expanded list,
+  // mirroring the dock tab's close button (and the ungated terminal:rename
+  // handler above). Closing the panel triggers onDidRemovePanel →
+  // cleanupTerminal (kills the session), so this is the identical close path
+  // the tab uses. Not gated by disableExternalEvents: sessionId is globally
+  // unique, so getPanel returns undefined (a no-op) on any manager that does
+  // not own the session.
+  useEffect(() => {
+    function onClose(e: Event) {
+      const { sessionId, tabId } = (e as CustomEvent<TerminalCloseEvent>).detail;
+      if (tabId !== undefined && tabId !== myTabId) return;
+      dockviewApiRef.current?.getPanel(sessionId)?.api.close();
+    }
+
+    window.addEventListener('terminal:close', onClose);
+    return () => window.removeEventListener('terminal:close', onClose);
+  }, [myTabId]);
 
   // Cross-browser session sync: when another browser creates a session for this groupKey,
   // fetch updated session list and add any new sessions as tabs

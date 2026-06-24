@@ -111,6 +111,7 @@ describe('window event dispatching with tabId', () => {
     window.addEventListener('terminal:inject', (e) => dispatched.push(e as CustomEvent));
     window.addEventListener('terminal:open', (e) => dispatched.push(e as CustomEvent));
     window.addEventListener('terminal:focus', (e) => dispatched.push(e as CustomEvent));
+    window.addEventListener('terminal:close', (e) => dispatched.push(e as CustomEvent));
   });
 
   afterEach(() => {
@@ -156,5 +157,16 @@ describe('window event dispatching with tabId', () => {
     );
     expect(dispatched[0].detail.tabId).toBe(TAB_ID);
     expect(dispatched[0].detail.sessionId).toBe('sess-focus');
+  });
+
+  it('terminal:close should carry sessionId and tabId from sender', () => {
+    const TAB_ID = 'tab-close';
+    window.dispatchEvent(
+      new CustomEvent('terminal:close', {
+        detail: { sessionId: 'sess-close', tabId: TAB_ID },
+      }),
+    );
+    expect(dispatched[0].detail.tabId).toBe(TAB_ID);
+    expect(dispatched[0].detail.sessionId).toBe('sess-close');
   });
 });
