@@ -24,6 +24,8 @@ linkedMemories:
     memory/insights/20260623233026-web-src-server-ws-tests-bind-real-sockets-run-with-bash-sand.md
   - >-
     memory/insights/20260623233107-parallel-workflow-agents-sharing-a-git-worktree-can-silently.md
+  - >-
+    memory/insights/20260623233118-web-ws-search-test-suites-flake-under-blt-need-isolated-engy.md
 scenarioIds: []
 sources: []
 ---

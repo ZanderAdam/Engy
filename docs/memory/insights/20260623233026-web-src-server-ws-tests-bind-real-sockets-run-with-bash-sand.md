@@ -24,6 +24,8 @@ linkedMemories:
     memory/insights/20260623230445-pnpm-install-at-root-can-symlink-engy-common-into-the-wrong-.md
   - >-
     memory/insights/20260623233107-parallel-workflow-agents-sharing-a-git-worktree-can-silently.md
+  - >-
+    memory/insights/20260623233118-web-ws-search-test-suites-flake-under-blt-need-isolated-engy.md
 scenarioIds: []
 ---
 web/src/server/ws/*.test.ts suites bind real sockets (server.listen) — under the Claude Code Bash sandbox they fail with EPERM and vitest hangs ~15min instead of failing fast. Always run these suites with sandbox disabled; an empty/silent vitest output file is the telltale.
