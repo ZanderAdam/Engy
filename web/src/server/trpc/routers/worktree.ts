@@ -312,21 +312,29 @@ export const worktreeRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }): Promise<RemoveResult[]> => {
-      const { project, workspace } = getProjectAndWorkspace(input.projectId);
+      const { workspace } = getProjectAndWorkspace(input.projectId);
       validateRepoSubset(workspace, input.repoPaths);
 
       const results = await Promise.all(
         input.repoPaths.map(async (repoPath): Promise<RemoveResult> => {
-          const worktreePath = getProjectWorktreeDir(
-            workspace,
-            project.slug,
-            input.branch,
-            repoPath,
-          );
           try {
+            const { worktrees } = await dispatchGitWorktreeList(repoPath, ctx.state);
+            const match = worktrees.find((wt) => !wt.isMain && wt.branch === input.branch);
+            if (!match) {
+              // A forced remove targets the "worktree is gone" end state, so an
+              // already-absent worktree is success (it may have vanished between
+              // the dirty check and the user's force confirmation).
+              if (input.force) return { repoPath, success: true };
+              return {
+                repoPath,
+                success: false,
+                error: `No worktree for branch '${input.branch}' in ${repoPath}`,
+                code: 'OTHER',
+              };
+            }
             await dispatchWorktreeRemove(ctx.state, {
               repoDir: repoPath,
-              worktreePath,
+              worktreePath: match.path,
               force: input.force,
             });
             return { repoPath, success: true };

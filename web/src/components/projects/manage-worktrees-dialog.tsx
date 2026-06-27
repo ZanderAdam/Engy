@@ -38,6 +38,8 @@ interface ManageWorktreesDialogProps {
 
 type Mode = 'list' | 'create';
 
+type FinalRepoResult = { repoPath: string; success: boolean; code?: string; error?: string };
+
 function basename(p: string): string {
   return p.split('/').filter(Boolean).pop() ?? p;
 }
@@ -53,7 +55,7 @@ export function ManageWorktreesDialog({
   const [dirtyPending, setDirtyPending] = useState<{
     branch: string;
     repoPaths: string[];
-    finalByRepo: Map<string, { repoPath: string; success: boolean; code?: string }>;
+    finalByRepo: Map<string, FinalRepoResult>;
   } | null>(null);
 
   const utils = trpc.useUtils();
@@ -98,9 +100,14 @@ export function ManageWorktreesDialog({
     setError(null);
     try {
       const result = await syncMut.mutateAsync({ projectId, branch, repoPaths: missingRepos });
-      const failed = result.filter((r) => !r.success);
+      const failed = result.filter(
+        (r): r is Extract<(typeof result)[number], { success: false }> => !r.success,
+      );
       if (failed.length > 0) {
-        setError(`Sync failed for: ${failed.map((f) => basename(f.repoPath)).join(', ')}`);
+        const detail = failed
+          .map((f) => `${basename(f.repoPath)}: ${f.error}`)
+          .join('; ');
+        setError(`Sync failed — ${detail}`);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -155,13 +162,13 @@ export function ManageWorktreesDialog({
     }
   }
 
-  function finishRemove(
-    branch: string,
-    finalByRepo: Map<string, { repoPath: string; success: boolean; code?: string }>,
-  ) {
+  function finishRemove(branch: string, finalByRepo: Map<string, FinalRepoResult>) {
     const failures = [...finalByRepo.values()].filter((r) => !r.success);
     if (failures.length > 0) {
-      setError(`Remove failed for: ${failures.map((f) => basename(f.repoPath)).join(', ')}`);
+      const detail = failures
+        .map((f) => `${basename(f.repoPath)}: ${f.error ?? 'unknown error'}`)
+        .join('; ');
+      setError(`Remove failed — ${detail}`);
       return;
     }
     if (branch === activeBranch) setUrlBranch(null);

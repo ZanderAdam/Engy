@@ -67,7 +67,14 @@ orphaned paths (rollback also failed) are named in the error message.
 `worktree.sync` is the additive twin — it materialises an existing branch in
 selected repos in parallel, returns per-repo results, and never rolls back.
 `worktree.remove` returns a per-repo result list; a repo with uncommitted changes
-fails with code `DIRTY` unless `force: true` is passed through.
+fails with code `DIRTY` unless `force: true` is passed through. It resolves each
+target by enumerating `git worktree list` and matching the branch — operating on
+the worktree's *actual* path rather than recomputing a canonical one — so it can
+remove any worktree `listGrouped` surfaces, including externally-created trees
+that do not live at the path `getProjectWorktreeDir` would produce. This costs one
+extra `GIT_WORKTREE_LIST_REQUEST` per repo per `remove` invocation — including the
+follow-up forced re-call, which re-resolves the path. A forced remove targets the
+"worktree is gone" end state, so an already-absent worktree resolves to success.
 
 All lifecycle mutations validate that every supplied repo path is a member of
 `workspace.repos`, and that the branch name matches `[A-Za-z0-9._/-]+`.
@@ -114,6 +121,7 @@ FR id in their title string, e.g. `it('[FR-GIT-010] ...', ...)`, and run
 | FR-GIT-150 | WHEN `worktree.remove` is called without `force`, the system SHALL return `success: false` with `code: 'DIRTY'` for any repo that has uncommitted changes; WHEN called with `force: true`, the system SHALL pass `force: true` to the daemon to bypass the dirty guard. |
 | FR-GIT-160 | WHEN `globTestFiles` is called on a git repository, the system SHALL use `git ls-files --cached --others --exclude-standard` to enumerate matching files, returning absolute paths for both tracked and untracked non-ignored files. |
 | FR-GIT-170 | WHEN `globTestFiles` is called on a non-git directory, the system SHALL fall back to recursive `readdir` up to depth 10, skipping `.git`, `node_modules`, `dist`, `build`, `.next`, `__pycache__`, and dot-prefixed directories. |
+| FR-GIT-180 | WHEN `worktree.remove` is called, the system SHALL resolve each repo's target by matching the branch against `git worktree list` and dispatch `WORKTREE_REMOVE_REQUEST` with that worktree's actual path; IF no non-main worktree matches the branch, the system SHALL return `success: false` with `code: 'OTHER'` without dispatching a remove WHEN `force` is false, and `success: true` WHEN `force` is true (the worktree is already gone). |
 
 ## Sources
 

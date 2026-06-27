@@ -297,6 +297,10 @@ describe('worktree router', () => {
     it('[FR-GIT-150] returns per-repo result list and surfaces DIRTY code', async () => {
       const { proj } = await seed(ctx, ['/repo-A', '/repo-B']);
       installFakeDaemon(ctx, {
+        worktreeList: new Map([
+          ['/repo-A', [{ path: '/wt/feat-x-A', branch: 'feat-x', isMain: false }]],
+          ['/repo-B', [{ path: '/wt/feat-x-B', branch: 'feat-x', isMain: false }]],
+        ]),
         removeBehaviors: [
           { ok: true },
           { ok: false, error: 'contains modified files', code: 'DIRTY' },
@@ -316,7 +320,12 @@ describe('worktree router', () => {
 
     it('[FR-GIT-150] passes force=true through to the daemon', async () => {
       const { proj } = await seed(ctx, ['/repo-A']);
-      const { sent } = installFakeDaemon(ctx, { removeBehaviors: [{ ok: true }] });
+      const { sent } = installFakeDaemon(ctx, {
+        worktreeList: new Map([
+          ['/repo-A', [{ path: '/wt/feat-x-A', branch: 'feat-x', isMain: false }]],
+        ]),
+        removeBehaviors: [{ ok: true }],
+      });
 
       await caller.worktree.remove({
         projectId: proj.id,
@@ -327,6 +336,85 @@ describe('worktree router', () => {
 
       const removeRequests = sent.filter((m) => m.type === 'WORKTREE_REMOVE_REQUEST');
       expect(removeRequests[0].payload.force).toBe(true);
+    });
+
+    it('[FR-GIT-180] targets the actual listed worktree path, not a recomputed one', async () => {
+      const { proj } = await seed(ctx, ['/repo-A']);
+      // Worktree lives at a non-canonical path (e.g. an externally-created
+      // `.claude/worktrees/...` tree), not where getProjectWorktreeDir would put it.
+      const actualPath = '/Users/x/.claude/worktrees/feat-x';
+      const { sent } = installFakeDaemon(ctx, {
+        worktreeList: new Map([
+          ['/repo-A', [{ path: actualPath, branch: 'feat-x', isMain: false }]],
+        ]),
+        removeBehaviors: [{ ok: true }],
+      });
+
+      const result = await caller.worktree.remove({
+        projectId: proj.id,
+        branch: 'feat-x',
+        repoPaths: ['/repo-A'],
+        force: false,
+      });
+
+      expect(result[0]).toEqual({ repoPath: '/repo-A', success: true });
+      const removeRequests = sent.filter((m) => m.type === 'WORKTREE_REMOVE_REQUEST');
+      expect(removeRequests[0].payload.worktreePath).toBe(actualPath);
+    });
+
+    it('[FR-GIT-180] fails clearly when no worktree exists for the branch', async () => {
+      const { proj } = await seed(ctx, ['/repo-A']);
+      const { sent } = installFakeDaemon(ctx, {
+        worktreeList: new Map([['/repo-A', []]]),
+      });
+
+      const result = await caller.worktree.remove({
+        projectId: proj.id,
+        branch: 'feat-x',
+        repoPaths: ['/repo-A'],
+        force: false,
+      });
+
+      expect(result[0]).toMatchObject({ repoPath: '/repo-A', success: false, code: 'OTHER' });
+      expect(result[0]).toHaveProperty('error', expect.stringContaining("'feat-x'"));
+      expect(sent.some((m) => m.type === 'WORKTREE_REMOVE_REQUEST')).toBe(false);
+    });
+
+    it('[FR-GIT-180] surfaces a failure when worktree enumeration itself fails', async () => {
+      const { proj } = await seed(ctx, ['/repo-A']);
+      const { sent } = installFakeDaemon(ctx, {
+        worktreeList: new Map<string, FakeWorktree[] | Error>([
+          ['/repo-A', new Error('list timeout')],
+        ]),
+      });
+
+      const result = await caller.worktree.remove({
+        projectId: proj.id,
+        branch: 'feat-x',
+        repoPaths: ['/repo-A'],
+        force: false,
+      });
+
+      expect(result[0]).toMatchObject({ repoPath: '/repo-A', success: false, code: 'OTHER' });
+      expect(result[0]).toHaveProperty('error', expect.stringContaining('list timeout'));
+      expect(sent.some((m) => m.type === 'WORKTREE_REMOVE_REQUEST')).toBe(false);
+    });
+
+    it('[FR-GIT-180] treats an already-absent worktree as success under force', async () => {
+      const { proj } = await seed(ctx, ['/repo-A']);
+      const { sent } = installFakeDaemon(ctx, {
+        worktreeList: new Map([['/repo-A', []]]),
+      });
+
+      const result = await caller.worktree.remove({
+        projectId: proj.id,
+        branch: 'feat-x',
+        repoPaths: ['/repo-A'],
+        force: true,
+      });
+
+      expect(result[0]).toEqual({ repoPath: '/repo-A', success: true });
+      expect(sent.some((m) => m.type === 'WORKTREE_REMOVE_REQUEST')).toBe(false);
     });
   });
 });
