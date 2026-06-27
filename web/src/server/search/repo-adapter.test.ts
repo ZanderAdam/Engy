@@ -1,3 +1,4 @@
+// @rtm-ignore — embeds [FR-…] tags as fixture strings for the traceability scanner, not real test titles
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { WebSocket } from 'ws';
