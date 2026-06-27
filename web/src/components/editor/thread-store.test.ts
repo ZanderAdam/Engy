@@ -51,13 +51,13 @@ async function buildStore(
   return store;
 }
 
-describe('EngyThreadStore', () => {
+describe('[FR-EDITOR-080] EngyThreadStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe('createThread', () => {
-    it('should add thread optimistically and return it', async () => {
+  describe('[FR-EDITOR-080] createThread', () => {
+    it('[FR-EDITOR-080] should add thread optimistically and return it', async () => {
       const store = await buildStore();
       const thread = await store.createThread({
         initialComment: { body: { type: 'doc', content: [] } as any },
@@ -65,7 +65,7 @@ describe('EngyThreadStore', () => {
       expect(store.getThreads().has(thread.id)).toBe(true);
     });
 
-    it('should roll back and toast on mutation failure', async () => {
+    it('[FR-EDITOR-080] should roll back and toast on mutation failure', async () => {
       const error = new Error('Network error');
       const store = await buildStore({
         createThread: () => Promise.reject(error),
@@ -88,8 +88,8 @@ describe('EngyThreadStore', () => {
     });
   });
 
-  describe('addComment', () => {
-    it('should roll back comment on mutation failure', async () => {
+  describe('[FR-EDITOR-080] addComment', () => {
+    it('[FR-EDITOR-080] should roll back comment on mutation failure', async () => {
       const error = new Error('Server error');
       const store = await buildStore({
         addComment: () => Promise.reject(error),
@@ -115,8 +115,8 @@ describe('EngyThreadStore', () => {
     });
   });
 
-  describe('deleteThread', () => {
-    it('should roll back thread on mutation failure', async () => {
+  describe('[FR-EDITOR-080] deleteThread', () => {
+    it('[FR-EDITOR-080] should roll back thread on mutation failure', async () => {
       const error = new Error('Delete failed');
       const store = await buildStore({
         deleteThread: () => Promise.reject(error),
@@ -135,8 +135,8 @@ describe('EngyThreadStore', () => {
     });
   });
 
-  describe('resolveThread', () => {
-    it('should roll back resolved state on mutation failure', async () => {
+  describe('[FR-EDITOR-080] resolveThread', () => {
+    it('[FR-EDITOR-080] should roll back resolved state on mutation failure', async () => {
       const error = new Error('Resolve failed');
       const store = await buildStore({
         resolveThread: () => Promise.reject(error),
@@ -155,8 +155,8 @@ describe('EngyThreadStore', () => {
     });
   });
 
-  describe('setThreadMetadata', () => {
-    it('should roll back metadata on mutation failure', async () => {
+  describe('[FR-EDITOR-080] setThreadMetadata', () => {
+    it('[FR-EDITOR-080] should roll back metadata on mutation failure', async () => {
       const error = new Error('Metadata failed');
       const store = await buildStore({
         updateThreadMetadata: () => Promise.reject(error),
@@ -178,8 +178,8 @@ describe('EngyThreadStore', () => {
     });
   });
 
-  describe('updateComment', () => {
-    it('should roll back body on mutation failure', async () => {
+  describe('[FR-EDITOR-080] updateComment', () => {
+    it('[FR-EDITOR-080] should roll back body on mutation failure', async () => {
       const error = new Error('Update failed');
       const store = await buildStore({
         updateComment: () => Promise.reject(error),

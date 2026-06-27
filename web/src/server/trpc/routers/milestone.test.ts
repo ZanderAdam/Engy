@@ -28,7 +28,7 @@ describe('milestone router', () => {
   });
 
   describe('create', () => {
-    it('should create a milestone file', async () => {
+    it('[FR-MILESTONE-010] should create a milestone file', async () => {
       const milestone = await caller.milestone.create({
         projectId,
         num: 1,
@@ -41,7 +41,7 @@ describe('milestone router', () => {
       expect(milestone.filename).toBe('m1-foundation.plan.md');
     });
 
-    it('should support decimal milestone numbers', async () => {
+    it('[FR-MILESTONE-010] should support decimal milestone numbers', async () => {
       const milestone = await caller.milestone.create({
         projectId,
         num: 1.5,
@@ -51,7 +51,7 @@ describe('milestone router', () => {
       expect(milestone.num).toBe(1.5);
     });
 
-    it('should create a milestone with scope', async () => {
+    it('[FR-MILESTONE-010] should create a milestone with scope', async () => {
       const milestone = await caller.milestone.create({
         projectId,
         num: 2,
@@ -61,21 +61,21 @@ describe('milestone router', () => {
       expect(milestone.scope).toBe('REST endpoints only');
     });
 
-    it('should reject duplicate milestone number', async () => {
+    it('[FR-MILESTONE-020] should reject duplicate milestone number', async () => {
       await caller.milestone.create({ projectId, num: 1, title: 'Foundation' });
       await expect(
         caller.milestone.create({ projectId, num: 1, title: 'Foundation Again' }),
       ).rejects.toThrow('already exists');
     });
 
-    it('should not overwrite an existing file when num and title match', async () => {
+    it('[FR-MILESTONE-020] should not overwrite an existing file when num and title match', async () => {
       await caller.milestone.create({ projectId, num: 2, title: 'Auth' });
       await expect(
         caller.milestone.create({ projectId, num: 2, title: 'Auth' }),
       ).rejects.toThrow('already exists');
     });
 
-    it('should round-trip multi-line scope through create + list', async () => {
+    it('[FR-MILESTONE-100] should round-trip multi-line scope through create + list', async () => {
       await caller.milestone.create({
         projectId,
         num: 3,
@@ -91,7 +91,7 @@ describe('milestone router', () => {
   });
 
   describe('list', () => {
-    it('should list milestones sorted by number', async () => {
+    it('[FR-MILESTONE-030] should list milestones sorted by number', async () => {
       await caller.milestone.create({ projectId, num: 2, title: 'Second' });
       await caller.milestone.create({ projectId, num: 1, title: 'First' });
       const list = await caller.milestone.list({ projectId });
@@ -99,20 +99,20 @@ describe('milestone router', () => {
       expect(list[1].num).toBe(2);
     });
 
-    it('should return empty list for project with no milestones', async () => {
+    it('[FR-MILESTONE-030] should return empty list for project with no milestones', async () => {
       const list = await caller.milestone.list({ projectId });
       expect(list).toHaveLength(0);
     });
   });
 
   describe('get', () => {
-    it('should get a milestone by filename', async () => {
+    it('[FR-MILESTONE-040] should get a milestone by filename', async () => {
       const created = await caller.milestone.create({ projectId, num: 1, title: 'Get Test' });
       const fetched = await caller.milestone.get({ projectId, filename: created.filename });
       expect(fetched.title).toBe('Get Test');
     });
 
-    it('should throw NOT_FOUND for missing filename', async () => {
+    it('[FR-MILESTONE-040] should throw NOT_FOUND for missing filename', async () => {
       await expect(
         caller.milestone.get({ projectId, filename: 'm99-nope.plan.md' }),
       ).rejects.toThrow('not found');
@@ -120,7 +120,7 @@ describe('milestone router', () => {
   });
 
   describe('update', () => {
-    it('should update milestone title and rename file', async () => {
+    it('[FR-MILESTONE-060] should update milestone title and rename file', async () => {
       const milestone = await caller.milestone.create({ projectId, num: 1, title: 'Original' });
       const updated = await caller.milestone.update({
         projectId,
@@ -131,7 +131,7 @@ describe('milestone router', () => {
       expect(updated.filename).toBe('m1-updated-title.plan.md');
     });
 
-    it('should allow valid forward status transitions', async () => {
+    it('[FR-MILESTONE-050] should allow valid forward status transitions', async () => {
       const m = await caller.milestone.create({ projectId, num: 1, title: 'Forward Test' });
       const m2 = await caller.milestone.update({ projectId, filename: m.filename, status: 'planning' });
       const m3 = await caller.milestone.update({ projectId, filename: m2.filename, status: 'active' });
@@ -139,14 +139,14 @@ describe('milestone router', () => {
       expect(result.status).toBe('complete');
     });
 
-    it('should reject skipping milestone status transitions', async () => {
+    it('[FR-MILESTONE-050] should reject skipping milestone status transitions', async () => {
       const m = await caller.milestone.create({ projectId, num: 1, title: 'Skip Test' });
       await expect(
         caller.milestone.update({ projectId, filename: m.filename, status: 'active' }),
       ).rejects.toThrow('invalid milestone status transition');
     });
 
-    it('should reject backward milestone status transitions', async () => {
+    it('[FR-MILESTONE-050] should reject backward milestone status transitions', async () => {
       const m = await caller.milestone.create({ projectId, num: 1, title: 'Backward Test' });
       const m2 = await caller.milestone.update({ projectId, filename: m.filename, status: 'planning' });
       const m3 = await caller.milestone.update({ projectId, filename: m2.filename, status: 'active' });
@@ -155,7 +155,7 @@ describe('milestone router', () => {
       ).rejects.toThrow('invalid milestone status transition');
     });
 
-    it('should allow cycling from complete back to planned', async () => {
+    it('[FR-MILESTONE-050] should allow cycling from complete back to planned', async () => {
       const m = await caller.milestone.create({ projectId, num: 1, title: 'Cycle Test' });
       const m2 = await caller.milestone.update({ projectId, filename: m.filename, status: 'planning' });
       const m3 = await caller.milestone.update({ projectId, filename: m2.filename, status: 'active' });
@@ -190,7 +190,7 @@ describe('milestone router', () => {
       return path.join(wsDir, 'projects', proj.projectDir ?? proj.slug, 'milestones');
     }
 
-    it('should preserve filename on status-only update', async () => {
+    it('[FR-MILESTONE-070] should preserve filename on status-only update', async () => {
       const filename = 'm1-foundation.plan.md';
       const originalContent = '# Plan: M1 Foundation\n\nSome body content here.';
       const dir = getProjectDir();
@@ -210,7 +210,7 @@ describe('milestone router', () => {
       expect(content).toContain('status: planning');
     });
 
-    it('should add frontmatter while preserving body content', async () => {
+    it('[FR-MILESTONE-070] should add frontmatter while preserving body content', async () => {
       const filename = 'm2-api-layer.plan.md';
       const originalContent = '# Plan: M2 API Layer\n\n## Tasks\n- Build endpoints';
       const dir = getProjectDir();
@@ -233,14 +233,14 @@ describe('milestone router', () => {
   });
 
   describe('delete', () => {
-    it('should delete an existing milestone', async () => {
+    it('[FR-MILESTONE-080] should delete an existing milestone', async () => {
       const milestone = await caller.milestone.create({ projectId, num: 1, title: 'Delete Me' });
       await caller.milestone.delete({ projectId, filename: milestone.filename });
       const list = await caller.milestone.list({ projectId });
       expect(list).toHaveLength(0);
     });
 
-    it('should succeed silently for non-existent file', async () => {
+    it('[FR-MILESTONE-080] should succeed silently for non-existent file', async () => {
       await expect(
         caller.milestone.delete({ projectId, filename: 'm99-nope.plan.md' }),
       ).resolves.toEqual({ success: true });

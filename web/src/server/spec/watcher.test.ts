@@ -15,8 +15,8 @@ describe('spec watcher', () => {
     vi.useRealTimers();
   });
 
-  describe('handleSpecFileChange', () => {
-    it('should update timestamp after debounce period', () => {
+  describe('[FR-EDITOR-100] handleSpecFileChange', () => {
+    it('[FR-EDITOR-100] should update timestamp after debounce period', () => {
       handleSpecFileChange('test-ws', state);
       expect(getSpecLastChanged('test-ws', state)).toBeNull();
 
@@ -24,7 +24,7 @@ describe('spec watcher', () => {
       expect(getSpecLastChanged('test-ws', state)).toBeTypeOf('number');
     });
 
-    it('should debounce multiple changes into one update', () => {
+    it('[FR-EDITOR-100] should debounce multiple changes into one update', () => {
       handleSpecFileChange('test-ws', state);
       vi.advanceTimersByTime(100);
       handleSpecFileChange('test-ws', state);
@@ -43,7 +43,7 @@ describe('spec watcher', () => {
       expect(getSpecLastChanged('test-ws', state)).toBeTypeOf('number');
     });
 
-    it('should track separate timestamps per workspace', () => {
+    it('[FR-EDITOR-100] should track separate timestamps per workspace', () => {
       handleSpecFileChange('ws-a', state);
       vi.advanceTimersByTime(300);
 
@@ -58,12 +58,12 @@ describe('spec watcher', () => {
     });
   });
 
-  describe('getSpecLastChanged', () => {
-    it('should return null for unknown workspace', () => {
+  describe('[FR-EDITOR-100] getSpecLastChanged', () => {
+    it('[FR-EDITOR-100] should return null for unknown workspace', () => {
       expect(getSpecLastChanged('unknown', state)).toBeNull();
     });
 
-    it('should return the latest timestamp', () => {
+    it('[FR-EDITOR-100] should return the latest timestamp', () => {
       handleSpecFileChange('test-ws', state);
       vi.advanceTimersByTime(300);
       const first = getSpecLastChanged('test-ws', state);

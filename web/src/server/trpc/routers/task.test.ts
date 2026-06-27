@@ -23,7 +23,7 @@ describe('task router', () => {
   });
 
   describe('create', () => {
-    it('should create a task with defaults', async () => {
+    it('[FR-TASK-010] should create a task with defaults', async () => {
       const task = await caller.task.create({
         projectId,
         title: 'Write tests',
@@ -68,7 +68,7 @@ describe('task router', () => {
       expect(task.projectId).toBeNull();
     });
 
-    it('should reject non-existent blocker', async () => {
+    it('[FR-TASK-020] should reject non-existent blocker', async () => {
       await expect(
         caller.task.create({
           projectId,
@@ -80,14 +80,14 @@ describe('task router', () => {
   });
 
   describe('list', () => {
-    it('should list tasks by project', async () => {
+    it('[FR-TASK-110] should list tasks by project', async () => {
       await caller.task.create({ projectId, title: 'T1' });
       await caller.task.create({ projectId, title: 'T2' });
       const result = await caller.task.list({ projectId });
       expect(result).toHaveLength(2);
     });
 
-    it('should list tasks by milestoneRef', async () => {
+    it('[FR-TASK-110] should list tasks by milestoneRef', async () => {
       await caller.task.create({ projectId, milestoneRef: 'm1', title: 'MT1' });
       await caller.task.create({ projectId, milestoneRef: 'm1', title: 'MT2' });
       await caller.task.create({ projectId, title: 'Unlinked' });
@@ -97,7 +97,7 @@ describe('task router', () => {
       expect(result.every((t) => t.milestoneRef === 'm1')).toBe(true);
     });
 
-    it('should list tasks by taskGroupId', async () => {
+    it('[FR-TASK-110] should list tasks by taskGroupId', async () => {
       const group = await caller.taskGroup.create({
         milestoneRef: 'm1',
         name: 'Group 1',
@@ -120,7 +120,7 @@ describe('task router', () => {
       expect(result).toHaveLength(3);
     });
 
-    it('should include blockedBy in list results', async () => {
+    it('[FR-TASK-110] should include blockedBy in list results', async () => {
       const t1 = await caller.task.create({ projectId, title: 'Blocker' });
       await caller.task.create({ projectId, title: 'Blocked', blockedBy: [t1.id] });
 
@@ -129,7 +129,7 @@ describe('task router', () => {
       expect(blocked?.blockedBy).toEqual([t1.id]);
     });
 
-    it('should combine milestoneRef and projectId with AND logic', async () => {
+    it('[FR-TASK-110] should combine milestoneRef and projectId with AND logic', async () => {
       const ws = await caller.workspace.create({ name: 'Cross WS' });
       const projB = await caller.project.create({ workspaceSlug: ws.slug, name: 'Other Project' });
 
@@ -205,7 +205,7 @@ describe('task router', () => {
       expect(updated.blockedBy).toEqual(expect.arrayContaining([t1.id, t2.id]));
     });
 
-    it('should replace blockedBy on update', async () => {
+    it('[FR-TASK-050] should replace blockedBy on update', async () => {
       const t1 = await caller.task.create({ projectId, title: 'Blocker 1' });
       const t2 = await caller.task.create({ projectId, title: 'Blocker 2' });
       const task = await caller.task.create({
@@ -221,7 +221,7 @@ describe('task router', () => {
       expect(updated.blockedBy).toEqual([t2.id]);
     });
 
-    it('should clear blockedBy with empty array', async () => {
+    it('[FR-TASK-050] should clear blockedBy with empty array', async () => {
       const t1 = await caller.task.create({ projectId, title: 'Blocker' });
       const task = await caller.task.create({
         projectId,
@@ -236,14 +236,14 @@ describe('task router', () => {
       expect(updated.blockedBy).toEqual([]);
     });
 
-    it('should reject self-blocking', async () => {
+    it('[FR-TASK-030] should reject self-blocking', async () => {
       const task = await caller.task.create({ projectId, title: 'Self' });
       await expect(
         caller.task.update({ id: task.id, blockedBy: [task.id] }),
       ).rejects.toThrow('A task cannot block itself');
     });
 
-    it('should detect circular dependencies', async () => {
+    it('[FR-TASK-040] should detect circular dependencies', async () => {
       const t1 = await caller.task.create({
         projectId,
         title: 'T1',
@@ -270,7 +270,7 @@ describe('task router', () => {
   });
 
   describe('execution fields', () => {
-    it('should create a task with subStatus and sessionId', async () => {
+    it('[FR-TASK-080] should create a task with subStatus and sessionId', async () => {
       const task = await caller.task.create({
         projectId,
         title: 'Executing task',
@@ -281,7 +281,7 @@ describe('task router', () => {
       expect(task.sessionId).toBe('uuid-123');
     });
 
-    it('should update subStatus and sessionId', async () => {
+    it('[FR-TASK-080] should update subStatus and sessionId', async () => {
       const task = await caller.task.create({
         projectId,
         title: 'Update exec fields',
@@ -298,7 +298,7 @@ describe('task router', () => {
       expect(updated.sessionId).toBe('uuid-123');
     });
 
-    it('should persist feedback', async () => {
+    it('[FR-TASK-080] should persist feedback', async () => {
       const task = await caller.task.create({
         projectId,
         title: 'Feedback task',
@@ -310,7 +310,7 @@ describe('task router', () => {
       expect(fetched.feedback).toBe('needs more tests');
     });
 
-    it('should clear subStatus with null', async () => {
+    it('[FR-TASK-080] should clear subStatus with null', async () => {
       const task = await caller.task.create({
         projectId,
         title: 'Clear sub status',
@@ -334,7 +334,7 @@ describe('task router', () => {
       await expect(caller.task.get({ id: task.id })).rejects.toThrow('not found');
     });
 
-    it('should cascade delete dependencies when task is deleted', async () => {
+    it('[FR-TASK-060] should cascade delete dependencies when task is deleted', async () => {
       const blocker = await caller.task.create({ projectId, title: 'Blocker' });
       const task = await caller.task.create({
         projectId,
@@ -349,7 +349,7 @@ describe('task router', () => {
   });
 
   describe('bulkUpdate', () => {
-    it('should update milestoneRef for multiple tasks', async () => {
+    it('[FR-TASK-090] should update milestoneRef for multiple tasks', async () => {
       const t1 = await caller.task.create({ projectId, title: 'T1' });
       const t2 = await caller.task.create({ projectId, title: 'T2' });
       const t3 = await caller.task.create({ projectId, title: 'T3' });
@@ -364,7 +364,7 @@ describe('task router', () => {
       expect(fetched.every((t) => t.milestoneRef === 'm1')).toBe(true);
     });
 
-    it('should update taskGroupId for multiple tasks', async () => {
+    it('[FR-TASK-090] should update taskGroupId for multiple tasks', async () => {
       const group = await caller.taskGroup.create({
         milestoneRef: 'm1',
         name: 'Bulk Group',
@@ -382,7 +382,7 @@ describe('task router', () => {
       expect(fetched).toHaveLength(2);
     });
 
-    it('should handle empty ids array', async () => {
+    it('[FR-TASK-090] should handle empty ids array', async () => {
       const result = await caller.task.bulkUpdate({
         ids: [],
         milestoneRef: 'm1',
@@ -390,7 +390,7 @@ describe('task router', () => {
       expect(result.updated).toBe(0);
     });
 
-    it('should only update tasks that exist', async () => {
+    it('[FR-TASK-090] should only update tasks that exist', async () => {
       const t1 = await caller.task.create({ projectId, title: 'Exists' });
 
       const result = await caller.task.bulkUpdate({
@@ -403,7 +403,7 @@ describe('task router', () => {
       expect(fetched.milestoneRef).toBe('m2');
     });
 
-    it('should clear milestoneRef with null', async () => {
+    it('[FR-TASK-090] should clear milestoneRef with null', async () => {
       const t1 = await caller.task.create({ projectId, title: 'T1', milestoneRef: 'm1' });
 
       const result = await caller.task.bulkUpdate({
@@ -418,7 +418,7 @@ describe('task router', () => {
   });
 
   describe('bulkDelete', () => {
-    it('should delete multiple tasks', async () => {
+    it('[FR-TASK-100] should delete multiple tasks', async () => {
       const t1 = await caller.task.create({ projectId, title: 'Delete1' });
       const t2 = await caller.task.create({ projectId, title: 'Delete2' });
       await caller.task.create({ projectId, title: 'Keep' });
@@ -431,12 +431,12 @@ describe('task router', () => {
       expect(remaining[0].title).toBe('Keep');
     });
 
-    it('should handle empty ids array', async () => {
+    it('[FR-TASK-100] should handle empty ids array', async () => {
       const result = await caller.task.bulkDelete({ ids: [] });
       expect(result.deleted).toBe(0);
     });
 
-    it('should handle non-existent ids gracefully', async () => {
+    it('[FR-TASK-100] should handle non-existent ids gracefully', async () => {
       const t1 = await caller.task.create({ projectId, title: 'Exists' });
 
       const result = await caller.task.bulkDelete({ ids: [t1.id, 9999] });

@@ -6,7 +6,7 @@ const SUPPRESS_MS = 3000;
 
 type ActivityEvent = 'start' | 'idle' | 'waiting' | 'done';
 
-describe('createActivityTracker (daemon)', () => {
+describe('[FR-TERMINAL-130] createActivityTracker (daemon)', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 

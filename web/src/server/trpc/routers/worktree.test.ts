@@ -122,7 +122,7 @@ describe('worktree router', () => {
   });
 
   describe('listGrouped', () => {
-    it('groups worktrees by branch across repos and excludes main', async () => {
+    it('[FR-GIT-090] groups worktrees by branch across repos and excludes main', async () => {
       const { proj } = await seed(ctx, ['/repo-A', '/repo-B']);
 
       installFakeDaemon(ctx, {
@@ -157,7 +157,7 @@ describe('worktree router', () => {
       expect(featY.repos).toEqual([{ repoPath: '/repo-A', worktreePath: '/wt/feat-y-A' }]);
     });
 
-    it('partial degradation: when one repo errors, others still return', async () => {
+    it('[FR-GIT-100] partial degradation: when one repo errors, others still return', async () => {
       const { proj } = await seed(ctx, ['/repo-A', '/repo-B']);
 
       installFakeDaemon(ctx, {
@@ -191,7 +191,7 @@ describe('worktree router', () => {
   });
 
   describe('create', () => {
-    it('dispatches WORKTREE_ADD per repo (createBranch flag only on first)', async () => {
+    it('[FR-GIT-110] dispatches WORKTREE_ADD per repo (createBranch flag only on first)', async () => {
       const { proj } = await seed(ctx, ['/repo-A', '/repo-B']);
       const { sent } = installFakeDaemon(ctx, {
         addBehaviors: [{ ok: true }, { ok: true }],
@@ -215,7 +215,7 @@ describe('worktree router', () => {
       expect(result.repos).toHaveLength(2);
     });
 
-    it('rolls back already-added worktrees when a later repo fails', async () => {
+    it('[FR-GIT-120] rolls back already-added worktrees when a later repo fails', async () => {
       const { proj } = await seed(ctx, ['/repo-A', '/repo-B']);
       const { sent } = installFakeDaemon(ctx, {
         addBehaviors: [
@@ -241,7 +241,7 @@ describe('worktree router', () => {
       expect(removeRequests[0].payload.force).toBe(true);
     });
 
-    it('rejects when repoPaths contains a path not in workspace.repos', async () => {
+    it('[FR-GIT-130] rejects when repoPaths contains a path not in workspace.repos', async () => {
       const { proj } = await seed(ctx, ['/repo-A']);
       installFakeDaemon(ctx, {});
 
@@ -255,7 +255,7 @@ describe('worktree router', () => {
       ).rejects.toThrow(/Repo path not in workspace/);
     });
 
-    it('rejects invalid branch names', async () => {
+    it('[FR-GIT-130] rejects invalid branch names', async () => {
       const { proj } = await seed(ctx, ['/repo-A']);
       installFakeDaemon(ctx, {});
 
@@ -271,7 +271,7 @@ describe('worktree router', () => {
   });
 
   describe('sync', () => {
-    it('additively reports per-repo results without rollback', async () => {
+    it('[FR-GIT-140] additively reports per-repo results without rollback', async () => {
       const { proj } = await seed(ctx, ['/repo-A', '/repo-B', '/repo-C']);
       installFakeDaemon(ctx, {
         addBehaviors: [
@@ -294,7 +294,7 @@ describe('worktree router', () => {
   });
 
   describe('remove', () => {
-    it('returns per-repo result list and surfaces DIRTY code', async () => {
+    it('[FR-GIT-150] returns per-repo result list and surfaces DIRTY code', async () => {
       const { proj } = await seed(ctx, ['/repo-A', '/repo-B']);
       installFakeDaemon(ctx, {
         removeBehaviors: [
@@ -314,7 +314,7 @@ describe('worktree router', () => {
       expect(result[1]).toMatchObject({ repoPath: '/repo-B', success: false, code: 'DIRTY' });
     });
 
-    it('passes force=true through to the daemon', async () => {
+    it('[FR-GIT-150] passes force=true through to the daemon', async () => {
       const { proj } = await seed(ctx, ['/repo-A']);
       const { sent } = installFakeDaemon(ctx, { removeBehaviors: [{ ok: true }] });
 

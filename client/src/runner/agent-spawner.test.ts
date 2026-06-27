@@ -106,7 +106,7 @@ describe('AgentSpawner', () => {
     });
   });
 
-  describe('host mode', () => {
+  describe('[FR-EXECUTION-240] host mode', () => {
     it('should spawn claude with --permission-mode acceptEdits', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
@@ -368,7 +368,7 @@ describe('AgentSpawner', () => {
     });
   });
 
-  describe('coder mode', () => {
+  describe('[FR-EXECUTION-250] coder mode', () => {
     it('should spawn via coderManager.exec', async () => {
       const proc = createMockProcess();
       coderManager.exec.mockReturnValue(proc);
@@ -510,7 +510,7 @@ describe('AgentSpawner', () => {
     });
   });
 
-  describe('safety validation (FR #14)', () => {
+  describe('[FR-EXECUTION-230] safety validation', () => {
     it('should throw when --dangerously-skip-permissions is used in host mode', async () => {
       await expect(
         spawner.spawn({
@@ -565,7 +565,7 @@ describe('AgentSpawner', () => {
   });
 
   describe('json output parsing', () => {
-    it('should parse completion from json output', async () => {
+    it('[FR-EXECUTION-220] should parse completion from json output', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -621,7 +621,7 @@ describe('AgentSpawner', () => {
       });
     });
 
-    it('should mark success=false when exit code is 0 but taskCompleted=false', async () => {
+    it('[FR-EXECUTION-220] should mark success=false when exit code is 0 but taskCompleted=false', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -671,7 +671,7 @@ describe('AgentSpawner', () => {
       });
     });
 
-    it('should parse memories from structured output when present', async () => {
+    it('[FR-EXECUTION-220] should parse memories from structured output when present', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -828,7 +828,7 @@ describe('AgentSpawner', () => {
       vi.useFakeTimers();
     });
 
-    it('should send SIGTERM after timeout, then SIGKILL', async () => {
+    it('[FR-EXECUTION-260][FR-EXECUTION-120] should send SIGTERM after timeout, then SIGKILL', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 

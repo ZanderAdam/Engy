@@ -37,7 +37,7 @@ describe('memory router', () => {
   });
 
   describe('create', () => {
-    it('should insert a DB row and write a file', async () => {
+    it('[FR-MEMORY-030] should insert a DB row and write a file', async () => {
       const result = await caller.memory.create({
         workspaceSlug,
         subtype: 'fact',
@@ -94,7 +94,7 @@ describe('memory router', () => {
       ).rejects.toThrow('not found');
     });
 
-    it('should leave no orphan DB row when file write fails', async () => {
+    it('[FR-MEMORY-040] should leave no orphan DB row when file write fails', async () => {
       const wsDir = path.join(ctx.tmpDir, workspaceSlug);
       const memoryDir = path.join(wsDir, 'memory', 'facts');
 
@@ -163,7 +163,7 @@ describe('memory router', () => {
   });
 
   describe('update', () => {
-    it('should update DB row and rewrite file', async () => {
+    it('[FR-MEMORY-050] should update DB row and rewrite file', async () => {
       const created = await caller.memory.create({
         workspaceSlug,
         subtype: 'fact',
@@ -216,7 +216,7 @@ describe('memory router', () => {
       expect(mdFiles).toHaveLength(1);
     });
 
-    it('should merge partial updates, preserving existing fields', async () => {
+    it('[FR-MEMORY-050] should merge partial updates, preserving existing fields', async () => {
       const created = await caller.memory.create({
         workspaceSlug,
         subtype: 'fact',
@@ -266,7 +266,7 @@ describe('memory router', () => {
       expect(updated.supersededById).toBe(replacement.id);
     });
 
-    it('should write supersededBy path to markdown frontmatter when supersededById is set', async () => {
+    it('[FR-MEMORY-070] should write supersededBy path to markdown frontmatter when supersededById is set', async () => {
       const created = await caller.memory.create({
         workspaceSlug,
         subtype: 'fact',
@@ -291,7 +291,7 @@ describe('memory router', () => {
       expect(raw).toContain(replacement.filePath!);
     });
 
-    it('should preserve supersededBy in frontmatter on an unrelated edit', async () => {
+    it('[FR-MEMORY-070] should preserve supersededBy in frontmatter on an unrelated edit', async () => {
       const created = await caller.memory.create({
         workspaceSlug,
         subtype: 'fact',
@@ -322,7 +322,7 @@ describe('memory router', () => {
       expect(row!.supersededById).toBe(replacement.id);
     });
 
-    it('should trigger an incremental reindex after updating', async () => {
+    it('[FR-MEMORY-050] should trigger an incremental reindex after updating', async () => {
       const mockUpdate = vi.mocked(indexerUpdate);
       mockUpdate.mockClear();
 
@@ -389,7 +389,7 @@ describe('memory router', () => {
   });
 
   describe('update subtype relocation', () => {
-    it('should move file to new subtype dir and update filePath in DB', async () => {
+    it('[FR-MEMORY-060] should move file to new subtype dir and update filePath in DB', async () => {
       const created = await caller.memory.create({
         workspaceSlug,
         subtype: 'fact',
@@ -431,7 +431,7 @@ describe('memory router', () => {
   });
 
   describe('delete', () => {
-    it('should remove DB row and delete file', async () => {
+    it('[FR-MEMORY-090] should remove DB row and delete file', async () => {
       const created = await caller.memory.create({
         workspaceSlug,
         subtype: 'fact',
@@ -455,7 +455,7 @@ describe('memory router', () => {
       expect(row).toBeUndefined();
     });
 
-    it('should remove the deleted file from the parent README index', async () => {
+    it('[FR-MEMORY-090] [FR-MEMORY-140] should remove the deleted file from the parent README index', async () => {
       const created = await caller.memory.create({
         workspaceSlug,
         subtype: 'fact',
@@ -626,7 +626,7 @@ describe('memory router', () => {
       ).rejects.toThrow('not found');
     });
 
-    it('should exclude memories that have been superseded', async () => {
+    it('[FR-MEMORY-080] should exclude memories that have been superseded', async () => {
       const old = await caller.memory.create({
         workspaceSlug,
         subtype: 'fact',
@@ -656,7 +656,7 @@ describe('memory router', () => {
   });
 
   describe('promote', () => {
-    it('should create a permanent memory from a fleeting memory', async () => {
+    it('[FR-MEMORY-100] should create a permanent memory from a fleeting memory', async () => {
       const fleeting = ctx.db
         .insert(fleetingMemories)
         .values({
@@ -790,7 +790,7 @@ describe('memory router', () => {
       expect(raw).toContain('doc-abc.md');
     });
 
-    it('should union caller-supplied and fleeting sources', async () => {
+    it('[FR-MEMORY-100] should union caller-supplied and fleeting sources', async () => {
       const ws = await caller.workspace.get({ slug: workspaceSlug });
 
       const fleeting = ctx.db
@@ -821,7 +821,7 @@ describe('memory router', () => {
       expect(sources.length).toBe(unique.length);
     });
 
-    it('should throw BAD_REQUEST when fleeting is already promoted', async () => {
+    it('[FR-MEMORY-110] should throw BAD_REQUEST when fleeting is already promoted', async () => {
       const ws = await caller.workspace.get({ slug: workspaceSlug });
 
       const fleeting = ctx.db
@@ -942,7 +942,7 @@ describe('memory router', () => {
   });
 
   describe('createFleeting', () => {
-    it('should create a fleeting memory and return its id', async () => {
+    it('[FR-MEMORY-010] should create a fleeting memory and return its id', async () => {
       const result = await caller.memory.createFleeting({
         workspaceSlug,
         content: 'Remember to refactor the auth module',
@@ -1000,7 +1000,7 @@ describe('memory router', () => {
       ).rejects.toThrow('not found');
     });
 
-    it('should reject empty content', async () => {
+    it('[FR-MEMORY-020] should reject empty content', async () => {
       await expect(
         caller.memory.createFleeting({
           workspaceSlug,
@@ -1017,7 +1017,7 @@ describe('memory router', () => {
       ).rejects.toThrow('not found');
     });
 
-    it('should return null when LLM is unavailable (QMD_SKIP=1)', async () => {
+    it('[FR-MEMORY-170] should return null when LLM is unavailable (QMD_SKIP=1)', async () => {
       const ws = await caller.workspace.get({ slug: workspaceSlug });
 
       const fleeting = ctx.db
@@ -1036,7 +1036,7 @@ describe('memory router', () => {
       expect(result).toBeNull();
     });
 
-    it('should return a proposal when the LLM responds', async () => {
+    it('[FR-MEMORY-160] should return a proposal when the LLM responds', async () => {
       const { proposeMemoryMetadata } = await import('../../lib/promote-proposal');
       const mockPropose = vi.mocked(proposeMemoryMetadata);
       mockPropose.mockResolvedValueOnce({

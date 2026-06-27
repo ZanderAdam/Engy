@@ -56,16 +56,16 @@ function buildDoc(segments: string[]): PmNode {
   return doc;
 }
 
-describe('findTextQuoteMatch', () => {
+describe('[FR-EDITOR-090] findTextQuoteMatch', () => {
   describe('exact match', () => {
-    it('should find a simple exact match', () => {
+    it('[FR-EDITOR-090] should find a simple exact match', () => {
       const doc = buildDoc(['Hello world']);
       const result = findTextQuoteMatch(doc, { exact: 'world', prefix: 'Hello ', suffix: '' });
       // 'world' starts at textContent offset 6; PM pos = 6+1=7, end=7+5=12
       expect(result).toEqual({ from: 7, to: 12 });
     });
 
-    it('should pick the occurrence with the best context score', () => {
+    it('[FR-EDITOR-090] should pick the occurrence with the best context score', () => {
       const doc = buildDoc(['foo bar foo baz']);
       // two occurrences of 'foo'; prefer the one with suffix 'baz'
       const result = findTextQuoteMatch(doc, { exact: 'foo', prefix: '', suffix: ' baz' });
@@ -73,15 +73,15 @@ describe('findTextQuoteMatch', () => {
       expect(result).toEqual({ from: 9, to: 12 });
     });
 
-    it('should return null when exact text is not found and normalization also fails', () => {
+    it('[FR-EDITOR-090] should return null when exact text is not found and normalization also fails', () => {
       const doc = buildDoc(['Hello world']);
       const result = findTextQuoteMatch(doc, { exact: 'xyz', prefix: '', suffix: '' });
       expect(result).toBeNull();
     });
   });
 
-  describe('end-of-document anchor (Bug B fix)', () => {
-    it('should resolve a match ending at the last character of the doc', () => {
+  describe('[FR-EDITOR-090] end-of-document anchor (Bug B fix)', () => {
+    it('[FR-EDITOR-090] should resolve a match ending at the last character of the doc', () => {
       const doc = buildDoc(['Hello world']);
       // 'world' ends at textContent offset 11 == total length
       const result = findTextQuoteMatch(doc, { exact: 'world', prefix: 'Hello ', suffix: '' });
@@ -91,7 +91,7 @@ describe('findTextQuoteMatch', () => {
       expect(result!.to).toBe(12);
     });
 
-    it('should resolve a single-word doc where match is the entire content', () => {
+    it('[FR-EDITOR-090] should resolve a single-word doc where match is the entire content', () => {
       const doc = buildDoc(['word']);
       const result = findTextQuoteMatch(doc, { exact: 'word', prefix: '', suffix: '' });
       expect(result).not.toBeNull();
@@ -99,7 +99,7 @@ describe('findTextQuoteMatch', () => {
       expect(result!.to).toBe(5);
     });
 
-    it('should resolve last word when text is split across nodes', () => {
+    it('[FR-EDITOR-090] should resolve last word when text is split across nodes', () => {
       // "Hello " in node 1 (pos 1–6), "world" in node 2 (pos 7–11)
       const doc = buildDoc(['Hello ', 'world']);
       const result = findTextQuoteMatch(doc, { exact: 'world', prefix: '', suffix: '' });
@@ -110,8 +110,8 @@ describe('findTextQuoteMatch', () => {
     });
   });
 
-  describe('normalised fallback (Bug A fix)', () => {
-    it('should match after a multi-newline code block with correct original offsets', () => {
+  describe('[FR-EDITOR-090] normalised fallback (Bug A fix)', () => {
+    it('[FR-EDITOR-090] should match after a multi-newline code block with correct original offsets', () => {
       // Simulate a code block: "function foo() {\n  return 1;\n}\n" followed by "Target text"
       const codeBlock = 'function foo() {\n  return 1;\n}\n';
       const targetText = 'Target text';
@@ -130,7 +130,7 @@ describe('findTextQuoteMatch', () => {
       expect(result!.to).toBe(expectedTo);
     });
 
-    it('should use normalized fallback when whitespace differs (collapsed)', () => {
+    it('[FR-EDITOR-090] should use normalized fallback when whitespace differs (collapsed)', () => {
       // Original doc has "Hello    World" (multiple spaces), but selector was captured
       // when it had "Hello World" (single space)
       const doc = buildDoc(['Hello    World']);
@@ -141,7 +141,7 @@ describe('findTextQuoteMatch', () => {
       expect(result!.to).toBe(15); // 'Hello    World'.length = 14; PM to = 15
     });
 
-    it('should match after a multi-newline block with normalized fallback', () => {
+    it('[FR-EDITOR-090] should match after a multi-newline block with normalized fallback', () => {
       // Text that was "foo\n\nbar baz" when comment was made, now indented
       // The doc now has leading whitespace before "bar baz"
       const before = 'foo\n\n    '; // 4-space indent (code block indentation)
@@ -156,7 +156,7 @@ describe('findTextQuoteMatch', () => {
       expect(result!.to).toBe(expectedTo);
     });
 
-    it('should resolve normalized match ending at document end', () => {
+    it('[FR-EDITOR-090] should resolve normalized match ending at document end', () => {
       // 'Some  text' in doc, selector was 'Some text' (collapsed)
       const doc = buildDoc(['Some  text']);
       const result = findTextQuoteMatch(doc, { exact: 'Some text', prefix: '', suffix: '' });
@@ -166,7 +166,7 @@ describe('findTextQuoteMatch', () => {
       expect(result!.to).toBe(11);
     });
 
-    it('should handle case-insensitive normalization', () => {
+    it('[FR-EDITOR-090] should handle case-insensitive normalization', () => {
       const doc = buildDoc(['Hello WORLD']);
       const result = findTextQuoteMatch(doc, { exact: 'hello world', prefix: '', suffix: '' });
       expect(result).not.toBeNull();
@@ -174,7 +174,7 @@ describe('findTextQuoteMatch', () => {
       expect(result!.to).toBe(12);
     });
 
-    it('should pick the correct normalized occurrence via context score when multiple exist', () => {
+    it('[FR-EDITOR-090] should pick the correct normalized occurrence via context score when multiple exist', () => {
       // Two occurrences of "foo   bar" (extra spaces collapse to "foo bar" normalized).
       // We want the SECOND one, which has suffix "baz".
       // Original: "foo   bar and foo   bar baz"
@@ -194,8 +194,8 @@ describe('findTextQuoteMatch', () => {
     });
   });
 
-  describe('multi-node documents', () => {
-    it('should handle match spanning only one of several nodes', () => {
+  describe('[FR-EDITOR-090] multi-node documents', () => {
+    it('[FR-EDITOR-090] should handle match spanning only one of several nodes', () => {
       const doc = buildDoc(['First node. ', 'Second node. ', 'Third node.']);
       const result = findTextQuoteMatch(doc, { exact: 'Second node.', prefix: '', suffix: '' });
       expect(result).not.toBeNull();

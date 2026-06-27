@@ -99,7 +99,7 @@ describe('Terminal WebSocket Server', () => {
     await closeServer(server);
   });
 
-  describe('browser connection', () => {
+  describe('[FR-TERMINAL-010] browser connection', () => {
     it('should close with 1008 when missing sessionId', async () => {
       const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/terminal?workingDir=/tmp`);
       openClients.push(ws);
@@ -108,7 +108,7 @@ describe('Terminal WebSocket Server', () => {
       expect(code).toBe(1008);
     });
 
-    it('should close with 1008 when missing workingDir', async () => {
+    it('[FR-TERMINAL-010] should close with 1008 when missing workingDir', async () => {
       const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/terminal?sessionId=abc`);
       openClients.push(ws);
 
@@ -116,7 +116,7 @@ describe('Terminal WebSocket Server', () => {
       expect(code).toBe(1008);
     });
 
-    it('should send spawn command to daemon relay on connect', async () => {
+    it('[FR-TERMINAL-020] should send spawn command to daemon relay on connect', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const msgPromise = waitForMessage(daemonWs);
 
@@ -133,7 +133,7 @@ describe('Terminal WebSocket Server', () => {
       });
     });
 
-    it('should send reconnect command when same sessionId reconnects (multi-attach)', async () => {
+    it('[FR-TERMINAL-050] should send reconnect command when same sessionId reconnects (multi-attach)', async () => {
       const daemonWs = await connectDaemonRelay(port);
 
       // First connection
@@ -169,7 +169,7 @@ describe('Terminal WebSocket Server', () => {
       expect(msg).toEqual({ t: 'error', message: 'No daemon connected' });
     });
 
-    it('should forward browser input raw to daemon relay', async () => {
+    it('[FR-TERMINAL-060] should forward browser input raw to daemon relay', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -186,7 +186,7 @@ describe('Terminal WebSocket Server', () => {
   });
 
   describe('daemon relay', () => {
-    it('should forward output from daemon to correct browser', async () => {
+    it('[FR-TERMINAL-060] should forward output from daemon to correct browser', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -201,7 +201,7 @@ describe('Terminal WebSocket Server', () => {
       expect(received).toBe(outputMsg);
     });
 
-    it('should persist activity state on the session meta from an act message', async () => {
+    it('[FR-TERMINAL-130] should persist activity state on the session meta from an act message', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -220,7 +220,7 @@ describe('Terminal WebSocket Server', () => {
       });
     });
 
-    it('should forward exit to browser and clean up both session maps', async () => {
+    it('[FR-TERMINAL-090] should forward exit to browser and clean up both session maps', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -241,7 +241,7 @@ describe('Terminal WebSocket Server', () => {
       });
     });
 
-    it('should retain terminalSessionMeta on relay disconnect for respawn', async () => {
+    it('[FR-TERMINAL-100] should retain terminalSessionMeta on relay disconnect for respawn', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -260,7 +260,7 @@ describe('Terminal WebSocket Server', () => {
       expect(state.terminalSessionMeta.has('sess-relay-meta')).toBe(true);
     });
 
-    it('should set terminalDaemon to null on relay disconnect', async () => {
+    it('[FR-TERMINAL-100] should set terminalDaemon to null on relay disconnect', async () => {
       const daemonWs = await connectDaemonRelay(port);
 
       await vi.waitFor(() => {
@@ -331,7 +331,7 @@ describe('Terminal WebSocket Server', () => {
   });
 
   describe('session persistence', () => {
-    it('should store session metadata on browser connect', async () => {
+    it('[FR-TERMINAL-020] should store session metadata on browser connect', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -350,7 +350,7 @@ describe('Terminal WebSocket Server', () => {
       expect(meta.workingDir).toBe('/tmp/proj');
     });
 
-    it('should keep session metadata after browser WS closes', async () => {
+    it('[FR-TERMINAL-040] should keep session metadata after browser WS closes', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -372,7 +372,7 @@ describe('Terminal WebSocket Server', () => {
       expect(state.terminalSessionMeta.has('sess-persist')).toBe(true);
     });
 
-    it('should send reconnect after browser close + reconnect (page refresh)', async () => {
+    it('[FR-TERMINAL-050] should send reconnect after browser close + reconnect (page refresh)', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -400,7 +400,7 @@ describe('Terminal WebSocket Server', () => {
       expect(reconnectMsg).toEqual({ t: 'reconnect', sessionId: 'sess-refresh' });
     });
 
-    it('should send exit to other attached browsers before closing them on kill', async () => {
+    it('[FR-TERMINAL-080] should send exit to other attached browsers before closing them on kill', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -441,7 +441,7 @@ describe('Terminal WebSocket Server', () => {
       expect(closeEvent).toEqual({ kind: 'close', code: 1001 });
     });
 
-    it('should clean up metadata when browser sends kill', async () => {
+    it('[FR-TERMINAL-080] should clean up metadata when browser sends kill', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -463,7 +463,7 @@ describe('Terminal WebSocket Server', () => {
   });
 
   describe('daemon sync', () => {
-    it('should clean up stale sessions with no browser connected', async () => {
+    it('[FR-TERMINAL-110] should clean up stale sessions with no browser connected', async () => {
       // Pre-populate meta for a session the daemon has lost
       state.terminalSessionMeta.set('stale-sess', {
         scopeType: 'workspace',
@@ -483,7 +483,7 @@ describe('Terminal WebSocket Server', () => {
       });
     });
 
-    it('should respawn stale sessions when browser is still connected', async () => {
+    it('[FR-TERMINAL-110] should respawn stale sessions when browser is still connected', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -598,7 +598,7 @@ describe('Terminal WebSocket Server', () => {
     });
   });
 
-  describe('concurrent browser reconnects', () => {
+  describe('[FR-TERMINAL-050] concurrent browser reconnects', () => {
     it('should deliver reconnected buffer to all concurrently-reconnecting browsers', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
@@ -689,7 +689,7 @@ describe('Terminal WebSocket Server', () => {
     });
   });
 
-  describe('concurrent connect during spawn', () => {
+  describe('[FR-TERMINAL-120] concurrent connect during spawn', () => {
     it('should route concurrent connect through reconnect once in-flight spawn completes', async () => {
       const daemonWs = await connectDaemonRelay(port);
 
@@ -792,7 +792,7 @@ describe('Terminal WebSocket Server', () => {
     });
   });
 
-  describe('multi-attach', () => {
+  describe('[FR-TERMINAL-060] multi-attach', () => {
     it('should broadcast output to all attached browsers', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
@@ -815,7 +815,7 @@ describe('Terminal WebSocket Server', () => {
       expect(await output2Promise).toBe(outputMsg);
     });
 
-    it('should replay reconnect buffer only to the newly-connecting browser', async () => {
+    it('[FR-TERMINAL-050] should replay reconnect buffer only to the newly-connecting browser', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -845,7 +845,7 @@ describe('Terminal WebSocket Server', () => {
       expect(await output1Promise).toBe(outputMsg);
     });
 
-    it('should not remove session when one browser disconnects while another is connected', async () => {
+    it('[FR-TERMINAL-070] should not remove session when one browser disconnects while another is connected', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -871,7 +871,7 @@ describe('Terminal WebSocket Server', () => {
       expect(state.terminalSessionMeta.has('sess-partial')).toBe(true);
     });
 
-    it('should clean up session entry only when all browsers disconnect', async () => {
+    it('[FR-TERMINAL-070] should clean up session entry only when all browsers disconnect', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -893,7 +893,7 @@ describe('Terminal WebSocket Server', () => {
       expect(state.terminalSessionMeta.has('sess-alloff')).toBe(true);
     });
 
-    it('should forward input from any attached browser to daemon', async () => {
+    it('[FR-TERMINAL-060] should forward input from any attached browser to daemon', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 

@@ -92,7 +92,7 @@ describe('auto-linker', () => {
       expect(SIMILARITY_THRESHOLD).toBe(0.75);
     });
 
-    it('should export MAX_LINKS as 5', () => {
+    it('[FR-MEMORY-150] should export MAX_LINKS as 5', () => {
       expect(MAX_LINKS).toBe(5);
     });
   });
@@ -116,7 +116,7 @@ describe('auto-linker', () => {
   });
 
   describe('autoLink', () => {
-    it('should write bidirectional links when score is above threshold', async () => {
+    it('[FR-MEMORY-150] should write bidirectional links when score is above threshold', async () => {
       const db = getDb();
 
       // Create source memory
@@ -187,7 +187,7 @@ describe('auto-linker', () => {
       expect((updatedSrc.linkedMemories as string[]) ?? []).not.toContain(candidatePath);
     });
 
-    it('should cap links at MAX_LINKS even when many candidates qualify', async () => {
+    it('[FR-MEMORY-150] should cap links at MAX_LINKS even when many candidates qualify', async () => {
       const db = getDb();
 
       const srcPath = 'memory/facts/202501010001-src.md';

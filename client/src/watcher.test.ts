@@ -38,7 +38,7 @@ describe('SpecWatcher', { retry: 2 }, () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('should send FILE_CHANGE when a spec file changes', async () => {
+  it('[FR-FILES-190] should send FILE_CHANGE when a spec file changes', async () => {
     const specsDir = path.join(tmpDir, 'test-ws', 'specs');
     fs.mkdirSync(specsDir, { recursive: true });
 

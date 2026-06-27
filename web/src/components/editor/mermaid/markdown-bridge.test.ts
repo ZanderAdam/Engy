@@ -29,13 +29,13 @@ const para = (text: string): Block => ({
   children: [],
 });
 
-describe('markdown-bridge', () => {
-  describe('codeBlockToMermaid', () => {
-    it('returns empty array unchanged', () => {
+describe('[FR-EDITOR-130] markdown-bridge', () => {
+  describe('[FR-EDITOR-130] codeBlockToMermaid', () => {
+    it('[FR-EDITOR-130] returns empty array unchanged', () => {
       expect(codeBlockToMermaid([])).toEqual([]);
     });
 
-    it('converts a mermaid code block to a mermaid block', () => {
+    it('[FR-EDITOR-130] converts a mermaid code block to a mermaid block', () => {
       const result = codeBlockToMermaid([mermaidCode('mermaid', 'flowchart TD\n  A --> B')]);
       expect(result).toEqual([
         {
@@ -47,19 +47,19 @@ describe('markdown-bridge', () => {
       ]);
     });
 
-    it('leaves non-mermaid code blocks alone', () => {
+    it('[FR-EDITOR-130] leaves non-mermaid code blocks alone', () => {
       const input = [mermaidCode('typescript', 'const x = 1;')];
       const result = codeBlockToMermaid(input);
       expect(result).toEqual(input);
     });
 
-    it('leaves code blocks with no language alone', () => {
+    it('[FR-EDITOR-130] leaves code blocks with no language alone', () => {
       const input = [mermaidCode('', 'plain text')];
       const result = codeBlockToMermaid(input);
       expect(result).toEqual(input);
     });
 
-    it('handles mermaid code blocks mixed with other blocks', () => {
+    it('[FR-EDITOR-130] handles mermaid code blocks mixed with other blocks', () => {
       const input: Block[] = [
         para('Before'),
         mermaidCode('mermaid', 'sequenceDiagram\n  A->>B: hi'),
@@ -75,7 +75,7 @@ describe('markdown-bridge', () => {
       expect(result[4]).toEqual(input[4]);
     });
 
-    it('recurses into children (nested in toggles, lists, etc)', () => {
+    it('[FR-EDITOR-130] recurses into children (nested in toggles, lists, etc)', () => {
       const input: Block[] = [
         {
           type: 'bulletListItem',
@@ -88,7 +88,7 @@ describe('markdown-bridge', () => {
       expect(result[0].children?.[0]).toEqual(mermaidBlock('graph LR\n  A-->B'));
     });
 
-    it('handles a code block with empty content', () => {
+    it('[FR-EDITOR-130] handles a code block with empty content', () => {
       const input: Block[] = [
         { type: 'codeBlock', props: { language: 'mermaid' }, content: [], children: [] },
       ];
@@ -96,7 +96,7 @@ describe('markdown-bridge', () => {
       expect(result).toEqual([mermaidBlock('')]);
     });
 
-    it('joins multiple text inline nodes within the code block', () => {
+    it('[FR-EDITOR-130] joins multiple text inline nodes within the code block', () => {
       const input: Block[] = [
         {
           type: 'codeBlock',
@@ -113,12 +113,12 @@ describe('markdown-bridge', () => {
     });
   });
 
-  describe('mermaidToCodeBlock', () => {
-    it('returns empty array unchanged', () => {
+  describe('[FR-EDITOR-130] mermaidToCodeBlock', () => {
+    it('[FR-EDITOR-130] returns empty array unchanged', () => {
       expect(mermaidToCodeBlock([])).toEqual([]);
     });
 
-    it('converts a mermaid block to a mermaid code block', () => {
+    it('[FR-EDITOR-130] converts a mermaid block to a mermaid code block', () => {
       const result = mermaidToCodeBlock([mermaidBlock('flowchart TD\n  A --> B')]);
       expect(result).toEqual([
         {
@@ -130,7 +130,7 @@ describe('markdown-bridge', () => {
       ]);
     });
 
-    it('leaves other blocks alone', () => {
+    it('[FR-EDITOR-130] leaves other blocks alone', () => {
       const input: Block[] = [
         para('hello'),
         mermaidCode('typescript', 'const x = 1;'),
@@ -138,7 +138,7 @@ describe('markdown-bridge', () => {
       expect(mermaidToCodeBlock(input)).toEqual(input);
     });
 
-    it('handles an empty-source mermaid block', () => {
+    it('[FR-EDITOR-130] handles an empty-source mermaid block', () => {
       const result = mermaidToCodeBlock([mermaidBlock('')]);
       expect(result).toEqual([
         {
@@ -150,7 +150,7 @@ describe('markdown-bridge', () => {
       ]);
     });
 
-    it('recurses into children', () => {
+    it('[FR-EDITOR-130] recurses into children', () => {
       const input: Block[] = [
         {
           type: 'bulletListItem',
@@ -166,8 +166,8 @@ describe('markdown-bridge', () => {
     });
   });
 
-  describe('idempotency', () => {
-    it('mermaidToCodeBlock(codeBlockToMermaid(x)) preserves mermaid blocks', () => {
+  describe('[FR-EDITOR-130] idempotency', () => {
+    it('[FR-EDITOR-130] mermaidToCodeBlock(codeBlockToMermaid(x)) preserves mermaid blocks', () => {
       const input: Block[] = [
         para('Before'),
         mermaidCode('mermaid', 'flowchart TD\n  A --> B'),
@@ -177,7 +177,7 @@ describe('markdown-bridge', () => {
       expect(result).toEqual(input);
     });
 
-    it('codeBlockToMermaid(mermaidToCodeBlock(x)) preserves mermaid blocks', () => {
+    it('[FR-EDITOR-130] codeBlockToMermaid(mermaidToCodeBlock(x)) preserves mermaid blocks', () => {
       const input: Block[] = [
         para('Before'),
         mermaidBlock('flowchart TD\n  A --> B'),

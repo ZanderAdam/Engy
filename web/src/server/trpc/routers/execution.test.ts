@@ -88,7 +88,7 @@ describe('execution router', () => {
   });
 
   describe('startExecution', () => {
-    it('should create an agentSessions record with status active and executionMode task', async () => {
+    it('[FR-EXECUTION-010] should create an agentSessions record with status active and executionMode task', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Test task' });
       createMockDaemon(ctx);
@@ -111,7 +111,7 @@ describe('execution router', () => {
       expect(session!.taskId).toBe(task.id);
     });
 
-    it('should dispatch EXECUTION_START_REQUEST to daemon with built prompt', async () => {
+    it('[FR-EXECUTION-010][FR-EXECUTION-020] should dispatch EXECUTION_START_REQUEST to daemon with built prompt', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Build feature' });
       const { sent } = createMockDaemon(ctx);
@@ -127,7 +127,7 @@ describe('execution router', () => {
       expect((msg.payload.flags as string[])[flagIndex + 1]).toContain('Workspace: exec-ws');
     });
 
-    it('should clean up session and task on dispatch failure', async () => {
+    it('[FR-EXECUTION-080] should clean up session and task on dispatch failure', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Failing task' });
       createFailingDaemon(ctx, 'Command failed: coder ssh');
@@ -150,7 +150,7 @@ describe('execution router', () => {
       expect(updatedTask!.subStatus).toBe('failed');
     });
 
-    it('should include repo paths in system prompt when workspace has repos', async () => {
+    it('[FR-EXECUTION-020] should include repo paths in system prompt when workspace has repos', async () => {
       const { ws, proj } = await seedProject(caller);
       getDb()
         .update(workspaces)
@@ -168,7 +168,7 @@ describe('execution router', () => {
       expect(systemPrompt).toContain('Repos: /Users/me/repo1, /Users/me/repo2');
     });
 
-    it('should include the Engy session id in the system prompt', async () => {
+    it('[FR-EXECUTION-020] should include the Engy session id in the system prompt', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Session id task' });
       const { sent } = createMockDaemon(ctx);
@@ -190,7 +190,7 @@ describe('execution router', () => {
       ).rejects.toThrow('Task 9999 not found');
     });
 
-    it('should throw when no daemon is connected for task scope', async () => {
+    it('[FR-EXECUTION-070] should throw when no daemon is connected for task scope', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Test task' });
 
@@ -199,7 +199,7 @@ describe('execution router', () => {
       ).rejects.toThrow('No daemon connected');
     });
 
-    it('should support milestone scope and link session to first task', async () => {
+    it('[FR-EXECUTION-050] should support milestone scope and link session to first task', async () => {
       const { proj } = await seedProject(caller);
       const firstTask = await caller.task.create({
         projectId: proj.id,
@@ -230,7 +230,7 @@ describe('execution router', () => {
       expect(session!.taskId).toBe(firstTask.id);
     });
 
-    it('should support taskGroup scope', async () => {
+    it('[FR-EXECUTION-040] should support taskGroup scope', async () => {
       const { proj } = await seedProject(caller);
       const group = await caller.taskGroup.create({
         milestoneRef: 'm1',
@@ -262,7 +262,7 @@ describe('execution router', () => {
   });
 
   describe('stopExecution', () => {
-    it('should dispatch EXECUTION_STOP_REQUEST and update session status to stopped', async () => {
+    it('[FR-EXECUTION-110] should dispatch EXECUTION_STOP_REQUEST and update session status to stopped', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Running task' });
       createMockDaemon(ctx);
@@ -295,7 +295,7 @@ describe('execution router', () => {
   });
 
   describe('retryExecution', () => {
-    it('should reactivate the original session row and dispatch with --resume', async () => {
+    it('[FR-EXECUTION-130] should reactivate the original session row and dispatch with --resume', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Failed task' });
       createMockDaemon(ctx);
@@ -415,7 +415,7 @@ describe('execution router', () => {
   });
 
   describe('getSessionFile', () => {
-    it('should return parsed JSONL entries from session file', async () => {
+    it('[FR-EXECUTION-280] should return parsed JSONL entries from session file', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Logged task' });
       createMockDaemon(ctx);
@@ -455,7 +455,7 @@ describe('execution router', () => {
       delete process.env.__TEST_HOME_DIR__;
     });
 
-    it('should return empty entries when session file does not exist', async () => {
+    it('[FR-EXECUTION-280] should return empty entries when session file does not exist', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'No file task' });
       createMockDaemon(ctx);
@@ -520,7 +520,7 @@ describe('execution router', () => {
   });
 
   describe('remote execution', () => {
-    it('should create session with submitted status for remote execution', async () => {
+    it('[FR-EXECUTION-090] should create session with submitted status for remote execution', async () => {
       const { ws, proj } = await seedProject(caller);
       getDb().update(workspaces).set({ repos: ['/tmp/fake-repo'] }).where(eq(workspaces.id, ws.id)).run();
       const task = await caller.task.create({ projectId: proj.id, title: 'Remote task' });
@@ -542,7 +542,7 @@ describe('execution router', () => {
       expect(session!.status).toBe('submitted');
     });
 
-    it('should dispatch with remote config and no flags', async () => {
+    it('[FR-EXECUTION-090] should dispatch with remote config and no flags', async () => {
       const { ws, proj } = await seedProject(caller);
       getDb().update(workspaces).set({ repos: ['/tmp/fake-repo'] }).where(eq(workspaces.id, ws.id)).run();
       const task = await caller.task.create({ projectId: proj.id, title: 'Remote dispatch' });
@@ -555,7 +555,7 @@ describe('execution router', () => {
       expect(msg.payload.flags).toEqual([]);
     });
 
-    it('should reject retry for submitted (remote) sessions', async () => {
+    it('[FR-EXECUTION-140] should reject retry for submitted (remote) sessions', async () => {
       const { ws, proj } = await seedProject(caller);
       getDb().update(workspaces).set({ repos: ['/tmp/fake-repo'] }).where(eq(workspaces.id, ws.id)).run();
       const task = await caller.task.create({ projectId: proj.id, title: 'Remote retry' });
@@ -572,7 +572,7 @@ describe('execution router', () => {
       );
     });
 
-    it('should reject feedback for submitted (remote) sessions', async () => {
+    it('[FR-EXECUTION-140] should reject feedback for submitted (remote) sessions', async () => {
       const { ws, proj } = await seedProject(caller);
       getDb().update(workspaces).set({ repos: ['/tmp/fake-repo'] }).where(eq(workspaces.id, ws.id)).run();
       const task = await caller.task.create({ projectId: proj.id, title: 'Remote feedback' });
@@ -589,7 +589,7 @@ describe('execution router', () => {
       ).rejects.toThrow('Cannot send feedback to a remote session');
     });
 
-    it('should throw when workspace has no repos for remote execution', async () => {
+    it('[FR-EXECUTION-100] should throw when workspace has no repos for remote execution', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'No repos task' });
       createMockDaemon(ctx);
@@ -634,7 +634,7 @@ describe('execution router', () => {
       vi.restoreAllMocks();
     });
 
-    it('should block duplicate remote sessions for the same task', async () => {
+    it('[FR-EXECUTION-060] should block duplicate remote sessions for the same task', async () => {
       const { ws, proj } = await seedProject(caller);
       getDb().update(workspaces).set({ repos: ['/tmp/fake-repo'] }).where(eq(workspaces.id, ws.id)).run();
       const task = await caller.task.create({ projectId: proj.id, title: 'Dup remote' });
@@ -670,7 +670,7 @@ describe('execution router', () => {
       return { sent };
     }
 
-    it('should no-op for non-Coder workspaces but still clear needsPlan', async () => {
+    it('[FR-EXECUTION-290] should no-op for non-Coder workspaces but still clear needsPlan', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Push test' });
       expect(task.needsPlan).toBe(true);
@@ -688,7 +688,7 @@ describe('execution router', () => {
       expect(updated!.needsPlan).toBe(false);
     });
 
-    it('should dispatch REMOTE_FILE_PUSH for Coder workspaces with computed plan path', async () => {
+    it('[FR-EXECUTION-290] should dispatch REMOTE_FILE_PUSH for Coder workspaces with computed plan path', async () => {
       const { ws, proj } = await seedProject(caller);
       getDb()
         .update(workspaces)
@@ -858,7 +858,7 @@ describe('execution router', () => {
   });
 
   describe('planning scope', () => {
-    it('should create session with executionMode planning and set subStatus planning', async () => {
+    it('[FR-EXECUTION-030] should create session with executionMode planning and set subStatus planning', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Plan task' });
       createMockDaemon(ctx);
@@ -881,7 +881,7 @@ describe('execution router', () => {
       expect(updatedTask!.subStatus).toBe('planning');
     });
 
-    it('should dispatch with plan skill prompt', async () => {
+    it('[FR-EXECUTION-030] should dispatch with plan skill prompt', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'Plan dispatch' });
       const { sent } = createMockDaemon(ctx);
@@ -892,7 +892,7 @@ describe('execution router', () => {
       expect(msg.payload.prompt).toContain('/engy:plan');
     });
 
-    it('should use custom planSkill from workspace', async () => {
+    it('[FR-EXECUTION-030] should use custom planSkill from workspace', async () => {
       const { ws, proj } = await seedProject(caller);
       getDb()
         .update(workspaces)
@@ -943,7 +943,7 @@ describe('execution router', () => {
   });
 
   describe('triggerAutoStart', () => {
-    it('should start planning execution for needsPlan=true task', async () => {
+    it('[FR-EXECUTION-200] should start planning execution for needsPlan=true task', async () => {
       const { ws, proj } = await seedProject(caller);
       getDb()
         .update(workspaces)
@@ -968,7 +968,7 @@ describe('execution router', () => {
       expect(updatedTask!.subStatus).toBe('planning');
     });
 
-    it('should start implementation execution for needsPlan=false task', async () => {
+    it('[FR-EXECUTION-200] should start implementation execution for needsPlan=false task', async () => {
       const { ws, proj } = await seedProject(caller);
       getDb()
         .update(workspaces)
@@ -993,7 +993,7 @@ describe('execution router', () => {
       expect(updatedTask!.subStatus).toBe('implementing');
     });
 
-    it('should start implementation when needsPlan=true but plan file exists on disk', async () => {
+    it('[FR-EXECUTION-200] should start implementation when needsPlan=true but plan file exists on disk', async () => {
       const { ws, proj } = await seedProject(caller);
       getDb()
         .update(workspaces)
@@ -1092,7 +1092,7 @@ describe('execution router', () => {
       expect(sessions).toHaveLength(0);
     });
 
-    it('should skip when at concurrency limit', async () => {
+    it('[FR-EXECUTION-210] should skip when at concurrency limit', async () => {
       const { ws, proj } = await seedProject(caller);
       getDb()
         .update(workspaces)
@@ -1122,7 +1122,7 @@ describe('execution router', () => {
       expect(sessions[0].taskId).toBe(task1.id);
     });
 
-    it('should set subStatus to failed on dispatch error without throwing', async () => {
+    it('[FR-EXECUTION-200] should set subStatus to failed on dispatch error without throwing', async () => {
       const { ws, proj } = await seedProject(caller);
       getDb()
         .update(workspaces)

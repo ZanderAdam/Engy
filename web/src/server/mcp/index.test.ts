@@ -61,8 +61,8 @@ describe('MCP Server', () => {
     ctx.cleanup();
   });
 
-  describe('getMcpServer', () => {
-    it('should return a fresh McpServer instance each call', () => {
+  describe('[FR-MCP-060] getMcpServer', () => {
+    it('[FR-MCP-060] should return a fresh McpServer instance each call', () => {
       const server1 = getMcpServer();
       const server2 = getMcpServer();
       expect(server1).not.toBe(server2);
@@ -70,7 +70,7 @@ describe('MCP Server', () => {
   });
 
   describe('workspace tools', () => {
-    it('listWorkspaces should return all workspaces with id, name, slug', async () => {
+    it('[FR-WORKSPACE-110] listWorkspaces should return all workspaces with id, name, slug', async () => {
       const db = getDb();
       db.insert(workspaces).values({ name: 'Engy', slug: 'engy' }).run();
       db.insert(workspaces).values({ name: 'Sandbox', slug: 'sandbox' }).run();
@@ -85,14 +85,14 @@ describe('MCP Server', () => {
       expect(Object.keys(data[0])).toEqual(['id', 'name', 'slug']);
     });
 
-    it('listWorkspaces should return empty array when no workspaces', async () => {
+    it('[FR-WORKSPACE-110] listWorkspaces should return empty array when no workspaces', async () => {
       const mcp = getMcpServer();
       const call = callTool(mcp, 'listWorkspaces');
       const { data } = await call();
       expect(data).toEqual([]);
     });
 
-    it('listProjects should return all projects when no filter', async () => {
+    it('[FR-WORKSPACE-110] listProjects should return all projects when no filter', async () => {
       const db = getDb();
       const ws = db.insert(workspaces).values({ name: 'W1', slug: 'w1' }).returning().get();
       db.insert(projects).values({ workspaceId: ws.id, name: 'P1', slug: 'p1' }).run();
@@ -105,7 +105,7 @@ describe('MCP Server', () => {
       expect(data).toHaveLength(2);
     });
 
-    it('listProjects should include slug and name', async () => {
+    it('[FR-WORKSPACE-110] listProjects should include slug and name', async () => {
       const db = getDb();
       const ws = db.insert(workspaces).values({ name: 'W1', slug: 'w1' }).returning().get();
       db.insert(projects).values({ workspaceId: ws.id, name: 'Initial', slug: 'initial' }).run();
@@ -118,7 +118,7 @@ describe('MCP Server', () => {
       expect(data[0].slug).toBe('initial');
     });
 
-    it('listProjects should filter by workspaceId', async () => {
+    it('[FR-WORKSPACE-110] listProjects should filter by workspaceId', async () => {
       const db = getDb();
       const ws1 = db.insert(workspaces).values({ name: 'W1', slug: 'w1' }).returning().get();
       const ws2 = db.insert(workspaces).values({ name: 'W2', slug: 'w2' }).returning().get();
@@ -133,7 +133,7 @@ describe('MCP Server', () => {
       expect(data[0].name).toBe('P1');
     });
 
-    it('listProjects should return empty array when workspace has no projects', async () => {
+    it('[FR-WORKSPACE-110] listProjects should return empty array when workspace has no projects', async () => {
       const db = getDb();
       const ws = db.insert(workspaces).values({ name: 'Empty', slug: 'empty' }).returning().get();
 
@@ -175,7 +175,7 @@ describe('MCP Server', () => {
         expect(data).toEqual({ id: expect.any(Number) });
       });
 
-      it('should return error for non-existent dependency', async () => {
+      it('[FR-TASK-020] should return error for non-existent dependency', async () => {
         const mcp = getMcpServer();
         const call = callTool(mcp, 'createTask');
         const { data, isError } = await call({
@@ -192,7 +192,7 @@ describe('MCP Server', () => {
         expect(data.error).toContain('does not exist');
       });
 
-      it('should return error when any dependency does not exist', async () => {
+      it('[FR-TASK-020] should return error when any dependency does not exist', async () => {
         const db = getDb();
         const existing = db.insert(tasks).values({ title: 'Real', projectId }).returning().get();
 
@@ -272,7 +272,7 @@ describe('MCP Server', () => {
         expect(updated!.projectId).toBeNull();
       });
 
-      it('should return error for non-existent dependency', async () => {
+      it('[FR-TASK-020] should return error for non-existent dependency', async () => {
         const db = getDb();
         const task = db.insert(tasks).values({ title: 'T1', projectId }).returning().get();
 
@@ -285,7 +285,7 @@ describe('MCP Server', () => {
         expect(data.error).toContain('does not exist');
       });
 
-      it('should return error for circular dependency', async () => {
+      it('[FR-TASK-040] should return error for circular dependency', async () => {
         const db = getDb();
         const taskA = db.insert(tasks).values({ title: 'A', projectId }).returning().get();
         const taskB = db.insert(tasks).values({ title: 'B', projectId }).returning().get();
@@ -299,7 +299,7 @@ describe('MCP Server', () => {
         expect(data.error).toContain('Circular dependency');
       });
 
-      it('should create fleeting memories on the task workspace when memories are passed', async () => {
+      it('[FR-TASK-140] should create fleeting memories on the task workspace when memories are passed', async () => {
         const db = getDb();
         const ws = db.select().from(workspaces).where(eq(workspaces.slug, 'test')).get()!;
         const task = db.insert(tasks).values({ title: 'Task with memories', projectId }).returning().get();
@@ -325,7 +325,7 @@ describe('MCP Server', () => {
         expect(rows.every((r) => r.source === 'agent')).toBe(true);
       });
 
-      it('should be a no-op for memories when the task has no projectId', async () => {
+      it('[FR-TASK-140] should be a no-op for memories when the task has no projectId', async () => {
         const db = getDb();
         // Create a task without a projectId so there is no workspace to scope memories to
         const task = db.insert(tasks).values({ title: 'Unscoped task' }).returning().get();
@@ -345,7 +345,7 @@ describe('MCP Server', () => {
     });
 
     describe('listTasks', () => {
-      it('should omit description by default (compact)', async () => {
+      it('[FR-TASK-120] should omit description by default (compact)', async () => {
         const db = getDb();
         db.insert(tasks).values({ title: 'T1', projectId, description: 'Details here' }).run();
 
@@ -358,7 +358,7 @@ describe('MCP Server', () => {
         expect(data[0]).not.toHaveProperty('description');
       });
 
-      it('should include description when compact is false', async () => {
+      it('[FR-TASK-120] should include description when compact is false', async () => {
         const db = getDb();
         db.insert(tasks).values({ title: 'T1', projectId, description: 'Details here' }).run();
 
@@ -369,7 +369,7 @@ describe('MCP Server', () => {
         expect(data[0].description).toBe('Details here');
       });
 
-      it('should filter by projectId', async () => {
+      it('[FR-TASK-110] should filter by projectId', async () => {
         const db = getDb();
         db.insert(tasks).values({ title: 'T1', projectId }).run();
         db.insert(tasks).values({ title: 'T2', projectId }).run();
@@ -381,7 +381,7 @@ describe('MCP Server', () => {
         expect(data).toHaveLength(2);
       });
 
-      it('should return all tasks when no filter', async () => {
+      it('[FR-TASK-110] should return all tasks when no filter', async () => {
         const db = getDb();
         db.insert(tasks).values({ title: 'T1', projectId }).run();
 
@@ -392,7 +392,7 @@ describe('MCP Server', () => {
         expect(data).toHaveLength(1);
       });
 
-      it('should filter by milestoneRef', async () => {
+      it('[FR-TASK-110] should filter by milestoneRef', async () => {
         const db = getDb();
         db.insert(tasks).values({ title: 'T1', projectId, milestoneRef: 'm1' }).run();
         db.insert(tasks).values({ title: 'T2', projectId }).run();
@@ -405,7 +405,7 @@ describe('MCP Server', () => {
         expect(data[0].title).toBe('T1');
       });
 
-      it('should filter by taskGroupId', async () => {
+      it('[FR-TASK-110] should filter by taskGroupId', async () => {
         const db = getDb();
         const grp = db
           .insert(taskGroups)
@@ -423,7 +423,7 @@ describe('MCP Server', () => {
         expect(data[0].title).toBe('T1');
       });
 
-      it('should combine milestoneRef AND taskGroupId filters', async () => {
+      it('[FR-TASK-110] should combine milestoneRef AND taskGroupId filters', async () => {
         const db = getDb();
         const grp = db
           .insert(taskGroups)
@@ -446,7 +446,7 @@ describe('MCP Server', () => {
         expect(data[0].title).toBe('A');
       });
 
-      it('should combine projectId AND milestoneRef filters', async () => {
+      it('[FR-TASK-110] should combine projectId AND milestoneRef filters', async () => {
         const db = getDb();
         db.insert(tasks).values({ title: 'A', projectId, milestoneRef: 'm1' }).run();
         db.insert(tasks).values({ title: 'B', projectId, milestoneRef: 'm2' }).run();
@@ -461,7 +461,7 @@ describe('MCP Server', () => {
     });
 
     describe('getTask', () => {
-      it('should return a task by ID', async () => {
+      it('[FR-TASK-130] should return a task by ID', async () => {
         const db = getDb();
         const task = db.insert(tasks).values({ title: 'T1', projectId }).returning().get();
 
@@ -472,7 +472,7 @@ describe('MCP Server', () => {
         expect(data.title).toBe('T1');
       });
 
-      it('should return planContent when plan file exists', async () => {
+      it('[FR-TASK-130] should return planContent when plan file exists', async () => {
         const db = getDb();
         const task = db.insert(tasks).values({ title: 'T1', projectId }).returning().get();
 
@@ -488,7 +488,7 @@ describe('MCP Server', () => {
         expect(data.planContent).toBe('# Task Plan');
       });
 
-      it('should return planContent as null when no plan file exists', async () => {
+      it('[FR-TASK-130] should return planContent as null when no plan file exists', async () => {
         const db = getDb();
         const task = db.insert(tasks).values({ title: 'T1', projectId }).returning().get();
 
@@ -499,7 +499,7 @@ describe('MCP Server', () => {
         expect(data.planContent).toBeNull();
       });
 
-      it('should return planContent as null when task has no projectId', async () => {
+      it('[FR-TASK-130] should return planContent as null when task has no projectId', async () => {
         const db = getDb();
         const task = db
           .insert(tasks)
@@ -557,7 +557,7 @@ describe('MCP Server', () => {
         expect(data).toEqual({ id: expect.any(Number) });
       });
 
-      it('should assign sequential numInMilestone within a milestone', async () => {
+      it('[FR-TASK-150] should assign sequential numInMilestone within a milestone', async () => {
         const db = getDb();
         const proj = db.select().from(projects).get();
 
@@ -576,7 +576,7 @@ describe('MCP Server', () => {
         expect(tg3!.numInMilestone).toBe(3);
       });
 
-      it('should restart at 1 for a different milestone', async () => {
+      it('[FR-TASK-150] should restart at 1 for a different milestone', async () => {
         const db = getDb();
         const proj = db.select().from(projects).get();
 
@@ -590,7 +590,7 @@ describe('MCP Server', () => {
         expect(tg!.numInMilestone).toBe(1);
       });
 
-      it('should number independently per project', async () => {
+      it('[FR-TASK-150] should number independently per project', async () => {
         const db = getDb();
         const ws = db.select().from(workspaces).get();
         const projB = db
@@ -610,7 +610,7 @@ describe('MCP Server', () => {
         expect(tg!.numInMilestone).toBe(1);
       });
 
-      it('delete should not renumber survivors', async () => {
+      it('[FR-TASK-150] delete should not renumber survivors', async () => {
         const db = getDb();
         const proj = db.select().from(projects).get();
 
@@ -645,7 +645,7 @@ describe('MCP Server', () => {
     });
 
     describe('getTaskGroup', () => {
-      it('should return a task group by ID', async () => {
+      it('[FR-TASK-160] should return a task group by ID', async () => {
         const db = getDb();
         const grp = db
           .insert(taskGroups)
@@ -661,7 +661,7 @@ describe('MCP Server', () => {
         expect(data.milestoneRef).toBe(milestoneRef);
       });
 
-      it('should return error for missing group', async () => {
+      it('[FR-TASK-160] should return error for missing group', async () => {
         const mcp = getMcpServer();
         const call = callTool(mcp, 'getTaskGroup');
         const { data, isError } = await call({ id: 9999 });
@@ -741,7 +741,7 @@ describe('MCP Server', () => {
       workspaceId = ws.id;
     });
 
-    it('createFleetingMemory should create a memory', async () => {
+    it('[FR-MEMORY-010] createFleetingMemory should create a memory', async () => {
       const mcp = getMcpServer();
       const call = callTool(mcp, 'createFleetingMemory');
       const { data } = await call({
@@ -878,7 +878,7 @@ describe('MCP Server', () => {
       workspaceId = wsRow.id;
     });
 
-    it('should write a source file with provenance frontmatter', async () => {
+    it('[FR-MEMORY-130] should write a source file with provenance frontmatter', async () => {
       const mcp = getMcpServer();
       const { data, isError } = await callTool(mcp, 'writeSourceSnapshot')({
         workspaceId,
@@ -906,7 +906,7 @@ describe('MCP Server', () => {
       expect(raw).toContain('content_hash:');
     });
 
-    it('should return reused:true and no duplicate file for identical content', async () => {
+    it('[FR-MEMORY-120] should return reused:true and no duplicate file for identical content', async () => {
       const body = 'Exactly identical content for MCP dedup test.';
       const mcp = getMcpServer();
       const call = callTool(mcp, 'writeSourceSnapshot');
@@ -1147,7 +1147,7 @@ describe('MCP Server', () => {
       vi.restoreAllMocks();
     });
 
-    it('should return permanentMemoryId, filePath, and linkedMemories on success (QMD_SKIP=1)', async () => {
+    it('[FR-MEMORY-100] should return permanentMemoryId, filePath, and linkedMemories on success (QMD_SKIP=1)', async () => {
       process.env.QMD_SKIP = '1';
       try {
         const db = getDb();
@@ -1179,7 +1179,7 @@ describe('MCP Server', () => {
       }
     });
 
-    it('should populate linkedMemories when autoLink finds siblings', async () => {
+    it('[FR-MEMORY-150] should populate linkedMemories when autoLink finds siblings', async () => {
       if (process.env.QMD_SKIP === '1') return;
 
       const db = getDb();
@@ -2085,7 +2085,7 @@ describe('MCP Server', () => {
     });
   });
 
-  describe('trace tool', () => {
+  describe('[FR-MCP-090] trace tool', () => {
     function seedTraceWorkspace(): number {
       const db = getDb();
       const codeDir = path.join(ctx.tmpDir, 'repo');
@@ -2112,7 +2112,7 @@ describe('MCP Server', () => {
       return ws.id;
     }
 
-    it('should trace an FR to its tests and colocated source', async () => {
+    it('[FR-MCP-090] should trace an FR to its tests and colocated source', async () => {
       const wsId = seedTraceWorkspace();
       const { data, isError } = await callTool(getMcpServer(), 'trace')({
         workspaceId: wsId,
@@ -2124,7 +2124,7 @@ describe('MCP Server', () => {
       expect(data.sources).toEqual(['src/rank.ts']);
     });
 
-    it('should return a coverage summary with no fr/file', async () => {
+    it('[FR-MCP-095] should return a coverage summary with no fr/file', async () => {
       const wsId = seedTraceWorkspace();
       const { data } = await callTool(getMcpServer(), 'trace')({ workspaceId: wsId });
       expect(data.kind).toBe('summary');
@@ -2138,7 +2138,7 @@ describe('MCP Server', () => {
   });
 
   describe('setWorkspaceEarsBdd tool', () => {
-    it('should toggle earsBdd in the DB and workspace.yaml', async () => {
+    it('[FR-WORKSPACE-115] should toggle earsBdd in the DB and workspace.yaml', async () => {
       const caller = appRouter.createCaller({ state: ctx.state });
       const created = await caller.workspace.create({ name: 'Ears MCP' });
       const db = getDb();
@@ -2158,7 +2158,7 @@ describe('MCP Server', () => {
       expect(fs.readFileSync(yamlPath, 'utf-8')).toContain('earsBdd: true');
     });
 
-    it('should error for an unknown workspace', async () => {
+    it('[FR-WORKSPACE-115] should error for an unknown workspace', async () => {
       const { isError } = await callTool(getMcpServer(), 'setWorkspaceEarsBdd')({
         workspaceId: 99999,
         enabled: true,
@@ -2176,7 +2176,7 @@ function fakeTransport() {
   return { transport: { close } as unknown as StreamableHTTPServerTransport, close };
 }
 
-describe('session reaper', () => {
+describe('[FR-MCP-080] session reaper', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
@@ -2190,8 +2190,8 @@ describe('session reaper', () => {
     vi.restoreAllMocks();
   });
 
-  describe('evictIdleSessions', () => {
-    it('should close and remove a session idle past the TTL', () => {
+  describe('[FR-MCP-080] evictIdleSessions', () => {
+    it('[FR-MCP-080] should close and remove a session idle past the TTL', () => {
       const { transport, close } = fakeTransport();
       activeSessions.set('idle', transport);
       touchSession('idle');
@@ -2204,7 +2204,7 @@ describe('session reaper', () => {
       expect(console.log).toHaveBeenCalledWith(expect.stringContaining('idle'));
     });
 
-    it('should retain a session active within the TTL', () => {
+    it('[FR-MCP-080] should retain a session active within the TTL', () => {
       const { transport, close } = fakeTransport();
       activeSessions.set('fresh', transport);
       touchSession('fresh');
@@ -2216,7 +2216,7 @@ describe('session reaper', () => {
       expect(activeSessions.has('fresh')).toBe(true);
     });
 
-    it('should evict only the idle session in a mixed set', () => {
+    it('[FR-MCP-080] should evict only the idle session in a mixed set', () => {
       const idle = fakeTransport();
       activeSessions.set('idle', idle.transport);
       touchSession('idle');
@@ -2235,7 +2235,7 @@ describe('session reaper', () => {
       expect(activeSessions.has('fresh')).toBe(true);
     });
 
-    it('should retain a session with no recorded activity (treated as just-seen)', () => {
+    it('[FR-MCP-080] should retain a session with no recorded activity (treated as just-seen)', () => {
       const { transport, close } = fakeTransport();
       activeSessions.set('unknown', transport);
 

@@ -154,7 +154,7 @@ describe('TerminalManager', () => {
     expect(msg.d).toBe('hello');
   });
 
-  it('buffers output without sending when suspended', () => {
+  it('[FR-TERMINAL-040] buffers output without sending when suspended', () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
     manager.suspend('abc');
     onDataCallback?.('hello');
@@ -171,7 +171,7 @@ describe('TerminalManager', () => {
     expect(sessions.get('abc')!.initialCommandSent).toBe(true);
   });
 
-  it('sends compact exit message when pty exits', () => {
+  it('[FR-TERMINAL-090] sends compact exit message when pty exits', () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
     onExitCallback?.({ exitCode: 0 });
 
@@ -195,7 +195,7 @@ describe('TerminalManager', () => {
     expect(mockPtyProcess.resize).toHaveBeenCalledWith(100, 30);
   });
 
-  it('kills a session and sends SIGTERM', () => {
+  it('[FR-TERMINAL-080] kills a session and sends SIGTERM', () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
     manager.kill('abc');
     expect(mockPtyProcess.kill).toHaveBeenCalledWith('SIGTERM');
@@ -209,7 +209,7 @@ describe('TerminalManager', () => {
     expect(mockPtyProcess.kill).toHaveBeenCalledTimes(2);
   });
 
-  it('replays buffer on reconnect in compact format', () => {
+  it('[FR-TERMINAL-050] replays buffer on reconnect in compact format', () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
     onDataCallback?.('line1');
     onDataCallback?.('line2');
@@ -234,7 +234,7 @@ describe('TerminalManager', () => {
     expect(msg.exitCode).toBe(-1);
   });
 
-  it('sends exit with code -1 when session expires', () => {
+  it('[FR-TERMINAL-040] sends exit with code -1 when session expires', () => {
     // The constructor wires up an expire callback on the SessionManager.
     // Access it via the private field to simulate an expiry event.
     const cb = (sessions as unknown as { onExpire: (id: string) => void }).onExpire;
@@ -292,7 +292,7 @@ describe('TerminalManager', () => {
     });
   });
 
-  describe('security', () => {
+  describe('[FR-TERMINAL-140] security', () => {
     it('should block --dangerously-skip-permissions on host', () => {
       manager.spawn({
         sessionId: 'sec-1',
@@ -335,7 +335,7 @@ describe('TerminalManager', () => {
       expect(mockedSpawn).toHaveBeenCalled();
     });
 
-    it('should block --dangerously-skip-permissions mid-command on host', () => {
+    it('[FR-TERMINAL-140] should block --dangerously-skip-permissions mid-command on host', () => {
       manager.spawn({
         sessionId: 'sec-4',
         workingDir: '/tmp',
@@ -351,7 +351,7 @@ describe('TerminalManager', () => {
     });
   });
 
-  describe('activity events', () => {
+  describe('[FR-TERMINAL-130] activity events', () => {
     let sessions: SessionManager;
     let manager: TerminalManager;
     let sent: string[];

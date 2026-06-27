@@ -67,7 +67,7 @@ describe('CoderManager', () => {
       expect(lines).toContain('Starting workspace...');
     });
 
-    it('should reject on non-zero exit', async () => {
+    it('[FR-CONTAINER-080] should reject on non-zero exit', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -90,7 +90,7 @@ describe('CoderManager', () => {
   });
 
   describe('exec', () => {
-    it('should spawn coder ssh with shell-quoted command and args', () => {
+    it('[FR-CONTAINER-090] should spawn coder ssh with shell-quoted command and args', () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -103,7 +103,7 @@ describe('CoderManager', () => {
       );
     });
 
-    it('should shell-quote args containing JSON, spaces, and other shell metachars', () => {
+    it('[FR-CONTAINER-090] should shell-quote args containing JSON, spaces, and other shell metachars', () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -115,7 +115,7 @@ describe('CoderManager', () => {
       expect(spawnArgs).toContain(`'prompt with spaces'`);
     });
 
-    it("should escape embedded single quotes as '\\''", () => {
+    it("[FR-CONTAINER-090] should escape embedded single quotes as '\\''", () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -125,7 +125,7 @@ describe('CoderManager', () => {
       expect(spawnArgs).toContain(`'it'\\''s fine'`);
     });
 
-    it('should keep leading ~/ outside quotes so the remote shell expands it', () => {
+    it('[FR-CONTAINER-090] should keep leading ~/ outside quotes so the remote shell expands it', () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -135,7 +135,7 @@ describe('CoderManager', () => {
       expect(spawnArgs).toContain(`~/'dev/engy'`);
     });
 
-    it('should include reverse port forwarding when serverPort is set', () => {
+    it('[FR-CONTAINER-090] should include reverse port forwarding when serverPort is set', () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -247,7 +247,7 @@ describe('CoderManager', () => {
   });
 
   describe('status', () => {
-    it('should return running=true when agent is connected', async () => {
+    it('[FR-CONTAINER-100] should return running=true when agent is connected', async () => {
       mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
         cb(null, {
           stdout: JSON.stringify({
@@ -262,7 +262,7 @@ describe('CoderManager', () => {
       expect(result).toEqual({ running: true });
     });
 
-    it('should return running=false when no connected agent', async () => {
+    it('[FR-CONTAINER-100] should return running=false when no connected agent', async () => {
       mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
         cb(null, {
           stdout: JSON.stringify({
@@ -277,7 +277,7 @@ describe('CoderManager', () => {
       expect(result).toEqual({ running: false });
     });
 
-    it('should return running=false on error', async () => {
+    it('[FR-CONTAINER-100] should return running=false on error', async () => {
       mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
         cb(new Error('not found'));
       });

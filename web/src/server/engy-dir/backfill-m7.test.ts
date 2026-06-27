@@ -50,7 +50,7 @@ describe('backfill-m7', () => {
   });
 
   describe('.gitignore newline guard', () => {
-    it('should append .qmd/ on a new line when existing content has no trailing newline', async () => {
+    it('[FR-WORKSPACE-120] should append .qmd/ on a new line when existing content has no trailing newline', async () => {
       const wsDir = path.join(ctx.tmpDir, 'gitignore-no-newline-test');
       await setupPreM7Workspace(wsDir);
       // Write .gitignore without a trailing newline.
@@ -71,7 +71,7 @@ describe('backfill-m7', () => {
       expect(lines.every((l) => !l.includes('node_modules.qmd'))).toBe(true);
     });
 
-    it('should append .qmd/ without extra blank line when existing content already has trailing newline', async () => {
+    it('[FR-WORKSPACE-120] should append .qmd/ without extra blank line when existing content already has trailing newline', async () => {
       const wsDir = path.join(ctx.tmpDir, 'gitignore-with-newline-test');
       await setupPreM7Workspace(wsDir);
       fs.writeFileSync(path.join(wsDir, '.gitignore'), 'node_modules\n', 'utf8');
@@ -117,7 +117,7 @@ describe('backfill-m7', () => {
       await expect(backfillM7('nonexistent-slug')).rejects.toThrow('Workspace not found');
     });
 
-    it('should create all M7 subdirectory structure on a pre-M7 workspace', async () => {
+    it('[FR-WORKSPACE-120] should create all M7 subdirectory structure on a pre-M7 workspace', async () => {
       const wsDir = path.join(ctx.tmpDir, 'backfill-test');
       await setupPreM7Workspace(wsDir);
 
@@ -142,7 +142,7 @@ describe('backfill-m7', () => {
       }
     });
 
-    it('should seed README.md in memory/ and all subdirs', async () => {
+    it('[FR-WORKSPACE-120] should seed README.md in memory/ and all subdirs', async () => {
       const wsDir = path.join(ctx.tmpDir, 'readme-backfill-test');
       await setupPreM7Workspace(wsDir);
 
@@ -158,7 +158,7 @@ describe('backfill-m7', () => {
       }
     });
 
-    it('should commit the changes to git', async () => {
+    it('[FR-WORKSPACE-120] should commit the changes to git', async () => {
       const wsDir = path.join(ctx.tmpDir, 'commit-backfill-test');
       await setupPreM7Workspace(wsDir);
 
@@ -172,7 +172,7 @@ describe('backfill-m7', () => {
       expect(lastCommit?.message).toBe('memory(init): backfill knowledge-layer directories');
     });
 
-    it('should backfill a workspace that never had a memory/ dir (no-memory-dir regression)', async () => {
+    it('[FR-WORKSPACE-120] should backfill a workspace that never had a memory/ dir (no-memory-dir regression)', async () => {
       const wsDir = path.join(ctx.tmpDir, 'no-memory-backfill-test');
       await setupNoMemoryWorkspace(wsDir);
 
@@ -193,7 +193,7 @@ describe('backfill-m7', () => {
       expect(log.latest?.message).toBe('memory(init): backfill knowledge-layer directories');
     });
 
-    it('should stage and commit READMEs when memory/ exists as an untracked directory', async () => {
+    it('[FR-WORKSPACE-120] should stage and commit READMEs when memory/ exists as an untracked directory', async () => {
       // Regression: git status without --untracked-files=all collapses an untracked
       // memory/ directory to a single "memory/" entry. That path is captured in
       // beforePaths, so the afterStatus diff finds nothing new — the READMEs are
@@ -231,7 +231,7 @@ describe('backfill-m7', () => {
       expect(showResult).toContain('memory/README.md');
     });
 
-    it('should be idempotent — second run does not fail or duplicate commits', async () => {
+    it('[FR-WORKSPACE-120] should be idempotent — second run does not fail or duplicate commits', async () => {
       const wsDir = path.join(ctx.tmpDir, 'idempotent-backfill-test');
       await setupPreM7Workspace(wsDir);
 

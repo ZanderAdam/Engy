@@ -79,8 +79,8 @@ describe('deriveTerminalRelayUrl', () => {
   });
 });
 
-describe('computeBackoff', () => {
-  it('starts at ~1s for attempt 0', () => {
+describe('[FR-WS-130] computeBackoff', () => {
+  it('[FR-WS-130] starts at ~1s for attempt 0', () => {
     const delays = Array.from({ length: 100 }, () => computeBackoff(0));
     for (const delay of delays) {
       expect(delay).toBeGreaterThanOrEqual(800); // 1000 - 20%
@@ -88,7 +88,7 @@ describe('computeBackoff', () => {
     }
   });
 
-  it('doubles with each attempt', () => {
+  it('[FR-WS-130] doubles with each attempt', () => {
     const delays = Array.from({ length: 100 }, () => computeBackoff(1));
     for (const delay of delays) {
       expect(delay).toBeGreaterThanOrEqual(1600); // 2000 - 20%
@@ -96,7 +96,7 @@ describe('computeBackoff', () => {
     }
   });
 
-  it('caps at 30s max', () => {
+  it('[FR-WS-130] caps at 30s max', () => {
     const delays = Array.from({ length: 100 }, () => computeBackoff(20));
     for (const delay of delays) {
       expect(delay).toBeLessThanOrEqual(36_000); // 30000 + 20%
@@ -145,7 +145,7 @@ describe('WsClient', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it('sends REGISTER on connect', async () => {
+  it('[FR-WS-010] [FR-WS-130] sends REGISTER on connect', async () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
@@ -159,7 +159,7 @@ describe('WsClient', () => {
     expect(JSON.parse(msg)).toEqual({ type: 'REGISTER', payload: { homeDir: os.homedir() } });
   });
 
-  it('calls onWorkspacesSync when receiving WORKSPACES_SYNC', async () => {
+  it('[FR-WS-010] calls onWorkspacesSync when receiving WORKSPACES_SYNC', async () => {
     const onWorkspacesSync = vi.fn();
     const connPromise = waitForConnection(server);
 
@@ -219,7 +219,7 @@ describe('WsClient', () => {
     });
   });
 
-  it('reconnects after server closes connection', async () => {
+  it('[FR-WS-130] reconnects after server closes connection', async () => {
     const onWorkspacesSync = vi.fn();
     let connPromise = waitForConnection(server);
 
@@ -241,7 +241,7 @@ describe('WsClient', () => {
     expect(JSON.parse(msg)).toEqual({ type: 'REGISTER', payload: { homeDir: os.homedir() } });
   });
 
-  it('does not reconnect after intentional close', async () => {
+  it('[FR-WS-130] does not reconnect after intentional close', async () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
@@ -1951,8 +1951,8 @@ describe('WsClient CREATE_DIR_REQUEST handler', () => {
     });
   });
 
-  describe('REGISTER with homeDir', () => {
-    it('should include homeDir in REGISTER payload', async () => {
+  describe('[FR-WS-010] REGISTER with homeDir', () => {
+    it('[FR-WS-010] should include homeDir in REGISTER payload', async () => {
       const connPromise = waitForConnection(server);
       client = new WsClient({ serverUrl: `http://localhost:${port}` });
       client.connect();
@@ -2319,7 +2319,7 @@ describe('WsClient FS_RENAME_REQUEST handler', () => {
   });
 });
 
-describe('WsClient outbox (execution event queue)', () => {
+describe('[FR-WS-120] WsClient outbox (execution event queue)', () => {
   let server: WebSocketServer;
   let port: number;
   let client: WsClient;
@@ -2346,7 +2346,7 @@ describe('WsClient outbox (execution event queue)', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it('queues EXECUTION_COMPLETE_EVENT while socket is closed and flushes after reconnect', async () => {
+  it('[FR-WS-120] queues EXECUTION_COMPLETE_EVENT while socket is closed and flushes after reconnect', async () => {
     const mockRunner = createMockRunner();
     const connPromise = waitForConnection(server);
 
@@ -2403,7 +2403,7 @@ describe('WsClient outbox (execution event queue)', () => {
     });
   });
 
-  it('delivers queued events in order', async () => {
+  it('[FR-WS-120] delivers queued events in order', async () => {
     const mockRunner = createMockRunner();
     const connPromise = waitForConnection(server);
 
@@ -2458,7 +2458,7 @@ describe('WsClient outbox (execution event queue)', () => {
     expect(types).toEqual(['REGISTER', 'EXECUTION_STATUS_EVENT', 'EXECUTION_COMPLETE_EVENT']);
   });
 
-  it('drops oldest status event on overflow, not complete/memories events', async () => {
+  it('[FR-WS-120] drops oldest status event on overflow, not complete/memories events', async () => {
     // Build a client and disconnect it so everything goes to the outbox.
     const mockRunner = createMockRunner();
     const connPromise = waitForConnection(server);
@@ -2527,7 +2527,7 @@ describe('WsClient outbox (execution event queue)', () => {
     expect(statusCount).toBe(99); // 100 status - 1 dropped + REGISTER separate
   });
 
-  it('does not queue non-execution messages', async () => {
+  it('[FR-WS-120] does not queue non-execution messages', async () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({ serverUrl: `http://localhost:${port}` });
@@ -2559,7 +2559,7 @@ describe('WsClient outbox (execution event queue)', () => {
   });
 });
 
-describe('WsClient pong deadline', () => {
+describe('[FR-WS-140] WsClient pong deadline', () => {
   let httpServer: Server;
   let mainWss: WebSocketServer;
   let port: number;
@@ -2594,7 +2594,7 @@ describe('WsClient pong deadline', () => {
     vi.useRealTimers();
   });
 
-  it('updates lastPong timestamp when a pong is received', async () => {
+  it('[FR-WS-140] updates lastPong timestamp when a pong is received', async () => {
     // Verify that the WS pong listener is wired: server sends a pong, client
     // receives it without error, and stays connected.
     const connPromise = waitForConnection(mainWss);
@@ -2618,7 +2618,7 @@ describe('WsClient pong deadline', () => {
     expect(client.connected).toBe(true);
   });
 
-  it('terminates and reconnects when server stops responding to pings', async () => {
+  it('[FR-WS-140] terminates and reconnects when server stops responding to pings', async () => {
     let connCount = 0;
     mainWss.on('connection', () => {
       connCount++;

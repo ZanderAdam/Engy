@@ -40,7 +40,7 @@ describe('ContainerManager', () => {
   });
 
   describe('up', () => {
-    it('should return containerId on success', async () => {
+    it('[FR-CONTAINER-010] should return containerId on success', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -58,7 +58,7 @@ describe('ContainerManager', () => {
       );
     });
 
-    it('should throw when outcome is not success', async () => {
+    it('[FR-CONTAINER-030] should throw when outcome is not success', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -70,7 +70,7 @@ describe('ContainerManager', () => {
       await expect(promise).rejects.toThrow('build failed');
     });
 
-    it('should throw with default message when outcome fails without message', async () => {
+    it('[FR-CONTAINER-030] should throw with default message when outcome fails without message', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -82,7 +82,7 @@ describe('ContainerManager', () => {
       await expect(promise).rejects.toThrow('devcontainer up failed');
     });
 
-    it('should stream stderr lines to onProgress callback', async () => {
+    it('[FR-CONTAINER-020] should stream stderr lines to onProgress callback', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -110,7 +110,7 @@ describe('ContainerManager', () => {
       await expect(promise).rejects.toThrow('Failed to start devcontainer: ENOENT');
     });
 
-    it('should reject when stdout is not valid JSON', async () => {
+    it('[FR-CONTAINER-040] should reject when stdout is not valid JSON', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
 
@@ -124,7 +124,7 @@ describe('ContainerManager', () => {
   });
 
   describe('exec', () => {
-    it('should spawn devcontainer exec with correct args', () => {
+    it('[FR-CONTAINER-070] should spawn devcontainer exec with correct args', () => {
       const fakeProcess = { pid: 123 } as ChildProcess;
       mockSpawn.mockReturnValue(fakeProcess);
 
@@ -138,7 +138,7 @@ describe('ContainerManager', () => {
       );
     });
 
-    it('should include --remote-env flags when env is provided', () => {
+    it('[FR-CONTAINER-070] should include --remote-env flags when env is provided', () => {
       const fakeProcess = { pid: 123 } as ChildProcess;
       mockSpawn.mockReturnValue(fakeProcess);
 
@@ -164,7 +164,7 @@ describe('ContainerManager', () => {
       );
     });
 
-    it('should handle exec with no args or env', () => {
+    it('[FR-CONTAINER-070] should handle exec with no args or env', () => {
       const fakeProcess = { pid: 123 } as ChildProcess;
       mockSpawn.mockReturnValue(fakeProcess);
 
@@ -179,7 +179,7 @@ describe('ContainerManager', () => {
   });
 
   describe('down', () => {
-    it('should stop the container when running', async () => {
+    it('[FR-CONTAINER-060] should stop the container when running', async () => {
       // First call: status check (docker ps)
       // Second call: docker stop
       mockExecFileAsync
@@ -199,7 +199,7 @@ describe('ContainerManager', () => {
       );
     });
 
-    it('should do nothing when container is not running', async () => {
+    it('[FR-CONTAINER-060] should do nothing when container is not running', async () => {
       mockExecFileAsync.mockResolvedValueOnce({ stdout: '', stderr: '' });
 
       await manager.down('/workspace/project');
@@ -209,7 +209,7 @@ describe('ContainerManager', () => {
   });
 
   describe('status', () => {
-    it('should return running=true with containerId when container is up', async () => {
+    it('[FR-CONTAINER-050] should return running=true with containerId when container is up', async () => {
       mockExecFileAsync.mockResolvedValue({
         stdout: 'abc123\tUp 2 hours',
         stderr: '',
@@ -232,7 +232,7 @@ describe('ContainerManager', () => {
       );
     });
 
-    it('should return running=false when no container matches the label', async () => {
+    it('[FR-CONTAINER-050] should return running=false when no container matches the label', async () => {
       mockExecFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
 
       const result = await manager.status('/workspace/project');
@@ -240,7 +240,7 @@ describe('ContainerManager', () => {
       expect(result).toEqual({ running: false });
     });
 
-    it('should return running=false when container is stopped (Exited)', async () => {
+    it('[FR-CONTAINER-050] should return running=false when container is stopped (Exited)', async () => {
       mockExecFileAsync.mockResolvedValue({
         stdout: 'abc123\tExited (0) 5 minutes ago',
         stderr: '',
@@ -251,7 +251,7 @@ describe('ContainerManager', () => {
       expect(result).toEqual({ running: false });
     });
 
-    it('should return running=false on docker command failure', async () => {
+    it('[FR-CONTAINER-050] should return running=false on docker command failure', async () => {
       mockExecFileAsync.mockRejectedValue(new Error('docker not found'));
 
       const result = await manager.status('/workspace/project');
@@ -259,7 +259,7 @@ describe('ContainerManager', () => {
       expect(result).toEqual({ running: false });
     });
 
-    it('should return running=true when a running container appears after a stopped orphan', async () => {
+    it('[FR-CONTAINER-050] should return running=true when a running container appears after a stopped orphan', async () => {
       // Stopped orphan on first line, running container on second — must pick the running one.
       mockExecFileAsync.mockResolvedValue({
         stdout: 'dead0001\tExited (0) 10 minutes ago\nlive0002\tUp 3 hours',
@@ -271,7 +271,7 @@ describe('ContainerManager', () => {
       expect(result).toEqual({ running: true, containerId: 'live0002' });
     });
 
-    it('should return running=false when all matched containers are stopped', async () => {
+    it('[FR-CONTAINER-050] should return running=false when all matched containers are stopped', async () => {
       mockExecFileAsync.mockResolvedValue({
         stdout: 'dead0001\tExited (0) 10 minutes ago\ndead0002\tExited (1) 2 minutes ago',
         stderr: '',
@@ -282,7 +282,7 @@ describe('ContainerManager', () => {
       expect(result).toEqual({ running: false });
     });
 
-    it('should not invoke devcontainer up (no side effects)', async () => {
+    it('[FR-CONTAINER-050] should not invoke devcontainer up (no side effects)', async () => {
       mockExecFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
 
       await manager.status('/workspace/project');

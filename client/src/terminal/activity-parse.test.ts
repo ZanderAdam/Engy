@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createTerminalActivityParser } from './activity-parse.js';
 
-describe('createTerminalActivityParser (daemon)', () => {
+describe('[FR-TERMINAL-130] createTerminalActivityParser (daemon)', () => {
   it('detects a standalone bell', () => {
     expect(createTerminalActivityParser().parse('output\x07').hasBell).toBe(true);
   });

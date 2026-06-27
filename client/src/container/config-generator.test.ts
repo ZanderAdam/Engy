@@ -163,7 +163,7 @@ describe('config-generator', () => {
       );
     });
 
-    it('should skip repos that are subdirectories of docsDir', () => {
+    it('[FR-CONTAINER-120] should skip repos that are subdirectories of docsDir', () => {
       const options: ConfigGeneratorOptions = {
         docsDir: '/home/user/docs',
         repos: ['/home/user/docs/sub-repo', '/home/user/repos/external'],
@@ -180,7 +180,7 @@ describe('config-generator', () => {
       );
     });
 
-    it('should skip duplicate repo paths', () => {
+    it('[FR-CONTAINER-120] should skip duplicate repo paths', () => {
       const options: ConfigGeneratorOptions = {
         docsDir: '/home/user/docs',
         repos: ['/home/user/repos/repo1', '/home/user/repos/repo1'],
@@ -215,7 +215,7 @@ describe('config-generator', () => {
       expect(json.runArgs).toEqual(['--cap-add=NET_ADMIN', '--cap-add=NET_RAW']);
     });
 
-    it('should merge default and user env vars with localhost rewriting', () => {
+    it('[FR-CONTAINER-130] should merge default and user env vars with localhost rewriting', () => {
       const options: ConfigGeneratorOptions = {
         docsDir: '/home/user/docs',
         repos: [],
@@ -367,7 +367,7 @@ describe('config-generator', () => {
       expect(content).toContain('ip6tables -A INPUT -j DROP');
     });
 
-    it('should omit HOST_PORTS blocks when no host ports are given but keep IPv6 lockdown', () => {
+    it('[FR-CONTAINER-140] should omit HOST_PORTS blocks when no host ports are given but keep IPv6 lockdown', () => {
       const content = firewallScriptContent();
 
       expect(content).not.toContain('HOST_PORTS=');
@@ -378,7 +378,7 @@ describe('config-generator', () => {
       expect(content).toContain('ip6tables -A OUTPUT -j REJECT');
     });
 
-    it('should emit IPv4 and IPv6 HOST_PORTS blocks when ports are given', () => {
+    it('[FR-CONTAINER-140] should emit IPv4 and IPv6 HOST_PORTS blocks when ports are given', () => {
       const content = firewallScriptContent(undefined, [3000, 4000]);
 
       expect(content).toContain('HOST_PORTS=(3000 4000)');
@@ -394,7 +394,7 @@ describe('config-generator', () => {
       );
     });
 
-    it('should place the IPv4 HOST_PORTS block between host-network rule and DROP policies', () => {
+    it('[FR-CONTAINER-140] should place the IPv4 HOST_PORTS block between host-network rule and DROP policies', () => {
       const content = firewallScriptContent(undefined, [3000]);
 
       const hostNetworkIdx = content.indexOf('iptables -A INPUT -s "$HOST_NETWORK"');
@@ -431,7 +431,7 @@ describe('config-generator', () => {
       expect(firewall).toContain('#!/bin/bash');
     });
 
-    it('should skip generation if .devcontainer already exists', async () => {
+    it('[FR-CONTAINER-110] should skip generation if .devcontainer already exists', async () => {
       tempDir = await createTempDir();
       const devcontainerDir = join(tempDir, '.devcontainer');
       await mkdir(devcontainerDir);

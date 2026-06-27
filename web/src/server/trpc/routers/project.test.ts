@@ -23,7 +23,7 @@ describe('project router', () => {
   });
 
   describe('create', () => {
-    it('should create a project with filesystem directory', async () => {
+    it('[FR-PROJECT-010] should create a project with filesystem directory', async () => {
       const result = await caller.project.create({
         workspaceSlug: 'test-ws',
         name: 'Auth Feature',
@@ -80,7 +80,7 @@ describe('project router', () => {
       expect(result.planSlugs).toEqual([]);
     });
 
-    it('should include plan slugs from the plans dir', async () => {
+    it('[FR-PROJECT-130] should include plan slugs from the plans dir', async () => {
       await caller.project.create({ workspaceSlug: 'test-ws', name: 'Has Plans' });
       const plansDir = path.join(ctx.tmpDir, 'test-ws', 'projects', 'has-plans', 'plans');
       fs.mkdirSync(plansDir, { recursive: true });
@@ -98,7 +98,7 @@ describe('project router', () => {
   });
 
   describe('getPlanSlugs', () => {
-    it('should return empty plan list and workspace slug when no plans dir exists', async () => {
+    it('[FR-PROJECT-130] should return empty plan list and workspace slug when no plans dir exists', async () => {
       const proj = await caller.project.create({
         workspaceSlug: 'test-ws',
         name: 'No Plans',
@@ -107,7 +107,7 @@ describe('project router', () => {
       expect(result).toEqual({ workspaceSlug: 'test-ws', planSlugs: [] });
     });
 
-    it('should list slugs from plans dir, ignoring non-plan files', async () => {
+    it('[FR-PROJECT-130] should list slugs from plans dir, ignoring non-plan files', async () => {
       const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Plans Here' });
       const plansDir = path.join(ctx.tmpDir, 'test-ws', 'projects', 'plans-here', 'plans');
       fs.mkdirSync(plansDir, { recursive: true });
@@ -125,7 +125,7 @@ describe('project router', () => {
   });
 
   describe('listWithProgress', () => {
-    it('should return projects with task progress counts', async () => {
+    it('[FR-PROJECT-040] should return projects with task progress counts', async () => {
       const proj = await caller.project.create({
         workspaceSlug: 'test-ws',
         name: 'Progress Test',
@@ -142,7 +142,7 @@ describe('project router', () => {
       expect(p!.completedTasks).toBe(1);
     });
 
-    it('should return zero counts for project with no tasks', async () => {
+    it('[FR-PROJECT-040] should return zero counts for project with no tasks', async () => {
       const proj = await caller.project.create({
         workspaceSlug: 'test-ws',
         name: 'Empty Project',
@@ -156,13 +156,13 @@ describe('project router', () => {
   });
 
   describe('updateStatus', () => {
-    it('should update project status', async () => {
+    it('[FR-PROJECT-050] should update project status', async () => {
       const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Status Test' });
       const updated = await caller.project.updateStatus({ id: proj.id, status: 'active' });
       expect(updated.status).toBe('active');
     });
 
-    it('should allow valid forward transitions', async () => {
+    it('[FR-PROJECT-050] should allow valid forward transitions', async () => {
       const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Forward Test' });
       await caller.project.updateStatus({ id: proj.id, status: 'active' });
       await caller.project.updateStatus({ id: proj.id, status: 'completing' });
@@ -170,7 +170,7 @@ describe('project router', () => {
       expect(result.status).toBe('archived');
     });
 
-    it('should allow any valid status transition', async () => {
+    it('[FR-PROJECT-050] should allow any valid status transition', async () => {
       const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Any Test' });
       await caller.project.updateStatus({ id: proj.id, status: 'archived' });
       const result = await caller.project.updateStatus({ id: proj.id, status: 'planning' });
@@ -185,7 +185,7 @@ describe('project router', () => {
   });
 
   describe('delete', () => {
-    it('should delete a project', async () => {
+    it('[FR-PROJECT-060] should delete a project', async () => {
       const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Delete Me' });
       await caller.project.delete({ id: proj.id });
       await expect(caller.project.get({ id: proj.id })).rejects.toThrow('not found');
@@ -240,7 +240,7 @@ describe('project router', () => {
       expect(spec.body).toBe('New content');
     });
 
-    it('should reject invalid status transition', async () => {
+    it('[FR-PROJECT-070] should reject invalid status transition', async () => {
       await caller.project.create({ workspaceSlug: 'test-ws', name: 'Auth' });
       await expect(
         caller.project.updateSpec({
@@ -251,7 +251,7 @@ describe('project router', () => {
       ).rejects.toThrow('Invalid status transition');
     });
 
-    it('should block draft → ready with incomplete tasks', async () => {
+    it('[FR-PROJECT-080] should block draft → ready with incomplete tasks', async () => {
       const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Auth' });
       const db = getDb();
       db.insert(tasks).values({ title: 'T1', projectId: proj.id, status: 'todo' }).run();
@@ -265,7 +265,7 @@ describe('project router', () => {
       ).rejects.toThrow('incomplete tasks');
     });
 
-    it('should not block draft → ready due to tasks from another workspace project with same slug', async () => {
+    it('[FR-PROJECT-080] should not block draft → ready due to tasks from another workspace project with same slug', async () => {
       // Create a second workspace with a project sharing the same slug.
       const ws2 = await caller.workspace.create({ name: 'Other WS' });
       const otherProj = await caller.project.create({ workspaceSlug: ws2.slug, name: 'Auth' });
@@ -290,7 +290,7 @@ describe('project router', () => {
       await caller.project.create({ workspaceSlug: 'test-ws', name: 'Auth' });
     });
 
-    it('should write and read context files', async () => {
+    it('[FR-PROJECT-120] should write and read context files', async () => {
       await caller.project.writeContextFile({
         workspaceSlug: 'test-ws',
         projectSlug: 'auth',
@@ -352,7 +352,7 @@ describe('project router', () => {
       await caller.project.create({ workspaceSlug: 'test-ws', name: 'Auth' });
     });
 
-    it('should reject ./spec.md', async () => {
+    it('[FR-PROJECT-100] should reject ./spec.md', async () => {
       await expect(
         caller.project.writeFile({
           workspaceSlug: 'test-ws',
@@ -363,7 +363,7 @@ describe('project router', () => {
       ).rejects.toThrow();
     });
 
-    it('should reject docs/../spec.md', async () => {
+    it('[FR-PROJECT-100] should reject docs/../spec.md', async () => {
       await expect(
         caller.project.writeFile({
           workspaceSlug: 'test-ws',
@@ -380,7 +380,7 @@ describe('project router', () => {
       await caller.project.create({ workspaceSlug: 'test-ws', name: 'Auth' });
     });
 
-    it('should reject "." as subDir', async () => {
+    it('[FR-PROJECT-100] should reject "." as subDir', async () => {
       await expect(
         caller.project.deleteDir({
           workspaceSlug: 'test-ws',
@@ -392,7 +392,7 @@ describe('project router', () => {
   });
 
   describe('project.create does not overwrite existing spec.md', () => {
-    it('should preserve hand-authored spec.md when dir already exists on disk', async () => {
+    it('[FR-PROJECT-030] should preserve hand-authored spec.md when dir already exists on disk', async () => {
       const ws = await caller.workspace.create({ name: 'Preserve WS' });
       // Pre-create the project directory with a hand-authored spec.md.
       const projDir = path.join(ctx.tmpDir, 'preserve-ws', 'projects', 'hand-authored');
@@ -423,7 +423,7 @@ describe('project router', () => {
       expect(result.content).toBe('{"a":1}');
     });
 
-    it('should reject reading a binary file', async () => {
+    it('[FR-PROJECT-110] should reject reading a binary file', async () => {
       await expect(
         caller.project.readFile({
           workspaceSlug: 'test-ws',
@@ -451,7 +451,7 @@ describe('project router', () => {
       expect(fs.existsSync(path.join(projDir, 'notes.txt'))).toBe(false);
     });
 
-    it('should still reject deleting spec.md', async () => {
+    it('[FR-PROJECT-100] should still reject deleting spec.md', async () => {
       await expect(
         caller.project.deleteFile({
           workspaceSlug: 'test-ws',
@@ -480,7 +480,7 @@ describe('project router', () => {
       expect(fs.existsSync(path.join(projDir, 'renamed.txt'))).toBe(true);
     });
 
-    it('should still reject renaming spec.md', async () => {
+    it('[FR-PROJECT-100] should still reject renaming spec.md', async () => {
       await expect(
         caller.project.renameFile({
           workspaceSlug: 'test-ws',

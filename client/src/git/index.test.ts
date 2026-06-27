@@ -100,7 +100,7 @@ describe('git integration', () => {
   });
 
   describe('getStatusDetailed (no-commit repo)', () => {
-    it('returns the real branch name for a fresh repo with no commits', async () => {
+    it('[FR-GIT-070] returns the real branch name for a fresh repo with no commits', async () => {
       repoDir = await createTempRepo();
       // No commits — git emits "## No commits yet on <branch>"
 
@@ -123,7 +123,7 @@ describe('git integration', () => {
       expect(['main', 'master']).toContain(result.branch);
     });
 
-    it('reports modified files with staged=false', async () => {
+    it('[FR-GIT-080] reports modified files with staged=false', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'file.txt', 'original');
       await writeFile(join(repoDir, 'file.txt'), 'modified');
@@ -134,7 +134,7 @@ describe('git integration', () => {
       expect(result.files[0]).toEqual({ path: 'file.txt', status: 'modified', staged: false });
     });
 
-    it('reports staged added files', async () => {
+    it('[FR-GIT-080] reports staged added files', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'init.txt', 'hello');
       await writeFile(join(repoDir, 'new.txt'), 'content');
@@ -249,7 +249,7 @@ describe('git integration', () => {
       expect(commits[0].date).toBeTruthy();
     });
 
-    it('respects maxCount', async () => {
+    it('[FR-GIT-030] respects maxCount', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'a.txt', 'a');
       await commitFile(repoDir, 'b.txt', 'b');
@@ -262,7 +262,7 @@ describe('git integration', () => {
   });
 
   describe('getShow', () => {
-    it('returns changed files for a root commit', async () => {
+    it('[FR-GIT-040] returns changed files for a root commit', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'file.txt', 'content');
       const git = simpleGit(repoDir);
@@ -275,7 +275,7 @@ describe('git integration', () => {
       expect(result.files[0]).toEqual({ path: 'file.txt', status: 'added' });
     });
 
-    it('diffs merge commits against the first parent', async () => {
+    it('[FR-GIT-040] diffs merge commits against the first parent', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'base.txt', 'base');
       const git = simpleGit(repoDir);
@@ -292,7 +292,7 @@ describe('git integration', () => {
       expect(result.files).toEqual([{ path: 'feature.txt', status: 'added' }]);
     });
 
-    it('reports renames with the old path', async () => {
+    it('[FR-GIT-050] reports renames with the old path', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'old-name.txt', 'stable content for rename detection');
       const git = simpleGit(repoDir);
@@ -329,21 +329,21 @@ describe('git integration', () => {
       ]);
     });
 
-    it('reports HEAD for detached state', () => {
+    it('[FR-GIT-070] reports HEAD for detached state', () => {
       const out = '## HEAD (no branch)\0';
       const result = parsePorcelainStatus(out);
       expect(result.branch).toBe('HEAD');
       expect(result.entries).toEqual([]);
     });
 
-    it('reports the real branch name for a repo with no commits yet', () => {
+    it('[FR-GIT-070] reports the real branch name for a repo with no commits yet', () => {
       const out = '## No commits yet on main\0';
       const result = parsePorcelainStatus(out);
       expect(result.branch).toBe('main');
       expect(result.entries).toEqual([]);
     });
 
-    it('reports the real branch name for a no-commit repo on a custom branch', () => {
+    it('[FR-GIT-070] reports the real branch name for a no-commit repo on a custom branch', () => {
       const out = '## No commits yet on feature/new\0';
       const result = parsePorcelainStatus(out);
       expect(result.branch).toBe('feature/new');
@@ -398,7 +398,7 @@ describe('git integration', () => {
   });
 
   describe('globTestFiles', () => {
-    it('returns absolute paths for staged and unstaged test files, excluding non-test files', async () => {
+    it('[FR-GIT-160] returns absolute paths for staged and unstaged test files, excluding non-test files', async () => {
       repoDir = await createTempRepo();
 
       // Create a nested src/ directory
@@ -426,7 +426,7 @@ describe('git integration', () => {
       expect(files.some((f) => f.endsWith('README.md'))).toBe(false);
     });
 
-    it('falls back to recursive readdir for non-git directories', async () => {
+    it('[FR-GIT-170] falls back to recursive readdir for non-git directories', async () => {
       const nonGitDir = await mkdtemp(join(tmpdir(), 'engy-nongit-test-'));
       try {
         await mkdir(join(nonGitDir, 'src'), { recursive: true });

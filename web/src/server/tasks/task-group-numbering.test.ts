@@ -4,7 +4,7 @@ import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { nextNumInMilestone } from './task-group-numbering';
 import { taskGroups } from '../db/schema';
 
-describe('nextNumInMilestone', () => {
+describe('[FR-TASK-150] nextNumInMilestone', () => {
   let ctx: TestContext;
 
   beforeEach(() => {

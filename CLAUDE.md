@@ -76,11 +76,24 @@ When spawning implementation subagents, pass `model: 'sonnet'` (Opus reserved fo
 
 Trophy testing pattern with BDD style — maximize vertical-slice integration tests, fill gaps with focused unit tests. No mocks for the database. BDD-style: `describe('feature') > describe('operation') > it('should ...')`. Tests colocated with modules (`foo.ts` → `foo.test.ts`). See package CLAUDE.md files for setup details and coverage thresholds.
 
+## Feature Requirements (EARS FR baseline)
+
+`docs/system/features/<area>.md` holds one doc per feature area. Each carries a `## Requirements` table of EARS functional requirements (`FR-<AREA>-<NNN>`) that is the **single source of truth** for that area's contracted behaviour; each FR id is tagged into its verifying test's title — `it('[FR-AREA-NNN] …')` — so `trace` / `engy:validate` report coverage. Conventions: `.claude/skills/implement/references/ears-bdd.md`.
+
+**Changing behaviour in an area means updating its FRs + test tags in the same change, not later:**
+- **Find / read the area's FRs first** — they state the existing guarantees, already linked to tests/source. Discover them with `trace({ workspaceId, sessionId })` (coverage summary), `search({ filters: { scenarioIds: [...] } })`, or `/engy:knowledge-research`; then `trace({ workspaceId, fr, sessionId })` to reach a specific FR's tests/source instead of blind grep.
+- **Contract unchanged** (reword/clarify) → edit the row in place, keep the id.
+- **New or changed behaviour** → when implementing via `/engy:implement` (EARS-BDD mode) it allocates/updates the FR (through `engy:feature-author`) and tags the failing test for you; doing it by hand, allocate the next free `FR-<AREA>-<NNN>` (gap; never renumber or reuse) and tag the test that proves it.
+- **Retired behaviour** → delete the row and its test tags (git is the audit trail).
+- **A whole new area** → author it via `/engy:feature-docs` (sole owner of `system/features/*.md`), not by hand.
+- Verify every path/symbol the doc cites; after editing any `system/features/*.md` run `engy:reindex` (collection `system`). A stale FR is drift — fix it like a stale CLAUDE.md.
+
 ## CRITICAL Quality Gates
 These are non-negotiable and must be verified before committing:
 1. Run `/engy:review` when done with changes
 2. Run `pnpm blt` 
 3. If UI changes, test using playwright-cli. Check `playwright-cli --help` for available commands.
+4. If you changed behaviour in a feature area, update its `docs/system/features/<area>.md` FRs and the `[FR-AREA-NNN]` test tags to match (see Feature Requirements above).
 
 ### Validation Setup
 Run `pnpm install` to ensure all dependencies are up to date, then run `pnpm blt`. Tests use in-memory SQLite directly — no server or port needed.

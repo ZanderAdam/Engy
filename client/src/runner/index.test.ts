@@ -73,7 +73,7 @@ describe('Runner', () => {
   });
 
   describe('start', () => {
-    it('should create a git worktree from main', async () => {
+    it('[FR-EXECUTION-240] should create a git worktree from main', async () => {
       const git = createMockGit();
       const spawner = createMockSpawner();
       const runner = new Runner(spawner, send);
@@ -137,7 +137,7 @@ describe('Runner', () => {
       });
     });
 
-    it('should emit EXECUTION_COMPLETE_EVENT on agent success', async () => {
+    it('[FR-EXECUTION-160] should emit EXECUTION_COMPLETE_EVENT on agent success', async () => {
       createMockGit();
       const spawner = createMockSpawner({
         exitCode: 0,
@@ -179,7 +179,7 @@ describe('Runner', () => {
       );
     });
 
-    describe('coder mode', () => {
+    describe('[FR-EXECUTION-250] coder mode', () => {
       it('should normalize trailing slash in coderRepoBasePath when building remote paths', async () => {
         mockExecFileSuccess();
         const spawner = createMockSpawner();
@@ -295,7 +295,7 @@ describe('Runner', () => {
   });
 
   describe('stop', () => {
-    it('should send SIGTERM to the named session process', async () => {
+    it('[FR-EXECUTION-110] should send SIGTERM to the named session process', async () => {
       createMockGit();
 
       let resolveSpawn!: (result: SpawnResult) => void;
@@ -320,7 +320,7 @@ describe('Runner', () => {
       resolveSpawn({ sessionId: 'session-abc', exitCode: 1, success: false });
     });
 
-    it('should emit EXECUTION_COMPLETE_EVENT with success=false', async () => {
+    it('[FR-EXECUTION-110] should emit EXECUTION_COMPLETE_EVENT with success=false', async () => {
       createMockGit();
 
       let resolveSpawn!: (result: SpawnResult) => void;
@@ -432,7 +432,7 @@ describe('Runner', () => {
   });
 
   describe('stop + process close (duplicate-complete suppression)', () => {
-    it('should emit exactly one EXECUTION_COMPLETE_EVENT after stop() followed by process close', async () => {
+    it('[FR-EXECUTION-270] should emit exactly one EXECUTION_COMPLETE_EVENT after stop() followed by process close', async () => {
       createMockGit();
 
       let resolveSpawn!: (result: SpawnResult) => void;
@@ -568,7 +568,7 @@ describe('Runner', () => {
       return { resolveFirstSpawn };
     }
 
-    it('should spawn agent with --resume flag in the same worktree', async () => {
+    it('[FR-EXECUTION-130] should spawn agent with --resume flag in the same worktree', async () => {
       createMockGit();
       const spawner = createMockSpawner();
       const runner = new Runner(spawner, send);
@@ -777,7 +777,7 @@ describe('Runner', () => {
       });
     });
 
-    it('should send CREATE_MEMORIES_EVENT before EXECUTION_COMPLETE_EVENT when memories present', async () => {
+    it('[FR-EXECUTION-220] should send CREATE_MEMORIES_EVENT before EXECUTION_COMPLETE_EVENT when memories present', async () => {
       createMockGit();
       const spawner = createMockSpawner({
         exitCode: 0,

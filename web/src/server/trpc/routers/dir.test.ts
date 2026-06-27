@@ -53,7 +53,7 @@ describe('dir router', () => {
   });
 
   describe('list', () => {
-    it('should return md files and subdirs containing md files', async () => {
+    it('[FR-FILES-090] should return md files and subdirs containing md files', async () => {
       const result = await caller.dir.list({ dirPath: testDir });
 
       expect(result.files).toEqual(['notes.md', 'readme.md']);
@@ -62,7 +62,7 @@ describe('dir router', () => {
       expect(result.dirs).not.toContain('empty-sub');
     });
 
-    it('should throw NOT_FOUND for non-existent directory', async () => {
+    it('[FR-FILES-100] should throw NOT_FOUND for non-existent directory', async () => {
       await expect(
         caller.dir.list({ dirPath: path.join(testDir, 'does-not-exist') }),
       ).rejects.toThrow('not found');
@@ -72,7 +72,7 @@ describe('dir router', () => {
       await expect(caller.dir.list({ dirPath: path.join(testDir, 'readme.md') })).rejects.toThrow();
     });
 
-    it('should return sorted results', async () => {
+    it('[FR-FILES-090] should return sorted results', async () => {
       const result = await caller.dir.list({ dirPath: testDir });
       expect(result.files).toEqual([...result.files].sort());
       expect(result.dirs).toEqual([...result.dirs].sort());
@@ -80,17 +80,17 @@ describe('dir router', () => {
   });
 
   describe('read', () => {
-    it('should return file content', async () => {
+    it('[FR-FILES-130] should return file content', async () => {
       const result = await caller.dir.read({ dirPath: testDir, filePath: 'readme.md' });
       expect(result.content).toBe('# Readme\nHello world');
     });
 
-    it('should read files in subdirectories', async () => {
+    it('[FR-FILES-130] should read files in subdirectories', async () => {
       const result = await caller.dir.read({ dirPath: testDir, filePath: 'sub/sub-note.md' });
       expect(result.content).toBe('# Sub note');
     });
 
-    it('should throw NOT_FOUND for missing file', async () => {
+    it('[FR-FILES-100] should throw NOT_FOUND for missing file', async () => {
       await expect(caller.dir.read({ dirPath: testDir, filePath: 'missing.md' })).rejects.toThrow(
         'not found',
       );
@@ -113,13 +113,13 @@ describe('dir router', () => {
       expect(result.content).toBe('text file');
     });
 
-    it('should reject binary files', async () => {
+    it('[FR-FILES-110] should reject binary files', async () => {
       await expect(
         caller.dir.read({ dirPath: testDir, filePath: 'diagram.png' }),
       ).rejects.toThrow('not a readable text file');
     });
 
-    it('should reject files over the size cap', async () => {
+    it('[FR-FILES-120] should reject files over the size cap', async () => {
       const bigContent = 'x'.repeat(2_000_001);
       fs.writeFileSync(path.join(testDir, 'big.txt'), bigContent);
       await expect(
@@ -129,18 +129,18 @@ describe('dir router', () => {
   });
 
   describe('readImage', () => {
-    it('should return a base64 data URI for an image', async () => {
+    it('[FR-FILES-150] should return a base64 data URI for an image', async () => {
       const result = await caller.dir.readImage({ dirPath: testDir, filePath: 'diagram.png' });
       expect(result.dataUri).toBe(`data:image/png;base64,${PNG_1X1_BASE64}`);
     });
 
-    it('should reject non-image files', async () => {
+    it('[FR-FILES-140] should reject non-image files', async () => {
       await expect(
         caller.dir.readImage({ dirPath: testDir, filePath: 'readme.md' }),
       ).rejects.toThrow('Not a supported image');
     });
 
-    it('should throw NOT_FOUND for a missing image', async () => {
+    it('[FR-FILES-100] should throw NOT_FOUND for a missing image', async () => {
       await expect(
         caller.dir.readImage({ dirPath: testDir, filePath: 'missing.png' }),
       ).rejects.toThrow('not found');
@@ -165,7 +165,7 @@ describe('dir router', () => {
 
   describe('write', () => {
     describe('reindex on write', () => {
-      it('should persist the file and return success when dirPath maps to an indexed collection', async () => {
+      it('[FR-FILES-160] should persist the file and return success when dirPath maps to an indexed collection', async () => {
         // Use a dirPath ending with /docs so detectCollection returns 'docs'.
         // The workspaceSlug does not exist in the DB, so updateAndEmbed will throw
         // internally — but the try/catch must swallow it and still return { success: true }.
@@ -220,7 +220,7 @@ describe('dir router', () => {
       expect(fs.readFileSync(path.join(testDir, 'notes.txt'), 'utf-8')).toBe('plain text');
     });
 
-    it('should reject binary file extensions', async () => {
+    it('[FR-FILES-110] should reject binary file extensions', async () => {
       await expect(
         caller.dir.write({ dirPath: testDir, filePath: 'archive.zip', content: 'bad' }),
       ).rejects.toThrow('not a writable text file');
@@ -344,7 +344,7 @@ describe('dir router', () => {
       expect(fs.existsSync(path.join(testDir, 'sub', 'renamed-note.md'))).toBe(true);
     });
 
-    it('should throw CONFLICT if target already exists', async () => {
+    it('[FR-FILES-170] should throw CONFLICT if target already exists', async () => {
       await expect(
         caller.dir.renameFile({ dirPath: testDir, oldPath: 'readme.md', newPath: 'notes.md' }),
       ).rejects.toThrow('already exists');
@@ -411,7 +411,7 @@ describe('dir router', () => {
       expect(fs.existsSync(path.join(testDir, 'renamed-sub', 'sub-note.md'))).toBe(true);
     });
 
-    it('should throw CONFLICT if target already exists', async () => {
+    it('[FR-FILES-170] should throw CONFLICT if target already exists', async () => {
       await expect(
         caller.dir.renameDir({ dirPath: testDir, oldSubDir: 'sub', newSubDir: 'deep' }),
       ).rejects.toThrow('already exists');

@@ -28,25 +28,25 @@ describe('workspace router', () => {
   });
 
   describe('create', () => {
-    it('should create a workspace with slug derived from name', async () => {
+    it('[FR-WORKSPACE-010] should create a workspace with slug derived from name', async () => {
       const result = await caller.workspace.create({ name: 'My Workspace' });
       expect(result.name).toBe('My Workspace');
       expect(result.slug).toBe('my-workspace');
     });
 
-    it('should handle slug collisions with numeric suffix', async () => {
+    it('[FR-WORKSPACE-010] should handle slug collisions with numeric suffix', async () => {
       await caller.workspace.create({ name: 'Test' });
       const second = await caller.workspace.create({ name: 'Test' });
       expect(second.slug).toBe('test-2');
     });
 
-    it('should fail when repos provided but no daemon connected', async () => {
+    it('[FR-WORKSPACE-020] should fail when repos provided but no daemon connected', async () => {
       await expect(caller.workspace.create({ name: 'WS', repos: ['/some/path'] })).rejects.toThrow(
         'No daemon connected',
       );
     });
 
-    it('should create a Default project when creating a workspace', async () => {
+    it('[FR-WORKSPACE-040] should create a Default project when creating a workspace', async () => {
       const ws = await caller.workspace.create({ name: 'With Default' });
       const projects = await caller.project.list({ workspaceId: ws.id });
       const defaultProject = projects.find((p) => p.isDefault);
@@ -54,14 +54,14 @@ describe('workspace router', () => {
       expect(defaultProject!.name).toBe('Default');
     });
 
-    it('should initialize workspace directory structure', async () => {
+    it('[FR-WORKSPACE-030] should initialize workspace directory structure', async () => {
       const ws = await caller.workspace.create({ name: 'Dir Check' });
       expect(fs.existsSync(path.join(ctx.tmpDir, ws.slug, 'workspace.yaml'))).toBe(true);
       expect(fs.existsSync(path.join(ctx.tmpDir, ws.slug, 'system', 'overview.md'))).toBe(true);
       expect(fs.existsSync(path.join(ctx.tmpDir, ws.slug, 'projects'))).toBe(true);
     });
 
-    it('should roll back DB row when workspace directory init fails', async () => {
+    it('[FR-WORKSPACE-040] should roll back DB row when workspace directory init fails', async () => {
       // Place a file where the workspace dir would be created, causing mkdirSync to fail
       fs.writeFileSync(path.join(ctx.tmpDir, 'init-fail'), 'blocker');
 
@@ -118,7 +118,7 @@ describe('workspace router', () => {
   });
 
   describe('create with docsDir', () => {
-    it('should store docsDir in DB when provided', async () => {
+    it('[FR-WORKSPACE-020] should store docsDir in DB when provided', async () => {
       const customDir = path.join(ctx.tmpDir, 'custom-docs');
       fs.mkdirSync(customDir, { recursive: true });
 
@@ -128,7 +128,7 @@ describe('workspace router', () => {
       );
     });
 
-    it('should create workspace files at custom docsDir path', async () => {
+    it('[FR-WORKSPACE-030] should create workspace files at custom docsDir path', async () => {
       const customDir = path.join(ctx.tmpDir, 'my-repo-docs');
       fs.mkdirSync(customDir, { recursive: true });
 
@@ -213,14 +213,14 @@ describe('workspace router', () => {
       );
     });
 
-    it('should fail when repos provided but no daemon connected', async () => {
+    it('[FR-WORKSPACE-020] should fail when repos provided but no daemon connected', async () => {
       const ws = await caller.workspace.create({ name: 'Repo Update' });
       await expect(caller.workspace.update({ id: ws.id, repos: ['/some/path'] })).rejects.toThrow(
         'No daemon connected',
       );
     });
 
-    it('should fail when new docsDir provided but no daemon connected', async () => {
+    it('[FR-WORKSPACE-020] should fail when new docsDir provided but no daemon connected', async () => {
       const ws = await caller.workspace.create({ name: 'DocsDir Update' });
       await expect(
         caller.workspace.update({ id: ws.id, docsDir: '/some/new/path' }),
@@ -234,13 +234,13 @@ describe('workspace router', () => {
       expect(updated.name).toBe('No Validate');
     });
 
-    it('should update slug when provided', async () => {
+    it('[FR-WORKSPACE-070] should update slug when provided', async () => {
       const ws = await caller.workspace.create({ name: 'Slug Update' });
       const updated = await caller.workspace.update({ id: ws.id, slug: 'new-slug' });
       expect(updated.slug).toBe('new-slug');
     });
 
-    it('should rename workspace directory when slug changes', async () => {
+    it('[FR-WORKSPACE-070] should rename workspace directory when slug changes', async () => {
       const ws = await caller.workspace.create({ name: 'Rename Dir' });
       const oldDir = path.join(ctx.tmpDir, ws.slug);
       expect(fs.existsSync(oldDir)).toBe(true);
@@ -251,7 +251,7 @@ describe('workspace router', () => {
       expect(fs.existsSync(path.join(ctx.tmpDir, 'renamed-dir'))).toBe(true);
     });
 
-    it('should update workspace.yaml slug after rename', async () => {
+    it('[FR-WORKSPACE-070] should update workspace.yaml slug after rename', async () => {
       const ws = await caller.workspace.create({ name: 'Yaml Slug' });
       await caller.workspace.update({ id: ws.id, slug: 'yaml-new-slug' });
 
@@ -260,14 +260,14 @@ describe('workspace router', () => {
       expect(parsed.slug).toBe('yaml-new-slug');
     });
 
-    it('should reject invalid slug format', async () => {
+    it('[FR-WORKSPACE-070] should reject invalid slug format', async () => {
       const ws = await caller.workspace.create({ name: 'Bad Slug' });
       await expect(
         caller.workspace.update({ id: ws.id, slug: 'Invalid Slug!' }),
       ).rejects.toThrow();
     });
 
-    it('should reject duplicate slug', async () => {
+    it('[FR-WORKSPACE-070] should reject duplicate slug', async () => {
       await caller.workspace.create({ name: 'First' });
       const ws2 = await caller.workspace.create({ name: 'Second' });
       await expect(caller.workspace.update({ id: ws2.id, slug: 'first' })).rejects.toThrow(
@@ -366,7 +366,7 @@ describe('workspace router', () => {
         ctx.db.update(workspaces).set({ docsDir }).where(eq(workspaces.id, workspaceId)).run();
       }
 
-      it('dispatches generate when containerEnabled transitions false → true', async () => {
+      it('[FR-WORKSPACE-080] dispatches generate when containerEnabled transitions false → true', async () => {
         const ws = await caller.workspace.create({ name: 'Gen Transition' });
         seedDocsDir(ws.id, path.join(ctx.tmpDir, 'docs-gt'));
         const daemon = attachMockDaemon();
@@ -379,7 +379,7 @@ describe('workspace router', () => {
         expect(msg.payload.workspaceFolder).toBe(path.join(ctx.tmpDir, 'docs-gt'));
       });
 
-      it('does not dispatch when containerEnabled already true', async () => {
+      it('[FR-WORKSPACE-080] does not dispatch when containerEnabled already true', async () => {
         const ws = await caller.workspace.create({ name: 'Gen Idempotent' });
         seedDocsDir(ws.id, path.join(ctx.tmpDir, 'docs-idempotent'));
         const daemon = attachMockDaemon();
@@ -392,7 +392,7 @@ describe('workspace router', () => {
         expect(findGenerateCall(daemon)).toBeUndefined();
       });
 
-      it('does not dispatch when backend is coder', async () => {
+      it('[FR-WORKSPACE-080] does not dispatch when backend is coder', async () => {
         const ws = await caller.workspace.create({ name: 'Gen Coder' });
         seedDocsDir(ws.id, path.join(ctx.tmpDir, 'docs-coder'));
         const daemon = attachMockDaemon();
@@ -405,7 +405,7 @@ describe('workspace router', () => {
         expect(findGenerateCall(daemon)).toBeUndefined();
       });
 
-      it('does not dispatch when docsDir is null', async () => {
+      it('[FR-WORKSPACE-080] does not dispatch when docsDir is null', async () => {
         const ws = await caller.workspace.create({ name: 'Gen No Docs' });
         const daemon = attachMockDaemon();
 
@@ -413,7 +413,7 @@ describe('workspace router', () => {
         expect(findGenerateCall(daemon)).toBeUndefined();
       });
 
-      it('is non-fatal when daemon is offline', async () => {
+      it('[FR-WORKSPACE-080] is non-fatal when daemon is offline', async () => {
         const ws = await caller.workspace.create({ name: 'Gen Offline' });
         seedDocsDir(ws.id, path.join(ctx.tmpDir, 'docs-offline'));
         // daemon intentionally left as null
@@ -421,7 +421,7 @@ describe('workspace router', () => {
         expect(updated.containerEnabled).toBe(true);
       });
 
-      it('logs warning but does not throw when dispatch rejects', async () => {
+      it('[FR-WORKSPACE-080] logs warning but does not throw when dispatch rejects', async () => {
         const ws = await caller.workspace.create({ name: 'Gen Reject' });
         seedDocsDir(ws.id, path.join(ctx.tmpDir, 'docs-reject'));
         const daemon = attachMockDaemon();
@@ -437,7 +437,7 @@ describe('workspace router', () => {
       });
     });
 
-    it('should rollback slug in DB if directory rename fails', async () => {
+    it('[FR-WORKSPACE-070] should rollback slug in DB if directory rename fails', async () => {
       const ws = await caller.workspace.create({ name: 'Rollback Test' });
       const oldDir = path.join(ctx.tmpDir, ws.slug);
       expect(fs.existsSync(oldDir)).toBe(true);
@@ -454,7 +454,7 @@ describe('workspace router', () => {
       expect(fetched.slug).toBe(ws.slug);
     });
 
-    it('should rollback ALL fields (not just slug) when rename fails', async () => {
+    it('[FR-WORKSPACE-070] should rollback ALL fields (not just slug) when rename fails', async () => {
       const ws = await caller.workspace.create({ name: 'Full Rollback' });
 
       // Pre-create target directory to force rename failure
@@ -546,14 +546,14 @@ describe('workspace router', () => {
       expect(result.docsDir).toBeNull();
     });
 
-    it('should report combinedWorktrees true by default (standard engy dir)', async () => {
+    it('[FR-WORKSPACE-090] should report combinedWorktrees true by default (standard engy dir)', async () => {
       await caller.workspace.create({ name: 'Combined Default' });
       const result = await caller.workspace.get({ slug: 'combined-default' });
       expect(result.splitWorktrees).toBe(false);
       expect(result.combinedWorktrees).toBe(true);
     });
 
-    it('should report combinedWorktrees false when splitWorktrees is enabled', async () => {
+    it('[FR-WORKSPACE-090] should report combinedWorktrees false when splitWorktrees is enabled', async () => {
       const ws = await caller.workspace.create({ name: 'Split On', splitWorktrees: true });
       const result = await caller.workspace.get({ slug: ws.slug });
       expect(result.splitWorktrees).toBe(true);
@@ -562,24 +562,24 @@ describe('workspace router', () => {
   });
 
   describe('delete', () => {
-    it('should delete a workspace', async () => {
+    it('[FR-WORKSPACE-100] should delete a workspace', async () => {
       const ws = await caller.workspace.create({ name: 'Delete Me' });
       await caller.workspace.delete({ id: ws.id });
       const list = await caller.workspace.list();
       expect(list).toHaveLength(0);
     });
 
-    it('should return success after deleting a workspace', async () => {
+    it('[FR-WORKSPACE-100] should return success after deleting a workspace', async () => {
       const ws = await caller.workspace.create({ name: 'To Remove' });
       const result = await caller.workspace.delete({ id: ws.id });
       expect(result).toEqual({ success: true });
     });
 
-    it('should throw NOT_FOUND when workspace does not exist', async () => {
+    it('[FR-WORKSPACE-100] should throw NOT_FOUND when workspace does not exist', async () => {
       await expect(caller.workspace.delete({ id: 9999 })).rejects.toThrow('Workspace not found');
     });
 
-    it('should cascade delete projects when workspace is deleted', async () => {
+    it('[FR-WORKSPACE-100] should cascade delete projects when workspace is deleted', async () => {
       const ws = await caller.workspace.create({ name: 'Cascade WS' });
       await caller.project.create({ workspaceSlug: ws.slug, name: 'Extra Project' });
 
@@ -592,7 +592,7 @@ describe('workspace router', () => {
       expect(remaining).toHaveLength(0);
     });
 
-    it('should remove workspace directory on disk', async () => {
+    it('[FR-WORKSPACE-100] should remove workspace directory on disk', async () => {
       const ws = await caller.workspace.create({ name: 'Clean Up' });
       const wsDir = path.join(ctx.tmpDir, ws.slug);
       expect(fs.existsSync(wsDir)).toBe(true);
@@ -601,7 +601,7 @@ describe('workspace router', () => {
       expect(fs.existsSync(wsDir)).toBe(false);
     });
 
-    it('should succeed even if filesystem removal fails', async () => {
+    it('[FR-WORKSPACE-100] should succeed even if filesystem removal fails', async () => {
       const ws = await caller.workspace.create({ name: 'FS Fail' });
 
       // Remove the directory before delete so removeWorkspaceDir hits a no-op path,
@@ -665,7 +665,7 @@ describe('workspace router', () => {
     }
 
     describe('workspace.create', () => {
-      it('should throw BAD_REQUEST when paths are missing and flag is absent', async () => {
+      it('[FR-WORKSPACE-022] should throw BAD_REQUEST when paths are missing and flag is absent', async () => {
         const daemon = attachMockDaemon();
         const createPromise = caller.workspace.create({
           name: 'Missing Dirs WS',
@@ -680,7 +680,7 @@ describe('workspace router', () => {
         await expect(createPromise).rejects.toThrow('Invalid paths');
       });
 
-      it('should create missing dirs and proceed when flag is true', async () => {
+      it('[FR-WORKSPACE-024] should create missing dirs and proceed when flag is true', async () => {
         const repoDir = path.join(ctx.tmpDir, 'new-repo');
         const daemon = attachMockDaemon();
 
@@ -707,7 +707,7 @@ describe('workspace router', () => {
         expect(ws.name).toBe('Create Dirs WS');
       });
 
-      it('should throw BAD_REQUEST with path and reason when directory creation fails', async () => {
+      it('[FR-WORKSPACE-024] should throw BAD_REQUEST with path and reason when directory creation fails', async () => {
         const daemon = attachMockDaemon();
         const createPromise = caller.workspace.create({
           name: 'Fail Dirs WS',
@@ -734,7 +734,7 @@ describe('workspace router', () => {
         });
       });
 
-      it('should deduplicate missing paths before creating', async () => {
+      it('[FR-WORKSPACE-024] should deduplicate missing paths before creating', async () => {
         const daemon = attachMockDaemon();
         const createPromise = caller.workspace.create({
           name: 'Dedup WS',
@@ -763,7 +763,7 @@ describe('workspace router', () => {
     });
 
     describe('workspace.update', () => {
-      it('should throw BAD_REQUEST when paths are missing and flag is absent', async () => {
+      it('[FR-WORKSPACE-022] should throw BAD_REQUEST when paths are missing and flag is absent', async () => {
         const ws = await caller.workspace.create({ name: 'Update Missing' });
         const daemon = attachMockDaemon();
 
@@ -780,7 +780,7 @@ describe('workspace router', () => {
         await expect(updatePromise).rejects.toThrow('Invalid paths');
       });
 
-      it('should create missing dirs and proceed when flag is true', async () => {
+      it('[FR-WORKSPACE-024] should create missing dirs and proceed when flag is true', async () => {
         const ws = await caller.workspace.create({ name: 'Update Create Dirs' });
         const repoDir = path.join(ctx.tmpDir, 'new-update-repo');
         const daemon = attachMockDaemon();
@@ -808,7 +808,7 @@ describe('workspace router', () => {
         expect(updated.repos).toEqual([repoDir]);
       });
 
-      it('should throw BAD_REQUEST with path and reason when directory creation fails', async () => {
+      it('[FR-WORKSPACE-024] should throw BAD_REQUEST with path and reason when directory creation fails', async () => {
         const ws = await caller.workspace.create({ name: 'Update Fail Dirs' });
         const daemon = attachMockDaemon();
 

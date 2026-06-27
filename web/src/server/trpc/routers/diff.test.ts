@@ -11,7 +11,7 @@ describe('diff router', () => {
   });
 
   describe('getStatus', () => {
-    it('throws when no daemon is connected', async () => {
+    it('[FR-GIT-020] throws when no daemon is connected', async () => {
       ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 
@@ -20,7 +20,7 @@ describe('diff router', () => {
       );
     });
 
-    it('uses worktreePath as effective dir when provided', async () => {
+    it('[FR-GIT-010] uses worktreePath as effective dir when provided', async () => {
       ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 
@@ -32,7 +32,7 @@ describe('diff router', () => {
   });
 
   describe('getLog', () => {
-    it('throws when no daemon is connected', async () => {
+    it('[FR-GIT-020] throws when no daemon is connected', async () => {
       ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 
@@ -43,7 +43,7 @@ describe('diff router', () => {
   });
 
   describe('getCommitDiff', () => {
-    it('throws when no daemon is connected', async () => {
+    it('[FR-GIT-020] throws when no daemon is connected', async () => {
       ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 
@@ -54,7 +54,7 @@ describe('diff router', () => {
   });
 
   describe('getBranchDiff', () => {
-    it('throws when no daemon is connected', async () => {
+    it('[FR-GIT-020] throws when no daemon is connected', async () => {
       ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 
@@ -65,7 +65,7 @@ describe('diff router', () => {
   });
 
   describe('getWorktrees', () => {
-    it('throws when no daemon is connected', async () => {
+    it('[FR-GIT-020] throws when no daemon is connected', async () => {
       ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
 

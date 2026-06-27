@@ -28,13 +28,13 @@ describe('ProjectCompletionService', () => {
   });
 
   describe('startCompletion', () => {
-    it('should set project status to completing', async () => {
+    it('[FR-PROJECT-140] should set project status to completing', async () => {
       await caller.project.startCompletion({ projectId });
       const project = await caller.project.get({ id: projectId });
       expect(project.status).toBe('completing');
     });
 
-    it('should return unpromoted fleeting memories for the workspace', async () => {
+    it('[FR-PROJECT-140] should return unpromoted fleeting memories for the workspace', async () => {
       const db = getDb();
       db.insert(fleetingMemories)
         .values({ workspaceId, content: 'Note A', source: 'user', tags: ['auth'], promoted: false })
@@ -48,7 +48,7 @@ describe('ProjectCompletionService', () => {
       expect(result.candidates.every((c) => !c.promoted)).toBe(true);
     });
 
-    it('should not include promoted fleeting memories', async () => {
+    it('[FR-PROJECT-140] should not include promoted fleeting memories', async () => {
       const db = getDb();
       db.insert(fleetingMemories)
         .values({ workspaceId, content: 'Promoted', source: 'user', promoted: true })
@@ -62,7 +62,7 @@ describe('ProjectCompletionService', () => {
       expect(result.candidates[0].content).toBe('Unpromoted');
     });
 
-    it('should only surface fleetings from the same workspace', async () => {
+    it('[FR-PROJECT-140] should only surface fleetings from the same workspace', async () => {
       const db = getDb();
       const otherWs = await caller.workspace.create({ name: 'Other WS' });
 
@@ -78,7 +78,7 @@ describe('ProjectCompletionService', () => {
       expect(result.candidates[0].content).toBe('Mine');
     });
 
-    it('should sort higher-signal candidates first', async () => {
+    it('[FR-PROJECT-140] should sort higher-signal candidates first', async () => {
       const db = getDb();
       // Low signal: agent-sourced, no tags, no sources
       db.insert(fleetingMemories)
@@ -101,7 +101,7 @@ describe('ProjectCompletionService', () => {
       expect(result.candidates[1].content).toBe('Low signal');
     });
 
-    it('should return empty candidates when no fleetings exist', async () => {
+    it('[FR-PROJECT-140] should return empty candidates when no fleetings exist', async () => {
       const result = await caller.project.startCompletion({ projectId });
       expect(result.candidates).toEqual([]);
     });
@@ -112,20 +112,20 @@ describe('ProjectCompletionService', () => {
   });
 
   describe('archive', () => {
-    it('should set project status to archived when in completing status', async () => {
+    it('[FR-PROJECT-160] should set project status to archived when in completing status', async () => {
       await caller.project.startCompletion({ projectId });
       await caller.project.archive({ projectId });
       const project = await caller.project.get({ id: projectId });
       expect(project.status).toBe('archived');
     });
 
-    it('should throw PRECONDITION_FAILED when archiving from planning status', async () => {
+    it('[FR-PROJECT-150] should throw PRECONDITION_FAILED when archiving from planning status', async () => {
       await expect(caller.project.archive({ projectId })).rejects.toThrow(
         "Project must be in 'completing' status",
       );
     });
 
-    it('should throw PRECONDITION_FAILED when archiving from active status', async () => {
+    it('[FR-PROJECT-150] should throw PRECONDITION_FAILED when archiving from active status', async () => {
       const db = getDb();
       db.update(projects)
         .set({ status: 'active' })
@@ -137,7 +137,7 @@ describe('ProjectCompletionService', () => {
       );
     });
 
-    it('should delete agent sessions linked to project tasks', async () => {
+    it('[FR-PROJECT-160] should delete agent sessions linked to project tasks', async () => {
       const db = getDb();
       const task = await caller.task.create({ projectId, title: 'Task 1' });
       db.insert(agentSessions)
@@ -160,7 +160,7 @@ describe('ProjectCompletionService', () => {
       expect(remaining).toBeUndefined();
     });
 
-    it('should delete agent sessions linked to project task groups', async () => {
+    it('[FR-PROJECT-160] should delete agent sessions linked to project task groups', async () => {
       const db = getDb();
       const [taskGroup] = db
         .insert(taskGroups)
@@ -187,7 +187,7 @@ describe('ProjectCompletionService', () => {
       expect(remaining).toBeUndefined();
     });
 
-    it('should delete sessions from both tasks and task groups', async () => {
+    it('[FR-PROJECT-160] should delete sessions from both tasks and task groups', async () => {
       const db = getDb();
       const task = await caller.task.create({ projectId, title: 'Task A' });
       const [taskGroup] = db
@@ -210,7 +210,7 @@ describe('ProjectCompletionService', () => {
       expect(allSessions.length).toBe(0);
     });
 
-    it('should preserve plan content, tasks, and task groups', async () => {
+    it('[FR-PROJECT-160] should preserve plan content, tasks, and task groups', async () => {
       const db = getDb();
       await caller.task.create({ projectId, title: 'Preserved Task' });
       db.insert(taskGroups)
@@ -231,7 +231,7 @@ describe('ProjectCompletionService', () => {
       expect(remainingGroups.length).toBe(1);
     });
 
-    it('should preserve fleeting memories after archival', async () => {
+    it('[FR-PROJECT-160] should preserve fleeting memories after archival', async () => {
       const db = getDb();
       db.insert(fleetingMemories)
         .values({ workspaceId, content: 'Keep me', source: 'user', promoted: false })
@@ -245,7 +245,7 @@ describe('ProjectCompletionService', () => {
       expect(memories[0].content).toBe('Keep me');
     });
 
-    it('should not affect sessions from other projects', async () => {
+    it('[FR-PROJECT-160] should not affect sessions from other projects', async () => {
       const db = getDb();
       const otherProject = await caller.project.create({
         workspaceSlug: 'test-ws',
@@ -267,7 +267,7 @@ describe('ProjectCompletionService', () => {
       expect(otherSession).toBeDefined();
     });
 
-    it('should succeed when project has no tasks or sessions', async () => {
+    it('[FR-PROJECT-160] should succeed when project has no tasks or sessions', async () => {
       await caller.project.startCompletion({ projectId });
       const result = await caller.project.archive({ projectId });
       expect(result.success).toBe(true);

@@ -48,7 +48,7 @@ describe('git helpers', () => {
   });
 
   describe('ensureGitRepo', () => {
-    it('should initialize a new git repo and create initial commit', async () => {
+    it('[FR-WORKSPACE-050] should initialize a new git repo and create initial commit', async () => {
       fs.writeFileSync(path.join(tmpDir, 'test.txt'), 'hello');
       const result = await ensureGitRepo(tmpDir);
 
@@ -60,13 +60,13 @@ describe('git helpers', () => {
       expect(log.latest?.message).toBe('memory(init): initial workspace structure');
     });
 
-    it('should be idempotent — skip if already a git repo', async () => {
+    it('[FR-WORKSPACE-050] should be idempotent — skip if already a git repo', async () => {
       await simpleGit(tmpDir).init();
       const result = await ensureGitRepo(tmpDir);
       expect(result).toBe(false);
     });
 
-    it('should init a fresh repo even when nested inside a parent git tree', async () => {
+    it('[FR-WORKSPACE-050] should init a fresh repo even when nested inside a parent git tree', async () => {
       await simpleGit(tmpDir).init();
       const childDir = path.join(tmpDir, 'workspace');
       fs.mkdirSync(childDir);
@@ -80,7 +80,7 @@ describe('git helpers', () => {
       expect(log.total).toBe(1);
     });
 
-    it('should add and commit even when parent .gitignore would exclude the workspace path', async () => {
+    it('[FR-WORKSPACE-050] should add and commit even when parent .gitignore would exclude the workspace path', async () => {
       await simpleGit(tmpDir).init();
       fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'workspace/\n');
       const childDir = path.join(tmpDir, 'workspace');

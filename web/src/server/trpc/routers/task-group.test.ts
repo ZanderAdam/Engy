@@ -109,7 +109,7 @@ describe('task-group router', () => {
     });
   });
 
-  describe('create numInMilestone', () => {
+  describe('[FR-TASK-150] create numInMilestone', () => {
     it('should assign 1 to the first group in a milestone', async () => {
       const ws = await caller.workspace.create({ name: 'Num WS' });
       const proj = await caller.project.create({ workspaceSlug: ws.slug, name: 'Num Proj' });
@@ -194,7 +194,7 @@ describe('task-group router', () => {
       expect(updated.repos).toEqual(['repo-a', 'repo-b']);
     });
 
-    it('should throw NOT_FOUND for non-existent task group', async () => {
+    it('[FR-TASK-160] should throw NOT_FOUND for non-existent task group', async () => {
       await expect(
         caller.taskGroup.update({ id: 99999, name: 'Nope' }),
       ).rejects.toThrow('not found');
@@ -202,7 +202,7 @@ describe('task-group router', () => {
   });
 
   describe('delete', () => {
-    it('should delete an existing task group', async () => {
+    it('[FR-TASK-160] should delete an existing task group', async () => {
       const group = await caller.taskGroup.create({ milestoneRef, name: 'Delete Me' });
       await caller.taskGroup.delete({ id: group.id });
       await expect(caller.taskGroup.get({ id: group.id })).rejects.toThrow('not found');

@@ -75,13 +75,13 @@ describe('plan service', () => {
       expect(fs.readFileSync(filePath, 'utf-8')).toBe('V2');
     });
 
-    it('should reject path traversal in specSlug', () => {
+    it('[FR-MILESTONE-090] should reject path traversal in specSlug', () => {
       expect(() => writePlanFile(specsDir, '../../../etc', 'm1-x.plan.md', 'x')).toThrow(
         'Path traversal',
       );
     });
 
-    it('should reject path traversal in filename', () => {
+    it('[FR-MILESTONE-090] should reject path traversal in filename', () => {
       expect(() => writePlanFile(specsDir, specSlug, '../../outside.md', 'x')).toThrow(
         'Path traversal',
       );
@@ -100,13 +100,13 @@ describe('plan service', () => {
       expect(readPlanFile(specsDir, specSlug, 'm1-missing.plan.md')).toBeNull();
     });
 
-    it('should reject path traversal in specSlug', () => {
+    it('[FR-MILESTONE-090] should reject path traversal in specSlug', () => {
       expect(() => readPlanFile(specsDir, '../../etc', 'm1-x.plan.md')).toThrow(
         'Path traversal',
       );
     });
 
-    it('should reject path traversal in filename', () => {
+    it('[FR-MILESTONE-090] should reject path traversal in filename', () => {
       expect(() => readPlanFile(specsDir, specSlug, '../../etc/passwd')).toThrow(
         'Path traversal',
       );
@@ -157,7 +157,7 @@ describe('plan service', () => {
       );
     });
 
-    it('should reject path traversal in filename', () => {
+    it('[FR-MILESTONE-090] should reject path traversal in filename', () => {
       expect(() => deletePlanFile(specsDir, specSlug, '../../etc/passwd')).toThrow(
         'Path traversal',
       );
@@ -194,13 +194,13 @@ describe('plan service', () => {
       renamePlanFile(specsDir, specSlug, 'm1-old.plan.md', 'm1-new.plan.md');
     });
 
-    it('should reject path traversal in old filename', () => {
+    it('[FR-MILESTONE-090] should reject path traversal in old filename', () => {
       expect(() =>
         renamePlanFile(specsDir, specSlug, '../../etc/passwd', 'm1-new.plan.md'),
       ).toThrow('Path traversal');
     });
 
-    it('should reject path traversal in new filename', () => {
+    it('[FR-MILESTONE-090] should reject path traversal in new filename', () => {
       writePlanFile(specsDir, specSlug, 'm1-setup.plan.md', 'Content');
       expect(() =>
         renamePlanFile(specsDir, specSlug, 'm1-setup.plan.md', '../../etc/evil.md'),
@@ -231,13 +231,13 @@ describe('plan service', () => {
       expect(fm).toContain('title: "Auth: Login & Signup"');
     });
 
-    it('should collapse multi-line scope to a single quoted line', () => {
+    it('[FR-MILESTONE-100] should collapse multi-line scope to a single quoted line', () => {
       const fm = buildMilestoneFrontmatter('M1', 'planned', 'Line one\nLine two\nLine three');
       expect(fm).not.toContain('\n\n');
       expect(fm).toContain('scope: "Line one Line two Line three"');
     });
 
-    it('should round-trip through writePlanFile + listMilestones', () => {
+    it('[FR-MILESTONE-100] should round-trip through writePlanFile + listMilestones', () => {
       const filename = 'm1-test.plan.md';
       const scope = 'Multi\nline\nscope content';
       const content = buildMilestoneFrontmatter('Test Milestone', 'active', scope);
@@ -253,14 +253,14 @@ describe('plan service', () => {
   });
 
   describe('listMilestones status normalization', () => {
-    it('should normalize unknown status to "planned"', () => {
+    it('[FR-MILESTONE-100] should normalize unknown status to "planned"', () => {
       const content = '---\ntitle: Test\nstatus: draft\n---\n';
       writePlanFile(specsDir, specSlug, 'm1-test.plan.md', content);
       const milestones = listMilestones(specsDir, specSlug);
       expect(milestones[0].status).toBe('planned');
     });
 
-    it('should preserve valid statuses', () => {
+    it('[FR-MILESTONE-100] should preserve valid statuses', () => {
       for (const status of ['planned', 'planning', 'active', 'complete'] as const) {
         const content = `---\ntitle: Test\nstatus: ${status}\n---\n`;
         const filename = `m${VALID_STATUSES.indexOf(status) + 1}-test.plan.md`;
@@ -270,7 +270,7 @@ describe('plan service', () => {
       expect(milestones.map((m) => m.status)).toEqual(['planned', 'planning', 'active', 'complete']);
     });
 
-    it('should normalize empty status to "planned"', () => {
+    it('[FR-MILESTONE-100] should normalize empty status to "planned"', () => {
       const content = '---\ntitle: Test\n---\n';
       writePlanFile(specsDir, specSlug, 'm1-test.plan.md', content);
       const milestones = listMilestones(specsDir, specSlug);

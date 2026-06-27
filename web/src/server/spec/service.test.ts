@@ -145,14 +145,14 @@ describe('spec service', () => {
     });
 
     describe('buildable lifecycle', () => {
-      it('should allow draft → ready when all tasks done', () => {
+      it('[FR-PROJECT-070] [FR-PROJECT-080] should allow draft → ready when all tasks done', () => {
         createSpec(workspace, 'Auth', 'buildable');
         // No tasks = nothing blocking
         const result = updateSpec(workspace, '1_auth', { status: 'ready' });
         expect(result.status).toBe('ready');
       });
 
-      it('should block draft → ready with incomplete tasks', () => {
+      it('[FR-PROJECT-080] should block draft → ready with incomplete tasks', () => {
         createSpec(workspace, 'Auth', 'buildable');
         const db = getDb();
         db.insert(tasks).values({
@@ -166,7 +166,7 @@ describe('spec service', () => {
         );
       });
 
-      it('should allow draft → ready when all tasks are done', () => {
+      it('[FR-PROJECT-080] should allow draft → ready when all tasks are done', () => {
         createSpec(workspace, 'Auth', 'buildable');
         const db = getDb();
         db.insert(tasks).values({
@@ -179,14 +179,14 @@ describe('spec service', () => {
         expect(result.status).toBe('ready');
       });
 
-      it('should allow ready → approved', () => {
+      it('[FR-PROJECT-070] should allow ready → approved', () => {
         createSpec(workspace, 'Auth', 'buildable');
         updateSpec(workspace, '1_auth', { status: 'ready' });
         const result = updateSpec(workspace, '1_auth', { status: 'approved' });
         expect(result.status).toBe('approved');
       });
 
-      it('should allow approved → active', () => {
+      it('[FR-PROJECT-070] should allow approved → active', () => {
         createSpec(workspace, 'Auth', 'buildable');
         updateSpec(workspace, '1_auth', { status: 'ready' });
         updateSpec(workspace, '1_auth', { status: 'approved' });
@@ -194,7 +194,7 @@ describe('spec service', () => {
         expect(result.status).toBe('active');
       });
 
-      it('should allow active → completed', () => {
+      it('[FR-PROJECT-070] should allow active → completed', () => {
         createSpec(workspace, 'Auth', 'buildable');
         updateSpec(workspace, '1_auth', { status: 'ready' });
         updateSpec(workspace, '1_auth', { status: 'approved' });
@@ -203,7 +203,7 @@ describe('spec service', () => {
         expect(result.status).toBe('completed');
       });
 
-      it('should reject invalid transition (draft → approved)', () => {
+      it('[FR-PROJECT-070] should reject invalid transition (draft → approved)', () => {
         createSpec(workspace, 'Auth', 'buildable');
         expect(() => updateSpec(workspace, '1_auth', { status: 'approved' })).toThrow(
           'Invalid status transition',
@@ -212,13 +212,13 @@ describe('spec service', () => {
     });
 
     describe('vision lifecycle', () => {
-      it('should allow draft → completed', () => {
+      it('[FR-PROJECT-090] should allow draft → completed', () => {
         createSpec(workspace, 'Vision', 'vision');
         const result = updateSpec(workspace, 'vision', { status: 'completed' });
         expect(result.status).toBe('completed');
       });
 
-      it('should reject draft → ready for vision specs', () => {
+      it('[FR-PROJECT-090] should reject draft → ready for vision specs', () => {
         createSpec(workspace, 'Vision', 'vision');
         expect(() => updateSpec(workspace, 'vision', { status: 'ready' })).toThrow(
           'Invalid status transition',
@@ -284,7 +284,7 @@ describe('spec service', () => {
       expect(content).toBe('Research notes');
     });
 
-    it('should write new context file', () => {
+    it('[FR-PROJECT-120] should write new context file', () => {
       writeContextFile(workspace, '1_auth', 'new.md', 'Content');
       const content = readContextFile(workspace, '1_auth', 'new.md');
       expect(content).toBe('Content');
@@ -302,7 +302,7 @@ describe('spec service', () => {
       expect(listContextFiles(workspace, '1_auth')).toEqual([]);
     });
 
-    it('should throw when reading non-existent context file', () => {
+    it('[FR-PROJECT-120] should throw when reading non-existent context file', () => {
       expect(() => readContextFile(workspace, '1_auth', 'missing.md')).toThrow('not found');
     });
 

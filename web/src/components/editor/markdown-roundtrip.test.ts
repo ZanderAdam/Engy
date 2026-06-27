@@ -372,7 +372,7 @@ describe('BlockNote markdown round-trip', () => {
     expect(output2).toMatchSnapshot('second-roundtrip');
   });
 
-  it('should be idempotent when using remark normalization', () => {
+  it('[FR-EDITOR-110] should be idempotent when using remark normalization', () => {
     const blocks1 = editor.tryParseMarkdownToBlocks(FIXTURE);
     const raw1 = editor.blocksToMarkdownLossy(blocks1);
     const normalized1 = normalizeMarkdown(raw1);

@@ -17,41 +17,41 @@ function serializeRoundTrip(model: FlowModel): FlowModel {
   return reparsed!;
 }
 
-describe('mermaid visual editor', () => {
-  describe('detectDiagramType', () => {
-    it('detects flowchart and graph keywords', () => {
+describe('[FR-EDITOR-140] mermaid visual editor', () => {
+  describe('[FR-EDITOR-140] detectDiagramType', () => {
+    it('[FR-EDITOR-140] detects flowchart and graph keywords', () => {
       expect(detectDiagramType('flowchart TD\n A-->B')).toBe('flowchart');
       expect(detectDiagramType('graph LR\n A-->B')).toBe('flowchart');
     });
 
-    it('treats other diagram types as other', () => {
+    it('[FR-EDITOR-140] treats other diagram types as other', () => {
       expect(detectDiagramType('sequenceDiagram\n A->>B: hi')).toBe('other');
       expect(detectDiagramType('classDiagram\n class A')).toBe('other');
       expect(detectDiagramType('')).toBe('other');
     });
 
-    it('skips leading comments and blank lines', () => {
+    it('[FR-EDITOR-140] skips leading comments and blank lines', () => {
       expect(detectDiagramType('\n%% a comment\nflowchart TD\n A-->B')).toBe('flowchart');
     });
   });
 
-  describe('parseFlowchart', () => {
-    it('returns null for non-flowchart diagrams', () => {
+  describe('[FR-EDITOR-140] parseFlowchart', () => {
+    it('[FR-EDITOR-140] returns null for non-flowchart diagrams', () => {
       expect(parseFlowchart('sequenceDiagram\n A->>B: hi')).toBeNull();
     });
 
-    it('parses direction and keyword', () => {
+    it('[FR-EDITOR-140] parses direction and keyword', () => {
       const model = parseFlowchart('graph LR\n A --> B')!;
       expect(model.keyword).toBe('graph');
       expect(model.direction).toBe('LR');
     });
 
-    it('defaults direction to TD when absent', () => {
+    it('[FR-EDITOR-140] defaults direction to TD when absent', () => {
       const model = parseFlowchart('flowchart\n A --> B')!;
       expect(model.direction).toBe('TD');
     });
 
-    it('parses nodes, labels and edges', () => {
+    it('[FR-EDITOR-140] parses nodes, labels and edges', () => {
       const model = parseFlowchart('flowchart TD\n A[Start] --> B[End]')!;
       expect(model.nodes).toEqual([
         { id: 'A', label: 'Start', shape: 'rectangle' },
@@ -61,7 +61,7 @@ describe('mermaid visual editor', () => {
       expect(model.edges[0]).toMatchObject({ source: 'A', target: 'B', style: 'normal', open: false });
     });
 
-    it('parses all supported node shapes', () => {
+    it('[FR-EDITOR-140] parses all supported node shapes', () => {
       const model = parseFlowchart(
         'flowchart TD\n A[r] --> B(round)\n C([stad]) --> D[[sub]]\n E[(db)] --> F((circ))\n G{dec} --> H{{hex}}\n I[/par/] --> A',
       )!;
@@ -77,7 +77,7 @@ describe('mermaid visual editor', () => {
       expect(shapeOf('I')).toBe('parallelogram');
     });
 
-    it('parses edge styles and open links', () => {
+    it('[FR-EDITOR-140] parses edge styles and open links', () => {
       const model = parseFlowchart('flowchart TD\n A --> B\n A --- B\n A -.-> B\n A ==> B')!;
       expect(model.edges.map((e) => ({ style: e.style, open: e.open }))).toEqual([
         { style: 'normal', open: false },
@@ -87,18 +87,18 @@ describe('mermaid visual editor', () => {
       ]);
     });
 
-    it('parses pipe edge labels', () => {
+    it('[FR-EDITOR-140] parses pipe edge labels', () => {
       const model = parseFlowchart('flowchart TD\n A -->|yes| B')!;
       expect(model.edges[0].label).toBe('yes');
     });
 
-    it('parses inline edge labels', () => {
+    it('[FR-EDITOR-140] parses inline edge labels', () => {
       const model = parseFlowchart('flowchart TD\n A -- maybe --> B')!;
       expect(model.edges[0].label).toBe('maybe');
       expect(model.edges[0].style).toBe('normal');
     });
 
-    it('expands the & multi-node operator into separate edges', () => {
+    it('[FR-EDITOR-140] expands the & multi-node operator into separate edges', () => {
       const model = parseFlowchart('flowchart TD\n A & B --> C')!;
       expect(model.edges.map((e) => ({ s: e.source, t: e.target }))).toEqual([
         { s: 'A', t: 'C' },
@@ -106,14 +106,14 @@ describe('mermaid visual editor', () => {
       ]);
     });
 
-    it('parses chained edges', () => {
+    it('[FR-EDITOR-140] parses chained edges', () => {
       const model = parseFlowchart('flowchart TD\n A --> B --> C')!;
       expect(model.edges).toHaveLength(2);
       expect(model.edges[0]).toMatchObject({ source: 'A', target: 'B' });
       expect(model.edges[1]).toMatchObject({ source: 'B', target: 'C' });
     });
 
-    it('parses subgraph membership', () => {
+    it('[FR-EDITOR-140] parses subgraph membership', () => {
       const model = parseFlowchart(
         'flowchart TD\n subgraph plane [Data Plane]\n  A --> B\n end\n B --> C',
       )!;
@@ -123,21 +123,21 @@ describe('mermaid visual editor', () => {
       expect(model.nodes.map((n) => n.id)).toContain('C');
     });
 
-    it('preserves unparsed statements as raw', () => {
+    it('[FR-EDITOR-140] preserves unparsed statements as raw', () => {
       const model = parseFlowchart('flowchart TD\n A --> B\n classDef big fill:#f00\n class A big')!;
       expect(model.raw).toContain('classDef big fill:#f00');
       expect(model.raw).toContain('class A big');
     });
 
-    it('reuses a node defined inline then referenced bare', () => {
+    it('[FR-EDITOR-140] reuses a node defined inline then referenced bare', () => {
       const model = parseFlowchart('flowchart TD\n A[Start] --> B\n B --> A')!;
       expect(model.nodes.find((n) => n.id === 'A')!.label).toBe('Start');
       expect(model.nodes).toHaveLength(2);
     });
   });
 
-  describe('serializeFlowchart', () => {
-    it('emits header, node defs and edges', () => {
+  describe('[FR-EDITOR-140] serializeFlowchart', () => {
+    it('[FR-EDITOR-140] emits header, node defs and edges', () => {
       const model = parseFlowchart('flowchart LR\n A[Start] --> B(End)')!;
       const code = serializeFlowchart(model);
       expect(code).toContain('flowchart LR');
@@ -146,26 +146,26 @@ describe('mermaid visual editor', () => {
       expect(code).toContain('A --> B');
     });
 
-    it('uses shorthand for default rectangles labelled by id', () => {
+    it('[FR-EDITOR-140] uses shorthand for default rectangles labelled by id', () => {
       const model = parseFlowchart('flowchart TD\n A --> B')!;
       const code = serializeFlowchart(model);
       expect(code).toMatch(/^ {2}A$/m);
     });
 
-    it('quotes labels containing reserved characters', () => {
+    it('[FR-EDITOR-140] quotes labels containing reserved characters', () => {
       const model = parseFlowchart('flowchart TD\n A["a (b)"] --> B')!;
       const code = serializeFlowchart(model);
       expect(code).toContain('A["a (b)"]');
     });
 
-    it('round-trips a label containing bracket characters', () => {
+    it('[FR-EDITOR-140] round-trips a label containing bracket characters', () => {
       const model = parseFlowchart('flowchart TD\n A["a [b]"] --> B')!;
       expect(model.nodes[0].label).toBe('a [b]');
       const reparsed = parseFlowchart(serializeFlowchart(model))!;
       expect(reparsed.nodes[0].label).toBe('a [b]');
     });
 
-    it('round-trips structure (nodes, edges, shapes, labels, subgraphs)', () => {
+    it('[FR-EDITOR-140] round-trips structure (nodes, edges, shapes, labels, subgraphs)', () => {
       const source = [
         'flowchart TD',
         '  subgraph plane [Data Plane]',

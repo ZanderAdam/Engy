@@ -16,8 +16,8 @@ describe('comment router', () => {
     ctx.cleanup();
   });
 
-  describe('createThread', () => {
-    it('should create a thread with initial comment', async () => {
+  describe('[FR-EDITOR-010] createThread', () => {
+    it('[FR-EDITOR-010] should create a thread with initial comment', async () => {
       const thread = await caller.comment.createThread({
         workspaceSlug: 'test-ws',
         documentPath: 'specs/auth/spec.md',
@@ -36,7 +36,7 @@ describe('comment router', () => {
       expect(thread.comments[0].userId).toBe('local-user');
     });
 
-    it('should reject unknown workspace', async () => {
+    it('[FR-EDITOR-010] should reject unknown workspace', async () => {
       await expect(
         caller.comment.createThread({
           workspaceSlug: 'nope',
@@ -47,7 +47,7 @@ describe('comment router', () => {
       ).rejects.toThrow('not found');
     });
 
-    it('should create a thread without a workspace (open-dir mode)', async () => {
+    it('[FR-EDITOR-020] should create a thread without a workspace (open-dir mode)', async () => {
       const thread = await caller.comment.createThread({
         documentPath: '/Users/aleks/notes/readme.md',
         threadId: 'thread-open-1',
@@ -60,8 +60,8 @@ describe('comment router', () => {
     });
   });
 
-  describe('listThreads', () => {
-    it('should return threads with comments for a document', async () => {
+  describe('[FR-EDITOR-030] listThreads', () => {
+    it('[FR-EDITOR-030] should return threads with comments for a document', async () => {
       await caller.comment.createThread({
         workspaceSlug: 'test-ws',
         documentPath: 'spec.md',
@@ -84,7 +84,7 @@ describe('comment router', () => {
       expect(threads[1].comments).toHaveLength(1);
     });
 
-    it('should filter by documentPath', async () => {
+    it('[FR-EDITOR-030] should filter by documentPath', async () => {
       await caller.comment.createThread({
         workspaceSlug: 'test-ws',
         documentPath: 'spec-a.md',
@@ -106,7 +106,7 @@ describe('comment router', () => {
       expect(result[0].id).toBe('t1');
     });
 
-    it('should return empty array for no threads', async () => {
+    it('[FR-EDITOR-030] should return empty array for no threads', async () => {
       const result = await caller.comment.listThreads({
         workspaceSlug: 'test-ws',
         documentPath: 'nonexistent.md',
@@ -114,7 +114,7 @@ describe('comment router', () => {
       expect(result).toHaveLength(0);
     });
 
-    it('should list threads scoped by documentPath only when no workspace', async () => {
+    it('[FR-EDITOR-030] should list threads scoped by documentPath only when no workspace', async () => {
       const docPath = '/Users/aleks/notes/readme.md';
       await caller.comment.createThread({
         documentPath: docPath,
@@ -132,7 +132,7 @@ describe('comment router', () => {
       expect(result[0].id).toBe('t-open-1');
     });
 
-    it('should not return workspace threads when listing without workspace', async () => {
+    it('[FR-EDITOR-030] should not return workspace threads when listing without workspace', async () => {
       const docPath = 'spec.md';
       await caller.comment.createThread({
         workspaceSlug: 'test-ws',
@@ -208,8 +208,8 @@ describe('comment router', () => {
     });
   });
 
-  describe('deleteComment', () => {
-    it('should soft-delete a comment by setting deletedAt and nulling body', async () => {
+  describe('[FR-EDITOR-050] deleteComment', () => {
+    it('[FR-EDITOR-050] should soft-delete a comment by setting deletedAt and nulling body', async () => {
       await caller.comment.createThread({
         workspaceSlug: 'test-ws',
         documentPath: 'spec.md',
@@ -263,8 +263,8 @@ describe('comment router', () => {
     });
   });
 
-  describe('resolveThread / unresolveThread', () => {
-    it('should resolve and unresolve a thread', async () => {
+  describe('[FR-EDITOR-060] resolveThread / unresolveThread', () => {
+    it('[FR-EDITOR-060] should resolve and unresolve a thread', async () => {
       await caller.comment.createThread({
         workspaceSlug: 'test-ws',
         documentPath: 'spec.md',
@@ -290,8 +290,8 @@ describe('comment router', () => {
     });
   });
 
-  describe('addReaction / deleteReaction', () => {
-    it('should add an emoji reaction to a comment', async () => {
+  describe('[FR-EDITOR-070] addReaction / deleteReaction', () => {
+    it('[FR-EDITOR-070] should add an emoji reaction to a comment', async () => {
       await caller.comment.createThread({
         workspaceSlug: 'test-ws',
         documentPath: 'spec.md',
@@ -319,7 +319,7 @@ describe('comment router', () => {
       expect(reactions[0].userIds).toContain('local-user');
     });
 
-    it('should not duplicate user in reaction', async () => {
+    it('[FR-EDITOR-070] should not duplicate user in reaction', async () => {
       await caller.comment.createThread({
         workspaceSlug: 'test-ws',
         documentPath: 'spec.md',
@@ -351,7 +351,7 @@ describe('comment router', () => {
       expect(reactions[0].userIds).toHaveLength(1);
     });
 
-    it('should remove a reaction', async () => {
+    it('[FR-EDITOR-070] should remove a reaction', async () => {
       await caller.comment.createThread({
         workspaceSlug: 'test-ws',
         documentPath: 'spec.md',

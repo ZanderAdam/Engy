@@ -83,8 +83,8 @@ describe('WebSocket Server', () => {
     await closeServer(server);
   });
 
-  describe('REGISTER', () => {
-    it('should set daemon reference on REGISTER', async () => {
+  describe('[FR-WS-010] REGISTER', () => {
+    it('[FR-WS-010] should set daemon reference on REGISTER', async () => {
       const ws = await connectClient(port);
       expect(state.daemon).toBeNull();
 
@@ -98,7 +98,7 @@ describe('WebSocket Server', () => {
       );
     });
 
-    it('should replace daemon when a second client registers', async () => {
+    it('[FR-WS-020] should replace daemon when a second client registers', async () => {
       const ws1 = await connectClient(port);
       ws1.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
@@ -118,7 +118,7 @@ describe('WebSocket Server', () => {
       });
     });
 
-    it('should clear daemon reference on close', async () => {
+    it('[FR-WS-030] should clear daemon reference on close', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
@@ -137,8 +137,8 @@ describe('WebSocket Server', () => {
     });
   });
 
-  describe('FILE_CHANGE', () => {
-    it('should store file change events in the ring buffer', async () => {
+  describe('[FR-WS-090] FILE_CHANGE', () => {
+    it('[FR-WS-090] should store file change events in the ring buffer', async () => {
       const ws = await connectClient(port);
 
       ws.send(
@@ -157,7 +157,7 @@ describe('WebSocket Server', () => {
       });
     });
 
-    it('should cap events at 100 per workspace', async () => {
+    it('[FR-WS-090] should cap events at 100 per workspace', async () => {
       const ws = await connectClient(port);
 
       for (let i = 0; i < 110; i++) {
@@ -177,7 +177,7 @@ describe('WebSocket Server', () => {
       });
     });
 
-    it('should keep separate ring buffers per workspace', async () => {
+    it('[FR-WS-090] should keep separate ring buffers per workspace', async () => {
       const ws = await connectClient(port);
 
       ws.send(
@@ -201,7 +201,7 @@ describe('WebSocket Server', () => {
   });
 
   describe('VALIDATE_PATHS_RESPONSE', () => {
-    it('should resolve pending validation on response', async () => {
+    it('[FR-WS-040] [FR-WS-050] should resolve pending validation on response', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
@@ -236,11 +236,11 @@ describe('WebSocket Server', () => {
       expect(results).toEqual([{ path: '/src/index.ts', exists: true }]);
     });
 
-    it('should reject if no daemon is connected', async () => {
+    it('[FR-WS-060] should reject if no daemon is connected', async () => {
       await expect(dispatchValidation(['/foo.ts'], state)).rejects.toThrow('No daemon connected');
     });
 
-    it('should time out if no response arrives', async () => {
+    it('[FR-WS-070] should time out if no response arrives', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
@@ -259,7 +259,7 @@ describe('WebSocket Server', () => {
   });
 
   describe('SEARCH_FILES_RESPONSE', () => {
-    it('should resolve pending file search on response', async () => {
+    it('[FR-WS-040] [FR-WS-050] should resolve pending file search on response', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
@@ -296,13 +296,13 @@ describe('WebSocket Server', () => {
       expect(results).toEqual([{ label: 'repo', path: 'src/index.ts' }]);
     });
 
-    it('should reject if no daemon is connected', async () => {
+    it('[FR-WS-060] should reject if no daemon is connected', async () => {
       await expect(dispatchFileSearch(['/tmp'], '', 20, state)).rejects.toThrow(
         'No daemon connected',
       );
     });
 
-    it('should time out if no response arrives', async () => {
+    it('[FR-WS-070] should time out if no response arrives', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
@@ -321,7 +321,7 @@ describe('WebSocket Server', () => {
   });
 
   describe('GLOB_FILES_RESPONSE', () => {
-    it('should resolve with files on success response', async () => {
+    it('[FR-WS-040] [FR-WS-050] should resolve with files on success response', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
@@ -357,7 +357,7 @@ describe('WebSocket Server', () => {
       expect(result).toEqual({ files: ['src/foo.test.ts', 'src/bar.test.tsx'] });
     });
 
-    it('should reject on error payload', async () => {
+    it('[FR-WS-050] should reject on error payload', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
@@ -390,13 +390,13 @@ describe('WebSocket Server', () => {
       expect(state.pendingGlobFiles.size).toBe(0);
     });
 
-    it('should reject if no daemon is connected', async () => {
+    it('[FR-WS-060] should reject if no daemon is connected', async () => {
       await expect(dispatchGlobFiles('/tmp/repo', ['*.test.ts'], state)).rejects.toThrow(
         'No daemon connected',
       );
     });
 
-    it('should reject all pending glob ops when daemon disconnects', async () => {
+    it('[FR-WS-030] should reject all pending glob ops when daemon disconnects', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
@@ -418,7 +418,7 @@ describe('WebSocket Server', () => {
   });
 
   describe('GIT_WORKTREE_LIST_RESPONSE', () => {
-    it('should resolve pending worktree list on response', async () => {
+    it('[FR-WS-040] [FR-WS-050] should resolve pending worktree list on response', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
@@ -459,13 +459,13 @@ describe('WebSocket Server', () => {
       });
     });
 
-    it('should reject if no daemon is connected', async () => {
+    it('[FR-WS-060] should reject if no daemon is connected', async () => {
       await expect(dispatchGitWorktreeList('/tmp/repo', state)).rejects.toThrow(
         'No daemon connected',
       );
     });
 
-    it('should reject on error response', async () => {
+    it('[FR-WS-050] should reject on error response', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
@@ -628,7 +628,7 @@ describe('WebSocket Server', () => {
   });
 
   describe('CREATE_DIR_RESPONSE', () => {
-    it('should resolve with results on success response', async () => {
+    it('[FR-WS-040] [FR-WS-050] should resolve with results on success response', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
@@ -671,13 +671,13 @@ describe('WebSocket Server', () => {
       });
     });
 
-    it('should reject if no daemon is connected', async () => {
+    it('[FR-WS-060] should reject if no daemon is connected', async () => {
       await expect(dispatchCreateDir(['/tmp/newdir'], state)).rejects.toThrow(
         'No daemon connected',
       );
     });
 
-    it('should time out if no response arrives', async () => {
+    it('[FR-WS-070] should time out if no response arrives', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
 
@@ -694,7 +694,7 @@ describe('WebSocket Server', () => {
       expect(state.pendingCreateDirs.size).toBe(0);
     });
 
-    it('should reject pending dirs when daemon disconnects and clear daemonHomeDir', async () => {
+    it('[FR-WS-030] should reject pending dirs when daemon disconnects and clear daemonHomeDir', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: { homeDir: '/home/testuser' } }));
 
@@ -720,8 +720,8 @@ describe('WebSocket Server', () => {
     });
   });
 
-  describe('REGISTER homeDir', () => {
-    it('should store homeDir from REGISTER payload', async () => {
+  describe('[FR-WS-010] REGISTER homeDir', () => {
+    it('[FR-WS-010] should store homeDir from REGISTER payload', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: { homeDir: '/home/alice' } }));
 
@@ -733,7 +733,7 @@ describe('WebSocket Server', () => {
       );
     });
 
-    it('should set daemonHomeDir to null when homeDir is absent from payload', async () => {
+    it('[FR-WS-010] should set daemonHomeDir to null when homeDir is absent from payload', async () => {
       state.daemonHomeDir = '/old/home';
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
@@ -748,7 +748,7 @@ describe('WebSocket Server', () => {
       expect(state.daemonHomeDir).toBeNull();
     });
 
-    it('should clear daemonHomeDir when daemon disconnects', async () => {
+    it('[FR-WS-030] should clear daemonHomeDir when daemon disconnects', async () => {
       const ws = await connectClient(port);
       ws.send(JSON.stringify({ type: 'REGISTER', payload: { homeDir: '/home/bob' } }));
 
@@ -891,7 +891,7 @@ describe('Execution event handling', () => {
   });
 
   describe('EXECUTION_COMPLETE_EVENT', () => {
-    it('should set session to completed and clear task subStatus on success', async () => {
+    it('[FR-EXECUTION-160] should set session to completed and clear task subStatus on success', async () => {
       const task = ctx.db
         .insert(tasks)
         .values({ title: 'Auth task', status: 'in_progress', subStatus: 'implementing' })
@@ -1015,7 +1015,7 @@ describe('Execution event handling', () => {
       warnSpy.mockRestore();
     });
 
-    it('should set subStatus to plan_review on planning mode success', async () => {
+    it('[FR-EXECUTION-170] should set subStatus to plan_review on planning mode success', async () => {
       const ws0 = ctx.db
         .insert(workspaces)
         .values({ name: 'PlanWs', slug: 'plan-ws' })
@@ -1077,7 +1077,7 @@ describe('Execution event handling', () => {
       });
     });
 
-    it('should dispatch REMOTE_FILE_PULL for coder workspace on planning success', async () => {
+    it('[FR-EXECUTION-170] should dispatch REMOTE_FILE_PULL for coder workspace on planning success', async () => {
       const ws0 = ctx.db
         .insert(workspaces)
         .values({
@@ -1147,7 +1147,7 @@ describe('Execution event handling', () => {
       });
     });
 
-    it('should dispatch WORKTREE_MERGE_REQUEST on implementation success with merge setting', async () => {
+    it('[FR-EXECUTION-160] should dispatch WORKTREE_MERGE_REQUEST on implementation success with merge setting', async () => {
       const ws0 = ctx.db
         .insert(workspaces)
         .values({
@@ -1224,7 +1224,7 @@ describe('Execution event handling', () => {
       });
     });
 
-    it('should ignore duplicate complete events for already-terminal sessions', async () => {
+    it('[FR-EXECUTION-190] should ignore duplicate complete events for already-terminal sessions', async () => {
       const task = ctx.db
         .insert(tasks)
         .values({ title: 'Dup complete task', status: 'done', subStatus: null })
@@ -2036,7 +2036,7 @@ describe('FS_DELETE_RESPONSE', () => {
     await expect(deletePromise).rejects.toThrow('ENOENT: no such file');
   });
 
-  it('should reject if no daemon is connected', async () => {
+  it('[FR-WS-060] should reject if no daemon is connected', async () => {
     await expect(dispatchFsDelete('/tmp/repo', 'x.ts', state)).rejects.toThrow(
       'No daemon connected',
     );
@@ -2113,7 +2113,7 @@ describe('FS_RENAME_RESPONSE', () => {
     await expect(renamePromise).rejects.toThrow('already exists');
   });
 
-  it('should reject if no daemon is connected', async () => {
+  it('[FR-WS-060] should reject if no daemon is connected', async () => {
     await expect(dispatchFsRename('/tmp/repo', 'old.ts', 'new.ts', state)).rejects.toThrow(
       'No daemon connected',
     );

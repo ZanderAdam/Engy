@@ -77,19 +77,19 @@ describe('memory-files', () => {
       ).not.toThrow();
     });
 
-    it('should reject absolute paths', () => {
+    it('[FR-MEMORY-180] should reject absolute paths', () => {
       expect(() =>
         validateSourcePath('/absolute/path.md', workspaceDir),
       ).toThrow('must be relative');
     });
 
-    it('should reject paths with .. segments', () => {
+    it('[FR-MEMORY-180] should reject paths with .. segments', () => {
       expect(() =>
         validateSourcePath('memory/sources/../../../etc/passwd', workspaceDir),
       ).toThrow("must not contain '..'");
     });
 
-    it('should reject paths outside memory/sources and memory/references', () => {
+    it('[FR-MEMORY-180] should reject paths outside memory/sources and memory/references', () => {
       expect(() =>
         validateSourcePath('memory/decisions/foo.md', workspaceDir),
       ).toThrow('must resolve under');
@@ -103,19 +103,19 @@ describe('memory-files', () => {
       ).not.toThrow();
     });
 
-    it('should reject absolute paths', () => {
+    it('[FR-MEMORY-180] should reject absolute paths', () => {
       expect(() =>
         validateLinkedMemoryPath('/memory/decisions/foo.md', workspaceDir),
       ).toThrow('must be relative');
     });
 
-    it('should reject .. traversal', () => {
+    it('[FR-MEMORY-180] should reject .. traversal', () => {
       expect(() =>
         validateLinkedMemoryPath('../other-workspace/memory/decisions/foo.md', workspaceDir),
       ).toThrow("must not contain '..'");
     });
 
-    it('should reject paths not under a known subtype', () => {
+    it('[FR-MEMORY-180] should reject paths not under a known subtype', () => {
       expect(() =>
         validateLinkedMemoryPath('memory/sources/foo.md', workspaceDir),
       ).toThrow('must resolve under');
@@ -123,7 +123,7 @@ describe('memory-files', () => {
   });
 
   describe('writePermanentMemory + readPermanentMemory', () => {
-    it('should write and read back a permanent memory with roundtrip fidelity', async () => {
+    it('[FR-MEMORY-030] should write and read back a permanent memory with roundtrip fidelity', async () => {
       const fm = {
         title: 'JWT Rotation Pattern',
         subtype: 'pattern' as const,
@@ -150,7 +150,7 @@ describe('memory-files', () => {
       expect(result.content.trim()).toBe('Use short-lived tokens.');
     });
 
-    it('should place file in memory/{subtype}/ with timestamp-slug filename', async () => {
+    it('[FR-MEMORY-030] should place file in memory/{subtype}/ with timestamp-slug filename', async () => {
       const relPath = await writePermanentMemory(
         workspaceDir,
         { title: 'Some Fact', subtype: 'fact' as const },
@@ -171,7 +171,7 @@ describe('memory-files', () => {
       expect(raw).not.toContain('<!-- INDEX START -->');
     });
 
-    it('should create a git commit after writing', async () => {
+    it('[FR-MEMORY-030] should create a git commit after writing', async () => {
       await writePermanentMemory(
         workspaceDir,
         { title: 'Committed Fact', subtype: 'fact' as const },
@@ -229,7 +229,7 @@ describe('memory-files', () => {
       expect(returned).toBe(relPath);
     });
 
-    it('should create a git commit with memory(edit) message', async () => {
+    it('[FR-MEMORY-060] should create a git commit with memory(edit) message', async () => {
       const relPath = await writePermanentMemory(
         workspaceDir,
         { title: 'Commit Test', subtype: 'insight' as const },
@@ -282,7 +282,7 @@ describe('memory-files', () => {
   });
 
   describe('writeSourceSnapshot + readSourceSnapshot', () => {
-    it('should write and read back a source snapshot', async () => {
+    it('[FR-MEMORY-130] should write and read back a source snapshot', async () => {
       const { filePath, deduplicated } = await writeSourceSnapshot(
         workspaceDir,
         { title: 'Auth Thread', source_type: 'slack', url: 'https://slack.com/x' },
@@ -299,7 +299,7 @@ describe('memory-files', () => {
       expect(result.body.trim()).toBe('Thread content here.');
     });
 
-    it('should return existing path for duplicate content (dedup by hash)', async () => {
+    it('[FR-MEMORY-120] should return existing path for duplicate content (dedup by hash)', async () => {
       const body = 'Identical content for dedup test.';
       const first = await writeSourceSnapshot(
         workspaceDir,
@@ -334,7 +334,7 @@ describe('memory-files', () => {
       expect(raw).not.toContain('<!-- INDEX START -->');
     });
 
-    it('should commit the snapshot to git', async () => {
+    it('[FR-MEMORY-130] should commit the snapshot to git', async () => {
       await writeSourceSnapshot(
         workspaceDir,
         { title: 'Committed Snapshot', source_type: 'text' },
@@ -367,7 +367,7 @@ describe('memory-files', () => {
       expect(raw).toContain('ingester: mcp');
     });
 
-    it('should return deduplicated:true and no new file for identical content', async () => {
+    it('[FR-MEMORY-120] should return deduplicated:true and no new file for identical content', async () => {
       const body = 'Exactly the same content for dedup verification.';
       const first = await writeSourceSnapshot(
         workspaceDir,
@@ -589,7 +589,7 @@ describe('memory-files', () => {
   });
 
   describe('rewritePermanentMemory subtype relocation', () => {
-    it('should move the file to the new subtype directory when subtype changes', async () => {
+    it('[FR-MEMORY-060] should move the file to the new subtype directory when subtype changes', async () => {
       const relPath = await writePermanentMemory(
         workspaceDir,
         { title: 'Relocate Me', subtype: 'fact' as const },
@@ -614,7 +614,7 @@ describe('memory-files', () => {
       expect(fs.existsSync(path.join(workspaceDir, relPath))).toBe(false);
     });
 
-    it('should repoint inbound linkedMemories references when the file relocates', async () => {
+    it('[FR-MEMORY-060] should repoint inbound linkedMemories references when the file relocates', async () => {
       fs.mkdirSync(path.join(workspaceDir, 'memory', 'decisions'), { recursive: true });
 
       const targetPath = await writePermanentMemory(
@@ -657,7 +657,7 @@ describe('memory-files', () => {
       expect(returnedPath).toBe(relPath);
     });
 
-    it('should commit both old and new paths in one memory(edit) commit when subtype changes', async () => {
+    it('[FR-MEMORY-060] should commit both old and new paths in one memory(edit) commit when subtype changes', async () => {
       fs.mkdirSync(path.join(workspaceDir, 'memory', 'patterns'), { recursive: true });
 
       const relPath = await writePermanentMemory(
@@ -678,7 +678,7 @@ describe('memory-files', () => {
       expect(log.latest?.message).toContain('memory(edit)');
     });
 
-    it('should regenerate README chains for both old and new directories', async () => {
+    it('[FR-MEMORY-060] [FR-MEMORY-140] should regenerate README chains for both old and new directories', async () => {
       fs.mkdirSync(path.join(workspaceDir, 'memory', 'conventions'), { recursive: true });
 
       const relPath = await writePermanentMemory(

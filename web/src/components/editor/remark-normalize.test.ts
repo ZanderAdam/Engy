@@ -20,7 +20,7 @@ beforeAll(() => {
   editor = BlockNoteEditor.create();
 });
 
-describe('remark normalization of BlockNote output', () => {
+describe('[FR-EDITOR-110] remark normalization of BlockNote output', () => {
   describe('lists', () => {
     it('should produce tight unordered lists (no blank lines)', () => {
       const result = roundTrip('- Apple\n- Banana\n- Cherry');
@@ -117,8 +117,8 @@ describe('remark normalization of BlockNote output', () => {
     });
   });
 
-  describe('idempotency', () => {
-    it('should produce identical output on second pass', () => {
+  describe('[FR-EDITOR-110] idempotency', () => {
+    it('[FR-EDITOR-110] should produce identical output on second pass', () => {
       const input = `# Heading
 
 - Item 1
@@ -141,7 +141,7 @@ describe('remark normalization of BlockNote output', () => {
       expect(second).toBe(first);
     });
 
-    it('should be idempotent on the comprehensive fixture', () => {
+    it('[FR-EDITOR-110] should be idempotent on the comprehensive fixture', () => {
       const fixture = `# Heading 1
 
 ## Heading 2

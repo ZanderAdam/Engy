@@ -38,7 +38,7 @@ describe('SessionManager', () => {
       vi.useRealTimers();
     });
 
-    it('should kill a suspended session after the expiry window and fire the expire callback', () => {
+    it('[FR-TERMINAL-040] should kill a suspended session after the expiry window and fire the expire callback', () => {
       const mgr = new SessionManager();
       const expired: string[] = [];
       mgr.setExpireCallback((id) => expired.push(id));

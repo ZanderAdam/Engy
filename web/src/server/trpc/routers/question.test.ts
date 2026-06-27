@@ -180,7 +180,7 @@ describe('question router', () => {
     });
   });
 
-  describe('unansweredCount', () => {
+  describe('[FR-QUESTION-090] unansweredCount', () => {
     it('should count distinct groups with unanswered questions', async () => {
       const { proj } = await seedProject(caller);
       const task1 = await caller.task.create({ projectId: proj.id, title: 'T1' });
@@ -226,7 +226,7 @@ describe('question router', () => {
     });
   });
 
-  describe('unansweredByTask', () => {
+  describe('[FR-QUESTION-100] unansweredByTask', () => {
     it('should return taskId to unanswered count map', async () => {
       const { proj } = await seedProject(caller);
       const task1 = await caller.task.create({ projectId: proj.id, title: 'T1' });
@@ -258,7 +258,7 @@ describe('question router', () => {
   });
 
   describe('submitAnswers', () => {
-    it('should reject partial submissions', async () => {
+    it('[FR-QUESTION-040] should reject partial submissions', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'T1' });
       const db = getDb();
@@ -274,7 +274,7 @@ describe('question router', () => {
       ).rejects.toThrow('Partial submission');
     });
 
-    it('should store answers and clear task blocked subStatus', async () => {
+    it('[FR-QUESTION-050] should store answers and clear task blocked subStatus', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({
         projectId: proj.id,
@@ -318,7 +318,7 @@ describe('question router', () => {
       expect(updatedTask!.subStatus).toBeNull();
     });
 
-    it('should dispatch EXECUTION_START_REQUEST reusing the original session row', async () => {
+    it('[FR-QUESTION-060] should dispatch EXECUTION_START_REQUEST reusing the original session row', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({
         projectId: proj.id,
@@ -367,7 +367,7 @@ describe('question router', () => {
       expect(msg.payload.sessionId).toBe('original-sess');
     });
 
-    it('should leave no orphaned active row and broadcast when dispatch fails', async () => {
+    it('[FR-QUESTION-070] should leave no orphaned active row and broadcast when dispatch fails', async () => {
       const { proj } = await seedProject(caller);
       const task = await caller.task.create({ projectId: proj.id, title: 'T1', subStatus: 'blocked' });
       const db = getDb();

@@ -189,7 +189,7 @@ describe('readme-index', () => {
     });
   });
 
-  describe('regenerateReadmeChain', () => {
+  describe('[FR-MEMORY-140] regenerateReadmeChain', () => {
     it('should update README in the file directory', () => {
       const subdir = path.join(tmpDir, 'memory', 'decisions');
       fs.mkdirSync(subdir, { recursive: true });
