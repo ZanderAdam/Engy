@@ -1,14 +1,16 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { cn } from '@/lib/utils';
 import { trpc } from '@/lib/trpc';
 import { DynamicMonacoCodeEditor } from '@/components/editor/dynamic-monaco-editors';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { FileListPanel } from './file-list-panel';
 import { DiffViewerPanel } from './diff-viewer-panel';
+import { ImageDiffView } from './image-diff-view';
 import { DiffHeader } from './diff-header';
+import { NonTextFileView } from '@/components/editor/non-text-file-view';
+import { fileKind } from '@/lib/file-types';
 import { ViewModeTabs } from './view-mode-tabs';
 import { CommitList } from './commit-list';
 import { RepoSelector } from './repo-selector';
@@ -234,6 +236,11 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     [files, selectedFile],
   );
 
+  const kind = selectedFile ? fileKind(selectedFile) : null;
+  const isImage = kind === 'image';
+  const isBinary = kind === 'binary';
+  const isTextLike = kind === 'text' || kind === 'markdown';
+
   // File content: original (renamed files read their previous path)
   const { data: originalData, error: originalError } = trpc.file.read.useQuery(
     {
@@ -243,7 +250,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
       worktreePath: selectedWorktree?.worktreePath,
       coderWorkspace: selectedWorktree?.coderWorkspace,
     },
-    { enabled: !!selectedRepo && !!selectedFile && !!originalRef, retry: false },
+    { enabled: !!selectedRepo && isTextLike && !!originalRef, retry: false },
   );
 
   // File content: modified
@@ -255,8 +262,50 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
       worktreePath: selectedWorktree?.worktreePath,
       coderWorkspace: selectedWorktree?.coderWorkspace,
     },
-    { enabled: !!selectedRepo && !!selectedFile, retry: false },
+    { enabled: !!selectedRepo && isTextLike, retry: false },
   );
+
+  // Image bytes: original/modified sides (skipped for added/deleted respectively)
+  const { data: originalImageData, isLoading: originalImageLoading, error: originalImageError } =
+    trpc.file.readImage.useQuery(
+      {
+        repoDir: selectedRepo!,
+        filePath: selectedFileData?.oldPath ?? selectedFile!,
+        ref: originalRef,
+        worktreePath: selectedWorktree?.worktreePath,
+        coderWorkspace: selectedWorktree?.coderWorkspace,
+      },
+      {
+        enabled:
+          !!selectedRepo &&
+          !!selectedFile &&
+          isImage &&
+          !!originalRef &&
+          !!selectedFileData &&
+          selectedFileData.status !== 'added',
+        retry: false,
+      },
+    );
+
+  const { data: modifiedImageData, isLoading: modifiedImageLoading, error: modifiedImageError } =
+    trpc.file.readImage.useQuery(
+      {
+        repoDir: selectedRepo!,
+        filePath: selectedFile!,
+        ref: modifiedRef,
+        worktreePath: selectedWorktree?.worktreePath,
+        coderWorkspace: selectedWorktree?.coderWorkspace,
+      },
+      {
+        enabled:
+          !!selectedRepo &&
+          !!selectedFile &&
+          isImage &&
+          !!selectedFileData &&
+          selectedFileData.status !== 'deleted',
+        retry: false,
+      },
+    );
 
   const fileReadError = resolveFileReadError(
     selectedFileData?.status,
@@ -306,6 +355,8 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
     return { currentFileComments: filtered, fileCommentCounts: counts };
   }, [diffComments, files, selectedRepo]);
+
+  const selectedFileName = selectedFile ? (selectedFile.split('/').pop() ?? selectedFile) : '';
 
   return (
     <div className="flex flex-1 min-h-0 flex-col">
@@ -367,11 +418,8 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
         onLeftCollapsedChange={setSidebarCollapsed}
         leftContent={
           diffViewMode === 'history' ? (
-            <div className="flex flex-1 min-h-0 flex-col">
-              <div className={cn(
-                'overflow-auto',
-                selectedCommit ? 'max-h-[25%]' : 'flex-1',
-              )}>
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="min-h-0 flex-1 overflow-auto">
                 <CommitList
                   commits={logData?.commits ?? []}
                   selectedHash={selectedCommit}
@@ -447,14 +495,34 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                   viewMode={viewMode}
                   onViewModeChange={setViewMode}
                   editorMode={editorMode}
-                  onEditorModeChange={setEditorMode}
+                  onEditorModeChange={isTextLike ? setEditorMode : undefined}
                   diffViewMode={diffViewMode}
-                  saveStatus={saveStatus}
-                  hideViewModeToggle={isMobile}
+                  saveStatus={isTextLike ? saveStatus : undefined}
+                  hideViewModeToggle={isMobile || !isTextLike}
                 />
               )}
               <div className="flex-1 min-h-0">
-                {editorMode === 'edit' && diffViewMode === 'latest' ? (
+                {isImage ? (
+                  <ImageDiffView
+                    status={selectedFileData?.status ?? 'modified'}
+                    fileName={selectedFileName}
+                    original={{
+                      isLoading: originalImageLoading,
+                      error: originalImageError,
+                      dataUri: originalImageData?.dataUri,
+                    }}
+                    modified={{
+                      isLoading: modifiedImageLoading,
+                      error: modifiedImageError,
+                      dataUri: modifiedImageData?.dataUri,
+                    }}
+                  />
+                ) : isBinary ? (
+                  <NonTextFileView
+                    kind="binary"
+                    fileName={selectedFileName}
+                  />
+                ) : editorMode === 'edit' && diffViewMode === 'latest' ? (
                   <DynamicMonacoCodeEditor
                     content={modifiedContent}
                     filePath={selectedFile}

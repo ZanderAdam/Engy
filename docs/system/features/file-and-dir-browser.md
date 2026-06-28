@@ -45,6 +45,9 @@ Engy exposes two distinct surfaces for file operations. They share no implementa
 | FR-FILES-180 | WHEN `dir.searchRepoFiles` is called with a connected daemon, the system SHALL send a `SEARCH_FILES_REQUEST` and resolve with `{ results }` from the daemon; IF no response arrives within 10 000 ms, THEN the system SHALL reject with a timeout error. |
 | FR-FILES-190 | WHEN the daemon's `SpecWatcher` detects an `add`, `change`, or `unlink` event under a workspace's `specs/` or `projects/` directory, the system SHALL send a `FILE_CHANGE` WebSocket message containing `{ workspaceSlug, path, eventType }` to the server. |
 | FR-FILES-200 | WHEN the server receives a `FILE_CHANGE` message from the daemon, the system SHALL broadcast a `FILE_CHANGE` event to all open `/ws/events` browser connections so the file tree refreshes. (Ring-buffer mechanics — cap 100, evict oldest — are specified in the websocket-daemon-protocol area as FR-WS-090.) |
+| FR-FILES-210 | IF `file.readImage` is called with a path whose extension is not a supported image type (as determined by `imageMimeType`), THEN the system SHALL throw `BAD_REQUEST` before contacting the daemon. |
+| FR-FILES-220 | IF `file.readImage` is called for a supported image while no daemon is connected, THEN the system SHALL throw `PRECONDITION_FAILED`. |
+| FR-FILES-230 | WHEN `file.readImage` is called for a supported image with a connected daemon, the system SHALL dispatch a `FILE_READ_IMAGE_REQUEST` (reading from the working tree or a git `ref`, via `worktreePath`/`coderWorkspace` when supplied) and return `{ dataUri }` as a `data:<mime>;base64,<bytes>` URI built from the daemon's base64 payload. |
 
 ## Sources
 

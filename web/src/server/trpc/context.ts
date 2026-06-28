@@ -97,6 +97,10 @@ export interface FileReadResult {
   content: string;
 }
 
+export interface FileReadImageResult {
+  base64: string;
+}
+
 export interface GlobFilesResult {
   files: string[];
 }
@@ -236,6 +240,13 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingFileReadImage: Map<
+    string,
+    {
+      resolve: (result: FileReadImageResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   pendingGlobFiles: Map<
     string,
     {
@@ -356,6 +367,7 @@ export function createAppState(): AppState {
     pendingExecutionStop: new Map(),
     pendingDirList: new Map(),
     pendingFileRead: new Map(),
+    pendingFileReadImage: new Map(),
     pendingGlobFiles: new Map(),
     pendingFileWrite: new Map(),
     pendingRemoteFilePull: new Map(),

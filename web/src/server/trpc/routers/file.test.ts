@@ -169,6 +169,45 @@ describe('file router', () => {
     });
   });
 
+  describe('readImage', () => {
+    it('[FR-FILES-210] throws BAD_REQUEST for an unsupported extension before contacting the daemon', async () => {
+      ctx.state.daemon = { readyState: WebSocket.OPEN, OPEN: WebSocket.OPEN } as WebSocket;
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(
+        caller.file.readImage({ repoDir: '/tmp/repo', filePath: 'notes.txt' }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    });
+
+    it('[FR-FILES-220] throws PRECONDITION_FAILED for a supported image when no daemon is connected', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(
+        caller.file.readImage({ repoDir: '/tmp/repo', filePath: 'logo.png' }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    });
+
+    it('[FR-FILES-230] returns a base64 data URI built from the daemon payload', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      const base64 = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64');
+      const fakeSocket = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'FILE_READ_IMAGE_REQUEST') {
+            ctx.state.pendingFileReadImage.get(msg.payload.requestId)?.resolve({ base64 });
+          }
+        },
+      };
+      ctx.state.daemon = fakeSocket as unknown as WebSocket;
+
+      const result = await caller.file.readImage({ repoDir: '/tmp/repo', filePath: 'logo.png' });
+      expect(result).toEqual({ dataUri: `data:image/png;base64,${base64}` });
+    });
+  });
+
   describe('write', () => {
     it('[FR-FILES-010] throws when no daemon is connected', async () => {
       const caller = appRouter.createCaller({ state: ctx.state });

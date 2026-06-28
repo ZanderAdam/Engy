@@ -301,6 +301,24 @@ export interface FileReadResponseMessage {
     | { requestId: string; error: string };
 }
 
+export interface FileReadImageRequestMessage {
+  type: 'FILE_READ_IMAGE_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    filePath: string;
+    ref?: string;
+    coderWorkspace?: string;
+  };
+}
+
+export interface FileReadImageResponseMessage {
+  type: 'FILE_READ_IMAGE_RESPONSE';
+  payload:
+    | { requestId: string; base64: string }
+    | { requestId: string; error: string };
+}
+
 export interface GlobFilesRequestMessage {
   type: 'GLOB_FILES_REQUEST';
   payload: {
@@ -616,6 +634,8 @@ export type WsMessage =
   | DirListResponseMessage
   | FileReadRequestMessage
   | FileReadResponseMessage
+  | FileReadImageRequestMessage
+  | FileReadImageResponseMessage
   | GlobFilesRequestMessage
   | GlobFilesResponseMessage
   | FileWriteRequestMessage
@@ -665,6 +685,7 @@ export type ClientToServerMessage =
   | GitWorktreeListResponseMessage
   | DirListResponseMessage
   | FileReadResponseMessage
+  | FileReadImageResponseMessage
   | GlobFilesResponseMessage
   | FileWriteResponseMessage
   | FsDeleteResponseMessage
@@ -698,6 +719,7 @@ export type ServerToClientMessage =
   | GitWorktreeListRequestMessage
   | DirListRequestMessage
   | FileReadRequestMessage
+  | FileReadImageRequestMessage
   | GlobFilesRequestMessage
   | FileWriteRequestMessage
   | FsDeleteRequestMessage

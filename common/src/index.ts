@@ -34,6 +34,8 @@ export type {
   FsRenameResponseMessage,
   FileReadRequestMessage,
   FileReadResponseMessage,
+  FileReadImageRequestMessage,
+  FileReadImageResponseMessage,
   GlobFilesRequestMessage,
   GlobFilesResponseMessage,
   FileWriteRequestMessage,

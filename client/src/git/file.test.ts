@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { simpleGit } from 'simple-git';
-import { getFileContent, writeFileContent } from './index.js';
+import { getFileContent, getFileBytes, writeFileContent } from './index.js';
 
 describe('file operations', () => {
   let repoDir: string;
@@ -70,6 +70,48 @@ describe('file operations', () => {
       await expect(
         getFileContent(repoDir, 'file.txt', 'nonexistent-ref'),
       ).rejects.toThrow();
+    });
+  });
+
+  describe('getFileBytes', () => {
+    // Bytes that are not valid UTF-8 (null + 0xff would be mangled by a string read).
+    const binary = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe]);
+
+    it('reads binary bytes from disk when no ref is provided', async () => {
+      repoDir = await createTempRepo();
+      await writeFile(join(repoDir, 'img.png'), binary);
+
+      const bytes = await getFileBytes(repoDir, 'img.png');
+
+      expect(bytes.equals(binary)).toBe(true);
+    });
+
+    it('reads binary bytes from a git ref without corrupting them', async () => {
+      repoDir = await createTempRepo();
+      await writeFile(join(repoDir, 'img.png'), binary);
+      const git = simpleGit(repoDir);
+      await git.add('img.png');
+      await git.commit('add image');
+      // Overwrite on disk; the ref read must still return the committed bytes.
+      await writeFile(join(repoDir, 'img.png'), Buffer.from([0x00]));
+
+      const bytes = await getFileBytes(repoDir, 'img.png', 'HEAD');
+
+      expect(bytes.equals(binary)).toBe(true);
+    });
+
+    it('rejects a working-tree file larger than maxBytes', async () => {
+      repoDir = await createTempRepo();
+      await writeFile(join(repoDir, 'big.bin'), Buffer.alloc(2048));
+
+      await expect(getFileBytes(repoDir, 'big.bin', undefined, 1024)).rejects.toThrow(/too large/);
+    });
+
+    it('throws for an invalid git ref', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'img.png', 'content');
+
+      await expect(getFileBytes(repoDir, 'img.png', 'nonexistent-ref')).rejects.toThrow();
     });
   });
 

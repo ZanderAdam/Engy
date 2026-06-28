@@ -1,9 +1,8 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { ImagePreview } from './image-preview';
 import { TextFileEditor } from './text-file-editor';
-import { UnsupportedFilePreview } from './unsupported-file-preview';
+import { NonTextFileView } from './non-text-file-view';
 import { fileKind } from '@/lib/file-types';
 
 type FileKind = ReturnType<typeof fileKind>;
@@ -58,13 +57,9 @@ export function FileContentPreview({
   onSaveText,
   children,
 }: FileContentPreviewProps): ReactNode {
-  if (kind === 'image') {
-    if (image.isLoading) return centered('Loading...');
-    if (image.error) return failure('Failed to load image', image.error.message);
-    return <ImagePreview dataUri={image.dataUri!} fileName={fileName} />;
+  if (kind === 'image' || kind === 'binary') {
+    return <NonTextFileView kind={kind} fileName={fileName} image={image} />;
   }
-
-  if (kind === 'binary') return <UnsupportedFilePreview fileName={fileName} />;
 
   if (fileLoading) return centered('Loading...');
   if (fileError) return failure('Failed to load file', fileError.message);

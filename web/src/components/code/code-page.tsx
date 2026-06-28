@@ -10,6 +10,8 @@ import { RepoFileTree } from '@/components/code/repo-file-tree';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { Button } from '@/components/ui/button';
 import { getLanguageFromPath } from '@/components/editor/language-map';
+import { fileKind } from '@/lib/file-types';
+import { NonTextFileView } from '@/components/editor/non-text-file-view';
 import type { CursorPosition } from '@/components/editor/monaco-code-editor';
 import { EditorTabs } from './editor-tabs';
 import { EditorStatusBar } from './editor-status-bar';
@@ -60,6 +62,7 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
   const [cursor, setCursor] = useState<CursorPosition | null>(null);
 
   const selectedFile = tabs.active;
+  const kind = selectedFile ? fileKind(selectedFile) : null;
 
   // Persist repo, open tabs and view prefs together whenever any change.
   useEffect(() => {
@@ -139,7 +142,20 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
       filePath: selectedFile!,
       worktreePath: overrideWorktreePath,
     },
-    { enabled: !!selectedRepo && !!selectedFile, retry: false },
+    { enabled: !!selectedRepo && !!selectedFile && kind !== 'image' && kind !== 'binary', retry: false },
+  );
+
+  const {
+    data: imageData,
+    isLoading: imageLoading,
+    error: imageError,
+  } = trpc.file.readImage.useQuery(
+    {
+      repoDir: selectedRepo!,
+      filePath: selectedFile!,
+      worktreePath: overrideWorktreePath,
+    },
+    { enabled: !!selectedRepo && !!selectedFile && kind === 'image', retry: false },
   );
 
   const { status: saveStatus, save } = useAutoSave(selectedRepo, selectedFile, overrideWorktreePath);
@@ -244,6 +260,12 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
               <div className="flex h-full items-center justify-center">
                 <p className="text-sm text-muted-foreground">Select a file to edit</p>
               </div>
+            ) : kind === 'image' || kind === 'binary' ? (
+              <NonTextFileView
+                kind={kind}
+                fileName={selectedFile.split('/').pop() ?? selectedFile}
+                image={{ isLoading: imageLoading, error: imageError, dataUri: imageData?.dataUri }}
+              />
             ) : (
               <DynamicMonacoCodeEditor
                 content={fileData?.content ?? ''}

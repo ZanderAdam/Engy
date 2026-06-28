@@ -26,6 +26,7 @@ import type {
   ExecutionStopResult,
   DirListResult,
   FileReadResult,
+  FileReadImageResult,
   GlobFilesResult,
   FileWriteResult,
   RemoteFilePullResult,
@@ -101,6 +102,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingExecutionStop,
     state.pendingDirList,
     state.pendingFileRead,
+    state.pendingFileReadImage,
     state.pendingGlobFiles,
     state.pendingFileWrite,
     state.pendingRemoteFilePull,
@@ -206,6 +208,11 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'FILE_READ_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingFileRead, (p) => ({
         content: p.content,
+      }));
+      break;
+    case 'FILE_READ_IMAGE_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingFileReadImage, (p) => ({
+        base64: p.base64,
       }));
       break;
     case 'GLOB_FILES_RESPONSE':
@@ -1015,6 +1022,25 @@ export function dispatchFileRead(
     ref,
     coderWorkspace,
   });
+}
+
+export function dispatchFileReadImage(
+  repoDir: string,
+  filePath: string,
+  state: AppState,
+  ref?: string,
+  coderWorkspace?: string,
+): Promise<FileReadImageResult> {
+  // Coder reads stream image bytes over an SSH tunnel; give them the same
+  // longer budget as other remote file ops rather than the default git timeout.
+  const timeoutMs = coderWorkspace ? REMOTE_FILE_TIMEOUT_MS : GIT_TIMEOUT_MS;
+  return dispatchDaemonOp(
+    state,
+    state.pendingFileReadImage,
+    'FILE_READ_IMAGE_REQUEST',
+    { repoDir, filePath, ref, coderWorkspace },
+    timeoutMs,
+  );
 }
 
 export function dispatchGlobFiles(

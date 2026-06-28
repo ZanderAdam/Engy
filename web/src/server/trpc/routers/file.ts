@@ -5,12 +5,14 @@ import { router, publicProcedure } from '../trpc';
 import {
   dispatchDirList,
   dispatchFileRead,
+  dispatchFileReadImage,
   dispatchFileWrite,
   dispatchValidation,
   dispatchCreateDir,
   dispatchFsDelete,
   dispatchFsRename,
 } from '../../ws/server';
+import { imageMimeType } from '@/lib/file-types';
 
 /**
  * Compose rootDir + relPath into an absolute path for the daemon, rejecting
@@ -96,6 +98,40 @@ export const fileRouter = router({
     .query(async ({ input, ctx }) => {
       const dir = input.worktreePath ?? input.repoDir;
       return dispatchFileRead(dir, input.filePath, ctx.state, input.ref, input.coderWorkspace);
+    }),
+
+  // Mirrors `read` but returns image bytes (from the working tree or a git ref,
+  // via the daemon) as a base64 data URI for previewing in the code/diff viewers.
+  readImage: publicProcedure
+    .input(
+      z.object({
+        repoDir: z.string().min(1),
+        filePath: z.string().min(1),
+        ref: z.string().optional(),
+        worktreePath: z.string().optional(),
+        coderWorkspace: z.string().optional(),
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      const mime = imageMimeType(input.filePath);
+      if (!mime) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Not a supported image: ${input.filePath}`,
+        });
+      }
+      if (!ctx.state.daemon) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'No daemon connected' });
+      }
+      const dir = input.worktreePath ?? input.repoDir;
+      const { base64 } = await dispatchFileReadImage(
+        dir,
+        input.filePath,
+        ctx.state,
+        input.ref,
+        input.coderWorkspace,
+      );
+      return { dataUri: `data:${mime};base64,${base64}` };
     }),
 
   write: publicProcedure

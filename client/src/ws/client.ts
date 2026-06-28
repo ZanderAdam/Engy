@@ -19,6 +19,7 @@ import type {
   DirListEntry,
   DirListRequestMessage,
   FileReadRequestMessage,
+  FileReadImageRequestMessage,
   FileWriteRequestMessage,
   ContainerUpRequestMessage,
   ContainerDownRequestMessage,
@@ -46,6 +47,7 @@ import {
   getShow,
   getBranchFiles,
   getFileContent,
+  getFileBytes,
   writeFileContent,
   listWorktrees,
   localGitRunner,
@@ -157,6 +159,7 @@ async function validatePaths(paths: string[]): Promise<Array<{ path: string; exi
 
 const MAX_READDIR_DEPTH = 10;
 const EXEC_MAX_BUFFER = 10 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 async function getGitRoot(dir: string): Promise<string | null> {
   try {
@@ -573,6 +576,9 @@ export class WsClient {
       case 'FILE_READ_REQUEST':
         this.handleFileReadRequest(message as FileReadRequestMessage);
         break;
+      case 'FILE_READ_IMAGE_REQUEST':
+        this.handleFileReadImageRequest(message as FileReadImageRequestMessage);
+        break;
       case 'GLOB_FILES_REQUEST':
         this.handleGlobFilesRequest(message as GlobFilesRequestMessage);
         break;
@@ -934,6 +940,72 @@ export class WsClient {
         payload: { requestId, error },
       });
     }
+  }
+
+  private async handleFileReadImageRequest(message: FileReadImageRequestMessage): Promise<void> {
+    const { requestId, repoDir, filePath, ref, coderWorkspace } = message.payload;
+    try {
+      let base64: string;
+      if (coderWorkspace) {
+        base64 = await this.readCoderImageBase64(coderWorkspace, repoDir, filePath, ref);
+        if (base64.length * 0.75 > MAX_IMAGE_BYTES) {
+          throw new Error('Image too large to preview (max 10MB)');
+        }
+      } else {
+        // getFileBytes caps the read upfront (stat / maxBuffer) so an oversized
+        // file is rejected before it can spike the daemon heap.
+        base64 = (await getFileBytes(repoDir, filePath, ref, MAX_IMAGE_BYTES)).toString('base64');
+      }
+      this.send({
+        type: 'FILE_READ_IMAGE_RESPONSE',
+        payload: { requestId, base64 },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[ws-main] FILE_READ_IMAGE_REQUEST failed repoDir=${repoDir} filePath=${filePath}: ${error}`,
+      );
+      this.send({
+        type: 'FILE_READ_IMAGE_RESPONSE',
+        payload: { requestId, error },
+      });
+    }
+  }
+
+  /**
+   * Read image bytes from a Coder workspace as base64. Binary content can't ride
+   * stdout as a UTF-8 string, so we pipe through the remote `base64` encoder and
+   * receive ASCII (whitespace is stripped before decoding on the server).
+   */
+  private async readCoderImageBase64(
+    workspace: string,
+    repoDir: string,
+    filePath: string,
+    ref?: string,
+  ): Promise<string> {
+    const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+    let script: string;
+    if (ref) {
+      let root = repoDir;
+      try {
+        const { stdout: rootOut } = await this.gitRunnerFor(workspace)([
+          '-C',
+          repoDir,
+          'rev-parse',
+          '--show-toplevel',
+        ]);
+        root = rootOut.trim() || repoDir;
+      } catch {
+        // Not a git repo / rev-parse failed — fall back to repoDir, mirroring
+        // the local getGitRoot behaviour.
+      }
+      script = `git -C ${quote(root)} show ${quote(`${ref}:${filePath}`)} | base64`;
+    } else {
+      const posixPath = filePath.startsWith('/') ? filePath : `${repoDir}/${filePath}`;
+      script = `base64 ${quote(posixPath)}`;
+    }
+    const { stdout } = await this.coderManager.execCapture(workspace, 'sh', ['-c', script]);
+    return stdout.replace(/\s+/g, '');
   }
 
   private async handleGlobFilesRequest(message: GlobFilesRequestMessage): Promise<void> {

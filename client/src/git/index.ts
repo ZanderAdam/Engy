@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { join, isAbsolute, resolve } from 'node:path';
-import { readFile, writeFile, readdir } from 'node:fs/promises';
+import { readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { simpleGit } from 'simple-git';
 import type { GitFileStatus, GitWorktreeEntry } from '@engy/common';
@@ -363,6 +363,40 @@ export async function getFileContent(
   }
   const fullPath = resolveAndValidatePath(dir, filePath);
   return readFile(fullPath, 'utf-8');
+}
+
+/**
+ * Read raw file bytes — from a git ref (`git show <ref>:<path>`, captured as a
+ * Buffer so binary content is preserved) or from the working tree. The binary
+ * counterpart to getFileContent, used for image previews in the code/diff
+ * viewers. Coder (remote) reads are handled by the daemon's WS handler instead.
+ *
+ * `maxBytes` caps the read so a huge file can't spike the daemon heap: the ref
+ * path is bounded by execFile's maxBuffer, the working-tree path by an upfront
+ * stat. Like getFileContent's ref branch, `git show` resolves `filePath`
+ * against the repo tree (not the FS), so traversal is inert there; the
+ * working-tree branch still goes through resolveAndValidatePath.
+ */
+export async function getFileBytes(
+  dir: string,
+  filePath: string,
+  ref?: string,
+  maxBytes = EXEC_MAX_BUFFER,
+): Promise<Buffer> {
+  if (ref) {
+    const root = await getGitRoot(dir, localGitRunner);
+    const { stdout } = await execFileAsync('git', ['-C', root, 'show', `${ref}:${filePath}`], {
+      encoding: 'buffer',
+      maxBuffer: maxBytes,
+    });
+    return stdout;
+  }
+  const fullPath = resolveAndValidatePath(dir, filePath);
+  const { size } = await stat(fullPath);
+  if (size > maxBytes) {
+    throw new Error(`File too large to read (${size} bytes, max ${maxBytes})`);
+  }
+  return readFile(fullPath);
 }
 
 export async function writeFileContent(
