@@ -23,6 +23,9 @@ docs/**/plans/
 # Coverage
 coverage/
 
+# Heap dumps
+*.heapsnapshot
+
 # OS
 .DS_Store
 
