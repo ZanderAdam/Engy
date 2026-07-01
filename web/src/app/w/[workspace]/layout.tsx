@@ -95,9 +95,6 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const isProjectRoute = pathname.startsWith(`${basePath}/projects/`);
   const isDocsRoute = pathname.startsWith(`${basePath}/docs`);
   const isMemoryRoute = pathname.startsWith(`${basePath}/memory`);
-  // The command center renders its own full-bleed split (own borders), so it
-  // opts out of the center column's content padding like docs/memory do.
-  const isCommandCenterRoute = pathname.endsWith('/command-center');
 
   const { data: project } = trpc.project.getBySlug.useQuery(
     { workspaceId: workspace?.id ?? 0, slug: params.project ?? '' },
@@ -450,7 +447,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
               <div
                 className={cn(
                   'flex min-h-0 flex-1 flex-col overflow-hidden',
-                  !isDocsRoute && !isMemoryRoute && !isCommandCenterRoute && (isMobile ? 'px-2' : 'px-6'),
+                  !isDocsRoute && !isMemoryRoute && (isMobile ? 'px-2' : 'px-6'),
                 )}
               >
                 {children}

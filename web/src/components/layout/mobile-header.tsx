@@ -24,7 +24,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { sections, activeSection, overviewSection } from './header/sections';
+import { sections, activeSection } from './header/sections';
 import { WorkspaceSwitcher } from './header/workspace-switcher';
 import { ProjectSwitcher } from './header/project-switcher';
 import { OpenTabsPicker } from './header/open-tabs-picker';
@@ -92,7 +92,7 @@ export function MobileHeader({ workspace, project, onOpenManageWorktrees }: Mobi
         : '/';
 
   const current =
-    workspace && project ? (activeSection(pathname, basePath) ?? overviewSection) : undefined;
+    workspace && project ? (activeSection(pathname, basePath) ?? sections[0]) : undefined;
   const enabledSections = sections.filter((s) => !s.disabled);
   const sectionPosition = current
     ? `${enabledSections.findIndex((s) => s.segment === current.segment) + 1}/${enabledSections.length}`

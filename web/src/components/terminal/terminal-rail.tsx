@@ -7,6 +7,7 @@ import {
   RiArrowRightSLine,
   RiCloseLine,
   RiGitBranchLine,
+  RiLayoutGridLine,
   RiListUnordered,
   RiTerminalLine,
 } from '@remixicon/react';
@@ -38,6 +39,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { TerminalSessionLabel } from './terminal-session-label';
 import { TerminalNewMenuContent } from './terminal-new-menu';
+import { useCommandCenterMode, setCommandCenterMode } from './command-center/use-command-center-mode';
 import {
   getTerminalRailBoxStyle,
   type TerminalDropdownGroup,
@@ -74,6 +76,7 @@ export function TerminalRail({
   const scope = useTerminalScope();
   const tabId = useTabId();
   const { tabs, activeId } = useTerminalSessions(terminalRailKey(tabId, scope.groupKey));
+  const commandCenter = useCommandCenterMode();
   const [listExpanded, setListExpanded] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [closingTab, setClosingTab] = useState<TerminalTab | null>(null);
@@ -217,6 +220,27 @@ export function TerminalRail({
             <TooltipContent side="left">{collapsed ? 'Show panel' : 'Collapse panel'}</TooltipContent>
           </Tooltip>
 
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !commandCenter;
+                  setCommandCenterMode(next);
+                  if (next) setCollapsed(false);
+                }}
+                aria-label="Command Center — all terminals"
+                aria-pressed={commandCenter}
+                className={cn(ctrlButton, commandCenter && 'bg-muted text-foreground')}
+              >
+                <RiLayoutGridLine className="size-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              {commandCenter ? 'Exit Command Center' : 'Command Center — all terminals'}
+            </TooltipContent>
+          </Tooltip>
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -238,25 +262,29 @@ export function TerminalRail({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setListExpanded((v) => !v)}
-                aria-label={listExpanded ? 'Collapse terminal list' : 'Expand terminal list'}
-                aria-expanded={listExpanded}
-                className={cn(ctrlButton, listExpanded && 'bg-muted text-foreground')}
-              >
-                <RiListUnordered className="size-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="left">Terminal list</TooltipContent>
-          </Tooltip>
+          {!commandCenter && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setListExpanded((v) => !v)}
+                  aria-label={listExpanded ? 'Collapse terminal list' : 'Expand terminal list'}
+                  aria-expanded={listExpanded}
+                  className={cn(ctrlButton, listExpanded && 'bg-muted text-foreground')}
+                >
+                  <RiListUnordered className="size-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left">Terminal list</TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
-        {/* Sessions — colour-coded dots when narrow, labelled rows when expanded.
-            Grouped by worktree when more than one worktree has terminals. */}
-        {listExpanded ? (
+        {/* Command Center owns the session list in the panel, so the rail's own
+            per-project dots are hidden while it's on. Otherwise: colour-coded
+            dots when narrow, labelled rows when expanded, grouped by worktree. */}
+        {!commandCenter &&
+          (listExpanded ? (
           <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">
             {tabs.length === 0 ? (
               <p className="px-2 py-1.5 text-[11px] text-muted-foreground">No terminals</p>
@@ -301,7 +329,7 @@ export function TerminalRail({
               {group.tabs.map(renderDot)}
             </div>
           ))
-        )}
+          ))}
       </div>
 
       <AlertDialog
