@@ -1,7 +1,7 @@
 import type { TerminalScope, TerminalTab } from '../types';
 import { groupTabsByWorktree, type TerminalWorktreeGroup } from '../worktree-grouping';
 
-export interface CommandCenterProjectGroup {
+interface CommandCenterProjectGroup {
   /** Stable identity for React keys and selection. */
   key: string;
   /** Display label — project slug, or a workspace/other fallback. */

@@ -10,10 +10,10 @@ import {
 } from '@/components/terminal/use-terminal-scope';
 import { useTabId } from '@/components/tabs/tab-context';
 import { TerminalManager } from '@/components/terminal/terminal-manager';
-import { CommandCenter } from '@/components/terminal/command-center/command-center';
 import {
   useCommandCenterMode,
   setCommandCenterMode,
+  COMMAND_CENTER_GROUP_KEY,
 } from '@/components/terminal/command-center/use-command-center-mode';
 import { cn } from '@/lib/utils';
 import type { TerminalDropdownGroup, TerminalScope } from '@/components/terminal/types';
@@ -170,21 +170,17 @@ function MobileTerminalSheetBase({
             <div className="size-8" aria-hidden />
           )}
         </div>
-        <div className="relative flex flex-1 min-h-0 bg-[#0a0a0a]">
+        <div className="flex flex-1 min-h-0 bg-[#0a0a0a]">
           {open && (
             <TerminalManager
-              key={scopeKey}
+              key={showCommandCenter ? COMMAND_CENTER_GROUP_KEY : scopeKey}
               onCollapse={closeOverlay}
               defaultScope={scope}
               extraDropdownGroups={extraDropdownGroups}
               containerEnabled={containerEnabled}
               disableExternalEvents={disableExternalEvents}
+              global={showCommandCenter}
             />
-          )}
-          {open && showCommandCenter && (
-            <div className="absolute inset-0 z-10 flex flex-col bg-background">
-              <CommandCenter />
-            </div>
           )}
         </div>
       </SheetContent>

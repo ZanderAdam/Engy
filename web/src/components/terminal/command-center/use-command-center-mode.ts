@@ -9,6 +9,11 @@ import { useSyncExternalStore } from 'react';
 // localStorage, and mirrored across browser tabs via the `storage` event.
 const STORAGE_KEY = 'engy:command-center-mode:v1';
 
+// Shared groupKey the global dock publishes its session snapshot under and the
+// rail reads from while Command Center mode is on (in place of the per-project
+// groupKey), so the two stay in sync across the toggle.
+export const COMMAND_CENTER_GROUP_KEY = '__command_center__';
+
 let enabled = false;
 let initialized = false;
 const listeners = new Set<() => void>();
