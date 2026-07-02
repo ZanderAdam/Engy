@@ -9,6 +9,18 @@ interface DiffThread {
   }>;
 }
 
+export interface GithubDiffThread {
+  documentPath: string;
+  metadata?: Record<string, unknown> | null;
+  githubAuthor?: string;
+  githubUrl?: string;
+  comments: Array<{
+    body: unknown;
+    userId?: string | null;
+    createdAt?: string | null;
+  }>;
+}
+
 function extractFilePath(documentPath: string, repoDir: string): string {
   // documentPath format: diff://{repoDir}/{filePath}
   const prefix = `diff://${repoDir}/`;
@@ -81,6 +93,71 @@ export function generateDiffFeedback(threads: DiffThread[], repoDir: string): st
         lines.push(entry.codeLine);
         lines.push('```');
       }
+      lines.push(entry.text);
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n').trim();
+}
+
+/**
+ * Generates markdown feedback from selected GitHub review threads.
+ * Includes author attribution, file:line context, body, and reply context.
+ */
+export function generateGithubFeedback(threads: GithubDiffThread[], repoDir: string): string {
+  if (threads.length === 0) return '';
+
+  const byFile = new Map<
+    string,
+    Array<{ lineNumber: number; author: string; url?: string; text: string }>
+  >();
+
+  for (const thread of threads) {
+    const filePath = extractFilePath(thread.documentPath, repoDir);
+    const meta = thread.metadata as Record<string, unknown> | null;
+    const lineNumber = (meta?.lineNumber as number) ?? 0;
+    const author = thread.githubAuthor ?? (meta?.author as string | undefined) ?? 'GitHub';
+    const url = thread.githubUrl ?? (meta?.url as string | undefined);
+
+    const commentLines = thread.comments
+      .map((c) => {
+        const body = getCommentText(c.body);
+        if (!body) return '';
+        const label = c.userId ?? author;
+        return `**${label}**: ${body}`;
+      })
+      .filter(Boolean);
+
+    if (commentLines.length === 0) continue;
+
+    if (!byFile.has(filePath)) byFile.set(filePath, []);
+    byFile.get(filePath)!.push({ lineNumber, author, url, text: commentLines.join('\n') });
+  }
+
+  if (byFile.size === 0) return '';
+
+  for (const entries of byFile.values()) {
+    entries.sort((a, b) => a.lineNumber - b.lineNumber);
+  }
+
+  const totalComments = [...byFile.values()].reduce((sum, entries) => sum + entries.length, 0);
+  const lines: string[] = [];
+
+  lines.push('## GitHub Review Feedback');
+  lines.push(
+    `${totalComments} comment${totalComments === 1 ? '' : 's'} across ${byFile.size} file${byFile.size === 1 ? '' : 's'}`,
+  );
+  lines.push('');
+
+  for (const [filePath, entries] of byFile) {
+    lines.push(`### ${filePath}`);
+    lines.push('');
+    for (const entry of entries) {
+      const locationParts: string[] = [];
+      if (entry.lineNumber > 0) locationParts.push(`**Line ${entry.lineNumber}**`);
+      if (entry.url) locationParts.push(`[view on GitHub](${entry.url})`);
+      if (locationParts.length > 0) lines.push(locationParts.join(' — '));
       lines.push(entry.text);
       lines.push('');
     }

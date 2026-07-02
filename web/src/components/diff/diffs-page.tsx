@@ -17,6 +17,7 @@ import { RepoSelector } from './repo-selector';
 import { WorktreeSelector } from './worktree-selector';
 import type { WorktreeSelection } from './worktree-selector';
 import { ReviewActions } from './review-actions';
+import { GithubCommentTriage } from './github-comment-triage';
 import { useDiffComments, extractFilePathFromDocPath } from './use-diff-comments';
 import { resolveFileReadError } from './diff-content-state';
 import { useAutoSave } from './use-auto-save';
@@ -210,6 +211,20 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     removeComment,
   } = useDiffComments(selectedRepo);
 
+  // Correlated agent session for the PR branch (used by GitHub comment triage)
+  const { data: prList } = trpc.pr.list.useQuery(
+    { workspaceId: workspace?.id ?? 0 },
+    { enabled: !!workspace && !!projectWorktreeBranch },
+  );
+
+  const correlatedSessionId = useMemo(() => {
+    if (!projectWorktreeBranch || !selectedRepo || !prList) return null;
+    const pr = prList.find(
+      (p) => p.headBranch === projectWorktreeBranch && p.repo === selectedRepo,
+    );
+    return pr?.sessionId ?? null;
+  }, [prList, projectWorktreeBranch, selectedRepo]);
+
   const fileComments = useMemo(
     () => (selectedFile ? commentsForFile(selectedFile) : []),
     [selectedFile, commentsForFile],
@@ -389,6 +404,18 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
           <ReviewActions repoDir={selectedRepo} diffComments={currentFileComments} />
         </div>
       </div>
+
+      {/* GitHub comment triage bar — scoped to files in the current diff view,
+          consistent with ReviewActions. Comments on files outside the active diff
+          set (e.g. PR files not in the working tree) are not shown here. */}
+      {selectedRepo && (
+        <GithubCommentTriage
+          repoDir={selectedRepo}
+          diffComments={currentFileComments}
+          sessionId={correlatedSessionId}
+          onResolve={resolve}
+        />
+      )}
 
       {/* Branch diff: base branch input */}
       {diffViewMode === 'branch' && (

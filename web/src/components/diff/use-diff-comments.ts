@@ -11,6 +11,9 @@ export interface DiffComment {
   codeLine: string;
   side: 'modified' | 'original';
   resolved: boolean;
+  source: 'local' | 'github';
+  githubAuthor?: string;
+  githubUrl?: string;
   comments: Array<{
     id: string;
     body: unknown;
@@ -46,6 +49,7 @@ export function useDiffComments(repoDir: string | null) {
     if (!threads) return [];
     return threads.map((thread) => {
       const meta = (thread.metadata ?? {}) as Record<string, unknown>;
+      const isGithub = meta.source === 'github';
       return {
         threadId: thread.id,
         documentPath: thread.documentPath,
@@ -53,6 +57,9 @@ export function useDiffComments(repoDir: string | null) {
         codeLine: (meta.codeLine as string) ?? '',
         side: (meta.side as 'modified' | 'original') ?? 'modified',
         resolved: thread.resolved ?? false,
+        source: isGithub ? ('github' as const) : ('local' as const),
+        githubAuthor: isGithub ? (meta.author as string | undefined) : undefined,
+        githubUrl: isGithub ? (meta.url as string | undefined) : undefined,
         comments: thread.comments
           .filter((c) => c.deletedAt == null)
           .map((c) => ({

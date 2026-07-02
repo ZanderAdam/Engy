@@ -1,8 +1,10 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
+import { RiGithubLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { DiffComment } from '@/components/diff/use-diff-comments';
 
@@ -87,10 +89,34 @@ export function MonacoCommentZone({
     [onHeightChange],
   );
 
+  const isGithub = comment?.source === 'github';
+
   return (
-    <div ref={setContainerRef} className="border border-border bg-background p-3">
+    <TooltipProvider>
+    <div ref={setContainerRef} className={cn('border border-border bg-background p-3', isGithub && 'border-l-2 border-l-muted-foreground/30')}>
       {comment && comment.comments.length > 0 && (
         <div className="mb-2">
+          {isGithub && (
+            <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <RiGithubLine className="size-3.5 shrink-0" />
+              <span className="font-medium">{comment.githubAuthor ?? 'GitHub'}</span>
+              {comment.githubUrl && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <a
+                      href={comment.githubUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-auto text-[10px] text-muted-foreground/60 hover:text-foreground"
+                    >
+                      View on GitHub ↗
+                    </a>
+                  </TooltipTrigger>
+                  <TooltipContent>Open this comment on GitHub</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          )}
           {comment.comments.map((c, i) => (
             <div
               key={c.id}
@@ -102,14 +128,14 @@ export function MonacoCommentZone({
             >
               <div className="flex items-center gap-1.5 mb-0.5">
                 <span className="font-medium text-muted-foreground">
-                  {i === 0 ? 'Comment' : 'Reply'}
+                  {isGithub ? (c.userId ?? comment.githubAuthor ?? 'GitHub') : i === 0 ? 'Comment' : 'Reply'}
                 </span>
                 {c.createdAt && (
                   <span className="text-[10px] text-muted-foreground/60">
                     {formatRelativeTime(c.createdAt)}
                   </span>
                 )}
-                {i > 0 && onDeleteComment && (
+                {i > 0 && onDeleteComment && !isGithub && (
                   <Button
                     variant="ghost"
                     size="xs"
@@ -128,10 +154,10 @@ export function MonacoCommentZone({
           <div className="flex items-center gap-1.5 pt-1">
             {onResolve && !comment.resolved && (
               <Button variant="ghost" size="xs" onClick={() => onResolve(comment.threadId)}>
-                Resolve
+                {isGithub ? 'Dismiss' : 'Resolve'}
               </Button>
             )}
-            {onDelete && (
+            {onDelete && !isGithub && (
               <Button
                 variant="ghost"
                 size="xs"
@@ -145,24 +171,29 @@ export function MonacoCommentZone({
         </div>
       )}
 
-      <Textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={comment ? 'Reply...' : 'Add a comment...'}
-        className="min-h-[60px] resize-none text-xs"
-        autoFocus
-      />
-      <div className="mt-1.5 flex items-center justify-end">
-        <div className="flex gap-1">
-          <Button variant="ghost" size="xs" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button size="xs" onClick={handleSubmit} disabled={!text.trim()}>
-            {comment ? 'Reply' : 'Comment'}
-          </Button>
-        </div>
-      </div>
+      {!isGithub && (
+        <>
+          <Textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={comment ? 'Reply...' : 'Add a comment...'}
+            className="min-h-[60px] resize-none text-xs"
+            autoFocus
+          />
+          <div className="mt-1.5 flex items-center justify-end">
+            <div className="flex gap-1">
+              <Button variant="ghost" size="xs" onClick={onCancel}>
+                Cancel
+              </Button>
+              <Button size="xs" onClick={handleSubmit} disabled={!text.trim()}>
+                {comment ? 'Reply' : 'Comment'}
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
+    </TooltipProvider>
   );
 }
