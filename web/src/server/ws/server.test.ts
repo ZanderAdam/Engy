@@ -2124,7 +2124,7 @@ describe('FS_RENAME_RESPONSE', () => {
   });
 });
 
-describe('GH_PR_LIST_RESPONSE', () => {
+describe('[FR-WS-150] GH_PR_LIST_RESPONSE', () => {
   let state: AppState;
   let server: Server;
   let port: number;
@@ -2243,7 +2243,7 @@ describe('GH_PR_LIST_RESPONSE', () => {
   });
 });
 
-describe('GH_AUTH_STATUS_RESPONSE', () => {
+describe('[FR-WS-160] GH_AUTH_STATUS_RESPONSE', () => {
   let state: AppState;
   let server: Server;
   let port: number;
@@ -2351,7 +2351,7 @@ describe('GH_AUTH_STATUS_RESPONSE', () => {
   });
 });
 
-describe('GH_PR_FAILED_LOGS_RESPONSE', () => {
+describe('[FR-WS-170] GH_PR_FAILED_LOGS_RESPONSE', () => {
   let state: AppState;
   let server: Server;
   let port: number;
@@ -2460,7 +2460,7 @@ describe('GH_PR_FAILED_LOGS_RESPONSE', () => {
   });
 });
 
-describe('GH_PR_REVIEW_COMMENTS_RESPONSE', () => {
+describe('[FR-WS-180] GH_PR_REVIEW_COMMENTS_RESPONSE', () => {
   let state: AppState;
   let server: Server;
   let port: number;

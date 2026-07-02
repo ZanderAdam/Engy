@@ -30,7 +30,7 @@ const SINGLE_PR_NO_CHECKS = JSON.stringify([
   },
 ]);
 
-describe('listOpenPrs', () => {
+describe('[FR-PRMON-010] listOpenPrs', () => {
   it('returns empty array when no PRs', async () => {
     const prs = await listOpenPrs('/repo', makeRunner(EMPTY_PR_LIST));
     expect(prs).toEqual([]);
@@ -249,7 +249,7 @@ describe('listOpenPrs', () => {
   });
 });
 
-describe('fetchFailedLogs', () => {
+describe('[FR-PRMON-080] fetchFailedLogs', () => {
   const FAILING_CHECKS = JSON.stringify([
     { name: 'Lint', state: 'FAILURE', link: 'https://github.com/owner/repo/actions/runs/111/jobs/999', bucket: 'fail' },
     { name: 'Type Check', state: 'FAILURE', link: 'https://github.com/owner/repo/actions/runs/111/jobs/998', bucket: 'fail' },
@@ -425,7 +425,7 @@ describe('fetchFailedLogs', () => {
   });
 });
 
-describe('checkAuthStatus', () => {
+describe('[FR-PRMON-020] checkAuthStatus', () => {
   it('returns ok: true when gh auth status exits zero', async () => {
     const status = await checkAuthStatus(makeRunner('Logged in to github.com account alice'));
     expect(status).toEqual({ ok: true });
@@ -474,7 +474,7 @@ describe('checkAuthStatus', () => {
   });
 });
 
-describe('fetchReviewComments', () => {
+describe('[FR-PRMON-150] fetchReviewComments', () => {
   const REPO_NAME_STDOUT = JSON.stringify({ nameWithOwner: 'org/repo' });
 
   function makeReviewRunner(comments: object[]): GhRunner {

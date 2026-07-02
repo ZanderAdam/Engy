@@ -44,7 +44,7 @@ function makeComment(overrides: Partial<GhReviewComment> = {}): GhReviewComment 
   };
 }
 
-describe('syncReviewComments', () => {
+describe('[FR-PRMON-160] syncReviewComments', () => {
   let ctx: TestContext;
 
   beforeEach(() => {

@@ -9,7 +9,7 @@ The `/ws` control channel is the exclusive path between the server (`web/`) and 
 
 ## Architecture
 
-`web/src/server/ws/server.ts` owns the server side: it creates a `WebSocketServer` (no-server mode, upgrade-routed in `web/server.ts`), handles all incoming messages in `handleMessage`, and exposes named dispatcher functions (`dispatchGitStatus`, `dispatchFileSearch`, `dispatchContainerUp`, etc.) that the rest of the server imports. All shared server state — the daemon socket reference, all 25 pending maps, the file-change ring buffers, and the browser-listener set — lives in `AppState` from `web/src/server/trpc/context.ts` on `globalThis.__engy_app_state__`.
+`web/src/server/ws/server.ts` owns the server side: it creates a `WebSocketServer` (no-server mode, upgrade-routed in `web/server.ts`), handles all incoming messages in `handleMessage`, and exposes named dispatcher functions (`dispatchGitStatus`, `dispatchFileSearch`, `dispatchContainerUp`, etc.) that the rest of the server imports. All shared server state — the daemon socket reference, all 30 pending maps, the file-change ring buffers, and the browser-listener set — lives in `AppState` from `web/src/server/trpc/context.ts` on `globalThis.__engy_app_state__`.
 
 `client/src/ws/client.ts` owns the client side: `WsClient` manages the `/ws` socket lifecycle (connect, reconnect, ping/keepalive) and dispatches incoming server requests to the appropriate subsystem handler (`handleGitStatusRequest`, `handleContainerUpRequest`, etc.).
 
@@ -43,8 +43,9 @@ Timeout constants are defined per operation class in `server.ts`:
 | `CONTAINER_TIMEOUT_MS` | Container up/down/status | 300 s |
 | `REMOTE_FILE_TIMEOUT_MS` | Remote file pull/push | 30 s |
 | `WORKTREE_MERGE_TIMEOUT_MS` | Worktree merge/add/remove | 60 s |
+| `GH_LOGS_TIMEOUT_MS` | GitHub failed-log / review-comment fetch | 60 s |
 
-Named dispatcher exports (`dispatchGitStatus`, `dispatchFileSearch`, `dispatchContainerUp`, `dispatchExecutionStart`, `dispatchWorktreeMerge`, `dispatchFsDelete`, `dispatchFsRename`, etc.) delegate to `dispatchDaemonOp` — routers and MCP tools import these and never construct raw WebSocket messages themselves.
+Named dispatcher exports (`dispatchGitStatus`, `dispatchFileSearch`, `dispatchContainerUp`, `dispatchExecutionStart`, `dispatchWorktreeMerge`, `dispatchFsDelete`, `dispatchFsRename`, `dispatchGhPrList`, `dispatchGhAuthStatus`, `dispatchGhPrFailedLogs`, `dispatchGhPrReviewComments`, etc.) delegate to `dispatchDaemonOp` — routers and MCP tools import these and never construct raw WebSocket messages themselves.
 
 ## FILE_CHANGE Ring Buffer
 
@@ -57,7 +58,7 @@ When the daemon detects a filesystem change it sends a `FILE_CHANGE` message. `h
 `web/src/server/ws/broadcast.ts` contains the broadcast infrastructure:
 
 - `broadcastEvent(event)` iterates `state.fileChangeListeners` and calls `ws.send(msg)` for every socket whose `readyState === WebSocket.OPEN`. Closed or connecting sockets are silently skipped.
-- Six typed wrapper functions — `broadcastFileChange`, `broadcastTaskChange`, `broadcastQuestionChange`, `broadcastTerminalSessionsChange`, `broadcastMemoryChange`, `broadcastTerminalActivityChange` — each construct their typed payload and call `broadcastEvent`. No caller uses `broadcastEvent` directly.
+- Eight typed wrapper functions — `broadcastFileChange`, `broadcastTaskChange`, `broadcastQuestionChange`, `broadcastTerminalSessionsChange`, `broadcastMemoryChange`, `broadcastTerminalActivityChange`, `broadcastPrChange`, `broadcastPrAttention` — each construct their typed payload and call `broadcastEvent`. No caller uses `broadcastEvent` directly.
 
 Broadcasts are fire-and-forget and must not be awaited.
 
@@ -87,6 +88,10 @@ Broadcasts are fire-and-forget and must not be awaited.
 | FR-WS-120 | WHEN `WsClient.send()` is called with a message of type `EXECUTION_STATUS_EVENT`, `EXECUTION_COMPLETE_EVENT`, or `CREATE_MEMORIES_EVENT` and the socket is not `OPEN`, the system SHALL enqueue the message in the outbox, evict the oldest `EXECUTION_STATUS_EVENT` entry on overflow before falling back to evicting the oldest entry of any type, and flush the outbox in order upon the next successful reconnect. |
 | FR-WS-130 | WHEN the `/ws` socket closes unintentionally, the system SHALL schedule reconnection after a delay of `min(1000 × 2^attempt, 30_000) ms` with ±20 % jitter, resend `REGISTER` on reconnect, and suppress reconnection IF `intentionallyClosed` is `true`. |
 | FR-WS-140 | WHILE the `/ws` socket is `OPEN`, the system SHALL send a ping every `30 s` and terminate the socket via `ws.terminate()` IF no pong has been received for 60 s (two ping intervals' worth of time) since the last pong. |
+| FR-WS-150 | WHEN the daemon receives `GH_PR_LIST_REQUEST` with `repoDir` and optional `coderWorkspace`, the system SHALL execute `gh pr list --json` in that directory (via coder ssh when `coderWorkspace` is set) and respond with `GH_PR_LIST_RESPONSE` containing `{ requestId, prs: GhPr[] }` on success or `{ requestId, error }` on failure. |
+| FR-WS-160 | WHEN the daemon receives `GH_AUTH_STATUS_REQUEST` with optional `coderWorkspace`, the system SHALL execute `gh auth status` (via coder ssh when `coderWorkspace` is set) and respond with `GH_AUTH_STATUS_RESPONSE` containing `{ requestId, status: GhAuthStatus }`, where `GhAuthStatus` is `{ ok: true }`, `{ ok: false, reason: 'not-installed' }`, or `{ ok: false, reason: 'not-authenticated' }`. |
+| FR-WS-170 | WHEN the daemon receives `GH_PR_FAILED_LOGS_REQUEST` with `repoDir`, `prNumber`, and optional `coderWorkspace`, the system SHALL fetch failing check logs via `gh pr checks` and `gh run view --log-failed` and respond with `GH_PR_FAILED_LOGS_RESPONSE` containing `{ requestId, logs: Array<{ checkName: string; excerpt: string }> }` on success or `{ requestId, error }` on failure. |
+| FR-WS-180 | WHEN the daemon receives `GH_PR_REVIEW_COMMENTS_REQUEST` with `repoDir`, `prNumber`, and optional `coderWorkspace`, the system SHALL fetch review comments via `gh api` with `--paginate --slurp` and respond with `GH_PR_REVIEW_COMMENTS_RESPONSE` containing `{ requestId, comments: GhReviewComment[] }` on success or `{ requestId, error }` on failure. |
 
 ## Sources
 

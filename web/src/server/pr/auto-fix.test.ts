@@ -164,7 +164,7 @@ describe('maybeDispatchCiFix', () => {
   });
 
   describe('bail: non-mechanical classification', () => {
-    it('should return non-mechanical reason and persist attentionReason', async () => {
+    it('[FR-PRMON-110] should return non-mechanical reason and persist attentionReason', async () => {
       const { workspaceId } = seedAll(ctx);
       const prRow = seedPr(ctx);
       const workspace = getWorkspace(ctx, workspaceId);
@@ -292,7 +292,7 @@ describe('maybeDispatchCiFix', () => {
   });
 
   describe('bail: attempt cap', () => {
-    it('should return attempt-cap-sha and persist attentionReason when autoFixAttempts >= MAX_AUTO_FIX_ATTEMPTS', async () => {
+    it('[FR-PRMON-090] should return attempt-cap-sha and persist attentionReason when autoFixAttempts >= MAX_AUTO_FIX_ATTEMPTS', async () => {
       const { workspaceId } = seedAll(ctx);
       const prRow = seedPr(ctx, { autoFixAttempts: MAX_AUTO_FIX_ATTEMPTS });
       const workspace = getWorkspace(ctx, workspaceId);
@@ -447,7 +447,7 @@ describe('maybeDispatchCiFix', () => {
   });
 
   describe('successful dispatch', () => {
-    it('should increment autoFixAttempts, reset session, dispatch with --resume, and clear attentionReason', async () => {
+    it('[FR-PRMON-100] should increment autoFixAttempts, reset session, dispatch with --resume, and clear attentionReason', async () => {
       const { workspaceId } = seedAll(ctx);
       const prRow = seedPr(ctx, { autoFixAttempts: MAX_AUTO_FIX_ATTEMPTS - 1, attentionReason: 'prior-reason' });
       const workspace = getWorkspace(ctx, workspaceId);

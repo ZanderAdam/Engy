@@ -25,7 +25,7 @@ function makeChange(
 // ── detectFailureTransitions ────────────────────────────────────────────────
 
 describe('ci-triage', () => {
-  describe('detectFailureTransitions', () => {
+  describe('[FR-PRMON-060] detectFailureTransitions', () => {
     it('should return entries for ciStatus changes to failing', () => {
       const changes: MaterialChange[] = [
         makeChange({ number: 10, repo: '/repo-a' }),
@@ -73,7 +73,7 @@ describe('ci-triage', () => {
 
   // ── classifyFailure ────────────────────────────────────────────────────────
 
-  describe('classifyFailure', () => {
+  describe('[FR-PRMON-070] classifyFailure', () => {
     it('should classify as mechanical when check name contains "lint"', () => {
       expect(classifyFailure([makeCheck('ESLint')], [])).toBe('mechanical');
       expect(classifyFailure([makeCheck('Lint Check')], [])).toBe('mechanical');

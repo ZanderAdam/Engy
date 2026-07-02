@@ -98,7 +98,7 @@ describe('pr router', () => {
     ctx?.cleanup();
   });
 
-  describe('upsertPrs', () => {
+  describe('[FR-PRMON-030] upsertPrs', () => {
     it('should insert new PRs and report them as new changes', () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
       void ws;
@@ -281,7 +281,7 @@ describe('pr router', () => {
     });
   });
 
-  describe('findCorrelatedSession', () => {
+  describe('[FR-PRMON-040] findCorrelatedSession', () => {
     it('should find a group-mode session correlated by branch and repo', () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
       ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p', projectDir: '/repo-a' }).run();

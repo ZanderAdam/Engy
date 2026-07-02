@@ -186,7 +186,7 @@ describe('PR poller', () => {
       expect(broadcastSpy).not.toHaveBeenCalled();
     });
 
-    it('should poll each repo and upsert PRs into the database', async () => {
+    it('[FR-PRMON-050] should poll each repo and upsert PRs into the database', async () => {
       seedWorkspace(ctx, ['/repo-a', '/repo-b']);
       const pr1 = makePr({ number: 1 });
       const pr2 = makePr({ number: 2 });
