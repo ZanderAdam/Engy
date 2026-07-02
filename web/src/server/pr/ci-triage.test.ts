@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { GhPrCheck } from '@engy/common';
 import type { MaterialChange } from '../trpc/routers/pr';
-import { detectFailureTransitions, classifyFailure } from './ci-triage';
+import { detectFailureTransitions, classifyFailure, isFailingCheck } from './ci-triage';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -174,6 +174,53 @@ describe('ci-triage', () => {
     it('should classify as mechanical from mixed checks when one matches', () => {
       const checks = [makeCheck('Security Scan'), makeCheck('typecheck')];
       expect(classifyFailure(checks, [])).toBe('mechanical');
+    });
+
+  });
+
+  describe('isFailingCheck', () => {
+    it('should return true for CheckRun with failure conclusion', () => {
+      expect(isFailingCheck({ name: 'CI', status: 'COMPLETED', conclusion: 'failure', detailsUrl: null })).toBe(true);
+    });
+
+    it('should return true for CheckRun with timed_out conclusion', () => {
+      expect(isFailingCheck({ name: 'CI', status: 'COMPLETED', conclusion: 'timed_out', detailsUrl: null })).toBe(true);
+    });
+
+    it('should return true for CheckRun with action_required conclusion', () => {
+      expect(isFailingCheck({ name: 'CI', status: 'COMPLETED', conclusion: 'action_required', detailsUrl: null })).toBe(true);
+    });
+
+    it('should return true for CheckRun with cancelled conclusion', () => {
+      expect(isFailingCheck({ name: 'CI', status: 'COMPLETED', conclusion: 'cancelled', detailsUrl: null })).toBe(true);
+    });
+
+    it('should return false for CheckRun with success conclusion', () => {
+      expect(isFailingCheck({ name: 'CI', status: 'COMPLETED', conclusion: 'success', detailsUrl: null })).toBe(false);
+    });
+
+    it('should return false for CheckRun with skipped conclusion', () => {
+      expect(isFailingCheck({ name: 'CI', status: 'COMPLETED', conclusion: 'skipped', detailsUrl: null })).toBe(false);
+    });
+
+    it('should return false for in-progress CheckRun (no conclusion)', () => {
+      expect(isFailingCheck({ name: 'CI', status: 'IN_PROGRESS', conclusion: null, detailsUrl: null })).toBe(false);
+    });
+
+    it('should return true for StatusContext with FAILURE state', () => {
+      expect(isFailingCheck({ name: 'coverage', status: 'FAILURE', conclusion: null, detailsUrl: null })).toBe(true);
+    });
+
+    it('should return true for StatusContext with ERROR state', () => {
+      expect(isFailingCheck({ name: 'ci', status: 'ERROR', conclusion: null, detailsUrl: null })).toBe(true);
+    });
+
+    it('should return false for StatusContext with SUCCESS state', () => {
+      expect(isFailingCheck({ name: 'ci', status: 'SUCCESS', conclusion: null, detailsUrl: null })).toBe(false);
+    });
+
+    it('should return false for StatusContext with PENDING state', () => {
+      expect(isFailingCheck({ name: 'ci', status: 'PENDING', conclusion: null, detailsUrl: null })).toBe(false);
     });
   });
 });

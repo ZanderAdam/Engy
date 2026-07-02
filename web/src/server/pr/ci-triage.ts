@@ -8,6 +8,28 @@ export interface FailedLog {
   excerpt: string;
 }
 
+// Conclusions that indicate a check has actually failed (mirrors FAILING_CONCLUSIONS in client gh layer).
+const FAILING_CONCLUSIONS = new Set([
+  'failure',
+  'timed_out',
+  'action_required',
+  'cancelled',
+  'startup_failure',
+]);
+
+/**
+ * Returns true for GhPrCheck entries that represent an actual failure.
+ * CheckRun entries fail via conclusion; StatusContext entries (conclusion=null)
+ * fail via their status field (FAILURE / ERROR).
+ */
+export function isFailingCheck(check: GhPrCheck): boolean {
+  if (check.conclusion !== null) {
+    return FAILING_CONCLUSIONS.has(check.conclusion.toLowerCase());
+  }
+  const state = check.status.toUpperCase();
+  return state === 'FAILURE' || state === 'ERROR';
+}
+
 // Check names that indicate a mechanical (code-quality / tooling) failure.
 const MECHANICAL_CHECK_PATTERNS = [
   'lint',

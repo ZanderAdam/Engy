@@ -476,6 +476,7 @@ export const prs = sqliteTable(
     reviewDecision: text('review_decision'),
     lastFailedHeadSha: text('last_failed_head_sha'),
     autoFixAttempts: integer('auto_fix_attempts').notNull().default(0),
+    autoFixTotalAttempts: integer('auto_fix_total_attempts').notNull().default(0),
     attentionReason: text('attention_reason'),
     createdAt: text('created_at')
       .notNull()

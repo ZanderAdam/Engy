@@ -5,7 +5,7 @@ import type { AppState } from '../trpc/context';
 import { dispatchGhPrList, dispatchGhPrFailedLogs } from '../ws/server';
 import { upsertPrs } from '../trpc/routers/pr';
 import { broadcastPrChange } from '../ws/broadcast';
-import { detectFailureTransitions, classifyFailure } from './ci-triage';
+import { detectFailureTransitions, classifyFailure, isFailingCheck } from './ci-triage';
 import { maybeDispatchCiFix } from './auto-fix';
 
 export const POLL_INTERVAL_MS = 60_000;
@@ -105,7 +105,8 @@ async function handleFailingPr(
     );
   }
 
-  const classification = classifyFailure(ghPr?.checks ?? [], logs);
+  const failingChecks = (ghPr?.checks ?? []).filter(isFailingCheck);
+  const classification = classifyFailure(failingChecks, logs);
   maybeDispatchCiFix({ state, db, prRow: updatedPrRow, classification, logs, workspace }).catch(
     (err: unknown) => {
       console.error(

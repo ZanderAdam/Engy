@@ -25,6 +25,7 @@ export type CiFixResult =
   | { dispatched: false; reason: CiFixSkipReason };
 
 export const MAX_AUTO_FIX_ATTEMPTS = 2;
+export const MAX_TOTAL_AUTO_FIX_ATTEMPTS = 5;
 
 interface MaybeDispatchCiFixInput {
   state: AppState;
@@ -103,12 +104,18 @@ export async function maybeDispatchCiFix({
     return { dispatched: false, reason: 'concurrency-full' };
   }
 
+  if (prRow.autoFixTotalAttempts >= MAX_TOTAL_AUTO_FIX_ATTEMPTS) {
+    setAttentionReason(db, workspace, prRow, 'attempt-cap');
+    return { dispatched: false, reason: 'attempt-cap' };
+  }
+
   if (prRow.autoFixAttempts >= MAX_AUTO_FIX_ATTEMPTS) {
     setAttentionReason(db, workspace, prRow, 'attempt-cap');
     return { dispatched: false, reason: 'attempt-cap' };
   }
 
   if (!session.worktreePath) {
+    setAttentionReason(db, workspace, prRow, 'no-worktree');
     return { dispatched: false, reason: 'no-worktree' };
   }
 
@@ -130,11 +137,19 @@ export async function maybeDispatchCiFix({
     ? buildResumeConfig(session.taskId, session.worktreePath)
     : undefined;
 
+  const prevAutoFixAttempts = prRow.autoFixAttempts;
+  const prevAutoFixTotalAttempts = prRow.autoFixTotalAttempts;
+
   db.update(prs)
-    .set({ autoFixAttempts: prRow.autoFixAttempts + 1, updatedAt: new Date().toISOString() })
+    .set({
+      autoFixAttempts: prRow.autoFixAttempts + 1,
+      autoFixTotalAttempts: prRow.autoFixTotalAttempts + 1,
+      updatedAt: new Date().toISOString(),
+    })
     .where(and(eq(prs.repo, prRow.repo), eq(prs.number, prRow.number)))
     .run();
 
+  const prevSessionStatus = session.status;
   db.update(agentSessions)
     .set({ status: 'active', completionSummary: null, updatedAt: new Date().toISOString() })
     .where(eq(agentSessions.sessionId, session.sessionId))
@@ -144,11 +159,15 @@ export async function maybeDispatchCiFix({
     await dispatchExecutionStart(state, session.sessionId, prompt, flags, config);
   } catch (err) {
     db.update(prs)
-      .set({ autoFixAttempts: prRow.autoFixAttempts, updatedAt: new Date().toISOString() })
+      .set({
+        autoFixAttempts: prevAutoFixAttempts,
+        autoFixTotalAttempts: prevAutoFixTotalAttempts,
+        updatedAt: new Date().toISOString(),
+      })
       .where(and(eq(prs.repo, prRow.repo), eq(prs.number, prRow.number)))
       .run();
     db.update(agentSessions)
-      .set({ status: session.status as 'stopped', updatedAt: new Date().toISOString() })
+      .set({ status: prevSessionStatus, updatedAt: new Date().toISOString() })
       .where(eq(agentSessions.sessionId, session.sessionId))
       .run();
     throw err;

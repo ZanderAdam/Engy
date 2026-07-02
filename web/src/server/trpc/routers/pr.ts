@@ -1,9 +1,9 @@
 import { z } from 'zod';
-import { eq, and, inArray, desc, isNotNull } from 'drizzle-orm';
+import { eq, and, inArray, desc, isNotNull, isNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
-import { workspaces, prs, agentSessions, taskGroups, projects } from '../../db/schema';
+import { workspaces, prs, agentSessions, taskGroups, tasks, projects } from '../../db/schema';
 import { dispatchGhPrList, dispatchGhAuthStatus } from '../../ws/server';
 import type { GhPr, GhAuthStatus } from '@engy/common';
 
@@ -15,43 +15,66 @@ export interface CorrelatedSession {
   taskId: number | null;
   worktreePath: string | null;
   branch: string | null;
-  status: string;
+  status: typeof agentSessions.$inferSelect.status;
 }
+
+const SESSION_FIELDS = {
+  sessionId: agentSessions.sessionId,
+  taskGroupId: agentSessions.taskGroupId,
+  taskId: agentSessions.taskId,
+  worktreePath: agentSessions.worktreePath,
+  branch: agentSessions.branch,
+  status: agentSessions.status,
+  createdAt: agentSessions.createdAt,
+};
 
 /**
  * Finds the most recent agent session correlated to a PR branch within a repo.
- * Sessions are matched via taskGroup → project → projectDir (repo path), which
- * scopes correlation to avoid cross-repo false matches on identically-named branches.
+ * Covers both group-mode sessions (correlated via taskGroup → project → projectDir)
+ * and task-mode sessions (taskGroupId null, correlated via task → project → projectDir).
  */
 export function findCorrelatedSession(
   db: Db,
   headBranch: string,
   repo: string,
 ): CorrelatedSession | null {
-  return (
+  const branchAndRepoWhere = and(
+    isNotNull(agentSessions.branch),
+    eq(agentSessions.branch, headBranch),
+    isNotNull(projects.projectDir),
+    eq(projects.projectDir, repo),
+  );
+
+  const groupSession =
     db
-      .select({
-        sessionId: agentSessions.sessionId,
-        taskGroupId: agentSessions.taskGroupId,
-        taskId: agentSessions.taskId,
-        worktreePath: agentSessions.worktreePath,
-        branch: agentSessions.branch,
-        status: agentSessions.status,
-      })
+      .select(SESSION_FIELDS)
       .from(agentSessions)
       .innerJoin(taskGroups, eq(agentSessions.taskGroupId, taskGroups.id))
       .innerJoin(projects, eq(taskGroups.projectId, projects.id))
-      .where(
-        and(
-          isNotNull(agentSessions.branch),
-          eq(agentSessions.branch, headBranch),
-          isNotNull(projects.projectDir),
-          eq(projects.projectDir, repo),
-        ),
-      )
+      .where(branchAndRepoWhere)
       .orderBy(desc(agentSessions.createdAt))
-      .get() ?? null
-  );
+      .get() ?? null;
+
+  const taskSession =
+    db
+      .select(SESSION_FIELDS)
+      .from(agentSessions)
+      .innerJoin(tasks, eq(agentSessions.taskId, tasks.id))
+      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .where(and(isNull(agentSessions.taskGroupId), branchAndRepoWhere))
+      .orderBy(desc(agentSessions.createdAt))
+      .get() ?? null;
+
+  if (!groupSession && !taskSession) return null;
+
+  const winner =
+    !groupSession ? taskSession!
+    : !taskSession ? groupSession
+    : groupSession.createdAt >= taskSession.createdAt ? groupSession
+    : taskSession;
+
+  const { createdAt: _createdAt, ...session } = winner;
+  return session;
 }
 
 type PrState = 'open' | 'closed' | 'merged';
@@ -81,6 +104,10 @@ function normalizeState(state: string): PrState {
  * Upserts PRs for a single repo. Marks previously-open rows not present in the
  * fresh list as 'closed'. Returns material changes so callers can decide whether
  * to broadcast. All writes are wrapped in a single transaction for atomicity.
+ *
+ * attentionReason and lastFailedHeadSha are cleared whenever a PR leaves 'open'
+ * (state change to closed/merged, or vanished from the list) since CI-failure
+ * tracking is only meaningful for open PRs.
  */
 export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
   return db.transaction((tx) => {
@@ -149,6 +176,8 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
           });
         }
 
+        const isClosing = existingPr.state === 'open' && state !== 'open';
+
         tx.update(prs)
           .set({
             title: ghPr.title,
@@ -161,6 +190,7 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
             ciStatus: ghPr.ciStatus,
             checks: ghPr.checks,
             reviewDecision: ghPr.reviewDecision,
+            ...(isClosing ? { attentionReason: null, lastFailedHeadSha: null } : {}),
             updatedAt: now,
           })
           .where(and(eq(prs.repo, repo), eq(prs.number, ghPr.number)))
@@ -175,7 +205,7 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
     for (const pr of existing) {
       if (pr.state === 'open' && !incomingNumbers.has(pr.number)) {
         tx.update(prs)
-          .set({ state: 'closed', updatedAt: now })
+          .set({ state: 'closed', attentionReason: null, lastFailedHeadSha: null, updatedAt: now })
           .where(and(eq(prs.repo, repo), eq(prs.number, pr.number)))
           .run();
         changes.push({ number: pr.number, repo, type: 'state', previous: 'open', current: 'closed' });
@@ -198,8 +228,8 @@ export const prRouter = router({
   /**
    * Returns open PRs for all workspace repos, ordered by updatedAt desc.
    * Each PR is correlated with the most recent agent session on the same branch
-   * within the same repo (matched via taskGroup → project → projectDir).
-   * Sessions without a taskGroupId (task-mode sessions) are excluded from correlation.
+   * within the same repo (matched via taskGroup → project → projectDir, or
+   * task → project → projectDir for task-mode sessions without a taskGroupId).
    */
   list: publicProcedure
     .input(z.object({ workspaceId: z.number() }))
@@ -220,34 +250,50 @@ export const prRouter = router({
 
       const branches = [...new Set(openPrs.map((pr) => pr.headBranch))];
 
-      // Join sessions → taskGroups → projects to scope session correlation by repo,
-      // so identically-named branches in different repos don't cross-correlate.
-      const sessions = db
-        .select({
-          sessionId: agentSessions.sessionId,
-          taskGroupId: agentSessions.taskGroupId,
-          worktreePath: agentSessions.worktreePath,
-          branch: agentSessions.branch,
-          createdAt: agentSessions.createdAt,
-          projectDir: projects.projectDir,
-        })
+      const listSessionFields = {
+        sessionId: agentSessions.sessionId,
+        taskGroupId: agentSessions.taskGroupId,
+        worktreePath: agentSessions.worktreePath,
+        branch: agentSessions.branch,
+        createdAt: agentSessions.createdAt,
+        projectDir: projects.projectDir,
+      };
+
+      const branchAndRepoFilter = and(
+        isNotNull(agentSessions.branch),
+        inArray(agentSessions.branch, branches),
+        isNotNull(projects.projectDir),
+        inArray(projects.projectDir, repos),
+      );
+
+      // Group-mode sessions: taskGroup → project
+      const groupSessions = db
+        .select(listSessionFields)
         .from(agentSessions)
         .innerJoin(taskGroups, eq(agentSessions.taskGroupId, taskGroups.id))
         .innerJoin(projects, eq(taskGroups.projectId, projects.id))
-        .where(
-          and(
-            isNotNull(agentSessions.branch),
-            inArray(agentSessions.branch, branches),
-            isNotNull(projects.projectDir),
-            inArray(projects.projectDir, repos),
-          ),
-        )
+        .where(branchAndRepoFilter)
         .orderBy(desc(agentSessions.createdAt))
         .all();
 
-      // (branch, repo) → most recent session (list is already ordered by createdAt desc)
-      const sessionByKey = new Map<string, (typeof sessions)[0]>();
-      for (const session of sessions) {
+      // Task-mode sessions (taskGroupId null): task → project
+      const taskSessionsList = db
+        .select(listSessionFields)
+        .from(agentSessions)
+        .innerJoin(tasks, eq(agentSessions.taskId, tasks.id))
+        .innerJoin(projects, eq(tasks.projectId, projects.id))
+        .where(and(isNull(agentSessions.taskGroupId), branchAndRepoFilter))
+        .orderBy(desc(agentSessions.createdAt))
+        .all();
+
+      // Merge both lists; already ordered by createdAt desc — first entry per key wins.
+      const allSessions = [...groupSessions, ...taskSessionsList].sort((a, b) =>
+        b.createdAt.localeCompare(a.createdAt),
+      );
+
+      // (branch, repo) → most recent session
+      const sessionByKey = new Map<string, (typeof allSessions)[0]>();
+      for (const session of allSessions) {
         if (session.branch && session.projectDir) {
           const key = `${session.branch}\0${session.projectDir}`;
           if (!sessionByKey.has(key)) {

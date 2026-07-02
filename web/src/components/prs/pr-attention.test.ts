@@ -35,6 +35,13 @@ describe('getAttentionInfo', () => {
     expect(info!.description).toContain('maximum number of attempts');
   });
 
+  it('should map no-worktree to a worktree-resume label', () => {
+    const info = getAttentionInfo('no-worktree');
+    expect(info).not.toBeNull();
+    expect(info!.label).toBe('Agent session has no worktree to resume');
+    expect(info!.description).toContain('worktree');
+  });
+
   it('should return a fallback for unknown reasons', () => {
     const info = getAttentionInfo('some-unknown-reason');
     expect(info).not.toBeNull();

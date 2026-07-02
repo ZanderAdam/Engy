@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { eq, and } from 'drizzle-orm';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { workspaces, prs as prsTable, agentSessions, tasks, projects, taskGroups } from '../db/schema';
-import { maybeDispatchCiFix, MAX_AUTO_FIX_ATTEMPTS } from './auto-fix';
+import { maybeDispatchCiFix, MAX_AUTO_FIX_ATTEMPTS, MAX_TOTAL_AUTO_FIX_ATTEMPTS } from './auto-fix';
 import * as wsServer from '../ws/server';
 import * as broadcast from '../ws/broadcast';
 
@@ -315,7 +315,7 @@ describe('maybeDispatchCiFix', () => {
   });
 
   describe('bail: no worktree', () => {
-    it('should return no-worktree when the correlated session has no worktreePath', async () => {
+    it('should return no-worktree, persist attentionReason, and broadcast when the correlated session has no worktreePath', async () => {
       const { workspaceId } = seedAll(ctx);
       ctx.db
         .update(agentSessions)
@@ -336,8 +336,113 @@ describe('maybeDispatchCiFix', () => {
       });
 
       expect(result).toEqual({ dispatched: false, reason: 'no-worktree' });
+      expect(getPr(ctx)?.attentionReason).toBe('no-worktree');
       expect(dispatchSpy).not.toHaveBeenCalled();
-      expect(broadcastAttentionSpy).not.toHaveBeenCalled();
+      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'no-worktree');
+    });
+  });
+
+  describe('bail: total attempt cap', () => {
+    it('should return attempt-cap when autoFixTotalAttempts >= MAX_TOTAL_AUTO_FIX_ATTEMPTS even with a fresh SHA', async () => {
+      const { workspaceId } = seedAll(ctx);
+      // autoFixAttempts is 0 (fresh SHA), but total is at max
+      const prRow = ctx.db
+        .insert(prsTable)
+        .values({
+          repo: REPO,
+          number: PR_NUMBER,
+          title: 'My PR',
+          url: 'https://github.com/org/repo/pull/42',
+          headBranch: BRANCH,
+          headSha: 'sha-fresh',
+          author: 'alice',
+          isDraft: false,
+          state: 'open',
+          ciStatus: 'failing',
+          checks: [],
+          autoFixAttempts: 0,
+          autoFixTotalAttempts: MAX_TOTAL_AUTO_FIX_ATTEMPTS,
+          attentionReason: null,
+        })
+        .returning()
+        .get();
+      const workspace = getWorkspace(ctx, workspaceId);
+      ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
+
+      const result = await maybeDispatchCiFix({
+        state: ctx.state,
+        db: ctx.db,
+        prRow,
+        classification: 'mechanical',
+        logs: [],
+        workspace,
+      });
+
+      expect(result).toEqual({ dispatched: false, reason: 'attempt-cap' });
+      expect(getPr(ctx)?.attentionReason).toBe('attempt-cap');
+      expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'attempt-cap');
+    });
+
+    it('should increment autoFixTotalAttempts (as well as autoFixAttempts) on each successful dispatch', async () => {
+      const { workspaceId } = seedAll(ctx);
+      const prRow = seedPr(ctx);
+      const workspace = getWorkspace(ctx, workspaceId);
+      ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
+
+      await maybeDispatchCiFix({
+        state: ctx.state,
+        db: ctx.db,
+        prRow,
+        classification: 'mechanical',
+        logs: [],
+        workspace,
+      });
+
+      const updated = getPr(ctx);
+      expect(updated?.autoFixAttempts).toBe(1);
+      expect(updated?.autoFixTotalAttempts).toBe(1);
+    });
+  });
+
+  describe('bail: task-mode session correlation', () => {
+    it('should dispatch when the correlated session is task-mode (taskGroupId null, correlated via task → project)', async () => {
+      const workspaceId = seedWorkspace(ctx);
+      const projectId = seedProject(ctx, workspaceId);
+      // Task directly in project (no taskGroup)
+      const task = ctx.db
+        .insert(tasks)
+        .values({ projectId, title: 'Task', type: 'ai', needsPlan: false })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: SESSION_ID,
+          executionMode: 'task',
+          status: 'stopped',
+          branch: BRANCH,
+          worktreePath: WORKTREE,
+          taskGroupId: null,
+          taskId: task.id,
+        })
+        .run();
+
+      const prRow = seedPr(ctx);
+      const workspace = getWorkspace(ctx, workspaceId);
+      ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
+
+      const result = await maybeDispatchCiFix({
+        state: ctx.state,
+        db: ctx.db,
+        prRow,
+        classification: 'mechanical',
+        logs: [],
+        workspace,
+      });
+
+      expect(result).toEqual({ dispatched: true });
+      expect(dispatchSpy).toHaveBeenCalledOnce();
     });
   });
 
@@ -418,7 +523,7 @@ describe('maybeDispatchCiFix', () => {
   });
 
   describe('dispatch failure', () => {
-    it('should rollback autoFixAttempts and session status when dispatchExecutionStart throws', async () => {
+    it('should rollback autoFixAttempts, autoFixTotalAttempts, and session status when dispatchExecutionStart throws', async () => {
       const { workspaceId } = seedAll(ctx);
       const prRow = seedPr(ctx, { autoFixAttempts: 0 });
       const workspace = getWorkspace(ctx, workspaceId);
@@ -439,6 +544,7 @@ describe('maybeDispatchCiFix', () => {
 
       const rollbackPr = getPr(ctx);
       expect(rollbackPr?.autoFixAttempts).toBe(0);
+      expect(rollbackPr?.autoFixTotalAttempts).toBe(0);
 
       const rollbackSession = ctx.db
         .select()

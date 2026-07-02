@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
-import { workspaces, prs, agentSessions, taskGroups, projects } from '../../db/schema';
-import { upsertPrs } from './pr';
+import { workspaces, prs, agentSessions, taskGroups, tasks, projects } from '../../db/schema';
+import { upsertPrs, findCorrelatedSession } from './pr';
 import type { GhPr, GhAuthStatus } from '@engy/common';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -238,6 +238,123 @@ describe('pr router', () => {
       const rows = ctx.db.select().from(prs).where(eq(prs.repo, '/repo-a')).all();
       expect(rows).toHaveLength(0);
     });
+
+    it('should clear attentionReason when a PR transitions from open to closed', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, state: 'open' })]);
+      ctx.db.update(prs).set({ attentionReason: 'non-mechanical' }).where(eq(prs.number, 1)).run();
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, state: 'closed' })]);
+
+      const row = ctx.db.select().from(prs).where(eq(prs.number, 1)).get();
+      expect(row?.attentionReason).toBeNull();
+      expect(row?.lastFailedHeadSha).toBeNull();
+    });
+
+    it('should clear attentionReason when a PR vanishes from the list', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 }), makePr({ number: 2 })]);
+      ctx.db.update(prs).set({ attentionReason: 'uncorrelated', lastFailedHeadSha: 'sha1' })
+        .where(eq(prs.number, 2)).run();
+
+      // Second call omits PR 2 — it should be closed and have attentionReason cleared
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 })]);
+
+      const row = ctx.db.select().from(prs).where(eq(prs.number, 2)).get();
+      expect(row?.state).toBe('closed');
+      expect(row?.attentionReason).toBeNull();
+      expect(row?.lastFailedHeadSha).toBeNull();
+    });
+
+    it('should not clear attentionReason for PRs that remain open', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, state: 'open' })]);
+      ctx.db.update(prs).set({ attentionReason: 'non-mechanical' }).where(eq(prs.number, 1)).run();
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, state: 'open' })]);
+
+      const row = ctx.db.select().from(prs).where(eq(prs.number, 1)).get();
+      expect(row?.attentionReason).toBe('non-mechanical');
+    });
+  });
+
+  describe('findCorrelatedSession', () => {
+    it('should find a group-mode session correlated by branch and repo', () => {
+      const ws = seedWorkspace(ctx, ['/repo-a']);
+      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p', projectDir: '/repo-a' }).run();
+      const proj = ctx.db.select().from(projects).where(eq(projects.slug, 'p')).get()!;
+      ctx.db.insert(taskGroups).values({ projectId: proj.id, name: 'TG' }).run();
+      const tg = ctx.db.select().from(taskGroups).where(eq(taskGroups.projectId, proj.id)).get()!;
+      ctx.db.insert(agentSessions).values({
+        sessionId: 'sess-group',
+        taskGroupId: tg.id,
+        branch: 'feat/x',
+        worktreePath: '/wt',
+      }).run();
+
+      const result = findCorrelatedSession(ctx.db, 'feat/x', '/repo-a');
+      expect(result?.sessionId).toBe('sess-group');
+    });
+
+    it('should find a task-mode session (taskGroupId null) correlated via task → project', () => {
+      const ws = seedWorkspace(ctx, ['/repo-a']);
+      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p', projectDir: '/repo-a' }).run();
+      const proj = ctx.db.select().from(projects).where(eq(projects.slug, 'p')).get()!;
+      ctx.db.insert(tasks).values({ projectId: proj.id, title: 'T', type: 'ai', needsPlan: false }).run();
+      const task = ctx.db.select().from(tasks).where(eq(tasks.projectId, proj.id)).get()!;
+      ctx.db.insert(agentSessions).values({
+        sessionId: 'sess-task',
+        taskGroupId: null,
+        taskId: task.id,
+        branch: 'feat/x',
+        worktreePath: '/wt',
+      }).run();
+
+      const result = findCorrelatedSession(ctx.db, 'feat/x', '/repo-a');
+      expect(result?.sessionId).toBe('sess-task');
+    });
+
+    it('should return the most recent session when both group-mode and task-mode sessions exist', () => {
+      const ws = seedWorkspace(ctx, ['/repo-a']);
+      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p', projectDir: '/repo-a' }).run();
+      const proj = ctx.db.select().from(projects).where(eq(projects.slug, 'p')).get()!;
+      ctx.db.insert(taskGroups).values({ projectId: proj.id, name: 'TG' }).run();
+      const tg = ctx.db.select().from(taskGroups).where(eq(taskGroups.projectId, proj.id)).get()!;
+      ctx.db.insert(tasks).values({ projectId: proj.id, title: 'T', type: 'ai', needsPlan: false }).run();
+      const task = ctx.db.select().from(tasks).where(eq(tasks.projectId, proj.id)).get()!;
+
+      ctx.db.insert(agentSessions).values([
+        {
+          sessionId: 'sess-group-old',
+          taskGroupId: tg.id,
+          branch: 'feat/x',
+          worktreePath: '/wt-group',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-01T00:00:00.000Z',
+        },
+        {
+          sessionId: 'sess-task-new',
+          taskGroupId: null,
+          taskId: task.id,
+          branch: 'feat/x',
+          worktreePath: '/wt-task',
+          createdAt: '2024-02-01T00:00:00.000Z',
+          updatedAt: '2024-02-01T00:00:00.000Z',
+        },
+      ]).run();
+
+      const result = findCorrelatedSession(ctx.db, 'feat/x', '/repo-a');
+      expect(result?.sessionId).toBe('sess-task-new');
+    });
+
+    it('should return null when no session matches the branch and repo', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+      const result = findCorrelatedSession(ctx.db, 'feat/no-match', '/repo-a');
+      expect(result).toBeNull();
+    });
   });
 
   describe('list', () => {
@@ -382,6 +499,30 @@ describe('pr router', () => {
       expect(result[0].sessionId).toBeNull();
       expect(result[0].taskGroupId).toBeNull();
       expect(result[0].worktreePath).toBeNull();
+    });
+
+    it('should correlate PRs with task-mode sessions (taskGroupId null, correlated via task → project)', async () => {
+      const ws = seedWorkspace(ctx, ['/repo-a']);
+
+      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p', projectDir: '/repo-a' }).run();
+      const proj = ctx.db.select().from(projects).where(eq(projects.slug, 'p')).get()!;
+      ctx.db.insert(tasks).values({ projectId: proj.id, title: 'T', type: 'ai', needsPlan: false }).run();
+      const task = ctx.db.select().from(tasks).where(eq(tasks.projectId, proj.id)).get()!;
+
+      ctx.db.insert(agentSessions).values({
+        sessionId: 'sess-task-mode',
+        taskGroupId: null,
+        taskId: task.id,
+        branch: 'feat/task-mode',
+        worktreePath: '/wt-task',
+      }).run();
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 5, headBranch: 'feat/task-mode' })]);
+
+      const result = await caller.pr.list({ workspaceId: ws.id });
+      expect(result).toHaveLength(1);
+      expect(result[0].sessionId).toBe('sess-task-mode');
+      expect(result[0].worktreePath).toBe('/wt-task');
     });
 
     it('should return empty array when workspace has no repos', async () => {

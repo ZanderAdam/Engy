@@ -121,6 +121,25 @@ const ACTIONS_RUN_RE = /\/actions\/runs\/(\d+)/;
 const MAX_LOG_LINES = 200;
 const MAX_LOG_BYTES = 16 * 1024;
 
+// Patterns for common secret formats. Prompts may still contain unredacted CI log
+// content by design — this pass only strips obvious token strings.
+const SECRET_PATTERNS: RegExp[] = [
+  /ghp_[A-Za-z0-9]{20,}/g,
+  /gho_[A-Za-z0-9]{20,}/g,
+  /github_pat_[A-Za-z0-9_]{20,}/g,
+  /AKIA[0-9A-Z]{16}/g,
+  /Bearer\s+[A-Za-z0-9\-._~+/]+=*/g,
+  /xox[a-z]-[A-Za-z0-9\-]{10,}/g,
+];
+
+function redactSecrets(text: string): string {
+  let result = text;
+  for (const pattern of SECRET_PATTERNS) {
+    result = result.replace(pattern, '[redacted]');
+  }
+  return result;
+}
+
 function truncateTail(log: string): string {
   const buf = Buffer.from(log, 'utf-8');
   let trimmed = log;
@@ -168,7 +187,7 @@ export async function fetchFailedLogs(
     let excerpt = '';
     try {
       const { stdout: logOutput } = await runner(['run', 'view', runId, '--log-failed'], repoDir);
-      excerpt = truncateTail(logOutput);
+      excerpt = redactSecrets(truncateTail(logOutput));
     } catch {
       // Non-fatal: skip log fetch for this run gracefully
     }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { listOpenPrs, fetchFailedLogs, checkAuthStatus, type GhRunner } from './index.js';
 
+
 function makeRunner(stdout: string): GhRunner {
   return async () => ({ stdout, stderr: '' });
 }
@@ -345,6 +346,62 @@ describe('fetchFailedLogs', () => {
     const logs = await fetchFailedLogs('/repo', 1, runner);
     expect(logs).toHaveLength(1);
     expect(logs[0].excerpt).toBe('');
+  });
+
+  describe('secret redaction in log excerpts', () => {
+    function makeRunnerWithLog(log: string): GhRunner {
+      return async (args) => {
+        if (args.includes('checks')) {
+          return {
+            stdout: JSON.stringify([
+              { name: 'CI', state: 'FAILURE', link: 'https://github.com/owner/repo/actions/runs/1/jobs/1', bucket: 'fail' },
+            ]),
+            stderr: '',
+          };
+        }
+        return { stdout: log, stderr: '' };
+      };
+    }
+
+    it('should redact GitHub PAT (ghp_) tokens from log excerpts', async () => {
+      const logs = await fetchFailedLogs('/repo', 1, makeRunnerWithLog('token=ghp_abcdefghijklmnopqrstu'));
+      expect(logs[0].excerpt).toBe('token=[redacted]');
+    });
+
+    it('should redact GitHub OAuth (gho_) tokens', async () => {
+      const logs = await fetchFailedLogs('/repo', 1, makeRunnerWithLog('gho_abcdefghijklmnopqrstu1234'));
+      expect(logs[0].excerpt).toContain('[redacted]');
+      expect(logs[0].excerpt).not.toContain('gho_');
+    });
+
+    it('should redact fine-grained GitHub PATs (github_pat_)', async () => {
+      const logs = await fetchFailedLogs('/repo', 1, makeRunnerWithLog('github_pat_abc123def456ghi789jkl0'));
+      expect(logs[0].excerpt).toContain('[redacted]');
+      expect(logs[0].excerpt).not.toContain('github_pat_');
+    });
+
+    it('should redact AWS access key IDs (AKIA...)', async () => {
+      const logs = await fetchFailedLogs('/repo', 1, makeRunnerWithLog('key=AKIAIOSFODNN7EXAMPLE'));
+      expect(logs[0].excerpt).toContain('[redacted]');
+      expect(logs[0].excerpt).not.toContain('AKIAIOSFODNN7EXAMPLE');
+    });
+
+    it('should redact Bearer tokens', async () => {
+      const logs = await fetchFailedLogs('/repo', 1, makeRunnerWithLog('Authorization: Bearer mysecrettoken123abc'));
+      expect(logs[0].excerpt).toContain('[redacted]');
+      expect(logs[0].excerpt).not.toContain('mysecrettoken123abc');
+    });
+
+    it('should redact Slack tokens (xox...)', async () => {
+      const logs = await fetchFailedLogs('/repo', 1, makeRunnerWithLog('slack=xoxb-1234567890-abcdefghij'));
+      expect(logs[0].excerpt).toContain('[redacted]');
+      expect(logs[0].excerpt).not.toContain('xoxb-1234567890-abcdefghij');
+    });
+
+    it('should leave non-sensitive log content unchanged', async () => {
+      const logs = await fetchFailedLogs('/repo', 1, makeRunnerWithLog('Error: cannot find module ./foo'));
+      expect(logs[0].excerpt).toBe('Error: cannot find module ./foo');
+    });
   });
 
   it('truncates very long log output to the tail', async () => {

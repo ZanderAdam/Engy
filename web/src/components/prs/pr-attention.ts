@@ -1,4 +1,4 @@
-export type PrAttentionReason = 'non-mechanical' | 'uncorrelated' | 'attempt-cap';
+export type PrAttentionReason = 'non-mechanical' | 'uncorrelated' | 'attempt-cap' | 'no-worktree';
 
 export interface AttentionInfo {
   label: string;
@@ -25,6 +25,12 @@ export function getAttentionInfo(reason: string | null | undefined): AttentionIn
         label: 'Auto-fix attempts exhausted',
         description:
           'Auto-fix has run the maximum number of attempts for this commit — manual intervention required.',
+      };
+    case 'no-worktree':
+      return {
+        label: 'Agent session has no worktree to resume',
+        description:
+          'The correlated agent session has no worktree path — re-run the session with a worktree to enable auto-fix.',
       };
     default:
       return { label: 'CI failure needs attention', description: reason };

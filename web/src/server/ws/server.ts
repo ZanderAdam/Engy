@@ -50,6 +50,7 @@ const MAX_EVENTS_PER_WORKSPACE = 100;
 const VALIDATION_TIMEOUT_MS = 5_000;
 const FILE_SEARCH_TIMEOUT_MS = 10_000;
 const GIT_TIMEOUT_MS = 15_000;
+const GH_LOGS_TIMEOUT_MS = 60_000;
 const CONTAINER_TIMEOUT_MS = 300_000;
 
 export function createWebSocketServer(state: AppState): WebSocketServer {
@@ -1298,9 +1299,11 @@ export function dispatchGhPrFailedLogs(
   state: AppState,
   coderWorkspace?: string,
 ): Promise<GhPrFailedLogsResult> {
-  return dispatchDaemonOp(state, state.pendingGhPrFailedLogs, 'GH_PR_FAILED_LOGS_REQUEST', {
-    repoDir,
-    prNumber,
-    coderWorkspace,
-  });
+  return dispatchDaemonOp(
+    state,
+    state.pendingGhPrFailedLogs,
+    'GH_PR_FAILED_LOGS_REQUEST',
+    { repoDir, prNumber, coderWorkspace },
+    GH_LOGS_TIMEOUT_MS,
+  );
 }

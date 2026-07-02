@@ -318,6 +318,62 @@ describe('PR poller', () => {
         expect(row?.autoFixAttempts).toBe(2);
       });
 
+      it('should classify as non-mechanical when the only failing check is a deploy (passing typecheck must not trigger mechanical)', async () => {
+        // Regression: classifyFailure received ALL checks including passing ones, so a
+        // passing 'typecheck' alongside a failing 'Production Deploy' returned 'mechanical'.
+        // The poller must filter to only failing checks before classifying.
+        seedWorkspace(ctx, ['/repo-a']);
+
+        // First cycle: PR inserted as passing
+        installFakeDaemon(
+          ctx,
+          new Map([['/repo-a', [makePr({ number: 1, ciStatus: 'passing', headSha: 'sha1' })]]]),
+        );
+        await runPollCycle(ctx.state, ctx.db);
+
+        const passingTypecheck = {
+          name: 'typecheck',
+          status: 'COMPLETED',
+          conclusion: 'success',
+          detailsUrl: null,
+        };
+        const failingDeploy = {
+          name: 'Production Deploy',
+          status: 'COMPLETED',
+          conclusion: 'failure',
+          detailsUrl: null,
+        };
+
+        // Second cycle: PR transitions to failing with passing typecheck + failing deploy
+        installFakeDaemon(
+          ctx,
+          new Map([
+            [
+              '/repo-a',
+              [
+                makePr({
+                  number: 1,
+                  ciStatus: 'failing',
+                  headSha: 'sha2',
+                  checks: [passingTypecheck, failingDeploy],
+                }),
+              ],
+            ],
+          ]),
+          new Map([['/repo-a', []]]),
+        );
+        await runPollCycle(ctx.state, ctx.db);
+        await new Promise((r) => queueMicrotask(r as () => void));
+
+        // attentionReason should be 'non-mechanical', not dispatched as mechanical
+        const row = ctx.db
+          .select()
+          .from(prsTable)
+          .where(and(eq(prsTable.repo, '/repo-a'), eq(prsTable.number, 1)))
+          .get();
+        expect(row?.attentionReason).toBe('non-mechanical');
+      });
+
       it('should continue gracefully when failed log dispatch errors', async () => {
         seedWorkspace(ctx, ['/repo-a']);
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
