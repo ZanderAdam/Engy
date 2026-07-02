@@ -130,12 +130,14 @@ export function TerminalRail({
     ? groupTabsByProject(tabs).map((pg) => ({
         key: pg.key,
         projectLabel: pg.label as string | undefined,
+        workspaceSlug: pg.workspaceSlug,
         worktreeGroups: pg.worktreeGroups,
       }))
     : [
         {
           key: '__all__',
           projectLabel: undefined as string | undefined,
+          workspaceSlug: undefined as string | undefined,
           worktreeGroups: groupTabsByWorktree(tabs),
         },
       ];
@@ -194,13 +196,27 @@ export function TerminalRail({
                 </span>
               </TooltipTrigger>
               <TooltipContent side="left" className="text-xs">
-                {section.projectLabel}
+                {section.workspaceSlug ? `${section.workspaceSlug} / ${section.projectLabel}` : section.projectLabel}
               </TooltipContent>
             </Tooltip>
           ) : (
-            <p className="truncate px-2 pt-1.5 pb-0.5 text-xs font-semibold text-foreground/80">
-              {section.projectLabel}
-            </p>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <p className="flex items-baseline gap-1 truncate px-2 pt-1.5 pb-0.5 text-xs font-semibold text-foreground/80">
+                  {section.workspaceSlug && (
+                    <span className="max-w-[45%] shrink-0 truncate font-normal text-muted-foreground">
+                      {section.workspaceSlug} /
+                    </span>
+                  )}
+                  <span className="truncate">{section.projectLabel}</span>
+                </p>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                {section.workspaceSlug
+                  ? `${section.workspaceSlug} / ${section.projectLabel}`
+                  : section.projectLabel}
+              </TooltipContent>
+            </Tooltip>
           ))}
         {section.worktreeGroups.map((g) => renderWorktreeGroup(g, showWorktreeHeaders, dots))}
       </div>
