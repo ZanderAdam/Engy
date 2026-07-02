@@ -45,6 +45,7 @@ import {
   COMMAND_CENTER_GROUP_KEY,
 } from './command-center/use-command-center-mode';
 import { groupTabsByProject } from './command-center/grouping';
+import { cloneScopeForNewTerminal } from './command-center/new-terminal-scope';
 import {
   getTerminalRailBoxStyle,
   type TerminalDropdownGroup,
@@ -129,15 +130,17 @@ export function TerminalRail({
   const sections = commandCenter
     ? groupTabsByProject(tabs).map((pg) => ({
         key: pg.key,
-        projectLabel: pg.label as string | undefined,
+        projectLabel: pg.label,
+        isProject: pg.isProject,
         workspaceSlug: pg.workspaceSlug,
         worktreeGroups: pg.worktreeGroups,
       }))
     : [
         {
           key: '__all__',
-          projectLabel: undefined as string | undefined,
-          workspaceSlug: undefined as string | undefined,
+          projectLabel: undefined,
+          isProject: false,
+          workspaceSlug: undefined,
           worktreeGroups: groupTabsByWorktree(tabs),
         },
       ];
@@ -200,23 +203,46 @@ export function TerminalRail({
               </TooltipContent>
             </Tooltip>
           ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <p className="flex items-baseline gap-1 truncate px-2 pt-1.5 pb-0.5 text-xs font-semibold text-foreground/80">
-                  {section.workspaceSlug && (
-                    <span className="max-w-[45%] shrink-0 truncate font-normal text-muted-foreground">
-                      {section.workspaceSlug} /
-                    </span>
-                  )}
-                  <span className="truncate">{section.projectLabel}</span>
-                </p>
-              </TooltipTrigger>
-              <TooltipContent side="left">
-                {section.workspaceSlug
-                  ? `${section.workspaceSlug} / ${section.projectLabel}`
-                  : section.projectLabel}
-              </TooltipContent>
-            </Tooltip>
+            <div className="group/section flex items-center gap-1 pr-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <p className="flex min-w-0 flex-1 items-baseline gap-1 truncate px-2 pt-1.5 pb-0.5 text-xs font-semibold text-foreground/80">
+                    {section.workspaceSlug && (
+                      <span className="max-w-[45%] shrink-0 truncate font-normal text-muted-foreground">
+                        {section.workspaceSlug} /
+                      </span>
+                    )}
+                    <span className="truncate">{section.projectLabel}</span>
+                  </p>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  {section.workspaceSlug
+                    ? `${section.workspaceSlug} / ${section.projectLabel}`
+                    : section.projectLabel}
+                </TooltipContent>
+              </Tooltip>
+              {section.isProject && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cloned = cloneScopeForNewTerminal(section.worktreeGroups);
+                        if (cloned) openTerminalFromRail(cloned);
+                      }}
+                      aria-label={`New terminal in ${section.projectLabel}`}
+                      className={cn(
+                        'mt-1 shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground',
+                        isMobile ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100',
+                      )}
+                    >
+                      <RiAddLine className="size-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">New terminal in {section.projectLabel}</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
           ))}
         {section.worktreeGroups.map((g) => renderWorktreeGroup(g, showWorktreeHeaders, dots))}
       </div>

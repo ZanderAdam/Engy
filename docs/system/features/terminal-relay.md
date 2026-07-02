@@ -151,6 +151,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-140 | IF a spawn command on a host-mode session (no `containerWorkspaceFolder` and no `coderWorkspace`) contains `--dangerously-skip-permissions`, the system SHALL send `{ t: 'exit', sessionId, exitCode: 1 }` and not spawn the PTY. |
 | FR-TERMINAL-150 | WHEN a client requests the global terminal list via `GET /api/terminal/sessions?all=1`, the system SHALL return every session in `terminalSessionMeta`, each carrying `projectSlug`, `worktreeBranch`, and `activityState`. |
 | FR-TERMINAL-160 | WHILE Command Center mode is enabled (a global toggle in the terminal rail, shared across all project tabs), the terminal sidebar's existing rail and dock SHALL list every terminal across all projects — grouped by project then by worktree branch, with project-less sessions in a trailing bucket — instead of only the current project's; toggling it off SHALL restore the current project's terminals. |
+| FR-TERMINAL-170 | WHILE Command Center mode is enabled, WHEN the user activates a project group's new-terminal control, the system SHALL open a new terminal whose scope is cloned from that group's first terminal — base label without any trailing ordinal suffix, no task binding — so the session registers under that project's own groupKey. |
 
 ## Sources
 

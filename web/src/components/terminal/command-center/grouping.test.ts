@@ -46,6 +46,7 @@ describe('command center', () => {
       const groups = groupTabsByProject(tabs);
 
       expect(groups.map((g) => g.label)).toEqual(['alpha', 'Other terminals']);
+      expect(groups.map((g) => g.isProject)).toEqual([true, false]);
     });
 
     it('[FR-TERMINAL-160] returns no groups for an empty session list', () => {

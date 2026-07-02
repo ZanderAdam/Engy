@@ -6,6 +6,8 @@ interface CommandCenterProjectGroup {
   key: string;
   /** Display label — project slug, or a workspace/other fallback. */
   label: string;
+  /** False for the "Other terminals" catch-all (workspace/dir-scoped sessions). */
+  isProject: boolean;
   /** Optional workspace slug shown as a secondary line when present. */
   workspaceSlug?: string;
   /** Terminals grouped by worktree branch within this project. */
@@ -48,6 +50,7 @@ export function groupTabsByProject(tabs: TerminalTab[]): CommandCenterProjectGro
   const groups = Array.from(byProject.entries()).map(([key, bucket]) => ({
     key,
     label: projectLabel(bucket[0].scope),
+    isProject: key !== OTHER_KEY,
     workspaceSlug: bucket[0].scope.projectSlug ? bucket[0].scope.workspaceSlug : undefined,
     worktreeGroups: groupTabsByWorktree(bucket),
     count: bucket.length,
