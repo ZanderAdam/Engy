@@ -191,8 +191,8 @@ export function TerminalRail({
           (dots ? (
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="text-[9px] font-semibold uppercase text-muted-foreground">
-                  {section.projectLabel.slice(0, 3)}
+                <span className="block max-w-8 truncate text-[9px] font-semibold uppercase text-muted-foreground">
+                  {section.projectLabel}
                 </span>
               </TooltipTrigger>
               <TooltipContent side="left" className="text-xs">

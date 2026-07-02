@@ -74,5 +74,22 @@ describe('terminal relay', () => {
 
       expect(result.map((r) => r.sessionId)).toEqual(['s1']);
     });
+
+    it('[FR-TERMINAL-150] non-all mode with no groupKey falls back to scopeType + scopeLabel', () => {
+      const state = makeState([
+        ['s1', meta({ groupKey: undefined, scopeType: 'project', scopeLabel: 'claude: web' })],
+        ['s2', meta({ groupKey: undefined, scopeType: 'project', scopeLabel: 'claude: api' })],
+        ['s3', meta({ groupKey: undefined, scopeType: 'dir', scopeLabel: 'claude: web' })],
+      ]);
+
+      const result = listTerminalSessions(state, {
+        all: false,
+        groupKey: null,
+        scopeType: 'project',
+        scopeLabel: 'claude: web',
+      });
+
+      expect(result.map((r) => r.sessionId)).toEqual(['s1']);
+    });
   });
 });

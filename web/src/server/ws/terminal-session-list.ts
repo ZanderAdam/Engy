@@ -46,13 +46,11 @@ export function listTerminalSessions(
   query: TerminalSessionListQuery,
 ): TerminalSessionListItem[] {
   return Array.from(state.terminalSessionMeta.entries())
-    .filter(([, m]) =>
-      query.all
-        ? true
-        : query.groupKey != null
-          ? m.groupKey === query.groupKey
-          : m.scopeType === query.scopeType && m.scopeLabel === query.scopeLabel,
-    )
+    .filter(([, m]) => {
+      if (query.all) return true;
+      if (query.groupKey != null) return m.groupKey === query.groupKey;
+      return m.scopeType === query.scopeType && m.scopeLabel === query.scopeLabel;
+    })
     .map(([sessionId, m]) => {
       const browserCount = openBrowserCount(state.terminalSessions.get(sessionId));
       return {
