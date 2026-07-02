@@ -35,18 +35,6 @@ interface MaybeDispatchCiFixInput {
   workspace: typeof workspaces.$inferSelect;
 }
 
-function persistAttentionReason(
-  db: Db,
-  repo: string,
-  prNumber: number,
-  reason: string,
-): void {
-  db.update(prs)
-    .set({ attentionReason: reason, updatedAt: new Date().toISOString() })
-    .where(and(eq(prs.repo, repo), eq(prs.number, prNumber)))
-    .run();
-}
-
 function clearAttentionReason(db: Db, repo: string, prNumber: number): void {
   db.update(prs)
     .set({ attentionReason: null, updatedAt: new Date().toISOString() })
@@ -60,7 +48,10 @@ function setAttentionReason(
   prRow: typeof prs.$inferSelect,
   reason: string,
 ): void {
-  persistAttentionReason(db, prRow.repo, prRow.number, reason);
+  db.update(prs)
+    .set({ attentionReason: reason, updatedAt: new Date().toISOString() })
+    .where(and(eq(prs.repo, prRow.repo), eq(prs.number, prRow.number)))
+    .run();
   broadcastPrAttention(workspace.id, prRow.repo, prRow.number, reason);
 }
 
