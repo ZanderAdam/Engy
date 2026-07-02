@@ -369,8 +369,8 @@ export interface AppState {
   fileChangeListeners: Set<WebSocket>;
   /** Callbacks for streaming container build progress to terminals */
   containerProgressListeners: Map<string, (line: string) => void>;
-  /** Timer handle for the PR polling interval; null until startPrPoller is called */
-  prPollerTimer: ReturnType<typeof setInterval> | null;
+  /** Timer handle for the PR polling self-scheduling chain; null until startPrPoller is called */
+  prPollerTimer: ReturnType<typeof setTimeout> | null;
   /** Repos that have errored in the most recent poll cycle (log-once guard) */
   prPollerErroredRepos: Set<string>;
 }

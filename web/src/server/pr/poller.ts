@@ -42,24 +42,39 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
   }
 }
 
+/**
+ * Starts the PR poller using a self-scheduling setTimeout chain so that a slow
+ * cycle (many repos × dispatch timeout) never overlaps with the next one. The
+ * next tick is only scheduled after the current cycle fully settles.
+ */
 export function startPrPoller(state: AppState, db?: Db): void {
   if (state.prPollerTimer !== null) return;
 
-  const dbToUse = db ?? getDb();
+  const run = (): void => {
+    // Guard against stopPrPoller being called before this callback executed.
+    if (state.prPollerTimer === null) return;
 
-  const timer = setInterval(() => {
-    runPollCycle(state, dbToUse).catch((err: unknown) => {
-      console.error('[pr-poller] unexpected cycle error:', err);
-    });
-  }, POLL_INTERVAL_MS);
+    runPollCycle(state, db ?? getDb())
+      .catch((err: unknown) => {
+        console.error('[pr-poller] unexpected cycle error:', err);
+      })
+      .finally(() => {
+        // Only reschedule if the poller hasn't been stopped during this cycle.
+        if (state.prPollerTimer === null) return;
+        const timer = setTimeout(run, POLL_INTERVAL_MS);
+        timer.unref();
+        state.prPollerTimer = timer;
+      });
+  };
 
+  const timer = setTimeout(run, POLL_INTERVAL_MS);
   timer.unref();
   state.prPollerTimer = timer;
 }
 
 export function stopPrPoller(state: AppState): void {
   if (state.prPollerTimer !== null) {
-    clearInterval(state.prPollerTimer);
+    clearTimeout(state.prPollerTimer);
     state.prPollerTimer = null;
   }
 }

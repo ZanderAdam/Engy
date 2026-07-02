@@ -221,6 +221,22 @@ describe('pr router', () => {
       const row = ctx.db.select().from(prs).where(eq(prs.number, 7)).get();
       expect(row?.state).toBe('open');
     });
+
+    it('should roll back all writes atomically when a batch insert fails mid-way', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+
+      // Two PRs with the same number violate the unique (repo, number) constraint.
+      // The second insert throws, which must roll back the first — no partial rows.
+      expect(() =>
+        upsertPrs(ctx.db, '/repo-a', [
+          makePr({ number: 1 }),
+          makePr({ number: 1, title: 'duplicate' }),
+        ]),
+      ).toThrow();
+
+      const rows = ctx.db.select().from(prs).where(eq(prs.repo, '/repo-a')).all();
+      expect(rows).toHaveLength(0);
+    });
   });
 
   describe('list', () => {
@@ -299,6 +315,63 @@ describe('pr router', () => {
       expect(result[0].worktreePath).toBe('/new-wt');
     });
 
+    it('should scope session correlation by repo so identically-named branches do not cross-correlate', async () => {
+      const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b']);
+
+      // Project for repo-a
+      ctx.db
+        .insert(projects)
+        .values({ workspaceId: ws.id, name: 'PA', slug: 'pa', projectDir: '/repo-a' })
+        .run();
+      const projA = ctx.db.select().from(projects).where(eq(projects.slug, 'pa')).get()!;
+      ctx.db.insert(taskGroups).values({ projectId: projA.id, name: 'TGA', numInMilestone: 0 }).run();
+      const tgA = ctx.db.select().from(taskGroups).where(eq(taskGroups.projectId, projA.id)).get()!;
+
+      // Project for repo-b
+      ctx.db
+        .insert(projects)
+        .values({ workspaceId: ws.id, name: 'PB', slug: 'pb', projectDir: '/repo-b' })
+        .run();
+      const projB = ctx.db.select().from(projects).where(eq(projects.slug, 'pb')).get()!;
+      ctx.db.insert(taskGroups).values({ projectId: projB.id, name: 'TGB', numInMilestone: 0 }).run();
+      const tgB = ctx.db.select().from(taskGroups).where(eq(taskGroups.projectId, projB.id)).get()!;
+
+      // Same branch name in two separate repo sessions
+      ctx.db
+        .insert(agentSessions)
+        .values([
+          {
+            sessionId: 'sess-a',
+            taskGroupId: tgA.id,
+            branch: 'feat/shared',
+            worktreePath: '/wt-a',
+            createdAt: '2024-01-01T00:00:00.000Z',
+            updatedAt: '2024-01-01T00:00:00.000Z',
+          },
+          {
+            sessionId: 'sess-b',
+            taskGroupId: tgB.id,
+            branch: 'feat/shared',
+            worktreePath: '/wt-b',
+            createdAt: '2024-01-01T00:00:00.000Z',
+            updatedAt: '2024-01-01T00:00:00.000Z',
+          },
+        ])
+        .run();
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, headBranch: 'feat/shared' })]);
+      upsertPrs(ctx.db, '/repo-b', [makePr({ number: 2, headBranch: 'feat/shared' })]);
+
+      const result = await caller.pr.list({ workspaceId: ws.id });
+      expect(result).toHaveLength(2);
+
+      const prA = result.find((r) => r.repo === '/repo-a');
+      const prB = result.find((r) => r.repo === '/repo-b');
+
+      expect(prA?.sessionId).toBe('sess-a');
+      expect(prB?.sessionId).toBe('sess-b');
+    });
+
     it('should return null session fields when no matching agent session exists', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
 
@@ -340,6 +413,39 @@ describe('pr router', () => {
 
       const stored = ctx.db.select().from(prs).all();
       expect(stored).toHaveLength(2);
+    });
+
+    it('should call dispatchGhAuthStatus only once regardless of repo count', async () => {
+      const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b', '/repo-c']);
+
+      let authCallCount = 0;
+      const mock = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (raw: string) => {
+          const msg = JSON.parse(raw) as DaemonMessage;
+          const { requestId } = msg.payload;
+          queueMicrotask(() => {
+            if (msg.type === 'GH_AUTH_STATUS_REQUEST') {
+              authCallCount++;
+              const pending = ctx.state.pendingGhAuthStatus.get(requestId);
+              if (!pending) return;
+              ctx.state.pendingGhAuthStatus.delete(requestId);
+              pending.resolve({ status: { ok: true } });
+            } else if (msg.type === 'GH_PR_LIST_REQUEST') {
+              const pending = ctx.state.pendingGhPrList.get(requestId);
+              if (!pending) return;
+              ctx.state.pendingGhPrList.delete(requestId);
+              pending.resolve({ prs: [] });
+            }
+          });
+        },
+      };
+      ctx.state.daemon = mock as unknown as WebSocket;
+
+      await caller.pr.refresh({ workspaceId: ws.id });
+
+      expect(authCallCount).toBe(1);
     });
 
     it('should return gh-not-installed error when gh CLI is not installed', async () => {

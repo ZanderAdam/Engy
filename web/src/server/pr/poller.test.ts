@@ -223,5 +223,40 @@ describe('PR poller', () => {
 
       vi.useRealTimers();
     });
+
+    it('should not start a new cycle while the previous one is still in progress', async () => {
+      vi.useFakeTimers();
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      seedWorkspace(ctx, ['/repo-a']);
+
+      let dispatchCount = 0;
+      // Daemon that counts dispatches but never responds — first cycle hangs indefinitely.
+      const mock = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (raw: string) => {
+          const msg = JSON.parse(raw) as DaemonMessage;
+          if (msg.type === 'GH_PR_LIST_REQUEST') {
+            dispatchCount++;
+            // Intentionally no response — the pending promise never resolves.
+          }
+        },
+      };
+      ctx.state.daemon = mock as unknown as WebSocket;
+
+      startPrPoller(ctx.state, ctx.db);
+
+      // First cycle fires and hangs (or times out after the dispatch timeout window).
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      expect(dispatchCount).toBe(1);
+
+      // Advancing by another full interval must NOT start a second cycle because
+      // the self-scheduling timer is only set after the current cycle finishes.
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      expect(dispatchCount).toBe(1);
+
+      consoleSpy.mockRestore();
+      vi.useRealTimers();
+    });
   });
 });
