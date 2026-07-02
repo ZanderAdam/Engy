@@ -2649,3 +2649,174 @@ describe('[FR-WS-140] WsClient pong deadline', () => {
     expect(connCount).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('WsClient GH handlers', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => wss.once('connection', resolve));
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => ws.once('message', (data) => resolve(data.toString())));
+  }
+
+  beforeEach(async () => {
+    mockedExecFile[promisify.custom].mockReset();
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) resolve();
+      else server.on('listening', () => resolve());
+    });
+    port = (server.address() as { port: number }).port;
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  async function setupAndSend(req: object): Promise<string> {
+    const connPromise = waitForConnection(server);
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+    ws.send(JSON.stringify(req));
+    return waitForMessage(ws);
+  }
+
+  it('GH_PR_LIST_REQUEST returns empty PR list via local gh runner', async () => {
+    mockedExecFile[promisify.custom].mockResolvedValue({ stdout: '[]', stderr: '' });
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_LIST_REQUEST',
+        payload: { requestId: 'gh-pr-1', repoDir: '/home/user/repo' },
+      }),
+    );
+
+    expect(response).toEqual({
+      type: 'GH_PR_LIST_RESPONSE',
+      payload: { requestId: 'gh-pr-1', prs: [] },
+    });
+    // Local runner calls 'gh' directly, not 'coder'
+    expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining(['pr', 'list']),
+      expect.objectContaining({ cwd: '/home/user/repo' }),
+    );
+  });
+
+  it('GH_PR_LIST_REQUEST runs gh via coder ssh when coderWorkspace is set', async () => {
+    mockedExecFile[promisify.custom].mockResolvedValue({ stdout: '[]', stderr: '' });
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_LIST_REQUEST',
+        payload: {
+          requestId: 'gh-pr-coder-1',
+          repoDir: '/home/user/repo',
+          coderWorkspace: 'my-workspace',
+        },
+      }),
+    );
+
+    expect(response).toEqual({
+      type: 'GH_PR_LIST_RESPONSE',
+      payload: { requestId: 'gh-pr-coder-1', prs: [] },
+    });
+    // Coder runner calls 'coder ssh' with the workspace name
+    expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
+      'coder',
+      expect.arrayContaining(['ssh', '--no-wait', 'my-workspace']),
+      expect.any(Object),
+    );
+    // The remote command should cd to the repoDir before running gh
+    const callArgs = mockedExecFile[promisify.custom].mock.calls[0]?.[1] as string[];
+    const remoteCmd = callArgs[callArgs.length - 1];
+    expect(remoteCmd).toContain('/home/user/repo');
+    expect(remoteCmd).toContain('gh');
+  });
+
+  it('GH_PR_LIST_REQUEST sends error response on runner failure', async () => {
+    mockedExecFile[promisify.custom].mockRejectedValue(new Error('gh: not a git repository'));
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_LIST_REQUEST',
+        payload: { requestId: 'gh-pr-err', repoDir: '/not-a-repo' },
+      }),
+    );
+
+    expect(response.type).toBe('GH_PR_LIST_RESPONSE');
+    expect(response.payload.error).toMatch('gh: not a git repository');
+  });
+
+  it('GH_AUTH_STATUS_REQUEST returns authenticated status via local gh runner', async () => {
+    mockedExecFile[promisify.custom].mockResolvedValue({
+      stdout: 'Logged in to github.com account alice',
+      stderr: '',
+    });
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_AUTH_STATUS_REQUEST',
+        payload: { requestId: 'gh-auth-1' },
+      }),
+    );
+
+    expect(response).toEqual({
+      type: 'GH_AUTH_STATUS_RESPONSE',
+      payload: { requestId: 'gh-auth-1', status: { ok: true } },
+    });
+    expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining(['auth', 'status']),
+      expect.any(Object),
+    );
+  });
+
+  it('GH_AUTH_STATUS_REQUEST runs gh auth status via coder ssh when coderWorkspace is set', async () => {
+    mockedExecFile[promisify.custom].mockResolvedValue({
+      stdout: 'Logged in to github.com account alice',
+      stderr: '',
+    });
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_AUTH_STATUS_REQUEST',
+        payload: { requestId: 'gh-auth-coder-1', coderWorkspace: 'my-workspace' },
+      }),
+    );
+
+    expect(response).toEqual({
+      type: 'GH_AUTH_STATUS_RESPONSE',
+      payload: { requestId: 'gh-auth-coder-1', status: { ok: true } },
+    });
+    // Coder runner calls 'coder ssh' with the workspace name
+    expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
+      'coder',
+      expect.arrayContaining(['ssh', '--no-wait', 'my-workspace']),
+      expect.any(Object),
+    );
+  });
+
+  it('GH_AUTH_STATUS_REQUEST sends error response when gh runner throws unexpected error', async () => {
+    const networkErr = Object.assign(new Error('connect ECONNREFUSED'), { stderr: '' });
+    mockedExecFile[promisify.custom].mockRejectedValue(networkErr);
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_AUTH_STATUS_REQUEST',
+        payload: { requestId: 'gh-auth-err' },
+      }),
+    );
+
+    // Unexpected errors propagate to the WS handler's catch block
+    expect(response.type).toBe('GH_AUTH_STATUS_RESPONSE');
+    expect(response.payload.error).toMatch('connect ECONNREFUSED');
+  });
+});

@@ -5,7 +5,7 @@ function makeRunner(stdout: string): GhRunner {
   return async () => ({ stdout, stderr: '' });
 }
 
-function makeErrorRunner(err: Partial<NodeJS.ErrnoException>): GhRunner {
+function makeErrorRunner(err: Partial<NodeJS.ErrnoException> & { stderr?: string }): GhRunner {
   return async () => {
     const e = Object.assign(new Error(err.message ?? 'command failed'), err);
     throw e;
@@ -238,8 +238,40 @@ describe('checkAuthStatus', () => {
     expect(status).toEqual({ ok: false, reason: 'not-installed' });
   });
 
-  it('returns not-authenticated when gh exits non-zero', async () => {
-    const status = await checkAuthStatus(makeErrorRunner({ message: 'Command failed: gh auth status' }));
+  it('returns not-authenticated when stderr says not logged into any host', async () => {
+    const status = await checkAuthStatus(
+      makeErrorRunner({
+        message: 'Command failed: gh auth status',
+        stderr: 'You are not logged into any GitHub hosts. Run `gh auth login` to authenticate.',
+      }),
+    );
     expect(status).toEqual({ ok: false, reason: 'not-authenticated' });
+  });
+
+  it('returns not-authenticated when stderr says not logged into a specific host', async () => {
+    const status = await checkAuthStatus(
+      makeErrorRunner({
+        message: 'Command failed: gh auth status',
+        stderr: 'github.com\n  X You are not logged into github.com',
+      }),
+    );
+    expect(status).toEqual({ ok: false, reason: 'not-authenticated' });
+  });
+
+  it('returns not-authenticated when message mentions gh auth login guidance', async () => {
+    const status = await checkAuthStatus(
+      makeErrorRunner({ message: 'error: run gh auth login to continue' }),
+    );
+    expect(status).toEqual({ ok: false, reason: 'not-authenticated' });
+  });
+
+  it('throws for unexpected errors unrelated to authentication', async () => {
+    const runner = makeErrorRunner({ message: 'connect ECONNREFUSED 127.0.0.1:443' });
+    await expect(checkAuthStatus(runner)).rejects.toThrow('connect ECONNREFUSED 127.0.0.1:443');
+  });
+
+  it('throws for internal gh errors with no auth-related output', async () => {
+    const runner = makeErrorRunner({ message: 'request timeout after 30s', stderr: 'fatal: internal error' });
+    await expect(checkAuthStatus(runner)).rejects.toThrow('request timeout after 30s');
   });
 });

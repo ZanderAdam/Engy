@@ -42,7 +42,7 @@ import type {
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
-import { listOpenPrs, checkAuthStatus, localGhRunner } from '../gh/index.js';
+import { listOpenPrs, checkAuthStatus, localGhRunner, type GhRunner } from '../gh/index.js';
 import {
   getStatusDetailed,
   getDiff,
@@ -58,7 +58,7 @@ import {
   globTestFiles,
 } from '../git/index.js';
 import { ContainerManager } from '../container/manager.js';
-import { CoderManager } from '../container/coder-manager.js';
+import { CoderManager, shellQuote } from '../container/coder-manager.js';
 import { generateDevcontainerConfig } from '../container/config-generator.js';
 import type { TerminalManager } from '../terminal/manager.js';
 import { Runner } from '../runner/index.js';
@@ -704,6 +704,18 @@ export class WsClient {
   private gitRunnerFor(coderWorkspace?: string): GitRunner {
     if (!coderWorkspace) return localGitRunner;
     return (args) => this.coderManager.execCapture(coderWorkspace, 'git', args);
+  }
+
+  private ghRunnerFor(coderWorkspace?: string): GhRunner {
+    if (!coderWorkspace) return localGhRunner;
+    return async (args: string[], cwd?: string) => {
+      if (cwd) {
+        // gh has no -C flag; run via sh so we can cd first
+        const script = `cd ${shellQuote(cwd)} && gh ${args.map(shellQuote).join(' ')}`;
+        return this.coderManager.execCapture(coderWorkspace, 'sh', ['-c', script]);
+      }
+      return this.coderManager.execCapture(coderWorkspace, 'gh', args);
+    };
   }
 
   private async handleGitStatusRequest(message: GitStatusRequestMessage): Promise<void> {
@@ -1384,9 +1396,9 @@ export class WsClient {
   }
 
   private async handleGhPrListRequest(message: GhPrListRequestMessage): Promise<void> {
-    const { requestId, repoDir } = message.payload;
+    const { requestId, repoDir, coderWorkspace } = message.payload;
     try {
-      const prs = await listOpenPrs(repoDir, localGhRunner);
+      const prs = await listOpenPrs(repoDir, this.ghRunnerFor(coderWorkspace));
       this.send({
         type: 'GH_PR_LIST_RESPONSE',
         payload: { requestId, prs },
@@ -1400,9 +1412,9 @@ export class WsClient {
   }
 
   private async handleGhAuthStatusRequest(message: GhAuthStatusRequestMessage): Promise<void> {
-    const { requestId } = message.payload;
+    const { requestId, coderWorkspace } = message.payload;
     try {
-      const status = await checkAuthStatus(localGhRunner);
+      const status = await checkAuthStatus(this.ghRunnerFor(coderWorkspace));
       this.send({
         type: 'GH_AUTH_STATUS_RESPONSE',
         payload: { requestId, status },

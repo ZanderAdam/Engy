@@ -115,6 +115,22 @@ export async function checkAuthStatus(runner: GhRunner = localGhRunner): Promise
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return { ok: false, reason: 'not-installed' };
-    return { ok: false, reason: 'not-authenticated' };
+
+    // `gh auth status` exits non-zero when the user is not logged in. Confirm
+    // by matching known auth-problem phrases before classifying — anything else
+    // is an unexpected error (network timeout, internal gh error, etc.) and
+    // should propagate so callers can surface the real cause.
+    const stderr = (err as { stderr?: string }).stderr ?? '';
+    const combined = (stderr + '\n' + (err as Error).message).toLowerCase();
+    if (
+      combined.includes('not logged in') ||
+      combined.includes('not logged into') ||
+      combined.includes('gh auth login') ||
+      combined.includes('run gh auth')
+    ) {
+      return { ok: false, reason: 'not-authenticated' };
+    }
+
+    throw err;
   }
 }
