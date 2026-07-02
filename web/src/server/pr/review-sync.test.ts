@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { workspaces, prs as prsTable, commentThreads, threadComments } from '../db/schema';
+import { prs as prsTable, commentThreads, threadComments } from '../db/schema';
 import { syncReviewComments } from './review-sync';
 import type { GhReviewComment } from '@engy/common';
 
