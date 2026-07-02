@@ -161,7 +161,11 @@ Pull GitHub review comments into the existing comment-thread system, render them
 
 ### Completion Summary
 
-_(filled in after TG completes)_
+Shipped 2026-07-02 (commits 42e858f..edb9fac). Both tasks plus review fixes and a self-hardening pass; blt green (2253 tests), diffs-tab + local-commenting browser-validated (triage bar correctly absent without GitHub threads; full triage flow covered by unit tests — no live PR with review comments available).
+
+- Sync: `GH_PR_REVIEW_COMMENTS` op — daemon runs `gh api repos/{o}/{r}/pulls/{n}/comments --paginate --slurp` (slurp is REQUIRED: plain --paginate emits one JSON array per page and JSON.parse throws past 30 comments); `web/src/server/pr/review-sync.ts` imports idempotently as commentThreads/threadComments with deterministic ids (`gh-thread-{githubId}`/`gh-comment-{githubId}`), documentPath `diff://{repo}/{path}`, replies on parent thread, edits update in place, locally-resolved threads never auto-unresolve, deleted-on-GitHub rows preserved. Known gap: force-push line moves don't relocate existing threads (documented in-code).
+- UI: GitHub threads render read-only in monaco-comment-zone (author, GitHub badge, View-on-GitHub link, no reply/delete); `github-comment-triage.tsx` bar (only when unresolved GitHub threads exist) with per-thread checkboxes, bulk/per-thread Dismiss (local resolveThread only), "Fix Selected" → blockquoted `generateGithubFeedback` markdown (injection-hardened) → `sendFeedback` to the correlated session (session resolved via pr.list matching headBranch+repo of the active project worktree) with paste-to-terminal fallback; isPending double-dispatch guard; Promise.allSettled bulk dismiss.
+- M11 exit criteria met: PRs tab with CI status (TG1), auto-dispatch for CI fixes (TG2), reviewer comment triage with selective fix dispatch (TG3).
 
 ## Out of Scope
 
