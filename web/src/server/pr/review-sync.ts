@@ -31,7 +31,7 @@ function commentIdFor(githubId: number): string {
  * thread's documentPath or lineNumber. The thread keeps the position from when
  * it was first imported.
  */
-export interface ReviewCommentSyncSummary {
+interface ReviewCommentSyncSummary {
   created: number;
   updated: number;
 }
