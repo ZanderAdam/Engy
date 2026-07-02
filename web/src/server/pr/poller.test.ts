@@ -95,7 +95,7 @@ describe('PR poller', () => {
       const pr2 = makePr({ number: 2 });
       installFakeDaemon(
         ctx,
-        new Map([
+        new Map<string, GhPr[] | Error>([
           ['/repo-a', [pr1]],
           ['/repo-b', [pr2]],
         ]),
@@ -111,7 +111,7 @@ describe('PR poller', () => {
 
     it('should broadcast on material change', async () => {
       const ws = ctx.db.insert(workspaces).values({ name: 'WS', slug: 'ws', repos: ['/repo-a'] }).returning().get();
-      installFakeDaemon(ctx, new Map([['/repo-a', [makePr({ number: 1 })]]]));
+      installFakeDaemon(ctx, new Map<string, GhPr[] | Error>([['/repo-a', [makePr({ number: 1 })]]]));
 
       await runPollCycle(ctx.state, ctx.db);
 
@@ -121,7 +121,7 @@ describe('PR poller', () => {
 
     it('should not broadcast when PRs have not changed', async () => {
       seedWorkspace(ctx, ['/repo-a']);
-      installFakeDaemon(ctx, new Map([['/repo-a', [makePr({ number: 1 })]]]));
+      installFakeDaemon(ctx, new Map<string, GhPr[] | Error>([['/repo-a', [makePr({ number: 1 })]]]));
 
       // First cycle inserts — material change → broadcast
       await runPollCycle(ctx.state, ctx.db);
@@ -137,7 +137,7 @@ describe('PR poller', () => {
       seedWorkspace(ctx, ['/repo-err', '/repo-ok']);
       installFakeDaemon(
         ctx,
-        new Map([
+        new Map<string, GhPr[] | Error>([
           ['/repo-err', new Error('gh not installed')],
           ['/repo-ok', [makePr({ number: 99 })]],
         ]),
@@ -151,7 +151,7 @@ describe('PR poller', () => {
 
     it('should log an error for a failing repo only once across multiple cycles', async () => {
       seedWorkspace(ctx, ['/repo-err']);
-      installFakeDaemon(ctx, new Map([['/repo-err', new Error('auth failure')]]));
+      installFakeDaemon(ctx, new Map<string, GhPr[] | Error>([['/repo-err', new Error('auth failure')]]));
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
       await runPollCycle(ctx.state, ctx.db);
@@ -168,18 +168,18 @@ describe('PR poller', () => {
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
       // First cycle: error
-      installFakeDaemon(ctx, new Map([['/repo-a', new Error('fail')]]));
+      installFakeDaemon(ctx, new Map<string, GhPr[] | Error>([['/repo-a', new Error('fail')]]));
       await runPollCycle(ctx.state, ctx.db);
       expect(errorSpy).toHaveBeenCalledOnce();
       errorSpy.mockClear();
 
       // Second cycle: success (recovers → clears flag)
-      installFakeDaemon(ctx, new Map([['/repo-a', [makePr()]]]));
+      installFakeDaemon(ctx, new Map<string, GhPr[] | Error>([['/repo-a', [makePr()]]]));
       await runPollCycle(ctx.state, ctx.db);
       expect(errorSpy).not.toHaveBeenCalled();
 
       // Third cycle: error again (flag was cleared → logs again)
-      installFakeDaemon(ctx, new Map([['/repo-a', new Error('fail again')]]));
+      installFakeDaemon(ctx, new Map<string, GhPr[] | Error>([['/repo-a', new Error('fail again')]]));
       await runPollCycle(ctx.state, ctx.db);
       expect(errorSpy).toHaveBeenCalledOnce();
 
@@ -212,7 +212,7 @@ describe('PR poller', () => {
     it('should fire the poll cycle on the configured interval', async () => {
       vi.useFakeTimers();
       seedWorkspace(ctx, ['/repo-a']);
-      installFakeDaemon(ctx, new Map([['/repo-a', [makePr()]]]));
+      installFakeDaemon(ctx, new Map<string, GhPr[] | Error>([['/repo-a', [makePr()]]]));
 
       startPrPoller(ctx.state, ctx.db);
       expect(broadcastSpy).not.toHaveBeenCalled();
