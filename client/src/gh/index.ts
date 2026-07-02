@@ -129,7 +129,7 @@ const SECRET_PATTERNS: RegExp[] = [
   /github_pat_[A-Za-z0-9_]{20,}/g,
   /AKIA[0-9A-Z]{16}/g,
   /Bearer\s+[A-Za-z0-9\-._~+/]+=*/g,
-  /xox[a-z]-[A-Za-z0-9\-]{10,}/g,
+  /xox[a-z]-[A-Za-z0-9-]{10,}/g,
 ];
 
 function redactSecrets(text: string): string {
