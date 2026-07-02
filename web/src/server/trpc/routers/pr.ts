@@ -9,10 +9,9 @@ import type { GhPr } from '@engy/common';
 
 type Db = ReturnType<typeof getDb>;
 
-export type PrState = 'open' | 'closed' | 'merged';
-export type PrCiStatus = 'pending' | 'passing' | 'failing' | 'unknown';
+type PrState = 'open' | 'closed' | 'merged';
 
-export interface MaterialChange {
+interface MaterialChange {
   number: number;
   repo: string;
   type: 'new' | 'ciStatus' | 'state' | 'reviewDecision';
@@ -20,7 +19,7 @@ export interface MaterialChange {
   current: string;
 }
 
-export interface UpsertResult {
+interface UpsertResult {
   inserted: number;
   updated: number;
   closed: number;

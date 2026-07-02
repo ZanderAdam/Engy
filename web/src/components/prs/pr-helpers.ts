@@ -53,7 +53,7 @@ export function formatRelativeTime(isoDate: string): string {
   return `${days}d ago`;
 }
 
-export interface CheckSummary {
+interface CheckSummary {
   passing: number;
   failing: number;
   pending: number;
