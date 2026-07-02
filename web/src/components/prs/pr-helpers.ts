@@ -1,5 +1,28 @@
 import type { GhPrCheck, GhPrCiStatus } from '@engy/common';
 
+export function deriveCheckState(
+  status: string,
+  conclusion: string | null,
+): 'passing' | 'failing' | 'pending' {
+  const lowerConclusion = conclusion?.toLowerCase();
+  if (lowerConclusion === 'success' || lowerConclusion === 'skipped' || lowerConclusion === 'neutral') {
+    return 'passing';
+  }
+  if (
+    lowerConclusion === 'failure' ||
+    lowerConclusion === 'timed_out' ||
+    lowerConclusion === 'cancelled' ||
+    lowerConclusion === 'action_required'
+  ) {
+    return 'failing';
+  }
+  // conclusion is null or unrecognized — use status (covers StatusContext entries)
+  const lowerStatus = status.toLowerCase();
+  if (lowerStatus === 'success') return 'passing';
+  if (lowerStatus === 'failure' || lowerStatus === 'error') return 'failing';
+  return 'pending';
+}
+
 export function ciStatusLabel(status: GhPrCiStatus): string {
   switch (status) {
     case 'passing':
@@ -66,19 +89,10 @@ export function summarizeChecks(checks: GhPrCheck[]): CheckSummary {
   let pending = 0;
 
   for (const check of checks) {
-    const conclusion = check.conclusion?.toLowerCase();
-    if (conclusion === 'success' || conclusion === 'skipped' || conclusion === 'neutral') {
-      passing++;
-    } else if (
-      conclusion === 'failure' ||
-      conclusion === 'timed_out' ||
-      conclusion === 'cancelled' ||
-      conclusion === 'action_required'
-    ) {
-      failing++;
-    } else {
-      pending++;
-    }
+    const state = deriveCheckState(check.status, check.conclusion);
+    if (state === 'passing') passing++;
+    else if (state === 'failing') failing++;
+    else pending++;
   }
 
   return { passing, failing, pending, total: checks.length };

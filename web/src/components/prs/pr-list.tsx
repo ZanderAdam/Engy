@@ -23,6 +23,7 @@ import {
   reviewDecisionLabel,
   formatRelativeTime,
   summarizeChecks,
+  deriveCheckState,
 } from './pr-helpers';
 import type { GhPrCheck, GhPrCiStatus } from '@engy/common';
 
@@ -51,19 +52,10 @@ interface PrListProps {
   projectSlug: string;
 }
 
-function CheckIcon({ conclusion }: { conclusion: string | null }) {
-  const lower = conclusion?.toLowerCase();
-  if (lower === 'success' || lower === 'skipped' || lower === 'neutral') {
-    return <RiCheckLine className="size-3 text-green-400 shrink-0" />;
-  }
-  if (
-    lower === 'failure' ||
-    lower === 'timed_out' ||
-    lower === 'cancelled' ||
-    lower === 'action_required'
-  ) {
-    return <RiCloseLine className="size-3 text-red-400 shrink-0" />;
-  }
+function CheckIcon({ status, conclusion }: { status: string; conclusion: string | null }) {
+  const state = deriveCheckState(status, conclusion);
+  if (state === 'passing') return <RiCheckLine className="size-3 text-green-400 shrink-0" />;
+  if (state === 'failing') return <RiCloseLine className="size-3 text-red-400 shrink-0" />;
   return <RiLoader4Line className="size-3 text-amber-400 shrink-0 animate-spin" />;
 }
 
@@ -88,8 +80,8 @@ function ChecksPopover({ checks }: { checks: GhPrCheck[] }) {
       <PopoverContent className="w-80 p-0" align="start">
         <div className="divide-y divide-border">
           {checks.map((check, i) => (
-            <div key={i} className="flex items-start gap-2 px-3 py-2">
-              <CheckIcon conclusion={check.conclusion} />
+            <div key={`${check.name}-${i}`} className="flex items-start gap-2 px-3 py-2">
+              <CheckIcon status={check.status} conclusion={check.conclusion} />
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-medium text-foreground truncate">{check.name}</p>
                 {check.conclusion && (

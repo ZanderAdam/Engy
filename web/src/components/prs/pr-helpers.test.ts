@@ -5,6 +5,7 @@ import {
   reviewDecisionLabel,
   formatRelativeTime,
   summarizeChecks,
+  deriveCheckState,
 } from './pr-helpers';
 import type { GhPrCheck } from '@engy/common';
 
@@ -96,6 +97,60 @@ describe('formatRelativeTime', () => {
   });
 });
 
+describe('deriveCheckState', () => {
+  it('should return passing for success conclusion', () => {
+    expect(deriveCheckState('completed', 'success')).toBe('passing');
+  });
+
+  it('should return passing for skipped conclusion', () => {
+    expect(deriveCheckState('completed', 'skipped')).toBe('passing');
+  });
+
+  it('should return passing for neutral conclusion', () => {
+    expect(deriveCheckState('completed', 'neutral')).toBe('passing');
+  });
+
+  it('should return failing for failure conclusion', () => {
+    expect(deriveCheckState('completed', 'failure')).toBe('failing');
+  });
+
+  it('should return failing for timed_out conclusion', () => {
+    expect(deriveCheckState('completed', 'timed_out')).toBe('failing');
+  });
+
+  it('should return failing for cancelled conclusion', () => {
+    expect(deriveCheckState('completed', 'cancelled')).toBe('failing');
+  });
+
+  it('should return failing for action_required conclusion', () => {
+    expect(deriveCheckState('completed', 'action_required')).toBe('failing');
+  });
+
+  it('should return pending for in_progress CheckRun with null conclusion', () => {
+    expect(deriveCheckState('in_progress', null)).toBe('pending');
+  });
+
+  it('should return pending for queued CheckRun with null conclusion', () => {
+    expect(deriveCheckState('queued', null)).toBe('pending');
+  });
+
+  it('should return passing for StatusContext SUCCESS status', () => {
+    expect(deriveCheckState('SUCCESS', null)).toBe('passing');
+  });
+
+  it('should return failing for StatusContext FAILURE status', () => {
+    expect(deriveCheckState('FAILURE', null)).toBe('failing');
+  });
+
+  it('should return failing for StatusContext ERROR status', () => {
+    expect(deriveCheckState('ERROR', null)).toBe('failing');
+  });
+
+  it('should return pending for StatusContext PENDING status', () => {
+    expect(deriveCheckState('PENDING', null)).toBe('pending');
+  });
+});
+
 describe('summarizeChecks', () => {
   it('should return zeros for empty checks', () => {
     expect(summarizeChecks([])).toEqual({ passing: 0, failing: 0, pending: 0, total: 0 });
@@ -130,5 +185,26 @@ describe('summarizeChecks', () => {
       { name: 'deploy', status: 'completed', conclusion: 'skipped', detailsUrl: null },
     ];
     expect(summarizeChecks(checks)).toEqual({ passing: 2, failing: 1, pending: 1, total: 4 });
+  });
+
+  it('should count StatusContext SUCCESS as passing', () => {
+    const checks: GhPrCheck[] = [
+      { name: 'ci/travis', status: 'SUCCESS', conclusion: null, detailsUrl: null },
+    ];
+    expect(summarizeChecks(checks)).toEqual({ passing: 1, failing: 0, pending: 0, total: 1 });
+  });
+
+  it('should count StatusContext FAILURE as failing', () => {
+    const checks: GhPrCheck[] = [
+      { name: 'ci/travis', status: 'FAILURE', conclusion: null, detailsUrl: null },
+    ];
+    expect(summarizeChecks(checks)).toEqual({ passing: 0, failing: 1, pending: 0, total: 1 });
+  });
+
+  it('should count StatusContext ERROR as failing', () => {
+    const checks: GhPrCheck[] = [
+      { name: 'ci/travis', status: 'ERROR', conclusion: null, detailsUrl: null },
+    ];
+    expect(summarizeChecks(checks)).toEqual({ passing: 0, failing: 1, pending: 0, total: 1 });
   });
 });

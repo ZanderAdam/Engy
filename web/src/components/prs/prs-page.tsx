@@ -94,10 +94,6 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
   const utils = trpc.useUtils();
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
-  const { data: project } = trpc.project.getBySlug.useQuery(
-    { workspaceId: workspace?.id ?? 0, slug: projectSlug },
-    { enabled: !!workspace },
-  );
 
   const workspaceId = workspace?.id ?? 0;
   const workspaceRepos = (workspace?.repos as string[] | null) ?? [];
@@ -165,7 +161,7 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
 
       {/* Body */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {isLoading || !project ? (
+        {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <p className="text-sm text-muted-foreground">Loading…</p>
           </div>
