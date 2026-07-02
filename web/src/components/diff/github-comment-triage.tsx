@@ -79,7 +79,8 @@ export function GithubCommentTriage({
   if (githubThreads.length === 0) return null;
 
   const selectedCount = selectedThreadsList.length;
-  const canFix = selectedCount > 0 && (!!sessionId || terminalActive);
+  const canFix =
+    selectedCount > 0 && !sendFeedbackMutation.isPending && (!!sessionId || terminalActive);
 
   const handleToggle = (threadId: string) => {
     setSelectedIds((prev) => {

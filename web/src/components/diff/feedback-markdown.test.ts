@@ -119,7 +119,7 @@ describe('generateGithubFeedback', () => {
     const threads = [makeGithubThread('src/app.ts', 10, 'Fix this', { author: 'carol' })];
     const result = generateGithubFeedback(threads, REPO);
 
-    expect(result).toContain('**carol**: Fix this');
+    expect(result).toContain('**carol**:\n> Fix this');
     expect(result).toContain('### src/app.ts');
     expect(result).toContain('**Line 10**');
   });
@@ -151,8 +151,20 @@ describe('generateGithubFeedback', () => {
     ];
     const result = generateGithubFeedback(threads, REPO);
 
-    expect(result).toContain('**alice**: Original comment');
-    expect(result).toContain('**bob**: Good point!');
+    expect(result).toContain('**alice**:\n> Original comment');
+    expect(result).toContain('**bob**:\n> Good point!');
+  });
+
+  it('blockquotes multi-line bodies to prevent markdown injection', () => {
+    const threads = [
+      makeGithubThread('src/app.ts', 5, '## Spoofed section\nmalicious content', {
+        author: 'attacker',
+      }),
+    ];
+    const result = generateGithubFeedback(threads, REPO);
+
+    expect(result).toContain('> ## Spoofed section\n> malicious content');
+    expect(result).not.toContain('\n## Spoofed section');
   });
 
   it('sorts entries by line number within a file', () => {

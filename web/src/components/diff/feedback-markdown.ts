@@ -124,7 +124,8 @@ export function generateGithubFeedback(threads: GithubDiffThread[], repoDir: str
         const body = getCommentText(c.body);
         if (!body) return '';
         const label = c.userId ?? author;
-        return `**${label}**: ${body}`;
+        const quotedBody = `> ${body.replace(/\n/g, '\n> ')}`;
+        return `**${label}**:\n${quotedBody}`;
       })
       .filter(Boolean);
 

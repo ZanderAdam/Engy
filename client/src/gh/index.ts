@@ -220,10 +220,12 @@ export async function fetchReviewComments(
   const { nameWithOwner } = JSON.parse(nameOut) as { nameWithOwner: string };
 
   const { stdout } = await runner(
-    ['api', `repos/${nameWithOwner}/pulls/${prNumber}/comments`, '--paginate'],
+    ['api', `repos/${nameWithOwner}/pulls/${prNumber}/comments`, '--paginate', '--slurp'],
     repoDir,
   );
-  const raw: RawReviewComment[] = JSON.parse(stdout);
+  // --slurp collects each page's array into an outer array: [[page1], [page2], ...].
+  // Flat-map merges them into a single list.
+  const raw: RawReviewComment[] = (JSON.parse(stdout) as RawReviewComment[][]).flat();
   return raw.map((c) => ({
     githubId: c.id,
     path: c.path,

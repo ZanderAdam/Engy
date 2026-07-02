@@ -26,6 +26,10 @@ function commentIdFor(githubId: number): string {
  * Re-running never duplicates rows; edited bodies are updated in place.
  * Locally-resolved threads are never auto-unresolved.
  * Comments deleted on GitHub are left as-is in the local DB.
+ *
+ * Known gap: force-pushes that move a comment's line do NOT update the existing
+ * thread's documentPath or lineNumber. The thread keeps the position from when
+ * it was first imported.
  */
 export function syncReviewComments(db: Db, prRow: PrRow, comments: GhReviewComment[]): void {
   const now = new Date().toISOString();
@@ -54,6 +58,8 @@ export function syncReviewComments(db: Db, prRow: PrRow, comments: GhReviewComme
             prNumber: prRow.number,
             githubId: comment.githubId,
             path: comment.path,
+            // line: raw nullable value from GitHub, preserved for fidelity
+            // lineNumber: coerced to 0 when null, used by the diff viewer for rendering
             line: comment.line,
             lineNumber: comment.line ?? 0,
             author: comment.author,

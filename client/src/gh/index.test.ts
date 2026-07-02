@@ -482,7 +482,8 @@ describe('fetchReviewComments', () => {
       if (args.includes('view') && args.includes('--json')) {
         return { stdout: REPO_NAME_STDOUT, stderr: '' };
       }
-      return { stdout: JSON.stringify(comments), stderr: '' };
+      // Simulate `gh api --paginate --slurp` single-page output: [[...comments]]
+      return { stdout: JSON.stringify([comments]), stderr: '' };
     };
   }
 
@@ -545,13 +546,30 @@ describe('fetchReviewComments', () => {
     expect(comment.inReplyToId).toBe(101);
   });
 
-  it('should handle paginated results (array concatenated by gh --paginate)', async () => {
+  it('should handle single-page paginated results (--slurp wraps in outer array)', async () => {
     const c1 = { ...SAMPLE_COMMENT, id: 301 };
     const c2 = { ...SAMPLE_COMMENT, id: 302 };
     const runner = makeReviewRunner([c1, c2]);
     const comments = await fetchReviewComments('/repo', 1, runner);
     expect(comments).toHaveLength(2);
     expect(comments.map((c) => c.githubId).sort()).toEqual([301, 302]);
+  });
+
+  it('should merge multi-page paginated results (--slurp returns array of arrays)', async () => {
+    const c1 = { ...SAMPLE_COMMENT, id: 401 };
+    const c2 = { ...SAMPLE_COMMENT, id: 402 };
+    const c3 = { ...SAMPLE_COMMENT, id: 403 };
+    // Simulate two pages: [[c1, c2], [c3]]
+    const multiPageStdout = JSON.stringify([[c1, c2], [c3]]);
+    const runner: GhRunner = async (args) => {
+      if (args.includes('view') && args.includes('--json')) {
+        return { stdout: REPO_NAME_STDOUT, stderr: '' };
+      }
+      return { stdout: multiPageStdout, stderr: '' };
+    };
+    const comments = await fetchReviewComments('/repo', 1, runner);
+    expect(comments).toHaveLength(3);
+    expect(comments.map((c) => c.githubId).sort()).toEqual([401, 402, 403]);
   });
 
   it('should derive owner/repo from gh repo view and include it in the api call', async () => {
