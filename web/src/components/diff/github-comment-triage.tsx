@@ -35,7 +35,6 @@ export function GithubCommentTriage({
   sessionId,
   onResolve,
 }: GithubCommentTriageProps) {
-  // All hooks before any conditional return
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState(false);
 
@@ -61,7 +60,7 @@ export function GithubCommentTriage({
     const feedback = generateGithubFeedback(
       selectedThreadsList.map((t) => ({
         documentPath: t.documentPath,
-        metadata: { lineNumber: t.lineNumber, codeLine: t.codeLine },
+        lineNumber: t.lineNumber,
         githubAuthor: t.githubAuthor,
         githubUrl: t.githubUrl,
         comments: t.comments.map((c) => ({

@@ -92,7 +92,7 @@ function makeGithubThread(
 ): GithubDiffThread {
   return {
     documentPath: `diff://${REPO}/${filePath}`,
-    metadata: { lineNumber },
+    lineNumber,
     githubAuthor: opts.author ?? 'alice',
     githubUrl: opts.url,
     comments: [

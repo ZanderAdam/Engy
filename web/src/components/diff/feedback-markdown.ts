@@ -11,7 +11,7 @@ interface DiffThread {
 
 export interface GithubDiffThread {
   documentPath: string;
-  metadata?: Record<string, unknown> | null;
+  lineNumber?: number;
   githubAuthor?: string;
   githubUrl?: string;
   comments: Array<{
@@ -115,10 +115,9 @@ export function generateGithubFeedback(threads: GithubDiffThread[], repoDir: str
 
   for (const thread of threads) {
     const filePath = extractFilePath(thread.documentPath, repoDir);
-    const meta = thread.metadata as Record<string, unknown> | null;
-    const lineNumber = (meta?.lineNumber as number) ?? 0;
-    const author = thread.githubAuthor ?? (meta?.author as string | undefined) ?? 'GitHub';
-    const url = thread.githubUrl ?? (meta?.url as string | undefined);
+    const lineNumber = thread.lineNumber ?? 0;
+    const author = thread.githubAuthor ?? 'GitHub';
+    const url = thread.githubUrl;
 
     const commentLines = thread.comments
       .map((c) => {
