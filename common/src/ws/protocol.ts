@@ -608,6 +608,65 @@ export interface CreateMemoriesEventMessage {
   };
 }
 
+// ── GitHub PR operations (server ↔ daemon) ──────────────────────────────────
+
+export type GhPrCiStatus = 'pending' | 'passing' | 'failing' | 'unknown';
+
+export interface GhPrCheck {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  detailsUrl: string | null;
+}
+
+export interface GhPr {
+  number: number;
+  title: string;
+  url: string;
+  headBranch: string;
+  author: string;
+  isDraft: boolean;
+  state: string;
+  reviewDecision: string | null;
+  ciStatus: GhPrCiStatus;
+  checks: GhPrCheck[];
+}
+
+export type GhAuthStatus =
+  | { ok: true }
+  | { ok: false; reason: 'not-installed' | 'not-authenticated' };
+
+export interface GhPrListRequestMessage {
+  type: 'GH_PR_LIST_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    coderWorkspace?: string;
+  };
+}
+
+export interface GhPrListResponseMessage {
+  type: 'GH_PR_LIST_RESPONSE';
+  payload:
+    | { requestId: string; prs: GhPr[] }
+    | { requestId: string; error: string };
+}
+
+export interface GhAuthStatusRequestMessage {
+  type: 'GH_AUTH_STATUS_REQUEST';
+  payload: {
+    requestId: string;
+    coderWorkspace?: string;
+  };
+}
+
+export interface GhAuthStatusResponseMessage {
+  type: 'GH_AUTH_STATUS_RESPONSE';
+  payload:
+    | { requestId: string; status: GhAuthStatus }
+    | { requestId: string; error: string };
+}
+
 export type WsMessage =
   | RegisterMessage
   | WorkspacesSyncMessage
@@ -669,7 +728,11 @@ export type WsMessage =
   | ExecutionStopResponseMessage
   | ExecutionStatusEventMessage
   | ExecutionCompleteEventMessage
-  | CreateMemoriesEventMessage;
+  | CreateMemoriesEventMessage
+  | GhPrListRequestMessage
+  | GhPrListResponseMessage
+  | GhAuthStatusRequestMessage
+  | GhAuthStatusResponseMessage;
 
 export type ClientToServerMessage =
   | RegisterMessage
@@ -704,7 +767,9 @@ export type ClientToServerMessage =
   | ExecutionStopResponseMessage
   | ExecutionStatusEventMessage
   | ExecutionCompleteEventMessage
-  | CreateMemoriesEventMessage;
+  | CreateMemoriesEventMessage
+  | GhPrListResponseMessage
+  | GhAuthStatusResponseMessage;
 
 export type ServerToClientMessage =
   | WorkspacesSyncMessage
@@ -734,7 +799,9 @@ export type ServerToClientMessage =
   | ContainerStatusRequestMessage
   | DevcontainerConfigGenerateRequestMessage
   | ExecutionStartRequestMessage
-  | ExecutionStopRequestMessage;
+  | ExecutionStopRequestMessage
+  | GhPrListRequestMessage
+  | GhAuthStatusRequestMessage;
 
 // ── Compact terminal relay types (server ↔ daemon) ──────────────────────────
 

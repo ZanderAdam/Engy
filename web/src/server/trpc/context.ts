@@ -3,6 +3,8 @@ import type {
   DirListEntry,
   GitFileStatus,
   GitWorktreeEntry,
+  GhPr,
+  GhAuthStatus,
   TerminalActivityState,
   WorktreeAddErrorCode,
   WorktreeRemoveErrorCode,
@@ -137,6 +139,14 @@ export interface WorktreeRemoveError extends Error {
 
 export interface GitWorktreeListResult {
   worktrees: GitWorktreeEntry[];
+}
+
+export interface GhPrListResult {
+  prs: GhPr[];
+}
+
+export interface GhAuthStatusResult {
+  status: GhAuthStatus;
 }
 
 export interface AppState {
@@ -324,6 +334,20 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingGhPrList: Map<
+    string,
+    {
+      resolve: (result: GhPrListResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingGhAuthStatus: Map<
+    string,
+    {
+      resolve: (result: GhAuthStatusResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   daemonHomeDir: string | null;
   specLastChanged: Map<string, number>;
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
@@ -379,6 +403,8 @@ export function createAppState(): AppState {
     pendingCreateDirs: new Map(),
     pendingFsDelete: new Map(),
     pendingFsRename: new Map(),
+    pendingGhPrList: new Map(),
+    pendingGhAuthStatus: new Map(),
     daemonHomeDir: null,
     specLastChanged: new Map(),
     specDebounceTimers: new Map(),

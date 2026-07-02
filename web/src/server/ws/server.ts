@@ -36,6 +36,8 @@ import type {
   CreateDirResult,
   FsDeleteResult,
   FsRenameResult,
+  GhPrListResult,
+  GhAuthStatusResult,
 } from '../trpc/context';
 import { getDb } from '../db/client';
 import { workspaces, agentSessions, tasks, taskGroups, projects, fleetingMemories } from '../db/schema';
@@ -114,6 +116,8 @@ function rejectAllPending(state: AppState): void {
     state.pendingCreateDirs,
     state.pendingFsDelete,
     state.pendingFsRename,
+    state.pendingGhPrList,
+    state.pendingGhAuthStatus,
   ] as const;
 
   const error = new Error('Daemon disconnected');
@@ -270,6 +274,16 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       break;
     case 'CREATE_MEMORIES_EVENT':
       handleCreateMemoriesEvent(msg);
+      break;
+    case 'GH_PR_LIST_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGhPrList, (p) => ({
+        prs: p.prs,
+      }));
+      break;
+    case 'GH_AUTH_STATUS_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGhAuthStatus, (p) => ({
+        status: p.status,
+      }));
       break;
   }
 }
@@ -1247,4 +1261,26 @@ export function dispatchWorktreeRemove(
     args,
     WORKTREE_MERGE_TIMEOUT_MS,
   );
+}
+
+// ── GitHub PR dispatch functions ─────────────────────────────────────────────
+
+export function dispatchGhPrList(
+  repoDir: string,
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<GhPrListResult> {
+  return dispatchDaemonOp(state, state.pendingGhPrList, 'GH_PR_LIST_REQUEST', {
+    repoDir,
+    coderWorkspace,
+  });
+}
+
+export function dispatchGhAuthStatus(
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<GhAuthStatusResult> {
+  return dispatchDaemonOp(state, state.pendingGhAuthStatus, 'GH_AUTH_STATUS_REQUEST', {
+    coderWorkspace,
+  });
 }

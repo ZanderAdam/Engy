@@ -37,9 +37,12 @@ import type {
   GlobFilesRequestMessage,
   FsDeleteRequestMessage,
   FsRenameRequestMessage,
+  GhPrListRequestMessage,
+  GhAuthStatusRequestMessage,
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
+import { listOpenPrs, checkAuthStatus, localGhRunner } from '../gh/index.js';
 import {
   getStatusDetailed,
   getDiff,
@@ -626,6 +629,12 @@ export class WsClient {
         break;
       case 'FS_RENAME_REQUEST':
         this.handleFsRenameRequest(message as FsRenameRequestMessage);
+        break;
+      case 'GH_PR_LIST_REQUEST':
+        this.handleGhPrListRequest(message as GhPrListRequestMessage);
+        break;
+      case 'GH_AUTH_STATUS_REQUEST':
+        this.handleGhAuthStatusRequest(message as GhAuthStatusRequestMessage);
         break;
     }
   }
@@ -1369,6 +1378,38 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'EXECUTION_STOP_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleGhPrListRequest(message: GhPrListRequestMessage): Promise<void> {
+    const { requestId, repoDir } = message.payload;
+    try {
+      const prs = await listOpenPrs(repoDir, localGhRunner);
+      this.send({
+        type: 'GH_PR_LIST_RESPONSE',
+        payload: { requestId, prs },
+      });
+    } catch (err) {
+      this.send({
+        type: 'GH_PR_LIST_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleGhAuthStatusRequest(message: GhAuthStatusRequestMessage): Promise<void> {
+    const { requestId } = message.payload;
+    try {
+      const status = await checkAuthStatus(localGhRunner);
+      this.send({
+        type: 'GH_AUTH_STATUS_RESPONSE',
+        payload: { requestId, status },
+      });
+    } catch (err) {
+      this.send({
+        type: 'GH_AUTH_STATUS_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }
