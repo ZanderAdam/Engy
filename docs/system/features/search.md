@@ -36,3 +36,4 @@ their title string, e.g. `it('[FR-SEARCH-003] ...', ...)`, and run
 | FR-SEARCH-009 | WHEN only filters are supplied, the system SHALL match frontmatter via JSON1 array-membership and scalar-equality, ANDing all conditions together. |
 | FR-SEARCH-010 | WHERE the mode is `lex` or `vector`, the system SHALL rank using BM25-only or embedding-only respectively rather than the hybrid blend. |
 | FR-SEARCH-011 | WHILE a subtype filter is active in query-and-filters mode, the system SHALL widen the qmd candidate pool (up to 8×) so the filtered subset is well covered before the join. |
+| FR-SEARCH-012 | WHEN a query is supplied without filters, the system SHALL attach each file hit's frontmatter subtype and tags (where present) to its result so the UI can display them. |

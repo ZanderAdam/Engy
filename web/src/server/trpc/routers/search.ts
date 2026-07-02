@@ -20,7 +20,7 @@ import {
   collectionFromVirtualPath,
   searchTasksByQuery,
   filterTasksByStatus,
-  resolveDisplayTitles,
+  resolveDisplayMeta,
 } from '../../search/frontmatter-filter';
 
 const filtersSchema = z.object({
@@ -58,17 +58,6 @@ function resolveWorkspace(workspaceSlug: string) {
     throw new TRPCError({ code: 'NOT_FOUND', message: `Workspace "${workspaceSlug}" not found` });
   }
   return ws;
-}
-
-/**
- * Normalise a qmd hit's displayPath to the workspace-relative path stored in
- * the frontmatter table. qmd already returns displayPath with the collection
- * prefix (e.g. "memory/decisions/foo.md"), so this is a passthrough — kept as
- * a named helper to make the semantic explicit and to guard against future
- * qmd response-shape changes.
- */
-function toFrontmatterPath(_collectionName: string, displayPath: string): string {
-  return displayPath;
 }
 
 export const searchRouter = router({
@@ -163,21 +152,23 @@ async function queryOnlyMode(
     const supersededPaths = getSupersededMemoryPaths(ws.id);
 
     const visibleHits = qmdResults.filter((hit) => !supersededPaths.has(hit.displayPath));
-    const fmTitles = resolveDisplayTitles(
+    const fmMeta = resolveDisplayMeta(
       ws.id,
-      visibleHits.map((h) => toFrontmatterPath(collectionFromVirtualPath(h.file), h.displayPath)),
+      visibleHits.map((h) => h.displayPath),
     );
 
     const byCollection = new Map<string, SearchResult[]>();
     for (const hit of visibleHits) {
       const col = collectionFromVirtualPath(hit.file);
-      const fmPath = toFrontmatterPath(col, hit.displayPath);
+      const meta = fmMeta.get(hit.displayPath);
       const group = byCollection.get(col) ?? [];
       group.push({
-        path: fmPath,
-        title: fmTitles.get(fmPath) || hit.title || titleFromPath(fmPath),
+        path: hit.displayPath,
+        title: meta?.title || hit.title || titleFromPath(hit.displayPath),
         snippet: hit.snippet,
         score: hit.score,
+        subtype: meta?.subtype,
+        tags: meta?.tags,
       });
       byCollection.set(col, group);
     }
@@ -287,9 +278,7 @@ async function queryWithFiltersMode(
     const scoreByFrontmatterPath = new Map<string, number>();
     for (const hit of qmdResults) {
       if (supersededPaths.has(hit.displayPath)) continue;
-      const col = collectionFromVirtualPath(hit.file);
-      const fmPath = toFrontmatterPath(col, hit.displayPath);
-      scoreByFrontmatterPath.set(fmPath, hit.score);
+      scoreByFrontmatterPath.set(hit.displayPath, hit.score);
     }
 
     // Always run the frontmatter filter so the response includes filter-matching docs

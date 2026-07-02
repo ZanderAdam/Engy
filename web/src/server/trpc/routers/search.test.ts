@@ -796,6 +796,49 @@ describe('search router — mocked qmd store', () => {
       const docsGroup = result.find((g) => g.collection === 'docs');
       expect(docsGroup!.results[0].title).toBe('my doc');
     });
+
+    it('[FR-SEARCH-012] should attach frontmatter subtype and tags to file hits', async () => {
+      insertFrontmatter('memory', 'memory/decisions/001.md', {
+        title: 'Auth Decision',
+        subtype: 'decision',
+        tags: ['auth', 'jwt'],
+      });
+
+      mockSearchResults([
+        {
+          file: 'qmd://memory/decisions/001.md',
+          displayPath: 'memory/decisions/001.md',
+          title: 'Auth Decision',
+          bestChunk: 'We chose JWT.',
+          score: 0.8,
+        },
+      ]);
+
+      const result = await caller.search.query({ workspaceSlug, query: 'authentication' });
+
+      const memoryGroup = result.find((g) => g.collection === 'memory');
+      expect(memoryGroup).toBeDefined();
+      expect(memoryGroup!.results[0].subtype).toBe('decision');
+      expect(memoryGroup!.results[0].tags).toEqual(['auth', 'jwt']);
+    });
+
+    it('should omit subtype and tags when the hit has no frontmatter row', async () => {
+      mockSearchResults([
+        {
+          file: 'qmd://docs/no-frontmatter.md',
+          displayPath: 'docs/no-frontmatter.md',
+          title: 'No Frontmatter',
+          bestChunk: 'Plain content.',
+          score: 0.6,
+        },
+      ]);
+
+      const result = await caller.search.query({ workspaceSlug, query: 'plain' });
+
+      const docsGroup = result.find((g) => g.collection === 'docs');
+      expect(docsGroup!.results[0].subtype).toBeUndefined();
+      expect(docsGroup!.results[0].tags).toBeUndefined();
+    });
   });
 
   describe('query + filters mode with mocked qmd', () => {

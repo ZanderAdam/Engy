@@ -10,6 +10,10 @@ export interface SearchResult {
   title: string;
   snippet?: string;
   score?: number;
+  /** Memory subtype (decision, fact, …) — present for memory hits, surfaced as a pill in the UI. */
+  subtype?: string;
+  /** Frontmatter tags — surfaced as pills in the global-search palette. */
+  tags?: string[];
 }
 
 export interface SearchResultGroup {
@@ -34,35 +38,58 @@ export function extractTitle(dataJson: string, filePath: string): string {
   return titleFromPath(filePath);
 }
 
+interface DisplayMeta {
+  title?: string;
+  subtype?: string;
+  tags?: string[];
+}
+
 /**
- * Batch-fetch frontmatter titles for a list of workspace-relative paths.
- * Returns a Map<path, title> for rows that have a non-empty `$.title` field.
- * Paths without a frontmatter row, or without a title, are absent from the map
- * so callers can fall back to their existing title logic.
+ * Batch-fetch display metadata (title, subtype, tags) for a list of
+ * workspace-relative paths in a single query. Used by the global-search
+ * palette to render subtype/tag pills on result rows without N extra reads.
+ *
+ * `$.tags` is stored as a JSON array; json_extract returns its JSON text,
+ * which we parse back into a string[] (non-string entries are dropped).
  */
-export function resolveDisplayTitles(workspaceId: number, paths: string[]): Map<string, string> {
+export function resolveDisplayMeta(
+  workspaceId: number,
+  paths: string[],
+): Map<string, DisplayMeta> {
   if (paths.length === 0) return new Map();
   const db = getDb();
   const rows = db
     .select({
       path: frontmatter.path,
       title: sql<string | null>`json_extract(${frontmatter.data}, '$.title')`,
+      subtype: sql<string | null>`json_extract(${frontmatter.data}, '$.subtype')`,
+      tags: sql<string | null>`json_extract(${frontmatter.data}, '$.tags')`,
     })
     .from(frontmatter)
-    .where(
-      and(
-        eq(frontmatter.workspaceId, workspaceId),
-        inArray(frontmatter.path, paths),
-      )!,
-    )
+    .where(and(eq(frontmatter.workspaceId, workspaceId), inArray(frontmatter.path, paths))!)
     .all();
-  const map = new Map<string, string>();
+
+  const map = new Map<string, DisplayMeta>();
   for (const row of rows) {
-    if (typeof row.title === 'string' && row.title) {
-      map.set(row.path, row.title);
-    }
+    map.set(row.path, {
+      title: typeof row.title === 'string' && row.title ? row.title : undefined,
+      subtype: typeof row.subtype === 'string' && row.subtype ? row.subtype : undefined,
+      tags: parseTagsJson(row.tags),
+    });
   }
   return map;
+}
+
+function parseTagsJson(raw: string | null): string[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    const tags = parsed.filter((t): t is string => typeof t === 'string' && t.length > 0);
+    return tags.length > 0 ? tags : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ── Frontmatter WHERE condition builder ──────────────────────────────

@@ -33,7 +33,7 @@ import {
   collectionFromVirtualPath,
   searchTasksByQuery,
   filterTasksByStatus,
-  resolveDisplayTitles,
+  resolveDisplayMeta,
 } from '../search/frontmatter-filter';
 import { taskStatusSchema } from '@/lib/task-status';
 import { writePermanentMemory, rewritePermanentMemory, writeSourceSnapshot } from '../lib/memory-files';
@@ -1580,7 +1580,7 @@ async function mcpQueryOnly(
   const supersededPaths = getSupersededMemoryPaths(ws.id);
 
   const visibleHits = qmdResults.filter((hit) => !supersededPaths.has(hit.displayPath));
-  const fmTitles = resolveDisplayTitles(
+  const fmMeta = resolveDisplayMeta(
     ws.id,
     visibleHits.map((h) => h.displayPath),
   );
@@ -1588,12 +1588,15 @@ async function mcpQueryOnly(
   const byCollection = new Map<string, SearchResult[]>();
   for (const hit of visibleHits) {
     const col = collectionFromVirtualPath(hit.file);
+    const meta = fmMeta.get(hit.displayPath);
     const group = byCollection.get(col) ?? [];
     group.push({
       path: hit.displayPath,
-      title: fmTitles.get(hit.displayPath) || hit.title || titleFromPath(hit.displayPath),
+      title: meta?.title || hit.title || titleFromPath(hit.displayPath),
       snippet: hit.snippet,
       score: hit.score,
+      subtype: meta?.subtype,
+      tags: meta?.tags,
     });
     byCollection.set(col, group);
   }
