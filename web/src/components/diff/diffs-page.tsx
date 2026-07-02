@@ -213,7 +213,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
   // Correlated agent session for the PR branch (used by GitHub comment triage)
   const { data: prList } = trpc.pr.list.useQuery(
-    { workspaceId: workspace!.id },
+    { workspaceId: workspace?.id ?? 0 },
     {
       enabled:
         !!workspace &&
