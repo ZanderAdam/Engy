@@ -69,6 +69,16 @@ interface PrChangeEvent {
   };
 }
 
+interface PrAttentionEvent {
+  type: 'PR_ATTENTION';
+  payload: {
+    workspaceId: number;
+    repo: string;
+    prNumber: number;
+    reason: string;
+  };
+}
+
 type ServerEvent =
   | FileChangeEvent
   | TaskChangeEvent
@@ -76,7 +86,8 @@ type ServerEvent =
   | TerminalSessionsChangeEvent
   | MemoryChangeEvent
   | TerminalActivityChangeEvent
-  | PrChangeEvent;
+  | PrChangeEvent
+  | PrAttentionEvent;
 
 // ── Generic Broadcast ───────────────────────────────────────────────
 
@@ -154,4 +165,13 @@ export function broadcastTerminalActivityChange(
 
 export function broadcastPrChange(workspaceId: number, repo: string): void {
   broadcastEvent({ type: 'PR_CHANGE', payload: { workspaceId, repo } });
+}
+
+export function broadcastPrAttention(
+  workspaceId: number,
+  repo: string,
+  prNumber: number,
+  reason: string,
+): void {
+  broadcastEvent({ type: 'PR_ATTENTION', payload: { workspaceId, repo, prNumber, reason } });
 }

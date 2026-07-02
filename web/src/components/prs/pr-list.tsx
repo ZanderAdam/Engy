@@ -11,6 +11,7 @@ import {
   RiLoader4Line,
   RiQuestionLine,
   RiTerminalLine,
+  RiAlarmWarningLine,
 } from '@remixicon/react';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -25,6 +26,7 @@ import {
   summarizeChecks,
   deriveCheckState,
 } from './pr-helpers';
+import { getAttentionInfo } from './pr-attention';
 import type { GhPrCheck, GhPrCiStatus } from '@engy/common';
 
 interface PrItem {
@@ -43,6 +45,7 @@ interface PrItem {
   sessionId: string | null;
   taskGroupId: number | null;
   worktreePath: string | null;
+  attentionReason: string | null;
 }
 
 interface PrListProps {
@@ -108,6 +111,24 @@ function ChecksPopover({ checks }: { checks: GhPrCheck[] }) {
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function AttentionBadge({ reason }: { reason: string | null }) {
+  const attention = getAttentionInfo(reason);
+  if (!attention) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex items-center gap-1 rounded-none border border-red-400/30 bg-red-400/10 px-1.5 py-0.5 text-[10px] font-medium text-red-400 cursor-default">
+          <RiAlarmWarningLine className="size-3 shrink-0" />
+          {attention.label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">
+        {attention.description}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -225,7 +246,7 @@ function PrRow({ pr, showRepo, workspaceSlug, projectSlug }: PrRowProps) {
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 <RiTerminalLine className="size-3" />
-                <span>Session active</span>
+                <span>View diffs</span>
               </VLink>
             </TooltipTrigger>
             <TooltipContent>
@@ -233,6 +254,8 @@ function PrRow({ pr, showRepo, workspaceSlug, projectSlug }: PrRowProps) {
             </TooltipContent>
           </Tooltip>
         )}
+
+        <AttentionBadge reason={pr.attentionReason} />
       </div>
     </div>
   );

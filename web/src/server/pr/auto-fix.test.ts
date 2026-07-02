@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { eq, and } from 'drizzle-orm';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { workspaces, prs as prsTable, agentSessions, tasks, projects, taskGroups } from '../db/schema';
-import { maybeDispatchCiFix } from './auto-fix';
+import { maybeDispatchCiFix, MAX_AUTO_FIX_ATTEMPTS } from './auto-fix';
 import * as wsServer from '../ws/server';
+import * as broadcast from '../ws/broadcast';
 
 // Mock dispatchExecutionStart only — buildResumeFlags/buildResumeConfig run for real
 // against the test DB so we get integration-level coverage without a live WebSocket.
@@ -12,7 +13,13 @@ vi.mock('../ws/server', async (importOriginal) => {
   return { ...actual, dispatchExecutionStart: vi.fn().mockResolvedValue(undefined) };
 });
 
+vi.mock('../ws/broadcast', async (importOriginal) => {
+  const actual = await importOriginal<typeof broadcast>();
+  return { ...actual, broadcastPrAttention: vi.fn() };
+});
+
 const dispatchSpy = vi.mocked(wsServer.dispatchExecutionStart);
+const broadcastAttentionSpy = vi.mocked(broadcast.broadcastPrAttention);
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -174,6 +181,7 @@ describe('maybeDispatchCiFix', () => {
       expect(result).toEqual({ dispatched: false, reason: 'non-mechanical' });
       expect(getPr(ctx)?.attentionReason).toBe('non-mechanical');
       expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'non-mechanical');
     });
   });
 
@@ -195,6 +203,7 @@ describe('maybeDispatchCiFix', () => {
       expect(result).toEqual({ dispatched: false, reason: 'auto-ci-fix-disabled' });
       expect(getPr(ctx)?.attentionReason).toBe('prior-reason');
       expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(broadcastAttentionSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -216,6 +225,7 @@ describe('maybeDispatchCiFix', () => {
 
       expect(result).toEqual({ dispatched: false, reason: 'no-daemon' });
       expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(broadcastAttentionSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -240,6 +250,7 @@ describe('maybeDispatchCiFix', () => {
       expect(result).toEqual({ dispatched: false, reason: 'uncorrelated' });
       expect(getPr(ctx)?.attentionReason).toBe('uncorrelated');
       expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'uncorrelated');
     });
   });
 
@@ -276,13 +287,14 @@ describe('maybeDispatchCiFix', () => {
       expect(result).toEqual({ dispatched: false, reason: 'concurrency-full' });
       expect(getPr(ctx)?.attentionReason).toBeNull();
       expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(broadcastAttentionSpy).not.toHaveBeenCalled();
     });
   });
 
   describe('bail: attempt cap', () => {
-    it('should return attempt-cap and persist attentionReason when autoFixAttempts >= 2', async () => {
+    it('should return attempt-cap and persist attentionReason when autoFixAttempts >= MAX_AUTO_FIX_ATTEMPTS', async () => {
       const { workspaceId } = seedAll(ctx);
-      const prRow = seedPr(ctx, { autoFixAttempts: 2 });
+      const prRow = seedPr(ctx, { autoFixAttempts: MAX_AUTO_FIX_ATTEMPTS });
       const workspace = getWorkspace(ctx, workspaceId);
       ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
 
@@ -298,6 +310,7 @@ describe('maybeDispatchCiFix', () => {
       expect(result).toEqual({ dispatched: false, reason: 'attempt-cap' });
       expect(getPr(ctx)?.attentionReason).toBe('attempt-cap');
       expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'attempt-cap');
     });
   });
 
@@ -324,13 +337,14 @@ describe('maybeDispatchCiFix', () => {
 
       expect(result).toEqual({ dispatched: false, reason: 'no-worktree' });
       expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(broadcastAttentionSpy).not.toHaveBeenCalled();
     });
   });
 
   describe('successful dispatch', () => {
     it('should increment autoFixAttempts, reset session, dispatch with --resume, and clear attentionReason', async () => {
       const { workspaceId } = seedAll(ctx);
-      const prRow = seedPr(ctx, { autoFixAttempts: 1, attentionReason: 'prior-reason' });
+      const prRow = seedPr(ctx, { autoFixAttempts: MAX_AUTO_FIX_ATTEMPTS - 1, attentionReason: 'prior-reason' });
       const workspace = getWorkspace(ctx, workspaceId);
       ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
 
@@ -363,6 +377,7 @@ describe('maybeDispatchCiFix', () => {
       expect(flags).toContain('--resume');
       expect(flags).toContain(SESSION_ID);
       expect(prompt).toContain('unexpected token');
+      expect(broadcastAttentionSpy).not.toHaveBeenCalled();
     });
 
     it('should dispatch without resume flags when session has no taskId', async () => {

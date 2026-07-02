@@ -50,6 +50,13 @@ interface PrChangePayload {
   repo: string;
 }
 
+interface PrAttentionPayload {
+  workspaceId: number;
+  repo: string;
+  prNumber: number;
+  reason: string;
+}
+
 interface ServerEventMap {
   FILE_CHANGE: FileChangePayload;
   TASK_CHANGE: TaskChangePayload;
@@ -58,6 +65,7 @@ interface ServerEventMap {
   MEMORY_CHANGE: MemoryChangePayload;
   TERMINAL_ACTIVITY_CHANGE: TerminalActivityChangePayload;
   PR_CHANGE: PrChangePayload;
+  PR_ATTENTION: PrAttentionPayload;
 }
 
 type ServerEventType = keyof ServerEventMap;

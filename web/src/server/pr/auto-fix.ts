@@ -6,6 +6,7 @@ import { dispatchExecutionStart } from '../ws/server';
 import { buildResumeFlags, buildResumeConfig } from '../trpc/routers/execution';
 import { findCorrelatedSession } from '../trpc/routers/pr';
 import { buildCiFixPrompt } from '../../lib/shell';
+import { broadcastPrAttention } from '../ws/broadcast';
 import type { CiFailureClassification, FailedLog } from './ci-triage';
 
 type Db = ReturnType<typeof getDb>;
@@ -22,6 +23,8 @@ export type CiFixSkipReason =
 export type CiFixResult =
   | { dispatched: true }
   | { dispatched: false; reason: CiFixSkipReason };
+
+export const MAX_AUTO_FIX_ATTEMPTS = 2;
 
 interface MaybeDispatchCiFixInput {
   state: AppState;
@@ -51,6 +54,16 @@ function clearAttentionReason(db: Db, repo: string, prNumber: number): void {
     .run();
 }
 
+function setAttentionReason(
+  db: Db,
+  workspace: typeof workspaces.$inferSelect,
+  prRow: typeof prs.$inferSelect,
+  reason: string,
+): void {
+  persistAttentionReason(db, prRow.repo, prRow.number, reason);
+  broadcastPrAttention(workspace.id, prRow.repo, prRow.number, reason);
+}
+
 export async function maybeDispatchCiFix({
   state,
   db,
@@ -60,7 +73,7 @@ export async function maybeDispatchCiFix({
   workspace,
 }: MaybeDispatchCiFixInput): Promise<CiFixResult> {
   if (classification !== 'mechanical') {
-    persistAttentionReason(db, prRow.repo, prRow.number, 'non-mechanical');
+    setAttentionReason(db, workspace, prRow, 'non-mechanical');
     return { dispatched: false, reason: 'non-mechanical' };
   }
 
@@ -74,7 +87,7 @@ export async function maybeDispatchCiFix({
 
   const session = findCorrelatedSession(db, prRow.headBranch, prRow.repo);
   if (!session) {
-    persistAttentionReason(db, prRow.repo, prRow.number, 'uncorrelated');
+    setAttentionReason(db, workspace, prRow, 'uncorrelated');
     return { dispatched: false, reason: 'uncorrelated' };
   }
 
@@ -99,8 +112,8 @@ export async function maybeDispatchCiFix({
     return { dispatched: false, reason: 'concurrency-full' };
   }
 
-  if (prRow.autoFixAttempts >= 2) {
-    persistAttentionReason(db, prRow.repo, prRow.number, 'attempt-cap');
+  if (prRow.autoFixAttempts >= MAX_AUTO_FIX_ATTEMPTS) {
+    setAttentionReason(db, workspace, prRow, 'attempt-cap');
     return { dispatched: false, reason: 'attempt-cap' };
   }
 

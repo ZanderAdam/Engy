@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import { trpc } from '@/lib/trpc';
 import { useOnServerEvent } from '@/contexts/events-context';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { PrList } from './pr-list';
 import {
@@ -12,6 +13,7 @@ import {
   RiTerminalLine,
 } from '@remixicon/react';
 import { cn } from '@/lib/utils';
+import { getAttentionInfo } from './pr-attention';
 
 interface PrsPageProps {
   workspaceSlug: string;
@@ -108,6 +110,15 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
   }, [utils, workspaceId]);
 
   useOnServerEvent('PR_CHANGE', refetchPrs);
+
+  useOnServerEvent('PR_ATTENTION', (payload) => {
+    if (payload.workspaceId !== workspaceId) return;
+    const info = getAttentionInfo(payload.reason);
+    toast.error(`PR #${payload.prNumber}: ${info?.label ?? 'CI failure needs attention'}`, {
+      description: info?.description,
+    });
+    refetchPrs();
+  });
 
   const refreshMutation = trpc.pr.refresh.useMutation({
     onSuccess: (results) => {
