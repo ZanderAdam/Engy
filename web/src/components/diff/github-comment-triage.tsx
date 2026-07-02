@@ -8,7 +8,7 @@ import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { cn } from '@/lib/utils';
-import { generateGithubFeedback } from './feedback-markdown';
+import { generateGithubFeedback, getCommentText } from './feedback-markdown';
 import {
   filterUnresolvedGithubThreads,
   getSelectedThreads,
@@ -24,10 +24,6 @@ interface GithubCommentTriageProps {
   onResolve: (threadId: string) => Promise<void>;
 }
 
-function getBodyText(body: unknown): string {
-  if (typeof body === 'string') return body;
-  return JSON.stringify(body);
-}
 
 export function GithubCommentTriage({
   repoDir,
@@ -111,13 +107,22 @@ export function GithubCommentTriage({
   };
 
   const handleDismissSelected = async () => {
-    try {
-      for (const thread of selectedThreadsList) {
-        await onResolve(thread.threadId);
-      }
-      setSelectedIds(new Set());
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to dismiss comments');
+    const results = await Promise.allSettled(
+      selectedThreadsList.map((thread) => onResolve(thread.threadId)),
+    );
+    const succeeded = new Set(
+      selectedThreadsList
+        .filter((_, i) => results[i].status === 'fulfilled')
+        .map((t) => t.threadId),
+    );
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of succeeded) next.delete(id);
+      return next;
+    });
+    const failCount = results.filter((r) => r.status === 'rejected').length;
+    if (failCount > 0) {
+      toast.error(`Failed to dismiss ${failCount} comment${failCount === 1 ? '' : 's'}`);
     }
   };
 
@@ -245,7 +250,7 @@ export function GithubCommentTriage({
                     </div>
                     {firstComment && (
                       <div className="mt-0.5 truncate text-foreground/80">
-                        {getBodyText(firstComment.body)}
+                        {getCommentText(firstComment.body)}
                       </div>
                     )}
                     {thread.comments.length > 1 && (

@@ -31,7 +31,7 @@ function extractFilePath(documentPath: string, repoDir: string): string {
   return documentPath.replace(/^diff:\/\//, '');
 }
 
-function getCommentText(body: unknown): string {
+export function getCommentText(body: unknown): string {
   if (typeof body === 'string') return body;
   if (body && typeof body === 'object' && 'content' in body) {
     // BlockNote-style body

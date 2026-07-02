@@ -57,7 +57,7 @@ export function useDiffComments(repoDir: string | null) {
         codeLine: (meta.codeLine as string) ?? '',
         side: (meta.side as 'modified' | 'original') ?? 'modified',
         resolved: thread.resolved ?? false,
-        source: isGithub ? ('github' as const) : ('local' as const),
+        source: isGithub ? 'github' : 'local',
         githubAuthor: isGithub ? (meta.author as string | undefined) : undefined,
         githubUrl: isGithub ? (meta.url as string | undefined) : undefined,
         comments: thread.comments
@@ -95,7 +95,7 @@ export function useDiffComments(repoDir: string | null) {
       documentPath: makeDiffDocPath(repoDir, filePath),
       threadId,
       initialComment: { id: commentId, body: text },
-      metadata: { type: 'diff', lineNumber, codeLine, side },
+      metadata: { type: 'diff', source: 'local', lineNumber, codeLine, side },
     });
   };
 

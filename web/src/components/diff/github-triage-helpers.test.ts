@@ -75,6 +75,19 @@ describe('getSelectedThreads', () => {
     const comments = [makeGithubComment({ threadId: 'gh-1' })];
     expect(getSelectedThreads(comments, new Set())).toHaveLength(0);
   });
+
+  it('should not return local threads even when their id is in selectedIds', () => {
+    const comments = [
+      makeComment({ threadId: 'shared-id', source: 'local' }),
+      makeGithubComment({ threadId: 'gh-1' }),
+    ];
+    const selected = new Set(['shared-id', 'gh-1']);
+
+    const result = getSelectedThreads(comments, selected);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].threadId).toBe('gh-1');
+  });
 });
 
 describe('allGithubThreadIds', () => {

@@ -91,9 +91,14 @@ export function MonacoCommentZone({
 
   const isGithub = comment?.source === 'github';
 
+  function commentLabel(c: DiffComment['comments'][number], i: number): string {
+    if (isGithub) return c.userId ?? comment?.githubAuthor ?? 'GitHub';
+    return i === 0 ? 'Comment' : 'Reply';
+  }
+
   return (
     <TooltipProvider>
-    <div ref={setContainerRef} className={cn('border border-border bg-background p-3', isGithub && 'border-l-2 border-l-muted-foreground/30')}>
+      <div ref={setContainerRef} className={cn('border border-border bg-background p-3', isGithub && 'border-l-2 border-l-muted-foreground/30')}>
       {comment && comment.comments.length > 0 && (
         <div className="mb-2">
           {isGithub && (
@@ -128,7 +133,7 @@ export function MonacoCommentZone({
             >
               <div className="flex items-center gap-1.5 mb-0.5">
                 <span className="font-medium text-muted-foreground">
-                  {isGithub ? (c.userId ?? comment.githubAuthor ?? 'GitHub') : i === 0 ? 'Comment' : 'Reply'}
+                  {commentLabel(c, i)}
                 </span>
                 {c.createdAt && (
                   <span className="text-[10px] text-muted-foreground/60">
