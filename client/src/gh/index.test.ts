@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { listOpenPrs, checkAuthStatus, type GhRunner } from './index.js';
+import { listOpenPrs, fetchFailedLogs, checkAuthStatus, type GhRunner } from './index.js';
 
 function makeRunner(stdout: string): GhRunner {
   return async () => ({ stdout, stderr: '' });
@@ -20,6 +20,7 @@ const SINGLE_PR_NO_CHECKS = JSON.stringify([
     title: 'My PR',
     url: 'https://github.com/owner/repo/pull/1',
     headRefName: 'feature',
+    headRefOid: 'abc123def456',
     author: { login: 'alice' },
     isDraft: false,
     state: 'OPEN',
@@ -42,11 +43,31 @@ describe('listOpenPrs', () => {
       title: 'My PR',
       url: 'https://github.com/owner/repo/pull/1',
       headBranch: 'feature',
+      headSha: 'abc123def456',
       author: 'alice',
       isDraft: false,
       state: 'OPEN',
       reviewDecision: null,
     });
+  });
+
+  it('returns headSha as null when headRefOid is absent', async () => {
+    const raw = JSON.stringify([
+      {
+        number: 1,
+        title: 'PR',
+        url: 'https://github.com/owner/repo/pull/1',
+        headRefName: 'feat',
+        author: { login: 'alice' },
+        isDraft: false,
+        state: 'OPEN',
+        reviewDecision: null,
+        statusCheckRollup: null,
+        // no headRefOid
+      },
+    ]);
+    const prs = await listOpenPrs('/repo', makeRunner(raw));
+    expect(prs[0].headSha).toBeNull();
   });
 
   it('derives ciStatus as unknown for null statusCheckRollup', async () => {
@@ -224,6 +245,126 @@ describe('listOpenPrs', () => {
     expect(prs[0].checks).toEqual([
       { name: 'coverage', status: 'SUCCESS', conclusion: null, detailsUrl: 'https://cov.example.com' },
     ]);
+  });
+});
+
+describe('fetchFailedLogs', () => {
+  const FAILING_CHECKS = JSON.stringify([
+    { name: 'Lint', state: 'FAILURE', link: 'https://github.com/owner/repo/actions/runs/111/jobs/999', bucket: 'fail' },
+    { name: 'Type Check', state: 'FAILURE', link: 'https://github.com/owner/repo/actions/runs/111/jobs/998', bucket: 'fail' },
+    { name: 'Build', state: 'FAILURE', link: 'https://github.com/owner/repo/actions/runs/222/jobs/997', bucket: 'fail' },
+  ]);
+
+  const NON_ACTIONS_CHECK = JSON.stringify([
+    { name: 'Codecov', state: 'FAILURE', link: 'https://codecov.io/some/path', bucket: 'fail' },
+  ]);
+
+  const PASSING_CHECKS = JSON.stringify([
+    { name: 'Lint', state: 'SUCCESS', link: null, bucket: 'pass' },
+  ]);
+
+  function makeSequentialRunner(responses: Record<string, string>): GhRunner {
+    return async (args: string[]) => {
+      const key = args.join(' ');
+      for (const [pattern, response] of Object.entries(responses)) {
+        if (key.includes(pattern)) return { stdout: response, stderr: '' };
+      }
+      throw new Error(`Unexpected gh args: ${key}`);
+    };
+  }
+
+  it('returns empty array when no checks fail (bucket not "fail")', async () => {
+    const runner = makeRunner(PASSING_CHECKS);
+    const logs = await fetchFailedLogs('/repo', 1, runner);
+    expect(logs).toEqual([]);
+  });
+
+  it('groups failing checks by run ID and deduplicates log fetches', async () => {
+    // run 111 has two failing checks (Lint + Type Check); run 222 has one (Build)
+    const runner = makeSequentialRunner({
+      'pr checks 1': FAILING_CHECKS,
+      'run view 111': 'ESLint: 5 errors\ntsc: 2 errors',
+      'run view 222': 'Build failed: exit 1',
+    });
+
+    const logs = await fetchFailedLogs('/repo', 1, runner);
+
+    // 3 results total: 2 from run 111 (one per check name), 1 from run 222
+    expect(logs).toHaveLength(3);
+    const names = logs.map((l) => l.checkName).sort();
+    expect(names).toEqual(['Build', 'Lint', 'Type Check']);
+
+    const lint = logs.find((l) => l.checkName === 'Lint')!;
+    const typecheck = logs.find((l) => l.checkName === 'Type Check')!;
+    expect(lint.excerpt).toContain('ESLint');
+    expect(typecheck.excerpt).toContain('ESLint');
+
+    const build = logs.find((l) => l.checkName === 'Build')!;
+    expect(build.excerpt).toContain('Build failed');
+  });
+
+  it('returns empty excerpt for non-Actions checks (link does not match actions/runs)', async () => {
+    const runner = makeSequentialRunner({
+      'pr checks 1': NON_ACTIONS_CHECK,
+    });
+
+    const logs = await fetchFailedLogs('/repo', 1, runner);
+
+    expect(logs).toHaveLength(1);
+    expect(logs[0].checkName).toBe('Codecov');
+    expect(logs[0].excerpt).toBe('');
+  });
+
+  it('returns empty excerpt when run view fails, without throwing', async () => {
+    const callLog: string[] = [];
+    const runner: GhRunner = async (args) => {
+      const key = args.join(' ');
+      callLog.push(key);
+      if (key.includes('pr checks')) {
+        return { stdout: JSON.stringify([
+          { name: 'Lint', state: 'FAILURE', link: 'https://github.com/owner/repo/actions/runs/333/jobs/1', bucket: 'fail' },
+        ]), stderr: '' };
+      }
+      if (key.includes('run view 333')) {
+        throw new Error('run not found');
+      }
+      throw new Error(`Unexpected: ${key}`);
+    };
+
+    const logs = await fetchFailedLogs('/repo', 1, runner);
+    expect(logs).toHaveLength(1);
+    expect(logs[0].checkName).toBe('Lint');
+    expect(logs[0].excerpt).toBe('');
+  });
+
+  it('returns empty excerpt for a check with a null link', async () => {
+    const raw = JSON.stringify([
+      { name: 'Flaky Check', state: 'FAILURE', link: null, bucket: 'fail' },
+    ]);
+    const runner = makeRunner(raw);
+    const logs = await fetchFailedLogs('/repo', 1, runner);
+    expect(logs).toHaveLength(1);
+    expect(logs[0].excerpt).toBe('');
+  });
+
+  it('truncates very long log output to the tail', async () => {
+    const longLine = 'x'.repeat(100);
+    const manyLines = Array.from({ length: 300 }, (_, i) => `line ${i}: ${longLine}`).join('\n');
+
+    const runner: GhRunner = async (args) => {
+      if (args.includes('checks')) {
+        return { stdout: JSON.stringify([
+          { name: 'Test', state: 'FAILURE', link: 'https://github.com/owner/repo/actions/runs/444/jobs/1', bucket: 'fail' },
+        ]), stderr: '' };
+      }
+      return { stdout: manyLines, stderr: '' };
+    };
+
+    const logs = await fetchFailedLogs('/repo', 1, runner);
+    const lineCount = logs[0].excerpt.split('\n').filter(Boolean).length;
+    expect(lineCount).toBeLessThanOrEqual(200);
+    // Tail is preserved
+    expect(logs[0].excerpt).toContain('line 299');
   });
 });
 

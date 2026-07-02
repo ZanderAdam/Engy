@@ -169,6 +169,13 @@
       "when": 1782969062307,
       "tag": "0023_unique_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1782973563005,
+      "tag": "0024_living_killer_shrike",
+      "breakpoints": true
     }
   ]
 }

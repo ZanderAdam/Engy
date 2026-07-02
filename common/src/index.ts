@@ -79,6 +79,8 @@ export type {
   GhPrListResponseMessage,
   GhAuthStatusRequestMessage,
   GhAuthStatusResponseMessage,
+  GhPrFailedLogsRequestMessage,
+  GhPrFailedLogsResponseMessage,
   TerminalSpawnCmd,
   TerminalInputCmd,
   TerminalResizeCmd,

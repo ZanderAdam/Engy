@@ -462,6 +462,7 @@ export const prs = sqliteTable(
     title: text('title').notNull(),
     url: text('url').notNull(),
     headBranch: text('head_branch').notNull(),
+    headSha: text('head_sha'),
     author: text('author').notNull(),
     isDraft: integer('is_draft', { mode: 'boolean' }).notNull().default(false),
     state: text('state', { enum: ['open', 'closed', 'merged'] }).notNull().default('open'),
@@ -472,6 +473,9 @@ export const prs = sqliteTable(
       .default('unknown'),
     checks: text('checks', { mode: 'json' }).$type<GhPrCheck[]>().notNull(),
     reviewDecision: text('review_decision'),
+    lastFailedHeadSha: text('last_failed_head_sha'),
+    autoFixAttempts: integer('auto_fix_attempts').notNull().default(0),
+    attentionReason: text('attention_reason'),
     createdAt: text('created_at')
       .notNull()
       .$defaultFn(() => new Date().toISOString()),

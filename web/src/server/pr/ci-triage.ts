@@ -1,0 +1,96 @@
+import type { GhPrCheck } from '@engy/common';
+import type { MaterialChange } from '../trpc/routers/pr';
+import type { prs } from '../db/schema';
+
+export type CiFailureClassification = 'mechanical' | 'non-mechanical';
+
+export interface FailedLog {
+  checkName: string;
+  excerpt: string;
+}
+
+// Check names that indicate a mechanical (code-quality / tooling) failure.
+const MECHANICAL_CHECK_PATTERNS = [
+  'lint',
+  'eslint',
+  'typecheck',
+  'type-check',
+  'type check',
+  'tsc',
+  'typescript',
+  'test',
+  'vitest',
+  'jest',
+  'build',
+  'knip',
+  'format',
+  'prettier',
+  'deps',
+  'install',
+];
+
+// Log content signals that indicate a mechanical failure.
+const MECHANICAL_LOG_PATTERNS = [
+  'error ts',
+  'eslint',
+  'fail ',
+  'cannot find module',
+  'eresolve',
+  'typeerror',
+  'syntaxerror',
+];
+
+function isMechanicalCheckName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return MECHANICAL_CHECK_PATTERNS.some((p) => lower.includes(p));
+}
+
+function isMechanicalLogExcerpt(excerpt: string): boolean {
+  const lower = excerpt.toLowerCase();
+  return MECHANICAL_LOG_PATTERNS.some((p) => lower.includes(p));
+}
+
+/**
+ * From the upsert material changes, returns entries for PRs that newly
+ * transitioned to ciStatus 'failing'.
+ */
+export function detectFailureTransitions(
+  changes: MaterialChange[],
+): Array<{ number: number; repo: string }> {
+  return changes
+    .filter((c) => c.type === 'ciStatus' && c.current === 'failing')
+    .map((c) => ({ number: c.number, repo: c.repo }));
+}
+
+/**
+ * Classifies a CI failure as mechanical (lint/type/test/build/deps tooling)
+ * or non-mechanical (product logic, runtime, infrastructure).
+ *
+ * Conservative: unknown → 'non-mechanical'.
+ */
+export function classifyFailure(
+  checks: GhPrCheck[],
+  logExcerpts: FailedLog[],
+): CiFailureClassification {
+  for (const check of checks) {
+    if (isMechanicalCheckName(check.name)) return 'mechanical';
+  }
+  for (const log of logExcerpts) {
+    if (isMechanicalCheckName(log.checkName)) return 'mechanical';
+    if (log.excerpt && isMechanicalLogExcerpt(log.excerpt)) return 'mechanical';
+  }
+  return 'non-mechanical';
+}
+
+/**
+ * Stub hook invoked after each newly-failing PR is classified.
+ * Returns the classification for callers (e.g. poller tests) to assert.
+ * The auto-fix dispatch task will replace this stub.
+ */
+export function handleCiFailure(
+  _prRow: typeof prs.$inferSelect,
+  classification: CiFailureClassification,
+  _logs: FailedLog[],
+): CiFailureClassification {
+  return classification;
+}

@@ -2819,4 +2819,47 @@ describe('WsClient GH handlers', () => {
     expect(response.type).toBe('GH_AUTH_STATUS_RESPONSE');
     expect(response.payload.error).toMatch('connect ECONNREFUSED');
   });
+
+  it('GH_PR_FAILED_LOGS_REQUEST returns logs for failing checks', async () => {
+    const failingChecks = JSON.stringify([
+      {
+        name: 'Lint',
+        state: 'FAILURE',
+        link: 'https://github.com/owner/repo/actions/runs/777/jobs/1',
+        bucket: 'fail',
+      },
+    ]);
+    const logOutput = 'ESLint: 3 errors\nfoo.ts: Expected semicolon';
+
+    mockedExecFile[promisify.custom]
+      .mockResolvedValueOnce({ stdout: failingChecks, stderr: '' })
+      .mockResolvedValueOnce({ stdout: logOutput, stderr: '' });
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_FAILED_LOGS_REQUEST',
+        payload: { requestId: 'logs-1', repoDir: '/home/user/repo', prNumber: 42 },
+      }),
+    );
+
+    expect(response.type).toBe('GH_PR_FAILED_LOGS_RESPONSE');
+    expect(response.payload.requestId).toBe('logs-1');
+    expect(response.payload.logs).toHaveLength(1);
+    expect(response.payload.logs[0].checkName).toBe('Lint');
+    expect(response.payload.logs[0].excerpt).toContain('ESLint');
+  });
+
+  it('GH_PR_FAILED_LOGS_REQUEST returns error response on failure', async () => {
+    mockedExecFile[promisify.custom].mockRejectedValue(new Error('pr not found'));
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_FAILED_LOGS_REQUEST',
+        payload: { requestId: 'logs-err', repoDir: '/not-a-repo', prNumber: 99 },
+      }),
+    );
+
+    expect(response.type).toBe('GH_PR_FAILED_LOGS_RESPONSE');
+    expect(response.payload.error).toMatch('pr not found');
+  });
 });

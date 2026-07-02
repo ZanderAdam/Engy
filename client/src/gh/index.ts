@@ -32,11 +32,19 @@ interface RawPr {
   title: string;
   url: string;
   headRefName: string;
+  headRefOid: string;
   author: { login: string };
   isDraft: boolean;
   state: string;
   reviewDecision: string | null;
   statusCheckRollup: RawStatusCheckEntry[] | null;
+}
+
+interface RawPrCheck {
+  name: string;
+  state: string;
+  link: string | null;
+  bucket: string;
 }
 
 const FAILING_CONCLUSIONS = new Set([
@@ -89,7 +97,7 @@ function normalizeCheck(entry: RawStatusCheckEntry): GhPrCheck {
 }
 
 const PR_LIST_FIELDS =
-  'number,title,url,headRefName,author,isDraft,state,reviewDecision,statusCheckRollup';
+  'number,title,url,headRefName,headRefOid,author,isDraft,state,reviewDecision,statusCheckRollup';
 
 export async function listOpenPrs(repoDir: string, runner: GhRunner = localGhRunner): Promise<GhPr[]> {
   const { stdout } = await runner(['pr', 'list', '--json', PR_LIST_FIELDS], repoDir);
@@ -99,6 +107,7 @@ export async function listOpenPrs(repoDir: string, runner: GhRunner = localGhRun
     title: pr.title,
     url: pr.url,
     headBranch: pr.headRefName,
+    headSha: pr.headRefOid ?? null,
     author: pr.author.login,
     isDraft: pr.isDraft,
     state: pr.state,
@@ -106,6 +115,69 @@ export async function listOpenPrs(repoDir: string, runner: GhRunner = localGhRun
     ciStatus: deriveCiStatus(pr.statusCheckRollup),
     checks: (pr.statusCheckRollup ?? []).map(normalizeCheck),
   }));
+}
+
+const ACTIONS_RUN_RE = /\/actions\/runs\/(\d+)/;
+const MAX_LOG_LINES = 200;
+const MAX_LOG_BYTES = 16 * 1024;
+
+function truncateTail(log: string): string {
+  const buf = Buffer.from(log, 'utf-8');
+  let trimmed = log;
+  if (buf.length > MAX_LOG_BYTES) {
+    const tail = buf.slice(buf.length - MAX_LOG_BYTES).toString('utf-8');
+    const firstNewline = tail.indexOf('\n');
+    trimmed = firstNewline !== -1 ? tail.slice(firstNewline + 1) : tail;
+  }
+  const lines = trimmed.split('\n');
+  return lines.length > MAX_LOG_LINES ? lines.slice(-MAX_LOG_LINES).join('\n') : trimmed;
+}
+
+export async function fetchFailedLogs(
+  repoDir: string,
+  prNumber: number,
+  runner: GhRunner = localGhRunner,
+): Promise<Array<{ checkName: string; excerpt: string }>> {
+  const { stdout } = await runner(
+    ['pr', 'checks', String(prNumber), '--json', 'name,state,link,bucket'],
+    repoDir,
+  );
+  const checks: RawPrCheck[] = JSON.parse(stdout);
+
+  const failingChecks = checks.filter((c) => c.bucket === 'fail');
+  if (failingChecks.length === 0) return [];
+
+  // Group failing checks by Actions run ID; non-Actions checks get an empty excerpt.
+  const runIdToCheckNames = new Map<string, string[]>();
+  const results: Array<{ checkName: string; excerpt: string }> = [];
+
+  for (const check of failingChecks) {
+    const match = check.link ? ACTIONS_RUN_RE.exec(check.link) : null;
+    if (!match) {
+      results.push({ checkName: check.name, excerpt: '' });
+      continue;
+    }
+    const runId = match[1];
+    if (!runIdToCheckNames.has(runId)) {
+      runIdToCheckNames.set(runId, []);
+    }
+    runIdToCheckNames.get(runId)!.push(check.name);
+  }
+
+  for (const [runId, checkNames] of runIdToCheckNames) {
+    let excerpt = '';
+    try {
+      const { stdout: logOutput } = await runner(['run', 'view', runId, '--log-failed'], repoDir);
+      excerpt = truncateTail(logOutput);
+    } catch {
+      // Non-fatal: skip log fetch for this run gracefully
+    }
+    for (const checkName of checkNames) {
+      results.push({ checkName, excerpt });
+    }
+  }
+
+  return results;
 }
 
 export async function checkAuthStatus(runner: GhRunner = localGhRunner): Promise<GhAuthStatus> {

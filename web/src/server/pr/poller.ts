@@ -1,9 +1,11 @@
+import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client';
-import { workspaces } from '../db/schema';
+import { workspaces, prs } from '../db/schema';
 import type { AppState } from '../trpc/context';
-import { dispatchGhPrList } from '../ws/server';
+import { dispatchGhPrList, dispatchGhPrFailedLogs } from '../ws/server';
 import { upsertPrs } from '../trpc/routers/pr';
 import { broadcastPrChange } from '../ws/broadcast';
+import { detectFailureTransitions, classifyFailure, handleCiFailure } from './ci-triage';
 
 export const POLL_INTERVAL_MS = 60_000;
 
@@ -29,6 +31,11 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
         if (result.changes.length > 0) {
           broadcastPrChange(ws.id, repo);
         }
+
+        const failingTransitions = detectFailureTransitions(result.changes);
+        for (const { number } of failingTransitions) {
+          void handleFailingPr(db, state, repo, number, ghPrs, coderWorkspace);
+        }
       } catch (err) {
         if (!state.prPollerErroredRepos.has(repo)) {
           console.error(
@@ -40,6 +47,51 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
       }
     }
   }
+}
+
+async function handleFailingPr(
+  db: Db,
+  state: AppState,
+  repo: string,
+  prNumber: number,
+  ghPrs: Awaited<ReturnType<typeof dispatchGhPrList>>['prs'],
+  coderWorkspace: string | undefined,
+): Promise<void> {
+  const dbRow = db
+    .select()
+    .from(prs)
+    .where(and(eq(prs.repo, repo), eq(prs.number, prNumber)))
+    .get();
+
+  if (!dbRow) return;
+
+  const ghPr = ghPrs.find((p) => p.number === prNumber);
+  const headSha = ghPr?.headSha ?? null;
+  const now = new Date().toISOString();
+
+  const headShaChanged = headSha !== null && headSha !== dbRow.lastFailedHeadSha;
+  db.update(prs)
+    .set({
+      lastFailedHeadSha: headSha,
+      ...(headShaChanged ? { autoFixAttempts: 0 } : {}),
+      updatedAt: now,
+    })
+    .where(and(eq(prs.repo, repo), eq(prs.number, prNumber)))
+    .run();
+
+  let logs: Array<{ checkName: string; excerpt: string }> = [];
+  try {
+    const result = await dispatchGhPrFailedLogs(repo, prNumber, state, coderWorkspace);
+    logs = result.logs;
+  } catch (err) {
+    console.error(
+      `[pr-poller] failed to fetch logs for ${repo}#${prNumber}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  const classification = classifyFailure(ghPr?.checks ?? [], logs);
+  handleCiFailure(dbRow, classification, logs);
 }
 
 /**

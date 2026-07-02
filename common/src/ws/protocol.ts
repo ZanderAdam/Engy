@@ -624,6 +624,7 @@ export interface GhPr {
   title: string;
   url: string;
   headBranch: string;
+  headSha: string | null;
   author: string;
   isDraft: boolean;
   state: string;
@@ -664,6 +665,23 @@ export interface GhAuthStatusResponseMessage {
   type: 'GH_AUTH_STATUS_RESPONSE';
   payload:
     | { requestId: string; status: GhAuthStatus }
+    | { requestId: string; error: string };
+}
+
+export interface GhPrFailedLogsRequestMessage {
+  type: 'GH_PR_FAILED_LOGS_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    coderWorkspace?: string;
+    prNumber: number;
+  };
+}
+
+export interface GhPrFailedLogsResponseMessage {
+  type: 'GH_PR_FAILED_LOGS_RESPONSE';
+  payload:
+    | { requestId: string; logs: Array<{ checkName: string; excerpt: string }> }
     | { requestId: string; error: string };
 }
 
@@ -732,7 +750,9 @@ export type WsMessage =
   | GhPrListRequestMessage
   | GhPrListResponseMessage
   | GhAuthStatusRequestMessage
-  | GhAuthStatusResponseMessage;
+  | GhAuthStatusResponseMessage
+  | GhPrFailedLogsRequestMessage
+  | GhPrFailedLogsResponseMessage;
 
 export type ClientToServerMessage =
   | RegisterMessage
@@ -769,7 +789,8 @@ export type ClientToServerMessage =
   | ExecutionCompleteEventMessage
   | CreateMemoriesEventMessage
   | GhPrListResponseMessage
-  | GhAuthStatusResponseMessage;
+  | GhAuthStatusResponseMessage
+  | GhPrFailedLogsResponseMessage;
 
 export type ServerToClientMessage =
   | WorkspacesSyncMessage
@@ -801,7 +822,8 @@ export type ServerToClientMessage =
   | ExecutionStartRequestMessage
   | ExecutionStopRequestMessage
   | GhPrListRequestMessage
-  | GhAuthStatusRequestMessage;
+  | GhAuthStatusRequestMessage
+  | GhPrFailedLogsRequestMessage;
 
 // ── Compact terminal relay types (server ↔ daemon) ──────────────────────────
 

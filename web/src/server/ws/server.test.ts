@@ -16,6 +16,7 @@ import {
   dispatchFsRename,
   dispatchGhPrList,
   dispatchGhAuthStatus,
+  dispatchGhPrFailedLogs,
 } from './server';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { agentSessions, tasks, taskGroups, projects, workspaces, fleetingMemories } from '../db/schema';
@@ -2346,5 +2347,114 @@ describe('GH_AUTH_STATUS_RESPONSE', () => {
 
     await expect(authPromise).rejects.toThrow('Daemon disconnected');
     expect(state.pendingGhAuthStatus.size).toBe(0);
+  });
+});
+
+describe('GH_PR_FAILED_LOGS_RESPONSE', () => {
+  let state: AppState;
+  let server: Server;
+  let port: number;
+
+  beforeEach(async () => {
+    openClients = [];
+    state = createAppState();
+    const result = await startServer(state);
+    server = result.server;
+    port = result.port;
+  });
+
+  afterEach(async () => {
+    for (const ws of openClients) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.terminate();
+      }
+    }
+    openClients = [];
+    await closeServer(server);
+  });
+
+  it('should resolve with logs on success response', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const logsPromise = dispatchGhPrFailedLogs('/tmp/repo', 1, state);
+
+    const request = (await messagePromise) as {
+      type: string;
+      payload: { requestId: string; repoDir: string; prNumber: number };
+    };
+    expect(request.type).toBe('GH_PR_FAILED_LOGS_REQUEST');
+    expect(request.payload.repoDir).toBe('/tmp/repo');
+    expect(request.payload.prNumber).toBe(1);
+
+    ws.send(
+      JSON.stringify({
+        type: 'GH_PR_FAILED_LOGS_RESPONSE',
+        payload: {
+          requestId: request.payload.requestId,
+          logs: [{ checkName: 'Lint', excerpt: 'ESLint: 3 errors' }],
+        },
+      }),
+    );
+
+    const result = await logsPromise;
+    expect(result.logs).toHaveLength(1);
+    expect(result.logs[0].checkName).toBe('Lint');
+    expect(result.logs[0].excerpt).toBe('ESLint: 3 errors');
+  });
+
+  it('should reject on error response', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const logsPromise = dispatchGhPrFailedLogs('/bad/repo', 99, state);
+
+    const request = (await messagePromise) as { type: string; payload: { requestId: string } };
+    ws.send(
+      JSON.stringify({
+        type: 'GH_PR_FAILED_LOGS_RESPONSE',
+        payload: { requestId: request.payload.requestId, error: 'pr not found' },
+      }),
+    );
+
+    await expect(logsPromise).rejects.toThrow('pr not found');
+    expect(state.pendingGhPrFailedLogs.size).toBe(0);
+  });
+
+  it('should reject if no daemon is connected', async () => {
+    await expect(dispatchGhPrFailedLogs('/tmp/repo', 1, state)).rejects.toThrow(
+      'No daemon connected',
+    );
+  });
+
+  it('should reject pending log ops when daemon disconnects', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const logsPromise = dispatchGhPrFailedLogs('/tmp/repo', 1, state);
+    ws.close();
+
+    await expect(logsPromise).rejects.toThrow('Daemon disconnected');
+    expect(state.pendingGhPrFailedLogs.size).toBe(0);
+  });
+
+  it('should forward coderWorkspace in the request payload', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    dispatchGhPrFailedLogs('/remote/repo', 7, state, 'my-coder-ws').catch(() => {});
+
+    const request = (await messagePromise) as {
+      type: string;
+      payload: { requestId: string; coderWorkspace?: string };
+    };
+    expect(request.payload.coderWorkspace).toBe('my-coder-ws');
   });
 });

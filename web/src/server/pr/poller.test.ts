@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { workspaces } from '../db/schema';
+import { workspaces, prs as prsTable } from '../db/schema';
+import { eq, and } from 'drizzle-orm';
 import type { GhPr } from '@engy/common';
 import { runPollCycle, startPrPoller, stopPrPoller, POLL_INTERVAL_MS } from './poller';
 import * as broadcast from '../ws/broadcast';
@@ -10,10 +11,16 @@ import * as broadcast from '../ws/broadcast';
 
 interface DaemonMessage {
   type: string;
-  payload: { requestId: string; repoDir: string };
+  payload: { requestId: string; repoDir: string; prNumber?: number };
 }
 
-function installFakeDaemon(ctx: TestContext, prsByRepo: Map<string, GhPr[] | Error>): void {
+type FailedLogsResponse = Array<{ checkName: string; excerpt: string }> | Error;
+
+function installFakeDaemon(
+  ctx: TestContext,
+  prsByRepo: Map<string, GhPr[] | Error>,
+  failedLogsByRepo?: Map<string, FailedLogsResponse>,
+): void {
   const mock = {
     readyState: WebSocket.OPEN,
     OPEN: WebSocket.OPEN,
@@ -22,17 +29,31 @@ function installFakeDaemon(ctx: TestContext, prsByRepo: Map<string, GhPr[] | Err
       const { requestId, repoDir } = msg.payload;
 
       queueMicrotask(() => {
-        if (msg.type !== 'GH_PR_LIST_REQUEST') return;
+        if (msg.type === 'GH_PR_LIST_REQUEST') {
+          const pending = ctx.state.pendingGhPrList.get(requestId);
+          if (!pending) return;
+          ctx.state.pendingGhPrList.delete(requestId);
 
-        const pending = ctx.state.pendingGhPrList.get(requestId);
-        if (!pending) return;
-        ctx.state.pendingGhPrList.delete(requestId);
+          const result = prsByRepo.get(repoDir);
+          if (result instanceof Error) {
+            pending.reject(result);
+          } else {
+            pending.resolve({ prs: result ?? [] });
+          }
+          return;
+        }
 
-        const result = prsByRepo.get(repoDir);
-        if (result instanceof Error) {
-          pending.reject(result);
-        } else {
-          pending.resolve({ prs: result ?? [] });
+        if (msg.type === 'GH_PR_FAILED_LOGS_REQUEST') {
+          const pending = ctx.state.pendingGhPrFailedLogs.get(requestId);
+          if (!pending) return;
+          ctx.state.pendingGhPrFailedLogs.delete(requestId);
+
+          const result = failedLogsByRepo?.get(repoDir);
+          if (result instanceof Error) {
+            pending.reject(result);
+          } else {
+            pending.resolve({ logs: result ?? [] });
+          }
         }
       });
     },
@@ -48,6 +69,7 @@ function makePr(overrides: Partial<GhPr> = {}): GhPr {
     title: 'My PR',
     url: 'https://github.com/org/repo/pull/1',
     headBranch: 'feat/one',
+    headSha: 'abc123',
     author: 'alice',
     isDraft: false,
     state: 'open',
@@ -103,8 +125,7 @@ describe('PR poller', () => {
 
       await runPollCycle(ctx.state, ctx.db);
 
-      const { prs: prTable } = await import('../db/schema');
-      const rows = ctx.db.select().from(prTable).all();
+      const rows = ctx.db.select().from(prsTable).all();
       expect(rows).toHaveLength(2);
       expect(rows.map((r) => r.repo).sort()).toEqual(['/repo-a', '/repo-b']);
     });
@@ -184,6 +205,142 @@ describe('PR poller', () => {
       expect(errorSpy).toHaveBeenCalledOnce();
 
       errorSpy.mockRestore();
+    });
+
+    it('should persist headSha into the prs table', async () => {
+      seedWorkspace(ctx, ['/repo-a']);
+      installFakeDaemon(
+        ctx,
+        new Map<string, GhPr[] | Error>([['/repo-a', [makePr({ headSha: 'deadbeef' })]]]),
+      );
+
+      await runPollCycle(ctx.state, ctx.db);
+
+      const row = ctx.db.select().from(prsTable).where(eq(prsTable.repo, '/repo-a')).get();
+      expect(row?.headSha).toBe('deadbeef');
+    });
+
+    describe('CI failure transition handling', () => {
+      it('should set lastFailedHeadSha when a PR transitions to failing', async () => {
+        seedWorkspace(ctx, ['/repo-a']);
+
+        // First cycle: PR inserted as passing
+        installFakeDaemon(
+          ctx,
+          new Map<string, GhPr[] | Error>([
+            ['/repo-a', [makePr({ number: 1, ciStatus: 'passing', headSha: 'sha1' })]],
+          ]),
+        );
+        await runPollCycle(ctx.state, ctx.db);
+
+        // Second cycle: PR transitions to failing — triggers failed log fetch
+        installFakeDaemon(
+          ctx,
+          new Map<string, GhPr[] | Error>([
+            ['/repo-a', [makePr({ number: 1, ciStatus: 'failing', headSha: 'sha2' })]],
+          ]),
+          new Map([['/repo-a', []]]),
+        );
+        await runPollCycle(ctx.state, ctx.db);
+
+        // Wait for the async handleFailingPr to settle
+        await new Promise((r) => queueMicrotask(r as () => void));
+
+        const row = ctx.db
+          .select()
+          .from(prsTable)
+          .where(and(eq(prsTable.repo, '/repo-a'), eq(prsTable.number, 1)))
+          .get();
+        expect(row?.lastFailedHeadSha).toBe('sha2');
+      });
+
+      it('should reset autoFixAttempts to 0 when headSha changes on a new failure', async () => {
+        seedWorkspace(ctx, ['/repo-a']);
+
+        // Seed a PR directly with a prior failing state so we can check reset
+        const pr = makePr({ number: 1, ciStatus: 'passing', headSha: 'sha1' });
+        installFakeDaemon(ctx, new Map([['/repo-a', [pr]]]), new Map([['/repo-a', []]]));
+        await runPollCycle(ctx.state, ctx.db);
+
+        // Manually set lastFailedHeadSha to simulate a prior failure on different SHA
+        ctx.db
+          .update(prsTable)
+          .set({ lastFailedHeadSha: 'sha-old', autoFixAttempts: 3 })
+          .where(and(eq(prsTable.repo, '/repo-a'), eq(prsTable.number, 1)))
+          .run();
+
+        // Now PR fails with a new SHA
+        installFakeDaemon(
+          ctx,
+          new Map([['/repo-a', [makePr({ number: 1, ciStatus: 'failing', headSha: 'sha2' })]]]),
+          new Map([['/repo-a', []]]),
+        );
+        await runPollCycle(ctx.state, ctx.db);
+        await new Promise((r) => queueMicrotask(r as () => void));
+
+        const row = ctx.db
+          .select()
+          .from(prsTable)
+          .where(and(eq(prsTable.repo, '/repo-a'), eq(prsTable.number, 1)))
+          .get();
+        expect(row?.autoFixAttempts).toBe(0);
+        expect(row?.lastFailedHeadSha).toBe('sha2');
+      });
+
+      it('should not reset autoFixAttempts when headSha is the same as lastFailedHeadSha', async () => {
+        seedWorkspace(ctx, ['/repo-a']);
+
+        const pr = makePr({ number: 1, ciStatus: 'passing', headSha: 'sha1' });
+        installFakeDaemon(ctx, new Map([['/repo-a', [pr]]]), new Map([['/repo-a', []]]));
+        await runPollCycle(ctx.state, ctx.db);
+
+        // Set lastFailedHeadSha to the same SHA
+        ctx.db
+          .update(prsTable)
+          .set({ lastFailedHeadSha: 'sha1', autoFixAttempts: 2 })
+          .where(and(eq(prsTable.repo, '/repo-a'), eq(prsTable.number, 1)))
+          .run();
+
+        // PR fails with the same SHA
+        installFakeDaemon(
+          ctx,
+          new Map([['/repo-a', [makePr({ number: 1, ciStatus: 'failing', headSha: 'sha1' })]]]),
+          new Map([['/repo-a', []]]),
+        );
+        await runPollCycle(ctx.state, ctx.db);
+        await new Promise((r) => queueMicrotask(r as () => void));
+
+        const row = ctx.db
+          .select()
+          .from(prsTable)
+          .where(and(eq(prsTable.repo, '/repo-a'), eq(prsTable.number, 1)))
+          .get();
+        expect(row?.autoFixAttempts).toBe(2);
+      });
+
+      it('should continue gracefully when failed log dispatch errors', async () => {
+        seedWorkspace(ctx, ['/repo-a']);
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        installFakeDaemon(
+          ctx,
+          new Map([['/repo-a', [makePr({ number: 1, ciStatus: 'passing', headSha: 'sha1' })]]]));
+        await runPollCycle(ctx.state, ctx.db);
+
+        installFakeDaemon(
+          ctx,
+          new Map([['/repo-a', [makePr({ number: 1, ciStatus: 'failing', headSha: 'sha2' })]]]),
+          new Map([['/repo-a', new Error('log fetch failed')]]),
+        );
+        await runPollCycle(ctx.state, ctx.db);
+        await new Promise((r) => queueMicrotask(r as () => void));
+
+        expect(errorSpy).toHaveBeenCalledWith(
+          expect.stringContaining('/repo-a#1'),
+          expect.stringContaining('log fetch failed'),
+        );
+        errorSpy.mockRestore();
+      });
     });
   });
 

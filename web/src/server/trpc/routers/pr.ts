@@ -11,7 +11,7 @@ type Db = ReturnType<typeof getDb>;
 
 type PrState = 'open' | 'closed' | 'merged';
 
-interface MaterialChange {
+export interface MaterialChange {
   number: number;
   repo: string;
   type: 'new' | 'ciStatus' | 'state' | 'reviewDecision';
@@ -19,7 +19,7 @@ interface MaterialChange {
   current: string;
 }
 
-interface UpsertResult {
+export interface UpsertResult {
   inserted: number;
   updated: number;
   closed: number;
@@ -61,6 +61,7 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
             title: ghPr.title,
             url: ghPr.url,
             headBranch: ghPr.headBranch,
+            headSha: ghPr.headSha ?? null,
             author: ghPr.author,
             isDraft: ghPr.isDraft,
             state,
@@ -108,6 +109,7 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
             title: ghPr.title,
             url: ghPr.url,
             headBranch: ghPr.headBranch,
+            headSha: ghPr.headSha ?? null,
             author: ghPr.author,
             isDraft: ghPr.isDraft,
             state,

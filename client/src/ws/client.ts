@@ -39,10 +39,11 @@ import type {
   FsRenameRequestMessage,
   GhPrListRequestMessage,
   GhAuthStatusRequestMessage,
+  GhPrFailedLogsRequestMessage,
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
-import { listOpenPrs, checkAuthStatus, localGhRunner, type GhRunner } from '../gh/index.js';
+import { listOpenPrs, fetchFailedLogs, checkAuthStatus, localGhRunner, type GhRunner } from '../gh/index.js';
 import {
   getStatusDetailed,
   getDiff,
@@ -635,6 +636,9 @@ export class WsClient {
         break;
       case 'GH_AUTH_STATUS_REQUEST':
         this.handleGhAuthStatusRequest(message as GhAuthStatusRequestMessage);
+        break;
+      case 'GH_PR_FAILED_LOGS_REQUEST':
+        this.handleGhPrFailedLogsRequest(message as GhPrFailedLogsRequestMessage);
         break;
     }
   }
@@ -1422,6 +1426,22 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'GH_AUTH_STATUS_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleGhPrFailedLogsRequest(message: GhPrFailedLogsRequestMessage): Promise<void> {
+    const { requestId, repoDir, prNumber, coderWorkspace } = message.payload;
+    try {
+      const logs = await fetchFailedLogs(repoDir, prNumber, this.ghRunnerFor(coderWorkspace));
+      this.send({
+        type: 'GH_PR_FAILED_LOGS_RESPONSE',
+        payload: { requestId, logs },
+      });
+    } catch (err) {
+      this.send({
+        type: 'GH_PR_FAILED_LOGS_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }

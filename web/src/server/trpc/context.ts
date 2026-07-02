@@ -149,6 +149,10 @@ export interface GhAuthStatusResult {
   status: GhAuthStatus;
 }
 
+export interface GhPrFailedLogsResult {
+  logs: Array<{ checkName: string; excerpt: string }>;
+}
+
 export interface AppState {
   daemon: WebSocket | null;
   fileChanges: Map<string, FileChangeEvent[]>;
@@ -348,6 +352,13 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingGhPrFailedLogs: Map<
+    string,
+    {
+      resolve: (result: GhPrFailedLogsResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   daemonHomeDir: string | null;
   specLastChanged: Map<string, number>;
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
@@ -409,6 +420,7 @@ export function createAppState(): AppState {
     pendingFsRename: new Map(),
     pendingGhPrList: new Map(),
     pendingGhAuthStatus: new Map(),
+    pendingGhPrFailedLogs: new Map(),
     daemonHomeDir: null,
     specLastChanged: new Map(),
     specDebounceTimers: new Map(),

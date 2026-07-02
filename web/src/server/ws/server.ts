@@ -38,6 +38,7 @@ import type {
   FsRenameResult,
   GhPrListResult,
   GhAuthStatusResult,
+  GhPrFailedLogsResult,
 } from '../trpc/context';
 import { getDb } from '../db/client';
 import { workspaces, agentSessions, tasks, taskGroups, projects, fleetingMemories } from '../db/schema';
@@ -118,6 +119,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingFsRename,
     state.pendingGhPrList,
     state.pendingGhAuthStatus,
+    state.pendingGhPrFailedLogs,
   ] as const;
 
   const error = new Error('Daemon disconnected');
@@ -283,6 +285,11 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'GH_AUTH_STATUS_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGhAuthStatus, (p) => ({
         status: p.status,
+      }));
+      break;
+    case 'GH_PR_FAILED_LOGS_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGhPrFailedLogs, (p) => ({
+        logs: p.logs,
       }));
       break;
   }
@@ -1281,6 +1288,19 @@ export function dispatchGhAuthStatus(
   coderWorkspace?: string,
 ): Promise<GhAuthStatusResult> {
   return dispatchDaemonOp(state, state.pendingGhAuthStatus, 'GH_AUTH_STATUS_REQUEST', {
+    coderWorkspace,
+  });
+}
+
+export function dispatchGhPrFailedLogs(
+  repoDir: string,
+  prNumber: number,
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<GhPrFailedLogsResult> {
+  return dispatchDaemonOp(state, state.pendingGhPrFailedLogs, 'GH_PR_FAILED_LOGS_REQUEST', {
+    repoDir,
+    prNumber,
     coderWorkspace,
   });
 }

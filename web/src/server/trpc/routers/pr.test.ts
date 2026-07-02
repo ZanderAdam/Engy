@@ -15,6 +15,7 @@ function makePr(overrides: Partial<GhPr> = {}): GhPr {
     title: 'My PR',
     url: 'https://github.com/org/repo/pull/1',
     headBranch: 'feat/my-feature',
+    headSha: null,
     author: 'alice',
     isDraft: false,
     state: 'open',
