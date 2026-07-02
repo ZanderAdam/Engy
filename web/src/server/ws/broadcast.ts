@@ -61,13 +61,22 @@ interface TerminalActivityChangeEvent {
   };
 }
 
+interface PrChangeEvent {
+  type: 'PR_CHANGE';
+  payload: {
+    workspaceId: number;
+    repo: string;
+  };
+}
+
 type ServerEvent =
   | FileChangeEvent
   | TaskChangeEvent
   | QuestionChangeEvent
   | TerminalSessionsChangeEvent
   | MemoryChangeEvent
-  | TerminalActivityChangeEvent;
+  | TerminalActivityChangeEvent
+  | PrChangeEvent;
 
 // ── Generic Broadcast ───────────────────────────────────────────────
 
@@ -141,4 +150,8 @@ export function broadcastTerminalActivityChange(
   payload: TerminalActivityChangeEvent['payload'],
 ): void {
   broadcastEvent({ type: 'TERMINAL_ACTIVITY_CHANGE', payload });
+}
+
+export function broadcastPrChange(workspaceId: number, repo: string): void {
+  broadcastEvent({ type: 'PR_CHANGE', payload: { workspaceId, repo } });
 }

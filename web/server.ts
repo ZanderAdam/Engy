@@ -10,6 +10,7 @@ import { createEventsWebSocketServer } from './src/server/ws/events-server';
 import { broadcastTerminalSessionsChange } from './src/server/ws/broadcast';
 import { attachMCP } from './src/server/mcp/index';
 import { runMigrations, runPostMigrationBackfills } from './src/server/db/migrate';
+import { startPrPoller, stopPrPoller } from './src/server/pr/poller';
 
 const dev = process.env.NODE_ENV !== 'production';
 const port = parseInt(process.env.PORT || '3000', 10);
@@ -150,6 +151,9 @@ app.prepare().then(() => {
   });
 
   attachMCP(server);
+  startPrPoller(state);
+
+  server.on('close', () => stopPrPoller(state));
 
   server.listen(port, () => {
     console.log(`> Ready on http://localhost:${port}`);

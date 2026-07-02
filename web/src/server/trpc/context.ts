@@ -369,6 +369,10 @@ export interface AppState {
   fileChangeListeners: Set<WebSocket>;
   /** Callbacks for streaming container build progress to terminals */
   containerProgressListeners: Map<string, (line: string) => void>;
+  /** Timer handle for the PR polling interval; null until startPrPoller is called */
+  prPollerTimer: ReturnType<typeof setInterval> | null;
+  /** Repos that have errored in the most recent poll cycle (log-once guard) */
+  prPollerErroredRepos: Set<string>;
 }
 
 const GLOBAL_KEY = '__engy_app_state__' as const;
@@ -415,6 +419,8 @@ export function createAppState(): AppState {
     terminalDaemon: null,
     fileChangeListeners: new Set(),
     containerProgressListeners: new Map(),
+    prPollerTimer: null,
+    prPollerErroredRepos: new Set(),
   };
 }
 
