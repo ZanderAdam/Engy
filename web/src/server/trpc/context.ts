@@ -5,6 +5,7 @@ import type {
   GitWorktreeEntry,
   GhPr,
   GhAuthStatus,
+  GhReviewComment,
   TerminalActivityState,
   WorktreeAddErrorCode,
   WorktreeRemoveErrorCode,
@@ -151,6 +152,10 @@ export interface GhAuthStatusResult {
 
 export interface GhPrFailedLogsResult {
   logs: Array<{ checkName: string; excerpt: string }>;
+}
+
+export interface GhPrReviewCommentsResult {
+  comments: GhReviewComment[];
 }
 
 export interface AppState {
@@ -359,6 +364,13 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingGhPrReviewComments: Map<
+    string,
+    {
+      resolve: (result: GhPrReviewCommentsResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   daemonHomeDir: string | null;
   specLastChanged: Map<string, number>;
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
@@ -421,6 +433,7 @@ export function createAppState(): AppState {
     pendingGhPrList: new Map(),
     pendingGhAuthStatus: new Map(),
     pendingGhPrFailedLogs: new Map(),
+    pendingGhPrReviewComments: new Map(),
     daemonHomeDir: null,
     specLastChanged: new Map(),
     specDebounceTimers: new Map(),

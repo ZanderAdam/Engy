@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { listOpenPrs, fetchFailedLogs, checkAuthStatus, type GhRunner } from './index.js';
+import { listOpenPrs, fetchFailedLogs, fetchReviewComments, checkAuthStatus, type GhRunner } from './index.js';
 
 
 function makeRunner(stdout: string): GhRunner {
@@ -471,5 +471,97 @@ describe('checkAuthStatus', () => {
   it('throws for internal gh errors with no auth-related output', async () => {
     const runner = makeErrorRunner({ message: 'request timeout after 30s', stderr: 'fatal: internal error' });
     await expect(checkAuthStatus(runner)).rejects.toThrow('request timeout after 30s');
+  });
+});
+
+describe('fetchReviewComments', () => {
+  const REPO_NAME_STDOUT = JSON.stringify({ nameWithOwner: 'org/repo' });
+
+  function makeReviewRunner(comments: object[]): GhRunner {
+    return async (args: string[]) => {
+      if (args.includes('view') && args.includes('--json')) {
+        return { stdout: REPO_NAME_STDOUT, stderr: '' };
+      }
+      return { stdout: JSON.stringify(comments), stderr: '' };
+    };
+  }
+
+  const SAMPLE_COMMENT = {
+    id: 101,
+    path: 'src/index.ts',
+    line: 42,
+    original_line: 40,
+    body: 'Please fix this',
+    user: { login: 'reviewer' },
+    created_at: '2024-01-01T10:00:00Z',
+    in_reply_to_id: undefined,
+    html_url: 'https://github.com/org/repo/pull/1#discussion_r101',
+  };
+
+  it('should return empty array when there are no review comments', async () => {
+    const runner = makeReviewRunner([]);
+    const comments = await fetchReviewComments('/repo', 1, runner);
+    expect(comments).toEqual([]);
+  });
+
+  it('should map raw API fields to GhReviewComment shape', async () => {
+    const runner = makeReviewRunner([SAMPLE_COMMENT]);
+    const comments = await fetchReviewComments('/repo', 1, runner);
+    expect(comments).toHaveLength(1);
+    expect(comments[0]).toMatchObject({
+      githubId: 101,
+      path: 'src/index.ts',
+      line: 42,
+      body: 'Please fix this',
+      author: 'reviewer',
+      createdAt: '2024-01-01T10:00:00Z',
+      inReplyToId: null,
+      url: 'https://github.com/org/repo/pull/1#discussion_r101',
+    });
+  });
+
+  it('should prefer line over original_line', async () => {
+    const runner = makeReviewRunner([{ ...SAMPLE_COMMENT, id: 102, line: 7, original_line: 5 }]);
+    const [comment] = await fetchReviewComments('/repo', 1, runner);
+    expect(comment.line).toBe(7);
+  });
+
+  it('should fall back to original_line when line is null', async () => {
+    const runner = makeReviewRunner([{ ...SAMPLE_COMMENT, id: 103, line: null, original_line: 5 }]);
+    const [comment] = await fetchReviewComments('/repo', 1, runner);
+    expect(comment.line).toBe(5);
+  });
+
+  it('should return null line when both line and original_line are null', async () => {
+    const runner = makeReviewRunner([{ ...SAMPLE_COMMENT, id: 104, line: null, original_line: null }]);
+    const [comment] = await fetchReviewComments('/repo', 1, runner);
+    expect(comment.line).toBeNull();
+  });
+
+  it('should map in_reply_to_id to inReplyToId for reply comments', async () => {
+    const reply = { ...SAMPLE_COMMENT, id: 202, in_reply_to_id: 101 };
+    const runner = makeReviewRunner([reply]);
+    const [comment] = await fetchReviewComments('/repo', 1, runner);
+    expect(comment.inReplyToId).toBe(101);
+  });
+
+  it('should handle paginated results (array concatenated by gh --paginate)', async () => {
+    const c1 = { ...SAMPLE_COMMENT, id: 301 };
+    const c2 = { ...SAMPLE_COMMENT, id: 302 };
+    const runner = makeReviewRunner([c1, c2]);
+    const comments = await fetchReviewComments('/repo', 1, runner);
+    expect(comments).toHaveLength(2);
+    expect(comments.map((c) => c.githubId).sort()).toEqual([301, 302]);
+  });
+
+  it('should derive owner/repo from gh repo view and include it in the api call', async () => {
+    const callLog: string[] = [];
+    const runner: GhRunner = async (args) => {
+      callLog.push(args.join(' '));
+      if (args.includes('view')) return { stdout: REPO_NAME_STDOUT, stderr: '' };
+      return { stdout: '[]', stderr: '' };
+    };
+    await fetchReviewComments('/repo', 5, runner);
+    expect(callLog.some((c) => c.includes('repos/org/repo/pulls/5/comments'))).toBe(true);
   });
 });

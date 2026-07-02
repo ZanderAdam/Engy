@@ -2862,4 +2862,53 @@ describe('WsClient GH handlers', () => {
     expect(response.type).toBe('GH_PR_FAILED_LOGS_RESPONSE');
     expect(response.payload.error).toMatch('pr not found');
   });
+
+  it('GH_PR_REVIEW_COMMENTS_REQUEST returns comments via local gh runner', async () => {
+    const nameWithOwner = JSON.stringify({ nameWithOwner: 'org/repo' });
+    const commentsJson = JSON.stringify([
+      {
+        id: 101,
+        path: 'src/index.ts',
+        line: 15,
+        original_line: 14,
+        body: 'Fix this',
+        user: { login: 'reviewer' },
+        created_at: '2024-01-01T00:00:00Z',
+        html_url: 'https://github.com/org/repo/pull/1#discussion_r101',
+      },
+    ]);
+
+    mockedExecFile[promisify.custom]
+      .mockResolvedValueOnce({ stdout: nameWithOwner, stderr: '' })
+      .mockResolvedValueOnce({ stdout: commentsJson, stderr: '' });
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_REVIEW_COMMENTS_REQUEST',
+        payload: { requestId: 'rc-1', repoDir: '/home/user/repo', prNumber: 1 },
+      }),
+    );
+
+    expect(response.type).toBe('GH_PR_REVIEW_COMMENTS_RESPONSE');
+    expect(response.payload.requestId).toBe('rc-1');
+    expect(response.payload.comments).toHaveLength(1);
+    expect(response.payload.comments[0].githubId).toBe(101);
+    expect(response.payload.comments[0].path).toBe('src/index.ts');
+    expect(response.payload.comments[0].line).toBe(15);
+    expect(response.payload.comments[0].inReplyToId).toBeNull();
+  });
+
+  it('GH_PR_REVIEW_COMMENTS_REQUEST returns error response on failure', async () => {
+    mockedExecFile[promisify.custom].mockRejectedValue(new Error('gh not authenticated'));
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_REVIEW_COMMENTS_REQUEST',
+        payload: { requestId: 'rc-err', repoDir: '/bad-repo', prNumber: 99 },
+      }),
+    );
+
+    expect(response.type).toBe('GH_PR_REVIEW_COMMENTS_RESPONSE');
+    expect(response.payload.error).toMatch('gh not authenticated');
+  });
 });

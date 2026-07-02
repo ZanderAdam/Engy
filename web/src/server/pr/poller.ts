@@ -2,11 +2,12 @@ import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { workspaces, prs } from '../db/schema';
 import type { AppState } from '../trpc/context';
-import { dispatchGhPrList, dispatchGhPrFailedLogs } from '../ws/server';
-import { upsertPrs } from '../trpc/routers/pr';
+import { dispatchGhPrList, dispatchGhPrFailedLogs, dispatchGhPrReviewComments } from '../ws/server';
+import { upsertPrs, findCorrelatedSession } from '../trpc/routers/pr';
 import { broadcastPrChange } from '../ws/broadcast';
 import { detectFailureTransitions, classifyFailure, isFailingCheck } from './ci-triage';
 import { maybeDispatchCiFix } from './auto-fix';
+import { syncReviewComments } from './review-sync';
 
 export const POLL_INTERVAL_MS = 60_000;
 
@@ -47,6 +48,16 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
         for (const { number } of failingTransitions) {
           void handleFailingPr(db, state, ws, repo, number, ghPrs, coderWorkspace);
         }
+
+        // Sync review comments for open PRs with changes that have a correlated session.
+        const changedNumbers = new Set(result.changes.map((c) => c.number));
+        for (const ghPr of ghPrs) {
+          if (ghPr.state !== 'open') continue;
+          if (!changedNumbers.has(ghPr.number)) continue;
+          const session = findCorrelatedSession(db, ghPr.headBranch, repo);
+          if (!session) continue;
+          void syncPrReviewComments(db, state, repo, ghPr.number, coderWorkspace);
+        }
       } catch (err) {
         if (!state.prPollerErroredRepos.has(repo)) {
           console.error(
@@ -57,6 +68,31 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
         }
       }
     }
+  }
+}
+
+async function syncPrReviewComments(
+  db: Db,
+  state: AppState,
+  repo: string,
+  prNumber: number,
+  coderWorkspace: string | undefined,
+): Promise<void> {
+  try {
+    const { comments } = await dispatchGhPrReviewComments(repo, prNumber, state, coderWorkspace);
+    const prRow = db
+      .select()
+      .from(prs)
+      .where(and(eq(prs.repo, repo), eq(prs.number, prNumber)))
+      .get();
+    if (prRow) {
+      syncReviewComments(db, prRow, comments);
+    }
+  } catch (err) {
+    console.error(
+      `[pr-poller] review comment sync failed for ${repo}#${prNumber}:`,
+      err instanceof Error ? err.message : String(err),
+    );
   }
 }
 

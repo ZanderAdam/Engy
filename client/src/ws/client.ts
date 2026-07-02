@@ -40,10 +40,11 @@ import type {
   GhPrListRequestMessage,
   GhAuthStatusRequestMessage,
   GhPrFailedLogsRequestMessage,
+  GhPrReviewCommentsRequestMessage,
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
-import { listOpenPrs, fetchFailedLogs, checkAuthStatus, localGhRunner, type GhRunner } from '../gh/index.js';
+import { listOpenPrs, fetchFailedLogs, fetchReviewComments, checkAuthStatus, localGhRunner, type GhRunner } from '../gh/index.js';
 import {
   getStatusDetailed,
   getDiff,
@@ -639,6 +640,9 @@ export class WsClient {
         break;
       case 'GH_PR_FAILED_LOGS_REQUEST':
         this.handleGhPrFailedLogsRequest(message as GhPrFailedLogsRequestMessage);
+        break;
+      case 'GH_PR_REVIEW_COMMENTS_REQUEST':
+        this.handleGhPrReviewCommentsRequest(message as GhPrReviewCommentsRequestMessage);
         break;
     }
   }
@@ -1442,6 +1446,24 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'GH_PR_FAILED_LOGS_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleGhPrReviewCommentsRequest(
+    message: GhPrReviewCommentsRequestMessage,
+  ): Promise<void> {
+    const { requestId, repoDir, prNumber, coderWorkspace } = message.payload;
+    try {
+      const comments = await fetchReviewComments(repoDir, prNumber, this.ghRunnerFor(coderWorkspace));
+      this.send({
+        type: 'GH_PR_REVIEW_COMMENTS_RESPONSE',
+        payload: { requestId, comments },
+      });
+    } catch (err) {
+      this.send({
+        type: 'GH_PR_REVIEW_COMMENTS_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { GhPr, GhPrCheck, GhPrCiStatus, GhAuthStatus } from '@engy/common';
+import type { GhPr, GhPrCheck, GhPrCiStatus, GhAuthStatus, GhReviewComment } from '@engy/common';
 
 const execFileAsync = promisify(execFile);
 const EXEC_MAX_BUFFER = 10 * 1024 * 1024;
@@ -197,6 +197,43 @@ export async function fetchFailedLogs(
   }
 
   return results;
+}
+
+interface RawReviewComment {
+  id: number;
+  path: string;
+  line: number | null;
+  original_line: number | null;
+  body: string;
+  user: { login: string };
+  created_at: string;
+  in_reply_to_id?: number;
+  html_url: string;
+}
+
+export async function fetchReviewComments(
+  repoDir: string,
+  prNumber: number,
+  runner: GhRunner = localGhRunner,
+): Promise<GhReviewComment[]> {
+  const { stdout: nameOut } = await runner(['repo', 'view', '--json', 'nameWithOwner'], repoDir);
+  const { nameWithOwner } = JSON.parse(nameOut) as { nameWithOwner: string };
+
+  const { stdout } = await runner(
+    ['api', `repos/${nameWithOwner}/pulls/${prNumber}/comments`, '--paginate'],
+    repoDir,
+  );
+  const raw: RawReviewComment[] = JSON.parse(stdout);
+  return raw.map((c) => ({
+    githubId: c.id,
+    path: c.path,
+    line: c.line ?? c.original_line ?? null,
+    body: c.body,
+    author: c.user.login,
+    createdAt: c.created_at,
+    inReplyToId: c.in_reply_to_id ?? null,
+    url: c.html_url,
+  }));
 }
 
 export async function checkAuthStatus(runner: GhRunner = localGhRunner): Promise<GhAuthStatus> {

@@ -685,6 +685,34 @@ export interface GhPrFailedLogsResponseMessage {
     | { requestId: string; error: string };
 }
 
+export interface GhReviewComment {
+  githubId: number;
+  path: string;
+  line: number | null;
+  body: string;
+  author: string;
+  createdAt: string;
+  inReplyToId: number | null;
+  url: string;
+}
+
+export interface GhPrReviewCommentsRequestMessage {
+  type: 'GH_PR_REVIEW_COMMENTS_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    coderWorkspace?: string;
+    prNumber: number;
+  };
+}
+
+export interface GhPrReviewCommentsResponseMessage {
+  type: 'GH_PR_REVIEW_COMMENTS_RESPONSE';
+  payload:
+    | { requestId: string; comments: GhReviewComment[] }
+    | { requestId: string; error: string };
+}
+
 export type WsMessage =
   | RegisterMessage
   | WorkspacesSyncMessage
@@ -752,7 +780,9 @@ export type WsMessage =
   | GhAuthStatusRequestMessage
   | GhAuthStatusResponseMessage
   | GhPrFailedLogsRequestMessage
-  | GhPrFailedLogsResponseMessage;
+  | GhPrFailedLogsResponseMessage
+  | GhPrReviewCommentsRequestMessage
+  | GhPrReviewCommentsResponseMessage;
 
 export type ClientToServerMessage =
   | RegisterMessage
@@ -790,7 +820,8 @@ export type ClientToServerMessage =
   | CreateMemoriesEventMessage
   | GhPrListResponseMessage
   | GhAuthStatusResponseMessage
-  | GhPrFailedLogsResponseMessage;
+  | GhPrFailedLogsResponseMessage
+  | GhPrReviewCommentsResponseMessage;
 
 export type ServerToClientMessage =
   | WorkspacesSyncMessage
@@ -823,7 +854,8 @@ export type ServerToClientMessage =
   | ExecutionStopRequestMessage
   | GhPrListRequestMessage
   | GhAuthStatusRequestMessage
-  | GhPrFailedLogsRequestMessage;
+  | GhPrFailedLogsRequestMessage
+  | GhPrReviewCommentsRequestMessage;
 
 // ── Compact terminal relay types (server ↔ daemon) ──────────────────────────
 

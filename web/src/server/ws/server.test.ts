@@ -17,6 +17,7 @@ import {
   dispatchGhPrList,
   dispatchGhAuthStatus,
   dispatchGhPrFailedLogs,
+  dispatchGhPrReviewComments,
 } from './server';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { agentSessions, tasks, taskGroups, projects, workspaces, fleetingMemories } from '../db/schema';
@@ -2450,6 +2451,122 @@ describe('GH_PR_FAILED_LOGS_RESPONSE', () => {
 
     const messagePromise = waitForMessage(ws);
     dispatchGhPrFailedLogs('/remote/repo', 7, state, 'my-coder-ws').catch(() => {});
+
+    const request = (await messagePromise) as {
+      type: string;
+      payload: { requestId: string; coderWorkspace?: string };
+    };
+    expect(request.payload.coderWorkspace).toBe('my-coder-ws');
+  });
+});
+
+describe('GH_PR_REVIEW_COMMENTS_RESPONSE', () => {
+  let state: AppState;
+  let server: Server;
+  let port: number;
+
+  beforeEach(async () => {
+    openClients = [];
+    state = createAppState();
+    const result = await startServer(state);
+    server = result.server;
+    port = result.port;
+  });
+
+  afterEach(async () => {
+    for (const ws of openClients) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.terminate();
+      }
+    }
+    openClients = [];
+    await closeServer(server);
+  });
+
+  it('should resolve with comments on success response', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const commentsPromise = dispatchGhPrReviewComments('/tmp/repo', 7, state);
+
+    const request = (await messagePromise) as {
+      type: string;
+      payload: { requestId: string; repoDir: string; prNumber: number };
+    };
+    expect(request.type).toBe('GH_PR_REVIEW_COMMENTS_REQUEST');
+    expect(request.payload.repoDir).toBe('/tmp/repo');
+    expect(request.payload.prNumber).toBe(7);
+
+    const fakeComment = {
+      githubId: 123,
+      path: 'src/foo.ts',
+      line: 10,
+      body: 'Nice change',
+      author: 'reviewer',
+      createdAt: '2024-01-01T00:00:00Z',
+      inReplyToId: null,
+      url: 'https://github.com/org/repo/pull/7#discussion_r123',
+    };
+    ws.send(
+      JSON.stringify({
+        type: 'GH_PR_REVIEW_COMMENTS_RESPONSE',
+        payload: { requestId: request.payload.requestId, comments: [fakeComment] },
+      }),
+    );
+
+    const result = await commentsPromise;
+    expect(result.comments).toHaveLength(1);
+    expect(result.comments[0].githubId).toBe(123);
+    expect(result.comments[0].path).toBe('src/foo.ts');
+  });
+
+  it('should reject on error response', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const commentsPromise = dispatchGhPrReviewComments('/bad/repo', 99, state);
+
+    const request = (await messagePromise) as { type: string; payload: { requestId: string } };
+    ws.send(
+      JSON.stringify({
+        type: 'GH_PR_REVIEW_COMMENTS_RESPONSE',
+        payload: { requestId: request.payload.requestId, error: 'repo not found' },
+      }),
+    );
+
+    await expect(commentsPromise).rejects.toThrow('repo not found');
+    expect(state.pendingGhPrReviewComments.size).toBe(0);
+  });
+
+  it('should reject if no daemon is connected', async () => {
+    await expect(dispatchGhPrReviewComments('/tmp/repo', 1, state)).rejects.toThrow(
+      'No daemon connected',
+    );
+  });
+
+  it('should reject pending ops when daemon disconnects', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const commentsPromise = dispatchGhPrReviewComments('/tmp/repo', 1, state);
+    ws.close();
+
+    await expect(commentsPromise).rejects.toThrow('Daemon disconnected');
+    expect(state.pendingGhPrReviewComments.size).toBe(0);
+  });
+
+  it('should forward coderWorkspace in the request payload', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    dispatchGhPrReviewComments('/remote/repo', 3, state, 'my-coder-ws').catch(() => {});
 
     const request = (await messagePromise) as {
       type: string;

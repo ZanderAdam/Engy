@@ -54,6 +54,14 @@ function installFakeDaemon(
           } else {
             pending.resolve({ logs: result ?? [] });
           }
+          return;
+        }
+
+        if (msg.type === 'GH_PR_REVIEW_COMMENTS_REQUEST') {
+          const pending = ctx.state.pendingGhPrReviewComments.get(requestId);
+          if (!pending) return;
+          ctx.state.pendingGhPrReviewComments.delete(requestId);
+          pending.resolve({ comments: [] });
         }
       });
     },

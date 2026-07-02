@@ -39,6 +39,7 @@ import type {
   GhPrListResult,
   GhAuthStatusResult,
   GhPrFailedLogsResult,
+  GhPrReviewCommentsResult,
 } from '../trpc/context';
 import { getDb } from '../db/client';
 import { workspaces, agentSessions, tasks, taskGroups, projects, fleetingMemories } from '../db/schema';
@@ -121,6 +122,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingGhPrList,
     state.pendingGhAuthStatus,
     state.pendingGhPrFailedLogs,
+    state.pendingGhPrReviewComments,
   ] as const;
 
   const error = new Error('Daemon disconnected');
@@ -291,6 +293,11 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'GH_PR_FAILED_LOGS_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGhPrFailedLogs, (p) => ({
         logs: p.logs,
+      }));
+      break;
+    case 'GH_PR_REVIEW_COMMENTS_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGhPrReviewComments, (p) => ({
+        comments: p.comments,
       }));
       break;
   }
@@ -1303,6 +1310,21 @@ export function dispatchGhPrFailedLogs(
     state,
     state.pendingGhPrFailedLogs,
     'GH_PR_FAILED_LOGS_REQUEST',
+    { repoDir, prNumber, coderWorkspace },
+    GH_LOGS_TIMEOUT_MS,
+  );
+}
+
+export function dispatchGhPrReviewComments(
+  repoDir: string,
+  prNumber: number,
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<GhPrReviewCommentsResult> {
+  return dispatchDaemonOp(
+    state,
+    state.pendingGhPrReviewComments,
+    'GH_PR_REVIEW_COMMENTS_REQUEST',
     { repoDir, prNumber, coderWorkspace },
     GH_LOGS_TIMEOUT_MS,
   );
