@@ -11,7 +11,7 @@ import type { CiFailureClassification, FailedLog } from './ci-triage';
 
 type Db = ReturnType<typeof getDb>;
 
-export type CiFixSkipReason =
+type CiFixSkipReason =
   | 'non-mechanical'
   | 'auto-ci-fix-disabled'
   | 'no-daemon'
@@ -20,7 +20,7 @@ export type CiFixSkipReason =
   | 'attempt-cap'
   | 'no-worktree';
 
-export type CiFixResult =
+type CiFixResult =
   | { dispatched: true }
   | { dispatched: false; reason: CiFixSkipReason };
 

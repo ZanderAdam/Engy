@@ -1,6 +1,4 @@
-export type PrAttentionReason = 'non-mechanical' | 'uncorrelated' | 'attempt-cap' | 'no-worktree';
-
-export interface AttentionInfo {
+interface AttentionInfo {
   label: string;
   description: string;
 }

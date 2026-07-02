@@ -9,7 +9,7 @@ import type { GhPr, GhAuthStatus } from '@engy/common';
 
 type Db = ReturnType<typeof getDb>;
 
-export interface CorrelatedSession {
+interface CorrelatedSession {
   sessionId: string;
   taskGroupId: number | null;
   taskId: number | null;
@@ -87,7 +87,7 @@ export interface MaterialChange {
   current: string;
 }
 
-export interface UpsertResult {
+interface UpsertResult {
   inserted: number;
   updated: number;
   closed: number;

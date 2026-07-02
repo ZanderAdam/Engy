@@ -81,7 +81,7 @@ export function buildContextBlock({
   return lines.join('\n');
 }
 
-export interface CiFixPromptInput {
+interface CiFixPromptInput {
   prNumber: number;
   prTitle: string;
   repo: string;
