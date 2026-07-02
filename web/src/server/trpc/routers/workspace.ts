@@ -158,6 +158,7 @@ export const workspaceRouter = router({
         maxConcurrency: z.number().min(1).optional(),
         autoAgentCompletion: autoAgentCompletionSchema,
         autoStart: z.boolean().optional(),
+        autoCiFix: z.boolean().optional(),
         createMissingDirs: z.boolean().optional(),
       }),
     )
@@ -186,6 +187,7 @@ export const workspaceRouter = router({
           maxConcurrency: input.maxConcurrency,
           autoAgentCompletion: input.autoAgentCompletion,
           autoStart: input.autoStart,
+          autoCiFix: input.autoCiFix,
         })
         .returning()
         .get();
@@ -256,6 +258,7 @@ export const workspaceRouter = router({
         autoAgentCompletion: autoAgentCompletionSchema.nullable().optional(),
         remoteEnabled: z.boolean().nullable().optional(),
         autoStart: z.boolean().nullable().optional(),
+        autoCiFix: z.boolean().nullable().optional(),
         createMissingDirs: z.boolean().optional(),
       }),
     )
@@ -287,6 +290,7 @@ export const workspaceRouter = router({
       const newRemoteEnabled =
         input.remoteEnabled !== undefined ? input.remoteEnabled : existing.remoteEnabled;
       const newAutoStart = input.autoStart !== undefined ? input.autoStart : existing.autoStart;
+      const newAutoCiFix = input.autoCiFix !== undefined ? input.autoCiFix : existing.autoCiFix;
       const newExecutionBackend =
         input.executionBackend !== undefined ? input.executionBackend : existing.executionBackend;
       const newCoderConfig =
@@ -337,6 +341,7 @@ export const workspaceRouter = router({
           autoAgentCompletion: newAutoAgentCompletion,
           remoteEnabled: newRemoteEnabled,
           autoStart: newAutoStart,
+          autoCiFix: newAutoCiFix,
         })
         .where(eq(workspaces.id, input.id))
         .returning()
@@ -366,6 +371,7 @@ export const workspaceRouter = router({
               autoAgentCompletion: existing.autoAgentCompletion,
               remoteEnabled: existing.remoteEnabled,
               autoStart: existing.autoStart,
+              autoCiFix: existing.autoCiFix,
             })
             .where(eq(workspaces.id, input.id))
             .run();

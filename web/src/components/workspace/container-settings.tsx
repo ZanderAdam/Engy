@@ -24,6 +24,7 @@ export interface ContainerSettingsData {
   remoteEnabled: boolean;
   maxConcurrency: number;
   autoStart: boolean;
+  autoCiFix: boolean;
   autoAgentCompletion: AutoAgentCompletion;
 }
 
@@ -72,6 +73,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
   );
   const [remoteEnabled, setRemoteEnabled] = useState(initialData.remoteEnabled);
   const [autoStart, setAutoStart] = useState(initialData.autoStart);
+  const [autoCiFix, setAutoCiFix] = useState(initialData.autoCiFix);
   const [autoAgentCompletion, setAutoAgentCompletion] = useState<AutoAgentCompletion>(
     initialData.autoAgentCompletion ?? 'pr',
   );
@@ -90,6 +92,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
     executionBackend: ExecutionBackend;
     remoteEnabled: boolean;
     autoStart: boolean;
+    autoCiFix: boolean;
     autoAgentCompletion: AutoAgentCompletion;
     maxConcurrency: number;
     idleTimeout: number;
@@ -103,6 +106,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
     const backend = overrides.executionBackend ?? executionBackend;
     const remote = overrides.remoteEnabled ?? remoteEnabled;
     const start = overrides.autoStart ?? autoStart;
+    const ciFix = overrides.autoCiFix ?? autoCiFix;
     const completion = overrides.autoAgentCompletion ?? autoAgentCompletion;
     const concurrency = overrides.maxConcurrency ?? maxConcurrency;
     const timeout = overrides.idleTimeout ?? idleTimeout;
@@ -117,6 +121,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
       executionBackend: backend,
       remoteEnabled: remote,
       autoStart: start,
+      autoCiFix: ciFix,
       autoAgentCompletion: completion,
       maxConcurrency: concurrency,
       containerConfig: {
@@ -205,6 +210,23 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
           onCheckedChange={(checked) => {
             setAutoStart(checked);
             emit({ autoStart: checked });
+          }}
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-0.5">
+          <Label htmlFor="auto-ci-fix">Auto-fix CI failures</Label>
+          <p className="text-xs text-muted-foreground">
+            Dispatch agents to fix mechanical CI failures on PR branches
+          </p>
+        </div>
+        <Switch
+          id="auto-ci-fix"
+          checked={autoCiFix}
+          onCheckedChange={(checked) => {
+            setAutoCiFix(checked);
+            emit({ autoCiFix: checked });
           }}
         />
       </div>

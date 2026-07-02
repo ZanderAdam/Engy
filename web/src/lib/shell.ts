@@ -81,6 +81,51 @@ export function buildContextBlock({
   return lines.join('\n');
 }
 
+export interface CiFixPromptInput {
+  prNumber: number;
+  prTitle: string;
+  repo: string;
+  headBranch: string;
+  checks: Array<{ name: string; conclusion?: string | null }>;
+  logs: Array<{ checkName: string; excerpt: string }>;
+}
+
+export function buildCiFixPrompt({
+  prNumber,
+  prTitle,
+  repo,
+  headBranch,
+  checks,
+  logs,
+}: CiFixPromptInput): string {
+  const parts: string[] = [
+    `CI is failing on PR #${prNumber} "${prTitle}" (branch: ${headBranch}, repo: ${repo}).`,
+    '',
+    'Failing checks:',
+  ];
+
+  const failingChecks = checks.filter((c) => c.conclusion === 'failure');
+  const checksToList = failingChecks.length > 0 ? failingChecks : checks;
+  for (const check of checksToList) {
+    parts.push(`  - ${check.name}`);
+  }
+
+  if (logs.length > 0) {
+    parts.push('', 'Log excerpts:');
+    for (const log of logs) {
+      parts.push(`\n[${log.checkName}]`);
+      parts.push(log.excerpt.trim());
+    }
+  }
+
+  parts.push(
+    '',
+    'Fix the CI failures: resolve the errors shown above, run the relevant validation locally to confirm they pass, then commit and push to the same branch.',
+  );
+
+  return parts.join('\n');
+}
+
 export function buildClaudeCommand(options?: {
   prompt?: string;
   systemPrompt?: string;

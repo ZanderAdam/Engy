@@ -5,7 +5,8 @@ import type { AppState } from '../trpc/context';
 import { dispatchGhPrList, dispatchGhPrFailedLogs } from '../ws/server';
 import { upsertPrs } from '../trpc/routers/pr';
 import { broadcastPrChange } from '../ws/broadcast';
-import { detectFailureTransitions, classifyFailure, handleCiFailure } from './ci-triage';
+import { detectFailureTransitions, classifyFailure } from './ci-triage';
+import { maybeDispatchCiFix } from './auto-fix';
 
 export const POLL_INTERVAL_MS = 60_000;
 
@@ -32,9 +33,19 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
           broadcastPrChange(ws.id, repo);
         }
 
+        const now = new Date().toISOString();
+        for (const change of result.changes) {
+          if (change.type === 'ciStatus' && change.current === 'passing') {
+            db.update(prs)
+              .set({ attentionReason: null, updatedAt: now })
+              .where(and(eq(prs.repo, repo), eq(prs.number, change.number)))
+              .run();
+          }
+        }
+
         const failingTransitions = detectFailureTransitions(result.changes);
         for (const { number } of failingTransitions) {
-          void handleFailingPr(db, state, repo, number, ghPrs, coderWorkspace);
+          void handleFailingPr(db, state, ws, repo, number, ghPrs, coderWorkspace);
         }
       } catch (err) {
         if (!state.prPollerErroredRepos.has(repo)) {
@@ -52,6 +63,7 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
 async function handleFailingPr(
   db: Db,
   state: AppState,
+  workspace: typeof workspaces.$inferSelect,
   repo: string,
   prNumber: number,
   ghPrs: Awaited<ReturnType<typeof dispatchGhPrList>>['prs'],
@@ -70,14 +82,17 @@ async function handleFailingPr(
   const now = new Date().toISOString();
 
   const headShaChanged = headSha !== null && headSha !== dbRow.lastFailedHeadSha;
-  db.update(prs)
+  const updatedPrRow = db.update(prs)
     .set({
       lastFailedHeadSha: headSha,
       ...(headShaChanged ? { autoFixAttempts: 0 } : {}),
       updatedAt: now,
     })
     .where(and(eq(prs.repo, repo), eq(prs.number, prNumber)))
-    .run();
+    .returning()
+    .get();
+
+  if (!updatedPrRow) return;
 
   let logs: Array<{ checkName: string; excerpt: string }> = [];
   try {
@@ -91,7 +106,14 @@ async function handleFailingPr(
   }
 
   const classification = classifyFailure(ghPr?.checks ?? [], logs);
-  handleCiFailure(dbRow, classification, logs);
+  maybeDispatchCiFix({ state, db, prRow: updatedPrRow, classification, logs, workspace }).catch(
+    (err: unknown) => {
+      console.error(
+        `[pr-poller] auto-fix dispatch failed for ${repo}#${prNumber}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    },
+  );
 }
 
 /**

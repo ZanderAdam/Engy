@@ -1,6 +1,5 @@
 import type { GhPrCheck } from '@engy/common';
 import type { MaterialChange } from '../trpc/routers/pr';
-import type { prs } from '../db/schema';
 
 export type CiFailureClassification = 'mechanical' | 'non-mechanical';
 
@@ -82,15 +81,3 @@ export function classifyFailure(
   return 'non-mechanical';
 }
 
-/**
- * Stub hook invoked after each newly-failing PR is classified.
- * Returns the classification for callers (e.g. poller tests) to assert.
- * The auto-fix dispatch task will replace this stub.
- */
-export function handleCiFailure(
-  _prRow: typeof prs.$inferSelect,
-  classification: CiFailureClassification,
-  _logs: FailedLog[],
-): CiFailureClassification {
-  return classification;
-}

@@ -9,6 +9,51 @@ import type { GhPr, GhAuthStatus } from '@engy/common';
 
 type Db = ReturnType<typeof getDb>;
 
+export interface CorrelatedSession {
+  sessionId: string;
+  taskGroupId: number | null;
+  taskId: number | null;
+  worktreePath: string | null;
+  branch: string | null;
+  status: string;
+}
+
+/**
+ * Finds the most recent agent session correlated to a PR branch within a repo.
+ * Sessions are matched via taskGroup → project → projectDir (repo path), which
+ * scopes correlation to avoid cross-repo false matches on identically-named branches.
+ */
+export function findCorrelatedSession(
+  db: Db,
+  headBranch: string,
+  repo: string,
+): CorrelatedSession | null {
+  return (
+    db
+      .select({
+        sessionId: agentSessions.sessionId,
+        taskGroupId: agentSessions.taskGroupId,
+        taskId: agentSessions.taskId,
+        worktreePath: agentSessions.worktreePath,
+        branch: agentSessions.branch,
+        status: agentSessions.status,
+      })
+      .from(agentSessions)
+      .innerJoin(taskGroups, eq(agentSessions.taskGroupId, taskGroups.id))
+      .innerJoin(projects, eq(taskGroups.projectId, projects.id))
+      .where(
+        and(
+          isNotNull(agentSessions.branch),
+          eq(agentSessions.branch, headBranch),
+          isNotNull(projects.projectDir),
+          eq(projects.projectDir, repo),
+        ),
+      )
+      .orderBy(desc(agentSessions.createdAt))
+      .get() ?? null
+  );
+}
+
 type PrState = 'open' | 'closed' | 'merged';
 
 export interface MaterialChange {

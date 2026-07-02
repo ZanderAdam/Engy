@@ -36,6 +36,7 @@ export const workspaces = sqliteTable('workspaces', {
   autoAgentCompletion: text('auto_agent_completion', { enum: ['pr', 'merge'] }).default('pr'),
   remoteEnabled: integer('remote_enabled', { mode: 'boolean' }).default(false),
   autoStart: integer('auto_start', { mode: 'boolean' }).default(false),
+  autoCiFix: integer('auto_ci_fix', { mode: 'boolean' }).default(false),
   createdAt: text('created_at')
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
