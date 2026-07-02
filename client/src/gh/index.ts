@@ -38,6 +38,7 @@ interface RawPr {
   state: string;
   reviewDecision: string | null;
   statusCheckRollup: RawStatusCheckEntry[] | null;
+  updatedAt: string;
 }
 
 interface RawPrCheck {
@@ -97,7 +98,7 @@ function normalizeCheck(entry: RawStatusCheckEntry): GhPrCheck {
 }
 
 const PR_LIST_FIELDS =
-  'number,title,url,headRefName,headRefOid,author,isDraft,state,reviewDecision,statusCheckRollup';
+  'number,title,url,headRefName,headRefOid,author,isDraft,state,reviewDecision,statusCheckRollup,updatedAt';
 
 export async function listOpenPrs(repoDir: string, runner: GhRunner = localGhRunner): Promise<GhPr[]> {
   const { stdout } = await runner(['pr', 'list', '--json', PR_LIST_FIELDS], repoDir);
@@ -114,6 +115,7 @@ export async function listOpenPrs(repoDir: string, runner: GhRunner = localGhRun
     reviewDecision: pr.reviewDecision ?? null,
     ciStatus: deriveCiStatus(pr.statusCheckRollup),
     checks: (pr.statusCheckRollup ?? []).map(normalizeCheck),
+    updatedAt: pr.updatedAt,
   }));
 }
 

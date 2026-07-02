@@ -23,6 +23,7 @@ import { resolveFileReadError } from './diff-content-state';
 import { useAutoSave } from './use-auto-save';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { RiGitBranchLine } from '@remixicon/react';
+import { useOnServerEvent } from '@/contexts/events-context';
 import type { ChangedFile, ViewMode, DiffViewMode, EditorMode } from './types';
 
 const SIDEBAR_CONFIG = {
@@ -209,7 +210,15 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     resolve,
     remove,
     removeComment,
+    refetch: refetchComments,
   } = useDiffComments(selectedRepo);
+
+  // Invalidate comment threads when the server signals a PR change so that
+  // GitHub review comments imported by the poller appear without a page reload.
+  useOnServerEvent('PR_CHANGE', (payload) => {
+    if (payload.workspaceId !== workspace?.id) return;
+    void refetchComments();
+  });
 
   // Correlated agent session for the PR branch (used by GitHub comment triage)
   const { data: prList } = trpc.pr.list.useQuery(

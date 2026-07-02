@@ -17,7 +17,8 @@ type CiFixSkipReason =
   | 'no-daemon'
   | 'uncorrelated'
   | 'concurrency-full'
-  | 'attempt-cap'
+  | 'attempt-cap-sha'
+  | 'attempt-cap-total'
   | 'no-worktree';
 
 type CiFixResult =
@@ -105,13 +106,13 @@ export async function maybeDispatchCiFix({
   }
 
   if (prRow.autoFixTotalAttempts >= MAX_TOTAL_AUTO_FIX_ATTEMPTS) {
-    setAttentionReason(db, workspace, prRow, 'attempt-cap');
-    return { dispatched: false, reason: 'attempt-cap' };
+    setAttentionReason(db, workspace, prRow, 'attempt-cap-total');
+    return { dispatched: false, reason: 'attempt-cap-total' };
   }
 
   if (prRow.autoFixAttempts >= MAX_AUTO_FIX_ATTEMPTS) {
-    setAttentionReason(db, workspace, prRow, 'attempt-cap');
-    return { dispatched: false, reason: 'attempt-cap' };
+    setAttentionReason(db, workspace, prRow, 'attempt-cap-sha');
+    return { dispatched: false, reason: 'attempt-cap-sha' };
   }
 
   if (!session.worktreePath) {

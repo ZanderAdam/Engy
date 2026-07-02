@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { workspaces, prs as prsTable } from '../db/schema';
+import { workspaces, prs as prsTable, projects, agentSessions, taskGroups, tasks } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
-import type { GhPr } from '@engy/common';
+import type { GhPr, GhReviewComment } from '@engy/common';
 import { runPollCycle, startPrPoller, stopPrPoller, POLL_INTERVAL_MS } from './poller';
 import * as broadcast from '../ws/broadcast';
 
@@ -20,6 +20,7 @@ function installFakeDaemon(
   ctx: TestContext,
   prsByRepo: Map<string, GhPr[] | Error>,
   failedLogsByRepo?: Map<string, FailedLogsResponse>,
+  reviewCommentsByPrNumber?: Map<number, GhReviewComment[]>,
 ): void {
   const mock = {
     readyState: WebSocket.OPEN,
@@ -61,7 +62,9 @@ function installFakeDaemon(
           const pending = ctx.state.pendingGhPrReviewComments.get(requestId);
           if (!pending) return;
           ctx.state.pendingGhPrReviewComments.delete(requestId);
-          pending.resolve({ comments: [] });
+          const prNumber = (msg.payload as { prNumber?: number }).prNumber ?? 0;
+          const comments = reviewCommentsByPrNumber?.get(prNumber) ?? [];
+          pending.resolve({ comments });
         }
       });
     },
@@ -84,12 +87,67 @@ function makePr(overrides: Partial<GhPr> = {}): GhPr {
     reviewDecision: null,
     ciStatus: 'passing',
     checks: [],
+    updatedAt: '2024-01-01T00:00:00Z',
     ...overrides,
   };
 }
 
-function seedWorkspace(ctx: TestContext, repos: string[]): void {
-  ctx.db.insert(workspaces).values({ name: 'WS', slug: 'ws', repos }).run();
+function makeReviewComment(overrides: Partial<GhReviewComment> = {}): GhReviewComment {
+  return {
+    githubId: 1001,
+    path: 'src/foo.ts',
+    line: 10,
+    body: 'LGTM',
+    author: 'reviewer',
+    createdAt: '2024-01-02T00:00:00Z',
+    inReplyToId: null,
+    url: 'https://github.com/org/repo/pull/1#discussion_r1001',
+    ...overrides,
+  };
+}
+
+function seedWorkspace(ctx: TestContext, repos: string[]): number {
+  const ws = ctx.db
+    .insert(workspaces)
+    .values({ name: 'WS', slug: 'ws', repos })
+    .returning()
+    .get();
+  return ws.id;
+}
+
+function seedCorrelatedSession(
+  ctx: TestContext,
+  workspaceId: number,
+  repo: string,
+  branch: string,
+): void {
+  const project = ctx.db
+    .insert(projects)
+    .values({ workspaceId, name: 'Default', slug: 'default', projectDir: repo })
+    .returning()
+    .get();
+  const group = ctx.db
+    .insert(taskGroups)
+    .values({ projectId: project.id, name: 'TG' })
+    .returning()
+    .get();
+  const task = ctx.db
+    .insert(tasks)
+    .values({ projectId: project.id, title: 'T', type: 'ai', needsPlan: false })
+    .returning()
+    .get();
+  ctx.db
+    .insert(agentSessions)
+    .values({
+      sessionId: 'sess-1',
+      executionMode: 'group',
+      status: 'stopped',
+      branch,
+      worktreePath: '/worktree',
+      taskGroupId: group.id,
+      taskId: task.id,
+    })
+    .run();
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -113,6 +171,15 @@ describe('PR poller', () => {
     it('should skip the cycle when no daemon is connected', async () => {
       seedWorkspace(ctx, ['/repo-a']);
       ctx.state.daemon = null;
+
+      await runPollCycle(ctx.state, ctx.db);
+
+      expect(broadcastSpy).not.toHaveBeenCalled();
+    });
+
+    it('should skip the cycle when daemon readyState is not OPEN', async () => {
+      seedWorkspace(ctx, ['/repo-a']);
+      ctx.state.daemon = { readyState: WebSocket.CLOSING, OPEN: WebSocket.OPEN } as unknown as WebSocket;
 
       await runPollCycle(ctx.state, ctx.db);
 
@@ -404,6 +471,75 @@ describe('PR poller', () => {
           expect.stringContaining('log fetch failed'),
         );
         errorSpy.mockRestore();
+      });
+    });
+
+    describe('review comment sync', () => {
+      it('should sync review comments for a stable open PR when updatedAt changes', async () => {
+        const wsId = seedWorkspace(ctx, ['/repo-a']);
+        seedCorrelatedSession(ctx, wsId, '/repo-a', 'feat/one');
+
+        const pr = makePr({ number: 1, state: 'open', headBranch: 'feat/one', updatedAt: 'T1' });
+        installFakeDaemon(ctx, new Map([['/repo-a', [pr]]]));
+
+        // Cycle 1: initial insert; updatedAt 'T1' synced with no comments → map set to 'T1'
+        await runPollCycle(ctx.state, ctx.db);
+        await new Promise((r) => queueMicrotask(r as () => void));
+        broadcastSpy.mockClear();
+
+        // Cycle 2: same PR in DB (no PR-list change), but GitHub updatedAt bumped to 'T2'
+        // and a new review comment arrived → comment sync runs → broadcastPrChange fires
+        const updatedPr = makePr({ number: 1, state: 'open', headBranch: 'feat/one', updatedAt: 'T2' });
+        installFakeDaemon(
+          ctx,
+          new Map([['/repo-a', [updatedPr]]]),
+          undefined,
+          new Map([[1, [makeReviewComment()]]]),
+        );
+        await runPollCycle(ctx.state, ctx.db);
+        await new Promise((r) => queueMicrotask(r as () => void));
+
+        expect(broadcastSpy).toHaveBeenCalledWith(wsId, '/repo-a');
+      });
+
+      it('should skip review comment sync when PR updatedAt is unchanged', async () => {
+        const wsId = seedWorkspace(ctx, ['/repo-a']);
+        seedCorrelatedSession(ctx, wsId, '/repo-a', 'feat/one');
+
+        const pr = makePr({ number: 1, state: 'open', headBranch: 'feat/one', updatedAt: 'T1' });
+
+        // Pre-populate the skip map — updatedAt matches, so the fetch must be suppressed
+        ctx.state.prReviewCommentLastSyncedAt.set('/repo-a#1', 'T1');
+
+        let reviewRequestCount = 0;
+        const mock = {
+          readyState: WebSocket.OPEN,
+          OPEN: WebSocket.OPEN,
+          send: (raw: string) => {
+            const msg = JSON.parse(raw) as DaemonMessage;
+            const { requestId, repoDir } = msg.payload;
+            queueMicrotask(() => {
+              if (msg.type === 'GH_PR_LIST_REQUEST') {
+                const pending = ctx.state.pendingGhPrList.get(requestId);
+                if (!pending) return;
+                ctx.state.pendingGhPrList.delete(requestId);
+                pending.resolve({ prs: repoDir === '/repo-a' ? [pr] : [] });
+              } else if (msg.type === 'GH_PR_REVIEW_COMMENTS_REQUEST') {
+                reviewRequestCount++;
+                const pending = ctx.state.pendingGhPrReviewComments.get(requestId);
+                if (!pending) return;
+                ctx.state.pendingGhPrReviewComments.delete(requestId);
+                pending.resolve({ comments: [] });
+              }
+            });
+          },
+        };
+        ctx.state.daemon = mock as unknown as WebSocket;
+
+        await runPollCycle(ctx.state, ctx.db);
+        await new Promise((r) => queueMicrotask(r as () => void));
+
+        expect(reviewRequestCount).toBe(0);
       });
     });
   });

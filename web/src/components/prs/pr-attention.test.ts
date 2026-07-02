@@ -28,11 +28,18 @@ describe('getAttentionInfo', () => {
     expect(info!.description).toContain('agent session');
   });
 
-  it('should map attempt-cap to exhausted-attempts label', () => {
-    const info = getAttentionInfo('attempt-cap');
+  it('should map attempt-cap-sha to per-commit exhausted label with new-commit hint', () => {
+    const info = getAttentionInfo('attempt-cap-sha');
     expect(info).not.toBeNull();
-    expect(info!.label).toBe('Auto-fix attempts exhausted');
-    expect(info!.description).toContain('maximum number of attempts');
+    expect(info!.label).toBe('Auto-fix attempts exhausted for this commit');
+    expect(info!.description).toContain('new commit');
+  });
+
+  it('should map attempt-cap-total to permanently exhausted label', () => {
+    const info = getAttentionInfo('attempt-cap-total');
+    expect(info).not.toBeNull();
+    expect(info!.label).toBe('Auto-fix permanently exhausted');
+    expect(info!.description).toContain('total attempt limit');
   });
 
   it('should map no-worktree to a worktree-resume label', () => {

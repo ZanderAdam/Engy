@@ -14,7 +14,7 @@ export const POLL_INTERVAL_MS = 60_000;
 type Db = ReturnType<typeof getDb>;
 
 export async function runPollCycle(state: AppState, db: Db): Promise<void> {
-  if (!state.daemon) return;
+  if (!state.daemon || state.daemon.readyState !== state.daemon.OPEN) return;
 
   const allWorkspaces = db.select().from(workspaces).all();
 
@@ -49,14 +49,20 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
           void handleFailingPr(db, state, ws, repo, number, ghPrs, coderWorkspace);
         }
 
-        // Sync review comments for open PRs with changes that have a correlated session.
-        const changedNumbers = new Set(result.changes.map((c) => c.number));
+        // Sync review comments for all open correlated PRs every cycle.
+        // Skip when GitHub's updatedAt is unchanged from the last successful sync
+        // to avoid an unnecessary gh api call on every tick.
         for (const ghPr of ghPrs) {
           if (ghPr.state !== 'open') continue;
-          if (!changedNumbers.has(ghPr.number)) continue;
+          const prUpdatedAt = ghPr.updatedAt ?? null;
+          const syncKey = `${repo}#${ghPr.number}`;
+          const lastSyncedAt = state.prReviewCommentLastSyncedAt.get(syncKey);
+          if (lastSyncedAt !== undefined && prUpdatedAt !== null && lastSyncedAt === prUpdatedAt) {
+            continue;
+          }
           const session = findCorrelatedSession(db, ghPr.headBranch, repo);
           if (!session) continue;
-          void syncPrReviewComments(db, state, repo, ghPr.number, coderWorkspace);
+          void syncPrReviewComments(db, state, ws.id, repo, ghPr.number, prUpdatedAt, coderWorkspace);
         }
       } catch (err) {
         if (!state.prPollerErroredRepos.has(repo)) {
@@ -74,8 +80,10 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
 async function syncPrReviewComments(
   db: Db,
   state: AppState,
+  workspaceId: number,
   repo: string,
   prNumber: number,
+  prUpdatedAt: string | null,
   coderWorkspace: string | undefined,
 ): Promise<void> {
   try {
@@ -86,7 +94,13 @@ async function syncPrReviewComments(
       .where(and(eq(prs.repo, repo), eq(prs.number, prNumber)))
       .get();
     if (prRow) {
-      syncReviewComments(db, prRow, comments);
+      const summary = syncReviewComments(db, prRow, comments);
+      if (summary.created + summary.updated > 0) {
+        broadcastPrChange(workspaceId, repo);
+      }
+    }
+    if (prUpdatedAt) {
+      state.prReviewCommentLastSyncedAt.set(`${repo}#${prNumber}`, prUpdatedAt);
     }
   } catch (err) {
     console.error(

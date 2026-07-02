@@ -292,7 +292,7 @@ describe('maybeDispatchCiFix', () => {
   });
 
   describe('bail: attempt cap', () => {
-    it('should return attempt-cap and persist attentionReason when autoFixAttempts >= MAX_AUTO_FIX_ATTEMPTS', async () => {
+    it('should return attempt-cap-sha and persist attentionReason when autoFixAttempts >= MAX_AUTO_FIX_ATTEMPTS', async () => {
       const { workspaceId } = seedAll(ctx);
       const prRow = seedPr(ctx, { autoFixAttempts: MAX_AUTO_FIX_ATTEMPTS });
       const workspace = getWorkspace(ctx, workspaceId);
@@ -307,10 +307,10 @@ describe('maybeDispatchCiFix', () => {
         workspace,
       });
 
-      expect(result).toEqual({ dispatched: false, reason: 'attempt-cap' });
-      expect(getPr(ctx)?.attentionReason).toBe('attempt-cap');
+      expect(result).toEqual({ dispatched: false, reason: 'attempt-cap-sha' });
+      expect(getPr(ctx)?.attentionReason).toBe('attempt-cap-sha');
       expect(dispatchSpy).not.toHaveBeenCalled();
-      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'attempt-cap');
+      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'attempt-cap-sha');
     });
   });
 
@@ -343,7 +343,7 @@ describe('maybeDispatchCiFix', () => {
   });
 
   describe('bail: total attempt cap', () => {
-    it('should return attempt-cap when autoFixTotalAttempts >= MAX_TOTAL_AUTO_FIX_ATTEMPTS even with a fresh SHA', async () => {
+    it('should return attempt-cap-total when autoFixTotalAttempts >= MAX_TOTAL_AUTO_FIX_ATTEMPTS even with a fresh SHA', async () => {
       const { workspaceId } = seedAll(ctx);
       // autoFixAttempts is 0 (fresh SHA), but total is at max
       const prRow = ctx.db
@@ -378,10 +378,10 @@ describe('maybeDispatchCiFix', () => {
         workspace,
       });
 
-      expect(result).toEqual({ dispatched: false, reason: 'attempt-cap' });
-      expect(getPr(ctx)?.attentionReason).toBe('attempt-cap');
+      expect(result).toEqual({ dispatched: false, reason: 'attempt-cap-total' });
+      expect(getPr(ctx)?.attentionReason).toBe('attempt-cap-total');
       expect(dispatchSpy).not.toHaveBeenCalled();
-      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'attempt-cap');
+      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'attempt-cap-total');
     });
 
     it('should increment autoFixTotalAttempts (as well as autoFixAttempts) on each successful dispatch', async () => {

@@ -396,6 +396,8 @@ export interface AppState {
   prPollerTimer: ReturnType<typeof setTimeout> | null;
   /** Repos that have errored in the most recent poll cycle (log-once guard) */
   prPollerErroredRepos: Set<string>;
+  /** Maps `repo#prNumber` → GitHub PR updatedAt from the last successful review-comment sync */
+  prReviewCommentLastSyncedAt: Map<string, string>;
 }
 
 const GLOBAL_KEY = '__engy_app_state__' as const;
@@ -446,6 +448,7 @@ export function createAppState(): AppState {
     containerProgressListeners: new Map(),
     prPollerTimer: null,
     prPollerErroredRepos: new Set(),
+    prReviewCommentLastSyncedAt: new Map(),
   };
 }
 

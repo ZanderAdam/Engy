@@ -18,11 +18,17 @@ export function getAttentionInfo(reason: string | null | undefined): AttentionIn
         description:
           'No agent session is known for this branch — auto-fix requires an active session.',
       };
-    case 'attempt-cap':
+    case 'attempt-cap-sha':
       return {
-        label: 'Auto-fix attempts exhausted',
+        label: 'Auto-fix attempts exhausted for this commit',
         description:
-          'Auto-fix has run the maximum number of attempts for this commit — manual intervention required.',
+          'Auto-fix has reached the per-commit attempt limit — push a new commit to get fresh attempts.',
+      };
+    case 'attempt-cap-total':
+      return {
+        label: 'Auto-fix permanently exhausted',
+        description:
+          'Auto-fix has reached the total attempt limit for this PR — manual intervention required.',
       };
     case 'no-worktree':
       return {

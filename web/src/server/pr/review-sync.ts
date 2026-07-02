@@ -31,10 +31,21 @@ function commentIdFor(githubId: number): string {
  * thread's documentPath or lineNumber. The thread keeps the position from when
  * it was first imported.
  */
-export function syncReviewComments(db: Db, prRow: PrRow, comments: GhReviewComment[]): void {
+export interface ReviewCommentSyncSummary {
+  created: number;
+  updated: number;
+}
+
+export function syncReviewComments(
+  db: Db,
+  prRow: PrRow,
+  comments: GhReviewComment[],
+): ReviewCommentSyncSummary {
   const now = new Date().toISOString();
   const topLevel = comments.filter((c) => c.inReplyToId === null);
   const replies = comments.filter((c) => c.inReplyToId !== null);
+  let created = 0;
+  let updated = 0;
 
   for (const comment of topLevel) {
     const threadId = threadIdFor(comment.githubId);
@@ -81,6 +92,7 @@ export function syncReviewComments(db: Db, prRow: PrRow, comments: GhReviewComme
           updatedAt: now,
         })
         .run();
+      created++;
     } else {
       const existingComment = db
         .select()
@@ -97,6 +109,7 @@ export function syncReviewComments(db: Db, prRow: PrRow, comments: GhReviewComme
           .set({ updatedAt: now })
           .where(eq(commentThreads.id, threadId))
           .run();
+        updated++;
       }
     }
   }
@@ -135,6 +148,7 @@ export function syncReviewComments(db: Db, prRow: PrRow, comments: GhReviewComme
         .set({ updatedAt: now })
         .where(eq(commentThreads.id, parentThreadId))
         .run();
+      created++;
     } else if (existingComment.body !== comment.body) {
       db.update(threadComments)
         .set({ body: comment.body, updatedAt: now })
@@ -144,6 +158,9 @@ export function syncReviewComments(db: Db, prRow: PrRow, comments: GhReviewComme
         .set({ updatedAt: now })
         .where(eq(commentThreads.id, parentThreadId))
         .run();
+      updated++;
     }
   }
+
+  return { created, updated };
 }

@@ -631,6 +631,7 @@ export interface GhPr {
   reviewDecision: string | null;
   ciStatus: GhPrCiStatus;
   checks: GhPrCheck[];
+  updatedAt?: string;
 }
 
 export type GhAuthStatus =
