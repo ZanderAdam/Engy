@@ -45,6 +45,11 @@ interface TerminalActivityChangePayload {
   removed?: boolean;
 }
 
+interface PrChangePayload {
+  workspaceId: number;
+  repo: string;
+}
+
 interface ServerEventMap {
   FILE_CHANGE: FileChangePayload;
   TASK_CHANGE: TaskChangePayload;
@@ -52,6 +57,7 @@ interface ServerEventMap {
   TERMINAL_SESSIONS_CHANGE: TerminalSessionsChangePayload;
   MEMORY_CHANGE: MemoryChangePayload;
   TERMINAL_ACTIVITY_CHANGE: TerminalActivityChangePayload;
+  PR_CHANGE: PrChangePayload;
 }
 
 type ServerEventType = keyof ServerEventMap;
