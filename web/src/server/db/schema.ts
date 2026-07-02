@@ -1,5 +1,6 @@
 import { sqliteTable, text, integer, real, uniqueIndex, index, primaryKey } from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
+import type { GhPrCheck } from '@engy/common';
 
 // ── Workspaces ──────────────────────────────────────────────────────
 
@@ -449,3 +450,37 @@ export const threadCommentsRelations = relations(threadComments, ({ one }) => ({
     references: [commentThreads.id],
   }),
 }));
+
+// ── Pull Requests ────────────────────────────────────────────────────
+
+export const prs = sqliteTable(
+  'prs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    repo: text('repo').notNull(),
+    number: integer('number').notNull(),
+    title: text('title').notNull(),
+    url: text('url').notNull(),
+    headBranch: text('head_branch').notNull(),
+    author: text('author').notNull(),
+    isDraft: integer('is_draft', { mode: 'boolean' }).notNull().default(false),
+    state: text('state', { enum: ['open', 'closed', 'merged'] }).notNull().default('open'),
+    ciStatus: text('ci_status', {
+      enum: ['pending', 'passing', 'failing', 'unknown'],
+    })
+      .notNull()
+      .default('unknown'),
+    checks: text('checks', { mode: 'json' }).$type<GhPrCheck[]>().notNull(),
+    reviewDecision: text('review_decision'),
+    createdAt: text('created_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+    updatedAt: text('updated_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [
+    uniqueIndex('prs_repo_number_unique').on(table.repo, table.number),
+    index('idx_prs_repo').on(table.repo),
+  ],
+);
