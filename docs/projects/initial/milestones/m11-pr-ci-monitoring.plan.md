@@ -79,7 +79,13 @@ The core vertical slice: daemon-executed `gh` reads, a `prs` table, a server-sid
 
 ### Completion Summary
 
-_(filled in after TG completes)_
+Shipped 2026-07-02 (commits 129b392..c515e1e). All four tasks plus review fixes; blt green (1773 tests), playwright-validated against live GitHub data.
+
+- Protocol: `GH_PR_LIST` + `GH_AUTH_STATUS` ops in `common/src/ws/protocol.ts`; daemon module `client/src/gh/` (injectable `GhRunner`, ciStatus derivation from mixed CheckRun/StatusContext rollups, coderWorkspace forwarded via the coder ssh runner pattern, auth errors narrowed not-installed / not-authenticated / real-error).
+- Server: `dispatchGhPrList` / `dispatchGhAuthStatus` in `web/src/server/ws/server.ts`; `prs` table (migration 0023) + `pr` router (`list` with repo-scoped `agentSessions.branch` correlation, `refresh` with single auth preflight); `upsertPrs` runs in a transaction and reports material changes.
+- Poller: `web/src/server/pr/poller.ts` — self-scheduling setTimeout chain (no overlapping cycles), skip-when-no-daemon, log-once error gating, `broadcastPrChange(workspaceId, repo)` on material change only; wired in `web/server.ts` start/close.
+- UI: PRs tab enabled in `sections.ts`, dispatched via `case 'prs'` in `web/src/components/tabs/tab-content.tsx` (gotcha: new project sections need BOTH the route page AND this switch), `web/src/components/prs/` (prs-page, pr-list, pure pr-helpers + 23 tests), `PR_CHANGE` in `ServerEventMap`.
+- For TG2: consume `upsertPrs`'s material-change output inside the poll cycle; UpsertResult/MaterialChange types are currently un-exported (knip) — re-export when importing.
 
 ## TG2: CI Failure Auto-Fix & Alerts
 
