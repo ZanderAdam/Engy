@@ -123,7 +123,13 @@ When polling detects a PR's CI transitioning to failing, classify the failure; f
 
 ### Completion Summary
 
-_(filled in after TG completes)_
+Shipped 2026-07-02 (commits 6f15ea7..ba68c6f). All three tasks plus review fixes; blt green (2207 tests total), autoCiFix toggle + PRs tab browser-validated.
+
+- Detection/classification: `web/src/server/pr/ci-triage.ts` — `detectFailureTransitions` off `upsertPrs` material changes; `classifyFailure` (mechanical vs non-mechanical, conservative default) fed ONLY failing checks (`isFailingCheck` filter — review caught passing checks leaking in); `GH_PR_FAILED_LOGS` op (gh pr checks → gh run view --log-failed, 200-line/16KB tail truncation, token redaction: ghp_/gho_/github_pat_/AKIA/Bearer/xox patterns), 60s `GH_LOGS_TIMEOUT_MS`.
+- Auto-dispatch: `web/src/server/pr/auto-fix.ts` `maybeDispatchCiFix` — gates: autoCiFix workspace flag (default off; toggle in edit-workspace Container tab) → daemon → repo-scoped correlation (group-mode AND task-mode sessions) → maxConcurrency → 2-per-headSha cap → 5-total-per-PR cap (`autoFixTotalAttempts`, prevents cross-commit dispatch loops); resumes session in existing worktree via sendFeedback-style `--resume` with `buildCiFixPrompt` (web/src/lib/shell.ts); DB mutations rolled back (incl. actual prior session status) if dispatch throws.
+- Attention: `prs.attentionReason` for non-mechanical / uncorrelated / attempt-cap / no-worktree; cleared on dispatch, passing transition, and PR close/merge; `broadcastPrAttention` → PR_ATTENTION event → sonner toast (workspace-filtered) + destructive badge with shadcn Tooltip in pr-list; schema adds headSha/lastFailedHeadSha/autoFixAttempts/autoFixTotalAttempts/attentionReason (migrations 0024–0026).
+- Known limitation: "View diffs" link cannot pre-select the correlated worktree (diffs page has no deep-link mechanism); CI logs may still contain unredacted secrets beyond the token patterns.
+- For TG3: the GH protocol pattern now has three ops to copy from; `findCorrelatedSession` in pr.ts is the session-lookup entry point for Fix Selected dispatch.
 
 ## TG3: Reviewer Comment Triage
 
