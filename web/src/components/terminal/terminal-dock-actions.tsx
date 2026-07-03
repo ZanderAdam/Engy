@@ -150,30 +150,44 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
             </DropdownMenuContent>
           </DropdownMenu>
         ))}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label="Add terminal"
-            title="New terminal"
-          >
-            <RiAddLine className="size-3" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <TerminalNewMenuContent
-            openTerminal={openTerminal}
-            extraDropdownGroups={extraDropdownGroups}
-            containerEnabled={containerEnabled}
-            defaultScope={defaultScope}
-            inline={isMobile}
-            onSplit={(direction) =>
-              openTerminal(undefined, { referencePanel: activePanel!.id, direction })
-            }
-            splitDisabled={!activePanel}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {commandCenter ? (
+        // The generic "+" targets the CURRENT project, which would silently
+        // bypass the Command Center's per-project creation — disable it and
+        // point at the project groups' own "+" in the terminal list instead.
+        <button
+          disabled
+          className="flex h-8 w-8 items-center justify-center text-muted-foreground/40"
+          aria-label="Add terminal (disabled in Command Center)"
+          title="In Command Center, use a project group's + in the terminal list"
+        >
+          <RiAddLine className="size-3" />
+        </button>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Add terminal"
+              title="New terminal"
+            >
+              <RiAddLine className="size-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <TerminalNewMenuContent
+              openTerminal={openTerminal}
+              extraDropdownGroups={extraDropdownGroups}
+              containerEnabled={containerEnabled}
+              defaultScope={defaultScope}
+              inline={isMobile}
+              onSplit={(direction) =>
+                openTerminal(undefined, { referencePanel: activePanel!.id, direction })
+              }
+              splitDisabled={!activePanel}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
       <button
         onClick={onCollapse}
         className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground border-l border-border"
@@ -199,28 +213,40 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
               <RiArrowLeftSLine className="size-4" />
             </button>
             <span className="text-xs font-medium text-muted-foreground">Terminals</span>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  aria-label="New terminal"
-                  className="flex size-8 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  <RiAddLine className="size-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-[70vh] overflow-y-auto">
-                <TerminalNewMenuContent
-                  openTerminal={(scope, position) => {
-                    openTerminal(scope, position);
-                    setShowList(false);
-                  }}
-                  extraDropdownGroups={extraDropdownGroups}
-                  containerEnabled={containerEnabled}
-                  defaultScope={defaultScope}
-                  inline
-                />
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {commandCenter ? (
+              // Same rule as the header "+": per-project creation only in CC.
+              <button
+                disabled
+                aria-label="New terminal (disabled in Command Center)"
+                title="In Command Center, use a project group's +"
+                className="flex size-8 items-center justify-center rounded-sm text-muted-foreground/40"
+              >
+                <RiAddLine className="size-4" />
+              </button>
+            ) : (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    aria-label="New terminal"
+                    className="flex size-8 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <RiAddLine className="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="max-h-[70vh] overflow-y-auto">
+                  <TerminalNewMenuContent
+                    openTerminal={(scope, position) => {
+                      openTerminal(scope, position);
+                      setShowList(false);
+                    }}
+                    extraDropdownGroups={extraDropdownGroups}
+                    containerEnabled={containerEnabled}
+                    defaultScope={defaultScope}
+                    inline
+                  />
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto p-1.5">
             {mobileSections.map((section) => {

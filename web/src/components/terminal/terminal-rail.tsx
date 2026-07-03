@@ -369,26 +369,51 @@ export function TerminalRail({
             </TooltipContent>
           </Tooltip>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="New terminal"
-                title="New terminal"
-                className={ctrlButton}
-              >
-                <RiAddLine className="size-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="left" align="start" className="max-h-[70vh] overflow-y-auto">
-              <TerminalNewMenuContent
-                openTerminal={openTerminalFromRail}
-                extraDropdownGroups={extraDropdownGroups}
-                containerEnabled={containerEnabled}
-                defaultScope={scope}
-              />
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {commandCenter ? (
+            // The generic "+" is scoped to the CURRENT project, which would
+            // silently bypass the Command Center's per-project creation —
+            // disable it and point at the project groups' own "+" instead.
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* Disabled buttons swallow pointer events; the span keeps the
+                    tooltip hoverable. */}
+                <span className="inline-flex">
+                  <button
+                    type="button"
+                    disabled
+                    aria-label="New terminal (disabled in Command Center)"
+                    className={cn(ctrlButton, 'opacity-40 hover:bg-transparent hover:text-muted-foreground')}
+                  >
+                    <RiAddLine className="size-3.5" />
+                  </button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                In Command Center, use a project group&apos;s + in the expanded list
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="New terminal"
+                  title="New terminal"
+                  className={ctrlButton}
+                >
+                  <RiAddLine className="size-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="left" align="start" className="max-h-[70vh] overflow-y-auto">
+                <TerminalNewMenuContent
+                  openTerminal={openTerminalFromRail}
+                  extraDropdownGroups={extraDropdownGroups}
+                  containerEnabled={containerEnabled}
+                  defaultScope={scope}
+                />
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           <Tooltip>
             <TooltipTrigger asChild>
