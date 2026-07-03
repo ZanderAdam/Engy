@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import type { AppState, DispatchEntry } from './trpc/context';
-import { getAgentType, isAgentTypeId, type AgentTypeId } from '@/lib/agent-types';
+import type { TerminalSpawnCmd } from '@engy/common';
+import type { AppState, DispatchEntry, TerminalSessionMeta } from './trpc/context';
+import { buildAgentCommand, getAgentType, isAgentTypeId, type AgentTypeId } from '@/lib/agent-types';
+import { broadcastTerminalSessionsChange } from './ws/broadcast';
 
 // Cross-terminal dispatch: an orchestrator agent sends a prompt to a worker
 // terminal by injecting it into the worker's PTY stdin (same wire path as
@@ -247,6 +249,94 @@ export function waitForDispatchReply(
     }, timeoutMs);
     timer.unref?.();
   });
+}
+
+// ── Agent-originated spawn (terminal_spawn) ─────────────────────────
+
+// Hard ceiling on live agent-spawned terminals. Cross-type-only spawning
+// (enforced by the tool) plus this cap bound any spawn chain: claude → codex →
+// claude → … stops once 3 agent-spawned sessions are alive.
+export const AGENT_SPAWN_LIMIT = 3;
+
+const SPAWNED_TERMINAL_COLS = 80;
+const SPAWNED_TERMINAL_ROWS = 24;
+
+export function countAgentSpawnedSessions(state: AppState): number {
+  let count = 0;
+  for (const meta of state.terminalSessionMeta.values()) {
+    if (meta.spawnedBy) count++;
+  }
+  return count;
+}
+
+interface SpawnAgentTerminalOptions {
+  agentType: AgentTypeId;
+  workingDir: string;
+  description: string;
+  prompt?: string;
+  /** Caller terminal session id — recorded as the spawn origin. */
+  spawnedBy: string;
+  /** Caller meta — the spawned session inherits its UI scope/grouping. */
+  callerMeta: TerminalSessionMeta;
+  /** Server origin for the spawned agent's per-session MCP endpoint. */
+  mcpOrigin: string;
+}
+
+/**
+ * Server-originated terminal spawn (no browser attached): sends the spawn to
+ * the daemon relay, registers session meta, auto-connects the session as a
+ * dispatch worker, and broadcasts so the terminal rail picks it up. Returns
+ * null when no daemon is connected.
+ */
+export function spawnAgentTerminal(
+  state: AppState,
+  opts: SpawnAgentTerminalOptions,
+): { sessionId: string } | null {
+  const daemon = state.terminalDaemon;
+  if (!daemon || daemon.readyState !== daemon.OPEN) return null;
+
+  // The sessionId is known up front, so the MCP URL is built resolved — no
+  // placeholder substitution needed (unlike browser-initiated spawns).
+  const sessionId = randomUUID();
+  const command = buildAgentCommand(opts.agentType, {
+    prompt: opts.prompt,
+    mcpUrl: `${opts.mcpOrigin}/mcp/${sessionId}`,
+  });
+
+  const { callerMeta } = opts;
+  daemon.send(
+    JSON.stringify({
+      t: 'spawn',
+      sessionId,
+      workingDir: opts.workingDir,
+      command,
+      cols: SPAWNED_TERMINAL_COLS,
+      rows: SPAWNED_TERMINAL_ROWS,
+      scopeType: callerMeta.scopeType,
+      scopeLabel: opts.description,
+    } satisfies TerminalSpawnCmd),
+  );
+
+  state.terminalSessionMeta.set(sessionId, {
+    scopeType: callerMeta.scopeType,
+    scopeLabel: opts.description,
+    workingDir: opts.workingDir,
+    command,
+    agentType: opts.agentType,
+    groupKey: callerMeta.groupKey,
+    workspaceSlug: callerMeta.workspaceSlug,
+    projectId: callerMeta.projectId,
+    projectSlug: callerMeta.projectSlug,
+    spawnedBy: opts.spawnedBy,
+    cols: SPAWNED_TERMINAL_COLS,
+    rows: SPAWNED_TERMINAL_ROWS,
+  });
+  connectWorker(state, sessionId, opts.description);
+  broadcastTerminalSessionsChange('created', sessionId, callerMeta.groupKey);
+  console.log(
+    `[dispatch] agent-spawned ${opts.agentType} terminal ${sessionId.slice(0, 8)} by ${opts.spawnedBy.slice(0, 8)}`,
+  );
+  return { sessionId };
 }
 
 /** True when the relay should buffer this session's output for terminal_status. */

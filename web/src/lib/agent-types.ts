@@ -124,8 +124,15 @@ export function buildAgentCommand(
   return getAgentType(agentType).buildCommand(options);
 }
 
+// The command is built before the terminal's sessionId exists, so getMcpUrl
+// emits a placeholder in the per-session MCP path; the terminal server swaps in
+// the real sessionId at spawn time. That id becomes the agent's identity — every
+// tool call it makes arrives at /mcp/<sessionId>, so the server knows who's
+// calling (and thus its agent type). See web/src/server/ws/terminal-server.ts.
+export const MCP_SESSION_PLACEHOLDER = '__ENGY_SESSION__';
+
 /** Engy MCP endpoint of the server the browser is talking to (dev ports included). */
 export function getMcpUrl(): string | undefined {
   if (typeof window === 'undefined') return undefined;
-  return `${window.location.origin}/mcp`;
+  return `${window.location.origin}/mcp/${MCP_SESSION_PLACEHOLDER}`;
 }

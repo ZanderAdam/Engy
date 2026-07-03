@@ -81,7 +81,7 @@ Tools are registered by domain in separate `register*Tools(mcp)` functions:
 - `registerQuestionTools` — `askQuestion`
 - `registerIndexTools` — `reindex`, `indexStatus`, `validateWorkspace`
 - `registerSearchTools` — `search` (unified; replaces `listMemories` for discovery use cases), `trace` (requirements traceability: FR ↔ tests ↔ source, via `search/trace.ts`)
-- `registerTerminalTools` (in `terminal-tools.ts`) — `terminal_list_workers`, `terminal_dispatch`, `terminal_collect`, `terminal_reply`, `terminal_status` (cross-terminal dispatch; state and mechanics in `../terminal-dispatch.ts`)
+- `registerTerminalTools` (in `terminal-tools.ts`) — `terminal_whoami` (caller identity from the `/mcp/<token>` path), `terminal_list_workers`, `terminal_dispatch`, `terminal_collect`, `terminal_reply`, `terminal_status`, `terminal_spawn` (cross-type-only agent spawning: different agentType, cwd inside a workspace repo, ≤3 live agent-spawned sessions; server-originated spawn via `spawnAgentTerminal`). State and mechanics in `../terminal-dispatch.ts`. Takes the caller's terminal session id from `getMcpServer(callerTerminalSessionId)` — the path token parsed in `attachMCP`.
 
 ## Authoring Tools
 
@@ -95,5 +95,6 @@ Tools are registered by domain in separate `register*Tools(mcp)` functions:
 
 - One `McpServer` instance per session, kept alive in the `activeSessions` map keyed by `mcp-session-id`. Don't add a second transport type. Per-session input schemas are hoisted to module scope (the `*Input` consts) so the zod graph is built once and shared — never inline schemas back into `mcp.tool(...)` calls, that reintroduces a per-session closure leak.
 - Each HTTP `POST /mcp` without an `mcp-session-id` header creates a new `StreamableHTTPServerTransport` and `McpServer`. The session ID is stored in `activeSessions`. `GET /mcp` (SSE stream) and `DELETE /mcp` look up by `mcp-session-id`.
+- `attachMCP` also matches the `/mcp/<token>` prefix: Engy-spawned agents connect at `/mcp/<terminalSessionId>` so the server can attribute their calls (the token is closed over by the per-connection `McpServer`). `server.ts` skips both `/mcp` and `/mcp/` so they reach the transport, not Next. Plain `/mcp` = anonymous.
 - **Authoritative cleanup is the idle reaper**, not `DELETE`/`onclose`. `evictIdleSessions()` runs on a `setInterval` (`SESSION_SWEEP_MS = 5 * 60_000`) started once from `attachMCP` (guarded on `globalThis` against HMR, like the AppState singleton). Any session whose last POST/GET is older than `SESSION_IDLE_TTL_MS = 30 * 60_000` is `transport.close()`d, removed from `activeSessions`, and logged. `DELETE /mcp` and `onclose` still remove sessions eagerly, but cannot be relied on: clients routinely drop the connection without a `DELETE`, and in SDK 1.27 `onclose` is coupled to TCP keepalive (upstream [#1852](https://github.com/modelcontextprotocol/typescript-sdk/issues/1852)) so it fires unpredictably. The reaper is the backstop that guarantees transports don't leak.
 - Do not introduce auth that diverges from tRPC (currently both are unauthenticated, single-user).

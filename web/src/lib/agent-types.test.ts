@@ -1,10 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildAgentCommand,
   coerceAgentTypeId,
   getAgentType,
+  getMcpUrl,
   isAgentTypeId,
   listAgentTypes,
+  MCP_SESSION_PLACEHOLDER,
 } from './agent-types';
 
 describe('agent types', () => {
@@ -128,5 +130,20 @@ describe('agent types', () => {
         'codex --dangerously-bypass-approvals-and-sandbox',
       );
     });
+  });
+});
+
+describe('getMcpUrl', () => {
+  it('should return undefined server-side (no window)', () => {
+    expect(getMcpUrl()).toBeUndefined();
+  });
+
+  it('should embed the session placeholder in the per-session MCP path', () => {
+    vi.stubGlobal('window', { location: { origin: 'http://localhost:3123' } });
+    try {
+      expect(getMcpUrl()).toBe(`http://localhost:3123/mcp/${MCP_SESSION_PLACEHOLDER}`);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -38,6 +38,10 @@ export interface TerminalSessionMeta {
   // grouping survives reloads. Independent of groupKey (combined mode keeps a
   // single project-level groupKey across all worktrees).
   worktreeBranch?: string;
+  // Terminal session id of the agent that created this session via the
+  // terminal_spawn MCP tool (undefined = user-opened). Counted against the
+  // agent-spawn cap so agents cannot fork terminals without bound.
+  spawnedBy?: string;
   // Activity state computed daemon-side (per-project badges); updated by the
   // relay 'act' handler, available even when no browser has the terminal mounted.
   activityState?: TerminalActivityState;

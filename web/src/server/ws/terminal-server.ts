@@ -22,6 +22,7 @@ import {
   isTrackedWorker,
   recordWorkerOutput,
 } from '../terminal-dispatch';
+import { MCP_SESSION_PLACEHOLDER } from '@/lib/agent-types';
 
 function parseQueryParams(url: string): URLSearchParams {
   const idx = url.indexOf('?');
@@ -182,6 +183,11 @@ async function handleTerminalConnection(
     return;
   }
 
+  // Swap the MCP session placeholder for the real sessionId, so the agent's
+  // Engy MCP endpoint is /mcp/<sessionId> — its identity on every tool call.
+  // Stored substituted in meta so respawns reuse the same endpoint.
+  const resolvedCommand = command?.replaceAll(MCP_SESSION_PLACEHOLDER, sessionId);
+
   // Initial classification (log only): persisted metadata (set after successful
   // spawn) or an in-flight spawn for the same sessionId. Using terminalSessions
   // for detection would false-positive on React Strict Mode double-mount where
@@ -323,7 +329,7 @@ async function handleTerminalConnection(
         t: 'spawn',
         sessionId,
         workingDir,
-        command,
+        command: resolvedCommand,
         cols,
         rows,
         scopeType,
@@ -361,7 +367,7 @@ async function handleTerminalConnection(
           scopeType,
           scopeLabel,
           workingDir,
-          command,
+          command: resolvedCommand,
           agentType,
           groupKey,
           workspaceSlug,
@@ -468,10 +474,16 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
                 ws.send(JSON.stringify(spawnCmd));
                 broadcastTerminalSessionsChange('created', sessionId, meta.groupKey);
               } else {
-                // No browser connected — just clean up
+                // No browser connected — clean up fully. Agent-spawned workers
+                // always land here (they never have a browser), so fail their
+                // dispatches and drop the worker entry instead of leaking a
+                // phantom `alive: false` worker in terminal_list_workers.
                 console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — no browser, cleaning up`);
                 state.terminalSessions.delete(sessionId);
                 state.terminalSessionMeta.delete(sessionId);
+                failWorkerDispatches(state, sessionId, 'Daemon restarted — worker terminal lost');
+                disconnectWorker(state, sessionId);
+                broadcastTerminalSessionsChange('destroyed', sessionId, meta.groupKey);
               }
             }
           }

@@ -202,6 +202,23 @@ describe('Terminal WebSocket Server', () => {
       expect(received).toBe(outputMsg);
     });
 
+    it('[FR-TERMINAL-200] should substitute the real sessionId into the MCP endpoint placeholder', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      await connectBrowser(port, {
+        sessionId: 'sess-mcp',
+        workingDir: '/tmp',
+        command: 'claude --mcp-config \'{"url":"http://x/mcp/__ENGY_SESSION__"}\'',
+      });
+
+      const spawn = JSON.parse(await spawnPromise);
+      expect(spawn.command).toContain('/mcp/sess-mcp');
+      expect(spawn.command).not.toContain('__ENGY_SESSION__');
+      // Stored substituted so respawns reuse the same endpoint.
+      expect(state.terminalSessionMeta.get('sess-mcp')?.command).toContain('/mcp/sess-mcp');
+    });
+
     it('[FR-TERMINAL-150] should persist agentType from the connection query on the session meta', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
@@ -553,6 +570,31 @@ describe('Terminal WebSocket Server', () => {
       await vi.waitFor(() => {
         expect(state.terminalSessionMeta.has('stale-sess')).toBe(false);
       });
+    });
+
+    it('[FR-TERMINAL-110] should fail dispatches and drop the worker entry for a stale browserless worker', async () => {
+      // Agent-spawned workers never have a browser — daemon restart must not
+      // leave a phantom alive:false worker or unsettled dispatches behind.
+      state.terminalSessionMeta.set('stale-worker', {
+        scopeType: 'project',
+        scopeLabel: 'spawned codex',
+        workingDir: '/tmp',
+        agentType: 'codex',
+        spawnedBy: 'orchestrator-sess',
+        cols: 80,
+        rows: 24,
+      });
+      connectWorker(state, 'stale-worker', 'spawned codex');
+      const dispatch = createDispatch(state, 'stale-worker', 'do the thing');
+
+      const daemonWs = await connectDaemonRelay(port);
+      daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: [] }));
+
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.has('stale-worker')).toBe(false);
+      });
+      expect(state.dispatchWorkers.has('stale-worker')).toBe(false);
+      expect(state.dispatches.get(dispatch.correlationId)?.status).toBe('failed');
     });
 
     it('[FR-TERMINAL-110] should respawn stale sessions when browser is still connected', async () => {

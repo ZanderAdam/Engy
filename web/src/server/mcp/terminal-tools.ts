@@ -1,13 +1,21 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getAppState } from '../trpc/context';
 import {
+  AGENT_SPAWN_LIMIT,
+  countAgentSpawnedSessions,
   createDispatch,
   getWorkerOutputTail,
   listWorkers,
   resolveDispatchReply,
+  spawnAgentTerminal,
   waitForDispatchReply,
 } from '../terminal-dispatch';
+import { getDb } from '../db/client';
+import { workspaces } from '../db/schema';
+import { isAgentTypeId, listAgentTypes } from '@/lib/agent-types';
 import { mcpResult, mcpError } from './result';
 
 // Cross-terminal dispatch tools. These are agent-only (no tRPC counterparts by
@@ -47,6 +55,62 @@ const terminalStatusInput = {
   workerSessionId: z.string().describe('Worker terminal session id'),
 };
 
+const terminalSpawnInput = {
+  agentType: z
+    .string()
+    .describe(
+      "Agent CLI to spawn ('claude' | 'codex'). Must DIFFER from your own type — same-type work belongs to your built-in subagents. The server already knows your type; a same-type attempt is refused with a hint",
+    ),
+  cwd: z
+    .string()
+    .describe('Absolute working directory — must be inside a workspace repo (worktrees included)'),
+  description: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe('Worker description shown in terminal_list_workers (e.g. "codex reviewing auth PR")'),
+  prompt: z
+    .string()
+    .optional()
+    .describe('Optional initial prompt the spawned agent starts working on immediately'),
+};
+
+/**
+ * The spawned agent must reach the same server the caller reaches. The caller's
+ * spawn command carries its own resolved MCP URL — reuse that origin. Fallback
+ * (caller command without an MCP URL) is this server's local port.
+ */
+const MCP_URL_ORIGIN_RE = /(https?:\/\/[^/\s'"]+)\/mcp\//;
+
+function deriveMcpOrigin(callerCommand: string | undefined): string {
+  const match = callerCommand ? MCP_URL_ORIGIN_RE.exec(callerCommand) : null;
+  return match ? match[1] : `http://localhost:${process.env.PORT ?? '3000'}`;
+}
+
+function listAllWorkspaceRepos(): string[] {
+  const rows = getDb().select({ repos: workspaces.repos }).from(workspaces).all();
+  return rows.flatMap((row) => (Array.isArray(row.repos) ? row.repos : []));
+}
+
+// Resolve symlinks so a symlinked repo root and its real path compare equal.
+// Falls back to the resolved path when it does not exist on this host (the
+// server may run remotely; the daemon still validates at spawn).
+function safeRealpath(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+function isInsideAnyRepo(cwd: string, repos: string[]): boolean {
+  const resolved = safeRealpath(path.resolve(cwd));
+  return repos.some((repo) => {
+    const root = safeRealpath(path.resolve(repo));
+    return resolved === root || resolved.startsWith(root + path.sep);
+  });
+}
+
 function dispatchSummary(entry: {
   correlationId: string;
   workerSessionId: string;
@@ -63,7 +127,102 @@ function dispatchSummary(entry: {
   };
 }
 
-export function registerTerminalTools(mcp: McpServer): void {
+// `callerTerminalSessionId` is the path token from the caller's `/mcp/<id>`
+// endpoint (undefined for anonymous plain-/mcp callers). It identifies which
+// terminal — and therefore which agent type — is making the call.
+export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: string): void {
+  mcp.tool(
+    'terminal_whoami',
+    "Identify the calling agent: its Engy terminal session id and agent type (claude/codex/…). Purely informational — every terminal tool already knows the caller from its per-session MCP endpoint. Returns identified:false for agents Engy didn't register.",
+    {},
+    async () => {
+      if (!callerTerminalSessionId) {
+        return mcpResult({
+          identified: false,
+          hint: 'This MCP connection has no Engy terminal identity (registered at plain /mcp, not /mcp/<session>).',
+        });
+      }
+      const meta = getAppState().terminalSessionMeta.get(callerTerminalSessionId);
+      return mcpResult({
+        identified: true,
+        // false = the token has no live terminal session behind it (session
+        // ended, server restarted, or a fabricated token).
+        live: meta !== undefined,
+        terminalSessionId: callerTerminalSessionId,
+        agentType: meta?.agentType ?? null,
+        scopeLabel: meta?.scopeLabel ?? null,
+        workingDir: meta?.workingDir ?? null,
+      });
+    },
+  );
+
+  mcp.tool(
+    'terminal_spawn',
+    'Spawn a new agent terminal of a DIFFERENT agent type (cross-agent delegation; same-type work belongs to your built-in subagents). The spawned terminal auto-connects as a dispatch worker — send it work via terminal_dispatch',
+    terminalSpawnInput,
+    async ({ agentType, cwd, description, prompt }) => {
+      const state = getAppState();
+      if (!callerTerminalSessionId) {
+        return mcpError(
+          'terminal_spawn requires an identified caller, but this MCP connection is anonymous (plain /mcp). Only agent terminals Engy spawned (endpoint /mcp/<session>) can spawn others.',
+        );
+      }
+      const callerMeta = state.terminalSessionMeta.get(callerTerminalSessionId);
+      if (!callerMeta) {
+        return mcpError('Caller terminal session is not live — cannot attribute the spawn.');
+      }
+      const callerType = callerMeta.agentType;
+      if (!callerType || !isAgentTypeId(callerType)) {
+        return mcpError(
+          'Caller agent type is unknown — cannot enforce the different-type rule, spawn refused.',
+        );
+      }
+      const knownTypes = listAgentTypes().map((t) => t.id);
+      if (!isAgentTypeId(agentType)) {
+        return mcpError(`Unknown agentType '${agentType}'. Available: ${knownTypes.join(', ')}.`);
+      }
+      if (agentType === callerType) {
+        const otherTypes = knownTypes.filter((id) => id !== callerType);
+        return mcpError(
+          `Same-type spawn refused: you are already a ${callerType} agent — use your own subagent mechanism for ${callerType} work. terminal_spawn is for cross-agent delegation (available: ${otherTypes.join(', ')}).`,
+        );
+      }
+      const liveSpawned = countAgentSpawnedSessions(state);
+      if (liveSpawned >= AGENT_SPAWN_LIMIT) {
+        return mcpError(
+          `Agent-spawned terminal limit reached (${AGENT_SPAWN_LIMIT} live). Reuse an existing worker via terminal_dispatch, or ask the user to close one.`,
+        );
+      }
+      const repos = listAllWorkspaceRepos();
+      if (!isInsideAnyRepo(cwd, repos)) {
+        return mcpError(
+          `cwd must be inside a workspace repo (worktrees under a repo count). Registered repos: ${repos.join(', ') || '(none)'}.`,
+        );
+      }
+
+      const spawned = spawnAgentTerminal(state, {
+        agentType,
+        workingDir: cwd,
+        description,
+        prompt,
+        spawnedBy: callerTerminalSessionId,
+        callerMeta,
+        mcpOrigin: deriveMcpOrigin(callerMeta.command),
+      });
+      if (!spawned) {
+        return mcpError('No terminal daemon connected — cannot spawn.');
+      }
+      return mcpResult({
+        sessionId: spawned.sessionId,
+        agentType,
+        description,
+        hint: prompt
+          ? 'Worker is booting and will start on the initial prompt. Watch it via terminal_status; for request/response use terminal_dispatch once it is idle.'
+          : 'Worker is booting. Wait until terminal_status shows activityState idle, then send work via terminal_dispatch.',
+      });
+    },
+  );
+
   mcp.tool(
     'terminal_list_workers',
     'List terminal sessions connected as dispatch workers — other live agent sessions that accept dispatched prompts',

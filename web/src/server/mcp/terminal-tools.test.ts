@@ -3,7 +3,13 @@ import type WebSocket from 'ws';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTerminalTools } from './terminal-tools';
 import { getAppState, resetAppState, type AppState } from '../trpc/context';
-import { connectWorker, resolveDispatchReply } from '../terminal-dispatch';
+import {
+  AGENT_SPAWN_LIMIT,
+  connectWorker,
+  resolveDispatchReply,
+} from '../terminal-dispatch';
+import { setupTestDb, type TestContext } from '../trpc/test-helpers';
+import { workspaces } from '../db/schema';
 
 // Mirrors index.test.ts's harness: invoke a registered tool handler directly,
 // applying the tool's zod schema (defaults included) like the SDK would.
@@ -21,9 +27,9 @@ function callTool(mcp: McpServer, name: string) {
   };
 }
 
-function makeMcp(): McpServer {
+function makeMcp(callerTerminalSessionId?: string): McpServer {
   const mcp = new McpServer({ name: 'test', version: '0.0.0' }, { capabilities: { tools: {} } });
-  registerTerminalTools(mcp);
+  registerTerminalTools(mcp, callerTerminalSessionId);
   return mcp;
 }
 
@@ -58,6 +64,43 @@ describe('MCP terminal tools', () => {
   afterEach(() => {
     resetAppState();
     vi.useRealTimers();
+  });
+
+  describe('terminal_whoami', () => {
+    it('[FR-MCP-150] should return the caller identity resolved from the path token', async () => {
+      state.terminalSessionMeta.set('sess-me', {
+        scopeType: 'project',
+        scopeLabel: 'project: default',
+        workingDir: '/repo',
+        agentType: 'codex',
+        cols: 80,
+        rows: 24,
+      });
+      const { data, isError } = await callTool(makeMcp('sess-me'), 'terminal_whoami')();
+      expect(isError).toBe(false);
+      expect(data).toMatchObject({
+        identified: true,
+        live: true,
+        terminalSessionId: 'sess-me',
+        agentType: 'codex',
+        scopeLabel: 'project: default',
+      });
+    });
+
+    it('[FR-MCP-150] should report unidentified for anonymous (plain /mcp) callers', async () => {
+      const { data } = await callTool(makeMcp(undefined), 'terminal_whoami')();
+      expect(data.identified).toBe(false);
+    });
+
+    it('[FR-MCP-150] should identify by token but report live:false when the session meta is absent', async () => {
+      const { data } = await callTool(makeMcp('ghost-token'), 'terminal_whoami')();
+      expect(data).toMatchObject({
+        identified: true,
+        live: false,
+        terminalSessionId: 'ghost-token',
+        agentType: null,
+      });
+    });
   });
 
   describe('terminal_list_workers', () => {
@@ -202,6 +245,255 @@ describe('MCP terminal tools', () => {
       });
       expect(isError).toBe(true);
       expect(String(data.error)).toContain('Unknown correlationId');
+    });
+  });
+
+  describe('terminal_spawn', () => {
+    let ctx: TestContext;
+
+    function addCallerSession(sessionId: string, agentType?: string): void {
+      state.terminalSessionMeta.set(sessionId, {
+        scopeType: 'project',
+        scopeLabel: 'project: default',
+        workingDir: '/repo',
+        command: agentType
+          ? `${agentType} --mcp-config '{"mcpServers":{"Engy":{"type":"http","url":"http://localhost:5555/mcp/${sessionId}"}}}'`
+          : undefined,
+        agentType,
+        groupKey: 'group-1',
+        workspaceSlug: 'ws',
+        cols: 80,
+        rows: 24,
+      });
+    }
+
+    beforeEach(() => {
+      // setupTestDb resets AppState — rewire the harness state/daemon to the fresh one.
+      ctx = setupTestDb();
+      state = ctx.state;
+      sent = [];
+      state.terminalDaemon = fakeDaemon(sent);
+      ctx.db.insert(workspaces).values({ name: 'WS', slug: 'ws', repos: ['/repo'] }).run();
+    });
+
+    afterEach(() => {
+      ctx.cleanup();
+    });
+
+    it('[FR-MCP-160] should refuse anonymous callers', async () => {
+      const { isError, data } = await callTool(makeMcp(undefined), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'worker',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('anonymous');
+    });
+
+    it('[FR-MCP-160] should refuse callers whose terminal session is not live', async () => {
+      const { isError, data } = await callTool(makeMcp('gone'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'worker',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('not live');
+    });
+
+    it('[FR-MCP-160] should refuse callers with an unknown agent type', async () => {
+      addCallerSession('sess-shell', undefined);
+      const { isError, data } = await callTool(makeMcp('sess-shell'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'worker',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('unknown');
+    });
+
+    it('[FR-MCP-160] should refuse an unknown requested agentType', async () => {
+      addCallerSession('sess-claude', 'claude');
+      const { isError, data } = await callTool(makeMcp('sess-claude'), 'terminal_spawn')({
+        agentType: 'gemini',
+        cwd: '/repo',
+        description: 'worker',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain("Unknown agentType 'gemini'");
+    });
+
+    it('[FR-MCP-160] should refuse same-type spawns', async () => {
+      addCallerSession('sess-claude', 'claude');
+      const { isError, data } = await callTool(makeMcp('sess-claude'), 'terminal_spawn')({
+        agentType: 'claude',
+        cwd: '/repo',
+        description: 'worker',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('Same-type spawn refused');
+      expect(String(data.error)).toContain('subagent');
+    });
+
+    it('[FR-MCP-160] should refuse when the live agent-spawned session limit is reached', async () => {
+      addCallerSession('sess-claude', 'claude');
+      for (let i = 0; i < AGENT_SPAWN_LIMIT; i++) {
+        state.terminalSessionMeta.set(`spawned-${i}`, {
+          scopeType: 'project',
+          scopeLabel: `spawned ${i}`,
+          workingDir: '/repo',
+          spawnedBy: 'sess-claude',
+          cols: 80,
+          rows: 24,
+        });
+      }
+      const { isError, data } = await callTool(makeMcp('sess-claude'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'one too many',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain(`limit reached (${AGENT_SPAWN_LIMIT}`);
+    });
+
+    it('[FR-MCP-160] should refuse a cwd outside every workspace repo', async () => {
+      addCallerSession('sess-claude', 'claude');
+      const { isError, data } = await callTool(makeMcp('sess-claude'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/elsewhere',
+        description: 'worker',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('cwd must be inside a workspace repo');
+    });
+
+    it('[FR-MCP-160] should error when no terminal daemon is connected', async () => {
+      addCallerSession('sess-claude', 'claude');
+      state.terminalDaemon = null;
+      const { isError, data } = await callTool(makeMcp('sess-claude'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'worker',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('daemon');
+    });
+
+    it('[FR-MCP-170] should spawn a cross-type worker wired to its own /mcp/<sessionId> endpoint', async () => {
+      addCallerSession('sess-claude', 'claude');
+      const { data, isError } = await callTool(makeMcp('sess-claude'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo/.claude/worktrees/feature',
+        description: 'codex on feature',
+        prompt: 'review the diff',
+      });
+      expect(isError).toBe(false);
+      const sessionId = data.sessionId as string;
+      expect(sessionId).toBeTruthy();
+
+      // Spawn command went to the daemon with the resolved per-session MCP URL
+      const spawnFrame = JSON.parse(sent.find((f) => f.includes('"t":"spawn"'))!) as {
+        sessionId: string;
+        workingDir: string;
+        command: string;
+        scopeLabel: string;
+      };
+      expect(spawnFrame.sessionId).toBe(sessionId);
+      expect(spawnFrame.workingDir).toBe('/repo/.claude/worktrees/feature');
+      expect(spawnFrame.command).toContain('codex');
+      expect(spawnFrame.command).toContain(`http://localhost:5555/mcp/${sessionId}`);
+      expect(spawnFrame.command).toContain('review the diff');
+      expect(spawnFrame.scopeLabel).toBe('codex on feature');
+
+      // Session meta records origin + inherits the caller's UI scope
+      const meta = state.terminalSessionMeta.get(sessionId);
+      expect(meta).toMatchObject({
+        agentType: 'codex',
+        spawnedBy: 'sess-claude',
+        groupKey: 'group-1',
+        workspaceSlug: 'ws',
+      });
+
+      // Auto-connected as a dispatch worker
+      expect(state.dispatchWorkers.get(sessionId)?.description).toBe('codex on feature');
+    });
+
+    it('[FR-MCP-170] should derive the MCP origin from a codex caller command (TOML shape)', async () => {
+      state.terminalSessionMeta.set('sess-codex', {
+        scopeType: 'project',
+        scopeLabel: 'codex terminal',
+        workingDir: '/repo',
+        command: `codex -c 'mcp_servers.Engy.url="http://127.0.0.1:7777/mcp/sess-codex"' --sandbox workspace-write`,
+        agentType: 'codex',
+        cols: 80,
+        rows: 24,
+      });
+      const { data, isError } = await callTool(makeMcp('sess-codex'), 'terminal_spawn')({
+        agentType: 'claude',
+        cwd: '/repo',
+        description: 'claude worker',
+      });
+      expect(isError).toBe(false);
+      const spawnFrame = JSON.parse(sent.find((f) => f.includes('"t":"spawn"'))!) as {
+        command: string;
+      };
+      expect(spawnFrame.command).toContain(`http://127.0.0.1:7777/mcp/${data.sessionId as string}`);
+    });
+
+    it('[FR-MCP-170] should fall back to the local server port when the caller command has no MCP URL', async () => {
+      const priorPort = process.env.PORT;
+      process.env.PORT = '4242';
+      try {
+        state.terminalSessionMeta.set('sess-bare', {
+          scopeType: 'project',
+          scopeLabel: 'bare claude',
+          workingDir: '/repo',
+          command: 'claude --permission-mode acceptEdits',
+          agentType: 'claude',
+          cols: 80,
+          rows: 24,
+        });
+        const { data, isError } = await callTool(makeMcp('sess-bare'), 'terminal_spawn')({
+          agentType: 'codex',
+          cwd: '/repo',
+          description: 'codex worker',
+        });
+        expect(isError).toBe(false);
+        const spawnFrame = JSON.parse(sent.find((f) => f.includes('"t":"spawn"'))!) as {
+          command: string;
+        };
+        expect(spawnFrame.command).toContain(
+          `http://localhost:4242/mcp/${data.sessionId as string}`,
+        );
+      } finally {
+        if (priorPort === undefined) delete process.env.PORT;
+        else process.env.PORT = priorPort;
+      }
+    });
+
+    it('[FR-MCP-170] should allow the spawned worker to spawn back cross-type within the cap', async () => {
+      addCallerSession('sess-claude', 'claude');
+      const first = await callTool(makeMcp('sess-claude'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'codex worker',
+      });
+      const codexSessionId = first.data.sessionId as string;
+
+      // The spawned codex can spawn a claude (cross-type), but not another codex
+      const backSpawn = await callTool(makeMcp(codexSessionId), 'terminal_spawn')({
+        agentType: 'claude',
+        cwd: '/repo',
+        description: 'claude sub-worker',
+      });
+      expect(backSpawn.isError).toBe(false);
+
+      const sameType = await callTool(makeMcp(codexSessionId), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'codex clone',
+      });
+      expect(sameType.isError).toBe(true);
+      expect(String(sameType.data.error)).toContain('Same-type spawn refused');
     });
   });
 

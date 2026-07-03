@@ -8,7 +8,7 @@ import {
 } from './src/server/ws/terminal-server';
 import { createEventsWebSocketServer } from './src/server/ws/events-server';
 import { broadcastTerminalSessionsChange } from './src/server/ws/broadcast';
-import { attachMCP } from './src/server/mcp/index';
+import { attachMCP, isMcpPath } from './src/server/mcp/index';
 import { runMigrations, runPostMigrationBackfills } from './src/server/db/migrate';
 
 const dev = process.env.NODE_ENV !== 'production';
@@ -116,7 +116,8 @@ app.prepare().then(() => {
       return;
     }
 
-    if (url.pathname === '/mcp') return;
+    // /mcp and per-session /mcp/<token> are handled by the MCP transport (attachMCP).
+    if (isMcpPath(url.pathname)) return;
 
     handle(req, res);
   });

@@ -48,21 +48,54 @@ The tool accepts an optional `sessionId` parameter. When present, `resolveWorktr
 
 **summary-mode** — called with `workspaceId` and no `fr` or `file`: returns `{ kind: 'summary', totals: { definitions, tags, uncovered, orphanTags }, uncovered, orphanTags, duplicateIds, malformed }`. `totals` gives workspace-wide counts; `uncovered` lists FR ids with no test coverage; `orphanTags` lists test tags referencing undefined FRs; `duplicateIds` and `malformed` surface integrity issues in the requirements table.
 
+## Per-session identity (`/mcp/<token>`)
+
+Agents Engy spawns get a per-session MCP endpoint `/mcp/<terminalSessionId>` (the
+token is substituted into the command at spawn — see the Terminal Relay feature).
+`attachMCP` matches the `/mcp` path prefix, extracts the token, and — because the
+`McpServer` is created per connection — closes it over every tool call on that
+session. The path is the only identity channel every MCP client honors: a client
+always POSTs to the endpoint URL it was configured with (the MCP `Mcp-Session-Id`
+is server-assigned and does not convey client identity). `terminal_whoami` exposes
+the resolved identity; plain `/mcp` (hand-configured agents, the daemon) stays
+anonymous. This underpins `terminal_spawn`'s different-type rule and dispatch
+attribution.
+
 ## Cross-terminal dispatch tools
 
 `registerTerminalTools` (`web/src/server/mcp/terminal-tools.ts`) exposes the
 cross-terminal dispatch surface: `terminal_list_workers`, `terminal_dispatch`
 (async by default, sync-with-timeout optional), `terminal_collect`,
-`terminal_reply`, and `terminal_status`. These tools are **agent-only by
-design** — the browser manages the connected-worker set via the `terminal`
-tRPC router (connect/disconnect with a description), while agents are the only
-callers of dispatch/reply/collect. The only authorization gate is the
-connected-worker set: with nothing connected, `terminal_list_workers` returns
-an empty list and `terminal_dispatch` refuses every session id. Reply
-authorization is the correlation id itself — a single-use capability token
-embedded in the `[engy-dispatch <id>]` marker delivered with each dispatch.
-Dispatch mechanics (idle-gating, inbox, paste behavior) live in the Terminal
-Relay feature.
+`terminal_reply`, `terminal_status`, and `terminal_spawn`. These tools are
+**agent-only by design** — the browser manages the connected-worker set via
+the `terminal` tRPC router (connect/disconnect with a description), while
+agents are the only callers of dispatch/reply/collect/spawn. The only
+authorization gate is the connected-worker set: with nothing connected,
+`terminal_list_workers` returns an empty list and `terminal_dispatch` refuses
+every session id. Reply authorization is the correlation id itself — a
+single-use capability token embedded in the `[engy-dispatch <id>]` marker
+delivered with each dispatch. Dispatch mechanics (idle-gating, inbox, paste
+behavior) live in the Terminal Relay feature.
+
+### Agent-originated spawn (`terminal_spawn`)
+
+An identified agent can spawn a terminal running a **different** agent CLI —
+cross-agent delegation (a Claude orchestrator spawning a Codex reviewer),
+never self-replication: same-type spawning is refused because that is what an
+agent's built-in subagents are for. The caller's own type is resolved
+server-side from its `/mcp/<token>` identity, so no self-reporting is
+involved. Guard rails: the `cwd` must be inside a workspace repo (worktrees
+under a repo count), at most 3 agent-spawned sessions may be live at once
+(`AGENT_SPAWN_LIMIT` — this also bounds spawn chains like claude → codex →
+claude), and a terminal daemon must be connected. `spawnAgentTerminal`
+(`web/src/server/terminal-dispatch.ts`) performs the server-originated spawn:
+unlike browser-initiated spawns, the session id is generated first, so the
+spawned CLI command carries its resolved `/mcp/<sessionId>` endpoint (no
+placeholder substitution). The new session inherits the caller's UI scope
+(group, workspace, project) so it appears in the terminal rail, records
+`spawnedBy`, and is auto-connected as a dispatch worker; the MCP origin for
+the spawned agent is derived from the caller's own spawn command (fallback:
+the server's local port).
 
 ## Requirements
 
@@ -85,6 +118,9 @@ Functional requirements in EARS notation. These are the single source of truth f
 | FR-MCP-120 | WHEN `terminal_reply` is called with a correlation id, the system SHALL settle the matching unsettled dispatch exactly once (resolving all waiters); unknown or already-settled correlation ids SHALL produce a tool error. |
 | FR-MCP-130 | WHEN `terminal_list_workers` is called, the system SHALL return every connected worker with its description, agent type, scope label, and activity state, and SHALL return an empty list with a hint when no workers are connected. |
 | FR-MCP-140 | WHEN `terminal_status` is called with a connected worker's session id, the system SHALL return the worker info plus a recent output tail with terminal escape sequences stripped, capped at 2000 characters. |
+| FR-MCP-150 | WHEN an MCP client connects at a per-session endpoint `/mcp/<terminalSessionId>`, the system SHALL bind that terminal session id to the connection; `terminal_whoami` SHALL return `{ identified: true, live, terminalSessionId, agentType, scopeLabel, workingDir }` resolved from `terminalSessionMeta` (`live: false` and `agentType: null` when no live session backs the token). WHEN the client connects at plain `/mcp` or empty-token `/mcp/`, `terminal_whoami` SHALL return `{ identified: false }`; WHEN the path token has invalid percent-encoding, the request SHALL be rejected with HTTP 400. |
+| FR-MCP-160 | WHEN `terminal_spawn` is called, the system SHALL refuse: anonymous callers (no path token), callers without a live terminal session, callers whose agent type is unknown, an unknown requested `agentType`, a requested `agentType` equal to the caller's own type (same-type work belongs to the agent's built-in subagents), a `cwd` outside every workspace repo, more than 3 live agent-spawned sessions, and spawning with no terminal daemon connected. |
+| FR-MCP-170 | WHEN `terminal_spawn` passes validation, the system SHALL generate a new terminal session id, send a spawn command to the daemon whose agent CLI command carries the resolved per-session MCP endpoint `/mcp/<newSessionId>`, register session metadata recording `spawnedBy` and inheriting the caller's UI scope (groupKey, workspace, project), auto-connect the session as a dispatch worker, broadcast the session creation, and return the new session id. |
 
 ## Sources
 
