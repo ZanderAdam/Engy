@@ -51,18 +51,25 @@ interface TerminalManagerProps {
   // When set, this manager publishes its live tab list to the terminal session
   // store under this key (the scope groupKey) for the terminal rail to consume.
   publishKey?: string;
+  // Command Center: load and show EVERY terminal across all projects/worktrees
+  // (via ?all=1) instead of just this scope's sessions, and react to every
+  // session-change event rather than only this groupKey's. Layout persists under
+  // a dedicated key so it doesn't clobber the per-project docks.
+  global?: boolean;
 }
 
 interface SessionListItem {
   sessionId: string;
-  scopeType: string;
+  scopeType: TerminalScope['scopeType'];
   scopeLabel: string;
   workingDir: string;
   command?: string;
   groupKey?: string;
   workspaceSlug?: string;
+  projectSlug?: string;
   taskId?: number;
   worktreeBranch?: string;
+  activityState?: TerminalActivityState;
   status: 'active' | 'suspended';
   browserCount: number;
 }
@@ -75,22 +82,20 @@ const ENGY_THEME = {
 const COMPONENTS = { terminal: TerminalDockPanel };
 const TAB_COMPONENTS = { 'terminal-tab': TerminalDockTab };
 
-function getLayoutKey(scope: TerminalScope): string {
-  return `terminal-layout:${scope.groupKey}`;
-}
+const COMMAND_CENTER_LAYOUT_KEY = 'terminal-layout:__command_center__';
 
-function saveLayout(api: DockviewApi, scope: TerminalScope): void {
+function saveLayout(api: DockviewApi, layoutKey: string): void {
   try {
     const json = api.toJSON();
-    localStorage.setItem(getLayoutKey(scope), JSON.stringify(json));
+    localStorage.setItem(layoutKey, JSON.stringify(json));
   } catch {
     // localStorage may be full or unavailable
   }
 }
 
-function loadLayout(scope: TerminalScope): SerializedDockview | null {
+function loadLayout(layoutKey: string): SerializedDockview | null {
   try {
-    const raw = localStorage.getItem(getLayoutKey(scope));
+    const raw = localStorage.getItem(layoutKey);
     if (!raw) return null;
     return JSON.parse(raw) as SerializedDockview;
   } catch {
@@ -98,9 +103,9 @@ function loadLayout(scope: TerminalScope): SerializedDockview | null {
   }
 }
 
-function clearLayout(scope: TerminalScope): void {
+function clearLayout(layoutKey: string): void {
   try {
-    localStorage.removeItem(getLayoutKey(scope));
+    localStorage.removeItem(layoutKey);
   } catch {
     // ignore
   }
@@ -110,20 +115,24 @@ function sessionToTab(s: SessionListItem, fallbackGroupKey: string): TerminalTab
   return {
     sessionId: s.sessionId,
     scope: {
-      scopeType: s.scopeType as TerminalScope['scopeType'],
+      scopeType: s.scopeType,
       scopeLabel: s.scopeLabel,
       workingDir: s.workingDir,
       command: s.command,
       groupKey: s.groupKey ?? fallbackGroupKey,
       workspaceSlug: s.workspaceSlug ?? '',
+      projectSlug: s.projectSlug,
       taskId: s.taskId,
       worktreeBranch: s.worktreeBranch,
     },
     status: 'connecting',
+    // Seed the daemon-tracked activity so the dot is correct on first paint,
+    // before this session's WebSocket delivers its first live update.
+    activityState: s.activityState ?? 'idle',
   };
 }
 
-export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled, disableExternalEvents = false, publishKey }: TerminalManagerProps) {
+export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled, disableExternalEvents = false, publishKey, global = false }: TerminalManagerProps) {
   const tabCtx = useOptionalTab();
   const myTabId = tabCtx?.tabId ?? null;
 
@@ -148,11 +157,40 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   const tabWsRefs = useRef<Map<string, TerminalActions>>(new Map());
   const dockviewApiRef = useRef<DockviewApi | null>(null);
   const restoringRef = useRef(false);
+  // Debounces the "sessions created elsewhere" refetch so a burst of creations
+  // (e.g. opening several terminals at once) coalesces into one list fetch.
+  const sessionsSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const defaultScopeRef = useRef(defaultScope);
   useEffect(() => {
     defaultScopeRef.current = defaultScope;
   }, [defaultScope]);
+
+  const globalRef = useRef(global);
+  useEffect(() => {
+    globalRef.current = global;
+  }, [global]);
+
+  // In global (Command Center) mode the dock lists every session and persists
+  // its layout under a shared key; otherwise it is scoped to defaultScope.
+  const getLayoutKey = useCallback(
+    () =>
+      globalRef.current
+        ? COMMAND_CENTER_LAYOUT_KEY
+        : `terminal-layout:${defaultScopeRef.current?.groupKey ?? ''}`,
+    [],
+  );
+  const buildSessionsUrl = useCallback((): string | null => {
+    if (globalRef.current) return '/api/terminal/sessions?all=1';
+    const scope = defaultScopeRef.current;
+    if (!scope) return null;
+    const params = new URLSearchParams({
+      groupKey: scope.groupKey,
+      scopeType: scope.scopeType,
+      scopeLabel: scope.scopeLabel,
+    });
+    return `/api/terminal/sessions?${params}`;
+  }, []);
 
   // Bumped whenever the tab set or active panel changes, to re-publish the
   // snapshot for the rail (see the publish effect below).
@@ -254,6 +292,10 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
 
   const scheduleLayoutSave = useCallback(() => {
     if (restoringRef.current) return;
+    // The global dock's layout is shared across every open tab and its session
+    // list always comes from the server, so persisting (and racing) it adds no
+    // value — skip it entirely in global mode.
+    if (globalRef.current) return;
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
@@ -262,12 +304,12 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       if (!api || !scope) return;
 
       if (api.panels.length === 0) {
-        clearLayout(scope);
+        clearLayout(getLayoutKey());
       } else {
-        saveLayout(api, scope);
+        saveLayout(api, getLayoutKey());
       }
     }, 200);
-  }, []);
+  }, [getLayoutKey]);
 
   const handleStatusChange = useCallback(
     (sessionId: string, status: TerminalTab['status']) => {
@@ -445,8 +487,10 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   useOnServerEvent('TERMINAL_SESSIONS_CHANGE', useCallback((payload) => {
     const scope = defaultScopeRef.current;
     if (!scope) return;
-    // Only react to events for our groupKey
-    if (payload.groupKey && payload.groupKey !== scope.groupKey) return;
+    // Project docks only react to their own groupKey; the global (Command
+    // Center) dock reacts to every session so terminals opened in any project
+    // show up here immediately.
+    if (!globalRef.current && payload.groupKey && payload.groupKey !== scope.groupKey) return;
 
     const api = dockviewApiRef.current;
     if (!api) return;
@@ -455,37 +499,39 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       // Skip if we already know this session (e.g. we created it ourselves)
       if (tabsRef.current.has(payload.sessionId)) return;
 
-      // Fetch session details and add as a new tab
-      const params = new URLSearchParams({
-        groupKey: scope.groupKey,
-        scopeType: scope.scopeType,
-        scopeLabel: scope.scopeLabel,
-      });
-      fetch(`/api/terminal/sessions?${params}`)
-        .then((res) => res.json())
-        .then((data: { sessions: SessionListItem[] }) => {
-          for (const s of data.sessions) {
-            if (!tabsRef.current.has(s.sessionId)) {
-              const tab = sessionToTab(s, scope.groupKey);
-              tabsRef.current.set(s.sessionId, tab);
-              api.addPanel({
-                id: s.sessionId,
-                component: 'terminal',
-                tabComponent: 'terminal-tab',
-                title: s.scopeLabel,
-                params: { tab } satisfies TerminalPanelParams,
-                renderer: 'always',
-              });
+      // Debounce: many `created` events in quick succession collapse into one
+      // list fetch that adds every still-missing session as a panel.
+      if (sessionsSyncTimerRef.current) clearTimeout(sessionsSyncTimerRef.current);
+      sessionsSyncTimerRef.current = setTimeout(() => {
+        const liveApi = dockviewApiRef.current;
+        const url = buildSessionsUrl();
+        if (!liveApi || !url) return;
+        fetch(url)
+          .then((res) => res.json())
+          .then((data: { sessions: SessionListItem[] }) => {
+            for (const s of data.sessions) {
+              if (!tabsRef.current.has(s.sessionId)) {
+                const tab = sessionToTab(s, scope.groupKey);
+                tabsRef.current.set(s.sessionId, tab);
+                liveApi.addPanel({
+                  id: s.sessionId,
+                  component: 'terminal',
+                  tabComponent: 'terminal-tab',
+                  title: s.scopeLabel,
+                  params: { tab } satisfies TerminalPanelParams,
+                  renderer: 'always',
+                });
+              }
             }
-          }
-        })
-        .catch((err: unknown) => console.error('Failed to sync terminal sessions:', err));
+          })
+          .catch((err: unknown) => console.error('Failed to sync terminal sessions:', err));
+      }, 150);
     } else if (payload.action === 'renamed' && payload.newLabel) {
       updateTabLabel(payload.sessionId, payload.newLabel);
     }
     // 'destroyed' is handled by the terminal WS exit/error events
     // 'attached'/'detached' are informational — no action needed
-  }, [updateTabLabel]));
+  }, [updateTabLabel, buildSessionsUrl]));
 
   const handleDockviewReady = useCallback(
     (event: { api: DockviewApi }) => {
@@ -515,13 +561,10 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
         return;
       }
 
-      const params = new URLSearchParams({
-        groupKey: defaultScopeRef.current.groupKey,
-        scopeType: defaultScopeRef.current.scopeType,
-        scopeLabel: defaultScopeRef.current.scopeLabel,
-      });
+      const url = buildSessionsUrl();
+      if (!url) return;
 
-      fetch(`/api/terminal/sessions?${params}`)
+      fetch(url)
         .then((res) => {
           if (!res.ok) throw new Error(`Failed to fetch sessions: ${res.status}`);
           return res.json();
@@ -531,7 +574,9 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
           const activeSessions = new Set(data.sessions.map((s) => s.sessionId));
           const sessionMap = new Map(data.sessions.map((s) => [s.sessionId, s]));
 
-          const savedLayout = loadLayout(defaultScopeRef.current!);
+          // Global mode never persists layout (see scheduleLayoutSave), so build
+          // the dock fresh from the server list rather than a stale saved layout.
+          const savedLayout = globalRef.current ? null : loadLayout(getLayoutKey());
           if (savedLayout) {
             const savedPanelIds = Object.keys(savedLayout.panels);
             const allAlive = savedPanelIds.length > 0
@@ -573,7 +618,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
                 tabsRef.current.clear();
               }
             } else {
-              clearLayout(defaultScopeRef.current!);
+              clearLayout(getLayoutKey());
             }
           }
 
@@ -592,7 +637,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
         })
         .catch((err: unknown) => console.error('Failed to restore terminal sessions:', err));
     },
-    [broadcastActive, cleanupTerminal, scheduleLayoutSave, bumpTabs],
+    [broadcastActive, cleanupTerminal, scheduleLayoutSave, bumpTabs, buildSessionsUrl, getLayoutKey],
   );
 
   // Publish the live tab snapshot for the terminal rail whenever tabs or the
@@ -611,6 +656,13 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     if (!railKey) return;
     return () => clearTerminalSessions(railKey);
   }, [railKey]);
+
+  useEffect(
+    () => () => {
+      if (sessionsSyncTimerRef.current) clearTimeout(sessionsSyncTimerRef.current);
+    },
+    [],
+  );
 
   const contextValue = useMemo<TerminalDockContextValue>(
     () => ({

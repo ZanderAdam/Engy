@@ -7,6 +7,7 @@ import {
   RiArrowRightSLine,
   RiCloseLine,
   RiGitBranchLine,
+  RiLayoutGridLine,
   RiListUnordered,
   RiTerminalLine,
 } from '@remixicon/react';
@@ -39,12 +40,19 @@ import {
 import { TerminalSessionLabel } from './terminal-session-label';
 import { TerminalNewMenuContent } from './terminal-new-menu';
 import {
+  useCommandCenterMode,
+  setCommandCenterMode,
+  COMMAND_CENTER_GROUP_KEY,
+} from './command-center/use-command-center-mode';
+import { groupTabsByProject } from './command-center/grouping';
+import { cloneScopeForNewTerminal } from './command-center/new-terminal-scope';
+import {
   getTerminalRailBoxStyle,
   type TerminalDropdownGroup,
   type TerminalScope,
   type TerminalTab,
 } from './types';
-import { groupTabsByWorktree } from './worktree-grouping';
+import { groupTabsByWorktree, type TerminalWorktreeGroup } from './worktree-grouping';
 
 interface TerminalRailProps {
   // Collapse state of the terminal dock (owned by ThreePanelLayout). The rail
@@ -73,7 +81,10 @@ export function TerminalRail({
 }: TerminalRailProps) {
   const scope = useTerminalScope();
   const tabId = useTabId();
-  const { tabs, activeId } = useTerminalSessions(terminalRailKey(tabId, scope.groupKey));
+  const commandCenter = useCommandCenterMode();
+  const { tabs, activeId } = useTerminalSessions(
+    terminalRailKey(tabId, commandCenter ? COMMAND_CENTER_GROUP_KEY : scope.groupKey),
+  );
   const [listExpanded, setListExpanded] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [closingTab, setClosingTab] = useState<TerminalTab | null>(null);
@@ -113,10 +124,130 @@ export function TerminalRail({
   const ctrlButton =
     'flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground';
 
-  // Group terminals by worktree (combined mode). Headers/dividers only appear
-  // once more than one worktree is in play, so split mode looks unchanged.
-  const groups = groupTabsByWorktree(tabs);
-  const showGroupHeaders = groups.length > 1;
+  // Command Center mode lists terminals from every project, so group by
+  // project → worktree with a project header. The per-project rail just groups
+  // by worktree (headers only when more than one worktree is in play).
+  const sections = commandCenter
+    ? groupTabsByProject(tabs).map((pg) => ({
+        key: pg.key,
+        projectLabel: pg.label,
+        isProject: pg.isProject,
+        workspaceSlug: pg.workspaceSlug,
+        worktreeGroups: pg.worktreeGroups,
+      }))
+    : [
+        {
+          key: '__all__',
+          projectLabel: undefined,
+          isProject: false,
+          workspaceSlug: undefined,
+          worktreeGroups: groupTabsByWorktree(tabs),
+        },
+      ];
+
+  function renderWorktreeGroup(group: TerminalWorktreeGroup, showHeader: boolean, dots: boolean) {
+    return (
+      <div
+        key={group.branch ?? '__default__'}
+        className={cn('flex flex-col gap-0.5', dots && 'items-center gap-1.5')}
+      >
+        {showHeader &&
+          (dots ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label={`Worktree ${group.label}`}
+                >
+                  <RiGitBranchLine className="size-3" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="font-mono text-xs">
+                {group.label}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <p className="flex items-center gap-1.5 px-2 pt-1 pb-0.5 text-[11px] font-medium text-muted-foreground">
+              <RiGitBranchLine className="size-3 shrink-0" />
+              <span className="truncate font-mono">{group.label}</span>
+            </p>
+          ))}
+        {showHeader && !dots ? (
+          <div className="ml-3 flex flex-col gap-0.5 border-l border-border/60 pl-1">
+            {group.tabs.map(renderExpandedRow)}
+          </div>
+        ) : (
+          group.tabs.map(dots ? renderDot : renderExpandedRow)
+        )}
+      </div>
+    );
+  }
+
+  function renderSection(section: (typeof sections)[number], dots: boolean) {
+    const showWorktreeHeaders = section.worktreeGroups.length > 1;
+    return (
+      <div
+        key={section.key}
+        className={cn('flex flex-col gap-0.5', dots ? 'items-center gap-1.5' : 'pb-1')}
+      >
+        {section.projectLabel &&
+          (dots ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="block max-w-8 truncate text-[9px] font-semibold uppercase text-muted-foreground">
+                  {section.projectLabel}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="text-xs">
+                {section.workspaceSlug ? `${section.workspaceSlug} / ${section.projectLabel}` : section.projectLabel}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <div className="group/section flex items-center gap-1 pr-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <p className="flex min-w-0 flex-1 items-baseline gap-1 truncate px-2 pt-1.5 pb-0.5 text-xs font-semibold text-foreground/80">
+                    {section.workspaceSlug && (
+                      <span className="max-w-[45%] shrink-0 truncate font-normal text-muted-foreground">
+                        {section.workspaceSlug} /
+                      </span>
+                    )}
+                    <span className="truncate">{section.projectLabel}</span>
+                  </p>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  {section.workspaceSlug
+                    ? `${section.workspaceSlug} / ${section.projectLabel}`
+                    : section.projectLabel}
+                </TooltipContent>
+              </Tooltip>
+              {section.isProject && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cloned = cloneScopeForNewTerminal(section.worktreeGroups);
+                        if (cloned) openTerminalFromRail(cloned);
+                      }}
+                      aria-label={`New terminal in ${section.projectLabel}`}
+                      className={cn(
+                        'mt-1 shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground',
+                        isMobile ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100',
+                      )}
+                    >
+                      <RiAddLine className="size-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">New terminal in {section.projectLabel}</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          ))}
+        {section.worktreeGroups.map((g) => renderWorktreeGroup(g, showWorktreeHeaders, dots))}
+      </div>
+    );
+  }
 
   function renderExpandedRow(tab: TerminalTab) {
     return editingId === tab.sessionId ? (
@@ -217,26 +348,72 @@ export function TerminalRail({
             <TooltipContent side="left">{collapsed ? 'Show panel' : 'Collapse panel'}</TooltipContent>
           </Tooltip>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+          <Tooltip>
+            <TooltipTrigger asChild>
               <button
                 type="button"
-                aria-label="New terminal"
-                title="New terminal"
-                className={ctrlButton}
+                onClick={() => {
+                  const next = !commandCenter;
+                  setCommandCenterMode(next);
+                  if (next) setCollapsed(false);
+                }}
+                aria-label="Command Center — all terminals"
+                aria-pressed={commandCenter}
+                className={cn(ctrlButton, commandCenter && 'bg-muted text-foreground')}
               >
-                <RiAddLine className="size-3.5" />
+                <RiLayoutGridLine className="size-3.5" />
               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="left" align="start" className="max-h-[70vh] overflow-y-auto">
-              <TerminalNewMenuContent
-                openTerminal={openTerminalFromRail}
-                extraDropdownGroups={extraDropdownGroups}
-                containerEnabled={containerEnabled}
-                defaultScope={scope}
-              />
-            </DropdownMenuContent>
-          </DropdownMenu>
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              {commandCenter ? 'Exit Command Center' : 'Command Center — all terminals'}
+            </TooltipContent>
+          </Tooltip>
+
+          {commandCenter ? (
+            // The generic "+" is scoped to the CURRENT project, which would
+            // silently bypass the Command Center's per-project creation —
+            // disable it and point at the project groups' own "+" instead.
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* Disabled buttons swallow pointer events; the span keeps the
+                    tooltip hoverable. */}
+                <span className="inline-flex">
+                  <button
+                    type="button"
+                    disabled
+                    aria-label="New terminal (disabled in Command Center)"
+                    className={cn(ctrlButton, 'opacity-40 hover:bg-transparent hover:text-muted-foreground')}
+                  >
+                    <RiAddLine className="size-3.5" />
+                  </button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                In Command Center, use a project group&apos;s + in the expanded list
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="New terminal"
+                  title="New terminal"
+                  className={ctrlButton}
+                >
+                  <RiAddLine className="size-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="left" align="start" className="max-h-[70vh] overflow-y-auto">
+                <TerminalNewMenuContent
+                  openTerminal={openTerminalFromRail}
+                  extraDropdownGroups={extraDropdownGroups}
+                  containerEnabled={containerEnabled}
+                  defaultScope={scope}
+                />
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -254,53 +431,18 @@ export function TerminalRail({
           </Tooltip>
         </div>
 
-        {/* Sessions — colour-coded dots when narrow, labelled rows when expanded.
-            Grouped by worktree when more than one worktree has terminals. */}
+        {/* Sessions — colour-coded dots when narrow, labelled rows when
+            expanded. Grouped by worktree, and by project in Command Center mode. */}
         {listExpanded ? (
           <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">
             {tabs.length === 0 ? (
               <p className="px-2 py-1.5 text-[11px] text-muted-foreground">No terminals</p>
             ) : (
-              groups.map((group) => (
-                <div key={group.branch ?? '__default__'} className="flex flex-col gap-0.5">
-                  {showGroupHeaders && (
-                    <p className="flex items-center gap-1.5 px-2 pt-2 pb-1 text-xs font-semibold text-foreground/80">
-                      <RiGitBranchLine className="size-3 shrink-0 text-muted-foreground" />
-                      <span className="truncate font-mono">{group.label}</span>
-                    </p>
-                  )}
-                  {showGroupHeaders ? (
-                    <div className="ml-3 flex flex-col gap-0.5 border-l border-border/60 pl-1">
-                      {group.tabs.map(renderExpandedRow)}
-                    </div>
-                  ) : (
-                    group.tabs.map(renderExpandedRow)
-                  )}
-                </div>
-              ))
+              sections.map((section) => renderSection(section, false))
             )}
           </div>
         ) : (
-          groups.map((group) => (
-            <div key={group.branch ?? '__default__'} className="flex flex-col items-center gap-1.5">
-              {showGroupHeaders && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span
-                      className="flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                      aria-label={`Worktree ${group.label}`}
-                    >
-                      <RiGitBranchLine className="size-3" />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="left" className="font-mono text-xs">
-                    {group.label}
-                  </TooltipContent>
-                </Tooltip>
-              )}
-              {group.tabs.map(renderDot)}
-            </div>
-          ))
+          sections.map((section) => renderSection(section, true))
         )}
       </div>
 
