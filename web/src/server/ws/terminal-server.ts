@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
-import type { AppState } from '../trpc/context';
+import type { AppState, TerminalSessionMeta } from '../trpc/context';
 import type {
   TerminalSpawnCmd,
   TerminalResizeCmd,
@@ -16,6 +16,30 @@ import { workspaces } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { dispatchContainerUp } from './server';
 import { broadcastTerminalSessionsChange, broadcastTerminalActivityChange } from './broadcast';
+
+// How long a browser connect with no session metadata waits for the daemon's
+// `{ t: 'sync' }` before classifying as spawn-vs-reconnect. Covers the
+// post-server-restart window where browsers reconnect before the daemon relay
+// has announced which sessions survived — classifying early would send a spawn
+// that kills the surviving PTY. Generous enough for the daemon's reconnect
+// backoff after a typical restart; on timeout the connect falls back to the
+// pre-existing spawn/no-daemon behavior.
+const DAEMON_SYNC_WAIT_MS = 10_000;
+
+function waitForDaemonSync(state: AppState, timeoutMs: number): Promise<void> {
+  if (state.daemonTerminalSessions.synced) return Promise.resolve();
+  return new Promise((resolve) => {
+    const waiter = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      state.daemonTerminalSessions.syncWaiters.delete(waiter);
+      resolve();
+    }, timeoutMs);
+    state.daemonTerminalSessions.syncWaiters.add(waiter);
+  });
+}
 
 function parseQueryParams(url: string): URLSearchParams {
   const idx = url.indexOf('?');
@@ -148,6 +172,7 @@ async function handleTerminalConnection(
   ws: WebSocket,
   req: IncomingMessage,
   state: AppState,
+  daemonSyncWaitMs: number,
 ): Promise<void> {
   const params = parseQueryParams(req.url ?? '');
   const sessionId = params.get('sessionId');
@@ -185,7 +210,7 @@ async function handleTerminalConnection(
   const short = sessionId.slice(0, 8);
   const existingCount = state.terminalSessions.get(sessionId)?.size ?? 0;
   console.log(
-    `[terminal] connection sid=${short} isReconnect=${isReconnect} existingBrowsers=${existingCount} daemon=${state.terminalDaemon != null}`,
+    `[terminal] connection sid=${short} isReconnect=${isReconnect} daemonKnown=${state.daemonTerminalSessions.ids.has(sessionId)} existingBrowsers=${existingCount} daemon=${state.terminalDaemon != null}`,
   );
   addBrowserWs(state, sessionId, ws);
 
@@ -206,6 +231,7 @@ async function handleTerminalConnection(
         console.log(`[terminal] Kill intercepted for session ${sid}`);
         const killedMeta = state.terminalSessionMeta.get(sid);
         state.terminalSessionMeta.delete(sid);
+        state.daemonTerminalSessions.ids.delete(sid);
         // Close all attached browsers and remove the session. Send exit first so
         // their ReconnectingSocket marks the session final — a bare close would
         // trigger a reconnect that respawns a ghost PTY (meta is already deleted).
@@ -279,6 +305,18 @@ async function handleTerminalConnection(
     broadcastTerminalSessionsChange('detached', sessionId, meta?.groupKey);
   });
 
+  // A restarted server has an empty terminalSessionMeta. Before classifying a
+  // no-meta connect as a fresh spawn (which would kill a surviving PTY on the
+  // daemon), wait for the daemon's session sync to learn which sessions survived.
+  if (!state.terminalSessionMeta.has(sessionId) && !state.daemonTerminalSessions.synced) {
+    await waitForDaemonSync(state, daemonSyncWaitMs);
+    const setAfterSyncWait = state.terminalSessions.get(sessionId);
+    if (!setAfterSyncWait || !setAfterSyncWait.has(ws)) {
+      console.log(`[terminal] connect abandoned while awaiting daemon sync for sid=${short}`);
+      return;
+    }
+  }
+
   // Wait out an in-flight spawn before classifying — the daemon only knows the
   // session once the originating spawn has been sent. Loop: a waiter that falls
   // through to a fresh spawn installs a new gate synchronously, so later waiters
@@ -292,6 +330,36 @@ async function handleTerminalConnection(
       return;
     }
     inflightSpawn = state.spawningSessions.get(sessionId);
+  }
+
+  const metaFromParams: TerminalSessionMeta = {
+    scopeType,
+    scopeLabel,
+    workingDir,
+    command,
+    groupKey,
+    workspaceSlug,
+    containerMode,
+    taskId,
+    projectId,
+    projectSlug,
+    worktreeBranch,
+    cols,
+    rows,
+  };
+
+  // Adopt a daemon-surviving session the server has no meta for (server
+  // restart wiped it): rebuild the meta from the connect params so the
+  // classification below routes through reconnect instead of respawning
+  // over the live PTY. Requires `synced` so a stale alive set from a previous
+  // relay connection is never used as adoption evidence.
+  if (
+    !state.terminalSessionMeta.has(sessionId) &&
+    state.daemonTerminalSessions.synced &&
+    state.daemonTerminalSessions.ids.has(sessionId)
+  ) {
+    console.log(`[terminal] adopting daemon-surviving session sid=${short}`);
+    state.terminalSessionMeta.set(sessionId, metaFromParams);
   }
 
   // Classify after the wait: meta present → the spawn succeeded, join via
@@ -367,23 +435,10 @@ async function handleTerminalConnection(
       if (daemon && daemon.readyState === daemon.OPEN) {
         console.log(`[terminal] sending spawn to daemon for sid=${short}`);
         daemon.send(JSON.stringify(spawnCmd));
+        state.daemonTerminalSessions.ids.add(sessionId);
         // Only persist meta after spawn is sent — prevents false reconnects
         // from concurrent connections (React Strict Mode double-mount)
-        state.terminalSessionMeta.set(sessionId, {
-          scopeType,
-          scopeLabel,
-          workingDir,
-          command,
-          groupKey,
-          workspaceSlug,
-          containerMode,
-          taskId,
-          projectId,
-          projectSlug,
-          worktreeBranch,
-          cols,
-          rows,
-        });
+        state.terminalSessionMeta.set(sessionId, metaFromParams);
         broadcastTerminalSessionsChange('created', sessionId, groupKey);
       } else {
         console.log(`[terminal] spawn path but no daemon for sid=${short}`);
@@ -401,11 +456,15 @@ async function handleTerminalConnection(
  * Browser sends compact messages ({ t: 'i', sessionId, d } / { t: 'resize', ... }).
  * These are forwarded RAW to the daemon terminal relay — zero parse on the hot path.
  */
-export function createTerminalWebSocketServer(state: AppState): WebSocketServer {
+export function createTerminalWebSocketServer(
+  state: AppState,
+  opts?: { daemonSyncWaitMs?: number },
+): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
+  const daemonSyncWaitMs = opts?.daemonSyncWaitMs ?? DAEMON_SYNC_WAIT_MS;
 
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
-    handleTerminalConnection(ws, req, state).catch((err: unknown) => {
+    handleTerminalConnection(ws, req, state, daemonSyncWaitMs).catch((err: unknown) => {
       console.error('Terminal connection error:', err);
       if (ws.readyState === ws.OPEN) ws.close(1011, 'Internal error');
     });
@@ -438,6 +497,12 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
           console.log(
             `[terminal-relay] Daemon sync: ${daemonSessionIds.size} alive sessions. Server has ${state.terminalSessionMeta.size} meta entries.`,
           );
+
+          // Record the daemon's alive set — this is what lets a restarted
+          // server (empty meta) classify browser reconnects as existing
+          // sessions instead of respawning over live PTYs.
+          state.daemonTerminalSessions.ids = daemonSessionIds;
+          state.daemonTerminalSessions.synced = true;
 
           // Respawn or clean up sessions the daemon no longer has
           for (const [sessionId, meta] of state.terminalSessionMeta) {
@@ -491,6 +556,7 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
                   }
                 }
                 ws.send(JSON.stringify(spawnCmd));
+                daemonSessionIds.add(sessionId);
                 broadcastTerminalSessionsChange('created', sessionId, meta.groupKey);
               } else {
                 // No browser connected — just clean up
@@ -500,6 +566,11 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
               }
             }
           }
+
+          // Release browser connects that arrived before this sync — they can
+          // now classify against the recorded alive set.
+          for (const waiter of state.daemonTerminalSessions.syncWaiters) waiter();
+          state.daemonTerminalSessions.syncWaiters.clear();
         } catch {
           console.warn('[terminal-relay] Failed to parse sync message');
         }
@@ -561,6 +632,7 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         const exitMeta = state.terminalSessionMeta.get(sessionId);
         state.terminalSessions.delete(sessionId);
         state.terminalSessionMeta.delete(sessionId);
+        state.daemonTerminalSessions.ids.delete(sessionId);
         broadcastTerminalSessionsChange('destroyed', sessionId, exitMeta?.groupKey);
         if (exitMeta?.projectSlug) {
           broadcastTerminalActivityChange({ sessionId, projectSlug: exitMeta.projectSlug, removed: true });
@@ -578,6 +650,10 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         // Keep terminalSessionMeta intact so the sync handler can respawn
         // sessions with active browsers when a new daemon connects.
         // The sync handler already cleans up entries with no active browser WS.
+        // Require a fresh sync from the next daemon before classifying no-meta
+        // connects — its alive set may differ. The ids set is kept as-is: the
+        // next sync replaces it wholesale.
+        state.daemonTerminalSessions.synced = false;
       }
     });
   });

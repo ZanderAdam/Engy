@@ -341,6 +341,19 @@ export interface AppState {
   spawningSessions: Map<string, Promise<void>>;
   /** Dedicated daemon WebSocket for terminal traffic (zero-parse relay) */
   terminalDaemon: WebSocket | null;
+  /**
+   * Sessions the daemon last reported alive via `{ t: 'sync' }`, plus sync
+   * bookkeeping. A restarted server has an empty `terminalSessionMeta`, so this
+   * set is what lets it classify a browser reconnect as an existing session
+   * (adopt + reconnect) instead of respawning over a live PTY. `syncWaiters`
+   * holds browser connections that arrived before the daemon's sync and are
+   * waiting for it to classify.
+   */
+  daemonTerminalSessions: {
+    synced: boolean;
+    ids: Set<string>;
+    syncWaiters: Set<() => void>;
+  };
   /** Browser WebSockets subscribed to file change events */
   fileChangeListeners: Set<WebSocket>;
   /** Callbacks for streaming container build progress to terminals */
@@ -387,6 +400,7 @@ export function createAppState(): AppState {
     pendingReconnects: new Map(),
     spawningSessions: new Map(),
     terminalDaemon: null,
+    daemonTerminalSessions: { synced: false, ids: new Set(), syncWaiters: new Set() },
     fileChangeListeners: new Set(),
     containerProgressListeners: new Map(),
   };

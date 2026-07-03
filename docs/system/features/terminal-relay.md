@@ -34,6 +34,10 @@ Server state is held in `AppState` (defined in `web/src/server/trpc/context.ts`)
   to them and not to every already-attached browser.
 - `spawningSessions: Map<sessionId, Promise<void>>` — in-flight spawn gates that
   serialise concurrent connections for the same `sessionId`.
+- `daemonTerminalSessions: { synced, ids, syncWaiters }` — the alive session ids
+  the daemon last reported via `{ t: 'sync' }` (maintained on spawn/exit/kill),
+  whether a sync has been received on the current relay connection, and browser
+  connections waiting for that sync before classifying.
 
 The daemon side tracks sessions via `SessionManager` (a typed `Map` wrapper with
 a 5-minute expiry constant `SESSION_EXPIRY_MS` and a 30-second cleanup interval
@@ -100,13 +104,28 @@ sessionId, exitCode: -1 }` to the server.
 **Daemon disconnect / reconnect.** When the `/ws/terminal-relay` socket closes,
 `state.terminalDaemon` is set to `null` but `terminalSessionMeta` is kept intact.
 When a new daemon connects it sends `{ t: 'sync', sessionIds: [...] }`. The
-server compares its meta map against the daemon's live set: sessions absent from
-the daemon that have an open browser are respawned transparently (with container
-config restored from the DB, at the last known `cols`/`rows`); sessions with no
-open browser are purged from both maps. Sessions the daemon still has get a
-`{ t: 'resize' }` with the last known size re-asserted if a browser is attached —
-resizes sent while the relay was down were dropped, and the browser will not
-resend them.
+server records that alive set in `daemonTerminalSessions.ids`, then compares its
+meta map against it: sessions absent from the daemon that have an open browser
+are respawned transparently (with container config restored from the DB, at the
+last known `cols`/`rows`); sessions with no open browser are purged from both
+maps. Sessions the daemon still has get a `{ t: 'resize' }` with the last known
+size re-asserted if a browser is attached — resizes sent while the relay was
+down were dropped, and the browser will not resend them.
+
+**Server restart.** The mirror scenario — the server restarts (e.g. `pnpm
+cycle-web`) while the daemon keeps its PTYs alive — wipes all in-memory state,
+including `terminalSessionMeta`. Classifying a reconnecting browser by meta
+alone would send a fresh `spawn`, and the daemon's `spawnPty` kills any existing
+PTY with the same `sessionId` — destroying the session the restart was supposed
+to preserve. Two mechanisms prevent this: a browser connect whose `sessionId`
+has no meta first waits (up to `DAEMON_SYNC_WAIT_MS = 10_000` in
+`terminal-server.ts`) for the daemon's sync if none has been received on the
+current relay connection; then, if the daemon reported that session alive, the
+server *adopts* it — rebuilding `terminalSessionMeta` from the connection's
+query parameters (which carry all meta fields) and routing through the reconnect
+path. Sessions with no attached browser at restart time are not adopted; their
+ids are known but their meta is unrecoverable, so they idle on the daemon until
+expiry.
 
 ## Concurrent spawn serialisation
 
@@ -165,6 +184,8 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-170 | WHEN a client requests the global terminal list via `GET /api/terminal/sessions?all=1`, the system SHALL return every session in `terminalSessionMeta`, each carrying `projectSlug`, `worktreeBranch`, and `activityState`. |
 | FR-TERMINAL-180 | WHILE Command Center mode is enabled (a global toggle in the terminal rail, shared across all project tabs), the terminal sidebar's existing rail and dock SHALL list every terminal across all projects — grouped by project then by worktree branch, with project-less sessions in a trailing bucket — instead of only the current project's; toggling it off SHALL restore the current project's terminals. |
 | FR-TERMINAL-190 | WHILE Command Center mode is enabled, WHEN the user activates a project group's new-terminal control, the system SHALL open a new terminal whose scope is cloned from that group's first terminal — base label without any trailing ordinal suffix, no task binding — so the session registers under that project's own groupKey; the generic new-terminal controls (rail and dock header) SHALL be disabled while the mode is on, so creation cannot silently target the current project. |
+| FR-TERMINAL-200 | WHEN a browser connects with a `sessionId` that has no `terminalSessionMeta` entry but is present in the daemon's last-synced alive session set, the system SHALL rebuild the session metadata from the connection's query parameters and route the connection through the reconnect path instead of spawning a new PTY, so live sessions survive a server restart. |
+| FR-TERMINAL-210 | WHEN a browser connects with a `sessionId` that has no `terminalSessionMeta` entry and no daemon session sync has been received on the current relay connection, the system SHALL wait up to 10 seconds for the daemon's `{ t: 'sync' }` before classifying the connection as spawn or reconnect. |
 
 ## Sources
 

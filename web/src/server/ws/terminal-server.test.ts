@@ -9,10 +9,17 @@ import {
 
 let openClients: WebSocket[] = [];
 
+// Short daemon-sync wait so tests exercising the no-daemon/no-sync timeout path
+// don't stall for the production 10s default. Generous enough that sync frames
+// sent by a test always land well before the deadline, even under load.
+const TEST_DAEMON_SYNC_WAIT_MS = 1_000;
+
 function startServer(state: AppState): Promise<{ server: Server; port: number }> {
   return new Promise((resolve) => {
     const server = createServer();
-    const terminalWss = createTerminalWebSocketServer(state);
+    const terminalWss = createTerminalWebSocketServer(state, {
+      daemonSyncWaitMs: TEST_DAEMON_SYNC_WAIT_MS,
+    });
     const relayWss = createTerminalRelayWebSocketServer(state);
 
     server.on('upgrade', (req, socket, head) => {
@@ -49,11 +56,19 @@ function connectBrowser(
   });
 }
 
-function connectDaemonRelay(port: number): Promise<WebSocket> {
+function connectDaemonRelay(port: number, sync: string[] | false = []): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/terminal-relay`);
     openClients.push(ws);
-    ws.on('open', () => resolve(ws));
+    ws.on('open', () => {
+      // A real daemon announces its alive sessions immediately on connect, and
+      // no-meta browser connects wait for that sync before classifying. Pass
+      // `false` for tests that manage the sync frame themselves.
+      if (sync !== false) {
+        ws.send(JSON.stringify({ t: 'sync', sessionIds: sync }));
+      }
+      resolve(ws);
+    });
     ws.on('error', reject);
   });
 }
@@ -291,7 +306,9 @@ describe('Terminal WebSocket Server', () => {
       daemon1.close();
       await vi.waitFor(() => expect(state.terminalDaemon).toBeNull());
 
-      const daemon2 = await connectDaemonRelay(port);
+      // No auto-sync: daemon2 announcing an empty alive set would respawn
+      // sess-fresh (its browser is still attached) ahead of the assertion below.
+      const daemon2 = await connectDaemonRelay(port, false);
       await vi.waitFor(() => expect(state.terminalDaemon).not.toBeNull());
 
       // New browser connect should use daemon2 (fresh reference), not stale daemon1
@@ -473,7 +490,7 @@ describe('Terminal WebSocket Server', () => {
         rows: 24,
       });
 
-      const daemonWs = await connectDaemonRelay(port);
+      const daemonWs = await connectDaemonRelay(port, false);
 
       // Daemon sends sync with empty session list
       daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: [] }));
@@ -500,7 +517,7 @@ describe('Terminal WebSocket Server', () => {
       daemonWs.close();
       await vi.waitFor(() => expect(state.terminalDaemon).toBeNull());
 
-      const newDaemonWs = await connectDaemonRelay(port);
+      const newDaemonWs = await connectDaemonRelay(port, false);
       const respawnPromise = waitForMessage(newDaemonWs);
 
       // New daemon sends sync with no sessions
@@ -536,7 +553,7 @@ describe('Terminal WebSocket Server', () => {
         rows: 24,
       });
 
-      const daemonWs = await connectDaemonRelay(port);
+      const daemonWs = await connectDaemonRelay(port, false);
 
       // Daemon sync includes the alive session
       daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: ['alive-sess'] }));
@@ -576,7 +593,7 @@ describe('Terminal WebSocket Server', () => {
       daemonWs.close();
       await vi.waitFor(() => expect(state.terminalDaemon).toBeNull());
 
-      const newDaemonWs = await connectDaemonRelay(port);
+      const newDaemonWs = await connectDaemonRelay(port, false);
       const respawnPromise = waitForMessage(newDaemonWs);
       newDaemonWs.send(JSON.stringify({ t: 'sync', sessionIds: [] }));
 
@@ -609,7 +626,7 @@ describe('Terminal WebSocket Server', () => {
         expect(state.terminalSessionMeta.get('reassert-sess')?.cols).toBe(150);
       });
 
-      const newDaemonWs = await connectDaemonRelay(port);
+      const newDaemonWs = await connectDaemonRelay(port, false);
       const reassertPromise = waitForMessage(newDaemonWs);
       newDaemonWs.send(JSON.stringify({ t: 'sync', sessionIds: ['reassert-sess'] }));
 
@@ -635,7 +652,7 @@ describe('Terminal WebSocket Server', () => {
         rows: 24,
       });
 
-      const daemonWs = await connectDaemonRelay(port);
+      const daemonWs = await connectDaemonRelay(port, false);
       const received: string[] = [];
       daemonWs.on('message', (data) => received.push(data.toString()));
 
@@ -712,6 +729,105 @@ describe('Terminal WebSocket Server', () => {
 
       // Meta must still be there for the eventual daemon reconnect + sync
       expect(state.terminalSessionMeta.has('meta-retain-sess')).toBe(true);
+    });
+  });
+
+  describe('server restart recovery', () => {
+    it('[FR-TERMINAL-200] should adopt a daemon-surviving session and reconnect instead of respawning', async () => {
+      // Fresh AppState (as after a server restart) — the daemon announces a
+      // session the server has no meta for.
+      const daemonWs = await connectDaemonRelay(port, ['surviving-sess']);
+      const msgPromise = waitForMessage(daemonWs);
+
+      const browser = await connectBrowser(port, {
+        sessionId: 'surviving-sess',
+        workingDir: '/tmp/proj',
+        scopeType: 'project',
+        scopeLabel: 'my-proj',
+        groupKey: 'grp-1',
+      });
+
+      expect(JSON.parse(await msgPromise)).toEqual({ t: 'reconnect', sessionId: 'surviving-sess' });
+
+      // Meta was rebuilt from the connect params
+      expect(state.terminalSessionMeta.get('surviving-sess')).toMatchObject({
+        scopeType: 'project',
+        scopeLabel: 'my-proj',
+        workingDir: '/tmp/proj',
+        groupKey: 'grp-1',
+      });
+
+      // The daemon's buffer replay reaches the adopting browser
+      const bufferPromise = waitForMessage(browser);
+      const reconnectedMsg = JSON.stringify({
+        t: 'reconnected',
+        sessionId: 'surviving-sess',
+        buffer: ['line1'],
+      });
+      daemonWs.send(reconnectedMsg);
+      expect(await bufferPromise).toBe(reconnectedMsg);
+    });
+
+    it('[FR-TERMINAL-210] should hold a pre-sync browser connect until the daemon sync arrives', async () => {
+      // Daemon relay is connected but has not synced yet — the browser connect
+      // must wait for the sync instead of classifying as a fresh spawn.
+      const daemonWs = await connectDaemonRelay(port, false);
+      const messages: string[] = [];
+      daemonWs.on('message', (data) => messages.push(data.toString()));
+
+      await connectBrowser(port, { sessionId: 'early-sess', workingDir: '/tmp' });
+
+      daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: ['early-sess'] }));
+
+      await vi.waitFor(() => expect(messages).toHaveLength(1));
+      expect(JSON.parse(messages[0])).toEqual({ t: 'reconnect', sessionId: 'early-sess' });
+    });
+
+    it('[FR-TERMINAL-210] should classify a pre-daemon browser connect once the daemon connects and syncs', async () => {
+      // Browser reconnects before the daemon relay does after a server restart.
+      await connectBrowser(port, { sessionId: 'early-sess-2', workingDir: '/tmp' });
+
+      const daemonWs = await connectDaemonRelay(port, ['early-sess-2']);
+
+      expect(JSON.parse(await waitForMessage(daemonWs))).toEqual({
+        t: 'reconnect',
+        sessionId: 'early-sess-2',
+      });
+    });
+
+    it('[FR-TERMINAL-210] should fall back to a fresh spawn when the sync wait times out', async () => {
+      // Daemon connected but never syncs — after TEST_DAEMON_SYNC_WAIT_MS the
+      // connect classifies with an untrusted alive set and spawns fresh.
+      const daemonWs = await connectDaemonRelay(port, false);
+      const msgPromise = waitForMessage(daemonWs);
+
+      await connectBrowser(port, { sessionId: 'timeout-sess', workingDir: '/tmp' });
+
+      expect(JSON.parse(await msgPromise)).toMatchObject({ t: 'spawn', sessionId: 'timeout-sess' });
+      expect(state.terminalSessionMeta.has('timeout-sess')).toBe(true);
+    });
+
+    it('should spawn fresh when the daemon does not know the session', async () => {
+      const daemonWs = await connectDaemonRelay(port, ['some-other-sess']);
+      const msgPromise = waitForMessage(daemonWs);
+
+      await connectBrowser(port, { sessionId: 'fresh-sess', workingDir: '/tmp' });
+
+      expect(JSON.parse(await msgPromise)).toMatchObject({ t: 'spawn', sessionId: 'fresh-sess' });
+    });
+
+    it('should not adopt a session the daemon has since reported as exited', async () => {
+      const daemonWs = await connectDaemonRelay(port, ['gone-sess']);
+
+      daemonWs.send(JSON.stringify({ t: 'exit', sessionId: 'gone-sess', exitCode: 0 }));
+      await vi.waitFor(() => {
+        expect(state.daemonTerminalSessions.ids.has('gone-sess')).toBe(false);
+      });
+
+      const msgPromise = waitForMessage(daemonWs);
+      await connectBrowser(port, { sessionId: 'gone-sess', workingDir: '/tmp' });
+
+      expect(JSON.parse(await msgPromise)).toMatchObject({ t: 'spawn', sessionId: 'gone-sess' });
     });
   });
 
