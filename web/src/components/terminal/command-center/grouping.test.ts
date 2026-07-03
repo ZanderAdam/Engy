@@ -21,7 +21,7 @@ function tab(
 
 describe('command center', () => {
   describe('groupTabsByProject', () => {
-    it('[FR-TERMINAL-160] groups terminals across projects then by worktree branch', () => {
+    it('[FR-TERMINAL-180] groups terminals across projects then by worktree branch', () => {
       const tabs = [
         tab('a', { workspaceSlug: 'ws', projectSlug: 'alpha' }),
         tab('b', { workspaceSlug: 'ws', projectSlug: 'alpha', worktreeBranch: 'feature-x' }),
@@ -37,7 +37,7 @@ describe('command center', () => {
       expect(alpha.workspaceSlug).toBe('ws');
     });
 
-    it('[FR-TERMINAL-160] keeps first-seen project order but sorts the no-project bucket last', () => {
+    it('[FR-TERMINAL-180] keeps first-seen project order but sorts the no-project bucket last', () => {
       const tabs = [
         tab('w', { scopeType: 'workspace', workspaceSlug: 'ws', scopeLabel: 'ws shell' }),
         tab('a', { workspaceSlug: 'ws', projectSlug: 'alpha' }),
@@ -49,7 +49,7 @@ describe('command center', () => {
       expect(groups.map((g) => g.isProject)).toEqual([true, false]);
     });
 
-    it('[FR-TERMINAL-160] returns no groups for an empty session list', () => {
+    it('[FR-TERMINAL-180] returns no groups for an empty session list', () => {
       expect(groupTabsByProject([])).toEqual([]);
     });
   });

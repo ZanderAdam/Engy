@@ -37,7 +37,7 @@ function makeState(
 
 describe('terminal relay', () => {
   describe('listTerminalSessions', () => {
-    it('[FR-TERMINAL-150] in all mode returns every session with project, worktree, and activity fields', () => {
+    it('[FR-TERMINAL-170] in all mode returns every session with project, worktree, and activity fields', () => {
       const state = makeState(
         [
           ['s1', meta({ projectSlug: 'alpha', worktreeBranch: 'feature-x', activityState: 'waiting' })],
@@ -59,7 +59,7 @@ describe('terminal relay', () => {
       expect(s2.activityState).toBe('idle');
     });
 
-    it('[FR-TERMINAL-150] non-all mode filters by groupKey', () => {
+    it('[FR-TERMINAL-170] non-all mode filters by groupKey', () => {
       const state = makeState([
         ['s1', meta({ groupKey: 'gk-a' })],
         ['s2', meta({ groupKey: 'gk-b' })],
@@ -75,7 +75,7 @@ describe('terminal relay', () => {
       expect(result.map((r) => r.sessionId)).toEqual(['s1']);
     });
 
-    it('[FR-TERMINAL-150] non-all mode with no groupKey falls back to scopeType + scopeLabel', () => {
+    it('[FR-TERMINAL-170] non-all mode with no groupKey falls back to scopeType + scopeLabel', () => {
       const state = makeState([
         ['s1', meta({ groupKey: undefined, scopeType: 'project', scopeLabel: 'claude: web' })],
         ['s2', meta({ groupKey: undefined, scopeType: 'project', scopeLabel: 'claude: api' })],

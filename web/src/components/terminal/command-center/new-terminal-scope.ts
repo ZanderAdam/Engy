@@ -11,7 +11,7 @@ const TRAILING_ORDINAL_RE = /\s\(\d+\)$/;
  * cloned terminal is a plain project terminal, not a task terminal. Returns
  * null when the group has no terminals to clone from, or when the source is
  * not project-scoped — creation is deliberately limited to project groups
- * (FR-TERMINAL-170), so the "Other terminals" bucket never spawns clones.
+ * (FR-TERMINAL-190), so the "Other terminals" bucket never spawns clones.
  */
 export function cloneScopeForNewTerminal(
   worktreeGroups: TerminalWorktreeGroup[],
