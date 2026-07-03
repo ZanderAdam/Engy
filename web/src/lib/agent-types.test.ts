@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildAgentCommand,
+  coerceAgentTypeId,
   getAgentType,
   isAgentTypeId,
   listAgentTypes,
@@ -20,6 +21,14 @@ describe('agent types', () => {
       expect(isAgentTypeId('claude')).toBe(true);
       expect(isAgentTypeId('codex')).toBe(true);
       expect(isAgentTypeId('gemini')).toBe(false);
+    });
+
+    it('should coerce values to a valid id, defaulting unknown/null to claude', () => {
+      expect(coerceAgentTypeId('codex')).toBe('codex');
+      expect(coerceAgentTypeId('claude')).toBe('claude');
+      expect(coerceAgentTypeId('gemini')).toBe('claude');
+      expect(coerceAgentTypeId(null)).toBe('claude');
+      expect(coerceAgentTypeId(undefined)).toBe('claude');
     });
   });
 

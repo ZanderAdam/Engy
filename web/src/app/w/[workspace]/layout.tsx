@@ -31,7 +31,7 @@ import { useProjectActivityFeed } from '@/hooks/use-project-activity';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { projectGroupKey, normalizeWtParam } from '@/components/terminal/group-key';
 import { buildContextBlock } from '@/lib/shell';
-import { buildAgentCommand, getMcpUrl } from '@/lib/agent-types';
+import { buildAgentCommand, getMcpUrl, getAgentType, coerceAgentTypeId } from '@/lib/agent-types';
 import { QuickCaptureDialog } from '@/components/memory/quick-capture-dialog';
 
 const TERMINAL_CONFIG = {
@@ -136,6 +136,11 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         : undefined;
 
     const hostMode = isContainerEnabled ? ('host' as const) : undefined;
+    // Repo/worktree entries launch the workspace's default agent; a different
+    // agent is picked per-terminal from the New Terminal menu.
+    const agentTypeId = coerceAgentTypeId(workspace.defaultAgentType);
+    const agentTitle = getAgentType(agentTypeId).label;
+    const agentLabel = agentTitle.toLowerCase();
 
     /**
      * Build a "Claude in Repos" dropdown group for one worktree. `branch` is the
@@ -169,9 +174,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           tooltip: effective,
           scope: {
             scopeType: 'project',
-            scopeLabel: `claude: ${dirName}`,
+            scopeLabel: `${agentLabel}: ${dirName}`,
             workingDir: effective,
-            command: buildAgentCommand('claude', {
+            command: buildAgentCommand(agentTypeId, {
               systemPrompt,
               additionalDirs,
               dangerouslySkipPermissions: isContainer,
@@ -183,7 +188,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             projectId: project?.id,
             projectSlug: params.project,
             worktreeBranch: branch,
-            agentType: 'claude',
+            agentType: agentTypeId,
             agentContext: { systemPrompt, additionalDirs },
           },
           icon: isContainer ? RiBox3Line : isContainerEnabled ? RiComputerLine : RiGitRepositoryLine,
@@ -205,9 +210,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           tooltip: effectiveRepos.join(', '),
           scope: {
             scopeType: 'project',
-            scopeLabel: `claude: all repos`,
+            scopeLabel: `${agentLabel}: all repos`,
             workingDir: primaryEffective,
-            command: buildAgentCommand('claude', {
+            command: buildAgentCommand(agentTypeId, {
               systemPrompt,
               additionalDirs,
               dangerouslySkipPermissions: isContainer,
@@ -219,7 +224,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             projectId: project?.id,
             projectSlug: params.project,
             worktreeBranch: branch,
-            agentType: 'claude',
+            agentType: agentTypeId,
             agentContext: { systemPrompt, additionalDirs },
           },
           icon: isContainer ? RiBox3Line : isContainerEnabled ? RiComputerLine : RiGitRepositoryFill,
@@ -269,7 +274,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             scopeType: 'project',
             scopeLabel,
             workingDir,
-            command: buildAgentCommand('claude', {
+            command: buildAgentCommand(agentTypeId, {
               systemPrompt,
               additionalDirs: effectiveDirs,
               dangerouslySkipPermissions: isContainer,
@@ -281,7 +286,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             projectId: project?.id,
             projectSlug: params.project,
             worktreeBranch: branch,
-            agentType: 'claude',
+            agentType: agentTypeId,
             agentContext: { systemPrompt, additionalDirs: effectiveDirs },
           },
           icon,
@@ -293,7 +298,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         const children: TerminalDropdownEntry[] = [];
         for (const mode of modes) {
           children.push(
-            leaf(`repo:${repoPath}::${mode ?? ''}`, 'default branch', `claude: ${dirName}`,
+            leaf(`repo:${repoPath}::${mode ?? ''}`, 'default branch', `${agentLabel}: ${dirName}`,
               repoPath, undefined, undefined, mode, RiGitRepositoryLine),
           );
         }
@@ -303,7 +308,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           for (const mode of modes) {
             children.push(
               leaf(`repo:${repoPath}:${g.branch}:${mode ?? ''}`, g.branch,
-                `claude: ${dirName} (${g.branch})`, wt, g.branch, undefined, mode, RiGitBranchLine),
+                `${agentLabel}: ${dirName} (${g.branch})`, wt, g.branch, undefined, mode, RiGitBranchLine),
             );
           }
         }
@@ -331,7 +336,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           for (const mode of modes) {
             children.push(
               leaf(`all:${branch ?? ''}:${mode ?? ''}`, branch ?? 'default branch',
-                branch ? `claude: all repos (${branch})` : 'claude: all repos',
+                branch ? `${agentLabel}: all repos (${branch})` : `${agentLabel}: all repos`,
                 primary, branch, [...(projectDir ? [projectDir] : []), ...additional], mode,
                 RiGitRepositoryFill),
             );
@@ -347,11 +352,11 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
       const entries: TerminalDropdownEntry[] = repos.map(repoSubmenu);
       if (repos.length > 1) entries.push(allReposSubmenu());
-      return [{ label: 'Claude in Repos', entries }];
+      return [{ label: `${agentTitle} in Repos`, entries }];
     }
 
     const groupKey = projectGroupKey(params.workspace, projectSlug ?? '', worktreeBranch);
-    return [buildRepoGroup('Claude in Repos', worktreeBranch, worktreeRepoMap, groupKey)];
+    return [buildRepoGroup(`${agentTitle} in Repos`, worktreeBranch, worktreeRepoMap, groupKey)];
   }, [
     isProjectRoute,
     workspace,

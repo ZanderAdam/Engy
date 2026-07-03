@@ -160,6 +160,7 @@ second run creates no additional commit.
 | FR-WORKSPACE-110 | The system SHALL expose `listWorkspaces`, `getWorkspaceDetails`, `listProjects`, and `getProjectDetails` as read-only MCP discovery tools; `getWorkspaceDetails` and `getProjectDetails` SHALL return an `mcpError` for an unknown id, while `listProjects` SHALL return an empty array (not an error) for a workspace with no projects. |
 | FR-WORKSPACE-115 | WHEN `setWorkspaceEarsBdd` is called, the system SHALL update `earsBdd` on the workspace row and rewrite `workspace.yaml` to match, returning an `mcpError` for an unknown workspace id. |
 | FR-WORKSPACE-120 | WHEN `backfillM7` is called for a workspace whose `memory/README.md` is absent, the system SHALL create the full `memory/` hierarchy (five subtype dirs plus `sources/`, `references/`, and all READMEs), append `.qmd/` to `.gitignore` (without corrupting existing content), run the indexer, and commit only the newly added files with `memory(init): backfill knowledge-layer directories`; a second call on an already-migrated workspace SHALL create no additional commit. |
+| FR-WORKSPACE-130 | WHEN `workspace.create` or `workspace.update` receives `defaultAgentType`, the system SHALL validate it against the agent-type registry (rejecting unknown values) and persist it; `workspace.create` SHALL default it to `claude` when absent, and `workspace.update` SHALL preserve the existing value when the field is omitted. |
 
 ## Sources
 

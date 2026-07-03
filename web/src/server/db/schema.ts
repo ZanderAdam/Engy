@@ -25,6 +25,10 @@ export const workspaces = sqliteTable('workspaces', {
   docsDir: text('docs_dir'),
   planSkill: text('plan_skill'),
   implementSkill: text('implement_skill'),
+  // Agent CLI new terminals default to (claude | codex | future). Plain text,
+  // not an enum, so adding an agent needs only an agent-types registry entry —
+  // validated against that registry at the router, never a schema migration.
+  defaultAgentType: text('default_agent_type').default('claude'),
   earsBdd: integer('ears_bdd', { mode: 'boolean' }).default(false),
   splitWorktrees: integer('split_worktrees', { mode: 'boolean' }).default(false),
   containerEnabled: integer('container_enabled', { mode: 'boolean' }).default(false),

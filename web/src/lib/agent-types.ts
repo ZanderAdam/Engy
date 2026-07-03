@@ -112,6 +112,11 @@ export function isAgentTypeId(value: string): value is AgentTypeId {
   return value in AGENT_TYPES;
 }
 
+/** Coerce a stored/user value to a valid agent id, defaulting to claude. */
+export function coerceAgentTypeId(value: string | null | undefined): AgentTypeId {
+  return value != null && isAgentTypeId(value) ? value : 'claude';
+}
+
 export function buildAgentCommand(
   agentType: AgentTypeId | undefined,
   options?: BuildAgentCommandOptions,

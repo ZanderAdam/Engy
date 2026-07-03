@@ -6,6 +6,7 @@ import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { workspaces, projects } from '../../db/schema';
 import { generateSlug, uniqueWorkspaceSlug } from '../utils';
+import { isAgentTypeId } from '@/lib/agent-types';
 import {
   initWorkspaceDir,
   removeWorkspaceDir,
@@ -41,6 +42,12 @@ const coderConfigSchema = z
   .optional();
 
 const autoAgentCompletionSchema = z.enum(['pr', 'merge']).optional();
+
+// Validated against the agent-types registry rather than a fixed enum, so a new
+// agent CLI needs only a registry entry — no schema/router change here.
+const defaultAgentTypeSchema = z
+  .string()
+  .refine(isAgentTypeId, { message: 'Unknown agent type' });
 
 const DEFAULT_PLAN_SKILL = '/engy:plan';
 const DEFAULT_IMPLEMENT_SKILL = '/engy:implement';
@@ -149,6 +156,7 @@ export const workspaceRouter = router({
         docsDir: z.string().optional(),
         planSkill: z.string().optional(),
         implementSkill: z.string().optional(),
+        defaultAgentType: defaultAgentTypeSchema.optional(),
         earsBdd: z.boolean().optional(),
         splitWorktrees: z.boolean().optional(),
         containerEnabled: z.boolean().optional(),
@@ -177,6 +185,7 @@ export const workspaceRouter = router({
           docsDir: input.docsDir ?? null,
           planSkill: input.planSkill || DEFAULT_PLAN_SKILL,
           implementSkill: input.implementSkill || DEFAULT_IMPLEMENT_SKILL,
+          defaultAgentType: input.defaultAgentType ?? 'claude',
           earsBdd: input.earsBdd ?? false,
           splitWorktrees: input.splitWorktrees ?? false,
           containerEnabled: input.containerEnabled,
@@ -246,6 +255,7 @@ export const workspaceRouter = router({
         docsDir: z.string().nullable().optional(),
         planSkill: z.string().nullable().optional(),
         implementSkill: z.string().nullable().optional(),
+        defaultAgentType: defaultAgentTypeSchema.optional(),
         earsBdd: z.boolean().optional(),
         splitWorktrees: z.boolean().optional(),
         containerEnabled: z.boolean().nullable().optional(),
@@ -271,6 +281,8 @@ export const workspaceRouter = router({
       const newPlanSkill = input.planSkill !== undefined ? input.planSkill : existing.planSkill;
       const newImplementSkill =
         input.implementSkill !== undefined ? input.implementSkill : existing.implementSkill;
+      const newDefaultAgentType =
+        input.defaultAgentType !== undefined ? input.defaultAgentType : existing.defaultAgentType;
       const newEarsBdd = input.earsBdd !== undefined ? input.earsBdd : existing.earsBdd;
       const newSplitWorktrees =
         input.splitWorktrees !== undefined ? input.splitWorktrees : existing.splitWorktrees;
@@ -327,6 +339,7 @@ export const workspaceRouter = router({
           docsDir: newDocsDir,
           planSkill: newPlanSkill,
           implementSkill: newImplementSkill,
+          defaultAgentType: newDefaultAgentType,
           earsBdd: newEarsBdd,
           splitWorktrees: newSplitWorktrees,
           containerEnabled: newContainerEnabled,
@@ -356,6 +369,7 @@ export const workspaceRouter = router({
               docsDir: existing.docsDir,
               planSkill: existing.planSkill,
               implementSkill: existing.implementSkill,
+              defaultAgentType: existing.defaultAgentType,
               earsBdd: existing.earsBdd,
               splitWorktrees: existing.splitWorktrees,
               containerEnabled: existing.containerEnabled,

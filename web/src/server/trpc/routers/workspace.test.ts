@@ -98,6 +98,22 @@ describe('workspace router', () => {
       expect(ws.earsBdd).toBe(false);
     });
 
+    it('[FR-WORKSPACE-130] should default defaultAgentType to claude on creation', async () => {
+      const ws = await caller.workspace.create({ name: 'Agent Default' });
+      expect(ws.defaultAgentType).toBe('claude');
+    });
+
+    it('[FR-WORKSPACE-130] should persist a chosen defaultAgentType on creation', async () => {
+      const ws = await caller.workspace.create({ name: 'Codex Ws', defaultAgentType: 'codex' });
+      expect(ws.defaultAgentType).toBe('codex');
+    });
+
+    it('[FR-WORKSPACE-130] should reject an unknown defaultAgentType', async () => {
+      await expect(
+        caller.workspace.create({ name: 'Bad Agent', defaultAgentType: 'gemini' }),
+      ).rejects.toThrow();
+    });
+
     it('should persist earsBdd and write it to workspace.yaml when enabled', async () => {
       const ws = await caller.workspace.create({ name: 'Ears On', earsBdd: true });
       expect(ws.earsBdd).toBe(true);
@@ -290,6 +306,25 @@ describe('workspace router', () => {
       });
       expect(updated.planSkill).toBe('/custom:plan');
       expect(updated.implementSkill).toBe('/custom:implement');
+    });
+
+    it('[FR-WORKSPACE-130] should update defaultAgentType', async () => {
+      const ws = await caller.workspace.create({ name: 'Agent Switch' });
+      const updated = await caller.workspace.update({ id: ws.id, defaultAgentType: 'codex' });
+      expect(updated.defaultAgentType).toBe('codex');
+    });
+
+    it('[FR-WORKSPACE-130] should preserve defaultAgentType when not provided in update', async () => {
+      const ws = await caller.workspace.create({ name: 'Agent Keep', defaultAgentType: 'codex' });
+      const updated = await caller.workspace.update({ id: ws.id, name: 'Agent Keep 2' });
+      expect(updated.defaultAgentType).toBe('codex');
+    });
+
+    it('[FR-WORKSPACE-130] should reject an unknown defaultAgentType on update', async () => {
+      const ws = await caller.workspace.create({ name: 'Agent Bad Update' });
+      await expect(
+        caller.workspace.update({ id: ws.id, defaultAgentType: 'gemini' }),
+      ).rejects.toThrow();
     });
 
     it('should clear skills when set to null', async () => {

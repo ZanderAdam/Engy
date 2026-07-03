@@ -31,7 +31,15 @@ import { RepoPathsField } from '@/components/repo-paths-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { listAgentTypes, coerceAgentTypeId, type AgentTypeId } from '@/lib/agent-types';
 import {
   ContainerSettings,
   type ContainerSettingsData,
@@ -48,6 +56,7 @@ interface EditWorkspaceDialogProps {
     splitWorktrees: boolean | null;
     planSkill: string | null;
     implementSkill: string | null;
+    defaultAgentType: string | null;
     containerEnabled: boolean | null;
     containerConfig: ContainerConfig | null;
     executionBackend: ExecutionBackend | null;
@@ -82,6 +91,9 @@ export function EditWorkspaceDialog({
   const [splitWorktrees, setSplitWorktrees] = useState(workspace.splitWorktrees ?? false);
   const [planSkill, setPlanSkill] = useState(workspace.planSkill ?? '');
   const [implementSkill, setImplementSkill] = useState(workspace.implementSkill ?? '');
+  const [defaultAgentType, setDefaultAgentType] = useState<AgentTypeId>(
+    coerceAgentTypeId(workspace.defaultAgentType),
+  );
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const containerDataRef = useRef<ContainerSettingsData>({
@@ -128,6 +140,7 @@ export function EditWorkspaceDialog({
       splitWorktrees,
       planSkill: planSkill.trim() || null,
       implementSkill: implementSkill.trim() || null,
+      defaultAgentType,
       containerEnabled: container.containerEnabled,
       containerConfig: container.containerConfig,
       executionBackend: container.executionBackend,
@@ -194,6 +207,7 @@ export function EditWorkspaceDialog({
       setSplitWorktrees(workspace.splitWorktrees ?? false);
       setPlanSkill(workspace.planSkill ?? '');
       setImplementSkill(workspace.implementSkill ?? '');
+      setDefaultAgentType(coerceAgentTypeId(workspace.defaultAgentType));
       setError(null);
       setDeleteConfirmOpen(false);
       confirmDirs.reset();
@@ -292,6 +306,28 @@ export function EditWorkspaceDialog({
                     </p>
                   </div>
                 )}
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="edit-workspace-default-agent">Default agent</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Agent CLI new terminals launch by default. Pick a different one per terminal
+                    from the New Terminal menu.
+                  </p>
+                  <Select
+                    value={defaultAgentType}
+                    onValueChange={(value: AgentTypeId) => setDefaultAgentType(value)}
+                  >
+                    <SelectTrigger id="edit-workspace-default-agent">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {listAgentTypes().map((agent) => (
+                        <SelectItem key={agent.id} value={agent.id}>
+                          {agent.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="flex flex-col gap-2">
                   <Label>Task skills</Label>
                   <p className="text-xs text-muted-foreground">

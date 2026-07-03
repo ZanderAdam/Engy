@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `default_agent_type` text DEFAULT 'claude';
