@@ -3,7 +3,8 @@
 import { useVirtualParams, useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
-import { buildQuickActionDirs, buildContextBlock, buildClaudeCommand } from '@/lib/shell';
+import { buildQuickActionDirs, buildContextBlock } from '@/lib/shell';
+import { buildAgentCommand, getMcpUrl } from '@/lib/agent-types';
 import { projectGroupKey, normalizeWtParam } from '@/components/terminal/group-key';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import type { ContainerMode, TerminalScope } from '@/components/terminal/types';
@@ -62,11 +63,12 @@ export function useQuickAction() {
       scopeType: 'project',
       scopeLabel: opts.scopeLabel,
       workingDir,
-      command: buildClaudeCommand({
+      command: buildAgentCommand('claude', {
         prompt: opts.prompt,
         systemPrompt: ctx,
         additionalDirs,
         dangerouslySkipPermissions: isContainer,
+        mcpUrl: getMcpUrl(),
       }),
       groupKey: projectGroupKey(workspaceSlug, projectSlug, worktreeBranch),
       workspaceSlug,
@@ -74,6 +76,8 @@ export function useQuickAction() {
       taskId: opts.taskId,
       projectId: project.id,
       projectSlug,
+      agentType: 'claude',
+      agentContext: { systemPrompt: ctx, additionalDirs },
     };
     openNewTerminal(scope);
   }

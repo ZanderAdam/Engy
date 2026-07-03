@@ -6,6 +6,7 @@ import {
   createTerminalWebSocketServer,
   createTerminalRelayWebSocketServer,
 } from './terminal-server';
+import { connectWorker, createDispatch } from '../terminal-dispatch';
 
 let openClients: WebSocket[] = [];
 
@@ -199,6 +200,77 @@ describe('Terminal WebSocket Server', () => {
 
       const received = await outputPromise;
       expect(received).toBe(outputMsg);
+    });
+
+    it('[FR-TERMINAL-150] should persist agentType from the connection query on the session meta', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      await connectBrowser(port, {
+        sessionId: 'sess-agent',
+        workingDir: '/tmp',
+        agentType: 'codex',
+      });
+      await spawnPromise;
+
+      expect(state.terminalSessionMeta.get('sess-agent')?.agentType).toBe('codex');
+    });
+
+    it('[FR-TERMINAL-170] should deliver a queued dispatch when the worker transitions to idle', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+      await connectBrowser(port, { sessionId: 'sess-w', workingDir: '/tmp' });
+      await spawnPromise;
+
+      state.terminalSessionMeta.get('sess-w')!.activityState = 'active';
+      connectWorker(state, 'sess-w', 'busy worker');
+      const entry = createDispatch(state, 'sess-w', 'queued task');
+      expect(entry.status).toBe('queued');
+
+      const inputPromise = waitForMessage(daemonWs);
+      daemonWs.send(JSON.stringify({ t: 'act', sessionId: 'sess-w', state: 'idle' }));
+
+      const raw = await inputPromise;
+      const frame = JSON.parse(raw);
+      expect(frame.t).toBe('i');
+      expect(frame.sessionId).toBe('sess-w');
+      expect(frame.d).toContain('queued task');
+      expect(frame.d).toContain(`[engy-dispatch ${entry.correlationId}]`);
+    });
+
+    it('[FR-TERMINAL-180] should fail unsettled dispatches and disconnect the worker on exit', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+      const browserWs = await connectBrowser(port, { sessionId: 'sess-dw', workingDir: '/tmp' });
+      await spawnPromise;
+
+      connectWorker(state, 'sess-dw', 'doomed worker');
+      const entry = createDispatch(state, 'sess-dw', 'task');
+
+      const exitPromise = waitForMessage(browserWs);
+      daemonWs.send(JSON.stringify({ t: 'exit', sessionId: 'sess-dw', exitCode: 0 }));
+      await exitPromise;
+
+      await vi.waitFor(() => {
+        expect(state.dispatches.get(entry.correlationId)?.status).toBe('failed');
+        expect(state.dispatchWorkers.has('sess-dw')).toBe(false);
+      });
+    });
+
+    it('[FR-TERMINAL-190] should buffer output tails for connected workers only', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+      const browserWs = await connectBrowser(port, { sessionId: 'sess-tail', workingDir: '/tmp' });
+      await spawnPromise;
+
+      connectWorker(state, 'sess-tail', 'tracked worker');
+      const outputPromise = waitForMessage(browserWs);
+      daemonWs.send(JSON.stringify({ t: 'o', sessionId: 'sess-tail', d: 'worker output' }));
+      await outputPromise;
+
+      await vi.waitFor(() => {
+        expect(state.terminalOutputTails.get('sess-tail')).toContain('worker output');
+      });
     });
 
     it('[FR-TERMINAL-130] should persist activity state on the session meta from an act message', async () => {

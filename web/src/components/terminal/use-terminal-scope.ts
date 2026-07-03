@@ -2,7 +2,8 @@
 
 import { useVirtualParams, useVirtualSearchParams } from "@/components/tabs/tab-context";
 import { trpc } from "@/lib/trpc";
-import { buildClaudeCommand, buildContextBlock } from '@/lib/shell';
+import { buildContextBlock } from '@/lib/shell';
+import { buildAgentCommand, getMcpUrl } from '@/lib/agent-types';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import type { TerminalScope } from "./types";
 import { projectGroupKey, workspaceGroupKey, normalizeWtParam } from './group-key';
@@ -37,12 +38,18 @@ export function deriveScope(
         ? `project: ${projectSlug} (${worktreeBranch})`
         : `project: ${projectSlug}`,
       workingDir: projectDir,
-      command: buildClaudeCommand({ systemPrompt, additionalDirs: repos }),
+      command: buildAgentCommand('claude', {
+        systemPrompt,
+        additionalDirs: repos,
+        mcpUrl: getMcpUrl(),
+      }),
       groupKey: projectGroupKey(workspaceSlug, projectSlug, worktreeBranch),
       workspaceSlug,
       projectId,
       projectSlug,
       worktreeBranch,
+      agentType: 'claude',
+      agentContext: { systemPrompt, additionalDirs: repos },
     };
   }
 
@@ -55,9 +62,15 @@ export function deriveScope(
     scopeType: 'workspace',
     scopeLabel: workspaceSlug,
     workingDir: workspaceDir,
-    command: buildClaudeCommand({ systemPrompt, additionalDirs: repos }),
+    command: buildAgentCommand('claude', {
+      systemPrompt,
+      additionalDirs: repos,
+      mcpUrl: getMcpUrl(),
+    }),
     groupKey: workspaceGroupKey(workspaceSlug),
     workspaceSlug,
+    agentType: 'claude',
+    agentContext: { systemPrompt, additionalDirs: repos },
   };
 }
 
@@ -108,9 +121,11 @@ export function useTerminalScope(): TerminalScope {
       scopeType: 'workspace',
       scopeLabel: workspaceSlug,
       workingDir: '',
-      command: buildClaudeCommand(),
+      command: buildAgentCommand('claude', { mcpUrl: getMcpUrl() }),
       groupKey: workspaceGroupKey(workspaceSlug),
       workspaceSlug,
+      agentType: 'claude',
+      agentContext: {},
     };
   }
 
@@ -121,10 +136,12 @@ export function useTerminalScope(): TerminalScope {
         ? `project: ${projectSlug} (${worktreeBranch})`
         : `project: ${projectSlug}`,
       workingDir: `${workspace.resolvedDir}/projects/${projectSlug}`,
-      command: buildClaudeCommand(),
+      command: buildAgentCommand('claude', { mcpUrl: getMcpUrl() }),
       groupKey: projectGroupKey(workspaceSlug, projectSlug, worktreeBranch),
       workspaceSlug,
       projectSlug,
+      agentType: 'claude',
+      agentContext: {},
     };
   }
 

@@ -58,6 +58,7 @@ function buildWsUrl(tab: TerminalTab): string {
     rows: '24',
   });
   if (scope.command) params.set('command', scope.command);
+  if (scope.agentType) params.set('agentType', scope.agentType);
   if (scope.workspaceSlug) params.set('workspaceSlug', scope.workspaceSlug);
   if (scope.projectId != null) params.set('projectId', String(scope.projectId));
   if (scope.projectSlug) params.set('projectSlug', scope.projectSlug);

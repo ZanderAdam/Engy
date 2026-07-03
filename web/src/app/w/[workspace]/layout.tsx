@@ -29,7 +29,8 @@ import { useQuestionAutoInvalidation } from '@/hooks/use-question-auto-invalidat
 import { useProjectActivityFeed } from '@/hooks/use-project-activity';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { projectGroupKey, normalizeWtParam } from '@/components/terminal/group-key';
-import { buildClaudeCommand, buildContextBlock } from '@/lib/shell';
+import { buildContextBlock } from '@/lib/shell';
+import { buildAgentCommand, getMcpUrl } from '@/lib/agent-types';
 import { QuickCaptureDialog } from '@/components/memory/quick-capture-dialog';
 
 const TERMINAL_CONFIG = {
@@ -160,6 +161,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         const effective = effectiveRepo(repoPath);
         const dirName = effective.split('/').filter(Boolean).pop() ?? effective;
         const isContainer = mode === 'container';
+        const additionalDirs = projectDir ? [projectDir] : undefined;
         return {
           id: `${isContainer ? 'container:' : ''}repo:${repoPath}:${branch ?? ''}`,
           label: isContainer ? `${dirName} (Container)` : dirName,
@@ -168,10 +170,11 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             scopeType: 'project',
             scopeLabel: `claude: ${dirName}`,
             workingDir: effective,
-            command: buildClaudeCommand({
+            command: buildAgentCommand('claude', {
               systemPrompt,
-              additionalDirs: projectDir ? [projectDir] : undefined,
+              additionalDirs,
               dangerouslySkipPermissions: isContainer,
+              mcpUrl: getMcpUrl(),
             }),
             groupKey,
             workspaceSlug: params.workspace,
@@ -179,6 +182,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             projectId: project?.id,
             projectSlug: params.project,
             worktreeBranch: branch,
+            agentType: 'claude',
+            agentContext: { systemPrompt, additionalDirs },
           },
           icon: isContainer ? RiBox3Line : isContainerEnabled ? RiComputerLine : RiGitRepositoryLine,
         };
@@ -192,6 +197,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         const primary = repos.find((r) => repoMap.has(r));
         const primaryEffective = primary ? effectiveRepo(primary) : effectiveRepos[0];
         const additional = effectiveRepos.filter((r) => r !== primaryEffective);
+        const additionalDirs = [...(projectDir ? [projectDir] : []), ...additional];
         return {
           id: `${isContainer ? 'container:' : ''}repo:all:${branch ?? ''}`,
           label: isContainer ? 'All Repos (Container)' : 'All Repos',
@@ -200,10 +206,11 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             scopeType: 'project',
             scopeLabel: `claude: all repos`,
             workingDir: primaryEffective,
-            command: buildClaudeCommand({
+            command: buildAgentCommand('claude', {
               systemPrompt,
-              additionalDirs: [...(projectDir ? [projectDir] : []), ...additional],
+              additionalDirs,
               dangerouslySkipPermissions: isContainer,
+              mcpUrl: getMcpUrl(),
             }),
             groupKey,
             workspaceSlug: params.workspace,
@@ -211,6 +218,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             projectId: project?.id,
             projectSlug: params.project,
             worktreeBranch: branch,
+            agentType: 'claude',
+            agentContext: { systemPrompt, additionalDirs },
           },
           icon: isContainer ? RiBox3Line : isContainerEnabled ? RiComputerLine : RiGitRepositoryFill,
         };
@@ -250,6 +259,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         icon: TerminalDropdownEntry['icon'],
       ): TerminalDropdownEntry {
         const isContainer = mode === 'container';
+        const effectiveDirs = additionalDirs ?? (projectDir ? [projectDir] : undefined);
         return {
           id,
           label: isContainer ? `${label} (Container)` : label,
@@ -258,10 +268,11 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             scopeType: 'project',
             scopeLabel,
             workingDir,
-            command: buildClaudeCommand({
+            command: buildAgentCommand('claude', {
               systemPrompt,
-              additionalDirs: additionalDirs ?? (projectDir ? [projectDir] : undefined),
+              additionalDirs: effectiveDirs,
               dangerouslySkipPermissions: isContainer,
+              mcpUrl: getMcpUrl(),
             }),
             groupKey,
             workspaceSlug: params.workspace,
@@ -269,6 +280,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             projectId: project?.id,
             projectSlug: params.project,
             worktreeBranch: branch,
+            agentType: 'claude',
+            agentContext: { systemPrompt, additionalDirs: effectiveDirs },
           },
           icon,
         };

@@ -5,11 +5,13 @@ import {
   RiAddLine,
   RiArrowDownSLine,
   RiBox3Line,
+  RiRobot2Line,
   RiSplitCellsHorizontal,
   RiSplitCellsVertical,
   RiTerminalLine,
 } from '@remixicon/react';
 import { cn } from '@/lib/utils';
+import { listAgentTypes } from '@/lib/agent-types';
 import {
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -19,6 +21,7 @@ import {
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  scopeForAgent,
   toContainerScope,
   type SplitPosition,
   type TerminalDropdownEntry,
@@ -148,6 +151,25 @@ export function TerminalNewMenuContent({
           New Terminal (Container)
         </DropdownMenuItem>
       )}
+      {defaultScope &&
+        listAgentTypes()
+          .filter((agent) => agent.id !== (defaultScope.agentType ?? 'claude'))
+          .map((agent) => (
+            <DropdownMenuItem
+              key={agent.id}
+              onClick={() =>
+                openTerminal(
+                  scopeForAgent(
+                    containerEnabled ? { ...defaultScope, containerMode: 'host' } : defaultScope,
+                    agent.id,
+                  ),
+                )
+              }
+            >
+              <RiRobot2Line className="size-3" />
+              New {agent.label} Terminal
+            </DropdownMenuItem>
+          ))}
       {onSplit && (
         <>
           <DropdownMenuItem onClick={() => onSplit('right')} disabled={splitDisabled}>

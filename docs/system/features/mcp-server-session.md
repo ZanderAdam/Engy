@@ -48,6 +48,22 @@ The tool accepts an optional `sessionId` parameter. When present, `resolveWorktr
 
 **summary-mode** — called with `workspaceId` and no `fr` or `file`: returns `{ kind: 'summary', totals: { definitions, tags, uncovered, orphanTags }, uncovered, orphanTags, duplicateIds, malformed }`. `totals` gives workspace-wide counts; `uncovered` lists FR ids with no test coverage; `orphanTags` lists test tags referencing undefined FRs; `duplicateIds` and `malformed` surface integrity issues in the requirements table.
 
+## Cross-terminal dispatch tools
+
+`registerTerminalTools` (`web/src/server/mcp/terminal-tools.ts`) exposes the
+cross-terminal dispatch surface: `terminal_list_workers`, `terminal_dispatch`
+(async by default, sync-with-timeout optional), `terminal_collect`,
+`terminal_reply`, and `terminal_status`. These tools are **agent-only by
+design** — the browser manages the connected-worker set via the `terminal`
+tRPC router (connect/disconnect with a description), while agents are the only
+callers of dispatch/reply/collect. The only authorization gate is the
+connected-worker set: with nothing connected, `terminal_list_workers` returns
+an empty list and `terminal_dispatch` refuses every session id. Reply
+authorization is the correlation id itself — a single-use capability token
+embedded in the `[engy-dispatch <id>]` marker delivered with each dispatch.
+Dispatch mechanics (idle-gating, inbox, paste behavior) live in the Terminal
+Relay feature.
+
 ## Requirements
 
 Functional requirements in EARS notation. These are the single source of truth for the MCP server session feature's behaviour. Tag the verifying tests with the FR id in their title string, e.g. `it('[FR-MCP-010] ...', ...)`, and run `trace` (or `engy:validate`) to check coverage.
@@ -65,6 +81,10 @@ Functional requirements in EARS notation. These are the single source of truth f
 | FR-MCP-090 | WHEN the `trace` tool is called with a `workspaceId` and an `fr` id, the system SHALL return `{ kind: "fr", fr: string, found: boolean, covered: boolean, requirement?: { id, text, file, line }, tests: TestTag[], sources: string[], orphanTags: TestTag[] }` mapping that FR to its requirement text, tagged tests, colocated source files, and any test tags that reference the FR but have no definition. |
 | FR-MCP-095 | WHEN the `trace` tool is called with a `workspaceId` and no `fr` or `file` argument, the system SHALL return `{ kind: "summary", totals: { definitions, tags, uncovered, orphanTags }, uncovered: string[], orphanTags: TestTag[], duplicateIds: string[], malformed: TraceabilityMatrix["malformed"] }` listing workspace-wide coverage gaps and integrity issues. |
 | FR-MCP-100 | WHEN the `trace` tool is called with a `workspaceId` and a `file` path, the system SHALL return `{ kind: "file", file: string, defines: string[], coveredBy: { fr: string, role: "source" \| "test" }[] }` listing the FRs defined in that file and all FRs for which the file acts as a source or test. |
+| FR-MCP-110 | WHEN `terminal_dispatch` is called, the system SHALL reject session ids not in the connected-worker set or without live session metadata; in async mode it SHALL return the correlation id and dispatch status immediately, and in sync mode it SHALL wait up to `timeoutSeconds` for the reply and return the pending status with a `terminal_collect` hint on timeout instead of failing. |
+| FR-MCP-120 | WHEN `terminal_reply` is called with a correlation id, the system SHALL settle the matching unsettled dispatch exactly once (resolving all waiters); unknown or already-settled correlation ids SHALL produce a tool error. |
+| FR-MCP-130 | WHEN `terminal_list_workers` is called, the system SHALL return every connected worker with its description, agent type, scope label, and activity state, and SHALL return an empty list with a hint when no workers are connected. |
+| FR-MCP-140 | WHEN `terminal_status` is called with a connected worker's session id, the system SHALL return the worker info plus a recent output tail with terminal escape sequences stripped, capped at 2000 characters. |
 
 ## Sources
 

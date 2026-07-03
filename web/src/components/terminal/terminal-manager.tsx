@@ -13,6 +13,7 @@ import { useOnServerEvent } from "@/contexts/events-context";
 import { applyOscTitle } from "./osc-title";
 import { useOptionalTab } from "@/components/tabs/tab-context";
 import { randomId } from "@/lib/random-id";
+import { isAgentTypeId, type AgentTypeId } from "@/lib/agent-types";
 import { publishTerminalSessions, clearTerminalSessions, terminalRailKey } from "./terminal-session-store";
 
 interface InjectEvent {
@@ -59,6 +60,7 @@ interface SessionListItem {
   scopeLabel: string;
   workingDir: string;
   command?: string;
+  agentType?: string;
   groupKey?: string;
   workspaceSlug?: string;
   taskId?: number;
@@ -114,6 +116,7 @@ function sessionToTab(s: SessionListItem, fallbackGroupKey: string): TerminalTab
       scopeLabel: s.scopeLabel,
       workingDir: s.workingDir,
       command: s.command,
+      agentType: isAgentTypeId(s.agentType ?? '') ? (s.agentType as AgentTypeId) : undefined,
       groupKey: s.groupKey ?? fallbackGroupKey,
       workspaceSlug: s.workspaceSlug ?? '',
       taskId: s.taskId,

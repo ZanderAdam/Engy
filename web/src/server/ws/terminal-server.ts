@@ -15,6 +15,13 @@ import { workspaces } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { dispatchContainerUp } from './server';
 import { broadcastTerminalSessionsChange, broadcastTerminalActivityChange } from './broadcast';
+import {
+  disconnectWorker,
+  failWorkerDispatches,
+  flushDispatchInbox,
+  isTrackedWorker,
+  recordWorkerOutput,
+} from '../terminal-dispatch';
 
 function parseQueryParams(url: string): URLSearchParams {
   const idx = url.indexOf('?');
@@ -152,6 +159,7 @@ async function handleTerminalConnection(
   const sessionId = params.get('sessionId');
   const workingDir = params.get('workingDir');
   const command = params.get('command') ?? undefined;
+  const agentType = params.get('agentType') ?? undefined;
   const cols = parseInt(params.get('cols') ?? '80', 10);
   const rows = parseInt(params.get('rows') ?? '24', 10);
   const scopeType = params.get('scopeType') ?? 'workspace';
@@ -223,6 +231,8 @@ async function handleTerminalConnection(
           }
         }
         state.terminalSessions.delete(sid);
+        failWorkerDispatches(state, sid, 'Worker terminal killed');
+        disconnectWorker(state, sid);
         broadcastTerminalSessionsChange('destroyed', sid, killedMeta?.groupKey);
         if (killedMeta?.projectSlug) {
           broadcastTerminalActivityChange({ sessionId: sid, projectSlug: killedMeta.projectSlug, removed: true });
@@ -352,6 +362,7 @@ async function handleTerminalConnection(
           scopeLabel,
           workingDir,
           command,
+          agentType,
           groupKey,
           workspaceSlug,
           containerMode,
@@ -484,6 +495,11 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
               projectSlug: meta.projectSlug,
               state: act.state,
             });
+            // Idle-gated dispatch delivery: a worker that just finished its
+            // turn receives the next queued cross-terminal dispatch.
+            if (act.state === 'idle' || act.state === 'done') {
+              flushDispatchInbox(state, act.sessionId);
+            }
           }
         } catch {
           console.warn('[terminal-relay] Failed to parse act message');
@@ -493,6 +509,17 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
 
       const sessionId = extractSessionId(str);
       if (!sessionId) return;
+
+      // Bounded output tail for connected dispatch workers (terminal_status).
+      // Parse only for tracked sessions — the hot path stays zero-parse.
+      if (str.startsWith('{"t":"o"') && isTrackedWorker(state, sessionId)) {
+        try {
+          const frame = JSON.parse(str) as { d?: string };
+          if (typeof frame.d === 'string') recordWorkerOutput(state, sessionId, frame.d);
+        } catch {
+          // Malformed frame — skip tail recording, forwarding continues below
+        }
+      }
 
       const wsSet = state.terminalSessions.get(sessionId);
 
@@ -525,6 +552,8 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         const exitMeta = state.terminalSessionMeta.get(sessionId);
         state.terminalSessions.delete(sessionId);
         state.terminalSessionMeta.delete(sessionId);
+        failWorkerDispatches(state, sessionId, 'Worker terminal exited');
+        disconnectWorker(state, sessionId);
         broadcastTerminalSessionsChange('destroyed', sessionId, exitMeta?.groupKey);
         if (exitMeta?.projectSlug) {
           broadcastTerminalActivityChange({ sessionId, projectSlug: exitMeta.projectSlug, removed: true });

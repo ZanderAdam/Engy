@@ -49,18 +49,11 @@ import { traceWorkspace } from '../search/trace';
 import { getAppState } from '../trpc/context';
 import { chooseRepoAdapter } from '../search/repo-adapter';
 import { resolveWorktreeRoots } from '../trpc/routers/shared';
+import { mcpResult, mcpError } from './result';
+import { registerTerminalTools } from './terminal-tools';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
-
-type McpToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
-
-function mcpResult(data: unknown): McpToolResult {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data) }] };
-}
-
-function mcpError(message: string): McpToolResult {
-  return { content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }], isError: true };
-}
+// Envelope helpers live in ./result (shared with register*Tools modules).
 
 function omitKey<T extends Record<string, unknown>, K extends keyof T>(
   rows: T[],
@@ -254,6 +247,7 @@ export function getMcpServer(): McpServer {
   registerQuestionTools(mcp);
   registerIndexTools(mcp);
   registerSearchTools(mcp);
+  registerTerminalTools(mcp);
 
   return mcp;
 }

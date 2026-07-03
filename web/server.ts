@@ -54,6 +54,7 @@ app.prepare().then(() => {
             scopeLabel: m.scopeLabel,
             workingDir: m.workingDir,
             command: m.command,
+            agentType: m.agentType,
             groupKey: m.groupKey,
             workspaceSlug: m.workspaceSlug,
             taskId: m.taskId,

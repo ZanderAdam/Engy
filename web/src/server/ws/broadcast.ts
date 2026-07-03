@@ -61,13 +61,22 @@ interface TerminalActivityChangeEvent {
   };
 }
 
+interface TerminalWorkersChangeEvent {
+  type: 'TERMINAL_WORKERS_CHANGE';
+  payload: {
+    sessionId: string;
+    connected: boolean;
+  };
+}
+
 type ServerEvent =
   | FileChangeEvent
   | TaskChangeEvent
   | QuestionChangeEvent
   | TerminalSessionsChangeEvent
   | MemoryChangeEvent
-  | TerminalActivityChangeEvent;
+  | TerminalActivityChangeEvent
+  | TerminalWorkersChangeEvent;
 
 // ── Generic Broadcast ───────────────────────────────────────────────
 
@@ -141,4 +150,8 @@ export function broadcastTerminalActivityChange(
   payload: TerminalActivityChangeEvent['payload'],
 ): void {
   broadcastEvent({ type: 'TERMINAL_ACTIVITY_CHANGE', payload });
+}
+
+export function broadcastTerminalWorkersChange(sessionId: string, connected: boolean): void {
+  broadcastEvent({ type: 'TERMINAL_WORKERS_CHANGE', payload: { sessionId, connected } });
 }

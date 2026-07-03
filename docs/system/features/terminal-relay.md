@@ -121,10 +121,27 @@ broadcasts a per-project delta via `broadcastTerminalActivityChange`.
 ## Security
 
 `TerminalManager.spawn()` tests the `command` string against `DANGEROUS_FLAG_RE`
-(`/(?:^|\s)--dangerously-skip-permissions(?:\s|$)/` at `manager.ts:10`) before
-calling `pty.spawn()`. On a match it sends `{ t: 'exit', sessionId, exitCode: 1 }`
-and returns without spawning, unless `isIsolated` is true (`isIsolated =
-!!containerWorkspaceFolder || !!opts.coderWorkspace`).
+(`client/src/terminal/manager.ts`) before calling `pty.spawn()`. The regex
+covers per-CLI permission-bypass flags — Claude Code's
+`--dangerously-skip-permissions` and Codex's
+`--dangerously-bypass-approvals-and-sandbox`. On a match it sends
+`{ t: 'exit', sessionId, exitCode: 1 }` and returns without spawning, unless
+`isIsolated` is true (`isIsolated = !!containerWorkspaceFolder ||
+!!opts.coderWorkspace`).
+
+## Cross-terminal dispatch
+
+Terminal sessions can be connected as **dispatch workers**
+(`terminal.connectWorker` tRPC mutation, with a user-supplied description).
+Agents in other sessions dispatch prompts to workers via the `terminal_*` MCP
+tools (see the MCP Server Session feature). Delivery writes into the worker's
+PTY stdin over the existing input path (`web/src/server/terminal-dispatch.ts`):
+the message plus an `[engy-dispatch <correlationId>]` reply contract is sent as
+a bracketed paste, followed by Enter after a per-agent-type delay
+(`AgentPasteBehavior` in `web/src/lib/agent-types.ts`). Delivery is idle-gated:
+dispatches to a busy worker queue in a per-worker inbox and flush one at a time
+on `act → idle/done` transitions. The relay keeps a bounded output tail for
+connected workers so `terminal_status` can report recent output.
 
 ## Requirements
 
@@ -148,7 +165,12 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-110 | WHEN a newly connected daemon sends `{ t: 'sync', sessionIds }`, the system SHALL respawn (with container/coder config restored) every session in `terminalSessionMeta` absent from the daemon list that has at least one open browser socket, and SHALL remove entries absent from the daemon list that have no open browser socket. |
 | FR-TERMINAL-120 | WHEN two browser connections for the same `sessionId` arrive concurrently before the first spawn completes, the system SHALL serialise them so the second connection routes through the reconnect path once the first spawn resolves, rather than spawning a duplicate PTY. |
 | FR-TERMINAL-130 | WHILE a session is active or suspended, the system SHALL parse PTY output for bell and prompt signals, debounce the signals with a 3-second window, and send `{ t: 'act', sessionId, state }` to the server; the server SHALL store the activity state on session metadata and broadcast a per-project terminal-activity change event. |
-| FR-TERMINAL-140 | IF a spawn command on a host-mode session (no `containerWorkspaceFolder` and no `coderWorkspace`) contains `--dangerously-skip-permissions`, the system SHALL send `{ t: 'exit', sessionId, exitCode: 1 }` and not spawn the PTY. |
+| FR-TERMINAL-140 | IF a spawn command on a host-mode session (no `containerWorkspaceFolder` and no `coderWorkspace`) contains a permission-bypass flag (`--dangerously-skip-permissions` or `--dangerously-bypass-approvals-and-sandbox`), the system SHALL send `{ t: 'exit', sessionId, exitCode: 1 }` and not spawn the PTY. |
+| FR-TERMINAL-150 | WHEN a browser connects to `/ws/terminal` with an `agentType` query parameter, the system SHALL persist it on the session metadata and include it in the session list endpoint. |
+| FR-TERMINAL-160 | WHEN a dispatch is created for a connected worker whose activity state is idle or done and whose inbox is empty, the system SHALL immediately inject the message plus the `[engy-dispatch <correlationId>]` reply contract into the worker's PTY as a bracketed paste, followed by Enter after the worker agent type's submit delay. |
+| FR-TERMINAL-170 | WHEN a dispatch is created for a worker that is active, waiting, or has queued dispatches, the system SHALL queue it in the per-worker inbox; WHEN the worker's activity state transitions to idle or done, the system SHALL deliver exactly one queued dispatch. |
+| FR-TERMINAL-180 | WHEN a worker terminal exits or is killed, the system SHALL mark all its queued and delivered dispatches as failed, resolve any waiters, remove the session from the connected-worker set, and drop its output tail. |
+| FR-TERMINAL-190 | WHILE a session is connected as a dispatch worker, the system SHALL buffer its PTY output in a bounded tail (8192 characters) for status reporting. |
 
 ## Sources
 

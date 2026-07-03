@@ -24,6 +24,9 @@ export interface TerminalSessionMeta {
   scopeLabel: string;
   workingDir: string;
   command?: string;
+  // Which agent CLI this terminal runs ('claude' | 'codex'; undefined = plain
+  // shell or unknown). Drives the worker picker and dispatch paste behavior.
+  agentType?: string;
   groupKey?: string;
   workspaceSlug?: string;
   containerMode?: string;
@@ -137,6 +140,23 @@ export interface WorktreeRemoveError extends Error {
 
 export interface GitWorktreeListResult {
   worktrees: GitWorktreeEntry[];
+}
+
+export interface DispatchEntry {
+  correlationId: string;
+  workerSessionId: string;
+  message: string;
+  status: 'queued' | 'delivered' | 'replied' | 'failed';
+  result?: string;
+  error?: string;
+  createdAt: number;
+  deliveredAt?: number;
+  repliedAt?: number;
+}
+
+interface DispatchWorker {
+  description: string;
+  connectedAt: number;
 }
 
 export interface AppState {
@@ -345,6 +365,16 @@ export interface AppState {
   fileChangeListeners: Set<WebSocket>;
   /** Callbacks for streaming container build progress to terminals */
   containerProgressListeners: Map<string, (line: string) => void>;
+  /** Terminal sessions connected as dispatch workers (sessionId → description) */
+  dispatchWorkers: Map<string, DispatchWorker>;
+  /** Cross-terminal dispatches by correlationId (in-memory; lost on restart) */
+  dispatches: Map<string, DispatchEntry>;
+  /** Callbacks awaiting a dispatch reply, keyed by correlationId */
+  dispatchWaiters: Map<string, Array<(entry: DispatchEntry) => void>>;
+  /** Queued correlationIds per worker, delivered one at a time on idle */
+  dispatchInbox: Map<string, string[]>;
+  /** Recent PTY output tail per connected worker (bounded; for terminal_status) */
+  terminalOutputTails: Map<string, string>;
 }
 
 const GLOBAL_KEY = '__engy_app_state__' as const;
@@ -389,6 +419,11 @@ export function createAppState(): AppState {
     terminalDaemon: null,
     fileChangeListeners: new Set(),
     containerProgressListeners: new Map(),
+    dispatchWorkers: new Map(),
+    dispatches: new Map(),
+    dispatchWaiters: new Map(),
+    dispatchInbox: new Map(),
+    terminalOutputTails: new Map(),
   };
 }
 

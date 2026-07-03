@@ -22,6 +22,7 @@ import { useTerminalDock } from './terminal-dock-context';
 import { type TerminalPanelParams } from './types';
 import { TerminalSessionLabel } from './terminal-session-label';
 import { TerminalNewMenuContent } from './terminal-new-menu';
+import { TerminalWorkerButton } from './terminal-worker-button';
 import { groupTabsByWorktree } from './worktree-grouping';
 import { useTerminalActivities } from '@/hooks/use-terminal-activity';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -142,6 +143,12 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
           />
         </DropdownMenuContent>
       </DropdownMenu>
+      <TerminalWorkerButton
+        activeSessionId={activePanel?.id}
+        defaultDescription={
+          activePanel ? (activePanel.params as TerminalPanelParams | undefined)?.tab.scope.scopeLabel : undefined
+        }
+      />
       <button
         onClick={onCollapse}
         className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground border-l border-border"
