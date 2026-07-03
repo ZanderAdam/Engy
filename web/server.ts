@@ -9,6 +9,7 @@ import {
 import { createEventsWebSocketServer } from './src/server/ws/events-server';
 import { broadcastTerminalSessionsChange } from './src/server/ws/broadcast';
 import { listTerminalSessions } from './src/server/ws/terminal-session-list';
+import { loadPersistedTerminalSessions } from './src/server/ws/terminal-session-store';
 import { attachMCP } from './src/server/mcp/index';
 import { runMigrations, runPostMigrationBackfills } from './src/server/db/migrate';
 
@@ -25,6 +26,11 @@ app.prepare().then(() => {
   );
 
   const state = getAppState();
+
+  // Restore terminal session meta persisted by the previous server process so
+  // sessions surviving on the daemon stay listed and reattachable. The daemon's
+  // first sync validates the restored entries and purges dead ones.
+  loadPersistedTerminalSessions(state);
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);

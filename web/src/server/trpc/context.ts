@@ -354,6 +354,14 @@ export interface AppState {
     ids: Set<string>;
     syncWaiters: Set<() => void>;
   };
+  /**
+   * Sessions whose meta was restored from the DB at boot and not yet validated
+   * against a daemon sync. Browser connects for these (and for sessions with no
+   * meta at all) wait for the sync before classifying; live sessions with
+   * in-memory meta skip the wait. Cleared by the first sync, which purges any
+   * restored entries the daemon no longer has.
+   */
+  restoredTerminalSessions: Set<string>;
   /** Browser WebSockets subscribed to file change events */
   fileChangeListeners: Set<WebSocket>;
   /** Callbacks for streaming container build progress to terminals */
@@ -401,6 +409,7 @@ export function createAppState(): AppState {
     spawningSessions: new Map(),
     terminalDaemon: null,
     daemonTerminalSessions: { synced: false, ids: new Set(), syncWaiters: new Set() },
+    restoredTerminalSessions: new Set(),
     fileChangeListeners: new Set(),
     containerProgressListeners: new Map(),
   };

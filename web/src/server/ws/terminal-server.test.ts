@@ -2,10 +2,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { WebSocket } from 'ws';
 import { createAppState, type AppState } from '../trpc/context';
+import { setupTestDb, type TestContext } from '../trpc/test-helpers';
+import { terminalSessions as terminalSessionsTable } from '../db/schema';
 import {
   createTerminalWebSocketServer,
   createTerminalRelayWebSocketServer,
 } from './terminal-server';
+import {
+  persistTerminalSession,
+  loadPersistedTerminalSessions,
+} from './terminal-session-store';
 
 let openClients: WebSocket[] = [];
 
@@ -92,13 +98,17 @@ function closeServer(server: Server): Promise<void> {
 }
 
 describe('Terminal WebSocket Server', () => {
+  let ctx: TestContext;
   let state: AppState;
   let server: Server;
   let port: number;
 
   beforeEach(async () => {
     openClients = [];
-    state = createAppState();
+    // Isolated DB per test — session meta is persisted on every spawn/exit,
+    // and must never hit the ambient ~/.engy database.
+    ctx = setupTestDb();
+    state = ctx.state;
     const result = await startServer(state);
     server = result.server;
     port = result.port;
@@ -112,6 +122,7 @@ describe('Terminal WebSocket Server', () => {
     }
     openClients = [];
     await closeServer(server);
+    ctx.cleanup();
   });
 
   describe('[FR-TERMINAL-010] browser connection', () => {
@@ -828,6 +839,144 @@ describe('Terminal WebSocket Server', () => {
       await connectBrowser(port, { sessionId: 'gone-sess', workingDir: '/tmp' });
 
       expect(JSON.parse(await msgPromise)).toMatchObject({ t: 'spawn', sessionId: 'gone-sess' });
+    });
+  });
+
+  describe('[FR-TERMINAL-220] session persistence', () => {
+    it('[FR-TERMINAL-220] should persist session meta on spawn and delete it on exit', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      await connectBrowser(port, {
+        sessionId: 'persist-sess',
+        workingDir: '/tmp/proj',
+        scopeType: 'project',
+        scopeLabel: 'my-proj',
+      });
+      await spawnPromise;
+
+      const rows = ctx.db.select().from(terminalSessionsTable).all();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].sessionId).toBe('persist-sess');
+      expect(rows[0].meta).toMatchObject({
+        scopeType: 'project',
+        scopeLabel: 'my-proj',
+        workingDir: '/tmp/proj',
+      });
+
+      daemonWs.send(JSON.stringify({ t: 'exit', sessionId: 'persist-sess', exitCode: 0 }));
+
+      await vi.waitFor(() => {
+        expect(ctx.db.select().from(terminalSessionsTable).all()).toHaveLength(0);
+      });
+    });
+
+    it('should delete the persisted row when the browser kills the session', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      const browserWs = await connectBrowser(port, {
+        sessionId: 'persist-kill',
+        workingDir: '/tmp',
+      });
+      await spawnPromise;
+      expect(ctx.db.select().from(terminalSessionsTable).all()).toHaveLength(1);
+
+      const killPromise = waitForMessage(daemonWs);
+      browserWs.send(JSON.stringify({ t: 'kill', sessionId: 'persist-kill' }));
+      await killPromise;
+
+      expect(ctx.db.select().from(terminalSessionsTable).all()).toHaveLength(0);
+    });
+
+    it('[FR-TERMINAL-220] should restore persisted sessions into a fresh AppState at boot', async () => {
+      persistTerminalSession('restore-sess', {
+        scopeType: 'project',
+        scopeLabel: 'my-proj',
+        workingDir: '/tmp/proj',
+        projectSlug: 'my-proj',
+        cols: 120,
+        rows: 30,
+      });
+
+      // Simulate a restarted server: brand-new AppState + boot-time load
+      const freshState = createAppState();
+      loadPersistedTerminalSessions(freshState);
+
+      expect(freshState.terminalSessionMeta.get('restore-sess')).toMatchObject({
+        scopeType: 'project',
+        scopeLabel: 'my-proj',
+        workingDir: '/tmp/proj',
+        projectSlug: 'my-proj',
+        cols: 120,
+        rows: 30,
+      });
+    });
+
+    it('should reconnect a DB-restored session after sync-wait timeout and clean up if the daemon rejects it', async () => {
+      // Boot-time restore: meta present and flagged as unvalidated
+      persistTerminalSession('restored-sess', {
+        scopeType: 'workspace',
+        scopeLabel: 'test',
+        workingDir: '/tmp',
+        cols: 80,
+        rows: 24,
+      });
+      loadPersistedTerminalSessions(state);
+      expect(state.restoredTerminalSessions.has('restored-sess')).toBe(true);
+
+      // Daemon connected but never syncs — the connect waits, times out, then
+      // classifies by the in-memory meta and sends a reconnect.
+      const daemonWs = await connectDaemonRelay(port, false);
+      const msgPromise = waitForMessage(daemonWs);
+
+      await connectBrowser(port, { sessionId: 'restored-sess', workingDir: '/tmp' });
+
+      expect(JSON.parse(await msgPromise)).toEqual({ t: 'reconnect', sessionId: 'restored-sess' });
+
+      // Daemon does not know the session — its exit -1 reply cleans up meta and row
+      daemonWs.send(JSON.stringify({ t: 'exit', sessionId: 'restored-sess', exitCode: -1 }));
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.has('restored-sess')).toBe(false);
+        expect(ctx.db.select().from(terminalSessionsTable).all()).toHaveLength(0);
+      });
+    });
+
+    it('should skip malformed persisted rows on load', async () => {
+      ctx.db
+        .insert(terminalSessionsTable)
+        .values({
+          sessionId: 'bad-sess',
+          meta: { scopeType: 'workspace' },
+          updatedAt: new Date().toISOString(),
+        })
+        .run();
+
+      const freshState = createAppState();
+      loadPersistedTerminalSessions(freshState);
+
+      expect(freshState.terminalSessionMeta.has('bad-sess')).toBe(false);
+      expect(freshState.restoredTerminalSessions.size).toBe(0);
+    });
+
+    it('should purge the persisted row when the daemon sync reports a session dead with no browser', async () => {
+      // As after a boot-time restore: meta present, no browser attached
+      const meta = {
+        scopeType: 'workspace',
+        scopeLabel: 'test',
+        workingDir: '/tmp',
+        cols: 80,
+        rows: 24,
+      };
+      state.terminalSessionMeta.set('dead-sess', meta);
+      persistTerminalSession('dead-sess', meta);
+
+      await connectDaemonRelay(port); // auto-sync with empty alive set
+
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.has('dead-sess')).toBe(false);
+      });
+      expect(ctx.db.select().from(terminalSessionsTable).all()).toHaveLength(0);
     });
   });
 

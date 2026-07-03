@@ -39,6 +39,13 @@ Server state is held in `AppState` (defined in `web/src/server/trpc/context.ts`)
   whether a sync has been received on the current relay connection, and browser
   connections waiting for that sync before classifying.
 
+`terminalSessionMeta` is additionally mirrored to the `terminal_sessions`
+SQLite table (`web/src/server/ws/terminal-session-store.ts`): written through
+on every meta mutation (spawn, adoption, groupKey update, resize, activity),
+deleted on exit/kill/sync-purge, and restored into the map at server boot
+(`loadPersistedTerminalSessions` in `web/server.ts`). Persistence is
+best-effort — DB failures are logged and never interrupt the relay.
+
 The daemon side tracks sessions via `SessionManager` (a typed `Map` wrapper with
 a 5-minute expiry constant `SESSION_EXPIRY_MS` and a 30-second cleanup interval
 `CLEANUP_INTERVAL_MS`, both in `session-manager.ts`) and buffers PTY output in
@@ -117,15 +124,20 @@ cycle-web`) while the daemon keeps its PTYs alive — wipes all in-memory state,
 including `terminalSessionMeta`. Classifying a reconnecting browser by meta
 alone would send a fresh `spawn`, and the daemon's `spawnPty` kills any existing
 PTY with the same `sessionId` — destroying the session the restart was supposed
-to preserve. Two mechanisms prevent this: a browser connect whose `sessionId`
-has no meta first waits (up to `DAEMON_SYNC_WAIT_MS = 10_000` in
-`terminal-server.ts`) for the daemon's sync if none has been received on the
-current relay connection; then, if the daemon reported that session alive, the
-server *adopts* it — rebuilding `terminalSessionMeta` from the connection's
-query parameters (which carry all meta fields) and routing through the reconnect
-path. Sessions with no attached browser at restart time are not adopted; their
-ids are known but their meta is unrecoverable, so they idle on the daemon until
-expiry.
+to preserve. Three mechanisms prevent this. First, the restarted server reloads
+`terminalSessionMeta` from the `terminal_sessions` SQLite mirror at boot, so
+sessions with no attached browser stay listed and reattachable. Second, until a
+sync has been received on the current relay connection, browser connects for
+sessions without trusted local state — no meta at all, or meta restored from
+the DB and not yet validated (`state.restoredTerminalSessions`) — wait (up to
+`DAEMON_SYNC_WAIT_MS = 10_000` in `terminal-server.ts`) for the daemon's sync
+before classifying; a no-meta connect would otherwise spawn over a surviving
+PTY. Live sessions with in-memory meta skip the wait. Third, if the daemon reported a session
+alive that the server has no meta for (e.g. the DB row was lost), the server
+*adopts* it — rebuilding `terminalSessionMeta` from the connection's query
+parameters (which carry all meta fields) and routing through the reconnect
+path. Restored entries the daemon no longer has are purged (and their rows
+deleted) by the existing sync reconciliation.
 
 ## Concurrent spawn serialisation
 
@@ -185,7 +197,8 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-180 | WHILE Command Center mode is enabled (a global toggle in the terminal rail, shared across all project tabs), the terminal sidebar's existing rail and dock SHALL list every terminal across all projects — grouped by project then by worktree branch, with project-less sessions in a trailing bucket — instead of only the current project's; toggling it off SHALL restore the current project's terminals. |
 | FR-TERMINAL-190 | WHILE Command Center mode is enabled, WHEN the user activates a project group's new-terminal control, the system SHALL open a new terminal whose scope is cloned from that group's first terminal — base label without any trailing ordinal suffix, no task binding — so the session registers under that project's own groupKey; the generic new-terminal controls (rail and dock header) SHALL be disabled while the mode is on, so creation cannot silently target the current project. |
 | FR-TERMINAL-200 | WHEN a browser connects with a `sessionId` that has no `terminalSessionMeta` entry but is present in the daemon's last-synced alive session set, the system SHALL rebuild the session metadata from the connection's query parameters and route the connection through the reconnect path instead of spawning a new PTY, so live sessions survive a server restart. |
-| FR-TERMINAL-210 | WHEN a browser connects with a `sessionId` that has no `terminalSessionMeta` entry and no daemon session sync has been received on the current relay connection, the system SHALL wait up to 10 seconds for the daemon's `{ t: 'sync' }` before classifying the connection as spawn or reconnect. |
+| FR-TERMINAL-210 | WHEN a browser connects for a session with no in-memory metadata, or whose metadata was restored from the database and not yet validated by a daemon sync, and no sync has been received on the current relay connection, the system SHALL wait up to 10 seconds for the daemon's `{ t: 'sync' }` before classifying the connection as spawn or reconnect. |
+| FR-TERMINAL-220 | The system SHALL mirror `terminalSessionMeta` to the `terminal_sessions` SQLite table — written through on meta creation and mutation, deleted on exit/kill/sync-purge — and SHALL restore the persisted entries into `terminalSessionMeta` at server boot, so sessions with no attached browser survive a server restart. |
 
 ## Sources
 

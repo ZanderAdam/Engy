@@ -449,3 +449,19 @@ export const threadCommentsRelations = relations(threadComments, ({ one }) => ({
     references: [commentThreads.id],
   }),
 }));
+
+// ── Terminal Sessions ───────────────────────────────────────────────
+
+// Mirror of the in-memory terminalSessionMeta map (web/src/server/trpc/context.ts)
+// so terminal sessions survive a server restart. The meta blob is owned and
+// typed by the WS layer.
+export const terminalSessions = sqliteTable('terminal_sessions', {
+  // Natural text PK (browser-generated session UUID) instead of the usual
+  // integer autoincrement id: this mirror table is only ever keyed by
+  // sessionId and nothing references it, so a surrogate id would add nothing.
+  sessionId: text('session_id').primaryKey(),
+  meta: text('meta', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+  updatedAt: text('updated_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
