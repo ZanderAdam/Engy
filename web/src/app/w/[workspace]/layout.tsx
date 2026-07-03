@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ThreePanelLayout, type ShortcutDef, matchShortcut } from '@/components/layout/three-panel-layout';
 import { MobileOverlayProvider } from '@/components/layout/mobile-overlay-context';
+import { WorkspaceMobileTerminalToggle } from '@/components/layout/workspace-mobile-terminal-toggle';
 import {
   MobileTerminalSheet,
   MobileShellTerminalSheet,
@@ -415,7 +416,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         {!isProjectRoute && (
           <nav className="border-b border-border" aria-label="Workspace sections">
-            <div className={cn('flex', isMobile ? 'px-3' : 'px-6')}>
+            <div className={cn('flex items-center', isMobile ? 'px-3' : 'px-6')}>
               {tabs.map((tab) => (
                 <VLink
                   key={tab.segment}
@@ -429,6 +430,13 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
                   {tab.label}
                 </VLink>
               ))}
+              {/* Mobile-only: the workspace nav has no MobileHeader, so it hosts
+                  the terminal overlay toggle itself (desktop uses TerminalRail). */}
+              {isMobile && (
+                <div className="ml-auto pl-2">
+                  <WorkspaceMobileTerminalToggle />
+                </div>
+              )}
             </div>
           </nav>
         )}

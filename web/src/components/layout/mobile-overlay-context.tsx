@@ -4,7 +4,8 @@ import { createContext, useCallback, useContext, useMemo, useState } from 'react
 
 // Mobile full-screen overlays (only one open at a time):
 //   'files'    — the left files sidebar
-//   'terminal' — the RIGHT terminal (Claude/agent), opened from the mobile header
+//   'terminal' — the RIGHT terminal (Claude/agent), opened from the project's
+//                mobile header or the workspace nav's terminal toggle
 //   'shell'    — the BOTTOM terminal (plain shell), opened from the floating toggle
 type MobileOverlay = 'files' | 'terminal' | 'shell' | null;
 
