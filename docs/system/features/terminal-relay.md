@@ -80,6 +80,14 @@ exitCode: 0 }` to every other attached browser and closes their sockets (code
 sends SIGTERM and schedules SIGKILL after 3 seconds (`SIGTERM_TIMEOUT_MS = 3_000`
 at `manager.ts:9`).
 
+**Resize.** Browsers send `{ t: 'resize', sessionId, cols, rows }` whenever the
+fitted xterm dimensions change. The server updates `cols`/`rows` on the session's
+`terminalSessionMeta` entry before forwarding, so the meta always reflects the
+last known size rather than the initial spawn size. This matters because the
+browser only resends a resize when its fitted dimensions change — it assumes the
+PTY already has whatever it last sent, so any server-side respawn or dropped
+resize must be healed from the meta, not the browser.
+
 **PTY natural exit.** When the PTY process exits the daemon sends `{ t: 'exit',
 sessionId, exitCode }`. The server forwards it to all attached browsers, removes
 both maps, and broadcasts `destroyed`.
@@ -94,8 +102,11 @@ sessionId, exitCode: -1 }` to the server.
 When a new daemon connects it sends `{ t: 'sync', sessionIds: [...] }`. The
 server compares its meta map against the daemon's live set: sessions absent from
 the daemon that have an open browser are respawned transparently (with container
-config restored from the DB); sessions with no open browser are purged from both
-maps.
+config restored from the DB, at the last known `cols`/`rows`); sessions with no
+open browser are purged from both maps. Sessions the daemon still has get a
+`{ t: 'resize' }` with the last known size re-asserted if a browser is attached —
+resizes sent while the relay was down were dropped, and the browser will not
+resend them.
 
 ## Concurrent spawn serialisation
 
@@ -149,6 +160,8 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-120 | WHEN two browser connections for the same `sessionId` arrive concurrently before the first spawn completes, the system SHALL serialise them so the second connection routes through the reconnect path once the first spawn resolves, rather than spawning a duplicate PTY. |
 | FR-TERMINAL-130 | WHILE a session is active or suspended, the system SHALL parse PTY output for bell and prompt signals, debounce the signals with a 3-second window, and send `{ t: 'act', sessionId, state }` to the server; the server SHALL store the activity state on session metadata and broadcast a per-project terminal-activity change event. |
 | FR-TERMINAL-140 | IF a spawn command on a host-mode session (no `containerWorkspaceFolder` and no `coderWorkspace`) contains `--dangerously-skip-permissions`, the system SHALL send `{ t: 'exit', sessionId, exitCode: 1 }` and not spawn the PTY. |
+| FR-TERMINAL-150 | WHEN a browser sends `{ t: 'resize', sessionId, cols, rows }`, the system SHALL update `cols`/`rows` on the session's `terminalSessionMeta` entry, so that respawn and size re-assertion use the last known terminal size instead of the initial spawn size. |
+| FR-TERMINAL-160 | WHEN a newly connected daemon sends `{ t: 'sync', sessionIds }`, the system SHALL send `{ t: 'resize', sessionId, cols, rows }` with the last known size to the daemon for every session in the daemon list that has at least one open browser socket, so resizes dropped during a relay outage are healed. |
 
 ## Sources
 

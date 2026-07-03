@@ -526,17 +526,134 @@ describe('Terminal WebSocket Server', () => {
         cols: 80,
         rows: 24,
       });
+      // Marker entry absent from the daemon list with no browser — its purge is
+      // the synchronous signal that the sync loop has fully run.
+      state.terminalSessionMeta.set('sync-marker-sess', {
+        scopeType: 'workspace',
+        scopeLabel: 'test',
+        workingDir: '/tmp',
+        cols: 80,
+        rows: 24,
+      });
 
       const daemonWs = await connectDaemonRelay(port);
 
       // Daemon sync includes the alive session
       daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: ['alive-sess'] }));
 
-      // Give sync time to process
-      await new Promise((r) => setTimeout(r, 100));
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.has('sync-marker-sess')).toBe(false);
+      });
 
       // Meta should still be there
       expect(state.terminalSessionMeta.has('alive-sess')).toBe(true);
+    });
+
+    it('[FR-TERMINAL-150] should respawn stale sessions at the last resized dimensions', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      const browser = await connectBrowser(port, {
+        sessionId: 'resize-respawn-sess',
+        workingDir: '/tmp/proj',
+      });
+      await spawnPromise; // consume initial spawn (80x24)
+
+      // Browser resizes after fitting its real viewport
+      const resizePromise = waitForMessage(daemonWs);
+      browser.send(
+        JSON.stringify({ t: 'resize', sessionId: 'resize-respawn-sess', cols: 200, rows: 50 }),
+      );
+      await resizePromise; // consume forwarded resize
+
+      await vi.waitFor(() => {
+        const meta = state.terminalSessionMeta.get('resize-respawn-sess');
+        expect(meta?.cols).toBe(200);
+        expect(meta?.rows).toBe(50);
+      });
+
+      // Simulate daemon restart: sessions lost, sync triggers respawn
+      daemonWs.close();
+      await vi.waitFor(() => expect(state.terminalDaemon).toBeNull());
+
+      const newDaemonWs = await connectDaemonRelay(port);
+      const respawnPromise = waitForMessage(newDaemonWs);
+      newDaemonWs.send(JSON.stringify({ t: 'sync', sessionIds: [] }));
+
+      const msg = JSON.parse(await respawnPromise);
+      expect(msg).toMatchObject({
+        t: 'spawn',
+        sessionId: 'resize-respawn-sess',
+        cols: 200,
+        rows: 50,
+      });
+    });
+
+    it('[FR-TERMINAL-160] should re-assert last known size for surviving sessions with an attached browser', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      const browser = await connectBrowser(port, {
+        sessionId: 'reassert-sess',
+        workingDir: '/tmp',
+      });
+      await spawnPromise;
+
+      // Relay blip: the resize below arrives while no daemon is connected, so the
+      // forward is dropped — but the meta must still record the new size.
+      daemonWs.close();
+      await vi.waitFor(() => expect(state.terminalDaemon).toBeNull());
+
+      browser.send(JSON.stringify({ t: 'resize', sessionId: 'reassert-sess', cols: 150, rows: 40 }));
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.get('reassert-sess')?.cols).toBe(150);
+      });
+
+      const newDaemonWs = await connectDaemonRelay(port);
+      const reassertPromise = waitForMessage(newDaemonWs);
+      newDaemonWs.send(JSON.stringify({ t: 'sync', sessionIds: ['reassert-sess'] }));
+
+      const msg = JSON.parse(await reassertPromise);
+      expect(msg).toEqual({ t: 'resize', sessionId: 'reassert-sess', cols: 150, rows: 40 });
+    });
+
+    it('[FR-TERMINAL-160] should not re-assert size for surviving sessions with no attached browser', async () => {
+      state.terminalSessionMeta.set('no-browser-sess', {
+        scopeType: 'workspace',
+        scopeLabel: 'test',
+        workingDir: '/tmp',
+        cols: 120,
+        rows: 30,
+      });
+      // Marker entry absent from the daemon list with no browser — its purge is
+      // the synchronous signal that the sync loop has fully run.
+      state.terminalSessionMeta.set('sync-marker-sess', {
+        scopeType: 'workspace',
+        scopeLabel: 'test',
+        workingDir: '/tmp',
+        cols: 80,
+        rows: 24,
+      });
+
+      const daemonWs = await connectDaemonRelay(port);
+      const received: string[] = [];
+      daemonWs.on('message', (data) => received.push(data.toString()));
+
+      daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: ['no-browser-sess'] }));
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.has('sync-marker-sess')).toBe(false);
+      });
+
+      // Flush the daemon socket with a real round-trip: a fresh browser connect
+      // produces a spawn on the same socket, so any resize emitted by the sync
+      // would have arrived before it.
+      await connectBrowser(port, { sessionId: 'flush-sess', workingDir: '/tmp' });
+      await vi.waitFor(() => expect(received.length).toBeGreaterThan(0));
+
+      expect(received).toHaveLength(1);
+      expect(JSON.parse(received[0])).toMatchObject({ t: 'spawn', sessionId: 'flush-sess' });
+      // Meta retained — a browser can still attach later
+      expect(state.terminalSessionMeta.has('no-browser-sess')).toBe(true);
     });
 
     it('should send error when browser reconnects but daemon is not ready', async () => {

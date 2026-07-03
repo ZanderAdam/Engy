@@ -4,6 +4,7 @@ import type { IncomingMessage } from 'node:http';
 import type { AppState } from '../trpc/context';
 import type {
   TerminalSpawnCmd,
+  TerminalResizeCmd,
   TerminalReconnectCmd,
   TerminalErrorEvent,
   TerminalExitEvent,
@@ -230,6 +231,27 @@ async function handleTerminalConnection(
       }
     }
 
+    // The browser's resize guard assumes "last sent" === "PTY size". Track the
+    // size on the meta so respawn and relay-reconnect re-assert the real size,
+    // not the initial spawn size. Only the owning connection may update it.
+    if (str.startsWith('{"t":"resize"')) {
+      try {
+        const resize = JSON.parse(str) as TerminalResizeCmd;
+        const meta = state.terminalSessionMeta.get(sessionId);
+        if (
+          resize.sessionId === sessionId &&
+          meta &&
+          Number.isInteger(resize.cols) &&
+          Number.isInteger(resize.rows)
+        ) {
+          meta.cols = resize.cols;
+          meta.rows = resize.rows;
+        }
+      } catch {
+        console.warn('[terminal] Failed to parse resize message');
+      }
+    }
+
     const td = state.terminalDaemon;
     if (td && td.readyState === td.OPEN) {
       td.send(str);
@@ -419,7 +441,21 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
 
           // Respawn or clean up sessions the daemon no longer has
           for (const [sessionId, meta] of state.terminalSessionMeta) {
-            if (!daemonSessionIds.has(sessionId)) {
+            if (daemonSessionIds.has(sessionId)) {
+              // Session survived on the daemon, but resizes sent while the relay
+              // was down were dropped — the browser's guard already recorded them
+              // as sent, so it will never resend. Re-assert the last known size.
+              if (hasAnyOpenBrowser(state, sessionId)) {
+                ws.send(
+                  JSON.stringify({
+                    t: 'resize',
+                    sessionId,
+                    cols: meta.cols,
+                    rows: meta.rows,
+                  } satisfies TerminalResizeCmd),
+                );
+              }
+            } else {
               if (hasAnyOpenBrowser(state, sessionId)) {
                 // Browser is still connected — respawn the session transparently
                 console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — respawning on daemon`);
