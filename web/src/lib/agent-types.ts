@@ -87,6 +87,12 @@ const codex: AgentType = {
     }
     if (options?.dangerouslySkipPermissions) {
       cmd += ' --dangerously-bypass-approvals-and-sandbox';
+    } else {
+      // Codex defaults to a read-only sandbox, which both rejects --add-dir
+      // (additional writable roots) and prevents editing. workspace-write is the
+      // equivalent of Claude's acceptEdits: edit the workspace, still prompt for
+      // anything outside it.
+      cmd += ' --sandbox workspace-write';
     }
     return cmd;
   },

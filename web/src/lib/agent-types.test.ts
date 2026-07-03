@@ -80,37 +80,41 @@ describe('agent types', () => {
   });
 
   describe('codex command', () => {
-    it('should return bare codex when no options', () => {
-      expect(buildAgentCommand('codex')).toBe('codex');
+    it('should default to workspace-write sandbox when no options', () => {
+      expect(buildAgentCommand('codex')).toBe('codex --sandbox workspace-write');
     });
 
     it('should include prompt when provided', () => {
-      expect(buildAgentCommand('codex', { prompt: 'fix the tests' })).toBe("codex 'fix the tests'");
+      expect(buildAgentCommand('codex', { prompt: 'fix the tests' })).toBe(
+        "codex 'fix the tests' --sandbox workspace-write",
+      );
     });
 
     it('should fold system prompt into the prompt when both provided', () => {
       expect(
         buildAgentCommand('codex', { prompt: 'fix the tests', systemPrompt: 'Workspace: engy' }),
-      ).toBe("codex 'Workspace: engy\n\nfix the tests'");
+      ).toBe("codex 'Workspace: engy\n\nfix the tests' --sandbox workspace-write");
     });
 
     it('should skip the context block when no prompt (no burned turn)', () => {
-      expect(buildAgentCommand('codex', { systemPrompt: 'Workspace: engy' })).toBe('codex');
+      expect(buildAgentCommand('codex', { systemPrompt: 'Workspace: engy' })).toBe(
+        'codex --sandbox workspace-write',
+      );
     });
 
     it('should include add-dir flags when provided', () => {
       expect(buildAgentCommand('codex', { additionalDirs: ['/some/dir'] })).toBe(
-        "codex --add-dir '/some/dir'",
+        "codex --add-dir '/some/dir' --sandbox workspace-write",
       );
     });
 
     it('should register the Engy MCP server via -c config override when mcpUrl provided', () => {
       expect(buildAgentCommand('codex', { mcpUrl: 'http://localhost:3123/mcp' })).toBe(
-        `codex -c 'mcp_servers.Engy.url="http://localhost:3123/mcp"'`,
+        `codex -c 'mcp_servers.Engy.url="http://localhost:3123/mcp"' --sandbox workspace-write`,
       );
     });
 
-    it('should use --dangerously-bypass-approvals-and-sandbox when skip flag set', () => {
+    it('should use --dangerously-bypass-approvals-and-sandbox instead of the sandbox flag when skip set', () => {
       expect(buildAgentCommand('codex', { dangerouslySkipPermissions: true })).toBe(
         'codex --dangerously-bypass-approvals-and-sandbox',
       );
