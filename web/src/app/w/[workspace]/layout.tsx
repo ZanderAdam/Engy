@@ -426,6 +426,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       workspace.earsBdd ?? false,
       defaultAid,
     );
+    // The plain (no-repo) leaf inside an agent's submenu. The agent is already
+    // named by the parent submenu, so the label drops it.
     function plainLeaf(
       agentTypeId: AgentTypeId,
       mode: 'host' | 'container' | undefined,
@@ -433,10 +435,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       let scope = scopeForAgent(baseScope, agentTypeId);
       if (mode === 'container') scope = toContainerScope(scope);
       else if (mode === 'host') scope = { ...scope, containerMode: 'host' };
-      const label = getAgentType(agentTypeId).label;
       return {
         id: `agent-plain:${agentTypeId}:${mode ?? ''}`,
-        label: mode === 'container' ? `New ${label} Terminal (Container)` : `New ${label} Terminal`,
+        label: mode === 'container' ? 'Project Terminal (Container)' : 'Project Terminal',
         scope,
         icon: mode === 'container' ? RiBox3Line : RiRobot2Line,
       };
@@ -454,9 +455,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       });
     }
 
-    // Additional agents: one "New <Agent> Terminal" entry each. With repos it's a
-    // submenu (plain + the full repo/worktree tree for that agent); without, a
-    // plain leaf.
+    // Additional agents: one entry per agent, labelled by the agent name. With
+    // options it's a submenu (plain + that agent's full repo/worktree tree);
+    // with only a single plain option, a leaf.
     const agentEntries = listAgentTypes()
       .filter((a) => a.id !== defaultAid)
       .map<TerminalDropdownEntry>((a) => {
@@ -465,10 +466,12 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           ...(isContainerEnabled ? [plainLeaf(a.id, 'container')] : []),
           ...repoEntriesForAgent(a.id),
         ];
-        if (children.length === 1) return children[0];
+        if (children.length === 1) {
+          return { ...children[0], id: `agent:${a.id}`, label: a.label, icon: RiRobot2Line };
+        }
         return {
           id: `agent:${a.id}`,
-          label: `New ${a.label} Terminal`,
+          label: a.label,
           icon: RiRobot2Line,
           children,
         };

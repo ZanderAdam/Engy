@@ -144,12 +144,12 @@ export function TerminalNewMenuContent({
         }
       >
         <RiAddLine className="size-3" />
-        New Terminal
+        Project Terminal
       </DropdownMenuItem>
       {containerEnabled && defaultScope && (
         <DropdownMenuItem onClick={() => openTerminal(toContainerScope(defaultScope))}>
           <RiBox3Line className="size-3" />
-          New Terminal (Container)
+          Project Terminal (Container)
         </DropdownMenuItem>
       )}
       {onSplit && (
