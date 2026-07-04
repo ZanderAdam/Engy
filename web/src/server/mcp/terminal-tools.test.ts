@@ -434,6 +434,55 @@ describe('MCP terminal tools', () => {
       expect(String(data.error)).toContain('cwd must be inside a workspace repo');
     });
 
+    it('[FR-MCP-160] should refuse callers without workspace context (agent-settings guard unenforceable)', async () => {
+      state.terminalSessionMeta.set('sess-nows', {
+        scopeType: 'project',
+        scopeLabel: 'no workspace',
+        workingDir: '/repo',
+        agentType: 'claude',
+        cols: 80,
+        rows: 24,
+      });
+      const { isError, data } = await callTool(makeMcp('sess-nows'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'worker',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('no workspace context');
+    });
+
+    it('[FR-MCP-160] should refuse an agentType deactivated in the workspace settings', async () => {
+      addCallerSession('sess-claude', 'claude');
+      ctx.db
+        .update(workspaces)
+        .set({ agentSettings: { codex: { active: false } } })
+        .run();
+      const { isError, data } = await callTool(makeMcp('sess-claude'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'worker',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('deactivated');
+    });
+
+    it('[FR-WORKSPACE-150] should spawn with the workspace-configured mode for the target agent', async () => {
+      addCallerSession('sess-claude', 'claude');
+      ctx.db
+        .update(workspaces)
+        .set({ agentSettings: { codex: { mode: 'full-auto' } } })
+        .run();
+      const { isError } = await callTool(makeMcp('sess-claude'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'worker',
+      });
+      expect(isError).toBe(false);
+      const spawn = sent.map((s) => JSON.parse(s) as { t?: string; command?: string }).find((f) => f.t === 'spawn');
+      expect(spawn?.command).toContain('--sandbox workspace-write --ask-for-approval never');
+    });
+
     it('[FR-MCP-160] should error when no terminal daemon is connected', async () => {
       addCallerSession('sess-claude', 'claude');
       state.terminalDaemon = null;
@@ -524,6 +573,7 @@ describe('MCP terminal tools', () => {
         workingDir: '/repo',
         command: `codex -c 'mcp_servers.Engy.url="http://127.0.0.1:7777/mcp/sess-codex"' --sandbox workspace-write`,
         agentType: 'codex',
+        workspaceSlug: 'ws',
         cols: 80,
         rows: 24,
       });
@@ -549,6 +599,7 @@ describe('MCP terminal tools', () => {
           workingDir: '/repo',
           command: 'claude --permission-mode acceptEdits',
           agentType: 'claude',
+          workspaceSlug: 'ws',
           cols: 80,
           rows: 24,
         });

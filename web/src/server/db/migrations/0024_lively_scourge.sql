@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `agent_settings` text;

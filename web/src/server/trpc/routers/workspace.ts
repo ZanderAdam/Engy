@@ -6,7 +6,14 @@ import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { workspaces, projects } from '../../db/schema';
 import { generateSlug, uniqueWorkspaceSlug } from '../utils';
-import { isAgentTypeId } from '@/lib/agent-types';
+import {
+  isAgentTypeId,
+  isAgentModeId,
+  DEFAULT_PLAN_SKILL,
+  DEFAULT_IMPLEMENT_SKILL,
+  type AgentTypeId,
+  type WorkspaceAgentSettings,
+} from '@/lib/agent-types';
 import {
   initWorkspaceDir,
   removeWorkspaceDir,
@@ -49,8 +56,38 @@ const defaultAgentTypeSchema = z
   .string()
   .refine(isAgentTypeId, { message: 'Unknown agent type' });
 
-const DEFAULT_PLAN_SKILL = '/engy:plan';
-const DEFAULT_IMPLEMENT_SKILL = '/engy:implement';
+const agentSettingsSchema = z.record(
+  z.string().refine(isAgentTypeId, { message: 'Unknown agent type' }),
+  z.object({
+    active: z.boolean().optional(),
+    mode: z.string().optional(),
+    // min(1): an empty string would be stored but treated as "not set" by
+    // resolveAgentSkills — reject it instead (clear with null/omission).
+    planSkill: z.string().min(1).nullable().optional(),
+    implementSkill: z.string().min(1).nullable().optional(),
+  }),
+);
+
+function assertValidAgentSettings(
+  settings: WorkspaceAgentSettings,
+  defaultAgentType: string | null,
+): void {
+  for (const [agentId, entry] of Object.entries(settings)) {
+    if (entry?.mode && !isAgentModeId(agentId as AgentTypeId, entry.mode)) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `Unknown mode "${entry.mode}" for agent "${agentId}".`,
+      });
+    }
+  }
+  const effectiveDefault = defaultAgentType ?? 'claude';
+  if (settings[effectiveDefault]?.active === false) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `The default agent ("${effectiveDefault}") cannot be deactivated — pick a different default agent first.`,
+    });
+  }
+}
 
 async function validatePathsOrCreateMissing(
   paths: string[],
@@ -256,6 +293,7 @@ export const workspaceRouter = router({
         planSkill: z.string().nullable().optional(),
         implementSkill: z.string().nullable().optional(),
         defaultAgentType: defaultAgentTypeSchema.optional(),
+        agentSettings: agentSettingsSchema.nullable().optional(),
         earsBdd: z.boolean().optional(),
         splitWorktrees: z.boolean().optional(),
         containerEnabled: z.boolean().nullable().optional(),
@@ -283,6 +321,11 @@ export const workspaceRouter = router({
         input.implementSkill !== undefined ? input.implementSkill : existing.implementSkill;
       const newDefaultAgentType =
         input.defaultAgentType !== undefined ? input.defaultAgentType : existing.defaultAgentType;
+      const newAgentSettings =
+        input.agentSettings !== undefined ? input.agentSettings : existing.agentSettings;
+      if (newAgentSettings) {
+        assertValidAgentSettings(newAgentSettings, newDefaultAgentType);
+      }
       const newEarsBdd = input.earsBdd !== undefined ? input.earsBdd : existing.earsBdd;
       const newSplitWorktrees =
         input.splitWorktrees !== undefined ? input.splitWorktrees : existing.splitWorktrees;
@@ -340,6 +383,7 @@ export const workspaceRouter = router({
           planSkill: newPlanSkill,
           implementSkill: newImplementSkill,
           defaultAgentType: newDefaultAgentType,
+          agentSettings: newAgentSettings,
           earsBdd: newEarsBdd,
           splitWorktrees: newSplitWorktrees,
           containerEnabled: newContainerEnabled,
@@ -370,6 +414,7 @@ export const workspaceRouter = router({
               planSkill: existing.planSkill,
               implementSkill: existing.implementSkill,
               defaultAgentType: existing.defaultAgentType,
+              agentSettings: existing.agentSettings,
               earsBdd: existing.earsBdd,
               splitWorktrees: existing.splitWorktrees,
               containerEnabled: existing.containerEnabled,

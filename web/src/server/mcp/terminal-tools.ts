@@ -17,7 +17,8 @@ import {
 } from '../terminal-dispatch';
 import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
-import { isAgentTypeId, listAgentTypes } from '@/lib/agent-types';
+import { isAgentTypeId, isAgentActive, listAgentTypes } from '@/lib/agent-types';
+import { eq } from 'drizzle-orm';
 import { mcpResult, mcpError } from './result';
 
 // Cross-terminal dispatch tools. These are agent-only (no tRPC counterparts by
@@ -202,6 +203,25 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
           `Same-type spawn refused: you are already a ${callerType} agent — use your own subagent mechanism for ${callerType} work. terminal_spawn is for cross-agent delegation (available: ${otherTypes.join(', ')}).`,
         );
       }
+      // Workspace-level per-agent settings: a deactivated agent type must not
+      // be spawnable, and an active one boots in its configured default mode.
+      // Fail-safe: without workspace context the guard can't be enforced, so
+      // the spawn is refused rather than silently unrestricted.
+      if (!callerMeta.workspaceSlug) {
+        return mcpError(
+          'Caller terminal has no workspace context — cannot apply workspace agent settings, spawn refused.',
+        );
+      }
+      const callerWorkspace = getDb()
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.slug, callerMeta.workspaceSlug))
+        .get();
+      if (!isAgentActive(callerWorkspace?.agentSettings, agentType)) {
+        return mcpError(
+          `Agent type '${agentType}' is deactivated in this workspace's settings — spawn refused.`,
+        );
+      }
       const liveSpawned = countAgentSpawnedSessions(state);
       if (liveSpawned >= AGENT_SPAWN_LIMIT) {
         return mcpError(
@@ -223,6 +243,7 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
         spawnedBy: callerTerminalSessionId,
         callerMeta,
         mcpOrigin: deriveMcpOrigin(callerMeta.command),
+        agentSettings: callerWorkspace?.agentSettings,
       });
       if (!spawned) {
         return mcpError('No terminal daemon connected — cannot spawn.');

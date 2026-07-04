@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
 import type { TerminalExitEvent, TerminalKillCmd, TerminalSpawnCmd } from '@engy/common';
 import type { AppState, DispatchEntry, TerminalSessionMeta } from './trpc/context';
-import { buildAgentCommand, getAgentType, isAgentTypeId, type AgentTypeId } from '@/lib/agent-types';
+import {
+  buildAgentCommand,
+  getAgentType,
+  isAgentTypeId,
+  type AgentTypeId,
+  type WorkspaceAgentSettings,
+} from '@/lib/agent-types';
 import { broadcastTerminalActivityChange, broadcastTerminalSessionsChange } from './ws/broadcast';
 
 // Cross-terminal dispatch: an orchestrator agent sends a prompt to a worker
@@ -397,6 +403,8 @@ interface SpawnAgentTerminalOptions {
   callerMeta: TerminalSessionMeta;
   /** Server origin for the spawned agent's per-session MCP endpoint. */
   mcpOrigin: string;
+  /** Workspace per-agent overrides — the spawn command applies the agent's configured mode. */
+  agentSettings?: WorkspaceAgentSettings | null;
 }
 
 /**
@@ -418,6 +426,7 @@ export function spawnAgentTerminal(
   const command = buildAgentCommand(opts.agentType, {
     prompt: opts.prompt,
     mcpUrl: `${opts.mcpOrigin}/mcp/${sessionId}`,
+    agentSettings: opts.agentSettings,
   });
 
   const { callerMeta } = opts;

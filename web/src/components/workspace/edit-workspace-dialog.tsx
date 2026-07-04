@@ -31,15 +31,17 @@ import { RepoPathsField } from '@/components/repo-paths-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { listAgentTypes, coerceAgentTypeId, type AgentTypeId } from '@/lib/agent-types';
+import {
+  coerceAgentTypeId,
+  type AgentTypeId,
+  type WorkspaceAgentSettings,
+} from '@/lib/agent-types';
+import {
+  AgentSettingsTab,
+  seedAgentSettings,
+  normalizeAgentSettings,
+} from '@/components/workspace/agent-settings';
 import {
   ContainerSettings,
   type ContainerSettingsData,
@@ -57,6 +59,7 @@ interface EditWorkspaceDialogProps {
     planSkill: string | null;
     implementSkill: string | null;
     defaultAgentType: string | null;
+    agentSettings: WorkspaceAgentSettings | null;
     containerEnabled: boolean | null;
     containerConfig: ContainerConfig | null;
     executionBackend: ExecutionBackend | null;
@@ -89,8 +92,9 @@ export function EditWorkspaceDialog({
   const [docsDir, setDocsDir] = useState(workspace.docsDir ?? '');
   const [repos, setRepos] = useState<string[]>(initialRepos(workspace.repos));
   const [splitWorktrees, setSplitWorktrees] = useState(workspace.splitWorktrees ?? false);
-  const [planSkill, setPlanSkill] = useState(workspace.planSkill ?? '');
-  const [implementSkill, setImplementSkill] = useState(workspace.implementSkill ?? '');
+  const [agentSettings, setAgentSettings] = useState<WorkspaceAgentSettings>(() =>
+    seedAgentSettings(workspace),
+  );
   const [defaultAgentType, setDefaultAgentType] = useState<AgentTypeId>(
     coerceAgentTypeId(workspace.defaultAgentType),
   );
@@ -138,8 +142,7 @@ export function EditWorkspaceDialog({
       repos: filteredRepos,
       docsDir: trimmedDocsDir || null,
       splitWorktrees,
-      planSkill: planSkill.trim() || null,
-      implementSkill: implementSkill.trim() || null,
+      agentSettings: normalizeAgentSettings(agentSettings),
       defaultAgentType,
       containerEnabled: container.containerEnabled,
       containerConfig: container.containerConfig,
@@ -205,8 +208,7 @@ export function EditWorkspaceDialog({
       setDocsDir(workspace.docsDir ?? '');
       setRepos(initialRepos(workspace.repos));
       setSplitWorktrees(workspace.splitWorktrees ?? false);
-      setPlanSkill(workspace.planSkill ?? '');
-      setImplementSkill(workspace.implementSkill ?? '');
+      setAgentSettings(seedAgentSettings(workspace));
       setDefaultAgentType(coerceAgentTypeId(workspace.defaultAgentType));
       setError(null);
       setDeleteConfirmOpen(false);
@@ -237,6 +239,7 @@ export function EditWorkspaceDialog({
           <Tabs defaultValue="general" className="flex flex-col gap-2 py-4">
             <TabsList>
               <TabsTrigger value="general">General</TabsTrigger>
+              <TabsTrigger value="agents">Agents</TabsTrigger>
               <TabsTrigger value="container">Container</TabsTrigger>
             </TabsList>
 
@@ -306,47 +309,16 @@ export function EditWorkspaceDialog({
                     </p>
                   </div>
                 )}
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="edit-workspace-default-agent">Default agent</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Agent CLI new terminals launch by default. Pick a different one per terminal
-                    from the New Terminal menu.
-                  </p>
-                  <Select
-                    value={defaultAgentType}
-                    onValueChange={(value: AgentTypeId) => setDefaultAgentType(value)}
-                  >
-                    <SelectTrigger id="edit-workspace-default-agent">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {listAgentTypes().map((agent) => (
-                        <SelectItem key={agent.id} value={agent.id}>
-                          {agent.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label>Task skills</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Slash commands invoked by the Plan/Implement buttons.
-                  </p>
-                  <Input
-                    aria-label="Plan skill"
-                    value={planSkill}
-                    onChange={(e) => setPlanSkill(e.target.value)}
-                    placeholder="/engy:plan (plan)"
-                  />
-                  <Input
-                    aria-label="Implement skill"
-                    value={implementSkill}
-                    onChange={(e) => setImplementSkill(e.target.value)}
-                    placeholder="/engy:implement (implement)"
-                  />
-                </div>
               </div>
+            </TabsContent>
+
+            <TabsContent value="agents">
+              <AgentSettingsTab
+                defaultAgentType={defaultAgentType}
+                onDefaultAgentTypeChange={setDefaultAgentType}
+                value={agentSettings}
+                onChange={setAgentSettings}
+              />
             </TabsContent>
 
             <TabsContent value="container">

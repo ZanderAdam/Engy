@@ -5,7 +5,11 @@ import {
   getAgentType,
   getMcpUrl,
   isAgentTypeId,
+  isAgentActive,
+  isAgentModeId,
   listAgentTypes,
+  resolveAgentMode,
+  resolveAgentSkills,
   MCP_SESSION_PLACEHOLDER,
 } from './agent-types';
 
@@ -129,6 +133,119 @@ describe('agent types', () => {
       expect(buildAgentCommand('codex', { dangerouslySkipPermissions: true })).toBe(
         'codex --dangerously-bypass-approvals-and-sandbox',
       );
+    });
+  });
+
+  describe('per-agent workspace settings', () => {
+    describe('mode in built commands', () => {
+      it('[FR-WORKSPACE-150] should apply the configured claude permission mode', () => {
+        expect(buildAgentCommand('claude', { agentSettings: { claude: { mode: 'plan' } } })).toBe(
+          'claude --permission-mode plan',
+        );
+      });
+
+      it('[FR-WORKSPACE-150] should fall back to acceptEdits for an unknown claude mode', () => {
+        expect(
+          buildAgentCommand('claude', { agentSettings: { claude: { mode: 'yolo' } } }),
+        ).toBe('claude --permission-mode acceptEdits');
+      });
+
+      it("[FR-WORKSPACE-150] should ignore the OTHER agent's configured mode", () => {
+        expect(buildAgentCommand('claude', { agentSettings: { codex: { mode: 'read-only' } } })).toBe(
+          'claude --permission-mode acceptEdits',
+        );
+      });
+
+      it('[FR-WORKSPACE-150] should let permission-bypass (container) override the configured mode', () => {
+        expect(
+          buildAgentCommand('claude', {
+            dangerouslySkipPermissions: true,
+            agentSettings: { claude: { mode: 'plan' } },
+          }),
+        ).toBe('claude --dangerously-skip-permissions');
+      });
+
+      it('[FR-WORKSPACE-150] should map the codex full-auto preset to sandbox + approval flags', () => {
+        expect(buildAgentCommand('codex', { agentSettings: { codex: { mode: 'full-auto' } } })).toBe(
+          'codex --sandbox workspace-write --ask-for-approval never',
+        );
+      });
+
+      it('[FR-WORKSPACE-150] should map the codex danger-full-access preset', () => {
+        expect(
+          buildAgentCommand('codex', { agentSettings: { codex: { mode: 'danger-full-access' } } }),
+        ).toBe('codex --sandbox danger-full-access');
+      });
+
+      it('[FR-WORKSPACE-150] should omit --add-dir flags in the codex read-only preset', () => {
+        expect(
+          buildAgentCommand('codex', {
+            additionalDirs: ['/some/dir'],
+            agentSettings: { codex: { mode: 'read-only' } },
+          }),
+        ).toBe('codex --sandbox read-only');
+      });
+    });
+
+    describe('mode helpers', () => {
+      it('should expose per-agent mode lists with a valid default', () => {
+        for (const agent of listAgentTypes()) {
+          expect(agent.modes.length).toBeGreaterThan(0);
+          expect(agent.modes.some((m) => m.id === agent.defaultModeId)).toBe(true);
+        }
+      });
+
+      it('should recognize mode ids per agent', () => {
+        expect(isAgentModeId('claude', 'plan')).toBe(true);
+        expect(isAgentModeId('claude', 'read-only')).toBe(false);
+        expect(isAgentModeId('codex', 'read-only')).toBe(true);
+        expect(isAgentModeId('codex', 'plan')).toBe(false);
+      });
+
+      it('should resolve the configured mode, defaulting when unset or unknown', () => {
+        expect(resolveAgentMode({ claude: { mode: 'dontAsk' } }, 'claude')).toBe('dontAsk');
+        expect(resolveAgentMode({ claude: { mode: 'nope' } }, 'claude')).toBe('acceptEdits');
+        expect(resolveAgentMode(undefined, 'codex')).toBe('workspace-write');
+      });
+    });
+
+    describe('active flag', () => {
+      it('should treat agents as active unless explicitly deactivated', () => {
+        expect(isAgentActive(undefined, 'codex')).toBe(true);
+        expect(isAgentActive({}, 'codex')).toBe(true);
+        expect(isAgentActive({ codex: { mode: 'read-only' } }, 'codex')).toBe(true);
+        expect(isAgentActive({ codex: { active: false } }, 'codex')).toBe(false);
+        expect(isAgentActive({ codex: { active: true } }, 'codex')).toBe(true);
+      });
+    });
+
+    describe('skills resolution', () => {
+      it('[FR-WORKSPACE-160] should prefer the per-agent skill entry', () => {
+        const workspace = {
+          planSkill: '/legacy:plan',
+          implementSkill: '/legacy:implement',
+          agentSettings: { claude: { planSkill: '/mine:plan', implementSkill: '/mine:impl' } },
+        };
+        expect(resolveAgentSkills(workspace, 'claude')).toEqual({
+          planSkill: '/mine:plan',
+          implementSkill: '/mine:impl',
+        });
+      });
+
+      it('[FR-WORKSPACE-160] should fall back to the legacy workspace columns', () => {
+        const workspace = { planSkill: '/legacy:plan', implementSkill: null, agentSettings: {} };
+        expect(resolveAgentSkills(workspace, 'claude')).toEqual({
+          planSkill: '/legacy:plan',
+          implementSkill: '/engy:implement',
+        });
+      });
+
+      it('[FR-WORKSPACE-160] should fall back to the engy defaults when nothing is set', () => {
+        expect(resolveAgentSkills({}, 'codex')).toEqual({
+          planSkill: '/engy:plan',
+          implementSkill: '/engy:implement',
+        });
+      });
     });
   });
 });

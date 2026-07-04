@@ -327,6 +327,60 @@ describe('workspace router', () => {
       ).rejects.toThrow();
     });
 
+    it('[FR-WORKSPACE-140] should persist agentSettings', async () => {
+      const ws = await caller.workspace.create({ name: 'Agent Settings' });
+      const updated = await caller.workspace.update({
+        id: ws.id,
+        agentSettings: {
+          claude: { mode: 'plan', planSkill: '/mine:plan' },
+          codex: { active: false },
+        },
+      });
+      expect(updated.agentSettings).toEqual({
+        claude: { mode: 'plan', planSkill: '/mine:plan' },
+        codex: { active: false },
+      });
+    });
+
+    it('[FR-WORKSPACE-140] should preserve agentSettings when not provided in update', async () => {
+      const ws = await caller.workspace.create({ name: 'Agent Settings Keep' });
+      await caller.workspace.update({
+        id: ws.id,
+        agentSettings: { codex: { mode: 'read-only' } },
+      });
+      const updated = await caller.workspace.update({ id: ws.id, name: 'Renamed' });
+      expect(updated.agentSettings).toEqual({ codex: { mode: 'read-only' } });
+    });
+
+    it('[FR-WORKSPACE-140] should reject agentSettings with an unknown agent key', async () => {
+      const ws = await caller.workspace.create({ name: 'Agent Settings Bad Key' });
+      await expect(
+        caller.workspace.update({ id: ws.id, agentSettings: { gemini: { active: false } } }),
+      ).rejects.toThrow();
+    });
+
+    it('[FR-WORKSPACE-140] should reject a mode that does not exist for that agent', async () => {
+      const ws = await caller.workspace.create({ name: 'Agent Settings Bad Mode' });
+      await expect(
+        caller.workspace.update({ id: ws.id, agentSettings: { claude: { mode: 'read-only' } } }),
+      ).rejects.toThrow(/Unknown mode/);
+    });
+
+    it('[FR-WORKSPACE-140] should reject deactivating the default agent', async () => {
+      const ws = await caller.workspace.create({ name: 'Agent Settings Default Off' });
+      await expect(
+        caller.workspace.update({ id: ws.id, agentSettings: { claude: { active: false } } }),
+      ).rejects.toThrow(/default agent/);
+    });
+
+    it('[FR-WORKSPACE-140] should reject switching the default to an agent deactivated in existing settings', async () => {
+      const ws = await caller.workspace.create({ name: 'Agent Settings Default Switch' });
+      await caller.workspace.update({ id: ws.id, agentSettings: { codex: { active: false } } });
+      await expect(
+        caller.workspace.update({ id: ws.id, defaultAgentType: 'codex' }),
+      ).rejects.toThrow(/default agent/);
+    });
+
     it('should clear skills when set to null', async () => {
       const ws = await caller.workspace.create({ name: 'Skill Clear' });
       await caller.workspace.update({

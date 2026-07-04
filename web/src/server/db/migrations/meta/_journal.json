@@ -169,6 +169,13 @@
       "when": 1783102462163,
       "tag": "0023_mixed_red_wolf",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1783181222151,
+      "tag": "0024_lively_scourge",
+      "breakpoints": true
     }
   ]
 }

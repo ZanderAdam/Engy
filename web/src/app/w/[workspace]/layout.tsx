@@ -48,6 +48,7 @@ import {
   getAgentType,
   coerceAgentTypeId,
   listAgentTypes,
+  isAgentActive,
   type AgentTypeId,
 } from '@/lib/agent-types';
 import { deriveScope } from '@/components/terminal/use-terminal-scope';
@@ -156,6 +157,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
     const hostMode = isContainerEnabled ? ('host' as const) : undefined;
     const defaultAid = coerceAgentTypeId(workspace.defaultAgentType);
+    const agentSettings = workspace.agentSettings;
 
     // Build the repo/worktree entry tree for one agent. The default agent's tree
     // sits at the top level; each additional agent's identical tree hangs under a
@@ -196,6 +198,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
                 additionalDirs,
                 dangerouslySkipPermissions: isContainer,
                 mcpUrl: getMcpUrl(),
+                agentSettings,
               }),
               groupKey,
               workspaceSlug: params.workspace,
@@ -204,7 +207,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
               projectSlug: params.project,
               worktreeBranch: branch,
               agentType: agentTypeId,
-              agentContext: { systemPrompt, additionalDirs },
+              agentContext: { systemPrompt, additionalDirs, agentSettings },
             },
             icon: isContainer
               ? RiBox3Line
@@ -236,6 +239,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
                 additionalDirs,
                 dangerouslySkipPermissions: isContainer,
                 mcpUrl: getMcpUrl(),
+                agentSettings,
               }),
               groupKey,
               workspaceSlug: params.workspace,
@@ -244,7 +248,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
               projectSlug: params.project,
               worktreeBranch: branch,
               agentType: agentTypeId,
-              agentContext: { systemPrompt, additionalDirs },
+              agentContext: { systemPrompt, additionalDirs, agentSettings },
             },
             icon: isContainer
               ? RiBox3Line
@@ -302,6 +306,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
                 additionalDirs: effectiveDirs,
                 dangerouslySkipPermissions: isContainer,
                 mcpUrl: getMcpUrl(),
+                agentSettings,
               }),
               groupKey,
               workspaceSlug: params.workspace,
@@ -310,7 +315,11 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
               projectSlug: params.project,
               worktreeBranch: branch,
               agentType: agentTypeId,
-              agentContext: { systemPrompt, additionalDirs: effectiveDirs },
+              agentContext: {
+                systemPrompt,
+                additionalDirs: effectiveDirs,
+                agentSettings,
+              },
             },
             icon,
           };
@@ -425,6 +434,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       worktreeBranch,
       workspace.earsBdd ?? false,
       defaultAid,
+      workspace.agentSettings,
     );
     // The plain (no-repo) leaf inside an agent's submenu. The agent is already
     // named by the parent submenu, so the label drops it.
@@ -457,9 +467,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
     // Additional agents: one entry per agent, labelled by the agent name. With
     // options it's a submenu (plain + that agent's full repo/worktree tree);
-    // with only a single plain option, a leaf.
+    // with only a single plain option, a leaf. Deactivated agents are hidden.
     const agentEntries = listAgentTypes()
-      .filter((a) => a.id !== defaultAid)
+      .filter((a) => a.id !== defaultAid && isAgentActive(workspace.agentSettings, a.id))
       .map<TerminalDropdownEntry>((a) => {
         const children = [
           plainLeaf(a.id, hostMode),

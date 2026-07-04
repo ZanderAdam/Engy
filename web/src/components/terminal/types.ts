@@ -1,5 +1,11 @@
 import type { ElementType } from 'react';
-import { buildAgentCommand, getAgentType, getMcpUrl, type AgentTypeId } from '@/lib/agent-types';
+import {
+  buildAgentCommand,
+  getAgentType,
+  getMcpUrl,
+  type AgentTypeId,
+  type WorkspaceAgentSettings,
+} from '@/lib/agent-types';
 
 export type TerminalScopeType = 'project' | 'workspace' | 'dir' | 'worktree';
 
@@ -61,7 +67,13 @@ export interface TerminalScope {
   // Ingredients the command was built from, kept so the command can be
   // rebuilt for a different agent type or container mode (see scopeForAgent /
   // toContainerScope) without string surgery on the command itself.
-  agentContext?: { systemPrompt?: string; additionalDirs?: string[] };
+  // agentSettings carries the workspace's per-agent overrides so a rebuild
+  // for a DIFFERENT agent picks up that agent's configured mode.
+  agentContext?: {
+    systemPrompt?: string;
+    additionalDirs?: string[];
+    agentSettings?: WorkspaceAgentSettings | null;
+  };
   // Project identity for per-project activity rollup (badges). Only set for
   // project/worktree scopes; workspace/dir scopes don't roll up to a project.
   projectId?: number;
@@ -113,7 +125,12 @@ export function toContainerScope(scope: TerminalScope): TerminalScope {
         dangerouslySkipPermissions: true,
         mcpUrl: getMcpUrl(),
       })
-    : scope.command?.replace('--permission-mode acceptEdits', '--dangerously-skip-permissions');
+    : scope.command
+        ?.replace(/--permission-mode \S+/, '--dangerously-skip-permissions')
+        ?.replace(
+          /--sandbox \S+( --ask-for-approval \S+)?/,
+          '--dangerously-bypass-approvals-and-sandbox',
+        );
   return {
     ...scope,
     containerMode: 'container',
@@ -130,8 +147,11 @@ export function scopeForAgent(scope: TerminalScope, agentType: AgentTypeId): Ter
     ...scope,
     agentType,
     scopeLabel: `${getAgentType(agentType).label.toLowerCase()}: ${scope.scopeLabel}`,
+    // agentContext is set on every scope built by deriveScope / layout.tsx; an
+    // externally constructed scope without it rebuilds a bare command (no
+    // system prompt, dirs, or per-agent mode).
     command: buildAgentCommand(agentType, {
-      ...scope.agentContext,
+      ...(scope.agentContext ?? {}),
       dangerouslySkipPermissions: scope.containerMode === 'container',
       mcpUrl: getMcpUrl(),
     }),
