@@ -10,7 +10,11 @@ import * as broadcast from '../ws/broadcast';
 // against the test DB so we get integration-level coverage without a live WebSocket.
 vi.mock('../ws/server', async (importOriginal) => {
   const actual = await importOriginal<typeof wsServer>();
-  return { ...actual, dispatchExecutionStart: vi.fn().mockResolvedValue(undefined) };
+  return {
+    ...actual,
+    dispatchExecutionStart: vi.fn().mockResolvedValue(undefined),
+    dispatchGhPrFailedLogs: vi.fn().mockResolvedValue({ logs: [] }),
+  };
 });
 
 vi.mock('../ws/broadcast', async (importOriginal) => {
@@ -19,6 +23,7 @@ vi.mock('../ws/broadcast', async (importOriginal) => {
 });
 
 const dispatchSpy = vi.mocked(wsServer.dispatchExecutionStart);
+const failedLogsSpy = vi.mocked(wsServer.dispatchGhPrFailedLogs);
 const broadcastAttentionSpy = vi.mocked(broadcast.broadcastPrAttention);
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
@@ -115,7 +120,6 @@ function seedPr(
       headSha: 'sha1',
       author: 'alice',
       isDraft: false,
-      state: 'open',
       ciStatus: 'failing',
       checks: [],
       autoFixAttempts: overrides.autoFixAttempts ?? 0,
@@ -174,7 +178,6 @@ describe('maybeDispatchCiFix', () => {
         db: ctx.db,
         prRow,
         classification: 'non-mechanical',
-        logs: [],
         workspace,
       });
 
@@ -196,7 +199,6 @@ describe('maybeDispatchCiFix', () => {
         db: ctx.db,
         prRow,
         classification: 'mechanical',
-        logs: [],
         workspace,
       });
 
@@ -219,7 +221,6 @@ describe('maybeDispatchCiFix', () => {
         db: ctx.db,
         prRow,
         classification: 'mechanical',
-        logs: [],
         workspace,
       });
 
@@ -243,7 +244,6 @@ describe('maybeDispatchCiFix', () => {
         db: ctx.db,
         prRow,
         classification: 'mechanical',
-        logs: [],
         workspace,
       });
 
@@ -280,7 +280,6 @@ describe('maybeDispatchCiFix', () => {
         db: ctx.db,
         prRow,
         classification: 'mechanical',
-        logs: [],
         workspace,
       });
 
@@ -303,7 +302,6 @@ describe('maybeDispatchCiFix', () => {
         db: ctx.db,
         prRow,
         classification: 'mechanical',
-        logs: [],
         workspace,
       });
 
@@ -331,7 +329,6 @@ describe('maybeDispatchCiFix', () => {
         db: ctx.db,
         prRow,
         classification: 'mechanical',
-        logs: [],
         workspace,
       });
 
@@ -357,8 +354,7 @@ describe('maybeDispatchCiFix', () => {
           headSha: 'sha-fresh',
           author: 'alice',
           isDraft: false,
-          state: 'open',
-          ciStatus: 'failing',
+              ciStatus: 'failing',
           checks: [],
           autoFixAttempts: 0,
           autoFixTotalAttempts: MAX_TOTAL_AUTO_FIX_ATTEMPTS,
@@ -374,7 +370,6 @@ describe('maybeDispatchCiFix', () => {
         db: ctx.db,
         prRow,
         classification: 'mechanical',
-        logs: [],
         workspace,
       });
 
@@ -395,7 +390,6 @@ describe('maybeDispatchCiFix', () => {
         db: ctx.db,
         prRow,
         classification: 'mechanical',
-        logs: [],
         workspace,
       });
 
@@ -437,7 +431,6 @@ describe('maybeDispatchCiFix', () => {
         db: ctx.db,
         prRow,
         classification: 'mechanical',
-        logs: [],
         workspace,
       });
 
@@ -452,13 +445,13 @@ describe('maybeDispatchCiFix', () => {
       const prRow = seedPr(ctx, { autoFixAttempts: MAX_AUTO_FIX_ATTEMPTS - 1, attentionReason: 'prior-reason' });
       const workspace = getWorkspace(ctx, workspaceId);
       ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
+      failedLogsSpy.mockResolvedValueOnce({ logs: [{ checkName: 'lint', excerpt: 'Error: unexpected token' }] });
 
       const result = await maybeDispatchCiFix({
         state: ctx.state,
         db: ctx.db,
         prRow,
         classification: 'mechanical',
-        logs: [{ checkName: 'lint', excerpt: 'Error: unexpected token' }],
         workspace,
       });
 
@@ -482,7 +475,53 @@ describe('maybeDispatchCiFix', () => {
       expect(flags).toContain('--resume');
       expect(flags).toContain(SESSION_ID);
       expect(prompt).toContain('unexpected token');
+      expect(failedLogsSpy).toHaveBeenCalledWith(prRow.repo, prRow.number, ctx.state, undefined);
       expect(broadcastAttentionSpy).not.toHaveBeenCalled();
+    });
+
+    it('should fetch logs only after all gates pass and dispatch with empty logs when the fetch fails', async () => {
+      const { workspaceId } = seedAll(ctx);
+      const prRow = seedPr(ctx);
+      const workspace = getWorkspace(ctx, workspaceId);
+      ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      failedLogsSpy.mockRejectedValueOnce(new Error('log fetch failed'));
+
+      const result = await maybeDispatchCiFix({
+        state: ctx.state,
+        db: ctx.db,
+        prRow,
+        classification: 'mechanical',
+        workspace,
+      });
+
+      expect(result).toEqual({ dispatched: true });
+      expect(failedLogsSpy).toHaveBeenCalledOnce();
+      const [, , prompt] = dispatchSpy.mock.calls[0]!;
+      expect(prompt).not.toContain('Log excerpts');
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('failed to fetch logs'),
+        expect.stringContaining('log fetch failed'),
+      );
+      errorSpy.mockRestore();
+    });
+
+    it('should not fetch logs when a gate blocks the dispatch', async () => {
+      const { workspaceId } = seedAll(ctx);
+      const prRow = seedPr(ctx, { autoFixAttempts: MAX_AUTO_FIX_ATTEMPTS });
+      const workspace = getWorkspace(ctx, workspaceId);
+      ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
+
+      const result = await maybeDispatchCiFix({
+        state: ctx.state,
+        db: ctx.db,
+        prRow,
+        classification: 'mechanical',
+        workspace,
+      });
+
+      expect(result).toEqual({ dispatched: false, reason: 'attempt-cap-sha' });
+      expect(failedLogsSpy).not.toHaveBeenCalled();
     });
 
     it('should dispatch without resume flags when session has no taskId', async () => {
@@ -512,7 +551,6 @@ describe('maybeDispatchCiFix', () => {
         db: ctx.db,
         prRow,
         classification: 'mechanical',
-        logs: [],
         workspace,
       });
 
@@ -537,8 +575,7 @@ describe('maybeDispatchCiFix', () => {
           db: ctx.db,
           prRow,
           classification: 'mechanical',
-          logs: [],
-          workspace,
+            workspace,
         }),
       ).rejects.toThrow('daemon timeout');
 
@@ -567,7 +604,6 @@ describe('maybeDispatchCiFix', () => {
         db: ctx.db,
         prRow,
         classification: 'mechanical',
-        logs: [],
         workspace,
       });
 
@@ -598,7 +634,6 @@ describe('maybeDispatchCiFix', () => {
         db: ctx.db,
         prRow,
         classification: 'mechanical',
-        logs: [],
         workspace,
       });
 

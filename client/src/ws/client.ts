@@ -38,13 +38,12 @@ import type {
   FsDeleteRequestMessage,
   FsRenameRequestMessage,
   GhPrListRequestMessage,
-  GhAuthStatusRequestMessage,
   GhPrFailedLogsRequestMessage,
   GhPrReviewCommentsRequestMessage,
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
-import { listOpenPrs, fetchFailedLogs, fetchReviewComments, checkAuthStatus, localGhRunner, type GhRunner } from '../gh/index.js';
+import { listOpenPrs, fetchFailedLogs, fetchReviewComments, classifyGhError, localGhRunner, type GhRunner } from '../gh/index.js';
 import {
   getStatusDetailed,
   getDiff,
@@ -637,9 +636,6 @@ export class WsClient {
         break;
       case 'GH_PR_LIST_REQUEST':
         this.handleGhPrListRequest(message as GhPrListRequestMessage);
-        break;
-      case 'GH_AUTH_STATUS_REQUEST':
-        this.handleGhAuthStatusRequest(message as GhAuthStatusRequestMessage);
         break;
       case 'GH_PR_FAILED_LOGS_REQUEST':
         this.handleGhPrFailedLogsRequest(message as GhPrFailedLogsRequestMessage);
@@ -1420,23 +1416,7 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'GH_PR_LIST_RESPONSE',
-        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
-      });
-    }
-  }
-
-  private async handleGhAuthStatusRequest(message: GhAuthStatusRequestMessage): Promise<void> {
-    const { requestId, coderWorkspace } = message.payload;
-    try {
-      const status = await checkAuthStatus(this.ghRunnerFor(coderWorkspace));
-      this.send({
-        type: 'GH_AUTH_STATUS_RESPONSE',
-        payload: { requestId, status },
-      });
-    } catch (err) {
-      this.send({
-        type: 'GH_AUTH_STATUS_RESPONSE',
-        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+        payload: { requestId, error: classifyGhError(err) },
       });
     }
   }
@@ -1452,7 +1432,7 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'GH_PR_FAILED_LOGS_RESPONSE',
-        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+        payload: { requestId, error: classifyGhError(err) },
       });
     }
   }
@@ -1470,7 +1450,7 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'GH_PR_REVIEW_COMMENTS_RESPONSE',
-        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+        payload: { requestId, error: classifyGhError(err) },
       });
     }
   }

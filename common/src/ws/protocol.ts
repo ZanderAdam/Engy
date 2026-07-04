@@ -634,10 +634,6 @@ export interface GhPr {
   updatedAt?: string;
 }
 
-export type GhAuthStatus =
-  | { ok: true }
-  | { ok: false; reason: 'not-installed' | 'not-authenticated' };
-
 export interface GhPrListRequestMessage {
   type: 'GH_PR_LIST_REQUEST';
   payload: {
@@ -651,21 +647,6 @@ export interface GhPrListResponseMessage {
   type: 'GH_PR_LIST_RESPONSE';
   payload:
     | { requestId: string; prs: GhPr[] }
-    | { requestId: string; error: string };
-}
-
-export interface GhAuthStatusRequestMessage {
-  type: 'GH_AUTH_STATUS_REQUEST';
-  payload: {
-    requestId: string;
-    coderWorkspace?: string;
-  };
-}
-
-export interface GhAuthStatusResponseMessage {
-  type: 'GH_AUTH_STATUS_RESPONSE';
-  payload:
-    | { requestId: string; status: GhAuthStatus }
     | { requestId: string; error: string };
 }
 
@@ -778,8 +759,6 @@ export type WsMessage =
   | CreateMemoriesEventMessage
   | GhPrListRequestMessage
   | GhPrListResponseMessage
-  | GhAuthStatusRequestMessage
-  | GhAuthStatusResponseMessage
   | GhPrFailedLogsRequestMessage
   | GhPrFailedLogsResponseMessage
   | GhPrReviewCommentsRequestMessage
@@ -820,7 +799,6 @@ export type ClientToServerMessage =
   | ExecutionCompleteEventMessage
   | CreateMemoriesEventMessage
   | GhPrListResponseMessage
-  | GhAuthStatusResponseMessage
   | GhPrFailedLogsResponseMessage
   | GhPrReviewCommentsResponseMessage;
 
@@ -854,7 +832,6 @@ export type ServerToClientMessage =
   | ExecutionStartRequestMessage
   | ExecutionStopRequestMessage
   | GhPrListRequestMessage
-  | GhAuthStatusRequestMessage
   | GhPrFailedLogsRequestMessage
   | GhPrReviewCommentsRequestMessage;
 

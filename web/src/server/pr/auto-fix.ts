@@ -2,7 +2,7 @@ import { eq, and, isNotNull, gt, sql } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { prs, agentSessions, tasks, projects, workspaces } from '../db/schema';
 import type { AppState } from '../trpc/context';
-import { dispatchExecutionStart } from '../ws/server';
+import { dispatchExecutionStart, dispatchGhPrFailedLogs } from '../ws/server';
 import { buildResumeFlags, buildResumeConfig } from '../trpc/routers/execution';
 import { findCorrelatedSession } from '../trpc/routers/pr';
 import { buildCiFixPrompt } from '../../lib/shell';
@@ -33,8 +33,8 @@ interface MaybeDispatchCiFixInput {
   db: Db;
   prRow: typeof prs.$inferSelect;
   classification: CiFailureClassification;
-  logs: FailedLog[];
   workspace: typeof workspaces.$inferSelect;
+  coderWorkspace?: string;
 }
 
 function clearAttentionReason(db: Db, repo: string, prNumber: number): void {
@@ -62,8 +62,8 @@ export async function maybeDispatchCiFix({
   db,
   prRow,
   classification,
-  logs,
   workspace,
+  coderWorkspace,
 }: MaybeDispatchCiFixInput): Promise<CiFixResult> {
   if (classification !== 'mechanical') {
     setAttentionReason(db, workspace, prRow, 'non-mechanical');
@@ -118,6 +118,20 @@ export async function maybeDispatchCiFix({
   if (!session.worktreePath) {
     setAttentionReason(db, workspace, prRow, 'no-worktree');
     return { dispatched: false, reason: 'no-worktree' };
+  }
+
+  // All gates passed — only now is the (expensive) log fetch worth it. Logs
+  // are prompt context only; a failed fetch dispatches with empty logs since
+  // the agent can reproduce the failure locally.
+  let logs: FailedLog[] = [];
+  try {
+    const result = await dispatchGhPrFailedLogs(prRow.repo, prRow.number, state, coderWorkspace);
+    logs = result.logs;
+  } catch (err) {
+    console.error(
+      `[auto-fix] failed to fetch logs for ${prRow.repo}#${prRow.number}:`,
+      err instanceof Error ? err.message : String(err),
+    );
   }
 
   const prompt = buildCiFixPrompt({

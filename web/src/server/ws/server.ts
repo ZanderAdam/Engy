@@ -37,7 +37,6 @@ import type {
   FsDeleteResult,
   FsRenameResult,
   GhPrListResult,
-  GhAuthStatusResult,
   GhPrFailedLogsResult,
   GhPrReviewCommentsResult,
 } from '../trpc/context';
@@ -120,7 +119,6 @@ function rejectAllPending(state: AppState): void {
     state.pendingFsDelete,
     state.pendingFsRename,
     state.pendingGhPrList,
-    state.pendingGhAuthStatus,
     state.pendingGhPrFailedLogs,
     state.pendingGhPrReviewComments,
   ] as const;
@@ -283,11 +281,6 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'GH_PR_LIST_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGhPrList, (p) => ({
         prs: p.prs,
-      }));
-      break;
-    case 'GH_AUTH_STATUS_RESPONSE':
-      resolvePendingResponse(msg.payload, state.pendingGhAuthStatus, (p) => ({
-        status: p.status,
       }));
       break;
     case 'GH_PR_FAILED_LOGS_RESPONSE':
@@ -1287,15 +1280,6 @@ export function dispatchGhPrList(
 ): Promise<GhPrListResult> {
   return dispatchDaemonOp(state, state.pendingGhPrList, 'GH_PR_LIST_REQUEST', {
     repoDir,
-    coderWorkspace,
-  });
-}
-
-export function dispatchGhAuthStatus(
-  state: AppState,
-  coderWorkspace?: string,
-): Promise<GhAuthStatusResult> {
-  return dispatchDaemonOp(state, state.pendingGhAuthStatus, 'GH_AUTH_STATUS_REQUEST', {
     coderWorkspace,
   });
 }

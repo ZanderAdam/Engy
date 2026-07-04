@@ -4,7 +4,7 @@ import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
 import { workspaces, prs, agentSessions, taskGroups, tasks, projects } from '../../db/schema';
 import { upsertPrs, findCorrelatedSession } from './pr';
-import type { GhPr, GhAuthStatus } from '@engy/common';
+import type { GhPr } from '@engy/common';
 import { eq, and } from 'drizzle-orm';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
@@ -29,7 +29,6 @@ function makePr(overrides: Partial<GhPr> = {}): GhPr {
 // ── Daemon stub ───────────────────────────────────────────────────────
 
 interface DaemonScripts {
-  authStatus?: GhAuthStatus | Error;
   prsByRepo?: Map<string, GhPr[] | Error>;
 }
 
@@ -47,18 +46,7 @@ function installFakeDaemon(ctx: TestContext, scripts: DaemonScripts) {
       const requestId = msg.payload.requestId;
 
       queueMicrotask(() => {
-        if (msg.type === 'GH_AUTH_STATUS_REQUEST') {
-          const pending = ctx.state.pendingGhAuthStatus.get(requestId);
-          if (!pending) return;
-          ctx.state.pendingGhAuthStatus.delete(requestId);
-
-          const auth = scripts.authStatus ?? { ok: true as const };
-          if (auth instanceof Error) {
-            pending.reject(auth);
-          } else {
-            pending.resolve({ status: auth });
-          }
-        } else if (msg.type === 'GH_PR_LIST_REQUEST') {
+        if (msg.type === 'GH_PR_LIST_REQUEST') {
           const pending = ctx.state.pendingGhPrList.get(requestId);
           if (!pending) return;
           ctx.state.pendingGhPrList.delete(requestId);
@@ -110,7 +98,7 @@ describe('pr router', () => {
 
       expect(result.inserted).toBe(2);
       expect(result.updated).toBe(0);
-      expect(result.closed).toBe(0);
+      expect(result.removed).toBe(0);
       expect(result.changes).toHaveLength(2);
       expect(result.changes[0]).toMatchObject({ type: 'new', number: 1, current: 'open' });
       expect(result.changes[1]).toMatchObject({ type: 'new', number: 2, current: 'open' });
@@ -139,16 +127,6 @@ describe('pr router', () => {
       });
     });
 
-    it('should report state change when a PR transitions from open to merged', () => {
-      seedWorkspace(ctx, ['/repo-a']);
-
-      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 5, state: 'open' })]);
-      const result = upsertPrs(ctx.db, '/repo-a', [makePr({ number: 5, state: 'merged' })]);
-
-      expect(result.changes).toHaveLength(1);
-      expect(result.changes[0]).toMatchObject({ type: 'state', previous: 'open', current: 'merged' });
-    });
-
     it('should report reviewDecision change', () => {
       seedWorkspace(ctx, ['/repo-a']);
 
@@ -164,41 +142,34 @@ describe('pr router', () => {
       });
     });
 
-    it('should close previously-open PRs not present in the fresh list', () => {
+    it('should delete PRs not present in the fresh list', () => {
       seedWorkspace(ctx, ['/repo-a']);
 
-      // Insert PRs 1 and 2
       upsertPrs(ctx.db, '/repo-a', [
         makePr({ number: 1 }),
         makePr({ number: 2 }),
       ]);
 
-      // Second call only includes PR 1 — PR 2 should be closed
+      // Second call only includes PR 1 — PR 2 is no longer open and is deleted
       const result = upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 })]);
 
-      expect(result.closed).toBe(1);
+      expect(result.removed).toBe(1);
       expect(result.changes).toHaveLength(1);
-      expect(result.changes[0]).toMatchObject({
-        type: 'state',
-        number: 2,
-        previous: 'open',
-        current: 'closed',
-      });
+      expect(result.changes[0]).toMatchObject({ type: 'removed', number: 2 });
 
-      const closed = ctx.db.select().from(prs).where(eq(prs.number, 2)).get();
-      expect(closed?.state).toBe('closed');
+      const gone = ctx.db.select().from(prs).where(eq(prs.number, 2)).get();
+      expect(gone).toBeUndefined();
     });
 
-    it('should not re-close already-closed PRs when they remain absent', () => {
+    it('should report nothing for PRs that were already deleted', () => {
       seedWorkspace(ctx, ['/repo-a']);
 
       upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 }), makePr({ number: 2 })]);
       upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 })]);
 
-      // Third call — PR 2 is still absent but already closed
       const result = upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 })]);
 
-      expect(result.closed).toBe(0);
+      expect(result.removed).toBe(0);
       expect(result.changes).toHaveLength(0);
     });
 
@@ -212,15 +183,6 @@ describe('pr router', () => {
       expect(result.inserted).toBe(0);
       expect(result.updated).toBe(1);
       expect(result.changes).toHaveLength(0);
-    });
-
-    it('should normalize uppercase state values to lowercase', () => {
-      seedWorkspace(ctx, ['/repo-a']);
-
-      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 7, state: 'OPEN' })]);
-
-      const row = ctx.db.select().from(prs).where(eq(prs.number, 7)).get();
-      expect(row?.state).toBe('open');
     });
 
     it('should roll back all writes atomically when a batch insert fails mid-way', () => {
@@ -239,42 +201,25 @@ describe('pr router', () => {
       expect(rows).toHaveLength(0);
     });
 
-    it('should clear attentionReason when a PR transitions from open to closed', () => {
-      seedWorkspace(ctx, ['/repo-a']);
-
-      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, state: 'open' })]);
-      ctx.db.update(prs).set({ attentionReason: 'non-mechanical' }).where(eq(prs.number, 1)).run();
-
-      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, state: 'closed' })]);
-
-      const row = ctx.db.select().from(prs).where(eq(prs.number, 1)).get();
-      expect(row?.attentionReason).toBeNull();
-      expect(row?.lastFailedHeadSha).toBeNull();
-    });
-
-    it('should clear attentionReason when a PR vanishes from the list', () => {
+    it('should drop attention state with the row when a PR vanishes from the list', () => {
       seedWorkspace(ctx, ['/repo-a']);
 
       upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 }), makePr({ number: 2 })]);
       ctx.db.update(prs).set({ attentionReason: 'uncorrelated', lastFailedHeadSha: 'sha1' })
         .where(eq(prs.number, 2)).run();
 
-      // Second call omits PR 2 — it should be closed and have attentionReason cleared
       upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 })]);
 
-      const row = ctx.db.select().from(prs).where(eq(prs.number, 2)).get();
-      expect(row?.state).toBe('closed');
-      expect(row?.attentionReason).toBeNull();
-      expect(row?.lastFailedHeadSha).toBeNull();
+      expect(ctx.db.select().from(prs).where(eq(prs.number, 2)).get()).toBeUndefined();
     });
 
     it('should not clear attentionReason for PRs that remain open', () => {
       seedWorkspace(ctx, ['/repo-a']);
 
-      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, state: 'open' })]);
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 })]);
       ctx.db.update(prs).set({ attentionReason: 'non-mechanical' }).where(eq(prs.number, 1)).run();
 
-      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, state: 'open' })]);
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 })]);
 
       const row = ctx.db.select().from(prs).where(eq(prs.number, 1)).get();
       expect(row?.attentionReason).toBe('non-mechanical');
@@ -366,24 +311,30 @@ describe('pr router', () => {
 
       const result = await caller.pr.list({ workspaceId: ws.id });
 
-      expect(result).toHaveLength(2);
-      const branches = result.map((r) => r.headBranch);
+      expect(result.prs).toHaveLength(2);
+      const branches = result.prs.map((r) => r.headBranch);
       expect(branches).toContain('feat/a');
       expect(branches).toContain('feat/b');
     });
 
-    it('should not return closed or merged PRs', async () => {
+    it('should stop returning PRs that vanished from the open list', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
 
-      upsertPrs(ctx.db, '/repo-a', [
-        makePr({ number: 1, state: 'open' }),
-        makePr({ number: 2, state: 'closed' }),
-        makePr({ number: 3, state: 'merged' }),
-      ]);
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 }), makePr({ number: 2 })]);
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 })]);
 
       const result = await caller.pr.list({ workspaceId: ws.id });
-      expect(result).toHaveLength(1);
-      expect(result[0].number).toBe(1);
+      expect(result.prs).toHaveLength(1);
+      expect(result.prs[0].number).toBe(1);
+    });
+
+    it('[FR-PRMON-130] should return per-repo gh errors from the in-memory map', async () => {
+      const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b']);
+      ctx.state.prRepoErrors.set('/repo-a', 'gh-not-authenticated');
+      ctx.state.prRepoErrors.set('/unrelated-repo', 'ignored');
+
+      const result = await caller.pr.list({ workspaceId: ws.id });
+      expect(result.repoErrors).toEqual({ '/repo-a': 'gh-not-authenticated' });
     });
 
     it('should correlate PRs with most recent agent session matching headBranch', async () => {
@@ -427,10 +378,10 @@ describe('pr router', () => {
       upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, headBranch: 'feat/my-feature' })]);
 
       const result = await caller.pr.list({ workspaceId: ws.id });
-      expect(result).toHaveLength(1);
-      expect(result[0].sessionId).toBe('sess-new');
-      expect(result[0].taskGroupId).toBe(tg.id);
-      expect(result[0].worktreePath).toBe('/new-wt');
+      expect(result.prs).toHaveLength(1);
+      expect(result.prs[0].sessionId).toBe('sess-new');
+      expect(result.prs[0].taskGroupId).toBe(tg.id);
+      expect(result.prs[0].worktreePath).toBe('/new-wt');
     });
 
     it('should scope session correlation by repo so identically-named branches do not cross-correlate', async () => {
@@ -481,10 +432,10 @@ describe('pr router', () => {
       upsertPrs(ctx.db, '/repo-b', [makePr({ number: 2, headBranch: 'feat/shared' })]);
 
       const result = await caller.pr.list({ workspaceId: ws.id });
-      expect(result).toHaveLength(2);
+      expect(result.prs).toHaveLength(2);
 
-      const prA = result.find((r) => r.repo === '/repo-a');
-      const prB = result.find((r) => r.repo === '/repo-b');
+      const prA = result.prs.find((r) => r.repo === '/repo-a');
+      const prB = result.prs.find((r) => r.repo === '/repo-b');
 
       expect(prA?.sessionId).toBe('sess-a');
       expect(prB?.sessionId).toBe('sess-b');
@@ -496,9 +447,9 @@ describe('pr router', () => {
       upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, headBranch: 'feat/no-session' })]);
 
       const result = await caller.pr.list({ workspaceId: ws.id });
-      expect(result[0].sessionId).toBeNull();
-      expect(result[0].taskGroupId).toBeNull();
-      expect(result[0].worktreePath).toBeNull();
+      expect(result.prs[0].sessionId).toBeNull();
+      expect(result.prs[0].taskGroupId).toBeNull();
+      expect(result.prs[0].worktreePath).toBeNull();
     });
 
     it('should correlate PRs with task-mode sessions (taskGroupId null, correlated via task → project)', async () => {
@@ -520,15 +471,15 @@ describe('pr router', () => {
       upsertPrs(ctx.db, '/repo-a', [makePr({ number: 5, headBranch: 'feat/task-mode' })]);
 
       const result = await caller.pr.list({ workspaceId: ws.id });
-      expect(result).toHaveLength(1);
-      expect(result[0].sessionId).toBe('sess-task-mode');
-      expect(result[0].worktreePath).toBe('/wt-task');
+      expect(result.prs).toHaveLength(1);
+      expect(result.prs[0].sessionId).toBe('sess-task-mode');
+      expect(result.prs[0].worktreePath).toBe('/wt-task');
     });
 
-    it('should return empty array when workspace has no repos', async () => {
+    it('should return empty results when workspace has no repos', async () => {
       const ws = seedWorkspace(ctx, []);
       const result = await caller.pr.list({ workspaceId: ws.id });
-      expect(result).toEqual([]);
+      expect(result).toEqual({ prs: [], repoErrors: {} });
     });
 
     it('should throw NOT_FOUND for unknown workspace', async () => {
@@ -541,7 +492,6 @@ describe('pr router', () => {
       const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b']);
 
       installFakeDaemon(ctx, {
-        authStatus: { ok: true },
         prsByRepo: new Map([
           ['/repo-a', [makePr({ number: 1 })]],
           ['/repo-b', [makePr({ number: 2, headBranch: 'feat/b' })]],
@@ -557,77 +507,52 @@ describe('pr router', () => {
       expect(stored).toHaveLength(2);
     });
 
-    it('should call dispatchGhAuthStatus only once regardless of repo count', async () => {
-      const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b', '/repo-c']);
+    it('[FR-PRMON-020] should isolate a failing repo and record its typed error while others succeed', async () => {
+      const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b']);
 
-      let authCallCount = 0;
-      const mock = {
-        readyState: WebSocket.OPEN,
-        OPEN: WebSocket.OPEN,
-        send: (raw: string) => {
-          const msg = JSON.parse(raw) as DaemonMessage;
-          const { requestId } = msg.payload;
-          queueMicrotask(() => {
-            if (msg.type === 'GH_AUTH_STATUS_REQUEST') {
-              authCallCount++;
-              const pending = ctx.state.pendingGhAuthStatus.get(requestId);
-              if (!pending) return;
-              ctx.state.pendingGhAuthStatus.delete(requestId);
-              pending.resolve({ status: { ok: true } });
-            } else if (msg.type === 'GH_PR_LIST_REQUEST') {
-              const pending = ctx.state.pendingGhPrList.get(requestId);
-              if (!pending) return;
-              ctx.state.pendingGhPrList.delete(requestId);
-              pending.resolve({ prs: [] });
-            }
-          });
-        },
-      };
-      ctx.state.daemon = mock as unknown as WebSocket;
+      installFakeDaemon(ctx, {
+        prsByRepo: new Map<string, GhPr[] | Error>([
+          ['/repo-a', new Error('gh-not-authenticated')],
+          ['/repo-b', [makePr({ number: 2, headBranch: 'feat/b' })]],
+        ]),
+      });
 
-      await caller.pr.refresh({ workspaceId: ws.id });
+      const results = await caller.pr.refresh({ workspaceId: ws.id });
 
-      expect(authCallCount).toBe(1);
+      const failed = results.find((r) => r.repo === '/repo-a');
+      const succeeded = results.find((r) => r.repo === '/repo-b');
+      expect(failed).toMatchObject({ success: false, error: 'gh-not-authenticated' });
+      expect(succeeded?.success).toBe(true);
+      expect(ctx.state.prRepoErrors.get('/repo-a')).toBe('gh-not-authenticated');
+      expect(ctx.state.prRepoErrors.has('/repo-b')).toBe(false);
     });
 
-    it('should return gh-not-installed error when gh CLI is not installed', async () => {
+    it('[FR-PRMON-020] should surface gh-not-installed per repo from the list call itself', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
 
       installFakeDaemon(ctx, {
-        authStatus: { ok: false, reason: 'not-installed' },
+        prsByRepo: new Map<string, GhPr[] | Error>([
+          ['/repo-a', new Error('gh-not-installed')],
+        ]),
       });
 
       const results = await caller.pr.refresh({ workspaceId: ws.id });
 
       expect(results).toHaveLength(1);
-      expect(results[0].success).toBe(false);
-      expect(results[0].error).toBe('gh-not-installed');
+      expect(results[0]).toMatchObject({ success: false, error: 'gh-not-installed' });
     });
 
-    it('should return gh-not-authenticated error when not logged in', async () => {
+    it('should clear a repo error on the next successful refresh', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
+      ctx.state.prRepoErrors.set('/repo-a', 'gh-not-authenticated');
 
       installFakeDaemon(ctx, {
-        authStatus: { ok: false, reason: 'not-authenticated' },
+        prsByRepo: new Map([['/repo-a', [makePr({ number: 1 })]]]),
       });
 
-      const results = await caller.pr.refresh({ workspaceId: ws.id });
+      await caller.pr.refresh({ workspaceId: ws.id });
 
-      expect(results[0].success).toBe(false);
-      expect(results[0].error).toBe('gh-not-authenticated');
-    });
-
-    it('should return error message when dispatch throws', async () => {
-      const ws = seedWorkspace(ctx, ['/repo-a']);
-
-      installFakeDaemon(ctx, {
-        authStatus: new Error('daemon died'),
-      });
-
-      const results = await caller.pr.refresh({ workspaceId: ws.id });
-
-      expect(results[0].success).toBe(false);
-      expect(results[0].error).toBe('daemon died');
+      expect(ctx.state.prRepoErrors.has('/repo-a')).toBe(false);
     });
 
     it('should return empty results when workspace has no repos', async () => {

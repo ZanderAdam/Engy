@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { GhPr, GhPrCheck, GhPrCiStatus, GhAuthStatus, GhReviewComment } from '@engy/common';
+import type { GhPr, GhPrCheck, GhPrCiStatus, GhReviewComment } from '@engy/common';
 
 const execFileAsync = promisify(execFile);
 const EXEC_MAX_BUFFER = 10 * 1024 * 1024;
@@ -240,29 +240,29 @@ export async function fetchReviewComments(
   }));
 }
 
-export async function checkAuthStatus(runner: GhRunner = localGhRunner): Promise<GhAuthStatus> {
-  try {
-    await runner(['auth', 'status']);
-    return { ok: true };
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') return { ok: false, reason: 'not-installed' };
+/**
+ * Maps a gh CLI error to a typed error string:
+ * - 'gh-not-installed' if the process could not be found (ENOENT)
+ * - 'gh-not-authenticated' if stderr/message contains known auth-failure phrases
+ * - the raw error message (with stderr appended when present) for all other failures
+ */
+export function classifyGhError(err: unknown): string {
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === 'ENOENT') return 'gh-not-installed';
 
-    // `gh auth status` exits non-zero when the user is not logged in. Confirm
-    // by matching known auth-problem phrases before classifying — anything else
-    // is an unexpected error (network timeout, internal gh error, etc.) and
-    // should propagate so callers can surface the real cause.
-    const stderr = (err as { stderr?: string }).stderr ?? '';
-    const combined = (stderr + '\n' + (err as Error).message).toLowerCase();
-    if (
-      combined.includes('not logged in') ||
-      combined.includes('not logged into') ||
-      combined.includes('gh auth login') ||
-      combined.includes('run gh auth')
-    ) {
-      return { ok: false, reason: 'not-authenticated' };
-    }
-
-    throw err;
+  const stderr = (err as { stderr?: string }).stderr ?? '';
+  const combined = (stderr + '\n' + (err as Error).message).toLowerCase();
+  if (
+    combined.includes('not logged in') ||
+    combined.includes('not logged into') ||
+    combined.includes('gh auth login') ||
+    combined.includes('run gh auth')
+  ) {
+    return 'gh-not-authenticated';
   }
+
+  const message = err instanceof Error ? err.message : String(err);
+  // Em-dash separator: the UI renders this in a single line, where a newline
+  // would collapse to an ambiguous space.
+  return stderr ? `${message} — ${stderr}` : message;
 }

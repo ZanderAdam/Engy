@@ -16,7 +16,6 @@ function makePrRow(overrides: Partial<typeof prsTable.$inferSelect> = {}): typeo
     headSha: 'abc123',
     author: 'alice',
     isDraft: false,
-    state: 'open',
     ciStatus: 'passing',
     checks: [],
     reviewDecision: null,

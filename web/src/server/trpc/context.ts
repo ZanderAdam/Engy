@@ -4,7 +4,6 @@ import type {
   GitFileStatus,
   GitWorktreeEntry,
   GhPr,
-  GhAuthStatus,
   GhReviewComment,
   TerminalActivityState,
   WorktreeAddErrorCode,
@@ -151,10 +150,6 @@ export interface GitWorktreeListResult {
 
 export interface GhPrListResult {
   prs: GhPr[];
-}
-
-export interface GhAuthStatusResult {
-  status: GhAuthStatus;
 }
 
 export interface GhPrFailedLogsResult {
@@ -378,13 +373,6 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
-  pendingGhAuthStatus: Map<
-    string,
-    {
-      resolve: (result: GhAuthStatusResult) => void;
-      reject: (reason: Error) => void;
-    }
-  >;
   pendingGhPrFailedLogs: Map<
     string,
     {
@@ -443,8 +431,8 @@ export interface AppState {
   containerProgressListeners: Map<string, (line: string) => void>;
   /** Timer handle for the PR polling self-scheduling chain; null until startPrPoller is called */
   prPollerTimer: ReturnType<typeof setTimeout> | null;
-  /** Repos that have errored in the most recent poll cycle (log-once guard) */
-  prPollerErroredRepos: Set<string>;
+  /** Latest gh error per repo (typed strings like 'gh-not-installed'); cleared on next success */
+  prRepoErrors: Map<string, string>;
   /** Maps `repo#prNumber` → GitHub PR updatedAt from the last successful review-comment sync */
   prReviewCommentLastSyncedAt: Map<string, string>;
   /** Terminal sessions connected as dispatch workers (sessionId → description) */
@@ -494,7 +482,6 @@ export function createAppState(): AppState {
     pendingFsDelete: new Map(),
     pendingFsRename: new Map(),
     pendingGhPrList: new Map(),
-    pendingGhAuthStatus: new Map(),
     pendingGhPrFailedLogs: new Map(),
     pendingGhPrReviewComments: new Map(),
     daemonHomeDir: null,
@@ -510,7 +497,7 @@ export function createAppState(): AppState {
     fileChangeListeners: new Set(),
     containerProgressListeners: new Map(),
     prPollerTimer: null,
-    prPollerErroredRepos: new Set(),
+    prRepoErrors: new Map(),
     prReviewCommentLastSyncedAt: new Map(),
     dispatchWorkers: new Map(),
     dispatches: new Map(),

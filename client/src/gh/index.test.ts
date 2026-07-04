@@ -1,16 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { listOpenPrs, fetchFailedLogs, fetchReviewComments, checkAuthStatus, type GhRunner } from './index.js';
+import { listOpenPrs, fetchFailedLogs, fetchReviewComments, classifyGhError, type GhRunner } from './index.js';
 
 
 function makeRunner(stdout: string): GhRunner {
   return async () => ({ stdout, stderr: '' });
-}
-
-function makeErrorRunner(err: Partial<NodeJS.ErrnoException> & { stderr?: string }): GhRunner {
-  return async () => {
-    const e = Object.assign(new Error(err.message ?? 'command failed'), err);
-    throw e;
-  };
 }
 
 const EMPTY_PR_LIST = '[]';
@@ -425,52 +418,45 @@ describe('[FR-PRMON-080] fetchFailedLogs', () => {
   });
 });
 
-describe('[FR-PRMON-020] checkAuthStatus', () => {
-  it('returns ok: true when gh auth status exits zero', async () => {
-    const status = await checkAuthStatus(makeRunner('Logged in to github.com account alice'));
-    expect(status).toEqual({ ok: true });
+describe('[FR-PRMON-020] classifyGhError', () => {
+  function makeErr(msg: string, opts: { code?: string; stderr?: string } = {}): Error {
+    return Object.assign(new Error(msg), opts);
+  }
+
+  it('[FR-PRMON-020] returns gh-not-installed when gh is not found (ENOENT)', () => {
+    expect(classifyGhError(makeErr('spawn gh ENOENT', { code: 'ENOENT' }))).toBe('gh-not-installed');
   });
 
-  it('returns not-installed when gh is not found (ENOENT)', async () => {
-    const status = await checkAuthStatus(makeErrorRunner({ code: 'ENOENT', message: 'spawn gh ENOENT' }));
-    expect(status).toEqual({ ok: false, reason: 'not-installed' });
+  it('[FR-PRMON-020] returns gh-not-authenticated when stderr says not logged into any host', () => {
+    expect(
+      classifyGhError(
+        makeErr('Command failed', {
+          stderr: 'You are not logged into any GitHub hosts. Run `gh auth login` to authenticate.',
+        }),
+      ),
+    ).toBe('gh-not-authenticated');
   });
 
-  it('returns not-authenticated when stderr says not logged into any host', async () => {
-    const status = await checkAuthStatus(
-      makeErrorRunner({
-        message: 'Command failed: gh auth status',
-        stderr: 'You are not logged into any GitHub hosts. Run `gh auth login` to authenticate.',
-      }),
+  it('[FR-PRMON-020] returns gh-not-authenticated when stderr says not logged into a specific host', () => {
+    expect(
+      classifyGhError(makeErr('Command failed', { stderr: 'github.com\n  X You are not logged into github.com' })),
+    ).toBe('gh-not-authenticated');
+  });
+
+  it('[FR-PRMON-020] returns gh-not-authenticated when message mentions gh auth login guidance', () => {
+    expect(classifyGhError(makeErr('error: run gh auth login to continue'))).toBe('gh-not-authenticated');
+  });
+
+  it('[FR-PRMON-020] returns the raw message for unexpected errors unrelated to authentication', () => {
+    expect(classifyGhError(makeErr('connect ECONNREFUSED 127.0.0.1:443'))).toBe(
+      'connect ECONNREFUSED 127.0.0.1:443',
     );
-    expect(status).toEqual({ ok: false, reason: 'not-authenticated' });
   });
 
-  it('returns not-authenticated when stderr says not logged into a specific host', async () => {
-    const status = await checkAuthStatus(
-      makeErrorRunner({
-        message: 'Command failed: gh auth status',
-        stderr: 'github.com\n  X You are not logged into github.com',
-      }),
-    );
-    expect(status).toEqual({ ok: false, reason: 'not-authenticated' });
-  });
-
-  it('returns not-authenticated when message mentions gh auth login guidance', async () => {
-    const status = await checkAuthStatus(
-      makeErrorRunner({ message: 'error: run gh auth login to continue' }),
-    );
-    expect(status).toEqual({ ok: false, reason: 'not-authenticated' });
-  });
-
-  it('throws for unexpected errors unrelated to authentication', async () => {
-    const runner = makeErrorRunner({ message: 'connect ECONNREFUSED 127.0.0.1:443' });
-    await expect(checkAuthStatus(runner)).rejects.toThrow('connect ECONNREFUSED 127.0.0.1:443');
-  });
-
-  it('throws for internal gh errors with no auth-related output', async () => {
-    const runner = makeErrorRunner({ message: 'request timeout after 30s', stderr: 'fatal: internal error' });
-    await expect(checkAuthStatus(runner)).rejects.toThrow('request timeout after 30s');
+  it('[FR-PRMON-020] appends stderr to message for non-auth errors when stderr is present', () => {
+    const result = classifyGhError(makeErr('request timeout after 30s', { stderr: 'fatal: internal error' }));
+    expect(result).toContain('request timeout after 30s');
+    expect(result).toContain('fatal: internal error');
   });
 });
 

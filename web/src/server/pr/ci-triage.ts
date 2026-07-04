@@ -50,25 +50,9 @@ const MECHANICAL_CHECK_PATTERNS = [
   'install',
 ];
 
-// Log content signals that indicate a mechanical failure.
-const MECHANICAL_LOG_PATTERNS = [
-  'error ts',
-  'eslint',
-  'fail ',
-  'cannot find module',
-  'eresolve',
-  'typeerror',
-  'syntaxerror',
-];
-
 function isMechanicalCheckName(name: string): boolean {
   const lower = name.toLowerCase();
   return MECHANICAL_CHECK_PATTERNS.some((p) => lower.includes(p));
-}
-
-function isMechanicalLogExcerpt(excerpt: string): boolean {
-  const lower = excerpt.toLowerCase();
-  return MECHANICAL_LOG_PATTERNS.some((p) => lower.includes(p));
 }
 
 /**
@@ -85,20 +69,14 @@ export function detectFailureTransitions(
 
 /**
  * Classifies a CI failure as mechanical (lint/type/test/build/deps tooling)
- * or non-mechanical (product logic, runtime, infrastructure).
+ * or non-mechanical (product logic, runtime, infrastructure), from check
+ * names only — log excerpts are dispatch context, never classifier input.
  *
  * Conservative: unknown → 'non-mechanical'.
  */
-export function classifyFailure(
-  checks: GhPrCheck[],
-  logExcerpts: FailedLog[],
-): CiFailureClassification {
+export function classifyFailure(checks: GhPrCheck[]): CiFailureClassification {
   for (const check of checks) {
     if (isMechanicalCheckName(check.name)) return 'mechanical';
-  }
-  for (const log of logExcerpts) {
-    if (isMechanicalCheckName(log.checkName)) return 'mechanical';
-    if (log.excerpt && isMechanicalLogExcerpt(log.excerpt)) return 'mechanical';
   }
   return 'non-mechanical';
 }

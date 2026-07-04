@@ -183,6 +183,13 @@
       "when": 1783189601177,
       "tag": "0025_mean_nextwave",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1783207165059,
+      "tag": "0026_tough_the_hunter",
+      "breakpoints": true
     }
   ]
 }

@@ -476,7 +476,6 @@ export const prs = sqliteTable(
     headSha: text('head_sha'),
     author: text('author').notNull(),
     isDraft: integer('is_draft', { mode: 'boolean' }).notNull().default(false),
-    state: text('state', { enum: ['open', 'closed', 'merged'] }).notNull().default('open'),
     ciStatus: text('ci_status', {
       enum: ['pending', 'passing', 'failing', 'unknown'],
     })

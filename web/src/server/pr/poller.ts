@@ -2,8 +2,8 @@ import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { workspaces, prs } from '../db/schema';
 import type { AppState } from '../trpc/context';
-import { dispatchGhPrList, dispatchGhPrFailedLogs, dispatchGhPrReviewComments } from '../ws/server';
-import { upsertPrs, findCorrelatedSession } from '../trpc/routers/pr';
+import { dispatchGhPrList, dispatchGhPrReviewComments } from '../ws/server';
+import { upsertPrs, findCorrelatedSession, recordRepoOutcome } from '../trpc/routers/pr';
 import { broadcastPrChange } from '../ws/broadcast';
 import { detectFailureTransitions, classifyFailure, isFailingCheck } from './ci-triage';
 import { maybeDispatchCiFix } from './auto-fix';
@@ -26,7 +26,7 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
     for (const repo of repos) {
       try {
         const { prs: ghPrs } = await dispatchGhPrList(repo, state, coderWorkspace);
-        state.prPollerErroredRepos.delete(repo);
+        recordRepoOutcome(state, repo, null);
 
         const result = upsertPrs(db, repo, ghPrs);
 
@@ -42,6 +42,11 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
               .where(and(eq(prs.repo, repo), eq(prs.number, change.number)))
               .run();
           }
+          // Deleted rows have no other cleanup hook — drop their sync marker
+          // or the map grows unbounded with PR churn.
+          if (change.type === 'removed') {
+            state.prReviewCommentLastSyncedAt.delete(`${repo}#${change.number}`);
+          }
         }
 
         const failingTransitions = detectFailureTransitions(result.changes);
@@ -53,7 +58,6 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
         // Skip when GitHub's updatedAt is unchanged from the last successful sync
         // to avoid an unnecessary gh api call on every tick.
         for (const ghPr of ghPrs) {
-          if (ghPr.state !== 'open') continue;
           const prUpdatedAt = ghPr.updatedAt ?? null;
           const syncKey = `${repo}#${ghPr.number}`;
           const lastSyncedAt = state.prReviewCommentLastSyncedAt.get(syncKey);
@@ -65,13 +69,12 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
           void syncPrReviewComments(db, state, ws.id, repo, ghPr.number, prUpdatedAt, coderWorkspace);
         }
       } catch (err) {
-        if (!state.prPollerErroredRepos.has(repo)) {
-          console.error(
-            `[pr-poller] poll failed for ${repo}:`,
-            err instanceof Error ? err.message : String(err),
-          );
-          state.prPollerErroredRepos.add(repo);
+        const message = err instanceof Error ? err.message : String(err);
+        // Log once per distinct error, not on every 60s cycle.
+        if (state.prRepoErrors.get(repo) !== message) {
+          console.error(`[pr-poller] poll failed for ${repo}:`, message);
         }
+        recordRepoOutcome(state, repo, message);
       }
     }
   }
@@ -144,20 +147,9 @@ async function handleFailingPr(
 
   if (!updatedPrRow) return;
 
-  let logs: Array<{ checkName: string; excerpt: string }> = [];
-  try {
-    const result = await dispatchGhPrFailedLogs(repo, prNumber, state, coderWorkspace);
-    logs = result.logs;
-  } catch (err) {
-    console.error(
-      `[pr-poller] failed to fetch logs for ${repo}#${prNumber}:`,
-      err instanceof Error ? err.message : String(err),
-    );
-  }
-
   const failingChecks = (ghPr?.checks ?? []).filter(isFailingCheck);
-  const classification = classifyFailure(failingChecks, logs);
-  maybeDispatchCiFix({ state, db, prRow: updatedPrRow, classification, logs, workspace }).catch(
+  const classification = classifyFailure(failingChecks);
+  maybeDispatchCiFix({ state, db, prRow: updatedPrRow, classification, workspace, coderWorkspace }).catch(
     (err: unknown) => {
       console.error(
         `[pr-poller] auto-fix dispatch failed for ${repo}#${prNumber}:`,

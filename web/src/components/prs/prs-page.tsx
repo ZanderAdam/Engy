@@ -14,77 +14,79 @@ import {
 } from '@remixicon/react';
 import { cn } from '@/lib/utils';
 import { getAttentionInfo } from './pr-attention';
+import {
+  classifyPrRepoErrors,
+  repoDisplayName,
+  type GlobalPrError,
+  type RepoPrError,
+} from './pr-errors';
 
 interface PrsPageProps {
   workspaceSlug: string;
   projectSlug: string;
 }
 
-type RefreshError =
-  | { kind: 'gh-not-installed' }
-  | { kind: 'gh-not-authenticated' }
-  | { kind: 'no-daemon' }
-  | { kind: 'generic'; message: string };
-
-function parseRefreshErrors(
-  results: Array<{ repo: string; success: boolean; error?: string }>,
-): RefreshError | null {
-  const failures = results.filter((r) => !r.success);
-  if (failures.length === 0) return null;
-
-  for (const f of failures) {
-    if (f.error === 'gh-not-installed') return { kind: 'gh-not-installed' };
-    if (f.error === 'gh-not-authenticated') return { kind: 'gh-not-authenticated' };
-    if (f.error?.toLowerCase().includes('daemon')) return { kind: 'no-daemon' };
+function GlobalErrorBanner({ error }: { error: GlobalPrError | { message: string } }) {
+  let content: React.ReactNode;
+  if (typeof error === 'object') {
+    content = (
+      <>
+        <p className="font-medium text-foreground">Refresh failed</p>
+        <p className="text-muted-foreground font-mono">{error.message}</p>
+      </>
+    );
+  } else if (error === 'gh-not-installed') {
+    content = (
+      <>
+        <p className="font-medium text-foreground">GitHub CLI not installed</p>
+        <p className="text-muted-foreground">
+          Install <code className="font-mono">gh</code> to fetch pull requests.{' '}
+          <a
+            href="https://cli.github.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-foreground underline"
+          >
+            cli.github.com
+          </a>
+        </p>
+      </>
+    );
+  } else {
+    content = (
+      <>
+        <p className="font-medium text-foreground">Daemon not connected</p>
+        <p className="text-muted-foreground">
+          Start the Engy client daemon to fetch pull requests.
+        </p>
+      </>
+    );
   }
 
-  return { kind: 'generic', message: failures[0].error ?? 'Refresh failed' };
-}
-
-function RefreshErrorBanner({ error }: { error: RefreshError }) {
   return (
     <div className="flex items-start gap-3 border border-amber-400/20 bg-amber-400/5 px-4 py-3 text-xs">
       <RiAlertLine className="size-4 shrink-0 text-amber-400 mt-0.5" />
-      <div className="space-y-1">
-        {error.kind === 'gh-not-installed' && (
-          <>
-            <p className="font-medium text-foreground">GitHub CLI not installed</p>
-            <p className="text-muted-foreground">
-              Install <code className="font-mono">gh</code> to fetch pull requests.{' '}
-              <a
-                href="https://cli.github.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-foreground underline"
-              >
-                cli.github.com
-              </a>
-            </p>
-          </>
-        )}
-        {error.kind === 'gh-not-authenticated' && (
-          <>
-            <p className="font-medium text-foreground">GitHub CLI not authenticated</p>
-            <p className="text-muted-foreground">
-              Run{' '}
-              <code className="font-mono bg-muted px-1 py-0.5">gh auth login</code> in your
-              terminal, then refresh.
-            </p>
-          </>
-        )}
-        {error.kind === 'no-daemon' && (
-          <>
-            <p className="font-medium text-foreground">Daemon not connected</p>
-            <p className="text-muted-foreground">
-              Start the Engy client daemon to fetch pull requests.
-            </p>
-          </>
-        )}
-        {error.kind === 'generic' && (
-          <>
-            <p className="font-medium text-foreground">Refresh failed</p>
-            <p className="text-muted-foreground font-mono">{error.message}</p>
-          </>
+      <div className="space-y-1">{content}</div>
+    </div>
+  );
+}
+
+function RepoErrorRow({ error }: { error: RepoPrError }) {
+  return (
+    <div className="flex items-start gap-3 border-b border-border bg-amber-400/5 px-4 py-2 text-xs">
+      <RiAlertLine className="size-3.5 shrink-0 text-amber-400 mt-0.5" />
+      <div className="min-w-0 space-y-0.5">
+        <p className="font-medium text-foreground font-mono truncate">
+          {repoDisplayName(error.repo)}
+        </p>
+        {error.kind === 'gh-not-authenticated' ? (
+          <p className="text-muted-foreground">
+            Not authenticated for this repo&apos;s host — run{' '}
+            <code className="font-mono bg-muted px-1 py-0.5">gh auth login</code> for it, then
+            refresh. Other repos keep updating.
+          </p>
+        ) : (
+          <p className="text-muted-foreground font-mono break-all">{error.message}</p>
         )}
       </div>
     </div>
@@ -92,7 +94,7 @@ function RefreshErrorBanner({ error }: { error: RefreshError }) {
 }
 
 export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
-  const [refreshError, setRefreshError] = useState<RefreshError | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const utils = trpc.useUtils();
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
@@ -101,9 +103,13 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
   const workspaceRepos = (workspace?.repos as string[] | null) ?? [];
 
   const {
-    data: prs,
+    data: prData,
     isLoading,
   } = trpc.pr.list.useQuery({ workspaceId }, { enabled: !!workspace });
+  const prs = prData?.prs;
+  const { global: globalError, perRepo: repoErrors } = classifyPrRepoErrors(
+    prData?.repoErrors ?? {},
+  );
 
   const refetchPrs = useCallback(() => {
     utils.pr.list.invalidate({ workspaceId });
@@ -121,24 +127,14 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
   });
 
   const refreshMutation = trpc.pr.refresh.useMutation({
-    onSuccess: (results) => {
-      const err = parseRefreshErrors(results);
-      setRefreshError(err);
-      if (!err) refetchPrs();
-    },
-    onError: (err) => {
-      const msg = err.message.toLowerCase();
-      if (msg.includes('daemon')) {
-        setRefreshError({ kind: 'no-daemon' });
-      } else {
-        setRefreshError({ kind: 'generic', message: err.message });
-      }
-    },
+    // Success or partial failure: list re-fetch picks up rows AND repoErrors.
+    onSuccess: () => refetchPrs(),
+    onError: (err) => setMutationError(err.message),
   });
 
   const handleRefresh = () => {
     if (!workspace) return;
-    setRefreshError(null);
+    setMutationError(null);
     refreshMutation.mutate({ workspaceId });
   };
 
@@ -167,11 +163,14 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
         </Button>
       </div>
 
-      {/* Error banner */}
-      {refreshError && <RefreshErrorBanner error={refreshError} />}
+      {/* Global error states: gh missing / daemon down can't differ per repo */}
+      {globalError && <GlobalErrorBanner error={globalError} />}
+      {mutationError && <GlobalErrorBanner error={{ message: mutationError }} />}
 
       {/* Body */}
       <div className="flex-1 min-h-0 overflow-y-auto">
+        {/* Per-repo failures render inline; healthy repos keep listing below */}
+        {!globalError && repoErrors.map((error) => <RepoErrorRow key={error.repo} error={error} />)}
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <p className="text-sm text-muted-foreground">Loading…</p>

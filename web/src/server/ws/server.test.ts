@@ -15,7 +15,6 @@ import {
   dispatchFsDelete,
   dispatchFsRename,
   dispatchGhPrList,
-  dispatchGhAuthStatus,
   dispatchGhPrFailedLogs,
   dispatchGhPrReviewComments,
 } from './server';
@@ -2240,114 +2239,6 @@ describe('[FR-WS-150] GH_PR_LIST_RESPONSE', () => {
       payload: { requestId: string; repoDir: string; coderWorkspace?: string };
     };
     expect(request.payload.coderWorkspace).toBe('my-coder-ws');
-  });
-});
-
-describe('[FR-WS-160] GH_AUTH_STATUS_RESPONSE', () => {
-  let state: AppState;
-  let server: Server;
-  let port: number;
-
-  beforeEach(async () => {
-    openClients = [];
-    state = createAppState();
-    const result = await startServer(state);
-    server = result.server;
-    port = result.port;
-  });
-
-  afterEach(async () => {
-    for (const ws of openClients) {
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.terminate();
-      }
-    }
-    openClients = [];
-    await closeServer(server);
-  });
-
-  it('should resolve with ok status on success response', async () => {
-    const ws = await connectClient(port);
-    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
-    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
-
-    const messagePromise = waitForMessage(ws);
-    const authPromise = dispatchGhAuthStatus(state);
-
-    const request = (await messagePromise) as {
-      type: string;
-      payload: { requestId: string };
-    };
-    expect(request.type).toBe('GH_AUTH_STATUS_REQUEST');
-
-    ws.send(
-      JSON.stringify({
-        type: 'GH_AUTH_STATUS_RESPONSE',
-        payload: { requestId: request.payload.requestId, status: { ok: true } },
-      }),
-    );
-
-    const result = await authPromise;
-    expect(result.status).toEqual({ ok: true });
-  });
-
-  it('should resolve with not-authenticated status', async () => {
-    const ws = await connectClient(port);
-    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
-    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
-
-    const messagePromise = waitForMessage(ws);
-    const authPromise = dispatchGhAuthStatus(state);
-
-    const request = (await messagePromise) as { type: string; payload: { requestId: string } };
-    ws.send(
-      JSON.stringify({
-        type: 'GH_AUTH_STATUS_RESPONSE',
-        payload: {
-          requestId: request.payload.requestId,
-          status: { ok: false, reason: 'not-authenticated' },
-        },
-      }),
-    );
-
-    const result = await authPromise;
-    expect(result.status).toEqual({ ok: false, reason: 'not-authenticated' });
-  });
-
-  it('should reject on error response', async () => {
-    const ws = await connectClient(port);
-    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
-    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
-
-    const messagePromise = waitForMessage(ws);
-    const authPromise = dispatchGhAuthStatus(state);
-
-    const request = (await messagePromise) as { type: string; payload: { requestId: string } };
-    ws.send(
-      JSON.stringify({
-        type: 'GH_AUTH_STATUS_RESPONSE',
-        payload: { requestId: request.payload.requestId, error: 'unexpected failure' },
-      }),
-    );
-
-    await expect(authPromise).rejects.toThrow('unexpected failure');
-    expect(state.pendingGhAuthStatus.size).toBe(0);
-  });
-
-  it('[FR-WS-060] should reject if no daemon is connected', async () => {
-    await expect(dispatchGhAuthStatus(state)).rejects.toThrow('No daemon connected');
-  });
-
-  it('[FR-WS-030] should reject pending auth ops when daemon disconnects', async () => {
-    const ws = await connectClient(port);
-    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
-    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
-
-    const authPromise = dispatchGhAuthStatus(state);
-    ws.close();
-
-    await expect(authPromise).rejects.toThrow('Daemon disconnected');
-    expect(state.pendingGhAuthStatus.size).toBe(0);
   });
 });
 

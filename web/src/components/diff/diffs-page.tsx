@@ -233,7 +233,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
   const correlatedSessionId = useMemo(() => {
     if (!projectWorktreeBranch || !selectedRepo || !prList) return null;
-    const pr = prList.find(
+    const pr = prList.prs.find(
       (p) => p.headBranch === projectWorktreeBranch && p.repo === selectedRepo,
     );
     return pr?.sessionId ?? null;

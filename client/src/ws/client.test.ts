@@ -2785,69 +2785,40 @@ describe('WsClient GH handlers', () => {
     expect(response.payload.error).toMatch('gh: not a git repository');
   });
 
-  it('GH_AUTH_STATUS_REQUEST returns authenticated status via local gh runner', async () => {
-    mockedExecFile[promisify.custom].mockResolvedValue({
-      stdout: 'Logged in to github.com account alice',
-      stderr: '',
-    });
+  it('GH_PR_LIST_REQUEST maps ENOENT to the gh-not-installed typed error', async () => {
+    const enoent = Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' });
+    mockedExecFile[promisify.custom].mockRejectedValue(enoent);
 
     const response = JSON.parse(
       await setupAndSend({
-        type: 'GH_AUTH_STATUS_REQUEST',
-        payload: { requestId: 'gh-auth-1' },
+        type: 'GH_PR_LIST_REQUEST',
+        payload: { requestId: 'gh-pr-enoent', repoDir: '/repo' },
       }),
     );
 
     expect(response).toEqual({
-      type: 'GH_AUTH_STATUS_RESPONSE',
-      payload: { requestId: 'gh-auth-1', status: { ok: true } },
+      type: 'GH_PR_LIST_RESPONSE',
+      payload: { requestId: 'gh-pr-enoent', error: 'gh-not-installed' },
     });
-    expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
-      'gh',
-      expect.arrayContaining(['auth', 'status']),
-      expect.any(Object),
-    );
   });
 
-  it('GH_AUTH_STATUS_REQUEST runs gh auth status via coder ssh when coderWorkspace is set', async () => {
-    mockedExecFile[promisify.custom].mockResolvedValue({
-      stdout: 'Logged in to github.com account alice',
-      stderr: '',
+  it('GH_PR_LIST_REQUEST maps auth-failure stderr to the gh-not-authenticated typed error', async () => {
+    const authErr = Object.assign(new Error('Command failed'), {
+      stderr: 'You are not logged into any GitHub hosts. Run gh auth login to authenticate.',
     });
+    mockedExecFile[promisify.custom].mockRejectedValue(authErr);
 
     const response = JSON.parse(
       await setupAndSend({
-        type: 'GH_AUTH_STATUS_REQUEST',
-        payload: { requestId: 'gh-auth-coder-1', coderWorkspace: 'my-workspace' },
+        type: 'GH_PR_LIST_REQUEST',
+        payload: { requestId: 'gh-pr-noauth', repoDir: '/repo' },
       }),
     );
 
     expect(response).toEqual({
-      type: 'GH_AUTH_STATUS_RESPONSE',
-      payload: { requestId: 'gh-auth-coder-1', status: { ok: true } },
+      type: 'GH_PR_LIST_RESPONSE',
+      payload: { requestId: 'gh-pr-noauth', error: 'gh-not-authenticated' },
     });
-    // Coder runner calls 'coder ssh' with the workspace name
-    expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
-      'coder',
-      expect.arrayContaining(['ssh', '--no-wait', 'my-workspace']),
-      expect.any(Object),
-    );
-  });
-
-  it('GH_AUTH_STATUS_REQUEST sends error response when gh runner throws unexpected error', async () => {
-    const networkErr = Object.assign(new Error('connect ECONNREFUSED'), { stderr: '' });
-    mockedExecFile[promisify.custom].mockRejectedValue(networkErr);
-
-    const response = JSON.parse(
-      await setupAndSend({
-        type: 'GH_AUTH_STATUS_REQUEST',
-        payload: { requestId: 'gh-auth-err' },
-      }),
-    );
-
-    // Unexpected errors propagate to the WS handler's catch block
-    expect(response.type).toBe('GH_AUTH_STATUS_RESPONSE');
-    expect(response.payload.error).toMatch('connect ECONNREFUSED');
   });
 
   it('GH_PR_FAILED_LOGS_REQUEST returns logs for failing checks', async () => {

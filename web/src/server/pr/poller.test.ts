@@ -449,29 +449,6 @@ describe('PR poller', () => {
         expect(row?.attentionReason).toBe('non-mechanical');
       });
 
-      it('should continue gracefully when failed log dispatch errors', async () => {
-        seedWorkspace(ctx, ['/repo-a']);
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-
-        installFakeDaemon(
-          ctx,
-          new Map([['/repo-a', [makePr({ number: 1, ciStatus: 'passing', headSha: 'sha1' })]]]));
-        await runPollCycle(ctx.state, ctx.db);
-
-        installFakeDaemon(
-          ctx,
-          new Map([['/repo-a', [makePr({ number: 1, ciStatus: 'failing', headSha: 'sha2' })]]]),
-          new Map([['/repo-a', new Error('log fetch failed')]]),
-        );
-        await runPollCycle(ctx.state, ctx.db);
-        await new Promise((r) => queueMicrotask(r as () => void));
-
-        expect(errorSpy).toHaveBeenCalledWith(
-          expect.stringContaining('/repo-a#1'),
-          expect.stringContaining('log fetch failed'),
-        );
-        errorSpy.mockRestore();
-      });
     });
 
     describe('review comment sync', () => {
@@ -540,6 +517,21 @@ describe('PR poller', () => {
         await new Promise((r) => queueMicrotask(r as () => void));
 
         expect(reviewRequestCount).toBe(0);
+      });
+
+      it('should drop the review-sync marker when a PR vanishes from the open list', async () => {
+        seedWorkspace(ctx, ['/repo-a']);
+
+        installFakeDaemon(ctx, new Map([['/repo-a', [makePr({ number: 1 })]]]));
+        await runPollCycle(ctx.state, ctx.db);
+        ctx.state.prReviewCommentLastSyncedAt.set('/repo-a#1', 'T1');
+
+        // PR 1 vanishes — its row is deleted and the marker must go with it,
+        // or the map grows unbounded with PR churn.
+        installFakeDaemon(ctx, new Map([['/repo-a', []]]));
+        await runPollCycle(ctx.state, ctx.db);
+
+        expect(ctx.state.prReviewCommentLastSyncedAt.has('/repo-a#1')).toBe(false);
       });
     });
   });
