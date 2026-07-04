@@ -246,6 +246,60 @@ describe('Terminal WebSocket Server', () => {
       });
     });
 
+    it('[FR-TERMINAL-230] should heal activity states from the daemon sync', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      await connectBrowser(port, {
+        sessionId: 'sess-heal',
+        workingDir: '/tmp',
+        scopeType: 'project',
+        projectSlug: 'my-proj',
+      });
+      await spawnPromise;
+
+      // Simulate act transitions dropped during a relay outage: the daemon's
+      // reconnect sync carries the current state and the server adopts it.
+      daemonWs.send(
+        JSON.stringify({
+          t: 'sync',
+          sessionIds: ['sess-heal'],
+          activity: [{ sessionId: 'sess-heal', state: 'waiting' }],
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.get('sess-heal')?.activityState).toBe('waiting');
+      });
+    });
+
+    it('[FR-TERMINAL-240] should clear activity state on browser ack and forward it to the daemon', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      const browserWs = await connectBrowser(port, {
+        sessionId: 'sess-ack',
+        workingDir: '/tmp',
+        scopeType: 'project',
+        projectSlug: 'my-proj',
+      });
+      await spawnPromise;
+
+      daemonWs.send(JSON.stringify({ t: 'act', sessionId: 'sess-ack', state: 'done' }));
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.get('sess-ack')?.activityState).toBe('done');
+      });
+
+      const forwardPromise = waitForMessage(daemonWs);
+      const ackMsg = JSON.stringify({ t: 'ack', sessionId: 'sess-ack' });
+      browserWs.send(ackMsg);
+
+      expect(await forwardPromise).toBe(ackMsg);
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.get('sess-ack')?.activityState).toBe('idle');
+      });
+    });
+
     it('[FR-TERMINAL-090] should forward exit to browser and clean up both session maps', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);

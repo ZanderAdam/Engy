@@ -263,6 +263,24 @@ async function handleTerminalConnection(
       }
     }
 
+    // The user viewed/focused the terminal — clear its activity state here (so
+    // badges update even if the daemon is down or its tracker has drifted) and
+    // let the generic forward below deliver the ack to the daemon tracker too.
+    if (str.startsWith('{"t":"ack"')) {
+      const meta = state.terminalSessionMeta.get(sessionId);
+      if (meta && meta.activityState && meta.activityState !== 'idle') {
+        meta.activityState = 'idle';
+        persistTerminalSession(sessionId, meta);
+        if (meta.projectSlug) {
+          broadcastTerminalActivityChange({
+            sessionId,
+            projectSlug: meta.projectSlug,
+            state: 'idle',
+          });
+        }
+      }
+    }
+
     // The browser's resize guard assumes "last sent" === "PTY size". Track the
     // size on the meta so respawn and relay-reconnect re-assert the real size,
     // not the initial spawn size. Only the owning connection may update it.
@@ -518,6 +536,23 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
           // sessions instead of respawning over live PTYs.
           state.daemonTerminalSessions.ids = daemonSessionIds;
           state.daemonTerminalSessions.synced = true;
+
+          // Heal activity states dropped while the relay was down — act
+          // messages sent during the outage never arrived, so the stored
+          // state can be arbitrarily stale until the next transition.
+          for (const { sessionId, state: actState } of sync.activity ?? []) {
+            const meta = state.terminalSessionMeta.get(sessionId);
+            if (!meta || (meta.activityState ?? 'idle') === actState) continue;
+            meta.activityState = actState;
+            persistTerminalSession(sessionId, meta);
+            if (meta.projectSlug) {
+              broadcastTerminalActivityChange({
+                sessionId,
+                projectSlug: meta.projectSlug,
+                state: actState,
+              });
+            }
+          }
 
           // Respawn or clean up sessions the daemon no longer has
           for (const [sessionId, meta] of state.terminalSessionMeta) {

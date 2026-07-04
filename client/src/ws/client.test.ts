@@ -291,7 +291,11 @@ function createMockTerminalManager(
     killAll: vi.fn(),
     handleReconnect: vi.fn(),
     suspend: vi.fn(),
+    acknowledge: vi.fn(),
     getAllSessions: vi.fn(() => sessions),
+    getActivityStates: vi.fn(() =>
+      sessions.map((s) => ({ sessionId: s.sessionId, state: 'idle' as const })),
+    ),
   } as unknown as TerminalManager & { [K in keyof TerminalManager]: ReturnType<typeof vi.fn> };
 }
 
@@ -410,6 +414,25 @@ describe('WsClient terminal relay', () => {
     });
   });
 
+  it('[FR-TERMINAL-240] forwards ack message to terminalManager.acknowledge', async () => {
+    const mockTm = createMockTerminalManager();
+    const relayConn = waitForConnection(relayWss);
+
+    client = new WsClient({
+      serverUrl: `http://localhost:${port}`,
+      terminalManager: mockTm,
+    });
+    client.connect();
+
+    const relayWs = await relayConn;
+
+    relayWs.send(JSON.stringify({ t: 'ack', sessionId: 'sess-1' }));
+
+    await vi.waitFor(() => {
+      expect(mockTm.acknowledge).toHaveBeenCalledWith('sess-1');
+    });
+  });
+
   it('reconnects terminal relay independently of main WS', async () => {
     const mockTm = createMockTerminalManager();
     let relayConn = waitForConnection(relayWss);
@@ -459,7 +482,7 @@ describe('WsClient terminal relay', () => {
     });
   });
 
-  it('sends sync message with known session IDs on relay connect', async () => {
+  it('[FR-TERMINAL-230] sends sync with known session IDs and activity states on relay connect', async () => {
     const sessions = [
       { sessionId: 'a1', state: 'active' },
       { sessionId: 'b2', state: 'suspended' },
@@ -479,7 +502,14 @@ describe('WsClient terminal relay', () => {
     });
 
     const parsed = JSON.parse(msg);
-    expect(parsed).toEqual({ t: 'sync', sessionIds: ['a1', 'b2'] });
+    expect(parsed).toEqual({
+      t: 'sync',
+      sessionIds: ['a1', 'b2'],
+      activity: [
+        { sessionId: 'a1', state: 'idle' },
+        { sessionId: 'b2', state: 'idle' },
+      ],
+    });
   });
 
   it('does not reconnect when a superseded connection closes', async () => {

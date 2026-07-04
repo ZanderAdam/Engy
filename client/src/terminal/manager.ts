@@ -313,6 +313,21 @@ export class TerminalManager {
     session.suspendedAt = Date.now();
   }
 
+  // The user viewed/focused the terminal in a browser — clear its activity
+  // state so daemon-computed badges stop reporting done/waiting.
+  acknowledge(sessionId: string): void {
+    this.activity.get(sessionId)?.tracker.acknowledge();
+  }
+
+  // Current activity state per live session, sent with the reconnect sync so
+  // the server heals states dropped while the relay was down.
+  getActivityStates(): { sessionId: string; state: TerminalActivityState }[] {
+    return Array.from(this.activity.entries(), ([sessionId, a]) => ({
+      sessionId,
+      state: a.tracker.getState(),
+    }));
+  }
+
   getAllSessions(): PersistentSession[] {
     return this.sessions.all();
   }

@@ -76,6 +76,7 @@ export type {
   TerminalResizeCmd,
   TerminalKillCmd,
   TerminalReconnectCmd,
+  TerminalAckCmd,
   TerminalRelayCommand,
   TerminalOutputEvent,
   TerminalExitEvent,

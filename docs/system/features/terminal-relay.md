@@ -160,6 +160,16 @@ at `manager.ts:13`) and emits `{ t: 'act', sessionId, state }` messages —
 suspended. The server stores `activityState` on `terminalSessionMeta` and
 broadcasts a per-project delta via `broadcastTerminalActivityChange`.
 
+Three healing paths keep the stored/browser state from drifting when messages
+are dropped: the daemon's reconnect sync carries every live session's current
+activity state so the server adopts states missed during a relay outage; the
+browser's project-activity store re-seeds from `GET /api/terminal/activity`
+whenever the `/ws/events` socket (re)connects; and focusing a terminal sends
+`{ t: 'ack', sessionId }`, which the server intercepts (clears `activityState`
+to `idle` and broadcasts) before forwarding to the daemon so its tracker
+settles too — matching the in-browser rail, where viewing a terminal
+acknowledges a `done`/`waiting` indicator.
+
 ## Security
 
 `TerminalManager.spawn()` tests the `command` string against `DANGEROUS_FLAG_RE`
@@ -199,6 +209,9 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-200 | WHEN a browser connects with a `sessionId` that has no `terminalSessionMeta` entry but is present in the daemon's last-synced alive session set, the system SHALL rebuild the session metadata from the connection's query parameters and route the connection through the reconnect path instead of spawning a new PTY, so live sessions survive a server restart. |
 | FR-TERMINAL-210 | WHEN a browser connects for a session with no in-memory metadata, or whose metadata was restored from the database and not yet validated by a daemon sync, and no sync has been received on the current relay connection, the system SHALL wait up to 10 seconds for the daemon's `{ t: 'sync' }` before classifying the connection as spawn or reconnect. |
 | FR-TERMINAL-220 | The system SHALL mirror `terminalSessionMeta` to the `terminal_sessions` SQLite table — written through on meta creation and mutation, deleted on exit/kill/sync-purge — and SHALL restore the persisted entries into `terminalSessionMeta` at server boot, so sessions with no attached browser survive a server restart. |
+| FR-TERMINAL-230 | WHEN a newly connected daemon sends `{ t: 'sync' }`, the daemon SHALL include each live session's current activity state, and the server SHALL adopt any state that differs from the stored `activityState` — persisting it and broadcasting a per-project terminal-activity change — so activity transitions dropped during a relay outage are healed. |
+| FR-TERMINAL-240 | WHEN the user focuses a terminal in a browser, the browser SHALL send `{ t: 'ack', sessionId }`; the server SHALL clear the session's stored `activityState` to `idle` (persisting and broadcasting the change) and forward the ack to the daemon, whose activity tracker SHALL settle to idle — so a done/waiting badge clears once the terminal is viewed, matching the in-browser rail indicator. |
+| FR-TERMINAL-250 | WHEN the browser's `/ws/events` socket (re)connects, the system SHALL re-seed the project-activity store from `GET /api/terminal/activity`, replacing the full session set, so activity deltas broadcast while the socket was disconnected are healed. |
 
 ## Sources
 
