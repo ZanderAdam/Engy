@@ -44,7 +44,11 @@ const terminalDispatchInput = {
 };
 
 const terminalReplyInput = {
-  result: z.string().describe('Outcome of the dispatched request (also report failures)'),
+  result: z
+    .string()
+    .describe(
+      'The answer/deliverable itself — this exact text is what the requesting agent receives (your terminal output does not reach it). Not a status note about having answered. On failure, describe what went wrong',
+    ),
   correlationId: z
     .string()
     .optional()

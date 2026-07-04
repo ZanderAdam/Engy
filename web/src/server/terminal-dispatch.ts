@@ -29,15 +29,18 @@ const PASTE_SENTINEL_RE = /\x1b\[20[01]~/g;
 export function replyContract(correlationId: string, hasSessionEndpoint: boolean): string {
   if (hasSessionEndpoint) {
     return (
-      '[engy-dispatch] When this request is done, report the outcome by calling the ' +
-      'Engy MCP tool `terminal_reply` with a concise result. Reply even if you fail ' +
-      'or cannot proceed.'
+      '[engy-dispatch] This request comes from another agent that can NOT see this ' +
+      "terminal — only what you pass to the Engy MCP tool `terminal_reply` reaches it. " +
+      'Put your actual answer/deliverable in the `result` field, not a note that you ' +
+      'answered. Call the tool even if you fail or cannot proceed.'
     );
   }
   return (
-    `[engy-dispatch ${correlationId}] When this request is done, report the outcome by ` +
-    `calling the Engy MCP tool \`terminal_reply\` with correlationId "${correlationId}" ` +
-    `and a concise result. Reply even if you fail or cannot proceed.`
+    `[engy-dispatch ${correlationId}] This request comes from another agent that can NOT ` +
+    `see this terminal — only what you pass to the Engy MCP tool \`terminal_reply\` ` +
+    `(with correlationId "${correlationId}") reaches it. Put your actual ` +
+    `answer/deliverable in the \`result\` field, not a note that you answered. Call the ` +
+    `tool even if you fail or cannot proceed.`
   );
 }
 
