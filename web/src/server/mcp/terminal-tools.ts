@@ -10,6 +10,7 @@ import {
   getWorkerOutputTail,
   listWorkers,
   resolveDispatchReply,
+  resolveWorkerReply,
   spawnAgentTerminal,
   waitForDispatchReply,
 } from '../terminal-dispatch';
@@ -43,8 +44,13 @@ const terminalDispatchInput = {
 };
 
 const terminalReplyInput = {
-  correlationId: z.string().describe('Correlation id from the [engy-dispatch <id>] marker in the request'),
   result: z.string().describe('Outcome of the dispatched request (also report failures)'),
+  correlationId: z
+    .string()
+    .optional()
+    .describe(
+      'Only needed when your request carried an [engy-dispatch <id>] marker with an id — otherwise the server matches the reply to your open dispatch automatically',
+    ),
 };
 
 const terminalCollectInput = {
@@ -217,8 +223,8 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
         agentType,
         description,
         hint: prompt
-          ? 'Worker is booting and will start on the initial prompt. Watch it via terminal_status; for request/response use terminal_dispatch once it is idle.'
-          : 'Worker is booting. Wait until terminal_status shows activityState idle, then send work via terminal_dispatch.',
+          ? 'Worker is booting and will start on the initial prompt. You can terminal_dispatch follow-ups immediately — they queue and deliver when the worker is ready.'
+          : 'Worker is booting. terminal_dispatch work to it immediately — messages queue and deliver as soon as the CLI is ready.',
       });
     },
   );
@@ -241,7 +247,7 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
 
   mcp.tool(
     'terminal_dispatch',
-    'Send a prompt to a connected worker terminal (any agent CLI). The worker replies via terminal_reply; async returns a correlationId for terminal_collect',
+    "Send a prompt to a connected worker terminal (any agent CLI). The worker replies via terminal_reply; in async mode the settled result is pushed into your terminal when ready (no polling needed if you're an Engy-spawned agent)",
     terminalDispatchInput,
     async ({ workerSessionId, message, mode, timeoutSeconds }) => {
       const state = getAppState();
@@ -257,7 +263,14 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
         return mcpError('No terminal daemon connected — cannot deliver input.');
       }
 
-      const entry = createDispatch(state, workerSessionId, message);
+      // Identified callers get the settled result pushed into their terminal —
+      // in async mode always, in sync mode only if the wait times out below.
+      const canNotify =
+        callerTerminalSessionId != null && state.terminalSessionMeta.has(callerTerminalSessionId);
+      const entry = createDispatch(state, workerSessionId, message, {
+        originSessionId: canNotify ? callerTerminalSessionId : undefined,
+        notifyOnReply: canNotify && mode === 'async',
+      });
       if (mode === 'sync') {
         const settled = await waitForDispatchReply(
           state,
@@ -266,14 +279,22 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
         );
         const summary = dispatchSummary(settled);
         if (settled.status !== 'replied' && settled.status !== 'failed') {
+          if (canNotify) entry.notifyOnReply = true;
           return mcpResult({
             ...summary,
-            hint: `No reply within ${timeoutSeconds}s — the dispatch is still ${settled.status}. Poll terminal_collect with this correlationId, or check terminal_status.`,
+            hint: canNotify
+              ? `No reply within ${timeoutSeconds}s — the dispatch is still ${settled.status}. The result will be pushed into your terminal when the worker replies; terminal_collect also works.`
+              : `No reply within ${timeoutSeconds}s — the dispatch is still ${settled.status}. Poll terminal_collect with this correlationId, or check terminal_status.`,
           });
         }
         return mcpResult(summary);
       }
-      return mcpResult(dispatchSummary(entry));
+      return mcpResult({
+        ...dispatchSummary(entry),
+        hint: canNotify
+          ? "The worker's reply will be pushed into your terminal when ready — no need to poll terminal_collect."
+          : 'Poll terminal_collect with this correlationId for the reply.',
+      });
     },
   );
 
@@ -290,16 +311,31 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
 
   mcp.tool(
     'terminal_reply',
-    'Report the outcome of a dispatched request. Call this with the correlationId from the [engy-dispatch <id>] marker that arrived with the request',
+    'Report the outcome of a request that arrived with an [engy-dispatch] marker. The server matches the reply to your open dispatch; pass correlationId only when the marker included an id',
     terminalReplyInput,
     async ({ correlationId, result }) => {
-      const ok = resolveDispatchReply(getAppState(), correlationId, result);
-      if (!ok) {
+      const state = getAppState();
+      if (correlationId) {
+        const ok = resolveDispatchReply(state, correlationId, result);
+        if (!ok) {
+          return mcpError(
+            'Unknown or already-settled correlationId. Only reply once, with the exact id from the [engy-dispatch <id>] marker.',
+          );
+        }
+        return mcpResult({ ok: true, correlationId });
+      }
+      if (!callerTerminalSessionId) {
         return mcpError(
-          'Unknown or already-settled correlationId. Only reply once, with the exact id from the [engy-dispatch <id>] marker.',
+          'Cannot match this reply: your MCP connection is anonymous (plain /mcp), so a correlationId is required — use the id from the [engy-dispatch <id>] marker.',
         );
       }
-      return mcpResult({ ok: true, correlationId });
+      const settled = resolveWorkerReply(state, callerTerminalSessionId, result);
+      if (!settled) {
+        return mcpError(
+          'No open dispatch found for your terminal session — it may already be settled. Nothing to reply to.',
+        );
+      }
+      return mcpResult({ ok: true, correlationId: settled.correlationId });
     },
   );
 

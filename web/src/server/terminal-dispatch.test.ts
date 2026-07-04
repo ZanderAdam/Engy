@@ -14,6 +14,7 @@ import {
   recordWorkerOutput,
   replyContract,
   resolveDispatchReply,
+  resolveWorkerReply,
   waitForDispatchReply,
 } from './terminal-dispatch';
 
@@ -283,11 +284,178 @@ describe('terminal dispatch', () => {
   });
 
   describe('replyContract', () => {
-    it('should reference terminal_reply and embed the correlation id', () => {
-      const text = replyContract('abc-123');
+    it('should embed the correlation id for workers without a per-session MCP endpoint', () => {
+      const text = replyContract('abc-123', false);
       expect(text).toContain('[engy-dispatch abc-123]');
       expect(text).toContain('terminal_reply');
       expect(text).toContain('"abc-123"');
+    });
+
+    it('[FR-TERMINAL-160] should omit the correlation id for identified workers', () => {
+      const text = replyContract('abc-123', true);
+      expect(text).toContain('[engy-dispatch]');
+      expect(text).toContain('terminal_reply');
+      expect(text).not.toContain('abc-123');
+    });
+  });
+
+  describe('resolveWorkerReply', () => {
+    it('[FR-MCP-120] should settle the oldest delivered dispatch for the worker', () => {
+      addSession(state, 'w1', { activityState: 'idle', agentType: 'codex' });
+      connectWorker(state, 'w1', 'worker');
+      const first = createDispatch(state, 'w1', 'first');
+      // Rapid-fire race: the activity state hasn't flipped yet, so the second
+      // dispatch also delivers immediately. Skew deliveredAt (frozen clock)
+      // so oldest-first matching is exercised by timestamp, not map order.
+      const second = createDispatch(state, 'w1', 'second');
+      expect(second.status).toBe('delivered');
+      second.deliveredAt = (first.deliveredAt ?? 0) + 5;
+
+      const settled = resolveWorkerReply(state, 'w1', 'done with first');
+      expect(settled?.correlationId).toBe(first.correlationId);
+      expect(state.dispatches.get(first.correlationId)?.status).toBe('replied');
+      expect(state.dispatches.get(second.correlationId)?.status).toBe('delivered');
+    });
+
+    it('[FR-MCP-120] should return null when the worker has no delivered dispatch', () => {
+      addSession(state, 'w1', { activityState: 'idle' });
+      expect(resolveWorkerReply(state, 'w1', 'orphan')).toBeNull();
+    });
+  });
+
+  describe('reply push notices', () => {
+    it('[FR-MCP-180] should inject a settled notice into an idle origin terminal', () => {
+      addSession(state, 'orig', { activityState: 'idle', agentType: 'claude' });
+      addSession(state, 'w1', { activityState: 'idle', agentType: 'codex' });
+      connectWorker(state, 'w1', 'codex worker');
+      const entry = createDispatch(state, 'w1', 'task', {
+        originSessionId: 'orig',
+        notifyOnReply: true,
+      });
+      sent.length = 0;
+
+      resolveDispatchReply(state, entry.correlationId, 'all done');
+
+      const toOrigin = inputFrames(sent).filter((f) => f.sessionId === 'orig');
+      expect(toOrigin).toHaveLength(1);
+      expect(toOrigin[0].d).toContain(`[engy-notice ${entry.correlationId}]`);
+      expect(toOrigin[0].d).toContain('codex worker');
+      expect(toOrigin[0].d).toContain('all done');
+      expect(toOrigin[0].d).toContain('Do not reply or re-dispatch');
+    });
+
+    it('[FR-MCP-180] should queue the notice while the origin is busy and flush it on idle', () => {
+      addSession(state, 'orig', { activityState: 'active', agentType: 'claude' });
+      addSession(state, 'w1', { activityState: 'idle', agentType: 'codex' });
+      connectWorker(state, 'w1', 'worker');
+      const entry = createDispatch(state, 'w1', 'task', {
+        originSessionId: 'orig',
+        notifyOnReply: true,
+      });
+      sent.length = 0;
+
+      resolveDispatchReply(state, entry.correlationId, 'done');
+      expect(inputFrames(sent).filter((f) => f.sessionId === 'orig')).toHaveLength(0);
+      expect(state.dispatchReplyNotices.get('orig')).toHaveLength(1);
+
+      state.terminalSessionMeta.get('orig')!.activityState = 'idle';
+      flushDispatchInbox(state, 'orig');
+
+      const toOrigin = inputFrames(sent).filter((f) => f.sessionId === 'orig');
+      expect(toOrigin).toHaveLength(1);
+      expect(toOrigin[0].d).toContain('[engy-notice');
+      expect(state.dispatchReplyNotices.has('orig')).toBe(false);
+    });
+
+    it('[FR-MCP-180] should requeue notices when the daemon drops mid-flush', () => {
+      addSession(state, 'orig', { activityState: 'active', agentType: 'claude' });
+      addSession(state, 'w1', { activityState: 'idle', agentType: 'codex' });
+      connectWorker(state, 'w1', 'worker');
+      const entry = createDispatch(state, 'w1', 'task', {
+        originSessionId: 'orig',
+        notifyOnReply: true,
+      });
+      resolveDispatchReply(state, entry.correlationId, 'done');
+      expect(state.dispatchReplyNotices.get('orig')).toHaveLength(1);
+
+      state.terminalDaemon = null;
+      state.terminalSessionMeta.get('orig')!.activityState = 'idle';
+      flushDispatchInbox(state, 'orig');
+
+      expect(state.dispatchReplyNotices.get('orig')).toHaveLength(1);
+    });
+
+    it('[FR-MCP-180] should flush pending notices before a queued dispatch, one idle transition apart', () => {
+      addSession(state, 'orig', { activityState: 'active', agentType: 'claude' });
+      addSession(state, 'w1', { activityState: 'idle', agentType: 'codex' });
+      connectWorker(state, 'orig', 'orchestrator');
+      connectWorker(state, 'w1', 'worker');
+
+      // A notice queues for the busy origin...
+      const entry = createDispatch(state, 'w1', 'task', {
+        originSessionId: 'orig',
+        notifyOnReply: true,
+      });
+      resolveDispatchReply(state, entry.correlationId, 'done');
+      // ...and a dispatch TO the origin queues behind it.
+      const toOrig = createDispatch(state, 'orig', 'new work for orchestrator');
+      expect(toOrig.status).toBe('queued');
+      sent.length = 0;
+
+      state.terminalSessionMeta.get('orig')!.activityState = 'idle';
+      flushDispatchInbox(state, 'orig');
+      const firstFlush = inputFrames(sent).filter((f) => f.sessionId === 'orig');
+      expect(firstFlush).toHaveLength(1);
+      expect(firstFlush[0].d).toContain('[engy-notice');
+      expect(state.dispatches.get(toOrig.correlationId)?.status).toBe('queued');
+
+      sent.length = 0;
+      flushDispatchInbox(state, 'orig');
+      const secondFlush = inputFrames(sent).filter((f) => f.sessionId === 'orig');
+      expect(secondFlush).toHaveLength(1);
+      expect(secondFlush[0].d).toContain('new work for orchestrator');
+      expect(state.dispatches.get(toOrig.correlationId)?.status).toBe('delivered');
+    });
+
+    it('[FR-MCP-180] should notify the origin when the worker dispatch fails', () => {
+      addSession(state, 'orig', { activityState: 'idle', agentType: 'claude' });
+      addSession(state, 'w1', { activityState: 'idle', agentType: 'codex' });
+      connectWorker(state, 'w1', 'doomed worker');
+      createDispatch(state, 'w1', 'task', { originSessionId: 'orig', notifyOnReply: true });
+      sent.length = 0;
+
+      failWorkerDispatches(state, 'w1', 'Worker terminal exited');
+
+      const toOrigin = inputFrames(sent).filter((f) => f.sessionId === 'orig');
+      expect(toOrigin).toHaveLength(1);
+      expect(toOrigin[0].d).toContain('failed: Worker terminal exited');
+    });
+
+    it('[FR-MCP-180] should drop the notice when the origin terminal is gone', () => {
+      addSession(state, 'w1', { activityState: 'idle', agentType: 'codex' });
+      connectWorker(state, 'w1', 'worker');
+      const entry = createDispatch(state, 'w1', 'task', {
+        originSessionId: 'ghost-origin',
+        notifyOnReply: true,
+      });
+      sent.length = 0;
+
+      resolveDispatchReply(state, entry.correlationId, 'done');
+
+      expect(inputFrames(sent)).toHaveLength(0);
+      expect(state.dispatchReplyNotices.size).toBe(0);
+    });
+
+    it('should not notify when notifyOnReply is unset (settled sync dispatch)', () => {
+      addSession(state, 'orig', { activityState: 'idle', agentType: 'claude' });
+      addSession(state, 'w1', { activityState: 'idle', agentType: 'codex' });
+      connectWorker(state, 'w1', 'worker');
+      const entry = createDispatch(state, 'w1', 'task', { originSessionId: 'orig' });
+      sent.length = 0;
+
+      resolveDispatchReply(state, entry.correlationId, 'done');
+
+      expect(inputFrames(sent).filter((f) => f.sessionId === 'orig')).toHaveLength(0);
     });
   });
 });

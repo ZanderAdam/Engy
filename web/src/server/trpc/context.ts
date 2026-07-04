@@ -156,6 +156,10 @@ export interface DispatchEntry {
   createdAt: number;
   deliveredAt?: number;
   repliedAt?: number;
+  /** Terminal session of the agent that dispatched (from its /mcp/<token> identity). */
+  originSessionId?: string;
+  /** Push the settled result into the origin terminal instead of requiring terminal_collect polling. */
+  notifyOnReply?: boolean;
 }
 
 interface DispatchWorker {
@@ -377,6 +381,8 @@ export interface AppState {
   dispatchWaiters: Map<string, Array<(entry: DispatchEntry) => void>>;
   /** Queued correlationIds per worker, delivered one at a time on idle */
   dispatchInbox: Map<string, string[]>;
+  /** Settled-dispatch notices queued per origin session, flushed when that terminal goes idle */
+  dispatchReplyNotices: Map<string, string[]>;
   /** Recent PTY output tail per connected worker (bounded; for terminal_status) */
   terminalOutputTails: Map<string, string>;
 }
@@ -427,6 +433,7 @@ export function createAppState(): AppState {
     dispatches: new Map(),
     dispatchWaiters: new Map(),
     dispatchInbox: new Map(),
+    dispatchReplyNotices: new Map(),
     terminalOutputTails: new Map(),
   };
 }

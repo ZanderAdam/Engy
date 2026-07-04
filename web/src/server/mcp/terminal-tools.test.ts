@@ -6,6 +6,7 @@ import { getAppState, resetAppState, type AppState } from '../trpc/context';
 import {
   AGENT_SPAWN_LIMIT,
   connectWorker,
+  flushDispatchInbox,
   resolveDispatchReply,
 } from '../terminal-dispatch';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
@@ -239,6 +240,72 @@ describe('MCP terminal tools', () => {
       expect(isError).toBe(true);
     });
 
+    it('[FR-MCP-120] should match an id-less reply from an identified worker to its open dispatch', async () => {
+      addWorkerSession(state, 'w1', 'worker');
+      const { data: dispatched } = await callTool(makeMcp(), 'terminal_dispatch')({
+        workerSessionId: 'w1',
+        message: 'task',
+      });
+
+      // The worker replies through its own /mcp/<sessionId> connection, no id needed.
+      const { data, isError } = await callTool(makeMcp('w1'), 'terminal_reply')({
+        result: 'did it',
+      });
+      expect(isError).toBe(false);
+      expect(data.correlationId).toBe(dispatched.correlationId);
+      expect(state.dispatches.get(dispatched.correlationId as string)?.status).toBe('replied');
+    });
+
+    it('[FR-MCP-120] should require a correlationId from anonymous callers', async () => {
+      const { isError, data } = await callTool(makeMcp(undefined), 'terminal_reply')({
+        result: 'orphan',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('correlationId is required');
+    });
+
+    it('[FR-MCP-120] should error on an id-less reply with no open dispatch', async () => {
+      addWorkerSession(state, 'w1', 'worker');
+      const { isError, data } = await callTool(makeMcp('w1'), 'terminal_reply')({
+        result: 'nothing pending',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('No open dispatch');
+    });
+
+    it('[FR-TERMINAL-160] should deliver an id-less contract to workers with a per-session endpoint', async () => {
+      addWorkerSession(state, 'w1', 'worker');
+      state.terminalSessionMeta.get('w1')!.command =
+        `codex -c 'mcp_servers.Engy.url="http://localhost:5555/mcp/w1"' --sandbox workspace-write`;
+      const { data } = await callTool(makeMcp(), 'terminal_dispatch')({
+        workerSessionId: 'w1',
+        message: 'task',
+      });
+      const paste = sent.map((s) => JSON.parse(s) as { d?: string }).find((f) => f.d?.includes('task'));
+      expect(paste?.d).toContain('[engy-dispatch]');
+      expect(paste?.d).not.toContain(data.correlationId as string);
+    });
+
+    it('[FR-MCP-180] should mark identified async dispatches for reply push and say so in the hint', async () => {
+      addWorkerSession(state, 'w1', 'worker');
+      state.terminalSessionMeta.set('orig', {
+        scopeType: 'project',
+        scopeLabel: 'orchestrator',
+        workingDir: '/repo',
+        agentType: 'claude',
+        cols: 80,
+        rows: 24,
+      });
+      const { data } = await callTool(makeMcp('orig'), 'terminal_dispatch')({
+        workerSessionId: 'w1',
+        message: 'task',
+      });
+      expect(String(data.hint)).toContain('pushed into your terminal');
+      const entry = state.dispatches.get(data.correlationId as string)!;
+      expect(entry.originSessionId).toBe('orig');
+      expect(entry.notifyOnReply).toBe(true);
+    });
+
     it('should error on collect with an unknown correlation id', async () => {
       const { isError, data } = await callTool(makeMcp(), 'terminal_collect')({
         correlationId: 'ghost',
@@ -404,17 +471,49 @@ describe('MCP terminal tools', () => {
       expect(spawnFrame.command).toContain('review the diff');
       expect(spawnFrame.scopeLabel).toBe('codex on feature');
 
-      // Session meta records origin + inherits the caller's UI scope
+      // Session meta records origin + inherits the caller's UI scope; starts
+      // 'active' (booting) so immediate dispatches queue instead of pasting
+      // into a half-booted TUI.
       const meta = state.terminalSessionMeta.get(sessionId);
       expect(meta).toMatchObject({
         agentType: 'codex',
         spawnedBy: 'sess-claude',
         groupKey: 'group-1',
         workspaceSlug: 'ws',
+        activityState: 'active',
       });
 
       // Auto-connected as a dispatch worker
       expect(state.dispatchWorkers.get(sessionId)?.description).toBe('codex on feature');
+    });
+
+    it('[FR-MCP-170] should queue an immediate dispatch and deliver it when the spawned CLI settles', async () => {
+      addCallerSession('sess-claude', 'claude');
+      const mcp = makeMcp('sess-claude');
+      const { data: spawned } = await callTool(mcp, 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'worker',
+      });
+      const workerId = spawned.sessionId as string;
+      sent.length = 0;
+
+      // Dispatch immediately, while the worker is still booting ('active')
+      const { data: dispatched, isError } = await callTool(mcp, 'terminal_dispatch')({
+        workerSessionId: workerId,
+        message: 'first job',
+      });
+      expect(isError).toBe(false);
+      expect(dispatched.status).toBe('queued');
+      expect(sent).toHaveLength(0);
+
+      // The CLI finishes booting: daemon settles the session, inbox flushes
+      state.terminalSessionMeta.get(workerId)!.activityState = 'done';
+      flushDispatchInbox(state, workerId);
+      const paste = sent.map((s) => JSON.parse(s) as { sessionId: string; d?: string })
+        .find((f) => f.sessionId === workerId && f.d?.includes('first job'));
+      expect(paste).toBeDefined();
+      expect(state.dispatches.get(dispatched.correlationId as string)?.status).toBe('delivered');
     });
 
     it('[FR-MCP-170] should derive the MCP origin from a codex caller command (TOML shape)', async () => {

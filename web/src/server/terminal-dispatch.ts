@@ -20,7 +20,20 @@ const BRACKETED_PASTE_END = '\x1b[201~';
 // caller-supplied prompt can never escape the paste.
 const PASTE_SENTINEL_RE = /\x1b\[20[01]~/g;
 
-export function replyContract(correlationId: string): string {
+/**
+ * Workers with a per-session MCP endpoint are identified on every tool call,
+ * so the server matches their reply to the open dispatch itself — the contract
+ * is just "reply via terminal_reply". Workers without one (hand-configured
+ * agents at plain /mcp) must echo the correlation id back.
+ */
+export function replyContract(correlationId: string, hasSessionEndpoint: boolean): string {
+  if (hasSessionEndpoint) {
+    return (
+      '[engy-dispatch] When this request is done, report the outcome by calling the ' +
+      'Engy MCP tool `terminal_reply` with a concise result. Reply even if you fail ' +
+      'or cannot proceed.'
+    );
+  }
   return (
     `[engy-dispatch ${correlationId}] When this request is done, report the outcome by ` +
     `calling the Engy MCP tool \`terminal_reply\` with correlationId "${correlationId}" ` +
@@ -43,6 +56,9 @@ export function connectWorker(state: AppState, sessionId: string, description: s
 export function disconnectWorker(state: AppState, sessionId: string): void {
   state.dispatchWorkers.delete(sessionId);
   state.terminalOutputTails.delete(sessionId);
+  // Called on every session death path — also drop reply notices queued for
+  // this session as a dispatch origin, they can never be delivered.
+  state.dispatchReplyNotices.delete(sessionId);
 }
 
 interface WorkerInfo {
@@ -92,6 +108,7 @@ export function createDispatch(
   state: AppState,
   workerSessionId: string,
   message: string,
+  opts?: { originSessionId?: string; notifyOnReply?: boolean },
 ): DispatchEntry {
   const now = Date.now();
   pruneOldDispatches(state, now);
@@ -102,6 +119,8 @@ export function createDispatch(
     message,
     status: 'queued',
     createdAt: now,
+    originSessionId: opts?.originSessionId,
+    notifyOnReply: opts?.notifyOnReply,
   };
   state.dispatches.set(entry.correlationId, entry);
 
@@ -119,39 +138,70 @@ function hasQueuedDispatch(state: AppState, workerSessionId: string): boolean {
   return (state.dispatchInbox.get(workerSessionId)?.length ?? 0) > 0;
 }
 
-function deliverDispatch(state: AppState, entry: DispatchEntry): void {
-  const meta = state.terminalSessionMeta.get(entry.workerSessionId);
+/** Paste text into a terminal and submit it per the agent CLI's paste mechanics. */
+function injectPromptToTerminal(state: AppState, sessionId: string, text: string): boolean {
+  const meta = state.terminalSessionMeta.get(sessionId);
   const agentTypeId: AgentTypeId | undefined =
     meta?.agentType && isAgentTypeId(meta.agentType) ? meta.agentType : undefined;
   const paste = getAgentType(agentTypeId).paste;
 
-  const safeMessage = entry.message.replace(PASTE_SENTINEL_RE, '');
-  const text = `${safeMessage}\n\n${replyContract(entry.correlationId)}`;
   const pasted = `${BRACKETED_PASTE_START}${text}${BRACKETED_PASTE_END}`;
-  if (!injectTerminalInput(state, entry.workerSessionId, pasted)) {
+  if (!injectTerminalInput(state, sessionId, pasted)) return false;
+
+  // TUIs swallow an Enter sent in the same instant as the paste — submit after
+  // a short per-CLI delay (see AgentPasteBehavior).
+  const timer = setTimeout(() => {
+    for (let i = 0; i < paste.enterCount; i++) {
+      injectTerminalInput(state, sessionId, '\r');
+    }
+  }, paste.submitDelayMs);
+  timer.unref?.();
+  return true;
+}
+
+/** True when this terminal's CLI was launched with its own /mcp/<sessionId> endpoint. */
+function hasSessionEndpoint(state: AppState, sessionId: string): boolean {
+  return state.terminalSessionMeta.get(sessionId)?.command?.includes(`/mcp/${sessionId}`) ?? false;
+}
+
+function deliverDispatch(state: AppState, entry: DispatchEntry): void {
+  const safeMessage = entry.message.replace(PASTE_SENTINEL_RE, '');
+  const contract = replyContract(
+    entry.correlationId,
+    hasSessionEndpoint(state, entry.workerSessionId),
+  );
+  if (!injectPromptToTerminal(state, entry.workerSessionId, `${safeMessage}\n\n${contract}`)) {
     settleDispatch(state, entry, 'failed', undefined, 'No daemon connected');
     return;
   }
 
   entry.status = 'delivered';
   entry.deliveredAt = Date.now();
+  const agentType = state.terminalSessionMeta.get(entry.workerSessionId)?.agentType ?? 'shell';
   console.log(
-    `[dispatch] delivered ${entry.correlationId} to ${entry.workerSessionId.slice(0, 8)} (${agentTypeId ?? 'shell'})`,
+    `[dispatch] delivered ${entry.correlationId} to ${entry.workerSessionId.slice(0, 8)} (${agentType})`,
   );
-
-  // TUIs swallow an Enter sent in the same instant as the paste — submit after
-  // a short per-CLI delay (see AgentPasteBehavior).
-  const timer = setTimeout(() => {
-    for (let i = 0; i < paste.enterCount; i++) {
-      injectTerminalInput(state, entry.workerSessionId, '\r');
-    }
-  }, paste.submitDelayMs);
-  timer.unref?.();
 }
 
-/** Deliver the next queued dispatch for a worker that just went idle. */
+/** Deliver queued reply notices and the next queued dispatch for a terminal that just went idle. */
 export function flushDispatchInbox(state: AppState, workerSessionId: string): void {
   if (!isDeliverable(state, workerSessionId)) return;
+
+  // Reply notices first — they are informational and cheap; all pending ones
+  // are combined into a single paste so one idle transition drains them.
+  const notices = state.dispatchReplyNotices.get(workerSessionId);
+  if (notices?.length) {
+    state.dispatchReplyNotices.delete(workerSessionId);
+    if (!injectPromptToTerminal(state, workerSessionId, notices.join('\n\n'))) {
+      // Daemon dropped mid-flush — restore so the next idle transition retries.
+      state.dispatchReplyNotices.set(workerSessionId, notices);
+      console.warn(`[dispatch] notice flush failed for ${workerSessionId.slice(0, 8)} — requeued`);
+    }
+    // The paste flips the terminal to active; the next act→idle transition
+    // flushes the dispatch inbox.
+    return;
+  }
+
   const inbox = state.dispatchInbox.get(workerSessionId);
   if (!inbox || inbox.length === 0) return;
 
@@ -163,6 +213,41 @@ export function flushDispatchInbox(state: AppState, workerSessionId: string): vo
   if (entry && entry.status === 'queued') {
     deliverDispatch(state, entry);
   }
+}
+
+const NOTICE_RESULT_MAX_CHARS = 2_000;
+
+/**
+ * Push a settled dispatch's outcome into the origin terminal (async mode and
+ * timed-out sync dispatches) so the orchestrator does not have to poll
+ * terminal_collect. Injected immediately when the origin is idle, otherwise
+ * queued and flushed on its next idle transition.
+ */
+function notifyOrigin(state: AppState, entry: DispatchEntry): void {
+  const origin = entry.originSessionId;
+  if (!origin || !state.terminalSessionMeta.has(origin)) return;
+
+  const worker = state.dispatchWorkers.get(entry.workerSessionId);
+  const outcome =
+    entry.status === 'replied'
+      ? `replied: ${(entry.result ?? '').slice(0, NOTICE_RESULT_MAX_CHARS)}`
+      : `failed: ${entry.error ?? 'unknown error'}`;
+  // Marker deliberately distinct from the [engy-dispatch] contract so the
+  // origin agent cannot mistake the notice for a new dispatched request.
+  const notice =
+    `[engy-notice ${entry.correlationId}] Worker "${worker?.description ?? entry.workerSessionId.slice(0, 8)}" ` +
+    `${outcome}\n(Informational — your earlier terminal_dispatch settled. Do not reply or re-dispatch because of this notice.)`;
+  const safeNotice = notice.replace(PASTE_SENTINEL_RE, '');
+
+  // Direct-inject only when nothing else is queued for the origin — pending
+  // notices or dispatches would otherwise be overtaken out of arrival order.
+  const hasPendingNotices = (state.dispatchReplyNotices.get(origin)?.length ?? 0) > 0;
+  if (isDeliverable(state, origin) && !hasQueuedDispatch(state, origin) && !hasPendingNotices) {
+    if (injectPromptToTerminal(state, origin, safeNotice)) return;
+  }
+  const pending = state.dispatchReplyNotices.get(origin) ?? [];
+  pending.push(safeNotice);
+  state.dispatchReplyNotices.set(origin, pending);
 }
 
 function settleDispatch(
@@ -180,6 +265,9 @@ function settleDispatch(
   state.dispatchWaiters.delete(entry.correlationId);
   if (waiters) {
     for (const waiter of waiters) waiter(entry);
+  }
+  if (entry.notifyOnReply) {
+    notifyOrigin(state, entry);
   }
 }
 
@@ -199,6 +287,31 @@ export function resolveDispatchReply(
   settleDispatch(state, entry, 'replied', result);
   console.log(`[dispatch] reply for ${correlationId} (${result.length} chars)`);
   return true;
+}
+
+/**
+ * Settle a reply from an identified worker without a correlation id: matches
+ * the oldest undelivered-reply ('delivered') dispatch for that worker. Sound
+ * because delivery is one-at-a-time per worker and PTY prompts are processed
+ * in order, so replies arrive in delivery order. Returns the settled entry,
+ * or null when the worker has no delivered dispatch awaiting a reply.
+ */
+export function resolveWorkerReply(
+  state: AppState,
+  workerSessionId: string,
+  result: string,
+): DispatchEntry | null {
+  let oldest: DispatchEntry | null = null;
+  for (const entry of state.dispatches.values()) {
+    if (entry.workerSessionId !== workerSessionId || entry.status !== 'delivered') continue;
+    if (!oldest || (entry.deliveredAt ?? 0) < (oldest.deliveredAt ?? 0)) oldest = entry;
+  }
+  if (!oldest) return null;
+  settleDispatch(state, oldest, 'replied', result);
+  console.log(
+    `[dispatch] reply for ${oldest.correlationId} via worker identity ${workerSessionId.slice(0, 8)} (${result.length} chars)`,
+  );
+  return oldest;
 }
 
 /** Fail every unsettled dispatch for a worker (terminal exited / killed). */
@@ -328,6 +441,10 @@ export function spawnAgentTerminal(
     projectId: callerMeta.projectId,
     projectSlug: callerMeta.projectSlug,
     spawnedBy: opts.spawnedBy,
+    // Start as 'active' (booting): the caller can dispatch immediately — the
+    // message queues in the inbox and flushes on the CLI's first idle/done
+    // settle, instead of being pasted into a half-booted TUI and lost.
+    activityState: 'active',
     cols: SPAWNED_TERMINAL_COLS,
     rows: SPAWNED_TERMINAL_ROWS,
   });
