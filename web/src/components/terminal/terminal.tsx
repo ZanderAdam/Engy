@@ -58,6 +58,7 @@ function buildWsUrl(tab: TerminalTab): string {
     rows: '24',
   });
   if (scope.command) params.set('command', scope.command);
+  if (scope.agentType) params.set('agentType', scope.agentType);
   if (scope.workspaceSlug) params.set('workspaceSlug', scope.workspaceSlug);
   if (scope.projectId != null) params.set('projectId', String(scope.projectId));
   if (scope.projectSlug) params.set('projectSlug', scope.projectSlug);
@@ -220,9 +221,12 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     // focusin bubbles from xterm's textarea (unlike focus), so any click/keyboard
     // focus re-syncs PTY size when the viewport changed while the panel was hidden,
     // and acknowledges the session so a done/waiting indicator clears once viewed.
+    // The ack is also relayed so the server meta and daemon tracker clear too —
+    // otherwise the per-project badge keeps counting this session as done/waiting.
     const handleFocusIn = () => {
       fitAndSyncResize();
       activityTracker.acknowledge();
+      socketRef.current?.send(JSON.stringify({ t: 'ack', sessionId }));
     };
     container.addEventListener('focusin', handleFocusIn);
 

@@ -1,1 +1,0 @@
-ALTER TABLE `prs` ADD `auto_fix_total_attempts` integer DEFAULT 0 NOT NULL;

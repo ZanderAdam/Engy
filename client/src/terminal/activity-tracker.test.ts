@@ -78,6 +78,30 @@ describe('[FR-TERMINAL-130] createActivityTracker (daemon)', () => {
     expect(events).toEqual(['start', 'done', 'idle']);
   });
 
+  it('[FR-TERMINAL-240] should reset to idle on acknowledge and be a no-op when already idle', () => {
+    const { tracker, events } = setup();
+    skipInitialSuppress();
+    tracker.bumpActivity();
+    tracker.bumpActivity();
+    vi.advanceTimersByTime(DEBOUNCE_MS + 1);
+    expect(events).toEqual(['start', 'done']);
+    tracker.acknowledge();
+    expect(events).toEqual(['start', 'done', 'idle']);
+    tracker.acknowledge();
+    expect(events).toEqual(['start', 'done', 'idle']);
+  });
+
+  it('[FR-TERMINAL-230] should expose the current state via getState', () => {
+    const { tracker } = setup();
+    skipInitialSuppress();
+    expect(tracker.getState()).toBe('idle');
+    tracker.bumpActivity();
+    tracker.bumpActivity();
+    expect(tracker.getState()).toBe('active');
+    vi.advanceTimersByTime(DEBOUNCE_MS + 1);
+    expect(tracker.getState()).toBe('done');
+  });
+
   it('should ignore a resize redraw burst via suppressOutput without losing a pending settle', () => {
     const { tracker, events } = setup();
     skipInitialSuppress();

@@ -14,6 +14,7 @@ import { worktreeRouter } from './routers/worktree';
 import { memoryRouter } from './routers/memory';
 import { searchRouter } from './routers/search';
 import { prRouter } from './routers/pr';
+import { terminalRouter } from './routers/terminal';
 
 export const appRouter = router({
   workspace: workspaceRouter,
@@ -31,6 +32,7 @@ export const appRouter = router({
   memory: memoryRouter,
   search: searchRouter,
   pr: prRouter,
+  terminal: terminalRouter,
 });
 
 /** @public Used by tRPC client setup */

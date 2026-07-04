@@ -487,13 +487,16 @@ export class WsClient {
         }
       });
 
-      // Announce known sessions so server can clean up stale ones
+      // Announce known sessions so server can clean up stale ones. Activity
+      // states ride along to heal any transitions dropped while the relay was
+      // down — the server only learns of them via act messages otherwise.
       const allSessions = this.terminalManager!.getAllSessions();
       const sessionIds = allSessions.map((s) => s.sessionId);
+      const activity = this.terminalManager!.getActivityStates();
       console.log(
         `[ws-terminal] Sending sync with ${sessionIds.length} sessions: [${sessionIds.join(', ')}]`,
       );
-      ws.send(JSON.stringify({ t: 'sync', sessionIds } satisfies TerminalSyncEvent));
+      ws.send(JSON.stringify({ t: 'sync', sessionIds, activity } satisfies TerminalSyncEvent));
 
       // Resync: resume any sessions suspended during disconnect
       const suspended = allSessions.filter((s) => s.state === 'suspended');
@@ -685,6 +688,9 @@ export class WsClient {
         break;
       case 'reconnect':
         this.terminalManager?.handleReconnect(msg.sessionId);
+        break;
+      case 'ack':
+        this.terminalManager?.acknowledge(msg.sessionId);
         break;
     }
   }

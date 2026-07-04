@@ -3,6 +3,19 @@ import { deriveScope } from './use-terminal-scope';
 import { shellEscape } from '@/lib/shell';
 
 describe('deriveScope', () => {
+  describe('agent type', () => {
+    it('should build the workspace-default agent command and record its type', () => {
+      const claudeScope = deriveScope('ws', '/ws', ['/repo'], 1, undefined, undefined, undefined, false);
+      expect(claudeScope.agentType).toBe('claude');
+      expect(claudeScope.command ?? '').toMatch(/^claude/);
+
+      const codexScope = deriveScope('ws', '/ws', ['/repo'], 1, undefined, undefined, undefined, false, 'codex');
+      expect(codexScope.agentType).toBe('codex');
+      expect(codexScope.command ?? '').toMatch(/^codex/);
+      expect(codexScope.command).toContain('--sandbox workspace-write');
+    });
+  });
+
   describe('project scope', () => {
     it('should use projectDir as workingDir and add ALL repos as --add-dir', () => {
       const scope = deriveScope('my-ws', '/home/user/.engy/my-ws', ['/repo1', '/repo2'], 1, 'my-proj', 5);

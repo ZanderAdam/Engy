@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
-import type { AppState } from '../trpc/context';
+import type { AppState, TerminalSessionMeta } from '../trpc/context';
 import type {
   TerminalSpawnCmd,
+  TerminalResizeCmd,
   TerminalReconnectCmd,
   TerminalErrorEvent,
-  TerminalExitEvent,
   TerminalSyncEvent,
   TerminalActivityEvent,
 } from '@engy/common';
@@ -15,6 +15,43 @@ import { workspaces } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { dispatchContainerUp } from './server';
 import { broadcastTerminalSessionsChange, broadcastTerminalActivityChange } from './broadcast';
+import {
+  persistTerminalSession,
+  deletePersistedTerminalSession,
+} from './terminal-session-store';
+import {
+  destroyTerminalSession,
+  disconnectWorker,
+  failWorkerDispatches,
+  flushDispatchInbox,
+  isTrackedWorker,
+  recordWorkerOutput,
+} from '../terminal-dispatch';
+import { MCP_SESSION_PLACEHOLDER } from '@/lib/agent-types';
+
+// How long a browser connect with no session metadata waits for the daemon's
+// `{ t: 'sync' }` before classifying as spawn-vs-reconnect. Covers the
+// post-server-restart window where browsers reconnect before the daemon relay
+// has announced which sessions survived — classifying early would send a spawn
+// that kills the surviving PTY. Generous enough for the daemon's reconnect
+// backoff after a typical restart; on timeout the connect falls back to the
+// pre-existing spawn/no-daemon behavior.
+const DAEMON_SYNC_WAIT_MS = 10_000;
+
+function waitForDaemonSync(state: AppState, timeoutMs: number): Promise<void> {
+  if (state.daemonTerminalSessions.synced) return Promise.resolve();
+  return new Promise((resolve) => {
+    const waiter = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      state.daemonTerminalSessions.syncWaiters.delete(waiter);
+      resolve();
+    }, timeoutMs);
+    state.daemonTerminalSessions.syncWaiters.add(waiter);
+  });
+}
 
 function parseQueryParams(url: string): URLSearchParams {
   const idx = url.indexOf('?');
@@ -147,11 +184,13 @@ async function handleTerminalConnection(
   ws: WebSocket,
   req: IncomingMessage,
   state: AppState,
+  daemonSyncWaitMs: number,
 ): Promise<void> {
   const params = parseQueryParams(req.url ?? '');
   const sessionId = params.get('sessionId');
   const workingDir = params.get('workingDir');
   const command = params.get('command') ?? undefined;
+  const agentType = params.get('agentType') ?? undefined;
   const cols = parseInt(params.get('cols') ?? '80', 10);
   const rows = parseInt(params.get('rows') ?? '24', 10);
   const scopeType = params.get('scopeType') ?? 'workspace';
@@ -174,6 +213,11 @@ async function handleTerminalConnection(
     return;
   }
 
+  // Swap the MCP session placeholder for the real sessionId, so the agent's
+  // Engy MCP endpoint is /mcp/<sessionId> — its identity on every tool call.
+  // Stored substituted in meta so respawns reuse the same endpoint.
+  const resolvedCommand = command?.replaceAll(MCP_SESSION_PLACEHOLDER, sessionId);
+
   // Initial classification (log only): persisted metadata (set after successful
   // spawn) or an in-flight spawn for the same sessionId. Using terminalSessions
   // for detection would false-positive on React Strict Mode double-mount where
@@ -184,7 +228,7 @@ async function handleTerminalConnection(
   const short = sessionId.slice(0, 8);
   const existingCount = state.terminalSessions.get(sessionId)?.size ?? 0;
   console.log(
-    `[terminal] connection sid=${short} isReconnect=${isReconnect} existingBrowsers=${existingCount} daemon=${state.terminalDaemon != null}`,
+    `[terminal] connection sid=${short} isReconnect=${isReconnect} daemonKnown=${state.daemonTerminalSessions.ids.has(sessionId)} existingBrowsers=${existingCount} daemon=${state.terminalDaemon != null}`,
   );
   addBrowserWs(state, sessionId, ws);
 
@@ -192,41 +236,61 @@ async function handleTerminalConnection(
   const existingMeta = state.terminalSessionMeta.get(sessionId);
   if (existingMeta && !existingMeta.groupKey && groupKey) {
     existingMeta.groupKey = groupKey;
+    persistTerminalSession(sessionId, existingMeta);
   }
 
   // Register handlers early so input is forwarded even during container startup
   ws.on('message', (raw: Buffer | string) => {
     const str = typeof raw === 'string' ? raw : raw.toString('utf-8');
 
-    // Intercept kill messages to clean up session metadata (rare path)
+    // Intercept kill messages to clean up session metadata (rare path). The
+    // sender ws is excluded from the exit-frame fan-out — it initiated the
+    // kill and tears itself down client-side.
     if (str.startsWith('{"t":"kill"')) {
       const sid = extractSessionId(str);
       if (sid) {
         console.log(`[terminal] Kill intercepted for session ${sid}`);
-        const killedMeta = state.terminalSessionMeta.get(sid);
-        state.terminalSessionMeta.delete(sid);
-        // Close all attached browsers and remove the session. Send exit first so
-        // their ReconnectingSocket marks the session final — a bare close would
-        // trigger a reconnect that respawns a ghost PTY (meta is already deleted).
-        const wsSet = state.terminalSessions.get(sid);
-        if (wsSet) {
-          const exitFrame = JSON.stringify({
-            t: 'exit',
-            sessionId: sid,
-            exitCode: 0,
-          } satisfies TerminalExitEvent);
-          for (const bws of wsSet) {
-            if (bws !== ws && bws.readyState === bws.OPEN) {
-              sendRaw(bws, exitFrame);
-              bws.close(1001, 'Session killed');
-            }
-          }
+        destroyTerminalSession(state, sid, { excludeWs: ws });
+      }
+    }
+
+    // The user viewed/focused the terminal — clear its activity state here (so
+    // badges update even if the daemon is down or its tracker has drifted) and
+    // let the generic forward below deliver the ack to the daemon tracker too.
+    if (str.startsWith('{"t":"ack"')) {
+      const meta = state.terminalSessionMeta.get(sessionId);
+      if (meta && meta.activityState && meta.activityState !== 'idle') {
+        meta.activityState = 'idle';
+        persistTerminalSession(sessionId, meta);
+        if (meta.projectSlug) {
+          broadcastTerminalActivityChange({
+            sessionId,
+            projectSlug: meta.projectSlug,
+            state: 'idle',
+          });
         }
-        state.terminalSessions.delete(sid);
-        broadcastTerminalSessionsChange('destroyed', sid, killedMeta?.groupKey);
-        if (killedMeta?.projectSlug) {
-          broadcastTerminalActivityChange({ sessionId: sid, projectSlug: killedMeta.projectSlug, removed: true });
+      }
+    }
+
+    // The browser's resize guard assumes "last sent" === "PTY size". Track the
+    // size on the meta so respawn and relay-reconnect re-assert the real size,
+    // not the initial spawn size. Only the owning connection may update it.
+    if (str.startsWith('{"t":"resize"')) {
+      try {
+        const resize = JSON.parse(str) as TerminalResizeCmd;
+        const meta = state.terminalSessionMeta.get(sessionId);
+        if (
+          resize.sessionId === sessionId &&
+          meta &&
+          Number.isInteger(resize.cols) &&
+          Number.isInteger(resize.rows)
+        ) {
+          meta.cols = resize.cols;
+          meta.rows = resize.rows;
+          persistTerminalSession(sessionId, meta);
         }
+      } catch {
+        console.warn('[terminal] Failed to parse resize message');
       }
     }
 
@@ -257,6 +321,24 @@ async function handleTerminalConnection(
     broadcastTerminalSessionsChange('detached', sessionId, meta?.groupKey);
   });
 
+  // The daemon's sync is the source of truth for which sessions survived a
+  // server or relay restart. Hold classification until it arrives (or times
+  // out) when we cannot trust local state: a no-meta connect would otherwise
+  // spawn over a surviving PTY, and a meta entry restored from the DB at boot
+  // must be validated against a live daemon before a reconnect is issued for
+  // it. Live sessions with in-memory meta skip the wait — for those the old
+  // immediate no-daemon handling applies.
+  const needsSyncValidation =
+    !state.terminalSessionMeta.has(sessionId) || state.restoredTerminalSessions.has(sessionId);
+  if (needsSyncValidation && !state.daemonTerminalSessions.synced) {
+    await waitForDaemonSync(state, daemonSyncWaitMs);
+    const setAfterSyncWait = state.terminalSessions.get(sessionId);
+    if (!setAfterSyncWait || !setAfterSyncWait.has(ws)) {
+      console.log(`[terminal] connect abandoned while awaiting daemon sync for sid=${short}`);
+      return;
+    }
+  }
+
   // Wait out an in-flight spawn before classifying — the daemon only knows the
   // session once the originating spawn has been sent. Loop: a waiter that falls
   // through to a fresh spawn installs a new gate synchronously, so later waiters
@@ -270,6 +352,40 @@ async function handleTerminalConnection(
       return;
     }
     inflightSpawn = state.spawningSessions.get(sessionId);
+  }
+
+  // command is stored resolved (MCP session placeholder → real sessionId) so
+  // the per-session endpoint in the meta matches what the PTY actually runs.
+  const metaFromParams: TerminalSessionMeta = {
+    scopeType,
+    scopeLabel,
+    workingDir,
+    command: resolvedCommand,
+    agentType,
+    groupKey,
+    workspaceSlug,
+    containerMode,
+    taskId,
+    projectId,
+    projectSlug,
+    worktreeBranch,
+    cols,
+    rows,
+  };
+
+  // Adopt a daemon-surviving session the server has no meta for (server
+  // restart wiped it): rebuild the meta from the connect params so the
+  // classification below routes through reconnect instead of respawning
+  // over the live PTY. Requires `synced` so a stale alive set from a previous
+  // relay connection is never used as adoption evidence.
+  if (
+    !state.terminalSessionMeta.has(sessionId) &&
+    state.daemonTerminalSessions.synced &&
+    state.daemonTerminalSessions.ids.has(sessionId)
+  ) {
+    console.log(`[terminal] adopting daemon-surviving session sid=${short}`);
+    state.terminalSessionMeta.set(sessionId, metaFromParams);
+    persistTerminalSession(sessionId, metaFromParams);
   }
 
   // Classify after the wait: meta present → the spawn succeeded, join via
@@ -313,7 +429,7 @@ async function handleTerminalConnection(
         t: 'spawn',
         sessionId,
         workingDir,
-        command,
+        command: resolvedCommand,
         cols,
         rows,
         scopeType,
@@ -345,23 +461,11 @@ async function handleTerminalConnection(
       if (daemon && daemon.readyState === daemon.OPEN) {
         console.log(`[terminal] sending spawn to daemon for sid=${short}`);
         daemon.send(JSON.stringify(spawnCmd));
+        state.daemonTerminalSessions.ids.add(sessionId);
         // Only persist meta after spawn is sent — prevents false reconnects
         // from concurrent connections (React Strict Mode double-mount)
-        state.terminalSessionMeta.set(sessionId, {
-          scopeType,
-          scopeLabel,
-          workingDir,
-          command,
-          groupKey,
-          workspaceSlug,
-          containerMode,
-          taskId,
-          projectId,
-          projectSlug,
-          worktreeBranch,
-          cols,
-          rows,
-        });
+        state.terminalSessionMeta.set(sessionId, metaFromParams);
+        persistTerminalSession(sessionId, metaFromParams);
         broadcastTerminalSessionsChange('created', sessionId, groupKey);
       } else {
         console.log(`[terminal] spawn path but no daemon for sid=${short}`);
@@ -379,11 +483,15 @@ async function handleTerminalConnection(
  * Browser sends compact messages ({ t: 'i', sessionId, d } / { t: 'resize', ... }).
  * These are forwarded RAW to the daemon terminal relay — zero parse on the hot path.
  */
-export function createTerminalWebSocketServer(state: AppState): WebSocketServer {
+export function createTerminalWebSocketServer(
+  state: AppState,
+  opts?: { daemonSyncWaitMs?: number },
+): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
+  const daemonSyncWaitMs = opts?.daemonSyncWaitMs ?? DAEMON_SYNC_WAIT_MS;
 
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
-    handleTerminalConnection(ws, req, state).catch((err: unknown) => {
+    handleTerminalConnection(ws, req, state, daemonSyncWaitMs).catch((err: unknown) => {
       console.error('Terminal connection error:', err);
       if (ws.readyState === ws.OPEN) ws.close(1011, 'Internal error');
     });
@@ -417,9 +525,46 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
             `[terminal-relay] Daemon sync: ${daemonSessionIds.size} alive sessions. Server has ${state.terminalSessionMeta.size} meta entries.`,
           );
 
+          // Record the daemon's alive set — this is what lets a restarted
+          // server (empty meta) classify browser reconnects as existing
+          // sessions instead of respawning over live PTYs.
+          state.daemonTerminalSessions.ids = daemonSessionIds;
+          state.daemonTerminalSessions.synced = true;
+
+          // Heal activity states dropped while the relay was down — act
+          // messages sent during the outage never arrived, so the stored
+          // state can be arbitrarily stale until the next transition.
+          for (const { sessionId, state: actState } of sync.activity ?? []) {
+            const meta = state.terminalSessionMeta.get(sessionId);
+            if (!meta || (meta.activityState ?? 'idle') === actState) continue;
+            meta.activityState = actState;
+            persistTerminalSession(sessionId, meta);
+            if (meta.projectSlug) {
+              broadcastTerminalActivityChange({
+                sessionId,
+                projectSlug: meta.projectSlug,
+                state: actState,
+              });
+            }
+          }
+
           // Respawn or clean up sessions the daemon no longer has
           for (const [sessionId, meta] of state.terminalSessionMeta) {
-            if (!daemonSessionIds.has(sessionId)) {
+            if (daemonSessionIds.has(sessionId)) {
+              // Session survived on the daemon, but resizes sent while the relay
+              // was down were dropped — the browser's guard already recorded them
+              // as sent, so it will never resend. Re-assert the last known size.
+              if (hasAnyOpenBrowser(state, sessionId)) {
+                ws.send(
+                  JSON.stringify({
+                    t: 'resize',
+                    sessionId,
+                    cols: meta.cols,
+                    rows: meta.rows,
+                  } satisfies TerminalResizeCmd),
+                );
+              }
+            } else {
               if (hasAnyOpenBrowser(state, sessionId)) {
                 // Browser is still connected — respawn the session transparently
                 console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — respawning on daemon`);
@@ -455,15 +600,27 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
                   }
                 }
                 ws.send(JSON.stringify(spawnCmd));
+                daemonSessionIds.add(sessionId);
                 broadcastTerminalSessionsChange('created', sessionId, meta.groupKey);
               } else {
-                // No browser connected — just clean up
+                // No browser connected — full teardown. Agent-spawned workers
+                // always land here (they never have a browser), so this must
+                // fail dispatches, drop the worker entry, and clear activity
+                // badges instead of leaking phantom state.
                 console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — no browser, cleaning up`);
-                state.terminalSessions.delete(sessionId);
-                state.terminalSessionMeta.delete(sessionId);
+                destroyTerminalSession(state, sessionId);
               }
             }
           }
+
+          // DB-restored entries are now validated: alive ones were kept above,
+          // dead ones purged. Later connects can trust in-memory meta again.
+          state.restoredTerminalSessions.clear();
+
+          // Release browser connects that arrived before this sync — they can
+          // now classify against the recorded alive set.
+          for (const waiter of state.daemonTerminalSessions.syncWaiters) waiter();
+          state.daemonTerminalSessions.syncWaiters.clear();
         } catch {
           console.warn('[terminal-relay] Failed to parse sync message');
         }
@@ -479,11 +636,17 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
           const meta = state.terminalSessionMeta.get(act.sessionId);
           if (meta) {
             meta.activityState = act.state;
+            persistTerminalSession(act.sessionId, meta);
             broadcastTerminalActivityChange({
               sessionId: act.sessionId,
               projectSlug: meta.projectSlug,
               state: act.state,
             });
+            // Idle-gated dispatch delivery: a worker that just finished its
+            // turn receives the next queued cross-terminal dispatch.
+            if (act.state === 'idle' || act.state === 'done') {
+              flushDispatchInbox(state, act.sessionId);
+            }
           }
         } catch {
           console.warn('[terminal-relay] Failed to parse act message');
@@ -493,6 +656,17 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
 
       const sessionId = extractSessionId(str);
       if (!sessionId) return;
+
+      // Bounded output tail for connected dispatch workers (terminal_status).
+      // Parse only for tracked sessions — the hot path stays zero-parse.
+      if (str.startsWith('{"t":"o"') && isTrackedWorker(state, sessionId)) {
+        try {
+          const frame = JSON.parse(str) as { d?: string };
+          if (typeof frame.d === 'string') recordWorkerOutput(state, sessionId, frame.d);
+        } catch {
+          // Malformed frame — skip tail recording, forwarding continues below
+        }
+      }
 
       const wsSet = state.terminalSessions.get(sessionId);
 
@@ -518,13 +692,26 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         broadcastToSession(state, sessionId, str);
       }
 
-      // Exit messages start with {"t":"exit" — no data field to confuse
+      // Exit messages start with {"t":"exit" — no data field to confuse.
       const isExit = str.startsWith('{"t":"exit"');
       if (isExit) {
+        // Whatever the server-side state, the daemon no longer has this PTY —
+        // drop it from the alive set (and the SQLite mirror) unconditionally
+        // so a later connect can't adopt a dead session.
+        state.daemonTerminalSessions.ids.delete(sessionId);
+        deletePersistedTerminalSession(sessionId);
+      }
+      // Skip the teardown when the session is already torn down (kill /
+      // terminal_close ran destroyTerminalSession before the daemon's exit
+      // arrived) — re-running would emit a second 'destroyed' broadcast with
+      // no groupKey context.
+      if (isExit && (state.terminalSessionMeta.has(sessionId) || state.terminalSessions.has(sessionId))) {
         console.log(`[terminal-relay] Exit for session ${sessionId}, cleaning up meta and WS`);
         const exitMeta = state.terminalSessionMeta.get(sessionId);
         state.terminalSessions.delete(sessionId);
         state.terminalSessionMeta.delete(sessionId);
+        failWorkerDispatches(state, sessionId, 'Worker terminal exited');
+        disconnectWorker(state, sessionId);
         broadcastTerminalSessionsChange('destroyed', sessionId, exitMeta?.groupKey);
         if (exitMeta?.projectSlug) {
           broadcastTerminalActivityChange({ sessionId, projectSlug: exitMeta.projectSlug, removed: true });
@@ -542,6 +729,10 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         // Keep terminalSessionMeta intact so the sync handler can respawn
         // sessions with active browsers when a new daemon connects.
         // The sync handler already cleans up entries with no active browser WS.
+        // Require a fresh sync from the next daemon before classifying no-meta
+        // connects — its alive set may differ. The ids set is kept as-is: the
+        // next sync replaces it wholesale.
+        state.daemonTerminalSessions.synced = false;
       }
     });
   });

@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a2b392ff-5c9e-4034-92b9-a2f2c59136a0",
-  "prevId": "1c2798d8-09a9-4168-8631-a7fa37001ffe",
+  "id": "409f88a4-510d-4f38-ace7-76be95251602",
+  "prevId": "549104c0-7ef5-464d-b943-6df2446470cd",
   "tables": {
     "agent_sessions": {
       "name": "agent_sessions",
@@ -857,6 +857,14 @@
           "autoincrement": false,
           "default": 0
         },
+        "auto_fix_total_attempts": {
+          "name": "auto_fix_total_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
         "attention_reason": {
           "name": "attention_reason",
           "type": "text",
@@ -1327,6 +1335,37 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "terminal_sessions": {
+      "name": "terminal_sessions",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "meta": {
+          "name": "meta",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "thread_comments": {
       "name": "thread_comments",
       "columns": {
@@ -1463,6 +1502,21 @@
         },
         "implement_skill": {
           "name": "implement_skill",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "default_agent_type": {
+          "name": "default_agent_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "'claude'"
+        },
+        "agent_settings": {
+          "name": "agent_settings",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

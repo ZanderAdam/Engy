@@ -1,6 +1,6 @@
 import type { TerminalTab } from './types';
 
-interface TerminalWorktreeGroup {
+export interface TerminalWorktreeGroup {
   /** Worktree branch, or undefined for the default branch. */
   branch: string | undefined;
   /** Display label — branch name, or "default branch". */

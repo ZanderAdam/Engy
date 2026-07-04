@@ -116,6 +116,38 @@ set, or when `docsDir` is nested inside one of the `repos` paths (detected by
 directory is not repo-dependent; the flag tells the UI whether to render a
 merged or split project view.
 
+## Per-agent settings (agentSettings)
+
+The `agent_settings` JSON column stores per-agent overrides keyed by agent-type
+id: `{ [agentTypeId]: { active, mode, planSkill, implementSkill } }`
+(`WorkspaceAgentSettings` in `web/src/lib/agent-types.ts`). An absent key means
+active with the agent's registry defaults. `workspace.update` validates keys
+against the agent-type registry, `mode` against that agent's `modes` list, and
+rejects deactivating the workspace's default agent.
+
+Effects:
+
+- **Mode** — `buildAgentCommand` applies the configured per-agent default mode:
+  Claude gets `--permission-mode <mode>` (`default` / `acceptEdits` / `plan` /
+  `auto` / `bypassPermissions`, default `acceptEdits`; the CLI's `dontAsk` is
+  deliberately not offered — a CI/allowlist mode that would silently refuse
+  everything in an interactive terminal); Codex maps a preset
+  id to sandbox/approval flags (`read-only`, `workspace-write` (default),
+  `full-auto` = `--sandbox workspace-write --ask-for-approval never`,
+  `danger-full-access`). Container spawns still force the permission-bypass
+  flag, overriding the mode, and Codex `read-only` omits `--add-dir` flags
+  (the read-only sandbox rejects extra writable roots). Unknown stored mode ids
+  fall back to the agent default.
+- **Active** — deactivated agents are hidden from the New Terminal menus and
+  the default-agent picker, and `terminal_spawn` refuses to spawn them
+  (see FR-MCP-160 in the mcp-server-session area).
+- **Skills** — plan/implement skills resolve per agent: the agent's entry,
+  then the legacy workspace-level `plan_skill` / `implement_skill` columns,
+  then `/engy:plan` / `/engy:implement`. Task quick actions and background
+  executions launch claude and therefore use claude's skills. The Agents tab in
+  workspace settings edits all of this per agent; the legacy columns are no
+  longer edited by the UI and survive only as a fallback.
+
 ## MCP surface
 
 `registerWorkspaceTools` exposes the read/discovery surface to AI agents:
@@ -160,6 +192,10 @@ second run creates no additional commit.
 | FR-WORKSPACE-110 | The system SHALL expose `listWorkspaces`, `getWorkspaceDetails`, `listProjects`, and `getProjectDetails` as read-only MCP discovery tools; `getWorkspaceDetails` and `getProjectDetails` SHALL return an `mcpError` for an unknown id, while `listProjects` SHALL return an empty array (not an error) for a workspace with no projects. |
 | FR-WORKSPACE-115 | WHEN `setWorkspaceEarsBdd` is called, the system SHALL update `earsBdd` on the workspace row and rewrite `workspace.yaml` to match, returning an `mcpError` for an unknown workspace id. |
 | FR-WORKSPACE-120 | WHEN `backfillM7` is called for a workspace whose `memory/README.md` is absent, the system SHALL create the full `memory/` hierarchy (five subtype dirs plus `sources/`, `references/`, and all READMEs), append `.qmd/` to `.gitignore` (without corrupting existing content), run the indexer, and commit only the newly added files with `memory(init): backfill knowledge-layer directories`; a second call on an already-migrated workspace SHALL create no additional commit. |
+| FR-WORKSPACE-130 | WHEN `workspace.create` or `workspace.update` receives `defaultAgentType`, the system SHALL validate it against the agent-type registry (rejecting unknown values) and persist it; `workspace.create` SHALL default it to `claude` when absent, and `workspace.update` SHALL preserve the existing value when the field is omitted. |
+| FR-WORKSPACE-140 | WHEN `workspace.update` receives `agentSettings`, the system SHALL validate every key against the agent-type registry and every `mode` against that agent's mode list (rejecting unknown values with `BAD_REQUEST`), SHALL reject settings that deactivate the workspace's effective default agent, and SHALL persist the value; WHEN the field is omitted, the existing value SHALL be preserved. |
+| FR-WORKSPACE-150 | WHEN building an agent terminal command, the system SHALL apply the workspace's configured per-agent default mode (Claude: `--permission-mode <mode>`; Codex: the preset's sandbox/approval flags), falling back to the agent's registry default (`acceptEdits` / `workspace-write`) when unset or unknown; a permission-bypass spawn (container) SHALL override the mode, and the Codex `read-only` preset SHALL omit `--add-dir` flags. |
+| FR-WORKSPACE-160 | WHEN resolving plan/implement skills for an agent, the system SHALL use the agent's `agentSettings` entry first, then the legacy workspace-level `planSkill`/`implementSkill` columns, then the `/engy:plan` / `/engy:implement` defaults. |
 
 ## Sources
 

@@ -898,12 +898,22 @@ export interface TerminalReconnectCmd {
   sessionId: string;
 }
 
+/**
+ * Browser → server → daemon: the user viewed/focused the terminal, so a
+ * done/waiting activity state is acknowledged back to idle.
+ */
+export interface TerminalAckCmd {
+  t: 'ack';
+  sessionId: string;
+}
+
 export type TerminalRelayCommand =
   | TerminalSpawnCmd
   | TerminalInputCmd
   | TerminalResizeCmd
   | TerminalKillCmd
-  | TerminalReconnectCmd;
+  | TerminalReconnectCmd
+  | TerminalAckCmd;
 
 // Daemon → Server events
 export interface TerminalOutputEvent {
@@ -930,10 +940,15 @@ export interface TerminalErrorEvent {
   message: string;
 }
 
-/** Sent by daemon on connect to announce which sessions it still has alive. */
+/**
+ * Sent by daemon on connect to announce which sessions it still has alive,
+ * with each session's current activity state so states dropped during a relay
+ * outage are healed on reconnect.
+ */
 export interface TerminalSyncEvent {
   t: 'sync';
   sessionIds: string[];
+  activity?: { sessionId: string; state: TerminalActivityState }[];
 }
 
 /**

@@ -2,15 +2,17 @@ import type { TerminalActivityState } from '@engy/common';
 
 // Daemon copy of web/src/components/terminal/activity-tracker.ts. The state
 // machine is duplicated rather than shared because @engy/common is types-only.
-// Daemon-side there is no "view" signal, so acknowledge() is unused here; idle
-// is reached via user input (resetOnUserInput). suppress()/suppressOutput()
-// guard against reconnect/resize redraw bursts.
+// The "view" signal arrives as a relayed { t: 'ack' } from the browser
+// (acknowledge); idle is also reached via user input (resetOnUserInput).
+// suppress()/suppressOutput() guard against reconnect/resize redraw bursts.
 type ActivityEvent = 'start' | 'idle' | 'waiting' | 'done';
 
 interface ActivityTracker {
   bumpActivity: (hasPrompt?: boolean) => void;
   handleBell: () => void;
   resetOnUserInput: () => void;
+  acknowledge: () => void;
+  getState: () => TerminalActivityState;
   suppressOutput: (ms: number) => void;
   dispose: () => void;
 }
@@ -93,6 +95,16 @@ export function createActivityTracker({
     settleIdle();
   }
 
+  // User viewed/focused the terminal in a browser — mirrors the web tracker's
+  // acknowledge so the daemon-computed badge state clears once seen.
+  function acknowledge() {
+    settleIdle();
+  }
+
+  function getState() {
+    return current;
+  }
+
   // Short ignore window for a resize-triggered redraw, preserving current state
   // and any pending settle.
   function suppressOutput(ms: number) {
@@ -104,5 +116,13 @@ export function createActivityTracker({
     clearInactivityTimer();
   }
 
-  return { bumpActivity, handleBell, resetOnUserInput, suppressOutput, dispose };
+  return {
+    bumpActivity,
+    handleBell,
+    resetOnUserInput,
+    acknowledge,
+    getState,
+    suppressOutput,
+    dispose,
+  };
 }

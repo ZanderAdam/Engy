@@ -32,7 +32,7 @@ Use `this.sendToServer?.(JSON.stringify({...}))` — no helper today, but if you
 - Devcontainer: `spawnInContainer` shells out via `devcontainer exec --workspace-folder <folder>`.
 - Coder workspace: `spawnInCoder` uses `coder ssh --no-wait` with optional reverse port (`-R`) for server callback.
 
-**Security**: the `--dangerously-skip-permissions` guard (`DANGEROUS_FLAG_RE`) runs at the top of `spawn()` for **every** mode, gated on `!isIsolated` where `isIsolated = !!containerWorkspaceFolder || !!opts.coderWorkspace`. Host execution is blocked; devcontainer and coder are considered isolated and pass. Any new spawn mode must either set one of those isolation flags or stay blocked.
+**Security**: the permission-bypass guard (`DANGEROUS_FLAG_RE`) runs at the top of `spawn()` for **every** mode, gated on `!isIsolated` where `isIsolated = !!containerWorkspaceFolder || !!opts.coderWorkspace`. It blocks Claude Code's `--dangerously-skip-permissions` and Codex's `--dangerously-bypass-approvals-and-sandbox` on host; devcontainer and coder are considered isolated and pass. Any new spawn mode must either set one of those isolation flags or stay blocked; any new agent CLI's bypass flag must be added to the regex.
 
 ## Buffer
 

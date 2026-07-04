@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { RiArrowRightSLine } from '@remixicon/react';
+import { RiArrowRightSLine, RiLayoutGridLine } from '@remixicon/react';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,6 +10,12 @@ import {
 } from '@/components/terminal/use-terminal-scope';
 import { useTabId } from '@/components/tabs/tab-context';
 import { TerminalManager } from '@/components/terminal/terminal-manager';
+import {
+  useCommandCenterMode,
+  setCommandCenterMode,
+  COMMAND_CENTER_GROUP_KEY,
+} from '@/components/terminal/command-center/use-command-center-mode';
+import { cn } from '@/lib/utils';
 import type { TerminalDropdownGroup, TerminalScope } from '@/components/terminal/types';
 import { useMobileOverlay } from './mobile-overlay-context';
 
@@ -44,6 +50,12 @@ function MobileTerminalSheetBase({
   const scopeKey = scope.groupKey;
   const open = overlay === overlayKind;
   const headerOffset = `${headerHeight}px`;
+  // Command Center applies to the Claude terminal sheet only (the shell sheet
+  // keeps its single scoped terminal). The project's TerminalManager stays
+  // mounted underneath so terminal creation keeps working.
+  const commandCenterMode = useCommandCenterMode();
+  const supportsCommandCenter = overlayKind === 'terminal';
+  const showCommandCenter = supportsCommandCenter && commandCenterMode;
 
   // Queue terminal:open / terminal:inject events fired while the sheet is
   // closed (TerminalManager unmounted, so no listener exists) and replay
@@ -140,18 +152,34 @@ function MobileTerminalSheetBase({
           >
             <RiArrowRightSLine className="size-4" />
           </Button>
-          <SheetTitle className="text-xs text-muted-foreground">{title}</SheetTitle>
-          <div className="size-8" aria-hidden />
+          <SheetTitle className="text-xs text-muted-foreground">
+            {showCommandCenter ? 'Command Center' : title}
+          </SheetTitle>
+          {supportsCommandCenter ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setCommandCenterMode(!commandCenterMode)}
+              aria-label="Command Center — all terminals"
+              aria-pressed={commandCenterMode}
+              className={cn(commandCenterMode && 'bg-muted text-foreground')}
+            >
+              <RiLayoutGridLine className="size-4" />
+            </Button>
+          ) : (
+            <div className="size-8" aria-hidden />
+          )}
         </div>
         <div className="flex flex-1 min-h-0 bg-[#0a0a0a]">
           {open && (
             <TerminalManager
-              key={scopeKey}
+              key={showCommandCenter ? COMMAND_CENTER_GROUP_KEY : scopeKey}
               onCollapse={closeOverlay}
               defaultScope={scope}
               extraDropdownGroups={extraDropdownGroups}
               containerEnabled={containerEnabled}
               disableExternalEvents={disableExternalEvents}
+              global={showCommandCenter}
             />
           )}
         </div>

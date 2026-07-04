@@ -38,6 +38,10 @@ interface TerminalSessionsChangeEvent {
     sessionId: string;
     groupKey?: string;
     newLabel?: string;
+    // 'killed' = deliberate teardown (user kill / terminal_close) — the UI
+    // removes the tab. A natural PTY exit omits it so the tab stays visible
+    // with its final output.
+    reason?: 'killed';
   };
 }
 
@@ -79,6 +83,14 @@ interface PrAttentionEvent {
   };
 }
 
+interface TerminalWorkersChangeEvent {
+  type: 'TERMINAL_WORKERS_CHANGE';
+  payload: {
+    sessionId: string;
+    connected: boolean;
+  };
+}
+
 type ServerEvent =
   | FileChangeEvent
   | TaskChangeEvent
@@ -87,7 +99,8 @@ type ServerEvent =
   | MemoryChangeEvent
   | TerminalActivityChangeEvent
   | PrChangeEvent
-  | PrAttentionEvent;
+  | PrAttentionEvent
+  | TerminalWorkersChangeEvent;
 
 // ── Generic Broadcast ───────────────────────────────────────────────
 
@@ -139,10 +152,11 @@ export function broadcastTerminalSessionsChange(
   sessionId: string,
   groupKey?: string,
   newLabel?: string,
+  reason?: 'killed',
 ): void {
   broadcastEvent({
     type: 'TERMINAL_SESSIONS_CHANGE',
-    payload: { action, sessionId, groupKey, newLabel },
+    payload: { action, sessionId, groupKey, newLabel, reason },
   });
 }
 
@@ -174,4 +188,8 @@ export function broadcastPrAttention(
   reason: string,
 ): void {
   broadcastEvent({ type: 'PR_ATTENTION', payload: { workspaceId, repo, prNumber, reason } });
+}
+
+export function broadcastTerminalWorkersChange(sessionId: string, connected: boolean): void {
+  broadcastEvent({ type: 'TERMINAL_WORKERS_CHANGE', payload: { sessionId, connected } });
 }

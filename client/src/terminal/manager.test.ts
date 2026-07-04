@@ -335,6 +335,33 @@ describe('TerminalManager', () => {
       expect(mockedSpawn).toHaveBeenCalled();
     });
 
+    it('[FR-TERMINAL-140] should block codex --dangerously-bypass-approvals-and-sandbox on host', () => {
+      manager.spawn({
+        sessionId: 'sec-codex',
+        workingDir: '/tmp',
+        cols: 80,
+        rows: 24,
+        command: 'codex --dangerously-bypass-approvals-and-sandbox',
+      });
+
+      expect(mockedSpawn).not.toHaveBeenCalled();
+      const msg = JSON.parse(sent[0]);
+      expect(msg).toMatchObject({ t: 'exit', sessionId: 'sec-codex', exitCode: 1 });
+    });
+
+    it('should allow codex --dangerously-bypass-approvals-and-sandbox in container', () => {
+      manager.spawn({
+        sessionId: 'sec-codex-2',
+        workingDir: '/tmp',
+        cols: 80,
+        rows: 24,
+        command: 'codex --dangerously-bypass-approvals-and-sandbox',
+        containerWorkspaceFolder: '/workspace',
+      });
+
+      expect(mockedSpawn).toHaveBeenCalled();
+    });
+
     it('[FR-TERMINAL-140] should block --dangerously-skip-permissions mid-command on host', () => {
       manager.spawn({
         sessionId: 'sec-4',

@@ -22,7 +22,11 @@ import { useTerminalDock } from './terminal-dock-context';
 import { type TerminalPanelParams } from './types';
 import { TerminalSessionLabel } from './terminal-session-label';
 import { TerminalNewMenuContent } from './terminal-new-menu';
-import { groupTabsByWorktree } from './worktree-grouping';
+import { TerminalWorkerButton } from './terminal-worker-button';
+import { groupTabsByWorktree, type TerminalWorktreeGroup } from './worktree-grouping';
+import { useCommandCenterMode } from './command-center/use-command-center-mode';
+import { groupTabsByProject } from './command-center/grouping';
+import { cloneScopeForNewTerminal } from './command-center/new-terminal-scope';
 import { useTerminalActivities } from '@/hooks/use-terminal-activity';
 import { useIsMobile } from '@/hooks/use-mobile';
 
@@ -45,6 +49,7 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
     };
   }, [panels]);
 
+  const commandCenter = useCommandCenterMode();
   const panelById = new Map(panels.map((p) => [p.id, p]));
   const liveTabs = panels.map((panel) => {
     const { tab } = panel.params as TerminalPanelParams;
@@ -53,8 +58,36 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
   const groups = groupTabsByWorktree(liveTabs);
   const showGroupHeaders = groups.length > 1;
 
+  // Command Center mode hosts terminals from every project, so the mobile list
+  // groups by project (with a per-project "+"); otherwise a single unlabelled
+  // section keeps the plain worktree grouping.
+  const mobileSections = commandCenter
+    ? groupTabsByProject(liveTabs).map((pg) => ({
+        key: pg.key,
+        projectLabel: pg.label,
+        isProject: pg.isProject,
+        workspaceSlug: pg.workspaceSlug,
+        worktreeGroups: pg.worktreeGroups,
+      }))
+    : [
+        {
+          key: '__all__',
+          projectLabel: undefined,
+          isProject: false,
+          workspaceSlug: undefined,
+          worktreeGroups: groups,
+        },
+      ];
+
   function focusPanel(sessionId: string) {
     panelById.get(sessionId)?.api.setActive();
+    setShowList(false);
+  }
+
+  function openClonedTerminal(worktreeGroups: TerminalWorktreeGroup[]) {
+    const cloned = cloneScopeForNewTerminal(worktreeGroups);
+    if (!cloned) return;
+    openTerminal(cloned);
     setShowList(false);
   }
 
@@ -118,30 +151,50 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
             </DropdownMenuContent>
           </DropdownMenu>
         ))}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label="Add terminal"
-            title="New terminal"
-          >
-            <RiAddLine className="size-3" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <TerminalNewMenuContent
-            openTerminal={openTerminal}
-            extraDropdownGroups={extraDropdownGroups}
-            containerEnabled={containerEnabled}
-            defaultScope={defaultScope}
-            inline={isMobile}
-            onSplit={(direction) =>
-              openTerminal(undefined, { referencePanel: activePanel!.id, direction })
-            }
-            splitDisabled={!activePanel}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {commandCenter ? (
+        // The generic "+" targets the CURRENT project, which would silently
+        // bypass the Command Center's per-project creation — disable it and
+        // point at the project groups' own "+" in the terminal list instead.
+        <button
+          disabled
+          className="flex h-8 w-8 items-center justify-center text-muted-foreground/40"
+          aria-label="Add terminal (disabled in Command Center)"
+          title="In Command Center, use a project group's + in the terminal list"
+        >
+          <RiAddLine className="size-3" />
+        </button>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Add terminal"
+              title="New terminal"
+            >
+              <RiAddLine className="size-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <TerminalNewMenuContent
+              openTerminal={openTerminal}
+              extraDropdownGroups={extraDropdownGroups}
+              containerEnabled={containerEnabled}
+              defaultScope={defaultScope}
+              inline={isMobile}
+              onSplit={(direction) =>
+                openTerminal(undefined, { referencePanel: activePanel!.id, direction })
+              }
+              splitDisabled={!activePanel}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <TerminalWorkerButton
+        activeSessionId={activePanel?.id}
+        defaultDescription={
+          activePanel ? (activePanel.params as TerminalPanelParams | undefined)?.tab.scope.scopeLabel : undefined
+        }
+      />
       <button
         onClick={onCollapse}
         className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground border-l border-border"
@@ -167,64 +220,105 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
               <RiArrowLeftSLine className="size-4" />
             </button>
             <span className="text-xs font-medium text-muted-foreground">Terminals</span>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  aria-label="New terminal"
-                  className="flex size-8 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  <RiAddLine className="size-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-[70vh] overflow-y-auto">
-                <TerminalNewMenuContent
-                  openTerminal={(scope, position) => {
-                    openTerminal(scope, position);
-                    setShowList(false);
-                  }}
-                  extraDropdownGroups={extraDropdownGroups}
-                  containerEnabled={containerEnabled}
-                  defaultScope={defaultScope}
-                  inline
-                />
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {commandCenter ? (
+              // Same rule as the header "+": per-project creation only in CC.
+              <button
+                disabled
+                aria-label="New terminal (disabled in Command Center)"
+                title="In Command Center, use a project group's +"
+                className="flex size-8 items-center justify-center rounded-sm text-muted-foreground/40"
+              >
+                <RiAddLine className="size-4" />
+              </button>
+            ) : (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    aria-label="New terminal"
+                    className="flex size-8 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <RiAddLine className="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="max-h-[70vh] overflow-y-auto">
+                  <TerminalNewMenuContent
+                    openTerminal={(scope, position) => {
+                      openTerminal(scope, position);
+                      setShowList(false);
+                    }}
+                    extraDropdownGroups={extraDropdownGroups}
+                    containerEnabled={containerEnabled}
+                    defaultScope={defaultScope}
+                    inline
+                  />
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto p-1.5">
-            {groups.map((group) => (
-              <div key={group.branch ?? '__default__'} className="flex flex-col gap-0.5">
-                {showGroupHeaders && (
-                  <p className="flex items-center gap-1.5 px-2 pt-2 pb-1 text-xs font-semibold text-foreground/80">
-                    <RiGitBranchLine className="size-3 shrink-0 text-muted-foreground" />
-                    <span className="truncate font-mono">{group.label}</span>
-                  </p>
-                )}
-                <div
-                  className={cn(
-                    'flex flex-col gap-0.5',
-                    showGroupHeaders && 'ml-3 border-l border-border/60 pl-1',
+            {mobileSections.map((section) => {
+              const showWorktreeHeaders = section.worktreeGroups.length > 1;
+              return (
+                <div key={section.key} className="flex flex-col gap-0.5 pb-1.5">
+                  {section.projectLabel && (
+                    <div className="flex items-center gap-1">
+                      <p className="flex min-w-0 flex-1 items-baseline gap-1 truncate px-2 pt-2 pb-1 text-xs font-semibold text-foreground/80">
+                        {section.workspaceSlug && (
+                          <span className="max-w-[45%] shrink-0 truncate font-normal text-muted-foreground">
+                            {section.workspaceSlug} /
+                          </span>
+                        )}
+                        <span className="truncate">{section.projectLabel}</span>
+                      </p>
+                      {section.isProject && (
+                        <button
+                          type="button"
+                          onClick={() => openClonedTerminal(section.worktreeGroups)}
+                          aria-label={`New terminal in ${section.projectLabel}`}
+                          className="mr-1 shrink-0 rounded-sm p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          <RiAddLine className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
                   )}
-                >
-                  {group.tabs.map((liveTab) => {
-                    const isActive = activePanel?.id === liveTab.sessionId;
-                    return (
-                      <button
-                        key={liveTab.sessionId}
-                        onClick={() => focusPanel(liveTab.sessionId)}
-                        aria-current={isActive || undefined}
+                  {section.worktreeGroups.map((group) => (
+                    <div key={group.branch ?? '__default__'} className="flex flex-col gap-0.5">
+                      {showWorktreeHeaders && (
+                        <p className="flex items-center gap-1.5 px-2 pt-2 pb-1 text-xs font-semibold text-foreground/80">
+                          <RiGitBranchLine className="size-3 shrink-0 text-muted-foreground" />
+                          <span className="truncate font-mono">{group.label}</span>
+                        </p>
+                      )}
+                      <div
                         className={cn(
-                          'flex w-full items-start rounded-sm px-2 py-2.5 text-left hover:bg-muted',
-                          isActive && 'bg-muted',
-                          liveTab.status === 'exited' && 'opacity-60',
+                          'flex flex-col gap-0.5',
+                          showWorktreeHeaders && 'ml-3 border-l border-border/60 pl-1',
                         )}
                       >
-                        <TerminalSessionLabel tab={liveTab} />
-                      </button>
-                    );
-                  })}
+                        {group.tabs.map((liveTab) => {
+                          const isActive = activePanel?.id === liveTab.sessionId;
+                          return (
+                            <button
+                              key={liveTab.sessionId}
+                              onClick={() => focusPanel(liveTab.sessionId)}
+                              aria-current={isActive || undefined}
+                              className={cn(
+                                'flex w-full items-start rounded-sm px-2 py-2.5 text-left hover:bg-muted',
+                                isActive && 'bg-muted',
+                                liveTab.status === 'exited' && 'opacity-60',
+                              )}
+                            >
+                              <TerminalSessionLabel tab={liveTab} />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

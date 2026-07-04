@@ -7,7 +7,10 @@ import { createActivityTracker } from './activity-tracker.js';
 import type { PersistentSession } from './types.js';
 
 const SIGTERM_TIMEOUT_MS = 3_000;
-const DANGEROUS_FLAG_RE = /(?:^|\s)--dangerously-skip-permissions(?:\s|$)/;
+// Blocks unsandboxed execution on host for any agent CLI: Claude Code's
+// --dangerously-skip-permissions and Codex's --dangerously-bypass-approvals-and-sandbox.
+const DANGEROUS_FLAG_RE =
+  /(?:^|\s)--dangerously-(?:skip-permissions|bypass-approvals-and-sandbox)(?:\s|$)/;
 
 // Activity detection timings — mirror the browser tracker (terminal.tsx).
 const ACTIVITY_DEBOUNCE_MS = 3_000;
@@ -59,11 +62,11 @@ export class TerminalManager {
   spawn(opts: SpawnOptions): void {
     const { sessionId, workingDir, cols, rows, command, containerWorkspaceFolder } = opts;
 
-    // SECURITY: Never allow --dangerously-skip-permissions on host
+    // SECURITY: Never allow permission-bypass flags on host
     const isIsolated = !!containerWorkspaceFolder || !!opts.coderWorkspace;
     if (!isIsolated && command && DANGEROUS_FLAG_RE.test(command)) {
       console.error(
-        `[terminal] SECURITY: Blocked --dangerously-skip-permissions on host for session ${sessionId}`,
+        `[terminal] SECURITY: Blocked permission-bypass flag on host for session ${sessionId}`,
       );
       this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: 1 }));
       return;
@@ -311,6 +314,21 @@ export class TerminalManager {
     );
     session.state = 'suspended';
     session.suspendedAt = Date.now();
+  }
+
+  // The user viewed/focused the terminal in a browser — clear its activity
+  // state so daemon-computed badges stop reporting done/waiting.
+  acknowledge(sessionId: string): void {
+    this.activity.get(sessionId)?.tracker.acknowledge();
+  }
+
+  // Current activity state per live session, sent with the reconnect sync so
+  // the server heals states dropped while the relay was down.
+  getActivityStates(): { sessionId: string; state: TerminalActivityState }[] {
+    return Array.from(this.activity.entries(), ([sessionId, a]) => ({
+      sessionId,
+      state: a.tracker.getState(),
+    }));
   }
 
   getAllSessions(): PersistentSession[] {

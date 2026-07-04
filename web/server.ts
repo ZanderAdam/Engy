@@ -8,7 +8,9 @@ import {
 } from './src/server/ws/terminal-server';
 import { createEventsWebSocketServer } from './src/server/ws/events-server';
 import { broadcastTerminalSessionsChange } from './src/server/ws/broadcast';
-import { attachMCP } from './src/server/mcp/index';
+import { listTerminalSessions } from './src/server/ws/terminal-session-list';
+import { loadPersistedTerminalSessions } from './src/server/ws/terminal-session-store';
+import { attachMCP, isMcpPath } from './src/server/mcp/index';
 import { runMigrations, runPostMigrationBackfills } from './src/server/db/migrate';
 import { startPrPoller, stopPrPoller } from './src/server/pr/poller';
 
@@ -26,45 +28,27 @@ app.prepare().then(() => {
 
   const state = getAppState();
 
+  // Restore terminal session meta persisted by the previous server process so
+  // sessions surviving on the daemon stay listed and reattachable. The daemon's
+  // first sync validates the restored entries and purges dead ones.
+  loadPersistedTerminalSessions(state);
+
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
-    // Terminal session list endpoint — returns persisted sessions filtered by scope
+    // Terminal session list endpoint — returns persisted sessions filtered by
+    // scope, or every session when `all=1` (the command center's global view).
     if (req.method === 'GET' && url.pathname === '/api/terminal/sessions') {
-      const groupKeyParam = url.searchParams.get('groupKey');
-      const scopeType = url.searchParams.get('scopeType') ?? '';
-      const scopeLabel = url.searchParams.get('scopeLabel') ?? '';
+      const sessions = listTerminalSessions(state, {
+        all: url.searchParams.get('all') === '1',
+        groupKey: url.searchParams.get('groupKey'),
+        scopeType: url.searchParams.get('scopeType') ?? '',
+        scopeLabel: url.searchParams.get('scopeLabel') ?? '',
+      });
 
-      const sessions = Array.from(state.terminalSessionMeta.entries())
-        .filter(([, m]) =>
-          groupKeyParam != null
-            ? m.groupKey === groupKeyParam
-            : m.scopeType === scopeType && m.scopeLabel === scopeLabel,
-        )
-        .map(([sessionId, m]) => {
-          const wsSet = state.terminalSessions.get(sessionId);
-          let browserCount = 0;
-          if (wsSet) {
-            for (const w of wsSet) {
-              if (w.readyState === w.OPEN) browserCount++;
-            }
-          }
-          return {
-            sessionId,
-            scopeType: m.scopeType,
-            scopeLabel: m.scopeLabel,
-            workingDir: m.workingDir,
-            command: m.command,
-            groupKey: m.groupKey,
-            workspaceSlug: m.workspaceSlug,
-            taskId: m.taskId,
-            worktreeBranch: m.worktreeBranch,
-            status: browserCount > 0 ? 'active' as const : 'suspended' as const,
-            browserCount,
-          };
-        });
-
-      console.log(`[terminal] GET /api/terminal/sessions → returning ${sessions.length} sessions (total meta: ${state.terminalSessionMeta.size})`);
+      if (dev) {
+        console.log(`[terminal] GET /api/terminal/sessions → returning ${sessions.length} sessions (total meta: ${state.terminalSessionMeta.size})`);
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ sessions }));
       return;
@@ -116,7 +100,8 @@ app.prepare().then(() => {
       return;
     }
 
-    if (url.pathname === '/mcp') return;
+    // /mcp and per-session /mcp/<token> are handled by the MCP transport (attachMCP).
+    if (isMcpPath(url.pathname)) return;
 
     handle(req, res);
   });

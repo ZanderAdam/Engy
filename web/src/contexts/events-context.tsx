@@ -30,6 +30,9 @@ interface TerminalSessionsChangePayload {
   sessionId: string;
   groupKey?: string;
   newLabel?: string;
+  // 'killed' = deliberate teardown (user kill / agent terminal_close) — remove
+  // the tab. Absent on natural PTY exit, where the tab stays readable.
+  reason?: 'killed';
 }
 
 interface MemoryChangePayload {
@@ -57,6 +60,11 @@ interface PrAttentionPayload {
   reason: string;
 }
 
+interface TerminalWorkersChangePayload {
+  sessionId: string;
+  connected: boolean;
+}
+
 interface ServerEventMap {
   FILE_CHANGE: FileChangePayload;
   TASK_CHANGE: TaskChangePayload;
@@ -66,6 +74,7 @@ interface ServerEventMap {
   TERMINAL_ACTIVITY_CHANGE: TerminalActivityChangePayload;
   PR_CHANGE: PrChangePayload;
   PR_ATTENTION: PrAttentionPayload;
+  TERMINAL_WORKERS_CHANGE: TerminalWorkersChangePayload;
 }
 
 type ServerEventType = keyof ServerEventMap;
@@ -79,6 +88,7 @@ interface EventsContextValue {
     type: T,
     cb: EventCallback<T>,
   ) => () => void;
+  subscribeConnect: (cb: () => void) => () => void;
 }
 
 const EventsContext = createContext<EventsContextValue | null>(null);
@@ -92,6 +102,7 @@ interface EventsProviderProps {
 
 export function EventsProvider({ workspaceSlug, children }: EventsProviderProps) {
   const subscribersRef = useRef(new Map<string, Set<EventCallback<ServerEventType>>>());
+  const connectSubscribersRef = useRef(new Set<() => void>());
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -104,6 +115,13 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws/events`);
       wsRef.current = ws;
+
+      // Deltas broadcast while the socket was down are gone for good, so
+      // consumers holding derived state re-seed from their snapshot endpoints
+      // on every (re)connect.
+      ws.onopen = () => {
+        for (const cb of connectSubscribersRef.current) cb();
+      };
 
       ws.onmessage = (event) => {
         let msg: { type: string; payload: unknown };
@@ -131,6 +149,7 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
       };
 
       ws.onclose = () => {
+        ws.onopen = null;
         ws.onmessage = null;
         ws.onclose = null;
         wsRef.current = null;
@@ -147,6 +166,7 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
       clearTimeout(reconnectTimer.current);
       const ws = wsRef.current;
       if (ws) {
+        ws.onopen = null;
         ws.onmessage = null;
         ws.onclose = null;
         ws.close();
@@ -165,6 +185,12 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
       set.add(cb as EventCallback<ServerEventType>);
       return () => {
         set!.delete(cb as EventCallback<ServerEventType>);
+      };
+    },
+    subscribeConnect: (cb) => {
+      connectSubscribersRef.current.add(cb);
+      return () => {
+        connectSubscribersRef.current.delete(cb);
       };
     },
   }), []);
@@ -195,6 +221,19 @@ export function useOnServerEvent<T extends ServerEventType>(
 
     return ctx.subscribe(type, stable);
   }, [ctx, type]);
+}
+
+/** Fires whenever the events WebSocket (re)connects — the signal to re-seed
+ * snapshot-derived state, since deltas broadcast while disconnected are lost. */
+export function useOnEventsConnect(callback: () => void): void {
+  const ctx = useContext(EventsContext);
+  const callbackRef = useRef(callback);
+  useEffect(() => { callbackRef.current = callback; });
+
+  useEffect(() => {
+    if (!ctx) return;
+    return ctx.subscribeConnect(() => callbackRef.current());
+  }, [ctx]);
 }
 
 // ── Backward Compatibility ──────────────────────────────────────────

@@ -34,6 +34,17 @@ Server state is held in `AppState` (defined in `web/src/server/trpc/context.ts`)
   to them and not to every already-attached browser.
 - `spawningSessions: Map<sessionId, Promise<void>>` — in-flight spawn gates that
   serialise concurrent connections for the same `sessionId`.
+- `daemonTerminalSessions: { synced, ids, syncWaiters }` — the alive session ids
+  the daemon last reported via `{ t: 'sync' }` (maintained on spawn/exit/kill),
+  whether a sync has been received on the current relay connection, and browser
+  connections waiting for that sync before classifying.
+
+`terminalSessionMeta` is additionally mirrored to the `terminal_sessions`
+SQLite table (`web/src/server/ws/terminal-session-store.ts`): written through
+on every meta mutation (spawn, adoption, groupKey update, resize, activity),
+deleted on exit/kill/sync-purge, and restored into the map at server boot
+(`loadPersistedTerminalSessions` in `web/server.ts`). Persistence is
+best-effort — DB failures are logged and never interrupt the relay.
 
 The daemon side tracks sessions via `SessionManager` (a typed `Map` wrapper with
 a 5-minute expiry constant `SESSION_EXPIRY_MS` and a 30-second cleanup interval
@@ -80,6 +91,14 @@ exitCode: 0 }` to every other attached browser and closes their sockets (code
 sends SIGTERM and schedules SIGKILL after 3 seconds (`SIGTERM_TIMEOUT_MS = 3_000`
 at `manager.ts:9`).
 
+**Resize.** Browsers send `{ t: 'resize', sessionId, cols, rows }` whenever the
+fitted xterm dimensions change. The server updates `cols`/`rows` on the session's
+`terminalSessionMeta` entry before forwarding, so the meta always reflects the
+last known size rather than the initial spawn size. This matters because the
+browser only resends a resize when its fitted dimensions change — it assumes the
+PTY already has whatever it last sent, so any server-side respawn or dropped
+resize must be healed from the meta, not the browser.
+
 **PTY natural exit.** When the PTY process exits the daemon sends `{ t: 'exit',
 sessionId, exitCode }`. The server forwards it to all attached browsers, removes
 both maps, and broadcasts `destroyed`.
@@ -92,10 +111,33 @@ sessionId, exitCode: -1 }` to the server.
 **Daemon disconnect / reconnect.** When the `/ws/terminal-relay` socket closes,
 `state.terminalDaemon` is set to `null` but `terminalSessionMeta` is kept intact.
 When a new daemon connects it sends `{ t: 'sync', sessionIds: [...] }`. The
-server compares its meta map against the daemon's live set: sessions absent from
-the daemon that have an open browser are respawned transparently (with container
-config restored from the DB); sessions with no open browser are purged from both
-maps.
+server records that alive set in `daemonTerminalSessions.ids`, then compares its
+meta map against it: sessions absent from the daemon that have an open browser
+are respawned transparently (with container config restored from the DB, at the
+last known `cols`/`rows`); sessions with no open browser are purged from both
+maps. Sessions the daemon still has get a `{ t: 'resize' }` with the last known
+size re-asserted if a browser is attached — resizes sent while the relay was
+down were dropped, and the browser will not resend them.
+
+**Server restart.** The mirror scenario — the server restarts (e.g. `pnpm
+cycle-web`) while the daemon keeps its PTYs alive — wipes all in-memory state,
+including `terminalSessionMeta`. Classifying a reconnecting browser by meta
+alone would send a fresh `spawn`, and the daemon's `spawnPty` kills any existing
+PTY with the same `sessionId` — destroying the session the restart was supposed
+to preserve. Three mechanisms prevent this. First, the restarted server reloads
+`terminalSessionMeta` from the `terminal_sessions` SQLite mirror at boot, so
+sessions with no attached browser stay listed and reattachable. Second, until a
+sync has been received on the current relay connection, browser connects for
+sessions without trusted local state — no meta at all, or meta restored from
+the DB and not yet validated (`state.restoredTerminalSessions`) — wait (up to
+`DAEMON_SYNC_WAIT_MS = 10_000` in `terminal-server.ts`) for the daemon's sync
+before classifying; a no-meta connect would otherwise spawn over a surviving
+PTY. Live sessions with in-memory meta skip the wait. Third, if the daemon reported a session
+alive that the server has no meta for (e.g. the DB row was lost), the server
+*adopts* it — rebuilding `terminalSessionMeta` from the connection's query
+parameters (which carry all meta fields) and routing through the reconnect
+path. Restored entries the daemon no longer has are purged (and their rows
+deleted) by the existing sync reconciliation.
 
 ## Concurrent spawn serialisation
 
@@ -118,13 +160,45 @@ at `manager.ts:13`) and emits `{ t: 'act', sessionId, state }` messages —
 suspended. The server stores `activityState` on `terminalSessionMeta` and
 broadcasts a per-project delta via `broadcastTerminalActivityChange`.
 
+Three healing paths keep the stored/browser state from drifting when messages
+are dropped: the daemon's reconnect sync carries every live session's current
+activity state so the server adopts states missed during a relay outage; the
+browser's project-activity store re-seeds from `GET /api/terminal/activity`
+whenever the `/ws/events` socket (re)connects; and focusing a terminal sends
+`{ t: 'ack', sessionId }`, which the server intercepts (clears `activityState`
+to `idle` and broadcasts) before forwarding to the daemon so its tracker
+settles too — matching the in-browser rail, where viewing a terminal
+acknowledges a `done`/`waiting` indicator.
+
 ## Security
 
 `TerminalManager.spawn()` tests the `command` string against `DANGEROUS_FLAG_RE`
-(`/(?:^|\s)--dangerously-skip-permissions(?:\s|$)/` at `manager.ts:10`) before
-calling `pty.spawn()`. On a match it sends `{ t: 'exit', sessionId, exitCode: 1 }`
-and returns without spawning, unless `isIsolated` is true (`isIsolated =
-!!containerWorkspaceFolder || !!opts.coderWorkspace`).
+(`client/src/terminal/manager.ts`) before calling `pty.spawn()`. The regex
+covers per-CLI permission-bypass flags — Claude Code's
+`--dangerously-skip-permissions` and Codex's
+`--dangerously-bypass-approvals-and-sandbox`. On a match it sends
+`{ t: 'exit', sessionId, exitCode: 1 }` and returns without spawning, unless
+`isIsolated` is true (`isIsolated = !!containerWorkspaceFolder ||
+!!opts.coderWorkspace`).
+
+## Cross-terminal dispatch
+
+Terminal sessions can be connected as **dispatch workers**
+(`terminal.connectWorker` tRPC mutation, with a user-supplied description).
+Agents in other sessions dispatch prompts to workers via the `terminal_*` MCP
+tools (see the MCP Server Session feature). Delivery writes into the worker's
+PTY stdin over the existing input path (`web/src/server/terminal-dispatch.ts`):
+the message plus a reply contract is sent as a bracketed paste, followed by
+Enter after a per-agent-type delay (`AgentPasteBehavior` in
+`web/src/lib/agent-types.ts`). For workers whose CLI carries a per-session MCP
+endpoint the contract is a bare `[engy-dispatch]` marker ("report the outcome
+via terminal_reply" — the server matches the reply by the worker's identity);
+workers without one get the legacy `[engy-dispatch <correlationId>]` form and
+must echo the id. Delivery is idle-gated: dispatches to a busy worker queue in
+a per-worker inbox and flush one at a time on `act → idle/done` transitions —
+queued settled-dispatch notices for that terminal (see FR-MCP-180) flush first.
+The relay keeps a bounded output tail for connected workers so
+`terminal_status` can report recent output.
 
 ## Requirements
 
@@ -142,13 +216,30 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-050 | WHEN a browser reconnects with a `sessionId` whose metadata is already present, the system SHALL send `{ t: 'reconnect', sessionId }` to the daemon and deliver the `{ t: 'reconnected', sessionId, buffer }` reply exclusively to the browsers that issued the reconnect request, not to all attached browsers. |
 | FR-TERMINAL-060 | WHILE multiple browsers are attached to the same session, the system SHALL broadcast every `{ t: 'o' }` output frame to all attached browser sockets and forward input from any attached browser raw to the daemon. |
 | FR-TERMINAL-070 | WHEN one browser disconnects from a session that still has other attached browsers, the system SHALL retain the session entry and continue delivering output to the remaining browsers; the entry SHALL be removed only when all attached browsers have disconnected. |
-| FR-TERMINAL-080 | WHEN a browser sends `{ t: 'kill', sessionId }`, the system SHALL delete session metadata, send `{ t: 'exit', sessionId, exitCode: 0 }` to every other attached browser and close their sockets with code 1001, remove the session entry, forward the kill message to the daemon (which SHALL send SIGTERM and escalate to SIGKILL after 3 seconds), and broadcast a `destroyed` terminal-sessions change event. |
-| FR-TERMINAL-090 | WHEN the PTY process exits on the daemon side, the system SHALL forward `{ t: 'exit', sessionId, exitCode }` to all attached browsers, remove the session from both `terminalSessions` and `terminalSessionMeta`, and broadcast a `destroyed` terminal-sessions change event. |
+| FR-TERMINAL-080 | WHEN a browser sends `{ t: 'kill', sessionId }`, the system SHALL delete session metadata, send `{ t: 'exit', sessionId, exitCode: 0 }` to every other attached browser and close their sockets with code 1001, remove the session entry, forward the kill message to the daemon (which SHALL send SIGTERM and escalate to SIGKILL after 3 seconds), and broadcast a `destroyed` terminal-sessions change event with `reason: 'killed'` (on which browsers remove the terminal tab). |
+| FR-TERMINAL-090 | WHEN the PTY process exits on the daemon side for a session still known to the server, the system SHALL forward `{ t: 'exit', sessionId, exitCode }` to all attached browsers, remove the session from both `terminalSessions` and `terminalSessionMeta`, and broadcast a `destroyed` terminal-sessions change event without a `reason` (the tab stays visible with its final output); an exit for a session already torn down (killed or agent-closed) SHALL be ignored rather than re-broadcast. |
 | FR-TERMINAL-100 | WHEN the `/ws/terminal-relay` socket closes, the system SHALL set `terminalDaemon` to null and retain all `terminalSessionMeta` entries so sessions can be respawned when a new daemon connects. |
-| FR-TERMINAL-110 | WHEN a newly connected daemon sends `{ t: 'sync', sessionIds }`, the system SHALL respawn (with container/coder config restored) every session in `terminalSessionMeta` absent from the daemon list that has at least one open browser socket, and SHALL remove entries absent from the daemon list that have no open browser socket. |
+| FR-TERMINAL-110 | WHEN a newly connected daemon sends `{ t: 'sync', sessionIds }`, the system SHALL respawn (with container/coder config restored) every session in `terminalSessionMeta` absent from the daemon list that has at least one open browser socket; entries absent from the daemon list with no open browser socket SHALL be removed fully — session meta deleted, unsettled dispatches failed, the dispatch-worker entry dropped, and a `destroyed` terminal-sessions change broadcast. |
 | FR-TERMINAL-120 | WHEN two browser connections for the same `sessionId` arrive concurrently before the first spawn completes, the system SHALL serialise them so the second connection routes through the reconnect path once the first spawn resolves, rather than spawning a duplicate PTY. |
 | FR-TERMINAL-130 | WHILE a session is active or suspended, the system SHALL parse PTY output for bell and prompt signals, debounce the signals with a 3-second window, and send `{ t: 'act', sessionId, state }` to the server; the server SHALL store the activity state on session metadata and broadcast a per-project terminal-activity change event. |
-| FR-TERMINAL-140 | IF a spawn command on a host-mode session (no `containerWorkspaceFolder` and no `coderWorkspace`) contains `--dangerously-skip-permissions`, the system SHALL send `{ t: 'exit', sessionId, exitCode: 1 }` and not spawn the PTY. |
+| FR-TERMINAL-140 | IF a spawn command on a host-mode session (no `containerWorkspaceFolder` and no `coderWorkspace`) contains a permission-bypass flag (`--dangerously-skip-permissions` or `--dangerously-bypass-approvals-and-sandbox`), the system SHALL send `{ t: 'exit', sessionId, exitCode: 1 }` and not spawn the PTY. |
+| FR-TERMINAL-150 | WHEN a browser sends `{ t: 'resize', sessionId, cols, rows }`, the system SHALL update `cols`/`rows` on the session's `terminalSessionMeta` entry, so that respawn and size re-assertion use the last known terminal size instead of the initial spawn size. |
+| FR-TERMINAL-160 | WHEN a newly connected daemon sends `{ t: 'sync', sessionIds }`, the system SHALL send `{ t: 'resize', sessionId, cols, rows }` with the last known size to the daemon for every session in the daemon list that has at least one open browser socket, so resizes dropped during a relay outage are healed. |
+| FR-TERMINAL-170 | WHEN a client requests the global terminal list via `GET /api/terminal/sessions?all=1`, the system SHALL return every session in `terminalSessionMeta`, each carrying `projectSlug`, `worktreeBranch`, and `activityState`. |
+| FR-TERMINAL-180 | WHILE Command Center mode is enabled (a global toggle in the terminal rail, shared across all project tabs), the terminal sidebar's existing rail and dock SHALL list every terminal across all projects — grouped by project then by worktree branch, with project-less sessions in a trailing bucket — instead of only the current project's; toggling it off SHALL restore the current project's terminals. |
+| FR-TERMINAL-190 | WHILE Command Center mode is enabled, WHEN the user activates a project group's new-terminal control, the system SHALL open a new terminal whose scope is cloned from that group's first terminal — base label without any trailing ordinal suffix, no task binding — so the session registers under that project's own groupKey; the generic new-terminal controls (rail and dock header) SHALL be disabled while the mode is on, so creation cannot silently target the current project. |
+| FR-TERMINAL-200 | WHEN a browser connects with a `sessionId` that has no `terminalSessionMeta` entry but is present in the daemon's last-synced alive session set, the system SHALL rebuild the session metadata from the connection's query parameters and route the connection through the reconnect path instead of spawning a new PTY, so live sessions survive a server restart. |
+| FR-TERMINAL-210 | WHEN a browser connects for a session with no in-memory metadata, or whose metadata was restored from the database and not yet validated by a daemon sync, and no sync has been received on the current relay connection, the system SHALL wait up to 10 seconds for the daemon's `{ t: 'sync' }` before classifying the connection as spawn or reconnect. |
+| FR-TERMINAL-220 | The system SHALL mirror `terminalSessionMeta` to the `terminal_sessions` SQLite table — written through on meta creation and mutation, deleted on exit/kill/sync-purge — and SHALL restore the persisted entries into `terminalSessionMeta` at server boot, so sessions with no attached browser survive a server restart. |
+| FR-TERMINAL-230 | WHEN a newly connected daemon sends `{ t: 'sync' }`, the daemon SHALL include each live session's current activity state, and the server SHALL adopt any state that differs from the stored `activityState` — persisting it and broadcasting a per-project terminal-activity change — so activity transitions dropped during a relay outage are healed. |
+| FR-TERMINAL-240 | WHEN the user focuses a terminal in a browser, the browser SHALL send `{ t: 'ack', sessionId }`; the server SHALL clear the session's stored `activityState` to `idle` (persisting and broadcasting the change) and forward the ack to the daemon, whose activity tracker SHALL settle to idle — so a done/waiting badge clears once the terminal is viewed, matching the in-browser rail indicator. |
+| FR-TERMINAL-250 | WHEN the browser's `/ws/events` socket (re)connects, the system SHALL re-seed the project-activity store from `GET /api/terminal/activity`, replacing the full session set, so activity deltas broadcast while the socket was disconnected are healed. |
+| FR-TERMINAL-260 | WHEN a browser connects to `/ws/terminal` with an `agentType` query parameter, the system SHALL persist it on the session metadata and include it in the session list endpoint. |
+| FR-TERMINAL-270 | WHEN a dispatch is created for a connected worker whose activity state is idle or done and whose inbox is empty, the system SHALL immediately inject the message plus the reply contract into the worker's PTY as a bracketed paste, followed by Enter after the worker agent type's submit delay; the contract SHALL be the id-less `[engy-dispatch]` form when the worker's command carries its per-session `/mcp/<sessionId>` endpoint, and the `[engy-dispatch <correlationId>]` form otherwise. |
+| FR-TERMINAL-280 | WHEN a dispatch is created for a worker that is active, waiting, or has queued dispatches, the system SHALL queue it in the per-worker inbox; WHEN the worker's activity state transitions to idle or done, the system SHALL deliver exactly one queued dispatch. |
+| FR-TERMINAL-290 | WHEN a worker terminal exits or is killed, the system SHALL mark all its queued and delivered dispatches as failed, resolve any waiters, remove the session from the connected-worker set, and drop its output tail. |
+| FR-TERMINAL-300 | WHILE a session is connected as a dispatch worker, the system SHALL buffer its PTY output in a bounded tail (8192 characters) for status reporting. |
+| FR-TERMINAL-310 | WHEN spawning a terminal whose command contains the MCP session placeholder (`__ENGY_SESSION__`), the system SHALL substitute the session id before sending the spawn to the daemon and SHALL store the substituted command in `terminalSessionMeta`, so the agent's Engy MCP endpoint is `/mcp/<sessionId>`. |
 
 ## Sources
 

@@ -14,6 +14,8 @@ export const ENGY_ORIENTATION = [
   '- search — prior decisions, specs, and conventions',
   '- createTask / updateTask — track work items',
   '- createFleetingMemory — capture a durable learning for later promotion',
+  '- terminal_list_workers / terminal_dispatch / terminal_collect — dispatch prompts to',
+  '  connected worker terminals (other live agent sessions) and collect their replies',
   '',
   'Before starting substantial work, consult prior decisions, conventions, and gotchas',
   'via the search tool — reuse what was already learned instead of rediscovering it.',
@@ -124,28 +126,6 @@ export function buildCiFixPrompt({
   );
 
   return parts.join('\n');
-}
-
-export function buildClaudeCommand(options?: {
-  prompt?: string;
-  systemPrompt?: string;
-  additionalDirs?: string[];
-  dangerouslySkipPermissions?: boolean;
-}): string {
-  let cmd = 'claude';
-  if (options?.prompt) {
-    cmd += ` '${shellEscape(options.prompt)}'`;
-  }
-  cmd += buildAddDirFlags(options?.additionalDirs ?? []);
-  if (options?.systemPrompt) {
-    cmd += ` --append-system-prompt '${shellEscape(options.systemPrompt)}'`;
-  }
-  if (options?.dangerouslySkipPermissions) {
-    cmd += ' --dangerously-skip-permissions';
-  } else {
-    cmd += ' --permission-mode acceptEdits';
-  }
-  return cmd;
 }
 
 // ── Quick-action directory logic — DO NOT CHANGE ──────────────────────

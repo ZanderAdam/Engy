@@ -2,37 +2,56 @@
 
 import { cn } from '@/lib/utils';
 import { useProjectActivity } from '@/hooks/use-project-activity';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface ProjectActivityBadgeProps {
   projectSlug?: string;
   className?: string;
 }
 
+function Digit({ n, activeColor }: { n: number; activeColor: string }) {
+  return <span className={n > 0 ? activeColor : 'text-muted-foreground/40'}>{n}</span>;
+}
+
 // Color-coded terminal-activity counts for a project, reusing the rail's
 // colors: amber = waiting (needs input), blue = busy, emerald = done (finished
-// but unacknowledged). Idle counts are omitted; renders nothing when all zero.
+// but unacknowledged). All three counts always render (zeros dimmed) so the
+// badge keeps a stable width while counts change.
 export function ProjectActivityBadge({ projectSlug, className }: ProjectActivityBadgeProps) {
   const { active, waiting, done } = useProjectActivity(projectSlug);
 
-  if (!waiting && !active && !done) return null;
-
-  const title = [
-    waiting && `${waiting} waiting`,
-    active && `${active} busy`,
-    done && `${done} done`,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  const title =
+    [
+      waiting > 0 && `${waiting} waiting`,
+      active > 0 && `${active} busy`,
+      done > 0 && `${done} done`,
+    ]
+      .filter(Boolean)
+      .join(' · ') || 'idle';
 
   return (
-    <span
-      className={cn('inline-flex items-center gap-1 font-mono text-[10px] tabular-nums', className)}
-      title={title}
-      aria-label={`Terminal activity: ${title}`}
-    >
-      {waiting > 0 && <span className="text-amber-400">{waiting}</span>}
-      {active > 0 && <span className="text-blue-500">{active}</span>}
-      {done > 0 && <span className="text-emerald-400">{done}</span>}
-    </span>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 font-mono text-[10px] tabular-nums',
+              className,
+            )}
+            aria-label={`Terminal activity: ${title}`}
+          >
+            <Digit n={waiting} activeColor="text-amber-400" />
+            <Digit n={active} activeColor="text-blue-500" />
+            <Digit n={done} activeColor="text-emerald-400" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{title}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

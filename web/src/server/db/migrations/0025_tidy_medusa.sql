@@ -1,1 +1,0 @@
-ALTER TABLE `workspaces` ADD `auto_ci_fix` integer DEFAULT false;

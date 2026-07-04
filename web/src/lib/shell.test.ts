@@ -3,7 +3,6 @@ import {
   shellEscape,
   buildAddDirFlags,
   buildContextBlock,
-  buildClaudeCommand,
   buildQuickActionDirs,
   ENGY_ORIENTATION,
 } from './shell';
@@ -218,73 +217,6 @@ describe('shell utilities', () => {
       const lines = result.split('\n');
       const sessionLine = lines.findIndex((l) => l.startsWith('Engy session id:'));
       expect(sessionLine).toBe(lines.length - 1);
-    });
-  });
-
-  describe('buildClaudeCommand', () => {
-    it('should return base command with permission mode when no options', () => {
-      expect(buildClaudeCommand()).toBe('claude --permission-mode acceptEdits');
-    });
-
-    it('should include prompt when provided', () => {
-      expect(buildClaudeCommand({ prompt: 'Use /engy:plan to plan engy-T1' })).toBe(
-        "claude 'Use /engy:plan to plan engy-T1' --permission-mode acceptEdits",
-      );
-    });
-
-    it('should include add-dir flags when provided', () => {
-      expect(buildClaudeCommand({ additionalDirs: ['/some/dir'] })).toBe(
-        "claude --add-dir '/some/dir' --permission-mode acceptEdits",
-      );
-    });
-
-    it('should include prompt and add-dir flags together', () => {
-      expect(
-        buildClaudeCommand({
-          prompt: 'Use /engy:plan to plan engy-T1',
-          additionalDirs: ['/some/dir'],
-        }),
-      ).toBe("claude 'Use /engy:plan to plan engy-T1' --add-dir '/some/dir' --permission-mode acceptEdits");
-    });
-
-    it('should escape single quotes in prompt', () => {
-      expect(buildClaudeCommand({ prompt: "it's a test" })).toBe(
-        "claude 'it'\\''s a test' --permission-mode acceptEdits",
-      );
-    });
-
-    it('should include --append-system-prompt when systemPrompt provided', () => {
-      expect(buildClaudeCommand({ systemPrompt: 'Workspace: engy (id: 1)' })).toBe(
-        "claude --append-system-prompt 'Workspace: engy (id: 1)' --permission-mode acceptEdits",
-      );
-    });
-
-    it('should include prompt, add-dir, and system prompt together', () => {
-      expect(
-        buildClaudeCommand({
-          prompt: 'Use /engy:plan',
-          systemPrompt: 'Workspace: engy (id: 1)',
-          additionalDirs: ['/repo'],
-        }),
-      ).toBe(
-        "claude 'Use /engy:plan' --add-dir '/repo' --append-system-prompt 'Workspace: engy (id: 1)' --permission-mode acceptEdits",
-      );
-    });
-
-    it('should use --dangerously-skip-permissions instead of --permission-mode when flag set', () => {
-      expect(buildClaudeCommand({ dangerouslySkipPermissions: true })).toBe(
-        'claude --dangerously-skip-permissions',
-      );
-    });
-
-    it('should combine dangerouslySkipPermissions with other options', () => {
-      expect(
-        buildClaudeCommand({
-          prompt: 'implement task',
-          additionalDirs: ['/repo'],
-          dangerouslySkipPermissions: true,
-        }),
-      ).toBe("claude 'implement task' --add-dir '/repo' --dangerously-skip-permissions");
     });
   });
 

@@ -27,6 +27,9 @@ export interface TerminalSessionMeta {
   scopeLabel: string;
   workingDir: string;
   command?: string;
+  // Which agent CLI this terminal runs ('claude' | 'codex'; undefined = plain
+  // shell or unknown). Drives the worker picker and dispatch paste behavior.
+  agentType?: string;
   groupKey?: string;
   workspaceSlug?: string;
   containerMode?: string;
@@ -38,6 +41,10 @@ export interface TerminalSessionMeta {
   // grouping survives reloads. Independent of groupKey (combined mode keeps a
   // single project-level groupKey across all worktrees).
   worktreeBranch?: string;
+  // Terminal session id of the agent that created this session via the
+  // terminal_spawn MCP tool (undefined = user-opened). Counted against the
+  // agent-spawn cap so agents cannot fork terminals without bound.
+  spawnedBy?: string;
   // Activity state computed daemon-side (per-project badges); updated by the
   // relay 'act' handler, available even when no browser has the terminal mounted.
   activityState?: TerminalActivityState;
@@ -156,6 +163,27 @@ export interface GhPrFailedLogsResult {
 
 export interface GhPrReviewCommentsResult {
   comments: GhReviewComment[];
+}
+
+export interface DispatchEntry {
+  correlationId: string;
+  workerSessionId: string;
+  message: string;
+  status: 'queued' | 'delivered' | 'replied' | 'failed';
+  result?: string;
+  error?: string;
+  createdAt: number;
+  deliveredAt?: number;
+  repliedAt?: number;
+  /** Terminal session of the agent that dispatched (from its /mcp/<token> identity). */
+  originSessionId?: string;
+  /** Push the settled result into the origin terminal instead of requiring terminal_collect polling. */
+  notifyOnReply?: boolean;
+}
+
+interface DispatchWorker {
+  description: string;
+  connectedAt: number;
 }
 
 export interface AppState {
@@ -388,6 +416,27 @@ export interface AppState {
   spawningSessions: Map<string, Promise<void>>;
   /** Dedicated daemon WebSocket for terminal traffic (zero-parse relay) */
   terminalDaemon: WebSocket | null;
+  /**
+   * Sessions the daemon last reported alive via `{ t: 'sync' }`, plus sync
+   * bookkeeping. A restarted server has an empty `terminalSessionMeta`, so this
+   * set is what lets it classify a browser reconnect as an existing session
+   * (adopt + reconnect) instead of respawning over a live PTY. `syncWaiters`
+   * holds browser connections that arrived before the daemon's sync and are
+   * waiting for it to classify.
+   */
+  daemonTerminalSessions: {
+    synced: boolean;
+    ids: Set<string>;
+    syncWaiters: Set<() => void>;
+  };
+  /**
+   * Sessions whose meta was restored from the DB at boot and not yet validated
+   * against a daemon sync. Browser connects for these (and for sessions with no
+   * meta at all) wait for the sync before classifying; live sessions with
+   * in-memory meta skip the wait. Cleared by the first sync, which purges any
+   * restored entries the daemon no longer has.
+   */
+  restoredTerminalSessions: Set<string>;
   /** Browser WebSockets subscribed to file change events */
   fileChangeListeners: Set<WebSocket>;
   /** Callbacks for streaming container build progress to terminals */
@@ -398,6 +447,18 @@ export interface AppState {
   prPollerErroredRepos: Set<string>;
   /** Maps `repo#prNumber` → GitHub PR updatedAt from the last successful review-comment sync */
   prReviewCommentLastSyncedAt: Map<string, string>;
+  /** Terminal sessions connected as dispatch workers (sessionId → description) */
+  dispatchWorkers: Map<string, DispatchWorker>;
+  /** Cross-terminal dispatches by correlationId (in-memory; lost on restart) */
+  dispatches: Map<string, DispatchEntry>;
+  /** Callbacks awaiting a dispatch reply, keyed by correlationId */
+  dispatchWaiters: Map<string, Array<(entry: DispatchEntry) => void>>;
+  /** Queued correlationIds per worker, delivered one at a time on idle */
+  dispatchInbox: Map<string, string[]>;
+  /** Settled-dispatch notices queued per origin session, flushed when that terminal goes idle */
+  dispatchReplyNotices: Map<string, string[]>;
+  /** Recent PTY output tail per connected worker (bounded; for terminal_status) */
+  terminalOutputTails: Map<string, string>;
 }
 
 const GLOBAL_KEY = '__engy_app_state__' as const;
@@ -444,11 +505,19 @@ export function createAppState(): AppState {
     pendingReconnects: new Map(),
     spawningSessions: new Map(),
     terminalDaemon: null,
+    daemonTerminalSessions: { synced: false, ids: new Set(), syncWaiters: new Set() },
+    restoredTerminalSessions: new Set(),
     fileChangeListeners: new Set(),
     containerProgressListeners: new Map(),
     prPollerTimer: null,
     prPollerErroredRepos: new Set(),
     prReviewCommentLastSyncedAt: new Map(),
+    dispatchWorkers: new Map(),
+    dispatches: new Map(),
+    dispatchWaiters: new Map(),
+    dispatchInbox: new Map(),
+    dispatchReplyNotices: new Map(),
+    terminalOutputTails: new Map(),
   };
 }
 

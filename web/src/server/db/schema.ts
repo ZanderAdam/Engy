@@ -1,6 +1,8 @@
 import { sqliteTable, text, integer, real, uniqueIndex, index, primaryKey } from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
 import type { GhPrCheck } from '@engy/common';
+// Type-only, relative (not `@/`) so drizzle-kit can load this file standalone.
+import type { WorkspaceAgentSettings } from '../../lib/agent-types';
 
 // ── Workspaces ──────────────────────────────────────────────────────
 
@@ -26,6 +28,14 @@ export const workspaces = sqliteTable('workspaces', {
   docsDir: text('docs_dir'),
   planSkill: text('plan_skill'),
   implementSkill: text('implement_skill'),
+  // Agent CLI new terminals default to (claude | codex | future). Plain text,
+  // not an enum, so adding an agent needs only an agent-types registry entry —
+  // validated against that registry at the router, never a schema migration.
+  defaultAgentType: text('default_agent_type').default('claude'),
+  // Per-agent overrides ({ [agentTypeId]: { active, mode, planSkill,
+  // implementSkill } }), same registry-validated-at-the-router approach.
+  // Absent key = active with the agent's default mode/skills.
+  agentSettings: text('agent_settings', { mode: 'json' }).$type<WorkspaceAgentSettings>(),
   earsBdd: integer('ears_bdd', { mode: 'boolean' }).default(false),
   splitWorktrees: integer('split_worktrees', { mode: 'boolean' }).default(false),
   containerEnabled: integer('container_enabled', { mode: 'boolean' }).default(false),
@@ -490,3 +500,19 @@ export const prs = sqliteTable(
     index('idx_prs_repo').on(table.repo),
   ],
 );
+
+// ── Terminal Sessions ───────────────────────────────────────────────
+
+// Mirror of the in-memory terminalSessionMeta map (web/src/server/trpc/context.ts)
+// so terminal sessions survive a server restart. The meta blob is owned and
+// typed by the WS layer.
+export const terminalSessions = sqliteTable('terminal_sessions', {
+  // Natural text PK (browser-generated session UUID) instead of the usual
+  // integer autoincrement id: this mirror table is only ever keyed by
+  // sessionId and nothing references it, so a surrogate id would add nothing.
+  sessionId: text('session_id').primaryKey(),
+  meta: text('meta', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+  updatedAt: text('updated_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
