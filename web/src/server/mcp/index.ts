@@ -49,18 +49,11 @@ import { traceWorkspace } from '../search/trace';
 import { getAppState } from '../trpc/context';
 import { chooseRepoAdapter } from '../search/repo-adapter';
 import { resolveWorktreeRoots } from '../trpc/routers/shared';
+import { mcpResult, mcpError } from './result';
+import { registerTerminalTools } from './terminal-tools';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
-
-type McpToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
-
-function mcpResult(data: unknown): McpToolResult {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data) }] };
-}
-
-function mcpError(message: string): McpToolResult {
-  return { content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }], isError: true };
-}
+// Envelope helpers live in ./result (shared with register*Tools modules).
 
 function omitKey<T extends Record<string, unknown>, K extends keyof T>(
   rows: T[],
@@ -241,7 +234,7 @@ const writeSourceSnapshotInput = {
 
 // ── McpServer Factory ─────────────────────────────────────────────
 
-export function getMcpServer(): McpServer {
+export function getMcpServer(callerTerminalSessionId?: string): McpServer {
   const mcp = new McpServer(
     { name: 'engy', version: '0.1.0' },
     { capabilities: { tools: {} } },
@@ -254,6 +247,7 @@ export function getMcpServer(): McpServer {
   registerQuestionTools(mcp);
   registerIndexTools(mcp);
   registerSearchTools(mcp);
+  registerTerminalTools(mcp, callerTerminalSessionId);
 
   return mcp;
 }
@@ -269,13 +263,39 @@ export function touchSession(sessionId: string): void {
   lastActivity.set(sessionId, Date.now());
 }
 
+export function isMcpPath(pathname: string): boolean {
+  return pathname === '/mcp' || pathname.startsWith('/mcp/');
+}
+
+/**
+ * Extract the terminal session token from an `/mcp/<token>` path. Plain `/mcp`
+ * and the empty-token `/mcp/` both resolve to undefined (anonymous caller).
+ * Throws URIError on invalid percent-encoding — callers must map that to 400.
+ */
+export function parseMcpSessionToken(pathname: string): string | undefined {
+  if (pathname === '/mcp') return undefined;
+  return decodeURIComponent(pathname.slice('/mcp/'.length)) || undefined;
+}
+
 export function attachMCP(server: HttpServer): void {
   startSessionReaper();
 
   server.on('request', (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
-    if (url.pathname !== '/mcp') return;
+    // Agents registered by Engy get a per-session endpoint `/mcp/<terminalSessionId>`
+    // so the server can attribute their tool calls to a specific terminal (and thus
+    // agent type). Plain `/mcp` stays anonymous — hand-configured agents, the daemon.
+    // The path token is the ONLY identity channel that every MCP client honors,
+    // because a client always POSTs to the endpoint URL it was configured with.
+    if (!isMcpPath(url.pathname)) return;
+    let callerTerminalSessionId: string | undefined;
+    try {
+      callerTerminalSessionId = parseMcpSessionToken(url.pathname);
+    } catch {
+      res.writeHead(400).end(JSON.stringify({ error: 'Invalid percent-encoding in MCP path' }));
+      return;
+    }
 
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
@@ -285,7 +305,7 @@ export function attachMCP(server: HttpServer): void {
         if (sessionId) touchSession(sessionId);
         transport.handleRequest(req, res);
       } else {
-        handleNewSession(req, res);
+        handleNewSession(req, res, callerTerminalSessionId);
       }
     } else if (req.method === 'GET' || req.method === 'DELETE') {
       if (!sessionId) {
@@ -349,6 +369,7 @@ function startSessionReaper(): void {
 async function handleNewSession(
   req: IncomingMessage,
   res: ServerResponse,
+  callerTerminalSessionId?: string,
 ): Promise<void> {
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
@@ -365,7 +386,10 @@ async function handleNewSession(
     }
   };
 
-  const mcp = getMcpServer();
+  // The McpServer is created per connection, so the caller's terminal identity
+  // (from the path token) can be closed over — every tool call on this session
+  // knows who's calling without relying on non-standard headers/query params.
+  const mcp = getMcpServer(callerTerminalSessionId);
   await mcp.connect(transport);
   await transport.handleRequest(req, res);
 }

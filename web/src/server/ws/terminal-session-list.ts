@@ -7,6 +7,7 @@ interface TerminalSessionListItem {
   scopeLabel: string;
   workingDir: string;
   command?: string;
+  agentType?: string;
   groupKey?: string;
   workspaceSlug?: string;
   projectSlug?: string;
@@ -59,6 +60,7 @@ export function listTerminalSessions(
         scopeLabel: m.scopeLabel,
         workingDir: m.workingDir,
         command: m.command,
+        agentType: m.agentType,
         groupKey: m.groupKey,
         workspaceSlug: m.workspaceSlug,
         projectSlug: m.projectSlug,

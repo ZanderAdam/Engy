@@ -1,5 +1,7 @@
 import { sqliteTable, text, integer, real, uniqueIndex, index, primaryKey } from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
+// Type-only, relative (not `@/`) so drizzle-kit can load this file standalone.
+import type { WorkspaceAgentSettings } from '../../lib/agent-types';
 
 // ── Workspaces ──────────────────────────────────────────────────────
 
@@ -25,6 +27,14 @@ export const workspaces = sqliteTable('workspaces', {
   docsDir: text('docs_dir'),
   planSkill: text('plan_skill'),
   implementSkill: text('implement_skill'),
+  // Agent CLI new terminals default to (claude | codex | future). Plain text,
+  // not an enum, so adding an agent needs only an agent-types registry entry —
+  // validated against that registry at the router, never a schema migration.
+  defaultAgentType: text('default_agent_type').default('claude'),
+  // Per-agent overrides ({ [agentTypeId]: { active, mode, planSkill,
+  // implementSkill } }), same registry-validated-at-the-router approach.
+  // Absent key = active with the agent's default mode/skills.
+  agentSettings: text('agent_settings', { mode: 'json' }).$type<WorkspaceAgentSettings>(),
   earsBdd: integer('ears_bdd', { mode: 'boolean' }).default(false),
   splitWorktrees: integer('split_worktrees', { mode: 'boolean' }).default(false),
   containerEnabled: integer('container_enabled', { mode: 'boolean' }).default(false),

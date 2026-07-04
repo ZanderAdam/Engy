@@ -13,6 +13,7 @@ import { questionRouter } from './routers/question';
 import { worktreeRouter } from './routers/worktree';
 import { memoryRouter } from './routers/memory';
 import { searchRouter } from './routers/search';
+import { terminalRouter } from './routers/terminal';
 
 export const appRouter = router({
   workspace: workspaceRouter,
@@ -29,6 +30,7 @@ export const appRouter = router({
   worktree: worktreeRouter,
   memory: memoryRouter,
   search: searchRouter,
+  terminal: terminalRouter,
 });
 
 /** @public Used by tRPC client setup */

@@ -108,6 +108,10 @@ function DropdownEntryItem({
 
 interface TerminalNewMenuContentProps {
   openTerminal: OpenTerminal;
+  // Per-agent entries ("New <Agent> Terminal" + each agent's repo/worktree
+  // tree) are threaded in here by the workspace layout, NOT built from the
+  // agent-types registry inside this component — the layout owns the repo
+  // context needed to construct them.
   extraDropdownGroups?: TerminalDropdownGroup[];
   containerEnabled?: boolean;
   defaultScope?: TerminalScope;
@@ -140,12 +144,12 @@ export function TerminalNewMenuContent({
         }
       >
         <RiAddLine className="size-3" />
-        New Terminal
+        Project Terminal
       </DropdownMenuItem>
       {containerEnabled && defaultScope && (
         <DropdownMenuItem onClick={() => openTerminal(toContainerScope(defaultScope))}>
           <RiBox3Line className="size-3" />
-          New Terminal (Container)
+          Project Terminal (Container)
         </DropdownMenuItem>
       )}
       {onSplit && (

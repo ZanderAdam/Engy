@@ -3,7 +3,14 @@ import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi, type MockedFunction } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { getMcpServer, activeSessions, evictIdleSessions, touchSession } from './index';
+import {
+  getMcpServer,
+  activeSessions,
+  evictIdleSessions,
+  touchSession,
+  isMcpPath,
+  parseMcpSessionToken,
+} from './index';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { getDb } from '../db/client';
 import { appRouter } from '../trpc/root';
@@ -2245,5 +2252,28 @@ describe('[FR-MCP-080] session reaper', () => {
       expect(close).not.toHaveBeenCalled();
       expect(activeSessions.has('unknown')).toBe(true);
     });
+  });
+});
+
+describe('[FR-MCP-150] MCP path routing helpers', () => {
+  it('should match /mcp and /mcp/<token> paths only', () => {
+    expect(isMcpPath('/mcp')).toBe(true);
+    expect(isMcpPath('/mcp/abc-123')).toBe(true);
+    expect(isMcpPath('/mcpx')).toBe(false);
+    expect(isMcpPath('/api/trpc')).toBe(false);
+  });
+
+  it('should parse the session token from /mcp/<token>', () => {
+    expect(parseMcpSessionToken('/mcp/sess-42')).toBe('sess-42');
+    expect(parseMcpSessionToken('/mcp/a%20b')).toBe('a b');
+  });
+
+  it('should treat plain /mcp and empty-token /mcp/ as anonymous', () => {
+    expect(parseMcpSessionToken('/mcp')).toBeUndefined();
+    expect(parseMcpSessionToken('/mcp/')).toBeUndefined();
+  });
+
+  it('should throw URIError on invalid percent-encoding (mapped to HTTP 400)', () => {
+    expect(() => parseMcpSessionToken('/mcp/%C0%AF')).toThrow(URIError);
   });
 });

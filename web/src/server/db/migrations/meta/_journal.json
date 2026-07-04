@@ -169,6 +169,13 @@
       "when": 1783103111510,
       "tag": "0023_dear_shen",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1783188245250,
+      "tag": "0024_little_luckman",
+      "breakpoints": true
     }
   ]
 }

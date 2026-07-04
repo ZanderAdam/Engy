@@ -1,4 +1,11 @@
 import type { ElementType } from 'react';
+import {
+  buildAgentCommand,
+  getAgentType,
+  getMcpUrl,
+  type AgentTypeId,
+  type WorkspaceAgentSettings,
+} from '@/lib/agent-types';
 
 export type TerminalScopeType = 'project' | 'workspace' | 'dir' | 'worktree';
 
@@ -53,6 +60,20 @@ export interface TerminalScope {
   workspaceSlug: string;
   containerMode?: ContainerMode;
   taskId?: number;
+  // Which agent CLI this terminal runs (undefined = plain shell when command
+  // is unset, claude otherwise). Recorded in session meta for the worker
+  // picker and dispatch paste behavior.
+  agentType?: AgentTypeId;
+  // Ingredients the command was built from, kept so the command can be
+  // rebuilt for a different agent type or container mode (see scopeForAgent /
+  // toContainerScope) without string surgery on the command itself.
+  // agentSettings carries the workspace's per-agent overrides so a rebuild
+  // for a DIFFERENT agent picks up that agent's configured mode.
+  agentContext?: {
+    systemPrompt?: string;
+    additionalDirs?: string[];
+    agentSettings?: WorkspaceAgentSettings | null;
+  };
   // Project identity for per-project activity rollup (badges). Only set for
   // project/worktree scopes; workspace/dir scopes don't roll up to a project.
   projectId?: number;
@@ -98,9 +119,41 @@ export interface TerminalDropdownGroup {
 }
 
 export function toContainerScope(scope: TerminalScope): TerminalScope {
+  const command = scope.agentContext
+    ? buildAgentCommand(scope.agentType, {
+        ...scope.agentContext,
+        dangerouslySkipPermissions: true,
+        mcpUrl: getMcpUrl(),
+      })
+    : scope.command
+        ?.replace(/--permission-mode \S+/, '--dangerously-skip-permissions')
+        ?.replace(
+          /--sandbox \S+( --ask-for-approval \S+)?/,
+          '--dangerously-bypass-approvals-and-sandbox',
+        );
   return {
     ...scope,
     containerMode: 'container',
-    command: scope.command?.replace('--permission-mode acceptEdits', '--dangerously-skip-permissions'),
+    command,
+  };
+}
+
+// Rebuild a scope's command for a different agent CLI from the recorded
+// ingredients. Sessions share the original groupKey (they belong to the same
+// project group); the label is prefixed so tabs are distinguishable.
+export function scopeForAgent(scope: TerminalScope, agentType: AgentTypeId): TerminalScope {
+  if (agentType === (scope.agentType ?? 'claude')) return scope;
+  return {
+    ...scope,
+    agentType,
+    scopeLabel: `${getAgentType(agentType).label.toLowerCase()}: ${scope.scopeLabel}`,
+    // agentContext is set on every scope built by deriveScope / layout.tsx; an
+    // externally constructed scope without it rebuilds a bare command (no
+    // system prompt, dirs, or per-agent mode).
+    command: buildAgentCommand(agentType, {
+      ...(scope.agentContext ?? {}),
+      dangerouslySkipPermissions: scope.containerMode === 'container',
+      mcpUrl: getMcpUrl(),
+    }),
   };
 }

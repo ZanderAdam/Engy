@@ -1,0 +1,256 @@
+import { buildAddDirFlags, shellEscape } from './shell';
+
+export type AgentTypeId = 'claude' | 'codex';
+
+/**
+ * Per-agent workspace overrides, stored as a JSON column on the workspaces
+ * table (`agent_settings`). Keyed by agent type id as plain strings so adding
+ * an agent needs only a registry entry, never a schema migration.
+ */
+export interface AgentSettings {
+  /** false hides the agent from terminal pickers and refuses terminal_spawn. */
+  active?: boolean;
+  /** Mode id from the agent's registry `modes` list; unknown ids fall back to the default. */
+  mode?: string;
+  planSkill?: string | null;
+  implementSkill?: string | null;
+}
+
+export type WorkspaceAgentSettings = Partial<Record<string, AgentSettings>>;
+
+interface AgentMode {
+  id: string;
+  label: string;
+  description: string;
+}
+
+interface BuildAgentCommandOptions {
+  prompt?: string;
+  systemPrompt?: string;
+  additionalDirs?: string[];
+  dangerouslySkipPermissions?: boolean;
+  /** Engy MCP endpoint injected into the spawned CLI so it can call Engy tools. */
+  mcpUrl?: string;
+  /** Workspace per-agent overrides — the command picks up its own agent's mode. */
+  agentSettings?: WorkspaceAgentSettings | null;
+}
+
+interface AgentType {
+  id: AgentTypeId;
+  label: string;
+  modes: AgentMode[];
+  defaultModeId: string;
+  buildCommand(options?: BuildAgentCommandOptions): string;
+  /**
+   * PTY paste mechanics for dispatch delivery. TUIs differ in how a bracketed
+   * paste must be submitted: `submitDelayMs` is the wait between the paste and
+   * the Enter key (an Enter sent too soon is swallowed by Ink-style renderers),
+   * `enterCount` is how many Enter presses trigger submission after a paste.
+   */
+  paste: { enterCount: number; submitDelayMs: number };
+}
+
+/** MCP server name matching the README registration (`claude mcp add ... Engy`). */
+const MCP_SERVER_NAME = 'Engy';
+
+function claudeMcpFlag(mcpUrl: string): string {
+  const config = JSON.stringify({
+    mcpServers: { [MCP_SERVER_NAME]: { type: 'http', url: mcpUrl } },
+  });
+  return ` --mcp-config '${shellEscape(config)}'`;
+}
+
+// The CLI also accepts `dontAsk` (deny everything not explicitly allowlisted,
+// no prompting) — deliberately not offered: it is a CI/allowlist mode that
+// would make an interactive Engy terminal silently refuse every action.
+const CLAUDE_MODES: AgentMode[] = [
+  { id: 'default', label: 'Default', description: 'Prompt on first use of each tool' },
+  { id: 'acceptEdits', label: 'Accept edits', description: 'Auto-accept edits in the working directory' },
+  { id: 'plan', label: 'Plan', description: 'Read-only analysis and planning' },
+  { id: 'auto', label: 'Auto', description: 'Claude decides; a safety classifier blocks destructive actions' },
+  { id: 'bypassPermissions', label: 'Bypass permissions', description: 'Approve everything without prompting' },
+];
+
+function coerceModeId(modes: AgentMode[], defaultModeId: string, mode: string | undefined): string {
+  return mode && modes.some((m) => m.id === mode) ? mode : defaultModeId;
+}
+
+const claude: AgentType = {
+  id: 'claude',
+  label: 'Claude',
+  modes: CLAUDE_MODES,
+  defaultModeId: 'acceptEdits',
+  paste: { enterCount: 1, submitDelayMs: 350 },
+  buildCommand(options) {
+    let cmd = 'claude';
+    if (options?.prompt) {
+      cmd += ` '${shellEscape(options.prompt)}'`;
+    }
+    cmd += buildAddDirFlags(options?.additionalDirs ?? []);
+    if (options?.systemPrompt) {
+      cmd += ` --append-system-prompt '${shellEscape(options.systemPrompt)}'`;
+    }
+    if (options?.mcpUrl) {
+      cmd += claudeMcpFlag(options.mcpUrl);
+    }
+    if (options?.dangerouslySkipPermissions) {
+      cmd += ' --dangerously-skip-permissions';
+    } else {
+      const mode = coerceModeId(
+        CLAUDE_MODES,
+        this.defaultModeId,
+        options?.agentSettings?.[this.id]?.mode,
+      );
+      cmd += ` --permission-mode ${mode}`;
+    }
+    return cmd;
+  },
+};
+
+// Codex splits autonomy across two flags (--sandbox and --ask-for-approval);
+// the dropdown exposes single presets so it mirrors Claude's one-mode UX.
+const CODEX_MODES: AgentMode[] = [
+  { id: 'read-only', label: 'Read only', description: 'Analyse without writing' },
+  { id: 'workspace-write', label: 'Workspace write', description: 'Edit the workspace, ask beyond it' },
+  { id: 'full-auto', label: 'Full auto', description: 'Workspace write, never ask for approval' },
+  { id: 'danger-full-access', label: 'Full access', description: 'No sandbox — dangerous' },
+];
+
+const CODEX_MODE_FLAGS: Record<string, string> = {
+  'read-only': ' --sandbox read-only',
+  'workspace-write': ' --sandbox workspace-write',
+  'full-auto': ' --sandbox workspace-write --ask-for-approval never',
+  'danger-full-access': ' --sandbox danger-full-access',
+};
+
+const codex: AgentType = {
+  id: 'codex',
+  label: 'Codex',
+  modes: CODEX_MODES,
+  // workspace-write is the equivalent of Claude's acceptEdits: edit the
+  // workspace, still prompt for anything outside it.
+  defaultModeId: 'workspace-write',
+  paste: { enterCount: 1, submitDelayMs: 350 },
+  buildCommand(options) {
+    let cmd = 'codex';
+    // Codex has no system-prompt flag — fold the context block into the
+    // initial prompt when one exists. A context-only invocation would burn a
+    // turn on the orientation text, so plain terminals skip it (codex picks up
+    // repo context from AGENTS.md instead).
+    const prompt =
+      options?.prompt && options?.systemPrompt
+        ? `${options.systemPrompt}\n\n${options.prompt}`
+        : options?.prompt;
+    if (prompt) {
+      cmd += ` '${shellEscape(prompt)}'`;
+    }
+    const mode = coerceModeId(
+      CODEX_MODES,
+      this.defaultModeId,
+      options?.agentSettings?.[this.id]?.mode,
+    );
+    // The read-only sandbox rejects --add-dir (additional WRITABLE roots), so
+    // those flags are only valid when the sandbox can write at all.
+    const readOnly = !options?.dangerouslySkipPermissions && mode === 'read-only';
+    if (!readOnly) {
+      cmd += buildAddDirFlags(options?.additionalDirs ?? []);
+    }
+    if (options?.mcpUrl) {
+      // Ephemeral config override — registers the Engy MCP server for this
+      // invocation only, without touching ~/.codex/config.toml. The value is a
+      // TOML string (inner double quotes), wrapped in a single-quoted shell arg,
+      // so escape both layers.
+      const tomlUrl = options.mcpUrl.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      cmd += ` -c 'mcp_servers.${MCP_SERVER_NAME}.url="${shellEscape(tomlUrl)}"'`;
+    }
+    if (options?.dangerouslySkipPermissions) {
+      cmd += ' --dangerously-bypass-approvals-and-sandbox';
+    } else {
+      cmd += CODEX_MODE_FLAGS[mode];
+    }
+    return cmd;
+  },
+};
+
+const AGENT_TYPES: Record<AgentTypeId, AgentType> = { claude, codex };
+
+export function getAgentType(id: AgentTypeId | undefined): AgentType {
+  return AGENT_TYPES[id ?? 'claude'];
+}
+
+export function listAgentTypes(): AgentType[] {
+  return Object.values(AGENT_TYPES);
+}
+
+export function isAgentTypeId(value: string): value is AgentTypeId {
+  return value in AGENT_TYPES;
+}
+
+/** Coerce a stored/user value to a valid agent id, defaulting to claude. */
+export function coerceAgentTypeId(value: string | null | undefined): AgentTypeId {
+  return value != null && isAgentTypeId(value) ? value : 'claude';
+}
+
+/** Agents default to active; only an explicit `active: false` deactivates. */
+export function isAgentActive(
+  settings: WorkspaceAgentSettings | null | undefined,
+  agentType: AgentTypeId,
+): boolean {
+  return settings?.[agentType]?.active !== false;
+}
+
+export function isAgentModeId(agentType: AgentTypeId, mode: string): boolean {
+  return getAgentType(agentType).modes.some((m) => m.id === mode);
+}
+
+/** The workspace-configured mode for an agent, falling back to the agent's default. */
+export function resolveAgentMode(
+  settings: WorkspaceAgentSettings | null | undefined,
+  agentType: AgentTypeId,
+): string {
+  const agent = getAgentType(agentType);
+  return coerceModeId(agent.modes, agent.defaultModeId, settings?.[agentType]?.mode);
+}
+
+export const DEFAULT_PLAN_SKILL = '/engy:plan';
+export const DEFAULT_IMPLEMENT_SKILL = '/engy:implement';
+
+/**
+ * Plan/implement skills for an agent: per-agent override first, then the
+ * legacy workspace-level columns (pre-dating per-agent settings), then the
+ * engy defaults.
+ */
+export function resolveAgentSkills(
+  workspace: {
+    planSkill?: string | null;
+    implementSkill?: string | null;
+    agentSettings?: WorkspaceAgentSettings | null;
+  },
+  agentType: AgentTypeId,
+): { planSkill: string; implementSkill: string } {
+  const entry = workspace.agentSettings?.[agentType];
+  return {
+    planSkill: entry?.planSkill || workspace.planSkill || DEFAULT_PLAN_SKILL,
+    implementSkill: entry?.implementSkill || workspace.implementSkill || DEFAULT_IMPLEMENT_SKILL,
+  };
+}
+
+export function buildAgentCommand(
+  agentType: AgentTypeId | undefined,
+  options?: BuildAgentCommandOptions,
+): string {
+  return getAgentType(agentType).buildCommand(options);
+}
+
+// The command is built before the terminal's sessionId exists, so getMcpUrl
+// emits a placeholder in the per-session MCP path; the terminal server swaps in
+// the real sessionId at spawn time. That id becomes the agent's identity — every
+// tool call it makes arrives at /mcp/<sessionId>, so the server knows who's
+// calling (and thus its agent type). See web/src/server/ws/terminal-server.ts.
+export const MCP_SESSION_PLACEHOLDER = '__ENGY_SESSION__';
+
+/** Engy MCP endpoint of the server the browser is talking to (dev ports included). */
+export function getMcpUrl(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  return `${window.location.origin}/mcp/${MCP_SESSION_PLACEHOLDER}`;
+}

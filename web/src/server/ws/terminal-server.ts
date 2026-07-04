@@ -7,7 +7,6 @@ import type {
   TerminalResizeCmd,
   TerminalReconnectCmd,
   TerminalErrorEvent,
-  TerminalExitEvent,
   TerminalSyncEvent,
   TerminalActivityEvent,
 } from '@engy/common';
@@ -20,6 +19,15 @@ import {
   persistTerminalSession,
   deletePersistedTerminalSession,
 } from './terminal-session-store';
+import {
+  destroyTerminalSession,
+  disconnectWorker,
+  failWorkerDispatches,
+  flushDispatchInbox,
+  isTrackedWorker,
+  recordWorkerOutput,
+} from '../terminal-dispatch';
+import { MCP_SESSION_PLACEHOLDER } from '@/lib/agent-types';
 
 // How long a browser connect with no session metadata waits for the daemon's
 // `{ t: 'sync' }` before classifying as spawn-vs-reconnect. Covers the
@@ -182,6 +190,7 @@ async function handleTerminalConnection(
   const sessionId = params.get('sessionId');
   const workingDir = params.get('workingDir');
   const command = params.get('command') ?? undefined;
+  const agentType = params.get('agentType') ?? undefined;
   const cols = parseInt(params.get('cols') ?? '80', 10);
   const rows = parseInt(params.get('rows') ?? '24', 10);
   const scopeType = params.get('scopeType') ?? 'workspace';
@@ -203,6 +212,11 @@ async function handleTerminalConnection(
     ws.close(1008, 'Missing sessionId or workingDir');
     return;
   }
+
+  // Swap the MCP session placeholder for the real sessionId, so the agent's
+  // Engy MCP endpoint is /mcp/<sessionId> — its identity on every tool call.
+  // Stored substituted in meta so respawns reuse the same endpoint.
+  const resolvedCommand = command?.replaceAll(MCP_SESSION_PLACEHOLDER, sessionId);
 
   // Initial classification (log only): persisted metadata (set after successful
   // spawn) or an in-flight spawn for the same sessionId. Using terminalSessions
@@ -229,37 +243,14 @@ async function handleTerminalConnection(
   ws.on('message', (raw: Buffer | string) => {
     const str = typeof raw === 'string' ? raw : raw.toString('utf-8');
 
-    // Intercept kill messages to clean up session metadata (rare path)
+    // Intercept kill messages to clean up session metadata (rare path). The
+    // sender ws is excluded from the exit-frame fan-out — it initiated the
+    // kill and tears itself down client-side.
     if (str.startsWith('{"t":"kill"')) {
       const sid = extractSessionId(str);
       if (sid) {
         console.log(`[terminal] Kill intercepted for session ${sid}`);
-        const killedMeta = state.terminalSessionMeta.get(sid);
-        state.terminalSessionMeta.delete(sid);
-        state.daemonTerminalSessions.ids.delete(sid);
-        deletePersistedTerminalSession(sid);
-        // Close all attached browsers and remove the session. Send exit first so
-        // their ReconnectingSocket marks the session final — a bare close would
-        // trigger a reconnect that respawns a ghost PTY (meta is already deleted).
-        const wsSet = state.terminalSessions.get(sid);
-        if (wsSet) {
-          const exitFrame = JSON.stringify({
-            t: 'exit',
-            sessionId: sid,
-            exitCode: 0,
-          } satisfies TerminalExitEvent);
-          for (const bws of wsSet) {
-            if (bws !== ws && bws.readyState === bws.OPEN) {
-              sendRaw(bws, exitFrame);
-              bws.close(1001, 'Session killed');
-            }
-          }
-        }
-        state.terminalSessions.delete(sid);
-        broadcastTerminalSessionsChange('destroyed', sid, killedMeta?.groupKey);
-        if (killedMeta?.projectSlug) {
-          broadcastTerminalActivityChange({ sessionId: sid, projectSlug: killedMeta.projectSlug, removed: true });
-        }
+        destroyTerminalSession(state, sid, { excludeWs: ws });
       }
     }
 
@@ -363,11 +354,14 @@ async function handleTerminalConnection(
     inflightSpawn = state.spawningSessions.get(sessionId);
   }
 
+  // command is stored resolved (MCP session placeholder → real sessionId) so
+  // the per-session endpoint in the meta matches what the PTY actually runs.
   const metaFromParams: TerminalSessionMeta = {
     scopeType,
     scopeLabel,
     workingDir,
-    command,
+    command: resolvedCommand,
+    agentType,
     groupKey,
     workspaceSlug,
     containerMode,
@@ -435,7 +429,7 @@ async function handleTerminalConnection(
         t: 'spawn',
         sessionId,
         workingDir,
-        command,
+        command: resolvedCommand,
         cols,
         rows,
         scopeType,
@@ -609,11 +603,12 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
                 daemonSessionIds.add(sessionId);
                 broadcastTerminalSessionsChange('created', sessionId, meta.groupKey);
               } else {
-                // No browser connected — just clean up
+                // No browser connected — full teardown. Agent-spawned workers
+                // always land here (they never have a browser), so this must
+                // fail dispatches, drop the worker entry, and clear activity
+                // badges instead of leaking phantom state.
                 console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — no browser, cleaning up`);
-                state.terminalSessions.delete(sessionId);
-                state.terminalSessionMeta.delete(sessionId);
-                deletePersistedTerminalSession(sessionId);
+                destroyTerminalSession(state, sessionId);
               }
             }
           }
@@ -647,6 +642,11 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
               projectSlug: meta.projectSlug,
               state: act.state,
             });
+            // Idle-gated dispatch delivery: a worker that just finished its
+            // turn receives the next queued cross-terminal dispatch.
+            if (act.state === 'idle' || act.state === 'done') {
+              flushDispatchInbox(state, act.sessionId);
+            }
           }
         } catch {
           console.warn('[terminal-relay] Failed to parse act message');
@@ -656,6 +656,17 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
 
       const sessionId = extractSessionId(str);
       if (!sessionId) return;
+
+      // Bounded output tail for connected dispatch workers (terminal_status).
+      // Parse only for tracked sessions — the hot path stays zero-parse.
+      if (str.startsWith('{"t":"o"') && isTrackedWorker(state, sessionId)) {
+        try {
+          const frame = JSON.parse(str) as { d?: string };
+          if (typeof frame.d === 'string') recordWorkerOutput(state, sessionId, frame.d);
+        } catch {
+          // Malformed frame — skip tail recording, forwarding continues below
+        }
+      }
 
       const wsSet = state.terminalSessions.get(sessionId);
 
@@ -681,15 +692,26 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         broadcastToSession(state, sessionId, str);
       }
 
-      // Exit messages start with {"t":"exit" — no data field to confuse
+      // Exit messages start with {"t":"exit" — no data field to confuse.
       const isExit = str.startsWith('{"t":"exit"');
       if (isExit) {
+        // Whatever the server-side state, the daemon no longer has this PTY —
+        // drop it from the alive set (and the SQLite mirror) unconditionally
+        // so a later connect can't adopt a dead session.
+        state.daemonTerminalSessions.ids.delete(sessionId);
+        deletePersistedTerminalSession(sessionId);
+      }
+      // Skip the teardown when the session is already torn down (kill /
+      // terminal_close ran destroyTerminalSession before the daemon's exit
+      // arrived) — re-running would emit a second 'destroyed' broadcast with
+      // no groupKey context.
+      if (isExit && (state.terminalSessionMeta.has(sessionId) || state.terminalSessions.has(sessionId))) {
         console.log(`[terminal-relay] Exit for session ${sessionId}, cleaning up meta and WS`);
         const exitMeta = state.terminalSessionMeta.get(sessionId);
         state.terminalSessions.delete(sessionId);
         state.terminalSessionMeta.delete(sessionId);
-        state.daemonTerminalSessions.ids.delete(sessionId);
-        deletePersistedTerminalSession(sessionId);
+        failWorkerDispatches(state, sessionId, 'Worker terminal exited');
+        disconnectWorker(state, sessionId);
         broadcastTerminalSessionsChange('destroyed', sessionId, exitMeta?.groupKey);
         if (exitMeta?.projectSlug) {
           broadcastTerminalActivityChange({ sessionId, projectSlug: exitMeta.projectSlug, removed: true });

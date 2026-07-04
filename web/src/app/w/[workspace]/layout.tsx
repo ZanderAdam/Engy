@@ -1,7 +1,14 @@
 'use client';
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { RiGitRepositoryLine, RiGitRepositoryFill, RiComputerLine, RiBox3Line, RiGitBranchLine } from '@remixicon/react';
+import {
+  RiGitRepositoryLine,
+  RiGitRepositoryFill,
+  RiComputerLine,
+  RiBox3Line,
+  RiGitBranchLine,
+  RiRobot2Line,
+} from '@remixicon/react';
 import {
   useVirtualParams,
   useVirtualPathname,
@@ -12,8 +19,13 @@ import { VLink } from '@/components/tabs/virtual-link';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { ThreePanelLayout, type ShortcutDef, matchShortcut } from '@/components/layout/three-panel-layout';
+import {
+  ThreePanelLayout,
+  type ShortcutDef,
+  matchShortcut,
+} from '@/components/layout/three-panel-layout';
 import { MobileOverlayProvider } from '@/components/layout/mobile-overlay-context';
+import { WorkspaceMobileTerminalToggle } from '@/components/layout/workspace-mobile-terminal-toggle';
 import {
   MobileTerminalSheet,
   MobileShellTerminalSheet,
@@ -29,7 +41,18 @@ import { useQuestionAutoInvalidation } from '@/hooks/use-question-auto-invalidat
 import { useProjectActivityFeed } from '@/hooks/use-project-activity';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { projectGroupKey, normalizeWtParam } from '@/components/terminal/group-key';
-import { buildClaudeCommand, buildContextBlock } from '@/lib/shell';
+import { buildContextBlock } from '@/lib/shell';
+import {
+  buildAgentCommand,
+  getMcpUrl,
+  getAgentType,
+  coerceAgentTypeId,
+  listAgentTypes,
+  isAgentActive,
+  type AgentTypeId,
+} from '@/lib/agent-types';
+import { deriveScope } from '@/components/terminal/use-terminal-scope';
+import { scopeForAgent, toContainerScope } from '@/components/terminal/types';
 import { QuickCaptureDialog } from '@/components/memory/quick-capture-dialog';
 
 const TERMINAL_CONFIG = {
@@ -114,9 +137,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const worktreeBranch = combined ? undefined : normalizeWtParam(searchParams.get('wt'));
 
   const extraDropdownGroups = useMemo<TerminalDropdownGroup[] | undefined>(() => {
-    if (!isProjectRoute || !workspace) return undefined;
+    if (!workspace) return undefined;
     const repos = (workspace.repos as string[]) ?? [];
-    if (repos.length === 0) return undefined;
 
     const projectSlug = params.project;
     const projectDir =
@@ -134,210 +156,339 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         : undefined;
 
     const hostMode = isContainerEnabled ? ('host' as const) : undefined;
+    const defaultAid = coerceAgentTypeId(workspace.defaultAgentType);
+    const agentSettings = workspace.agentSettings;
 
-    /**
-     * Build a "Claude in Repos" dropdown group for one worktree. `branch` is the
-     * worktree branch (undefined = default). `repoMap` maps each main repo path
-     * to its worktree checkout for this branch; missing repos fall back to main.
-     * All entries share `groupKey` so combined mode keeps every worktree's
-     * terminals in a single manager, while `scope.worktreeBranch` drives grouping.
-     */
-    function buildRepoGroup(
-      label: string,
-      branch: string | undefined,
-      repoMap: Map<string, string>,
-      groupKey: string,
-    ): TerminalDropdownGroup {
-      // Split mode keeps the pre-combined labels (no branch suffix) — the whole
-      // panel is already scoped to the active `?wt`. `worktreeBranch` is still
-      // set so every split terminal stays in one rail group (no header).
-      const effectiveRepo = (repoPath: string): string => repoMap.get(repoPath) ?? repoPath;
+    // Build the repo/worktree entry tree for one agent. The default agent's tree
+    // sits at the top level; each additional agent's identical tree hangs under a
+    // "New <Agent> Terminal" submenu — so any agent can open in any repo/worktree.
+    // Empty unless on a project route with repos.
+    function repoEntriesForAgent(agentTypeId: AgentTypeId): TerminalDropdownEntry[] {
+      if (!isProjectRoute || repos.length === 0) return [];
+      const agentLabel = getAgentType(agentTypeId).label.toLowerCase();
 
-      function makeRepoEntry(
-        repoPath: string,
-        mode: 'host' | 'container' | undefined,
-      ): TerminalDropdownGroup['entries'][number] {
-        const effective = effectiveRepo(repoPath);
-        const dirName = effective.split('/').filter(Boolean).pop() ?? effective;
-        const isContainer = mode === 'container';
-        return {
-          id: `${isContainer ? 'container:' : ''}repo:${repoPath}:${branch ?? ''}`,
-          label: isContainer ? `${dirName} (Container)` : dirName,
-          tooltip: effective,
-          scope: {
-            scopeType: 'project',
-            scopeLabel: `claude: ${dirName}`,
-            workingDir: effective,
-            command: buildClaudeCommand({
-              systemPrompt,
-              additionalDirs: projectDir ? [projectDir] : undefined,
-              dangerouslySkipPermissions: isContainer,
-            }),
-            groupKey,
-            workspaceSlug: params.workspace,
-            containerMode: mode,
-            projectId: project?.id,
-            projectSlug: params.project,
-            worktreeBranch: branch,
-          },
-          icon: isContainer ? RiBox3Line : isContainerEnabled ? RiComputerLine : RiGitRepositoryLine,
-        };
-      }
-
-      function makeAllReposEntry(
-        mode: 'host' | 'container' | undefined,
-      ): TerminalDropdownGroup['entries'][number] {
-        const effectiveRepos = repos.map(effectiveRepo);
-        const isContainer = mode === 'container';
-        const primary = repos.find((r) => repoMap.has(r));
-        const primaryEffective = primary ? effectiveRepo(primary) : effectiveRepos[0];
-        const additional = effectiveRepos.filter((r) => r !== primaryEffective);
-        return {
-          id: `${isContainer ? 'container:' : ''}repo:all:${branch ?? ''}`,
-          label: isContainer ? 'All Repos (Container)' : 'All Repos',
-          tooltip: effectiveRepos.join(', '),
-          scope: {
-            scopeType: 'project',
-            scopeLabel: `claude: all repos`,
-            workingDir: primaryEffective,
-            command: buildClaudeCommand({
-              systemPrompt,
-              additionalDirs: [...(projectDir ? [projectDir] : []), ...additional],
-              dangerouslySkipPermissions: isContainer,
-            }),
-            groupKey,
-            workspaceSlug: params.workspace,
-            containerMode: mode,
-            projectId: project?.id,
-            projectSlug: params.project,
-            worktreeBranch: branch,
-          },
-          icon: isContainer ? RiBox3Line : isContainerEnabled ? RiComputerLine : RiGitRepositoryFill,
-        };
-      }
-
-      const entries: TerminalDropdownGroup['entries'] = [];
-      for (const repoPath of repos) {
-        entries.push(makeRepoEntry(repoPath, hostMode));
-        if (isContainerEnabled) entries.push(makeRepoEntry(repoPath, 'container'));
-      }
-      if (repos.length > 1) {
-        entries.push(makeAllReposEntry(hostMode));
-        if (isContainerEnabled) entries.push(makeAllReposEntry('container'));
-      }
-      return { label, entries };
-    }
-
-    // Combined mode: organise the menu BY REPO. Each repo is a submenu whose
-    // items are "default branch" + that repo's worktrees (so a repo with many
-    // worktrees stays one compact row). All entries share one project-level
-    // groupKey; `scope.worktreeBranch` drives rail grouping of open terminals.
-    if (combined) {
-      const groupKey = projectGroupKey(params.workspace, projectSlug ?? '');
-      const basename = (p: string): string => p.split('/').filter(Boolean).pop() ?? p;
-      const modes: Array<'host' | 'container' | undefined> = isContainerEnabled
-        ? ['host', 'container']
-        : [undefined];
-
-      function leaf(
-        id: string,
-        label: string,
-        scopeLabel: string,
-        workingDir: string,
+      function buildRepoEntries(
         branch: string | undefined,
-        additionalDirs: string[] | undefined,
-        mode: 'host' | 'container' | undefined,
-        icon: TerminalDropdownEntry['icon'],
-      ): TerminalDropdownEntry {
-        const isContainer = mode === 'container';
-        return {
-          id,
-          label: isContainer ? `${label} (Container)` : label,
-          tooltip: workingDir,
-          scope: {
-            scopeType: 'project',
-            scopeLabel,
-            workingDir,
-            command: buildClaudeCommand({
-              systemPrompt,
-              additionalDirs: additionalDirs ?? (projectDir ? [projectDir] : undefined),
-              dangerouslySkipPermissions: isContainer,
-            }),
-            groupKey,
-            workspaceSlug: params.workspace,
-            containerMode: mode,
-            projectId: project?.id,
-            projectSlug: params.project,
-            worktreeBranch: branch,
-          },
-          icon,
-        };
+        repoMap: Map<string, string>,
+        groupKey: string,
+      ): TerminalDropdownEntry[] {
+        // Split mode keeps the pre-combined labels (no branch suffix) — the whole
+        // panel is already scoped to the active `?wt`. `worktreeBranch` is still
+        // set so every split terminal stays in one rail group (no header).
+        const effectiveRepo = (repoPath: string): string => repoMap.get(repoPath) ?? repoPath;
+
+        function makeRepoEntry(
+          repoPath: string,
+          mode: 'host' | 'container' | undefined,
+        ): TerminalDropdownGroup['entries'][number] {
+          const effective = effectiveRepo(repoPath);
+          const dirName = effective.split('/').filter(Boolean).pop() ?? effective;
+          const isContainer = mode === 'container';
+          const additionalDirs = projectDir ? [projectDir] : undefined;
+          return {
+            id: `${isContainer ? 'container:' : ''}repo:${repoPath}:${branch ?? ''}`,
+            label: isContainer ? `${dirName} (Container)` : dirName,
+            tooltip: effective,
+            scope: {
+              scopeType: 'project',
+              scopeLabel: `${agentLabel}: ${dirName}`,
+              workingDir: effective,
+              command: buildAgentCommand(agentTypeId, {
+                systemPrompt,
+                additionalDirs,
+                dangerouslySkipPermissions: isContainer,
+                mcpUrl: getMcpUrl(),
+                agentSettings,
+              }),
+              groupKey,
+              workspaceSlug: params.workspace,
+              containerMode: mode,
+              projectId: project?.id,
+              projectSlug: params.project,
+              worktreeBranch: branch,
+              agentType: agentTypeId,
+              agentContext: { systemPrompt, additionalDirs, agentSettings },
+            },
+            icon: isContainer
+              ? RiBox3Line
+              : isContainerEnabled
+                ? RiComputerLine
+                : RiGitRepositoryLine,
+          };
+        }
+
+        function makeAllReposEntry(
+          mode: 'host' | 'container' | undefined,
+        ): TerminalDropdownGroup['entries'][number] {
+          const effectiveRepos = repos.map(effectiveRepo);
+          const isContainer = mode === 'container';
+          const primary = repos.find((r) => repoMap.has(r));
+          const primaryEffective = primary ? effectiveRepo(primary) : effectiveRepos[0];
+          const additional = effectiveRepos.filter((r) => r !== primaryEffective);
+          const additionalDirs = [...(projectDir ? [projectDir] : []), ...additional];
+          return {
+            id: `${isContainer ? 'container:' : ''}repo:all:${branch ?? ''}`,
+            label: isContainer ? 'All Repos (Container)' : 'All Repos',
+            tooltip: effectiveRepos.join(', '),
+            scope: {
+              scopeType: 'project',
+              scopeLabel: `${agentLabel}: all repos`,
+              workingDir: primaryEffective,
+              command: buildAgentCommand(agentTypeId, {
+                systemPrompt,
+                additionalDirs,
+                dangerouslySkipPermissions: isContainer,
+                mcpUrl: getMcpUrl(),
+                agentSettings,
+              }),
+              groupKey,
+              workspaceSlug: params.workspace,
+              containerMode: mode,
+              projectId: project?.id,
+              projectSlug: params.project,
+              worktreeBranch: branch,
+              agentType: agentTypeId,
+              agentContext: { systemPrompt, additionalDirs, agentSettings },
+            },
+            icon: isContainer
+              ? RiBox3Line
+              : isContainerEnabled
+                ? RiComputerLine
+                : RiGitRepositoryFill,
+          };
+        }
+
+        const entries: TerminalDropdownEntry[] = [];
+        for (const repoPath of repos) {
+          entries.push(makeRepoEntry(repoPath, hostMode));
+          if (isContainerEnabled) entries.push(makeRepoEntry(repoPath, 'container'));
+        }
+        if (repos.length > 1) {
+          entries.push(makeAllReposEntry(hostMode));
+          if (isContainerEnabled) entries.push(makeAllReposEntry('container'));
+        }
+        return entries;
       }
 
-      function repoSubmenu(repoPath: string): TerminalDropdownEntry {
-        const dirName = basename(repoPath);
-        const children: TerminalDropdownEntry[] = [];
-        for (const mode of modes) {
-          children.push(
-            leaf(`repo:${repoPath}::${mode ?? ''}`, 'default branch', `claude: ${dirName}`,
-              repoPath, undefined, undefined, mode, RiGitRepositoryLine),
-          );
+      // Combined mode: organise the menu BY REPO. Each repo is a submenu whose
+      // items are "default branch" + that repo's worktrees (so a repo with many
+      // worktrees stays one compact row). All entries share one project-level
+      // groupKey; `scope.worktreeBranch` drives rail grouping of open terminals.
+      if (combined) {
+        const groupKey = projectGroupKey(params.workspace, projectSlug ?? '');
+        const basename = (p: string): string => p.split('/').filter(Boolean).pop() ?? p;
+        const modes: Array<'host' | 'container' | undefined> = isContainerEnabled
+          ? ['host', 'container']
+          : [undefined];
+
+        function leaf(
+          id: string,
+          label: string,
+          scopeLabel: string,
+          workingDir: string,
+          branch: string | undefined,
+          additionalDirs: string[] | undefined,
+          mode: 'host' | 'container' | undefined,
+          icon: TerminalDropdownEntry['icon'],
+        ): TerminalDropdownEntry {
+          const isContainer = mode === 'container';
+          const effectiveDirs = additionalDirs ?? (projectDir ? [projectDir] : undefined);
+          return {
+            id,
+            label: isContainer ? `${label} (Container)` : label,
+            tooltip: workingDir,
+            scope: {
+              scopeType: 'project',
+              scopeLabel,
+              workingDir,
+              command: buildAgentCommand(agentTypeId, {
+                systemPrompt,
+                additionalDirs: effectiveDirs,
+                dangerouslySkipPermissions: isContainer,
+                mcpUrl: getMcpUrl(),
+                agentSettings,
+              }),
+              groupKey,
+              workspaceSlug: params.workspace,
+              containerMode: mode,
+              projectId: project?.id,
+              projectSlug: params.project,
+              worktreeBranch: branch,
+              agentType: agentTypeId,
+              agentContext: {
+                systemPrompt,
+                additionalDirs: effectiveDirs,
+                agentSettings,
+              },
+            },
+            icon,
+          };
         }
-        for (const g of worktreeGroups) {
-          const wt = g.repos.find((r) => r.repoPath === repoPath)?.worktreePath;
-          if (!wt) continue;
+
+        function repoSubmenu(repoPath: string): TerminalDropdownEntry {
+          const dirName = basename(repoPath);
+          const children: TerminalDropdownEntry[] = [];
           for (const mode of modes) {
             children.push(
-              leaf(`repo:${repoPath}:${g.branch}:${mode ?? ''}`, g.branch,
-                `claude: ${dirName} (${g.branch})`, wt, g.branch, undefined, mode, RiGitBranchLine),
+              leaf(
+                `repo:${repoPath}::${mode ?? ''}`,
+                'default branch',
+                `${agentLabel}: ${dirName}`,
+                repoPath,
+                undefined,
+                undefined,
+                mode,
+                RiGitRepositoryLine,
+              ),
             );
           }
-        }
-        return {
-          id: `repo-submenu:${repoPath}`,
-          label: dirName,
-          children,
-          icon: isContainerEnabled ? RiComputerLine : RiGitRepositoryLine,
-        };
-      }
-
-      function allReposSubmenu(): TerminalDropdownEntry {
-        const children: TerminalDropdownEntry[] = [];
-        const addRow = (branch: string | undefined, effective: (r: string) => string) => {
-          const eff = repos.map(effective);
-          // Prefer a materialized worktree checkout as the primary cwd so the
-          // terminal opens inside the worktree (not the main repo) when repos[0]
-          // has no checkout for this branch.
-          const primaryIdx = repos.findIndex((r) => effective(r) !== r);
-          const resolvedPrimaryIdx = primaryIdx >= 0 ? primaryIdx : 0;
-          const primary = eff[resolvedPrimaryIdx];
-          // Filter by index (not value) so two repos resolving to the same path
-          // can't silently drop one from the --add-dir list.
-          const additional = eff.filter((_, i) => i !== resolvedPrimaryIdx);
-          for (const mode of modes) {
-            children.push(
-              leaf(`all:${branch ?? ''}:${mode ?? ''}`, branch ?? 'default branch',
-                branch ? `claude: all repos (${branch})` : 'claude: all repos',
-                primary, branch, [...(projectDir ? [projectDir] : []), ...additional], mode,
-                RiGitRepositoryFill),
-            );
+          for (const g of worktreeGroups) {
+            const wt = g.repos.find((r) => r.repoPath === repoPath)?.worktreePath;
+            if (!wt) continue;
+            for (const mode of modes) {
+              children.push(
+                leaf(
+                  `repo:${repoPath}:${g.branch}:${mode ?? ''}`,
+                  g.branch,
+                  `${agentLabel}: ${dirName} (${g.branch})`,
+                  wt,
+                  g.branch,
+                  undefined,
+                  mode,
+                  RiGitBranchLine,
+                ),
+              );
+            }
           }
-        };
-        addRow(undefined, (r) => r);
-        for (const g of worktreeGroups) {
-          const map = new Map(g.repos.map((r) => [r.repoPath, r.worktreePath]));
-          addRow(g.branch, (r) => map.get(r) ?? r);
+          return {
+            id: `repo-submenu:${repoPath}`,
+            label: dirName,
+            children,
+            icon: isContainerEnabled ? RiComputerLine : RiGitRepositoryLine,
+          };
         }
-        return { id: 'repo-submenu:all', label: 'All Repos', children, icon: RiGitRepositoryFill };
+
+        function allReposSubmenu(): TerminalDropdownEntry {
+          const children: TerminalDropdownEntry[] = [];
+          const addRow = (branch: string | undefined, effective: (r: string) => string) => {
+            const eff = repos.map(effective);
+            // Prefer a materialized worktree checkout as the primary cwd so the
+            // terminal opens inside the worktree (not the main repo) when repos[0]
+            // has no checkout for this branch.
+            const primaryIdx = repos.findIndex((r) => effective(r) !== r);
+            const resolvedPrimaryIdx = primaryIdx >= 0 ? primaryIdx : 0;
+            const primary = eff[resolvedPrimaryIdx];
+            // Filter by index (not value) so two repos resolving to the same path
+            // can't silently drop one from the --add-dir list.
+            const additional = eff.filter((_, i) => i !== resolvedPrimaryIdx);
+            for (const mode of modes) {
+              children.push(
+                leaf(
+                  `all:${branch ?? ''}:${mode ?? ''}`,
+                  branch ?? 'default branch',
+                  branch ? `${agentLabel}: all repos (${branch})` : `${agentLabel}: all repos`,
+                  primary,
+                  branch,
+                  [...(projectDir ? [projectDir] : []), ...additional],
+                  mode,
+                  RiGitRepositoryFill,
+                ),
+              );
+            }
+          };
+          addRow(undefined, (r) => r);
+          for (const g of worktreeGroups) {
+            const map = new Map(g.repos.map((r) => [r.repoPath, r.worktreePath]));
+            addRow(g.branch, (r) => map.get(r) ?? r);
+          }
+          return {
+            id: 'repo-submenu:all',
+            label: 'All Repos',
+            children,
+            icon: RiGitRepositoryFill,
+          };
+        }
+
+        const entries: TerminalDropdownEntry[] = repos.map(repoSubmenu);
+        if (repos.length > 1) entries.push(allReposSubmenu());
+        return entries;
       }
 
-      const entries: TerminalDropdownEntry[] = repos.map(repoSubmenu);
-      if (repos.length > 1) entries.push(allReposSubmenu());
-      return [{ label: 'Claude in Repos', entries }];
+      const groupKey = projectGroupKey(params.workspace, projectSlug ?? '', worktreeBranch);
+      return buildRepoEntries(worktreeBranch, worktreeRepoMap, groupKey);
     }
 
-    const groupKey = projectGroupKey(params.workspace, projectSlug ?? '', worktreeBranch);
-    return [buildRepoGroup('Claude in Repos', worktreeBranch, worktreeRepoMap, groupKey)];
+    // Plain (no specific repo) leaf for an agent, at the project or workspace
+    // scope. Built from the default scope so per-agent tabs carry the right
+    // command + label; container mode reuses toContainerScope. Uses the
+    // worktree-resolved repos (like useTerminalScope) so an active ?wt points
+    // --add-dir at the worktree checkout, not the main repo.
+    const effectiveRepos = worktreeBranch ? repos.map((r) => worktreeRepoMap.get(r) ?? r) : repos;
+    const baseScope = deriveScope(
+      params.workspace,
+      workspace.resolvedDir,
+      effectiveRepos,
+      workspace.id,
+      isProjectRoute ? projectSlug : undefined,
+      isProjectRoute ? project?.id : undefined,
+      worktreeBranch,
+      workspace.earsBdd ?? false,
+      defaultAid,
+      workspace.agentSettings,
+    );
+    // The plain (no-repo) leaf inside an agent's submenu. The agent is already
+    // named by the parent submenu, so the label drops it.
+    function plainLeaf(
+      agentTypeId: AgentTypeId,
+      mode: 'host' | 'container' | undefined,
+    ): TerminalDropdownEntry {
+      let scope = scopeForAgent(baseScope, agentTypeId);
+      if (mode === 'container') scope = toContainerScope(scope);
+      else if (mode === 'host') scope = { ...scope, containerMode: 'host' };
+      return {
+        id: `agent-plain:${agentTypeId}:${mode ?? ''}`,
+        label: mode === 'container' ? 'Project Terminal (Container)' : 'Project Terminal',
+        scope,
+        icon: mode === 'container' ? RiBox3Line : RiRobot2Line,
+      };
+    }
+
+    const groups: TerminalDropdownGroup[] = [];
+
+    // Default agent: repo/worktree tree at the top level (the plain "New
+    // Terminal" is the menu's own built-in). Unchanged from before.
+    const defaultRepoEntries = repoEntriesForAgent(defaultAid);
+    if (defaultRepoEntries.length > 0) {
+      groups.push({
+        label: `${getAgentType(defaultAid).label} in Repos`,
+        entries: defaultRepoEntries,
+      });
+    }
+
+    // Additional agents: one entry per agent, labelled by the agent name. With
+    // options it's a submenu (plain + that agent's full repo/worktree tree);
+    // with only a single plain option, a leaf. Deactivated agents are hidden.
+    const agentEntries = listAgentTypes()
+      .filter((a) => a.id !== defaultAid && isAgentActive(workspace.agentSettings, a.id))
+      .map<TerminalDropdownEntry>((a) => {
+        const children = [
+          plainLeaf(a.id, hostMode),
+          ...(isContainerEnabled ? [plainLeaf(a.id, 'container')] : []),
+          ...repoEntriesForAgent(a.id),
+        ];
+        if (children.length === 1) {
+          return { ...children[0], id: `agent:${a.id}`, label: a.label, icon: RiRobot2Line };
+        }
+        return {
+          id: `agent:${a.id}`,
+          label: a.label,
+          icon: RiRobot2Line,
+          children,
+        };
+      });
+    if (agentEntries.length > 0) groups.push({ entries: agentEntries });
+
+    return groups.length > 0 ? groups : undefined;
   }, [
     isProjectRoute,
     workspace,
@@ -402,7 +553,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         {!isProjectRoute && (
           <nav className="border-b border-border" aria-label="Workspace sections">
-            <div className={cn('flex', isMobile ? 'px-3' : 'px-6')}>
+            <div className={cn('flex items-center', isMobile ? 'px-3' : 'px-6')}>
               {tabs.map((tab) => (
                 <VLink
                   key={tab.segment}
@@ -416,6 +567,13 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
                   {tab.label}
                 </VLink>
               ))}
+              {/* Mobile-only: the workspace nav has no MobileHeader, so it hosts
+                  the terminal overlay toggle itself (desktop uses TerminalRail). */}
+              {isMobile && (
+                <div className="ml-auto pl-2">
+                  <WorkspaceMobileTerminalToggle />
+                </div>
+              )}
             </div>
           </nav>
         )}

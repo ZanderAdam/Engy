@@ -24,6 +24,7 @@ import {
 import { broadcastTaskChange } from '../../ws/broadcast';
 import { getWorkspaceDir, resolveProjectDir } from '../../engy-dir/init';
 import { buildContextBlock, buildQuickActionDirs } from '../../../lib/shell';
+import { resolveAgentSkills, type WorkspaceAgentSettings } from '../../../lib/agent-types';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -115,14 +116,15 @@ export function buildResumeFlags(taskId: number, resumeSessionId: string): strin
 
 function buildPromptForTask(
   task: { id: number; title: string; description: string | null },
-  workspace: { slug: string; id: number; implementSkill: string | null; autoAgentCompletion: string | null; earsBdd: boolean | null },
+  workspace: { slug: string; id: number; implementSkill: string | null; agentSettings: WorkspaceAgentSettings | null; autoAgentCompletion: string | null; earsBdd: boolean | null },
   project: { slug: string; id: number },
   projectDir: string,
   repos: string[],
   sessionId: string,
 ) {
   const taskSlug = taskPlanSlug(workspace.slug, task.id);
-  const implementSkill = workspace.implementSkill || '/engy:implement';
+  // Background executions run claude, so claude's skills apply.
+  const { implementSkill } = resolveAgentSkills(workspace, 'claude');
   const prompt = `Use ${implementSkill} for ${taskSlug}`;
   const systemPrompt = buildContextBlock({
     workspace: { id: workspace.id, slug: workspace.slug },
@@ -137,14 +139,14 @@ function buildPromptForTask(
 
 function buildPromptForPlan(
   task: { id: number; title: string; description: string | null },
-  workspace: { slug: string; id: number; planSkill: string | null; autoAgentCompletion: string | null; earsBdd: boolean | null },
+  workspace: { slug: string; id: number; planSkill: string | null; agentSettings: WorkspaceAgentSettings | null; autoAgentCompletion: string | null; earsBdd: boolean | null },
   project: { slug: string; id: number },
   projectDir: string,
   repos: string[],
   sessionId: string,
 ) {
   const taskSlug = taskPlanSlug(workspace.slug, task.id);
-  const planSkill = workspace.planSkill || '/engy:plan';
+  const { planSkill } = resolveAgentSkills(workspace, 'claude');
   const prompt = `Use ${planSkill} for ${taskSlug}`;
   const systemPrompt = buildContextBlock({
     workspace: { id: workspace.id, slug: workspace.slug },
@@ -481,7 +483,7 @@ export const executionRouter = router({
         repos = resolved.repos;
         workspace = resolved.workspace;
 
-        const implementSkill = resolved.workspace.implementSkill || '/engy:implement';
+        const { implementSkill } = resolveAgentSkills(resolved.workspace, 'claude');
         prompt = `Use ${implementSkill} for task group "${group.name}"`;
         systemPrompt = buildContextBlock({
           workspace: { id: resolved.workspace.id, slug: resolved.workspace.slug },
@@ -1048,7 +1050,7 @@ export const executionRouter = router({
 
       // Build prompt with all task slugs
       const taskSlugs = batchTasks.map((t) => taskPlanSlug(workspace.slug, t.id));
-      const implementSkill = workspace.implementSkill || '/engy:implement';
+      const { implementSkill } = resolveAgentSkills(workspace, 'claude');
       const prompt = `Use ${implementSkill} for tasks: ${taskSlugs.join(', ')}`;
       const systemPrompt = buildContextBlock({
         workspace: { id: workspace.id, slug: workspace.slug },

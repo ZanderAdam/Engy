@@ -38,6 +38,10 @@ interface TerminalSessionsChangeEvent {
     sessionId: string;
     groupKey?: string;
     newLabel?: string;
+    // 'killed' = deliberate teardown (user kill / terminal_close) — the UI
+    // removes the tab. A natural PTY exit omits it so the tab stays visible
+    // with its final output.
+    reason?: 'killed';
   };
 }
 
@@ -61,13 +65,22 @@ interface TerminalActivityChangeEvent {
   };
 }
 
+interface TerminalWorkersChangeEvent {
+  type: 'TERMINAL_WORKERS_CHANGE';
+  payload: {
+    sessionId: string;
+    connected: boolean;
+  };
+}
+
 type ServerEvent =
   | FileChangeEvent
   | TaskChangeEvent
   | QuestionChangeEvent
   | TerminalSessionsChangeEvent
   | MemoryChangeEvent
-  | TerminalActivityChangeEvent;
+  | TerminalActivityChangeEvent
+  | TerminalWorkersChangeEvent;
 
 // ── Generic Broadcast ───────────────────────────────────────────────
 
@@ -119,10 +132,11 @@ export function broadcastTerminalSessionsChange(
   sessionId: string,
   groupKey?: string,
   newLabel?: string,
+  reason?: 'killed',
 ): void {
   broadcastEvent({
     type: 'TERMINAL_SESSIONS_CHANGE',
-    payload: { action, sessionId, groupKey, newLabel },
+    payload: { action, sessionId, groupKey, newLabel, reason },
   });
 }
 
@@ -141,4 +155,8 @@ export function broadcastTerminalActivityChange(
   payload: TerminalActivityChangeEvent['payload'],
 ): void {
   broadcastEvent({ type: 'TERMINAL_ACTIVITY_CHANGE', payload });
+}
+
+export function broadcastTerminalWorkersChange(sessionId: string, connected: boolean): void {
+  broadcastEvent({ type: 'TERMINAL_WORKERS_CHANGE', payload: { sessionId, connected } });
 }

@@ -30,15 +30,13 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
+import { resolveAgentSkills } from '@/lib/agent-types';
 import { useQuickAction } from '@/hooks/use-quick-action';
 import { useExecutionStatus } from '@/hooks/use-execution-status';
 import { useTaskHasPlan } from '@/hooks/use-task-has-plan';
 import { useTabId } from '@/components/tabs/tab-context';
 import type { TaskStatus } from '@/lib/task-status';
 import { toast } from 'sonner';
-
-const DEFAULT_PLAN_SKILL = '/engy:plan';
-const DEFAULT_IMPLEMENT_SKILL = '/engy:implement';
 
 interface TaskQuickActionsProps {
   taskId: number;
@@ -59,8 +57,8 @@ export function TaskQuickActions({
   const projectSlug = projectSlugProp ?? hookProjectSlug;
   const tabId = useTabId();
 
-  const planSkill = workspace?.planSkill || DEFAULT_PLAN_SKILL;
-  const implementSkill = workspace?.implementSkill || DEFAULT_IMPLEMENT_SKILL;
+  // Quick actions launch claude (see useQuickAction), so claude's skills apply.
+  const { planSkill, implementSkill } = resolveAgentSkills(workspace ?? {}, 'claude');
 
   const { taskSlug, hasPlan } = useTaskHasPlan(taskId, projectId);
   const projectDir = project?.projectDir;
