@@ -30,6 +30,9 @@ interface TerminalSessionsChangePayload {
   sessionId: string;
   groupKey?: string;
   newLabel?: string;
+  // 'killed' = deliberate teardown (user kill / agent terminal_close) — remove
+  // the tab. Absent on natural PTY exit, where the tab stays readable.
+  reason?: 'killed';
 }
 
 interface MemoryChangePayload {

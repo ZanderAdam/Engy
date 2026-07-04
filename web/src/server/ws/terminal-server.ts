@@ -6,7 +6,6 @@ import type {
   TerminalSpawnCmd,
   TerminalReconnectCmd,
   TerminalErrorEvent,
-  TerminalExitEvent,
   TerminalSyncEvent,
   TerminalActivityEvent,
 } from '@engy/common';
@@ -16,6 +15,7 @@ import { eq } from 'drizzle-orm';
 import { dispatchContainerUp } from './server';
 import { broadcastTerminalSessionsChange, broadcastTerminalActivityChange } from './broadcast';
 import {
+  destroyTerminalSession,
   disconnectWorker,
   failWorkerDispatches,
   flushDispatchInbox,
@@ -212,37 +212,14 @@ async function handleTerminalConnection(
   ws.on('message', (raw: Buffer | string) => {
     const str = typeof raw === 'string' ? raw : raw.toString('utf-8');
 
-    // Intercept kill messages to clean up session metadata (rare path)
+    // Intercept kill messages to clean up session metadata (rare path). The
+    // sender ws is excluded from the exit-frame fan-out — it initiated the
+    // kill and tears itself down client-side.
     if (str.startsWith('{"t":"kill"')) {
       const sid = extractSessionId(str);
       if (sid) {
         console.log(`[terminal] Kill intercepted for session ${sid}`);
-        const killedMeta = state.terminalSessionMeta.get(sid);
-        state.terminalSessionMeta.delete(sid);
-        // Close all attached browsers and remove the session. Send exit first so
-        // their ReconnectingSocket marks the session final — a bare close would
-        // trigger a reconnect that respawns a ghost PTY (meta is already deleted).
-        const wsSet = state.terminalSessions.get(sid);
-        if (wsSet) {
-          const exitFrame = JSON.stringify({
-            t: 'exit',
-            sessionId: sid,
-            exitCode: 0,
-          } satisfies TerminalExitEvent);
-          for (const bws of wsSet) {
-            if (bws !== ws && bws.readyState === bws.OPEN) {
-              sendRaw(bws, exitFrame);
-              bws.close(1001, 'Session killed');
-            }
-          }
-        }
-        state.terminalSessions.delete(sid);
-        failWorkerDispatches(state, sid, 'Worker terminal killed');
-        disconnectWorker(state, sid);
-        broadcastTerminalSessionsChange('destroyed', sid, killedMeta?.groupKey);
-        if (killedMeta?.projectSlug) {
-          broadcastTerminalActivityChange({ sessionId: sid, projectSlug: killedMeta.projectSlug, removed: true });
-        }
+        destroyTerminalSession(state, sid, { excludeWs: ws });
       }
     }
 
@@ -474,16 +451,12 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
                 ws.send(JSON.stringify(spawnCmd));
                 broadcastTerminalSessionsChange('created', sessionId, meta.groupKey);
               } else {
-                // No browser connected — clean up fully. Agent-spawned workers
-                // always land here (they never have a browser), so fail their
-                // dispatches and drop the worker entry instead of leaking a
-                // phantom `alive: false` worker in terminal_list_workers.
+                // No browser connected — full teardown. Agent-spawned workers
+                // always land here (they never have a browser), so this must
+                // fail dispatches, drop the worker entry, and clear activity
+                // badges instead of leaking phantom state.
                 console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — no browser, cleaning up`);
-                state.terminalSessions.delete(sessionId);
-                state.terminalSessionMeta.delete(sessionId);
-                failWorkerDispatches(state, sessionId, 'Daemon restarted — worker terminal lost');
-                disconnectWorker(state, sessionId);
-                broadcastTerminalSessionsChange('destroyed', sessionId, meta.groupKey);
+                destroyTerminalSession(state, sessionId);
               }
             }
           }
@@ -557,9 +530,12 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         broadcastToSession(state, sessionId, str);
       }
 
-      // Exit messages start with {"t":"exit" — no data field to confuse
+      // Exit messages start with {"t":"exit" — no data field to confuse.
+      // Skip when the session is already torn down (kill / terminal_close ran
+      // destroyTerminalSession before the daemon's exit arrived) — re-running
+      // would emit a second 'destroyed' broadcast with no groupKey context.
       const isExit = str.startsWith('{"t":"exit"');
-      if (isExit) {
+      if (isExit && (state.terminalSessionMeta.has(sessionId) || state.terminalSessions.has(sessionId))) {
         console.log(`[terminal-relay] Exit for session ${sessionId}, cleaning up meta and WS`);
         const exitMeta = state.terminalSessionMeta.get(sessionId);
         state.terminalSessions.delete(sessionId);

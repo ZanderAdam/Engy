@@ -485,8 +485,14 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
         .catch((err: unknown) => console.error('Failed to sync terminal sessions:', err));
     } else if (payload.action === 'renamed' && payload.newLabel) {
       updateTabLabel(payload.sessionId, payload.newLabel);
+    } else if (payload.action === 'destroyed' && payload.reason === 'killed') {
+      // Deliberate teardown (user kill in another browser / agent
+      // terminal_close) — remove the tab instead of leaving it as 'exited'.
+      const panel = api.getPanel(payload.sessionId);
+      if (panel) api.removePanel(panel);
     }
-    // 'destroyed' is handled by the terminal WS exit/error events
+    // 'destroyed' without reason (natural PTY exit) keeps the tab so its
+    // final output stays readable — the WS exit event marks it exited.
     // 'attached'/'detached' are informational — no action needed
   }, [updateTabLabel]));
 

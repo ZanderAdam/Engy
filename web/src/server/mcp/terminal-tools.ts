@@ -5,6 +5,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getAppState } from '../trpc/context';
 import {
   AGENT_SPAWN_LIMIT,
+  closeAgentTerminal,
   countAgentSpawnedSessions,
   createDispatch,
   getWorkerOutputTail,
@@ -63,6 +64,10 @@ const terminalCollectInput = {
 
 const terminalStatusInput = {
   workerSessionId: z.string().describe('Worker terminal session id'),
+};
+
+const terminalCloseInput = {
+  sessionId: z.string().describe('Session id of a terminal you spawned via terminal_spawn'),
 };
 
 const terminalSpawnInput = {
@@ -200,7 +205,7 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
       const liveSpawned = countAgentSpawnedSessions(state);
       if (liveSpawned >= AGENT_SPAWN_LIMIT) {
         return mcpError(
-          `Agent-spawned terminal limit reached (${AGENT_SPAWN_LIMIT} live). Reuse an existing worker via terminal_dispatch, or ask the user to close one.`,
+          `Agent-spawned terminal limit reached (${AGENT_SPAWN_LIMIT} live). Reuse an existing worker via terminal_dispatch, or terminal_close one you spawned to free a slot.`,
         );
       }
       const repos = listAllWorkspaceRepos();
@@ -230,6 +235,35 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
           ? 'Worker is booting and will start on the initial prompt. You can terminal_dispatch follow-ups immediately — they queue and deliver when the worker is ready.'
           : 'Worker is booting. terminal_dispatch work to it immediately — messages queue and deliver as soon as the CLI is ready.',
       });
+    },
+  );
+
+  mcp.tool(
+    'terminal_close',
+    'Close a terminal you spawned via terminal_spawn (kills its PTY and frees a spawn slot). Only your own spawned terminals — user-opened terminals cannot be closed',
+    terminalCloseInput,
+    async ({ sessionId }) => {
+      const state = getAppState();
+      if (!callerTerminalSessionId) {
+        return mcpError(
+          'terminal_close requires an identified caller, but this MCP connection is anonymous (plain /mcp).',
+        );
+      }
+      const meta = state.terminalSessionMeta.get(sessionId);
+      if (!meta) {
+        return mcpError('Unknown or already-closed terminal session.');
+      }
+      if (meta.spawnedBy !== callerTerminalSessionId) {
+        return mcpError(
+          meta.spawnedBy
+            ? 'That terminal was spawned by a different agent — only its spawner can close it.'
+            : 'That terminal was opened by the user — agents can only close terminals they spawned via terminal_spawn.',
+        );
+      }
+      if (!closeAgentTerminal(state, sessionId)) {
+        return mcpError('No terminal daemon connected — cannot kill the PTY, close refused.');
+      }
+      return mcpResult({ ok: true, sessionId, closed: meta.scopeLabel });
     },
   );
 

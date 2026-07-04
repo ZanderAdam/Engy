@@ -4,6 +4,7 @@ import { createAppState, type AppState } from './trpc/context';
 import {
   connectWorker,
   createDispatch,
+  destroyTerminalSession,
   disconnectWorker,
   failWorkerDispatches,
   flushDispatchInbox,
@@ -280,6 +281,49 @@ describe('terminal dispatch', () => {
         alive: true,
       });
       expect(workers.find((w) => w.sessionId === 'gone')!.alive).toBe(false);
+    });
+  });
+
+  describe('destroyTerminalSession', () => {
+    function fakeBrowser(): { received: string[]; closed: boolean; ws: WebSocket } {
+      const received: string[] = [];
+      const holder = { received, closed: false, ws: null as unknown as WebSocket };
+      holder.ws = {
+        readyState: 1,
+        OPEN: 1,
+        send: (d: string) => received.push(d),
+        close: () => {
+          holder.closed = true;
+        },
+      } as unknown as WebSocket;
+      return holder;
+    }
+
+    it('should send an exit frame and close attached browsers, skipping the excluded one', () => {
+      addSession(state, 's1', { activityState: 'idle' });
+      const sender = fakeBrowser();
+      const other = fakeBrowser();
+      state.terminalSessions.set('s1', new Set([sender.ws, other.ws]));
+
+      destroyTerminalSession(state, 's1', { excludeWs: sender.ws });
+
+      expect(other.received.some((f) => f.includes('"t":"exit"'))).toBe(true);
+      expect(other.closed).toBe(true);
+      expect(sender.received).toHaveLength(0);
+      expect(sender.closed).toBe(false);
+      expect(state.terminalSessions.has('s1')).toBe(false);
+      expect(state.terminalSessionMeta.has('s1')).toBe(false);
+    });
+
+    it('should fail dispatches and drop the worker registration', () => {
+      addSession(state, 's1', { activityState: 'idle', agentType: 'codex' });
+      connectWorker(state, 's1', 'worker');
+      const entry = createDispatch(state, 's1', 'task');
+
+      destroyTerminalSession(state, 's1');
+
+      expect(state.dispatchWorkers.has('s1')).toBe(false);
+      expect(state.dispatches.get(entry.correlationId)?.status).toBe('failed');
     });
   });
 

@@ -6,6 +6,7 @@ import { getAppState, resetAppState, type AppState } from '../trpc/context';
 import {
   AGENT_SPAWN_LIMIT,
   connectWorker,
+  countAgentSpawnedSessions,
   flushDispatchInbox,
   resolveDispatchReply,
 } from '../terminal-dispatch';
@@ -567,6 +568,85 @@ describe('MCP terminal tools', () => {
         if (priorPort === undefined) delete process.env.PORT;
         else process.env.PORT = priorPort;
       }
+    });
+
+    it('[FR-MCP-190] should let the spawner close its spawned terminal and free the slot', async () => {
+      addCallerSession('sess-claude', 'claude');
+      const mcp = makeMcp('sess-claude');
+      const { data: spawned } = await callTool(mcp, 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'short-lived worker',
+      });
+      const workerId = spawned.sessionId as string;
+      const pending = await callTool(mcp, 'terminal_dispatch')({
+        workerSessionId: workerId,
+        message: 'never answered',
+      });
+      sent.length = 0;
+
+      const { data, isError } = await callTool(mcp, 'terminal_close')({ sessionId: workerId });
+      expect(isError).toBe(false);
+      expect(data).toMatchObject({ ok: true, sessionId: workerId, closed: 'short-lived worker' });
+
+      // Kill forwarded to the daemon; server state fully torn down
+      expect(sent.some((f) => f.includes('"t":"kill"') && f.includes(workerId))).toBe(true);
+      expect(state.terminalSessionMeta.has(workerId)).toBe(false);
+      expect(state.dispatchWorkers.has(workerId)).toBe(false);
+      expect(state.dispatches.get(pending.data.correlationId as string)?.status).toBe('failed');
+
+      // The spawn-cap slot is freed
+      expect(countAgentSpawnedSessions(state)).toBe(0);
+    });
+
+    it('[FR-MCP-190] should refuse closing terminals the caller did not spawn', async () => {
+      addCallerSession('sess-claude', 'claude');
+      addCallerSession('sess-other', 'codex');
+      // User-opened terminal (no spawnedBy)
+      const userTerm = await callTool(makeMcp('sess-claude'), 'terminal_close')({
+        sessionId: 'sess-other',
+      });
+      expect(userTerm.isError).toBe(true);
+      expect(String(userTerm.data.error)).toContain('opened by the user');
+
+      // Spawned by someone else
+      state.terminalSessionMeta.get('sess-other')!.spawnedBy = 'somebody-else';
+      const foreign = await callTool(makeMcp('sess-claude'), 'terminal_close')({
+        sessionId: 'sess-other',
+      });
+      expect(foreign.isError).toBe(true);
+      expect(String(foreign.data.error)).toContain('different agent');
+    });
+
+    it('[FR-MCP-190] should refuse anonymous callers and unknown sessions', async () => {
+      const anon = await callTool(makeMcp(undefined), 'terminal_close')({ sessionId: 'x' });
+      expect(anon.isError).toBe(true);
+      expect(String(anon.data.error)).toContain('anonymous');
+
+      addCallerSession('sess-claude', 'claude');
+      const ghost = await callTool(makeMcp('sess-claude'), 'terminal_close')({
+        sessionId: 'ghost',
+      });
+      expect(ghost.isError).toBe(true);
+      expect(String(ghost.data.error)).toContain('Unknown or already-closed');
+    });
+
+    it('[FR-MCP-190] should refuse the close when no daemon is connected', async () => {
+      addCallerSession('sess-claude', 'claude');
+      const { data: spawned } = await callTool(makeMcp('sess-claude'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'worker',
+      });
+      state.terminalDaemon = null;
+      const { isError, data } = await callTool(makeMcp('sess-claude'), 'terminal_close')({
+        sessionId: spawned.sessionId as string,
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('daemon');
+      // Session state is untouched — the PTY could not be killed
+      expect(state.terminalSessionMeta.has(spawned.sessionId as string)).toBe(true);
+      expect(state.dispatchWorkers.has(spawned.sessionId as string)).toBe(true);
     });
 
     it('[FR-MCP-170] should allow the spawned worker to spawn back cross-type within the cap', async () => {

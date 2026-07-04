@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { TerminalSpawnCmd } from '@engy/common';
+import type { WebSocket } from 'ws';
+import type { TerminalExitEvent, TerminalKillCmd, TerminalSpawnCmd } from '@engy/common';
 import type { AppState, DispatchEntry, TerminalSessionMeta } from './trpc/context';
 import { buildAgentCommand, getAgentType, isAgentTypeId, type AgentTypeId } from '@/lib/agent-types';
-import { broadcastTerminalSessionsChange } from './ws/broadcast';
+import { broadcastTerminalActivityChange, broadcastTerminalSessionsChange } from './ws/broadcast';
 
 // Cross-terminal dispatch: an orchestrator agent sends a prompt to a worker
 // terminal by injecting it into the worker's PTY stdin (same wire path as
@@ -457,6 +458,67 @@ export function spawnAgentTerminal(
     `[dispatch] agent-spawned ${opts.agentType} terminal ${sessionId.slice(0, 8)} by ${opts.spawnedBy.slice(0, 8)}`,
   );
   return { sessionId };
+}
+
+/**
+ * Tear down a terminal session's server-side state: session meta, attached
+ * browser sockets (sent an exit frame first so their ReconnectingSocket marks
+ * the session final instead of respawning a ghost), worker registration,
+ * unsettled dispatches, and the destroyed/activity broadcasts. Does NOT signal
+ * the daemon — callers own that (kill forward vs. server-sent kill).
+ */
+export function destroyTerminalSession(
+  state: AppState,
+  sessionId: string,
+  opts?: { excludeWs?: WebSocket },
+): TerminalSessionMeta | undefined {
+  const meta = state.terminalSessionMeta.get(sessionId);
+  state.terminalSessionMeta.delete(sessionId);
+
+  const wsSet = state.terminalSessions.get(sessionId);
+  if (wsSet) {
+    const exitFrame = JSON.stringify({
+      t: 'exit',
+      sessionId,
+      exitCode: 0,
+    } satisfies TerminalExitEvent);
+    for (const bws of wsSet) {
+      if (bws !== opts?.excludeWs && bws.readyState === bws.OPEN) {
+        bws.send(exitFrame);
+        bws.close(1001, 'Session killed');
+      }
+    }
+  }
+  state.terminalSessions.delete(sessionId);
+
+  failWorkerDispatches(state, sessionId, 'Worker terminal killed');
+  disconnectWorker(state, sessionId);
+  // 'killed' tells the UI to remove the tab — every destroyTerminalSession
+  // caller is a deliberate teardown, unlike a natural PTY exit whose tab
+  // stays visible with its final output.
+  broadcastTerminalSessionsChange('destroyed', sessionId, meta?.groupKey, undefined, 'killed');
+  if (meta?.projectSlug) {
+    broadcastTerminalActivityChange({ sessionId, projectSlug: meta.projectSlug, removed: true });
+  }
+  return meta;
+}
+
+/**
+ * Server-originated close of an agent-spawned terminal (terminal_close):
+ * signals the daemon to kill the PTY (SIGTERM, SIGKILL after 3s) and tears
+ * down the server-side session state. Returns false when no daemon is
+ * connected — the PTY would survive unkilled, so the close is refused.
+ * (Deliberately stricter than a browser kill, which tears down server state
+ * daemon or not: the agent gets a clear retry signal instead of a silently
+ * orphaned PTY, and the sync handler reconciles state once a daemon returns.)
+ */
+export function closeAgentTerminal(state: AppState, sessionId: string): boolean {
+  const daemon = state.terminalDaemon;
+  if (!daemon || daemon.readyState !== daemon.OPEN) return false;
+  daemon.send(JSON.stringify({ t: 'kill', sessionId } satisfies TerminalKillCmd));
+  destroyTerminalSession(state, sessionId);
+  console.log(`[dispatch] agent-closed terminal ${sessionId.slice(0, 8)}`);
+  return true;
 }
 
 /** True when the relay should buffer this session's output for terminal_status. */

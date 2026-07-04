@@ -108,6 +108,12 @@ the caller can `terminal_dispatch` immediately after spawning — the message
 queues in the worker's inbox and delivers on the CLI's first idle/done
 settle instead of being pasted into a half-booted TUI.
 
+The spawner alone can retire its workers with `terminal_close`: the daemon
+kills the PTY and the server tears down the session (worker registration,
+unsettled dispatches, destroyed broadcast — via the same
+`destroyTerminalSession` path as a browser kill), freeing the agent-spawn
+slot. User-opened and foreign-spawned terminals are refused.
+
 ## Requirements
 
 Functional requirements in EARS notation. These are the single source of truth for the MCP server session feature's behaviour. Tag the verifying tests with the FR id in their title string, e.g. `it('[FR-MCP-010] ...', ...)`, and run `trace` (or `engy:validate`) to check coverage.
@@ -133,6 +139,7 @@ Functional requirements in EARS notation. These are the single source of truth f
 | FR-MCP-160 | WHEN `terminal_spawn` is called, the system SHALL refuse: anonymous callers (no path token), callers without a live terminal session, callers whose agent type is unknown, an unknown requested `agentType`, a requested `agentType` equal to the caller's own type (same-type work belongs to the agent's built-in subagents), a `cwd` outside every workspace repo, more than 3 live agent-spawned sessions, and spawning with no terminal daemon connected. |
 | FR-MCP-170 | WHEN `terminal_spawn` passes validation, the system SHALL generate a new terminal session id, send a spawn command to the daemon whose agent CLI command carries the resolved per-session MCP endpoint `/mcp/<newSessionId>`, register session metadata recording `spawnedBy`, inheriting the caller's UI scope (groupKey, workspace, project), and starting at activity state `active` (so dispatches sent while the CLI boots queue and deliver on its first idle/done settle), auto-connect the session as a dispatch worker, broadcast the session creation, and return the new session id. |
 | FR-MCP-180 | WHEN a dispatch created by an identified caller settles (replied or failed) and the dispatch was async or its sync wait timed out, the system SHALL inject an informational `[engy-notice <correlationId>]` settled-notice (worker description, result or error capped at 2000 chars, and a do-not-reply/re-dispatch note) into the origin terminal — immediately when the origin is idle with no queued dispatches or notices, otherwise queued and flushed combined on the origin's next idle transition, before any queued dispatch; a flush that fails because no daemon is connected SHALL requeue the notices. Notices whose origin terminal no longer exists SHALL be dropped. |
+| FR-MCP-190 | WHEN `terminal_close` is called by an identified caller with the session id of a terminal whose `spawnedBy` equals the caller's session, the system SHALL send a kill command to the daemon and tear down the session's server state (meta, worker registration, unsettled dispatches failed, destroyed broadcast), freeing its agent-spawn slot; the system SHALL refuse anonymous callers, unknown sessions, terminals not spawned by the caller (user-opened or foreign-spawned), and closes attempted with no daemon connected (leaving state untouched). |
 
 ## Sources
 

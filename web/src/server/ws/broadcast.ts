@@ -38,6 +38,10 @@ interface TerminalSessionsChangeEvent {
     sessionId: string;
     groupKey?: string;
     newLabel?: string;
+    // 'killed' = deliberate teardown (user kill / terminal_close) — the UI
+    // removes the tab. A natural PTY exit omits it so the tab stays visible
+    // with its final output.
+    reason?: 'killed';
   };
 }
 
@@ -128,10 +132,11 @@ export function broadcastTerminalSessionsChange(
   sessionId: string,
   groupKey?: string,
   newLabel?: string,
+  reason?: 'killed',
 ): void {
   broadcastEvent({
     type: 'TERMINAL_SESSIONS_CHANGE',
-    payload: { action, sessionId, groupKey, newLabel },
+    payload: { action, sessionId, groupKey, newLabel, reason },
   });
 }
 

@@ -6,7 +6,7 @@ import {
   createTerminalWebSocketServer,
   createTerminalRelayWebSocketServer,
 } from './terminal-server';
-import { connectWorker, createDispatch } from '../terminal-dispatch';
+import { connectWorker, createDispatch, destroyTerminalSession } from '../terminal-dispatch';
 
 let openClients: WebSocket[] = [];
 
@@ -328,6 +328,32 @@ describe('Terminal WebSocket Server', () => {
         expect(state.terminalSessions.has('sess-exit')).toBe(false);
         expect(state.terminalSessionMeta.has('sess-exit')).toBe(false);
       });
+    });
+
+    it('[FR-TERMINAL-090] should ignore the daemon exit for a session already torn down by a kill', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+      await connectBrowser(port, { sessionId: 'sess-prekilled', workingDir: '/tmp' });
+      await spawnPromise;
+
+      // terminal_close / kill tore the session down before the daemon's exit arrives
+      destroyTerminalSession(state, 'sess-prekilled');
+
+      const events: string[] = [];
+      const listener = {
+        readyState: 1,
+        OPEN: 1,
+        send: (d: string) => events.push(d),
+      } as unknown as import('ws').WebSocket;
+      state.fileChangeListeners.add(listener);
+
+      daemonWs.send(JSON.stringify({ t: 'exit', sessionId: 'sess-prekilled', exitCode: 0 }));
+      await new Promise((r) => setTimeout(r, 100));
+
+      const destroyedEvents = events.filter(
+        (e) => e.includes('"destroyed"') && e.includes('sess-prekilled'),
+      );
+      expect(destroyedEvents).toHaveLength(0);
     });
 
     it('[FR-TERMINAL-100] should retain terminalSessionMeta on relay disconnect for respawn', async () => {
