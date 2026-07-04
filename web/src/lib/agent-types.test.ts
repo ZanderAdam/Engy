@@ -203,7 +203,7 @@ describe('agent types', () => {
       });
 
       it('should resolve the configured mode, defaulting when unset or unknown', () => {
-        expect(resolveAgentMode({ claude: { mode: 'dontAsk' } }, 'claude')).toBe('dontAsk');
+        expect(resolveAgentMode({ claude: { mode: 'auto' } }, 'claude')).toBe('auto');
         expect(resolveAgentMode({ claude: { mode: 'nope' } }, 'claude')).toBe('acceptEdits');
         expect(resolveAgentMode(undefined, 'codex')).toBe('workspace-write');
       });

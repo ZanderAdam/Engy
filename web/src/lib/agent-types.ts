@@ -60,11 +60,14 @@ function claudeMcpFlag(mcpUrl: string): string {
   return ` --mcp-config '${shellEscape(config)}'`;
 }
 
+// The CLI also accepts `dontAsk` (deny everything not explicitly allowlisted,
+// no prompting) — deliberately not offered: it is a CI/allowlist mode that
+// would make an interactive Engy terminal silently refuse every action.
 const CLAUDE_MODES: AgentMode[] = [
   { id: 'default', label: 'Default', description: 'Prompt on first use of each tool' },
   { id: 'acceptEdits', label: 'Accept edits', description: 'Auto-accept edits in the working directory' },
   { id: 'plan', label: 'Plan', description: 'Read-only analysis and planning' },
-  { id: 'dontAsk', label: "Don't ask", description: 'Deny everything not explicitly allowed' },
+  { id: 'auto', label: 'Auto', description: 'Claude decides; a safety classifier blocks destructive actions' },
   { id: 'bypassPermissions', label: 'Bypass permissions', description: 'Approve everything without prompting' },
 ];
 

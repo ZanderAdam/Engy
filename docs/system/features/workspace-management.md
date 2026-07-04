@@ -129,7 +129,9 @@ Effects:
 
 - **Mode** — `buildAgentCommand` applies the configured per-agent default mode:
   Claude gets `--permission-mode <mode>` (`default` / `acceptEdits` / `plan` /
-  `dontAsk` / `bypassPermissions`, default `acceptEdits`); Codex maps a preset
+  `auto` / `bypassPermissions`, default `acceptEdits`; the CLI's `dontAsk` is
+  deliberately not offered — a CI/allowlist mode that would silently refuse
+  everything in an interactive terminal); Codex maps a preset
   id to sandbox/approval flags (`read-only`, `workspace-write` (default),
   `full-auto` = `--sandbox workspace-write --ask-for-approval never`,
   `danger-full-access`). Container spawns still force the permission-bypass
