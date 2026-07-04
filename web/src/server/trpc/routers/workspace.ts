@@ -68,10 +68,7 @@ const agentSettingsSchema = z.record(
   }),
 );
 
-function assertValidAgentSettings(
-  settings: WorkspaceAgentSettings,
-  defaultAgentType: string | null,
-): void {
+function assertValidAgentModes(settings: WorkspaceAgentSettings): void {
   for (const [agentId, entry] of Object.entries(settings)) {
     if (entry?.mode && !isAgentModeId(agentId as AgentTypeId, entry.mode)) {
       throw new TRPCError({
@@ -80,6 +77,12 @@ function assertValidAgentSettings(
       });
     }
   }
+}
+
+function assertDefaultAgentActive(
+  settings: WorkspaceAgentSettings,
+  defaultAgentType: string | null,
+): void {
   const effectiveDefault = defaultAgentType ?? 'claude';
   if (settings[effectiveDefault]?.active === false) {
     throw new TRPCError({
@@ -323,8 +326,16 @@ export const workspaceRouter = router({
         input.defaultAgentType !== undefined ? input.defaultAgentType : existing.defaultAgentType;
       const newAgentSettings =
         input.agentSettings !== undefined ? input.agentSettings : existing.agentSettings;
-      if (newAgentSettings) {
-        assertValidAgentSettings(newAgentSettings, newDefaultAgentType);
+      // Validate modes only on caller-sent settings: stored settings may hold
+      // mode ids a newer registry no longer offers (e.g. dontAsk) — those
+      // degrade at read time via coerceModeId and must not brick unrelated
+      // updates. The default-agent-active invariant checks the merged state,
+      // but only when the caller touched either field.
+      if (input.agentSettings) {
+        assertValidAgentModes(input.agentSettings);
+      }
+      if (newAgentSettings && (input.agentSettings !== undefined || input.defaultAgentType !== undefined)) {
+        assertDefaultAgentActive(newAgentSettings, newDefaultAgentType);
       }
       const newEarsBdd = input.earsBdd !== undefined ? input.earsBdd : existing.earsBdd;
       const newSplitWorktrees =

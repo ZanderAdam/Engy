@@ -373,6 +373,19 @@ describe('workspace router', () => {
       ).rejects.toThrow(/default agent/);
     });
 
+    it('[FR-WORKSPACE-140] should not brick updates when stored settings hold a retired mode id', async () => {
+      const ws = await caller.workspace.create({ name: 'Agent Settings Retired Mode' });
+      // Simulate a mode that was valid when saved but later left the registry.
+      ctx.db
+        .update(workspaces)
+        .set({ agentSettings: { claude: { mode: 'dontAsk' } } })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+      const updated = await caller.workspace.update({ id: ws.id, name: 'Still Updatable' });
+      expect(updated.name).toBe('Still Updatable');
+      expect(updated.agentSettings).toEqual({ claude: { mode: 'dontAsk' } });
+    });
+
     it('[FR-WORKSPACE-140] should reject switching the default to an agent deactivated in existing settings', async () => {
       const ws = await caller.workspace.create({ name: 'Agent Settings Default Switch' });
       await caller.workspace.update({ id: ws.id, agentSettings: { codex: { active: false } } });

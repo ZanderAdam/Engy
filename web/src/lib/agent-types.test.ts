@@ -197,6 +197,8 @@ describe('agent types', () => {
 
       it('should recognize mode ids per agent', () => {
         expect(isAgentModeId('claude', 'plan')).toBe(true);
+        expect(isAgentModeId('claude', 'auto')).toBe(true);
+        expect(isAgentModeId('claude', 'dontAsk')).toBe(false);
         expect(isAgentModeId('claude', 'read-only')).toBe(false);
         expect(isAgentModeId('codex', 'read-only')).toBe(true);
         expect(isAgentModeId('codex', 'plan')).toBe(false);
