@@ -479,7 +479,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           </TooltipProvider>
         </div>
         {comments && hasOpenThreads && !commentsCollapsed && (
-          <div className="w-72 border-l border-border overflow-y-auto shrink-0">
+          <div className="overflow-y-auto max-md:absolute max-md:inset-0 max-md:z-[60] max-md:bg-background md:w-72 md:border-l md:border-border md:shrink-0">
             <div className="p-3 border-b border-border flex items-center justify-between">
               <span className="text-xs text-muted-foreground">Comments</span>
               <div className="flex items-center gap-1">
