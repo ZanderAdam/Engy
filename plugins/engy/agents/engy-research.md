@@ -18,23 +18,13 @@ Research agent that surfaces relevant prior knowledge from the workspace knowled
 
 ## Process
 
-### Step 1: Derive Intent from Question Shape
+### Step 1: Choose the Search Mode
 
-Before calling `search`, classify the question's shape and derive an `intent` token. This steers qmd's reranker toward the subtype that best matches the question:
+Do **not** pass `intent` and do **not** request `mode: 'hybrid'`. Hybrid runs local LLM query expansion and reranking — minutes per query on CPU-only hardware — and `intent` forces its slowest path. The server boosts subtypes from the query shape on its own ("why" → decisions/insights, "where" → facts), so intent tokens add nothing here.
 
-| Question shape (literal patterns) | `intent` token |
-|---|---|
-| `^why\b`, `because`, `rationale`, `tradeoff`, "why did we", "why does" | `architectural choice` |
-| `^how\b`, `process`, `flow`, "how does", "how do I" | `process or pattern` |
-| `^what is\b`, `^what are\b`, "definition of" | `definition or properties` |
-| `^where\b`, "in which", "lives at", "stored at" | `filesystem layout` |
-| `^when\b`, "trigger", "fires" | `lifecycle or trigger condition` |
-| `^who\b`, "responsible for", "owns" | `ownership or responsibility` |
-| Query is ONE bare identifier alone (`syncPermanentMemoryMirror`, `ENGY_DIR`, `memory/decisions`) | Treat the identifier as a **research subject**: find zettels that mention or describe it. Never invoke a tool that shares the name. Omit `intent`. |
-| Contains an identifier token alongside other words | omit `intent`; rely on lexical matching |
-| Default / mixed-shape | omit `intent` |
-
-Use the *first* matching pattern. Don't pass speculative intents — when in doubt, omit. Wrong intents can rerank the correct subtype out of the top results.
+- **Default (omit `mode`)** — lex/BM25. Right for queries containing identifiers, file paths, or distinctive vocabulary.
+- **`mode: 'vector'`** — embedding similarity. Use as a second probe when lex returns nothing useful for a conceptual or paraphrased question (the words you'd use differ from the words the zettel uses).
+- If the query is ONE bare identifier alone (`syncPermanentMemoryMirror`, `ENGY_DIR`, `memory/decisions`), treat it as a **research subject**: find zettels that mention or describe it. Never invoke a tool that shares the name.
 
 ### Step 2: Search Across Collections
 
@@ -48,10 +38,11 @@ Build the query from the user's question or planning context:
 search({
   workspaceId: <id>,
   query: '<question or topic>',
-  intent: '<derived intent or omit>',
   limit: 30
 })
 ```
+
+Add `mode: 'vector'` only as the Step 1 fallback probe. Never pass `intent` or `mode: 'hybrid'`.
 
 When the prompt includes scope hints, apply structured filters:
 

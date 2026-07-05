@@ -728,8 +728,22 @@ describe('search router — mocked qmd store', () => {
       score: number;
     }>,
   ) {
+    // Serve both store surfaces so tests hold regardless of mode: `search`
+    // (hybrid) gets the hits as-is, `searchLex` (the default mode) gets the
+    // same hits mapped to the lex result shape.
     getStoreSpy.mockResolvedValue({
       search: vi.fn().mockResolvedValue(hits),
+      searchLex: vi.fn().mockResolvedValue(
+        hits.map((h) => ({
+          filepath: h.file,
+          displayPath: h.displayPath,
+          title: h.title,
+          body: h.bestChunk,
+          score: h.score,
+          source: 'fts',
+        })),
+      ),
+      searchVector: vi.fn().mockResolvedValue([]),
     } as unknown as Awaited<ReturnType<typeof qmdStoreModule.getStore>>);
   }
 
@@ -991,7 +1005,33 @@ describe('search router — mocked qmd store', () => {
   });
 
   describe('mode + intent plumbing', () => {
-    it('[FR-SEARCH-002] default mode passes through to store.search and forwards intent', async () => {
+    it('[FR-SEARCH-013] should default to lex mode so no LLM-backed hybrid call runs', async () => {
+      const searchSpy = vi.fn();
+      const searchLexSpy = vi.fn().mockResolvedValue([
+        {
+          filepath: 'qmd://memory/decisions/x.md',
+          displayPath: 'memory/decisions/x.md',
+          title: 'X',
+          body: 'Body of X.',
+          score: 0.9,
+          source: 'fts',
+        },
+      ]);
+      getStoreSpy.mockResolvedValue({
+        search: searchSpy,
+        searchLex: searchLexSpy,
+        searchVector: vi.fn(),
+      } as unknown as Awaited<ReturnType<typeof qmdStoreModule.getStore>>);
+
+      const result = await caller.search.query({ workspaceSlug, query: 'why' });
+
+      expect(searchLexSpy).toHaveBeenCalledOnce();
+      expect(searchSpy).not.toHaveBeenCalled();
+      const memGroup = result.find((g) => g.collection === 'memory');
+      expect(memGroup?.results[0].path).toBe('memory/decisions/x.md');
+    });
+
+    it("[FR-SEARCH-002] mode='hybrid' passes through to store.search and forwards intent", async () => {
       const searchSpy = vi.fn().mockResolvedValue([
         {
           file: 'qmd://memory/decisions/x.md',
@@ -1003,19 +1043,41 @@ describe('search router — mocked qmd store', () => {
       ]);
       getStoreSpy.mockResolvedValue({
         search: searchSpy,
-        searchLex: vi.fn(),
-        searchVector: vi.fn(),
+        searchLex: vi.fn().mockResolvedValue([]),
+        searchVector: vi.fn().mockResolvedValue([]),
       } as unknown as Awaited<ReturnType<typeof qmdStoreModule.getStore>>);
 
       await caller.search.query({
         workspaceSlug,
         query: 'why',
+        mode: 'hybrid',
         intent: 'architectural choice',
       });
 
       expect(searchSpy).toHaveBeenCalledWith(
         expect.objectContaining({ query: 'why', intent: 'architectural choice' }),
       );
+    });
+
+    it('[FR-SEARCH-014] should fail a hybrid search that exceeds the timeout with a lex/vector hint', async () => {
+      process.env.QMD_HYBRID_TIMEOUT_MS = '50';
+      try {
+        const neverResolves = new Promise(() => undefined);
+        getStoreSpy.mockResolvedValue({
+          search: vi.fn().mockReturnValue(neverResolves),
+          searchLex: vi.fn(),
+          searchVector: vi.fn(),
+        } as unknown as Awaited<ReturnType<typeof qmdStoreModule.getStore>>);
+
+        await expect(
+          caller.search.query({ workspaceSlug, query: 'anything', mode: 'hybrid' }),
+        ).rejects.toMatchObject({
+          code: 'TIMEOUT',
+          message: expect.stringContaining("mode: 'lex'"),
+        });
+      } finally {
+        delete process.env.QMD_HYBRID_TIMEOUT_MS;
+      }
     });
 
     it("[FR-SEARCH-010] mode='lex' calls searchLex (BM25) and maps filepath to file", async () => {

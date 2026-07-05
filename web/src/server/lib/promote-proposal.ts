@@ -101,7 +101,9 @@ export async function proposeMemoryMetadata(
 
   let similarTitles: string[] = [];
   try {
-    const hits = await runQmdSearch(ws, content, 'memory', 5, 'hybrid', undefined);
+    // Vector mode: embedding similarity fits "find memories like this content"
+    // and avoids hybrid's local LLM expansion/rerank (minutes on CPU-only hardware).
+    const hits = await runQmdSearch(ws, content, 'memory', 5, 'vector', undefined);
     similarTitles = hits.map((h) => h.title).filter(Boolean);
   } catch {
     // similarity search is best-effort; proceed without it

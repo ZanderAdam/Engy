@@ -35,7 +35,7 @@ const filtersSchema = z.object({
   status: z.string().optional(),
 });
 
-const searchModeSchema = z.enum(['hybrid', 'lex', 'vector']).default('hybrid');
+const searchModeSchema = z.enum(['hybrid', 'lex', 'vector']);
 
 const queryInput = z.object({
   workspaceSlug: z.string().min(1),
@@ -64,7 +64,9 @@ export const searchRouter = router({
   query: publicProcedure.input(queryInput).query(async ({ input }) => {
     const ws = resolveWorkspace(input.workspaceSlug);
     const { query, collection, filters, limit, intent } = input;
-    const mode: SearchMode = input.mode ?? 'hybrid';
+    // Lex is the default: hybrid runs local LLM inference (query expansion +
+    // rerank) that can take minutes on CPU-only hardware, so it is opt-in.
+    const mode: SearchMode = input.mode ?? 'lex';
 
     const hasQuery = typeof query === 'string' && query.trim().length > 0;
     const hasFilters =
@@ -109,6 +111,9 @@ export const searchRouter = router({
 function mapSearchError(err: unknown): TRPCError {
   if (err instanceof TRPCError) return err;
   const message = err instanceof Error ? err.message : String(err);
+  if (message.includes('Hybrid search timed out')) {
+    return new TRPCError({ code: 'TIMEOUT', message });
+  }
   if (message.includes('download') || message.includes('model')) {
     return new TRPCError({
       code: 'PRECONDITION_FAILED',

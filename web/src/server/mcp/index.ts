@@ -1466,7 +1466,7 @@ function registerSearchTools(mcp: McpServer): void {
     'Unified search across all workspace collections. Supports semantic query, structured filters, or both. Replaces listMemories for discovery use cases.',
     {
       workspaceId: z.number().describe('Workspace ID'),
-      query: z.string().optional().describe('Semantic search query (hybrid BM25 + vector + rerank)'),
+      query: z.string().optional().describe('Search query (lex BM25 by default; see mode)'),
       collection: z
         .enum(['system', 'docs', 'projects', 'memory', 'tasks'])
         .optional()
@@ -1480,12 +1480,16 @@ function registerSearchTools(mcp: McpServer): void {
       mode: z
         .enum(['hybrid', 'lex', 'vector'])
         .optional()
-        .describe("Search mode (default 'hybrid'). 'lex' = BM25 only, 'vector' = embedding only."),
+        .describe(
+          "Search mode (default 'lex'). 'lex' = BM25, 'vector' = embedding similarity — both fast. " +
+            "'hybrid' adds local LLM query expansion + reranking; it can take minutes on CPU-only hardware and times out after 30s.",
+        ),
       intent: z
         .string()
         .optional()
         .describe(
-          "Intent token for qmd reranker — see engy:research playbook for the question-shape table.",
+          'Intent token for the qmd reranker. Only meaningful with hybrid mode, where it also disables ' +
+            'the fast BM25 bypass and forces LLM query expansion — omit unless hybrid is intentional.',
         ),
     },
     async ({ workspaceId, query, collection, filters, limit, mode, intent }) => {
@@ -1508,12 +1512,15 @@ function registerSearchTools(mcp: McpServer): void {
           collection,
           filters,
           limit,
-          mode ?? 'hybrid',
+          mode ?? 'lex',
           intent,
         );
         return mcpResult(groups);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        if (message.includes('Hybrid search timed out')) {
+          return mcpError(message);
+        }
         if (message.includes('download') || message.includes('model')) {
           return mcpError(
             'Embedding model not yet available. Run `reindex` to initialise the search index.',

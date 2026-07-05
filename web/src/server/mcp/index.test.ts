@@ -1910,9 +1910,20 @@ describe('MCP Server', () => {
       function mockQmdSearch(
         hits: Array<{ file: string; displayPath: string; title: string; bestChunk: string; score: number }>,
       ) {
+        // Serve both store surfaces: `search` (hybrid, opt-in) gets the hits
+        // as-is, `searchLex` (the default mode) gets the lex result shape.
         mockGetStore.mockResolvedValue({
           search: vi.fn().mockResolvedValue(hits),
-          searchLex: vi.fn().mockResolvedValue([]),
+          searchLex: vi.fn().mockResolvedValue(
+            hits.map((h) => ({
+              filepath: h.file,
+              displayPath: h.displayPath,
+              title: h.title,
+              body: h.bestChunk,
+              score: h.score,
+              source: 'fts',
+            })),
+          ),
           searchVector: vi.fn().mockResolvedValue([]),
         } as unknown as Awaited<ReturnType<typeof import('../search/qmd-store').getStore>>);
       }

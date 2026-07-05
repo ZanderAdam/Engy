@@ -10,6 +10,8 @@ Unified discovery across the four file collections (`system`, `docs`, `projects`
 `memory`) plus `tasks`. A single entry point handles three shapes — semantic
 query, structured frontmatter filters, or both — and normalises qmd's hybrid
 (BM25 + vector + rerank), lexical, and vector modes into one result shape.
+Lex (BM25) is the default mode; hybrid is opt-in and timeout-bounded because
+its local LLM expansion + reranking can take minutes on CPU-only hardware.
 
 Implementation lives in `web/src/server/search/` (`qmd-search.ts`,
 `subtype-affinity.ts`, `memory-queries.ts`) and is exposed via the
@@ -26,7 +28,7 @@ their title string, e.g. `it('[FR-SEARCH-003] ...', ...)`, and run
 | ID | Requirement (EARS) |
 |----|--------------------|
 | FR-SEARCH-001 | The system SHALL search the four file collections (system, docs, projects, memory) and tasks, returning results grouped by collection. |
-| FR-SEARCH-002 | WHEN a query is supplied without filters, the system SHALL rank file results using the selected mode (hybrid by default) and attach a relevance score to each hit. |
+| FR-SEARCH-002 | WHEN a query is supplied without filters, the system SHALL rank file results using the selected mode and attach a relevance score to each hit. |
 | FR-SEARCH-003 | WHEN a query and filters are both supplied, the system SHALL return every frontmatter-matching row with the qmd score attached where available, so filter matches are never dropped by the qmd top-N cutoff. |
 | FR-SEARCH-004 | IF the embedding model is unavailable, THEN the system SHALL fail with a PRECONDITION_FAILED error instructing the user to run reindex. |
 | FR-SEARCH-005 | WHEN a query begins with "why", the system SHALL boost the decision and insight subtypes above pattern, fact, and convention. |
@@ -37,3 +39,5 @@ their title string, e.g. `it('[FR-SEARCH-003] ...', ...)`, and run
 | FR-SEARCH-010 | WHERE the mode is `lex` or `vector`, the system SHALL rank using BM25-only or embedding-only respectively rather than the hybrid blend. |
 | FR-SEARCH-011 | WHILE a subtype filter is active in query-and-filters mode, the system SHALL widen the qmd candidate pool (up to 8×) so the filtered subset is well covered before the join. |
 | FR-SEARCH-012 | WHEN a query is supplied without filters, the system SHALL attach each file hit's frontmatter subtype and tags (where present) to its result so the UI can display them. |
+| FR-SEARCH-013 | WHEN no search mode is specified, the system SHALL default to lex mode; hybrid mode (local LLM query expansion + reranking) is opt-in because it can take minutes on CPU-only hardware. |
+| FR-SEARCH-014 | IF a hybrid-mode search does not complete within the configured timeout (QMD_HYBRID_TIMEOUT_MS, default 30s), THEN the system SHALL fail with an error directing the caller to lex or vector mode. |
