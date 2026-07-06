@@ -2679,3 +2679,237 @@ describe('[FR-WS-140] WsClient pong deadline', () => {
     expect(connCount).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('WsClient GH handlers', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => wss.once('connection', resolve));
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => ws.once('message', (data) => resolve(data.toString())));
+  }
+
+  beforeEach(async () => {
+    mockedExecFile[promisify.custom].mockReset();
+    server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => {
+      if (server.address()) resolve();
+      else server.on('listening', () => resolve());
+    });
+    port = (server.address() as { port: number }).port;
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  async function setupAndSend(req: object): Promise<string> {
+    const connPromise = waitForConnection(server);
+    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client.connect();
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+    ws.send(JSON.stringify(req));
+    return waitForMessage(ws);
+  }
+
+  it('GH_PR_LIST_REQUEST returns empty PR list via local gh runner', async () => {
+    mockedExecFile[promisify.custom].mockResolvedValue({ stdout: '[]', stderr: '' });
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_LIST_REQUEST',
+        payload: { requestId: 'gh-pr-1', repoDir: '/home/user/repo' },
+      }),
+    );
+
+    expect(response).toEqual({
+      type: 'GH_PR_LIST_RESPONSE',
+      payload: { requestId: 'gh-pr-1', prs: [] },
+    });
+    // Local runner calls 'gh' directly, not 'coder'
+    expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining(['pr', 'list']),
+      expect.objectContaining({ cwd: '/home/user/repo' }),
+    );
+  });
+
+  it('GH_PR_LIST_REQUEST runs gh via coder ssh when coderWorkspace is set', async () => {
+    mockedExecFile[promisify.custom].mockResolvedValue({ stdout: '[]', stderr: '' });
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_LIST_REQUEST',
+        payload: {
+          requestId: 'gh-pr-coder-1',
+          repoDir: '/home/user/repo',
+          coderWorkspace: 'my-workspace',
+        },
+      }),
+    );
+
+    expect(response).toEqual({
+      type: 'GH_PR_LIST_RESPONSE',
+      payload: { requestId: 'gh-pr-coder-1', prs: [] },
+    });
+    // Coder runner calls 'coder ssh' with the workspace name
+    expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
+      'coder',
+      expect.arrayContaining(['ssh', '--no-wait', 'my-workspace']),
+      expect.any(Object),
+    );
+    // The remote command should cd to the repoDir before running gh
+    const callArgs = mockedExecFile[promisify.custom].mock.calls[0]?.[1] as string[];
+    const remoteCmd = callArgs[callArgs.length - 1];
+    expect(remoteCmd).toContain('/home/user/repo');
+    expect(remoteCmd).toContain('gh');
+  });
+
+  it('GH_PR_LIST_REQUEST sends error response on runner failure', async () => {
+    mockedExecFile[promisify.custom].mockRejectedValue(new Error('gh: not a git repository'));
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_LIST_REQUEST',
+        payload: { requestId: 'gh-pr-err', repoDir: '/not-a-repo' },
+      }),
+    );
+
+    expect(response.type).toBe('GH_PR_LIST_RESPONSE');
+    expect(response.payload.error).toMatch('gh: not a git repository');
+  });
+
+  it('GH_PR_LIST_REQUEST maps ENOENT to the gh-not-installed typed error', async () => {
+    const enoent = Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' });
+    mockedExecFile[promisify.custom].mockRejectedValue(enoent);
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_LIST_REQUEST',
+        payload: { requestId: 'gh-pr-enoent', repoDir: '/repo' },
+      }),
+    );
+
+    expect(response).toEqual({
+      type: 'GH_PR_LIST_RESPONSE',
+      payload: { requestId: 'gh-pr-enoent', error: 'gh-not-installed' },
+    });
+  });
+
+  it('GH_PR_LIST_REQUEST maps auth-failure stderr to the gh-not-authenticated typed error', async () => {
+    const authErr = Object.assign(new Error('Command failed'), {
+      stderr: 'You are not logged into any GitHub hosts. Run gh auth login to authenticate.',
+    });
+    mockedExecFile[promisify.custom].mockRejectedValue(authErr);
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_LIST_REQUEST',
+        payload: { requestId: 'gh-pr-noauth', repoDir: '/repo' },
+      }),
+    );
+
+    expect(response).toEqual({
+      type: 'GH_PR_LIST_RESPONSE',
+      payload: { requestId: 'gh-pr-noauth', error: 'gh-not-authenticated' },
+    });
+  });
+
+  it('GH_PR_FAILED_LOGS_REQUEST returns logs for failing checks', async () => {
+    const failingChecks = JSON.stringify([
+      {
+        name: 'Lint',
+        state: 'FAILURE',
+        link: 'https://github.com/owner/repo/actions/runs/777/jobs/1',
+        bucket: 'fail',
+      },
+    ]);
+    const logOutput = 'ESLint: 3 errors\nfoo.ts: Expected semicolon';
+
+    mockedExecFile[promisify.custom]
+      .mockResolvedValueOnce({ stdout: failingChecks, stderr: '' })
+      .mockResolvedValueOnce({ stdout: logOutput, stderr: '' });
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_FAILED_LOGS_REQUEST',
+        payload: { requestId: 'logs-1', repoDir: '/home/user/repo', prNumber: 42 },
+      }),
+    );
+
+    expect(response.type).toBe('GH_PR_FAILED_LOGS_RESPONSE');
+    expect(response.payload.requestId).toBe('logs-1');
+    expect(response.payload.logs).toHaveLength(1);
+    expect(response.payload.logs[0].checkName).toBe('Lint');
+    expect(response.payload.logs[0].excerpt).toContain('ESLint');
+  });
+
+  it('GH_PR_FAILED_LOGS_REQUEST returns error response on failure', async () => {
+    mockedExecFile[promisify.custom].mockRejectedValue(new Error('pr not found'));
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_FAILED_LOGS_REQUEST',
+        payload: { requestId: 'logs-err', repoDir: '/not-a-repo', prNumber: 99 },
+      }),
+    );
+
+    expect(response.type).toBe('GH_PR_FAILED_LOGS_RESPONSE');
+    expect(response.payload.error).toMatch('pr not found');
+  });
+
+  it('GH_PR_REVIEW_COMMENTS_REQUEST returns comments via local gh runner', async () => {
+    const nameWithOwner = JSON.stringify({ nameWithOwner: 'org/repo' });
+    const commentsJson = JSON.stringify([
+      {
+        id: 101,
+        path: 'src/index.ts',
+        line: 15,
+        original_line: 14,
+        body: 'Fix this',
+        user: { login: 'reviewer' },
+        created_at: '2024-01-01T00:00:00Z',
+        html_url: 'https://github.com/org/repo/pull/1#discussion_r101',
+      },
+    ]);
+
+    mockedExecFile[promisify.custom]
+      .mockResolvedValueOnce({ stdout: nameWithOwner, stderr: '' })
+      .mockResolvedValueOnce({ stdout: commentsJson, stderr: '' });
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_REVIEW_COMMENTS_REQUEST',
+        payload: { requestId: 'rc-1', repoDir: '/home/user/repo', prNumber: 1 },
+      }),
+    );
+
+    expect(response.type).toBe('GH_PR_REVIEW_COMMENTS_RESPONSE');
+    expect(response.payload.requestId).toBe('rc-1');
+    expect(response.payload.comments).toHaveLength(1);
+    expect(response.payload.comments[0].githubId).toBe(101);
+    expect(response.payload.comments[0].path).toBe('src/index.ts');
+    expect(response.payload.comments[0].line).toBe(15);
+    expect(response.payload.comments[0].inReplyToId).toBeNull();
+  });
+
+  it('GH_PR_REVIEW_COMMENTS_REQUEST returns error response on failure', async () => {
+    mockedExecFile[promisify.custom].mockRejectedValue(new Error('gh not authenticated'));
+
+    const response = JSON.parse(
+      await setupAndSend({
+        type: 'GH_PR_REVIEW_COMMENTS_REQUEST',
+        payload: { requestId: 'rc-err', repoDir: '/bad-repo', prNumber: 99 },
+      }),
+    );
+
+    expect(response.type).toBe('GH_PR_REVIEW_COMMENTS_RESPONSE');
+    expect(response.payload.error).toMatch('gh not authenticated');
+  });
+});

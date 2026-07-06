@@ -14,6 +14,9 @@ import {
   dispatchCreateDir,
   dispatchFsDelete,
   dispatchFsRename,
+  dispatchGhPrList,
+  dispatchGhPrFailedLogs,
+  dispatchGhPrReviewComments,
 } from './server';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { agentSessions, tasks, taskGroups, projects, workspaces, fleetingMemories } from '../db/schema';
@@ -2117,5 +2120,349 @@ describe('FS_RENAME_RESPONSE', () => {
     await expect(dispatchFsRename('/tmp/repo', 'old.ts', 'new.ts', state)).rejects.toThrow(
       'No daemon connected',
     );
+  });
+});
+
+describe('[FR-WS-150] GH_PR_LIST_RESPONSE', () => {
+  let state: AppState;
+  let server: Server;
+  let port: number;
+
+  beforeEach(async () => {
+    openClients = [];
+    state = createAppState();
+    const result = await startServer(state);
+    server = result.server;
+    port = result.port;
+  });
+
+  afterEach(async () => {
+    for (const ws of openClients) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.terminate();
+      }
+    }
+    openClients = [];
+    await closeServer(server);
+  });
+
+  it('should resolve with prs on success response', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const prListPromise = dispatchGhPrList('/tmp/repo', state);
+
+    const request = (await messagePromise) as {
+      type: string;
+      payload: { requestId: string; repoDir: string };
+    };
+    expect(request.type).toBe('GH_PR_LIST_REQUEST');
+    expect(request.payload.repoDir).toBe('/tmp/repo');
+
+    ws.send(
+      JSON.stringify({
+        type: 'GH_PR_LIST_RESPONSE',
+        payload: {
+          requestId: request.payload.requestId,
+          prs: [
+            {
+              number: 42,
+              title: 'Fix bug',
+              url: 'https://github.com/owner/repo/pull/42',
+              headBranch: 'fix-bug',
+              author: 'alice',
+              isDraft: false,
+              state: 'OPEN',
+              reviewDecision: null,
+              ciStatus: 'passing',
+              checks: [],
+            },
+          ],
+        },
+      }),
+    );
+
+    const result = await prListPromise;
+    expect(result.prs).toHaveLength(1);
+    expect(result.prs[0].number).toBe(42);
+    expect(result.prs[0].ciStatus).toBe('passing');
+  });
+
+  it('should reject on error response', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const prListPromise = dispatchGhPrList('/bad/repo', state);
+
+    const request = (await messagePromise) as { type: string; payload: { requestId: string } };
+    ws.send(
+      JSON.stringify({
+        type: 'GH_PR_LIST_RESPONSE',
+        payload: { requestId: request.payload.requestId, error: 'not a git repo' },
+      }),
+    );
+
+    await expect(prListPromise).rejects.toThrow('not a git repo');
+    expect(state.pendingGhPrList.size).toBe(0);
+  });
+
+  it('[FR-WS-060] should reject if no daemon is connected', async () => {
+    await expect(dispatchGhPrList('/tmp/repo', state)).rejects.toThrow('No daemon connected');
+  });
+
+  it('[FR-WS-030] should reject pending pr list ops when daemon disconnects', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const prListPromise = dispatchGhPrList('/tmp/repo', state);
+    ws.close();
+
+    await expect(prListPromise).rejects.toThrow('Daemon disconnected');
+    expect(state.pendingGhPrList.size).toBe(0);
+  });
+
+  it('should forward coderWorkspace in the request payload', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    dispatchGhPrList('/remote/repo', state, 'my-coder-ws').catch(() => {});
+
+    const request = (await messagePromise) as {
+      type: string;
+      payload: { requestId: string; repoDir: string; coderWorkspace?: string };
+    };
+    expect(request.payload.coderWorkspace).toBe('my-coder-ws');
+  });
+});
+
+describe('[FR-WS-170] GH_PR_FAILED_LOGS_RESPONSE', () => {
+  let state: AppState;
+  let server: Server;
+  let port: number;
+
+  beforeEach(async () => {
+    openClients = [];
+    state = createAppState();
+    const result = await startServer(state);
+    server = result.server;
+    port = result.port;
+  });
+
+  afterEach(async () => {
+    for (const ws of openClients) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.terminate();
+      }
+    }
+    openClients = [];
+    await closeServer(server);
+  });
+
+  it('should resolve with logs on success response', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const logsPromise = dispatchGhPrFailedLogs('/tmp/repo', 1, state);
+
+    const request = (await messagePromise) as {
+      type: string;
+      payload: { requestId: string; repoDir: string; prNumber: number };
+    };
+    expect(request.type).toBe('GH_PR_FAILED_LOGS_REQUEST');
+    expect(request.payload.repoDir).toBe('/tmp/repo');
+    expect(request.payload.prNumber).toBe(1);
+
+    ws.send(
+      JSON.stringify({
+        type: 'GH_PR_FAILED_LOGS_RESPONSE',
+        payload: {
+          requestId: request.payload.requestId,
+          logs: [{ checkName: 'Lint', excerpt: 'ESLint: 3 errors' }],
+        },
+      }),
+    );
+
+    const result = await logsPromise;
+    expect(result.logs).toHaveLength(1);
+    expect(result.logs[0].checkName).toBe('Lint');
+    expect(result.logs[0].excerpt).toBe('ESLint: 3 errors');
+  });
+
+  it('should reject on error response', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const logsPromise = dispatchGhPrFailedLogs('/bad/repo', 99, state);
+
+    const request = (await messagePromise) as { type: string; payload: { requestId: string } };
+    ws.send(
+      JSON.stringify({
+        type: 'GH_PR_FAILED_LOGS_RESPONSE',
+        payload: { requestId: request.payload.requestId, error: 'pr not found' },
+      }),
+    );
+
+    await expect(logsPromise).rejects.toThrow('pr not found');
+    expect(state.pendingGhPrFailedLogs.size).toBe(0);
+  });
+
+  it('should reject if no daemon is connected', async () => {
+    await expect(dispatchGhPrFailedLogs('/tmp/repo', 1, state)).rejects.toThrow(
+      'No daemon connected',
+    );
+  });
+
+  it('should reject pending log ops when daemon disconnects', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const logsPromise = dispatchGhPrFailedLogs('/tmp/repo', 1, state);
+    ws.close();
+
+    await expect(logsPromise).rejects.toThrow('Daemon disconnected');
+    expect(state.pendingGhPrFailedLogs.size).toBe(0);
+  });
+
+  it('should forward coderWorkspace in the request payload', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    dispatchGhPrFailedLogs('/remote/repo', 7, state, 'my-coder-ws').catch(() => {});
+
+    const request = (await messagePromise) as {
+      type: string;
+      payload: { requestId: string; coderWorkspace?: string };
+    };
+    expect(request.payload.coderWorkspace).toBe('my-coder-ws');
+  });
+});
+
+describe('[FR-WS-180] GH_PR_REVIEW_COMMENTS_RESPONSE', () => {
+  let state: AppState;
+  let server: Server;
+  let port: number;
+
+  beforeEach(async () => {
+    openClients = [];
+    state = createAppState();
+    const result = await startServer(state);
+    server = result.server;
+    port = result.port;
+  });
+
+  afterEach(async () => {
+    for (const ws of openClients) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.terminate();
+      }
+    }
+    openClients = [];
+    await closeServer(server);
+  });
+
+  it('should resolve with comments on success response', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const commentsPromise = dispatchGhPrReviewComments('/tmp/repo', 7, state);
+
+    const request = (await messagePromise) as {
+      type: string;
+      payload: { requestId: string; repoDir: string; prNumber: number };
+    };
+    expect(request.type).toBe('GH_PR_REVIEW_COMMENTS_REQUEST');
+    expect(request.payload.repoDir).toBe('/tmp/repo');
+    expect(request.payload.prNumber).toBe(7);
+
+    const fakeComment = {
+      githubId: 123,
+      path: 'src/foo.ts',
+      line: 10,
+      body: 'Nice change',
+      author: 'reviewer',
+      createdAt: '2024-01-01T00:00:00Z',
+      inReplyToId: null,
+      url: 'https://github.com/org/repo/pull/7#discussion_r123',
+    };
+    ws.send(
+      JSON.stringify({
+        type: 'GH_PR_REVIEW_COMMENTS_RESPONSE',
+        payload: { requestId: request.payload.requestId, comments: [fakeComment] },
+      }),
+    );
+
+    const result = await commentsPromise;
+    expect(result.comments).toHaveLength(1);
+    expect(result.comments[0].githubId).toBe(123);
+    expect(result.comments[0].path).toBe('src/foo.ts');
+  });
+
+  it('should reject on error response', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    const commentsPromise = dispatchGhPrReviewComments('/bad/repo', 99, state);
+
+    const request = (await messagePromise) as { type: string; payload: { requestId: string } };
+    ws.send(
+      JSON.stringify({
+        type: 'GH_PR_REVIEW_COMMENTS_RESPONSE',
+        payload: { requestId: request.payload.requestId, error: 'repo not found' },
+      }),
+    );
+
+    await expect(commentsPromise).rejects.toThrow('repo not found');
+    expect(state.pendingGhPrReviewComments.size).toBe(0);
+  });
+
+  it('should reject if no daemon is connected', async () => {
+    await expect(dispatchGhPrReviewComments('/tmp/repo', 1, state)).rejects.toThrow(
+      'No daemon connected',
+    );
+  });
+
+  it('should reject pending ops when daemon disconnects', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const commentsPromise = dispatchGhPrReviewComments('/tmp/repo', 1, state);
+    ws.close();
+
+    await expect(commentsPromise).rejects.toThrow('Daemon disconnected');
+    expect(state.pendingGhPrReviewComments.size).toBe(0);
+  });
+
+  it('should forward coderWorkspace in the request payload', async () => {
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(state.daemon).not.toBeNull());
+
+    const messagePromise = waitForMessage(ws);
+    dispatchGhPrReviewComments('/remote/repo', 3, state, 'my-coder-ws').catch(() => {});
+
+    const request = (await messagePromise) as {
+      type: string;
+      payload: { requestId: string; coderWorkspace?: string };
+    };
+    expect(request.payload.coderWorkspace).toBe('my-coder-ws');
   });
 });

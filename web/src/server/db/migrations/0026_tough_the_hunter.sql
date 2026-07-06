@@ -1,0 +1,1 @@
+ALTER TABLE `prs` DROP COLUMN `state`;

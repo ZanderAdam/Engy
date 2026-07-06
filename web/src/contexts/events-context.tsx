@@ -48,6 +48,18 @@ interface TerminalActivityChangePayload {
   removed?: boolean;
 }
 
+interface PrChangePayload {
+  workspaceId: number;
+  repo: string;
+}
+
+interface PrAttentionPayload {
+  workspaceId: number;
+  repo: string;
+  prNumber: number;
+  reason: string;
+}
+
 interface TerminalWorkersChangePayload {
   sessionId: string;
   connected: boolean;
@@ -60,6 +72,8 @@ interface ServerEventMap {
   TERMINAL_SESSIONS_CHANGE: TerminalSessionsChangePayload;
   MEMORY_CHANGE: MemoryChangePayload;
   TERMINAL_ACTIVITY_CHANGE: TerminalActivityChangePayload;
+  PR_CHANGE: PrChangePayload;
+  PR_ATTENTION: PrAttentionPayload;
   TERMINAL_WORKERS_CHANGE: TerminalWorkersChangePayload;
 }
 

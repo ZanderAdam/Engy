@@ -13,6 +13,7 @@ import { questionRouter } from './routers/question';
 import { worktreeRouter } from './routers/worktree';
 import { memoryRouter } from './routers/memory';
 import { searchRouter } from './routers/search';
+import { prRouter } from './routers/pr';
 import { terminalRouter } from './routers/terminal';
 
 export const appRouter = router({
@@ -30,6 +31,7 @@ export const appRouter = router({
   worktree: worktreeRouter,
   memory: memoryRouter,
   search: searchRouter,
+  pr: prRouter,
   terminal: terminalRouter,
 });
 

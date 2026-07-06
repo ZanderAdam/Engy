@@ -3,6 +3,8 @@ import type {
   DirListEntry,
   GitFileStatus,
   GitWorktreeEntry,
+  GhPr,
+  GhReviewComment,
   TerminalActivityState,
   WorktreeAddErrorCode,
   WorktreeRemoveErrorCode,
@@ -144,6 +146,18 @@ export interface WorktreeRemoveError extends Error {
 
 export interface GitWorktreeListResult {
   worktrees: GitWorktreeEntry[];
+}
+
+export interface GhPrListResult {
+  prs: GhPr[];
+}
+
+export interface GhPrFailedLogsResult {
+  logs: Array<{ checkName: string; excerpt: string }>;
+}
+
+export interface GhPrReviewCommentsResult {
+  comments: GhReviewComment[];
 }
 
 export interface DispatchEntry {
@@ -352,6 +366,27 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingGhPrList: Map<
+    string,
+    {
+      resolve: (result: GhPrListResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingGhPrFailedLogs: Map<
+    string,
+    {
+      resolve: (result: GhPrFailedLogsResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingGhPrReviewComments: Map<
+    string,
+    {
+      resolve: (result: GhPrReviewCommentsResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   daemonHomeDir: string | null;
   specLastChanged: Map<string, number>;
   specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
@@ -394,6 +429,12 @@ export interface AppState {
   fileChangeListeners: Set<WebSocket>;
   /** Callbacks for streaming container build progress to terminals */
   containerProgressListeners: Map<string, (line: string) => void>;
+  /** Timer handle for the PR polling self-scheduling chain; null until startPrPoller is called */
+  prPollerTimer: ReturnType<typeof setTimeout> | null;
+  /** Latest gh error per repo (typed strings like 'gh-not-installed'); cleared on next success */
+  prRepoErrors: Map<string, string>;
+  /** Maps `repo#prNumber` → GitHub PR updatedAt from the last successful review-comment sync */
+  prReviewCommentLastSyncedAt: Map<string, string>;
   /** Terminal sessions connected as dispatch workers (sessionId → description) */
   dispatchWorkers: Map<string, DispatchWorker>;
   /** Cross-terminal dispatches by correlationId (in-memory; lost on restart) */
@@ -440,6 +481,9 @@ export function createAppState(): AppState {
     pendingCreateDirs: new Map(),
     pendingFsDelete: new Map(),
     pendingFsRename: new Map(),
+    pendingGhPrList: new Map(),
+    pendingGhPrFailedLogs: new Map(),
+    pendingGhPrReviewComments: new Map(),
     daemonHomeDir: null,
     specLastChanged: new Map(),
     specDebounceTimers: new Map(),
@@ -452,6 +496,9 @@ export function createAppState(): AppState {
     restoredTerminalSessions: new Set(),
     fileChangeListeners: new Set(),
     containerProgressListeners: new Map(),
+    prPollerTimer: null,
+    prRepoErrors: new Map(),
+    prReviewCommentLastSyncedAt: new Map(),
     dispatchWorkers: new Map(),
     dispatches: new Map(),
     dispatchWaiters: new Map(),

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { generateDiffFeedback } from './feedback-markdown';
+import { generateDiffFeedback, generateGithubFeedback } from './feedback-markdown';
+import type { GithubDiffThread } from './feedback-markdown';
 
 const REPO = '/Users/me/repo';
 
@@ -80,5 +81,113 @@ describe('generateDiffFeedback', () => {
     expect(result).toContain('Keep this');
     expect(result).not.toContain('Skip this');
     expect(result).toContain('1 comment across 1 file');
+  });
+});
+
+function makeGithubThread(
+  filePath: string,
+  lineNumber: number,
+  body: string,
+  opts: { author?: string; url?: string; replies?: Array<{ userId: string; body: string }> } = {},
+): GithubDiffThread {
+  return {
+    documentPath: `diff://${REPO}/${filePath}`,
+    lineNumber,
+    githubAuthor: opts.author ?? 'alice',
+    githubUrl: opts.url,
+    comments: [
+      { body, userId: opts.author ?? 'alice' },
+      ...(opts.replies ?? []).map((r) => ({ body: r.body, userId: r.userId })),
+    ],
+  };
+}
+
+describe('generateGithubFeedback', () => {
+  it('returns empty string for no threads', () => {
+    expect(generateGithubFeedback([], REPO)).toBe('');
+  });
+
+  it('generates GitHub Review Feedback heading', () => {
+    const threads = [makeGithubThread('src/app.ts', 10, 'Needs fix', { author: 'bob' })];
+    const result = generateGithubFeedback(threads, REPO);
+
+    expect(result).toContain('## GitHub Review Feedback');
+    expect(result).toContain('1 comment across 1 file');
+  });
+
+  it('includes author attribution in comment text', () => {
+    const threads = [makeGithubThread('src/app.ts', 10, 'Fix this', { author: 'carol' })];
+    const result = generateGithubFeedback(threads, REPO);
+
+    expect(result).toContain('**carol**:\n> Fix this');
+    expect(result).toContain('### src/app.ts');
+    expect(result).toContain('**Line 10**');
+  });
+
+  it('includes GitHub URL as link when present', () => {
+    const threads = [
+      makeGithubThread('src/app.ts', 5, 'Comment', {
+        url: 'https://github.com/org/repo/pull/1#discussion_r1',
+      }),
+    ];
+    const result = generateGithubFeedback(threads, REPO);
+
+    expect(result).toContain('[view on GitHub](https://github.com/org/repo/pull/1#discussion_r1)');
+  });
+
+  it('omits GitHub link section when url is absent', () => {
+    const threads = [makeGithubThread('src/app.ts', 5, 'Comment')];
+    const result = generateGithubFeedback(threads, REPO);
+
+    expect(result).not.toContain('view on GitHub');
+  });
+
+  it('includes reply context with each replier attributed', () => {
+    const threads = [
+      makeGithubThread('src/app.ts', 10, 'Original comment', {
+        author: 'alice',
+        replies: [{ userId: 'bob', body: 'Good point!' }],
+      }),
+    ];
+    const result = generateGithubFeedback(threads, REPO);
+
+    expect(result).toContain('**alice**:\n> Original comment');
+    expect(result).toContain('**bob**:\n> Good point!');
+  });
+
+  it('blockquotes multi-line bodies to prevent markdown injection', () => {
+    const threads = [
+      makeGithubThread('src/app.ts', 5, '## Spoofed section\nmalicious content', {
+        author: 'attacker',
+      }),
+    ];
+    const result = generateGithubFeedback(threads, REPO);
+
+    expect(result).toContain('> ## Spoofed section\n> malicious content');
+    expect(result).not.toContain('\n## Spoofed section');
+  });
+
+  it('sorts entries by line number within a file', () => {
+    const threads = [
+      makeGithubThread('src/app.ts', 30, 'Third'),
+      makeGithubThread('src/app.ts', 10, 'First'),
+      makeGithubThread('src/app.ts', 20, 'Second'),
+    ];
+    const result = generateGithubFeedback(threads, REPO);
+
+    expect(result.indexOf('First')).toBeLessThan(result.indexOf('Second'));
+    expect(result.indexOf('Second')).toBeLessThan(result.indexOf('Third'));
+  });
+
+  it('handles multiple files', () => {
+    const threads = [
+      makeGithubThread('src/a.ts', 1, 'Comment A'),
+      makeGithubThread('src/b.ts', 2, 'Comment B'),
+    ];
+    const result = generateGithubFeedback(threads, REPO);
+
+    expect(result).toContain('2 comments across 2 files');
+    expect(result).toContain('### src/a.ts');
+    expect(result).toContain('### src/b.ts');
   });
 });

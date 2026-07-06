@@ -608,6 +608,93 @@ export interface CreateMemoriesEventMessage {
   };
 }
 
+// ── GitHub PR operations (server ↔ daemon) ──────────────────────────────────
+
+export type GhPrCiStatus = 'pending' | 'passing' | 'failing' | 'unknown';
+
+export interface GhPrCheck {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  detailsUrl: string | null;
+}
+
+export interface GhPr {
+  number: number;
+  title: string;
+  url: string;
+  headBranch: string;
+  headSha: string | null;
+  author: string;
+  isDraft: boolean;
+  state: string;
+  reviewDecision: string | null;
+  ciStatus: GhPrCiStatus;
+  checks: GhPrCheck[];
+  updatedAt?: string;
+}
+
+export interface GhPrListRequestMessage {
+  type: 'GH_PR_LIST_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    coderWorkspace?: string;
+  };
+}
+
+export interface GhPrListResponseMessage {
+  type: 'GH_PR_LIST_RESPONSE';
+  payload:
+    | { requestId: string; prs: GhPr[] }
+    | { requestId: string; error: string };
+}
+
+export interface GhPrFailedLogsRequestMessage {
+  type: 'GH_PR_FAILED_LOGS_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    coderWorkspace?: string;
+    prNumber: number;
+  };
+}
+
+export interface GhPrFailedLogsResponseMessage {
+  type: 'GH_PR_FAILED_LOGS_RESPONSE';
+  payload:
+    | { requestId: string; logs: Array<{ checkName: string; excerpt: string }> }
+    | { requestId: string; error: string };
+}
+
+export interface GhReviewComment {
+  githubId: number;
+  path: string;
+  line: number | null;
+  body: string;
+  author: string;
+  createdAt: string;
+  inReplyToId: number | null;
+  url: string;
+}
+
+export interface GhPrReviewCommentsRequestMessage {
+  type: 'GH_PR_REVIEW_COMMENTS_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    coderWorkspace?: string;
+    prNumber: number;
+  };
+}
+
+export interface GhPrReviewCommentsResponseMessage {
+  type: 'GH_PR_REVIEW_COMMENTS_RESPONSE';
+  payload:
+    | { requestId: string; comments: GhReviewComment[] }
+    | { requestId: string; error: string };
+}
+
 export type WsMessage =
   | RegisterMessage
   | WorkspacesSyncMessage
@@ -669,7 +756,13 @@ export type WsMessage =
   | ExecutionStopResponseMessage
   | ExecutionStatusEventMessage
   | ExecutionCompleteEventMessage
-  | CreateMemoriesEventMessage;
+  | CreateMemoriesEventMessage
+  | GhPrListRequestMessage
+  | GhPrListResponseMessage
+  | GhPrFailedLogsRequestMessage
+  | GhPrFailedLogsResponseMessage
+  | GhPrReviewCommentsRequestMessage
+  | GhPrReviewCommentsResponseMessage;
 
 export type ClientToServerMessage =
   | RegisterMessage
@@ -704,7 +797,10 @@ export type ClientToServerMessage =
   | ExecutionStopResponseMessage
   | ExecutionStatusEventMessage
   | ExecutionCompleteEventMessage
-  | CreateMemoriesEventMessage;
+  | CreateMemoriesEventMessage
+  | GhPrListResponseMessage
+  | GhPrFailedLogsResponseMessage
+  | GhPrReviewCommentsResponseMessage;
 
 export type ServerToClientMessage =
   | WorkspacesSyncMessage
@@ -734,7 +830,10 @@ export type ServerToClientMessage =
   | ContainerStatusRequestMessage
   | DevcontainerConfigGenerateRequestMessage
   | ExecutionStartRequestMessage
-  | ExecutionStopRequestMessage;
+  | ExecutionStopRequestMessage
+  | GhPrListRequestMessage
+  | GhPrFailedLogsRequestMessage
+  | GhPrReviewCommentsRequestMessage;
 
 // ── Compact terminal relay types (server ↔ daemon) ──────────────────────────
 

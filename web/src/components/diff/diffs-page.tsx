@@ -17,11 +17,13 @@ import { RepoSelector } from './repo-selector';
 import { WorktreeSelector } from './worktree-selector';
 import type { WorktreeSelection } from './worktree-selector';
 import { ReviewActions } from './review-actions';
+import { GithubCommentTriage } from './github-comment-triage';
 import { useDiffComments, extractFilePathFromDocPath } from './use-diff-comments';
 import { resolveFileReadError } from './diff-content-state';
 import { useAutoSave } from './use-auto-save';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { RiGitBranchLine } from '@remixicon/react';
+import { useOnServerEvent } from '@/contexts/events-context';
 import type { ChangedFile, ViewMode, DiffViewMode, EditorMode } from './types';
 
 const SIDEBAR_CONFIG = {
@@ -208,7 +210,34 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     resolve,
     remove,
     removeComment,
+    refetch: refetchComments,
   } = useDiffComments(selectedRepo);
+
+  // Invalidate comment threads when the server signals a PR change so that
+  // GitHub review comments imported by the poller appear without a page reload.
+  useOnServerEvent('PR_CHANGE', (payload) => {
+    if (payload.workspaceId !== workspace?.id) return;
+    void refetchComments();
+  });
+
+  // Correlated agent session for the PR branch (used by GitHub comment triage)
+  const { data: prList } = trpc.pr.list.useQuery(
+    { workspaceId: workspace?.id ?? 0 },
+    {
+      enabled:
+        !!workspace &&
+        !!projectWorktreeBranch &&
+        diffComments.some((c) => c.source === 'github' && !c.resolved),
+    },
+  );
+
+  const correlatedSessionId = useMemo(() => {
+    if (!projectWorktreeBranch || !selectedRepo || !prList) return null;
+    const pr = prList.prs.find(
+      (p) => p.headBranch === projectWorktreeBranch && p.repo === selectedRepo,
+    );
+    return pr?.sessionId ?? null;
+  }, [prList, projectWorktreeBranch, selectedRepo]);
 
   const fileComments = useMemo(
     () => (selectedFile ? commentsForFile(selectedFile) : []),
@@ -389,6 +418,18 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
           <ReviewActions repoDir={selectedRepo} diffComments={currentFileComments} />
         </div>
       </div>
+
+      {/* GitHub comment triage bar — scoped to files in the current diff view,
+          consistent with ReviewActions. Comments on files outside the active diff
+          set (e.g. PR files not in the working tree) are not shown here. */}
+      {selectedRepo && (
+        <GithubCommentTriage
+          repoDir={selectedRepo}
+          diffComments={currentFileComments}
+          sessionId={correlatedSessionId}
+          onResolve={resolve}
+        />
+      )}
 
       {/* Branch diff: base branch input */}
       {diffViewMode === 'branch' && (

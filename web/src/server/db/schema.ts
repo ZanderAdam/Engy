@@ -1,5 +1,6 @@
 import { sqliteTable, text, integer, real, uniqueIndex, index, primaryKey } from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
+import type { GhPrCheck } from '@engy/common';
 // Type-only, relative (not `@/`) so drizzle-kit can load this file standalone.
 import type { WorkspaceAgentSettings } from '../../lib/agent-types';
 
@@ -45,6 +46,7 @@ export const workspaces = sqliteTable('workspaces', {
   autoAgentCompletion: text('auto_agent_completion', { enum: ['pr', 'merge'] }).default('pr'),
   remoteEnabled: integer('remote_enabled', { mode: 'boolean' }).default(false),
   autoStart: integer('auto_start', { mode: 'boolean' }).default(false),
+  autoCiFix: integer('auto_ci_fix', { mode: 'boolean' }).default(false),
   createdAt: text('created_at')
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -459,6 +461,44 @@ export const threadCommentsRelations = relations(threadComments, ({ one }) => ({
     references: [commentThreads.id],
   }),
 }));
+
+// ── Pull Requests ────────────────────────────────────────────────────
+
+export const prs = sqliteTable(
+  'prs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    repo: text('repo').notNull(),
+    number: integer('number').notNull(),
+    title: text('title').notNull(),
+    url: text('url').notNull(),
+    headBranch: text('head_branch').notNull(),
+    headSha: text('head_sha'),
+    author: text('author').notNull(),
+    isDraft: integer('is_draft', { mode: 'boolean' }).notNull().default(false),
+    ciStatus: text('ci_status', {
+      enum: ['pending', 'passing', 'failing', 'unknown'],
+    })
+      .notNull()
+      .default('unknown'),
+    checks: text('checks', { mode: 'json' }).$type<GhPrCheck[]>().notNull(),
+    reviewDecision: text('review_decision'),
+    lastFailedHeadSha: text('last_failed_head_sha'),
+    autoFixAttempts: integer('auto_fix_attempts').notNull().default(0),
+    autoFixTotalAttempts: integer('auto_fix_total_attempts').notNull().default(0),
+    attentionReason: text('attention_reason'),
+    createdAt: text('created_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+    updatedAt: text('updated_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [
+    uniqueIndex('prs_repo_number_unique').on(table.repo, table.number),
+    index('idx_prs_repo').on(table.repo),
+  ],
+);
 
 // ── Terminal Sessions ───────────────────────────────────────────────
 

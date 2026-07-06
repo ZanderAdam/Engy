@@ -26,7 +26,7 @@ export const sections: readonly SectionDef[] = [
   { label: 'Diffs', segment: 'diffs', icon: RiGitMergeLine },
   { label: 'Code', segment: 'code', icon: RiCodeLine },
   { label: 'Memory', segment: 'memory', icon: RiBrain2Line },
-  { label: 'PRs', segment: 'prs', icon: RiGitPullRequestLine, disabled: true, hint: 'Coming soon' },
+  { label: 'PRs', segment: 'prs', icon: RiGitPullRequestLine },
 ] as const;
 
 export function activeSection(pathname: string, basePath: string): SectionDef | undefined {

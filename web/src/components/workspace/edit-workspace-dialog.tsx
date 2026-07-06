@@ -67,6 +67,7 @@ interface EditWorkspaceDialogProps {
     remoteEnabled: boolean | null;
     maxConcurrency: number | null;
     autoStart: boolean | null;
+    autoCiFix: boolean | null;
     autoAgentCompletion: 'pr' | 'merge' | null;
   };
   open: boolean;
@@ -108,6 +109,7 @@ export function EditWorkspaceDialog({
     remoteEnabled: workspace.remoteEnabled ?? false,
     maxConcurrency: workspace.maxConcurrency ?? 1,
     autoStart: workspace.autoStart ?? false,
+    autoCiFix: workspace.autoCiFix ?? false,
     autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
   });
 
@@ -151,6 +153,7 @@ export function EditWorkspaceDialog({
       remoteEnabled: container.remoteEnabled,
       maxConcurrency: container.maxConcurrency,
       autoStart: container.autoStart,
+      autoCiFix: container.autoCiFix,
       autoAgentCompletion: container.autoAgentCompletion,
       ...(createMissingDirs ? { createMissingDirs: true } : {}),
     });
@@ -221,6 +224,7 @@ export function EditWorkspaceDialog({
         remoteEnabled: workspace.remoteEnabled ?? false,
         maxConcurrency: workspace.maxConcurrency ?? 1,
         autoStart: workspace.autoStart ?? false,
+        autoCiFix: workspace.autoCiFix ?? false,
         autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
       };
     }
@@ -331,6 +335,7 @@ export function EditWorkspaceDialog({
                   remoteEnabled: workspace.remoteEnabled ?? false,
                   maxConcurrency: workspace.maxConcurrency ?? 1,
                   autoStart: workspace.autoStart ?? false,
+                  autoCiFix: workspace.autoCiFix ?? false,
                   autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
                 }}
                 onChange={(data) => {
