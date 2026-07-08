@@ -8,7 +8,7 @@ import {
   useTerminalScope,
   useBottomTerminalScope,
 } from '@/components/terminal/use-terminal-scope';
-import { useTabId } from '@/components/tabs/tab-context';
+import { useOptionalTab } from '@/components/tabs/tab-context';
 import { TerminalManager } from '@/components/terminal/terminal-manager';
 import {
   useCommandCenterMode,
@@ -46,9 +46,16 @@ function MobileTerminalSheetBase({
   containerEnabled,
 }: SheetBaseProps) {
   const { overlay, openOverlay, closeOverlay, headerHeight } = useMobileOverlay();
-  const myTabId = useTabId();
+  const tab = useOptionalTab();
+  const myTabId = tab?.tabId ?? null;
+  const isTabActive = tab?.isActive ?? true;
   const scopeKey = scope.groupKey;
-  const open = overlay === overlayKind;
+  // Only the active tab's sheet may show. Every open tab mounts its own sheet
+  // and the Sheet portals to document.body, so a hidden tab's open sheet would
+  // escape its display:none tabpanel and cover the newly activated tab — full
+  // screen, because the hidden header measures 0. The overlay state is kept,
+  // so returning to the tab restores its terminal.
+  const open = overlay === overlayKind && isTabActive;
   const headerOffset = `${headerHeight}px`;
   // Command Center applies to the Claude terminal sheet only (the shell sheet
   // keeps its single scoped terminal). The project's TerminalManager stays
@@ -69,7 +76,9 @@ function MobileTerminalSheetBase({
   // Switching project/workspace changes the terminal's scope, and re-scoping a
   // live session in place isn't supported. Close the sheet on scope change so
   // the user lands on the newly selected project instead of staying on the
-  // previous project's terminal.
+  // previous project's terminal. Inactive tabs skip this (openRef is false
+  // while hidden); their sheet simply mounts under the new scope when the tab
+  // is activated again.
   const prevScopeKeyRef = useRef(scopeKey);
   useEffect(() => {
     if (prevScopeKeyRef.current === scopeKey) return;
@@ -82,6 +91,10 @@ function MobileTerminalSheetBase({
     function makeHandler(name: string) {
       return (e: Event) => {
         if (openRef.current) return;
+        // Events come from the visible UI, so an inactive tab never queues —
+        // without this, an event without a tabId would sit in every hidden
+        // tab's queue and replay stale whenever that tab is activated.
+        if (!isTabActive) return;
         const detail = (e as CustomEvent).detail;
         // Each open tab mounts its own sheet listening on window, and the Sheet
         // portals to document.body (escaping the hidden tab's display:none) — so
@@ -100,7 +113,7 @@ function MobileTerminalSheetBase({
     return () => {
       for (const [name, h] of handlers) window.removeEventListener(name, h);
     };
-  }, [queueExternalEvents, openOverlay, overlayKind, myTabId]);
+  }, [queueExternalEvents, openOverlay, overlayKind, myTabId, isTabActive]);
 
   useEffect(() => {
     if (!open || pendingRef.current.length === 0) return;
