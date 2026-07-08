@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { VLink } from "@/components/tabs/virtual-link";
-import { useVirtualNavigate } from "@/components/tabs/tab-context";
+import { useTabsList, useVirtualNavigate } from "@/components/tabs/tab-context";
+import { deriveTabTitle, projectTabKey } from "@/components/tabs/tab-state";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog";
 import { OpenDirDialog } from "@/components/open-dir/open-dir-dialog";
 import { useRecentDirs } from "@/hooks/use-recent-dirs";
-import { RiFolderOpenLine } from "@remixicon/react";
+import { RiFolderOpenLine, RiGitBranchLine, RiWindow2Line } from "@remixicon/react";
 
 export default function HomePage() {
   const { data: workspaces, isLoading, error } = trpc.workspace.list.useQuery();
@@ -18,6 +19,11 @@ export default function HomePage() {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const { dirs: recentDirs, removeDir } = useRecentDirs();
   const nav = useVirtualNavigate();
+  const tabsList = useTabsList();
+  const openProjectTabs = useMemo(
+    () => tabsList?.tabs.filter((t) => projectTabKey(t.virtualPath) !== null) ?? [],
+    [tabsList?.tabs],
+  );
 
   return (
     <div className="mx-auto w-[95%] max-w-4xl overflow-y-auto py-8">
@@ -78,6 +84,34 @@ export default function HomePage() {
           ))}
           <div className="mt-2">
             <CreateWorkspaceDialog />
+          </div>
+        </div>
+      )}
+
+      {tabsList && openProjectTabs.length > 0 && (
+        <div className="mt-8">
+          <h2 className="mb-3 text-sm font-medium text-muted-foreground">Open Projects</h2>
+          <div className="flex flex-col gap-1">
+            {openProjectTabs.map((tab) => {
+              const { segments, worktree } = deriveTabTitle(tab.virtualPath);
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted/50"
+                  onClick={() => tabsList.activateTab(tab.id)}
+                >
+                  <RiWindow2Line className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{segments.join(" › ")}</span>
+                  {worktree && (
+                    <span className="flex min-w-0 items-center gap-0.5 font-mono text-[10px] text-muted-foreground">
+                      <RiGitBranchLine className="size-2.5 shrink-0" />
+                      <span className="truncate">{worktree}</span>
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
