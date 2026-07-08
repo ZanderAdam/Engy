@@ -3,6 +3,7 @@ import {
   computeInitialTabs,
   dedupeProjectTabs,
   findReusableProjectTab,
+  navigateOrReuseTab,
   projectTabKey,
   type Tab,
 } from './tab-state';
@@ -104,6 +105,86 @@ describe('tab-state dedup', () => {
         tab({ id: 'new', virtualPath: '/w/eng/projects/initial/docs', lastActiveAt: 9 }),
       ]);
       expect(result.map((t) => t.id)).toEqual(['new', 'home']);
+    });
+  });
+
+  describe('navigateOrReuseTab', () => {
+    const PATH = '/w/eng/projects/initial/code?wt=feature';
+
+    it('should focus an existing tab on the same project+worktree instead of navigating in place', () => {
+      const state = {
+        tabs: [
+          tab({ id: 'home', virtualPath: '/' }),
+          tab({ id: 'proj', virtualPath: '/w/eng/projects/initial/docs?wt=feature' }),
+        ],
+        activeTabId: 'home',
+      };
+      const result = navigateOrReuseTab(state, 'home', PATH);
+      expect(result.activeTabId).toBe('proj');
+      expect(result.tabs.find((t) => t.id === 'proj')?.virtualPath).toBe(PATH);
+      expect(result.tabs.find((t) => t.id === 'home')?.virtualPath).toBe('/');
+      expect(result.tabs).toHaveLength(2);
+    });
+
+    it('should navigate in place when the current tab already shows the project', () => {
+      const state = {
+        tabs: [tab({ id: 'proj', virtualPath: '/w/eng/projects/initial/docs?wt=feature' })],
+        activeTabId: 'proj',
+      };
+      const result = navigateOrReuseTab(state, 'proj', PATH);
+      expect(result.activeTabId).toBe('proj');
+      expect(result.tabs[0].virtualPath).toBe(PATH);
+    });
+
+    it('should navigate in place for non-project paths', () => {
+      const state = {
+        tabs: [tab({ id: 'home', virtualPath: '/' })],
+        activeTabId: 'home',
+      };
+      const result = navigateOrReuseTab(state, 'home', '/w/eng/tasks');
+      expect(result.activeTabId).toBe('home');
+      expect(result.tabs.find((t) => t.id === 'home')?.virtualPath).toBe('/w/eng/tasks');
+    });
+
+    it('should never reuse when navigation comes from a background tab', () => {
+      const state = {
+        tabs: [
+          tab({ id: 'active', virtualPath: '/w/eng/tasks' }),
+          tab({ id: 'background', virtualPath: '/' }),
+          tab({ id: 'proj', virtualPath: '/w/eng/projects/initial/docs?wt=feature' }),
+        ],
+        activeTabId: 'active',
+      };
+      const result = navigateOrReuseTab(state, 'background', PATH);
+      expect(result.activeTabId).toBe('active');
+      expect(result.tabs.find((t) => t.id === 'background')?.virtualPath).toBe(PATH);
+      expect(result.tabs).toHaveLength(3);
+    });
+
+    it('should leave state unchanged for an unknown tab id', () => {
+      const state = {
+        tabs: [
+          tab({ id: 'home', virtualPath: '/' }),
+          tab({ id: 'proj', virtualPath: '/w/eng/projects/initial/docs?wt=feature' }),
+        ],
+        activeTabId: 'home',
+      };
+      const result = navigateOrReuseTab(state, 'ghost', PATH);
+      expect(result.activeTabId).toBe('home');
+      expect(result.tabs.map((t) => t.virtualPath)).toEqual(state.tabs.map((t) => t.virtualPath));
+    });
+
+    it('should navigate in place when only a different worktree of the project is open', () => {
+      const state = {
+        tabs: [
+          tab({ id: 'home', virtualPath: '/' }),
+          tab({ id: 'default', virtualPath: '/w/eng/projects/initial/code' }),
+        ],
+        activeTabId: 'home',
+      };
+      const result = navigateOrReuseTab(state, 'home', PATH);
+      expect(result.activeTabId).toBe('home');
+      expect(result.tabs.find((t) => t.id === 'home')?.virtualPath).toBe(PATH);
     });
   });
 

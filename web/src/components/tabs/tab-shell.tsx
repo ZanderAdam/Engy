@@ -15,6 +15,7 @@ import {
   findReusableProjectTab,
   loadPersisted,
   makeTab,
+  navigateOrReuseTab,
   navigateTab,
   normalizeVirtualPath,
   parseVirtualPath,
@@ -148,12 +149,7 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
 
   const updateTabPath = useCallback((tabId: string, rawPath: string) => {
     const path = normalizeVirtualPath(rawPath);
-    setState((s) => ({
-      ...s,
-      tabs: s.tabs.map((t) =>
-        t.id === tabId ? { ...t, virtualPath: path, title: deriveDefaultTitle(path) } : t,
-      ),
-    }));
+    setState((s) => navigateOrReuseTab(s, tabId, path));
   }, []);
 
   const openNewTab = useCallback((rawPath: string, activate = true): string => {

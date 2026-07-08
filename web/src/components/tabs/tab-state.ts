@@ -179,6 +179,23 @@ export function navigateTab(tabs: Tab[], tabId: string, path: string): Tab[] {
 }
 
 /**
+ * In-tab navigation with dedup: when the active tab navigates to a project +
+ * worktree that another tab already shows, focus that tab (navigating it to
+ * the requested section) and leave `tabId` untouched — plain clicks must never
+ * duplicate an open project tab. Navigation from a background tab always goes
+ * in place so it can never steal focus from the visible tab.
+ */
+export function navigateOrReuseTab(state: TabsState, tabId: string, path: string): TabsState {
+  if (tabId === state.activeTabId) {
+    const existing = findReusableProjectTab(state.tabs, path);
+    if (existing && existing.id !== tabId) {
+      return { tabs: navigateTab(state.tabs, existing.id, path), activeTabId: existing.id };
+    }
+  }
+  return { ...state, tabs: navigateTab(state.tabs, tabId, path) };
+}
+
+/**
  * Resolve the tab set to start from on load. Collapses project-tab duplicates
  * persisted before dedup existed, then reuses an existing project tab matching
  * the bootstrap URL (navigating it to the requested section) rather than opening
