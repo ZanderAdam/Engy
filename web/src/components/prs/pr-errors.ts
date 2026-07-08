@@ -6,7 +6,7 @@ export interface RepoPrError {
   message: string;
 }
 
-export interface ClassifiedPrErrors {
+interface ClassifiedPrErrors {
   global: GlobalPrError | null;
   perRepo: RepoPrError[];
 }
