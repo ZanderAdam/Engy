@@ -21,6 +21,12 @@ interface WorktreeSelectorProps {
   repoDir: string;
   value: WorktreeSelection;
   onChange: (value: WorktreeSelection) => void;
+  /**
+   * Hide Coder (remote) worktrees, leaving only the main repo and local
+   * worktrees. The Code tab's file tree reads through `file.listDir`, which has
+   * no Coder-workspace routing, so remote worktrees can't be browsed there.
+   */
+  localOnly?: boolean;
 }
 
 const MAIN_VALUE = '__main__';
@@ -44,6 +50,7 @@ export function WorktreeSelector({
   repoDir,
   value,
   onChange,
+  localOnly = false,
 }: WorktreeSelectorProps) {
   const [open, setOpen] = useState(false);
   const { data: worktrees = [] } = trpc.diff.getWorktrees.useQuery(
@@ -52,11 +59,9 @@ export function WorktreeSelector({
   );
 
   const localEntries = worktrees.filter((wt) => wt.location === 'local' && !wt.isMain);
-  const coderEntries = worktrees.filter((wt) => wt.location !== 'local');
+  const coderEntries = localOnly ? [] : worktrees.filter((wt) => wt.location !== 'local');
   const coderWorkspaceNames = [
-    ...new Set(
-      coderEntries.map((wt) => (wt.location as { coderWorkspace: string }).coderWorkspace),
-    ),
+    ...new Set(coderEntries.map((wt) => (wt.location as { coderWorkspace: string }).coderWorkspace)),
   ];
 
   const selectedKey = selectionKey(value);

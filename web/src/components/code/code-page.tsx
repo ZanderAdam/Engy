@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { RiFileSearchLine } from '@remixicon/react';
+import { RiFileSearchLine, RiGitBranchLine } from '@remixicon/react';
 import { trpc } from '@/lib/trpc';
 import { DynamicMonacoCodeEditor } from '@/components/editor/dynamic-monaco-editors';
 import { useAutoSave } from '@/components/diff/use-auto-save';
 import { RepoSelector } from '@/components/diff/repo-selector';
+import { WorktreeSelector } from '@/components/diff/worktree-selector';
+import type { WorktreeSelection } from '@/components/diff/worktree-selector';
 import { RepoFileTree } from '@/components/code/repo-file-tree';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { Button } from '@/components/ui/button';
@@ -50,6 +52,7 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
   const [initialState] = useState(() => loadCodeState(workspaceSlug, projectSlug));
 
   const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(initialState.repo);
+  const [userSelectedWorktree, setUserSelectedWorktree] = useState<WorktreeSelection>(null);
   const [tabs, setTabs] = useState<TabsState>(() => ({
     tabs: initialState.tabs,
     active: initialState.active,
@@ -92,10 +95,21 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
     { enabled: !!workspace && !!projectSlug },
   );
 
-  const { repoMap: worktreeRepoMap } = useProjectWorktreeMap({
+  const { branch: projectWorktreeBranch, repoMap: worktreeRepoMap } = useProjectWorktreeMap({
     projectId: project?.id,
     combined: workspace?.combinedWorktrees,
   });
+
+  // When a project-level worktree activates (via `?wt`), drop any local per-repo
+  // WorktreeSelector choice so clearing `?wt` later doesn't resurrect a stale
+  // selection. "Set state during render" per React's props-sync guidance.
+  const [prevProjectWtBranch, setPrevProjectWtBranch] = useState<string | null>(
+    projectWorktreeBranch,
+  );
+  if (projectWorktreeBranch !== prevProjectWtBranch) {
+    setPrevProjectWtBranch(projectWorktreeBranch);
+    if (projectWorktreeBranch) setUserSelectedWorktree(null);
+  }
 
   const allRepos = useMemo(() => {
     const repoSet = new Set<string>();
@@ -114,12 +128,21 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
   }, [workspace, taskGroups]);
 
   const selectedRepo = userSelectedRepo ?? (allRepos.length > 0 ? allRepos[0] : null);
-  // The worktree-effective root for `selectedRepo`. If no worktree is materialized
-  // for this repo on the active branch, falls back to the main path.
-  const effectiveRoot = useMemo(() => {
-    if (!selectedRepo) return null;
-    return worktreeRepoMap.get(selectedRepo) ?? selectedRepo;
-  }, [selectedRepo, worktreeRepoMap]);
+
+  // A project-level worktree (`?wt`) overrides the local per-repo selector; when
+  // none is active the user's WorktreeSelector choice applies. Restricted to
+  // local worktrees (no `coderWorkspace`) since the tree reads via `file.listDir`.
+  const selectedWorktree: WorktreeSelection = useMemo(() => {
+    if (projectWorktreeBranch && selectedRepo) {
+      const worktreePath = worktreeRepoMap.get(selectedRepo);
+      return worktreePath ? { worktreePath } : null;
+    }
+    return userSelectedWorktree;
+  }, [projectWorktreeBranch, worktreeRepoMap, selectedRepo, userSelectedWorktree]);
+
+  // The worktree-effective root for `selectedRepo`. Falls back to the main path
+  // when no worktree is selected.
+  const effectiveRoot = selectedWorktree?.worktreePath ?? selectedRepo;
 
   // Reset the open tabs when the effective root changes — the remembered relative
   // paths may not exist under the new root. Uses the "set state during render"
@@ -131,10 +154,9 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
     setCursor(null);
   }
 
-  // Pass repoDir = main repo (preserves identity), worktreePath = effectiveRoot
-  // (only when it differs). Symmetric with the Diffs page.
-  const overrideWorktreePath =
-    selectedRepo && effectiveRoot && effectiveRoot !== selectedRepo ? effectiveRoot : undefined;
+  // Pass repoDir = main repo (preserves identity), worktreePath = the selected
+  // worktree (only when one is active). Symmetric with the Diffs page.
+  const overrideWorktreePath = selectedWorktree?.worktreePath;
 
   const { data: fileData } = trpc.file.read.useQuery(
     {
@@ -168,6 +190,12 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
     setCursor(null);
   }
 
+  const handleRepoChange = useCallback((repo: string) => {
+    setUserSelectedRepo(repo);
+    setUserSelectedWorktree(null);
+    setTabs(emptyTabsState);
+  }, []);
+
   const openFile = useCallback((relPath: string) => {
     if (!relPath) return;
     setTabs((state) => openTab(state, relPath));
@@ -197,11 +225,24 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
           <RepoSelector
             repos={allRepos}
             selectedRepo={selectedRepo ?? ''}
-            onSelectRepo={(repo) => {
-              setUserSelectedRepo(repo);
-              setTabs(emptyTabsState);
-            }}
+            onSelectRepo={handleRepoChange}
           />
+          {selectedRepo && !projectWorktreeBranch && (
+            <WorktreeSelector
+              workspaceSlug={workspaceSlug}
+              repoDir={selectedRepo}
+              value={userSelectedWorktree}
+              onChange={setUserSelectedWorktree}
+              localOnly
+            />
+          )}
+          {projectWorktreeBranch && (
+            <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-2 text-xs text-muted-foreground">
+              <RiGitBranchLine className="size-3" />
+              <span>on</span>
+              <span className="font-mono text-foreground">{projectWorktreeBranch}</span>
+            </div>
+          )}
           <Button
             variant="ghost"
             size="sm"
