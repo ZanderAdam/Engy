@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useCanHover } from '@/hooks/use-can-hover';
 import { useTerminalDock } from './terminal-dock-context';
 import { getTerminalIconStyle, type TerminalPanelParams, type TerminalTab } from './types';
 
@@ -36,7 +36,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   const [editStartLabel, setEditStartLabel] = useState('');
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const { renameTerminal } = useTerminalDock();
-  const isMobile = useIsMobile();
+  const canHover = useCanHover();
 
   useEffect(() => {
     const disposable = api.onDidParametersChange(() => {
@@ -133,7 +133,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
         }}
         className={cn(
           'ml-auto shrink-0 rounded-sm p-0.5 hover:bg-muted',
-          isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          canHover ? 'opacity-0 group-hover:opacity-100' : 'opacity-100',
         )}
         aria-label="Close terminal"
       >

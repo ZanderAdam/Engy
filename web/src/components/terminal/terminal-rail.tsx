@@ -27,7 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useCanHover } from '@/hooks/use-can-hover';
 import { cn } from '@/lib/utils';
 import { useTabId } from '@/components/tabs/tab-context';
 import { useTerminalScope } from './use-terminal-scope';
@@ -88,7 +88,7 @@ export function TerminalRail({
   const [listExpanded, setListExpanded] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [closingTab, setClosingTab] = useState<TerminalTab | null>(null);
-  const isMobile = useIsMobile();
+  const canHover = useCanHover();
 
   function focusSession(sessionId: string) {
     window.dispatchEvent(new CustomEvent('terminal:focus', { detail: { sessionId, tabId } }));
@@ -233,7 +233,7 @@ export function TerminalRail({
                       aria-label={`New terminal in ${section.projectLabel}`}
                       className={cn(
                         'mt-1 shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground',
-                        isMobile ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100',
+                        canHover ? 'opacity-0 group-hover/section:opacity-100' : 'opacity-100',
                       )}
                     >
                       <RiAddLine className="size-3" />
@@ -286,7 +286,7 @@ export function TerminalRail({
           aria-label={`Close terminal ${tab.scope.scopeLabel}`}
           className={cn(
             'mr-1 mt-1 shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground',
-            isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+            canHover ? 'opacity-0 group-hover:opacity-100' : 'opacity-100',
           )}
         >
           <RiCloseLine className="size-3" />
