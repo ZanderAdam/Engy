@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { RiFileSearchLine, RiGitBranchLine } from '@remixicon/react';
 import { trpc } from '@/lib/trpc';
 import { DynamicMonacoCodeEditor } from '@/components/editor/dynamic-monaco-editors';
@@ -15,19 +15,10 @@ import { getLanguageFromPath } from '@/components/editor/language-map';
 import { fileKind } from '@/lib/file-types';
 import { NonTextFileView } from '@/components/editor/non-text-file-view';
 import type { CursorPosition } from '@/components/editor/monaco-code-editor';
-import { EditorTabs } from './editor-tabs';
+import { EditorTabsBar } from '@/components/editor/editor-tabs';
+import { useEditorTabs } from '@/components/editor/use-editor-tabs';
 import { EditorStatusBar } from './editor-status-bar';
 import { QuickOpen } from './quick-open';
-import {
-  canGoBack,
-  canGoForward,
-  closeTab,
-  emptyTabsState,
-  navigateBack,
-  navigateForward,
-  openTab,
-  type TabsState,
-} from './open-tabs';
 import {
   codeStateKey,
   parseCodeState,
@@ -53,12 +44,12 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
 
   const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(initialState.repo);
   const [userSelectedWorktree, setUserSelectedWorktree] = useState<WorktreeSelection>(null);
-  const [tabs, setTabs] = useState<TabsState>(() => ({
+  const tabs = useEditorTabs({
     tabs: initialState.tabs,
     active: initialState.active,
     history: initialState.active ? [initialState.active] : [],
     historyIndex: initialState.active ? 0 : -1,
-  }));
+  });
   const [wordWrap, setWordWrap] = useState(initialState.wordWrap);
   const [minimap, setMinimap] = useState(initialState.minimap);
   const [quickOpenOpen, setQuickOpenOpen] = useState(false);
@@ -74,8 +65,8 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
         codeStateKey(workspaceSlug, projectSlug),
         serializeCodeState({
           repo: userSelectedRepo,
-          tabs: tabs.tabs,
-          active: tabs.active,
+          tabs: tabs.state.tabs,
+          active: tabs.state.active,
           wordWrap,
           minimap,
         }),
@@ -83,7 +74,7 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
     } catch {
       // localStorage may be full or unavailable
     }
-  }, [userSelectedRepo, tabs, wordWrap, minimap, workspaceSlug, projectSlug]);
+  }, [userSelectedRepo, tabs.state, wordWrap, minimap, workspaceSlug, projectSlug]);
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
   const { data: taskGroups } = trpc.taskGroup.list.useQuery(
@@ -150,7 +141,7 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
   const [prevEffectiveRoot, setPrevEffectiveRoot] = useState<string | null>(effectiveRoot);
   if (effectiveRoot !== prevEffectiveRoot) {
     setPrevEffectiveRoot(effectiveRoot);
-    setTabs(emptyTabsState);
+    tabs.reset();
     setCursor(null);
   }
 
@@ -190,16 +181,11 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
     setCursor(null);
   }
 
-  const handleRepoChange = useCallback((repo: string) => {
+  const handleRepoChange = (repo: string) => {
     setUserSelectedRepo(repo);
     setUserSelectedWorktree(null);
-    setTabs(emptyTabsState);
-  }, []);
-
-  const openFile = useCallback((relPath: string) => {
-    if (!relPath) return;
-    setTabs((state) => openTab(state, relPath));
-  }, []);
+    tabs.reset();
+  };
 
   // Ctrl/Cmd+P opens the fuzzy file finder — only when a repo root is available
   // (otherwise QuickOpen can't render), and without stealing browser print
@@ -273,7 +259,7 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
               repoDir={selectedRepo}
               worktreePath={overrideWorktreePath}
               selectedFile={selectedFile}
-              onSelectFile={openFile}
+              onSelectFile={tabs.open}
             />
           ) : (
             <div className="flex h-full items-center justify-center">
@@ -283,18 +269,7 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
         </div>
 
         <div className="flex flex-1 min-w-0 flex-col">
-          {tabs.tabs.length > 0 && (
-            <EditorTabs
-              tabs={tabs.tabs}
-              active={tabs.active}
-              canGoBack={canGoBack(tabs)}
-              canGoForward={canGoForward(tabs)}
-              onSelect={openFile}
-              onClose={(path) => setTabs((state) => closeTab(state, path))}
-              onBack={() => setTabs(navigateBack)}
-              onForward={() => setTabs(navigateForward)}
-            />
-          )}
+          <EditorTabsBar tabs={tabs} />
 
           <div className="flex-1 min-h-0">
             {!selectedFile || !effectiveRoot ? (
@@ -338,7 +313,7 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
           open={quickOpenOpen}
           onOpenChange={setQuickOpenOpen}
           rootDir={effectiveRoot}
-          onSelectFile={openFile}
+          onSelectFile={tabs.open}
         />
       )}
     </div>

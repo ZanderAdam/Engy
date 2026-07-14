@@ -2,6 +2,7 @@
 
 import { RiArrowLeftSLine, RiArrowRightSLine, RiCloseLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
+import type { EditorTabsController } from './use-editor-tabs';
 
 interface EditorTabsProps {
   tabs: string[];
@@ -18,7 +19,7 @@ function basename(path: string): string {
   return path.split('/').pop() || path;
 }
 
-export function EditorTabs({
+function EditorTabs({
   tabs,
   active,
   canGoBack,
@@ -83,5 +84,26 @@ export function EditorTabs({
         })}
       </div>
     </div>
+  );
+}
+
+/**
+ * Renders the tab bar for a {@link EditorTabsController}, or nothing when no
+ * files are open. Lets the Code and Diffs pages mount tabs with a single line
+ * instead of re-wiring every action prop.
+ */
+export function EditorTabsBar({ tabs }: { tabs: EditorTabsController }) {
+  if (tabs.state.tabs.length === 0) return null;
+  return (
+    <EditorTabs
+      tabs={tabs.state.tabs}
+      active={tabs.active}
+      canGoBack={tabs.canBack}
+      canGoForward={tabs.canForward}
+      onSelect={tabs.open}
+      onClose={tabs.close}
+      onBack={tabs.back}
+      onForward={tabs.forward}
+    />
   );
 }

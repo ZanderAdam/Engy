@@ -12,6 +12,8 @@ interface DiffViewerPanelProps {
   modifiedContent: string;
   viewMode: ViewMode;
   filePath?: string;
+  /** Absolute repo root — folded into per-file Monaco model URIs. */
+  repoRoot: string;
   loadError?: string | null;
   onChange?: (value: string) => void;
   fileComments?: DiffComment[];
@@ -27,6 +29,7 @@ export function DiffViewerPanel({
   modifiedContent,
   viewMode,
   filePath,
+  repoRoot,
   loadError,
   onChange,
   fileComments = [],
@@ -81,6 +84,7 @@ export function DiffViewerPanel({
       original={originalContent}
       modified={modifiedContent}
       filePath={filePath}
+      repoRoot={repoRoot}
       renderSideBySide={viewMode === 'split'}
       onChange={onChange}
       onEditorMount={handleEditorMount}

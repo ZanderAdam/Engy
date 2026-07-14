@@ -91,6 +91,7 @@ export function DirDiffPanel({ dirPath }: DirDiffPanelProps) {
                 modifiedContent={modifiedContent}
                 viewMode={viewMode}
                 filePath={selectedFile}
+                repoRoot={dirPath}
               />
             </div>
           </div>

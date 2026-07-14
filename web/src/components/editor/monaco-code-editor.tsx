@@ -6,7 +6,7 @@ import type { editor } from 'monaco-editor';
 import { ENGY_THEME_NAME } from './monaco-theme';
 import { configureMonaco } from './monaco-setup';
 import { buildCodeEditorOptions } from './monaco-options';
-import { buildModelPath } from './monaco-models';
+import { namespacedModelPath } from './monaco-models';
 import { getLanguageFromPath } from './language-map';
 
 export interface CursorPosition {
@@ -79,7 +79,7 @@ export function MonacoCodeEditor({
   // A stable, unique path per file drives @monaco-editor/react's model + view-state
   // cache, so switching tabs preserves each file's cursor, scroll, undo history and
   // language-service model.
-  const path = `${modelNamespace}:${buildModelPath(repoRoot, filePath)}`;
+  const path = namespacedModelPath(modelNamespace, repoRoot, filePath);
   const language = getLanguageFromPath(filePath);
 
   return (

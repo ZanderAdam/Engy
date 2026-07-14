@@ -24,6 +24,8 @@ import { useAutoSave } from './use-auto-save';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { RiGitBranchLine } from '@remixicon/react';
 import { useOnServerEvent } from '@/contexts/events-context';
+import { EditorTabsBar } from '@/components/editor/editor-tabs';
+import { useEditorTabs } from '@/components/editor/use-editor-tabs';
 import type { ChangedFile, ViewMode, DiffViewMode, EditorMode } from './types';
 
 const SIDEBAR_CONFIG = {
@@ -47,7 +49,12 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     setSidebarCollapsed(isMobile);
   }
 
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  // Open-file tabs: multiple diffs can be open at once, mirroring the Code screen.
+  // Every view-mode / repo / commit switch resets the set (the remembered paths
+  // belong to a specific changed-files list), so open tabs are always drawn from
+  // the current `files`.
+  const tabs = useEditorTabs();
+  const selectedFile = tabs.active;
   const [viewMode, setViewMode] = useState<ViewMode>('unified');
   const [diffViewMode, setDiffViewMode] = useState<DiffViewMode>('latest');
   const [editorMode, setEditorMode] = useState<EditorMode>('diff');
@@ -58,7 +65,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
   const handleUserWorktreeChange = (worktree: WorktreeSelection) => {
     setUserSelectedWorktree(worktree);
-    setSelectedFile(null);
+    tabs.reset();
     setSelectedCommit(null);
   };
 
@@ -120,7 +127,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
   const handleRepoChange = (repo: string) => {
     setUserSelectedRepo(repo);
-    setSelectedFile(null);
+    tabs.reset();
     setSelectedCommit(null);
     setUserSelectedWorktree(null);
   };
@@ -128,7 +135,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   const handleDiffViewModeChange = (mode: DiffViewMode) => {
     setDiffViewMode(mode);
     setEditorMode('diff');
-    setSelectedFile(null);
+    tabs.reset();
     setSelectedCommit(null);
   };
 
@@ -466,7 +473,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                   selectedHash={selectedCommit}
                   onSelectCommit={(hash) => {
                     setSelectedCommit(hash);
-                    setSelectedFile(null);
+                    tabs.reset();
                   }}
                   isLoading={isLogLoading}
                 />
@@ -490,7 +497,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                     <FileListPanel
                       files={files}
                       selectedFile={selectedFile}
-                      onSelectFile={setSelectedFile}
+                      onSelectFile={tabs.open}
                       onRefresh={() => refetchCommitDiff()}
                       isLoading={isCommitDiffLoading}
                       commentCounts={fileCommentCounts}
@@ -503,7 +510,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
             <FileListPanel
               files={files}
               selectedFile={selectedFile}
-              onSelectFile={setSelectedFile}
+              onSelectFile={tabs.open}
               onRefresh={() => {
                 if (diffViewMode === 'latest') refetchStatus();
               }}
@@ -513,83 +520,87 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
           )
         }
         centerContent={
-          allRepos.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center">
-              <p className="text-sm text-muted-foreground">
-                No repositories configured for this workspace
-              </p>
-            </div>
-          ) : !selectedFile ? (
-            <div className="flex flex-1 items-center justify-center">
-              <p className="text-sm text-muted-foreground">
-                {diffViewMode === 'history' && !selectedCommit
-                  ? 'Select a commit to view its changes'
-                  : 'Select a file to view its diff'}
-              </p>
-            </div>
-          ) : (
-            <div className="flex flex-1 flex-col min-h-0">
-              {selectedFileData && (
-                <DiffHeader
-                  filePath={selectedFile}
-                  status={selectedFileData.status}
-                  viewMode={viewMode}
-                  onViewModeChange={setViewMode}
-                  editorMode={editorMode}
-                  onEditorModeChange={isTextLike ? setEditorMode : undefined}
-                  diffViewMode={diffViewMode}
-                  saveStatus={isTextLike ? saveStatus : undefined}
-                  hideViewModeToggle={isMobile || !isTextLike}
-                />
-              )}
-              <div className="flex-1 min-h-0">
-                {isImage ? (
-                  <ImageDiffView
-                    status={selectedFileData?.status ?? 'modified'}
-                    fileName={selectedFileName}
-                    original={{
-                      isLoading: originalImageLoading,
-                      error: originalImageError,
-                      dataUri: originalImageData?.dataUri,
-                    }}
-                    modified={{
-                      isLoading: modifiedImageLoading,
-                      error: modifiedImageError,
-                      dataUri: modifiedImageData?.dataUri,
-                    }}
-                  />
-                ) : isBinary ? (
-                  <NonTextFileView
-                    kind="binary"
-                    fileName={selectedFileName}
-                  />
-                ) : editorMode === 'edit' && diffViewMode === 'latest' ? (
-                  <DynamicMonacoCodeEditor
-                    content={modifiedContent}
+          <div className="flex flex-1 min-h-0 flex-col">
+            <EditorTabsBar tabs={tabs} />
+            {allRepos.length === 0 ? (
+              <div className="flex flex-1 items-center justify-center">
+                <p className="text-sm text-muted-foreground">
+                  No repositories configured for this workspace
+                </p>
+              </div>
+            ) : !selectedFile ? (
+              <div className="flex flex-1 items-center justify-center">
+                <p className="text-sm text-muted-foreground">
+                  {diffViewMode === 'history' && !selectedCommit
+                    ? 'Select a commit to view its changes'
+                    : 'Select a file to view its diff'}
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-1 flex-col min-h-0">
+                {selectedFileData && (
+                  <DiffHeader
                     filePath={selectedFile}
-                    repoRoot={selectedWorktree?.worktreePath ?? selectedRepo ?? ''}
-                    modelNamespace="diff"
-                    onChange={save}
-                  />
-                ) : (
-                  <DiffViewerPanel
-                    originalContent={originalContent}
-                    modifiedContent={modifiedContent}
-                    viewMode={isMobile ? 'unified' : viewMode}
-                    filePath={selectedFile}
-                    loadError={fileReadError}
-                    onChange={diffViewMode === 'latest' ? save : undefined}
-                    fileComments={fileComments}
-                    onAddComment={handleAddComment}
-                    onReply={replyToThread}
-                    onResolve={resolve}
-                    onDelete={remove}
-                    onDeleteComment={removeComment}
+                    status={selectedFileData.status}
+                    viewMode={viewMode}
+                    onViewModeChange={setViewMode}
+                    editorMode={editorMode}
+                    onEditorModeChange={isTextLike ? setEditorMode : undefined}
+                    diffViewMode={diffViewMode}
+                    saveStatus={isTextLike ? saveStatus : undefined}
+                    hideViewModeToggle={isMobile || !isTextLike}
                   />
                 )}
+                <div className="flex-1 min-h-0">
+                  {isImage ? (
+                    <ImageDiffView
+                      status={selectedFileData?.status ?? 'modified'}
+                      fileName={selectedFileName}
+                      original={{
+                        isLoading: originalImageLoading,
+                        error: originalImageError,
+                        dataUri: originalImageData?.dataUri,
+                      }}
+                      modified={{
+                        isLoading: modifiedImageLoading,
+                        error: modifiedImageError,
+                        dataUri: modifiedImageData?.dataUri,
+                      }}
+                    />
+                  ) : isBinary ? (
+                    <NonTextFileView
+                      kind="binary"
+                      fileName={selectedFileName}
+                    />
+                  ) : editorMode === 'edit' && diffViewMode === 'latest' ? (
+                    <DynamicMonacoCodeEditor
+                      content={modifiedContent}
+                      filePath={selectedFile}
+                      repoRoot={selectedWorktree?.worktreePath ?? selectedRepo ?? ''}
+                      modelNamespace="diff-edit"
+                      onChange={save}
+                    />
+                  ) : (
+                    <DiffViewerPanel
+                      originalContent={originalContent}
+                      modifiedContent={modifiedContent}
+                      viewMode={isMobile ? 'unified' : viewMode}
+                      filePath={selectedFile}
+                      repoRoot={selectedWorktree?.worktreePath ?? selectedRepo ?? ''}
+                      loadError={fileReadError}
+                      onChange={diffViewMode === 'latest' ? save : undefined}
+                      fileComments={fileComments}
+                      onAddComment={handleAddComment}
+                      onReply={replyToThread}
+                      onResolve={resolve}
+                      onDelete={remove}
+                      onDeleteComment={removeComment}
+                    />
+                  )}
+                </div>
               </div>
-            </div>
-          )
+            )}
+          </div>
         }
       />
     </div>
