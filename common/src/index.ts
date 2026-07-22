@@ -3,7 +3,7 @@ export type {
   ClientToServerMessage,
   ServerToClientMessage,
   RegisterMessage,
-  WorkspacesSyncMessage,
+  WatchPathsSyncMessage,
   ValidatePathsRequestMessage,
   ValidatePathsResponseMessage,
   CreateDirRequestMessage,

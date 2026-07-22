@@ -21,6 +21,7 @@ Feature components for the Next.js 16 + React 19 frontend. See `../../CLAUDE.md`
 
 - **Don't open WebSockets from components.** Subscribe via `useOnFileChange()` or `useOnServerEvent('TASK_CHANGE' | 'QUESTION_CHANGE' | 'TERMINAL_SESSIONS_CHANGE' | 'MEMORY_CHANGE' | 'TERMINAL_ACTIVITY_CHANGE', cb)` from `@/contexts/events-context`. A single `EventsProvider` (mounted in `app/w/[workspace]/layout.tsx`) owns the WS connection.
 - New broadcast types: add the payload to `ServerEventMap` in `events-context.tsx` and the wrapper in `server/ws/broadcast.ts`. Components stay on `useOnServerEvent`.
+- **`FILE_CHANGE` only flows for subscribed paths.** A surface consuming `useOnFileChange()` must also declare what it displays via `useWatchPaths(workspaceSlug, absolutePaths)` — the daemon watches only the union of subscribed paths, so an unsubscribed file emits no events.
 
 ## Layout & structure
 

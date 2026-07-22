@@ -23,7 +23,6 @@ The document editor is the primary authoring surface for workspace and project d
 | `web/src/components/editor/mermaid/visual/parse.ts` | `parseFlowchart` / `detectDiagramType` — pragmatic line-based mermaid flowchart parser |
 | `web/src/components/editor/mermaid/visual/serialize.ts` | `serializeFlowchart` — emits valid mermaid from a `FlowModel` |
 | `web/src/components/editor/mermaid/visual/model-ops.ts` | Pure `FlowModel` mutation helpers — `addNode`, `addConnectedNode`, `deleteNode`, `addEdge`, `deleteEdge`, `updateNodeLabel`, `updateNodeShape`, `updateEdgeLabel`, `duplicateNode` |
-| `web/src/server/spec/watcher.ts` | `handleSpecFileChange` / `getSpecLastChanged` — debounced spec-file change tracker |
 
 ## Autosave and markdown normalisation
 
@@ -55,10 +54,6 @@ Markdown round-trip is handled by the bridge: on load, `codeBlockToMermaid` conv
 
 The visual flowchart editor uses a pragmatic line-based parser (`parseFlowchart`) that extracts a `FlowModel` (keyword, direction, typed nodes with shape, typed edges with style/label, subgraphs, and raw unsupported statements). Unknown content lands in `model.raw` so a parse–edit–serialize cycle never silently drops the user's content. `detectDiagramType` checks the first non-comment, non-blank line to distinguish `flowchart`/`graph` diagrams from all other mermaid types. `FlowModel` mutations (`addNode`, `addConnectedNode`, `addEdge`, `deleteNode`, `deleteEdge`, etc.) are pure functions that never mutate their input, making the visual editor's React state predictable without a DOM.
 
-## Spec file change debouncing
-
-`handleSpecFileChange` (`web/src/server/spec/watcher.ts`) is called by the file-watcher relay whenever a spec file changes for a workspace. It records the change timestamp only after 300 ms of silence (last call wins, via a per-workspace debounce timer stored in `AppState.specDebounceTimers`). Concurrent calls for different workspace slugs track independent timers. `getSpecLastChanged` returns `null` before any change has fired.
-
 ## Requirements
 
 | ID | Requirement (EARS) |
@@ -72,7 +67,6 @@ The visual flowchart editor uses a pragmatic line-based parser (`parseFlowchart`
 | FR-EDITOR-070 | WHEN `addReaction` is called, the system SHALL add the emoji entry (or push `userId` into an existing entry) without duplicating the user; WHEN `deleteReaction` is called, the system SHALL remove the user from `userIds` and drop the entire entry when `userIds` becomes empty. |
 | FR-EDITOR-080 | WHEN any `EngyThreadStore` mutation (createThread, addComment, deleteThread, resolveThread, unresolveThread, updateComment, setThreadMetadata) is called, the system SHALL apply the change to local state immediately and, IF the server mutation rejects, SHALL roll back the local state and display a `toast.error` with a human-readable message. |
 | FR-EDITOR-090 | WHEN `findTextQuoteMatch` resolves a `TextQuoteSelector` against a ProseMirror document, the system SHALL first attempt an exact substring match scored by prefix/suffix context overlap; IF no exact match exists, the system SHALL attempt a normalised fallback (whitespace-collapsed, case-insensitive) mapping results back to original document positions; IF neither strategy succeeds, the system SHALL return `null`. |
-| FR-EDITOR-100 | WHEN `handleSpecFileChange` is called for a workspace, the system SHALL record the change timestamp only after 300 ms of inactivity for that workspace (last-call-wins debounce), with each workspace tracking an independent timer; `getSpecLastChanged` SHALL return `null` before any change has fired for that workspace. |
 | FR-EDITOR-110 | WHEN the document editor serialises content, the system SHALL pipe `blocksToMarkdownLossy` output through `normalizeMarkdown` (remark with fixed bullet `-`, rule `-`, emphasis `*`, tight lists, and hard-break stripping) so that a second serialize–parse–serialize cycle produces identical output. |
 | FR-EDITOR-120 | The system SHALL split a `---`-fenced YAML frontmatter header from the markdown body via `stripFrontmatter`; an unclosed opening delimiter SHALL be treated as no frontmatter (empty header, full content as body); `header + body` SHALL always reconstruct the original string exactly. |
 | FR-EDITOR-130 | WHEN loading markdown that contains a fenced code block with `language: 'mermaid'`, the system SHALL convert it to a custom `mermaid` block node via `codeBlockToMermaid`; WHEN serialising, the system SHALL convert `mermaid` block nodes back to `codeBlock` nodes via `mermaidToCodeBlock`; non-mermaid code blocks SHALL pass through both transforms unchanged. |

@@ -140,69 +140,6 @@ describe('WebSocket Server', () => {
     });
   });
 
-  describe('[FR-WS-090] FILE_CHANGE', () => {
-    it('[FR-WS-090] should store file change events in the ring buffer', async () => {
-      const ws = await connectClient(port);
-
-      ws.send(
-        JSON.stringify({
-          type: 'FILE_CHANGE',
-          payload: { workspaceSlug: 'my-ws', path: '/src/index.ts', eventType: 'change' },
-        }),
-      );
-
-      await vi.waitFor(() => {
-        const events = state.fileChanges.get('my-ws');
-        expect(events).toHaveLength(1);
-        expect(events![0].path).toBe('/src/index.ts');
-        expect(events![0].eventType).toBe('change');
-        expect(events![0].timestamp).toBeGreaterThan(0);
-      });
-    });
-
-    it('[FR-WS-090] should cap events at 100 per workspace', async () => {
-      const ws = await connectClient(port);
-
-      for (let i = 0; i < 110; i++) {
-        ws.send(
-          JSON.stringify({
-            type: 'FILE_CHANGE',
-            payload: { workspaceSlug: 'big-ws', path: `/file-${i}.ts`, eventType: 'add' },
-          }),
-        );
-      }
-
-      await vi.waitFor(() => {
-        const events = state.fileChanges.get('big-ws');
-        expect(events).toHaveLength(100);
-        expect(events![0].path).toBe('/file-10.ts');
-        expect(events![99].path).toBe('/file-109.ts');
-      });
-    });
-
-    it('[FR-WS-090] should keep separate ring buffers per workspace', async () => {
-      const ws = await connectClient(port);
-
-      ws.send(
-        JSON.stringify({
-          type: 'FILE_CHANGE',
-          payload: { workspaceSlug: 'ws-a', path: '/a.ts', eventType: 'add' },
-        }),
-      );
-      ws.send(
-        JSON.stringify({
-          type: 'FILE_CHANGE',
-          payload: { workspaceSlug: 'ws-b', path: '/b.ts', eventType: 'change' },
-        }),
-      );
-
-      await vi.waitFor(() => {
-        expect(state.fileChanges.get('ws-a')).toHaveLength(1);
-        expect(state.fileChanges.get('ws-b')).toHaveLength(1);
-      });
-    });
-  });
-
   describe('VALIDATE_PATHS_RESPONSE', () => {
     it('[FR-WS-040] [FR-WS-050] should resolve pending validation on response', async () => {
       const ws = await connectClient(port);

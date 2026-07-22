@@ -14,13 +14,6 @@ export interface CreateDirResult {
   results: Array<{ path: string; success: boolean; error?: string }>;
 }
 
-export interface FileChangeEvent {
-  workspaceSlug: string;
-  path: string;
-  eventType: 'add' | 'change' | 'unlink';
-  timestamp: number;
-}
-
 export interface TerminalSessionMeta {
   scopeType: string;
   scopeLabel: string;
@@ -183,7 +176,6 @@ interface DispatchWorker {
 
 export interface AppState {
   daemon: WebSocket | null;
-  fileChanges: Map<string, FileChangeEvent[]>;
   pendingValidations: Map<
     string,
     {
@@ -388,8 +380,12 @@ export interface AppState {
     }
   >;
   daemonHomeDir: string | null;
-  specLastChanged: Map<string, number>;
-  specDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
+  /** Per-socket watch subscriptions: socket → (workspaceSlug → paths) */
+  watchSubscriptions: Map<WebSocket, Map<string, Set<string>>>;
+  /** Debounce timer handle for batching watch sync to the daemon */
+  watchSyncTimer: ReturnType<typeof setTimeout> | null;
+  /** JSON-serialized last union sent to the daemon, for dedup */
+  lastSentWatchPaths: string | null;
   /** Maps sessionId → set of browser WebSockets for multi-attach terminal I/O relay */
   terminalSessions: Map<string, Set<WebSocket>>;
   /** Persists terminal session metadata across browser disconnects for session restoration */
@@ -454,7 +450,6 @@ const GLOBAL_KEY = '__engy_app_state__' as const;
 export function createAppState(): AppState {
   return {
     daemon: null,
-    fileChanges: new Map(),
     pendingValidations: new Map(),
     pendingFileSearches: new Map(),
     pendingGitStatus: new Map(),
@@ -485,8 +480,9 @@ export function createAppState(): AppState {
     pendingGhPrFailedLogs: new Map(),
     pendingGhPrReviewComments: new Map(),
     daemonHomeDir: null,
-    specLastChanged: new Map(),
-    specDebounceTimers: new Map(),
+    watchSubscriptions: new Map(),
+    watchSyncTimer: null,
+    lastSentWatchPaths: null,
     terminalSessions: new Map(),
     terminalSessionMeta: new Map(),
     pendingReconnects: new Map(),
@@ -517,5 +513,11 @@ export function getAppState(): AppState {
 }
 
 export function resetAppState(): void {
-  (globalThis as Record<string, unknown>)[GLOBAL_KEY] = undefined;
+  const g = globalThis as Record<string, unknown>;
+  const state = g[GLOBAL_KEY] as AppState | undefined;
+  if (state?.watchSyncTimer) {
+    clearTimeout(state.watchSyncTimer);
+    state.watchSyncTimer = null;
+  }
+  g[GLOBAL_KEY] = undefined;
 }

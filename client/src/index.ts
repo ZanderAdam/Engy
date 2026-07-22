@@ -86,13 +86,13 @@ function main(): void {
 
   const wsClient = new WsClient({
     serverUrl: SERVER_URL,
-    onWorkspacesSync: (msg) => {
+    onWatchPathsSync: (msg) => {
       specWatcher.sync(msg.payload.workspaces);
     },
     terminalManager,
   });
 
-  const specWatcher = new SpecWatcher(ENGY_DIR, wsClient);
+  const specWatcher = new SpecWatcher(wsClient);
 
   wsClient.connect();
 

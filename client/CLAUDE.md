@@ -8,7 +8,7 @@ See root `CLAUDE.md` for monorepo commands.
 
 - `src/index.ts` — entry point; orchestrates all subsystems and graceful shutdown (SIGINT/SIGTERM).
 - `src/ws/client.ts` — WebSocket client. Two connections (see below). Auto-reconnect with exponential backoff (1s → 30s max, 20% jitter). Routes incoming messages to the right subsystem handler.
-- `src/watcher.ts` — chokidar watcher over the whole `{workspace.docsDir ?? ENGY_DIR/slug}` dir (hidden dirs and `node_modules` ignored). Emits `FILE_CHANGE`.
+- `src/watcher.ts` — chokidar watcher over the per-workspace path sets delivered by `WATCH_PATHS_SYNC` (UI-subscribed files/dirs; dot-segments and `node_modules` beneath subscribed dirs ignored; empty set = nothing watched). Emits `FILE_CHANGE`.
 - `src/git/` — git ops via `simple-git` + `execFile`. Git-first file search (`git ls-files`, fallback to recursive traversal max depth 10 with no name filtering — dotfiles and `node_modules`/build dirs are surfaced). `DIR_LIST_REQUEST` (single-level, used by the Code tab tree) likewise returns every readable entry unfiltered.
 - `src/terminal/` — PTY spawning and suspend/resume lifecycle. See `src/terminal/CLAUDE.md` for wire format and security rules.
 - `src/container/` — devcontainer + coder workspace lifecycle, devcontainer config generation. Handles `CONTAINER_UP/DOWN/STATUS_*` and `DEVCONTAINER_CONFIG_GENERATE_*` requests.

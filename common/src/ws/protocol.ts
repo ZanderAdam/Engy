@@ -3,13 +3,12 @@ export interface RegisterMessage {
   payload: { homeDir?: string };
 }
 
-export interface WorkspacesSyncMessage {
-  type: 'WORKSPACES_SYNC';
+export interface WatchPathsSyncMessage {
+  type: 'WATCH_PATHS_SYNC';
   payload: {
     workspaces: Array<{
       slug: string;
-      repos: string[];
-      docsDir?: string | null;
+      paths: string[];
     }>;
   };
 }
@@ -697,7 +696,7 @@ export interface GhPrReviewCommentsResponseMessage {
 
 export type WsMessage =
   | RegisterMessage
-  | WorkspacesSyncMessage
+  | WatchPathsSyncMessage
   | ValidatePathsRequestMessage
   | ValidatePathsResponseMessage
   | CreateDirRequestMessage
@@ -803,7 +802,7 @@ export type ClientToServerMessage =
   | GhPrReviewCommentsResponseMessage;
 
 export type ServerToClientMessage =
-  | WorkspacesSyncMessage
+  | WatchPathsSyncMessage
   | ValidatePathsRequestMessage
   | CreateDirRequestMessage
   | SearchFilesRequestMessage

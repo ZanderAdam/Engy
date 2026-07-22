@@ -10,7 +10,7 @@ import { localRepoAdapter } from '../lib/requirements';
 
 let openClients: WebSocket[] = [];
 
-// Daemon registration sends WORKSPACES_SYNC, which reads the workspaces table.
+// Daemon registration sends WATCH_PATHS_SYNC, which reads the workspaces table.
 // Without an isolated, migrated DB the read would hit the ambient ~/.engy data
 // and break whenever the schema is ahead of that DB — so give every test here a
 // fresh migrated DB (registration uses the getDb() singleton, not local state).
@@ -56,7 +56,7 @@ function closeServer(server: Server): Promise<void> {
 
 /**
  * Wait for the next message of the given type and return it parsed.
- * Registration triggers an unrelated WORKSPACES_SYNC push that can race
+ * Registration triggers an unrelated WATCH_PATHS_SYNC push that can race
  * ahead of the request under test — skip anything that doesn't match.
  */
 function waitForMessage(ws: WebSocket, type: string): Promise<unknown> {
@@ -72,12 +72,12 @@ function waitForMessage(ws: WebSocket, type: string): Promise<unknown> {
 }
 
 /**
- * Register a WS as the daemon and consume the WORKSPACES_SYNC the server sends
+ * Register a WS as the daemon and consume the WATCH_PATHS_SYNC the server sends
  * back. Listening before sending REGISTER avoids a race where the sync either
  * got dropped (no listener yet) or polluted the next waitForMessage call.
  */
 async function registerDaemon(daemon: WebSocket): Promise<void> {
-  const synced = waitForMessage(daemon, 'WORKSPACES_SYNC');
+  const synced = waitForMessage(daemon, 'WATCH_PATHS_SYNC');
   daemon.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
   await synced;
 }

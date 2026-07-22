@@ -1,6 +1,14 @@
 'use client';
 
-import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from 'react';
 import type { TerminalActivityState } from '@engy/common';
 
 // ── Event Types ─────────────────────────────────────────────────────
@@ -89,6 +97,8 @@ interface EventsContextValue {
     cb: EventCallback<T>,
   ) => () => void;
   subscribeConnect: (cb: () => void) => () => void;
+  setWatchPaths: (key: symbol, workspaceSlug: string, paths: string[]) => void;
+  clearWatchPaths: (key: symbol) => void;
 }
 
 const EventsContext = createContext<EventsContextValue | null>(null);
@@ -100,11 +110,46 @@ interface EventsProviderProps {
   children: ReactNode;
 }
 
+const WATCH_FLUSH_DEBOUNCE_MS = 200;
+
 export function EventsProvider({ workspaceSlug, children }: EventsProviderProps) {
   const subscribersRef = useRef(new Map<string, Set<EventCallback<ServerEventType>>>());
   const connectSubscribersRef = useRef(new Set<() => void>());
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const watchRegistryRef = useRef(new Map<symbol, { workspaceSlug: string; paths: string[] }>());
+  const watchFlushTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastWatchSentRef = useRef<string | null>(null);
+
+  // Push this socket's full watch-path snapshot to the server (replace
+  // semantics — the server keeps only the latest set per socket).
+  const flushWatchPaths = useCallback((force = false) => {
+    const bySlug = new Map<string, Set<string>>();
+    for (const entry of watchRegistryRef.current.values()) {
+      let set = bySlug.get(entry.workspaceSlug);
+      if (!set) {
+        set = new Set();
+        bySlug.set(entry.workspaceSlug, set);
+      }
+      for (const p of entry.paths) set.add(p);
+    }
+    const subscriptions = [...bySlug.entries()]
+      .map(([slug, paths]) => ({ workspaceSlug: slug, paths: [...paths].sort() }))
+      .sort((a, b) => a.workspaceSlug.localeCompare(b.workspaceSlug));
+
+    const serialized = JSON.stringify({ type: 'WATCH_SUBSCRIBE', payload: { subscriptions } });
+    if (!force && serialized === lastWatchSentRef.current) return;
+
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(serialized);
+    lastWatchSentRef.current = serialized;
+  }, []);
+
+  const scheduleWatchFlush = useCallback(() => {
+    clearTimeout(watchFlushTimer.current);
+    watchFlushTimer.current = setTimeout(() => flushWatchPaths(), WATCH_FLUSH_DEBOUNCE_MS);
+  }, [flushWatchPaths]);
 
   useEffect(() => {
     let disposed = false;
@@ -120,6 +165,8 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
       // consumers holding derived state re-seed from their snapshot endpoints
       // on every (re)connect.
       ws.onopen = () => {
+        lastWatchSentRef.current = null;
+        flushWatchPaths(true);
         for (const cb of connectSubscribersRef.current) cb();
       };
 
@@ -164,6 +211,7 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
     return () => {
       disposed = true;
       clearTimeout(reconnectTimer.current);
+      clearTimeout(watchFlushTimer.current);
       const ws = wsRef.current;
       if (ws) {
         ws.onopen = null;
@@ -173,7 +221,7 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
         wsRef.current = null;
       }
     };
-  }, [workspaceSlug]);
+  }, [workspaceSlug, flushWatchPaths]);
 
   const contextValue = useMemo<EventsContextValue>(() => ({
     subscribe: (type, cb) => {
@@ -193,7 +241,15 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
         connectSubscribersRef.current.delete(cb);
       };
     },
-  }), []);
+    setWatchPaths: (key, slug, paths) => {
+      watchRegistryRef.current.set(key, { workspaceSlug: slug, paths });
+      scheduleWatchFlush();
+    },
+    clearWatchPaths: (key) => {
+      watchRegistryRef.current.delete(key);
+      scheduleWatchFlush();
+    },
+  }), [scheduleWatchFlush]);
 
   return (
     <EventsContext.Provider value={contextValue}>
@@ -234,6 +290,25 @@ export function useOnEventsConnect(callback: () => void): void {
     if (!ctx) return;
     return ctx.subscribeConnect(() => callbackRef.current());
   }, [ctx]);
+}
+
+/** Declare the absolute paths this surface is displaying. While mounted, the
+ * daemon watches them (and only subscribed paths) for FILE_CHANGE events. */
+export function useWatchPaths(workspaceSlug: string, paths: string[]): void {
+  const ctx = useContext(EventsContext);
+  const keyRef = useRef<symbol | null>(null);
+  if (keyRef.current === null) keyRef.current = Symbol('watch-paths');
+
+  // Keyed on content, not array identity, so callers can pass inline arrays.
+  // NUL delimiter — the only byte that cannot appear in a filesystem path.
+  const pathsKey = paths.join('\0');
+
+  useEffect(() => {
+    if (!ctx) return;
+    const key = keyRef.current!;
+    ctx.setWatchPaths(key, workspaceSlug, pathsKey === '' ? [] : pathsKey.split('\0'));
+    return () => ctx.clearWatchPaths(key);
+  }, [ctx, workspaceSlug, pathsKey]);
 }
 
 // ── Backward Compatibility ──────────────────────────────────────────

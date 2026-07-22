@@ -38,20 +38,48 @@ describe('SpecWatcher', { retry: 2 }, () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('[FR-FILES-190] should send FILE_CHANGE for any file under the workspace dir', async () => {
-    const systemDir = path.join(tmpDir, 'test-ws', 'system');
-    fs.mkdirSync(systemDir, { recursive: true });
+  it('[FR-FILES-190] should send FILE_CHANGE when a subscribed FILE is changed', async () => {
+    const subscribedFile = path.join(tmpDir, 'doc.md');
+    fs.writeFileSync(subscribedFile, 'initial');
 
-    const watcher = new SpecWatcher(tmpDir, wsClient, { usePolling: true, pollingInterval: 100 });
-    watcher.sync([{ slug: 'test-ws' }]);
+    const watcher = new SpecWatcher(wsClient, { usePolling: true, pollingInterval: 100 });
+    watcher.sync([{ slug: 'test-ws', paths: [subscribedFile] }]);
     await watcher.waitForReady('test-ws');
 
-    fs.writeFileSync(path.join(systemDir, 'test.md'), 'hello');
+    fs.writeFileSync(subscribedFile, 'updated');
 
     await waitForFileChange(wsClient);
 
     expect(wsClient.sent.length).toBeGreaterThan(0);
-    const msg = wsClient.sent[0] as { type: string; payload: { workspaceSlug: string; eventType: string } };
+    const msg = wsClient.sent[0] as {
+      type: string;
+      payload: { workspaceSlug: string; path: string; eventType: string };
+    };
+    expect(msg.type).toBe('FILE_CHANGE');
+    expect(msg.payload.workspaceSlug).toBe('test-ws');
+    expect(msg.payload.path).toBe(subscribedFile);
+    expect(msg.payload.eventType).toBe('change');
+
+    await watcher.closeAll();
+  }, 15_000);
+
+  it('[FR-FILES-190] should send FILE_CHANGE when a new file is created inside a subscribed DIRECTORY', async () => {
+    const subscribedDir = path.join(tmpDir, 'docs');
+    fs.mkdirSync(subscribedDir, { recursive: true });
+
+    const watcher = new SpecWatcher(wsClient, { usePolling: true, pollingInterval: 100 });
+    watcher.sync([{ slug: 'test-ws', paths: [subscribedDir] }]);
+    await watcher.waitForReady('test-ws');
+
+    fs.writeFileSync(path.join(subscribedDir, 'new.md'), 'hello');
+
+    await waitForFileChange(wsClient);
+
+    expect(wsClient.sent.length).toBeGreaterThan(0);
+    const msg = wsClient.sent[0] as {
+      type: string;
+      payload: { workspaceSlug: string; eventType: string };
+    };
     expect(msg.type).toBe('FILE_CHANGE');
     expect(msg.payload.workspaceSlug).toBe('test-ws');
     expect(msg.payload.eventType).toBe('add');
@@ -59,18 +87,17 @@ describe('SpecWatcher', { retry: 2 }, () => {
     await watcher.closeAll();
   }, 15_000);
 
-  it('[FR-FILES-190] should not send FILE_CHANGE for hidden dirs or node_modules', async () => {
-    const wsDir = path.join(tmpDir, 'test-ws');
-    fs.mkdirSync(path.join(wsDir, '.git'), { recursive: true });
-    fs.mkdirSync(path.join(wsDir, 'node_modules'), { recursive: true });
+  it('[FR-FILES-190] should NOT send FILE_CHANGE for an unsubscribed sibling file', async () => {
+    const subscribedFile = path.join(tmpDir, 'subscribed.md');
+    const siblingFile = path.join(tmpDir, 'sibling.md');
+    fs.writeFileSync(subscribedFile, 'initial');
+    fs.writeFileSync(siblingFile, 'initial');
 
-    const watcher = new SpecWatcher(tmpDir, wsClient, { usePolling: true, pollingInterval: 100 });
-    watcher.sync([{ slug: 'test-ws' }]);
+    const watcher = new SpecWatcher(wsClient, { usePolling: true, pollingInterval: 100 });
+    watcher.sync([{ slug: 'test-ws', paths: [subscribedFile] }]);
     await watcher.waitForReady('test-ws');
 
-    fs.writeFileSync(path.join(wsDir, '.git', 'index.md'), 'ignored');
-    fs.writeFileSync(path.join(wsDir, 'node_modules', 'pkg.md'), 'ignored');
-    fs.writeFileSync(path.join(wsDir, '.env'), 'ignored');
+    fs.writeFileSync(siblingFile, 'changed');
     await new Promise((r) => setTimeout(r, 500));
 
     expect(wsClient.sent.length).toBe(0);
@@ -78,18 +105,54 @@ describe('SpecWatcher', { retry: 2 }, () => {
     await watcher.closeAll();
   }, 15_000);
 
-  it('should stop watching on workspace removal', async () => {
-    const specsDir = path.join(tmpDir, 'ws-a', 'specs');
-    fs.mkdirSync(specsDir, { recursive: true });
+  it('[FR-FILES-190] sync with a changed path set: old path stops emitting, new path starts', async () => {
+    const oldFile = path.join(tmpDir, 'old.md');
+    const newFile = path.join(tmpDir, 'new.md');
+    fs.writeFileSync(oldFile, 'initial');
+    fs.writeFileSync(newFile, 'initial');
 
-    const watcher = new SpecWatcher(tmpDir, wsClient, { usePolling: true, pollingInterval: 100 });
-    watcher.sync([{ slug: 'ws-a' }]);
-    await watcher.waitForReady('ws-a');
+    const watcher = new SpecWatcher(wsClient, { usePolling: true, pollingInterval: 100 });
+    watcher.sync([{ slug: 'test-ws', paths: [oldFile] }]);
+    await watcher.waitForReady('test-ws');
 
+    // Confirm old path emits before re-sync
+    fs.writeFileSync(oldFile, 'updated-1');
+    await waitForFileChange(wsClient);
+    expect(wsClient.sent.length).toBeGreaterThan(0);
+    wsClient.sent.length = 0;
+
+    // Re-sync to new path
+    watcher.sync([{ slug: 'test-ws', paths: [newFile] }]);
+    await watcher.waitForReady('test-ws');
+
+    // Write to the new file — should emit
+    fs.writeFileSync(newFile, 'updated-2');
+    await waitForFileChange(wsClient);
+    const msgs = wsClient.sent as Array<{ payload: { path: string } }>;
+    expect(msgs.some((m) => m.payload.path === newFile)).toBe(true);
+
+    // Write to old file — should NOT emit
+    wsClient.sent.length = 0;
+    fs.writeFileSync(oldFile, 'updated-again');
+    await new Promise((r) => setTimeout(r, 500));
+    expect(wsClient.sent.length).toBe(0);
+
+    await watcher.closeAll();
+  }, 15_000);
+
+  it('[FR-FILES-190] sync with workspace absent or empty paths stops all emission', async () => {
+    const subscribedDir = path.join(tmpDir, 'docs');
+    fs.mkdirSync(subscribedDir, { recursive: true });
+
+    const watcher = new SpecWatcher(wsClient, { usePolling: true, pollingInterval: 100 });
+    watcher.sync([{ slug: 'test-ws', paths: [subscribedDir] }]);
+    await watcher.waitForReady('test-ws');
+
+    // Remove workspace from sync
     watcher.sync([]);
     await new Promise((r) => setTimeout(r, 200));
 
-    fs.writeFileSync(path.join(specsDir, 'late.md'), 'data');
+    fs.writeFileSync(path.join(subscribedDir, 'late.md'), 'data');
     await new Promise((r) => setTimeout(r, 500));
 
     expect(wsClient.sent.length).toBe(0);
@@ -97,65 +160,38 @@ describe('SpecWatcher', { retry: 2 }, () => {
     await watcher.closeAll();
   }, 15_000);
 
-  it('should re-create watcher when docsDir changes', async () => {
-    const oldDocsDir = path.join(tmpDir, 'ws-custom-old');
-    const newDocsDir = path.join(tmpDir, 'ws-custom-new');
+  it('[FR-FILES-190] sync with empty paths array for a workspace stops emission', async () => {
+    const subscribedDir = path.join(tmpDir, 'docs2');
+    fs.mkdirSync(subscribedDir, { recursive: true });
 
-    fs.mkdirSync(path.join(oldDocsDir, 'specs'), { recursive: true });
-    fs.mkdirSync(path.join(newDocsDir, 'specs'), { recursive: true });
+    const watcher = new SpecWatcher(wsClient, { usePolling: true, pollingInterval: 100 });
+    watcher.sync([{ slug: 'test-ws', paths: [subscribedDir] }]);
+    await watcher.waitForReady('test-ws');
 
-    const watcher = new SpecWatcher(tmpDir, wsClient, { usePolling: true, pollingInterval: 100 });
-    watcher.sync([{ slug: 'ws-custom', docsDir: oldDocsDir }]);
-    await watcher.waitForReady('ws-custom');
+    // Sync same workspace with empty paths
+    watcher.sync([{ slug: 'test-ws', paths: [] }]);
+    await new Promise((r) => setTimeout(r, 200));
 
-    // Write to old docsDir — should be picked up initially
-    fs.writeFileSync(path.join(oldDocsDir, 'specs', 'old.md'), 'v1');
-    await waitForFileChange(wsClient);
-    const countAfterOld = wsClient.sent.length;
-    expect(countAfterOld).toBeGreaterThan(0);
-
-    wsClient.sent.length = 0;
-
-    // Re-sync with a changed docsDir — watcher must migrate to newDocsDir
-    watcher.sync([{ slug: 'ws-custom', docsDir: newDocsDir }]);
-    await watcher.waitForReady('ws-custom');
-
-    // Write to the NEW docsDir — must trigger a FILE_CHANGE
-    fs.writeFileSync(path.join(newDocsDir, 'specs', 'new.md'), 'v2');
-    await waitForFileChange(wsClient);
-
-    const msgs = wsClient.sent as Array<{ type: string; payload: { path: string } }>;
-    expect(msgs.some((m) => m.payload.path.includes('new.md'))).toBe(true);
-
-    // Writing to the OLD docsDir after re-sync must NOT trigger FILE_CHANGE
-    wsClient.sent.length = 0;
-    fs.writeFileSync(path.join(oldDocsDir, 'specs', 'ignored.md'), 'should-be-ignored');
+    fs.writeFileSync(path.join(subscribedDir, 'late.md'), 'data');
     await new Promise((r) => setTimeout(r, 500));
+
     expect(wsClient.sent.length).toBe(0);
 
     await watcher.closeAll();
   }, 15_000);
 
-  it('should start watchers for new workspaces on sync', async () => {
-    const specsDirA = path.join(tmpDir, 'ws-a', 'specs');
-    const specsDirB = path.join(tmpDir, 'ws-b', 'specs');
-    fs.mkdirSync(specsDirA, { recursive: true });
-    fs.mkdirSync(specsDirB, { recursive: true });
+  it('[FR-FILES-190] should NOT send FILE_CHANGE for a dotfile inside a subscribed directory', async () => {
+    const subscribedDir = path.join(tmpDir, 'docs3');
+    fs.mkdirSync(subscribedDir, { recursive: true });
 
-    const watcher = new SpecWatcher(tmpDir, wsClient, { usePolling: true, pollingInterval: 100 });
-    watcher.sync([{ slug: 'ws-a' }]);
-    await watcher.waitForReady('ws-a');
+    const watcher = new SpecWatcher(wsClient, { usePolling: true, pollingInterval: 100 });
+    watcher.sync([{ slug: 'test-ws', paths: [subscribedDir] }]);
+    await watcher.waitForReady('test-ws');
 
-    watcher.sync([{ slug: 'ws-a' }, { slug: 'ws-b' }]);
-    await watcher.waitForReady('ws-b');
+    fs.writeFileSync(path.join(subscribedDir, '.hidden'), 'ignored');
+    await new Promise((r) => setTimeout(r, 500));
 
-    fs.writeFileSync(path.join(specsDirB, 'new.md'), 'data');
-
-    await waitForFileChange(wsClient);
-
-    const msgs = wsClient.sent as Array<{ payload: { workspaceSlug: string } }>;
-    const bMsgs = msgs.filter((m) => m.payload.workspaceSlug === 'ws-b');
-    expect(bMsgs.length).toBeGreaterThan(0);
+    expect(wsClient.sent.length).toBe(0);
 
     await watcher.closeAll();
   }, 15_000);

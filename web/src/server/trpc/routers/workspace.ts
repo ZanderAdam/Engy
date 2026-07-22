@@ -128,25 +128,6 @@ async function validatePathsOrCreateMissing(
   }
 }
 
-function broadcastWorkspacesSync(state: AppState): void {
-  if (!state.daemon || state.daemon.readyState !== 1) return;
-
-  const db = getDb();
-  const allWorkspaces = db.select().from(workspaces).all();
-  const syncPayload = allWorkspaces.map((w) => ({
-    slug: w.slug,
-    repos: (w.repos as string[]) ?? [],
-    docsDir: w.docsDir,
-  }));
-
-  state.daemon.send(
-    JSON.stringify({
-      type: 'WORKSPACES_SYNC',
-      payload: { workspaces: syncPayload },
-    }),
-  );
-}
-
 /**
  * Combined worktrees (one project view across all worktrees) is only safe when
  * the docs directory is NOT inside a repo — otherwise content is itself
@@ -281,8 +262,6 @@ export const workspaceRouter = router({
       } catch (err) {
         console.warn(`[workspace] Git init failed for ${slug}:`, err);
       }
-
-      broadcastWorkspacesSync(ctx.state);
 
       return workspace;
     }),
@@ -463,7 +442,6 @@ export const workspaceRouter = router({
           } catch {
             // Best-effort — don't mask the rename error
           }
-          broadcastWorkspacesSync(ctx.state);
           throw new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
             message: `Failed to rename workspace directory: ${(err as Error).message}`,
@@ -503,8 +481,6 @@ export const workspaceRouter = router({
         });
       }
 
-      broadcastWorkspacesSync(ctx.state);
-
       return updated;
     }),
 
@@ -540,8 +516,6 @@ export const workspaceRouter = router({
     } catch (err) {
       console.warn(`[workspace] Failed to remove directory for ${workspace.slug}:`, err);
     }
-
-    broadcastWorkspacesSync(ctx.state);
 
     return { success: true };
   }),

@@ -15,7 +15,6 @@ import type {
 } from '@engy/common';
 import type {
   AppState,
-  FileChangeEvent,
   GitStatusResult,
   GitLogResult,
   GitShowResult,
@@ -42,11 +41,10 @@ import type {
 } from '../trpc/context';
 import { getDb } from '../db/client';
 import { workspaces, agentSessions, tasks, taskGroups, projects, fleetingMemories } from '../db/schema';
-import { handleSpecFileChange } from '../spec/watcher';
 import { taskPlanSlug } from '../plan/service';
 import { broadcastFileChange, broadcastTaskChange } from './broadcast';
+import { sendWatchPathsSync } from './watch-subscriptions';
 
-const MAX_EVENTS_PER_WORKSPACE = 100;
 const VALIDATION_TIMEOUT_MS = 5_000;
 const FILE_SEARCH_TIMEOUT_MS = 10_000;
 const GIT_TIMEOUT_MS = 15_000;
@@ -144,7 +142,7 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       handleSearchFilesResponse(msg, state);
       break;
     case 'FILE_CHANGE':
-      handleFileChange(msg, state);
+      handleFileChange(msg);
       break;
     case 'GIT_STATUS_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGitStatus, (p) => ({
@@ -308,25 +306,7 @@ function handleRegister(ws: WebSocket, msg: RegisterMessage, state: AppState): v
     oldDaemon.terminate();
   }
 
-  try {
-    const db = getDb();
-    const allWorkspaces = db.select().from(workspaces).all();
-    const syncPayload = allWorkspaces.map((w) => ({
-      slug: w.slug,
-      repos: (w.repos as string[]) ?? [],
-      docsDir: w.docsDir,
-    }));
-
-    ws.send(
-      JSON.stringify({
-        type: 'WORKSPACES_SYNC',
-        payload: { workspaces: syncPayload },
-      }),
-    );
-    console.log(`[ws-main-server] Sent WORKSPACES_SYNC with ${syncPayload.length} workspaces`);
-  } catch (err) {
-    console.error('[ws-main-server] Failed to send WORKSPACES_SYNC:', err);
-  }
+  sendWatchPathsSync(state, { force: true });
 }
 
 function handleValidatePathsResponse(
@@ -342,27 +322,8 @@ function handleValidatePathsResponse(
 
 function handleFileChange(
   msg: { payload: { workspaceSlug: string; path: string; eventType: 'add' | 'change' | 'unlink' } },
-  state: AppState,
 ): void {
   const { workspaceSlug, path, eventType } = msg.payload;
-  const event: FileChangeEvent = { workspaceSlug, path, eventType, timestamp: Date.now() };
-
-  let events = state.fileChanges.get(workspaceSlug);
-  if (!events) {
-    events = [];
-    state.fileChanges.set(workspaceSlug, events);
-  }
-
-  events.push(event);
-
-  if (events.length > MAX_EVENTS_PER_WORKSPACE) {
-    events.splice(0, events.length - MAX_EVENTS_PER_WORKSPACE);
-  }
-
-  if (path.includes('/projects/') || path.includes('\\projects\\')) {
-    handleSpecFileChange(workspaceSlug, state);
-  }
-
   broadcastFileChange(workspaceSlug, path, eventType);
 }
 

@@ -3,7 +3,7 @@ import { WebSocketServer, type WebSocket as WsWebSocket } from 'ws';
 import { createServer, type Server } from 'node:http';
 import { WsClient, computeBackoff, deriveWsUrl, deriveTerminalRelayUrl } from './client.js';
 import type {
-  WorkspacesSyncMessage,
+  WatchPathsSyncMessage,
   ValidatePathsRequestMessage,
   ExecutionStartRequestMessage,
   ExecutionStopRequestMessage,
@@ -150,7 +150,7 @@ describe('WsClient', () => {
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync: vi.fn(),
+      onWatchPathsSync: vi.fn(),
     });
     client.connect();
 
@@ -159,27 +159,27 @@ describe('WsClient', () => {
     expect(JSON.parse(msg)).toEqual({ type: 'REGISTER', payload: { homeDir: os.homedir() } });
   });
 
-  it('[FR-WS-010] calls onWorkspacesSync when receiving WORKSPACES_SYNC', async () => {
-    const onWorkspacesSync = vi.fn();
+  it('[FR-WS-010] calls onWatchPathsSync when receiving WATCH_PATHS_SYNC', async () => {
+    const onWatchPathsSync = vi.fn();
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync,
+      onWatchPathsSync,
     });
     client.connect();
 
     const ws = await connPromise;
     await waitForMessage(ws); // consume REGISTER
 
-    const syncMessage: WorkspacesSyncMessage = {
-      type: 'WORKSPACES_SYNC',
-      payload: { workspaces: [{ slug: 'test-ws', repos: ['/tmp/repo'] }] },
+    const syncMessage: WatchPathsSyncMessage = {
+      type: 'WATCH_PATHS_SYNC',
+      payload: { workspaces: [{ slug: 'test-ws', paths: ['/tmp/docs'] }] },
     };
     ws.send(JSON.stringify(syncMessage));
 
     await vi.waitFor(() => {
-      expect(onWorkspacesSync).toHaveBeenCalledWith(syncMessage);
+      expect(onWatchPathsSync).toHaveBeenCalledWith(syncMessage);
     });
   });
 
@@ -193,7 +193,7 @@ describe('WsClient', () => {
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync: vi.fn(),
+      onWatchPathsSync: vi.fn(),
     });
     client.connect();
 
@@ -220,12 +220,12 @@ describe('WsClient', () => {
   });
 
   it('[FR-WS-130] reconnects after server closes connection', async () => {
-    const onWorkspacesSync = vi.fn();
+    const onWatchPathsSync = vi.fn();
     let connPromise = waitForConnection(server);
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync,
+      onWatchPathsSync,
     });
     client.connect();
 
@@ -246,7 +246,7 @@ describe('WsClient', () => {
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync: vi.fn(),
+      onWatchPathsSync: vi.fn(),
     });
     client.connect();
 
@@ -265,7 +265,7 @@ describe('WsClient', () => {
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync: vi.fn(),
+      onWatchPathsSync: vi.fn(),
     });
 
     expect(client.connected).toBe(false);
@@ -904,7 +904,7 @@ describe('WsClient remote file sync handlers', () => {
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync: vi.fn(),
+      onWatchPathsSync: vi.fn(),
     });
     client.connect();
 
@@ -937,7 +937,7 @@ describe('WsClient remote file sync handlers', () => {
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync: vi.fn(),
+      onWatchPathsSync: vi.fn(),
     });
     client.connect();
 
@@ -979,7 +979,7 @@ describe('WsClient remote file sync handlers', () => {
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync: vi.fn(),
+      onWatchPathsSync: vi.fn(),
     });
     client.connect();
 
@@ -1037,7 +1037,7 @@ describe('WsClient remote file sync handlers', () => {
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync: vi.fn(),
+      onWatchPathsSync: vi.fn(),
     });
     client.connect();
 
@@ -1087,7 +1087,7 @@ describe('WsClient remote file sync handlers', () => {
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync: vi.fn(),
+      onWatchPathsSync: vi.fn(),
     });
     client.connect();
 
@@ -1175,7 +1175,7 @@ describe('WsClient worktree merge handler', () => {
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync: vi.fn(),
+      onWatchPathsSync: vi.fn(),
     });
     client.connect();
 
@@ -1215,7 +1215,7 @@ describe('WsClient worktree merge handler', () => {
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync: vi.fn(),
+      onWatchPathsSync: vi.fn(),
     });
     client.connect();
 
@@ -1261,7 +1261,7 @@ describe('WsClient worktree merge handler', () => {
 
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync: vi.fn(),
+      onWatchPathsSync: vi.fn(),
     });
     client.connect();
 
@@ -1343,7 +1343,7 @@ describe('WsClient worktree add/remove handlers', () => {
     const connPromise = waitForConnection(server);
     client = new WsClient({
       serverUrl: `http://localhost:${port}`,
-      onWorkspacesSync: vi.fn(),
+      onWatchPathsSync: vi.fn(),
     });
     client.connect();
     const ws = await connPromise;

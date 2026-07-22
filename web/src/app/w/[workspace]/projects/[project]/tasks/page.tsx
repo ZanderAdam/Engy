@@ -7,6 +7,7 @@ import {
   useVirtualSearchParams,
 } from "@/components/tabs/tab-context";
 import { trpc } from "@/lib/trpc";
+import { useWatchPaths } from "@/contexts/events-context";
 import { ViewToggle, type TaskView } from "@/components/projects/task-views/view-toggle";
 import { DependencyGraph } from "@/components/projects/task-views/dependency-graph";
 import { KanbanBoard } from "@/components/projects/task-views/kanban-board";
@@ -44,6 +45,9 @@ export default function ProjectTasksPage() {
     { projectId: project?.id ?? 0 },
     { enabled: !!project },
   );
+
+  // Plan-file changes only flow while this page is watching its plans dir.
+  useWatchPaths(params.workspace, project?.projectDir ? [`${project.projectDir}/plans`] : []);
   const { data: milestones } = trpc.milestone.list.useQuery(
     { projectId: project?.id ?? 0 },
     { enabled: !!project },

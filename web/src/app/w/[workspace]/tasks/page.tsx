@@ -3,6 +3,7 @@
 import { useCallback, useMemo } from "react";
 import { useVirtualParams } from "@/components/tabs/tab-context";
 import { trpc } from "@/lib/trpc";
+import { useWatchPaths } from "@/contexts/events-context";
 import { EisenhowerMatrix } from "@/components/projects/task-views/eisenhower-matrix";
 import {
   TaskPageDialogs,
@@ -33,6 +34,14 @@ export default function TasksPage() {
   );
 
   const utils = trpc.useUtils();
+
+  // Plan-file changes only flow while this page is watching its plans dir.
+  useWatchPaths(
+    params.workspace,
+    workspace?.resolvedDir && defaultProject?.projectDir
+      ? [`${workspace.resolvedDir}/projects/${defaultProject.projectDir}/plans`]
+      : [],
+  );
 
   const controller = useTaskPageController({
     planReviewUrl: useCallback(

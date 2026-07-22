@@ -27,7 +27,7 @@ One router per domain (`<domain>.ts` + colocated `<domain>.test.ts`), exported a
   - Questions → `broadcastQuestionChange(action, taskId?, sessionId?)`
   - Terminal sessions → `broadcastTerminalSessionsChange(action, sessionId, groupKey?, newLabel?)`
   - Memories → `broadcastMemoryChange(action, workspaceId, memoryId?)`
-  - Workspaces → `broadcastWorkspacesSync(state)` (private helper local to `workspace.ts`, not in `broadcast.ts` — sends to daemon)
+  - Workspaces → no daemon broadcast on mutation; watching follows UI subscriptions via `WATCH_PATHS_SYNC` (see `ws/watch-subscriptions.ts`)
 - Don't expose `broadcastEvent` directly — add a typed wrapper to `broadcast.ts` first.
 - Fire-and-forget side effects (e.g., devcontainer generate) must `.catch()` and log — never block the mutation's response on a daemon roundtrip unless the response depends on it.
 

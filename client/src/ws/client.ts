@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type {
   ClientToServerMessage,
-  WorkspacesSyncMessage,
+  WatchPathsSyncMessage,
   ValidatePathsRequestMessage,
   CreateDirRequestMessage,
   SearchFilesRequestMessage,
@@ -127,7 +127,7 @@ const OUTBOX_MAX = 100;
 
 interface WsClientOptions {
   serverUrl: string;
-  onWorkspacesSync?: (message: WorkspacesSyncMessage) => void;
+  onWatchPathsSync?: (message: WatchPathsSyncMessage) => void;
   terminalManager?: TerminalManager;
   runner?: Runner;
 }
@@ -306,7 +306,7 @@ export class WsClient {
   private readonly wsUrl: string;
   private readonly terminalRelayUrl: string;
   private readonly serverPort: number;
-  private readonly onWorkspacesSync?: (message: WorkspacesSyncMessage) => void;
+  private readonly onWatchPathsSync?: (message: WatchPathsSyncMessage) => void;
   private readonly terminalManager?: TerminalManager;
   private readonly runner: Runner;
 
@@ -316,7 +316,7 @@ export class WsClient {
     this.serverPort = new URL(options.serverUrl).port
       ? parseInt(new URL(options.serverUrl).port, 10)
       : 3000;
-    this.onWorkspacesSync = options.onWorkspacesSync;
+    this.onWatchPathsSync = options.onWatchPathsSync;
     this.terminalManager = options.terminalManager;
     const spawner = new AgentSpawner(this.containerManager, this.coderManager);
     this.runner = options.runner ?? new Runner(spawner, (msg) => this.send(msg));
@@ -550,8 +550,8 @@ export class WsClient {
     }
 
     switch (message.type) {
-      case 'WORKSPACES_SYNC':
-        this.onWorkspacesSync?.(message as WorkspacesSyncMessage);
+      case 'WATCH_PATHS_SYNC':
+        this.onWatchPathsSync?.(message as WatchPathsSyncMessage);
         break;
       case 'VALIDATE_PATHS_REQUEST':
         this.handleValidatePathsRequest(message as ValidatePathsRequestMessage);

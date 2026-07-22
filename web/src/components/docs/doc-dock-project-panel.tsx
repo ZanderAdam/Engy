@@ -12,7 +12,7 @@ import { ImagePreview } from '@/components/editor/image-preview';
 import { TextFileEditor } from '@/components/editor/text-file-editor';
 import { UnsupportedFilePreview } from '@/components/editor/unsupported-file-preview';
 import { fileKind } from '@/lib/file-types';
-import { useOnFileChange } from '@/contexts/events-context';
+import { useOnFileChange, useWatchPaths } from '@/contexts/events-context';
 import { useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { useDocDock } from './doc-dock-context';
 import { usePanelOutline } from './use-panel-outline';
@@ -45,6 +45,12 @@ export function ProjectDocDockPanel({ params, api }: IDockviewPanelProps<DocPane
   const { data: projectData } = trpc.project.getBySlug.useQuery(
     { workspaceId: workspace?.id ?? 0, slug: projectSlug, worktreeBranch },
     { enabled: !!workspace },
+  );
+
+  // projectDir is absolute (and worktree-resolved when `?wt` is active).
+  useWatchPaths(
+    workspaceSlug,
+    projectData?.projectDir ? [`${projectData.projectDir}/${filePath}`] : [],
   );
 
   useOnFileChange(

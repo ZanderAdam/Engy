@@ -1,11 +1,10 @@
 import path from 'node:path';
-import { existsSync } from 'node:fs';
 import { watch, type FSWatcher, type ChokidarOptions } from 'chokidar';
 import type { WsClient } from './ws/client.js';
 
 interface WatchedWorkspace {
   slug: string;
-  docsDir?: string | null;
+  paths: string[];
 }
 
 interface SpecWatcherOptions {
@@ -20,76 +19,97 @@ const DEFAULT_POLLING_INTERVAL_MS = 1_000;
 
 interface WatcherEntry {
   watcher: FSWatcher;
-  docsDir: string | null | undefined;
+  pathKey: string;
+  ready: boolean;
+}
+
+function sortedPathKey(paths: string[]): string {
+  return paths.join('\0');
+}
+
+// Determine whether a candidate path should be ignored given the workspace's
+// subscribed paths. Dot-segments and node_modules are pruned only for content
+// beneath a subscribed path, not for the subscribed path itself. Anything
+// outside every subscribed path is ignored outright.
+function isIgnored(candidate: string, subscribedPaths: string[]): boolean {
+  for (const sp of subscribedPaths) {
+    if (candidate === sp) return false;
+    if (candidate.startsWith(sp + path.sep)) {
+      const remainder = candidate.slice(sp.length + path.sep.length);
+      const segments = remainder.split(path.sep);
+      return segments.some((seg) => seg.startsWith('.') || seg === 'node_modules');
+    }
+  }
+  return true;
 }
 
 export class SpecWatcher {
   private watchers = new Map<string, WatcherEntry>();
-  private readonly engyDir: string;
   private readonly wsClient: WsClient;
   private readonly options: SpecWatcherOptions;
 
-  constructor(engyDir: string, wsClient: WsClient, options: SpecWatcherOptions = {}) {
-    this.engyDir = engyDir;
+  constructor(wsClient: WsClient, options: SpecWatcherOptions = {}) {
     this.wsClient = wsClient;
     this.options = options;
   }
 
   sync(workspaces: WatchedWorkspace[]): void {
-    const desired = new Set(workspaces.map((w) => w.slug));
+    const desired = new Map(workspaces.map((w) => [w.slug, w]));
 
     for (const [slug, entry] of this.watchers) {
       if (!desired.has(slug)) {
-        entry.watcher.close();
+        this.closeEntry(entry);
         this.watchers.delete(slug);
       }
     }
 
     for (const ws of workspaces) {
+      const paths = [...new Set(ws.paths)].sort();
+      const pathKey = sortedPathKey(paths);
       const existing = this.watchers.get(ws.slug);
-      if (existing && existing.docsDir === ws.docsDir) continue;
+      if (existing && existing.pathKey === pathKey) continue;
 
       if (existing) {
-        existing.watcher.close();
+        this.closeEntry(existing);
         this.watchers.delete(ws.slug);
       }
+      if (paths.length === 0) continue;
 
-      this.startWatching(ws);
+      this.startWatching(ws.slug, paths);
     }
   }
 
   waitForReady(slug: string): Promise<void> {
     const entry = this.watchers.get(slug);
-    if (!entry) return Promise.resolve();
+    if (!entry || entry.ready) return Promise.resolve();
     return new Promise((resolve) => {
       entry.watcher.on('ready', resolve);
     });
   }
 
-  private startWatching(ws: WatchedWorkspace): void {
-    // Use docsDir if set, otherwise default to ENGY_DIR/slug
-    const workspaceDir = ws.docsDir ?? path.join(this.engyDir, ws.slug);
-    if (!existsSync(workspaceDir)) return;
+  // Detach the event relay before closing so a superseded watcher can't emit
+  // stale FILE_CHANGE messages while chokidar tears down asynchronously.
+  private closeEntry(entry: WatcherEntry): void {
+    entry.watcher.removeAllListeners('all');
+    entry.watcher.close();
+  }
 
-    // Watch the whole workspace docs dir (the docs UI renders all of it), but
-    // skip hidden dirs and node_modules — the docs tree hides those, and
-    // polling them every second would be wasteful. Polling cost assumes
-    // docsDir is a dedicated docs directory, not a full repo root.
+  private startWatching(slug: string, paths: string[]): void {
     const watchOptions: ChokidarOptions = {
       ignoreInitial: true,
       depth: 10,
-      ignored: (filePath: string) =>
-        path
-          .relative(workspaceDir, filePath)
-          .split(path.sep)
-          .some((segment) => segment.startsWith('.') || segment === 'node_modules'),
+      ignored: (filePath: string) => isIgnored(filePath, paths),
     };
     if (this.options.usePolling ?? DEFAULT_USE_POLLING) {
       watchOptions.usePolling = true;
       watchOptions.interval = this.options.pollingInterval ?? DEFAULT_POLLING_INTERVAL_MS;
     }
 
-    const watcher = watch(workspaceDir, watchOptions);
+    const watcher = watch(paths, watchOptions);
+    const entry: WatcherEntry = { watcher, pathKey: sortedPathKey(paths), ready: false };
+    watcher.on('ready', () => {
+      entry.ready = true;
+    });
 
     watcher.on('all', (eventType: string, filePath: string) => {
       const mapped = mapEventType(eventType);
@@ -98,14 +118,14 @@ export class SpecWatcher {
       this.wsClient.send({
         type: 'FILE_CHANGE',
         payload: {
-          workspaceSlug: ws.slug,
+          workspaceSlug: slug,
           path: filePath,
           eventType: mapped,
         },
       });
     });
 
-    this.watchers.set(ws.slug, { watcher, docsDir: ws.docsDir });
+    this.watchers.set(slug, entry);
   }
 
   async closeAll(): Promise<void> {

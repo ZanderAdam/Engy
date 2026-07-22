@@ -7,7 +7,7 @@ import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-edit
 import { EngyThreadStore } from '@/components/editor/document-editor';
 import { FileContentPreview } from '@/components/editor/file-content-preview';
 import { fileKind } from '@/lib/file-types';
-import { useOnFileChange } from '@/contexts/events-context';
+import { useOnFileChange, useWatchPaths } from '@/contexts/events-context';
 import { useDocDock } from './doc-dock-context';
 import { usePanelOutline } from './use-panel-outline';
 import type { DocPanelParams } from './types';
@@ -26,6 +26,8 @@ export function WorkspaceDocDockPanel({ params, api }: IDockviewPanelProps<DocPa
   }, [kind, onOutlineChange]);
 
   const utils = trpc.useUtils();
+
+  useWatchPaths(workspaceSlug, [`${rootDir}/${filePath}`]);
 
   useOnFileChange(
     useCallback(
