@@ -14,8 +14,7 @@ interface SpecWatcherOptions {
 }
 
 // Polling default avoids libuv FSEvents interference with node-pty master-fd
-// reads on macOS, which silently drops PTY child output. Spec dirs are small
-// so 1s polling is cheap.
+// reads on macOS, which silently drops PTY child output.
 const DEFAULT_USE_POLLING = true;
 const DEFAULT_POLLING_INTERVAL_MS = 1_000;
 
@@ -68,28 +67,29 @@ export class SpecWatcher {
   }
 
   private startWatching(ws: WatchedWorkspace): void {
+    // Use docsDir if set, otherwise default to ENGY_DIR/slug
+    const workspaceDir = ws.docsDir ?? path.join(this.engyDir, ws.slug);
+    if (!existsSync(workspaceDir)) return;
+
+    // Watch the whole workspace docs dir (the docs UI renders all of it), but
+    // skip hidden dirs and node_modules — the docs tree hides those, and
+    // polling them every second would be wasteful. Polling cost assumes
+    // docsDir is a dedicated docs directory, not a full repo root.
     const watchOptions: ChokidarOptions = {
       ignoreInitial: true,
       depth: 10,
+      ignored: (filePath: string) =>
+        path
+          .relative(workspaceDir, filePath)
+          .split(path.sep)
+          .some((segment) => segment.startsWith('.') || segment === 'node_modules'),
     };
     if (this.options.usePolling ?? DEFAULT_USE_POLLING) {
       watchOptions.usePolling = true;
       watchOptions.interval = this.options.pollingInterval ?? DEFAULT_POLLING_INTERVAL_MS;
     }
 
-    // Use docsDir if set, otherwise default to ENGY_DIR/slug
-    const workspaceDir = ws.docsDir ?? path.join(this.engyDir, ws.slug);
-    const watchPaths: string[] = [];
-    for (const subdir of ['specs', 'projects']) {
-      const dir = path.join(workspaceDir, subdir);
-      if (existsSync(dir)) {
-        watchPaths.push(dir);
-      }
-    }
-
-    if (watchPaths.length === 0) return;
-
-    const watcher = watch(watchPaths, watchOptions);
+    const watcher = watch(workspaceDir, watchOptions);
 
     watcher.on('all', (eventType: string, filePath: string) => {
       const mapped = mapEventType(eventType);

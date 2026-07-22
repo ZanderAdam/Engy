@@ -76,6 +76,11 @@ export function WorkspaceDocDockPanel({ params, api }: IDockviewPanelProps<DocPa
     [rootDir, filePath],
   );
 
+  // Only wired to the markdown editor, whose content comes from dir.read.
+  const handleRefresh = useCallback(() => {
+    utils.dir.read.invalidate({ dirPath: rootDir, filePath });
+  }, [utils, rootDir, filePath]);
+
   const fileName = filePath.split('/').pop() ?? filePath;
 
   return (
@@ -98,6 +103,7 @@ export function WorkspaceDocDockPanel({ params, api }: IDockviewPanelProps<DocPa
         filePath={filePath}
         mentionDirs={repos.length > 0 ? repos : undefined}
         onOutlineChange={onOutlineChange}
+        onRefresh={handleRefresh}
       />
     </FileContentPreview>
   );

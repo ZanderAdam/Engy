@@ -24,6 +24,7 @@ import {
   RiChat3Line,
   RiCloseLine,
   RiDownloadLine,
+  RiRefreshLine,
 } from "@remixicon/react";
 import {
   Tooltip,
@@ -88,6 +89,8 @@ interface DocumentEditorProps {
   mentionDirs?: string[];
   /** Called with the document's headings on load and on every edit. */
   onOutlineChange?: (headings: OutlineHeading[]) => void;
+  /** Reload the document from its source (e.g. re-read the file from disk). */
+  onRefresh?: () => void;
 }
 
 /** Imperative handle for DocumentEditor. Callers hold a ref to flush pending saves. */
@@ -113,6 +116,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   filePath,
   mentionDirs,
   onOutlineChange,
+  onRefresh,
 }, handleRef) {
   const { resolvedTheme } = useTheme();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -441,6 +445,23 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
                   </TooltipContent>
                 </Tooltip>
               )}
+              {onRefresh && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={onRefresh}
+                      className="h-6 w-6 p-0 text-muted-foreground"
+                    >
+                      <RiRefreshLine className="size-3" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>Reload from disk</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -502,15 +523,23 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
                   )}
                 </Button>
                 <SendToTerminalButton getContent={getFormattedComments} />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCommentsCollapsed(true)}
-                  className="h-6 px-1.5 text-xs text-muted-foreground"
-                  title="Collapse comments"
-                >
-                  <RiCloseLine className="size-3" />
-                </Button>
+                <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setCommentsCollapsed(true)}
+                        className="h-6 px-1.5 text-xs text-muted-foreground"
+                      >
+                        <RiCloseLine className="size-3" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p>Collapse comments</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
             </div>
             <div className="p-3">

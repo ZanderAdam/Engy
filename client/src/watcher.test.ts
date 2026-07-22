@@ -38,15 +38,15 @@ describe('SpecWatcher', { retry: 2 }, () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('[FR-FILES-190] should send FILE_CHANGE when a spec file changes', async () => {
-    const specsDir = path.join(tmpDir, 'test-ws', 'specs');
-    fs.mkdirSync(specsDir, { recursive: true });
+  it('[FR-FILES-190] should send FILE_CHANGE for any file under the workspace dir', async () => {
+    const systemDir = path.join(tmpDir, 'test-ws', 'system');
+    fs.mkdirSync(systemDir, { recursive: true });
 
     const watcher = new SpecWatcher(tmpDir, wsClient, { usePolling: true, pollingInterval: 100 });
     watcher.sync([{ slug: 'test-ws' }]);
     await watcher.waitForReady('test-ws');
 
-    fs.writeFileSync(path.join(specsDir, 'test.md'), 'hello');
+    fs.writeFileSync(path.join(systemDir, 'test.md'), 'hello');
 
     await waitForFileChange(wsClient);
 
@@ -55,6 +55,25 @@ describe('SpecWatcher', { retry: 2 }, () => {
     expect(msg.type).toBe('FILE_CHANGE');
     expect(msg.payload.workspaceSlug).toBe('test-ws');
     expect(msg.payload.eventType).toBe('add');
+
+    await watcher.closeAll();
+  }, 15_000);
+
+  it('[FR-FILES-190] should not send FILE_CHANGE for hidden dirs or node_modules', async () => {
+    const wsDir = path.join(tmpDir, 'test-ws');
+    fs.mkdirSync(path.join(wsDir, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(wsDir, 'node_modules'), { recursive: true });
+
+    const watcher = new SpecWatcher(tmpDir, wsClient, { usePolling: true, pollingInterval: 100 });
+    watcher.sync([{ slug: 'test-ws' }]);
+    await watcher.waitForReady('test-ws');
+
+    fs.writeFileSync(path.join(wsDir, '.git', 'index.md'), 'ignored');
+    fs.writeFileSync(path.join(wsDir, 'node_modules', 'pkg.md'), 'ignored');
+    fs.writeFileSync(path.join(wsDir, '.env'), 'ignored');
+    await new Promise((r) => setTimeout(r, 500));
+
+    expect(wsClient.sent.length).toBe(0);
 
     await watcher.closeAll();
   }, 15_000);

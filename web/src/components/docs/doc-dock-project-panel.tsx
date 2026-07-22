@@ -143,6 +143,14 @@ export function ProjectDocDockPanel({ params, api }: IDockviewPanelProps<DocPane
     [isSpecMd, workspaceSlug, projectSlug, filePath, worktreeBranch],
   );
 
+  const handleRefresh = useCallback(() => {
+    if (isSpecMd) {
+      utils.project.getSpec.invalidate({ workspaceSlug, projectSlug, worktreeBranch });
+    } else {
+      utils.project.readFile.invalidate({ workspaceSlug, projectSlug, filePath, worktreeBranch });
+    }
+  }, [utils, isSpecMd, workspaceSlug, projectSlug, filePath, worktreeBranch]);
+
   const editorBody = isSpecMd ? (spec?.body ?? '') : (fileData?.content ?? '');
   const fileName = filePath.split('/').pop() ?? filePath;
 
@@ -195,6 +203,7 @@ export function ProjectDocDockPanel({ params, api }: IDockviewPanelProps<DocPane
         filePath={`${projectSlug}/${filePath}`}
         mentionDirs={mentionDirs.length > 0 ? mentionDirs : undefined}
         onOutlineChange={onOutlineChange}
+        onRefresh={handleRefresh}
       />
     );
   }
