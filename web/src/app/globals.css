@@ -215,6 +215,15 @@
   gap: 0.5rem;
 }
 
+/* BlockNote: inline code needs its own background — the library only sets monospace */
+.bn-editor .bn-inline-content code {
+  background-color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+  font-size: 0.875em;
+}
+
 /* BlockNote: improve link contrast in dark mode */
 .dark .bn-shadcn .bn-editor a {
   color: oklch(0.7 0.15 250);
