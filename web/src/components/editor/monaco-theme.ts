@@ -27,3 +27,50 @@ export const engyDarkTheme: editor.IStandaloneThemeData = {
     'scrollbarSlider.activeBackground': '#52525b80',
   },
 };
+
+export const ENGY_CYBERPUNK_THEME_NAME = 'engy-cyberpunk';
+
+/** Neon syntax palette matching the cyberpunk flavor's xterm theme. */
+export const engyCyberpunkTheme: editor.IStandaloneThemeData = {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [
+    { token: 'comment', foreground: '8a4a52', fontStyle: 'italic' },
+    { token: 'keyword', foreground: 'ff3bd4' },
+    { token: 'string', foreground: '00ff9f' },
+    { token: 'number', foreground: 'fcee0a' },
+    { token: 'regexp', foreground: 'fcee0a' },
+    { token: 'type', foreground: '00f0ff' },
+    { token: 'class', foreground: '00f0ff' },
+    { token: 'interface', foreground: '00f0ff' },
+    { token: 'function', foreground: 'ff6b5e' },
+    { token: 'variable', foreground: 'ffd9d4' },
+    { token: 'constant', foreground: 'fcee0a' },
+    { token: 'delimiter', foreground: 'ff5c73' },
+    { token: 'tag', foreground: 'ff3bd4' },
+    { token: 'attribute.name', foreground: '00f0ff' },
+    { token: 'attribute.value', foreground: '00ff9f' },
+  ],
+  colors: {
+    'editor.background': '#0d060a',
+    'editor.foreground': '#ffd9d4',
+    'editor.lineHighlightBackground': '#1a0d14',
+    'editor.selectionBackground': '#00f0ff26',
+    'editorLineNumber.foreground': '#5c2a3a',
+    'editorLineNumber.activeForeground': '#ff5c73',
+    'editorGutter.background': '#0d060a',
+    'editorCursor.foreground': '#fcee0a',
+    'diffEditor.insertedTextBackground': '#00ff9f2e',
+    'diffEditor.removedTextBackground': '#ff2a4d33',
+    'diffEditor.insertedLineBackground': '#00ff9f1a',
+    'diffEditor.removedLineBackground': '#ff2a4d1f',
+    'editorWidget.background': '#140a10',
+    'editorWidget.border': '#7a2233',
+    'editor.findMatchBackground': '#fcee0a4d',
+    'editor.findMatchHighlightBackground': '#fcee0a26',
+    'scrollbar.shadow': '#00000000',
+    'scrollbarSlider.background': '#5c2a3a80',
+    'scrollbarSlider.hoverBackground': '#7a2f4480',
+    'scrollbarSlider.activeBackground': '#ff2a4d80',
+  },
+};

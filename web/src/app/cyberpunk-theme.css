@@ -8,6 +8,7 @@ html.theme-cyberpunk {
   --cp-cyan: oklch(0.8 0.15 195);
   --cp-cyan-dim: oklch(0.68 0.14 195);
   --cp-yellow: oklch(0.92 0.19 105);
+  scrollbar-color: oklch(0.42 0.17 18) transparent;
 }
 
 /* ---------------------------------------------------------------- */

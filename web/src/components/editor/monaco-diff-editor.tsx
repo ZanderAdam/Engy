@@ -3,10 +3,16 @@
 import { useRef, useCallback, useEffect } from 'react';
 import { DiffEditor, type DiffBeforeMount, type DiffOnMount } from '@monaco-editor/react';
 import type { editor, IDisposable } from 'monaco-editor';
-import { ENGY_THEME_NAME, engyDarkTheme } from './monaco-theme';
+import {
+  ENGY_THEME_NAME,
+  ENGY_CYBERPUNK_THEME_NAME,
+  engyDarkTheme,
+  engyCyberpunkTheme,
+} from './monaco-theme';
 import { getLanguageFromPath } from './language-map';
 import { diffModelPaths } from './monaco-models';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useThemeFlavor } from '@/components/theme-provider';
 
 interface MonacoDiffEditorProps {
   original: string;
@@ -41,6 +47,7 @@ export function MonacoDiffEditor({
   // lineNumber" during a later layout), whereas setScrollTop clamps and never throws.
   const scrollTopsRef = useRef<Map<string, number>>(new Map());
   const isMobile = useIsMobile();
+  const { flavor } = useThemeFlavor();
 
   const { originalModelPath, modifiedModelPath } = diffModelPaths(
     modelNamespace,
@@ -50,6 +57,7 @@ export function MonacoDiffEditor({
 
   const handleBeforeMount: DiffBeforeMount = useCallback((monaco) => {
     monaco.editor.defineTheme(ENGY_THEME_NAME, engyDarkTheme);
+    monaco.editor.defineTheme(ENGY_CYBERPUNK_THEME_NAME, engyCyberpunkTheme);
   }, []);
 
   const handleMount: DiffOnMount = useCallback(
@@ -119,7 +127,7 @@ export function MonacoDiffEditor({
       keepCurrentOriginalModel
       keepCurrentModifiedModel
       language={language}
-      theme={ENGY_THEME_NAME}
+      theme={flavor === 'cyberpunk' ? ENGY_CYBERPUNK_THEME_NAME : ENGY_THEME_NAME}
       beforeMount={handleBeforeMount}
       onMount={handleMount}
       options={{

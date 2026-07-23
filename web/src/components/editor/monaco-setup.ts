@@ -1,5 +1,10 @@
 import type * as Monaco from 'monaco-editor';
-import { ENGY_THEME_NAME, engyDarkTheme } from './monaco-theme';
+import {
+  ENGY_THEME_NAME,
+  ENGY_CYBERPUNK_THEME_NAME,
+  engyDarkTheme,
+  engyCyberpunkTheme,
+} from './monaco-theme';
 
 type MonacoApi = typeof Monaco;
 
@@ -39,6 +44,7 @@ const configured = new WeakSet<MonacoApi>();
  */
 export function configureMonaco(monaco: MonacoApi): void {
   monaco.editor.defineTheme(ENGY_THEME_NAME, engyDarkTheme);
+  monaco.editor.defineTheme(ENGY_CYBERPUNK_THEME_NAME, engyCyberpunkTheme);
 
   if (configured.has(monaco)) return;
   configured.add(monaco);

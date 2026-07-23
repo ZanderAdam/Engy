@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
-import { ENGY_THEME_NAME } from './monaco-theme';
+import { ENGY_THEME_NAME, ENGY_CYBERPUNK_THEME_NAME } from './monaco-theme';
 import { configureMonaco } from './monaco-setup';
+import { useThemeFlavor } from '@/components/theme-provider';
 import { buildCodeEditorOptions } from './monaco-options';
 import { namespacedModelPath } from './monaco-models';
 import { getLanguageFromPath } from './language-map';
@@ -46,6 +47,7 @@ export function MonacoCodeEditor({
   onEditorMount,
 }: MonacoCodeEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const { flavor } = useThemeFlavor();
   const onCursorChangeRef = useRef(onCursorChange);
   useEffect(() => {
     onCursorChangeRef.current = onCursorChange;
@@ -87,7 +89,7 @@ export function MonacoCodeEditor({
       path={path}
       value={content}
       language={language}
-      theme={ENGY_THEME_NAME}
+      theme={flavor === 'cyberpunk' ? ENGY_CYBERPUNK_THEME_NAME : ENGY_THEME_NAME}
       beforeMount={handleBeforeMount}
       onMount={handleMount}
       onChange={(value) => onChange?.(value ?? '')}
