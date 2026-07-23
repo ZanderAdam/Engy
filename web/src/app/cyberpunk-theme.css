@@ -1,156 +1,395 @@
 /* Cyberpunk theme: interactive overrides
-   Loaded AFTER Tailwind utilities so !important overrides work */
+   Loaded AFTER Tailwind utilities so !important overrides work.
+   Palette: neon red (danger/frames), cyan (interactive), yellow (primary). */
+
+html.theme-cyberpunk {
+  --cp-red: oklch(0.62 0.26 25);
+  --cp-red-dim: oklch(0.5 0.22 18);
+  --cp-cyan: oklch(0.8 0.15 195);
+  --cp-cyan-dim: oklch(0.68 0.14 195);
+  --cp-yellow: oklch(0.92 0.19 105);
+}
+
+/* ---------------------------------------------------------------- */
+/* Ambient CRT layer: grid floor, scanlines, vignette, sweep line   */
+/* ---------------------------------------------------------------- */
+
+html.theme-cyberpunk body {
+  background-image:
+    linear-gradient(oklch(0.62 0.26 25 / 3%) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(0.62 0.26 25 / 3%) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* Scanlines with an occasional flicker.
+   z-index sits above Radix portals on purpose: the CRT effect covers the
+   whole screen, dialogs included. pointer-events: none keeps UI clickable. */
+html.theme-cyberpunk body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  will-change: opacity;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    oklch(0 0 0 / 10%) 0px,
+    oklch(0 0 0 / 10%) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  animation: cp-flicker 6s infinite;
+}
+
+/* Vignette */
+html.theme-cyberpunk body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 60%, oklch(0 0 0 / 35%) 100%);
+}
+
+/* Slow cyan sweep line traveling down the screen */
+html.theme-cyberpunk::after {
+  content: '';
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: -10%;
+  height: 8%;
+  z-index: 9999;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, oklch(0.8 0.15 195 / 4%), transparent);
+  animation: cp-sweep 10s linear infinite;
+}
+
+/* ---------------------------------------------------------------- */
+/* Buttons                                                          */
+/* ---------------------------------------------------------------- */
+
+html.theme-cyberpunk [data-slot='button'] {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Notched corner on framed buttons (CP2077 signature cut) */
+html.theme-cyberpunk [data-slot='button'][data-variant='default'],
+html.theme-cyberpunk [data-slot='button'][data-variant='outline'],
+html.theme-cyberpunk [data-slot='button'][data-variant='secondary'],
+html.theme-cyberpunk [data-slot='button'][data-variant='destructive'] {
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+  border-radius: 0 !important;
+}
 
 /* Red borders on outline buttons only (overrides dark:border-input) */
-html.theme-cyberpunk [data-slot="button"][data-variant="outline"] {
-  border-color: oklch(0.50 0.22 18) !important;
+html.theme-cyberpunk [data-slot='button'][data-variant='outline'] {
+  border-color: var(--cp-red-dim) !important;
 }
 
-/* Blue hover + glitch on non-ghost/link buttons and interactive elements */
-html.theme-cyberpunk [data-slot="button"]:not([data-variant="ghost"]):not([data-variant="link"]):hover,
-html.theme-cyberpunk [role="menuitem"]:hover,
-html.theme-cyberpunk [role="option"]:hover,
-html.theme-cyberpunk [data-slot="sidebar-menu-button"]:hover {
-  background: linear-gradient(to top, oklch(0.55 0.16 240 / 20%), transparent 80%) !important;
-  border-color: oklch(0.65 0.16 240) !important;
-  color: oklch(0.75 0.12 240) !important;
-  text-shadow: 0 0 8px oklch(0.70 0.14 240 / 50%);
-  box-shadow: 0 0 12px oklch(0.55 0.16 240 / 35%), inset 0 0 8px oklch(0.55 0.16 240 / 10%);
-  animation: cyberpunk-glitch 0.15s steps(2) 1;
+/* Primary (yellow) button hover: brighter glow, no recolor */
+html.theme-cyberpunk [data-slot='button'][data-variant='default']:hover {
+  filter: drop-shadow(0 0 8px oklch(0.92 0.19 105 / 60%));
+  animation: cp-glitch 0.2s steps(2) 1;
 }
 
-/* Ghost/link buttons: subtle blue text on hover only */
-html.theme-cyberpunk [data-slot="button"][data-variant="ghost"]:hover,
-html.theme-cyberpunk [data-slot="button"][data-variant="link"]:hover {
-  color: oklch(0.75 0.12 240) !important;
-  text-shadow: 0 0 6px oklch(0.70 0.14 240 / 30%);
+/* Destructive button hover: red glow, keeps the danger semantic */
+html.theme-cyberpunk [data-slot='button'][data-variant='destructive']:hover {
+  filter: drop-shadow(0 0 8px oklch(0.62 0.26 25 / 60%));
+  animation: cp-glitch 0.2s steps(2) 1;
 }
 
-/* Nav tab hover: bottom-up blue glow gradient + blue underline */
+/* Cyan takeover + glitch on other framed buttons and interactive rows */
+html.theme-cyberpunk
+  [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):not(
+    [data-variant='default']
+  ):not([data-variant='destructive']):hover,
+html.theme-cyberpunk [role='menuitem']:hover,
+html.theme-cyberpunk [role='option']:hover,
+html.theme-cyberpunk [data-slot='sidebar-menu-button']:hover {
+  background: linear-gradient(to top, oklch(0.8 0.15 195 / 18%), transparent 80%) !important;
+  border-color: var(--cp-cyan) !important;
+  color: var(--cp-cyan) !important;
+  text-shadow:
+    -1px 0 oklch(0.62 0.26 25 / 60%),
+    1px 0 oklch(0.8 0.15 195 / 60%);
+  filter: drop-shadow(0 0 6px oklch(0.8 0.15 195 / 45%));
+  animation: cp-glitch 0.2s steps(2) 1;
+}
+
+/* Ghost/link buttons: subtle cyan text on hover only */
+html.theme-cyberpunk [data-slot='button'][data-variant='ghost']:hover,
+html.theme-cyberpunk [data-slot='button'][data-variant='link']:hover {
+  color: var(--cp-cyan) !important;
+  text-shadow: 0 0 6px oklch(0.8 0.15 195 / 35%);
+}
+
+/* ---------------------------------------------------------------- */
+/* Nav tabs                                                         */
+/* ---------------------------------------------------------------- */
+
+html.theme-cyberpunk nav a {
+  position: relative;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
 html.theme-cyberpunk nav a:hover {
-  color: oklch(0.75 0.14 240) !important;
-  background: linear-gradient(to top, oklch(0.70 0.16 240 / 20%), transparent 70%) !important;
-  animation: cyberpunk-glitch 0.15s steps(2) 1;
+  color: var(--cp-cyan) !important;
+  background: linear-gradient(to top, oklch(0.8 0.15 195 / 18%), transparent 70%) !important;
+  text-shadow:
+    -1px 0 oklch(0.62 0.26 25 / 50%),
+    1px 0 oklch(0.8 0.15 195 / 50%);
+  animation: cp-glitch 0.2s steps(2) 1;
 }
 
 html.theme-cyberpunk nav a:hover::after {
-  content: "";
+  content: '';
   position: absolute;
   inset-inline: 0;
   bottom: 0;
   height: 2px;
-  background-color: oklch(0.70 0.16 240);
-  box-shadow: 0 0 8px oklch(0.70 0.16 240 / 60%);
+  background-color: var(--cp-cyan);
+  box-shadow: 0 0 8px oklch(0.8 0.15 195 / 60%);
 }
 
-/* Active nav tab: blue text + stronger bottom glow gradient */
+/* Active nav tab: cyan text + stronger bottom glow gradient */
 html.theme-cyberpunk nav a.text-foreground {
-  color: oklch(0.75 0.14 240) !important;
-  background: linear-gradient(to top, oklch(0.70 0.16 240 / 30%), transparent 70%) !important;
+  color: var(--cp-cyan) !important;
+  background: linear-gradient(to top, oklch(0.8 0.15 195 / 28%), transparent 70%) !important;
 }
 
 html.theme-cyberpunk nav a.text-foreground::after {
-  background-color: oklch(0.70 0.16 240) !important;
-  box-shadow: 0 0 10px oklch(0.70 0.16 240 / 70%);
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 2px;
+  background-color: var(--cp-cyan) !important;
+  box-shadow: 0 0 10px oklch(0.8 0.15 195 / 70%);
 }
 
-/* View toggle tabs (Kanban/Eisenhower/Graph): match nav tab style */
-html.theme-cyberpunk [data-slot="view-toggle"] button {
+/* ---------------------------------------------------------------- */
+/* View toggle tabs (Kanban/Eisenhower/Graph): match nav tab style  */
+/* ---------------------------------------------------------------- */
+
+html.theme-cyberpunk [data-slot='view-toggle'] button {
   position: relative;
   background: transparent !important;
   border-color: transparent !important;
+  clip-path: none;
 }
 
-html.theme-cyberpunk [data-slot="view-toggle"] button.bg-foreground {
-  color: oklch(0.75 0.14 240) !important;
-  background: linear-gradient(to top, oklch(0.70 0.16 240 / 30%), transparent 70%) !important;
+html.theme-cyberpunk [data-slot='view-toggle'] button.bg-foreground {
+  color: var(--cp-cyan) !important;
+  background: linear-gradient(to top, oklch(0.8 0.15 195 / 28%), transparent 70%) !important;
 }
 
-html.theme-cyberpunk [data-slot="view-toggle"] button.bg-foreground::after {
-  content: "";
+html.theme-cyberpunk [data-slot='view-toggle'] button.bg-foreground::after,
+html.theme-cyberpunk [data-slot='view-toggle'] button:hover::after {
+  content: '';
   position: absolute;
   inset-inline: 0;
   bottom: 0;
   height: 2px;
-  background-color: oklch(0.70 0.16 240);
-  box-shadow: 0 0 10px oklch(0.70 0.16 240 / 70%);
+  background-color: var(--cp-cyan);
+  box-shadow: 0 0 8px oklch(0.8 0.15 195 / 60%);
 }
 
-html.theme-cyberpunk [data-slot="view-toggle"] button:hover {
-  color: oklch(0.75 0.14 240) !important;
-  background: linear-gradient(to top, oklch(0.70 0.16 240 / 20%), transparent 70%) !important;
+html.theme-cyberpunk [data-slot='view-toggle'] button:hover {
+  color: var(--cp-cyan) !important;
+  background: linear-gradient(to top, oklch(0.8 0.15 195 / 18%), transparent 70%) !important;
   box-shadow: none !important;
   text-shadow: none !important;
+  filter: none;
 }
 
-html.theme-cyberpunk [data-slot="view-toggle"] button:hover::after {
-  content: "";
-  position: absolute;
-  inset-inline: 0;
-  bottom: 0;
-  height: 2px;
-  background-color: oklch(0.70 0.16 240);
-  box-shadow: 0 0 8px oklch(0.70 0.16 240 / 60%);
+/* ---------------------------------------------------------------- */
+/* Dropdown/menu items                                              */
+/* ---------------------------------------------------------------- */
+
+html.theme-cyberpunk [data-slot='dropdown-menu-item']:hover,
+html.theme-cyberpunk [data-slot='dropdown-menu-item'][data-highlighted],
+html.theme-cyberpunk [data-slot='dropdown-menu-radio-item']:hover,
+html.theme-cyberpunk [data-slot='dropdown-menu-radio-item'][data-highlighted] {
+  background: linear-gradient(to top, oklch(0.8 0.15 195 / 22%), transparent 80%) !important;
+  color: var(--cp-cyan) !important;
 }
 
-/* Dropdown/menu items hover */
-html.theme-cyberpunk [data-slot="dropdown-menu-item"]:hover,
-html.theme-cyberpunk [data-slot="dropdown-menu-item"][data-highlighted],
-html.theme-cyberpunk [data-slot="dropdown-menu-radio-item"]:hover,
-html.theme-cyberpunk [data-slot="dropdown-menu-radio-item"][data-highlighted] {
-  background: linear-gradient(to top, oklch(0.55 0.16 240 / 25%), transparent 80%) !important;
-  border-color: oklch(0.65 0.16 240) !important;
-  color: oklch(0.75 0.12 240) !important;
-}
+/* ---------------------------------------------------------------- */
+/* Cards: HUD corner brackets, red frame, cyan lock-on hover        */
+/* ---------------------------------------------------------------- */
 
-/* Cards (shadcn Card uses ring-1): red outline, blue on hover */
-html.theme-cyberpunk [data-slot="card"] {
-  outline: 1px solid oklch(0.50 0.22 18) !important;
+html.theme-cyberpunk [data-slot='card'] {
+  position: relative;
+  border-radius: 0 !important;
+  outline: 1px solid oklch(0.5 0.22 18 / 70%) !important;
   outline-offset: -1px;
   box-shadow: none !important;
 }
 
-html.theme-cyberpunk [data-slot="card"]:hover {
-  outline-color: oklch(0.65 0.16 240) !important;
-  box-shadow: 0 0 12px oklch(0.55 0.16 240 / 30%) !important;
+html.theme-cyberpunk [data-slot='card']::before,
+html.theme-cyberpunk [data-slot='card']::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  transition: border-color 0.15s;
 }
 
-/* Bordered cards (project-card links): blue border on hover */
-html.theme-cyberpunk a.border:hover {
-  border-color: oklch(0.65 0.16 240) !important;
-  box-shadow: 0 0 12px oklch(0.55 0.16 240 / 30%);
+html.theme-cyberpunk [data-slot='card']::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid var(--cp-red);
+  border-left: 2px solid var(--cp-red);
 }
+
+html.theme-cyberpunk [data-slot='card']::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid var(--cp-red);
+  border-right: 2px solid var(--cp-red);
+}
+
+html.theme-cyberpunk [data-slot='card']:hover {
+  outline-color: var(--cp-cyan-dim) !important;
+  box-shadow:
+    0 0 16px oklch(0.8 0.15 195 / 25%),
+    inset 0 0 24px oklch(0.8 0.15 195 / 5%) !important;
+}
+
+html.theme-cyberpunk [data-slot='card']:hover::before,
+html.theme-cyberpunk [data-slot='card']:hover::after {
+  border-color: var(--cp-cyan);
+}
+
+/* Kanban task cards: cyan lock-on hover */
+html.theme-cyberpunk .group\/task:hover {
+  background: linear-gradient(to top, oklch(0.8 0.15 195 / 12%), transparent 80%) !important;
+  border-color: var(--cp-cyan-dim) !important;
+  box-shadow: 0 0 12px oklch(0.8 0.15 195 / 20%);
+}
+
+/* Bordered cards (project-card links): cyan border on hover */
+html.theme-cyberpunk a.border:hover {
+  border-color: var(--cp-cyan-dim) !important;
+  box-shadow: 0 0 12px oklch(0.8 0.15 195 / 30%);
+}
+
+/* ---------------------------------------------------------------- */
+/* Tables, tree view                                                */
+/* ---------------------------------------------------------------- */
 
 html.theme-cyberpunk tr:hover {
-  box-shadow: inset 0 0 20px oklch(0.50 0.22 18 / 15%), 0 0 8px oklch(0.50 0.22 18 / 10%);
+  box-shadow:
+    inset 2px 0 0 var(--cp-cyan),
+    inset 0 0 20px oklch(0.8 0.15 195 / 8%);
 }
 
 /* Tree view file list: dark red unselected, bright red selected */
-html.theme-cyberpunk [role="tree"] li > div {
+html.theme-cyberpunk [role='tree'] li > div {
   background-color: #1b0f16 !important;
   border-radius: 0 !important;
 }
 
-html.theme-cyberpunk [role="tree"] li > div:hover {
+html.theme-cyberpunk [role='tree'] li > div:hover {
   background-color: #2a1520 !important;
 }
 
-html.theme-cyberpunk [role="tree"] li > div::before {
+html.theme-cyberpunk [role='tree'] li > div::before {
   border-radius: 0 !important;
 }
 
-html.theme-cyberpunk [role="tree"] li > div.before\:opacity-100 {
+html.theme-cyberpunk [role='tree'] li > div.before\:opacity-100 {
   background-color: oklch(0.55 0.25 18 / 40%) !important;
 }
 
-html.theme-cyberpunk [role="tree"] li > div.before\:opacity-100::before {
+html.theme-cyberpunk [role='tree'] li > div.before\:opacity-100::before {
   border-radius: 0 !important;
 }
 
-@keyframes cyberpunk-glitch {
-  0% { transform: translate(0); }
-  25% { transform: translate(-1px, 1px) skewX(-0.5deg); }
-  50% { transform: translate(1px, -1px) skewX(0.5deg); }
-  75% { transform: translate(-1px, 0) skewX(-0.3deg); }
-  100% { transform: translate(0) skewX(0); }
+/* ---------------------------------------------------------------- */
+/* Inputs, badges, headings, selection                              */
+/* ---------------------------------------------------------------- */
+
+html.theme-cyberpunk [data-slot='input']:focus-visible,
+html.theme-cyberpunk [data-slot='textarea']:focus-visible {
+  border-color: var(--cp-cyan) !important;
+  box-shadow:
+    0 0 0 1px oklch(0.8 0.15 195 / 50%),
+    0 0 12px oklch(0.8 0.15 195 / 25%) !important;
+  caret-color: var(--cp-cyan);
+}
+
+html.theme-cyberpunk [data-slot='badge'] {
+  border-radius: 0 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
+}
+
+/* Chromatic aberration on page titles */
+html.theme-cyberpunk h1 {
+  text-shadow:
+    -1.5px 0 oklch(0.62 0.26 25 / 35%),
+    1.5px 0 oklch(0.8 0.15 195 / 35%);
+}
+
+html.theme-cyberpunk ::selection {
+  background: oklch(0.8 0.15 195 / 35%);
+  color: oklch(0.95 0.05 195);
+}
+
+/* ---------------------------------------------------------------- */
+/* Keyframes + reduced motion                                       */
+/* ---------------------------------------------------------------- */
+
+@keyframes cp-glitch {
+  0% {
+    transform: translate(0);
+  }
+  25% {
+    transform: translate(-1px, 1px) skewX(-0.5deg);
+  }
+  50% {
+    transform: translate(1px, -1px) skewX(0.5deg);
+  }
+  75% {
+    transform: translate(-1px, 0) skewX(-0.3deg);
+  }
+  100% {
+    transform: translate(0) skewX(0);
+  }
+}
+
+@keyframes cp-flicker {
+  0%,
+  91%,
+  94%,
+  97%,
+  100% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 0.55;
+  }
+  95% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes cp-sweep {
+  to {
+    transform: translateY(1500%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.theme-cyberpunk body::before,
+  html.theme-cyberpunk::after,
+  html.theme-cyberpunk *:hover {
+    animation: none !important;
+  }
 }
