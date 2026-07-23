@@ -19,6 +19,7 @@ html.theme-cyberpunk body {
     linear-gradient(oklch(0.62 0.26 25 / 3%) 1px, transparent 1px),
     linear-gradient(90deg, oklch(0.62 0.26 25 / 3%) 1px, transparent 1px);
   background-size: 48px 48px;
+  animation: cp-boot 0.5s ease-out;
 }
 
 /* Scanlines with an occasional flicker.
@@ -369,16 +370,55 @@ html.theme-cyberpunk [data-slot='badge'] {
   clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
 }
 
-/* Chromatic aberration on page titles */
+/* Chromatic aberration on page titles + a rare ambient glitch spasm */
 html.theme-cyberpunk h1 {
   text-shadow:
     -1.5px 0 oklch(0.62 0.26 25 / 35%),
     1.5px 0 oklch(0.8 0.15 195 / 35%);
+  animation: cp-ambient-glitch 9s infinite;
 }
 
 html.theme-cyberpunk ::selection {
   background: oklch(0.8 0.15 195 / 35%);
   color: oklch(0.95 0.05 195);
+}
+
+/* ---------------------------------------------------------------- */
+/* Dialogs, tooltips, progress, toasts                              */
+/* ---------------------------------------------------------------- */
+
+/* Dialogs deploy like a CRT powering on. transform is safe here:
+   Tailwind v4 centers via the separate `translate` property. */
+html.theme-cyberpunk [data-slot='dialog-content'],
+html.theme-cyberpunk [data-slot='alert-dialog-content'] {
+  border-radius: 0 !important;
+  animation: cp-crt-open 0.28s ease-out !important;
+  filter: drop-shadow(0 0 24px oklch(0.62 0.26 25 / 25%));
+}
+
+html.theme-cyberpunk [data-slot='tooltip-content'] {
+  border: 1px solid var(--cp-cyan-dim) !important;
+  border-radius: 0 !important;
+  background: var(--popover) !important;
+  color: var(--cp-cyan) !important;
+  box-shadow: 0 0 10px oklch(0.8 0.15 195 / 25%);
+}
+
+html.theme-cyberpunk [data-slot='progress'] {
+  border-radius: 0 !important;
+}
+
+html.theme-cyberpunk [data-slot='progress-indicator'] {
+  border-radius: 0 !important;
+  box-shadow: 0 0 8px oklch(0.92 0.19 105 / 50%);
+}
+
+html.theme-cyberpunk [data-sonner-toast] {
+  border: 1px solid var(--cp-red-dim) !important;
+  border-radius: 0 !important;
+  background: var(--popover) !important;
+  color: var(--foreground) !important;
+  box-shadow: 0 0 16px oklch(0.62 0.26 25 / 20%) !important;
 }
 
 /* ---------------------------------------------------------------- */
@@ -425,9 +465,71 @@ html.theme-cyberpunk ::selection {
   }
 }
 
+/* CRT power-on: bright flash settling into the picture */
+@keyframes cp-boot {
+  0% {
+    opacity: 0.2;
+    filter: brightness(2.2) saturate(0.4);
+  }
+  40% {
+    opacity: 1;
+    filter: brightness(1.5) saturate(0.8);
+  }
+  100% {
+    opacity: 1;
+    filter: none;
+  }
+}
+
+/* Rare RGB-split spasm on titles; dormant ~95% of the cycle */
+@keyframes cp-ambient-glitch {
+  0%,
+  94%,
+  96%,
+  100% {
+    transform: none;
+    text-shadow:
+      -1.5px 0 oklch(0.62 0.26 25 / 35%),
+      1.5px 0 oklch(0.8 0.15 195 / 35%);
+  }
+  94.5% {
+    transform: translate(2px, 0) skewX(2deg);
+    text-shadow:
+      -4px 0 oklch(0.62 0.26 25 / 70%),
+      4px 0 oklch(0.8 0.15 195 / 70%);
+  }
+  95.5% {
+    transform: translate(-2px, 0) skewX(-1.5deg);
+    text-shadow:
+      3px 0 oklch(0.62 0.26 25 / 70%),
+      -3px 0 oklch(0.8 0.15 195 / 70%);
+  }
+}
+
+@keyframes cp-crt-open {
+  0% {
+    transform: scaleY(0.05);
+    opacity: 0.6;
+    filter: brightness(2.5) drop-shadow(0 0 24px oklch(0.62 0.26 25 / 25%));
+  }
+  55% {
+    transform: scaleY(1.02);
+    filter: brightness(1.4) drop-shadow(0 0 24px oklch(0.62 0.26 25 / 25%));
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+    filter: brightness(1) drop-shadow(0 0 24px oklch(0.62 0.26 25 / 25%));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  html.theme-cyberpunk body,
   html.theme-cyberpunk body::before,
   html.theme-cyberpunk::after,
+  html.theme-cyberpunk h1,
+  html.theme-cyberpunk [data-slot='dialog-content'],
+  html.theme-cyberpunk [data-slot='alert-dialog-content'],
   html.theme-cyberpunk *:hover {
     animation: none !important;
   }
