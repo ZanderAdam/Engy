@@ -118,7 +118,7 @@ export function computeWatchUnion(
     }));
 }
 
-export function scheduleWatchSync(state: AppState): void {
+function scheduleWatchSync(state: AppState): void {
   if (state.watchSyncTimer !== null) {
     clearTimeout(state.watchSyncTimer);
   }
