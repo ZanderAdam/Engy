@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type WebSocket from 'ws';
-import { createAppState, type AppState } from './trpc/context';
+import type { AppState } from './trpc/context';
+import { setupTestDb, type TestContext } from './trpc/test-helpers';
+import { terminalSessionHistory } from './db/schema';
+import { recordSessionStart } from './ws/terminal-session-history';
 import {
   connectWorker,
   createDispatch,
@@ -16,6 +19,7 @@ import {
   replyContract,
   resolveDispatchReply,
   resolveWorkerReply,
+  spawnAgentTerminal,
   waitForDispatchReply,
 } from './terminal-dispatch';
 
@@ -49,12 +53,16 @@ function inputFrames(sent: string[]): Array<{ t: string; sessionId: string; d: s
 }
 
 describe('terminal dispatch', () => {
+  let ctx: TestContext;
   let state: AppState;
   let sent: string[];
 
   beforeEach(() => {
     vi.useFakeTimers();
-    state = createAppState();
+    // Isolated DB per test — teardown and agent spawns write session history
+    // and must never hit the ambient ~/.engy database.
+    ctx = setupTestDb();
+    state = ctx.state;
     const daemon = fakeDaemon();
     sent = daemon.sent;
     state.terminalDaemon = daemon.ws;
@@ -62,6 +70,7 @@ describe('terminal dispatch', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    ctx.cleanup();
   });
 
   describe('injectTerminalInput', () => {
@@ -500,6 +509,73 @@ describe('terminal dispatch', () => {
       resolveDispatchReply(state, entry.correlationId, 'done');
 
       expect(inputFrames(sent).filter((f) => f.sessionId === 'orig')).toHaveLength(0);
+    });
+  });
+
+  describe('session history', () => {
+    function historyRows() {
+      return ctx.db.select().from(terminalSessionHistory).all();
+    }
+
+    function spawnWorker(): { sessionId: string } | null {
+      return spawnAgentTerminal(state, {
+        agentType: 'claude',
+        workingDir: '/tmp/proj',
+        description: 'spawned worker',
+        spawnedBy: 'caller-sess',
+        callerMeta: {
+          scopeType: 'project',
+          scopeLabel: 'caller',
+          workingDir: '/tmp/proj',
+          workspaceSlug: 'ws1',
+          cols: 80,
+          rows: 24,
+        },
+        mcpOrigin: 'http://localhost:3000',
+      });
+    }
+
+    it('[FR-TERMINAL-320] should substitute the session-id placeholder in agent-spawned commands', () => {
+      const result = spawnWorker();
+
+      expect(result).not.toBeNull();
+      const spawn = JSON.parse(sent[0]) as { command: string };
+      expect(spawn.command).not.toContain('__ENGY_SESSION__');
+      expect(spawn.command).toContain(`--session-id ${result!.sessionId}`);
+    });
+
+    it('[FR-TERMINAL-340] should create a history row for agent-spawned terminals', () => {
+      const result = spawnWorker();
+
+      const rows = historyRows();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        sessionId: result!.sessionId,
+        agentType: 'claude',
+        workingDir: '/tmp/proj',
+        summary: 'spawned worker',
+        workspaceSlug: 'ws1',
+        closedAt: null,
+      });
+    });
+
+    it('[FR-TERMINAL-340] should stamp closedAt when an agent session is destroyed', () => {
+      addSession(state, 'agent-sess', { agentType: 'claude' });
+      recordSessionStart('agent-sess', state.terminalSessionMeta.get('agent-sess')!);
+
+      destroyTerminalSession(state, 'agent-sess');
+
+      const rows = historyRows();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].closedAt).not.toBeNull();
+    });
+
+    it('[FR-TERMINAL-340] should not record destroyed shell sessions', () => {
+      addSession(state, 'shell-sess');
+
+      destroyTerminalSession(state, 'shell-sess');
+
+      expect(historyRows()).toHaveLength(0);
     });
   });
 });

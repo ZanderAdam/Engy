@@ -3,7 +3,10 @@ import { createServer, type Server } from 'node:http';
 import { WebSocket } from 'ws';
 import { createAppState, type AppState } from '../trpc/context';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { terminalSessions as terminalSessionsTable } from '../db/schema';
+import {
+  terminalSessions as terminalSessionsTable,
+  terminalSessionHistory as terminalSessionHistoryTable,
+} from '../db/schema';
 import {
   createTerminalWebSocketServer,
   createTerminalRelayWebSocketServer,
@@ -12,6 +15,7 @@ import {
   persistTerminalSession,
   loadPersistedTerminalSessions,
 } from './terminal-session-store';
+import { recordSessionStart } from './terminal-session-history';
 import { connectWorker, createDispatch, destroyTerminalSession } from '../terminal-dispatch';
 
 let openClients: WebSocket[] = [];
@@ -1489,6 +1493,160 @@ describe('Terminal WebSocket Server', () => {
       browser2.send(inputMsg);
 
       expect(await inputPromise).toBe(inputMsg);
+    });
+  });
+
+  describe('session history', () => {
+    function historyRows() {
+      return ctx.db.select().from(terminalSessionHistoryTable).all();
+    }
+
+    async function spawnAgentSession(sessionId: string, extra: Record<string, string> = {}) {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+      const browserWs = await connectBrowser(port, {
+        sessionId,
+        workingDir: '/tmp/proj',
+        scopeLabel: 'engy',
+        agentType: 'claude',
+        workspaceSlug: 'ws1',
+        ...extra,
+      });
+      await spawnPromise;
+      return { daemonWs, browserWs };
+    }
+
+    it('[FR-TERMINAL-340] should create a history row when an agent terminal spawns', async () => {
+      await spawnAgentSession('sess-hist');
+
+      const rows = historyRows();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        sessionId: 'sess-hist',
+        agentType: 'claude',
+        workingDir: '/tmp/proj',
+        summary: 'engy',
+        workspaceSlug: 'ws1',
+        closedAt: null,
+      });
+    });
+
+    it('[FR-TERMINAL-340] should not record plain shell sessions', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+      await connectBrowser(port, { sessionId: 'sess-shell', workingDir: '/tmp' });
+      await spawnPromise;
+
+      expect(historyRows()).toHaveLength(0);
+    });
+
+    it('[FR-TERMINAL-340] should key the history row by resumedFrom for resumed terminals', async () => {
+      const { daemonWs } = await spawnAgentSession('sess-new-term', { resumedFrom: 'orig-claude-id' });
+
+      const rows = historyRows();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].sessionId).toBe('orig-claude-id');
+
+      daemonWs.send(JSON.stringify({ t: 'exit', sessionId: 'sess-new-term', exitCode: 0 }));
+      await vi.waitFor(() => {
+        expect(historyRows()[0].closedAt).not.toBeNull();
+      });
+    });
+
+    it('[FR-TERMINAL-330] should store a sanitized lastTitle and history summary from a title message', async () => {
+      const { browserWs } = await spawnAgentSession('sess-title');
+
+      browserWs.send(
+        JSON.stringify({ t: 'title', sessionId: 'sess-title', title: '  fixing bug\x07 ' }),
+      );
+
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.get('sess-title')?.lastTitle).toBe('fixing bug');
+        expect(historyRows()[0].summary).toBe('fixing bug');
+      });
+    });
+
+    it('[FR-TERMINAL-330] should not forward title messages to the daemon', async () => {
+      const { daemonWs, browserWs } = await spawnAgentSession('sess-title-fw');
+
+      const nextDaemonMsg = waitForMessage(daemonWs);
+      browserWs.send(
+        JSON.stringify({ t: 'title', sessionId: 'sess-title-fw', title: 'not for daemon' }),
+      );
+      const inputMsg = JSON.stringify({ t: 'i', sessionId: 'sess-title-fw', d: 'x' });
+      browserWs.send(inputMsg);
+
+      // The input sent AFTER the title arrives first — the title was swallowed.
+      expect(await nextDaemonMsg).toBe(inputMsg);
+    });
+
+    it('[FR-TERMINAL-340] should stamp closedAt on daemon exit', async () => {
+      const { daemonWs } = await spawnAgentSession('sess-hist-exit');
+
+      daemonWs.send(JSON.stringify({ t: 'exit', sessionId: 'sess-hist-exit', exitCode: 0 }));
+
+      await vi.waitFor(() => {
+        const rows = historyRows();
+        expect(rows).toHaveLength(1);
+        expect(rows[0].closedAt).not.toBeNull();
+      });
+    });
+
+    it('[FR-TERMINAL-340] should stamp closedAt when the browser kills the session', async () => {
+      const { browserWs } = await spawnAgentSession('sess-hist-kill');
+
+      browserWs.send(JSON.stringify({ t: 'kill', sessionId: 'sess-hist-kill' }));
+
+      await vi.waitFor(() => {
+        expect(historyRows()[0].closedAt).not.toBeNull();
+      });
+    });
+
+    it('[FR-TERMINAL-340] should stamp closedAt when a daemon sync purges a stale session', async () => {
+      // Crash recovery: meta restored from the mirror, PTY gone, no browser.
+      state.terminalSessionMeta.set('sess-hist-purge', {
+        scopeType: 'workspace',
+        scopeLabel: 'engy',
+        workingDir: '/tmp/proj',
+        agentType: 'claude',
+        workspaceSlug: 'ws1',
+        cols: 80,
+        rows: 24,
+      });
+      recordSessionStart('sess-hist-purge', state.terminalSessionMeta.get('sess-hist-purge')!);
+
+      const daemonWs = await connectDaemonRelay(port, false);
+      daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: [] }));
+
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.has('sess-hist-purge')).toBe(false);
+        expect(historyRows()[0].closedAt).not.toBeNull();
+      });
+    });
+
+    it('[FR-TERMINAL-380] should rewrite --session-id to --resume when respawning a stale session', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      await connectBrowser(port, {
+        sessionId: 'sess-respawn-resume',
+        workingDir: '/tmp/proj',
+        agentType: 'claude',
+        command: 'claude --permission-mode acceptEdits --session-id sess-respawn-resume',
+      });
+      await spawnPromise;
+
+      daemonWs.close();
+      await vi.waitFor(() => expect(state.terminalDaemon).toBeNull());
+
+      const newDaemonWs = await connectDaemonRelay(port, false);
+      const respawnPromise = waitForMessage(newDaemonWs);
+      newDaemonWs.send(JSON.stringify({ t: 'sync', sessionIds: [] }));
+
+      const respawn = JSON.parse(await respawnPromise);
+      expect(respawn.t).toBe('spawn');
+      expect(respawn.command).toContain('--resume sess-respawn-resume');
+      expect(respawn.command).not.toContain('--session-id');
     });
   });
 });

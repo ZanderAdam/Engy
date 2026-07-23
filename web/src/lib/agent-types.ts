@@ -33,6 +33,12 @@ interface BuildAgentCommandOptions {
   mcpUrl?: string;
   /** Workspace per-agent overrides — the command picks up its own agent's mode. */
   agentSettings?: WorkspaceAgentSettings | null;
+  /**
+   * Resume a previous agent-CLI conversation. Non-empty = resume that session id;
+   * empty string = open the CLI's interactive resume picker. When set,
+   * prompt/systemPrompt are ignored (the resumed conversation already has its context).
+   */
+  resumeSessionId?: string;
 }
 
 interface AgentType {
@@ -53,12 +59,21 @@ interface AgentType {
 /** MCP server name matching the README registration (`claude mcp add ... Engy`). */
 const MCP_SERVER_NAME = 'Engy';
 
+// The command is built before the terminal's sessionId exists, so getMcpUrl
+// emits a placeholder in the per-session MCP path; the terminal server swaps in
+// the real sessionId at spawn time. That id becomes the agent's identity — every
+// tool call it makes arrives at /mcp/<sessionId>, so the server knows who's
+// calling (and thus its agent type). See web/src/server/ws/terminal-server.ts.
+export const MCP_SESSION_PLACEHOLDER = '__ENGY_SESSION__';
+
 function claudeMcpFlag(mcpUrl: string): string {
   const config = JSON.stringify({
     mcpServers: { [MCP_SERVER_NAME]: { type: 'http', url: mcpUrl } },
   });
   return ` --mcp-config '${shellEscape(config)}'`;
 }
+
+const CLAUDE_DEFAULT_MODE_ID = 'acceptEdits';
 
 // The CLI also accepts `dontAsk` (deny everything not explicitly allowlisted,
 // no prompting) — deliberately not offered: it is a CI/allowlist mode that
@@ -75,13 +90,43 @@ function coerceModeId(modes: AgentMode[], defaultModeId: string, mode: string | 
   return mode && modes.some((m) => m.id === mode) ? mode : defaultModeId;
 }
 
+/** MCP + permission flags shared by claude's fresh-spawn and resume commands. */
+function claudeSharedFlags(options?: BuildAgentCommandOptions): string {
+  let cmd = '';
+  if (options?.mcpUrl) {
+    cmd += claudeMcpFlag(options.mcpUrl);
+  }
+  if (options?.dangerouslySkipPermissions) {
+    cmd += ' --dangerously-skip-permissions';
+  } else {
+    const mode = coerceModeId(CLAUDE_MODES, CLAUDE_DEFAULT_MODE_ID, options?.agentSettings?.claude?.mode);
+    cmd += ` --permission-mode ${mode}`;
+  }
+  return cmd;
+}
+
 const claude: AgentType = {
   id: 'claude',
   label: 'Claude',
   modes: CLAUDE_MODES,
-  defaultModeId: 'acceptEdits',
+  defaultModeId: CLAUDE_DEFAULT_MODE_ID,
   paste: { enterCount: 1, submitDelayMs: 350 },
   buildCommand(options) {
+    const resumeSessionId = options?.resumeSessionId;
+
+    if (resumeSessionId !== undefined) {
+      // Resumed conversations carry their own context — prompt and system
+      // prompt are dropped, but runtime grants (dirs, MCP, permissions) are not
+      // part of the conversation and must be re-issued.
+      let cmd = 'claude --resume';
+      if (resumeSessionId !== '') {
+        cmd += ` '${shellEscape(resumeSessionId)}'`;
+      }
+      cmd += buildAddDirFlags(options?.additionalDirs ?? []);
+      cmd += claudeSharedFlags(options);
+      return cmd;
+    }
+
     let cmd = 'claude';
     if (options?.prompt) {
       cmd += ` '${shellEscape(options.prompt)}'`;
@@ -90,19 +135,8 @@ const claude: AgentType = {
     if (options?.systemPrompt) {
       cmd += ` --append-system-prompt '${shellEscape(options.systemPrompt)}'`;
     }
-    if (options?.mcpUrl) {
-      cmd += claudeMcpFlag(options.mcpUrl);
-    }
-    if (options?.dangerouslySkipPermissions) {
-      cmd += ' --dangerously-skip-permissions';
-    } else {
-      const mode = coerceModeId(
-        CLAUDE_MODES,
-        this.defaultModeId,
-        options?.agentSettings?.[this.id]?.mode,
-      );
-      cmd += ` --permission-mode ${mode}`;
-    }
+    cmd += claudeSharedFlags(options);
+    cmd += ` --session-id ${MCP_SESSION_PLACEHOLDER}`;
     return cmd;
   },
 };
@@ -132,6 +166,15 @@ const codex: AgentType = {
   defaultModeId: 'workspace-write',
   paste: { enterCount: 1, submitDelayMs: 350 },
   buildCommand(options) {
+    const resumeSessionId = options?.resumeSessionId;
+
+    if (resumeSessionId !== undefined) {
+      if (resumeSessionId !== '') {
+        return `codex resume '${shellEscape(resumeSessionId)}'`;
+      }
+      return 'codex resume';
+    }
+
     let cmd = 'codex';
     // Codex has no system-prompt flag — fold the context block into the
     // initial prompt when one exists. A context-only invocation would burn a
@@ -242,15 +285,20 @@ export function buildAgentCommand(
   return getAgentType(agentType).buildCommand(options);
 }
 
-// The command is built before the terminal's sessionId exists, so getMcpUrl
-// emits a placeholder in the per-session MCP path; the terminal server swaps in
-// the real sessionId at spawn time. That id becomes the agent's identity — every
-// tool call it makes arrives at /mcp/<sessionId>, so the server knows who's
-// calling (and thus its agent type). See web/src/server/ws/terminal-server.ts.
-export const MCP_SESSION_PLACEHOLDER = '__ENGY_SESSION__';
-
 /** Engy MCP endpoint of the server the browser is talking to (dev ports included). */
 export function getMcpUrl(): string | undefined {
   if (typeof window === 'undefined') return undefined;
   return `${window.location.origin}/mcp/${MCP_SESSION_PLACEHOLDER}`;
+}
+
+/**
+ * Rewrites the first occurrence of `--session-id <token>` to `--resume <token>`.
+ * Token may be bare or single-quoted; everything else is preserved verbatim.
+ * Returns the command unchanged when the flag is absent.
+ *
+ * Used when respawning a lost PTY — rerunning `claude --session-id X` would
+ * fail on a duplicate session id, `--resume X` continues the conversation instead.
+ */
+export function sessionIdFlagToResume(command: string): string {
+  return command.replace(/--session-id ('(?:[^'\\]|\\.)*'|\S+)/, '--resume $1');
 }

@@ -37,6 +37,12 @@ export interface TerminalSessionMeta {
   // terminal_spawn MCP tool (undefined = user-opened). Counted against the
   // agent-spawn cap so agents cannot fork terminals without bound.
   spawnedBy?: string;
+  // Agent-CLI session id this terminal resumed, so history rows track the
+  // original conversation thread across restart/resume cycles.
+  resumedFrom?: string;
+  // Last OSC 0/2 title reported by the browser — doubles as the session's
+  // resume summary in the history table.
+  lastTitle?: string;
   // Activity state computed daemon-side (per-project badges); updated by the
   // relay 'act' handler, available even when no browser has the terminal mounted.
   activityState?: TerminalActivityState;

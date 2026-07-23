@@ -81,6 +81,10 @@ export interface TerminalScope {
   // Worktree branch this terminal targets (undefined = default branch). Used to
   // group terminals by worktree in combined mode; does not affect groupKey.
   worktreeBranch?: string;
+  // Agent-CLI session id this terminal resumes (`claude --resume <id>`). Sent
+  // to the server so history keeps tracking the original conversation instead
+  // of forking a new row per resume.
+  resumedFrom?: string;
 }
 
 export interface TerminalTab {

@@ -1,31 +1,35 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { appRouter } from '../root';
-import { getAppState, resetAppState, type AppState } from '../context';
+import { type AppState } from '../context';
+import { setupTestDb, type TestContext } from '../test-helpers';
+import { terminalSessionHistory } from '../../db/schema';
 
-function addSession(state: AppState, sessionId: string): void {
+function addSession(state: AppState, sessionId: string, resumedFrom?: string): void {
   state.terminalSessionMeta.set(sessionId, {
     scopeType: 'project',
     scopeLabel: `label-${sessionId}`,
     workingDir: '/tmp',
     agentType: 'claude',
     activityState: 'idle',
+    resumedFrom,
     cols: 80,
     rows: 24,
   });
 }
 
 describe('terminal router', () => {
+  let ctx: TestContext;
   let state: AppState;
   let caller: ReturnType<typeof appRouter.createCaller>;
 
   beforeEach(() => {
-    resetAppState();
-    state = getAppState();
+    ctx = setupTestDb();
+    state = ctx.state;
     caller = appRouter.createCaller({ state });
   });
 
   afterEach(() => {
-    resetAppState();
+    ctx.cleanup();
   });
 
   describe('connectWorker', () => {
@@ -63,6 +67,52 @@ describe('terminal router', () => {
       await caller.terminal.connectWorker({ sessionId: 'sess-1', description: 'worker' });
       await caller.terminal.disconnectWorker({ sessionId: 'sess-1' });
       expect(await caller.terminal.listWorkers()).toEqual([]);
+    });
+  });
+
+  describe('listSessionHistory', () => {
+    function seedRow(sessionId: string, startedAt: string, workspaceSlug = 'ws1'): void {
+      ctx.db
+        .insert(terminalSessionHistory)
+        .values({
+          sessionId,
+          agentType: 'claude',
+          workingDir: '/tmp/proj',
+          scopeLabel: `label-${sessionId}`,
+          summary: `summary-${sessionId}`,
+          workspaceSlug,
+          startedAt,
+        })
+        .run();
+    }
+
+    it('[FR-TERMINAL-350] should return rows newest-first scoped to the workspace', async () => {
+      seedRow('old-sess', '2026-07-22T10:00:00.000Z');
+      seedRow('new-sess', '2026-07-22T12:00:00.000Z');
+      seedRow('other-ws', '2026-07-22T13:00:00.000Z', 'ws2');
+
+      const rows = await caller.terminal.listSessionHistory({ workspaceSlug: 'ws1' });
+
+      expect(rows.map((r) => r.sessionId)).toEqual(['new-sess', 'old-sess']);
+    });
+
+    it('[FR-TERMINAL-350] should exclude sessions that are currently live', async () => {
+      seedRow('live-sess', '2026-07-22T10:00:00.000Z');
+      seedRow('closed-sess', '2026-07-22T11:00:00.000Z');
+      addSession(state, 'live-sess');
+
+      const rows = await caller.terminal.listSessionHistory({ workspaceSlug: 'ws1' });
+
+      expect(rows.map((r) => r.sessionId)).toEqual(['closed-sess']);
+    });
+
+    it('[FR-TERMINAL-350] should exclude rows matching a live session resumedFrom', async () => {
+      seedRow('orig-claude-id', '2026-07-22T10:00:00.000Z');
+      addSession(state, 'new-terminal-id', 'orig-claude-id');
+
+      const rows = await caller.terminal.listSessionHistory({ workspaceSlug: 'ws1' });
+
+      expect(rows).toEqual([]);
     });
   });
 });

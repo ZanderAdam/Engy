@@ -10,6 +10,7 @@ import {
   listAgentTypes,
   resolveAgentMode,
   resolveAgentSkills,
+  sessionIdFlagToResume,
   MCP_SESSION_PLACEHOLDER,
 } from './agent-types';
 
@@ -39,31 +40,37 @@ describe('agent types', () => {
   });
 
   describe('claude command', () => {
-    it('should return base command with permission mode when no options', () => {
-      expect(buildAgentCommand('claude')).toBe('claude --permission-mode acceptEdits');
+    it('[FR-TERMINAL-320] should include the session-id placeholder in claude commands', () => {
+      expect(buildAgentCommand('claude')).toContain(`--session-id ${MCP_SESSION_PLACEHOLDER}`);
+    });
+
+    it('should return base command with permission mode and session-id when no options', () => {
+      expect(buildAgentCommand('claude')).toBe(
+        `claude --permission-mode acceptEdits --session-id ${MCP_SESSION_PLACEHOLDER}`,
+      );
     });
 
     it('should include prompt when provided', () => {
       expect(buildAgentCommand('claude', { prompt: 'Use /engy:plan to plan engy-T1' })).toBe(
-        "claude 'Use /engy:plan to plan engy-T1' --permission-mode acceptEdits",
+        `claude 'Use /engy:plan to plan engy-T1' --permission-mode acceptEdits --session-id ${MCP_SESSION_PLACEHOLDER}`,
       );
     });
 
     it('should include add-dir flags when provided', () => {
       expect(buildAgentCommand('claude', { additionalDirs: ['/some/dir'] })).toBe(
-        "claude --add-dir '/some/dir' --permission-mode acceptEdits",
+        `claude --add-dir '/some/dir' --permission-mode acceptEdits --session-id ${MCP_SESSION_PLACEHOLDER}`,
       );
     });
 
     it('should escape single quotes in prompt', () => {
       expect(buildAgentCommand('claude', { prompt: "it's a test" })).toBe(
-        "claude 'it'\\''s a test' --permission-mode acceptEdits",
+        `claude 'it'\\''s a test' --permission-mode acceptEdits --session-id ${MCP_SESSION_PLACEHOLDER}`,
       );
     });
 
     it('should include --append-system-prompt when systemPrompt provided', () => {
       expect(buildAgentCommand('claude', { systemPrompt: 'Workspace: engy (id: 1)' })).toBe(
-        "claude --append-system-prompt 'Workspace: engy (id: 1)' --permission-mode acceptEdits",
+        `claude --append-system-prompt 'Workspace: engy (id: 1)' --permission-mode acceptEdits --session-id ${MCP_SESSION_PLACEHOLDER}`,
       );
     });
 
@@ -75,13 +82,13 @@ describe('agent types', () => {
           additionalDirs: ['/repo'],
         }),
       ).toBe(
-        "claude 'Use /engy:plan' --add-dir '/repo' --append-system-prompt 'Workspace: engy (id: 1)' --permission-mode acceptEdits",
+        `claude 'Use /engy:plan' --add-dir '/repo' --append-system-prompt 'Workspace: engy (id: 1)' --permission-mode acceptEdits --session-id ${MCP_SESSION_PLACEHOLDER}`,
       );
     });
 
     it('should use --dangerously-skip-permissions instead of --permission-mode when flag set', () => {
       expect(buildAgentCommand('claude', { dangerouslySkipPermissions: true })).toBe(
-        'claude --dangerously-skip-permissions',
+        `claude --dangerously-skip-permissions --session-id ${MCP_SESSION_PLACEHOLDER}`,
       );
     });
 
@@ -91,6 +98,56 @@ describe('agent types', () => {
       expect(cmd).toContain('"Engy"');
       expect(cmd).toContain('"http://localhost:3123/mcp"');
       expect(cmd).toContain('"type":"http"');
+      expect(cmd).toContain(`--session-id ${MCP_SESSION_PLACEHOLDER}`);
+    });
+
+    describe('resume', () => {
+      it('[FR-TERMINAL-320] should not emit --session-id when resuming', () => {
+        const cmd = buildAgentCommand('claude', { resumeSessionId: 'abc-123' });
+        expect(cmd).not.toContain('--session-id');
+      });
+
+      it('should emit --resume with the session id when resumeSessionId is provided', () => {
+        expect(buildAgentCommand('claude', { resumeSessionId: 'abc-123' })).toBe(
+          "claude --resume 'abc-123' --permission-mode acceptEdits",
+        );
+      });
+
+      it('should emit bare --resume (picker) when resumeSessionId is empty string', () => {
+        expect(buildAgentCommand('claude', { resumeSessionId: '' })).toBe(
+          'claude --resume --permission-mode acceptEdits',
+        );
+      });
+
+      it('should include --mcp-config and permission mode when resuming but omit prompt and systemPrompt', () => {
+        const cmd = buildAgentCommand('claude', {
+          resumeSessionId: 'abc-123',
+          prompt: 'ignored prompt',
+          systemPrompt: 'ignored system',
+          mcpUrl: 'http://localhost:3123/mcp',
+        });
+        expect(cmd).toContain("--resume 'abc-123'");
+        expect(cmd).toContain('--mcp-config');
+        expect(cmd).toContain('--permission-mode acceptEdits');
+        expect(cmd).not.toContain('ignored prompt');
+        expect(cmd).not.toContain('ignored system');
+        expect(cmd).not.toContain('--session-id');
+      });
+
+      it('[FR-TERMINAL-360] should re-issue --add-dir grants when resuming', () => {
+        expect(
+          buildAgentCommand('claude', { resumeSessionId: 'abc-123', additionalDirs: ['/some/dir'] }),
+        ).toBe("claude --resume 'abc-123' --add-dir '/some/dir' --permission-mode acceptEdits");
+      });
+
+      it('should use --dangerously-skip-permissions when resuming with dangerouslySkipPermissions', () => {
+        expect(
+          buildAgentCommand('claude', {
+            resumeSessionId: 'abc-123',
+            dangerouslySkipPermissions: true,
+          }),
+        ).toBe("claude --resume 'abc-123' --dangerously-skip-permissions");
+      });
     });
   });
 
@@ -134,25 +191,48 @@ describe('agent types', () => {
         'codex --dangerously-bypass-approvals-and-sandbox',
       );
     });
+
+    describe('resume', () => {
+      it('should emit codex resume with session id when resumeSessionId is provided', () => {
+        expect(buildAgentCommand('codex', { resumeSessionId: 'abc-123' })).toBe(
+          "codex resume 'abc-123'",
+        );
+      });
+
+      it('should emit bare codex resume (picker) when resumeSessionId is empty string', () => {
+        expect(buildAgentCommand('codex', { resumeSessionId: '' })).toBe('codex resume');
+      });
+
+      it('should omit all sandbox/mcp flags when resuming codex', () => {
+        const cmd = buildAgentCommand('codex', {
+          resumeSessionId: 'abc-123',
+          mcpUrl: 'http://localhost:3123/mcp',
+          dangerouslySkipPermissions: true,
+        });
+        expect(cmd).toBe("codex resume 'abc-123'");
+        expect(cmd).not.toContain('--sandbox');
+        expect(cmd).not.toContain('--mcp');
+      });
+    });
   });
 
   describe('per-agent workspace settings', () => {
     describe('mode in built commands', () => {
       it('[FR-WORKSPACE-150] should apply the configured claude permission mode', () => {
         expect(buildAgentCommand('claude', { agentSettings: { claude: { mode: 'plan' } } })).toBe(
-          'claude --permission-mode plan',
+          `claude --permission-mode plan --session-id ${MCP_SESSION_PLACEHOLDER}`,
         );
       });
 
       it('[FR-WORKSPACE-150] should fall back to acceptEdits for an unknown claude mode', () => {
         expect(
           buildAgentCommand('claude', { agentSettings: { claude: { mode: 'yolo' } } }),
-        ).toBe('claude --permission-mode acceptEdits');
+        ).toBe(`claude --permission-mode acceptEdits --session-id ${MCP_SESSION_PLACEHOLDER}`);
       });
 
       it("[FR-WORKSPACE-150] should ignore the OTHER agent's configured mode", () => {
         expect(buildAgentCommand('claude', { agentSettings: { codex: { mode: 'read-only' } } })).toBe(
-          'claude --permission-mode acceptEdits',
+          `claude --permission-mode acceptEdits --session-id ${MCP_SESSION_PLACEHOLDER}`,
         );
       });
 
@@ -162,7 +242,7 @@ describe('agent types', () => {
             dangerouslySkipPermissions: true,
             agentSettings: { claude: { mode: 'plan' } },
           }),
-        ).toBe('claude --dangerously-skip-permissions');
+        ).toBe(`claude --dangerously-skip-permissions --session-id ${MCP_SESSION_PLACEHOLDER}`);
       });
 
       it('[FR-WORKSPACE-150] should map the codex full-auto preset to sandbox + approval flags', () => {
@@ -264,5 +344,33 @@ describe('getMcpUrl', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('sessionIdFlagToResume', () => {
+  it('[FR-TERMINAL-380] should rewrite --session-id to --resume for a bare token', () => {
+    expect(sessionIdFlagToResume('claude --permission-mode acceptEdits --session-id __ENGY_SESSION__')).toBe(
+      'claude --permission-mode acceptEdits --resume __ENGY_SESSION__',
+    );
+  });
+
+  it('[FR-TERMINAL-380] should rewrite --session-id to --resume for a single-quoted token', () => {
+    expect(sessionIdFlagToResume("claude --session-id 'some-uuid-123' --permission-mode auto")).toBe(
+      "claude --resume 'some-uuid-123' --permission-mode auto",
+    );
+  });
+
+  it('[FR-TERMINAL-380] should return the command unchanged when --session-id is absent', () => {
+    const cmd = 'claude --resume abc-123 --permission-mode acceptEdits';
+    expect(sessionIdFlagToResume(cmd)).toBe(cmd);
+  });
+
+  it('[FR-TERMINAL-380] should preserve all surrounding flags verbatim', () => {
+    const result = sessionIdFlagToResume(
+      "claude 'my prompt' --add-dir '/repo' --permission-mode plan --session-id my-id",
+    );
+    expect(result).toBe(
+      "claude 'my prompt' --add-dir '/repo' --permission-mode plan --resume my-id",
+    );
   });
 });

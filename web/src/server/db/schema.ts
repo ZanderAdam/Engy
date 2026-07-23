@@ -515,3 +515,26 @@ export const terminalSessions = sqliteTable('terminal_sessions', {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+// ── Terminal Session History ────────────────────────────────────────────────
+
+// Permanent log of agent terminal sessions for the "resume" feature. One row
+// per agent-CLI conversation thread (keyed by agent session id or resumedFrom).
+// Rows survive session closure and are capped at 50 per workspace bucket.
+export const terminalSessionHistory = sqliteTable(
+  'terminal_session_history',
+  {
+    sessionId: text('session_id').primaryKey(),
+    agentType: text('agent_type').notNull(),
+    workingDir: text('working_dir').notNull(),
+    scopeLabel: text('scope_label').notNull(),
+    summary: text('summary').notNull(),
+    workspaceSlug: text('workspace_slug'),
+    projectSlug: text('project_slug'),
+    worktreeBranch: text('worktree_branch'),
+    containerMode: text('container_mode'),
+    startedAt: text('started_at').notNull(),
+    closedAt: text('closed_at'),
+  },
+  (table) => [index('idx_tsh_workspace_started').on(table.workspaceSlug, table.startedAt)],
+);

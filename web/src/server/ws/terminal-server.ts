@@ -27,7 +27,13 @@ import {
   isTrackedWorker,
   recordWorkerOutput,
 } from '../terminal-dispatch';
-import { MCP_SESSION_PLACEHOLDER } from '@/lib/agent-types';
+import { MCP_SESSION_PLACEHOLDER, sessionIdFlagToResume } from '@/lib/agent-types';
+import { sanitizeOscTitle } from '@/lib/osc-title';
+import {
+  recordSessionStart,
+  updateSessionSummary,
+  markSessionClosed,
+} from './terminal-session-history';
 
 // How long a browser connect with no session metadata waits for the daemon's
 // `{ t: 'sync' }` before classifying as spawn-vs-reconnect. Covers the
@@ -207,6 +213,7 @@ async function handleTerminalConnection(
     Number.isInteger(projectIdParsed) && projectIdParsed > 0 ? projectIdParsed : undefined;
   const projectSlug = params.get('projectSlug') ?? undefined;
   const worktreeBranch = params.get('worktreeBranch') ?? undefined;
+  const resumedFrom = params.get('resumedFrom') ?? undefined;
 
   if (!sessionId || !workingDir) {
     ws.close(1008, 'Missing sessionId or workingDir');
@@ -252,6 +259,26 @@ async function handleTerminalConnection(
         console.log(`[terminal] Kill intercepted for session ${sid}`);
         destroyTerminalSession(state, sid, { excludeWs: ws });
       }
+    }
+
+    // Last OSC title doubles as the session's resume summary. Handled fully
+    // server-side — the daemon has no use for it, so skip the generic forward.
+    if (str.startsWith('{"t":"title"')) {
+      try {
+        const msg = JSON.parse(str) as { t: 'title'; sessionId: string; title: string };
+        const meta = state.terminalSessionMeta.get(sessionId);
+        if (msg.sessionId === sessionId && meta && typeof msg.title === 'string') {
+          const title = sanitizeOscTitle(msg.title);
+          if (title && title !== meta.lastTitle) {
+            meta.lastTitle = title;
+            persistTerminalSession(sessionId, meta);
+            updateSessionSummary(meta.resumedFrom ?? sessionId, title);
+          }
+        }
+      } catch {
+        console.warn('[terminal] Failed to parse title message');
+      }
+      return;
     }
 
     // The user viewed/focused the terminal — clear its activity state here (so
@@ -369,6 +396,7 @@ async function handleTerminalConnection(
     projectId,
     projectSlug,
     worktreeBranch,
+    resumedFrom,
     cols,
     rows,
   };
@@ -466,6 +494,9 @@ async function handleTerminalConnection(
         // from concurrent connections (React Strict Mode double-mount)
         state.terminalSessionMeta.set(sessionId, metaFromParams);
         persistTerminalSession(sessionId, metaFromParams);
+        // Write-ahead history: the row exists from spawn so no crash timing
+        // (daemon death, power loss) can lose the session from the resume list.
+        recordSessionStart(sessionId, metaFromParams);
         broadcastTerminalSessionsChange('created', sessionId, groupKey);
       } else {
         console.log(`[terminal] spawn path but no daemon for sid=${short}`);
@@ -572,7 +603,9 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
                   t: 'spawn',
                   sessionId,
                   workingDir: meta.workingDir,
-                  command: meta.command,
+                  // Rerunning `claude --session-id X` would fail on a duplicate
+                  // session id — `--resume X` continues the conversation instead.
+                  command: meta.command && sessionIdFlagToResume(meta.command),
                   cols: meta.cols,
                   rows: meta.rows,
                   scopeType: meta.scopeType,
@@ -708,6 +741,9 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
       if (isExit && (state.terminalSessionMeta.has(sessionId) || state.terminalSessions.has(sessionId))) {
         console.log(`[terminal-relay] Exit for session ${sessionId}, cleaning up meta and WS`);
         const exitMeta = state.terminalSessionMeta.get(sessionId);
+        if (exitMeta?.agentType) {
+          markSessionClosed(exitMeta.resumedFrom ?? sessionId);
+        }
         state.terminalSessions.delete(sessionId);
         state.terminalSessionMeta.delete(sessionId);
         failWorkerDispatches(state, sessionId, 'Worker terminal exited');

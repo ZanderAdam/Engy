@@ -65,6 +65,7 @@ function buildWsUrl(tab: TerminalTab): string {
   if (scope.worktreeBranch) params.set('worktreeBranch', scope.worktreeBranch);
   if (scope.containerMode) params.set('containerMode', scope.containerMode);
   if (scope.taskId != null) params.set('taskId', String(scope.taskId));
+  if (scope.resumedFrom) params.set('resumedFrom', scope.resumedFrom);
   return `${base}/ws/terminal?${params.toString()}`;
 }
 
@@ -171,6 +172,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       lastTitle = title;
       activityTracker.bumpActivity();
       onOscTitle?.(sessionId, title);
+      // Server keeps the last title as the session's resume summary; the
+      // message terminates there (never relayed to the daemon).
+      socketRef.current?.send(JSON.stringify({ t: 'title', sessionId, title }));
     };
 
     const scrollSub = term.onScroll(() => {

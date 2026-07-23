@@ -35,10 +35,12 @@ import { TerminalRail } from '@/components/terminal/terminal-rail';
 import { BottomTerminalSplit } from '@/components/terminal/bottom-terminal-split';
 import type { TerminalDropdownGroup, TerminalDropdownEntry } from '@/components/terminal/types';
 import { useWorktreeSessions } from '@/components/terminal/use-worktree-sessions';
+import { buildSessionHistoryGroup } from '@/components/terminal/session-history-entries';
 import { EventsProvider } from '@/contexts/events-context';
 import { useTaskAutoInvalidation } from '@/hooks/use-task-auto-invalidation';
 import { useQuestionAutoInvalidation } from '@/hooks/use-question-auto-invalidation';
 import { useProjectActivityFeed } from '@/hooks/use-project-activity';
+import { useSessionHistoryAutoInvalidation } from '@/hooks/use-session-history-auto-invalidation';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { projectGroupKey, normalizeWtParam } from '@/components/terminal/group-key';
 import { buildContextBlock } from '@/lib/shell';
@@ -504,12 +506,53 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   const worktreeGroup = useWorktreeSessions(params.workspace);
 
+  // Recent agent sessions resumable via `claude --resume`. Freshness comes
+  // from cache invalidation on TERMINAL_SESSIONS_CHANGE broadcasts — the hook
+  // lives in AutoInvalidation (inside EventsProvider), not here.
+  const { data: sessionHistory, dataUpdatedAt: sessionHistoryFetchedAt } =
+    trpc.terminal.listSessionHistory.useQuery({ workspaceSlug: params.workspace });
+
+  const resumeGroup = useMemo<TerminalDropdownGroup | undefined>(() => {
+    if (!workspace || !sessionHistory) return undefined;
+    const repos = (workspace.repos as string[]) ?? [];
+    const codexRepos = isAgentActive(workspace.agentSettings, 'codex')
+      ? [
+          ...repos.map((r) => ({ workingDir: r })),
+          ...worktreeGroups.flatMap((g) =>
+            g.repos.map((r) => ({ workingDir: r.worktreePath, branch: g.branch })),
+          ),
+        ]
+      : [];
+    const projectDir =
+      params.project && workspace.resolvedDir
+        ? `${workspace.resolvedDir}/projects/${params.project}`
+        : undefined;
+    return buildSessionHistoryGroup(sessionHistory, {
+      workspaceSlug: params.workspace,
+      mcpUrl: getMcpUrl(),
+      agentSettings: workspace.agentSettings,
+      projectDir,
+      codexRepos,
+      // Fetch timestamp, not Date.now() — pure during render, and relative
+      // times are naturally measured against when the list was fetched.
+      now: sessionHistoryFetchedAt,
+    });
+  }, [
+    workspace,
+    sessionHistory,
+    sessionHistoryFetchedAt,
+    worktreeGroups,
+    params.workspace,
+    params.project,
+  ]);
+
   const allDropdownGroups = useMemo<TerminalDropdownGroup[] | undefined>(() => {
     const groups: TerminalDropdownGroup[] = [];
     if (extraDropdownGroups) groups.push(...extraDropdownGroups);
+    if (resumeGroup) groups.push(resumeGroup);
     if (worktreeGroup) groups.push(worktreeGroup);
     return groups.length > 0 ? groups : undefined;
-  }, [extraDropdownGroups, worktreeGroup]);
+  }, [extraDropdownGroups, resumeGroup, worktreeGroup]);
 
   if (isLoading) {
     return (
@@ -651,5 +694,6 @@ function AutoInvalidation() {
   useTaskAutoInvalidation();
   useQuestionAutoInvalidation();
   useProjectActivityFeed();
+  useSessionHistoryAutoInvalidation();
   return null;
 }

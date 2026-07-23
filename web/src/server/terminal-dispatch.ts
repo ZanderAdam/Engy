@@ -6,6 +6,7 @@ import {
   buildAgentCommand,
   getAgentType,
   isAgentTypeId,
+  MCP_SESSION_PLACEHOLDER,
   type AgentTypeId,
   type WorkspaceAgentSettings,
 } from '@/lib/agent-types';
@@ -14,6 +15,7 @@ import {
   persistTerminalSession,
   deletePersistedTerminalSession,
 } from './ws/terminal-session-store';
+import { recordSessionStart, markSessionClosed } from './ws/terminal-session-history';
 
 // Cross-terminal dispatch: an orchestrator agent sends a prompt to a worker
 // terminal by injecting it into the worker's PTY stdin (same wire path as
@@ -424,14 +426,15 @@ export function spawnAgentTerminal(
   const daemon = state.terminalDaemon;
   if (!daemon || daemon.readyState !== daemon.OPEN) return null;
 
-  // The sessionId is known up front, so the MCP URL is built resolved — no
-  // placeholder substitution needed (unlike browser-initiated spawns).
+  // The sessionId is known up front, so the MCP URL is built resolved — but
+  // buildCommand still emits the session-id placeholder (browser-initiated
+  // spawns substitute it in the terminal server), so swap it here too.
   const sessionId = randomUUID();
   const command = buildAgentCommand(opts.agentType, {
     prompt: opts.prompt,
     mcpUrl: `${opts.mcpOrigin}/mcp/${sessionId}`,
     agentSettings: opts.agentSettings,
-  });
+  }).replaceAll(MCP_SESSION_PLACEHOLDER, sessionId);
 
   const { callerMeta } = opts;
   daemon.send(
@@ -468,6 +471,7 @@ export function spawnAgentTerminal(
   state.terminalSessionMeta.set(sessionId, meta);
   state.daemonTerminalSessions.ids.add(sessionId);
   persistTerminalSession(sessionId, meta);
+  recordSessionStart(sessionId, meta);
   connectWorker(state, sessionId, opts.description);
   broadcastTerminalSessionsChange('created', sessionId, callerMeta.groupKey);
   console.log(
@@ -489,6 +493,9 @@ export function destroyTerminalSession(
   opts?: { excludeWs?: WebSocket },
 ): TerminalSessionMeta | undefined {
   const meta = state.terminalSessionMeta.get(sessionId);
+  if (meta?.agentType) {
+    markSessionClosed(meta.resumedFrom ?? sessionId);
+  }
   state.terminalSessionMeta.delete(sessionId);
   state.daemonTerminalSessions.ids.delete(sessionId);
   deletePersistedTerminalSession(sessionId);

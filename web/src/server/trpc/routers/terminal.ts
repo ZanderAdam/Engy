@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getAppState } from '../context';
 import { connectWorker, disconnectWorker, listWorkers } from '../../terminal-dispatch';
+import { listSessionHistory } from '../../ws/terminal-session-history';
 import { broadcastTerminalWorkersChange } from '../../ws/broadcast';
 
 // Browser-side management of the cross-terminal dispatch worker set. Agents
@@ -11,6 +12,20 @@ import { broadcastTerminalWorkersChange } from '../../ws/broadcast';
 
 export const terminalRouter = router({
   listWorkers: publicProcedure.query(() => listWorkers(getAppState())),
+
+  // Recent agent sessions available for `--resume`. Live sessions are excluded
+  // by their agent-CLI session id (`resumedFrom` for resumed terminals), so an
+  // open terminal never shows as resumable.
+  listSessionHistory: publicProcedure
+    .input(z.object({ workspaceSlug: z.string() }))
+    .query(({ input }) => {
+      const state = getAppState();
+      const liveKeys = new Set<string>();
+      for (const [sessionId, meta] of state.terminalSessionMeta) {
+        liveKeys.add(meta.resumedFrom ?? sessionId);
+      }
+      return listSessionHistory(input.workspaceSlug, liveKeys);
+    }),
 
   connectWorker: publicProcedure
     .input(
