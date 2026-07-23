@@ -85,7 +85,26 @@ html.theme-cyberpunk [data-slot='button'][data-variant='destructive'] {
 
 /* Red borders on outline buttons only (overrides dark:border-input) */
 html.theme-cyberpunk [data-slot='button'][data-variant='outline'] {
+  position: relative;
   border-color: var(--cp-red-dim) !important;
+}
+
+/* Bevel stroke along the notch cut — clip-path clips the border away,
+   so the diagonal edge is redrawn with a rotated hairline */
+html.theme-cyberpunk [data-slot='button'][data-variant='outline']::after {
+  content: '';
+  position: absolute;
+  top: 3.5px;
+  right: -2px;
+  width: 12px;
+  height: 1px;
+  background-color: var(--cp-red-dim);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+html.theme-cyberpunk [data-slot='button'][data-variant='outline']:hover::after {
+  background-color: var(--cp-cyan);
 }
 
 /* Primary (yellow) button hover: brighter glow, no recolor */
@@ -308,6 +327,26 @@ html.theme-cyberpunk [role='tree'] li > div.before\:opacity-100 {
 
 html.theme-cyberpunk [role='tree'] li > div.before\:opacity-100::before {
   border-radius: 0 !important;
+}
+
+/* ---------------------------------------------------------------- */
+/* Mobile terminal key toolbar (hardcoded zinc in the component)    */
+/* ---------------------------------------------------------------- */
+
+html.theme-cyberpunk [role='toolbar'][aria-label='Terminal keys'] {
+  border-color: var(--cp-red-dim) !important;
+  background: oklch(0.1 0.03 350 / 85%) !important;
+}
+
+html.theme-cyberpunk [role='toolbar'][aria-label='Terminal keys'] button {
+  border-radius: 0 !important;
+  background: oklch(0.18 0.06 350 / 80%) !important;
+  color: var(--foreground) !important;
+}
+
+html.theme-cyberpunk [role='toolbar'][aria-label='Terminal keys'] button:active {
+  background: linear-gradient(to top, oklch(0.8 0.15 195 / 30%), transparent 90%) !important;
+  color: var(--cp-cyan) !important;
 }
 
 /* ---------------------------------------------------------------- */
