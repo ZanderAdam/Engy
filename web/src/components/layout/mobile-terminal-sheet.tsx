@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RiArrowRightSLine, RiLayoutGridLine } from '@remixicon/react';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -35,6 +35,51 @@ interface SheetBaseProps extends MobileTerminalSheetProps {
 }
 
 const QUEUED_EVENT_NAMES = ['terminal:open', 'terminal:inject'] as const;
+
+// True once the element's box has held still for a few consecutive frames
+// while `open`. The terminal dock must not mount into a still-moving sheet:
+// dockview measures its panel overlays at attach time, so mounting during the
+// slide-in captures a mid-animation box — and a rapidly toggled (interrupted)
+// animation fires no end event to heal from. Frame-stability sidesteps
+// animation events entirely.
+function useSettledWhenOpen(open: boolean, ref: React.RefObject<HTMLDivElement | null>): boolean {
+  const [settled, setSettled] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setSettled(false);
+      return;
+    }
+
+    let rafId = 0;
+    let last: DOMRect | null = null;
+    let stableFrames = 0;
+    const check = () => {
+      const rect = ref.current?.getBoundingClientRect();
+      const isStable =
+        rect != null &&
+        last != null &&
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.left === last.left &&
+        rect.top === last.top &&
+        rect.width === last.width &&
+        rect.height === last.height;
+
+      stableFrames = isStable ? stableFrames + 1 : 0;
+      if (stableFrames >= 3) {
+        setSettled(true);
+        return;
+      }
+      last = rect ?? null;
+      rafId = requestAnimationFrame(check);
+    };
+    rafId = requestAnimationFrame(check);
+    return () => cancelAnimationFrame(rafId);
+  }, [open, ref]);
+
+  return settled;
+}
 
 function MobileTerminalSheetBase({
   overlayKind,
@@ -115,8 +160,12 @@ function MobileTerminalSheetBase({
     };
   }, [queueExternalEvents, openOverlay, overlayKind, myTabId, isTabActive]);
 
+  const contentRef = useRef<HTMLDivElement>(null);
+  const settled = useSettledWhenOpen(open, contentRef);
+  const managerMounted = open && settled;
+
   useEffect(() => {
-    if (!open || pendingRef.current.length === 0) return;
+    if (!managerMounted || pendingRef.current.length === 0) return;
     const queued = pendingRef.current;
     pendingRef.current = [];
     // Defer until after TerminalManager mounts and its window listeners attach.
@@ -126,7 +175,7 @@ function MobileTerminalSheetBase({
       }
     }, 0);
     return () => clearTimeout(id);
-  }, [open]);
+  }, [managerMounted]);
 
   return (
     <Sheet
@@ -183,8 +232,8 @@ function MobileTerminalSheetBase({
             <div className="size-8" aria-hidden />
           )}
         </div>
-        <div className="flex flex-1 min-h-0 bg-[#0a0a0a]">
-          {open && (
+        <div ref={contentRef} className="flex flex-1 min-h-0 bg-[#0a0a0a]">
+          {managerMounted && (
             <TerminalManager
               key={showCommandCenter ? COMMAND_CENTER_GROUP_KEY : scopeKey}
               onCollapse={closeOverlay}

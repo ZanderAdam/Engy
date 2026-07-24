@@ -719,18 +719,19 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     // Window-level capture listeners see every animation on the page; the
     // contains() check keeps the non-ancestor fast path O(1). Accepted over
     // threading a ref from each animated host (Sheet, panel wrapper) down here.
+    // The cancel events matter: rapid open/close interrupts an animation,
+    // which fires animationcancel/transitioncancel instead of the end events.
     const onAncestorSettled = (e: Event) => {
       if (e.target instanceof Node && e.target.contains(el)) heal();
     };
-    window.addEventListener('animationend', onAncestorSettled, true);
-    window.addEventListener('transitionend', onAncestorSettled, true);
+    const settleEvents = ['animationend', 'animationcancel', 'transitionend', 'transitioncancel'];
+    for (const name of settleEvents) window.addEventListener(name, onAncestorSettled, true);
     const resizeObserver = new ResizeObserver(heal);
     resizeObserver.observe(el);
 
     return () => {
       cancelAnimationFrame(rafId);
-      window.removeEventListener('animationend', onAncestorSettled, true);
-      window.removeEventListener('transitionend', onAncestorSettled, true);
+      for (const name of settleEvents) window.removeEventListener(name, onAncestorSettled, true);
       resizeObserver.disconnect();
     };
   }, []);
