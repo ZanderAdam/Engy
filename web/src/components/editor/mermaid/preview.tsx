@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
+import { useThemeFlavor } from "@/components/theme-provider";
 import { renderDiagram, type MermaidTheme } from "./render";
 import { ZoomPan } from "./zoom-pan";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,12 @@ interface MermaidPreviewProps {
   onFullscreen?: () => void;
 }
 
+function getMermaidTheme(flavor: string, resolvedTheme: string | undefined): MermaidTheme {
+  if (flavor === 'cyberpunk') return 'cyberpunk';
+  if (resolvedTheme === 'dark') return 'dark';
+  return 'default';
+}
+
 export function MermaidPreview({
   code,
   blockId,
@@ -30,10 +37,11 @@ export function MermaidPreview({
   onFullscreen,
 }: MermaidPreviewProps) {
   const { resolvedTheme } = useTheme();
-  const theme: MermaidTheme = resolvedTheme === 'dark' ? 'dark' : 'default';
+  const { flavor } = useThemeFlavor();
+  const theme = getMermaidTheme(flavor, resolvedTheme);
 
   // Last-good SVG is kept in state so the previous diagram remains visible
-  // through transient parse errors (FR 6). Accessing via state (not refs)
+  // through transient parse errors. Accessing via state (not refs)
   // satisfies the react-hooks/refs rule and keeps renders pure.
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string | null>(null);

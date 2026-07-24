@@ -3,12 +3,45 @@
  * in the document-editor initial chunk and never runs server-side.
  */
 
-export type MermaidTheme = 'default' | 'dark';
+export type MermaidTheme = 'default' | 'dark' | 'cyberpunk';
 
 type MermaidModule = typeof import('mermaid').default;
 
 let mermaidPromise: Promise<MermaidModule> | null = null;
 let initializedTheme: MermaidTheme | null = null;
+
+// Neon variables on mermaid's customizable `base` theme, matching the
+// cyberpunk flavor's xterm/Monaco palette.
+const CYBERPUNK_THEME_CONFIG = {
+  theme: 'base',
+  themeVariables: {
+    darkMode: true,
+    background: '#0d060a',
+    primaryColor: '#2a1520',
+    primaryTextColor: '#ffd9d4',
+    primaryBorderColor: '#ff2a4d',
+    secondaryColor: '#0a2a30',
+    tertiaryColor: '#1a0d14',
+    lineColor: '#00f0ff',
+    textColor: '#ffd9d4',
+    clusterBkg: '#140a10',
+    clusterBorder: '#7a2233',
+    edgeLabelBackground: '#1a0d14',
+    titleColor: '#ff6b5e',
+    noteBkgColor: '#2a2405',
+    noteTextColor: '#fcee0a',
+    noteBorderColor: '#fcee0a',
+    actorBkg: '#1a0d14',
+    actorBorder: '#ff2a4d',
+    actorTextColor: '#ffd9d4',
+    signalColor: '#00f0ff',
+    signalTextColor: '#ffd9d4',
+  },
+} as const;
+
+function themeConfig(theme: MermaidTheme) {
+  return theme === 'cyberpunk' ? CYBERPUNK_THEME_CONFIG : { theme };
+}
 
 async function getMermaid(theme: MermaidTheme): Promise<MermaidModule> {
   if (!mermaidPromise) {
@@ -18,9 +51,9 @@ async function getMermaid(theme: MermaidTheme): Promise<MermaidModule> {
   if (initializedTheme !== theme) {
     m.initialize({
       startOnLoad: false,
-      theme,
       securityLevel: 'strict',
       fontFamily: 'inherit',
+      ...themeConfig(theme),
     });
     initializedTheme = theme;
   }
