@@ -1,7 +1,15 @@
 'use client';
 
-import { Fragment, useEffect, useState, type ComponentType } from 'react';
+import { Fragment, useEffect, useState, type ComponentType, type KeyboardEvent } from 'react';
 import { parseTaskId } from './task-id';
+import {
+  SEARCH_MODES,
+  activeQueryForMode,
+  isLiveMode,
+  needsManualSubmit,
+  searchModeMeta,
+  type SearchMode,
+} from './search-mode';
 import { trpc, type RouterOutputs } from '@/lib/trpc';
 import {
   CommandDialog,
@@ -83,6 +91,11 @@ interface SearchDialogContentProps {
 function SearchDialogContent({ onClose }: SearchDialogContentProps) {
   const [inputValue, setInputValue] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [mode, setMode] = useState<SearchMode>('lex');
+  // Hybrid runs local LLM inference (query expansion + rerank) that can take
+  // minutes on CPU — far too slow to fire on every keystroke. Live modes (lex,
+  // vector) query the debounced input; hybrid queries only this submitted value.
+  const [submittedQuery, setSubmittedQuery] = useState('');
   const navigate = useVirtualNavigate();
 
   const workspaceSlug = extractWorkspaceSlug();
@@ -94,18 +107,35 @@ function SearchDialogContent({ onClose }: SearchDialogContentProps) {
     return () => clearTimeout(timer);
   }, [inputValue]);
 
-  const enabled = !!workspaceSlug && debouncedQuery.length > 0;
+  // An empty input means "nothing queried" in every mode — clamp to '' so a
+  // lingering submittedQuery (e.g. after clearing the box post-hybrid) can't
+  // keep the query enabled and render stale results under the initial hint.
+  const hasInput = inputValue.trim().length > 0;
+  const activeQuery = hasInput ? activeQueryForMode(mode, debouncedQuery, submittedQuery) : '';
+  const enabled = !!workspaceSlug && activeQuery.length > 0;
+  const manualPending = needsManualSubmit(mode, inputValue, submittedQuery);
+
+  function handleModeChange(next: SearchMode) {
+    setMode(next);
+    // A pending hybrid submission is meaningless in a live mode and vice versa.
+    setSubmittedQuery('');
+  }
+
+  function handleInputKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    // In a manual mode, Enter submits the search instead of selecting a result.
+    // Stop propagation so cmdk doesn't also act on the same keypress.
+    if (e.key === 'Enter' && manualPending) {
+      e.preventDefault();
+      e.stopPropagation();
+      setSubmittedQuery(inputValue.trim());
+    }
+  }
 
   const { data, isFetching, error } = trpc.search.query.useQuery(
     {
       workspaceSlug: workspaceSlug ?? '',
-      query: debouncedQuery,
-      // Interactive typeahead uses BM25 keyword search (no models, instant).
-      // The default 'hybrid' mode cold-loads ~2GB of local GGUF models and runs
-      // HyDE query-expansion + LLM reranking on CPU — far too slow for a palette
-      // (it would spin "Searching…" indefinitely). Semantic hybrid is reserved
-      // for agentic MCP retrieval.
-      mode: 'lex',
+      query: activeQuery,
+      mode,
       limit: 30,
     },
     {
@@ -134,7 +164,7 @@ function SearchDialogContent({ onClose }: SearchDialogContentProps) {
 
   const showEmpty =
     !isFetching && !error && enabled && data !== undefined && totalResults === 0;
-  const showInitialHint = !!workspaceSlug && !enabled && !isFetching;
+  const showInitialHint = !!workspaceSlug && !hasInput && !isFetching && !error;
 
   return (
     <>
@@ -142,12 +172,33 @@ function SearchDialogContent({ onClose }: SearchDialogContentProps) {
         placeholder={workspaceSlug ? 'Search docs, memory, tasks…' : 'Navigate to a workspace to search'}
         value={inputValue}
         onValueChange={setInputValue}
+        onKeyDown={handleInputKeyDown}
+        disabled={!workspaceSlug}
+      />
+      <SearchModeToggle
+        mode={mode}
+        onModeChange={handleModeChange}
+        manualPending={manualPending}
         disabled={!workspaceSlug}
       />
       <CommandList>
         {isFetching && (
-          <div className="flex items-center justify-center py-6">
+          <div className="flex items-center justify-center gap-3 py-6">
             <span className="text-xs text-muted-foreground">Searching…</span>
+            {!isLiveMode(mode) && (
+              <button
+                type="button"
+                onClick={() => setSubmittedQuery('')}
+                className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        )}
+        {!isFetching && !error && manualPending && (
+          <div className="py-8 text-center text-xs text-muted-foreground">
+            Press <kbd className="rounded border px-1">Enter</kbd> to run a hybrid search.
           </div>
         )}
         {!isFetching && error && (
@@ -164,6 +215,8 @@ function SearchDialogContent({ onClose }: SearchDialogContentProps) {
         )}
         {!isFetching &&
           !error &&
+          !manualPending &&
+          enabled &&
           sortedGroups.map((group, idx) => {
             const Icon = COLLECTION_ICONS[group.collection];
             const label = COLLECTION_LABELS[group.collection] ?? group.collection;
@@ -233,6 +286,41 @@ function MetaPills({ subtype, tags }: { subtype?: string; tags?: string[] }) {
           {tag}
         </span>
       ))}
+    </div>
+  );
+}
+
+interface SearchModeToggleProps {
+  mode: SearchMode;
+  onModeChange: (mode: SearchMode) => void;
+  manualPending: boolean;
+  disabled: boolean;
+}
+
+function SearchModeToggle({ mode, onModeChange, manualPending, disabled }: SearchModeToggleProps) {
+  const hint = manualPending ? 'Enter to search' : searchModeMeta(mode).hint;
+  return (
+    <div className="flex items-center gap-2 border-b px-2 py-1">
+      <div className="flex items-center gap-0.5">
+        {SEARCH_MODES.map((m) => (
+          <button
+            key={m.mode}
+            type="button"
+            disabled={disabled}
+            onClick={() => onModeChange(m.mode)}
+            aria-pressed={m.mode === mode}
+            className={cn(
+              'h-5 border px-1.5 text-[10px] leading-none disabled:opacity-50',
+              m.mode === mode
+                ? 'border-border bg-muted text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <span className="ml-auto truncate text-[10px] text-muted-foreground/70">{hint}</span>
     </div>
   );
 }

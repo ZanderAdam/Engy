@@ -16,7 +16,11 @@ its local LLM expansion + reranking can take minutes on CPU-only hardware.
 Implementation lives in `web/src/server/search/` (`qmd-search.ts`,
 `subtype-affinity.ts`, `memory-queries.ts`) and is exposed via the
 `search` tRPC procedure (`web/src/server/trpc/routers/search.ts`) and the
-`search` MCP tool (`web/src/server/mcp/index.ts`).
+`search` MCP tool (`web/src/server/mcp/index.ts`). The ⌘K palette
+(`web/src/components/search/global-search.tsx`, mode logic in `search-mode.ts`)
+lets the user pick the mode: lex and vector search as-you-type, while hybrid
+requires an explicit Enter-to-submit because its inference is too slow for a
+per-keystroke typeahead.
 
 ## Requirements
 
@@ -41,3 +45,4 @@ their title string, e.g. `it('[FR-SEARCH-003] ...', ...)`, and run
 | FR-SEARCH-012 | WHEN a query is supplied without filters, the system SHALL attach each file hit's frontmatter subtype and tags (where present) to its result so the UI can display them. |
 | FR-SEARCH-013 | WHEN no search mode is specified, the system SHALL default to lex mode; hybrid mode (local LLM query expansion + reranking) is opt-in because it can take minutes on CPU-only hardware. |
 | FR-SEARCH-014 | IF a hybrid-mode search does not complete within the configured timeout (QMD_HYBRID_TIMEOUT_MS, default 30s), THEN the system SHALL fail with an error directing the caller to lex or vector mode. |
+| FR-SEARCH-015 | The search palette SHALL let the user pick the search mode (lex, vector, hybrid); WHERE the mode is lex or vector the palette SHALL query the debounced input as-you-type, WHILE hybrid mode SHALL query only an explicitly submitted value so its local-LLM inference never fires per keystroke. |
