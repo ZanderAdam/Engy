@@ -3,12 +3,8 @@
 import { useRef, useCallback, useEffect } from 'react';
 import { DiffEditor, type DiffBeforeMount, type DiffOnMount } from '@monaco-editor/react';
 import type { editor, IDisposable } from 'monaco-editor';
-import {
-  ENGY_THEME_NAME,
-  ENGY_CYBERPUNK_THEME_NAME,
-  engyDarkTheme,
-  engyCyberpunkTheme,
-} from './monaco-theme';
+import { ENGY_THEME_NAME, ENGY_CYBERPUNK_THEME_NAME } from './monaco-theme';
+import { configureMonaco } from './monaco-setup';
 import { getLanguageFromPath } from './language-map';
 import { diffModelPaths } from './monaco-models';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -56,8 +52,7 @@ export function MonacoDiffEditor({
   );
 
   const handleBeforeMount: DiffBeforeMount = useCallback((monaco) => {
-    monaco.editor.defineTheme(ENGY_THEME_NAME, engyDarkTheme);
-    monaco.editor.defineTheme(ENGY_CYBERPUNK_THEME_NAME, engyCyberpunkTheme);
+    configureMonaco(monaco);
   }, []);
 
   const handleMount: DiffOnMount = useCallback(

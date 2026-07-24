@@ -140,6 +140,7 @@ export function EisenhowerMatrix({
                 <DroppableZone
                   key={q.label}
                   id={droppableId}
+                  quadrant={`${q.urgency}-${q.importance}`}
                   className="flex min-h-0 flex-1 flex-col gap-2 bg-background p-3"
                 >
                   <span className="shrink-0 text-xs font-medium text-muted-foreground">
@@ -185,6 +186,7 @@ export function EisenhowerMatrix({
               <DroppableZone
                 key={q.label}
                 id={droppableId}
+                quadrant={`${q.urgency}-${q.importance}`}
                 className="flex min-h-0 flex-col gap-2 bg-background p-3"
               >
                 <span className="shrink-0 text-xs font-medium text-muted-foreground">
