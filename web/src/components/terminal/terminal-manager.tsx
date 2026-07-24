@@ -691,6 +691,51 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
 
   const dockviewRef = useRef<HTMLDivElement>(null);
 
+  // Self-heal for dockview's always-rendered panel overlays. Dockview syncs
+  // them via rAF-deferred DOM measurements, which can capture a degenerate box
+  // while an ancestor is animating (e.g. the mobile sheet's slide-in) and never
+  // correct it — the terminal is left as a small square until the host is
+  // closed and reopened. A forced layout re-fires every panel's dimension
+  // events unconditionally, making the overlays re-measure against the settled
+  // DOM. Trigger it whenever an ancestor animation/transition ends or the root
+  // box changes size (e.g. un-hidden by a project tab switch).
+  useEffect(() => {
+    const el = dockviewRef.current;
+    if (!el) return;
+
+    let rafId = 0;
+    const heal = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        rafId = requestAnimationFrame(() => {
+          const api = dockviewApiRef.current;
+          const root = dockviewRef.current;
+          if (!api || !root || root.clientWidth === 0 || root.clientHeight === 0) return;
+          api.layout(root.clientWidth, root.clientHeight, true);
+        });
+      });
+    };
+
+    // Window-level capture listeners see every animation on the page; the
+    // contains() check keeps the non-ancestor fast path O(1). Accepted over
+    // threading a ref from each animated host (Sheet, panel wrapper) down here.
+    // The cancel events matter: rapid open/close interrupts an animation,
+    // which fires animationcancel/transitioncancel instead of the end events.
+    const onAncestorSettled = (e: Event) => {
+      if (e.target instanceof Node && e.target.contains(el)) heal();
+    };
+    const settleEvents = ['animationend', 'animationcancel', 'transitionend', 'transitioncancel'];
+    for (const name of settleEvents) window.addEventListener(name, onAncestorSettled, true);
+    const resizeObserver = new ResizeObserver(heal);
+    resizeObserver.observe(el);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      for (const name of settleEvents) window.removeEventListener(name, onAncestorSettled, true);
+      resizeObserver.disconnect();
+    };
+  }, []);
+
   useEffect(() => {
     const container = dockviewRef.current;
     if (!container) return;

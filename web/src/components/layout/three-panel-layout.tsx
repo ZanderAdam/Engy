@@ -345,18 +345,27 @@ export function ThreePanelLayout({
 
           {rightRail?.({ collapsed: isRightCollapsed, setCollapsed: setRightCollapsed })}
 
+          {/* Collapse/expand only animates this clip wrapper. The inner host
+              keeps its fixed width so panel content (dockview terminals) never
+              lays out through zero or mid-transition widths — those degenerate
+              layouts left xterm overlays stuck at sliver sizes. The transition
+              is disabled while drag-resizing so both divs track the pointer. */}
           <div
             className={cn(
-              'flex flex-col flex-shrink-0 min-h-0 transition-[width] duration-200 ease-in-out',
-              !isRightCollapsed && 'border-l',
+              'flex flex-shrink-0 min-h-0 overflow-hidden',
+              !rightPanel.isResizing && 'transition-[width] duration-200 ease-in-out',
             )}
             style={{
               width: isRightCollapsed ? 0 : rightPanel.width,
               visibility: isRightCollapsed ? 'hidden' : 'visible',
-              overflow: isRightCollapsed ? 'hidden' : undefined,
             }}
           >
-            {rightContent}
+            <div
+              className={cn('flex flex-col flex-shrink-0 min-h-0', !isRightCollapsed && 'border-l')}
+              style={{ width: rightPanel.width }}
+            >
+              {rightContent}
+            </div>
           </div>
         </>
       )}

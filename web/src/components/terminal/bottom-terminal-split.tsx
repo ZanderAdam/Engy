@@ -150,23 +150,27 @@ export function BottomTerminalSplit({
           </div>
         )}
 
-        {/* Terminal — hidden when collapsed to preserve live connections */}
+        {/* Terminal — hidden when collapsed to preserve live connections.
+            Only the outer clip wrapper collapses; the inner host keeps its
+            expanded height so the dockview terminals never lay out at zero
+            height (which left xterm overlays stuck at sliver sizes). */}
         <div
-          className="flex flex-col min-h-0 shrink-0 bg-[#0a0a0a]"
+          className="shrink-0 overflow-hidden"
           style={{
             height: collapsed ? 0 : height,
-            overflow: collapsed ? 'hidden' : undefined,
-            visibility: collapsed ? 'hidden' : undefined,
+            visibility: collapsed ? 'hidden' : 'visible',
           }}
         >
-          <TerminalManager
-            key={scopeKey}
-            onCollapse={handleCollapse}
-            defaultScope={scope}
-            extraDropdownGroups={shellDropdownGroups}
-            containerEnabled={containerEnabled}
-            disableExternalEvents
-          />
+          <div className="flex flex-col min-h-0 bg-[#0a0a0a]" style={{ height }}>
+            <TerminalManager
+              key={scopeKey}
+              onCollapse={handleCollapse}
+              defaultScope={scope}
+              extraDropdownGroups={shellDropdownGroups}
+              containerEnabled={containerEnabled}
+              disableExternalEvents
+            />
+          </div>
         </div>
       </div>
     </BottomTerminalProvider>
