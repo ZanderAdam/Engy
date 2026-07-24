@@ -514,15 +514,6 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   const resumeGroup = useMemo<TerminalDropdownGroup | undefined>(() => {
     if (!workspace || !sessionHistory) return undefined;
-    const repos = (workspace.repos as string[]) ?? [];
-    const codexRepos = isAgentActive(workspace.agentSettings, 'codex')
-      ? [
-          ...repos.map((r) => ({ workingDir: r })),
-          ...worktreeGroups.flatMap((g) =>
-            g.repos.map((r) => ({ workingDir: r.worktreePath, branch: g.branch })),
-          ),
-        ]
-      : [];
     const projectDir =
       params.project && workspace.resolvedDir
         ? `${workspace.resolvedDir}/projects/${params.project}`
@@ -532,19 +523,12 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       mcpUrl: getMcpUrl(),
       agentSettings: workspace.agentSettings,
       projectDir,
-      codexRepos,
+      codexActive: isAgentActive(workspace.agentSettings, 'codex'),
       // Fetch timestamp, not Date.now() — pure during render, and relative
       // times are naturally measured against when the list was fetched.
       now: sessionHistoryFetchedAt,
     });
-  }, [
-    workspace,
-    sessionHistory,
-    sessionHistoryFetchedAt,
-    worktreeGroups,
-    params.workspace,
-    params.project,
-  ]);
+  }, [workspace, sessionHistory, sessionHistoryFetchedAt, params.workspace, params.project]);
 
   const allDropdownGroups = useMemo<TerminalDropdownGroup[] | undefined>(() => {
     const groups: TerminalDropdownGroup[] = [];

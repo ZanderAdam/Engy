@@ -1,6 +1,7 @@
 'use client';
 
 import { RiAddLine } from '@remixicon/react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useTerminalDock } from './terminal-dock-context';
 import {
   DropdownMenu,
@@ -14,6 +15,7 @@ import { TerminalNewMenuContent } from './terminal-new-menu';
 // uses — one option source, no drift (splits are omitted: no reference panel).
 export function TerminalDockWatermark() {
   const { openTerminal, extraDropdownGroups, containerEnabled, defaultScope } = useTerminalDock();
+  const isMobile = useIsMobile();
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3">
@@ -31,6 +33,7 @@ export function TerminalDockWatermark() {
             extraDropdownGroups={extraDropdownGroups}
             containerEnabled={containerEnabled}
             defaultScope={defaultScope}
+            inline={isMobile}
           />
         </DropdownMenuContent>
       </DropdownMenu>

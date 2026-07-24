@@ -24,8 +24,8 @@ interface SessionHistoryGroupOptions {
   agentSettings: WorkspaceAgentSettings | null | undefined;
   /** Project docs dir re-granted via --add-dir, like fresh agent spawns. */
   projectDir?: string;
-  /** Repo/worktree dirs that get a "Resume Codex session…" picker entry. */
-  codexRepos?: Array<{ workingDir: string; branch?: string }>;
+  /** Offer "Resume Codex session…" pickers (only where codex history exists). */
+  codexActive?: boolean;
   /** Injected clock for deterministic relative-time labels. */
   now: number;
   maxPerDir?: number;
@@ -62,10 +62,11 @@ interface DirBucket {
 }
 
 /**
- * Build the "Resume Session" dropdown group: a submenu per repo/worktree with
- * that directory's recent Claude sessions (summary + recency), plus a Codex
- * picker entry (`codex resume` — Codex session ids are not tracked, see
- * FR-TERMINAL-370). Returns undefined when there is nothing to offer.
+ * Build the "Resume Session" dropdown group: a submenu per directory that has
+ * recorded session history — Claude sessions as by-id resume entries (summary
+ * + recency), and a Codex picker entry (`codex resume`) only where Codex
+ * sessions actually ran (Codex ids are not tracked, see FR-TERMINAL-370).
+ * Returns undefined when there is nothing to offer.
  */
 export function buildSessionHistoryGroup(
   rows: SessionHistoryItem[],
@@ -74,23 +75,28 @@ export function buildSessionHistoryGroup(
   const maxPerDir = opts.maxPerDir ?? DEFAULT_MAX_PER_DIR;
   const buckets = new Map<string, DirBucket>();
 
-  function bucketFor(workingDir: string, branch: string | undefined): DirBucket {
-    let bucket = buckets.get(workingDir);
-    if (!bucket) {
-      bucket = { workingDir, branch, rows: [], hasCodexPicker: false };
-      buckets.set(workingDir, bucket);
-    }
-    return bucket;
-  }
-
-  // Only Claude sessions are resumable by id — history rows are keyed by the
-  // terminal session id, which codex never adopts as its own session id.
   for (const row of rows) {
-    if (row.agentType !== 'claude') continue;
-    bucketFor(row.workingDir, row.worktreeBranch ?? undefined).rows.push(row);
+    let bucket = buckets.get(row.workingDir);
+    if (!bucket) {
+      bucket = {
+        workingDir: row.workingDir,
+        branch: row.worktreeBranch ?? undefined,
+        rows: [],
+        hasCodexPicker: false,
+      };
+      buckets.set(row.workingDir, bucket);
+    }
+    if (row.agentType === 'claude') {
+      // Only Claude sessions are resumable by id — history rows are keyed by
+      // the terminal session id, which codex never adopts as its own.
+      bucket.rows.push(row);
+    } else if (row.agentType === 'codex' && opts.codexActive) {
+      bucket.hasCodexPicker = true;
+    }
   }
-  for (const repo of opts.codexRepos ?? []) {
-    bucketFor(repo.workingDir, repo.branch).hasCodexPicker = true;
+  // Codex-only directories with the picker suppressed have nothing to offer.
+  for (const [dir, bucket] of buckets) {
+    if (bucket.rows.length === 0 && !bucket.hasCodexPicker) buckets.delete(dir);
   }
   if (buckets.size === 0) return undefined;
 

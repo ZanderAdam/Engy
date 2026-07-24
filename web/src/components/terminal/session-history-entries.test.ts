@@ -87,17 +87,21 @@ describe('session history entries', () => {
       expect(children[0].label).toBe('claude: engy · 1h ago');
     });
 
-    it('should ignore non-claude rows', () => {
+    it('should offer nothing for codex rows when codex is inactive', () => {
       expect(
         buildSessionHistoryGroup([makeRow({ agentType: 'codex' })], baseOpts),
       ).toBeUndefined();
     });
 
-    it('[FR-TERMINAL-370] should add a codex picker entry per configured repo', () => {
-      const group = buildSessionHistoryGroup([makeRow()], {
-        ...baseOpts,
-        codexRepos: [{ workingDir: '/repos/engy' }, { workingDir: '/repos/other' }],
-      });
+    it('[FR-TERMINAL-370] should add a codex picker only where codex sessions ran', () => {
+      const group = buildSessionHistoryGroup(
+        [
+          makeRow(),
+          makeRow({ sessionId: 'cx', agentType: 'codex', workingDir: '/repos/engy' }),
+          makeRow({ sessionId: 'cx2', agentType: 'codex', workingDir: '/repos/codex-only' }),
+        ],
+        { ...baseOpts, codexActive: true },
+      );
 
       const engy = group!.entries.find((e) => e.label === 'engy')!;
       const picker = engy.children!.at(-1)!;
@@ -105,9 +109,18 @@ describe('session history entries', () => {
       expect(picker.scope!.command).toBe('codex resume');
       expect(picker.scope!.agentType).toBe('codex');
 
-      const other = group!.entries.find((e) => e.label === 'other')!;
-      expect(other.children).toHaveLength(1);
-      expect(other.children![0].label).toBe('Resume Codex session…');
+      const codexOnly = group!.entries.find((e) => e.label === 'codex-only')!;
+      expect(codexOnly.children).toHaveLength(1);
+      expect(codexOnly.children![0].label).toBe('Resume Codex session…');
+    });
+
+    it('[FR-TERMINAL-370] should not create directory entries for repos without history', () => {
+      const group = buildSessionHistoryGroup([makeRow()], { ...baseOpts, codexActive: true });
+
+      expect(group!.entries.map((e) => e.label)).toEqual(['engy']);
+      expect(group!.entries[0].children!.every((c) => c.label !== 'Resume Codex session…')).toBe(
+        true,
+      );
     });
 
     it('should return undefined when there is nothing to offer', () => {

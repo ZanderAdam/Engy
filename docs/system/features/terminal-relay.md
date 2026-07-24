@@ -215,8 +215,9 @@ row's summary. The new-terminal dropdown's "Resume Session" group
 closed sessions per repo/worktree and reopens them in their original cwd with
 `claude --resume <id>`; resumed terminals carry `resumedFrom` so history keeps
 tracking the original conversation. Codex cannot be assigned a session id at
-spawn, so it gets a per-repo "Resume Codex session…" entry that launches
-`codex resume` (the CLI's own cwd-filtered picker). When the daemon loses a PTY
+spawn, so directories with recorded Codex sessions get a "Resume Codex
+session…" entry that launches `codex resume` (the CLI's own cwd-filtered
+picker). When the daemon loses a PTY
 and the server respawns it, `--session-id` is rewritten to `--resume` so the
 conversation continues instead of failing on a duplicate id.
 
@@ -265,7 +266,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-340 | WHEN an agent terminal session (metadata carries `agentType`) is spawned, the system SHALL upsert a session-history row keyed by the session's agent-CLI session id (`resumedFrom` when the terminal is a resume, else the terminal `sessionId`) carrying agentType, workingDir, scopeLabel, summary (initially `scopeLabel`), workspaceSlug, projectSlug, worktreeBranch, containerMode, and startedAt — so the row exists even if the daemon or machine dies mid-session; WHEN the session is torn down (daemon exit, kill/destroy, or daemon-sync purge) the system SHALL stamp `closedAt` on the row. History SHALL be pruned to the newest 50 rows per workspace; sessions without `agentType` SHALL NOT be recorded. |
 | FR-TERMINAL-350 | WHEN the client queries recent session history for a workspace, the system SHALL return stored rows newest-first, excluding rows whose key matches a currently-live session's `resumedFrom` or `sessionId`, so open terminals never appear as resumable. |
 | FR-TERMINAL-360 | WHEN the user activates a resume entry in the new-terminal dropdown, the system SHALL open a new terminal in the history row's original workingDir (and original containerMode) whose command is `claude --resume <session-id>` plus the standard MCP config, permission-mode, and `--add-dir` flags — and without `--session-id` — and SHALL tag the new session's metadata with `resumedFrom: <session-id>`. |
-| FR-TERMINAL-370 | The new-terminal dropdown SHALL offer a "Resume Codex session…" entry per repo/worktree that opens a terminal running `codex resume` (the CLI's interactive picker) in that directory. |
+| FR-TERMINAL-370 | WHILE the Codex agent is active, the new-terminal dropdown SHALL offer a "Resume Codex session…" entry for each directory with recorded Codex session history, opening a terminal running `codex resume` (the CLI's interactive picker) in that directory; directories without any session history SHALL NOT appear in the resume group. |
 | FR-TERMINAL-380 | WHEN the server respawns a session whose stored command contains `--session-id <id>` (daemon lost the PTY), it SHALL rewrite the flag to `--resume <id>` before sending the spawn, so the respawned CLI continues the conversation instead of failing on a duplicate session id. |
 
 ## Sources
