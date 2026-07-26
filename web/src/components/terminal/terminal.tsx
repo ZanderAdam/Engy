@@ -15,6 +15,7 @@ import { createActivityTracker } from "./activity-tracker";
 import { ReconnectingSocket } from "./reconnecting-socket";
 import { MobileTerminalControls } from "./mobile-terminal-controls";
 import { shouldSendResize } from "./terminal-resize";
+import { createTouchScrollTracker } from "./touch-scroll";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 export interface TerminalActions {
@@ -74,8 +75,6 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const socketRef = useRef<ReconnectingSocket | null>(null);
-  const isPinnedRef = useRef(true);
-  const scrollRafRef = useRef(0);
   const lastSentColsRef = useRef(0);
   const lastSentRowsRef = useRef(0);
   const activityTrackerRef = useRef<ReturnType<typeof createActivityTracker> | null>(null);
@@ -92,7 +91,6 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
 
   const handleScrollToBottom = useCallback(() => {
     xtermRef.current?.scrollToBottom();
-    isPinnedRef.current = true;
     setShowScrollButton(false);
   }, []);
 
@@ -148,9 +146,17 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     term.open(containerRef.current);
     const fitTimer = setTimeout(() => { if (!isCleanedUp) fitAddon.fit(); }, 50);
 
+    // xterm only sets autocorrect/autocapitalize/spellcheck on its hidden input.
+    // Chrome for Android ignores those (crbug.com/901839), so the virtual keyboard
+    // still runs predictive text over a terminal — composing words ahead of the
+    // cursor and corrupting backspace. `inputmode` is the one lever Android does
+    // honour: it maps to an input type the keyboard treats as suggestion-free,
+    // while keeping a normal layout (space bar included) on both iOS and Android.
+    term.textarea?.setAttribute('autocomplete', 'off');
+    term.textarea?.setAttribute('inputmode', 'email');
+
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
-    isPinnedRef.current = true;
     setShowScrollButton(false);
 
     // Activity detection via OSC title changes and PTY output bytes parsed from
@@ -177,51 +183,55 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       socketRef.current?.send(JSON.stringify({ t: 'title', sessionId, title }));
     };
 
+    // xterm's BufferService.isUserScrolling is the single source of truth for
+    // auto-follow: scrolling into the scrollback sets it, reaching the bottom
+    // clears it, and output follows the bottom only while it is clear. Mirroring
+    // that with our own "pinned" flag is what used to snap the view back — the
+    // mirror could disagree with xterm and every write then forced a
+    // scrollToBottom(), which also reset isUserScrolling. So we only read the
+    // buffer here, to decide whether the "Bottom" button is needed.
     const scrollSub = term.onScroll(() => {
       const buf = term.buffer.active;
-      const atBottom = buf.viewportY >= buf.baseY;
-      setShowScrollButton(!atBottom);
-      // Only unpin — never re-pin from onScroll. xterm's write() can trigger
-      // scroll events that would incorrectly re-pin when the user scrolled up.
-      if (!atBottom) {
-        isPinnedRef.current = false;
-      }
+      setShowScrollButton(buf.viewportY < buf.baseY);
     });
 
-    // Handle scroll intent via wheel events. xterm's own wheel handler fires
-    // first (on the descendant viewport element), so by the time our handler
-    // runs, isPinnedRef reflects whether xterm already scrolled a full line.
     const container = containerRef.current;
-    const handleWheel = (e: WheelEvent) => {
-      // Any upward scroll unpins immediately and durably — output must never
-      // snap the view back while the user is reading scrollback. When pinned,
-      // also force a one-line scroll so small trackpad deltas escape the
-      // auto-scroll zone (scrollToBottom would otherwise reset the native
-      // scrollbar every frame, preventing small deltas from accumulating).
-      if (e.deltaY < 0) {
-        if (isPinnedRef.current && term.buffer.active.baseY > 0) {
-          term.scrollLines(-1);
-        }
-        isPinnedRef.current = false;
-        setShowScrollButton(true);
-        return;
-      }
 
-      // Re-pin only on a downward scroll that reaches the bottom. Checking on
-      // the next frame lets xterm settle the viewport; if streaming output has
-      // pushed the bottom further away by then, viewportY stays below baseY and
-      // we correctly remain unpinned.
-      requestAnimationFrame(() => {
-        const t = xtermRef.current;
-        if (!t) return;
-        const buf = t.buffer.active;
-        if (buf.viewportY >= buf.baseY) {
-          isPinnedRef.current = true;
-          setShowScrollButton(false);
-        }
-      });
+    // Nudge one line on an upward wheel from the bottom so small trackpad deltas
+    // escape the auto-follow zone: while following, each write resets the
+    // viewport, so sub-line deltas never accumulate into a scroll of their own.
+    // The nudge sets isUserScrolling, which durably stops output from following.
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY >= 0) return;
+      const buf = term.buffer.active;
+      if (buf.baseY > 0 && buf.viewportY >= buf.baseY) term.scrollLines(-1);
     };
     container.addEventListener('wheel', handleWheel, { passive: true });
+
+    // Touch scrolling is driven here rather than by xterm, whose own touch
+    // handlers bail out while a program has mouse reporting on — which every
+    // agent TUI does. Native scrolling doesn't cover for them either: only
+    // `.xterm-viewport` scrolls, and `.xterm-screen` overlays it, so a drag
+    // lands on the viewport only in the margins beyond the last row/column.
+    // Listening in the capture phase and stopping propagation lets us scroll the
+    // buffer from any target, in any mouse mode.
+    const touchScroll = createTouchScrollTracker();
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      touchScroll.start(e.touches[0].clientY);
+    };
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      e.stopPropagation();
+      const lines = touchScroll.advance(e.touches[0].clientY, container.clientHeight / term.rows);
+      // Nothing to scroll without scrollback (an alt-buffer TUI, or a fresh
+      // session) — leave the gesture to the browser instead of swallowing it.
+      if (term.buffer.active.baseY === 0) return;
+      e.preventDefault();
+      if (lines !== 0) term.scrollLines(lines);
+    };
+    container.addEventListener('touchstart', handleTouchStart, { passive: true, capture: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false, capture: true });
     // focusin bubbles from xterm's textarea (unlike focus), so any click/keyboard
     // focus re-syncs PTY size when the viewport changed while the panel was hidden,
     // and acknowledges the session so a done/waiting indicator clears once viewed.
@@ -233,17 +243,6 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       socketRef.current?.send(JSON.stringify({ t: 'ack', sessionId }));
     };
     container.addEventListener('focusin', handleFocusIn);
-
-    const scheduleScroll = () => {
-      if (!scrollRafRef.current) {
-        scrollRafRef.current = requestAnimationFrame(() => {
-          scrollRafRef.current = 0;
-          if (isPinnedRef.current) {
-            term.scrollToBottom();
-          }
-        });
-      }
-    };
 
     const actions: TerminalActions = {
       write: (data) => socketRef.current?.send(JSON.stringify({ t: 'i', sessionId, d: data })),
@@ -289,13 +288,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
 
             // xterm natively preserves the viewport while the user is scrolled
             // up (its BufferService.isUserScrolling flag, set whenever we or the
-            // wheel handler scroll into the scrollback) and follows the bottom otherwise.
-            // Writing plainly leans on that. The previous manual save/restore raced
-            // back-to-back async writes — write #2 captured savedY after write #1
-            // had already auto-scrolled to the bottom, so the restore became a
-            // no-op and the viewport snapped to the bottom during fast output.
+            // wheel/touch handlers scroll into the scrollback) and follows the
+            // bottom otherwise. Writing plainly leans on that.
             term.write(msg.d);
-            if (isPinnedRef.current) scheduleScroll();
           } else if (msg.t === 'reconnected' && msg.buffer) {
             console.log(`[terminal-ui] Reconnected session ${sessionId}, buffer lines: ${msg.buffer.length}`);
             activityTracker.suppress();
@@ -309,7 +304,6 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
             term.write(replay, () => {
               term.scrollToBottom();
             });
-            isPinnedRef.current = true;
             setShowScrollButton(false);
           } else if (msg.t === 'exit') {
             const code = msg.exitCode ?? 0;
@@ -323,13 +317,11 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
                   ? 'Process exited'
                   : `Process exited with code ${code}`;
             term.write(`\r\n\x1b[2m[${label}]\x1b[0m\r\n`);
-            if (isPinnedRef.current) scheduleScroll();
           } else if (msg.t === 'error') {
             console.error(`[terminal-ui] Error for session ${sessionId}: no daemon`);
             socket.markFinal();
             onStatusChange(sessionId, 'error');
             term.write('\r\n\x1b[31m[Error: no daemon connected]\x1b[0m\r\n');
-            if (isPinnedRef.current) scheduleScroll();
           }
         },
         onClose: (event) => {
@@ -366,12 +358,12 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     return () => {
       isCleanedUp = true;
       clearTimeout(fitTimer);
-      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
-      scrollRafRef.current = 0;
       activityTracker.dispose();
       activityTrackerRef.current = null;
       scrollSub.dispose();
       container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('touchstart', handleTouchStart, { capture: true });
+      container.removeEventListener('touchmove', handleTouchMove, { capture: true });
       container.removeEventListener('focusin', handleFocusIn);
       resizeObserver.disconnect();
       onReady?.(sessionId, null);

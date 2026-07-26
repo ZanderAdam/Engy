@@ -221,6 +221,21 @@ picker). When the daemon loses a PTY
 and the server respawns it, `--session-id` is rewritten to `--resume` so the
 conversation continues instead of failing on a duplicate id.
 
+## Viewport scrolling
+
+The browser pane (`web/src/components/terminal/terminal.tsx`) leaves auto-follow
+to xterm's own `isUserScrolling` state rather than mirroring it: scrolling into
+the scrollback stops output from following the bottom, and reaching the bottom
+resumes it. The pane only reads the buffer, to show a "Bottom" button while the
+view sits above `baseY`. Two gestures need help. An upward wheel from the bottom
+gets a forced one-line scroll, because while following, each write resets the
+viewport and sub-line trackpad deltas never accumulate. Touch drags are handled
+outright (`touch-scroll.ts` converts drag pixels to whole lines, the pane
+listens in the capture phase and stops propagation), because xterm's own touch
+handlers bail out while a program has mouse reporting on — which agent TUIs do —
+and native scrolling only covers the margins beyond the last row and column,
+where a drag reaches `.xterm-viewport` instead of the `.xterm-screen` overlay.
+
 ## Requirements
 
 Functional requirements in EARS notation. These are the single source of truth
@@ -268,6 +283,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-360 | WHEN the user activates a resume entry in the new-terminal dropdown, the system SHALL open a new terminal in the history row's original workingDir (and original containerMode) whose command is `claude --resume <session-id>` plus the standard MCP config, permission-mode, and `--add-dir` flags — and without `--session-id` — and SHALL tag the new session's metadata with `resumedFrom: <session-id>`. |
 | FR-TERMINAL-370 | WHILE the Codex agent is active, the new-terminal dropdown SHALL offer a "Resume Codex session…" entry for each directory with recorded Codex session history, opening a terminal running `codex resume` (the CLI's interactive picker) in that directory; directories without any session history SHALL NOT appear in the resume group. |
 | FR-TERMINAL-380 | WHEN the server respawns a session whose stored command contains `--session-id <id>` (daemon lost the PTY), it SHALL rewrite the flag to `--resume <id>` before sending the spawn, so the respawned CLI continues the conversation instead of failing on a duplicate session id. |
+| FR-TERMINAL-390 | WHILE the user drags a single touch point across a terminal pane, the system SHALL scroll the terminal buffer by the whole lines the drag covers, carrying sub-line movement over to later moves within the same drag and discarding it when a new drag starts; WHILE the pane's row height is not measurable (a hidden pane), it SHALL NOT scroll. |
 
 ## Sources
 

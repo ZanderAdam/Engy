@@ -46,10 +46,7 @@ function useSettledWhenOpen(open: boolean, ref: React.RefObject<HTMLDivElement |
   const [settled, setSettled] = useState(false);
 
   useEffect(() => {
-    if (!open) {
-      setSettled(false);
-      return;
-    }
+    if (!open) return;
 
     let rafId = 0;
     let last: DOMRect | null = null;
@@ -75,7 +72,12 @@ function useSettledWhenOpen(open: boolean, ref: React.RefObject<HTMLDivElement |
       rafId = requestAnimationFrame(check);
     };
     rafId = requestAnimationFrame(check);
-    return () => cancelAnimationFrame(rafId);
+    // Reset on the way out, not on the way in: closing must re-arm the check so
+    // the next open re-measures instead of mounting on a stale "settled".
+    return () => {
+      cancelAnimationFrame(rafId);
+      setSettled(false);
+    };
   }, [open, ref]);
 
   return settled;
