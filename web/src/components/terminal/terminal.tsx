@@ -8,7 +8,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { ITheme } from "@xterm/xterm";
 import type { DockviewPanelApi } from "dockview";
 import { DARK_XTERM_THEME } from "@/hooks/use-xterm-theme";
-import { RiArrowDownSLine } from "@remixicon/react";
+import { RiArrowDownSLine, RiPencilLine } from "@remixicon/react";
 import type { ActivityEvent, TerminalTab } from "./types";
 import { createTerminalActivityParser, parseTerminalActivity } from "./parse-terminal-activity";
 import { createActivityTracker } from "./activity-tracker";
@@ -406,6 +406,16 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
         {/* Panning is ours — a browser-claimed pan cancels the pointer stream
             mid-drag — but two-finger zoom stays with the browser. */}
         <div ref={containerRef} className="size-full touch-pinch-zoom" />
+        {isMobile && !composing && (
+          <button
+            type="button"
+            aria-label="Compose message"
+            onClick={() => setComposing(true)}
+            className="absolute bottom-3 right-3 z-10 flex size-12 items-center justify-center rounded-full bg-zinc-700/90 text-zinc-100 shadow-lg backdrop-blur-sm active:bg-zinc-600"
+          >
+            <RiPencilLine className="size-5" aria-hidden />
+          </button>
+        )}
         {isMobile && composing && (
           <MobileComposer onCancel={() => setComposing(false)} onSubmit={submitComposed} />
         )}
@@ -420,9 +430,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
           </button>
         )}
       </div>
-      {isMobile && (
-        <MobileTerminalControls onKey={sendKey} onCompose={() => setComposing(true)} />
-      )}
+      {isMobile && <MobileTerminalControls onKey={sendKey} />}
     </div>
   );
 }

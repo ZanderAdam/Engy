@@ -253,13 +253,21 @@ Typing straight into xterm's hidden textarea is unreliable on mobile: Chrome for
 Android ignores the `autocorrect`/`spellcheck` attributes xterm sets
 (crbug.com/901839), and Gboard's composition events duplicate and jumble
 characters (xterm.js#3600). The pane sets `inputmode` on that textarea to get an
-input type Android treats as suggestion-free, and the mobile key column carries a
-compose (pencil) button that opens `mobile-composer.tsx` — a full-pane overlay
-with a plain textarea, every keyboard nicety left on, and a working Enter key for
-newlines. Send delivers the text as one bracketed paste
-(`bracketed-paste.ts`) followed by a separate Enter, so line breaks stay line
-breaks and no per-keystroke composition reaches the PTY. Its action row sits at
-the top, where the virtual keyboard cannot cover it.
+input type Android treats as suggestion-free, and a floating pencil button in the
+pane's bottom-right corner opens `mobile-composer.tsx` — a full-pane overlay with
+a plain textarea, every keyboard nicety left on, and a working Enter key for
+newlines. Send delivers the text as one bracketed paste (`bracketed-paste.ts`)
+followed by a separate Enter, so line breaks stay line breaks and no
+per-keystroke composition reaches the PTY.
+
+Both the pencil and the overlay's Cancel/Send row sit at the bottom, under the
+thumb. Keeping them clear of the keyboard is normally the platform's job —
+`app/layout.tsx` sets `interactive-widget: resizes-content`, so the layout
+viewport shrinks and the actions ride up on their own. `use-keyboard-inset.ts`
+is the fallback for engines that ignore that hint (iOS Safari before 17.4),
+which shrink only the visual viewport: it reports the difference as keyboard
+height and the overlay pads itself by that much. On engines that honour the
+hint it correctly reports zero.
 
 ## Requirements
 

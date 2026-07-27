@@ -1,12 +1,11 @@
 'use client';
 
 import type { PointerEvent } from 'react';
-import { RiArrowUpSLine, RiArrowDownSLine, RiPencilLine } from '@remixicon/react';
+import { RiArrowUpSLine, RiArrowDownSLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
 
 interface MobileTerminalControlsProps {
   onKey: (data: string) => void;
-  onCompose: () => void;
 }
 
 interface ControlButton {
@@ -29,30 +28,13 @@ export const MOBILE_TERMINAL_BUTTONS: ControlButton[] = [
   { id: 'enter', label: 'Enter', ariaLabel: 'Send Enter', data: '\r' },
 ];
 
-const CONTROL_CLASS = cn(
-  'h-9 w-10 flex items-center justify-center',
-  'rounded text-xs font-medium text-zinc-200',
-  'bg-zinc-800/80 active:bg-zinc-700',
-  'select-none touch-manipulation',
-);
-
-export function MobileTerminalControls({ onKey, onCompose }: MobileTerminalControlsProps) {
+export function MobileTerminalControls({ onKey }: MobileTerminalControlsProps) {
   return (
     <div
       className="flex flex-col justify-end gap-1 shrink-0 p-1 border-l border-zinc-800 bg-zinc-900/80"
       role="toolbar"
       aria-label="Terminal keys"
     >
-      {/* onClick, unlike the keys below: those suppress pointerdown to keep the
-          terminal focused, whereas composing deliberately moves focus away. */}
-      <button
-        type="button"
-        aria-label="Compose message"
-        onClick={onCompose}
-        className={cn(CONTROL_CLASS, 'mb-2 bg-zinc-700/80 text-zinc-100')}
-      >
-        <RiPencilLine className="size-4" aria-hidden />
-      </button>
       {MOBILE_TERMINAL_BUTTONS.map((btn) => {
         const handlePointerDown = (e: PointerEvent<HTMLButtonElement>) => {
           e.preventDefault();
@@ -65,7 +47,12 @@ export function MobileTerminalControls({ onKey, onCompose }: MobileTerminalContr
             type="button"
             aria-label={btn.ariaLabel}
             onPointerDown={handlePointerDown}
-            className={CONTROL_CLASS}
+            className={cn(
+              'h-9 w-10 flex items-center justify-center',
+              'rounded text-xs font-medium text-zinc-200',
+              'bg-zinc-800/80 active:bg-zinc-700',
+              'select-none touch-manipulation',
+            )}
           >
             {Icon ? <Icon className="size-4" aria-hidden /> : btn.label}
           </button>
