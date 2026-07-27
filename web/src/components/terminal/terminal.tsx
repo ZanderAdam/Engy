@@ -14,8 +14,10 @@ import { createTerminalActivityParser, parseTerminalActivity } from "./parse-ter
 import { createActivityTracker } from "./activity-tracker";
 import { ReconnectingSocket } from "./reconnecting-socket";
 import { MobileTerminalControls } from "./mobile-terminal-controls";
+import { MobileComposer } from "./mobile-composer";
+import { toBracketedPaste } from "./bracketed-paste";
 import { shouldSendResize } from "./terminal-resize";
-import { createTouchScrollTracker } from "./touch-scroll";
+import { attachTouchScroll } from "./touch-scroll";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 export interface TerminalActions {
@@ -79,6 +81,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
   const lastSentRowsRef = useRef(0);
   const activityTrackerRef = useRef<ReturnType<typeof createActivityTracker> | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [composing, setComposing] = useState(false);
   const sessionId = tab.sessionId;
   const isMobile = useIsMobile();
 
@@ -87,6 +90,17 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       socketRef.current?.send(JSON.stringify({ t: 'i', sessionId, d: data }));
     },
     [sessionId],
+  );
+
+  const submitComposed = useCallback(
+    (text: string) => {
+      setComposing(false);
+      sendKey(toBracketedPaste(text));
+      // Submit as its own frame, so the program has processed the paste before
+      // the Enter lands — the same ordering `useSendToTerminal` relies on.
+      setTimeout(() => sendKey('\r'), 50);
+    },
+    [sendKey],
   );
 
   const handleScrollToBottom = useCallback(() => {
@@ -213,25 +227,10 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     // agent TUI does. Native scrolling doesn't cover for them either: only
     // `.xterm-viewport` scrolls, and `.xterm-screen` overlays it, so a drag
     // lands on the viewport only in the margins beyond the last row/column.
-    // Listening in the capture phase and stopping propagation lets us scroll the
-    // buffer from any target, in any mouse mode.
-    const touchScroll = createTouchScrollTracker();
-    const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
-      touchScroll.start(e.touches[0].clientY);
-    };
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
-      e.stopPropagation();
-      const lines = touchScroll.advance(e.touches[0].clientY, container.clientHeight / term.rows);
-      // Nothing to scroll without scrollback (an alt-buffer TUI, or a fresh
-      // session) — leave the gesture to the browser instead of swallowing it.
-      if (term.buffer.active.baseY === 0) return;
-      e.preventDefault();
-      if (lines !== 0) term.scrollLines(lines);
-    };
-    container.addEventListener('touchstart', handleTouchStart, { passive: true, capture: true });
-    container.addEventListener('touchmove', handleTouchMove, { passive: false, capture: true });
+    const detachTouchScroll = attachTouchScroll(container, {
+      rows: () => term.rows,
+      scrollLines: (lines) => term.scrollLines(lines),
+    });
     // focusin bubbles from xterm's textarea (unlike focus), so any click/keyboard
     // focus re-syncs PTY size when the viewport changed while the panel was hidden,
     // and acknowledges the session so a done/waiting indicator clears once viewed.
@@ -362,8 +361,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       activityTrackerRef.current = null;
       scrollSub.dispose();
       container.removeEventListener('wheel', handleWheel);
-      container.removeEventListener('touchstart', handleTouchStart, { capture: true });
-      container.removeEventListener('touchmove', handleTouchMove, { capture: true });
+      detachTouchScroll();
       container.removeEventListener('focusin', handleFocusIn);
       resizeObserver.disconnect();
       onReady?.(sessionId, null);
@@ -405,7 +403,12 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
   return (
     <div className="flex size-full">
       <div className="relative flex-1 min-w-0">
-        <div ref={containerRef} className="size-full" />
+        {/* Panning is ours — a browser-claimed pan cancels the pointer stream
+            mid-drag — but two-finger zoom stays with the browser. */}
+        <div ref={containerRef} className="size-full touch-pinch-zoom" />
+        {isMobile && composing && (
+          <MobileComposer onCancel={() => setComposing(false)} onSubmit={submitComposed} />
+        )}
         {showScrollButton && (
           <button
             onClick={handleScrollToBottom}
@@ -417,7 +420,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
           </button>
         )}
       </div>
-      {isMobile && <MobileTerminalControls onKey={sendKey} />}
+      {isMobile && (
+        <MobileTerminalControls onKey={sendKey} onCompose={() => setComposing(true)} />
+      )}
     </div>
   );
 }

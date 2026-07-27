@@ -229,12 +229,37 @@ the scrollback stops output from following the bottom, and reaching the bottom
 resumes it. The pane only reads the buffer, to show a "Bottom" button while the
 view sits above `baseY`. Two gestures need help. An upward wheel from the bottom
 gets a forced one-line scroll, because while following, each write resets the
-viewport and sub-line trackpad deltas never accumulate. Touch drags are handled
-outright (`touch-scroll.ts` converts drag pixels to whole lines, the pane
-listens in the capture phase and stops propagation), because xterm's own touch
-handlers bail out while a program has mouse reporting on — which agent TUIs do —
-and native scrolling only covers the margins beyond the last row and column,
-where a drag reaches `.xterm-viewport` instead of the `.xterm-screen` overlay.
+viewport and sub-line trackpad deltas never accumulate.
+
+Touch drags are handled outright (`touch-scroll.ts` converts drag pixels to
+whole lines), because xterm's own touch handlers bail out while a program has
+mouse reporting on — which agent TUIs do — and native scrolling only covers the
+margins beyond the last row and column, where a drag reaches `.xterm-viewport`
+instead of the `.xterm-screen` overlay. The pane uses **pointer** events and
+takes a pointer capture on the container at `pointerdown`, rather than touch
+events: a finger lands on a `<span>` inside a row, and the first line scrolled
+makes xterm re-render that row and destroy the span, at which point iOS Safari
+stops delivering the gesture (Chrome retargets detached nodes, so this only
+reproduces on a device). The capture keeps the rest of the drag on the
+container. The container's `touch-action: pinch-zoom` is part of the mechanism —
+a browser-claimed pan cancels the pointer stream — and is the narrowest value
+that still works, so two-finger zoom stays with the browser. The trade-off is
+that a single-finger drag always scrolls and can never select text; xterm's
+selection is mouse-driven and never worked from touch anyway.
+
+## Mobile compose
+
+Typing straight into xterm's hidden textarea is unreliable on mobile: Chrome for
+Android ignores the `autocorrect`/`spellcheck` attributes xterm sets
+(crbug.com/901839), and Gboard's composition events duplicate and jumble
+characters (xterm.js#3600). The pane sets `inputmode` on that textarea to get an
+input type Android treats as suggestion-free, and the mobile key column carries a
+compose (pencil) button that opens `mobile-composer.tsx` — a full-pane overlay
+with a plain textarea, every keyboard nicety left on, and a working Enter key for
+newlines. Send delivers the text as one bracketed paste
+(`bracketed-paste.ts`) followed by a separate Enter, so line breaks stay line
+breaks and no per-keystroke composition reaches the PTY. Its action row sits at
+the top, where the virtual keyboard cannot cover it.
 
 ## Requirements
 
@@ -283,7 +308,8 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-360 | WHEN the user activates a resume entry in the new-terminal dropdown, the system SHALL open a new terminal in the history row's original workingDir (and original containerMode) whose command is `claude --resume <session-id>` plus the standard MCP config, permission-mode, and `--add-dir` flags — and without `--session-id` — and SHALL tag the new session's metadata with `resumedFrom: <session-id>`. |
 | FR-TERMINAL-370 | WHILE the Codex agent is active, the new-terminal dropdown SHALL offer a "Resume Codex session…" entry for each directory with recorded Codex session history, opening a terminal running `codex resume` (the CLI's interactive picker) in that directory; directories without any session history SHALL NOT appear in the resume group. |
 | FR-TERMINAL-380 | WHEN the server respawns a session whose stored command contains `--session-id <id>` (daemon lost the PTY), it SHALL rewrite the flag to `--resume <id>` before sending the spawn, so the respawned CLI continues the conversation instead of failing on a duplicate session id. |
-| FR-TERMINAL-390 | WHILE the user drags a single touch point across a terminal pane, the system SHALL scroll the terminal buffer by the whole lines the drag covers, carrying sub-line movement over to later moves within the same drag and discarding it when a new drag starts; WHILE the pane's row height is not measurable (a hidden pane), it SHALL NOT scroll. |
+| FR-TERMINAL-390 | WHILE the user drags a single touch point across a terminal pane, the system SHALL scroll the terminal buffer by the whole lines the drag covers — for the whole drag, wherever it started, and whether or not the running program has mouse reporting on — carrying sub-line movement over to later moves within the same drag and discarding it when a new drag starts; WHILE the pane's row height is not measurable (a hidden pane), it SHALL NOT scroll. |
+| FR-TERMINAL-400 | WHEN the user sends a message from the mobile compose overlay, the system SHALL deliver it to the PTY as a single bracketed paste with line breaks as carriage returns and any paste sentinels in the text stripped, followed by a separate Enter. |
 
 ## Sources
 
