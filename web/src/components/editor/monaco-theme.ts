@@ -50,6 +50,19 @@ export const engyCyberpunkTheme: editor.IStandaloneThemeData = {
     { token: 'tag', foreground: 'ff3bd4' },
     { token: 'attribute.name', foreground: '00f0ff' },
     { token: 'attribute.value', foreground: '00ff9f' },
+    // vs-dark defines these narrower scopes itself, and Monaco resolves by
+    // specificity — so without an override here the inherited stock colors
+    // beat the generic rules above.
+    { token: 'string.key.json', foreground: '00f0ff' },
+    { token: 'string.value.json', foreground: '00ff9f' },
+    { token: 'keyword.json', foreground: 'ff3bd4' },
+    { token: 'number.hex', foreground: 'fcee0a' },
+    { token: 'string.sql', foreground: '00ff9f' },
+    { token: 'keyword.flow', foreground: 'ff3bd4' },
+    { token: 'variable.predefined', foreground: 'ff6b5e' },
+    { token: 'variable.parameter', foreground: 'ffd9d4' },
+    { token: 'delimiter.html', foreground: 'ff5c73' },
+    { token: 'delimiter.xml', foreground: 'ff5c73' },
   ],
   colors: {
     'editor.background': '#0d060a',
@@ -68,6 +81,12 @@ export const engyCyberpunkTheme: editor.IStandaloneThemeData = {
     'editorWidget.border': '#7a2233',
     'editor.findMatchBackground': '#fcee0a4d',
     'editor.findMatchHighlightBackground': '#fcee0a26',
+    'editorBracketHighlight.foreground1': '#fcee0a',
+    'editorBracketHighlight.foreground2': '#ff3bd4',
+    'editorBracketHighlight.foreground3': '#00f0ff',
+    'editorBracketHighlight.foreground4': '#00ff9f',
+    'editorBracketHighlight.foreground5': '#ff6b5e',
+    'editorBracketHighlight.foreground6': '#ff2a4d',
     'scrollbar.shadow': '#00000000',
     'scrollbarSlider.background': '#5c2a3a80',
     'scrollbarSlider.hoverBackground': '#7a2f4480',
