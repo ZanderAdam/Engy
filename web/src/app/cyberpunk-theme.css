@@ -352,6 +352,30 @@ html.theme-cyberpunk [role='toolbar'][aria-label='Terminal keys'] button:active 
 }
 
 /* ---------------------------------------------------------------- */
+/* Mobile compose button + overlay (hardcoded zinc in the component) */
+/* ---------------------------------------------------------------- */
+
+html.theme-cyberpunk button[aria-label='Compose message'] {
+  border-radius: 0 !important;
+  background: oklch(0.18 0.06 350 / 90%) !important;
+  color: var(--cp-cyan) !important;
+  box-shadow: 0 0 12px oklch(0.8 0.15 195 / 25%) !important;
+}
+
+html.theme-cyberpunk button[aria-label='Compose message']:active {
+  background: linear-gradient(to top, oklch(0.8 0.15 195 / 30%), transparent 90%) !important;
+}
+
+html.theme-cyberpunk [role='dialog'][aria-label='Compose terminal message'] {
+  background: oklch(0.1 0.03 350 / 98%) !important;
+}
+
+/* The overlay's only direct child div is its action row. */
+html.theme-cyberpunk [role='dialog'][aria-label='Compose terminal message'] > div {
+  border-color: var(--cp-red-dim) !important;
+}
+
+/* ---------------------------------------------------------------- */
 /* Inputs, badges, headings, selection                              */
 /* ---------------------------------------------------------------- */
 
