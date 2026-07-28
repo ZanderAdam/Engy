@@ -17,16 +17,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { CloseTerminalDialog } from './close-terminal-dialog';
 import { useCanHover } from '@/hooks/use-can-hover';
 import { cn } from '@/lib/utils';
 import { useTabId } from '@/components/tabs/tab-context';
@@ -446,38 +437,14 @@ export function TerminalRail({
         )}
       </div>
 
-      <AlertDialog
+      <CloseTerminalDialog
         open={closingTab !== null}
         onOpenChange={(open) => {
           if (!open) setClosingTab(null);
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Close terminal?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will end the session for{' '}
-              <span className="font-mono">{closingTab?.scope.scopeLabel}</span> and cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              // dispatchEvent is synchronous, so without this defer the panel
-              // removal + session kill would run inside Radix's click handler.
-              // queueMicrotask lets the dialog finish its own close/cleanup
-              // (focus restore, pointer-events unlock) first.
-              onClick={() => {
-                const sessionId = closingTab!.sessionId;
-                queueMicrotask(() => closeSession(sessionId));
-              }}
-            >
-              Close terminal
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        label={closingTab?.scope.scopeLabel ?? ''}
+        onConfirm={() => closeSession(closingTab!.sessionId)}
+      />
     </TooltipProvider>
   );
 }

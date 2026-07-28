@@ -5,6 +5,7 @@ import {
   RiAddLine,
   RiArrowLeftSLine,
   RiArrowRightSLine,
+  RiCloseLine,
   RiGitBranchLine,
   RiListUnordered,
 } from '@remixicon/react';
@@ -18,8 +19,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { CloseTerminalDialog } from './close-terminal-dialog';
 import { useTerminalDock } from './terminal-dock-context';
-import { type TerminalPanelParams } from './types';
+import { type TerminalPanelParams, type TerminalTab } from './types';
 import { TerminalSessionLabel } from './terminal-session-label';
 import { TerminalNewMenuContent } from './terminal-new-menu';
 import { TerminalWorkerButton } from './terminal-worker-button';
@@ -39,6 +41,7 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
   // Mobile: the cramped "all terminals" dropdown is replaced by a full-screen
   // worktree-grouped list (the mobile equivalent of the desktop rail).
   const [showList, setShowList] = useState(false);
+  const [closingTab, setClosingTab] = useState<TerminalTab | null>(null);
 
   useEffect(() => {
     const disposables = panels.map((panel) =>
@@ -204,12 +207,17 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
         <RiArrowRightSLine className="size-3" />
       </button>
 
-      {/* Rendered inline (NOT portaled to document.body): the manager lives
-          inside the mobile sheet's Radix dialog, which disables pointer events
-          on everything outside it — a body portal would let taps fall through to
-          the terminal (popping the keyboard) instead of hitting the list rows.
-          No transformed ancestors, so `fixed` still covers the viewport. */}
-      {isMobile && showList && (
+      {/* Rendered inline (NOT portaled to document.body) so the list shares the
+          sheet's lifetime and stacking context. No transformed ancestors, so
+          `fixed` still covers the viewport.
+          The z-[60] only orders this WITHIN the sheet: MobileTerminalSheet's
+          SheetContent is `fixed z-50` and so opens its own stacking context.
+          A dialog portaled to document.body (the close confirmation below) is
+          therefore still painted on top despite its lower z-50 — verified by
+          hit-testing on a mobile viewport. Don't "fix" that by racing the
+          numbers up. Note the sheet is `modal={false}`, so nothing here
+          disables pointer events outside it. */}
+      {isMobile && showList && panels.length > 1 && (
         <div className="fixed inset-0 z-[60] flex flex-col bg-background">
           <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-2">
             <button
@@ -299,18 +307,29 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
                         {group.tabs.map((liveTab) => {
                           const isActive = activePanel?.id === liveTab.sessionId;
                           return (
-                            <button
+                            <div
                               key={liveTab.sessionId}
-                              onClick={() => focusPanel(liveTab.sessionId)}
-                              aria-current={isActive || undefined}
                               className={cn(
-                                'flex w-full items-start rounded-sm px-2 py-2.5 text-left hover:bg-muted',
+                                'flex items-start rounded-sm',
                                 isActive && 'bg-muted',
                                 liveTab.status === 'exited' && 'opacity-60',
                               )}
                             >
-                              <TerminalSessionLabel tab={liveTab} />
-                            </button>
+                              <button
+                                onClick={() => focusPanel(liveTab.sessionId)}
+                                aria-current={isActive || undefined}
+                                className="flex min-w-0 flex-1 items-start px-2 py-2.5 text-left"
+                              >
+                                <TerminalSessionLabel tab={liveTab} />
+                              </button>
+                              <button
+                                onClick={() => setClosingTab(liveTab)}
+                                aria-label={`Close terminal ${liveTab.scope.scopeLabel}`}
+                                className="flex size-11 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
+                              >
+                                <RiCloseLine className="size-4" />
+                              </button>
+                            </div>
                           );
                         })}
                       </div>
@@ -322,6 +341,15 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
           </div>
         </div>
       )}
+
+      <CloseTerminalDialog
+        open={closingTab !== null}
+        onOpenChange={(open) => {
+          if (!open) setClosingTab(null);
+        }}
+        label={closingTab?.scope.scopeLabel ?? ''}
+        onConfirm={() => panelById.get(closingTab!.sessionId)?.api.close()}
+      />
     </div>
   );
 }

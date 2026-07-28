@@ -10,16 +10,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { CloseTerminalDialog } from './close-terminal-dialog';
 import { useCanHover } from '@/hooks/use-can-hover';
 import { useTerminalDock } from './terminal-dock-context';
 import { getTerminalIconStyle, type TerminalPanelParams, type TerminalTab } from './types';
@@ -139,29 +130,12 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
       >
         <RiCloseLine className="size-[10px]" />
       </button>
-      <AlertDialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Close terminal?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will end the session for{' '}
-              <span className="font-mono">{label}</span> and cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              // Defer the panel removal so Radix finishes closing this dialog
-              // (focus restore, body scroll/pointer-events unlock) before
-              // api.close() unmounts the tab — and the dialog portal with it.
-              onClick={() => queueMicrotask(() => api.close())}
-            >
-              Close terminal
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <CloseTerminalDialog
+        open={confirmCloseOpen}
+        onOpenChange={setConfirmCloseOpen}
+        label={label}
+        onConfirm={() => api.close()}
+      />
     </div>
   );
 }
