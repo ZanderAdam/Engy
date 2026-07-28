@@ -202,6 +202,17 @@ describe('TerminalManager', () => {
     expect(replayMsg.snapshot).toContain('line2');
   });
 
+  it('skips the snapshot when the session is killed before the flush fires', async () => {
+    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+    manager.suspend('abc');
+    manager.handleReconnect('abc');
+    // Kill lands before xterm's deferred flush callback — the disposed screen
+    // must not be serialized and no reconnected message may go out.
+    manager.kill('abc');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sent.some((m) => m.startsWith('{"t":"reconnected"'))).toBe(false);
+  });
+
   it('marks the session active again on reconnect', async () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
     manager.suspend('abc');

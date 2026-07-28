@@ -6,7 +6,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import type { ITheme } from "@xterm/xterm";
-import type { TerminalPingCmd } from "@engy/common";
+import type { TerminalPingCmd, TerminalTitleMsg } from "@engy/common";
 import type { DockviewPanelApi } from "dockview";
 import { DARK_XTERM_THEME } from "@/hooks/use-xterm-theme";
 import { RiArrowDownSLine, RiPencilLine } from "@remixicon/react";
@@ -195,7 +195,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       onOscTitle?.(sessionId, title);
       // Server keeps the last title as the session's resume summary; the
       // message terminates there (never relayed to the daemon).
-      socketRef.current?.send(JSON.stringify({ t: 'title', sessionId, title }));
+      socketRef.current?.send(
+        JSON.stringify({ t: 'title', sessionId, title } satisfies TerminalTitleMsg),
+      );
     };
 
     // xterm's BufferService.isUserScrolling is the single source of truth for
@@ -253,7 +255,8 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       urlFactory: () => buildWsUrl(tab),
       // Wake recovery probes the server instead of blindly force-reconnecting —
       // a healthy socket answers with pong (handled below) and keeps its state.
-      sendProbe: (ws) => ws.send(JSON.stringify({ t: 'ping', sessionId } satisfies TerminalPingCmd)),
+      sendProbe: (ws) =>
+        ws.send(JSON.stringify({ t: 'ping', sessionId } satisfies TerminalPingCmd)),
       callbacks: {
         onOpen: () => {
           console.log(`[terminal-ui] WS open for session ${sessionId}`);
@@ -295,7 +298,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
             // bottom otherwise. Writing plainly leans on that.
             term.write(msg.d);
           } else if (msg.t === 'reconnected' && typeof msg.snapshot === 'string') {
-            console.log(`[terminal-ui] Reconnected session ${sessionId}, snapshot: ${msg.snapshot.length} chars`);
+            console.log(
+              `[terminal-ui] Reconnected session ${sessionId}, snapshot: ${msg.snapshot.length} chars`,
+            );
             activityTracker.suppress();
             // The snapshot re-establishes screen state from scratch, so reset
             // (not clear) — it also drops modes a torn-down program left set.

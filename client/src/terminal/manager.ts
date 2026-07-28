@@ -327,6 +327,14 @@ export class TerminalManager {
     // Serialize only after xterm's write queue has drained, so output that
     // arrived just before the reconnect is part of the snapshot.
     session.screen.write('', () => {
+      // The flush is async — the session may have been killed, expired, or
+      // replaced meanwhile, and its screen disposed. Same identity guard as
+      // the onExit handler; serializing a disposed terminal would throw, and
+      // an uncaught throw here takes down every session via shutdown().
+      if (this.sessions.get(sessionId) !== session) {
+        console.log(`[terminal] handleReconnect: session ${sessionId} gone before flush, skipping snapshot`);
+        return;
+      }
       const snapshot = session.serializeAddon.serialize();
       console.log(
         `[terminal] handleReconnect: session ${sessionId} snapshot ${snapshot.length} chars`,

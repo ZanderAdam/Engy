@@ -732,12 +732,18 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
             if (lastTitle) {
               sendRaw(
                 pendingWs,
-                JSON.stringify({ t: 'title', sessionId, title: lastTitle } satisfies TerminalTitleMsg),
+                JSON.stringify({
+                  t: 'title',
+                  sessionId,
+                  title: lastTitle,
+                } satisfies TerminalTitleMsg),
               );
             }
           }
         } else {
-          console.warn(`[terminal-relay] Reconnected snapshot for ${sessionId} dropped — no pending browser`);
+          console.warn(
+            `[terminal-relay] Reconnected snapshot for ${sessionId} dropped — no pending browser`,
+          );
         }
       } else if (wsSet) {
         broadcastToSession(state, sessionId, str);
