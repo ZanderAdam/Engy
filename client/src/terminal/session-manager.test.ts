@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { IPty } from 'node-pty';
-import { CircularBuffer } from './circular-buffer.js';
+import type { Terminal } from '@xterm/headless';
+import type { SerializeAddon } from '@xterm/addon-serialize';
 import { SessionManager } from './session-manager.js';
 import type { PersistentSession } from './types.js';
 
@@ -20,7 +21,8 @@ function makeSession(id: string): PersistentSession {
   return {
     sessionId: id,
     state: 'active',
-    outputBuffer: new CircularBuffer(),
+    screen: { dispose: vi.fn() } as unknown as Terminal,
+    serializeAddon: { serialize: vi.fn(() => '') } as unknown as SerializeAddon,
     lastActivity: Date.now(),
     initialCommandSent: false,
     ptyProcess: mockPtyProcess as unknown as IPty,

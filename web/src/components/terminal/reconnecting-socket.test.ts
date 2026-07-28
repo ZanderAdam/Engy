@@ -381,6 +381,97 @@ describe('ReconnectingSocket', () => {
       expect(winRemove).toHaveBeenCalledWith('online', expect.any(Function));
     });
   });
+
+  describe('wake probe (sendProbe)', () => {
+    const PROBE = '{"t":"ping"}';
+
+    function createProbedSubject() {
+      return createSubject({
+        sendProbe: (ws) => ws.send(PROBE),
+        probeTimeoutMs: 3000,
+      });
+    }
+
+    it('[FR-TERMINAL-410] probes an OPEN socket on wake instead of force-closing it', () => {
+      createProbedSubject();
+      FakeWebSocket.instances[0].simulateOpen();
+      fireVisibilityChange();
+      expect(FakeWebSocket.instances[0].sent).toEqual([PROBE]);
+      expect(FakeWebSocket.instances[0].readyState).toBe(FakeWebSocket.OPEN);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+    });
+
+    it('[FR-TERMINAL-410] keeps the socket when confirmAlive() arrives within the probe timeout', () => {
+      const { socket } = createProbedSubject();
+      FakeWebSocket.instances[0].simulateOpen();
+      fireVisibilityChange();
+      socket.confirmAlive();
+      vi.advanceTimersByTime(10_000);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      expect(FakeWebSocket.instances[0].readyState).toBe(FakeWebSocket.OPEN);
+    });
+
+    it('[FR-TERMINAL-410] force-reconnects when the probe times out without confirmAlive()', () => {
+      createProbedSubject();
+      FakeWebSocket.instances[0].simulateOpen();
+      const closeSpy = vi.spyOn(FakeWebSocket.instances[0], 'close');
+      fireVisibilityChange();
+      vi.advanceTimersByTime(2999);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      expect(closeSpy).toHaveBeenCalledWith(4000, 'wake-recover');
+      expect(FakeWebSocket.instances).toHaveLength(2);
+    });
+
+    it('sends only one probe while a probe is already pending', () => {
+      createProbedSubject();
+      FakeWebSocket.instances[0].simulateOpen();
+      fireVisibilityChange();
+      fireOnline();
+      fireVisibilityChange();
+      expect(FakeWebSocket.instances[0].sent).toEqual([PROBE]);
+    });
+
+    it('force-reconnects immediately when the probe send throws', () => {
+      createProbedSubject();
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+      ws.send = () => {
+        throw new Error('dead socket');
+      };
+      fireVisibilityChange();
+      expect(FakeWebSocket.instances).toHaveLength(2);
+    });
+
+    it('cancels the pending probe when the socket closes, avoiding a double reconnect', () => {
+      createProbedSubject();
+      FakeWebSocket.instances[0].simulateOpen();
+      fireVisibilityChange();
+      // The real close arrives before the probe deadline — normal backoff path.
+      FakeWebSocket.instances[0].simulateClose({ code: 1006 });
+      vi.advanceTimersByTime(1000);
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      // Probe deadline passing must not spawn a third connection.
+      vi.advanceTimersByTime(3000);
+      expect(FakeWebSocket.instances).toHaveLength(2);
+    });
+
+    it('does not reconnect from a pending probe after markFinal()', () => {
+      const { socket } = createProbedSubject();
+      FakeWebSocket.instances[0].simulateOpen();
+      fireVisibilityChange();
+      socket.markFinal();
+      vi.advanceTimersByTime(10_000);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+    });
+
+    it('still reconnects immediately on wake when the socket is CLOSED', () => {
+      createProbedSubject();
+      FakeWebSocket.instances[0].simulateClose({ code: 1006 });
+      fireVisibilityChange();
+      expect(FakeWebSocket.instances).toHaveLength(2);
+    });
+  });
 });
 
 describe('computeBackoff', () => {

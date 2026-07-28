@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { IPty } from 'node-pty';
-import { CircularBuffer } from './circular-buffer.js';
+import type { Terminal } from '@xterm/headless';
+import type { SerializeAddon } from '@xterm/addon-serialize';
 import { SessionManager } from './session-manager.js';
 import { TerminalManager } from './manager.js';
 
@@ -26,31 +27,18 @@ vi.mock('node-pty', () => ({
 import pty from 'node-pty';
 const mockedSpawn = vi.mocked(pty.spawn);
 
-describe('CircularBuffer', () => {
-  it('stores written items', () => {
-    const buf = new CircularBuffer(5);
-    buf.write('a');
-    buf.write('b');
-    expect(buf.toArray()).toEqual(['a', 'b']);
-    expect(buf.length).toBe(2);
-  });
-
-  it('wraps around when capacity exceeded', () => {
-    const buf = new CircularBuffer(3);
-    buf.write('a');
-    buf.write('b');
-    buf.write('c');
-    buf.write('d'); // overwrites 'a'
-    expect(buf.toArray()).toEqual(['b', 'c', 'd']);
-    expect(buf.length).toBe(3);
-  });
-
-  it('returns empty array when empty', () => {
-    const buf = new CircularBuffer(5);
-    expect(buf.toArray()).toEqual([]);
-    expect(buf.length).toBe(0);
-  });
-});
+function makeStubSession(id: string) {
+  return {
+    sessionId: id,
+    state: 'active' as const,
+    screen: { dispose: vi.fn() } as unknown as Terminal,
+    serializeAddon: { serialize: vi.fn(() => '') } as unknown as SerializeAddon,
+    lastActivity: Date.now(),
+    initialCommandSent: false,
+    ptyProcess: mockPtyProcess as unknown as IPty,
+    workingDir: '/tmp',
+  };
+}
 
 describe('SessionManager', () => {
   let mgr: SessionManager;
@@ -60,46 +48,20 @@ describe('SessionManager', () => {
   });
 
   it('stores and retrieves sessions', () => {
-    const session = {
-      sessionId: 'test',
-      state: 'active' as const,
-      outputBuffer: new CircularBuffer(),
-      lastActivity: Date.now(),
-      initialCommandSent: false,
-      ptyProcess: mockPtyProcess as unknown as IPty,
-      workingDir: '/tmp',
-    };
+    const session = makeStubSession('test');
     mgr.set('test', session);
     expect(mgr.get('test')).toBe(session);
   });
 
   it('deletes sessions', () => {
-    const session = {
-      sessionId: 'test',
-      state: 'active' as const,
-      outputBuffer: new CircularBuffer(),
-      lastActivity: Date.now(),
-      initialCommandSent: false,
-      ptyProcess: mockPtyProcess as unknown as IPty,
-      workingDir: '/tmp',
-    };
-    mgr.set('test', session);
+    mgr.set('test', makeStubSession('test'));
     mgr.delete('test');
     expect(mgr.get('test')).toBeUndefined();
   });
 
   it('returns all sessions', () => {
-    const makeSession = (id: string) => ({
-      sessionId: id,
-      state: 'active' as const,
-      outputBuffer: new CircularBuffer(),
-      lastActivity: Date.now(),
-      initialCommandSent: false,
-      ptyProcess: mockPtyProcess as unknown as IPty,
-      workingDir: '/tmp',
-    });
-    mgr.set('a', makeSession('a'));
-    mgr.set('b', makeSession('b'));
+    mgr.set('a', makeStubSession('a'));
+    mgr.set('b', makeStubSession('b'));
     expect(mgr.all()).toHaveLength(2);
   });
 });
@@ -133,6 +95,16 @@ describe('TerminalManager', () => {
     manager.setSendCallback((msg) => sent.push(msg));
   });
 
+  // The snapshot is serialized behind xterm's async write queue, so the
+  // reconnected message lands a tick after handleReconnect returns.
+  async function reconnectSnapshot(sessionId: string) {
+    manager.handleReconnect(sessionId);
+    await vi.waitFor(() =>
+      expect(sent.some((m) => m.startsWith('{"t":"reconnected"'))).toBe(true),
+    );
+    return JSON.parse(sent.find((m) => m.startsWith('{"t":"reconnected"'))!);
+  }
+
   it('spawns a pty process with correct options', () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
     expect(mockedSpawn).toHaveBeenCalledWith(
@@ -154,13 +126,15 @@ describe('TerminalManager', () => {
     expect(msg.d).toBe('hello');
   });
 
-  it('[FR-TERMINAL-040] buffers output without sending when suspended', () => {
+  it('[FR-TERMINAL-040] buffers output without sending when suspended', async () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
     manager.suspend('abc');
     onDataCallback?.('hello');
     expect(sent).toHaveLength(0);
-    const session = sessions.get('abc')!;
-    expect(session.outputBuffer.toArray()).toContain('hello');
+
+    // The suspended output must still be present in the resync snapshot.
+    const replay = await reconnectSnapshot('abc');
+    expect(replay.snapshot).toContain('hello');
   });
 
   it('sends initial command on first data event', () => {
@@ -189,10 +163,13 @@ describe('TerminalManager', () => {
     expect(mockPtyProcess.write).toHaveBeenCalledWith('hello');
   });
 
-  it('resizes the pty', () => {
+  it('resizes the pty and the headless screen mirror', () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
     manager.resize('abc', 100, 30);
     expect(mockPtyProcess.resize).toHaveBeenCalledWith(100, 30);
+    const screen = sessions.get('abc')!.screen;
+    expect(screen.cols).toBe(100);
+    expect(screen.rows).toBe(30);
   });
 
   it('[FR-TERMINAL-080] kills a session and sends SIGTERM', () => {
@@ -209,21 +186,30 @@ describe('TerminalManager', () => {
     expect(mockPtyProcess.kill).toHaveBeenCalledTimes(2);
   });
 
-  it('[FR-TERMINAL-050] replays buffer on reconnect in compact format', () => {
+  it('[FR-TERMINAL-050] replies with a serialized snapshot on reconnect', async () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
-    onDataCallback?.('line1');
+    onDataCallback?.('line1\r\n');
     onDataCallback?.('line2');
 
     // Clear sent messages from the initial data events
     sent.length = 0;
     manager.suspend('abc');
-    manager.handleReconnect('abc');
 
-    const replayMsg = JSON.parse(sent[0]);
+    const replayMsg = await reconnectSnapshot('abc');
     expect(replayMsg.t).toBe('reconnected');
     expect(replayMsg.sessionId).toBe('abc');
-    expect(replayMsg.buffer).toContain('line1');
-    expect(replayMsg.buffer).toContain('line2');
+    expect(replayMsg.snapshot).toContain('line1');
+    expect(replayMsg.snapshot).toContain('line2');
+  });
+
+  it('marks the session active again on reconnect', async () => {
+    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+    manager.suspend('abc');
+    expect(sessions.get('abc')!.state).toBe('suspended');
+
+    await reconnectSnapshot('abc');
+    expect(sessions.get('abc')!.state).toBe('active');
+    expect(sessions.get('abc')!.suspendedAt).toBeUndefined();
   });
 
   it('sends compact exit for unknown session on reconnect', () => {
@@ -248,6 +234,38 @@ describe('TerminalManager', () => {
   it('ignores write for unknown or expired session', () => {
     manager.write('nonexistent', 'x');
     expect(mockPtyProcess.write).not.toHaveBeenCalled();
+  });
+
+  describe('headless screen disposal', () => {
+    it('disposes the screen when the pty exits', () => {
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      const disposeSpy = vi.spyOn(sessions.get('abc')!.screen, 'dispose');
+      onExitCallback?.({ exitCode: 0 });
+      expect(disposeSpy).toHaveBeenCalledOnce();
+    });
+
+    it('disposes the screen on kill', () => {
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      const disposeSpy = vi.spyOn(sessions.get('abc')!.screen, 'dispose');
+      manager.kill('abc');
+      expect(disposeSpy).toHaveBeenCalledOnce();
+    });
+
+    it('disposes the screen on session expiry', () => {
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      const disposeSpy = vi.spyOn(sessions.get('abc')!.screen, 'dispose');
+      const cb = (sessions as unknown as { onExpire: (id: string) => void }).onExpire;
+      cb('abc');
+      expect(disposeSpy).toHaveBeenCalledOnce();
+    });
+
+    it('disposes the replaced screen when respawning the same sessionId', () => {
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      const disposeSpy = vi.spyOn(sessions.get('abc')!.screen, 'dispose');
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      expect(disposeSpy).toHaveBeenCalledOnce();
+      expect(sessions.get('abc')!.screen).not.toBe(disposeSpy.mock.instances[0]);
+    });
   });
 
   describe('PTY identity guards', () => {

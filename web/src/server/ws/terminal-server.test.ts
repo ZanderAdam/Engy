@@ -966,12 +966,12 @@ describe('Terminal WebSocket Server', () => {
         groupKey: 'grp-1',
       });
 
-      // The daemon's buffer replay reaches the adopting browser
+      // The daemon's snapshot resync reaches the adopting browser
       const bufferPromise = waitForMessage(browser);
       const reconnectedMsg = JSON.stringify({
         t: 'reconnected',
         sessionId: 'surviving-sess',
-        buffer: ['line1'],
+        snapshot: 'line1',
       });
       daemonWs.send(reconnectedMsg);
       expect(await bufferPromise).toBe(reconnectedMsg);
@@ -1204,7 +1204,7 @@ describe('Terminal WebSocket Server', () => {
       const reconnectedMsg = JSON.stringify({
         t: 'reconnected',
         sessionId: 'sess-conc',
-        buffer: ['line1', 'line2'],
+        snapshot: 'line1\r\nline2',
       });
       daemonWs.send(reconnectedMsg);
 
@@ -1395,7 +1395,7 @@ describe('Terminal WebSocket Server', () => {
       expect(await output2Promise).toBe(outputMsg);
     });
 
-    it('[FR-TERMINAL-050] should replay reconnect buffer only to the newly-connecting browser', async () => {
+    it('[FR-TERMINAL-050] should replay the reconnect snapshot only to the newly-connecting browser', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -1406,12 +1406,12 @@ describe('Terminal WebSocket Server', () => {
       const browser2 = await connectBrowser(port, { sessionId: 'sess-replay', workingDir: '/tmp' });
       await reconnectPromise;
 
-      // Daemon sends reconnected buffer — only browser2 should get it
+      // Daemon sends the reconnected snapshot — only browser2 should get it
       const buffer2Promise = waitForMessage(browser2);
       const reconnectedMsg = JSON.stringify({
         t: 'reconnected',
         sessionId: 'sess-replay',
-        buffer: ['line1', 'line2'],
+        snapshot: 'line1\r\nline2',
       });
       daemonWs.send(reconnectedMsg);
 
@@ -1423,6 +1423,57 @@ describe('Terminal WebSocket Server', () => {
       daemonWs.send(outputMsg);
 
       expect(await output1Promise).toBe(outputMsg);
+    });
+
+    it('[FR-TERMINAL-420] should follow the reconnect snapshot with the stored session title', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      const browser1 = await connectBrowser(port, { sessionId: 'sess-title', workingDir: '/tmp' });
+      await spawnPromise;
+
+      // Browser1 reports an OSC title; the server stores it on the meta.
+      browser1.send(JSON.stringify({ t: 'title', sessionId: 'sess-title', title: 'my session' }));
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.get('sess-title')?.lastTitle).toBe('my session');
+      });
+
+      const reconnectPromise = waitForMessage(daemonWs);
+      const browser2 = await connectBrowser(port, { sessionId: 'sess-title', workingDir: '/tmp' });
+      await reconnectPromise;
+
+      const received: string[] = [];
+      browser2.on('message', (data) => received.push(data.toString()));
+      daemonWs.send(
+        JSON.stringify({ t: 'reconnected', sessionId: 'sess-title', snapshot: 'line1' }),
+      );
+
+      await vi.waitFor(() => expect(received).toHaveLength(2));
+      expect(JSON.parse(received[0])).toMatchObject({ t: 'reconnected', snapshot: 'line1' });
+      expect(JSON.parse(received[1])).toEqual({
+        t: 'title',
+        sessionId: 'sess-title',
+        title: 'my session',
+      });
+    });
+
+    it('[FR-TERMINAL-410] should answer a browser ping with pong without forwarding it to the daemon', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      const browser = await connectBrowser(port, { sessionId: 'sess-ping', workingDir: '/tmp' });
+      await spawnPromise;
+
+      const daemonMessages: string[] = [];
+      daemonWs.on('message', (data) => daemonMessages.push(data.toString()));
+
+      const pongPromise = waitForMessage(browser);
+      browser.send(JSON.stringify({ t: 'ping', sessionId: 'sess-ping' }));
+
+      expect(JSON.parse(await pongPromise)).toEqual({ t: 'pong' });
+      // Give the relay a beat — the ping must terminate at the server.
+      await new Promise((r) => setTimeout(r, 50));
+      expect(daemonMessages).toHaveLength(0);
     });
 
     it('[FR-TERMINAL-070] should not remove session when one browser disconnects while another is connected', async () => {

@@ -883,6 +883,32 @@ export interface TerminalAckCmd {
   sessionId: string;
 }
 
+/**
+ * Browser → server only (never forwarded to the daemon): liveness probe sent by
+ * the wake handler while the socket looks OPEN. Answered with `TerminalPongEvent`.
+ */
+export interface TerminalPingCmd {
+  t: 'ping';
+  sessionId: string;
+}
+
+/** Server → browser only: reply to `TerminalPingCmd`. */
+export interface TerminalPongEvent {
+  t: 'pong';
+}
+
+/**
+ * Bidirectional between browser and server only (never forwarded to the daemon).
+ * Browser → server: reports an OSC title; the server stores it as the session's
+ * `lastTitle` / resume summary. Server → browser: re-delivers the stored title
+ * after a `reconnected` snapshot, which carries no OSC title of its own.
+ */
+export interface TerminalTitleMsg {
+  t: 'title';
+  sessionId: string;
+  title: string;
+}
+
 export type TerminalRelayCommand =
   | TerminalSpawnCmd
   | TerminalInputCmd
@@ -904,10 +930,16 @@ export interface TerminalExitEvent {
   exitCode: number;
 }
 
+/**
+ * Daemon → server → (pending browsers only): full session resync. `snapshot` is
+ * the serialized state of the daemon's headless terminal (screen + scrollback),
+ * safe to write into a freshly reset xterm — unlike raw output chunks, whose
+ * cursor-relative TUI frames only render correctly against the live screen.
+ */
 export interface TerminalReconnectedEvent {
   t: 'reconnected';
   sessionId: string;
-  buffer: string[];
+  snapshot: string;
 }
 
 export interface TerminalErrorEvent {

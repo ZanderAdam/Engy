@@ -6,11 +6,12 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import type { ITheme } from "@xterm/xterm";
+import type { TerminalPingCmd } from "@engy/common";
 import type { DockviewPanelApi } from "dockview";
 import { DARK_XTERM_THEME } from "@/hooks/use-xterm-theme";
 import { RiArrowDownSLine, RiPencilLine } from "@remixicon/react";
 import type { ActivityEvent, TerminalTab } from "./types";
-import { createTerminalActivityParser, parseTerminalActivity } from "./parse-terminal-activity";
+import { createTerminalActivityParser } from "./parse-terminal-activity";
 import { createActivityTracker } from "./activity-tracker";
 import { ReconnectingSocket } from "./reconnecting-socket";
 import { MobileTerminalControls } from "./mobile-terminal-controls";
@@ -250,6 +251,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
 
     const socket = new ReconnectingSocket({
       urlFactory: () => buildWsUrl(tab),
+      // Wake recovery probes the server instead of blindly force-reconnecting —
+      // a healthy socket answers with pong (handled below) and keeps its state.
+      sendProbe: (ws) => ws.send(JSON.stringify({ t: 'ping', sessionId } satisfies TerminalPingCmd)),
       callbacks: {
         onOpen: () => {
           console.log(`[terminal-ui] WS open for session ${sessionId}`);
@@ -263,7 +267,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
           fitAndSyncResize();
         },
         onMessage: (event) => {
-          let msg: { t: string; d?: string; buffer?: string[]; exitCode?: number };
+          let msg: { t: string; d?: string; snapshot?: string; title?: string; exitCode?: number };
           try {
             msg = JSON.parse(event.data as string) as typeof msg;
           } catch {
@@ -290,20 +294,24 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
             // wheel/touch handlers scroll into the scrollback) and follows the
             // bottom otherwise. Writing plainly leans on that.
             term.write(msg.d);
-          } else if (msg.t === 'reconnected' && msg.buffer) {
-            console.log(`[terminal-ui] Reconnected session ${sessionId}, buffer lines: ${msg.buffer.length}`);
+          } else if (msg.t === 'reconnected' && typeof msg.snapshot === 'string') {
+            console.log(`[terminal-ui] Reconnected session ${sessionId}, snapshot: ${msg.snapshot.length} chars`);
             activityTracker.suppress();
-            term.clear();
-            const replay = msg.buffer.join('');
-            // Re-apply the last OSC title from the replayed scrollback — a
-            // program that set its title once before the reconnect would
-            // otherwise leave the tab on the stale fallback label.
-            const replayTitles = parseTerminalActivity(replay).titles;
-            if (replayTitles.length > 0) handleTitleChange(replayTitles[replayTitles.length - 1]);
-            term.write(replay, () => {
+            // The snapshot re-establishes screen state from scratch, so reset
+            // (not clear) — it also drops modes a torn-down program left set.
+            term.reset();
+            term.write(msg.snapshot, () => {
               term.scrollToBottom();
             });
             setShowScrollButton(false);
+          } else if (msg.t === 'pong') {
+            socket.confirmAlive();
+          } else if (msg.t === 'title' && msg.title) {
+            // Server-pushed after a resync: snapshots carry no OSC title. Track
+            // it as lastTitle (not via handleTitleChange) — echoing it back to
+            // the server or bumping activity would be wrong here.
+            lastTitle = msg.title;
+            onOscTitle?.(sessionId, msg.title);
           } else if (msg.t === 'exit') {
             const code = msg.exitCode ?? 0;
             console.log(`[terminal-ui] Exit for session ${sessionId}: code=${code}`);

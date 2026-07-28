@@ -1,5 +1,6 @@
 import type { IPty } from 'node-pty';
-import type { CircularBuffer } from './circular-buffer.js';
+import type { Terminal } from '@xterm/headless';
+import type { SerializeAddon } from '@xterm/addon-serialize';
 
 export type SessionState = 'active' | 'suspended';
 
@@ -9,7 +10,8 @@ export interface PersistentSession {
   workingDir: string;
   command?: string;
   state: SessionState;
-  outputBuffer: CircularBuffer;
+  screen: Terminal;
+  serializeAddon: SerializeAddon;
   lastActivity: number;
   suspendedAt?: number;
   initialCommandSent: boolean;

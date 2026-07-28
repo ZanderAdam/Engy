@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { parseTerminalActivity, createTerminalActivityParser } from './parse-terminal-activity';
+import { createTerminalActivityParser } from './parse-terminal-activity';
 
-describe('parseTerminalActivity', () => {
+// Single-chunk convenience wrapper — each call gets a fresh parser, matching
+// how the removed one-shot parseTerminalActivity behaved.
+const parseTerminalActivity = (data: string) => createTerminalActivityParser().parse(data);
+
+describe('createTerminalActivityParser (single chunk)', () => {
   describe('OSC title extraction', () => {
     it('should extract title from OSC 0 with BEL terminator', () => {
       const result = parseTerminalActivity('\x1b]0;my title\x07');

@@ -4,14 +4,13 @@ Spawns and manages PTYs locally; relays I/O to the server over `/ws/terminal-rel
 
 ## Files
 
-- `manager.ts` — `TerminalManager`: spawns PTYs (`spawnLocal` / `spawnInContainer` / `spawnInCoder`), relays I/O, manages suspend/resume.
+- `manager.ts` — `TerminalManager`: spawns PTYs (`spawnLocal` / `spawnInContainer` / `spawnInCoder`), relays I/O, manages suspend/resume, mirrors each PTY into an `@xterm/headless` terminal for snapshot resync.
 - `session-manager.ts` — Typed `Map` wrapper over `PersistentSession`. Has an expire callback the manager wires up.
-- `circular-buffer.ts` — Fixed-capacity ring buffer (default 1000 lines) for replay on reconnect.
-- `types.ts` — `SessionState = 'active' | 'suspended'`, `PersistentSession` shape.
+- `types.ts` — `SessionState = 'active' | 'suspended'`, `PersistentSession` shape (includes the headless `screen` + `serializeAddon`).
 
 ## Lifecycle
 
-`active` → `suspended` on WS disconnect → `active` on reconnect (with buffer replay via `reconnected` message). Sessions expire after the configured idle window — the expire callback sends `{ t: 'exit', sessionId, exitCode: -1 }` so the server can clean up its mirror.
+`active` → `suspended` on WS disconnect → `active` on reconnect (with snapshot resync via `reconnected` message). Sessions expire after the configured idle window — the expire callback sends `{ t: 'exit', sessionId, exitCode: -1 }` so the server can clean up its mirror.
 
 ## Compact message protocol
 
@@ -21,7 +20,7 @@ Server expects these literal short keys — **don't expand to verbose keys** (ba
 |---|---|
 | `{ t: 'o', sessionId, d }` | Output chunk |
 | `{ t: 'exit', sessionId, exitCode }` | PTY exited / expired / blocked |
-| `{ t: 'reconnected', sessionId, buffer }` | Resume with replay |
+| `{ t: 'reconnected', sessionId, snapshot }` | Resume with a serialized terminal snapshot |
 | `{ t: 'act', sessionId, state }` | Activity transition (`idle`/`active`/`waiting`/`done`) — for per-project badges; emitted even while suspended |
 
 Use `this.sendToServer?.(JSON.stringify({...}))` — no helper today, but if you add one, keep the wire shape identical.
@@ -34,10 +33,11 @@ Use `this.sendToServer?.(JSON.stringify({...}))` — no helper today, but if you
 
 **Security**: the permission-bypass guard (`DANGEROUS_FLAG_RE`) runs at the top of `spawn()` for **every** mode, gated on `!isIsolated` where `isIsolated = !!containerWorkspaceFolder || !!opts.coderWorkspace`. It blocks Claude Code's `--dangerously-skip-permissions` and Codex's `--dangerously-bypass-approvals-and-sandbox` on host; devcontainer and coder are considered isolated and pass. Any new spawn mode must either set one of those isolation flags or stay blocked; any new agent CLI's bypass flag must be added to the regex.
 
-## Buffer
+## Screen mirror (replay source)
 
-- Capacity 1000 lines, fixed. Don't grow ad-hoc — if a feature needs more, justify it and update both ends (server replay logic depends on bounded size).
-- `write(line)` is per-line, but PTY output is byte-stream — current code writes whole chunks; preserve that or update consumers.
+- Each session owns an `@xterm/headless` terminal (`screen`, 5000-line scrollback matching the browser xterm, resized alongside the PTY) fed every raw output chunk. On reconnect the daemon flushes its write queue (`screen.write('', cb)`) and sends the `@xterm/addon-serialize` snapshot — never raw chunk history, whose cursor-relative TUI frames tear when replayed against a reset screen.
+- `@xterm/headless` is a UMD bundle: under Node ESM, `Terminal` is only reachable via the default import (`import headless from '@xterm/headless'`), not as a named export.
+- Activity detection (`activity-parse.ts`) stays wired to the raw PTY stream, not the headless terminal's rendered state — that duplication with `web/` is intentional (common/ is types-only).
 
 ## Tests
 

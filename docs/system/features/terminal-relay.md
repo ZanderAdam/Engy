@@ -10,8 +10,7 @@ disconnects and daemon reconnects. The relay spans two WebSocket endpoints and
 two packages: the server side in `web/src/server/ws/terminal-server.ts`
 (`createTerminalWebSocketServer` for `/ws/terminal`, `createTerminalRelayWebSocketServer`
 for `/ws/terminal-relay`) and the daemon side in `client/src/terminal/manager.ts`
-(`TerminalManager`), `client/src/terminal/session-manager.ts` (`SessionManager`),
-and `client/src/terminal/circular-buffer.ts` (`CircularBuffer`).
+(`TerminalManager`) and `client/src/terminal/session-manager.ts` (`SessionManager`).
 
 ## Architecture
 
@@ -30,7 +29,7 @@ Server state is held in `AppState` (defined in `web/src/server/trpc/context.ts`)
   respawned when the daemon reconnects.
 - `terminalDaemon: WebSocket | null` — the single relay socket to the daemon.
 - `pendingReconnects: Map<sessionId, Set<WebSocket>>` — tracks which specific
-  browser sockets requested a reconnect, so the buffer replay is directed only
+  browser sockets requested a reconnect, so the snapshot resync is directed only
   to them and not to every already-attached browser.
 - `spawningSessions: Map<sessionId, Promise<void>>` — in-flight spawn gates that
   serialise concurrent connections for the same `sessionId`.
@@ -48,8 +47,12 @@ best-effort — DB failures are logged and never interrupt the relay.
 
 The daemon side tracks sessions via `SessionManager` (a typed `Map` wrapper with
 a 5-minute expiry constant `SESSION_EXPIRY_MS` and a 30-second cleanup interval
-`CLEANUP_INTERVAL_MS`, both in `session-manager.ts`) and buffers PTY output in
-`CircularBuffer(1000)` (`circular-buffer.ts`).
+`CLEANUP_INTERVAL_MS`, both in `session-manager.ts`). Every session feeds its raw
+PTY output into a per-session `@xterm/headless` terminal (5000-line scrollback,
+sized with the PTY) whose serialized state — via `@xterm/addon-serialize` — is
+the replay source for reconnecting browsers. Raw chunk history is never replayed:
+TUI repaint frames are cursor-relative and only render correctly against the
+live screen they were emitted into.
 
 ## Session lifecycle
 
@@ -69,12 +72,23 @@ in `client/src/ws/client.ts` calls `TerminalManager.suspend()` for every active
 session (sets `session.state = 'suspended'` and records `suspendedAt`). On the
 server side, when the last browser socket for a session closes, the server simply
 removes that browser WS from the session set and retains `terminalSessionMeta`
-— no suspend message is sent to the daemon. PTY output continues to be captured
-into the `CircularBuffer` but is not forwarded. When a browser reconnects (or a second browser attaches to
+— no suspend message is sent to the daemon. PTY output continues to be written
+into the headless terminal but is not forwarded. When a browser reconnects (or a second browser attaches to
 a live session), the server sends `{ t: 'reconnect', sessionId }`. The daemon
-replies with `{ t: 'reconnected', sessionId, buffer }` containing the buffered
-lines; the server delivers this replay exclusively to the browsers tracked in
-`pendingReconnects`, not to all attached browsers.
+flushes the headless terminal's write queue and replies with
+`{ t: 'reconnected', sessionId, snapshot }` — the serialized screen plus
+scrollback; the server delivers this resync exclusively to the browsers tracked
+in `pendingReconnects` (followed by the session's stored `lastTitle`, since the
+snapshot carries no OSC title), not to all attached browsers. The browser resets
+its xterm and writes the snapshot in place of whatever it had.
+
+**Wake probing.** The browser's `ReconnectingSocket` listens for
+`visibilitychange`/`online`. On wake with an OPEN socket it does not blindly
+force-reconnect: it sends `{ t: 'ping' }`, which the server answers directly with
+`{ t: 'pong' }` (never forwarded to the daemon), and only if no pong arrives
+within 3 seconds is the socket treated as a post-sleep zombie and
+force-reconnected. Ordinary tab switches therefore keep the socket — and the
+xterm's accumulated scrollback — intact.
 
 **Multi-attach.** Multiple browsers can attach to the same session simultaneously.
 The `terminalSessions` map stores a `Set<WebSocket>` per session. All subsequent
@@ -281,8 +295,8 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-010 | WHEN a browser connects to `/ws/terminal` without a `sessionId` or without a `workingDir` query parameter, the system SHALL close the WebSocket with code 1008. |
 | FR-TERMINAL-020 | WHEN a browser connects to `/ws/terminal` with valid `sessionId` and `workingDir` and no session for that id exists, the system SHALL send `{ t: 'spawn', sessionId, workingDir, cols, rows, scopeType, scopeLabel }` to the daemon relay and persist the session metadata in `terminalSessionMeta`. |
 | FR-TERMINAL-030 | WHEN a new terminal session is successfully spawned, the system SHALL broadcast a `created` terminal-sessions change event. |
-| FR-TERMINAL-040 | WHEN all browser sockets for a session close, the system SHALL set the daemon-side session state to `suspended`, retain `terminalSessionMeta`, and buffer subsequent PTY output in `CircularBuffer(1000)` without forwarding it to any browser. |
-| FR-TERMINAL-050 | WHEN a browser reconnects with a `sessionId` whose metadata is already present, the system SHALL send `{ t: 'reconnect', sessionId }` to the daemon and deliver the `{ t: 'reconnected', sessionId, buffer }` reply exclusively to the browsers that issued the reconnect request, not to all attached browsers. |
+| FR-TERMINAL-040 | WHEN all browser sockets for a session close, the system SHALL set the daemon-side session state to `suspended`, retain `terminalSessionMeta`, and continue writing PTY output into the session's headless terminal mirror (5000-line scrollback) without forwarding it to any browser. |
+| FR-TERMINAL-050 | WHEN a browser reconnects with a `sessionId` whose metadata is already present, the system SHALL send `{ t: 'reconnect', sessionId }` to the daemon and deliver the `{ t: 'reconnected', sessionId, snapshot }` reply — the serialized screen and scrollback of the session's headless terminal, serialized only after its write queue has drained — exclusively to the browsers that issued the reconnect request, not to all attached browsers. |
 | FR-TERMINAL-060 | WHILE multiple browsers are attached to the same session, the system SHALL broadcast every `{ t: 'o' }` output frame to all attached browser sockets and forward input from any attached browser raw to the daemon. |
 | FR-TERMINAL-070 | WHEN one browser disconnects from a session that still has other attached browsers, the system SHALL retain the session entry and continue delivering output to the remaining browsers; the entry SHALL be removed only when all attached browsers have disconnected. |
 | FR-TERMINAL-080 | WHEN a browser sends `{ t: 'kill', sessionId }`, the system SHALL delete session metadata, send `{ t: 'exit', sessionId, exitCode: 0 }` to every other attached browser and close their sockets with code 1001, remove the session entry, forward the kill message to the daemon (which SHALL send SIGTERM and escalate to SIGKILL after 3 seconds), and broadcast a `destroyed` terminal-sessions change event with `reason: 'killed'` (on which browsers remove the terminal tab). |
@@ -318,6 +332,8 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-380 | WHEN the server respawns a session whose stored command contains `--session-id <id>` (daemon lost the PTY), it SHALL rewrite the flag to `--resume <id>` before sending the spawn, so the respawned CLI continues the conversation instead of failing on a duplicate session id. |
 | FR-TERMINAL-390 | WHILE the user drags a single touch point across a terminal pane, the system SHALL scroll the terminal buffer by the whole lines the drag covers — for the whole drag, wherever it started, and whether or not the running program has mouse reporting on — carrying sub-line movement over to later moves within the same drag and discarding it when a new drag starts; WHILE the pane's row height is not measurable (a hidden pane), it SHALL NOT scroll. |
 | FR-TERMINAL-400 | WHEN the user sends a message from the mobile compose overlay, the system SHALL deliver it to the PTY as a single bracketed paste with line breaks as carriage returns and any paste sentinels in the text stripped, followed by a separate Enter. |
+| FR-TERMINAL-410 | WHEN the browser wakes (`visibilitychange` to visible, or `online`) while its terminal socket is OPEN, the system SHALL send `{ t: 'ping' }` — answered by the server with `{ t: 'pong' }` without daemon involvement — and force-reconnect the socket only IF no pong arrives within 3 seconds; WHEN the socket is not OPEN on wake it SHALL reconnect immediately. |
+| FR-TERMINAL-420 | WHEN the server forwards a `reconnected` snapshot to the pending browsers of a session that has a stored `lastTitle`, it SHALL follow the snapshot with `{ t: 'title', sessionId, title }` to those same browsers. |
 
 ## Sources
 

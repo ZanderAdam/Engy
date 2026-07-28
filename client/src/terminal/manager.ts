@@ -1,12 +1,21 @@
 import pty from 'node-pty';
+// @xterm/headless ships a UMD bundle whose named exports Node's ESM loader
+// cannot detect — Terminal is only reachable via the default (module.exports).
+import headless from '@xterm/headless';
+import type { ITerminalAddon } from '@xterm/headless';
+import { SerializeAddon } from '@xterm/addon-serialize';
 import type { TerminalActivityState } from '@engy/common';
-import { CircularBuffer } from './circular-buffer.js';
 import { SessionManager } from './session-manager.js';
 import { createTerminalActivityParser, type TerminalActivityParser } from './activity-parse.js';
 import { createActivityTracker } from './activity-tracker.js';
 import type { PersistentSession } from './types.js';
 
+const { Terminal: HeadlessTerminal } = headless;
+
 const SIGTERM_TIMEOUT_MS = 3_000;
+// Matches the browser xterm's scrollback (terminal.tsx) so a snapshot resync
+// restores the same history depth the browser would have accumulated live.
+const SCROLLBACK_LINES = 5_000;
 // Blocks unsandboxed execution on host for any agent CLI: Claude Code's
 // --dangerously-skip-permissions and Codex's --dangerously-bypass-approvals-and-sandbox.
 const DANGEROUS_FLAG_RE =
@@ -42,15 +51,16 @@ export class TerminalManager {
     this.sessions = sessions;
     this.sessions.setExpireCallback((sessionId) => {
       this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: -1 }));
-      this.disposeActivity(sessionId);
+      this.disposeSession(sessionId, this.sessions.get(sessionId));
     });
   }
 
-  // Tear down a session's activity tracker. Safe to call multiple times and for
-  // unknown ids — covers every removal path (exit, replace, kill, expire) since
-  // the onExit respawn guard skips its own cleanup when a session was already
-  // removed (kill/expire delete it first).
-  private disposeActivity(sessionId: string): void {
+  // Tear down a session's screen mirror and activity tracker. Safe to call
+  // multiple times and for unknown ids — covers every removal path (exit,
+  // replace, kill, expire) since the onExit respawn guard skips its own
+  // cleanup when a session was already removed (kill/expire delete it first).
+  private disposeSession(sessionId: string, session: PersistentSession | undefined): void {
+    session?.screen.dispose();
     this.activity.get(sessionId)?.tracker.dispose();
     this.activity.delete(sessionId);
   }
@@ -151,7 +161,7 @@ export class TerminalManager {
     const existing = this.sessions.get(sessionId);
     if (existing) {
       console.log(`[terminal] Replacing existing PTY for session ${sessionId}, killing old pid=${existing.ptyProcess.pid}`);
-      this.disposeActivity(sessionId);
+      this.disposeSession(sessionId, existing);
       try {
         existing.ptyProcess.kill('SIGKILL');
       } catch {
@@ -159,14 +169,30 @@ export class TerminalManager {
       }
     }
 
-    const outputBuffer = new CircularBuffer(1000);
+    // Headless mirror of the PTY screen. Reconnecting browsers get a serialized
+    // snapshot of this terminal's state — replaying raw output chunks would tear
+    // TUI repaints, whose cursor-relative frames only render correctly against
+    // the screen they were emitted into. convertEol mirrors the browser xterm.
+    const screen = new HeadlessTerminal({
+      cols,
+      rows,
+      scrollback: SCROLLBACK_LINES,
+      convertEol: true,
+      allowProposedApi: true,
+    });
+    const serializeAddon = new SerializeAddon();
+    // The serialize addon is typed against the DOM build's Terminal but runs on
+    // the same core as headless — upstream types just don't cover the pairing.
+    screen.loadAddon(serializeAddon as unknown as ITerminalAddon);
+
     const session: PersistentSession = {
       ptyProcess,
       sessionId,
       workingDir,
       command,
       state: 'active',
-      outputBuffer,
+      screen,
+      serializeAddon,
       lastActivity: Date.now(),
       initialCommandSent: false,
     };
@@ -187,7 +213,7 @@ export class TerminalManager {
 
     ptyProcess.onData((data) => {
       session.lastActivity = Date.now();
-      outputBuffer.write(data);
+      session.screen.write(data);
 
       // Feed activity detection before the attach check — badges must reflect
       // output even while the session is suspended (no browser attached).
@@ -219,7 +245,7 @@ export class TerminalManager {
       }
       this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: code }));
       this.sessions.delete(sessionId);
-      this.disposeActivity(sessionId);
+      this.disposeSession(sessionId, session);
       console.log(`[terminal] Remaining sessions: [${this.sessions.all().map((s) => s.sessionId).join(', ')}]`);
     });
   }
@@ -246,6 +272,7 @@ export class TerminalManager {
     }
     try {
       session.ptyProcess.resize(cols, rows);
+      session.screen.resize(cols, rows);
       // The PTY redraws on resize; don't count that burst as activity.
       this.activity.get(sessionId)?.tracker.suppressOutput(RESIZE_SUPPRESS_MS);
     } catch (err) {
@@ -280,7 +307,7 @@ export class TerminalManager {
     // Clear timer if process exits on its own
     session.ptyProcess.onExit(() => clearTimeout(killTimer));
     this.sessions.delete(sessionId);
-    this.disposeActivity(sessionId);
+    this.disposeSession(sessionId, session);
   }
 
   handleReconnect(sessionId: string): void {
@@ -293,14 +320,19 @@ export class TerminalManager {
       return;
     }
 
-    console.log(
-      `[terminal] handleReconnect: session ${sessionId} found, state=${session.state}, bufferSize=${session.outputBuffer.toArray().length}`,
-    );
+    console.log(`[terminal] handleReconnect: session ${sessionId} found, state=${session.state}`);
     session.state = 'active';
     session.suspendedAt = undefined;
 
-    const lines = session.outputBuffer.toArray();
-    this.sendToServer?.(JSON.stringify({ t: 'reconnected', sessionId, buffer: lines }));
+    // Serialize only after xterm's write queue has drained, so output that
+    // arrived just before the reconnect is part of the snapshot.
+    session.screen.write('', () => {
+      const snapshot = session.serializeAddon.serialize();
+      console.log(
+        `[terminal] handleReconnect: session ${sessionId} snapshot ${snapshot.length} chars`,
+      );
+      this.sendToServer?.(JSON.stringify({ t: 'reconnected', sessionId, snapshot }));
+    });
   }
 
   suspend(sessionId: string): void {

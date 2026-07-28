@@ -9,6 +9,8 @@ import type {
   TerminalErrorEvent,
   TerminalSyncEvent,
   TerminalActivityEvent,
+  TerminalPongEvent,
+  TerminalTitleMsg,
 } from '@engy/common';
 import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
@@ -250,6 +252,13 @@ async function handleTerminalConnection(
   ws.on('message', (raw: Buffer | string) => {
     const str = typeof raw === 'string' ? raw : raw.toString('utf-8');
 
+    // Liveness probe from the browser's wake handler — answered here so a
+    // healthy socket is confirmed without a daemon round-trip.
+    if (str.startsWith('{"t":"ping"')) {
+      sendRaw(ws, JSON.stringify({ t: 'pong' } satisfies TerminalPongEvent));
+      return;
+    }
+
     // Intercept kill messages to clean up session metadata (rare path). The
     // sender ws is excluded from the exit-frame fan-out — it initiated the
     // kill and tears itself down client-side.
@@ -265,7 +274,7 @@ async function handleTerminalConnection(
     // server-side — the daemon has no use for it, so skip the generic forward.
     if (str.startsWith('{"t":"title"')) {
       try {
-        const msg = JSON.parse(str) as { t: 'title'; sessionId: string; title: string };
+        const msg = JSON.parse(str) as TerminalTitleMsg;
         const meta = state.terminalSessionMeta.get(sessionId);
         if (msg.sessionId === sessionId && meta && typeof msg.title === 'string') {
           const title = sanitizeOscTitle(msg.title);
@@ -715,11 +724,20 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         const pendingSet = state.pendingReconnects.get(sessionId);
         state.pendingReconnects.delete(sessionId);
         if (pendingSet && pendingSet.size > 0) {
+          // The serialized snapshot carries no OSC title, so follow it with the
+          // stored one — otherwise resynced tabs fall back to the stale label.
+          const lastTitle = state.terminalSessionMeta.get(sessionId)?.lastTitle;
           for (const pendingWs of pendingSet) {
             sendRaw(pendingWs, str);
+            if (lastTitle) {
+              sendRaw(
+                pendingWs,
+                JSON.stringify({ t: 'title', sessionId, title: lastTitle } satisfies TerminalTitleMsg),
+              );
+            }
           }
         } else {
-          console.warn(`[terminal-relay] Reconnected buffer for ${sessionId} dropped — no pending browser`);
+          console.warn(`[terminal-relay] Reconnected snapshot for ${sessionId} dropped — no pending browser`);
         }
       } else if (wsSet) {
         broadcastToSession(state, sessionId, str);
