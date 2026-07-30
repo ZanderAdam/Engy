@@ -21,5 +21,6 @@ One doc per major feature area, ordered for top-to-bottom reading. Each doc carr
 - [agent-question-protocol.md](agent-question-protocol.md) — Protocol for agents to pause execution and ask the user batched questions, then resume automatically on answer.
 - [websocket-daemon-protocol.md](websocket-daemon-protocol.md) — Daemon registration, request/response dispatch, FILE_CHANGE buffering, and browser broadcast over the /ws control channel.
 - [mcp-server-session.md](mcp-server-session.md) — MCP HTTP session lifecycle, transport management, idle reaper, response envelope, and trace tool.
+- [pr-monitoring.md](pr-monitoring.md) — PR listing with live CI status, polling via the gh CLI, CI failure auto-fix dispatch, and reviewer comment triage in the diff viewer.
 
 <!-- INDEX END -->
