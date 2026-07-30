@@ -1,5 +1,5 @@
 ---
-name: engy:reindex
+name: reindex
 description: This skill should be used when the user asks to "reindex", "rebuild the index", "force reindex", "refresh search", or "reindex workspace content".
 ---
 

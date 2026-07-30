@@ -1,5 +1,5 @@
 ---
-name: engy:review
+name: review
 description: "This skill should be used when the user asks to 'review changes', 'review my code', 'run a code review', 'review last commit', 'review recent changes', or 'check code against spec'."
 ---
 
@@ -103,6 +103,6 @@ Format the agent's output into the report below. Number all findings, sorted Cri
 
 ## Flow Position
 
-**Previous:** `implement` | **Next:** `update-spec`
+**Previous:** `implement` | **Next:** `complete-project`
 
-When the code review is complete and all critical/high issues are resolved, proceed with `/engy:update-spec` to update the master spec with implementation status.
+When the code review is complete and all critical/high issues are resolved, commit the work. Once the project's tasks are all in `done` status, proceed with `/engy:complete-project` to distill knowledge and archive it.

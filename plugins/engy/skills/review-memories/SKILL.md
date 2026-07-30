@@ -1,5 +1,5 @@
 ---
-name: engy:review-memories
+name: review-memories
 description: This skill should be used when the user asks to "review memories", "review fleeting memories", "promote memories", or "run memory review". Reviews unpromoted fleeting memories one by one, proposes type/subtype/title/keywords/themes/tags, checks for duplicates and contradictions, and lets the user approve/edit/supersede/skip.
 ---
 

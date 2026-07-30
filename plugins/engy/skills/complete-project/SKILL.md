@@ -1,5 +1,5 @@
 ---
-name: engy:complete-project
+name: complete-project
 description: "This skill should be used when the user asks to 'complete a project', 'wrap up a project', 'archive a project', or 'run project completion'."
 ---
 

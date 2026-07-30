@@ -1,5 +1,5 @@
 ---
-name: engy:reviewer
+name: reviewer
 model: sonnet
 description: Unified code reviewer — simplifies code directly (no behavior changes), then reviews and surfaces severity-tagged findings.
 tools: Read, Write, Edit, Bash, Glob, Grep

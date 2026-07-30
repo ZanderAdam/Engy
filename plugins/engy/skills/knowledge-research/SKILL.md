@@ -1,5 +1,5 @@
 ---
-name: engy:knowledge-research
+name: knowledge-research
 description: This skill should be used when the user asks to "search knowledge", "what do we know about X?", "look up prior decisions on X", "find conventions for X", or "research the knowledge base".
 ---
 

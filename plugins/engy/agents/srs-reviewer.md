@@ -1,5 +1,5 @@
 ---
-name: engy:srs-reviewer
+name: srs-reviewer
 model: opus
 description: SRS validator and fixer — cross-references a spec.md against source documents (vision docs, context files), identifies missing/incorrect requirements, and fixes them in place.
 tools: Read, Write, Edit, Bash, Glob, Grep

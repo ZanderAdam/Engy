@@ -1,5 +1,5 @@
 ---
-name: engy:validate
+name: validate
 description: This skill should be used when the user asks to "validate workspace", "check knowledge integrity", "run validation", "check for broken links", or "verify memories before promoting".
 ---
 
