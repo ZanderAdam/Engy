@@ -31,6 +31,8 @@ Use `this.sendToServer?.(JSON.stringify({...}))` — no helper today, but if you
 - Devcontainer: `spawnInContainer` shells out via `devcontainer exec --workspace-folder <folder>`.
 - Coder workspace: `spawnInCoder` uses `coder ssh --no-wait` with optional reverse port (`-R`) for server callback.
 
+Every mode sets `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` (PTY env locally, `--remote-env`/`-e` for devcontainer/coder) so CLAUDE.md, rules, and skills from `--add-dir` dirs — notably the project docs dir — load into agent context. Mirrored in the runner's `agent-spawner.ts`.
+
 **Security**: the permission-bypass guard (`DANGEROUS_FLAG_RE`) runs at the top of `spawn()` for **every** mode, gated on `!isIsolated` where `isIsolated = !!containerWorkspaceFolder || !!opts.coderWorkspace`. It blocks Claude Code's `--dangerously-skip-permissions` and Codex's `--dangerously-bypass-approvals-and-sandbox` on host; devcontainer and coder are considered isolated and pass. Any new spawn mode must either set one of those isolation flags or stay blocked; any new agent CLI's bypass flag must be added to the regex.
 
 ## Screen mirror (replay source)

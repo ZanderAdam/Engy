@@ -114,6 +114,45 @@ describe('TerminalManager', () => {
     );
   });
 
+  it('[FR-TERMINAL-430] sets CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD in the pty env', () => {
+    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+    expect(mockedSpawn).toHaveBeenCalledWith(
+      expect.any(String),
+      [],
+      expect.objectContaining({
+        env: expect.objectContaining({ CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' }),
+      }),
+    );
+  });
+
+  it('[FR-TERMINAL-430] forwards CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD into container sessions', () => {
+    manager.spawn({
+      sessionId: 'abc',
+      workingDir: '/tmp',
+      cols: 80,
+      rows: 24,
+      containerWorkspaceFolder: '/ws',
+    });
+    const args = mockedSpawn.mock.calls[0][1] as string[];
+    expect(mockedSpawn.mock.calls[0][0]).toBe('devcontainer');
+    expect(args).toContain('--remote-env');
+    expect(args).toContain('CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1');
+  });
+
+  it('[FR-TERMINAL-430] forwards CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD into coder sessions', () => {
+    manager.spawn({
+      sessionId: 'abc',
+      workingDir: '/tmp',
+      cols: 80,
+      rows: 24,
+      coderWorkspace: 'my-ws',
+    });
+    const args = mockedSpawn.mock.calls[0][1] as string[];
+    expect(mockedSpawn.mock.calls[0][0]).toBe('coder');
+    expect(args).toContain('-e');
+    expect(args).toContain('CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1');
+  });
+
   it('relays pty output in compact format when session is active', () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
 

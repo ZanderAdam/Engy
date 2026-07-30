@@ -125,6 +125,24 @@ describe('AgentSpawner', () => {
       expect(result.sessionId).toBe('test-session');
     });
 
+    it('[FR-EXECUTION-300] should set CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD in spawn env', async () => {
+      const proc = createMockProcess();
+      mockSpawn.mockReturnValue(proc);
+
+      const promise = spawner.spawn(HOST_CONFIG);
+
+      proc.emit('close', 0);
+      await promise;
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'claude',
+        expect.any(Array),
+        expect.objectContaining({
+          env: expect.objectContaining({ CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' }),
+        }),
+      );
+    });
+
     it('should NOT include --dangerously-skip-permissions in host mode', async () => {
       const proc = createMockProcess();
       mockSpawn.mockReturnValue(proc);
@@ -263,7 +281,7 @@ describe('AgentSpawner', () => {
         '/workspace/project',
         'claude',
         expect.arrayContaining(['--dangerously-skip-permissions']),
-        undefined,
+        { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' },
       );
       expect(mockSpawn).not.toHaveBeenCalled();
     });
@@ -308,7 +326,7 @@ describe('AgentSpawner', () => {
       expect(execArgs).not.toContain('--permission-mode');
     });
 
-    it('should pass env to containerManager.exec', async () => {
+    it('[FR-EXECUTION-300] should pass env to containerManager.exec', async () => {
       const proc = createMockProcess();
       containerManager.exec.mockReturnValue(proc);
 
@@ -329,7 +347,7 @@ describe('AgentSpawner', () => {
         '/workspace/project',
         'claude',
         expect.any(Array),
-        { NODE_ENV: 'test' },
+        { NODE_ENV: 'test', CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' },
       );
     });
 
@@ -369,7 +387,7 @@ describe('AgentSpawner', () => {
   });
 
   describe('[FR-EXECUTION-250] coder mode', () => {
-    it('should spawn via coderManager.exec', async () => {
+    it('[FR-EXECUTION-300] should spawn via coderManager.exec', async () => {
       const proc = createMockProcess();
       coderManager.exec.mockReturnValue(proc);
 
@@ -390,7 +408,7 @@ describe('AgentSpawner', () => {
         'my-workspace',
         'claude',
         expect.arrayContaining(['--dangerously-skip-permissions']),
-        undefined,
+        { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' },
         3000,
       );
       expect(mockSpawn).not.toHaveBeenCalled();

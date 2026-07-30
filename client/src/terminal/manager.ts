@@ -20,6 +20,7 @@ const SCROLLBACK_LINES = 5_000;
 // --dangerously-skip-permissions and Codex's --dangerously-bypass-approvals-and-sandbox.
 const DANGEROUS_FLAG_RE =
   /(?:^|\s)--dangerously-(?:skip-permissions|bypass-approvals-and-sandbox)(?:\s|$)/;
+const ADD_DIR_CLAUDE_MD_ENV = 'CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD';
 
 // Activity detection timings — mirror the browser tracker (terminal.tsx).
 const ACTIVITY_DEBOUNCE_MS = 3_000;
@@ -102,6 +103,8 @@ export class TerminalManager {
       'exec',
       '--workspace-folder',
       folder,
+      '--remote-env',
+      `${ADD_DIR_CLAUDE_MD_ENV}=1`,
       '/bin/bash',
       '-c',
       `cd '${workingDir.replace(/'/g, "'\\''")}' && exec /bin/bash`,
@@ -110,7 +113,7 @@ export class TerminalManager {
 
   private spawnInCoder(opts: SpawnOptions): void {
     const { workingDir, command, coderWorkspace: workspace = '', serverPort } = opts;
-    const sshArgs: string[] = ['ssh', '--no-wait'];
+    const sshArgs: string[] = ['ssh', '--no-wait', '-e', `${ADD_DIR_CLAUDE_MD_ENV}=1`];
     if (serverPort) {
       sshArgs.push('-R', `${serverPort}:localhost:${serverPort}`);
     }
@@ -145,7 +148,7 @@ export class TerminalManager {
         cols,
         rows,
         ...(cwd ? { cwd } : {}),
-        env: { ...process.env },
+        env: { ...process.env, [ADD_DIR_CLAUDE_MD_ENV]: '1' },
         handleFlowControl: true,
       });
     } catch (err) {

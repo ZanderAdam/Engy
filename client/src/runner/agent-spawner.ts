@@ -198,23 +198,14 @@ export class AgentSpawner {
   }
 
   private spawnProcess(config: SpawnConfig, args: string[]): ChildProcess {
+    const env = { ...config.env, CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' };
+
     if (config.coderWorkspace && this.coderManager) {
-      return this.coderManager.exec(
-        config.coderWorkspace,
-        'claude',
-        args,
-        config.env,
-        config.serverPort,
-      );
+      return this.coderManager.exec(config.coderWorkspace, 'claude', args, env, config.serverPort);
     }
 
     if (config.containerMode) {
-      return this.containerManager.exec(
-        config.containerWorkspaceFolder!,
-        'claude',
-        args,
-        config.env,
-      );
+      return this.containerManager.exec(config.containerWorkspaceFolder!, 'claude', args, env);
     }
 
     if (config.remote) {
@@ -229,7 +220,7 @@ export class AgentSpawner {
 
     return spawn('claude', args, {
       cwd: config.workingDir,
-      env: config.env ? { ...process.env, ...config.env } : undefined,
+      env: { ...process.env, ...env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
   }

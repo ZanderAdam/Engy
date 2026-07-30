@@ -334,6 +334,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-400 | WHEN the user sends a message from the mobile compose overlay, the system SHALL deliver it to the PTY as a single bracketed paste with line breaks as carriage returns and any paste sentinels in the text stripped, followed by a separate Enter. |
 | FR-TERMINAL-410 | WHEN the browser wakes (`visibilitychange` to visible, or `online`) while its terminal socket is OPEN, the system SHALL send `{ t: 'ping' }` — answered by the server with `{ t: 'pong' }` without daemon involvement — and force-reconnect the socket only IF no pong arrives within 3 seconds; WHEN the socket is not OPEN on wake it SHALL reconnect immediately. |
 | FR-TERMINAL-420 | WHEN the server forwards a `reconnected` snapshot to the pending browsers of a session that has a stored `lastTitle`, it SHALL follow the snapshot with `{ t: 'title', sessionId, title }` to those same browsers. |
+| FR-TERMINAL-430 | WHEN spawning a terminal session, the daemon SHALL set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` in the session environment — via the PTY env on host, `--remote-env` for container sessions, and `coder ssh -e` for Coder sessions — so CLAUDE.md files from `--add-dir` directories load into context. |
 
 ## Sources
 

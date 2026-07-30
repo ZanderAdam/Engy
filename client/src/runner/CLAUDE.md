@@ -30,6 +30,7 @@ Worktree dir is `.claude/worktrees/engy-session-<shortId>` with branch `engy/ses
 - Permission flag: `--dangerously-skip-permissions` inside container/coder (isolated); `--permission-mode acceptEdits` on host.
 - Session identity is mutually exclusive: `--session-id <sessionId>` for new sessions, `--resume <sessionId>` for resumed ones (caller-supplied `--resume` flag also counts). Setting both is a CLI error.
 - Container/coder modes append `--add-dir <workingDir>` because the worktree isn't the cwd.
+- Every non-remote spawn sets `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` in the process env so CLAUDE.md, rules, and skills from `--add-dir` dirs (notably the project docs dir) load into agent context. Mirrored in the terminal manager's spawn paths.
 - Coder mode: prompt is the **first positional arg**, before flags — variadic flags like `--add-dir <directories...>` would otherwise slurp it.
 - Remote mode: argv is just `['--remote', prompt]` — no JSON output, no schema, no session id.
 

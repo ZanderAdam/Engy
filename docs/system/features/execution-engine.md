@@ -141,6 +141,7 @@ their title string, e.g. `it('[FR-EXECUTION-010] ...', ...)`, and run
 | FR-EXECUTION-270 | IF `Runner.stop` has emitted a synthetic `EXECUTION_COMPLETE_EVENT` for a session and the agent process later exits naturally, THEN the system SHALL suppress the second `EXECUTION_COMPLETE_EVENT` so exactly one event is emitted per session. |
 | FR-EXECUTION-280 | WHEN `getSessionFile` is queried for a session id, the system SHALL search `~/.claude/projects/` directories on the local filesystem for a matching `<sessionId>.jsonl` file and return its parsed JSONL entries; IF no local file is found and the session belongs to a Coder workspace, the system SHALL fall back to locating and reading the file via `coder ssh`; IF neither source yields a file, the system SHALL return an empty array. |
 | FR-EXECUTION-290 | WHEN `pushRemoteFile` is called for a task in a Coder workspace, the system SHALL dispatch `REMOTE_FILE_PUSH_REQUEST` to the daemon with the plan path computed server-side as `plans/<ws-slug>-T<id>.plan.md` and SHALL clear `tasks.needsPlan` only after a successful push; for non-Coder workspaces the system SHALL clear `tasks.needsPlan` without dispatching. |
+| FR-EXECUTION-300 | WHEN spawning an agent process in host, container, or Coder mode, the system SHALL set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` in the process environment so CLAUDE.md files from `--add-dir` directories (including the project docs dir) load into context. |
 
 ## Sources
 
