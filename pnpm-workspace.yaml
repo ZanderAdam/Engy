@@ -2,3 +2,5 @@ packages:
   - "web"
   - "client"
   - "common"
+
+verifyDepsBeforeRun: install

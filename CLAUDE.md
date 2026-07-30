@@ -96,7 +96,7 @@ These are non-negotiable and must be verified before committing:
 4. If you changed behaviour in a feature area, update its `docs/system/features/<area>.md` FRs and the `[FR-AREA-NNN]` test tags to match (see Feature Requirements above).
 
 ### Validation Setup
-Run `pnpm install` to ensure all dependencies are up to date, then run `pnpm blt`. Tests use in-memory SQLite directly — no server or port needed.
+Just run `pnpm blt` — `verifyDepsBeforeRun` in `pnpm-workspace.yaml` installs any missing dependencies first, so no manual `pnpm install` is needed. Tests use in-memory SQLite directly — no server or port needed.
 
 ## Formatting
 
