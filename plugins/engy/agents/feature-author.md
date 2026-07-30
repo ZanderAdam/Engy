@@ -1,5 +1,5 @@
 ---
-name: engy:feature-author
+name: feature-author
 model: sonnet
 description: Feature doc author — reads a BDD behaviour inventory for a feature area and authors the complete feature doc (prose body + EARS ## Requirements table + ## Sources + frontmatter) grounded in the inventoried behaviours. Writes uncommitted for human review.
 tools: Read, Write, Edit, Glob, Grep, Bash

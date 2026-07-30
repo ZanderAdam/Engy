@@ -1,5 +1,5 @@
 ---
-name: engy:write-sysdocs
+name: write-sysdocs
 description: This skill should be used when the user asks to "bootstrap/generate/initialize system docs", "propose/update/refresh system docs", "edit/fix/browse a system doc", or "surface project knowledge to system docs". Dispatches in one of three modes depending on intent.
 ---
 

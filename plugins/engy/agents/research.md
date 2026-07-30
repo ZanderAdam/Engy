@@ -1,5 +1,5 @@
 ---
-name: engy:research
+name: research
 model: sonnet
 description: Multi-collection knowledge researcher. Dispatch via Task tool to surface relevant prior decisions, patterns, facts, and conventions for a given question or planning context.
 tools: Read, mcp__Engy__search, mcp__EngyWorktree__search

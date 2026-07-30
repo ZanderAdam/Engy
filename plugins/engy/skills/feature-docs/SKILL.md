@@ -1,5 +1,5 @@
 ---
-name: engy:feature-docs
+name: feature-docs
 description: This skill should be used when the user asks to "bootstrap feature docs", "write feature requirements", "establish the EARS baseline", "author FRs for the codebase", "create feature area docs", or "author requirements for a feature area". Sole owner of system/features/<area>.md — authors the complete feature doc (prose body + EARS requirements) for each area with a human confirmation gate at every step.
 ---
 

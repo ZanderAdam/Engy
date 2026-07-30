@@ -1,5 +1,5 @@
 ---
-name: engy:session-distill
+name: session-distill
 description: This skill should be used when the user asks to "distill this session", "save session learnings", "capture learnings from this session", "what's worth remembering from this session", "session distill", or "extract memories from this session". Reflects over the current conversation, extracts 1–3 atomic, non-obvious learnings the code and commits won't capture, and drafts them as fleeting memories into the review-memories queue — no source snapshot.
 ---
 

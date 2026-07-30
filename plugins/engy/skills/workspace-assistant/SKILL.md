@@ -1,5 +1,5 @@
 ---
-name: engy:workspace-assistant
+name: workspace-assistant
 description: "This skill should be used when the user asks to create quick tasks, log bugs, track one-off work items, or manage tasks in the default project. Triggers on phrases like 'add a task', 'log a bug', 'track this', 'create a quick task', 'update task status'."
 ---
 
