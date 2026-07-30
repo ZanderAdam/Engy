@@ -8,6 +8,7 @@ import {
   dispatchGitLog,
   dispatchGitShow,
   dispatchGitBranchFiles,
+  dispatchGitDefaultBase,
   dispatchGitWorktreeList,
 } from '../../ws/server';
 import { getDb } from '../../db/client';
@@ -51,8 +52,13 @@ export const diffRouter = router({
     .query(async ({ input, ctx }) => {
       const dir = input.worktreePath ?? input.repoDir;
       try {
-        const { files } = await dispatchGitBranchFiles(dir, input.base, ctx.state, input.coderWorkspace);
-        return { files: files.map((f) => ({ ...f, staged: false })) };
+        const { files, mergeBase } = await dispatchGitBranchFiles(
+          dir,
+          input.base,
+          ctx.state,
+          input.coderWorkspace,
+        );
+        return { files: files.map((f) => ({ ...f, staged: false })), mergeBase };
       } catch (err) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
@@ -60,6 +66,11 @@ export const diffRouter = router({
         });
       }
     }),
+
+  getDefaultBase: publicProcedure.input(worktreeInput).query(async ({ input, ctx }) => {
+    const dir = input.worktreePath ?? input.repoDir;
+    return dispatchGitDefaultBase(dir, ctx.state, input.coderWorkspace);
+  }),
 
   getWorktrees: publicProcedure
     .input(z.object({ workspaceSlug: z.string(), repoDir: z.string().min(1) }))

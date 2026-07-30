@@ -15,6 +15,7 @@ import type {
   GitLogRequestMessage,
   GitShowRequestMessage,
   GitBranchFilesRequestMessage,
+  GitDefaultBaseRequestMessage,
   GitWorktreeListRequestMessage,
   DirListEntry,
   DirListRequestMessage,
@@ -50,6 +51,7 @@ import {
   getLog,
   getShow,
   getBranchFiles,
+  resolveDefaultBase,
   getFileContent,
   getFileBytes,
   writeFileContent,
@@ -574,6 +576,9 @@ export class WsClient {
       case 'GIT_BRANCH_FILES_REQUEST':
         this.handleGitBranchFilesRequest(message as GitBranchFilesRequestMessage);
         break;
+      case 'GIT_DEFAULT_BASE_REQUEST':
+        this.handleGitDefaultBaseRequest(message as GitDefaultBaseRequestMessage);
+        break;
       case 'GIT_WORKTREE_LIST_REQUEST':
         this.handleGitWorktreeListRequest(message as GitWorktreeListRequestMessage);
         break;
@@ -801,14 +806,36 @@ export class WsClient {
   private async handleGitBranchFilesRequest(message: GitBranchFilesRequestMessage): Promise<void> {
     const { requestId, repoDir, base, coderWorkspace } = message.payload;
     try {
-      const files = await getBranchFiles(repoDir, base, this.gitRunnerFor(coderWorkspace));
+      const { files, mergeBase } = await getBranchFiles(
+        repoDir,
+        base,
+        this.gitRunnerFor(coderWorkspace),
+      );
       this.send({
         type: 'GIT_BRANCH_FILES_RESPONSE',
-        payload: { requestId, files },
+        payload: { requestId, files, mergeBase },
       });
     } catch (err) {
       this.send({
         type: 'GIT_BRANCH_FILES_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleGitDefaultBaseRequest(
+    message: GitDefaultBaseRequestMessage,
+  ): Promise<void> {
+    const { requestId, repoDir, coderWorkspace } = message.payload;
+    try {
+      const base = await resolveDefaultBase(repoDir, this.gitRunnerFor(coderWorkspace));
+      this.send({
+        type: 'GIT_DEFAULT_BASE_RESPONSE',
+        payload: { requestId, base },
+      });
+    } catch (err) {
+      this.send({
+        type: 'GIT_DEFAULT_BASE_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }

@@ -22,6 +22,8 @@ export type {
   GitShowResponseMessage,
   GitBranchFilesRequestMessage,
   GitBranchFilesResponseMessage,
+  GitDefaultBaseRequestMessage,
+  GitDefaultBaseResponseMessage,
   GitWorktreeEntry,
   GitWorktreeListRequestMessage,
   GitWorktreeListResponseMessage,

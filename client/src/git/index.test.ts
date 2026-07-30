@@ -10,6 +10,8 @@ import {
   getDiff,
   getLog,
   getShow,
+  getBranchFiles,
+  resolveDefaultBase,
   parsePorcelainStatus,
   parseWorktreeList,
   globTestFiles,
@@ -258,6 +260,156 @@ describe('git integration', () => {
       const commits = await getLog(repoDir, 2);
 
       expect(commits).toHaveLength(2);
+    });
+  });
+
+  describe('resolveDefaultBase', () => {
+    it('[FR-GIT-190] prefers the recorded origin/HEAD when the clone set one', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+      const git = simpleGit(repoDir);
+      await git.raw(['update-ref', 'refs/remotes/origin/develop', 'HEAD']);
+      await git.raw([
+        'symbolic-ref',
+        'refs/remotes/origin/HEAD',
+        'refs/remotes/origin/develop',
+      ]);
+
+      await expect(resolveDefaultBase(repoDir)).resolves.toBe('origin/develop');
+    });
+
+    it('[FR-GIT-190] ignores a stale origin/HEAD that no longer resolves', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+      const git = simpleGit(repoDir);
+      // Points at a remote branch that was renamed away; the ref file remains.
+      await git.raw([
+        'symbolic-ref',
+        'refs/remotes/origin/HEAD',
+        'refs/remotes/origin/deleted-branch',
+      ]);
+
+      const base = await resolveDefaultBase(repoDir);
+
+      expect(base).not.toBe('origin/deleted-branch');
+      expect(['main', 'master']).toContain(base);
+    });
+
+    it('[FR-GIT-190] probes well-known remote names when origin/HEAD is absent', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+      const git = simpleGit(repoDir);
+      await git.raw(['update-ref', 'refs/remotes/origin/master', 'HEAD']);
+
+      await expect(resolveDefaultBase(repoDir)).resolves.toBe('origin/master');
+    });
+
+    it('[FR-GIT-190] falls back to a local branch when no remote ref exists', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+
+      const base = await resolveDefaultBase(repoDir);
+
+      expect(['main', 'master']).toContain(base);
+    });
+
+    it('[FR-GIT-190] falls back to the current branch when nothing well-known matches', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+      const git = simpleGit(repoDir);
+      await git.raw(['branch', '-m', 'trunk']);
+
+      await expect(resolveDefaultBase(repoDir)).resolves.toBe('trunk');
+    });
+  });
+
+  describe('getBranchFiles', () => {
+    it('[FR-GIT-200] excludes commits the base gained after the branch forked', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await commitFile(repoDir, 'feature.txt', 'feature');
+      // Base moves on independently — a two-dot diff would report this as a deletion.
+      await git.checkout(mainBranch);
+      await commitFile(repoDir, 'landed-on-main.txt', 'main');
+      await git.checkout('feature');
+
+      const { files } = await getBranchFiles(repoDir, mainBranch);
+
+      expect(files).toEqual([{ path: 'feature.txt', status: 'added' }]);
+    });
+
+    it('[FR-GIT-200] returns the merge base the diff was taken against', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      const forkPoint = (await git.log()).latest!.hash;
+      await git.checkoutLocalBranch('feature');
+      await commitFile(repoDir, 'feature.txt', 'feature');
+      await git.checkout(mainBranch);
+      await commitFile(repoDir, 'landed-on-main.txt', 'main');
+      await git.checkout('feature');
+
+      const { mergeBase } = await getBranchFiles(repoDir, mainBranch);
+
+      expect(mergeBase).toBe(forkPoint);
+    });
+
+    it('[FR-GIT-200] includes uncommitted working-tree changes', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await writeFile(join(repoDir, 'uncommitted.txt'), 'wip');
+      await git.add('uncommitted.txt');
+
+      const { files } = await getBranchFiles(repoDir, mainBranch);
+
+      expect(files).toEqual([{ path: 'uncommitted.txt', status: 'added' }]);
+    });
+
+    it('[FR-GIT-200] reports renames rather than an add/delete pair', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'original.txt', 'a stable body of text to match on\n');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await git.mv('original.txt', 'renamed.txt');
+      await git.commit('rename');
+
+      const { files } = await getBranchFiles(repoDir, mainBranch);
+
+      expect(files).toEqual([
+        { path: 'renamed.txt', status: 'renamed', oldPath: 'original.txt' },
+      ]);
+    });
+
+    it('[FR-GIT-210] rejects a base ref that cannot be resolved', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+
+      await expect(getBranchFiles(repoDir, 'no-such-ref')).rejects.toThrow();
+    });
+
+    it('[FR-GIT-210] falls back to a base-tip diff for unrelated histories', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'trunk.txt', 'trunk');
+      const git = simpleGit(repoDir);
+      const trunk = (await git.status()).current!;
+      // An orphan branch shares no ancestor with trunk, so there is no merge base.
+      await git.raw(['checkout', '--orphan', 'orphan']);
+      await git.raw(['rm', '-rf', '--cached', '.']);
+      await rm(join(repoDir, 'trunk.txt'), { force: true });
+      await commitFile(repoDir, 'orphan.txt', 'orphan');
+
+      const { files, mergeBase } = await getBranchFiles(repoDir, trunk);
+
+      expect(mergeBase).toBe(trunk);
+      expect(files.map((f) => f.path).sort()).toEqual(['orphan.txt', 'trunk.txt']);
     });
   });
 

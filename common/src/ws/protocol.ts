@@ -197,6 +197,32 @@ export interface GitBranchFilesResponseMessage {
     | {
         requestId: string;
         files: Array<{ path: string; status: GitFileStatus; oldPath?: string }>;
+        // Commit the diff was actually taken against — the merge base of `base`
+        // and HEAD. Callers read file contents at this ref so the viewer and the
+        // file list agree on what "before" means.
+        mergeBase: string;
+      }
+    | {
+        requestId: string;
+        error: string;
+      };
+}
+
+export interface GitDefaultBaseRequestMessage {
+  type: 'GIT_DEFAULT_BASE_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    coderWorkspace?: string;
+  };
+}
+
+export interface GitDefaultBaseResponseMessage {
+  type: 'GIT_DEFAULT_BASE_RESPONSE';
+  payload:
+    | {
+        requestId: string;
+        base: string;
       }
     | {
         requestId: string;
@@ -714,6 +740,8 @@ export type WsMessage =
   | GitShowResponseMessage
   | GitBranchFilesRequestMessage
   | GitBranchFilesResponseMessage
+  | GitDefaultBaseRequestMessage
+  | GitDefaultBaseResponseMessage
   | GitWorktreeListRequestMessage
   | GitWorktreeListResponseMessage
   | DirListRequestMessage
@@ -774,6 +802,7 @@ export type ClientToServerMessage =
   | GitLogResponseMessage
   | GitShowResponseMessage
   | GitBranchFilesResponseMessage
+  | GitDefaultBaseResponseMessage
   | GitWorktreeListResponseMessage
   | DirListResponseMessage
   | FileReadResponseMessage
@@ -811,6 +840,7 @@ export type ServerToClientMessage =
   | GitLogRequestMessage
   | GitShowRequestMessage
   | GitBranchFilesRequestMessage
+  | GitDefaultBaseRequestMessage
   | GitWorktreeListRequestMessage
   | DirListRequestMessage
   | FileReadRequestMessage

@@ -5,8 +5,6 @@ export interface ChangedFile {
   status: GitFileStatus;
   staged: boolean;
   oldPath?: string;
-  additions?: number;
-  deletions?: number;
 }
 
 export type ViewMode = 'split' | 'unified';

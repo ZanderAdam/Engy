@@ -182,6 +182,82 @@ async function getGitRoot(dir: string, runGit: GitRunner): Promise<string> {
   }
 }
 
+// Probed in order when `refs/remotes/origin/HEAD` is absent, which is the common
+// case: git only writes that ref at clone time, so repos created with `git init`
+// or migrated between remotes never have it.
+const DEFAULT_BASE_CANDIDATES = [
+  'origin/main',
+  'origin/master',
+  'origin/develop',
+  'main',
+  'master',
+];
+
+async function refExists(dir: string, ref: string, runGit: GitRunner): Promise<boolean> {
+  try {
+    await runGit(['-C', dir, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function resolveDefaultBase(
+  dir: string,
+  runGit: GitRunner = localGitRunner,
+): Promise<string> {
+  try {
+    const { stdout } = await runGit([
+      '-C',
+      dir,
+      'symbolic-ref',
+      '--short',
+      'refs/remotes/origin/HEAD',
+    ]);
+    // Validate before trusting it: origin/HEAD survives the remote's default
+    // branch being renamed or deleted, and a dead ref here would pre-fill the
+    // UI with a base that cannot be diffed.
+    const recorded = stdout.trim();
+    if (recorded && (await refExists(dir, recorded, runGit))) return recorded;
+  } catch {
+    // Not set — fall through to probing.
+  }
+
+  for (const candidate of DEFAULT_BASE_CANDIDATES) {
+    if (await refExists(dir, candidate, runGit)) return candidate;
+  }
+
+  try {
+    const { stdout } = await runGit(['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD']);
+    return stdout.trim() || 'HEAD';
+  } catch {
+    return 'HEAD';
+  }
+}
+
+// `git diff <base>` compares base's *tip* to the working tree, so every commit
+// landed on base since the branch forked shows up as an inverted change. Diffing
+// against the merge base instead yields only what this branch did — while still
+// including uncommitted work, which `<base>...HEAD` would drop.
+async function resolveMergeBase(
+  dir: string,
+  base: string,
+  runGit: GitRunner,
+): Promise<string> {
+  try {
+    const { stdout } = await runGit(['-C', dir, 'merge-base', base, 'HEAD']);
+    const sha = stdout.trim();
+    if (sha) return sha;
+  } catch {
+    // `merge-base` fails both for a base that does not resolve and for one that
+    // resolves but shares no ancestor with HEAD. Returning `base` covers both:
+    // an unresolvable ref makes the diff below throw (surfaced as a bad-ref
+    // error), while unrelated histories fall back to a plain base-tip diff,
+    // which is the only computable answer when there is no fork point.
+  }
+  return base;
+}
+
 export async function getDiff(
   dir: string,
   filePath: string,
@@ -291,9 +367,14 @@ export async function getBranchFiles(
   dir: string,
   base: string,
   runGit: GitRunner = localGitRunner,
-): Promise<Array<{ path: string; status: GitFileStatus }>> {
-  const { stdout } = await runGit(['-C', dir, 'diff', '--name-status', base]);
-  return parseNameStatusOutput(stdout);
+): Promise<{
+  files: Array<{ path: string; status: GitFileStatus; oldPath?: string }>;
+  mergeBase: string;
+}> {
+  const mergeBase = await resolveMergeBase(dir, base, runGit);
+  // `-M` matches getShow, so branch diffs report renames rather than add+delete pairs.
+  const { stdout } = await runGit(['-C', dir, 'diff', '--name-status', '-M', mergeBase]);
+  return { files: parseNameStatusOutput(stdout), mergeBase };
 }
 
 export function parseWorktreeList(output: string): GitWorktreeEntry[] {

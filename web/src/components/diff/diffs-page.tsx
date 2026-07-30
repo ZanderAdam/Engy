@@ -21,6 +21,7 @@ import { GithubCommentTriage } from './github-comment-triage';
 import { useDiffComments, extractFilePathFromDocPath } from './use-diff-comments';
 import { resolveFileReadError } from './diff-content-state';
 import { useAutoSave } from './use-auto-save';
+import { useViewedFiles } from './use-viewed-files';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { RiGitBranchLine } from '@remixicon/react';
 import { useOnServerEvent } from '@/contexts/events-context';
@@ -59,7 +60,8 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   const [diffViewMode, setDiffViewMode] = useState<DiffViewMode>('latest');
   const [editorMode, setEditorMode] = useState<EditorMode>('diff');
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
-  const [baseBranch, setBaseBranch] = useState('origin/main');
+  // null = follow the repo's detected default branch; a string is an explicit override.
+  const [userBaseBranch, setUserBaseBranch] = useState<string | null>(null);
   const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(null);
   const [userSelectedWorktree, setUserSelectedWorktree] = useState<WorktreeSelection>(null);
 
@@ -130,6 +132,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     tabs.reset();
     setSelectedCommit(null);
     setUserSelectedWorktree(null);
+    setUserBaseBranch(null);
   };
 
   const handleDiffViewModeChange = (mode: DiffViewMode) => {
@@ -179,6 +182,23 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     { enabled: !!selectedRepo && !!selectedCommit && diffViewMode === 'history' },
   );
 
+  // Default base branch, detected per repo by the daemon (origin/HEAD, then
+  // well-known names). The text input overrides it.
+  const {
+    data: defaultBaseData,
+    isLoading: isDefaultBaseLoading,
+    error: defaultBaseError,
+  } = trpc.diff.getDefaultBase.useQuery(
+    {
+      repoDir: selectedRepo!,
+      worktreePath: selectedWorktree?.worktreePath,
+      coderWorkspace: selectedWorktree?.coderWorkspace,
+    },
+    { enabled: !!selectedRepo && diffViewMode === 'branch', retry: false },
+  );
+
+  const baseBranch = userBaseBranch ?? defaultBaseData?.base ?? '';
+
   // Branch diff data (for file list)
   const {
     data: branchDiffData,
@@ -194,13 +214,15 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     { enabled: !!selectedRepo && diffViewMode === 'branch' && baseBranch.length > 0, retry: false },
   );
 
-  // Resolve the original ref based on view mode
+  // Resolve the original ref based on view mode. Branch mode reads content at the
+  // merge base the file list was computed from, so the viewer and the list agree
+  // on "before" even after the base branch has moved on.
   const originalRef = useMemo(() => {
     if (diffViewMode === 'latest') return 'HEAD';
     if (diffViewMode === 'history' && selectedCommit) return `${selectedCommit}~1`;
-    if (diffViewMode === 'branch') return baseBranch;
+    if (diffViewMode === 'branch') return branchDiffData?.mergeBase ?? baseBranch;
     return undefined;
-  }, [diffViewMode, selectedCommit, baseBranch]);
+  }, [diffViewMode, selectedCommit, baseBranch, branchDiffData]);
 
   // Resolve the modified ref (undefined = working tree)
   const modifiedRef = useMemo(() => {
@@ -270,6 +292,21 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   const selectedFileData = useMemo(
     () => files.find((f) => f.path === selectedFile),
     [files, selectedFile],
+  );
+
+  // Review progress is per checkout + what is being diffed, so switching
+  // branches, worktrees or commits doesn't inherit another review's ticked
+  // files. The branch scope keys off the base branch name rather than the merge
+  // base, which would change as soon as the base advances.
+  const viewedScope = useMemo(() => {
+    if (diffViewMode === 'branch') return baseBranch;
+    if (diffViewMode === 'history') return selectedCommit;
+    return 'latest';
+  }, [diffViewMode, baseBranch, selectedCommit]);
+
+  const { viewedPaths, toggleViewed } = useViewedFiles(
+    selectedWorktree?.worktreePath ?? selectedRepo,
+    viewedScope,
   );
 
   const kind = selectedFile ? fileKind(selectedFile) : null;
@@ -371,7 +408,9 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   const isFileListLoading =
     (diffViewMode === 'latest' && isStatusLoading) ||
     (diffViewMode === 'history' && isLogLoading) ||
-    (diffViewMode === 'branch' && isBranchLoading);
+    // Detecting the default base blocks the branch diff, so count it as loading
+    // rather than letting the panel claim there are no changes.
+    (diffViewMode === 'branch' && (isBranchLoading || isDefaultBaseLoading));
 
   // Filter comments to current diff files + build per-file unresolved counts
   const { currentFileComments, fileCommentCounts } = useMemo(() => {
@@ -445,13 +484,27 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
           <input
             type="text"
             value={baseBranch}
-            onChange={(e) => setBaseBranch(e.target.value)}
+            onChange={(e) => setUserBaseBranch(e.target.value)}
             className="h-6 border border-border bg-transparent px-2 text-xs text-foreground focus:outline-none focus:border-ring"
-            placeholder="origin/main"
+            placeholder={defaultBaseData?.base ?? 'origin/main'}
           />
+          {userBaseBranch !== null && defaultBaseData && userBaseBranch !== defaultBaseData.base && (
+            <button
+              type="button"
+              onClick={() => setUserBaseBranch(null)}
+              className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+            >
+              reset to {defaultBaseData.base}
+            </button>
+          )}
           {branchError && (
             <span className="text-xs text-destructive">
               {branchError.message.replace(/^.*Invalid base ref/, 'Invalid ref')}
+            </span>
+          )}
+          {defaultBaseError && !userBaseBranch && (
+            <span className="text-xs text-destructive">
+              Could not detect the default branch — enter a base ref above.
             </span>
           )}
         </div>
@@ -501,6 +554,8 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                       onRefresh={() => refetchCommitDiff()}
                       isLoading={isCommitDiffLoading}
                       commentCounts={fileCommentCounts}
+                      viewedPaths={viewedPaths}
+                      onToggleViewed={toggleViewed}
                     />
                   )}
                 </div>
@@ -516,6 +571,8 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
               }}
               isLoading={isFileListLoading}
               commentCounts={fileCommentCounts}
+              viewedPaths={viewedPaths}
+              onToggleViewed={toggleViewed}
             />
           )
         }

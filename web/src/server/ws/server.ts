@@ -19,6 +19,7 @@ import type {
   GitLogResult,
   GitShowResult,
   GitBranchFilesResult,
+  GitDefaultBaseResult,
   GitWorktreeListResult,
   ContainerUpResult,
   ExecutionStartResult,
@@ -96,6 +97,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingGitLog,
     state.pendingGitShow,
     state.pendingGitBranchFiles,
+    state.pendingGitDefaultBase,
     state.pendingContainerUp,
     state.pendingContainerDown,
     state.pendingContainerStatus,
@@ -163,6 +165,12 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'GIT_BRANCH_FILES_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGitBranchFiles, (p) => ({
         files: p.files,
+        mergeBase: p.mergeBase,
+      }));
+      break;
+    case 'GIT_DEFAULT_BASE_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGitDefaultBase, (p) => ({
+        base: p.base,
       }));
       break;
     case 'GIT_WORKTREE_LIST_RESPONSE':
@@ -957,6 +965,17 @@ export function dispatchGitBranchFiles(
   return dispatchDaemonOp(state, state.pendingGitBranchFiles, 'GIT_BRANCH_FILES_REQUEST', {
     repoDir,
     base,
+    coderWorkspace,
+  });
+}
+
+export function dispatchGitDefaultBase(
+  repoDir: string,
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<GitDefaultBaseResult> {
+  return dispatchDaemonOp(state, state.pendingGitDefaultBase, 'GIT_DEFAULT_BASE_REQUEST', {
+    repoDir,
     coderWorkspace,
   });
 }

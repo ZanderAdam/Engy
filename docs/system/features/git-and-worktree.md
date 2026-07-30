@@ -14,8 +14,8 @@ local.
 Two tRPC routers handle this area:
 
 - `web/src/server/trpc/routers/diff.ts` — read-only git introspection
-  (`getStatus`, `getLog`, `getCommitDiff`, `getBranchDiff`) and the
-  `getWorktrees` query for listing git worktrees by repo.
+  (`getStatus`, `getLog`, `getCommitDiff`, `getBranchDiff`, `getDefaultBase`)
+  and the `getWorktrees` query for listing git worktrees by repo.
 - `web/src/server/trpc/routers/worktree.ts` — worktree lifecycle mutations
   (`listGrouped`, `create`, `sync`, `remove`).
 
@@ -23,7 +23,8 @@ The client-side implementation lives in `client/src/git/index.ts`, which
 executes `git` via `execFile` and parses `--porcelain` output directly. All
 dispatcher functions in `web/src/server/ws/server.ts`
 (`dispatchGitStatus`, `dispatchGitLog`, `dispatchGitShow`,
-`dispatchGitBranchFiles`, `dispatchGitWorktreeList`) follow the pending-map
+`dispatchGitBranchFiles`, `dispatchGitDefaultBase`, `dispatchGitWorktreeList`)
+follow the pending-map
 request/response pattern with a 15-second timeout (`GIT_TIMEOUT_MS = 15_000`).
 `dispatchWorktreeAdd` and `dispatchWorktreeRemove` use a 60-second timeout
 (`WORKTREE_MERGE_TIMEOUT_MS = 60_000`) to accommodate branch creation and merge
@@ -44,6 +45,39 @@ worktree.
 <hash>^1`) before constructing the ref arguments: root commits use `--root
 <hash>`; ordinary commits use `<hash>^1 <hash>`. Merge commits diff against
 their first parent only, matching GitHub's behaviour.
+
+## Branch diff strategy
+
+`getBranchFiles` diffs against the **merge base** of the supplied base ref and
+`HEAD`, not the base ref itself. A plain `git diff <base>` compares the base
+branch's current tip to the working tree, so every commit the base gained after
+the branch forked is reported as an inverted change — a fully merged branch can
+show hundreds of phantom deletions. Resolving `git merge-base <base> HEAD` first
+restricts the result to what the branch itself changed, while still including
+uncommitted work (which the three-dot `<base>...HEAD` form would drop).
+
+`git merge-base` fails in two distinct cases and both fall back to the raw base
+ref. A ref that does not resolve makes the subsequent `git diff` throw, which
+surfaces as a bad-ref error. A ref that resolves but shares no ancestor with
+`HEAD` (unrelated histories) degrades to a plain base-tip diff — there is no
+fork point to diff from, so that is the only computable answer, and the result
+may include base-side changes as inverted entries.
+
+The resolved merge base is returned alongside the file list so callers can read
+"before" file contents at the same commit the list was computed from — the diff
+viewer and the file list would otherwise disagree once the base advanced.
+`-M` is passed for parity with `getShow`, so branch diffs report renames rather
+than add/delete pairs.
+
+## Default base detection
+
+`resolveDefaultBase` determines a repo's default branch without network access,
+in order: the recorded `refs/remotes/origin/HEAD` symbolic ref; then probing
+`origin/main`, `origin/master`, `origin/develop`, `main`, `master`; then the
+current branch. The probe step matters because git only writes `origin/HEAD` at
+clone time, so repos created with `git init` or migrated between remotes never
+have it. `git remote show origin` is deliberately not used — it requires network
+round-trips and credentials.
 
 ## Porcelain status parsing
 
@@ -122,6 +156,9 @@ FR id in their title string, e.g. `it('[FR-GIT-010] ...', ...)`, and run
 | FR-GIT-160 | WHEN `globTestFiles` is called on a git repository, the system SHALL use `git ls-files --cached --others --exclude-standard` to enumerate matching files, returning absolute paths for both tracked and untracked non-ignored files. |
 | FR-GIT-170 | WHEN `globTestFiles` is called on a non-git directory, the system SHALL fall back to recursive `readdir` up to depth 10, skipping `.git`, `node_modules`, `dist`, `build`, `.next`, `__pycache__`, and dot-prefixed directories. |
 | FR-GIT-180 | WHEN `worktree.remove` is called, the system SHALL resolve each repo's target by matching the branch against `git worktree list` and dispatch `WORKTREE_REMOVE_REQUEST` with that worktree's actual path; IF no non-main worktree matches the branch, the system SHALL return `success: false` with `code: 'OTHER'` without dispatching a remove WHEN `force` is false, and `success: true` WHEN `force` is true (the worktree is already gone). |
+| FR-GIT-190 | WHEN `resolveDefaultBase` is called, the system SHALL return the branch named by `refs/remotes/origin/HEAD` if that symbolic ref is set AND still resolves to a commit; OTHERWISE it SHALL return the first resolvable ref among `origin/main`, `origin/master`, `origin/develop`, `main`, `master`; OTHERWISE it SHALL return the current branch name. |
+| FR-GIT-200 | WHEN `getBranchFiles` is called with a base ref, the system SHALL diff the working tree against the merge base of that ref and `HEAD` — excluding commits the base gained after the fork point while still including uncommitted changes — and SHALL return that merge base alongside the file list. |
+| FR-GIT-210 | IF no merge base exists between the supplied base ref and `HEAD`, THEN `getBranchFiles` SHALL diff against the base ref directly; IF that ref does not resolve, THEN the diff SHALL fail rather than return an empty file list. |
 
 ## Sources
 

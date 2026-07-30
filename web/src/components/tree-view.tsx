@@ -47,6 +47,12 @@ type TreeProps = React.HTMLAttributes<HTMLDivElement> & {
     initialSelectedItemId?: string
     onSelectChange?: (item: TreeDataItem | undefined) => void
     expandAll?: boolean
+    /**
+     * Ids of the currently expanded nodes. Supply with `onExpandedChange` to
+     * drive expansion from the parent; omit to let the tree manage its own.
+     */
+    expandedIds?: Set<string>
+    onExpandedChange?: (ids: Set<string>) => void
     defaultNodeIcon?: React.ComponentType<{ className?: string }>
     defaultLeafIcon?: React.ComponentType<{ className?: string }>
     onDocumentDrag?: (sourceItem: TreeDataItem, targetItem: TreeDataItem) => void
@@ -60,6 +66,8 @@ const TreeView = React.forwardRef<HTMLDivElement, TreeProps>(
             initialSelectedItemId,
             onSelectChange,
             expandAll,
+            expandedIds,
+            onExpandedChange,
             defaultLeafIcon,
             defaultNodeIcon,
             className,
@@ -126,6 +134,30 @@ const TreeView = React.forwardRef<HTMLDivElement, TreeProps>(
             return ids
         }, [data, expandAll, initialSelectedItemId])
 
+        // Expansion lives here rather than in each TreeNode so that a node's
+        // open/closed state is independent of its ancestors' and survives the
+        // remounts caused by filtering or refetching the underlying data.
+        const [uncontrolledExpandedIds, setUncontrolledExpandedIds] = React.useState<
+            Set<string>
+        >(() => new Set(expandedItemIds))
+
+        const isControlled = expandedIds !== undefined
+        const resolvedExpandedIds = isControlled ? expandedIds : uncontrolledExpandedIds
+
+        const handleToggleExpand = React.useCallback(
+            (id: string) => {
+                const next = new Set(resolvedExpandedIds)
+                if (next.has(id)) {
+                    next.delete(id)
+                } else {
+                    next.add(id)
+                }
+                if (!isControlled) setUncontrolledExpandedIds(next)
+                onExpandedChange?.(next)
+            },
+            [resolvedExpandedIds, isControlled, onExpandedChange]
+        )
+
         return (
             <div className={cn('overflow-hidden relative p-2', className)}>
                 <TreeItem
@@ -133,7 +165,8 @@ const TreeView = React.forwardRef<HTMLDivElement, TreeProps>(
                     ref={ref}
                     selectedItemId={selectedItemId}
                     handleSelectChange={handleSelectChange}
-                    expandedItemIds={expandedItemIds}
+                    expandedIds={resolvedExpandedIds}
+                    onToggleExpand={handleToggleExpand}
                     defaultLeafIcon={defaultLeafIcon}
                     defaultNodeIcon={defaultNodeIcon}
                     handleDragStart={handleDragStart}
@@ -158,7 +191,8 @@ type TreeItemProps = React.HTMLAttributes<HTMLDivElement> & {
     renderItem?: (params: TreeRenderItemParams) => React.ReactNode
     selectedItemId?: string
     handleSelectChange: (item: TreeDataItem | undefined) => void
-    expandedItemIds: string[]
+    expandedIds: Set<string>
+    onToggleExpand: (id: string) => void
     defaultNodeIcon?: React.ComponentType<{ className?: string }>
     defaultLeafIcon?: React.ComponentType<{ className?: string }>
     handleDragStart?: (item: TreeDataItem) => void
@@ -174,7 +208,8 @@ const TreeItem = React.forwardRef<HTMLDivElement, TreeItemProps>(
             data,
             selectedItemId,
             handleSelectChange,
-            expandedItemIds,
+            expandedIds,
+            onToggleExpand,
             defaultNodeIcon,
             defaultLeafIcon,
             handleDragStart,
@@ -199,7 +234,8 @@ const TreeItem = React.forwardRef<HTMLDivElement, TreeItemProps>(
                                     item={item}
                                     level={level ?? 0}
                                     selectedItemId={selectedItemId}
-                                    expandedItemIds={expandedItemIds}
+                                    expandedIds={expandedIds}
+                                    onToggleExpand={onToggleExpand}
                                     handleSelectChange={handleSelectChange}
                                     defaultNodeIcon={defaultNodeIcon}
                                     defaultLeafIcon={defaultLeafIcon}
@@ -233,7 +269,8 @@ TreeItem.displayName = 'TreeItem'
 const TreeNode = ({
     item,
     handleSelectChange,
-    expandedItemIds,
+    expandedIds,
+    onToggleExpand,
     selectedItemId,
     defaultNodeIcon,
     defaultLeafIcon,
@@ -245,7 +282,8 @@ const TreeNode = ({
 }: {
     item: TreeDataItem
     handleSelectChange: (item: TreeDataItem | undefined) => void
-    expandedItemIds: string[]
+    expandedIds: Set<string>
+    onToggleExpand: (id: string) => void
     selectedItemId?: string
     defaultNodeIcon?: React.ComponentType<{ className?: string }>
     defaultLeafIcon?: React.ComponentType<{ className?: string }>
@@ -255,13 +293,10 @@ const TreeNode = ({
     renderItem?: (params: TreeRenderItemParams) => React.ReactNode
     level?: number
 }) => {
-    const [value, setValue] = React.useState(
-        expandedItemIds.includes(item.id) ? [item.id] : []
-    )
     const [isDragOver, setIsDragOver] = React.useState(false)
     const hasChildren = !!item.children?.length
     const isSelected = selectedItemId === item.id
-    const isOpen = value.includes(item.id)
+    const isOpen = expandedIds.has(item.id)
 
     const onDragStart = (e: React.DragEvent) => {
         if (!item.draggable) {
@@ -332,8 +367,8 @@ const TreeNode = ({
     return (
         <AccordionPrimitive.Root
             type="multiple"
-            value={value}
-            onValueChange={(s) => setValue(s)}
+            value={isOpen ? [item.id] : []}
+            onValueChange={() => onToggleExpand(item.id)}
         >
             <AccordionPrimitive.Item value={item.id}>
                 {item.actions ? (
@@ -368,7 +403,8 @@ const TreeNode = ({
                         data={item.children ? item.children : item}
                         selectedItemId={selectedItemId}
                         handleSelectChange={handleSelectChange}
-                        expandedItemIds={expandedItemIds}
+                        expandedIds={expandedIds}
+                        onToggleExpand={onToggleExpand}
                         defaultLeafIcon={defaultLeafIcon}
                         defaultNodeIcon={defaultNodeIcon}
                         handleDragStart={handleDragStart}
