@@ -372,6 +372,67 @@ describe('git integration', () => {
       expect(files).toEqual([{ path: 'uncommitted.txt', status: 'added' }]);
     });
 
+    it('[FR-GIT-220] includes untracked files that git is not ignoring', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await writeFile(join(repoDir, 'brand-new.txt'), 'never added to the index');
+
+      const { files } = await getBranchFiles(repoDir, mainBranch);
+
+      expect(files).toEqual([{ path: 'brand-new.txt', status: 'added' }]);
+    });
+
+    it('[FR-GIT-220] excludes gitignored files', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, '.gitignore', 'node_modules/\n*.log\n');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await mkdir(join(repoDir, 'node_modules'), { recursive: true });
+      await writeFile(join(repoDir, 'node_modules/dep.js'), 'noise');
+      await writeFile(join(repoDir, 'debug.log'), 'noise');
+      await writeFile(join(repoDir, 'real-work.ts'), 'signal');
+
+      const { files } = await getBranchFiles(repoDir, mainBranch);
+
+      expect(files).toEqual([{ path: 'real-work.ts', status: 'added' }]);
+    });
+
+    it('[FR-GIT-220] lists modified and untracked files side by side', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'tracked.txt', 'original');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await writeFile(join(repoDir, 'tracked.txt'), 'edited');
+      await writeFile(join(repoDir, 'untracked.txt'), 'new');
+
+      const { files } = await getBranchFiles(repoDir, mainBranch);
+
+      expect(files).toEqual([
+        { path: 'tracked.txt', status: 'modified' },
+        { path: 'untracked.txt', status: 'added' },
+      ]);
+    });
+
+    it('[FR-GIT-220] emits one entry when a path is both diffed and untracked', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'dropped.txt', 'still on disk');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      // `rm --cached` un-tracks the file but leaves it on disk, so `git diff`
+      // reports it deleted while `ls-files --others` reports it untracked.
+      await git.raw(['rm', '--cached', 'dropped.txt']);
+
+      const { files } = await getBranchFiles(repoDir, mainBranch);
+
+      expect(files).toEqual([{ path: 'dropped.txt', status: 'deleted' }]);
+    });
+
     it('[FR-GIT-200] reports renames rather than an add/delete pair', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'original.txt', 'a stable body of text to match on\n');

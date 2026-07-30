@@ -69,6 +69,16 @@ viewer and the file list would otherwise disagree once the base advanced.
 `-M` is passed for parity with `getShow`, so branch diffs report renames rather
 than add/delete pairs.
 
+`git diff` only reports tracked paths, so a second pass adds untracked files via
+`git ls-files --others --exclude-standard --full-name -z`, marked `added`. This
+matches `Latest Changes` (which lists them through porcelain status) and keeps
+brand-new files visible in a branch review. `--exclude-standard` applies the
+repository's ignore rules, so build output and dependency directories stay out;
+`--full-name` yields repo-root-relative paths matching the diff output. The two
+lists overlap after `git rm --cached`, which un-tracks a file but leaves it on
+disk: the diff calls it deleted while `ls-files --others` calls it untracked. The
+diff's entry wins, since losing tracking is the change relative to the base.
+
 ## Default base detection
 
 `resolveDefaultBase` determines a repo's default branch without network access,
@@ -159,6 +169,7 @@ FR id in their title string, e.g. `it('[FR-GIT-010] ...', ...)`, and run
 | FR-GIT-190 | WHEN `resolveDefaultBase` is called, the system SHALL return the branch named by `refs/remotes/origin/HEAD` if that symbolic ref is set AND still resolves to a commit; OTHERWISE it SHALL return the first resolvable ref among `origin/main`, `origin/master`, `origin/develop`, `main`, `master`; OTHERWISE it SHALL return the current branch name. |
 | FR-GIT-200 | WHEN `getBranchFiles` is called with a base ref, the system SHALL diff the working tree against the merge base of that ref and `HEAD` — excluding commits the base gained after the fork point while still including uncommitted changes — and SHALL return that merge base alongside the file list. |
 | FR-GIT-210 | IF no merge base exists between the supplied base ref and `HEAD`, THEN `getBranchFiles` SHALL diff against the base ref directly; IF that ref does not resolve, THEN the diff SHALL fail rather than return an empty file list. |
+| FR-GIT-220 | WHEN `getBranchFiles` is called, the system SHALL additionally report untracked files as `added`, excluding any path matched by the repository's ignore rules; IF a path is reported by both the diff and the untracked listing, THEN the system SHALL emit only the diff's entry. |
 
 ## Sources
 

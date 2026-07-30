@@ -363,6 +363,27 @@ export async function getShow(
   return { files: parseNameStatusOutput(stdout) };
 }
 
+/**
+ * Untracked files that git is not ignoring. `git diff` only ever reports
+ * tracked paths, so without this a brand-new file is invisible in a branch
+ * diff even though `Latest Changes` (porcelain status) lists it.
+ * `--exclude-standard` applies .gitignore/.git/info/exclude, keeping build
+ * output and node_modules out; `--full-name` makes the paths repo-root
+ * relative so they line up with the diff output.
+ */
+async function getUntrackedFiles(dir: string, runGit: GitRunner): Promise<string[]> {
+  const { stdout } = await runGit([
+    '-C',
+    dir,
+    'ls-files',
+    '--others',
+    '--exclude-standard',
+    '--full-name',
+    '-z',
+  ]);
+  return stdout.split('\0').filter(Boolean);
+}
+
 export async function getBranchFiles(
   dir: string,
   base: string,
@@ -373,8 +394,21 @@ export async function getBranchFiles(
 }> {
   const mergeBase = await resolveMergeBase(dir, base, runGit);
   // `-M` matches getShow, so branch diffs report renames rather than add+delete pairs.
-  const { stdout } = await runGit(['-C', dir, 'diff', '--name-status', '-M', mergeBase]);
-  return { files: parseNameStatusOutput(stdout), mergeBase };
+  const [{ stdout }, untracked] = await Promise.all([
+    runGit(['-C', dir, 'diff', '--name-status', '-M', mergeBase]),
+    getUntrackedFiles(dir, runGit),
+  ]);
+
+  const files = parseNameStatusOutput(stdout);
+  // A path can appear in both lists after `git rm --cached`: the diff reports it
+  // deleted while it survives on disk as untracked. The diff entry wins — losing
+  // tracking is the change relative to the base — so it is not re-added here.
+  const seen = new Set(files.map((f) => f.path));
+  for (const path of untracked) {
+    if (!seen.has(path)) files.push({ path, status: 'added' });
+  }
+
+  return { files, mergeBase };
 }
 
 export function parseWorktreeList(output: string): GitWorktreeEntry[] {
