@@ -8,7 +8,7 @@ This directory holds the workspace's living system documentation. Start with `ov
 
 **Sections**
 
-- [features](features/) — Major feature areas of the workspace (15 docs)
+- [features](features/) — Major feature areas of the workspace (16 docs)
 
 **Docs**
 
