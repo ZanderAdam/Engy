@@ -335,7 +335,7 @@ function FleetingDetail({
       </div>
 
       {/* Content */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div className="px-4 py-3">
           <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">
             {fleeting.content}
