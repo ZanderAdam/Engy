@@ -45,7 +45,7 @@ export function SpecTasks({ specSlug: specId }: SpecTasksProps) {
           New Task
         </Button>
       </div>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div className="flex flex-col gap-1 p-2">
           {tasks?.length === 0 && (
             <p className="text-xs text-muted-foreground py-6 text-center">
