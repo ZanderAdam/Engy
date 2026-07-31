@@ -1,5 +1,6 @@
 'use client';
 
+import { RiCheckboxLine, RiCheckboxBlankLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { GitFileStatus, ViewMode, EditorMode, DiffViewMode } from './types';
@@ -29,6 +30,8 @@ export function DiffHeader({
   diffViewMode,
   saveStatus,
   hideViewModeToggle,
+  isViewed,
+  onToggleViewed,
 }: {
   filePath: string;
   status: GitFileStatus;
@@ -39,6 +42,8 @@ export function DiffHeader({
   diffViewMode?: DiffViewMode;
   saveStatus?: SaveStatus;
   hideViewModeToggle?: boolean;
+  isViewed?: boolean;
+  onToggleViewed?: () => void;
 }) {
   const { letter, className } = statusConfig[status];
   const showEditToggle = diffViewMode === 'latest' && onEditorModeChange;
@@ -58,6 +63,23 @@ export function DiffHeader({
       <span className="truncate font-mono text-xs text-foreground">{filePath}</span>
 
       <div className="ml-auto flex items-center gap-2">
+        {onToggleViewed && (
+          <Button
+            variant="ghost"
+            size="xs"
+            aria-pressed={!!isViewed}
+            onClick={onToggleViewed}
+            className={cn('gap-1.5', isViewed && 'text-primary')}
+          >
+            {isViewed ? (
+              <RiCheckboxLine className="size-3.5" />
+            ) : (
+              <RiCheckboxBlankLine className="size-3.5" />
+            )}
+            Viewed
+          </Button>
+        )}
+
         {saveLabel && (
           <span
             className={cn(

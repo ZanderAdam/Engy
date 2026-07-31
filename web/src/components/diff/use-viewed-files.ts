@@ -80,6 +80,28 @@ export function resolveViewedPaths(
   return viewed;
 }
 
+/**
+ * Records or clears marks for a set of paths, stamping each with the content it
+ * currently holds. Files with no id (deleted, directories) record an empty id,
+ * which `resolveViewedPaths` treats as "still absent".
+ */
+export function applyViewed(
+  scope: ViewedScope,
+  paths: string[],
+  viewed: boolean,
+  contentIds: Map<string, string | undefined>,
+): ViewedScope {
+  const next = { ...scope };
+  for (const path of paths) {
+    if (viewed) {
+      next[path] = contentIds.get(path) ?? '';
+    } else {
+      delete next[path];
+    }
+  }
+  return next;
+}
+
 function persist(store: ViewedStore): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
@@ -109,17 +131,11 @@ export function useViewedFiles(
     [store, key, contentIds],
   );
 
-  const toggleViewed = useCallback(
-    (path: string) => {
-      if (!key) return;
+  const setViewed = useCallback(
+    (paths: string[], viewed: boolean) => {
+      if (!key || paths.length === 0) return;
       setStore((prev) => {
-        const scope = { ...(prev[key] ?? {}) };
-        if (path in scope) {
-          delete scope[path];
-        } else {
-          scope[path] = contentIds.get(path) ?? '';
-        }
-        const next = writeScope(prev, key, scope);
+        const next = writeScope(prev, key, applyViewed(prev[key] ?? {}, paths, viewed, contentIds));
         persist(next);
         return next;
       });
@@ -127,5 +143,22 @@ export function useViewedFiles(
     [key, contentIds],
   );
 
-  return { viewedPaths, toggleViewed };
+  // Reads the current state inside the updater rather than from the memoized
+  // `viewedPaths`, so the toggle stays a self-contained read-modify-write even
+  // if two calls land in the same React batch.
+  const toggleViewed = useCallback(
+    (path: string) => {
+      if (!key) return;
+      setStore((prev) => {
+        const scope = prev[key] ?? {};
+        const isViewed = resolveViewedPaths(scope, contentIds).has(path);
+        const next = writeScope(prev, key, applyViewed(scope, [path], !isViewed, contentIds));
+        persist(next);
+        return next;
+      });
+    },
+    [key, contentIds],
+  );
+
+  return { viewedPaths, toggleViewed, setViewed };
 }

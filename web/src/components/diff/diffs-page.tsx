@@ -311,7 +311,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     return ids;
   }, [files]);
 
-  const { viewedPaths, toggleViewed } = useViewedFiles(
+  const { viewedPaths, toggleViewed, setViewed } = useViewedFiles(
     {
       workspaceSlug,
       projectSlug,
@@ -577,6 +577,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                       commentCounts={fileCommentCounts}
                       viewedPaths={viewedPaths}
                       onToggleViewed={toggleViewed}
+                      onSetViewed={setViewed}
                     />
                   )}
                 </div>
@@ -594,6 +595,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
               commentCounts={fileCommentCounts}
               viewedPaths={viewedPaths}
               onToggleViewed={toggleViewed}
+              onSetViewed={setViewed}
             />
           )
         }
@@ -627,6 +629,8 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                     diffViewMode={diffViewMode}
                     saveStatus={isTextLike ? saveStatus : undefined}
                     hideViewModeToggle={isMobile || !isTextLike}
+                    isViewed={viewedPaths.has(selectedFile)}
+                    onToggleViewed={() => toggleViewed(selectedFile)}
                   />
                 )}
                 <div className="flex-1 min-h-0">

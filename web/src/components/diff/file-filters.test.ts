@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   EMPTY_FILTER,
+  allViewed,
   countByStatus,
   createPathMatcher,
   filterFiles,
@@ -142,7 +143,11 @@ describe('file filters', () => {
     it('hides viewed files when unviewedOnly is set', () => {
       const viewedPaths = new Set(['client/src/git/index.ts', 'docs/README.md']);
 
-      const { files } = filterFiles(FILES, { ...EMPTY_FILTER, unviewedOnly: true }, { viewedPaths });
+      const { files } = filterFiles(
+        FILES,
+        { ...EMPTY_FILTER, unviewedOnly: true },
+        { viewedPaths },
+      );
 
       expect(files.map((f) => f.path)).not.toContain('client/src/git/index.ts');
       expect(files).toHaveLength(3);
@@ -190,6 +195,24 @@ describe('file filters', () => {
       toggleStatus(original, 'deleted');
 
       expect([...original]).toEqual(['added']);
+    });
+  });
+
+  describe('allViewed', () => {
+    it('is true when every path is marked', () => {
+      expect(allViewed(['a.ts', 'b.ts'], new Set(['a.ts', 'b.ts']))).toBe(true);
+    });
+
+    it('is false when any path is unmarked', () => {
+      expect(allViewed(['a.ts', 'b.ts'], new Set(['a.ts']))).toBe(false);
+    });
+
+    it('is false for an empty list, so the bulk action never inverts on nothing', () => {
+      expect(allViewed([], new Set(['a.ts']))).toBe(false);
+    });
+
+    it('ignores marks for paths outside the supplied list', () => {
+      expect(allViewed(['a.ts'], new Set(['a.ts', 'unrelated.ts']))).toBe(true);
     });
   });
 

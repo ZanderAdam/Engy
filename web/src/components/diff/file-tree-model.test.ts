@@ -73,11 +73,7 @@ describe('file tree model', () => {
       const items = buildFileTree(['web/src/a.ts', 'web/dist/b.ts', 'root.txt']);
 
       expect(collectDirIds(items).sort()).toEqual(
-        [
-          `${DIR_ID_PREFIX}web`,
-          `${DIR_ID_PREFIX}web/dist`,
-          `${DIR_ID_PREFIX}web/src`,
-        ].sort(),
+        [`${DIR_ID_PREFIX}web`, `${DIR_ID_PREFIX}web/dist`, `${DIR_ID_PREFIX}web/src`].sort(),
       );
     });
 

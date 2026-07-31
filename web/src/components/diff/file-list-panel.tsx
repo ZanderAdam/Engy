@@ -9,6 +9,8 @@ import {
   RiContractUpDownLine,
   RiCheckboxLine,
   RiCheckboxBlankLine,
+  RiCheckboxMultipleLine,
+  RiCheckboxMultipleFill,
 } from '@remixicon/react';
 import type { TreeRenderItemParams } from '@/components/tree-view';
 import { Button } from '@/components/ui/button';
@@ -17,7 +19,13 @@ import { cn } from '@/lib/utils';
 import { FileTree } from './file-tree';
 import { DiffFilterBar } from './diff-filter-bar';
 import { buildFileTree, collectDirIds } from './file-tree-model';
-import { EMPTY_FILTER, countByStatus, filterFiles, isFilterActive } from './file-filters';
+import {
+  EMPTY_FILTER,
+  allViewed,
+  countByStatus,
+  filterFiles,
+  isFilterActive,
+} from './file-filters';
 import type { FilterState } from './file-filters';
 import type { ChangedFile, GitFileStatus } from '@/components/diff/types';
 
@@ -30,6 +38,7 @@ interface FileListPanelProps {
   commentCounts?: Map<string, number>;
   viewedPaths?: Set<string>;
   onToggleViewed?: (path: string) => void;
+  onSetViewed?: (paths: string[], viewed: boolean) => void;
 }
 
 const STATUS_COLORS: Record<GitFileStatus, string> = {
@@ -139,6 +148,7 @@ export function FileListPanel({
   commentCounts,
   viewedPaths,
   onToggleViewed,
+  onSetViewed,
 }: FileListPanelProps) {
   const [filter, setFilter] = useState<FilterState>(EMPTY_FILTER);
   // Directories start collapsed and open one level at a time. The set lives here
@@ -200,6 +210,19 @@ export function FileListPanel({
 
   const filtering = isFilterActive(filter);
 
+  // Bulk marking acts on exactly what the filters leave on screen, so narrowing
+  // to a subset and clearing it in one go is the intended workflow.
+  const allVisibleViewed = allViewed(
+    visibleFiles.map((f) => f.path),
+    viewedPaths ?? new Set(),
+  );
+
+  const toggleViewedForVisible = () =>
+    onSetViewed?.(
+      visibleFiles.map((f) => f.path),
+      !allVisibleViewed,
+    );
+
   // The panel is rendered on routes without a surrounding provider (the /open
   // quick-diff view), so it supplies its own; nesting providers is safe.
   return (
@@ -211,6 +234,29 @@ export function FileListPanel({
             {files.length !== 1 ? 's' : ''} changed
           </span>
           <div className="flex items-center gap-0.5">
+            {onSetViewed && visibleFiles.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={toggleViewedForVisible}
+                    className="h-6 w-6 p-0"
+                  >
+                    {allVisibleViewed ? (
+                      <RiCheckboxMultipleFill className="size-3.5 text-primary" />
+                    ) : (
+                      <RiCheckboxMultipleLine className="size-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {`Mark ${visibleFiles.length} shown file${visibleFiles.length === 1 ? '' : 's'} ${
+                    allVisibleViewed ? 'unviewed' : 'viewed'
+                  }`}
+                </TooltipContent>
+              </Tooltip>
+            )}
             {allDirIds.length > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>

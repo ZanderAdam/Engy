@@ -133,6 +133,11 @@ export function toggleStatus(
   return next;
 }
 
+/** True when every supplied path is already marked viewed (false for none). */
+export function allViewed(paths: string[], viewedPaths: Set<string>): boolean {
+  return paths.length > 0 && paths.every((path) => viewedPaths.has(path));
+}
+
 export function isFilterActive(filter: FilterState): boolean {
   return (
     filter.query.length > 0 ||

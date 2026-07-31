@@ -111,4 +111,3 @@ describe('allGithubThreadIds', () => {
     expect(allGithubThreadIds(comments).size).toBe(0);
   });
 });
-

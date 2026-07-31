@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { readStore, resolveViewedPaths, scopeKey, writeScope } from './use-viewed-files';
+import {
+  applyViewed,
+  readStore,
+  resolveViewedPaths,
+  scopeKey,
+  writeScope,
+} from './use-viewed-files';
 
 const SCOPE = {
   workspaceSlug: 'ws',
@@ -88,6 +94,64 @@ describe('viewed file tracking', () => {
       const viewed = resolveViewedPaths({ 'a.ts': 'sha1' }, new Map());
 
       expect([...viewed]).toEqual([]);
+    });
+  });
+
+  describe('applyViewed', () => {
+    const ids = new Map<string, string | undefined>([
+      ['a.ts', 'sha-a'],
+      ['b.ts', 'sha-b'],
+      ['gone.ts', undefined],
+    ]);
+
+    it('marks several paths in one pass, stamping each with its content id', () => {
+      expect(applyViewed({}, ['a.ts', 'b.ts'], true, ids)).toEqual({
+        'a.ts': 'sha-a',
+        'b.ts': 'sha-b',
+      });
+    });
+
+    it('clears several paths in one pass', () => {
+      const scope = { 'a.ts': 'sha-a', 'b.ts': 'sha-b', 'c.ts': 'sha-c' };
+
+      expect(applyViewed(scope, ['a.ts', 'b.ts'], false, ids)).toEqual({ 'c.ts': 'sha-c' });
+    });
+
+    it('records an empty id for a path with no content id', () => {
+      expect(applyViewed({}, ['gone.ts'], true, ids)).toEqual({ 'gone.ts': '' });
+    });
+
+    it('leaves untouched paths alone', () => {
+      const scope = { 'other.ts': 'sha-other' };
+
+      expect(applyViewed(scope, ['a.ts'], true, ids)).toEqual({
+        'other.ts': 'sha-other',
+        'a.ts': 'sha-a',
+      });
+    });
+
+    it('re-stamps an already-marked path with its current id', () => {
+      expect(applyViewed({ 'a.ts': 'stale' }, ['a.ts'], true, ids)).toEqual({ 'a.ts': 'sha-a' });
+    });
+
+    it('is a no-op for an empty path list', () => {
+      const scope = { 'a.ts': 'sha-a' };
+
+      expect(applyViewed(scope, [], true, ids)).toEqual(scope);
+    });
+
+    it('does not mutate the input scope', () => {
+      const scope = { 'a.ts': 'sha-a' };
+
+      applyViewed(scope, ['a.ts'], false, ids);
+
+      expect(scope).toEqual({ 'a.ts': 'sha-a' });
+    });
+
+    it('round-trips with resolveViewedPaths so a bulk mark reads back as viewed', () => {
+      const scope = applyViewed({}, ['a.ts', 'b.ts'], true, ids);
+
+      expect([...resolveViewedPaths(scope, ids)].sort()).toEqual(['a.ts', 'b.ts']);
     });
   });
 
