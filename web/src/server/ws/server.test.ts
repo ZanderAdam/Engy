@@ -9,6 +9,7 @@ import {
   dispatchFileSearch,
   dispatchGlobFiles,
   dispatchGitWorktreeList,
+  dispatchGitFetch,
   dispatchWorktreeAdd,
   dispatchWorktreeRemove,
   dispatchCreateDir,
@@ -19,7 +20,14 @@ import {
   dispatchGhPrReviewComments,
 } from './server';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { agentSessions, tasks, taskGroups, projects, workspaces, fleetingMemories } from '../db/schema';
+import {
+  agentSessions,
+  tasks,
+  taskGroups,
+  projects,
+  workspaces,
+  fleetingMemories,
+} from '../db/schema';
 
 let openClients: WebSocket[] = [];
 
@@ -137,6 +145,71 @@ describe('WebSocket Server', () => {
       await vi.waitFor(() => {
         expect(state.daemon).toBeNull();
       });
+    });
+  });
+
+  describe('GIT_FETCH_RESPONSE', () => {
+    it('[FR-GIT-250] should resolve the pending fetch with the remote that was fetched', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
+
+      const messagePromise = waitForMessage(ws);
+      const fetchPromise = dispatchGitFetch('/repo', 'origin/main', state);
+
+      const request = (await messagePromise) as {
+        type: string;
+        payload: { requestId: string; repoDir: string; base: string };
+      };
+      expect(request.type).toBe('GIT_FETCH_REQUEST');
+      expect(request.payload.repoDir).toBe('/repo');
+      expect(request.payload.base).toBe('origin/main');
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_FETCH_RESPONSE',
+          payload: { requestId: request.payload.requestId, remote: 'origin' },
+        }),
+      );
+
+      await expect(fetchPromise).resolves.toEqual({ remote: 'origin' });
+    });
+
+    it('[FR-GIT-250] should surface a daemon-side fetch failure', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
+
+      const messagePromise = waitForMessage(ws);
+      const fetchPromise = dispatchGitFetch('/repo', 'origin/main', state);
+      const request = (await messagePromise) as { payload: { requestId: string } };
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_FETCH_RESPONSE',
+          payload: { requestId: request.payload.requestId, error: 'could not read from remote' },
+        }),
+      );
+
+      await expect(fetchPromise).rejects.toThrow('could not read from remote');
+    });
+
+    it('[FR-GIT-020] should reject if no daemon is connected', async () => {
+      await expect(dispatchGitFetch('/repo', 'origin/main', state)).rejects.toThrow(
+        'No daemon connected',
+      );
     });
   });
 
@@ -1128,7 +1201,10 @@ describe('Execution event handling', () => {
       const received: Array<{ type: string; payload: Record<string, unknown> }> = [];
       const ws = await connectClient(port);
       ws.on('message', (data) => {
-        const msg = JSON.parse(data.toString()) as { type: string; payload: Record<string, unknown> };
+        const msg = JSON.parse(data.toString()) as {
+          type: string;
+          payload: Record<string, unknown>;
+        };
         received.push(msg);
         // Resolve the merge request so the pending promise completes cleanly
         // (avoids leaking a rejected pending into the next test via rejectAllPending)
@@ -1743,10 +1819,7 @@ describe('CREATE_MEMORIES_EVENT', () => {
         type: 'CREATE_MEMORIES_EVENT',
         payload: {
           sessionId: 'long-session',
-          memories: [
-            { content: 'x'.repeat(10_001) },
-            { content: 'Short and valid' },
-          ],
+          memories: [{ content: 'x'.repeat(10_001) }, { content: 'Short and valid' }],
         },
       }),
     );
@@ -1779,7 +1852,12 @@ describe('CREATE_MEMORIES_EVENT', () => {
 
     ws.send(JSON.stringify({ type: 'CREATE_MEMORIES_EVENT' }));
     ws.send(JSON.stringify({ type: 'CREATE_MEMORIES_EVENT', payload: { sessionId: 123 } }));
-    ws.send(JSON.stringify({ type: 'CREATE_MEMORIES_EVENT', payload: { sessionId: 's', memories: 'bad' } }));
+    ws.send(
+      JSON.stringify({
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: { sessionId: 's', memories: 'bad' },
+      }),
+    );
 
     await new Promise((r) => setTimeout(r, 100));
 

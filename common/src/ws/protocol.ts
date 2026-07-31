@@ -186,12 +186,20 @@ export interface GitShowResponseMessage {
       };
 }
 
+/**
+ * Which side of the branch diff to compare the merge base against: the working
+ * tree (uncommitted edits and untracked files included) or the last commit
+ * (exactly what a pull request shows).
+ */
+export type BranchDiffTarget = 'worktree' | 'head';
+
 export interface GitBranchFilesRequestMessage {
   type: 'GIT_BRANCH_FILES_REQUEST';
   payload: {
     requestId: string;
     repoDir: string;
     base: string;
+    compareTo?: BranchDiffTarget;
     coderWorkspace?: string;
   };
 }
@@ -211,6 +219,31 @@ export interface GitBranchFilesResponseMessage {
         // and HEAD. Callers read file contents at this ref so the viewer and the
         // file list agree on what "before" means.
         mergeBase: string;
+      }
+    | {
+        requestId: string;
+        error: string;
+      };
+}
+
+export interface GitFetchRequestMessage {
+  type: 'GIT_FETCH_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    /** Base ref the remote is derived from, e.g. `origin/main`. */
+    base: string;
+    coderWorkspace?: string;
+  };
+}
+
+export interface GitFetchResponseMessage {
+  type: 'GIT_FETCH_RESPONSE';
+  payload:
+    | {
+        requestId: string;
+        /** Remote actually fetched; absent when the base implied none. */
+        remote?: string;
       }
     | {
         requestId: string;
@@ -296,9 +329,7 @@ export interface FsDeleteRequestMessage {
 
 export interface FsDeleteResponseMessage {
   type: 'FS_DELETE_RESPONSE';
-  payload:
-    | { requestId: string; success: boolean }
-    | { requestId: string; error: string };
+  payload: { requestId: string; success: boolean } | { requestId: string; error: string };
 }
 
 export interface FsRenameRequestMessage {
@@ -313,9 +344,7 @@ export interface FsRenameRequestMessage {
 
 export interface FsRenameResponseMessage {
   type: 'FS_RENAME_RESPONSE';
-  payload:
-    | { requestId: string; success: boolean }
-    | { requestId: string; error: string };
+  payload: { requestId: string; success: boolean } | { requestId: string; error: string };
 }
 
 export interface FileReadRequestMessage {
@@ -331,9 +360,7 @@ export interface FileReadRequestMessage {
 
 export interface FileReadResponseMessage {
   type: 'FILE_READ_RESPONSE';
-  payload:
-    | { requestId: string; content: string }
-    | { requestId: string; error: string };
+  payload: { requestId: string; content: string } | { requestId: string; error: string };
 }
 
 export interface FileReadImageRequestMessage {
@@ -349,9 +376,7 @@ export interface FileReadImageRequestMessage {
 
 export interface FileReadImageResponseMessage {
   type: 'FILE_READ_IMAGE_RESPONSE';
-  payload:
-    | { requestId: string; base64: string }
-    | { requestId: string; error: string };
+  payload: { requestId: string; base64: string } | { requestId: string; error: string };
 }
 
 export interface GlobFilesRequestMessage {
@@ -365,9 +390,7 @@ export interface GlobFilesRequestMessage {
 
 export interface GlobFilesResponseMessage {
   type: 'GLOB_FILES_RESPONSE';
-  payload:
-    | { requestId: string; files: string[] }
-    | { requestId: string; error: string };
+  payload: { requestId: string; files: string[] } | { requestId: string; error: string };
 }
 
 export interface FileWriteRequestMessage {
@@ -383,9 +406,7 @@ export interface FileWriteRequestMessage {
 
 export interface FileWriteResponseMessage {
   type: 'FILE_WRITE_RESPONSE';
-  payload:
-    | { requestId: string; success: boolean }
-    | { requestId: string; error: string };
+  payload: { requestId: string; success: boolean } | { requestId: string; error: string };
 }
 
 // ── Remote file operations (server ↔ daemon) ──────────────────────────────────
@@ -401,9 +422,7 @@ export interface RemoteFilePullRequestMessage {
 
 export interface RemoteFilePullResponseMessage {
   type: 'REMOTE_FILE_PULL_RESPONSE';
-  payload:
-    | { requestId: string; content: string }
-    | { requestId: string; error: string };
+  payload: { requestId: string; content: string } | { requestId: string; error: string };
 }
 
 export interface RemoteFilePushRequestMessage {
@@ -418,9 +437,7 @@ export interface RemoteFilePushRequestMessage {
 
 export interface RemoteFilePushResponseMessage {
   type: 'REMOTE_FILE_PUSH_RESPONSE';
-  payload:
-    | { requestId: string; success: boolean }
-    | { requestId: string; error: string };
+  payload: { requestId: string; success: boolean } | { requestId: string; error: string };
 }
 
 // ── Worktree merge operations (server ↔ daemon) ──────────────────────────────
@@ -507,9 +524,7 @@ export interface ContainerUpRequestMessage {
 
 export interface ContainerUpResponseMessage {
   type: 'CONTAINER_UP_RESPONSE';
-  payload:
-    | { requestId: string; containerId: string }
-    | { requestId: string; error: string };
+  payload: { requestId: string; containerId: string } | { requestId: string; error: string };
 }
 
 export interface ContainerDownRequestMessage {
@@ -522,9 +537,7 @@ export interface ContainerDownRequestMessage {
 
 export interface ContainerDownResponseMessage {
   type: 'CONTAINER_DOWN_RESPONSE';
-  payload:
-    | { requestId: string; success: boolean }
-    | { requestId: string; error: string };
+  payload: { requestId: string; success: boolean } | { requestId: string; error: string };
 }
 
 export interface ContainerStatusRequestMessage {
@@ -680,9 +693,7 @@ export interface GhPrListRequestMessage {
 
 export interface GhPrListResponseMessage {
   type: 'GH_PR_LIST_RESPONSE';
-  payload:
-    | { requestId: string; prs: GhPr[] }
-    | { requestId: string; error: string };
+  payload: { requestId: string; prs: GhPr[] } | { requestId: string; error: string };
 }
 
 export interface GhPrFailedLogsRequestMessage {
@@ -752,6 +763,8 @@ export type WsMessage =
   | GitBranchFilesResponseMessage
   | GitDefaultBaseRequestMessage
   | GitDefaultBaseResponseMessage
+  | GitFetchRequestMessage
+  | GitFetchResponseMessage
   | GitWorktreeListRequestMessage
   | GitWorktreeListResponseMessage
   | DirListRequestMessage
@@ -813,6 +826,7 @@ export type ClientToServerMessage =
   | GitShowResponseMessage
   | GitBranchFilesResponseMessage
   | GitDefaultBaseResponseMessage
+  | GitFetchResponseMessage
   | GitWorktreeListResponseMessage
   | DirListResponseMessage
   | FileReadResponseMessage
@@ -851,6 +865,7 @@ export type ServerToClientMessage =
   | GitShowRequestMessage
   | GitBranchFilesRequestMessage
   | GitDefaultBaseRequestMessage
+  | GitFetchRequestMessage
   | GitWorktreeListRequestMessage
   | DirListRequestMessage
   | FileReadRequestMessage

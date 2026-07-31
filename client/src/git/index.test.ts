@@ -12,6 +12,9 @@ import {
   getShow,
   getBranchFiles,
   resolveDefaultBase,
+  remoteForBase,
+  fetchRemote,
+  localGitRunner,
   parsePorcelainStatus,
   parseWorktreeList,
   globTestFiles,
@@ -548,6 +551,65 @@ describe('git integration', () => {
       expect(files[0].contentId).toBeUndefined();
     });
 
+    it('[FR-GIT-240] compares against HEAD and drops untracked files in PR mode', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await commitFile(repoDir, 'committed.txt', 'in the branch');
+      await writeFile(join(repoDir, 'uncommitted.txt'), 'not committed');
+      await writeFile(join(repoDir, 'base.txt'), 'edited but not committed');
+
+      const { files } = await getBranchFiles(repoDir, mainBranch, localGitRunner, 'head');
+
+      // Only the commit shows: a pull request cannot see the working tree.
+      expect(files).toMatchObject([{ path: 'committed.txt', status: 'added' }]);
+    });
+
+    it('[FR-GIT-240] matches git three-dot output, which is what a PR shows', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await commitFile(repoDir, 'feature.txt', 'feature');
+      // Base moves on after the fork, exactly the case three-dot exists for.
+      await git.checkout(mainBranch);
+      await commitFile(repoDir, 'landed-on-main.txt', 'main');
+      await git.checkout('feature');
+
+      const { files } = await getBranchFiles(repoDir, mainBranch, localGitRunner, 'head');
+      const { stdout } = await localGitRunner([
+        '-C',
+        repoDir,
+        'diff',
+        '--name-status',
+        '-M',
+        `${mainBranch}...HEAD`,
+      ]);
+
+      const threeDot = stdout
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => line.split('\t')[1]);
+      expect(files.map((f) => f.path).sort()).toEqual(threeDot.sort());
+    });
+
+    it('[FR-GIT-240] keeps working-tree changes in the default mode', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await writeFile(join(repoDir, 'uncommitted.txt'), 'not committed');
+
+      const { files } = await getBranchFiles(repoDir, mainBranch);
+
+      expect(files.map((f) => f.path)).toEqual(['uncommitted.txt']);
+    });
+
     it('[FR-GIT-210] rejects a base ref that cannot be resolved', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'base.txt', 'base');
@@ -570,6 +632,62 @@ describe('git integration', () => {
 
       expect(mergeBase).toBe(trunk);
       expect(files.map((f) => f.path).sort()).toEqual(['orphan.txt', 'trunk.txt']);
+    });
+  });
+
+  describe('remoteForBase / fetchRemote', () => {
+    it('[FR-GIT-250] derives the remote from a qualified base ref', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+      const git = simpleGit(repoDir);
+      await git.addRemote('origin', 'https://example.invalid/repo.git');
+
+      await expect(remoteForBase(repoDir, 'origin/main')).resolves.toEqual({
+        remote: 'origin',
+        branch: 'main',
+      });
+    });
+
+    it('[FR-GIT-250] keeps the full branch path for a nested ref', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+      const git = simpleGit(repoDir);
+      await git.addRemote('origin', 'https://example.invalid/repo.git');
+
+      await expect(remoteForBase(repoDir, 'origin/feature/nested')).resolves.toEqual({
+        remote: 'origin',
+        branch: 'feature/nested',
+      });
+    });
+
+    it('[FR-GIT-250] yields no remote for a plain local branch name', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+      const git = simpleGit(repoDir);
+      await git.addRemote('origin', 'https://example.invalid/repo.git');
+
+      await expect(remoteForBase(repoDir, 'main')).resolves.toBeUndefined();
+    });
+
+    it('[FR-GIT-250] yields no remote when the prefix is not a configured remote', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+
+      await expect(remoteForBase(repoDir, 'upstream/main')).resolves.toBeUndefined();
+    });
+
+    it('[FR-GIT-250] rejects a remote name that could be read as an option', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+
+      await expect(fetchRemote(repoDir, '--upload-pack=touch /tmp/pwned', 'main')).rejects.toThrow(
+        'Invalid remote name',
+      );
+      await expect(remoteForBase(repoDir, '--exec=evil/main')).resolves.toBeUndefined();
+      // A branch that could be read as an option is refused too.
+      await expect(fetchRemote(repoDir, 'origin', '--exec=evil')).rejects.toThrow(
+        'Invalid branch name',
+      );
     });
   });
 

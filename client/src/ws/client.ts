@@ -16,6 +16,7 @@ import type {
   GitShowRequestMessage,
   GitBranchFilesRequestMessage,
   GitDefaultBaseRequestMessage,
+  GitFetchRequestMessage,
   GitWorktreeListRequestMessage,
   DirListEntry,
   DirListRequestMessage,
@@ -44,7 +45,14 @@ import type {
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
-import { listOpenPrs, fetchFailedLogs, fetchReviewComments, classifyGhError, localGhRunner, type GhRunner } from '../gh/index.js';
+import {
+  listOpenPrs,
+  fetchFailedLogs,
+  fetchReviewComments,
+  classifyGhError,
+  localGhRunner,
+  type GhRunner,
+} from '../gh/index.js';
 import {
   getStatusDetailed,
   getDiff,
@@ -52,6 +60,8 @@ import {
   getShow,
   getBranchFiles,
   resolveDefaultBase,
+  remoteForBase,
+  fetchRemote,
   getFileContent,
   getFileBytes,
   writeFileContent,
@@ -576,6 +586,9 @@ export class WsClient {
       case 'GIT_BRANCH_FILES_REQUEST':
         this.handleGitBranchFilesRequest(message as GitBranchFilesRequestMessage);
         break;
+      case 'GIT_FETCH_REQUEST':
+        this.handleGitFetchRequest(message as GitFetchRequestMessage);
+        break;
       case 'GIT_DEFAULT_BASE_REQUEST':
         this.handleGitDefaultBaseRequest(message as GitDefaultBaseRequestMessage);
         break;
@@ -804,12 +817,13 @@ export class WsClient {
   }
 
   private async handleGitBranchFilesRequest(message: GitBranchFilesRequestMessage): Promise<void> {
-    const { requestId, repoDir, base, coderWorkspace } = message.payload;
+    const { requestId, repoDir, base, compareTo, coderWorkspace } = message.payload;
     try {
       const { files, mergeBase } = await getBranchFiles(
         repoDir,
         base,
         this.gitRunnerFor(coderWorkspace),
+        compareTo,
       );
       this.send({
         type: 'GIT_BRANCH_FILES_RESPONSE',
@@ -823,9 +837,22 @@ export class WsClient {
     }
   }
 
-  private async handleGitDefaultBaseRequest(
-    message: GitDefaultBaseRequestMessage,
-  ): Promise<void> {
+  private async handleGitFetchRequest(message: GitFetchRequestMessage): Promise<void> {
+    const { requestId, repoDir, base, coderWorkspace } = message.payload;
+    try {
+      const runner = this.gitRunnerFor(coderWorkspace);
+      const target = await remoteForBase(repoDir, base, runner);
+      if (target) await fetchRemote(repoDir, target.remote, target.branch, runner);
+      this.send({ type: 'GIT_FETCH_RESPONSE', payload: { requestId, remote: target?.remote } });
+    } catch (err) {
+      this.send({
+        type: 'GIT_FETCH_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleGitDefaultBaseRequest(message: GitDefaultBaseRequestMessage): Promise<void> {
     const { requestId, repoDir, coderWorkspace } = message.payload;
     try {
       const base = await resolveDefaultBase(repoDir, this.gitRunnerFor(coderWorkspace));
@@ -1469,7 +1496,11 @@ export class WsClient {
   ): Promise<void> {
     const { requestId, repoDir, prNumber, coderWorkspace } = message.payload;
     try {
-      const comments = await fetchReviewComments(repoDir, prNumber, this.ghRunnerFor(coderWorkspace));
+      const comments = await fetchReviewComments(
+        repoDir,
+        prNumber,
+        this.ghRunnerFor(coderWorkspace),
+      );
       this.send({
         type: 'GH_PR_REVIEW_COMMENTS_RESPONSE',
         payload: { requestId, comments },

@@ -23,11 +23,29 @@ import { resolveFileReadError } from './diff-content-state';
 import { useAutoSave } from './use-auto-save';
 import { useViewedFiles } from './use-viewed-files';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
-import { RiGitBranchLine } from '@remixicon/react';
+import { RiGitBranchLine, RiDownloadLine } from '@remixicon/react';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 import { useOnServerEvent } from '@/contexts/events-context';
 import { EditorTabsBar } from '@/components/editor/editor-tabs';
 import { useEditorTabs } from '@/components/editor/use-editor-tabs';
+import type { BranchDiffTarget } from '@engy/common';
 import type { ChangedFile, ViewMode, DiffViewMode, EditorMode } from './types';
+
+// `worktree` keeps uncommitted work visible; `head` reproduces the pull request.
+const BRANCH_TARGETS: Array<{ value: BranchDiffTarget; label: string; hint: string }> = [
+  {
+    value: 'worktree',
+    label: 'Working tree',
+    hint: 'Fork point vs. your working tree — includes uncommitted edits and untracked files',
+  },
+  {
+    value: 'head',
+    label: 'PR',
+    hint: 'Fork point vs. your last commit — exactly what the GitHub pull request shows',
+  },
+];
 
 const SIDEBAR_CONFIG = {
   defaultWidth: 280,
@@ -62,6 +80,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   // null = follow the repo's detected default branch; a string is an explicit override.
   const [userBaseBranch, setUserBaseBranch] = useState<string | null>(null);
+  const [branchTarget, setBranchTarget] = useState<BranchDiffTarget>('worktree');
   const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(null);
   const [userSelectedWorktree, setUserSelectedWorktree] = useState<WorktreeSelection>(null);
 
@@ -133,6 +152,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     setSelectedCommit(null);
     setUserSelectedWorktree(null);
     setUserBaseBranch(null);
+    fetchBase.reset();
   };
 
   const handleDiffViewModeChange = (mode: DiffViewMode) => {
@@ -199,6 +219,16 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
   const baseBranch = userBaseBranch ?? defaultBaseData?.base ?? '';
 
+  // Engy never fetches on its own, so a stale remote-tracking ref would silently
+  // move the fork point away from what the pull request compares against.
+  const utils = trpc.useUtils();
+  const fetchBase = trpc.diff.fetchBase.useMutation({
+    onSuccess: () => {
+      void utils.diff.getBranchDiff.invalidate();
+      void utils.diff.getDefaultBase.invalidate();
+    },
+  });
+
   // Branch diff data (for file list)
   const {
     data: branchDiffData,
@@ -208,6 +238,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     {
       repoDir: selectedRepo!,
       base: baseBranch,
+      compareTo: branchTarget,
       worktreePath: selectedWorktree?.worktreePath,
       coderWorkspace: selectedWorktree?.coderWorkspace,
     },
@@ -227,8 +258,10 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   // Resolve the modified ref (undefined = working tree)
   const modifiedRef = useMemo(() => {
     if (diffViewMode === 'history' && selectedCommit) return selectedCommit;
-    return undefined; // working tree for latest + branch
-  }, [diffViewMode, selectedCommit]);
+    // Branch mode in PR parity reads the committed side, matching its file list.
+    if (diffViewMode === 'branch' && branchTarget === 'head') return 'HEAD';
+    return undefined; // working tree otherwise
+  }, [diffViewMode, selectedCommit, branchTarget]);
 
   // Comments
   const {
@@ -452,236 +485,301 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
   const selectedFileName = selectedFile ? (selectedFile.split('/').pop() ?? selectedFile) : '';
 
+  // The page mounts outside the project layout's tooltip provider, so it brings
+  // its own; nesting providers is safe.
   return (
-    <div className="flex flex-1 min-h-0 flex-col">
-      {/* Top bar: view mode tabs + repo selector + review actions */}
-      <div className="flex items-center justify-between gap-2 overflow-x-auto border-b border-border [scrollbar-width:thin]">
-        <div className="flex shrink-0 items-center">
-          <ViewModeTabs value={diffViewMode} onChange={handleDiffViewModeChange} />
-          <RepoSelector
-            repos={allRepos}
-            selectedRepo={selectedRepo ?? ''}
-            onSelectRepo={handleRepoChange}
-          />
-          {selectedRepo && !projectWorktreeBranch && (
-            <WorktreeSelector
-              workspaceSlug={workspaceSlug}
-              repoDir={selectedRepo}
-              value={userSelectedWorktree}
-              onChange={handleUserWorktreeChange}
+    <TooltipProvider>
+      <div className="flex flex-1 min-h-0 flex-col">
+        {/* Top bar: view mode tabs + repo selector + review actions */}
+        <div className="flex items-center justify-between gap-2 overflow-x-auto border-b border-border [scrollbar-width:thin]">
+          <div className="flex shrink-0 items-center">
+            <ViewModeTabs value={diffViewMode} onChange={handleDiffViewModeChange} />
+            <RepoSelector
+              repos={allRepos}
+              selectedRepo={selectedRepo ?? ''}
+              onSelectRepo={handleRepoChange}
             />
-          )}
-          {projectWorktreeBranch && (
-            <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-2 text-xs text-muted-foreground">
-              <RiGitBranchLine className="size-3" />
-              <span>on</span>
-              <span className="font-mono text-foreground">{projectWorktreeBranch}</span>
-            </div>
-          )}
-        </div>
-        <div className="shrink-0 px-3">
-          <ReviewActions repoDir={selectedRepo} diffComments={currentFileComments} />
-        </div>
-      </div>
-
-      {/* GitHub comment triage bar — scoped to files in the current diff view,
-          consistent with ReviewActions. Comments on files outside the active diff
-          set (e.g. PR files not in the working tree) are not shown here. */}
-      {selectedRepo && (
-        <GithubCommentTriage
-          repoDir={selectedRepo}
-          diffComments={currentFileComments}
-          sessionId={correlatedSessionId}
-          onResolve={resolve}
-        />
-      )}
-
-      {/* Branch diff: base branch input */}
-      {diffViewMode === 'branch' && (
-        <div className="flex items-center gap-2 overflow-x-auto border-b border-border px-3 py-1.5">
-          <span className="text-xs text-muted-foreground">Base:</span>
-          <input
-            type="text"
-            value={baseBranch}
-            onChange={(e) => setUserBaseBranch(e.target.value)}
-            className="h-6 border border-border bg-transparent px-2 text-xs text-foreground focus:outline-none focus:border-ring"
-            placeholder={defaultBaseData?.base ?? 'origin/main'}
-          />
-          {userBaseBranch !== null &&
-            defaultBaseData &&
-            userBaseBranch !== defaultBaseData.base && (
-              <button
-                type="button"
-                onClick={() => setUserBaseBranch(null)}
-                className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-              >
-                reset to {defaultBaseData.base}
-              </button>
+            {selectedRepo && !projectWorktreeBranch && (
+              <WorktreeSelector
+                workspaceSlug={workspaceSlug}
+                repoDir={selectedRepo}
+                value={userSelectedWorktree}
+                onChange={handleUserWorktreeChange}
+              />
             )}
-          {branchError && (
-            <span className="text-xs text-destructive">
-              {branchError.message.replace(/^.*Invalid base ref/, 'Invalid ref')}
-            </span>
-          )}
-          {defaultBaseError && !userBaseBranch && (
-            <span className="text-xs text-destructive">
-              Could not detect the default branch — enter a base ref above.
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Main content: file list + diff viewer */}
-      <ThreePanelLayout
-        className="flex-1 min-h-0"
-        left={SIDEBAR_CONFIG}
-        isMobile={isMobile}
-        leftCollapsed={sidebarCollapsed}
-        onLeftCollapsedChange={setSidebarCollapsed}
-        leftContent={
-          diffViewMode === 'history' ? (
-            <div className="flex h-full min-h-0 flex-col">
-              <div className="min-h-0 flex-1 overflow-auto">
-                <CommitList
-                  commits={logData?.commits ?? []}
-                  selectedHash={selectedCommit}
-                  onSelectCommit={(hash) => {
-                    setSelectedCommit(hash);
-                    tabs.reset();
-                  }}
-                  isLoading={isLogLoading}
-                />
-              </div>
-              {selectedCommit && (
-                <div className="flex-1 min-h-0 border-t border-border overflow-auto">
-                  {commitDiffError ? (
-                    <div className="space-y-2 px-3 py-2">
-                      <p className="text-xs text-destructive">
-                        Failed to load commit changes: {commitDiffError.message}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => refetchCommitDiff()}
-                        className="border border-border px-2 py-1 text-xs text-foreground hover:bg-muted"
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  ) : (
-                    <FileListPanel
-                      files={files}
-                      selectedFile={selectedFile}
-                      onSelectFile={tabs.open}
-                      onRefresh={() => refetchCommitDiff()}
-                      isLoading={isCommitDiffLoading}
-                      commentCounts={fileCommentCounts}
-                      viewedPaths={viewedPaths}
-                      onToggleViewed={toggleViewed}
-                      onSetViewed={setViewed}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-          ) : (
-            <FileListPanel
-              files={files}
-              selectedFile={selectedFile}
-              onSelectFile={tabs.open}
-              onRefresh={() => {
-                if (diffViewMode === 'latest') refetchStatus();
-              }}
-              isLoading={isFileListLoading}
-              commentCounts={fileCommentCounts}
-              viewedPaths={viewedPaths}
-              onToggleViewed={toggleViewed}
-              onSetViewed={setViewed}
-            />
-          )
-        }
-        centerContent={
-          <div className="flex flex-1 min-h-0 flex-col">
-            <EditorTabsBar tabs={tabs} />
-            {allRepos.length === 0 ? (
-              <div className="flex flex-1 items-center justify-center">
-                <p className="text-sm text-muted-foreground">
-                  No repositories configured for this workspace
-                </p>
-              </div>
-            ) : !selectedFile ? (
-              <div className="flex flex-1 items-center justify-center">
-                <p className="text-sm text-muted-foreground">
-                  {diffViewMode === 'history' && !selectedCommit
-                    ? 'Select a commit to view its changes'
-                    : 'Select a file to view its diff'}
-                </p>
-              </div>
-            ) : (
-              <div className="flex flex-1 flex-col min-h-0">
-                {selectedFileData && (
-                  <DiffHeader
-                    filePath={selectedFile}
-                    status={selectedFileData.status}
-                    viewMode={viewMode}
-                    onViewModeChange={setViewMode}
-                    editorMode={editorMode}
-                    onEditorModeChange={isTextLike ? setEditorMode : undefined}
-                    diffViewMode={diffViewMode}
-                    saveStatus={isTextLike ? saveStatus : undefined}
-                    hideViewModeToggle={isMobile || !isTextLike}
-                    isViewed={viewedPaths.has(selectedFile)}
-                    onToggleViewed={() => toggleViewed(selectedFile)}
-                  />
-                )}
-                <div className="flex-1 min-h-0">
-                  {isImage ? (
-                    <ImageDiffView
-                      status={selectedFileData?.status ?? 'modified'}
-                      fileName={selectedFileName}
-                      original={{
-                        isLoading: originalImageLoading,
-                        error: originalImageError,
-                        dataUri: originalImageData?.dataUri,
-                      }}
-                      modified={{
-                        isLoading: modifiedImageLoading,
-                        error: modifiedImageError,
-                        dataUri: modifiedImageData?.dataUri,
-                      }}
-                    />
-                  ) : isBinary ? (
-                    <NonTextFileView kind="binary" fileName={selectedFileName} />
-                  ) : editorMode === 'edit' && diffViewMode === 'latest' ? (
-                    <DynamicMonacoCodeEditor
-                      content={modifiedContent}
-                      filePath={selectedFile}
-                      repoRoot={selectedWorktree?.worktreePath ?? selectedRepo ?? ''}
-                      modelNamespace="diff-edit"
-                      onChange={save}
-                    />
-                  ) : (
-                    <DiffViewerPanel
-                      originalContent={originalContent}
-                      modifiedContent={modifiedContent}
-                      viewMode={isMobile ? 'unified' : viewMode}
-                      filePath={selectedFile}
-                      repoRoot={selectedWorktree?.worktreePath ?? selectedRepo ?? ''}
-                      loadError={fileReadError}
-                      onChange={diffViewMode === 'latest' ? save : undefined}
-                      fileComments={fileComments}
-                      onAddComment={handleAddComment}
-                      onReply={replyToThread}
-                      onResolve={resolve}
-                      onDelete={remove}
-                      onDeleteComment={removeComment}
-                    />
-                  )}
-                </div>
+            {projectWorktreeBranch && (
+              <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-2 text-xs text-muted-foreground">
+                <RiGitBranchLine className="size-3" />
+                <span>on</span>
+                <span className="font-mono text-foreground">{projectWorktreeBranch}</span>
               </div>
             )}
           </div>
-        }
-      />
-    </div>
+          <div className="shrink-0 px-3">
+            <ReviewActions repoDir={selectedRepo} diffComments={currentFileComments} />
+          </div>
+        </div>
+
+        {/* GitHub comment triage bar — scoped to files in the current diff view,
+          consistent with ReviewActions. Comments on files outside the active diff
+          set (e.g. PR files not in the working tree) are not shown here. */}
+        {selectedRepo && (
+          <GithubCommentTriage
+            repoDir={selectedRepo}
+            diffComments={currentFileComments}
+            sessionId={correlatedSessionId}
+            onResolve={resolve}
+          />
+        )}
+
+        {/* Branch diff: base branch input */}
+        {diffViewMode === 'branch' && (
+          <div className="flex items-center gap-2 overflow-x-auto border-b border-border px-3 py-1.5">
+            <span className="text-xs text-muted-foreground">Base:</span>
+            <input
+              type="text"
+              value={baseBranch}
+              onChange={(e) => {
+                setUserBaseBranch(e.target.value);
+                // Feedback belongs to the ref that was fetched, not the new one.
+                fetchBase.reset();
+              }}
+              className="h-6 border border-border bg-transparent px-2 text-xs text-foreground focus:outline-none focus:border-ring"
+              placeholder={defaultBaseData?.base ?? 'origin/main'}
+            />
+            {userBaseBranch !== null &&
+              defaultBaseData &&
+              userBaseBranch !== defaultBaseData.base && (
+                <button
+                  type="button"
+                  onClick={() => setUserBaseBranch(null)}
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                >
+                  reset to {defaultBaseData.base}
+                </button>
+              )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => fetchBase.mutate({ repoDir: selectedRepo!, base: baseBranch })}
+                  disabled={!selectedRepo || !baseBranch || fetchBase.isPending}
+                  className="h-6 w-6 shrink-0 p-0"
+                >
+                  <RiDownloadLine
+                    className={cn('size-3.5', fetchBase.isPending && 'animate-pulse')}
+                  />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                Fetch the base branch, so the fork point matches the remote
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Which side the fork point is compared against. */}
+            <div className="flex shrink-0">
+              {BRANCH_TARGETS.map(({ value, label, hint }) => (
+                <Tooltip key={value}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => setBranchTarget(value)}
+                      className={cn(branchTarget === value && 'bg-muted text-foreground')}
+                    >
+                      {label}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">{hint}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+
+            {branchDiffData?.mergeBase && (
+              <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                forked at{' '}
+                <span className="font-mono text-foreground">
+                  {branchDiffData.mergeBase.slice(0, 7)}
+                </span>
+              </span>
+            )}
+
+            {branchError && (
+              <span className="text-xs text-destructive">
+                {branchError.message.replace(/^.*Invalid base ref/, 'Invalid ref')}
+              </span>
+            )}
+            {defaultBaseError && !userBaseBranch && (
+              <span className="text-xs text-destructive">
+                Could not detect the default branch — enter a base ref above.
+              </span>
+            )}
+            {fetchBase.isSuccess && !fetchBase.data?.remote && (
+              <span className="text-xs text-muted-foreground">
+                No remote to fetch for this base.
+              </span>
+            )}
+            {fetchBase.error && (
+              <span className="text-xs text-destructive">
+                Fetch failed: {fetchBase.error.message}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Main content: file list + diff viewer */}
+        <ThreePanelLayout
+          className="flex-1 min-h-0"
+          left={SIDEBAR_CONFIG}
+          isMobile={isMobile}
+          leftCollapsed={sidebarCollapsed}
+          onLeftCollapsedChange={setSidebarCollapsed}
+          leftContent={
+            diffViewMode === 'history' ? (
+              <div className="flex h-full min-h-0 flex-col">
+                <div className="min-h-0 flex-1 overflow-auto">
+                  <CommitList
+                    commits={logData?.commits ?? []}
+                    selectedHash={selectedCommit}
+                    onSelectCommit={(hash) => {
+                      setSelectedCommit(hash);
+                      tabs.reset();
+                    }}
+                    isLoading={isLogLoading}
+                  />
+                </div>
+                {selectedCommit && (
+                  <div className="flex-1 min-h-0 border-t border-border overflow-auto">
+                    {commitDiffError ? (
+                      <div className="space-y-2 px-3 py-2">
+                        <p className="text-xs text-destructive">
+                          Failed to load commit changes: {commitDiffError.message}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => refetchCommitDiff()}
+                          className="border border-border px-2 py-1 text-xs text-foreground hover:bg-muted"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    ) : (
+                      <FileListPanel
+                        files={files}
+                        selectedFile={selectedFile}
+                        onSelectFile={tabs.open}
+                        onRefresh={() => refetchCommitDiff()}
+                        isLoading={isCommitDiffLoading}
+                        commentCounts={fileCommentCounts}
+                        viewedPaths={viewedPaths}
+                        onToggleViewed={toggleViewed}
+                        onSetViewed={setViewed}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <FileListPanel
+                files={files}
+                selectedFile={selectedFile}
+                onSelectFile={tabs.open}
+                onRefresh={() => {
+                  if (diffViewMode === 'latest') refetchStatus();
+                }}
+                isLoading={isFileListLoading}
+                commentCounts={fileCommentCounts}
+                viewedPaths={viewedPaths}
+                onToggleViewed={toggleViewed}
+                onSetViewed={setViewed}
+              />
+            )
+          }
+          centerContent={
+            <div className="flex flex-1 min-h-0 flex-col">
+              <EditorTabsBar tabs={tabs} />
+              {allRepos.length === 0 ? (
+                <div className="flex flex-1 items-center justify-center">
+                  <p className="text-sm text-muted-foreground">
+                    No repositories configured for this workspace
+                  </p>
+                </div>
+              ) : !selectedFile ? (
+                <div className="flex flex-1 items-center justify-center">
+                  <p className="text-sm text-muted-foreground">
+                    {diffViewMode === 'history' && !selectedCommit
+                      ? 'Select a commit to view its changes'
+                      : 'Select a file to view its diff'}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-1 flex-col min-h-0">
+                  {selectedFileData && (
+                    <DiffHeader
+                      filePath={selectedFile}
+                      status={selectedFileData.status}
+                      viewMode={viewMode}
+                      onViewModeChange={setViewMode}
+                      editorMode={editorMode}
+                      onEditorModeChange={isTextLike ? setEditorMode : undefined}
+                      diffViewMode={diffViewMode}
+                      saveStatus={isTextLike ? saveStatus : undefined}
+                      hideViewModeToggle={isMobile || !isTextLike}
+                      isViewed={viewedPaths.has(selectedFile)}
+                      onToggleViewed={() => toggleViewed(selectedFile)}
+                    />
+                  )}
+                  <div className="flex-1 min-h-0">
+                    {isImage ? (
+                      <ImageDiffView
+                        status={selectedFileData?.status ?? 'modified'}
+                        fileName={selectedFileName}
+                        original={{
+                          isLoading: originalImageLoading,
+                          error: originalImageError,
+                          dataUri: originalImageData?.dataUri,
+                        }}
+                        modified={{
+                          isLoading: modifiedImageLoading,
+                          error: modifiedImageError,
+                          dataUri: modifiedImageData?.dataUri,
+                        }}
+                      />
+                    ) : isBinary ? (
+                      <NonTextFileView kind="binary" fileName={selectedFileName} />
+                    ) : editorMode === 'edit' && diffViewMode === 'latest' ? (
+                      <DynamicMonacoCodeEditor
+                        content={modifiedContent}
+                        filePath={selectedFile}
+                        repoRoot={selectedWorktree?.worktreePath ?? selectedRepo ?? ''}
+                        modelNamespace="diff-edit"
+                        onChange={save}
+                      />
+                    ) : (
+                      <DiffViewerPanel
+                        originalContent={originalContent}
+                        modifiedContent={modifiedContent}
+                        viewMode={isMobile ? 'unified' : viewMode}
+                        filePath={selectedFile}
+                        repoRoot={selectedWorktree?.worktreePath ?? selectedRepo ?? ''}
+                        loadError={fileReadError}
+                        onChange={diffViewMode === 'latest' ? save : undefined}
+                        fileComments={fileComments}
+                        onAddComment={handleAddComment}
+                        onReply={replyToThread}
+                        onResolve={resolve}
+                        onDelete={remove}
+                        onDeleteComment={removeComment}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          }
+        />
+      </div>
+    </TooltipProvider>
   );
 }

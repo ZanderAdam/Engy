@@ -12,6 +12,7 @@ import type {
   WorktreeAddErrorCode,
   WorktreeRemoveErrorCode,
   FleetingMemoryType,
+  BranchDiffTarget,
 } from '@engy/common';
 import type {
   AppState,
@@ -20,6 +21,7 @@ import type {
   GitShowResult,
   GitBranchFilesResult,
   GitDefaultBaseResult,
+  GitFetchResult,
   GitWorktreeListResult,
   ContainerUpResult,
   ExecutionStartResult,
@@ -41,7 +43,14 @@ import type {
   GhPrReviewCommentsResult,
 } from '../trpc/context';
 import { getDb } from '../db/client';
-import { workspaces, agentSessions, tasks, taskGroups, projects, fleetingMemories } from '../db/schema';
+import {
+  workspaces,
+  agentSessions,
+  tasks,
+  taskGroups,
+  projects,
+  fleetingMemories,
+} from '../db/schema';
 import { taskPlanSlug } from '../plan/service';
 import { broadcastFileChange, broadcastTaskChange } from './broadcast';
 import { sendWatchPathsSync } from './watch-subscriptions';
@@ -49,6 +58,8 @@ import { sendWatchPathsSync } from './watch-subscriptions';
 const VALIDATION_TIMEOUT_MS = 5_000;
 const FILE_SEARCH_TIMEOUT_MS = 10_000;
 const GIT_TIMEOUT_MS = 15_000;
+// Shared by worktree mutations and base fetching — both reach past a local read.
+const WORKTREE_MERGE_TIMEOUT_MS = 60_000;
 const GH_LOGS_TIMEOUT_MS = 60_000;
 const CONTAINER_TIMEOUT_MS = 300_000;
 
@@ -98,6 +109,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingGitShow,
     state.pendingGitBranchFiles,
     state.pendingGitDefaultBase,
+    state.pendingGitFetch,
     state.pendingContainerUp,
     state.pendingContainerDown,
     state.pendingContainerStatus,
@@ -166,6 +178,11 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       resolvePendingResponse(msg.payload, state.pendingGitBranchFiles, (p) => ({
         files: p.files,
         mergeBase: p.mergeBase,
+      }));
+      break;
+    case 'GIT_FETCH_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGitFetch, (p) => ({
+        remote: p.remote,
       }));
       break;
     case 'GIT_DEFAULT_BASE_RESPONSE':
@@ -328,9 +345,9 @@ function handleValidatePathsResponse(
   pending.resolve(msg.payload.results);
 }
 
-function handleFileChange(
-  msg: { payload: { workspaceSlug: string; path: string; eventType: 'add' | 'change' | 'unlink' } },
-): void {
+function handleFileChange(msg: {
+  payload: { workspaceSlug: string; path: string; eventType: 'add' | 'change' | 'unlink' };
+}): void {
   const { workspaceSlug, path, eventType } = msg.payload;
   broadcastFileChange(workspaceSlug, path, eventType);
 }
@@ -348,7 +365,13 @@ function handleSearchFilesResponse(
 
 // ── Execution event handlers ────────────────────────────────────────────────
 
-const VALID_SUB_STATUSES = new Set<string>(['planning', 'implementing', 'blocked', 'failed', 'plan_review']);
+const VALID_SUB_STATUSES = new Set<string>([
+  'planning',
+  'implementing',
+  'blocked',
+  'failed',
+  'plan_review',
+]);
 
 function handleExecutionStatusEvent(payload: {
   sessionId: string;
@@ -527,12 +550,14 @@ function handleExecutionCompleteEvent(
           );
           const failNow = new Date().toISOString();
           const db = getDb();
-          const reverted = db.update(tasks)
+          const reverted = db
+            .update(tasks)
             .set({ subStatus: 'failed' as typeof tasks.$inferInsert.subStatus, updatedAt: failNow })
             .where(eq(tasks.id, taskIdForPull))
             .returning()
             .get();
-          if (reverted) broadcastTaskChange('updated', taskIdForPull, reverted.projectId ?? undefined);
+          if (reverted)
+            broadcastTaskChange('updated', taskIdForPull, reverted.projectId ?? undefined);
         });
       }
     } else if (
@@ -565,7 +590,8 @@ function handleExecutionCompleteEvent(
             if (taskIdForMerge) {
               const failNow = new Date().toISOString();
               const db = getDb();
-              const reverted = db.update(tasks)
+              const reverted = db
+                .update(tasks)
                 .set({
                   status: 'in_progress' as typeof tasks.$inferInsert.status,
                   subStatus: 'failed' as typeof tasks.$inferInsert.subStatus,
@@ -574,7 +600,8 @@ function handleExecutionCompleteEvent(
                 .where(eq(tasks.id, taskIdForMerge))
                 .returning()
                 .get();
-              if (reverted) broadcastTaskChange('updated', taskIdForMerge, reverted.projectId ?? undefined);
+              if (reverted)
+                broadcastTaskChange('updated', taskIdForMerge, reverted.projectId ?? undefined);
             }
           },
         );
@@ -961,12 +988,31 @@ export function dispatchGitBranchFiles(
   base: string,
   state: AppState,
   coderWorkspace?: string,
+  compareTo?: BranchDiffTarget,
 ): Promise<GitBranchFilesResult> {
   return dispatchDaemonOp(state, state.pendingGitBranchFiles, 'GIT_BRANCH_FILES_REQUEST', {
     repoDir,
     base,
+    compareTo,
     coderWorkspace,
   });
+}
+
+// Fetching reaches the network, so it gets the longer worktree-class timeout
+// rather than the 15s budget used for local git reads.
+export function dispatchGitFetch(
+  repoDir: string,
+  base: string,
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<GitFetchResult> {
+  return dispatchDaemonOp(
+    state,
+    state.pendingGitFetch,
+    'GIT_FETCH_REQUEST',
+    { repoDir, base, coderWorkspace },
+    WORKTREE_MERGE_TIMEOUT_MS,
+  );
 }
 
 export function dispatchGitDefaultBase(
@@ -1167,7 +1213,6 @@ export function dispatchExecutionStop(
 // ── Remote file & worktree dispatch functions ──────────────────────────────
 
 const REMOTE_FILE_TIMEOUT_MS = 30_000;
-const WORKTREE_MERGE_TIMEOUT_MS = 60_000;
 
 function dispatchRemoteFilePull(
   state: AppState,

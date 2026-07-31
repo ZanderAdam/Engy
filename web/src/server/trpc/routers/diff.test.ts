@@ -64,6 +64,30 @@ describe('diff router', () => {
     });
   });
 
+  describe('fetchBase', () => {
+    it('[FR-GIT-020] throws when no daemon is connected', async () => {
+      ctx = setupTestDb();
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(
+        caller.diff.fetchBase({ repoDir: '/tmp/repo', base: 'origin/main' }),
+      ).rejects.toThrow('No daemon connected');
+    });
+
+    it('[FR-GIT-010] accepts a worktreePath as the effective dir', async () => {
+      ctx = setupTestDb();
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(
+        caller.diff.fetchBase({
+          repoDir: '/tmp/repo',
+          base: 'origin/main',
+          worktreePath: '/tmp/worktree',
+        }),
+      ).rejects.toThrow('No daemon connected');
+    });
+  });
+
   describe('getDefaultBase', () => {
     it('[FR-GIT-020] throws when no daemon is connected', async () => {
       ctx = setupTestDb();

@@ -9,6 +9,7 @@ import {
   dispatchGitShow,
   dispatchGitBranchFiles,
   dispatchGitDefaultBase,
+  dispatchGitFetch,
   dispatchGitWorktreeList,
 } from '../../ws/server';
 import { getDb } from '../../db/client';
@@ -48,7 +49,12 @@ export const diffRouter = router({
     }),
 
   getBranchDiff: publicProcedure
-    .input(worktreeInput.extend({ base: z.string().min(1) }))
+    .input(
+      worktreeInput.extend({
+        base: z.string().min(1),
+        compareTo: z.enum(['worktree', 'head']).optional(),
+      }),
+    )
     .query(async ({ input, ctx }) => {
       const dir = input.worktreePath ?? input.repoDir;
       try {
@@ -57,6 +63,7 @@ export const diffRouter = router({
           input.base,
           ctx.state,
           input.coderWorkspace,
+          input.compareTo,
         );
         return { files: files.map((f) => ({ ...f, staged: false })), mergeBase };
       } catch (err) {
@@ -65,6 +72,13 @@ export const diffRouter = router({
           message: `Invalid base ref "${input.base}": ${err instanceof Error ? err.message : String(err)}`,
         });
       }
+    }),
+
+  fetchBase: publicProcedure
+    .input(worktreeInput.extend({ base: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const dir = input.worktreePath ?? input.repoDir;
+      return dispatchGitFetch(dir, input.base, ctx.state, input.coderWorkspace);
     }),
 
   getDefaultBase: publicProcedure.input(worktreeInput).query(async ({ input, ctx }) => {
@@ -108,10 +122,7 @@ export const diffRouter = router({
       }
 
       if (coderCfg?.workspace && coderCfg?.repoBasePath) {
-        const remoteRepoPath = path.posix.join(
-          coderCfg.repoBasePath,
-          path.basename(input.repoDir),
-        );
+        const remoteRepoPath = path.posix.join(coderCfg.repoBasePath, path.basename(input.repoDir));
         try {
           const { worktrees } = await dispatchGitWorktreeList(
             remoteRepoPath,

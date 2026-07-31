@@ -72,6 +72,10 @@ export interface GitDefaultBaseResult {
   base: string;
 }
 
+export interface GitFetchResult {
+  remote?: string;
+}
+
 export interface ContainerUpResult {
   containerId: string;
 }
@@ -233,6 +237,13 @@ export interface AppState {
     string,
     {
       resolve: (result: GitDefaultBaseResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingGitFetch: Map<
+    string,
+    {
+      resolve: (result: GitFetchResult) => void;
       reject: (reason: Error) => void;
     }
   >;
@@ -475,6 +486,7 @@ export function createAppState(): AppState {
     pendingGitShow: new Map(),
     pendingGitBranchFiles: new Map(),
     pendingGitDefaultBase: new Map(),
+    pendingGitFetch: new Map(),
     pendingContainerUp: new Map(),
     pendingContainerDown: new Map(),
     pendingContainerStatus: new Map(),

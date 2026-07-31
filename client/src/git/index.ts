@@ -3,15 +3,29 @@ import { join, isAbsolute, resolve } from 'node:path';
 import { readFile, writeFile, readdir, stat, lstat } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { simpleGit } from 'simple-git';
-import type { GitFileStatus, GitWorktreeEntry } from '@engy/common';
+import type { BranchDiffTarget, GitFileStatus, GitWorktreeEntry } from '@engy/common';
 
 const execFileAsync = promisify(execFile);
 const EXEC_MAX_BUFFER = 10 * 1024 * 1024;
 
-export type GitRunner = (args: string[]) => Promise<{ stdout: string; stderr: string }>;
+export interface GitRunOptions {
+  /** Kill the process after this long. Used for calls that reach the network. */
+  timeoutMs?: number;
+}
 
-export const localGitRunner: GitRunner = (args) =>
-  execFileAsync('git', args, { maxBuffer: EXEC_MAX_BUFFER });
+export type GitRunner = (
+  args: string[],
+  options?: GitRunOptions,
+) => Promise<{ stdout: string; stderr: string }>;
+
+export const localGitRunner: GitRunner = (args, options) =>
+  execFileAsync('git', args, {
+    maxBuffer: EXEC_MAX_BUFFER,
+    // The daemon is non-interactive: without this a remote needing credentials
+    // parks git on a prompt forever, and killing the promise would orphan it.
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    ...(options?.timeoutMs ? { timeout: options.timeoutMs, killSignal: 'SIGKILL' as const } : {}),
+  });
 
 const GIT_STATUS_MAP: Record<string, GitFileStatus> = {
   A: 'added',
@@ -415,15 +429,19 @@ export async function getBranchFiles(
   dir: string,
   base: string,
   runGit: GitRunner = localGitRunner,
+  compareTo: BranchDiffTarget = 'worktree',
 ): Promise<{
   files: Array<{ path: string; status: GitFileStatus; oldPath?: string; contentId?: string }>;
   mergeBase: string;
 }> {
   const mergeBase = await resolveMergeBase(dir, base, runGit);
   // `-M` matches getShow, so branch diffs report renames rather than add+delete pairs.
+  const diffArgs = ['-C', dir, 'diff', '--name-status', '-M', mergeBase];
+  if (compareTo === 'head') diffArgs.push('HEAD');
+
   const [{ stdout }, untracked] = await Promise.all([
-    runGit(['-C', dir, 'diff', '--name-status', '-M', mergeBase]),
-    getUntrackedFiles(dir, runGit),
+    runGit(diffArgs),
+    compareTo === 'worktree' ? getUntrackedFiles(dir, runGit) : Promise.resolve([]),
   ]);
 
   const files = parseNameStatusOutput(stdout);
@@ -436,6 +454,58 @@ export async function getBranchFiles(
   }
 
   return { files: await withContentIds(dir, files), mergeBase };
+}
+
+// Remote names come from a user-editable base ref, so anything that could be
+// read as an option (or another argument) is rejected rather than escaped.
+const REMOTE_NAME = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * Remote implied by a base ref: `origin/main` → `origin`. Plain branch names
+ * carry no remote, and neither do refs whose first segment is not a real remote,
+ * so the caller decides what to do with `undefined`.
+ */
+export async function remoteForBase(
+  dir: string,
+  base: string,
+  runGit: GitRunner = localGitRunner,
+): Promise<{ remote: string; branch: string } | undefined> {
+  const [candidate, ...rest] = base.split('/');
+  const branch = rest.join('/');
+  if (!candidate || !REMOTE_NAME.test(candidate) || !branch) return undefined;
+
+  try {
+    const { stdout } = await runGit(['-C', dir, 'remote']);
+    const remotes = stdout.split('\n').map((r) => r.trim());
+    return remotes.includes(candidate) ? { remote: candidate, branch } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Comfortably inside the server's 60s dispatch budget, so a stuck fetch is
+// killed here rather than left running after the request gives up.
+const FETCH_TIMEOUT_MS = 55_000;
+
+/**
+ * Fetches just the branch this diff is based on. Deliberately not a whole-remote
+ * `--prune` fetch: refs are shared with every other worktree of the repo, so
+ * pruning could delete remote-tracking branches another session is using, and
+ * only this one ref affects the fork point.
+ */
+export async function fetchRemote(
+  dir: string,
+  remote: string,
+  branch: string,
+  runGit: GitRunner = localGitRunner,
+): Promise<void> {
+  if (!REMOTE_NAME.test(remote)) {
+    throw new Error(`Invalid remote name "${remote}"`);
+  }
+  if (!branch || branch.startsWith('-')) {
+    throw new Error(`Invalid branch name "${branch}"`);
+  }
+  await runGit(['-C', dir, 'fetch', '--', remote, branch], { timeoutMs: FETCH_TIMEOUT_MS });
 }
 
 export function parseWorktreeList(output: string): GitWorktreeEntry[] {

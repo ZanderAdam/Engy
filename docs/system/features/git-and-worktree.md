@@ -14,8 +14,9 @@ local.
 Two tRPC routers handle this area:
 
 - `web/src/server/trpc/routers/diff.ts` — read-only git introspection
-  (`getStatus`, `getLog`, `getCommitDiff`, `getBranchDiff`, `getDefaultBase`)
-  and the `getWorktrees` query for listing git worktrees by repo.
+  (`getStatus`, `getLog`, `getCommitDiff`, `getBranchDiff`, `getDefaultBase`),
+  the `fetchBase` mutation, and the `getWorktrees` query for listing git
+  worktrees by repo.
 - `web/src/server/trpc/routers/worktree.ts` — worktree lifecycle mutations
   (`listGrouped`, `create`, `sync`, `remove`).
 
@@ -23,7 +24,8 @@ The client-side implementation lives in `client/src/git/index.ts`, which
 executes `git` via `execFile` and parses `--porcelain` output directly. All
 dispatcher functions in `web/src/server/ws/server.ts`
 (`dispatchGitStatus`, `dispatchGitLog`, `dispatchGitShow`,
-`dispatchGitBranchFiles`, `dispatchGitDefaultBase`, `dispatchGitWorktreeList`)
+`dispatchGitBranchFiles`, `dispatchGitDefaultBase`, `dispatchGitFetch`,
+`dispatchGitWorktreeList`)
 follow the pending-map
 request/response pattern with a 15-second timeout (`GIT_TIMEOUT_MS = 15_000`).
 `dispatchWorktreeAdd` and `dispatchWorktreeRemove` use a 60-second timeout
@@ -104,6 +106,27 @@ path containing a tab or newline (or any non-ASCII path under the default
 `core.quotePath`) arrives C-quoted and will not match a file on disk. Such a
 path is displayed quoted and carries no `contentId`, so its viewed mark cannot
 expire. `getStatusDetailed` uses `-z` and is unaffected.
+
+## Comparing against the working tree or HEAD
+
+`getBranchFiles` takes a `compareTo` target. `worktree` (the default) diffs the
+merge base against the working tree and adds untracked files, so uncommitted
+work stays reviewable. `head` diffs the merge base against `HEAD` and skips the
+untracked pass, reproducing exactly what a GitHub pull request shows — the same
+set as `git diff <base>...HEAD`. The UI exposes both, defaulting to the working
+tree and offering a "PR" toggle for parity checks.
+
+## Fetching the base
+
+Engy performs no git network operations on its own, so a remote-tracking ref only
+moves when the user fetches. A stale `origin/main` silently shifts the fork point
+away from what the remote would compute, so `fetchBase` runs `git fetch --prune`
+for the remote implied by the base ref (`origin/main` → `origin`), on demand from
+a button beside the base input. Remote names are matched against the repository's
+configured remotes and validated as `[A-Za-z0-9._-]+`, so a base ref cannot smuggle
+an option such as `--upload-pack=…` into the fetch. A base that names no remote
+(a plain local branch) resolves to no remote and fetches nothing. The dispatcher
+uses the 60-second worktree-class timeout, since fetching reaches the network.
 
 ## Default base detection
 
@@ -197,6 +220,8 @@ FR id in their title string, e.g. `it('[FR-GIT-010] ...', ...)`, and run
 | FR-GIT-210 | IF no merge base exists between the supplied base ref and `HEAD`, THEN `getBranchFiles` SHALL diff against the base ref directly; IF that ref does not resolve, THEN the diff SHALL fail rather than return an empty file list. |
 | FR-GIT-220 | WHEN `getBranchFiles` is called, the system SHALL additionally report untracked files as `added`, excluding any path matched by the repository's ignore rules; IF a path is reported by both the diff and the untracked listing, THEN the system SHALL emit only the diff's entry. |
 | FR-GIT-230 | WHEN `getStatusDetailed` or `getBranchFiles` returns a path, the system SHALL include a `contentId` identifying that path's own on-disk state — stable across calls while untouched, different once modified, and derived from a symlink itself rather than its target; IF the path is deleted, is a directory, or is a submodule gitlink, THEN `contentId` SHALL be omitted. |
+| FR-GIT-240 | WHEN `getBranchFiles` is called with `compareTo: 'head'`, the system SHALL diff the merge base against `HEAD` and SHALL NOT include untracked files, yielding the same file set as `git diff <base>...HEAD`; WHEN called with `worktree` or no target, it SHALL diff against the working tree and include untracked files. |
+| FR-GIT-250 | WHEN a fetch is requested for a base ref, the system SHALL fetch only the remote named by that ref's first segment and only if it is a configured remote; IF the ref names no configured remote, THEN the system SHALL fetch nothing and report no remote; IF a remote name does not match `[A-Za-z0-9._-]+`, THEN the system SHALL reject it rather than pass it to git. |
 
 ## Sources
 
