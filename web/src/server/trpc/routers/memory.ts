@@ -22,6 +22,7 @@ import { autoLink } from '../../search/auto-linker';
 import { proposeMemoryMetadata } from '../../lib/promote-proposal';
 import { triggerMemoryIndexOnWrite } from '../../search/indexer';
 import { broadcastMemoryChange } from '../../ws/broadcast';
+import { clusterReviewCandidates } from '../../search/candidate-clusters';
 
 const memorySubtypeSchema = z.enum(['decision', 'pattern', 'fact', 'convention', 'insight']);
 const fleetingTypeSchema = z.enum(['capture', 'question', 'blocker', 'idea', 'reference']);
@@ -563,6 +564,13 @@ export const memoryRouter = router({
       return { items, total };
     }),
 
+  reviewCandidateClusters: publicProcedure
+    .input(z.object({ workspaceSlug: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const ws = resolveWorkspace(input.workspaceSlug);
+      return clusterReviewCandidates(ws);
+    }),
+
   dismissFleeting: publicProcedure
     .input(z.object({ workspaceSlug: z.string().min(1), id: z.number() }))
     .mutation(({ input }) => {
@@ -635,8 +643,10 @@ export const memoryRouter = router({
       z.object({
         workspaceSlug: z.string().min(1),
         content: z.string().min(1),
+        type: z.enum(['capture', 'question', 'blocker', 'idea', 'reference']).optional(),
         tags: z.array(z.string()).optional(),
         source: z.enum(['agent', 'user', 'system']).optional(),
+        sources: z.array(z.string()).optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -647,9 +657,10 @@ export const memoryRouter = router({
         .values({
           workspaceId: ws.id,
           content: input.content,
-          type: 'capture',
+          type: input.type ?? 'capture',
           source: input.source ?? 'user',
           tags: input.tags ?? [],
+          sources: input.sources ?? [],
         })
         .returning({ id: fleetingMemories.id })
         .get();

@@ -1,6 +1,6 @@
 ---
 name: review-memories
-description: This skill should be used when the user asks to "review memories", "review fleeting memories", "promote memories", or "run memory review". Reviews unpromoted fleeting memories one by one, proposes type/subtype/title/keywords/themes/tags, checks for duplicates and contradictions, and lets the user approve/edit/supersede/contradict/skip/dismiss.
+description: This skill should be used when the user asks to "review memories", "review fleeting memories", "promote memories", or "run memory review". Reviews unpromoted fleeting memories in similarity clusters (singletons one by one, near-duplicates as one merged unit), proposes type/subtype/title/keywords/themes/tags, checks for duplicates and contradictions, and lets the user approve/edit/supersede/contradict/skip/dismiss.
 ---
 
 # Review Memories
@@ -10,6 +10,7 @@ Batch-review unpromoted fleeting memories, enrich each one with LLM-proposed met
 ## MCP Tools
 
 - `listWorkspaces` — discover workspaceId when not known from context
+- `listReviewClusters` — group pending fleeting memories into similarity clusters (ad-hoc embeddings, nothing indexed) for batch review; each cluster is `{ ids, memberCount, members }`
 - `listMemories` — fetch all fleeting memories or permanent memories with enriched metadata
 - `search` — find similar permanent memories
 - `promoteMemory` — promote approved fleeting to permanent (writes DB row + markdown file)
@@ -26,13 +27,36 @@ Resolve the `workspaceId` from the current session/route context. If ambiguous, 
 
 ### Step 2: Fetch Candidates
 
-Call `listMemories({ workspaceId, compact: false })`. Filter the returned list client-side to entries where `promoted === false`. If no unpromoted memories exist, print "No unpromoted fleeting memories found." and stop.
+Call `listReviewClusters({ workspaceId })`. This groups pending (non-dismissed, non-promoted) fleeting memories into similarity clusters computed ad-hoc at review time — nothing is written to the search index. Each cluster is `{ ids, memberCount, members }`, sorted largest cluster first with singletons last. If no clusters come back, print "No unpromoted fleeting memories found." and stop. If `truncated` is true, mention that only the newest 200 pending candidates were clustered — the rest will surface on a later run.
 
-Show a one-line header: `Found <N> unpromoted fleeting memories. Starting review...`
+Show a one-line header: `Found <N> pending memories in <M> clusters (<K> multi-member). Starting review...`
 
-### Step 3: Iterate — One Candidate at a Time
+### Step 3: Iterate — One Cluster at a Time
 
-For each candidate (sequential, NOT batched):
+For each cluster (sequential, NOT batched):
+
+- **Singleton cluster** (`memberCount === 1`) — treat its one member as "the candidate" and run steps 3a–3f below exactly as before.
+- **Multi-member cluster** (`memberCount > 1`) — run **Step 3-cluster** instead of 3a–3f.
+
+#### Step 3-cluster: Reviewing a Multi-Member Cluster
+
+Print all members compactly first:
+
+```
+--- Cluster <N>/<total> (<memberCount> similar candidates) ---
+  [1] <content, truncated to ~150 chars>
+  [2] <content, truncated to ~150 chars>
+  ...
+```
+
+Then synthesize ONE merged draft the same way step 3a proposes metadata for a single candidate, except the content is a synthesis of all members (dedup the overlapping claim, keep any detail unique to one member) rather than a single body verbatim. Run the usual similarity check (3b) and conflict detection (3c) against the merged content, then present the merged block for approval using the same prompt shape as 3d, with the member list shown above it instead of a single `Content:` line.
+
+The user's action choices are the same as 3e (approve/edit/supersede/contradict/skip/dismiss), with one difference in how they resolve across the cluster:
+
+- **approve / edit / supersede**: call `promoteMemory` with `fleetingMemoryId` set to the cluster's **first** id (`ids[0]`) and the merged content/metadata. On success, call `dismissFleetingMemory({ id })` for every other id in the cluster (the absorbed members) — they're tombstoned as merged into the promoted note, not deleted, so they stay recoverable. If any dismiss call in this loop fails, stop and report exactly which id(s) were not dismissed before moving on — a leftover pending member would resurface next run and could be re-promoted as a duplicate of the merged note. Print `Promoted → <title> (merged <memberCount> candidates; absorbed <memberCount - 1> into this note)`.
+- **contradict / skip / dismiss**: apply to the whole cluster at once — e.g. `dismiss` calls `dismissFleetingMemory` for every id in the cluster, `contradict` follows 3e's contradict flow using the merged content and then dismisses every id in the cluster as the "original".
+
+Run the sibling evolution step (3f) once after a successful promote/edit/supersede, same as for a singleton.
 
 #### 3a. Enrich with LLM
 
@@ -175,11 +199,12 @@ Review complete.
   Dismissed:         <N>  removed from queue, preserved (includes contradiction originals)
   Skipped:           <N>  deferred, still in queue
   Siblings enriched: <N>  across all promotions
+  Clusters merged:   <N>  multi-member clusters promoted as one note
 ```
 
 ## Key Principles
 
-- **Sequential only** — one candidate at a time; never batch multiple candidates in a single prompt.
+- **Sequential only** — one cluster at a time; never batch multiple clusters in a single prompt. Within a multi-member cluster, its candidates are reviewed together as one unit by design — that's the point of clustering.
 - **LLM enrichment is in-context** — propose metadata using your own reasoning; no extra server-side LLM calls.
 - **No project-status gate** — this skill works anytime: during project completion or as ongoing maintenance.
 - **Contradict = do not promote, but record durably** — flagging a contradiction creates a new tagged fleeting (tag: "contradiction") that carries the conflict forward, then dismisses the original candidate so the finding survives without net-growing the queue.
@@ -187,6 +212,7 @@ Review complete.
 - **Skip defers, dismiss removes** — `skip` leaves the candidate in the queue for the next run; `dismiss` (via `dismissFleetingMemory`) takes it out for good while preserving the row as a tombstone. Prefer `dismiss` whenever a candidate is clearly unpromotable rather than leaving it to be re-reviewed indefinitely.
 - **Delete is a last resort, and needs sign-off** — `deleteFleetingMemory` hard-deletes and rejects promoted rows; reserve it for pure noise (empty/duplicate candidates) with zero historical value, and always confirm with the user before calling it. `dismiss` is the default for everything else, since it preserves the row.
 - **Evolution is additions-only** — step 3f never removes existing keywords or themes; it only adds. Conservative by design: when in doubt, skip.
+- **Merge promotes onto the first member, absorbs the rest** — a multi-member cluster promotes exactly one permanent memory (on `ids[0]`), then dismisses every other member as absorbed. They're tombstoned, not deleted, so an over-eager merge is still recoverable.
 
 ## Flow Position
 

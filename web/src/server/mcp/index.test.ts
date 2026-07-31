@@ -345,6 +345,32 @@ describe('MCP Server', () => {
         expect(rows.every((r) => r.source === 'agent')).toBe(true);
       });
 
+      it('[FR-TASK-140] should skip memory entries with empty content while keeping valid ones', async () => {
+        const db = getDb();
+        const ws = db.select().from(workspaces).where(eq(workspaces.slug, 'test')).get()!;
+        const task = db.insert(tasks).values({ title: 'Task with mixed memories', projectId }).returning().get();
+
+        const mcp = getMcpServer();
+        const call = callTool(mcp, 'updateTask');
+        const { data, isError } = await call({
+          id: task.id,
+          memories: [
+            { content: 'A valid learning', type: 'capture' },
+            { content: '', type: 'idea' },
+          ],
+        });
+
+        expect(isError).toBe(false);
+        expect(data).toEqual({ success: true });
+        const rows = db
+          .select()
+          .from(fleetingMemories)
+          .where(eq(fleetingMemories.workspaceId, ws.id))
+          .all();
+        expect(rows).toHaveLength(1);
+        expect(rows[0].content).toBe('A valid learning');
+      });
+
       it('[FR-TASK-140] should be a no-op for memories when the task has no projectId', async () => {
         const db = getDb();
         // Create a task without a projectId so there is no workspace to scope memories to
@@ -806,6 +832,20 @@ describe('MCP Server', () => {
       expect(data.sources).toEqual([]);
     });
 
+    it('[FR-MEMORY-020] createFleetingMemory input schema should reject empty content', () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const result = tools.createFleetingMemory.inputSchema.safeParse({
+        workspaceId,
+        content: '',
+        type: 'capture',
+        source: 'agent',
+        tags: [],
+      });
+
+      expect(result.success).toBe(false);
+    });
+
     it('listMemories should omit content by default (compact)', async () => {
       const db = getDb();
       db.insert(fleetingMemories)
@@ -924,6 +964,69 @@ describe('MCP Server', () => {
       const { data } = await call({ workspaceId, includeDismissed: true });
 
       expect(data).toHaveLength(1);
+    });
+
+    it('[FR-MEMORY-260] listMemories should exclude superseded permanent memories by default', async () => {
+      const db = getDb();
+      const replacement = db
+        .insert(permanentMemories)
+        .values({
+          workspaceId,
+          subtype: 'fact',
+          title: 'Active fact',
+          content: 'Still true',
+          filePath: 'memory/facts/active-fact.md',
+        })
+        .returning()
+        .get();
+      db.insert(permanentMemories)
+        .values({
+          workspaceId,
+          subtype: 'fact',
+          title: 'Superseded fact',
+          content: 'No longer true',
+          filePath: 'memory/facts/superseded-fact.md',
+          supersededById: replacement.id,
+        })
+        .run();
+
+      const mcp = getMcpServer();
+      const call = callTool(mcp, 'listMemories');
+      const { data } = await call({ workspaceId, scope: 'permanent', compact: false });
+
+      expect(data.permanent).toHaveLength(1);
+      expect(data.permanent[0].title).toBe('Active fact');
+    });
+
+    it('[FR-MEMORY-260] listMemories should include superseded permanent memories when includeSuperseded is true', async () => {
+      const db = getDb();
+      const replacement = db
+        .insert(permanentMemories)
+        .values({
+          workspaceId,
+          subtype: 'fact',
+          title: 'Active fact',
+          content: 'Still true',
+          filePath: 'memory/facts/active-fact.md',
+        })
+        .returning()
+        .get();
+      db.insert(permanentMemories)
+        .values({
+          workspaceId,
+          subtype: 'fact',
+          title: 'Superseded fact',
+          content: 'No longer true',
+          filePath: 'memory/facts/superseded-fact.md',
+          supersededById: replacement.id,
+        })
+        .run();
+
+      const mcp = getMcpServer();
+      const call = callTool(mcp, 'listMemories');
+      const { data } = await call({ workspaceId, scope: 'permanent', includeSuperseded: true });
+
+      expect(data.permanent).toHaveLength(2);
     });
 
     it('[FR-MEMORY-190] dismissFleetingMemory should set dismissedAt', async () => {
@@ -1085,6 +1188,49 @@ describe('MCP Server', () => {
       const sourcesDir = path.join(wsDir, 'memory', 'sources');
       const snapshots = fs.readdirSync(sourcesDir).filter((f) => f.endsWith('.md') && f !== 'README.md');
       expect(snapshots).toHaveLength(1);
+    });
+  });
+
+  describe('listReviewClusters tool', () => {
+    let workspaceId: number;
+
+    beforeEach(async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const ws = await caller.workspace.create({ name: 'Cluster Tools Test WS' });
+      const db = getDb();
+      const wsRow = db.select().from(workspaces).where(eq(workspaces.slug, ws.slug)).get()!;
+      workspaceId = wsRow.id;
+    });
+
+    it('[FR-MEMORY-280] should return one singleton cluster per pending memory under QMD_SKIP=1', async () => {
+      const db = getDb();
+      db.insert(fleetingMemories)
+        .values([
+          { workspaceId, content: 'Pending A', type: 'capture', source: 'agent' },
+          { workspaceId, content: 'Pending B', type: 'capture', source: 'agent' },
+        ])
+        .run();
+
+      const mcp = getMcpServer();
+      const { data, isError } = await callTool(mcp, 'listReviewClusters')({ workspaceId });
+
+      expect(isError).toBe(false);
+      expect(data.truncated).toBe(false);
+      expect(data.clusters).toHaveLength(2);
+      expect(data.clusters.every((cl: { memberCount: number }) => cl.memberCount === 1)).toBe(true);
+    });
+
+    it('should return an error for an unknown workspace', async () => {
+      const mcp = getMcpServer();
+      const { isError } = await callTool(mcp, 'listReviewClusters')({ workspaceId: 999999 });
+      expect(isError).toBe(true);
+    });
+
+    it('input schema should reject a missing workspaceId', () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const parsed = tools.listReviewClusters.inputSchema.safeParse({});
+      expect(parsed.success).toBe(false);
     });
   });
 

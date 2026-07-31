@@ -1104,6 +1104,54 @@ describe('memory router', () => {
     });
   });
 
+  describe('reviewCandidateClusters', () => {
+    it('[FR-MEMORY-280] should return one singleton cluster per pending memory under QMD_SKIP=1', async () => {
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+
+      ctx.db
+        .insert(fleetingMemories)
+        .values([
+          { workspaceId: ws.id, content: 'Pending A', type: 'capture', source: 'agent' },
+          { workspaceId: ws.id, content: 'Pending B', type: 'capture', source: 'agent' },
+          {
+            workspaceId: ws.id,
+            content: 'Dismissed candidate',
+            type: 'capture',
+            source: 'agent',
+            dismissedAt: new Date().toISOString(),
+          },
+          {
+            workspaceId: ws.id,
+            content: 'Promoted candidate',
+            type: 'capture',
+            source: 'agent',
+            promoted: true,
+            promotedAt: new Date().toISOString(),
+          },
+        ])
+        .run();
+
+      const result = await caller.memory.reviewCandidateClusters({ workspaceSlug });
+
+      expect(result.truncated).toBe(false);
+      expect(result.clusters).toHaveLength(2);
+      expect(result.clusters.every((cl) => cl.memberCount === 1 && cl.ids.length === 1)).toBe(true);
+      const contents = result.clusters.map((cl) => cl.members[0].content).sort();
+      expect(contents).toEqual(['Pending A', 'Pending B']);
+    });
+
+    it('should throw NOT_FOUND for unknown workspace', async () => {
+      await expect(
+        caller.memory.reviewCandidateClusters({ workspaceSlug: 'no-such-ws' }),
+      ).rejects.toThrow('not found');
+    });
+
+    it('should return no clusters when there are no pending fleeting memories', async () => {
+      const result = await caller.memory.reviewCandidateClusters({ workspaceSlug });
+      expect(result).toEqual({ clusters: [], truncated: false });
+    });
+  });
+
   describe('dismissFleeting', () => {
     it('[FR-MEMORY-190] should set dismissedAt and exclude the memory from default review candidates', async () => {
       const ws = await caller.workspace.get({ slug: workspaceSlug });
@@ -1287,6 +1335,65 @@ describe('memory router', () => {
           content: 'Some thought',
         }),
       ).rejects.toThrow('not found');
+    });
+
+    it('should default type to capture when not provided', async () => {
+      const result = await caller.memory.createFleeting({
+        workspaceSlug,
+        content: 'Untyped capture',
+      });
+
+      const row = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, result.id))
+        .get();
+      expect(row?.type).toBe('capture');
+    });
+
+    it('should store an explicit type', async () => {
+      const result = await caller.memory.createFleeting({
+        workspaceSlug,
+        content: 'An open question',
+        type: 'question',
+      });
+
+      const row = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, result.id))
+        .get();
+      expect(row?.type).toBe('question');
+    });
+
+    it('should store supplied sources', async () => {
+      const sources = ['memory/sources/ref-a.md', 'memory/references/ref-b.md'];
+      const result = await caller.memory.createFleeting({
+        workspaceSlug,
+        content: 'Distilled from sources',
+        sources,
+      });
+
+      const row = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, result.id))
+        .get();
+      expect(row?.sources).toEqual(sources);
+    });
+
+    it('should default sources to empty array when not provided', async () => {
+      const result = await caller.memory.createFleeting({
+        workspaceSlug,
+        content: 'No sources',
+      });
+
+      const row = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, result.id))
+        .get();
+      expect(row?.sources).toEqual([]);
     });
 
     it('[FR-MEMORY-020] should reject empty content', async () => {

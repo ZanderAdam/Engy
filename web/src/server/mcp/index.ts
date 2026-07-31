@@ -46,6 +46,7 @@ import {
 import { autoLink } from '../search/auto-linker';
 import { validateWorkspace as runValidateWorkspace } from '../search/validate';
 import { getStore } from '../search/qmd-store';
+import { clusterReviewCandidates } from '../search/candidate-clusters';
 import { runQmdSearch, isReadme, type QmdSearchMode } from '../search/qmd-search';
 import { applySubtypeAffinity } from '../search/subtype-affinity';
 import { projectCompletionService } from '../services/project-completion';
@@ -144,6 +145,7 @@ const createFleetingMemoryInput = {
   workspaceId: z.number().describe('Workspace ID'),
   content: z
     .string()
+    .min(1)
     .describe(
       'Memory body. Structure it as: Core claim / What surprised / Connects to / Contradicts (or "nothing identified").',
     ),
@@ -170,6 +172,10 @@ const listMemoriesInput = {
     .boolean()
     .default(false)
     .describe('Include dismissed fleeting memories (excluded by default)'),
+  includeSuperseded: z
+    .boolean()
+    .default(false)
+    .describe('Include superseded permanent memories (excluded by default)'),
 };
 
 const dismissFleetingMemoryInput = {
@@ -237,6 +243,10 @@ const promoteMemoryInput = {
   scenarioIds: z.array(z.string()).optional().describe('FR/scenario ID anchors'),
   sources: z.array(z.string()).optional().describe('Source paths'),
   linkedMemories: z.array(z.string()).optional().describe('Linked memory paths'),
+};
+
+const listReviewClustersInput = {
+  workspaceId: z.number().describe('Workspace ID'),
 };
 
 const writeSourceSnapshotInput = {
@@ -778,6 +788,7 @@ function registerTaskTools(mcp: McpServer): void {
             .get();
           if (project) {
             for (const mem of memories) {
+              if (mem.content.length === 0) continue;
               tx
                 .insert(fleetingMemories)
                 .values({
@@ -1007,9 +1018,9 @@ function registerMemoryTools(mcp: McpServer): void {
 
   mcp.tool(
     'listMemories',
-    'List memories for a workspace. Compact mode (default) omits content. Use scope to include permanent memories. Dismissed fleeting memories are excluded unless includeDismissed is set.',
+    'List memories for a workspace. Compact mode (default) omits content. Use scope to include permanent memories. Dismissed fleeting memories are excluded unless includeDismissed is set; superseded permanent memories are excluded unless includeSuperseded is set.',
     listMemoriesInput,
-    async ({ workspaceId, compact, scope, includeDismissed }) => {
+    async ({ workspaceId, compact, scope, includeDismissed, includeSuperseded }) => {
       const db = getDb();
       const result: Record<string, unknown> = {};
 
@@ -1025,9 +1036,13 @@ function registerMemoryTools(mcp: McpServer): void {
       }
 
       if (scope === 'permanent' || scope === 'both') {
-        const rows = workspaceId !== undefined
-          ? db.select().from(permanentMemories).where(eq(permanentMemories.workspaceId, workspaceId)).all()
-          : db.select().from(permanentMemories).all();
+        const conditions = [];
+        if (workspaceId !== undefined) conditions.push(eq(permanentMemories.workspaceId, workspaceId));
+        if (!includeSuperseded) conditions.push(isNull(permanentMemories.supersededById));
+        const rows =
+          conditions.length > 0
+            ? db.select().from(permanentMemories).where(and(...conditions)).all()
+            : db.select().from(permanentMemories).all();
         result.permanent = compact !== false ? omitKey(rows, 'content') : rows;
       }
 
@@ -1335,6 +1350,20 @@ function registerMemoryTools(mcp: McpServer): void {
       }
 
       return mcpResult(result);
+    },
+  );
+
+  mcp.tool(
+    'listReviewClusters',
+    'Group pending (non-dismissed, non-promoted) fleeting memories into similarity clusters for batch review — embeddings are computed ad-hoc and nothing is persisted to the search index. Degrades to one singleton cluster per memory when the embedded LLM is unavailable.',
+    listReviewClustersInput,
+    async ({ workspaceId }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const { clusters, truncated } = await clusterReviewCandidates(ws);
+      return mcpResult({ clusters, truncated });
     },
   );
 }

@@ -625,6 +625,12 @@ function handleCreateMemoriesEvent(msg: unknown): void {
     if (typeof content !== 'string') {
       return false;
     }
+    if (content.length === 0) {
+      console.warn(
+        `[ws-main-server] CREATE_MEMORIES_EVENT: session=${sessionId} memory content is empty, dropping`,
+      );
+      return false;
+    }
     if (content.length > MAX_MEMORY_CONTENT_LENGTH) {
       console.warn(
         `[ws-main-server] CREATE_MEMORIES_EVENT: session=${sessionId} memory content exceeds ${MAX_MEMORY_CONTENT_LENGTH} chars, dropping`,
