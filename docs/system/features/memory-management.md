@@ -15,6 +15,10 @@ Stored in the `fleetingMemories` table. Each row carries `content`, `type` (`cap
 
 Captured via the `memory.createFleeting` tRPC procedure (`web/src/server/trpc/routers/memory.ts`) or the `createFleetingMemory` MCP tool (`web/src/server/mcp/index.ts`). MCP defaults `source` to `'agent'`; tRPC defaults to `'user'`. Only the tRPC `createFleeting` enforces a Zod `min(1)` guard on `content`; the MCP `createFleetingMemory` tool accepts any non-null string.
 
+### Fleeting lifecycle: dismiss, restore, delete
+
+A fleeting memory has three terminal-ish states beyond plain capture: `promoted` (unchanged — see Promotion below), `dismissedAt` (a tombstone timestamp), or plain deletion. Dismissal is suppress-and-preserve: the row stays in the DB with `dismissedAt` set and drops out of the default review queue, but remains restorable. `memory.dismissFleeting` / `memory.restoreFleeting` / `memory.deleteFleeting` (tRPC) and `dismissFleetingMemory` / `deleteFleetingMemory` (MCP) implement this. A memory that has already been promoted cannot be dismissed or deleted — the promoted permanent memory is the audit trail, and `memory.promote` / `promoteMemory` always clears `dismissedAt` when promoting (promoting from the dismissed view is a valid restore path). There is no `restoreFleetingMemory` MCP tool — restoring a dismissed item is a UI-only affordance; agents promote or delete instead.
+
 ### Permanent memories
 
 Stored in the `permanentMemories` table **and** as a gray-matter markdown file at `memory/{subtype}s/YYYYMMDDHHMMSS-<slug>.md` relative to the workspace directory. Subtypes are `decision | pattern | fact | convention | insight` (mapped by `SUBTYPE_DIR_MAP` in `memory-files.ts`). Full metadata schema: `title`, `subtype`, `repo`, `confidence`, `keywords[]`, `themes[]`, `tags[]`, `linkedMemories[]`, `scenarioIds[]`, `sources[]`, `supersededBy` (optional path). The `filePath` column stores the workspace-relative path back-filled after the file is written.
@@ -47,18 +51,19 @@ Ingested reference material is stored under `memory/sources/` via `writeSourceSn
 
 ### Broadcast
 
-Every mutating operation (`create`, `update`, `delete`, `promote`) calls `broadcastMemoryChange(action, workspaceId, memoryId?)` (`web/src/server/ws/broadcast.ts`), which emits a `MEMORY_CHANGE` event with an `action` field (`'created' | 'updated' | 'deleted' | 'promoted'`) to all connected browser clients.
+Every mutating operation (`create`, `update`, `delete`, `promote`, `dismissFleeting`, `restoreFleeting`, `deleteFleeting`) calls `broadcastMemoryChange(action, workspaceId, memoryId?)` (`web/src/server/ws/broadcast.ts`), which emits a `MEMORY_CHANGE` event with an `action` field (`'created' | 'updated' | 'deleted' | 'promoted' | 'dismissed' | 'restored'`) to all connected browser clients.
 
 ## Key files
 
 | File | Role |
 |---|---|
-| `web/src/server/trpc/routers/memory.ts` | tRPC procedures: `create`, `update`, `delete`, `get`, `getByPath`, `list`, `promote`, `reviewCandidates`, `createFleeting`, `proposePromotion` |
-| `web/src/server/mcp/index.ts` | MCP tools: `createFleetingMemory`, `listMemories`, `createPermanentMemory`, `updatePermanentMemory`, `promoteMemory`, `writeSourceSnapshot` |
+| `web/src/server/trpc/routers/memory.ts` | tRPC procedures: `create`, `update`, `delete`, `get`, `getByPath`, `list`, `promote`, `reviewCandidates`, `createFleeting`, `dismissFleeting`, `restoreFleeting`, `deleteFleeting`, `proposePromotion` |
+| `web/src/server/mcp/index.ts` | MCP tools: `createFleetingMemory`, `dismissFleetingMemory`, `deleteFleetingMemory`, `listMemories`, `createPermanentMemory`, `updatePermanentMemory`, `promoteMemory`, `writeSourceSnapshot` |
 | `web/src/server/lib/memory-files.ts` | File I/O: `writePermanentMemory`, `rewritePermanentMemory`, `writeSourceSnapshot`, `readPermanentMemory`, `validateSourcePath`, `validateLinkedMemoryPath`, `commitFile` |
 | `web/src/server/lib/promote-proposal.ts` | `proposeMemoryMetadata` — LLM-driven promotion metadata proposal |
 | `web/src/server/lib/readme-index.ts` | `regenerateReadmeChain`, `updateReadmeIndex` — README index regeneration |
 | `web/src/server/search/auto-linker.ts` | `autoLink` — bidirectional link writing on create/promote |
+| `web/src/server/search/indexer.ts` | `triggerMemoryIndexOnWrite` — fire-and-forget, per-workspace-serialized search index refresh (qmd hash scan, orphaned-vector cleanup, background embed) called after every permanent memory create/update/delete/promote |
 
 ## Requirements
 
@@ -73,7 +78,7 @@ their title string, e.g. `it('[FR-MEMORY-010] ...', ...)`, and run
 | FR-MEMORY-020 | WHEN `createFleeting` or `createFleetingMemory` is called with empty content, the system SHALL reject the request with a validation error before any DB write. |
 | FR-MEMORY-030 | WHEN a permanent memory is created via `memory.create` or `createPermanentMemory`, the system SHALL write a markdown file at `memory/{subtype}s/YYYYMMDDHHMMSS-<slug>.md`, back-fill `filePath` in the DB row, regenerate the README chain, and make a `memory(create): <title>` git commit. |
 | FR-MEMORY-040 | IF the file write fails during permanent memory creation, THEN the system SHALL execute a compensating delete of the DB row and throw an INTERNAL_SERVER_ERROR, leaving no orphan row. |
-| FR-MEMORY-050 | WHEN a permanent memory is updated with an unchanged subtype, the system SHALL rewrite the file at the existing path, merge only the supplied fields into the DB row, refresh `updatedAt`, trigger an incremental reindex, and broadcast a `MEMORY_CHANGE` event with action `'updated'`. |
+| FR-MEMORY-050 | WHEN a permanent memory is updated with an unchanged subtype, the system SHALL rewrite the file at the existing path, merge only the supplied fields into the DB row, refresh `updatedAt`, and broadcast a `MEMORY_CHANGE` event with action `'updated'`. |
 | FR-MEMORY-060 | WHEN a permanent memory update changes the subtype, the system SHALL move the file to `memory/{newSubtype}/<same filename>`, delete the old file, rewrite all inbound `linkedMemories` references to the new path, regenerate README chains for both directories, and make a single `memory(edit):` git commit. |
 | FR-MEMORY-070 | WHEN a permanent memory's `supersededById` is set, the system SHALL write `supersededBy: <path>` into the file's frontmatter, and subsequent unrelated updates to that memory SHALL preserve the field. |
 | FR-MEMORY-080 | The system SHALL exclude permanent memories where `supersededById` is non-null from all `memory.list` result sets. |
@@ -87,6 +92,12 @@ their title string, e.g. `it('[FR-MEMORY-010] ...', ...)`, and run
 | FR-MEMORY-160 | WHEN `memory.proposePromotion` is called on a fleeting memory and the embedded LLM is available, the system SHALL return a proposal containing `title`, `subtype`, `keywords`, `themes`, `tags`, `confidence`, and `rationale`. |
 | FR-MEMORY-170 | IF `QMD_SKIP=1` or the embedded LLM is unavailable, THEN `memory.proposePromotion` SHALL return `null` without error. |
 | FR-MEMORY-180 | The system SHALL reject any `sources` path that is absolute, contains `..` segments, or does not resolve under `memory/sources/` or `memory/references/`, and any `linkedMemories` path that is absolute, contains `..` segments, or does not resolve under a valid `memory/{subtype}s/` directory. |
+| FR-MEMORY-190 | WHEN `memory.dismissFleeting` or `dismissFleetingMemory` is called on an unpromoted fleeting memory, the system SHALL set `dismissedAt` to the current timestamp, leave the row in place, and broadcast a `MEMORY_CHANGE` event with action `'dismissed'`. IF the fleeting memory has already been promoted, THEN the system SHALL reject the request with a BAD_REQUEST error (MCP: an error result) and leave `dismissedAt` unchanged. |
+| FR-MEMORY-200 | WHEN `memory.restoreFleeting` is called on a fleeting memory, the system SHALL null `dismissedAt` and broadcast a `MEMORY_CHANGE` event with action `'restored'`. |
+| FR-MEMORY-210 | WHEN `memory.deleteFleeting` or `deleteFleetingMemory` is called on an unpromoted fleeting memory, the system SHALL hard-delete the row and broadcast a `MEMORY_CHANGE` event with action `'deleted'`. IF the fleeting memory has already been promoted, THEN the system SHALL reject the request with a BAD_REQUEST error (MCP: an error result) and delete nothing, since the promoted permanent memory is the audit trail. |
+| FR-MEMORY-220 | WHEN `memory.promote` or `promoteMemory` succeeds, the system SHALL null the fleeting memory's `dismissedAt` regardless of its prior value, so promoting from the dismissed view is a valid restore path. |
+| FR-MEMORY-230 | The system SHALL exclude fleeting memories where `dismissedAt` is non-null from `memory.reviewCandidates`'s default (`status: 'pending'`) result set and from `listMemories`'s fleeting scope unless `includeDismissed` is `true`; `memory.reviewCandidates` SHALL support a `status` filter (`'pending' \| 'dismissed'`), optional `type`, `search` (LIKE on content), and `tag` filters, `sort` (createdAt asc/desc, default desc), pagination (`limit` default 100 max 200, `offset`), and SHALL return `{ items, total }` where `total` is the count of matching rows before pagination. |
+| FR-MEMORY-240 | WHEN a permanent memory is created, updated, deleted, or promoted (`memory.create`/`update`/`delete`/`promote` or the MCP tools `createPermanentMemory`/`updatePermanentMemory`/`promoteMemory`), the system SHALL refresh the memory collection's search index (qmd hash scan, orphaned-vector cleanup, and a background embed pass) as a fire-and-forget, error-swallowed call so the change is searchable — including its embedding — without the mutation waiting on it. This refresh SHALL NOT re-run the permanentMemories filesystem mirror sync, since the mutation already wrote the canonical DB row directly and re-scanning could race with a sibling in-flight mutation's own file-write-then-DB-backfill window. Triggers for the same workspace that arrive while a run is already in flight SHALL be coalesced into a single trailing re-run rather than stacking concurrent runs. |
 
 ## Sources
 

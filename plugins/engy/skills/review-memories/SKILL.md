@@ -1,11 +1,11 @@
 ---
 name: review-memories
-description: This skill should be used when the user asks to "review memories", "review fleeting memories", "promote memories", or "run memory review". Reviews unpromoted fleeting memories one by one, proposes type/subtype/title/keywords/themes/tags, checks for duplicates and contradictions, and lets the user approve/edit/supersede/skip.
+description: This skill should be used when the user asks to "review memories", "review fleeting memories", "promote memories", or "run memory review". Reviews unpromoted fleeting memories one by one, proposes type/subtype/title/keywords/themes/tags, checks for duplicates and contradictions, and lets the user approve/edit/supersede/contradict/skip/dismiss.
 ---
 
 # Review Memories
 
-Batch-review unpromoted fleeting memories, enrich each one with LLM-proposed metadata, surface duplicates and conflicts, then promote, skip, or flag based on user choice.
+Batch-review unpromoted fleeting memories, enrich each one with LLM-proposed metadata, surface duplicates and conflicts, then promote, dismiss, skip, or flag based on user choice.
 
 ## MCP Tools
 
@@ -15,6 +15,8 @@ Batch-review unpromoted fleeting memories, enrich each one with LLM-proposed met
 - `promoteMemory` — promote approved fleeting to permanent (writes DB row + markdown file)
 - `updatePermanentMemory` — mark existing permanent as superseded via `supersededById`
 - `createFleetingMemory` — create a new fleeting memory (used in the contradict action to record the conflict durably)
+- `dismissFleetingMemory` — tombstone a candidate (sets `dismissedAt`); removes it from the review queue while preserving the row. Rejects memories that have already been promoted. Used by the `dismiss` action and to close out the original candidate after `contradict`. No MCP restore tool exists — recovering a dismissed row is UI-only.
+- `deleteFleetingMemory` — hard delete a fleeting memory; rejects rows that have already been promoted. Reserved for pure noise (see Key Principles) — prefer `dismiss`.
 
 ## Process
 
@@ -92,8 +94,10 @@ Similar existing memories:
 
 Conflicts detected: <none | supersedes '<existing title>' | contradicts '<existing title>'>
 
-Action? [approve / edit / supersede / contradict / skip]
+Action? [approve / edit / supersede / contradict / skip / dismiss]
 ```
+
+If the candidate is clearly unpromotable — noise, obsolete, or wrong — recommend `dismiss` over `skip` when presenting the prompt: `skip` just defers to the next run, while `dismiss` removes it from the queue for good (but preserves the row as a tombstone).
 
 If the user types "stop", "done", or "exit", stop iterating immediately and jump to the Summary.
 
@@ -138,11 +142,18 @@ createFleetingMemory({
   tags: ["contradiction"]
 })
 ```
-Print: `Flagged as contradiction with <existing title>. Left unpromoted. Contradiction record saved.`
-The original fleeting remains in the DB; the contradiction finding is now durable via the tagged fleeting.
+Then dismiss the original candidate so it doesn't linger in the queue alongside its own contradiction note:
+```
+dismissFleetingMemory({ id: <original fleeting id> })
+```
+Print: `Flagged as contradiction with <existing title>. Original dismissed (preserved); contradiction record saved.`
+The original fleeting is tombstoned, not deleted — the contradiction finding carries the conflict forward via the new tagged fleeting.
 
 **skip**
-Do nothing. Print: `Skipped.`
+Do nothing. The candidate stays in the review queue and will resurface on the next review run — until it is either promoted or dismissed, `skip` never removes it. Print: `Skipped.`
+
+**dismiss**
+Call `dismissFleetingMemory({ id: <fleeting id> })`. Use this over `skip` whenever the candidate is clearly unpromotable (noise, obsolete, or wrong) — it removes the candidate from the review queue while preserving the row as a tombstone. There is no MCP restore tool; recovering a dismissed row is UI-only. Print: `Dismissed → removed from review queue (preserved).`
 
 #### 3f: Memory Evolution — Enrich Linked Siblings (runs after every successful promotion)
 
@@ -160,8 +171,9 @@ Review complete.
   Reviewed:          <N>
   Promoted:          <N>  (including edits and supersessions)
   Superseded:        <N>  existing memories marked as superseded
-  Contradictions:    <N>  flagged (left unpromoted)
-  Skipped:           <N>
+  Contradictions:    <N>  flagged (original dismissed, preserved as tombstone)
+  Dismissed:         <N>  removed from queue, preserved (includes contradiction originals)
+  Skipped:           <N>  deferred, still in queue
   Siblings enriched: <N>  across all promotions
 ```
 
@@ -170,8 +182,10 @@ Review complete.
 - **Sequential only** — one candidate at a time; never batch multiple candidates in a single prompt.
 - **LLM enrichment is in-context** — propose metadata using your own reasoning; no extra server-side LLM calls.
 - **No project-status gate** — this skill works anytime: during project completion or as ongoing maintenance.
-- **Contradict = do not promote, but record durably** — flagging a contradiction leaves the original fleeting untouched and creates a new tagged fleeting (tag: "contradiction") so the finding survives the session.
+- **Contradict = do not promote, but record durably** — flagging a contradiction creates a new tagged fleeting (tag: "contradiction") that carries the conflict forward, then dismisses the original candidate so the finding survives without net-growing the queue.
 - **Supersede = promote first, then update** — always create the new permanent record before marking the old one superseded; `updatePermanentMemory` writes `supersededById` to both the DB and the markdown frontmatter.
+- **Skip defers, dismiss removes** — `skip` leaves the candidate in the queue for the next run; `dismiss` (via `dismissFleetingMemory`) takes it out for good while preserving the row as a tombstone. Prefer `dismiss` whenever a candidate is clearly unpromotable rather than leaving it to be re-reviewed indefinitely.
+- **Delete is a last resort, and needs sign-off** — `deleteFleetingMemory` hard-deletes and rejects promoted rows; reserve it for pure noise (empty/duplicate candidates) with zero historical value, and always confirm with the user before calling it. `dismiss` is the default for everything else, since it preserves the row.
 - **Evolution is additions-only** — step 3f never removes existing keywords or themes; it only adds. Conservative by design: when in doubt, skip.
 
 ## Flow Position

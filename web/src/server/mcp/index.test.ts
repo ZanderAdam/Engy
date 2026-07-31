@@ -35,7 +35,16 @@ vi.mock('../search/qmd-store', async (importOriginal) => {
   };
 });
 
+vi.mock('../search/indexer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../search/indexer')>();
+  return {
+    ...actual,
+    triggerMemoryIndexOnWrite: vi.fn(actual.triggerMemoryIndexOnWrite),
+  };
+});
+
 import { getStore } from '../search/qmd-store';
+import { triggerMemoryIndexOnWrite, _flushMemoryIndexOnWrite } from '../search/indexer';
 const mockGetStore = getStore as MockedFunction<typeof getStore>;
 
 // Helper to call an MCP tool by name
@@ -64,7 +73,11 @@ describe('MCP Server', () => {
     ctx = setupTestDb();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Flush any fire-and-forget index-on-write runs before the DB is torn
+    // down — getDb() is a process-global singleton the next test swaps out,
+    // so a leftover run could otherwise resolve against the next test's DB.
+    await _flushMemoryIndexOnWrite();
     ctx.cleanup();
   });
 
@@ -870,6 +883,137 @@ describe('MCP Server', () => {
 
       expect(data).toHaveLength(1);
     });
+
+    it('[FR-MEMORY-230] listMemories should exclude dismissed fleeting memories by default', async () => {
+      const db = getDb();
+      db.insert(fleetingMemories)
+        .values({ workspaceId, content: 'Pending', type: 'capture', source: 'agent' })
+        .run();
+      db.insert(fleetingMemories)
+        .values({
+          workspaceId,
+          content: 'Dismissed',
+          type: 'capture',
+          source: 'agent',
+          dismissedAt: new Date().toISOString(),
+        })
+        .run();
+
+      const mcp = getMcpServer();
+      const call = callTool(mcp, 'listMemories');
+      const { data } = await call({ workspaceId, compact: false });
+
+      expect(data).toHaveLength(1);
+      expect(data[0].content).toBe('Pending');
+    });
+
+    it('[FR-MEMORY-230] listMemories should include dismissed fleeting memories when includeDismissed is true', async () => {
+      const db = getDb();
+      db.insert(fleetingMemories)
+        .values({
+          workspaceId,
+          content: 'Dismissed',
+          type: 'capture',
+          source: 'agent',
+          dismissedAt: new Date().toISOString(),
+        })
+        .run();
+
+      const mcp = getMcpServer();
+      const call = callTool(mcp, 'listMemories');
+      const { data } = await call({ workspaceId, includeDismissed: true });
+
+      expect(data).toHaveLength(1);
+    });
+
+    it('[FR-MEMORY-190] dismissFleetingMemory should set dismissedAt', async () => {
+      const db = getDb();
+      const fleeting = db
+        .insert(fleetingMemories)
+        .values({ workspaceId, content: 'Dismiss me', type: 'capture', source: 'agent' })
+        .returning()
+        .get();
+
+      const mcp = getMcpServer();
+      const call = callTool(mcp, 'dismissFleetingMemory');
+      const { data } = await call({ id: fleeting.id });
+
+      expect(data.dismissedAt).toBeTruthy();
+    });
+
+    it('[FR-MEMORY-190] dismissFleetingMemory should error when the memory is not found', async () => {
+      const mcp = getMcpServer();
+      const call = callTool(mcp, 'dismissFleetingMemory');
+      const { isError, data } = await call({ id: 99999 });
+
+      expect(isError).toBe(true);
+      expect(data.error).toContain('not found');
+    });
+
+    it('[FR-MEMORY-190] dismissFleetingMemory should error for an already-promoted memory', async () => {
+      const db = getDb();
+      const fleeting = db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId,
+          content: 'Promoted',
+          type: 'capture',
+          source: 'agent',
+          promoted: true,
+          promotedAt: new Date().toISOString(),
+        })
+        .returning()
+        .get();
+
+      const mcp = getMcpServer();
+      const call = callTool(mcp, 'dismissFleetingMemory');
+      const { isError, data } = await call({ id: fleeting.id });
+
+      expect(isError).toBe(true);
+      expect(data.error).toContain('already been promoted');
+    });
+
+    it('[FR-MEMORY-210] deleteFleetingMemory should hard-delete an unpromoted memory', async () => {
+      const db = getDb();
+      const fleeting = db
+        .insert(fleetingMemories)
+        .values({ workspaceId, content: 'Delete me', type: 'capture', source: 'agent' })
+        .returning()
+        .get();
+
+      const mcp = getMcpServer();
+      const call = callTool(mcp, 'deleteFleetingMemory');
+      const { data } = await call({ id: fleeting.id });
+
+      expect(data.success).toBe(true);
+      const row = db.select().from(fleetingMemories).where(eq(fleetingMemories.id, fleeting.id)).get();
+      expect(row).toBeUndefined();
+    });
+
+    it('[FR-MEMORY-210] deleteFleetingMemory should error for an already-promoted memory and leave it intact', async () => {
+      const db = getDb();
+      const fleeting = db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId,
+          content: 'Promoted, protected',
+          type: 'capture',
+          source: 'agent',
+          promoted: true,
+          promotedAt: new Date().toISOString(),
+        })
+        .returning()
+        .get();
+
+      const mcp = getMcpServer();
+      const call = callTool(mcp, 'deleteFleetingMemory');
+      const { isError, data } = await call({ id: fleeting.id });
+
+      expect(isError).toBe(true);
+      expect(data.error).toContain('already been promoted');
+      const row = db.select().from(fleetingMemories).where(eq(fleetingMemories.id, fleeting.id)).get();
+      expect(row).toBeDefined();
+    });
   });
 
   describe('writeSourceSnapshot tool', () => {
@@ -944,6 +1088,40 @@ describe('MCP Server', () => {
     });
   });
 
+  describe('createPermanentMemory tool', () => {
+    let workspaceId: number;
+    let wsSlug: string;
+
+    beforeEach(async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const ws = await caller.workspace.create({ name: 'Create PM Trigger Test WS' });
+      wsSlug = ws.slug;
+      const db = getDb();
+      const wsRow = db.select().from(workspaces).where(eq(workspaces.slug, wsSlug)).get()!;
+      workspaceId = wsRow.id;
+    });
+
+    afterEach(() => {
+      _resetStoreCache();
+      vi.restoreAllMocks();
+    });
+
+    it('[FR-MEMORY-240] should trigger index-on-write after creating', async () => {
+      const mockTrigger = vi.mocked(triggerMemoryIndexOnWrite);
+      mockTrigger.mockClear();
+
+      const mcp = getMcpServer();
+      await callTool(mcp, 'createPermanentMemory')({
+        workspaceId,
+        subtype: 'fact',
+        title: 'Index-on-write create fact',
+        content: 'Should trigger the indexer.',
+      });
+
+      expect(mockTrigger).toHaveBeenCalledWith(wsSlug);
+    });
+  });
+
   describe('updatePermanentMemory tool', () => {
     let workspaceId: number;
     let wsSlug: string;
@@ -1009,6 +1187,26 @@ describe('MCP Server', () => {
       } finally {
         delete process.env.QMD_SKIP;
       }
+    });
+
+    it('[FR-MEMORY-240] should trigger index-on-write after updating', async () => {
+      const mcp = getMcpServer();
+      const { data: created } = await callTool(mcp, 'createPermanentMemory')({
+        workspaceId,
+        subtype: 'fact',
+        title: 'Update trigger fact',
+        content: 'Original content.',
+      });
+
+      const mockTrigger = vi.mocked(triggerMemoryIndexOnWrite);
+      mockTrigger.mockClear();
+
+      await callTool(mcp, 'updatePermanentMemory')({
+        id: created.id,
+        content: 'Updated content.',
+      });
+
+      expect(mockTrigger).toHaveBeenCalledWith(wsSlug);
     });
   });
 
@@ -1186,6 +1384,32 @@ describe('MCP Server', () => {
       }
     });
 
+    it('[FR-MEMORY-240] should trigger index-on-write after promoting', async () => {
+      process.env.QMD_SKIP = '1';
+      try {
+        const db = getDb();
+        const fleeting = db
+          .insert(fleetingMemories)
+          .values({ workspaceId: wsId, content: 'Promote trigger content', type: 'capture', source: 'agent' })
+          .returning()
+          .get();
+
+        const mockTrigger = vi.mocked(triggerMemoryIndexOnWrite);
+        mockTrigger.mockClear();
+
+        const mcp = getMcpServer();
+        await callTool(mcp, 'promoteMemory')({
+          fleetingMemoryId: fleeting.id,
+          subtype: 'fact',
+          title: 'Promote trigger fact',
+        });
+
+        expect(mockTrigger).toHaveBeenCalledWith(wsSlug);
+      } finally {
+        delete process.env.QMD_SKIP;
+      }
+    });
+
     it('[FR-MEMORY-150] should populate linkedMemories when autoLink finds siblings', async () => {
       if (process.env.QMD_SKIP === '1') return;
 
@@ -1207,7 +1431,7 @@ describe('MCP Server', () => {
 
       // Mock getStore to return the sibling as a high-score candidate
       mockGetStore.mockResolvedValue({
-        search: async () => [
+        searchVector: async () => [
           {
             file: 'qmd://memory/facts/related-fact.md',
             displayPath: 'memory/facts/related-fact.md',

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import { jsonArrayContains } from '../../db/json';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,10 +20,11 @@ import { withWorkspaceLock } from '../../lib/workspace-lock';
 import { regenerateReadmeChain } from '../../lib/readme-index';
 import { autoLink } from '../../search/auto-linker';
 import { proposeMemoryMetadata } from '../../lib/promote-proposal';
-import { update as indexerUpdate } from '../../search/indexer';
+import { triggerMemoryIndexOnWrite } from '../../search/indexer';
 import { broadcastMemoryChange } from '../../ws/broadcast';
 
 const memorySubtypeSchema = z.enum(['decision', 'pattern', 'fact', 'convention', 'insight']);
+const fleetingTypeSchema = z.enum(['capture', 'question', 'blocker', 'idea', 'reference']);
 
 const createInput = z.object({
   workspaceSlug: z.string().min(1),
@@ -117,6 +118,20 @@ function resolveWorkspace(workspaceSlug: string) {
   return ws;
 }
 
+/** Shared lookup for the dismiss/restore/delete fleeting-memory mutations below. */
+function findOwnedFleetingMemory(workspaceId: number, id: number) {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(fleetingMemories)
+    .where(and(eq(fleetingMemories.id, id), eq(fleetingMemories.workspaceId, workspaceId)))
+    .get();
+  if (!existing) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Fleeting memory not found' });
+  }
+  return existing;
+}
+
 async function deleteMemoryFile(workspaceDir: string, filePath: string, title: string): Promise<void> {
   const absPath = path.isAbsolute(filePath) ? filePath : path.join(workspaceDir, filePath);
   if (fs.existsSync(absPath)) {
@@ -192,6 +207,8 @@ export const memoryRouter = router({
       console.error('[autoLink] create failed:', err),
     );
 
+    triggerMemoryIndexOnWrite(ws.slug);
+
     return updated;
   }),
 
@@ -261,11 +278,7 @@ export const memoryRouter = router({
 
     broadcastMemoryChange('updated', ws.id, updated.id);
 
-    // Fire-and-forget incremental reindex so next search returns fresh content.
-    // Edit feedback is fast; the local change is already reflected in the DB/file.
-    indexerUpdate(ws.slug, 'memory').catch((err) =>
-      console.error('[memory.update] reindex error:', err),
-    );
+    triggerMemoryIndexOnWrite(ws.slug);
 
     return updated;
   }),
@@ -296,6 +309,8 @@ export const memoryRouter = router({
     db.delete(permanentMemories).where(eq(permanentMemories.id, input.id)).run();
 
     broadcastMemoryChange('deleted', ws.id, input.id);
+
+    triggerMemoryIndexOnWrite(ws.slug);
 
     return { success: true };
   }),
@@ -437,6 +452,8 @@ export const memoryRouter = router({
           promoted: true,
           promotedAt: new Date().toISOString(),
           promotedFromId: permanent.id,
+          // Promoting from the dismissed view is a valid restore path.
+          dismissedAt: null,
         })
         .where(eq(fleetingMemories.id, input.fleetingMemoryId))
         .run();
@@ -460,7 +477,12 @@ export const memoryRouter = router({
         tx.delete(permanentMemories).where(eq(permanentMemories.id, result.id)).run();
         tx
           .update(fleetingMemories)
-          .set({ promoted: false, promotedAt: null, promotedFromId: null })
+          .set({
+            promoted: false,
+            promotedAt: null,
+            promotedFromId: null,
+            dismissedAt: fleeting.dismissedAt,
+          })
           .where(eq(fleetingMemories.id, input.fleetingMemoryId))
           .run();
       });
@@ -483,6 +505,8 @@ export const memoryRouter = router({
       console.error('[autoLink] promote failed:', err),
     );
 
+    triggerMemoryIndexOnWrite(ws.slug);
+
     return promoted;
   }),
 
@@ -490,25 +514,120 @@ export const memoryRouter = router({
     .input(
       z.object({
         workspaceSlug: z.string().min(1),
-        limit: z.number().min(1).max(200).default(50),
+        status: z.enum(['pending', 'dismissed']).default('pending'),
+        type: fleetingTypeSchema.optional(),
+        search: z.string().optional(),
+        tag: z.string().optional(),
+        sort: z.enum(['asc', 'desc']).default('desc'),
+        limit: z.number().min(1).max(200).default(100),
+        offset: z.number().min(0).default(0),
       }),
     )
     .query(({ input }) => {
       const ws = resolveWorkspace(input.workspaceSlug);
       const db = getDb();
 
-      return db
+      const conditions = [
+        eq(fleetingMemories.workspaceId, ws.id),
+        sql`${fleetingMemories.promoted} = 0`,
+        input.status === 'dismissed'
+          ? sql`${fleetingMemories.dismissedAt} IS NOT NULL`
+          : isNull(fleetingMemories.dismissedAt),
+      ];
+      if (input.type) {
+        conditions.push(eq(fleetingMemories.type, input.type));
+      }
+      if (input.search) {
+        conditions.push(like(fleetingMemories.content, `%${input.search}%`));
+      }
+      if (input.tag) {
+        conditions.push(jsonArrayContains(fleetingMemories.tags, input.tag));
+      }
+      const where = and(...conditions);
+
+      const total = db
+        .select({ count: sql<number>`count(*)` })
+        .from(fleetingMemories)
+        .where(where)
+        .get()!.count;
+
+      const items = db
         .select()
         .from(fleetingMemories)
-        .where(
-          and(
-            eq(fleetingMemories.workspaceId, ws.id),
-            sql`${fleetingMemories.promoted} = 0`,
-          ),
-        )
-        .orderBy(desc(fleetingMemories.createdAt))
+        .where(where)
+        .orderBy(input.sort === 'asc' ? asc(fleetingMemories.createdAt) : desc(fleetingMemories.createdAt))
         .limit(input.limit)
+        .offset(input.offset)
         .all();
+
+      return { items, total };
+    }),
+
+  dismissFleeting: publicProcedure
+    .input(z.object({ workspaceSlug: z.string().min(1), id: z.number() }))
+    .mutation(({ input }) => {
+      const ws = resolveWorkspace(input.workspaceSlug);
+      const db = getDb();
+
+      const existing = findOwnedFleetingMemory(ws.id, input.id);
+      if (existing.promoted) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Cannot dismiss a memory that has already been promoted',
+        });
+      }
+
+      const updated = db
+        .update(fleetingMemories)
+        .set({ dismissedAt: new Date().toISOString() })
+        .where(eq(fleetingMemories.id, input.id))
+        .returning()
+        .get()!;
+
+      broadcastMemoryChange('dismissed', ws.id, input.id);
+
+      return updated;
+    }),
+
+  restoreFleeting: publicProcedure
+    .input(z.object({ workspaceSlug: z.string().min(1), id: z.number() }))
+    .mutation(({ input }) => {
+      const ws = resolveWorkspace(input.workspaceSlug);
+      const db = getDb();
+
+      findOwnedFleetingMemory(ws.id, input.id);
+
+      const updated = db
+        .update(fleetingMemories)
+        .set({ dismissedAt: null })
+        .where(eq(fleetingMemories.id, input.id))
+        .returning()
+        .get()!;
+
+      broadcastMemoryChange('restored', ws.id, input.id);
+
+      return updated;
+    }),
+
+  deleteFleeting: publicProcedure
+    .input(z.object({ workspaceSlug: z.string().min(1), id: z.number() }))
+    .mutation(({ input }) => {
+      const ws = resolveWorkspace(input.workspaceSlug);
+      const db = getDb();
+
+      const existing = findOwnedFleetingMemory(ws.id, input.id);
+      if (existing.promoted) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Cannot delete a memory that has already been promoted — promoted rows are the audit trail',
+        });
+      }
+
+      db.delete(fleetingMemories).where(eq(fleetingMemories.id, input.id)).run();
+
+      broadcastMemoryChange('deleted', ws.id, input.id);
+
+      return { success: true };
     }),
 
   createFleeting: publicProcedure

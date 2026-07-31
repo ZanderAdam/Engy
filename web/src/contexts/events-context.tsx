@@ -44,7 +44,7 @@ interface TerminalSessionsChangePayload {
 }
 
 interface MemoryChangePayload {
-  action: 'created' | 'updated' | 'deleted' | 'promoted';
+  action: 'created' | 'updated' | 'deleted' | 'promoted' | 'dismissed' | 'restored';
   workspaceId: number;
   memoryId?: number;
 }
@@ -92,10 +92,7 @@ type ServerEventType = keyof ServerEventMap;
 type EventCallback<T extends ServerEventType> = (payload: ServerEventMap[T]) => void;
 
 interface EventsContextValue {
-  subscribe: <T extends ServerEventType>(
-    type: T,
-    cb: EventCallback<T>,
-  ) => () => void;
+  subscribe: <T extends ServerEventType>(type: T, cb: EventCallback<T>) => () => void;
   subscribeConnect: (cb: () => void) => () => void;
   setWatchPaths: (key: symbol, workspaceSlug: string, paths: string[]) => void;
   clearWatchPaths: (key: symbol) => void;
@@ -223,39 +220,38 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
     };
   }, [workspaceSlug, flushWatchPaths]);
 
-  const contextValue = useMemo<EventsContextValue>(() => ({
-    subscribe: (type, cb) => {
-      let set = subscribersRef.current.get(type);
-      if (!set) {
-        set = new Set();
-        subscribersRef.current.set(type, set);
-      }
-      set.add(cb as EventCallback<ServerEventType>);
-      return () => {
-        set!.delete(cb as EventCallback<ServerEventType>);
-      };
-    },
-    subscribeConnect: (cb) => {
-      connectSubscribersRef.current.add(cb);
-      return () => {
-        connectSubscribersRef.current.delete(cb);
-      };
-    },
-    setWatchPaths: (key, slug, paths) => {
-      watchRegistryRef.current.set(key, { workspaceSlug: slug, paths });
-      scheduleWatchFlush();
-    },
-    clearWatchPaths: (key) => {
-      watchRegistryRef.current.delete(key);
-      scheduleWatchFlush();
-    },
-  }), [scheduleWatchFlush]);
-
-  return (
-    <EventsContext.Provider value={contextValue}>
-      {children}
-    </EventsContext.Provider>
+  const contextValue = useMemo<EventsContextValue>(
+    () => ({
+      subscribe: (type, cb) => {
+        let set = subscribersRef.current.get(type);
+        if (!set) {
+          set = new Set();
+          subscribersRef.current.set(type, set);
+        }
+        set.add(cb as EventCallback<ServerEventType>);
+        return () => {
+          set!.delete(cb as EventCallback<ServerEventType>);
+        };
+      },
+      subscribeConnect: (cb) => {
+        connectSubscribersRef.current.add(cb);
+        return () => {
+          connectSubscribersRef.current.delete(cb);
+        };
+      },
+      setWatchPaths: (key, slug, paths) => {
+        watchRegistryRef.current.set(key, { workspaceSlug: slug, paths });
+        scheduleWatchFlush();
+      },
+      clearWatchPaths: (key) => {
+        watchRegistryRef.current.delete(key);
+        scheduleWatchFlush();
+      },
+    }),
+    [scheduleWatchFlush],
   );
+
+  return <EventsContext.Provider value={contextValue}>{children}</EventsContext.Provider>;
 }
 
 // ── Hooks ───────────────────────────────────────────────────────────
@@ -266,7 +262,9 @@ export function useOnServerEvent<T extends ServerEventType>(
 ): void {
   const ctx = useContext(EventsContext);
   const callbackRef = useRef(callback);
-  useEffect(() => { callbackRef.current = callback; });
+  useEffect(() => {
+    callbackRef.current = callback;
+  });
 
   useEffect(() => {
     if (!ctx) return;
@@ -284,7 +282,9 @@ export function useOnServerEvent<T extends ServerEventType>(
 export function useOnEventsConnect(callback: () => void): void {
   const ctx = useContext(EventsContext);
   const callbackRef = useRef(callback);
-  useEffect(() => { callbackRef.current = callback; });
+  useEffect(() => {
+    callbackRef.current = callback;
+  });
 
   useEffect(() => {
     if (!ctx) return;

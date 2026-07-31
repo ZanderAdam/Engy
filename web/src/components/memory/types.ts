@@ -6,6 +6,7 @@ export interface FleetingRecord {
   type: string;
   tags?: unknown;
   createdAt: string;
+  dismissedAt?: string | null;
 }
 
 export interface MemorySelection {
@@ -31,4 +32,14 @@ export const SUBTYPES: { value: MemorySubtype; label: string }[] = [
   { value: 'fact', label: 'Fact' },
   { value: 'convention', label: 'Convention' },
   { value: 'insight', label: 'Insight' },
+];
+
+export type FleetingType = 'capture' | 'question' | 'blocker' | 'idea' | 'reference';
+
+export const FLEETING_TYPES: { value: FleetingType; label: string }[] = [
+  { value: 'capture', label: 'Capture' },
+  { value: 'question', label: 'Question' },
+  { value: 'blocker', label: 'Blocker' },
+  { value: 'idea', label: 'Idea' },
+  { value: 'reference', label: 'Reference' },
 ];
