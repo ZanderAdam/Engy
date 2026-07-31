@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { join, isAbsolute, resolve } from 'node:path';
-import { readFile, writeFile, readdir, stat } from 'node:fs/promises';
+import { readFile, writeFile, readdir, stat, lstat } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { simpleGit } from 'simple-git';
 import type { GitFileStatus, GitWorktreeEntry } from '@engy/common';
@@ -35,6 +35,7 @@ interface DetailedFileStatus {
   path: string;
   status: GitFileStatus;
   staged: boolean;
+  contentId?: string;
 }
 
 interface DetailedStatus {
@@ -152,19 +153,53 @@ export async function getStatusDetailed(
   const { stdout } = await runGit(['-C', dir, 'status', '--porcelain=v1', '-b', '-z']);
   const { branch, entries } = parsePorcelainStatus(stdout);
 
-  const files: DetailedFileStatus[] = entries.map((e) => {
+  const parsed: DetailedFileStatus[] = entries.map((e) => {
     const { status, staged } = mapStatusCode(e.index, e.workingDir.trim());
     return { path: e.path, status, staged };
   });
 
-  return { files, branch };
+  return { files: await withContentIds(dir, parsed), branch };
 }
 
-async function isTracked(
+/**
+ * Opaque identifier for a path's current on-disk state, used to tell whether a
+ * file still holds what the user reviewed. Size plus mtime rather than a content
+ * hash: `git hash-object` dereferences symlinks (hashing the target instead of
+ * the link), aborts an entire batch on directories and submodule gitlinks, and
+ * costs a process spawn per listing. `lstat` describes the path itself, handles
+ * every entry type, and needs no subprocess.
+ *
+ * A file touched without its bytes changing gets a new id and so loses its
+ * viewed mark. That is the safe direction to be wrong in: re-reviewing an
+ * unchanged file costs a click, whereas a mark that fails to expire hides real
+ * changes.
+ */
+async function fileIdentity(dir: string, path: string): Promise<string | undefined> {
+  try {
+    const info = await lstat(resolve(dir, path));
+    // Directories reach here as untracked-directory entries (`dir/` from
+    // porcelain) and as submodule gitlinks; neither has content of its own.
+    if (info.isDirectory()) return undefined;
+    return `${info.size}:${info.mtimeMs}`;
+  } catch {
+    // Not on disk — deleted, or a dangling entry.
+    return undefined;
+  }
+}
+
+async function withContentIds<T extends { path: string; status: GitFileStatus }>(
   dir: string,
-  filePath: string,
-  runGit: GitRunner,
-): Promise<boolean> {
+  files: T[],
+): Promise<Array<T & { contentId?: string }>> {
+  return Promise.all(
+    files.map(async (file) => ({
+      ...file,
+      contentId: file.status === 'deleted' ? undefined : await fileIdentity(dir, file.path),
+    })),
+  );
+}
+
+async function isTracked(dir: string, filePath: string, runGit: GitRunner): Promise<boolean> {
   try {
     await runGit(['-C', dir, 'ls-files', '--error-unmatch', filePath]);
     return true;
@@ -239,11 +274,7 @@ export async function resolveDefaultBase(
 // landed on base since the branch forked shows up as an inverted change. Diffing
 // against the merge base instead yields only what this branch did — while still
 // including uncommitted work, which `<base>...HEAD` would drop.
-async function resolveMergeBase(
-  dir: string,
-  base: string,
-  runGit: GitRunner,
-): Promise<string> {
+async function resolveMergeBase(dir: string, base: string, runGit: GitRunner): Promise<string> {
   try {
     const { stdout } = await runGit(['-C', dir, 'merge-base', base, 'HEAD']);
     const sha = stdout.trim();
@@ -287,11 +318,7 @@ export async function getDiff(
   }
 }
 
-async function diffAgainstEmpty(
-  dir: string,
-  filePath: string,
-  runGit: GitRunner,
-): Promise<string> {
+async function diffAgainstEmpty(dir: string, filePath: string, runGit: GitRunner): Promise<string> {
   const absolutePath = isAbsolute(filePath) ? filePath : join(dir, filePath);
   try {
     const { stdout } = await runGit(['-C', dir, 'diff', '--no-index', '/dev/null', absolutePath]);
@@ -389,7 +416,7 @@ export async function getBranchFiles(
   base: string,
   runGit: GitRunner = localGitRunner,
 ): Promise<{
-  files: Array<{ path: string; status: GitFileStatus; oldPath?: string }>;
+  files: Array<{ path: string; status: GitFileStatus; oldPath?: string; contentId?: string }>;
   mergeBase: string;
 }> {
   const mergeBase = await resolveMergeBase(dir, base, runGit);
@@ -408,7 +435,7 @@ export async function getBranchFiles(
     if (!seen.has(path)) files.push({ path, status: 'added' });
   }
 
-  return { files, mergeBase };
+  return { files: await withContentIds(dir, files), mergeBase };
 }
 
 export function parseWorktreeList(output: string): GitWorktreeEntry[] {

@@ -7,6 +7,8 @@ import {
   RiChat3Line,
   RiExpandUpDownLine,
   RiContractUpDownLine,
+  RiCheckboxLine,
+  RiCheckboxBlankLine,
 } from '@remixicon/react';
 import type { TreeRenderItemParams } from '@/components/tree-view';
 import { Button } from '@/components/ui/button';
@@ -107,11 +109,16 @@ function createRenderItem({
                   e.stopPropagation();
                   onToggleViewed(item.id);
                 }}
-                className={cn(
-                  'mr-1 size-3 shrink-0 border border-border transition-colors',
-                  isViewed ? 'border-primary bg-primary' : 'hover:border-primary',
+                // Padded well beyond the glyph so the hit target stays comfortable
+                // at this row height.
+                className="-my-1 ml-1 mr-0.5 flex shrink-0 cursor-pointer items-center p-1"
+              >
+                {isViewed ? (
+                  <RiCheckboxLine className="size-4 text-primary" />
+                ) : (
+                  <RiCheckboxBlankLine className="size-4 text-muted-foreground/70 hover:text-foreground" />
                 )}
-              />
+              </span>
             </TooltipTrigger>
             <TooltipContent side="left">
               {isViewed ? 'Mark unviewed' : 'Mark viewed'}

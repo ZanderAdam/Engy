@@ -79,6 +79,32 @@ lists overlap after `git rm --cached`, which un-tracks a file but leaves it on
 disk: the diff calls it deleted while `ls-files --others` calls it untracked. The
 diff's entry wins, since losing tracking is the change relative to the base.
 
+## File content identity
+
+`getStatusDetailed` and `getBranchFiles` attach a `contentId` to every listed
+path that exists on disk: an opaque `size:mtimeMs` string from `lstat`. This
+exists so the diff UI can expire a per-file "viewed" mark when the file changes
+again — the mark is recorded against the id, not just the path.
+
+`git hash-object` was rejected for this. It dereferences symlinks, so a link's
+id would track its target's content rather than the link itself; it aborts an
+entire batch on directories and submodule gitlinks; and it costs a process spawn
+per listing. `lstat` describes the path itself, covers every entry type, and
+needs no subprocess.
+
+Paths with no id are those with nothing to identify: deleted files, the `dir/`
+entry porcelain emits for an untracked directory, and submodule gitlinks (both
+report as directories). A file touched without its bytes changing gets a new id
+and loses its viewed mark — deliberately the safe direction, since re-reviewing
+an unchanged file costs a click whereas a mark that fails to expire hides real
+changes.
+
+Known gap: `getBranchFiles` parses `git diff --name-status` without `-z`, so a
+path containing a tab or newline (or any non-ASCII path under the default
+`core.quotePath`) arrives C-quoted and will not match a file on disk. Such a
+path is displayed quoted and carries no `contentId`, so its viewed mark cannot
+expire. `getStatusDetailed` uses `-z` and is unaffected.
+
 ## Default base detection
 
 `resolveDefaultBase` determines a repo's default branch without network access,
@@ -170,6 +196,7 @@ FR id in their title string, e.g. `it('[FR-GIT-010] ...', ...)`, and run
 | FR-GIT-200 | WHEN `getBranchFiles` is called with a base ref, the system SHALL diff the working tree against the merge base of that ref and `HEAD` — excluding commits the base gained after the fork point while still including uncommitted changes — and SHALL return that merge base alongside the file list. |
 | FR-GIT-210 | IF no merge base exists between the supplied base ref and `HEAD`, THEN `getBranchFiles` SHALL diff against the base ref directly; IF that ref does not resolve, THEN the diff SHALL fail rather than return an empty file list. |
 | FR-GIT-220 | WHEN `getBranchFiles` is called, the system SHALL additionally report untracked files as `added`, excluding any path matched by the repository's ignore rules; IF a path is reported by both the diff and the untracked listing, THEN the system SHALL emit only the diff's entry. |
+| FR-GIT-230 | WHEN `getStatusDetailed` or `getBranchFiles` returns a path, the system SHALL include a `contentId` identifying that path's own on-disk state — stable across calls while untouched, different once modified, and derived from a symlink itself rather than its target; IF the path is deleted, is a directory, or is a submodule gitlink, THEN `contentId` SHALL be omitted. |
 
 ## Sources
 

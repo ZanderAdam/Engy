@@ -51,7 +51,7 @@ export interface TerminalSessionMeta {
 }
 
 export interface GitStatusResult {
-  files: Array<{ path: string; status: GitFileStatus; staged: boolean }>;
+  files: Array<{ path: string; status: GitFileStatus; staged: boolean; contentId?: string }>;
   branch: string;
 }
 
@@ -64,7 +64,7 @@ export interface GitShowResult {
 }
 
 export interface GitBranchFilesResult {
-  files: Array<{ path: string; status: GitFileStatus; oldPath?: string }>;
+  files: Array<{ path: string; status: GitFileStatus; oldPath?: string; contentId?: string }>;
   mergeBase: string;
 }
 

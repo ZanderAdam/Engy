@@ -294,19 +294,31 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     [files, selectedFile],
   );
 
-  // Review progress is per checkout + what is being diffed, so switching
-  // branches, worktrees or commits doesn't inherit another review's ticked
+  // Review progress is scoped to workspace, project, checkout and what is being
+  // diffed, so switching any of them doesn't inherit another review's ticked
   // files. The branch scope keys off the base branch name rather than the merge
   // base, which would change as soon as the base advances.
-  const viewedScope = useMemo(() => {
+  const viewedBase = useMemo(() => {
     if (diffViewMode === 'branch') return baseBranch;
     if (diffViewMode === 'history') return selectedCommit;
     return 'latest';
   }, [diffViewMode, baseBranch, selectedCommit]);
 
+  // Content identity per file, so a tick expires once the file changes again.
+  const contentIds = useMemo(() => {
+    const ids = new Map<string, string | undefined>();
+    for (const file of files) ids.set(file.path, file.contentId);
+    return ids;
+  }, [files]);
+
   const { viewedPaths, toggleViewed } = useViewedFiles(
-    selectedWorktree?.worktreePath ?? selectedRepo,
-    viewedScope,
+    {
+      workspaceSlug,
+      projectSlug,
+      dir: selectedWorktree?.worktreePath ?? selectedRepo,
+      base: viewedBase,
+    },
+    contentIds,
   );
 
   const kind = selectedFile ? fileKind(selectedFile) : null;
@@ -339,46 +351,52 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   );
 
   // Image bytes: original/modified sides (skipped for added/deleted respectively)
-  const { data: originalImageData, isLoading: originalImageLoading, error: originalImageError } =
-    trpc.file.readImage.useQuery(
-      {
-        repoDir: selectedRepo!,
-        filePath: selectedFileData?.oldPath ?? selectedFile!,
-        ref: originalRef,
-        worktreePath: selectedWorktree?.worktreePath,
-        coderWorkspace: selectedWorktree?.coderWorkspace,
-      },
-      {
-        enabled:
-          !!selectedRepo &&
-          !!selectedFile &&
-          isImage &&
-          !!originalRef &&
-          !!selectedFileData &&
-          selectedFileData.status !== 'added',
-        retry: false,
-      },
-    );
+  const {
+    data: originalImageData,
+    isLoading: originalImageLoading,
+    error: originalImageError,
+  } = trpc.file.readImage.useQuery(
+    {
+      repoDir: selectedRepo!,
+      filePath: selectedFileData?.oldPath ?? selectedFile!,
+      ref: originalRef,
+      worktreePath: selectedWorktree?.worktreePath,
+      coderWorkspace: selectedWorktree?.coderWorkspace,
+    },
+    {
+      enabled:
+        !!selectedRepo &&
+        !!selectedFile &&
+        isImage &&
+        !!originalRef &&
+        !!selectedFileData &&
+        selectedFileData.status !== 'added',
+      retry: false,
+    },
+  );
 
-  const { data: modifiedImageData, isLoading: modifiedImageLoading, error: modifiedImageError } =
-    trpc.file.readImage.useQuery(
-      {
-        repoDir: selectedRepo!,
-        filePath: selectedFile!,
-        ref: modifiedRef,
-        worktreePath: selectedWorktree?.worktreePath,
-        coderWorkspace: selectedWorktree?.coderWorkspace,
-      },
-      {
-        enabled:
-          !!selectedRepo &&
-          !!selectedFile &&
-          isImage &&
-          !!selectedFileData &&
-          selectedFileData.status !== 'deleted',
-        retry: false,
-      },
-    );
+  const {
+    data: modifiedImageData,
+    isLoading: modifiedImageLoading,
+    error: modifiedImageError,
+  } = trpc.file.readImage.useQuery(
+    {
+      repoDir: selectedRepo!,
+      filePath: selectedFile!,
+      ref: modifiedRef,
+      worktreePath: selectedWorktree?.worktreePath,
+      coderWorkspace: selectedWorktree?.coderWorkspace,
+    },
+    {
+      enabled:
+        !!selectedRepo &&
+        !!selectedFile &&
+        isImage &&
+        !!selectedFileData &&
+        selectedFileData.status !== 'deleted',
+      retry: false,
+    },
+  );
 
   const fileReadError = resolveFileReadError(
     selectedFileData?.status,
@@ -414,7 +432,8 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
   // Filter comments to current diff files + build per-file unresolved counts
   const { currentFileComments, fileCommentCounts } = useMemo(() => {
-    if (!selectedRepo) return { currentFileComments: [], fileCommentCounts: new Map<string, number>() };
+    if (!selectedRepo)
+      return { currentFileComments: [], fileCommentCounts: new Map<string, number>() };
     const filePaths = new Set(files.map((f) => f.path));
     const filtered: typeof diffComments = [];
     const counts = new Map<string, number>();
@@ -488,15 +507,17 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
             className="h-6 border border-border bg-transparent px-2 text-xs text-foreground focus:outline-none focus:border-ring"
             placeholder={defaultBaseData?.base ?? 'origin/main'}
           />
-          {userBaseBranch !== null && defaultBaseData && userBaseBranch !== defaultBaseData.base && (
-            <button
-              type="button"
-              onClick={() => setUserBaseBranch(null)}
-              className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-            >
-              reset to {defaultBaseData.base}
-            </button>
-          )}
+          {userBaseBranch !== null &&
+            defaultBaseData &&
+            userBaseBranch !== defaultBaseData.base && (
+              <button
+                type="button"
+                onClick={() => setUserBaseBranch(null)}
+                className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+              >
+                reset to {defaultBaseData.base}
+              </button>
+            )}
           {branchError && (
             <span className="text-xs text-destructive">
               {branchError.message.replace(/^.*Invalid base ref/, 'Invalid ref')}
@@ -625,10 +646,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                       }}
                     />
                   ) : isBinary ? (
-                    <NonTextFileView
-                      kind="binary"
-                      fileName={selectedFileName}
-                    />
+                    <NonTextFileView kind="binary" fileName={selectedFileName} />
                   ) : editorMode === 'edit' && diffViewMode === 'latest' ? (
                     <DynamicMonacoCodeEditor
                       content={modifiedContent}

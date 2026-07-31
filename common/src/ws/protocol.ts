@@ -101,7 +101,12 @@ export interface GitStatusResponseMessage {
   payload:
     | {
         requestId: string;
-        files: Array<{ path: string; status: GitFileStatus; staged: boolean }>;
+        files: Array<{
+          path: string;
+          status: GitFileStatus;
+          staged: boolean;
+          contentId?: string;
+        }>;
         branch: string;
       }
     | {
@@ -196,7 +201,12 @@ export interface GitBranchFilesResponseMessage {
   payload:
     | {
         requestId: string;
-        files: Array<{ path: string; status: GitFileStatus; oldPath?: string }>;
+        files: Array<{
+          path: string;
+          status: GitFileStatus;
+          oldPath?: string;
+          contentId?: string;
+        }>;
         // Commit the diff was actually taken against — the merge base of `base`
         // and HEAD. Callers read file contents at this ref so the viewer and the
         // file list agree on what "before" means.

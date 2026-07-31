@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { simpleGit } from 'simple-git';
@@ -133,7 +133,11 @@ describe('git integration', () => {
       const result = await getStatusDetailed(repoDir);
 
       expect(result.files).toHaveLength(1);
-      expect(result.files[0]).toEqual({ path: 'file.txt', status: 'modified', staged: false });
+      expect(result.files[0]).toMatchObject({
+        path: 'file.txt',
+        status: 'modified',
+        staged: false,
+      });
     });
 
     it('[FR-GIT-080] reports staged added files', async () => {
@@ -146,7 +150,24 @@ describe('git integration', () => {
       const result = await getStatusDetailed(repoDir);
 
       expect(result.files).toHaveLength(1);
-      expect(result.files[0]).toEqual({ path: 'new.txt', status: 'added', staged: true });
+      expect(result.files[0]).toMatchObject({ path: 'new.txt', status: 'added', staged: true });
+    });
+
+    it('[FR-GIT-230] still identifies files when an untracked directory is listed', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+      // Porcelain collapses this to a single `nested/` entry, which is a
+      // directory and has no identity of its own — it must not cost other files theirs.
+      await mkdir(join(repoDir, 'nested'), { recursive: true });
+      await writeFile(join(repoDir, 'nested/inner.txt'), 'inner');
+      await writeFile(join(repoDir, 'top.txt'), 'top');
+
+      const result = await getStatusDetailed(repoDir);
+
+      const top = result.files.find((f) => f.path === 'top.txt');
+      const dirEntry = result.files.find((f) => f.path.endsWith('/'));
+      expect(top?.contentId).toBeTruthy();
+      expect(dirEntry?.contentId).toBeUndefined();
     });
 
     it('reports deleted files', async () => {
@@ -269,11 +290,7 @@ describe('git integration', () => {
       await commitFile(repoDir, 'init.txt', 'hello');
       const git = simpleGit(repoDir);
       await git.raw(['update-ref', 'refs/remotes/origin/develop', 'HEAD']);
-      await git.raw([
-        'symbolic-ref',
-        'refs/remotes/origin/HEAD',
-        'refs/remotes/origin/develop',
-      ]);
+      await git.raw(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/develop']);
 
       await expect(resolveDefaultBase(repoDir)).resolves.toBe('origin/develop');
     });
@@ -338,7 +355,7 @@ describe('git integration', () => {
 
       const { files } = await getBranchFiles(repoDir, mainBranch);
 
-      expect(files).toEqual([{ path: 'feature.txt', status: 'added' }]);
+      expect(files).toMatchObject([{ path: 'feature.txt', status: 'added' }]);
     });
 
     it('[FR-GIT-200] returns the merge base the diff was taken against', async () => {
@@ -369,7 +386,7 @@ describe('git integration', () => {
 
       const { files } = await getBranchFiles(repoDir, mainBranch);
 
-      expect(files).toEqual([{ path: 'uncommitted.txt', status: 'added' }]);
+      expect(files).toMatchObject([{ path: 'uncommitted.txt', status: 'added' }]);
     });
 
     it('[FR-GIT-220] includes untracked files that git is not ignoring', async () => {
@@ -382,7 +399,7 @@ describe('git integration', () => {
 
       const { files } = await getBranchFiles(repoDir, mainBranch);
 
-      expect(files).toEqual([{ path: 'brand-new.txt', status: 'added' }]);
+      expect(files).toMatchObject([{ path: 'brand-new.txt', status: 'added' }]);
     });
 
     it('[FR-GIT-220] excludes gitignored files', async () => {
@@ -398,7 +415,7 @@ describe('git integration', () => {
 
       const { files } = await getBranchFiles(repoDir, mainBranch);
 
-      expect(files).toEqual([{ path: 'real-work.ts', status: 'added' }]);
+      expect(files).toMatchObject([{ path: 'real-work.ts', status: 'added' }]);
     });
 
     it('[FR-GIT-220] lists modified and untracked files side by side', async () => {
@@ -412,7 +429,7 @@ describe('git integration', () => {
 
       const { files } = await getBranchFiles(repoDir, mainBranch);
 
-      expect(files).toEqual([
+      expect(files).toMatchObject([
         { path: 'tracked.txt', status: 'modified' },
         { path: 'untracked.txt', status: 'added' },
       ]);
@@ -430,7 +447,7 @@ describe('git integration', () => {
 
       const { files } = await getBranchFiles(repoDir, mainBranch);
 
-      expect(files).toEqual([{ path: 'dropped.txt', status: 'deleted' }]);
+      expect(files).toMatchObject([{ path: 'dropped.txt', status: 'deleted' }]);
     });
 
     it('[FR-GIT-200] reports renames rather than an add/delete pair', async () => {
@@ -444,9 +461,91 @@ describe('git integration', () => {
 
       const { files } = await getBranchFiles(repoDir, mainBranch);
 
-      expect(files).toEqual([
+      expect(files).toMatchObject([
         { path: 'renamed.txt', status: 'renamed', oldPath: 'original.txt' },
       ]);
+    });
+
+    it('[FR-GIT-230] returns a content id that changes when the file changes', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await writeFile(join(repoDir, 'work.ts'), 'first draft');
+
+      const before = await getBranchFiles(repoDir, mainBranch);
+      await writeFile(join(repoDir, 'work.ts'), 'second draft');
+      const after = await getBranchFiles(repoDir, mainBranch);
+
+      expect(before.files[0].contentId).toBeTruthy();
+      expect(after.files[0].contentId).toBeTruthy();
+      expect(after.files[0].contentId).not.toBe(before.files[0].contentId);
+    });
+
+    it('[FR-GIT-230] returns a stable content id when the file is untouched', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await writeFile(join(repoDir, 'work.ts'), 'unchanged');
+
+      const first = await getBranchFiles(repoDir, mainBranch);
+      const second = await getBranchFiles(repoDir, mainBranch);
+
+      expect(second.files[0].contentId).toBe(first.files[0].contentId);
+    });
+
+    it('[FR-GIT-230] identifies a symlink by the link itself, not its target', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await writeFile(join(repoDir, 'target.txt'), 'original target');
+      await symlink('target.txt', join(repoDir, 'link.txt'));
+
+      const before = await getBranchFiles(repoDir, mainBranch);
+      // Rewriting the target must not disturb the link's own identity.
+      await writeFile(join(repoDir, 'target.txt'), 'a substantially longer target body');
+      const after = await getBranchFiles(repoDir, mainBranch);
+
+      const linkId = (r: Awaited<ReturnType<typeof getBranchFiles>>) =>
+        r.files.find((f) => f.path === 'link.txt')?.contentId;
+      expect(linkId(before)).toBeTruthy();
+      expect(linkId(after)).toBe(linkId(before));
+    });
+
+    it('[FR-GIT-230] omits the content id for a dangling symlink', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await symlink('nowhere.txt', join(repoDir, 'dangling.txt'));
+
+      const { files } = await getBranchFiles(repoDir, mainBranch);
+
+      const dangling = files.find((f) => f.path === 'dangling.txt');
+      expect(dangling).toBeDefined();
+      expect(dangling?.contentId).toBeTruthy();
+    });
+
+    it('[FR-GIT-230] omits the content id for a deleted file', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      await commitFile(repoDir, 'doomed.txt', 'bye');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await rm(join(repoDir, 'doomed.txt'), { force: true });
+
+      const { files } = await getBranchFiles(repoDir, mainBranch);
+
+      expect(files).toHaveLength(1);
+      expect(files[0].status).toBe('deleted');
+      expect(files[0].contentId).toBeUndefined();
     });
 
     it('[FR-GIT-210] rejects a base ref that cannot be resolved', async () => {

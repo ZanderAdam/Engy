@@ -1,19 +1,36 @@
 import { describe, it, expect } from 'vitest';
-import { readStore, scopeKey, writeScope } from './use-viewed-files';
+import { readStore, resolveViewedPaths, scopeKey, writeScope } from './use-viewed-files';
+
+const SCOPE = {
+  workspaceSlug: 'ws',
+  projectSlug: 'proj',
+  dir: '/repo',
+  base: 'origin/main',
+};
 
 describe('viewed file tracking', () => {
   describe('scopeKey', () => {
-    it('combines repo and base into one key', () => {
-      expect(scopeKey('/repo', 'origin/main')).toBe('/repo::origin/main');
+    it('combines workspace, project, checkout and base into one key', () => {
+      expect(scopeKey(SCOPE)).toBe('ws::proj::/repo::origin/main');
     });
 
-    it('is null when either half is missing', () => {
-      expect(scopeKey(null, 'origin/main')).toBeNull();
-      expect(scopeKey('/repo', null)).toBeNull();
+    it('is null when any part is missing', () => {
+      expect(scopeKey({ ...SCOPE, workspaceSlug: null })).toBeNull();
+      expect(scopeKey({ ...SCOPE, projectSlug: null })).toBeNull();
+      expect(scopeKey({ ...SCOPE, dir: null })).toBeNull();
+      expect(scopeKey({ ...SCOPE, base: null })).toBeNull();
     });
 
-    it('separates two branches in the same repo', () => {
-      expect(scopeKey('/repo', 'origin/main')).not.toBe(scopeKey('/repo', 'origin/develop'));
+    it('separates two projects in the same workspace', () => {
+      expect(scopeKey(SCOPE)).not.toBe(scopeKey({ ...SCOPE, projectSlug: 'other' }));
+    });
+
+    it('separates two worktrees of the same repo', () => {
+      expect(scopeKey(SCOPE)).not.toBe(scopeKey({ ...SCOPE, dir: '/repo/.worktrees/wt' }));
+    });
+
+    it('separates two bases in the same checkout', () => {
+      expect(scopeKey(SCOPE)).not.toBe(scopeKey({ ...SCOPE, base: 'origin/develop' }));
     });
   });
 
@@ -26,54 +43,92 @@ describe('viewed file tracking', () => {
     });
 
     it('parses a well-formed store', () => {
-      expect(readStore('{"/repo::main":["a.ts","b.ts"]}')).toEqual({
-        '/repo::main': ['a.ts', 'b.ts'],
+      expect(readStore('{"ws::proj::/repo::main":{"a.ts":"sha1"}}')).toEqual({
+        'ws::proj::/repo::main': { 'a.ts': 'sha1' },
       });
     });
 
-    it('drops non-array scopes and non-string paths', () => {
-      expect(readStore('{"good":["a.ts",5,null],"bad":"nope"}')).toEqual({ good: ['a.ts'] });
+    it('drops the v1 array payload rather than importing marks with no content id', () => {
+      expect(readStore('{"old-scope":["a.ts","b.ts"]}')).toEqual({});
+    });
+
+    it('drops non-string content ids', () => {
+      expect(readStore('{"scope":{"a.ts":"sha","b.ts":5,"c.ts":null}}')).toEqual({
+        scope: { 'a.ts': 'sha' },
+      });
+    });
+  });
+
+  describe('resolveViewedPaths', () => {
+    it('keeps a mark while the content id still matches', () => {
+      const viewed = resolveViewedPaths({ 'a.ts': 'sha1' }, new Map([['a.ts', 'sha1']]));
+
+      expect([...viewed]).toEqual(['a.ts']);
+    });
+
+    it('expires a mark once the file changes', () => {
+      const viewed = resolveViewedPaths({ 'a.ts': 'sha1' }, new Map([['a.ts', 'sha2']]));
+
+      expect([...viewed]).toEqual([]);
+    });
+
+    it('expires a mark when the file no longer has a content id', () => {
+      const viewed = resolveViewedPaths({ 'a.ts': 'sha1' }, new Map([['a.ts', undefined]]));
+
+      expect([...viewed]).toEqual([]);
+    });
+
+    it('keeps a mark recorded with no content id while the file still has none', () => {
+      const viewed = resolveViewedPaths({ 'gone.ts': '' }, new Map([['gone.ts', undefined]]));
+
+      expect([...viewed]).toEqual(['gone.ts']);
+    });
+
+    it('ignores marks for paths absent from the current diff', () => {
+      const viewed = resolveViewedPaths({ 'a.ts': 'sha1' }, new Map());
+
+      expect([...viewed]).toEqual([]);
     });
   });
 
   describe('writeScope', () => {
     it('adds a new scope while keeping existing ones', () => {
-      const store = writeScope({ existing: ['a.ts'] }, 'fresh', ['b.ts']);
+      const store = writeScope({ existing: { 'a.ts': 'sha' } }, 'fresh', { 'b.ts': 'sha2' });
 
-      expect(store).toEqual({ existing: ['a.ts'], fresh: ['b.ts'] });
+      expect(store).toEqual({ existing: { 'a.ts': 'sha' }, fresh: { 'b.ts': 'sha2' } });
     });
 
-    it('replaces the paths of an existing scope', () => {
-      const store = writeScope({ scope: ['a.ts'] }, 'scope', ['b.ts']);
+    it('replaces the contents of an existing scope', () => {
+      const store = writeScope({ scope: { 'a.ts': 'sha' } }, 'scope', { 'b.ts': 'sha2' });
 
-      expect(store).toEqual({ scope: ['b.ts'] });
+      expect(store).toEqual({ scope: { 'b.ts': 'sha2' } });
     });
 
     it('evicts the least recently written scope past the cap', () => {
-      let store: Record<string, string[]> = {};
-      for (let i = 0; i < 21; i++) store = writeScope(store, `scope-${i}`, [`file-${i}.ts`]);
+      let store = {};
+      for (let i = 0; i < 21; i++) store = writeScope(store, `scope-${i}`, { 'f.ts': `sha-${i}` });
 
       expect(Object.keys(store)).toHaveLength(20);
-      expect(store['scope-0']).toBeUndefined();
-      expect(store['scope-20']).toEqual(['file-20.ts']);
+      expect((store as Record<string, unknown>)['scope-0']).toBeUndefined();
+      expect((store as Record<string, unknown>)['scope-20']).toEqual({ 'f.ts': 'sha-20' });
     });
 
     it('refreshes recency so a re-written scope survives eviction', () => {
-      let store: Record<string, string[]> = {};
-      for (let i = 0; i < 20; i++) store = writeScope(store, `scope-${i}`, [`file-${i}.ts`]);
-      store = writeScope(store, 'scope-0', ['touched.ts']);
-      store = writeScope(store, 'scope-20', ['file-20.ts']);
+      let store = {};
+      for (let i = 0; i < 20; i++) store = writeScope(store, `scope-${i}`, { 'f.ts': `sha-${i}` });
+      store = writeScope(store, 'scope-0', { 'f.ts': 'touched' });
+      store = writeScope(store, 'scope-20', { 'f.ts': 'sha-20' });
 
-      expect(store['scope-0']).toEqual(['touched.ts']);
-      expect(store['scope-1']).toBeUndefined();
+      expect((store as Record<string, unknown>)['scope-0']).toEqual({ 'f.ts': 'touched' });
+      expect((store as Record<string, unknown>)['scope-1']).toBeUndefined();
     });
 
     it('does not mutate the input store', () => {
-      const original = { scope: ['a.ts'] };
+      const original = { scope: { 'a.ts': 'sha' } };
 
-      writeScope(original, 'scope', ['b.ts']);
+      writeScope(original, 'scope', { 'b.ts': 'sha2' });
 
-      expect(original).toEqual({ scope: ['a.ts'] });
+      expect(original).toEqual({ scope: { 'a.ts': 'sha' } });
     });
   });
 });

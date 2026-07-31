@@ -5,6 +5,11 @@ export interface ChangedFile {
   status: GitFileStatus;
   staged: boolean;
   oldPath?: string;
+  /**
+   * Blob hash of the file's current content. "Viewed" marks are recorded
+   * against it so they expire when the file changes again.
+   */
+  contentId?: string;
 }
 
 export type ViewMode = 'split' | 'unified';
