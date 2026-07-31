@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { eq, and, inArray, like } from 'drizzle-orm';
+import { Maintenance } from '@tobilu/qmd';
 import { getStore, COLLECTION_CONTEXTS } from './qmd-store';
 import { getDb } from '../db/client';
 import { workspaces, frontmatter, permanentMemories } from '../db/schema';
@@ -288,6 +289,19 @@ export async function syncPermanentMemoryMirror(workspaceSlug: string): Promise<
 }
 
 /**
+ * Prune vector embeddings left behind by documents that no longer exist. qmd
+ * doesn't do this automatically on update()/removeCollection() — measured 21%
+ * of vectors orphaned on live data. Cheap (a COUNT + DELETE, no LLM) so it's
+ * safe to run on every incremental update, not just a full reindex.
+ */
+function cleanupOrphanedVectors(store: Awaited<ReturnType<typeof getStore>>): void {
+  const removed = new Maintenance(store.internal).cleanupOrphanedVectors();
+  if (removed > 0) {
+    console.log(`[indexer] cleaned up ${removed} orphaned vectors`);
+  }
+}
+
+/**
  * Index a single collection: refresh system READMEs, run the qmd update,
  * sync the frontmatter table, and mirror permanent memories.
  */
@@ -397,6 +411,8 @@ export async function forceFullReindex(workspaceSlug: string): Promise<IndexResu
     results.push(await indexCollection(store, col, workspaceSlug, ws.id, workspaceDir));
   }
 
+  cleanupOrphanedVectors(store);
+
   return results;
 }
 
@@ -413,6 +429,87 @@ export async function updateAndEmbed(
   collection?: Collection,
 ): Promise<IndexResult[]> {
   const results = await update(workspaceSlug, collection);
+  cleanupOrphanedVectors(await getStore(getWorkspace(workspaceSlug)));
   spawnEmbedPass(workspaceSlug);
   return results;
+}
+
+// Per-workspace chain for triggerMemoryIndexOnWrite below. A burst of memory
+// mutations arriving while a run is already in flight folds into a single
+// trailing re-run instead of stacking concurrent updateAndEmbed calls (and the
+// embed passes they kick off) against the same workspace. The in-flight
+// promise is tracked (not just a boolean) so tests can flush pending runs —
+// see _flushMemoryIndexOnWrite.
+const memoryIndexOnWriteChains = new Map<string, Promise<void>>();
+const memoryIndexOnWriteRerun = new Set<string>();
+
+/**
+ * Refresh the qmd index (hash scan + frontmatter sync), clean up orphaned
+ * vectors, and kick off a background embed pass for the memory collection —
+ * deliberately WITHOUT re-running syncPermanentMemoryMirror.
+ *
+ * The caller (a memory create/update/delete/promote mutation) already wrote
+ * the canonical permanentMemories row directly. Re-scanning the filesystem
+ * here as well is not just redundant: create/promote insert a row with
+ * filePath=null, write the file, then backfill filePath — a mirror sync
+ * racing inside that window sees the file on disk but no row with a matching
+ * filePath yet, and inserts a duplicate row. Skipping the mirror keeps this
+ * trigger safe to fire on every mutation. Callers that need to reconcile
+ * out-of-band filesystem changes (manual edits, git pulls, the `reindex`
+ * tool) should use update()/updateAndEmbed() instead, which always include
+ * the mirror sync for the memory collection.
+ */
+async function updateMemoryIndexOnly(workspaceSlug: string): Promise<void> {
+  const ws = getWorkspace(workspaceSlug);
+  const workspaceDir = getWorkspaceDir(ws);
+  const store = await getStore(ws);
+  await store.update({ collections: ['memory'] });
+  syncFrontmatterTable(ws.id, workspaceDir, 'memory');
+  cleanupOrphanedVectors(store);
+  spawnEmbedPass(workspaceSlug);
+}
+
+/**
+ * Fire-and-forget index-on-write trigger for permanent memory mutations
+ * (create/update/delete/promote, tRPC and MCP). Refreshes the memory
+ * collection's search index (see updateMemoryIndexOnly) so the change is
+ * searchable without blocking the mutation's response. Never throws: errors
+ * are logged and swallowed.
+ */
+export function triggerMemoryIndexOnWrite(workspaceSlug: string): void {
+  if (memoryIndexOnWriteChains.has(workspaceSlug)) {
+    memoryIndexOnWriteRerun.add(workspaceSlug);
+    return;
+  }
+  runMemoryIndexOnWrite(workspaceSlug);
+}
+
+function runMemoryIndexOnWrite(workspaceSlug: string): void {
+  const run = updateMemoryIndexOnly(workspaceSlug)
+    .catch((err) => {
+      console.error(`[indexer] memory index-on-write failed for ${workspaceSlug}:`, err);
+    })
+    .then(() => {
+      memoryIndexOnWriteChains.delete(workspaceSlug);
+      if (memoryIndexOnWriteRerun.delete(workspaceSlug)) {
+        runMemoryIndexOnWrite(workspaceSlug);
+      }
+    });
+  memoryIndexOnWriteChains.set(workspaceSlug, run);
+}
+
+/**
+ * Test-only: wait for any in-flight (and coalesced trailing) index-on-write
+ * runs to settle. `getDb()` is a process-global singleton that tests swap out
+ * per run, so a fire-and-forget run left over from one test can otherwise
+ * resolve against the next test's fresh DB. Call this in `afterEach`, before
+ * tearing down the test DB. Omit `workspaceSlug` to flush every workspace.
+ */
+export async function _flushMemoryIndexOnWrite(workspaceSlug?: string): Promise<void> {
+  const slugs = workspaceSlug ? [workspaceSlug] : [...memoryIndexOnWriteChains.keys()];
+  for (const slug of slugs) {
+    while (memoryIndexOnWriteChains.has(slug)) {
+      await memoryIndexOnWriteChains.get(slug);
+    }
+  }
 }

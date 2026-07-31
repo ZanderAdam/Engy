@@ -7,13 +7,17 @@ import { workspaces, permanentMemories } from '../db/schema';
 import { eq, and, ne } from 'drizzle-orm';
 import { getWorkspaceDir } from '../engy-dir/init';
 import { getStore } from './qmd-store';
-import type { HybridQueryResult } from '@tobilu/qmd';
-import { validateLinkedMemoryPath, escapeIndexMarkers, sanitizeCommitSubject } from '../lib/memory-files';
+import type { SearchResult } from '@tobilu/qmd';
+import {
+  validateLinkedMemoryPath,
+  escapeIndexMarkers,
+  sanitizeCommitSubject,
+} from '../lib/memory-files';
 import { withWorkspaceLock } from '../lib/workspace-lock';
 
 // ── Tunables ─────────────────────────────────────────────────────────
 
-/** Minimum hybrid score for a candidate to receive a bidirectional link. */
+/** Minimum cosine similarity (0..1, from searchVector) for a candidate to receive a bidirectional link. */
 export const SIMILARITY_THRESHOLD = 0.75;
 
 /** Maximum number of relates_to links written per autoLink invocation. */
@@ -49,9 +53,7 @@ function updateLinkedMemoriesInFile(
   newLinkedMemories: string[],
   touchedPaths: string[],
 ): void {
-  const absPath = path.isAbsolute(relFilePath)
-    ? relFilePath
-    : path.join(workspaceDir, relFilePath);
+  const absPath = path.isAbsolute(relFilePath) ? relFilePath : path.join(workspaceDir, relFilePath);
 
   const file = readMemoryFileSafe(absPath);
   if (!file) return;
@@ -135,7 +137,9 @@ function findTagThemeSiblings(
         sharedCount(themes, (row.themes as string[]) ?? []);
       if (shared < 2) return [];
 
-      return [{ id: row.id, filePath: row.filePath, title: row.title, updatedAt: row.updatedAt, shared }];
+      return [
+        { id: row.id, filePath: row.filePath, title: row.title, updatedAt: row.updatedAt, shared },
+      ];
     })
     .sort((a, b) => b.shared - a.shared || b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, limit)
@@ -152,7 +156,11 @@ function findTagThemeSiblings(
  */
 export async function autoLink(memoryId: number, workspaceSlug: string): Promise<void> {
   const db = getDb();
-  const memory = db.select().from(permanentMemories).where(eq(permanentMemories.id, memoryId)).get();
+  const memory = db
+    .select()
+    .from(permanentMemories)
+    .where(eq(permanentMemories.id, memoryId))
+    .get();
   if (!memory || !memory.filePath) return;
 
   const ws = db.select().from(workspaces).where(eq(workspaces.id, memory.workspaceId)).get();
@@ -163,8 +171,14 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
 
   // ── Pass 1: similarity-based links ────────────────────────────────────
   // Skipped when QMD_SKIP=1 (e.g. during tests that only exercise the tag pass).
+  //
+  // Uses searchVector() (cosine similarity, no LLM) rather than search() (hybrid):
+  // hybrid's rerank:false still runs LLM query expansion for every create/promote,
+  // and its RRF-rank-based score (1/rank, so rank 1 → 1.0, rank 2 → 0.5) made
+  // SIMILARITY_THRESHOLD unreachable past the top match. searchVector's score is
+  // a real 0..1 cosine similarity, so the threshold behaves as tuned.
 
-  const toLink: HybridQueryResult[] = [];
+  const toLink: SearchResult[] = [];
 
   if (process.env.QMD_SKIP !== '1') {
     const queryText = [memory.title, memory.content.slice(0, 500)].join(' ');
@@ -177,14 +191,9 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
     }
 
     if (store) {
-      let candidates: HybridQueryResult[] = [];
+      let candidates: SearchResult[] = [];
       try {
-        candidates = await store.search({
-          query: queryText,
-          collection: 'memory',
-          limit: 20,
-          rerank: false,
-        });
+        candidates = await store.searchVector(queryText, { collection: 'memory', limit: 20 });
       } catch {
         candidates = [];
       }
@@ -246,7 +255,12 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
       const candidateRow = db
         .select()
         .from(permanentMemories)
-        .where(and(eq(permanentMemories.workspaceId, memory.workspaceId), eq(permanentMemories.filePath, candidateRelPath)))
+        .where(
+          and(
+            eq(permanentMemories.workspaceId, memory.workspaceId),
+            eq(permanentMemories.filePath, candidateRelPath),
+          ),
+        )
         .get();
 
       const existingCandLinks = (candidateRow?.linkedMemories as string[]) ?? [];
@@ -254,7 +268,12 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
 
       if (updatedCandLinks.length > existingCandLinks.length) {
         try {
-          updateLinkedMemoriesInFile(workspaceDir, candidateRelPath, updatedCandLinks, touchedPaths);
+          updateLinkedMemoriesInFile(
+            workspaceDir,
+            candidateRelPath,
+            updatedCandLinks,
+            touchedPaths,
+          );
           if (candidateRow) {
             db.update(permanentMemories)
               .set({ linkedMemories: updatedCandLinks, updatedAt: new Date().toISOString() })
@@ -271,7 +290,11 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
     // If the similarity pass left room under MAX_LINKS, fill with thematic siblings.
 
     // Re-read from DB to pick up any writes made during the similarity pass.
-    const freshMemory = db.select().from(permanentMemories).where(eq(permanentMemories.id, memoryId)).get();
+    const freshMemory = db
+      .select()
+      .from(permanentMemories)
+      .where(eq(permanentMemories.id, memoryId))
+      .get();
     const currentLinks = (freshMemory?.linkedMemories as string[]) ?? [];
     const remaining = MAX_LINKS - currentLinks.length;
 
@@ -328,7 +351,12 @@ export async function autoLink(memoryId: number, workspaceSlug: string): Promise
 
         if (updatedSiblingLinks.length > existingSiblingLinks.length) {
           try {
-            updateLinkedMemoriesInFile(workspaceDir, sibling.filePath, updatedSiblingLinks, touchedPaths);
+            updateLinkedMemoriesInFile(
+              workspaceDir,
+              sibling.filePath,
+              updatedSiblingLinks,
+              touchedPaths,
+            );
             db.update(permanentMemories)
               .set({ linkedMemories: updatedSiblingLinks, updatedAt: new Date().toISOString() })
               .where(eq(permanentMemories.id, sibling.id))
