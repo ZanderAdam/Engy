@@ -1,5 +1,5 @@
 ---
-name: engy:milestone-plan
+name: milestone-plan
 description: "This skill should be used when the user asks to 'plan my project', 'plan milestones', 'break down into tasks', or 'create tasks for milestone'. Plans spec milestones in detail — task groups, tasks, dependencies, and priorities."
 ---
 

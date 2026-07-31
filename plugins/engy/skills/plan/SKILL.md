@@ -1,5 +1,5 @@
 ---
-name: engy:plan
+name: plan
 description: "This skill should be used when the user asks to 'write a plan', 'plan implementation', 'plan milestone', 'create implementation plan', or when planning complex changes — new features, architecture changes, multi-file work, or anything with ambiguous scope. Writes a validated implementation plan using codebase-aware requirements engineering."
 ---
 

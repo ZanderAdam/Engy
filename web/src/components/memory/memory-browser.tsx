@@ -324,7 +324,7 @@ export function MemoryBrowser({
             repos={repos}
             onChange={setPermanentFilters}
           />
-          <ScrollArea className="flex-1">
+          <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block">
             <PermanentList
               workspaceSlug={workspaceSlug}
               filters={permanentFilters}
@@ -335,7 +335,7 @@ export function MemoryBrowser({
         </TabsContent>
 
         <TabsContent value="candidates" className="flex flex-col flex-1 min-h-0 mt-0">
-          <ScrollArea className="flex-1">
+          <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block">
             <ReviewCandidatesList
               workspaceSlug={workspaceSlug}
               repos={repos}

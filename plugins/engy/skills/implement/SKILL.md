@@ -1,5 +1,5 @@
 ---
-name: engy:implement
+name: implement
 description: "This skill should be used when the user asks to 'implement', 'implement a task', 'implement a plan', 'execute a plan', 'work on task', or 'start implementation'."
 ---
 

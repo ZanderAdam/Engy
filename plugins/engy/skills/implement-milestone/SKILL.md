@@ -1,5 +1,5 @@
 ---
-name: engy:implement-milestone
+name: implement-milestone
 description: "This skill should be used when the user asks to 'implement milestone', 'implement all tasks', 'implement m5', or when working on an entire milestone's worth of tasks. Orchestrates milestone-level implementation across task groups with agent teams."
 ---
 

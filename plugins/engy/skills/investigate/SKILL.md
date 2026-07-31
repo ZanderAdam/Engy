@@ -1,5 +1,5 @@
 ---
-name: engy:investigate
+name: investigate
 description: "This skill should be used when the user asks to 'investigate X', 'look into X and file a task', 'research and track X', 'create a task from finding', or wants to explore a codebase concern and capture it as a tracked work item."
 ---
 

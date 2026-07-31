@@ -1,5 +1,5 @@
 ---
-name: engy:ingest
+name: ingest
 description: This skill should be used when the user asks to "ingest", "capture this URL", "add this article to memory", "save this transcript", "ingest this document", or "add this to the knowledge layer". Snapshots non-durable sources, links durable ones, drafts a fleeting distillation, dispatches research, and proposes candidate edits to existing notes.
 ---
 
