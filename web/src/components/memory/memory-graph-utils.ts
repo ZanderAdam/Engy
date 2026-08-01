@@ -62,6 +62,11 @@ export function cloneGraphData(data: MemoryGraphData): MemoryGraphData {
 // that they're still id strings. Resolve both forms against nodesById.
 export type LinkEndpoint = string | number | MemoryGraphNode | undefined;
 
+export function truncateLabel(title: string, maxLength = 26): string {
+  if (title.length <= maxLength) return title;
+  return `${title.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
 export function linkMatchesSearch(
   source: LinkEndpoint,
   target: LinkEndpoint,

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
+import SpriteText from 'three-spritetext';
 import { trpc } from '@/lib/trpc';
 import { Input } from '@/components/ui/input';
 import {
@@ -22,6 +23,7 @@ import {
   linkMatchesSearch,
   matchesSearch,
   nodeSize,
+  truncateLabel,
   type GraphGroupBy,
   type LinkEndpoint,
   type MemoryGraphData,
@@ -31,7 +33,11 @@ import {
 const EMPTY_GRAPH: MemoryGraphData = { nodes: [], links: [] };
 // Transparent canvas over the panel's own bg-background — stays correct
 // across the dark and cyberpunk theme flavors without resolving CSS vars at runtime.
-const LINK_COLOR = 'rgba(255, 255, 255, 0.15)';
+// Line/label alpha lives in linkOpacity / LABEL_COLOR, not in these colors —
+// the lib multiplies material opacity on top of the color's own alpha.
+const LINK_COLOR = '#ffffff';
+const LINK_OPACITY = 0.35;
+const LABEL_COLOR = 'rgba(255, 255, 255, 0.65)';
 
 interface MemoryGraphProps {
   workspaceSlug: string;
@@ -73,6 +79,17 @@ export function MemoryGraph({ workspaceSlug, onSelect }: MemoryGraphProps) {
   const legend = useMemo(() => buildLegend(visibleNodes, groupBy), [visibleNodes, groupBy]);
 
   const nodeVisibility = useCallback((n: MemoryGraphNode) => matchesSearch(n, search), [search]);
+  const nodeLabelSprite = useCallback((n: MemoryGraphNode) => {
+    // SpriteText extends THREE.Sprite at runtime, but its types don't surface
+    // the inherited Object3D members (web declares no direct `three` dep).
+    const sprite = new SpriteText(truncateLabel(n.title)) as SpriteText & {
+      position: { y: number };
+    };
+    sprite.color = LABEL_COLOR;
+    sprite.textHeight = 2.5;
+    sprite.position.y = -7;
+    return sprite;
+  }, []);
   const linkVisibility = useCallback(
     (l: { source?: LinkEndpoint; target?: LinkEndpoint }) =>
       linkMatchesSearch(l.source, l.target, search, nodesById),
@@ -137,7 +154,11 @@ export function MemoryGraph({ workspaceSlug, onSelect }: MemoryGraphProps) {
           nodeVal={(n) => nodeSize(n, linkCounts)}
           nodeVisibility={nodeVisibility}
           linkVisibility={linkVisibility}
+          nodeThreeObject={nodeLabelSprite}
+          nodeThreeObjectExtend
           linkColor={() => LINK_COLOR}
+          linkOpacity={LINK_OPACITY}
+          linkWidth={1}
           onNodeClick={(n) => onSelect({ kind: n.kind, dbId: n.dbId })}
         />
       )}

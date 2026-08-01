@@ -8,6 +8,7 @@ import {
   linkMatchesSearch,
   matchesSearch,
   nodeSize,
+  truncateLabel,
   type MemoryGraphData,
   type MemoryGraphNode,
 } from './memory-graph-utils';
@@ -67,6 +68,16 @@ describe('memory-graph-utils', () => {
     it('should match everything for an empty or whitespace-only query', () => {
       expect(matchesSearch(node({ title: 'Anything' }), '')).toBe(true);
       expect(matchesSearch(node({ title: 'Anything' }), '   ')).toBe(true);
+    });
+  });
+
+  describe('truncateLabel', () => {
+    it('should pass short titles through and ellipsize long ones', () => {
+      expect(truncateLabel('Short title')).toBe('Short title');
+      const long = 'A very long memory title that overflows the label';
+      const truncated = truncateLabel(long);
+      expect(truncated.length).toBeLessThanOrEqual(26);
+      expect(truncated.endsWith('…')).toBe(true);
     });
   });
 
