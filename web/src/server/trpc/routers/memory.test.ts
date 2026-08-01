@@ -6,7 +6,11 @@ import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
 import { permanentMemories, fleetingMemories } from '../../db/schema';
 import { _resetStoreCache } from '../../search/qmd-store';
-import { update as indexerUpdate } from '../../search/indexer';
+import {
+  update as indexerUpdate,
+  triggerMemoryIndexOnWrite,
+  _flushMemoryIndexOnWrite,
+} from '../../search/indexer';
 
 vi.mock('../../lib/promote-proposal', () => ({
   proposeMemoryMetadata: vi.fn().mockResolvedValue(null),
@@ -14,7 +18,11 @@ vi.mock('../../lib/promote-proposal', () => ({
 
 vi.mock('../../search/indexer', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../search/indexer')>();
-  return { ...actual, update: vi.fn(actual.update) };
+  return {
+    ...actual,
+    update: vi.fn(actual.update),
+    triggerMemoryIndexOnWrite: vi.fn(actual.triggerMemoryIndexOnWrite),
+  };
 });
 
 const QMD_AVAILABLE = process.env.QMD_AVAILABLE === '1';
@@ -31,7 +39,11 @@ describe('memory router', () => {
     workspaceSlug = ws.slug;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Flush any fire-and-forget index-on-write runs before the DB is torn
+    // down — getDb() is a process-global singleton the next test swaps out,
+    // so a leftover run could otherwise resolve against the next test's DB.
+    await _flushMemoryIndexOnWrite();
     _resetStoreCache();
     ctx.cleanup();
   });
@@ -140,6 +152,20 @@ describe('memory router', () => {
       expect(result.themes).toEqual(['persistence', 'infrastructure']);
       expect(result.tags).toEqual(['db', 'decision']);
       expect(result.scenarioIds).toEqual(['FR-3.1']);
+    });
+
+    it('[FR-MEMORY-240] should trigger index-on-write after creating', async () => {
+      const mockTrigger = vi.mocked(triggerMemoryIndexOnWrite);
+      mockTrigger.mockClear();
+
+      await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Index-on-write create fact',
+        content: 'Should trigger the indexer.',
+      });
+
+      expect(mockTrigger).toHaveBeenCalledWith(workspaceSlug);
     });
   });
 
@@ -322,9 +348,9 @@ describe('memory router', () => {
       expect(row!.supersededById).toBe(replacement.id);
     });
 
-    it('[FR-MEMORY-050] should trigger an incremental reindex after updating', async () => {
-      const mockUpdate = vi.mocked(indexerUpdate);
-      mockUpdate.mockClear();
+    it('[FR-MEMORY-240] should trigger index-on-write after updating', async () => {
+      const mockTrigger = vi.mocked(triggerMemoryIndexOnWrite);
+      mockTrigger.mockClear();
 
       const created = await caller.memory.create({
         workspaceSlug,
@@ -333,7 +359,7 @@ describe('memory router', () => {
         content: 'Original for reindex test',
       });
 
-      mockUpdate.mockClear();
+      mockTrigger.mockClear();
 
       await caller.memory.update({
         id: created.id,
@@ -343,7 +369,7 @@ describe('memory router', () => {
       // Allow the fire-and-forget reindex to settle.
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      expect(mockUpdate).toHaveBeenCalledWith(workspaceSlug, 'memory');
+      expect(mockTrigger).toHaveBeenCalledWith(workspaceSlug);
     });
 
     describe.skipIf(!QMD_AVAILABLE)('qmd search round-trip after update', () => {
@@ -481,6 +507,22 @@ describe('memory router', () => {
 
     it('should throw NOT_FOUND for non-existent id', async () => {
       await expect(caller.memory.delete({ id: 99999 })).rejects.toThrow('not found');
+    });
+
+    it('[FR-MEMORY-240] should trigger index-on-write after deleting', async () => {
+      const created = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Delete trigger fact',
+        content: 'To be removed.',
+      });
+
+      const mockTrigger = vi.mocked(triggerMemoryIndexOnWrite);
+      mockTrigger.mockClear();
+
+      await caller.memory.delete({ id: created.id });
+
+      expect(mockTrigger).toHaveBeenCalledWith(workspaceSlug);
     });
   });
 
@@ -821,6 +863,60 @@ describe('memory router', () => {
       expect(sources.length).toBe(unique.length);
     });
 
+    it('[FR-MEMORY-220] should clear dismissedAt on the fleeting memory when promoting', async () => {
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+
+      const fleeting = ctx.db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId: ws.id,
+          content: 'Dismissed, then promoted',
+          type: 'capture',
+          source: 'agent',
+          dismissedAt: new Date().toISOString(),
+        })
+        .returning()
+        .get();
+
+      await caller.memory.promote({
+        fleetingMemoryId: fleeting.id,
+        subtype: 'insight',
+        title: 'Promoted from dismissed',
+      });
+
+      const updatedFleeting = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, fleeting.id))
+        .get();
+      expect(updatedFleeting!.dismissedAt).toBeNull();
+    });
+
+    it('[FR-MEMORY-240] should trigger index-on-write after promoting', async () => {
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+      const fleeting = ctx.db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId: ws.id,
+          content: 'Promote trigger content.',
+          type: 'capture',
+          source: 'agent',
+        })
+        .returning()
+        .get();
+
+      const mockTrigger = vi.mocked(triggerMemoryIndexOnWrite);
+      mockTrigger.mockClear();
+
+      await caller.memory.promote({
+        fleetingMemoryId: fleeting.id,
+        subtype: 'fact',
+        title: 'Promote trigger fact',
+      });
+
+      expect(mockTrigger).toHaveBeenCalledWith(workspaceSlug);
+    });
+
     it('[FR-MEMORY-110] should throw BAD_REQUEST when fleeting is already promoted', async () => {
       const ws = await caller.workspace.get({ slug: workspaceSlug });
 
@@ -847,7 +943,7 @@ describe('memory router', () => {
   });
 
   describe('reviewCandidates', () => {
-    it('should return only unpromoted fleeting memories', async () => {
+    it('should return only unpromoted, non-dismissed fleeting memories by default', async () => {
       const ws = await caller.workspace.get({ slug: workspaceSlug });
 
       ctx.db
@@ -875,15 +971,24 @@ describe('memory router', () => {
             promoted: true,
             promotedAt: new Date().toISOString(),
           },
+          {
+            workspaceId: ws.id,
+            content: 'Already dismissed',
+            type: 'capture',
+            source: 'agent',
+            promoted: false,
+            dismissedAt: new Date().toISOString(),
+          },
         ])
         .run();
 
       const result = await caller.memory.reviewCandidates({ workspaceSlug });
-      expect(result.length).toBe(2);
-      expect(result.every((m) => !m.promoted)).toBe(true);
+      expect(result.items.length).toBe(2);
+      expect(result.total).toBe(2);
+      expect(result.items.every((m) => !m.promoted && !m.dismissedAt)).toBe(true);
     });
 
-    it('should return most recent first', async () => {
+    it('should return most recent first by default, and oldest first when sort is asc', async () => {
       const ws = await caller.workspace.get({ slug: workspaceSlug });
 
       ctx.db
@@ -908,12 +1013,15 @@ describe('memory router', () => {
         ])
         .run();
 
-      const result = await caller.memory.reviewCandidates({ workspaceSlug });
-      expect(result[0].content).toBe('Newer memory');
-      expect(result[result.length - 1].content).toBe('Older memory');
+      const desc = await caller.memory.reviewCandidates({ workspaceSlug });
+      expect(desc.items[0].content).toBe('Newer memory');
+      expect(desc.items[desc.items.length - 1].content).toBe('Older memory');
+
+      const asc = await caller.memory.reviewCandidates({ workspaceSlug, sort: 'asc' });
+      expect(asc.items[0].content).toBe('Older memory');
     });
 
-    it('should respect the limit parameter', async () => {
+    it('[FR-MEMORY-230] should paginate with limit/offset and return the total before pagination', async () => {
       const ws = await caller.workspace.get({ slug: workspaceSlug });
 
       const values = Array.from({ length: 10 }, (_, i) => ({
@@ -925,8 +1033,63 @@ describe('memory router', () => {
       }));
       ctx.db.insert(fleetingMemories).values(values).run();
 
-      const result = await caller.memory.reviewCandidates({ workspaceSlug, limit: 5 });
-      expect(result.length).toBe(5);
+      const page1 = await caller.memory.reviewCandidates({ workspaceSlug, limit: 5 });
+      expect(page1.items.length).toBe(5);
+      expect(page1.total).toBe(10);
+
+      const page2 = await caller.memory.reviewCandidates({ workspaceSlug, limit: 5, offset: 5 });
+      expect(page2.items.length).toBe(5);
+      expect(page2.total).toBe(10);
+    });
+
+    it('[FR-MEMORY-230] should filter by status=dismissed, type, search, and tag', async () => {
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+
+      ctx.db
+        .insert(fleetingMemories)
+        .values([
+          {
+            workspaceId: ws.id,
+            content: 'Pending capture about auth',
+            type: 'capture',
+            source: 'agent',
+            promoted: false,
+            tags: ['auth'],
+          },
+          {
+            workspaceId: ws.id,
+            content: 'Pending idea about billing',
+            type: 'idea',
+            source: 'agent',
+            promoted: false,
+            tags: ['billing'],
+          },
+          {
+            workspaceId: ws.id,
+            content: 'Dismissed note about auth',
+            type: 'capture',
+            source: 'agent',
+            promoted: false,
+            tags: ['auth'],
+            dismissedAt: new Date().toISOString(),
+          },
+        ])
+        .run();
+
+      const dismissed = await caller.memory.reviewCandidates({ workspaceSlug, status: 'dismissed' });
+      expect(dismissed.items.length).toBe(1);
+      expect(dismissed.items[0].content).toBe('Dismissed note about auth');
+
+      const byType = await caller.memory.reviewCandidates({ workspaceSlug, type: 'idea' });
+      expect(byType.items.length).toBe(1);
+      expect(byType.items[0].content).toBe('Pending idea about billing');
+
+      const bySearch = await caller.memory.reviewCandidates({ workspaceSlug, search: 'billing' });
+      expect(bySearch.items.length).toBe(1);
+
+      const byTag = await caller.memory.reviewCandidates({ workspaceSlug, tag: 'auth' });
+      expect(byTag.items.length).toBe(1);
+      expect(byTag.items[0].content).toBe('Pending capture about auth');
     });
 
     it('should throw NOT_FOUND for unknown workspace', async () => {
@@ -935,9 +1098,183 @@ describe('memory router', () => {
       ).rejects.toThrow('not found');
     });
 
-    it('should return empty array when no fleeting memories exist', async () => {
+    it('should return an empty page when no fleeting memories exist', async () => {
       const result = await caller.memory.reviewCandidates({ workspaceSlug });
-      expect(result).toEqual([]);
+      expect(result).toEqual({ items: [], total: 0 });
+    });
+  });
+
+  describe('reviewCandidateClusters', () => {
+    it('[FR-MEMORY-280] should return one singleton cluster per pending memory under QMD_SKIP=1', async () => {
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+
+      ctx.db
+        .insert(fleetingMemories)
+        .values([
+          { workspaceId: ws.id, content: 'Pending A', type: 'capture', source: 'agent' },
+          { workspaceId: ws.id, content: 'Pending B', type: 'capture', source: 'agent' },
+          {
+            workspaceId: ws.id,
+            content: 'Dismissed candidate',
+            type: 'capture',
+            source: 'agent',
+            dismissedAt: new Date().toISOString(),
+          },
+          {
+            workspaceId: ws.id,
+            content: 'Promoted candidate',
+            type: 'capture',
+            source: 'agent',
+            promoted: true,
+            promotedAt: new Date().toISOString(),
+          },
+        ])
+        .run();
+
+      const result = await caller.memory.reviewCandidateClusters({ workspaceSlug });
+
+      expect(result.truncated).toBe(false);
+      expect(result.clusters).toHaveLength(2);
+      expect(result.clusters.every((cl) => cl.memberCount === 1 && cl.ids.length === 1)).toBe(true);
+      const contents = result.clusters.map((cl) => cl.members[0].content).sort();
+      expect(contents).toEqual(['Pending A', 'Pending B']);
+    });
+
+    it('should throw NOT_FOUND for unknown workspace', async () => {
+      await expect(
+        caller.memory.reviewCandidateClusters({ workspaceSlug: 'no-such-ws' }),
+      ).rejects.toThrow('not found');
+    });
+
+    it('should return no clusters when there are no pending fleeting memories', async () => {
+      const result = await caller.memory.reviewCandidateClusters({ workspaceSlug });
+      expect(result).toEqual({ clusters: [], truncated: false });
+    });
+  });
+
+  describe('dismissFleeting', () => {
+    it('[FR-MEMORY-190] should set dismissedAt and exclude the memory from default review candidates', async () => {
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+      const fleeting = ctx.db
+        .insert(fleetingMemories)
+        .values({ workspaceId: ws.id, content: 'Dismiss me', type: 'capture', source: 'agent' })
+        .returning()
+        .get();
+
+      const result = await caller.memory.dismissFleeting({ workspaceSlug, id: fleeting.id });
+      expect(result.dismissedAt).toBeTruthy();
+
+      const candidates = await caller.memory.reviewCandidates({ workspaceSlug });
+      expect(candidates.items.find((m) => m.id === fleeting.id)).toBeUndefined();
+    });
+
+    it('[FR-MEMORY-190] should reject dismissing an already-promoted memory', async () => {
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+      const fleeting = ctx.db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId: ws.id,
+          content: 'Promoted already',
+          type: 'capture',
+          source: 'agent',
+          promoted: true,
+          promotedAt: new Date().toISOString(),
+        })
+        .returning()
+        .get();
+
+      await expect(
+        caller.memory.dismissFleeting({ workspaceSlug, id: fleeting.id }),
+      ).rejects.toThrow('already been promoted');
+    });
+
+    it('should throw NOT_FOUND for a non-existent id', async () => {
+      await expect(
+        caller.memory.dismissFleeting({ workspaceSlug, id: 99999 }),
+      ).rejects.toThrow('not found');
+    });
+  });
+
+  describe('restoreFleeting', () => {
+    it('[FR-MEMORY-200] should null dismissedAt and bring the memory back into default review candidates', async () => {
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+      const fleeting = ctx.db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId: ws.id,
+          content: 'Restore me',
+          type: 'capture',
+          source: 'agent',
+          dismissedAt: new Date().toISOString(),
+        })
+        .returning()
+        .get();
+
+      const result = await caller.memory.restoreFleeting({ workspaceSlug, id: fleeting.id });
+      expect(result.dismissedAt).toBeNull();
+
+      const candidates = await caller.memory.reviewCandidates({ workspaceSlug });
+      expect(candidates.items.find((m) => m.id === fleeting.id)).toBeDefined();
+    });
+
+    it('should throw NOT_FOUND for a non-existent id', async () => {
+      await expect(
+        caller.memory.restoreFleeting({ workspaceSlug, id: 99999 }),
+      ).rejects.toThrow('not found');
+    });
+  });
+
+  describe('deleteFleeting', () => {
+    it('[FR-MEMORY-210] should hard-delete an unpromoted fleeting memory', async () => {
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+      const fleeting = ctx.db
+        .insert(fleetingMemories)
+        .values({ workspaceId: ws.id, content: 'Delete me', type: 'capture', source: 'agent' })
+        .returning()
+        .get();
+
+      const result = await caller.memory.deleteFleeting({ workspaceSlug, id: fleeting.id });
+      expect(result.success).toBe(true);
+
+      const row = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, fleeting.id))
+        .get();
+      expect(row).toBeUndefined();
+    });
+
+    it('[FR-MEMORY-210] should reject deleting an already-promoted memory, leaving it intact', async () => {
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+      const fleeting = ctx.db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId: ws.id,
+          content: 'Promoted, protected',
+          type: 'capture',
+          source: 'agent',
+          promoted: true,
+          promotedAt: new Date().toISOString(),
+        })
+        .returning()
+        .get();
+
+      await expect(
+        caller.memory.deleteFleeting({ workspaceSlug, id: fleeting.id }),
+      ).rejects.toThrow('already been promoted');
+
+      const row = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, fleeting.id))
+        .get();
+      expect(row).toBeDefined();
+    });
+
+    it('should throw NOT_FOUND for a non-existent id', async () => {
+      await expect(
+        caller.memory.deleteFleeting({ workspaceSlug, id: 99999 }),
+      ).rejects.toThrow('not found');
     });
   });
 
@@ -998,6 +1335,65 @@ describe('memory router', () => {
           content: 'Some thought',
         }),
       ).rejects.toThrow('not found');
+    });
+
+    it('should default type to capture when not provided', async () => {
+      const result = await caller.memory.createFleeting({
+        workspaceSlug,
+        content: 'Untyped capture',
+      });
+
+      const row = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, result.id))
+        .get();
+      expect(row?.type).toBe('capture');
+    });
+
+    it('should store an explicit type', async () => {
+      const result = await caller.memory.createFleeting({
+        workspaceSlug,
+        content: 'An open question',
+        type: 'question',
+      });
+
+      const row = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, result.id))
+        .get();
+      expect(row?.type).toBe('question');
+    });
+
+    it('should store supplied sources', async () => {
+      const sources = ['memory/sources/ref-a.md', 'memory/references/ref-b.md'];
+      const result = await caller.memory.createFleeting({
+        workspaceSlug,
+        content: 'Distilled from sources',
+        sources,
+      });
+
+      const row = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, result.id))
+        .get();
+      expect(row?.sources).toEqual(sources);
+    });
+
+    it('should default sources to empty array when not provided', async () => {
+      const result = await caller.memory.createFleeting({
+        workspaceSlug,
+        content: 'No sources',
+      });
+
+      const row = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.id, result.id))
+        .get();
+      expect(row?.sources).toEqual([]);
     });
 
     it('[FR-MEMORY-020] should reject empty content', async () => {

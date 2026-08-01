@@ -1787,6 +1787,62 @@ describe('CREATE_MEMORIES_EVENT', () => {
     warnSpy.mockRestore();
   });
 
+  it('[FR-MEMORY-250] should drop memories with empty content and warn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const workspace = ctx.db
+      .insert(workspaces)
+      .values({ name: 'EmptyWs', slug: 'empty-ws' })
+      .returning()
+      .get();
+    const project = ctx.db
+      .insert(projects)
+      .values({ workspaceId: workspace.id, name: 'Empty Project', slug: 'empty-proj' })
+      .returning()
+      .get();
+    const task = ctx.db
+      .insert(tasks)
+      .values({ title: 'Empty task', projectId: project.id, status: 'in_progress' })
+      .returning()
+      .get();
+    ctx.db
+      .insert(agentSessions)
+      .values({ sessionId: 'empty-session', taskId: task.id, status: 'active' })
+      .run();
+
+    const ws = await connectClient(port);
+    ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+    await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+    ws.send(
+      JSON.stringify({
+        type: 'CREATE_MEMORIES_EVENT',
+        payload: {
+          sessionId: 'empty-session',
+          memories: [{ content: '' }, { content: 'Non-empty and valid' }],
+        },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const inserted = ctx.db
+        .select()
+        .from(fleetingMemories)
+        .where(eq(fleetingMemories.workspaceId, workspace.id))
+        .all();
+      expect(inserted).toHaveLength(1);
+    });
+
+    const [m] = ctx.db
+      .select()
+      .from(fleetingMemories)
+      .where(eq(fleetingMemories.workspaceId, workspace.id))
+      .all();
+    expect(m.content).toBe('Non-empty and valid');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('memory content is empty'));
+    warnSpy.mockRestore();
+  });
+
   it('should drop memories whose content exceeds 10_000 chars and warn', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 

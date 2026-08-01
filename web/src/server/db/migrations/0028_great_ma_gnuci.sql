@@ -1,0 +1,1 @@
+ALTER TABLE `fleeting_memories` ADD `dismissed_at` text;

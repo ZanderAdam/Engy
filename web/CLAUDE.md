@@ -48,6 +48,7 @@ src/server/
 │   ├── qmd-search.ts             # Unified BM25/vector/hybrid dispatch; normalises result shape; drops README hits; oversamples at min(ceil(limit×1.5), 500); exports isReadme for filter-mode callers
 │   ├── subtype-affinity.ts       # Post-hoc score reweighting from query-shape signals
 │   ├── memory-queries.ts         # getSupersededMemoryPaths() — exclude superseded from results
+│   ├── candidate-clusters.ts     # clusterReviewCandidates() — ad-hoc cosine clustering of pending fleeting memories (never indexed)
 │   ├── frontmatter-filter.ts     # buildFrontmatterWhereCondition() for JSON1 structured filters
 │   ├── indexer.ts                # update()/forceFullReindex()/syncPermanentMemoryMirror()
 │   ├── auto-linker.ts            # Bidirectional link writing on memory create/promote

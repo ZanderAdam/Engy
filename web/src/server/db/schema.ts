@@ -334,6 +334,7 @@ export const fleetingMemories = sqliteTable('fleeting_memories', {
     onDelete: 'set null',
   }),
   promotedAt: text('promoted_at'),
+  dismissedAt: text('dismissed_at'),
   sources: text('sources', { mode: 'json' }).$type<string[]>().default([]),
   createdAt: text('created_at')
     .notNull()

@@ -48,7 +48,7 @@ interface TerminalSessionsChangeEvent {
 interface MemoryChangeEvent {
   type: 'MEMORY_CHANGE';
   payload: {
-    action: 'created' | 'updated' | 'deleted' | 'promoted';
+    action: 'created' | 'updated' | 'deleted' | 'promoted' | 'dismissed' | 'restored';
     workspaceId: number;
     memoryId?: number;
   };

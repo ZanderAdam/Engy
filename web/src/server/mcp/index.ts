@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { eq, and, desc, inArray, type SQL } from 'drizzle-orm';
+import { eq, and, desc, inArray, isNull, type SQL } from 'drizzle-orm';
 import path from 'node:path';
 import { getDb } from '../db/client';
 import {
@@ -37,10 +37,16 @@ import {
 } from '../search/frontmatter-filter';
 import { taskStatusSchema } from '@/lib/task-status';
 import { writePermanentMemory, rewritePermanentMemory, writeSourceSnapshot } from '../lib/memory-files';
-import { update as indexerUpdate, forceFullReindex, updateAndEmbed } from '../search/indexer';
+import {
+  update as indexerUpdate,
+  forceFullReindex,
+  updateAndEmbed,
+  triggerMemoryIndexOnWrite,
+} from '../search/indexer';
 import { autoLink } from '../search/auto-linker';
 import { validateWorkspace as runValidateWorkspace } from '../search/validate';
 import { getStore } from '../search/qmd-store';
+import { clusterReviewCandidates } from '../search/candidate-clusters';
 import { runQmdSearch, isReadme, type QmdSearchMode } from '../search/qmd-search';
 import { applySubtypeAffinity } from '../search/subtype-affinity';
 import { projectCompletionService } from '../services/project-completion';
@@ -139,6 +145,7 @@ const createFleetingMemoryInput = {
   workspaceId: z.number().describe('Workspace ID'),
   content: z
     .string()
+    .min(1)
     .describe(
       'Memory body. Structure it as: Core claim / What surprised / Connects to / Contradicts (or "nothing identified").',
     ),
@@ -161,6 +168,22 @@ const listMemoriesInput = {
     .enum(['fleeting', 'permanent', 'both'])
     .default('fleeting')
     .describe("Which memory store to query: 'fleeting' (default), 'permanent', or 'both'"),
+  includeDismissed: z
+    .boolean()
+    .default(false)
+    .describe('Include dismissed fleeting memories (excluded by default)'),
+  includeSuperseded: z
+    .boolean()
+    .default(false)
+    .describe('Include superseded permanent memories (excluded by default)'),
+};
+
+const dismissFleetingMemoryInput = {
+  id: z.number().describe('Fleeting memory ID'),
+};
+
+const deleteFleetingMemoryInput = {
+  id: z.number().describe('Fleeting memory ID'),
 };
 
 const createPermanentMemoryInput = {
@@ -220,6 +243,10 @@ const promoteMemoryInput = {
   scenarioIds: z.array(z.string()).optional().describe('FR/scenario ID anchors'),
   sources: z.array(z.string()).optional().describe('Source paths'),
   linkedMemories: z.array(z.string()).optional().describe('Linked memory paths'),
+};
+
+const listReviewClustersInput = {
+  workspaceId: z.number().describe('Workspace ID'),
 };
 
 const writeSourceSnapshotInput = {
@@ -761,6 +788,7 @@ function registerTaskTools(mcp: McpServer): void {
             .get();
           if (project) {
             for (const mem of memories) {
+              if (mem.content.length === 0) continue;
               tx
                 .insert(fleetingMemories)
                 .values({
@@ -948,24 +976,73 @@ function registerMemoryTools(mcp: McpServer): void {
   );
 
   mcp.tool(
+    'dismissFleetingMemory',
+    'Dismiss a fleeting memory from the review queue without deleting it (suppress-and-preserve tombstone). Cannot dismiss a memory that has already been promoted.',
+    dismissFleetingMemoryInput,
+    async ({ id }) => {
+      const db = getDb();
+      const existing = db.select().from(fleetingMemories).where(eq(fleetingMemories.id, id)).get();
+      if (!existing) return mcpError('Fleeting memory not found');
+      if (existing.promoted) return mcpError('Cannot dismiss a memory that has already been promoted');
+
+      const updated = db
+        .update(fleetingMemories)
+        .set({ dismissedAt: new Date().toISOString() })
+        .where(eq(fleetingMemories.id, id))
+        .returning()
+        .get()!;
+
+      broadcastMemoryChange('dismissed', existing.workspaceId, id);
+
+      return mcpResult(updated);
+    },
+  );
+
+  mcp.tool(
+    'deleteFleetingMemory',
+    'Permanently delete a fleeting memory. Not allowed for memories that have already been promoted — those are the audit trail.',
+    deleteFleetingMemoryInput,
+    async ({ id }) => {
+      const db = getDb();
+      const existing = db.select().from(fleetingMemories).where(eq(fleetingMemories.id, id)).get();
+      if (!existing) return mcpError('Fleeting memory not found');
+      if (existing.promoted) return mcpError('Cannot delete a memory that has already been promoted');
+
+      db.delete(fleetingMemories).where(eq(fleetingMemories.id, id)).run();
+
+      broadcastMemoryChange('deleted', existing.workspaceId, id);
+
+      return mcpResult({ success: true });
+    },
+  );
+
+  mcp.tool(
     'listMemories',
-    'List memories for a workspace. Compact mode (default) omits content. Use scope to include permanent memories.',
+    'List memories for a workspace. Compact mode (default) omits content. Use scope to include permanent memories. Dismissed fleeting memories are excluded unless includeDismissed is set; superseded permanent memories are excluded unless includeSuperseded is set.',
     listMemoriesInput,
-    async ({ workspaceId, compact, scope }) => {
+    async ({ workspaceId, compact, scope, includeDismissed, includeSuperseded }) => {
       const db = getDb();
       const result: Record<string, unknown> = {};
 
       if (scope === 'fleeting' || scope === 'both') {
-        const rows = workspaceId !== undefined
-          ? db.select().from(fleetingMemories).where(eq(fleetingMemories.workspaceId, workspaceId)).all()
-          : db.select().from(fleetingMemories).all();
+        const conditions = [];
+        if (workspaceId !== undefined) conditions.push(eq(fleetingMemories.workspaceId, workspaceId));
+        if (!includeDismissed) conditions.push(isNull(fleetingMemories.dismissedAt));
+        const rows =
+          conditions.length > 0
+            ? db.select().from(fleetingMemories).where(and(...conditions)).all()
+            : db.select().from(fleetingMemories).all();
         result.fleeting = compact !== false ? omitKey(rows, 'content') : rows;
       }
 
       if (scope === 'permanent' || scope === 'both') {
-        const rows = workspaceId !== undefined
-          ? db.select().from(permanentMemories).where(eq(permanentMemories.workspaceId, workspaceId)).all()
-          : db.select().from(permanentMemories).all();
+        const conditions = [];
+        if (workspaceId !== undefined) conditions.push(eq(permanentMemories.workspaceId, workspaceId));
+        if (!includeSuperseded) conditions.push(isNull(permanentMemories.supersededById));
+        const rows =
+          conditions.length > 0
+            ? db.select().from(permanentMemories).where(and(...conditions)).all()
+            : db.select().from(permanentMemories).all();
         result.permanent = compact !== false ? omitKey(rows, 'content') : rows;
       }
 
@@ -1035,6 +1112,8 @@ function registerMemoryTools(mcp: McpServer): void {
       autoLink(updated.id, ws.slug).catch((err) =>
         console.error('[autoLink] createPermanentMemory failed:', err),
       );
+
+      triggerMemoryIndexOnWrite(ws.slug);
 
       return mcpResult({ id: updated.id, filePath });
     },
@@ -1115,11 +1194,7 @@ function registerMemoryTools(mcp: McpServer): void {
 
       broadcastMemoryChange('updated', existing.workspaceId, id);
 
-      // Fire-and-forget incremental reindex so next search returns fresh content.
-      // Edit feedback is fast; the local change is already reflected in the DB/file.
-      indexerUpdate(ws.slug, 'memory').catch((err) =>
-        console.error('[updatePermanentMemory] reindex error:', err),
-      );
+      triggerMemoryIndexOnWrite(ws.slug);
 
       return mcpResult({ success: true, filePath });
     },
@@ -1182,6 +1257,8 @@ function registerMemoryTools(mcp: McpServer): void {
             promoted: true,
             promotedFromId: permanent.id,
             promotedAt: new Date().toISOString(),
+            // Promoting from the dismissed view is a valid restore path.
+            dismissedAt: null,
           })
           .where(eq(fleetingMemories.id, fleetingMemoryId))
           .run();
@@ -1202,7 +1279,12 @@ function registerMemoryTools(mcp: McpServer): void {
           tx.delete(permanentMemories).where(eq(permanentMemories.id, result.id)).run();
           tx
             .update(fleetingMemories)
-            .set({ promoted: false, promotedAt: null, promotedFromId: null })
+            .set({
+              promoted: false,
+              promotedAt: null,
+              promotedFromId: null,
+              dismissedAt: fleeting.dismissedAt,
+            })
             .where(eq(fleetingMemories.id, fleetingMemoryId))
             .run();
         });
@@ -1221,6 +1303,8 @@ function registerMemoryTools(mcp: McpServer): void {
       } catch (err) {
         console.error('[autoLink] promoteMemory failed:', err);
       }
+
+      triggerMemoryIndexOnWrite(ws.slug);
 
       // Re-read the row so linkedMemories reflects whatever autoLink wrote.
       const promoted = db
@@ -1266,6 +1350,20 @@ function registerMemoryTools(mcp: McpServer): void {
       }
 
       return mcpResult(result);
+    },
+  );
+
+  mcp.tool(
+    'listReviewClusters',
+    'Group pending (non-dismissed, non-promoted) fleeting memories into similarity clusters for batch review — embeddings are computed ad-hoc and nothing is persisted to the search index. Degrades to one singleton cluster per memory when the embedded LLM is unavailable.',
+    listReviewClustersInput,
+    async ({ workspaceId }) => {
+      const db = getDb();
+      const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+      if (!ws) return mcpError('Workspace not found');
+
+      const { clusters, truncated } = await clusterReviewCandidates(ws);
+      return mcpResult({ clusters, truncated });
     },
   );
 }

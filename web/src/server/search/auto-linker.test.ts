@@ -26,19 +26,27 @@ const mockGetStore = getStore as MockedFunction<typeof getStore>;
 
 function makeSearchResult(displayPath: string, score: number, title = 'Memory') {
   return {
-    file: `qmd://memory/${displayPath}`,
+    filepath: `qmd://memory/${displayPath}`,
     displayPath,
     title,
     body: 'content',
-    bestChunk: 'content',
-    bestChunkPos: 0,
     score,
-    context: {},
+    context: null,
+    hash: 'hash',
     docid: displayPath,
+    collectionName: 'memory',
+    modifiedAt: '',
+    bodyLength: 7,
+    source: 'vec' as const,
   };
 }
 
-function writeMemoryFile(wsDir: string, relPath: string, title: string, linkedMemories: string[] = []) {
+function writeMemoryFile(
+  wsDir: string,
+  relPath: string,
+  title: string,
+  linkedMemories: string[] = [],
+) {
   const absPath = path.join(wsDir, relPath);
   fs.mkdirSync(path.dirname(absPath), { recursive: true });
   const fm = [
@@ -106,7 +114,13 @@ describe('auto-linker', () => {
       writeMemoryFile(wsDir, srcPath, 'Skip Test');
       const mem = db
         .insert(permanentMemories)
-        .values({ workspaceId: wsId, subtype: 'fact', title: 'Skip Test', content: 'body', filePath: srcPath })
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Skip Test',
+          content: 'body',
+          filePath: srcPath,
+        })
         .returning()
         .get();
 
@@ -124,7 +138,13 @@ describe('auto-linker', () => {
       writeMemoryFile(wsDir, srcPath, 'Source Memory');
       const srcMem = db
         .insert(permanentMemories)
-        .values({ workspaceId: wsId, subtype: 'fact', title: 'Source Memory', content: 'important fact about auth', filePath: srcPath })
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Source Memory',
+          content: 'important fact about auth',
+          filePath: srcPath,
+        })
         .returning()
         .get();
 
@@ -133,25 +153,41 @@ describe('auto-linker', () => {
       writeMemoryFile(wsDir, candidatePath, 'Candidate Memory');
       const candidateMem = db
         .insert(permanentMemories)
-        .values({ workspaceId: wsId, subtype: 'fact', title: 'Candidate Memory', content: 'related auth fact', filePath: candidatePath })
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Candidate Memory',
+          content: 'related auth fact',
+          filePath: candidatePath,
+        })
         .returning()
         .get();
 
       const mockStore = {
-        search: vi.fn().mockResolvedValue([
-          makeSearchResult('memory/facts/202501010002-candidate.md', 0.9, 'Candidate Memory'),
-        ]),
+        searchVector: vi
+          .fn()
+          .mockResolvedValue([
+            makeSearchResult('memory/facts/202501010002-candidate.md', 0.9, 'Candidate Memory'),
+          ]),
       };
       mockGetStore.mockResolvedValue(mockStore as any);
 
       await autoLink(srcMem.id, wsSlug);
 
       // Source memory should link to candidate
-      const updatedSrc = db.select().from(permanentMemories).where(eq(permanentMemories.id, srcMem.id)).get()!;
+      const updatedSrc = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, srcMem.id))
+        .get()!;
       expect(updatedSrc.linkedMemories).toContain(candidatePath);
 
       // Candidate memory should link back to source
-      const updatedCandidate = db.select().from(permanentMemories).where(eq(permanentMemories.id, candidateMem.id)).get()!;
+      const updatedCandidate = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, candidateMem.id))
+        .get()!;
       expect(updatedCandidate.linkedMemories).toContain(srcPath);
     });
 
@@ -162,28 +198,45 @@ describe('auto-linker', () => {
       writeMemoryFile(wsDir, srcPath, 'Below Threshold Memory');
       const srcMem = db
         .insert(permanentMemories)
-        .values({ workspaceId: wsId, subtype: 'fact', title: 'Below Threshold Memory', content: 'body', filePath: srcPath })
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Below Threshold Memory',
+          content: 'body',
+          filePath: srcPath,
+        })
         .returning()
         .get();
 
       const candidatePath = 'memory/facts/202501010002-low.md';
       writeMemoryFile(wsDir, candidatePath, 'Low Score Memory');
-      db
-        .insert(permanentMemories)
-        .values({ workspaceId: wsId, subtype: 'fact', title: 'Low Score Memory', content: 'unrelated body', filePath: candidatePath })
+      db.insert(permanentMemories)
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Low Score Memory',
+          content: 'unrelated body',
+          filePath: candidatePath,
+        })
         .returning()
         .get();
 
       const mockStore = {
-        search: vi.fn().mockResolvedValue([
-          makeSearchResult('memory/facts/202501010002-low.md', 0.5, 'Low Score Memory'),
-        ]),
+        searchVector: vi
+          .fn()
+          .mockResolvedValue([
+            makeSearchResult('memory/facts/202501010002-low.md', 0.5, 'Low Score Memory'),
+          ]),
       };
       mockGetStore.mockResolvedValue(mockStore as any);
 
       await autoLink(srcMem.id, wsSlug);
 
-      const updatedSrc = db.select().from(permanentMemories).where(eq(permanentMemories.id, srcMem.id)).get()!;
+      const updatedSrc = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, srcMem.id))
+        .get()!;
       expect((updatedSrc.linkedMemories as string[]) ?? []).not.toContain(candidatePath);
     });
 
@@ -194,7 +247,13 @@ describe('auto-linker', () => {
       writeMemoryFile(wsDir, srcPath, 'Source');
       const srcMem = db
         .insert(permanentMemories)
-        .values({ workspaceId: wsId, subtype: 'fact', title: 'Source', content: 'body', filePath: srcPath })
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Source',
+          content: 'body',
+          filePath: srcPath,
+        })
         .returning()
         .get();
 
@@ -205,24 +264,44 @@ describe('auto-linker', () => {
         candidatePaths.push(relPath);
         writeMemoryFile(wsDir, relPath, `Cand ${i}`);
         db.insert(permanentMemories)
-          .values({ workspaceId: wsId, subtype: 'fact', title: `Cand ${i}`, content: 'body', filePath: relPath })
+          .values({
+            workspaceId: wsId,
+            subtype: 'fact',
+            title: `Cand ${i}`,
+            content: 'body',
+            filePath: relPath,
+          })
           .run();
       }
 
+      // All 7 candidates score above SIMILARITY_THRESHOLD on the real cosine scale
+      // searchVector returns. Before the searchVector switch, autoLink used the
+      // hybrid-search RRF score (1/rank), which put only rank 1 above threshold —
+      // this scenario asserts more than one candidate can genuinely link now.
       const mockStore = {
-        search: vi.fn().mockResolvedValue(
-          candidatePaths.map((p, idx) =>
-            makeSearchResult(`memory/facts/${p.split('/').pop()!}`, 0.95 - idx * 0.01, `Cand ${idx + 2}`),
+        searchVector: vi
+          .fn()
+          .mockResolvedValue(
+            candidatePaths.map((p, idx) =>
+              makeSearchResult(
+                `memory/facts/${p.split('/').pop()!}`,
+                0.95 - idx * 0.01,
+                `Cand ${idx + 2}`,
+              ),
+            ),
           ),
-        ),
       };
       mockGetStore.mockResolvedValue(mockStore as any);
 
       await autoLink(srcMem.id, wsSlug);
 
-      const updated = db.select().from(permanentMemories).where(eq(permanentMemories.id, srcMem.id)).get()!;
+      const updated = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, srcMem.id))
+        .get()!;
       const links = (updated.linkedMemories as string[]) ?? [];
-      expect(links.length).toBeLessThanOrEqual(MAX_LINKS);
+      expect(links.length).toBe(MAX_LINKS);
     });
 
     it('should use set semantics — running autoLink twice does not duplicate links', async () => {
@@ -232,20 +311,34 @@ describe('auto-linker', () => {
       writeMemoryFile(wsDir, srcPath, 'Dedup Source');
       const srcMem = db
         .insert(permanentMemories)
-        .values({ workspaceId: wsId, subtype: 'fact', title: 'Dedup Source', content: 'body', filePath: srcPath })
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Dedup Source',
+          content: 'body',
+          filePath: srcPath,
+        })
         .returning()
         .get();
 
       const candidatePath = 'memory/facts/202501010002-dedup-cand.md';
       writeMemoryFile(wsDir, candidatePath, 'Dedup Candidate');
       db.insert(permanentMemories)
-        .values({ workspaceId: wsId, subtype: 'fact', title: 'Dedup Candidate', content: 'body', filePath: candidatePath })
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Dedup Candidate',
+          content: 'body',
+          filePath: candidatePath,
+        })
         .run();
 
       const mockStore = {
-        search: vi.fn().mockResolvedValue([
-          makeSearchResult('memory/facts/202501010002-dedup-cand.md', 0.92, 'Dedup Candidate'),
-        ]),
+        searchVector: vi
+          .fn()
+          .mockResolvedValue([
+            makeSearchResult('memory/facts/202501010002-dedup-cand.md', 0.92, 'Dedup Candidate'),
+          ]),
       };
       mockGetStore.mockResolvedValue(mockStore as any);
 
@@ -253,7 +346,11 @@ describe('auto-linker', () => {
       await autoLink(srcMem.id, wsSlug);
       await autoLink(srcMem.id, wsSlug);
 
-      const updated = db.select().from(permanentMemories).where(eq(permanentMemories.id, srcMem.id)).get()!;
+      const updated = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, srcMem.id))
+        .get()!;
       const links = (updated.linkedMemories as string[]) ?? [];
       const unique = new Set(links);
       expect(unique.size).toBe(links.length);
@@ -267,12 +364,18 @@ describe('auto-linker', () => {
       writeMemoryFile(wsDir, srcPath, 'Self Memory');
       const srcMem = db
         .insert(permanentMemories)
-        .values({ workspaceId: wsId, subtype: 'fact', title: 'Self Memory', content: 'body', filePath: srcPath })
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Self Memory',
+          content: 'body',
+          filePath: srcPath,
+        })
         .returning()
         .get();
 
       const mockStore = {
-        search: vi.fn().mockResolvedValue([
+        searchVector: vi.fn().mockResolvedValue([
           // Same file returned from qmd (score above threshold)
           makeSearchResult('memory/facts/202501010001-self.md', 0.99, 'Self Memory'),
         ]),
@@ -281,7 +384,11 @@ describe('auto-linker', () => {
 
       await autoLink(srcMem.id, wsSlug);
 
-      const updated = db.select().from(permanentMemories).where(eq(permanentMemories.id, srcMem.id)).get()!;
+      const updated = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, srcMem.id))
+        .get()!;
       expect((updated.linkedMemories as string[]) ?? []).not.toContain(srcPath);
     });
 
@@ -302,18 +409,24 @@ describe('auto-linker', () => {
       expect(mockGetStore).not.toHaveBeenCalled();
     });
 
-    it('should handle qmd store.search failure gracefully without throwing', async () => {
+    it('should handle qmd store.searchVector failure gracefully without throwing', async () => {
       const db = getDb();
 
       const srcPath = 'memory/facts/202501010001-err.md';
       writeMemoryFile(wsDir, srcPath, 'Error Memory');
       const srcMem = db
         .insert(permanentMemories)
-        .values({ workspaceId: wsId, subtype: 'fact', title: 'Error Memory', content: 'body', filePath: srcPath })
+        .values({
+          workspaceId: wsId,
+          subtype: 'fact',
+          title: 'Error Memory',
+          content: 'body',
+          filePath: srcPath,
+        })
         .returning()
         .get();
 
-      const mockStore = { search: vi.fn().mockRejectedValue(new Error('qmd error')) };
+      const mockStore = { searchVector: vi.fn().mockRejectedValue(new Error('qmd error')) };
       mockGetStore.mockResolvedValue(mockStore as any);
 
       await expect(autoLink(srcMem.id, wsSlug)).resolves.toBeUndefined();
@@ -425,7 +538,11 @@ describe('auto-linker', () => {
 
       await autoLink(srcMem.id, wsSlug);
 
-      const updated = db.select().from(permanentMemories).where(eq(permanentMemories.id, srcMem.id)).get()!;
+      const updated = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, srcMem.id))
+        .get()!;
       const links = (updated.linkedMemories as string[]) ?? [];
 
       expect(links).toContain(pathA);
@@ -473,12 +590,16 @@ describe('auto-linker', () => {
         })
         .run();
 
-      const mockStore = { search: vi.fn().mockResolvedValue([]) };
+      const mockStore = { searchVector: vi.fn().mockResolvedValue([]) };
       mockGetStore.mockResolvedValue(mockStore as any);
 
       await autoLink(srcMem.id, wsSlug);
 
-      const updated = db.select().from(permanentMemories).where(eq(permanentMemories.id, srcMem.id)).get()!;
+      const updated = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, srcMem.id))
+        .get()!;
       expect((updated.linkedMemories as string[]) ?? []).not.toContain(unrelatedPath);
     });
 
@@ -525,12 +646,16 @@ describe('auto-linker', () => {
           .run();
       }
 
-      const mockStore = { search: vi.fn().mockResolvedValue([]) };
+      const mockStore = { searchVector: vi.fn().mockResolvedValue([]) };
       mockGetStore.mockResolvedValue(mockStore as any);
 
       await autoLink(srcMem.id, wsSlug);
 
-      const updated = db.select().from(permanentMemories).where(eq(permanentMemories.id, srcMem.id)).get()!;
+      const updated = db
+        .select()
+        .from(permanentMemories)
+        .where(eq(permanentMemories.id, srcMem.id))
+        .get()!;
       const links = (updated.linkedMemories as string[]) ?? [];
       expect(links.length).toBeLessThanOrEqual(MAX_LINKS);
     });
@@ -608,9 +733,11 @@ describe('auto-linker', () => {
 
       // Mock qmd to return sharedRelPath as the top candidate
       const mockStore = {
-        search: vi.fn().mockResolvedValue([
-          makeSearchResult(`memory/facts/shared-path.md`, 0.95, 'WS1 Candidate'),
-        ]),
+        searchVector: vi
+          .fn()
+          .mockResolvedValue([
+            makeSearchResult(`memory/facts/shared-path.md`, 0.95, 'WS1 Candidate'),
+          ]),
       };
       mockGetStore.mockResolvedValue(mockStore as any);
 

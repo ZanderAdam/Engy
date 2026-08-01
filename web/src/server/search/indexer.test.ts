@@ -17,9 +17,22 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { eq, and } from 'drizzle-orm';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { appRouter } from '../trpc/root';
-import { frontmatter, permanentMemories, workspaces, type FrontmatterCollection } from '../db/schema';
-import { update, forceFullReindex, syncPermanentMemoryMirror, type IndexResult } from './indexer';
-import { _resetStoreCache } from './qmd-store';
+import {
+  frontmatter,
+  permanentMemories,
+  workspaces,
+  type FrontmatterCollection,
+} from '../db/schema';
+import {
+  update,
+  updateAndEmbed,
+  forceFullReindex,
+  syncPermanentMemoryMirror,
+  triggerMemoryIndexOnWrite,
+  _flushMemoryIndexOnWrite,
+  type IndexResult,
+} from './indexer';
+import { getStore, _resetStoreCache } from './qmd-store';
 
 // QMD embedding requires a local GGUF model. Mark embed-only tests as
 // skip when the model isn't present. Hash indexing works offline.
@@ -38,16 +51,16 @@ describe('WorkspaceIndexer', () => {
     workspaceSlug = ws.slug;
 
     // Resolve workspace id and dir from DB.
-    const wsRow = ctx.db
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.slug, workspaceSlug))
-      .get()!;
+    const wsRow = ctx.db.select().from(workspaces).where(eq(workspaces.slug, workspaceSlug)).get()!;
     workspaceId = wsRow.id;
     wsDir = path.join(ctx.tmpDir, workspaceSlug);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Flush any fire-and-forget index-on-write runs before the DB is torn
+    // down — getDb() is a process-global singleton the next test swaps out,
+    // so a leftover run could otherwise resolve against the next test's DB.
+    await _flushMemoryIndexOnWrite();
     _resetStoreCache();
     ctx.cleanup();
   });
@@ -64,9 +77,7 @@ describe('WorkspaceIndexer', () => {
     return ctx.db
       .select()
       .from(frontmatter)
-      .where(
-        and(eq(frontmatter.workspaceId, workspaceId), eq(frontmatter.collection, collection)),
-      )
+      .where(and(eq(frontmatter.workspaceId, workspaceId), eq(frontmatter.collection, collection)))
       .all();
   }
 
@@ -95,10 +106,7 @@ describe('WorkspaceIndexer', () => {
       });
 
       it('should set the correct collection for system files', async () => {
-        writeFixture(
-          'system/overview.md',
-          `---\ntitle: Overview\n---\n\n# Overview\n`,
-        );
+        writeFixture('system/overview.md', `---\ntitle: Overview\n---\n\n# Overview\n`);
 
         await update(workspaceSlug, 'system');
 
@@ -141,10 +149,7 @@ describe('WorkspaceIndexer', () => {
       });
 
       it('should index files in subdirectories with correct workspace-relative paths', async () => {
-        writeFixture(
-          'docs/guides/setup.md',
-          `---\ntitle: Setup Guide\n---\n`,
-        );
+        writeFixture('docs/guides/setup.md', `---\ntitle: Setup Guide\n---\n`);
 
         await update(workspaceSlug, 'docs');
 
@@ -206,17 +211,26 @@ describe('WorkspaceIndexer', () => {
         writeFixture('system/arch.md', `---\ntitle: Architecture\n---\n`);
         writeFixture('docs/guide.md', `---\ntitle: Guide\n---\n`);
         writeFixture('projects/alpha/spec.md', `---\ntitle: Alpha Spec\n---\n`);
-        writeFixture('memory/decisions/001-decision.md', `---\ntitle: A Decision\nsubtype: decision\n---\n`);
+        writeFixture(
+          'memory/decisions/001-decision.md',
+          `---\ntitle: A Decision\nsubtype: decision\n---\n`,
+        );
 
         const results: IndexResult[] = await update(workspaceSlug);
 
         const collections = results.map((r) => r.collection).sort();
         expect(collections).toEqual(['docs', 'memory', 'projects', 'system']);
 
-        expect(readFrontmatterRows('system').find((r) => r.path === 'system/arch.md')).toBeDefined();
+        expect(
+          readFrontmatterRows('system').find((r) => r.path === 'system/arch.md'),
+        ).toBeDefined();
         expect(readFrontmatterRows('docs').find((r) => r.path === 'docs/guide.md')).toBeDefined();
-        expect(readFrontmatterRows('projects').find((r) => r.path === 'projects/alpha/spec.md')).toBeDefined();
-        expect(readFrontmatterRows('memory').find((r) => r.path === 'memory/decisions/001-decision.md')).toBeDefined();
+        expect(
+          readFrontmatterRows('projects').find((r) => r.path === 'projects/alpha/spec.md'),
+        ).toBeDefined();
+        expect(
+          readFrontmatterRows('memory').find((r) => r.path === 'memory/decisions/001-decision.md'),
+        ).toBeDefined();
       });
     });
 
@@ -300,13 +314,20 @@ describe('WorkspaceIndexer', () => {
         // Simulate a workspace that already has content before indexer runs.
         writeFixture('system/old-doc.md', `---\ntitle: Old Doc\ndescription: legacy\n---\n`);
         writeFixture('docs/old-guide.md', `---\ntitle: Old Guide\n---\n`);
-        writeFixture('memory/conventions/202501010003-naming.md', `---\ntitle: Naming Convention\nsubtype: convention\n---\n`);
+        writeFixture(
+          'memory/conventions/202501010003-naming.md',
+          `---\ntitle: Naming Convention\nsubtype: convention\n---\n`,
+        );
 
         // First ever update on this workspace.
         await update(workspaceSlug);
 
-        expect(readFrontmatterRows('system').find((r) => r.path === 'system/old-doc.md')).toBeDefined();
-        expect(readFrontmatterRows('docs').find((r) => r.path === 'docs/old-guide.md')).toBeDefined();
+        expect(
+          readFrontmatterRows('system').find((r) => r.path === 'system/old-doc.md'),
+        ).toBeDefined();
+        expect(
+          readFrontmatterRows('docs').find((r) => r.path === 'docs/old-guide.md'),
+        ).toBeDefined();
         expect(
           readFrontmatterRows('memory').find(
             (r) => r.path === 'memory/conventions/202501010003-naming.md',
@@ -366,22 +387,23 @@ describe('WorkspaceIndexer', () => {
         .where(eq(permanentMemories.workspaceId, workspaceId))
         .all();
 
-      const dbChoice = rows.find((r) => r.filePath === 'memory/decisions/202501010010-db-choice.md');
+      const dbChoice = rows.find(
+        (r) => r.filePath === 'memory/decisions/202501010010-db-choice.md',
+      );
       expect(dbChoice).toBeDefined();
       expect(dbChoice!.title).toBe('DB Choice');
       expect(dbChoice!.subtype).toBe('decision');
       expect(dbChoice!.repo).toBe('api-server');
 
-      const insight = rows.find((r) => r.filePath === 'memory/insights/202501010011-fast-feedback.md');
+      const insight = rows.find(
+        (r) => r.filePath === 'memory/insights/202501010011-fast-feedback.md',
+      );
       expect(insight).toBeDefined();
       expect(insight!.title).toBe('Fast Feedback Matters');
     });
 
     it('should be idempotent — running twice does not duplicate rows', async () => {
-      writeFixture(
-        'memory/facts/202501010020-fact.md',
-        `---\ntitle: A Fact\nsubtype: fact\n---\n`,
-      );
+      writeFixture('memory/facts/202501010020-fact.md', `---\ntitle: A Fact\nsubtype: fact\n---\n`);
 
       await syncPermanentMemoryMirror(workspaceSlug);
       await syncPermanentMemoryMirror(workspaceSlug);
@@ -485,10 +507,7 @@ describe('WorkspaceIndexer', () => {
         supersededFile,
         `---\ntitle: Fwd Superseded\nsubtype: fact\nsupersededBy: ${replacementFile}\n---\n\nOld.\n`,
       );
-      writeFixture(
-        replacementFile,
-        `---\ntitle: Fwd Replacement\nsubtype: fact\n---\n\nNew.\n`,
-      );
+      writeFixture(replacementFile, `---\ntitle: Fwd Replacement\nsubtype: fact\n---\n\nNew.\n`);
 
       await syncPermanentMemoryMirror(workspaceSlug);
 
@@ -504,10 +523,7 @@ describe('WorkspaceIndexer', () => {
 
     it('should preserve supersededById on re-sync (disk has no concept of supersession)', async () => {
       const memFile = 'memory/facts/202501010040-old-fact.md';
-      writeFixture(
-        memFile,
-        `---\ntitle: Old Fact\nsubtype: fact\n---\n\nThis was the old fact.\n`,
-      );
+      writeFixture(memFile, `---\ntitle: Old Fact\nsubtype: fact\n---\n\nThis was the old fact.\n`);
 
       // First sync: creates the row with supersededById = null
       await syncPermanentMemoryMirror(workspaceSlug);
@@ -515,7 +531,12 @@ describe('WorkspaceIndexer', () => {
       const firstSync = ctx.db
         .select()
         .from(permanentMemories)
-        .where(and(eq(permanentMemories.workspaceId, workspaceId), eq(permanentMemories.filePath, memFile)))
+        .where(
+          and(
+            eq(permanentMemories.workspaceId, workspaceId),
+            eq(permanentMemories.filePath, memFile),
+          ),
+        )
         .get();
       expect(firstSync).toBeDefined();
       expect(firstSync!.supersededById).toBeNull();
@@ -545,7 +566,12 @@ describe('WorkspaceIndexer', () => {
       const afterResync = ctx.db
         .select()
         .from(permanentMemories)
-        .where(and(eq(permanentMemories.workspaceId, workspaceId), eq(permanentMemories.filePath, memFile)))
+        .where(
+          and(
+            eq(permanentMemories.workspaceId, workspaceId),
+            eq(permanentMemories.filePath, memFile),
+          ),
+        )
         .get();
       expect(afterResync).toBeDefined();
       expect(afterResync!.supersededById).toBe(replacementRow.id);
@@ -589,6 +615,76 @@ describe('WorkspaceIndexer', () => {
       const docsResult = results.find((r) => r.collection === 'docs')!;
 
       expect(docsResult.needsEmbedding).toBeGreaterThan(0);
+    });
+  });
+
+  describe('orphaned vector cleanup', () => {
+    it('[FR-SEARCH-018] should complete forceFullReindex without error when there is no vector index yet', async () => {
+      writeFixture('docs/orphan-smoke.md', `---\ntitle: Orphan Smoke\n---\n\nContent.\n`);
+      await update(workspaceSlug, 'docs');
+
+      // No embeddings were generated, so cleanupOrphanedVectors has nothing to
+      // do — this just guards against the Maintenance wiring throwing when
+      // vectors_vec doesn't exist yet.
+      await expect(forceFullReindex(workspaceSlug)).resolves.toBeDefined();
+    });
+
+    it('[FR-SEARCH-018] should complete updateAndEmbed without error when there is no vector index yet', async () => {
+      writeFixture('docs/orphan-smoke-2.md', `---\ntitle: Orphan Smoke 2\n---\n\nContent.\n`);
+
+      await expect(updateAndEmbed(workspaceSlug, 'docs')).resolves.toBeDefined();
+    });
+
+    describe.skipIf(!QMD_AVAILABLE)('with real embeddings', () => {
+      it('[FR-SEARCH-018] should remove vectors left behind by a file deleted from disk', async () => {
+        writeFixture(
+          'docs/orphan-candidate.md',
+          `---\ntitle: Orphan Candidate\n---\n\nContent to embed and then orphan.\n`,
+        );
+        await update(workspaceSlug, 'docs');
+
+        const store = await getStore({ slug: workspaceSlug, docsDir: null });
+        await store.embed();
+
+        const countVectors = () =>
+          (
+            store.internal.db.prepare('SELECT COUNT(*) as c FROM content_vectors').get() as {
+              c: number;
+            }
+          ).c;
+
+        const before = countVectors();
+        expect(before).toBeGreaterThan(0);
+
+        fs.unlinkSync(path.join(wsDir, 'docs/orphan-candidate.md'));
+        await updateAndEmbed(workspaceSlug, 'docs');
+
+        expect(countVectors()).toBeLessThan(before);
+      });
+    });
+  });
+
+  describe('triggerMemoryIndexOnWrite()', () => {
+    it('[FR-MEMORY-240] should coalesce a trigger arriving mid-run into a trailing re-run', async () => {
+      writeFixture('memory/facts/first.md', `---\ntitle: First\nsubtype: fact\n---\n\nFirst fact.\n`);
+
+      triggerMemoryIndexOnWrite(workspaceSlug);
+
+      // Written and triggered while the first run is still in flight — a naive
+      // implementation would drop this instead of folding it into a re-run.
+      writeFixture('memory/facts/second.md', `---\ntitle: Second\nsubtype: fact\n---\n\nSecond fact.\n`);
+      triggerMemoryIndexOnWrite(workspaceSlug);
+
+      // Wait for the fire-and-forget chain (initial run + trailing re-run) to settle.
+      await _flushMemoryIndexOnWrite(workspaceSlug);
+
+      const paths = readFrontmatterRows('memory').map((r) => r.path);
+      expect(paths).toContain('memory/facts/first.md');
+      expect(paths).toContain('memory/facts/second.md');
+    });
+
+    it('should swallow errors for an unknown workspace slug instead of throwing', () => {
+      expect(() => triggerMemoryIndexOnWrite('no-such-workspace')).not.toThrow();
     });
   });
 });
