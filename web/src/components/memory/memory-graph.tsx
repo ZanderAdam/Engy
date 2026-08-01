@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
 import { trpc } from '@/lib/trpc';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -12,7 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { RiSearchLine } from '@remixicon/react';
 import {
   GROUP_BY_OPTIONS,
   buildLegend,
@@ -41,14 +39,14 @@ const LABEL_COLOR = 'rgba(255, 255, 255, 0.65)';
 
 interface MemoryGraphProps {
   workspaceSlug: string;
+  search?: string;
   onSelect: (selection: { kind: 'permanent' | 'fleeting'; dbId: number }) => void;
 }
 
-export function MemoryGraph({ workspaceSlug, onSelect }: MemoryGraphProps) {
+export function MemoryGraph({ workspaceSlug, search = '', onSelect }: MemoryGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [groupBy, setGroupBy] = useState<GraphGroupBy>('subtype');
-  const [search, setSearch] = useState('');
 
   const { data } = trpc.memory.graph.useQuery({ workspaceSlug });
 
@@ -102,31 +100,21 @@ export function MemoryGraph({ workspaceSlug, onSelect }: MemoryGraphProps) {
       className="relative flex-1 min-h-0 h-full w-full overflow-hidden bg-background"
     >
       {/* Single wrapping overlay: on narrow panes the legend drops below the
-          controls instead of overlapping them. */}
+          controls instead of overlapping them. Search comes from the left
+          panel's filter bar — the graph has no search box of its own. */}
       <div className="absolute top-2 inset-x-2 z-10 flex flex-wrap items-start justify-between gap-1.5 pointer-events-none">
-        <div className="flex items-center gap-1.5 pointer-events-auto">
-          <div className="relative">
-            <RiSearchLine className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
-            <Input
-              className="pl-6 h-7 text-xs w-36 sm:w-48"
-              placeholder="Search memories..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <Select value={groupBy} onValueChange={(v) => setGroupBy(v as GraphGroupBy)}>
-            <SelectTrigger size="sm" className="h-7 min-w-28">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {GROUP_BY_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <Select value={groupBy} onValueChange={(v) => setGroupBy(v as GraphGroupBy)}>
+          <SelectTrigger size="sm" className="h-7 min-w-28 pointer-events-auto">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {GROUP_BY_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {legend.entries.length > 0 && (
           <div className="ml-auto flex flex-col gap-1 bg-card/90 border border-border px-2 py-1.5 max-w-48 pointer-events-auto">

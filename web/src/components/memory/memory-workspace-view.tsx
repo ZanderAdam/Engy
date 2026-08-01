@@ -26,6 +26,7 @@ export function MemoryWorkspaceView({
   const searchParams = useVirtualSearchParams();
   const initialPath = searchParams.get('path');
   const [selected, setSelected] = useState<MemorySelection | null>(null);
+  const [graphSearch, setGraphSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -94,12 +95,14 @@ export function MemoryWorkspaceView({
             selected={effectiveSelected}
             onSelect={setSelected}
             onCreateNew={() => setCreateOpen(true)}
+            onGraphSearchChange={setGraphSearch}
           />
         }
         centerContent={
           <div className="relative flex-1 min-h-0 h-full w-full overflow-hidden">
             <DynamicMemoryGraph
               workspaceSlug={workspaceSlug}
+              search={graphSearch}
               onSelect={(sel) => setSelected({ id: sel.dbId, kind: sel.kind })}
             />
             {pathNotFound && !effectiveSelected && (

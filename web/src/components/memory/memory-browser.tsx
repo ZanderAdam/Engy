@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { trpc } from '@/lib/trpc';
 import { useOnServerEvent } from '@/contexts/events-context';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -38,6 +38,7 @@ interface MemoryBrowserProps {
   selected: MemorySelection | null;
   onSelect: (selection: MemorySelection) => void;
   onCreateNew?: () => void;
+  onGraphSearchChange?: (term: string) => void;
 }
 
 function ConfidenceBar({ value }: { value: number | null }) {
@@ -295,13 +296,21 @@ export function MemoryBrowser({
   selected,
   onSelect,
   onCreateNew,
+  onGraphSearchChange,
 }: MemoryBrowserProps) {
   const [permanentFilters, setPermanentFilters] = useState<MemoryFiltersValue>(DEFAULT_FILTERS);
   const [candidateStatus, setCandidateStatus] = useState<CandidateStatus>('pending');
   const [candidateFilters, setCandidateFilters] =
     useState<CandidateFiltersValue>(DEFAULT_CANDIDATE_FILTERS);
   const [candidateLimit, setCandidateLimit] = useState(CANDIDATES_PAGE_SIZE);
+  const [activeTab, setActiveTab] = useState('permanent');
   const utils = trpc.useUtils();
+
+  // The active tab's (debounced) search term also drives the graph view.
+  const graphSearch = activeTab === 'permanent' ? permanentFilters.search : candidateFilters.search;
+  useEffect(() => {
+    onGraphSearchChange?.(graphSearch);
+  }, [graphSearch, onGraphSearchChange]);
 
   function handleCandidateStatusChange(next: CandidateStatus) {
     setCandidateStatus(next);
@@ -352,7 +361,7 @@ export function MemoryBrowser({
   return (
     <TooltipProvider>
       <div className="flex flex-col h-full overflow-hidden">
-        <Tabs defaultValue="permanent" className="flex flex-col h-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full">
           <div className="px-2 pt-2 border-b border-border shrink-0">
             <div className="flex items-center justify-between mb-1">
               <TabsList variant="line" className="h-8">
