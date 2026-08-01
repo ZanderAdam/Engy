@@ -1,5 +1,10 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { MOBILE_TERMINAL_BUTTONS } from './mobile-terminal-controls';
+import {
+  MOBILE_TERMINAL_BUTTONS,
+  MOBILE_TERMINAL_EXTRA_BUTTONS,
+  isOutsidePress,
+} from './mobile-terminal-controls';
 
 /**
  * Byte-mapping contract for the mobile terminal control column.
@@ -47,9 +52,72 @@ describe('mobile terminal controls', () => {
 
   describe('accessibility', () => {
     it('should provide an aria-label for every button', () => {
-      for (const btn of MOBILE_TERMINAL_BUTTONS) {
+      for (const btn of [...MOBILE_TERMINAL_BUTTONS, ...MOBILE_TERMINAL_EXTRA_BUTTONS]) {
         expect(btn.ariaLabel).toMatch(/^Send /);
       }
+    });
+  });
+
+  describe('extra key column', () => {
+    it('[FR-TERMINAL-440] should render 4, 5, Ctrl+C, Ctrl+V, left, right top-to-bottom', () => {
+      expect(MOBILE_TERMINAL_EXTRA_BUTTONS.map((b) => b.id)).toEqual([
+        '4',
+        '5',
+        'ctrl-c',
+        'ctrl-v',
+        'left',
+        'right',
+      ]);
+    });
+
+    const cases: Array<[string, string]> = [
+      ['4', '4'],
+      ['5', '5'],
+      ['ctrl-c', '\x03'],
+      ['ctrl-v', '\x16'],
+      ['left', '\x1b[D'],
+      ['right', '\x1b[C'],
+    ];
+
+    it.each(cases)(
+      '[FR-TERMINAL-440] should send %s as the expected byte sequence',
+      (id, expected) => {
+        const btn = MOBILE_TERMINAL_EXTRA_BUTTONS.find((b) => b.id === id);
+        expect(btn?.data).toBe(expected);
+      },
+    );
+
+    it('[FR-TERMINAL-440] should not duplicate any key already on the persistent rail', () => {
+      const railIds = new Set(MOBILE_TERMINAL_BUTTONS.map((b) => b.id));
+      const overlap = MOBILE_TERMINAL_EXTRA_BUTTONS.filter((b) => railIds.has(b.id));
+      expect(overlap).toEqual([]);
+    });
+  });
+
+  describe('isOutsidePress', () => {
+    const root = document.createElement('div');
+    const child = document.createElement('button');
+    root.appendChild(child);
+    const stranger = document.createElement('div');
+
+    it('[FR-TERMINAL-440] should treat a press on the control area itself as inside', () => {
+      expect(isOutsidePress(root, root)).toBe(false);
+    });
+
+    it('[FR-TERMINAL-440] should treat a press on a key within the control area as inside', () => {
+      expect(isOutsidePress(child, root)).toBe(false);
+    });
+
+    it('[FR-TERMINAL-440] should treat a press on an unrelated element as outside', () => {
+      expect(isOutsidePress(stranger, root)).toBe(true);
+    });
+
+    it('[FR-TERMINAL-440] should treat a non-Node target as outside', () => {
+      expect(isOutsidePress(new EventTarget(), root)).toBe(true);
+    });
+
+    it('[FR-TERMINAL-440] should treat any press as outside before the root mounts', () => {
+      expect(isOutsidePress(child, null)).toBe(true);
     });
   });
 });

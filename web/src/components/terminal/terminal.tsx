@@ -443,7 +443,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
           </button>
         )}
       </div>
-      {isMobile && <MobileTerminalControls onKey={sendKey} />}
+      {isMobile && <MobileTerminalControls onKey={sendKey} composing={composing} />}
     </div>
   );
 }

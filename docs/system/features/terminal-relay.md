@@ -283,6 +283,55 @@ which shrink only the visual viewport: it reports the difference as keyboard
 height and the overlay pads itself by that much. On engines that honour the
 hint it correctly reports zero.
 
+## Mobile key rail
+
+`mobile-terminal-controls.tsx` renders a fixed column of keys down the right edge
+of a mobile terminal pane, for the keys a touch keyboard cannot send at all
+(Escape, Tab, Shift+Tab) or sends only awkwardly (arrows, menu digits). Each
+button fires on `pointerdown`, not click, so a press registers the instant the
+finger lands.
+
+Keys that are rare but still needed — ← → for prompt editing, `^C`, digits 4/5
+for longer menus — live behind a `⋯` toggle that opens a second column instead of
+lengthening the rail, which is already near the height of a phone in landscape.
+Three constraints shape that panel:
+
+- The toggle sits **above** Esc rather than below Enter, because the rail is
+  bottom-anchored (`justify-end`) and appending would push every existing key
+  away from the thumb.
+- The panel is **absolutely positioned over the terminal**, not a second flex
+  column. Sharing the row would shrink the pane and cost a PTY resize plus a full
+  TUI redraw on every open and close.
+- It stays open until a pointer lands outside the control area — pressing keys
+  inside it never closes it, since the reason to open it is to press ← several
+  times in a row. The outside press is observed in the capture phase and not
+  swallowed, so the same tap still reaches the terminal.
+- It is hidden, and its toggle disabled, while the compose overlay is up —
+  suppressed by deriving openness from `expanded && !composing` rather than
+  mirroring the prop into state in an effect, so it returns as it was afterwards.
+  The
+  overlay covers only the terminal pane, not the rail beside it, so an open
+  column would paint over the overlay's Cancel/Send row and swallow that tap.
+  Paint order alone cannot settle it: both are `z-20` in the same stacking
+  context, so the rail wins purely by coming later in `terminal.tsx`, and raising
+  the overlay instead would tie with the `z-30` bottom-terminal toggle. Removing
+  the overlap is the only stable fix — the rail cannot simply be unmounted while
+  composing, since that would widen the pane and cost the very PTY resize the
+  overlay positioning exists to avoid.
+
+A long-press on ↑/↓ was rejected for this: it would either send the wrong bytes
+(↑ on pointerdown, then ← on the hold) or delay the rail's most-used keys behind
+a hold timer, and it would spend the one gesture worth reserving for key repeat.
+
+The panel's `^V` is deliberately labelled `^V` and not "Paste". Engy holds no
+clipboard code at all: `\x16` travels down the relay as a plain byte and the
+agent CLI reads the clipboard of *the machine it runs on*. From a desktop browser
+that is the same machine the user copied from, so paste appears to work natively;
+from a phone it is still the dev machine's clipboard, never the phone's. Bridging
+a phone's clipboard — an image especially — cannot be done with a keystroke: the
+bytes have to cross the WebSocket and land in a file whose path is then written
+into the prompt, since a PTY carries no image channel.
+
 ## Requirements
 
 Functional requirements in EARS notation. These are the single source of truth
@@ -335,6 +384,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-410 | WHEN the browser wakes (`visibilitychange` to visible, or `online`) while its terminal socket is OPEN, the system SHALL send `{ t: 'ping' }` — answered by the server with `{ t: 'pong' }` without daemon involvement — and force-reconnect the socket only IF no pong arrives within 3 seconds; WHEN the socket is not OPEN on wake it SHALL reconnect immediately. |
 | FR-TERMINAL-420 | WHEN the server forwards a `reconnected` snapshot to the pending browsers of a session that has a stored `lastTitle`, it SHALL follow the snapshot with `{ t: 'title', sessionId, title }` to those same browsers. |
 | FR-TERMINAL-430 | WHEN spawning a terminal session, the daemon SHALL set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` in the session environment — via the PTY env on host, `--remote-env` for container sessions, and `coder ssh -e` for Coder sessions — so CLAUDE.md files from `--add-dir` directories load into context. |
+| FR-TERMINAL-440 | WHEN the user activates the `⋯` toggle on the mobile key rail, the system SHALL open a second key column — `4`, `5`, `Ctrl+C` (`\x03`), `Ctrl+V` (`\x16`), `←` (`\x1b[D`), `→` (`\x1b[C`) top-to-bottom — overlaid on the terminal pane without resizing it; WHILE that column is open, pressing any key in it SHALL send that key and leave the column open, and the column SHALL close only WHEN the toggle is activated again or a pointer press lands outside the control area, without preventing that press from reaching the terminal. WHILE the mobile compose overlay is open, the column SHALL be hidden and its toggle disabled — so no key can sit over the overlay's own actions — and SHALL return to whichever state it held once the overlay closes. |
 
 ## Sources
 
