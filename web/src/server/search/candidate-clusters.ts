@@ -16,9 +16,10 @@ export interface ClusterReviewCandidatesResult {
   truncated: boolean;
 }
 
-// Empirically: near-duplicate fleeting captures (same fact, reworded) score above
-// 0.92 cosine; distinct-but-related memories fall well below it.
-const DEFAULT_THRESHOLD = 0.92;
+// Empirically (embeddinggemma-300M on raw unformatted content): a reworded
+// near-duplicate pair measured 0.9158 cosine while unrelated captures measured
+// ~0.42, so 0.88 catches paraphrase-level duplicates with a wide margin.
+const DEFAULT_THRESHOLD = 0.88;
 const MAX_CANDIDATES = 200;
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -110,7 +111,7 @@ export async function clusterReviewCandidates(
       if (llm) {
         // Raw content, not qmd's formatDocForEmbedding — that helper isn't exported
         // from the package root. Fine for candidate-vs-candidate comparison; the
-        // 0.92 threshold is tuned against these unformatted embeddings.
+        // default threshold is tuned against these unformatted embeddings.
         const results = await llm.embedBatch(rows.map((r) => r.content));
         embeddings = results.map((r) => r?.embedding ?? null);
       }
