@@ -5,14 +5,10 @@ import { useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
 import { MemoryBrowser, type MemorySelection } from '@/components/memory/memory-browser';
-import { MemoryDetail } from '@/components/memory/memory-detail';
+import { MemoryDetailOverlay } from '@/components/memory/memory-detail-overlay';
+import { DynamicMemoryGraph } from '@/components/memory/dynamic-memory-graph';
 import { MemoryForm, type MemoryFormValues } from '@/components/memory/memory-form';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface MemoryWorkspaceViewProps {
   workspaceSlug: string;
@@ -23,7 +19,10 @@ interface MemoryWorkspaceViewProps {
  * Workspace-scoped memory browser. Memories belong to the workspace, so both the
  * workspace route and a project route render this against the parent workspace slug.
  */
-export function MemoryWorkspaceView({ workspaceSlug, sidebarStorageKey }: MemoryWorkspaceViewProps) {
+export function MemoryWorkspaceView({
+  workspaceSlug,
+  sidebarStorageKey,
+}: MemoryWorkspaceViewProps) {
   const searchParams = useVirtualSearchParams();
   const initialPath = searchParams.get('path');
   const [selected, setSelected] = useState<MemorySelection | null>(null);
@@ -98,20 +97,25 @@ export function MemoryWorkspaceView({ workspaceSlug, sidebarStorageKey }: Memory
           />
         }
         centerContent={
-          effectiveSelected ? (
-            <MemoryDetail
-              selection={effectiveSelected}
+          <div className="relative flex-1 min-h-0 h-full w-full overflow-hidden">
+            <DynamicMemoryGraph
               workspaceSlug={workspaceSlug}
-              repos={repos}
-              onDeleted={() => setSelected(null)}
+              onSelect={(sel) => setSelected({ id: sel.dbId, kind: sel.kind })}
             />
-          ) : (
-            <div className="flex flex-1 items-center justify-center h-full">
-              <p className="text-sm text-muted-foreground">
-                {pathNotFound ? 'Memory not found' : 'Select a memory to view'}
-              </p>
-            </div>
-          )
+            {pathNotFound && !effectiveSelected && (
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 text-xs text-muted-foreground bg-card/90 border border-border px-2 py-1">
+                Memory not found
+              </div>
+            )}
+            {effectiveSelected && (
+              <MemoryDetailOverlay
+                selection={effectiveSelected}
+                workspaceSlug={workspaceSlug}
+                repos={repos}
+                onClose={() => setSelected(null)}
+              />
+            )}
+          </div>
         }
       />
 

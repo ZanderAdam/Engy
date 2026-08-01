@@ -346,6 +346,7 @@ export function MemoryBrowser({
     utils.memory.list.invalidate();
     utils.memory.reviewCandidates.invalidate();
     utils.memory.get.invalidate();
+    utils.memory.graph.invalidate();
   });
 
   return (

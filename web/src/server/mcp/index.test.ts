@@ -1234,6 +1234,159 @@ describe('MCP Server', () => {
     });
   });
 
+  describe('getMemoryGraph tool', () => {
+    let workspaceId: number;
+
+    beforeEach(async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const ws = await caller.workspace.create({ name: 'Memory Graph Test WS' });
+      const db = getDb();
+      const wsRow = db.select().from(workspaces).where(eq(workspaces.slug, ws.slug)).get()!;
+      workspaceId = wsRow.id;
+    });
+
+    it('[FR-MEMORY-290] should return nodes for permanent and pending fleeting memories, excluding superseded and non-pending fleeting', async () => {
+      const mcp = getMcpServer();
+      const createPM = callTool(mcp, 'createPermanentMemory');
+
+      const { data: permanent } = await createPM({
+        workspaceId,
+        subtype: 'fact',
+        title: 'Kept fact',
+        content: 'A fact that stays around.',
+        tags: ['auth'],
+        themes: ['security'],
+        repo: 'api-server',
+      });
+      const { data: superseder } = await createPM({
+        workspaceId,
+        subtype: 'fact',
+        title: 'Superseding fact',
+        content: 'Replaces the old one.',
+      });
+      const { data: superseded } = await createPM({
+        workspaceId,
+        subtype: 'fact',
+        title: 'Superseded fact',
+        content: 'Old content.',
+      });
+      const db = getDb();
+      db.update(permanentMemories)
+        .set({ supersededById: superseder.id })
+        .where(eq(permanentMemories.id, superseded.id))
+        .run();
+
+      const pending = db
+        .insert(fleetingMemories)
+        .values({ workspaceId, content: 'y'.repeat(80), type: 'capture', source: 'agent' })
+        .returning()
+        .get();
+      db.insert(fleetingMemories)
+        .values({
+          workspaceId,
+          content: 'Dismissed candidate',
+          type: 'capture',
+          source: 'agent',
+          dismissedAt: new Date().toISOString(),
+        })
+        .run();
+      db.insert(fleetingMemories)
+        .values({
+          workspaceId,
+          content: 'Promoted candidate',
+          type: 'capture',
+          source: 'agent',
+          promoted: true,
+          promotedAt: new Date().toISOString(),
+        })
+        .run();
+
+      const { data, isError } = await callTool(mcp, 'getMemoryGraph')({ workspaceId });
+      expect(isError).toBe(false);
+
+      const nodeIds = data.nodes.map((n: { id: string }) => n.id);
+      expect(nodeIds).toContain(`p:${permanent.id}`);
+      expect(nodeIds).toContain(`p:${superseder.id}`);
+      expect(nodeIds).not.toContain(`p:${superseded.id}`);
+      expect(nodeIds).toContain(`f:${pending.id}`);
+      expect(nodeIds.filter((id: string) => id.startsWith('f:'))).toHaveLength(1);
+
+      const fleetingNode = data.nodes.find((n: { id: string }) => n.id === `f:${pending.id}`);
+      expect(fleetingNode.title).toBe(`${'y'.repeat(60)}…`);
+    });
+
+    it('[FR-MEMORY-290] should resolve linkedMemories to links, dedupe bidirectional pairs, and drop dangling paths', async () => {
+      const mcp = getMcpServer();
+      const createPM = callTool(mcp, 'createPermanentMemory');
+      const updatePM = callTool(mcp, 'updatePermanentMemory');
+
+      const { data: a } = await createPM({
+        workspaceId,
+        subtype: 'fact',
+        title: 'Memory A',
+        content: 'Content A',
+      });
+      const { data: b } = await createPM({
+        workspaceId,
+        subtype: 'fact',
+        title: 'Memory B',
+        content: 'Content B',
+        linkedMemories: [a.filePath],
+      });
+      await updatePM({ id: a.id, linkedMemories: [b.filePath] });
+
+      const { data: c } = await createPM({
+        workspaceId,
+        subtype: 'fact',
+        title: 'Memory C',
+        content: 'Content C',
+        linkedMemories: ['memory/facts/does-not-exist.md'],
+      });
+
+      const { data } = await callTool(mcp, 'getMemoryGraph')({ workspaceId });
+
+      expect(data.links).toHaveLength(1);
+      const [link] = data.links;
+      expect([link.source, link.target].sort()).toEqual([`p:${a.id}`, `p:${b.id}`].sort());
+
+      const cLinks = data.links.filter(
+        (l: { source: string; target: string }) => l.source === `p:${c.id}` || l.target === `p:${c.id}`,
+      );
+      expect(cLinks).toHaveLength(0);
+    });
+
+    it('should not produce a self-loop when linkedMemories contains the memory’s own path', async () => {
+      const mcp = getMcpServer();
+      const { data: created } = await callTool(mcp, 'createPermanentMemory')({
+        workspaceId,
+        subtype: 'fact',
+        title: 'Self-referencing memory',
+        content: 'Content',
+      });
+      await callTool(mcp, 'updatePermanentMemory')({
+        id: created.id,
+        linkedMemories: [created.filePath],
+      });
+
+      const { data } = await callTool(mcp, 'getMemoryGraph')({ workspaceId });
+
+      expect(data.links).toHaveLength(0);
+    });
+
+    it('should return an error for an unknown workspace', async () => {
+      const mcp = getMcpServer();
+      const { isError } = await callTool(mcp, 'getMemoryGraph')({ workspaceId: 999999 });
+      expect(isError).toBe(true);
+    });
+
+    it('input schema should reject a missing workspaceId', () => {
+      const mcp = getMcpServer();
+      const tools = (mcp as any)._registeredTools;
+      const parsed = tools.getMemoryGraph.inputSchema.safeParse({});
+      expect(parsed.success).toBe(false);
+    });
+  });
+
   describe('createPermanentMemory tool', () => {
     let workspaceId: number;
     let wsSlug: string;

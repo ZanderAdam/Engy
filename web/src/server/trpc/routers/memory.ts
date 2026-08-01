@@ -110,6 +110,109 @@ function buildMemoryFrontmatter(input: {
   return fm;
 }
 
+interface MemoryGraphNode {
+  id: string;
+  kind: 'permanent' | 'fleeting';
+  dbId: number;
+  title: string;
+  subtype: string | null;
+  type: string | null;
+  tags: string[];
+  themes: string[];
+  repo: string | null;
+  createdAt: string;
+}
+
+interface MemoryGraphLink {
+  source: string;
+  target: string;
+}
+
+function truncateForTitle(content: string): string {
+  return content.length > 60 ? `${content.slice(0, 60)}…` : content;
+}
+
+function buildMemoryGraph(workspaceId: number): {
+  nodes: MemoryGraphNode[];
+  links: MemoryGraphLink[];
+} {
+  const db = getDb();
+
+  const permanents = db
+    .select()
+    .from(permanentMemories)
+    .where(
+      and(eq(permanentMemories.workspaceId, workspaceId), isNull(permanentMemories.supersededById)),
+    )
+    .all();
+
+  const pending = db
+    .select()
+    .from(fleetingMemories)
+    .where(
+      and(
+        eq(fleetingMemories.workspaceId, workspaceId),
+        sql`${fleetingMemories.promoted} = 0`,
+        isNull(fleetingMemories.dismissedAt),
+      ),
+    )
+    .all();
+
+  const nodes: MemoryGraphNode[] = [];
+  const nodeIdByFilePath = new Map<string, string>();
+
+  for (const m of permanents) {
+    const id = `p:${m.id}`;
+    nodes.push({
+      id,
+      kind: 'permanent',
+      dbId: m.id,
+      title: m.title,
+      subtype: m.subtype,
+      type: null,
+      tags: (m.tags as string[]) ?? [],
+      themes: (m.themes as string[]) ?? [],
+      repo: m.repo,
+      createdAt: m.createdAt,
+    });
+    if (m.filePath) nodeIdByFilePath.set(m.filePath, id);
+  }
+
+  for (const m of pending) {
+    nodes.push({
+      id: `f:${m.id}`,
+      kind: 'fleeting',
+      dbId: m.id,
+      title: truncateForTitle(m.content),
+      subtype: null,
+      type: m.type,
+      tags: (m.tags as string[]) ?? [],
+      themes: [],
+      repo: null,
+      createdAt: m.createdAt,
+    });
+  }
+
+  // Links come only from permanent memories' linkedMemories[] (workspace-relative filePaths).
+  // Bidirectional pairs are stored on both sides, so dedupe by the sorted id pair.
+  const seenPairs = new Set<string>();
+  const links: MemoryGraphLink[] = [];
+  for (const m of permanents) {
+    const sourceId = `p:${m.id}`;
+    for (const linkedPath of (m.linkedMemories as string[]) ?? []) {
+      const targetId = nodeIdByFilePath.get(linkedPath);
+      if (!targetId || targetId === sourceId) continue;
+      const [a, b] = [sourceId, targetId].sort();
+      const pairKey = `${a}|${b}`;
+      if (seenPairs.has(pairKey)) continue;
+      seenPairs.add(pairKey);
+      links.push({ source: a, target: b });
+    }
+  }
+
+  return { nodes, links };
+}
+
 function resolveWorkspace(workspaceSlug: string) {
   const db = getDb();
   const ws = db.select().from(workspaces).where(eq(workspaces.slug, workspaceSlug)).get();
@@ -387,6 +490,13 @@ export const memoryRouter = router({
       .offset(input.offset)
       .all();
   }),
+
+  graph: publicProcedure
+    .input(z.object({ workspaceSlug: z.string().min(1) }))
+    .query(({ input }) => {
+      const ws = resolveWorkspace(input.workspaceSlug);
+      return buildMemoryGraph(ws.id);
+    }),
 
   promote: publicProcedure.input(promoteInput).mutation(async ({ input }) => {
     const db = getDb();

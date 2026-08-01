@@ -697,6 +697,152 @@ describe('memory router', () => {
     });
   });
 
+  describe('graph', () => {
+    it('[FR-MEMORY-290] should return nodes for permanent and pending fleeting memories, excluding superseded and non-pending fleeting', async () => {
+      const permanent = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Kept fact',
+        content: 'A fact that stays around.',
+        tags: ['auth'],
+        themes: ['security'],
+        repo: 'api-server',
+      });
+      const superseder = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Superseding fact',
+        content: 'Replaces the old one.',
+      });
+      const superseded = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Superseded fact',
+        content: 'Old content.',
+      });
+      ctx.db
+        .update(permanentMemories)
+        .set({ supersededById: superseder.id })
+        .where(eq(permanentMemories.id, superseded.id))
+        .run();
+
+      const ws = await caller.workspace.get({ slug: workspaceSlug });
+      const pending = ctx.db
+        .insert(fleetingMemories)
+        .values({ workspaceId: ws.id, content: 'x'.repeat(80), type: 'capture', source: 'agent' })
+        .returning()
+        .get();
+      ctx.db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId: ws.id,
+          content: 'Dismissed candidate',
+          type: 'capture',
+          source: 'agent',
+          dismissedAt: new Date().toISOString(),
+        })
+        .run();
+      ctx.db
+        .insert(fleetingMemories)
+        .values({
+          workspaceId: ws.id,
+          content: 'Promoted candidate',
+          type: 'capture',
+          source: 'agent',
+          promoted: true,
+          promotedAt: new Date().toISOString(),
+        })
+        .run();
+
+      const graph = await caller.memory.graph({ workspaceSlug });
+      const nodeIds = graph.nodes.map((n) => n.id);
+
+      expect(nodeIds).toContain(`p:${permanent.id}`);
+      expect(nodeIds).toContain(`p:${superseder.id}`);
+      expect(nodeIds).not.toContain(`p:${superseded.id}`);
+      expect(nodeIds).toContain(`f:${pending.id}`);
+      expect(nodeIds.filter((id) => id.startsWith('f:'))).toHaveLength(1);
+
+      const permanentNode = graph.nodes.find((n) => n.id === `p:${permanent.id}`)!;
+      expect(permanentNode).toMatchObject({
+        kind: 'permanent',
+        dbId: permanent.id,
+        title: 'Kept fact',
+        subtype: 'fact',
+        type: null,
+        tags: ['auth'],
+        themes: ['security'],
+        repo: 'api-server',
+      });
+
+      const fleetingNode = graph.nodes.find((n) => n.id === `f:${pending.id}`)!;
+      expect(fleetingNode).toMatchObject({
+        kind: 'fleeting',
+        dbId: pending.id,
+        subtype: null,
+        type: 'capture',
+        themes: [],
+        repo: null,
+      });
+      expect(fleetingNode.title).toBe(`${'x'.repeat(60)}…`);
+    });
+
+    it('[FR-MEMORY-290] should resolve linkedMemories to links, dedupe bidirectional pairs, and drop dangling paths', async () => {
+      const a = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Memory A',
+        content: 'Content A',
+      });
+      const b = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Memory B',
+        content: 'Content B',
+        linkedMemories: [a.filePath!],
+      });
+      // Simulate the bidirectional storage auto-linking normally produces.
+      await caller.memory.update({ id: a.id, linkedMemories: [b.filePath!] });
+
+      const c = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Memory C',
+        content: 'Content C',
+        linkedMemories: ['memory/facts/does-not-exist.md'],
+      });
+
+      const graph = await caller.memory.graph({ workspaceSlug });
+
+      expect(graph.links).toHaveLength(1);
+      const [link] = graph.links;
+      expect([link.source, link.target].sort()).toEqual([`p:${a.id}`, `p:${b.id}`].sort());
+
+      const cLinks = graph.links.filter((l) => l.source === `p:${c.id}` || l.target === `p:${c.id}`);
+      expect(cLinks).toHaveLength(0);
+    });
+
+    it('should not produce a self-loop when linkedMemories contains the memory’s own path', async () => {
+      const created = await caller.memory.create({
+        workspaceSlug,
+        subtype: 'fact',
+        title: 'Self-referencing memory',
+        content: 'Content',
+      });
+      await caller.memory.update({ id: created.id, linkedMemories: [created.filePath!] });
+
+      const graph = await caller.memory.graph({ workspaceSlug });
+
+      expect(graph.links).toHaveLength(0);
+    });
+
+    it('should throw NOT_FOUND for unknown workspace', async () => {
+      await expect(
+        caller.memory.graph({ workspaceSlug: 'no-such-ws' }),
+      ).rejects.toThrow('not found');
+    });
+  });
+
   describe('promote', () => {
     it('[FR-MEMORY-100] should create a permanent memory from a fleeting memory', async () => {
       const fleeting = ctx.db

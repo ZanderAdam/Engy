@@ -491,6 +491,62 @@ function FleetingDetail({
   );
 }
 
+// Graph node clicks only carry a dbId (no fleetingData) — reviewCandidates has
+// no get-by-id procedure, so this searches the pending list, then dismissed,
+// capped at the procedure's own max page size. Falls back to "not found" for
+// the rare miss (id promoted/deleted since the graph last loaded).
+function FleetingDetailById({
+  id,
+  workspaceSlug,
+  repos,
+  onLeftView,
+}: {
+  id: number;
+  workspaceSlug: string;
+  repos: string[];
+  onLeftView?: () => void;
+}) {
+  const pendingQuery = trpc.memory.reviewCandidates.useQuery({
+    workspaceSlug,
+    status: 'pending',
+    limit: 200,
+  });
+  const foundPending = pendingQuery.data?.items.find((m) => m.id === id);
+
+  const dismissedQuery = trpc.memory.reviewCandidates.useQuery(
+    { workspaceSlug, status: 'dismissed', limit: 200 },
+    { enabled: !!pendingQuery.data && !foundPending },
+  );
+  const foundDismissed = dismissedQuery.data?.items.find((m) => m.id === id);
+
+  const found = foundPending ?? foundDismissed;
+  if (found) {
+    return (
+      <FleetingDetail
+        fleeting={found as FleetingRecord}
+        workspaceSlug={workspaceSlug}
+        repos={repos}
+        onLeftView={onLeftView}
+      />
+    );
+  }
+
+  const settled = !!pendingQuery.data && (!!foundPending || !!dismissedQuery.data);
+  if (!settled) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-xs text-muted-foreground">Loading…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-center h-full">
+      <p className="text-xs text-muted-foreground">Fleeting memory not found</p>
+    </div>
+  );
+}
+
 export function MemoryDetail({
   selection,
   workspaceSlug,
@@ -503,17 +559,20 @@ export function MemoryDetail({
     );
   }
 
-  if (!selection.fleetingData) {
+  if (selection.fleetingData) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-xs text-muted-foreground">Fleeting memory not found</p>
-      </div>
+      <FleetingDetail
+        fleeting={selection.fleetingData}
+        workspaceSlug={workspaceSlug}
+        repos={repos}
+        onLeftView={onDeleted}
+      />
     );
   }
 
   return (
-    <FleetingDetail
-      fleeting={selection.fleetingData}
+    <FleetingDetailById
+      id={selection.id}
       workspaceSlug={workspaceSlug}
       repos={repos}
       onLeftView={onDeleted}

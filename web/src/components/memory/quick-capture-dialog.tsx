@@ -29,7 +29,9 @@ export function QuickCaptureDialog({ open, onOpenChange, workspaceSlug }: QuickC
 
   const createMutation = trpc.memory.createFleeting.useMutation({
     onSuccess: () => {
+      // createFleeting doesn't broadcast MEMORY_CHANGE, so the graph needs its own invalidation.
       utils.memory.reviewCandidates.invalidate({ workspaceSlug });
+      utils.memory.graph.invalidate();
       resetAndClose();
     },
     onError: (err) => {
@@ -79,7 +81,13 @@ export function QuickCaptureDialog({ open, onOpenChange, workspaceSlug }: QuickC
   }
 
   return (
-    <Dialog open={open} onOpenChange={(val) => { if (!val) resetAndClose(); else onOpenChange(true); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(val) => {
+        if (!val) resetAndClose();
+        else onOpenChange(true);
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
@@ -99,7 +107,8 @@ export function QuickCaptureDialog({ open, onOpenChange, workspaceSlug }: QuickC
                 required
               />
               <p className="text-xs text-muted-foreground">
-                Press <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-xs">⌘ Enter</kbd> to save quickly.
+                Press <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-xs">⌘ Enter</kbd>{' '}
+                to save quickly.
               </p>
             </div>
             <div className="flex flex-col gap-2">
