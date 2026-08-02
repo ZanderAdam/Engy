@@ -14,7 +14,9 @@ tags:
   - workflow
   - git
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/insights/20260623233107-parallel-workflow-agents-sharing-a-git-worktree-can-silently.md
 scenarioIds: []
 ---
 **Rule:** Treat the git index as shared mutable state another live agent session can be holding mid-commit. Re-check `git diff --cached` before committing; if someone else's files are staged, commit your own with a pathspec — `git commit <path> -F-` — which builds the commit from HEAD plus the named paths and ignores the index entirely, rather than `git add` + `git commit`, which would sweep their staged work into your commit.
