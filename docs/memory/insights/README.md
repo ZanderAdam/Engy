@@ -21,5 +21,6 @@ Permanent notes on insights — observations, hypotheses, and learnings that do 
 - [20260801213139-terminal-paste-reads-the-cli-host-s-clipboard-a-mobile-paste.md](20260801213139-terminal-paste-reads-the-cli-host-s-clipboard-a-mobile-paste.md) — **Rule:** Do not add a "Paste" affordance to the mobile terminal rail. To get a 
 - [20260801213220-wake-triggered-clear-and-replay-is-what-corrupts-terminal-sc.md](20260801213220-wake-triggered-clear-and-replay-is-what-corrupts-terminal-sc.md) — **Rule:** Do not force-close a healthy terminal socket on `visibilitychange`. Pr
 - [20260801213238-xterm-headless-needs-a-default-import-drain-writes-before-se.md](20260801213238-xterm-headless-needs-a-default-import-drain-writes-before-se.md) — **Rule:** Import `@xterm/headless` via its default export (`import headless from
+- [20260801213319-initial-command-injection-races-interactive-shell-startup.md](20260801213319-initial-command-injection-races-interactive-shell-startup.md) — **Rule:** Do not inject a spawn command into a PTY on first shell output. Wait f
 
 <!-- INDEX END -->
