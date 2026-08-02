@@ -43,6 +43,8 @@ linkedMemories:
     memory/facts/20260801213525-last-sent-equals-actual-pty-size-is-a-system-wide-invariant.md
   - >-
     memory/conventions/20260801213533-the-relay-sync-no-browser-branch-must-do-full-worker-teardow.md
+  - >-
+    memory/decisions/20260801213540-terminal-spawn-derives-mcp-origin-from-the-caller-s-own-spaw.md
 scenarioIds: []
 ---
 **Rule:** Keep surviving-terminal metadata in a SQLite mirror of `terminalSessionMeta` (`terminal_sessions`, write-through + boot restore). Do not move it to the architecturally cleaner daemon-echoed-meta design unless a daemon-restarting change is already shipping anyway.

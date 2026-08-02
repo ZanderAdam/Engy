@@ -28,6 +28,8 @@ linkedMemories:
     memory/insights/20260801213319-initial-command-injection-races-interactive-shell-startup.md
   - >-
     memory/patterns/20260801213516-cross-cutting-terminal-views-read-the-server-registry-not-th.md
+  - >-
+    memory/decisions/20260801213540-terminal-spawn-derives-mcp-origin-from-the-caller-s-own-spaw.md
 scenarioIds: []
 ---
 **Rule:** Any change to what `claude`/`codex` `buildCommand` emits (`web/src/lib/agent-types.ts`) must account for ALL three `terminalSessionMeta.set` production sites: browser spawn and restart-adoption (both in `terminal-server.ts`) and the server-originated `spawnAgentTerminal` (`terminal-dispatch.ts`, MCP `terminal_spawn`).

@@ -16,7 +16,17 @@ tags:
   - mcp
   - architecture
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801213329-a-buildcommand-change-must-account-for-all-three-terminalses.md
+  - >-
+    memory/facts/20260801213252-execution-and-terminal-session-ids-are-separate-namespaces-t.md
+  - >-
+    memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
+  - >-
+    memory/conventions/20260801213533-the-relay-sync-no-browser-branch-must-do-full-worker-teardow.md
+  - >-
+    memory/patterns/20260801213516-cross-cutting-terminal-views-read-the-server-registry-not-th.md
 scenarioIds: []
 ---
 **Rule:** Derive a spawned agent's MCP origin from the CALLER's own spawn command — regex `/(https?:\/\/[^\/\s'"]+)\/mcp\//` over `meta.command` — rather than trusting env or config. Fall back to `http://localhost:$PORT`.

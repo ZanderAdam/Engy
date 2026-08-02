@@ -26,6 +26,8 @@ linkedMemories:
     memory/patterns/20260801213516-cross-cutting-terminal-views-read-the-server-registry-not-th.md
   - >-
     memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
+  - >-
+    memory/decisions/20260801213540-terminal-spawn-derives-mcp-origin-from-the-caller-s-own-spaw.md
 scenarioIds: []
 ---
 **Rule:** The relay sync handler's no-browser cleanup branch must do full worker teardown — `failWorkerDispatches` + `disconnectWorker` + a `destroyed` broadcast — not merely delete the session meta.
