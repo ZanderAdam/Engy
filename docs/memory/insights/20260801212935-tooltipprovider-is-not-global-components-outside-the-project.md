@@ -17,7 +17,13 @@ tags:
   - ui
   - frontend
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801212648-scrollarea-in-a-flex-column-needs-min-h-0-plus-the-viewport-.md
+  - >-
+    memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
+  - >-
+    memory/patterns/20260801212739-monaco-diffeditor-needs-per-file-model-paths-and-scrolltop-o.md
 scenarioIds: []
 ---
 **Rule:** Any component using shadcn `<Tooltip>` that can render outside `web/src/app/w/[workspace]/projects/[project]/layout.tsx` must supply its own `<TooltipProvider>`. Nesting providers is safe, so wrap at the component that owns the tooltips rather than hunting every route.

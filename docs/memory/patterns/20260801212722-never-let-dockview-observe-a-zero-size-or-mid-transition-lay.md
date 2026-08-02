@@ -38,6 +38,8 @@ linkedMemories:
     memory/conventions/20260801212843-never-mirror-xterm-s-auto-follow-state-in-app-code.md
   - >-
     memory/conventions/20260801212851-drag-gestures-over-xterm-must-use-pointer-events-with-setpoi.md
+  - >-
+    memory/insights/20260801212935-tooltipprovider-is-not-global-components-outside-the-project.md
 scenarioIds: []
 ---
 **Rule:** Never feed dockview a zero-size or mid-CSS-transition layout. Animate an outer clip wrapper while the inner dockview host keeps a fixed px size, and additionally self-heal with a forced `api.layout(w, h, true)` on ancestor `animationend`/`transitionend` and root ResizeObserver changes.

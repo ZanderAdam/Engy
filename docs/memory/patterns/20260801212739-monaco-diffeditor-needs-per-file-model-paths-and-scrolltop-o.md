@@ -21,6 +21,8 @@ linkedMemories:
     memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
   - >-
     memory/conventions/20260801212648-scrollarea-in-a-flex-column-needs-min-h-0-plus-the-viewport-.md
+  - >-
+    memory/insights/20260801212935-tooltipprovider-is-not-global-components-outside-the-project.md
 scenarioIds: []
 ---
 **Rule:** Always pass `originalModelPath`/`modifiedModelPath` to `@monaco-editor/react`'s DiffEditor, and preserve view state as `modifiedEditor.getScrollTop()`/`setScrollTop()` only — never `restoreViewState`.
