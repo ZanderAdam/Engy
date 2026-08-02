@@ -17,7 +17,17 @@ tags:
   - terminal
   - daemon
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
+  - >-
+    memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
+  - >-
+    memory/patterns/20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md
+  - >-
+    memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
+  - >-
+    memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
 scenarioIds: []
 ---
 **Rule:** Import `@xterm/headless` via its default export (`import headless from '@xterm/headless'; const { Terminal } = headless`), cast the serialize addon (`screen.loadAddon(serializeAddon as unknown as ITerminalAddon)`), and always drain xterm's async write queue with `screen.write('', cb)` before serializing.
