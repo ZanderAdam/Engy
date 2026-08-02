@@ -19,5 +19,6 @@ Permanent notes capturing significant decisions — what was chosen, what altern
 - [20260801213507-image-preview-in-code-and-diffs-routes-through-the-daemon-no.md](20260801213507-image-preview-in-code-and-diffs-routes-through-the-daemon-no.md) — **Rule:** Image and binary preview in the Code and Diffs tabs must route through
 - [20260801213540-terminal-spawn-derives-mcp-origin-from-the-caller-s-own-spaw.md](20260801213540-terminal-spawn-derives-mcp-origin-from-the-caller-s-own-spaw.md) — **Rule:** Derive a spawned agent's MCP origin from the CALLER's own spawn comman
 - [20260801213604-codex-mode-is-a-single-preset-dropdown-not-its-two-real-flag.md](20260801213604-codex-mode-is-a-single-preset-dropdown-not-its-two-real-flag.md) — **Rule:** Keep Codex's "mode" in workspace agent settings as a single preset dro
+- [20260801213612-per-agent-settings-fall-back-to-legacy-skill-columns-instead.md](20260801213612-per-agent-settings-fall-back-to-legacy-skill-columns-instead.md) — **Rule:** Per-agent workspace settings (the `agent_settings` JSON column keyed b
 
 <!-- INDEX END -->
