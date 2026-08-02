@@ -17,6 +17,8 @@ sources: []
 linkedMemories:
   - >-
     memory/facts/20260801213252-execution-and-terminal-session-ids-are-separate-namespaces-t.md
+  - >-
+    memory/decisions/20260801213358-specwatcher-polls-the-whole-docsdir-assuming-it-is-a-dedicat.md
 scenarioIds: []
 ---
 **Rule:** Any new `FILE_CHANGE` consumer must declare its paths via `useWatchPaths`. The daemon watches ONLY subscribed paths, so a consumer that forgets gets zero events and no error.

@@ -15,7 +15,9 @@ tags:
   - daemon
   - architecture
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801213339-file-watching-is-subscription-driven-a-file-change-consumer-.md
 scenarioIds: []
 ---
 **Rule:** Keep a workspace's `docsDir` pointed at a dedicated docs directory, never a full repo root. SpecWatcher polls the entire `docsDir` at 1s via chokidar, pruning only dot-segments and `node_modules`.
