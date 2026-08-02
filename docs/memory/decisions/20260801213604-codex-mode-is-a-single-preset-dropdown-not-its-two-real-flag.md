@@ -15,7 +15,9 @@ tags:
   - agents
   - ui
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/decisions/20260801213612-per-agent-settings-fall-back-to-legacy-skill-columns-instead.md
 scenarioIds: []
 ---
 **Rule:** Keep Codex's "mode" in workspace agent settings as a single preset dropdown (read-only / workspace-write / full-auto / danger-full-access) mapping to flag COMBINATIONS — full-auto = `--sandbox workspace-write --ask-for-approval never`. Do not expose codex's two real dimensions (`--sandbox`, `--ask-for-approval`) as separate dropdowns.

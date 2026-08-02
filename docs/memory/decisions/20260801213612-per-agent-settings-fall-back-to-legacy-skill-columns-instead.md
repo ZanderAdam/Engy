@@ -16,7 +16,9 @@ tags:
   - agents
   - architecture
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/decisions/20260801213604-codex-mode-is-a-single-preset-dropdown-not-its-two-real-flag.md
 scenarioIds: []
 ---
 **Rule:** Per-agent workspace settings (the `agent_settings` JSON column keyed by agent-type-id) deliberately keep the legacy `plan_skill`/`implement_skill` columns as a silent fallback rather than doing a data migration. `resolveAgentSkills` resolves agent entry → legacy columns → `/engy:` defaults.
