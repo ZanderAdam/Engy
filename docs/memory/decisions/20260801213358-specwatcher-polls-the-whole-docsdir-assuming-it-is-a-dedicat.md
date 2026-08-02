@@ -18,6 +18,8 @@ sources: []
 linkedMemories:
   - >-
     memory/conventions/20260801213339-file-watching-is-subscription-driven-a-file-change-consumer-.md
+  - >-
+    memory/decisions/20260801213438-pr-monitoring-authenticates-via-the-user-s-gh-auth-login-sto.md
 scenarioIds: []
 ---
 **Rule:** Keep a workspace's `docsDir` pointed at a dedicated docs directory, never a full repo root. SpecWatcher polls the entire `docsDir` at 1s via chokidar, pruning only dot-segments and `node_modules`.

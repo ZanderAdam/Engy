@@ -15,7 +15,13 @@ tags:
   - architecture
   - daemon
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801213430-gh-api-paginate-needs-slurp-before-json-parse.md
+  - >-
+    memory/conventions/20260801213339-file-watching-is-subscription-driven-a-file-change-consumer-.md
+  - >-
+    memory/decisions/20260801213358-specwatcher-polls-the-whole-docsdir-assuming-it-is-a-dedicat.md
 scenarioIds: []
 ---
 **Rule:** PR/CI monitoring authenticates exclusively through the user's existing `gh auth login` — the token is resolved by `gh` from the macOS Keychain at exec time, daemon-side. Engy stores no GitHub tokens and registers no OAuth app.
