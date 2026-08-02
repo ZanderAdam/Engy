@@ -22,6 +22,8 @@ sources: []
 linkedMemories:
   - >-
     memory/insights/20260801212634-judge-blt-s-eslint-output-by-file-path-not-problem-count.md
+  - >-
+    memory/conventions/20260801213311-use-playwright-cli-goto-not-open-open-relaunches-and-wipes-l.md
 scenarioIds: []
 ---
 **Rule:** Never treat a green `pnpm build` as evidence that the dependency graph is installable. A Turbo cache hit means the build script never ran at all, so a stale or pruned `node_modules` is completely invisible. Rely on `verifyDepsBeforeRun: install` in `pnpm-workspace.yaml` instead.

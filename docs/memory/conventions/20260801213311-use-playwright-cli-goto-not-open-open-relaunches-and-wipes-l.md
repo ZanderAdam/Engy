@@ -15,7 +15,11 @@ tags:
   - testing
   - dx
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/insights/20260801212634-judge-blt-s-eslint-output-by-file-path-not-problem-count.md
+  - >-
+    memory/insights/20260801212913-a-passing-pnpm-build-proves-nothing-about-node-modules-turbo.md
 scenarioIds: []
 ---
 **Rule:** Use `goto <url>` for navigation within a playwright-cli session. Reserve `open` for the first launch, and after any relaunch re-apply: resize, `eval localStorage.setItem('engy-theme-flavor','cyberpunk')`, reload.
