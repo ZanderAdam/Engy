@@ -26,6 +26,8 @@ linkedMemories:
     memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
   - >-
     memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
+  - >-
+    memory/conventions/20260801213533-the-relay-sync-no-browser-branch-must-do-full-worker-teardow.md
 scenarioIds: []
 ---
 **Rule:** Treat "last sent cols/rows === actual PTY size" as a system-wide invariant. Any server or daemon path that changes a PTY's size, or drops a resize, without the browser seeing a WS reconnect leaves that PTY permanently stuck — no focus or refit will ever resend. Server-side healing must come from `terminalSessionMeta.cols/rows`.

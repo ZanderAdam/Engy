@@ -15,7 +15,17 @@ tags:
   - terminal
   - architecture
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
+  - >-
+    memory/facts/20260801213525-last-sent-equals-actual-pty-size-is-a-system-wide-invariant.md
+  - >-
+    memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
+  - >-
+    memory/patterns/20260801213516-cross-cutting-terminal-views-read-the-server-registry-not-th.md
+  - >-
+    memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
 scenarioIds: []
 ---
 **Rule:** The relay sync handler's no-browser cleanup branch must do full worker teardown — `failWorkerDispatches` + `disconnectWorker` + a `destroyed` broadcast — not merely delete the session meta.

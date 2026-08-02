@@ -28,6 +28,8 @@ linkedMemories:
     memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
   - >-
     memory/facts/20260801213525-last-sent-equals-actual-pty-size-is-a-system-wide-invariant.md
+  - >-
+    memory/conventions/20260801213533-the-relay-sync-no-browser-branch-must-do-full-worker-teardow.md
 scenarioIds: []
 ---
 **Rule:** Any cross-cutting terminal view must be driven from the server registry (`GET /api/terminal/sessions?all=1` plus the `TERMINAL_ACTIVITY_CHANGE`/`TERMINAL_SESSIONS_CHANGE` broadcasts), never from the in-memory browser store.
