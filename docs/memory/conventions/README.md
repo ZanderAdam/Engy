@@ -22,5 +22,6 @@ Permanent notes on conventions — agreed coding standards, process norms, and t
 - [20260801213329-a-buildcommand-change-must-account-for-all-three-terminalses.md](20260801213329-a-buildcommand-change-must-account-for-all-three-terminalses.md) — **Rule:** Any change to what `claude`/`codex` `buildCommand` emits (`web/src/lib
 - [20260801213339-file-watching-is-subscription-driven-a-file-change-consumer-.md](20260801213339-file-watching-is-subscription-driven-a-file-change-consumer-.md) — **Rule:** Any new `FILE_CHANGE` consumer must declare its paths via `useWatchPat
 - [20260801213349-grep-the-whole-requirements-table-for-the-max-fr-id-before-a.md](20260801213349-grep-the-whole-requirements-table-for-the-max-fr-id-before-a.md) — **Rule:** When allocating a new FR id in a `system/features` doc, grep the ENTIR
+- [20260801213422-a-new-project-section-tab-needs-three-wiring-points-not-two.md](20260801213422-a-new-project-section-tab-needs-three-wiring-points-not-two.md) — **Rule:** Adding a project section tab requires THREE wiring points: the `sectio
 
 <!-- INDEX END -->
