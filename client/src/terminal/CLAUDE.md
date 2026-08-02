@@ -37,7 +37,7 @@ Every mode sets `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` (PTY env locall
 
 ## Screen mirror (replay source)
 
-- Each session owns an `@xterm/headless` terminal (`screen`, 5000-line scrollback matching the browser xterm, resized alongside the PTY) fed every raw output chunk. On reconnect the daemon flushes its write queue (`screen.write('', cb)`) and sends the `@xterm/addon-serialize` snapshot — never raw chunk history, whose cursor-relative TUI frames tear when replayed against a reset screen.
+- Each session owns an `@xterm/headless` terminal (`screen`, 5000-line scrollback matching the browser xterm, resized alongside the PTY) fed every raw output chunk. On reconnect the daemon flushes its write queue (`screen.write('', cb)`) and sends the `@xterm/addon-serialize` snapshot — never raw chunk history, whose cursor-relative TUI frames tear when replayed against a reset screen. Sessions spawned with a command serialize screen-only (`{ scrollback: 0 }`): agent TUIs repaint constantly, so their scrollback is stacked repaint frames, not history.
 - `@xterm/headless` is a UMD bundle: under Node ESM, `Terminal` is only reachable via the default import (`import headless from '@xterm/headless'`), not as a named export.
 - Activity detection (`activity-parse.ts`) stays wired to the raw PTY stream, not the headless terminal's rendered state — that duplication with `web/` is intentional (common/ is types-only).
 

@@ -124,8 +124,9 @@ export class TerminalManager {
       ? `cd '${escapedDir}' && ${command}; exec /bin/bash`
       : `cd '${escapedDir}' && exec /bin/bash`;
     sshArgs.push(workspace, '--', '/bin/bash', '-c', shellCmd);
-    // Clear command so spawnPty doesn't try to inject it via initialCommandSent
-    this.spawnPty({ ...opts, command: undefined }, 'coder', sshArgs);
+    // The command is baked into the shell invocation above, so mark it as
+    // already sent — session.command must survive for reconnect snapshots.
+    this.spawnPty(opts, 'coder', sshArgs, undefined, { commandInShell: true });
   }
 
   private spawnLocal(opts: SpawnOptions): void {
@@ -138,6 +139,7 @@ export class TerminalManager {
     cmd: string,
     args: string[],
     cwd?: string,
+    { commandInShell = false } = {},
   ): void {
     const { sessionId, workingDir, cols, rows, command } = opts;
 
@@ -197,7 +199,7 @@ export class TerminalManager {
       screen,
       serializeAddon,
       lastActivity: Date.now(),
-      initialCommandSent: false,
+      initialCommandSent: commandInShell,
     };
     this.sessions.set(sessionId, session);
 
@@ -338,7 +340,11 @@ export class TerminalManager {
         console.log(`[terminal] handleReconnect: session ${sessionId} gone before flush, skipping snapshot`);
         return;
       }
-      const snapshot = session.serializeAddon.serialize();
+      // Command sessions: TUIs repaint constantly, so scrollback is stacked
+      // frames, not history — screen only.
+      const snapshot = session.serializeAddon.serialize(
+        session.command ? { scrollback: 0 } : undefined,
+      );
       console.log(
         `[terminal] handleReconnect: session ${sessionId} snapshot ${snapshot.length} chars`,
       );
