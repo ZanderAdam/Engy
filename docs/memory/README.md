@@ -7,7 +7,7 @@ This directory holds the workspace knowledge base organised into the Zettelkaste
 <!-- INDEX START -->
 
 - [conventions](conventions/) — Agreed practices and standards (1 notes)
-- [decisions](decisions/) — Choices made with rationale (3 notes)
+- [decisions](decisions/) — Choices made with rationale (4 notes)
 - [facts](facts/) — Verified information
 - [insights](insights/) — Observations and learnings (8 notes)
 - [patterns](patterns/) — Recurring solutions and approaches (5 notes)
