@@ -28,6 +28,8 @@ linkedMemories:
     memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
   - >-
     memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
+  - >-
+    memory/insights/20260801213319-initial-command-injection-races-interactive-shell-startup.md
 scenarioIds: []
 ---
 **Rule:** Import `@xterm/headless` via its default export (`import headless from '@xterm/headless'; const { Terminal } = headless`), cast the serialize addon (`screen.loadAddon(serializeAddon as unknown as ITerminalAddon)`), and always drain xterm's async write queue with `screen.write('', cb)` before serializing.

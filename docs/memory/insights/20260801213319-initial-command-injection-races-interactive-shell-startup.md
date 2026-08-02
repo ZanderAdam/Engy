@@ -15,7 +15,17 @@ tags:
   - terminal
   - daemon
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/insights/20260801213238-xterm-headless-needs-a-default-import-drain-writes-before-se.md
+  - >-
+    memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
+  - >-
+    memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
+  - >-
+    memory/patterns/20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md
+  - >-
+    memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
 scenarioIds: []
 ---
 **Rule:** Do not inject a spawn command into a PTY on first shell output. Wait for a stable prompt (or zle readiness), or prefix the command with a newline to flush any pending prompt.

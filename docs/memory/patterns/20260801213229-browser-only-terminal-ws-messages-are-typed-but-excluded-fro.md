@@ -30,6 +30,8 @@ linkedMemories:
     memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
   - >-
     memory/insights/20260801213238-xterm-headless-needs-a-default-import-drain-writes-before-se.md
+  - >-
+    memory/insights/20260801213319-initial-command-injection-races-interactive-shell-startup.md
 scenarioIds: []
 ---
 **Rule:** A browser-leg terminal WS message that terminates at the server follows one pattern: type it in `common/src/ws/protocol.ts` for the shared contract, exclude it from the daemon-facing `TerminalRelayCommand`/`TerminalRelayEvent` unions, and intercept it by string prefix before the generic daemon forward.

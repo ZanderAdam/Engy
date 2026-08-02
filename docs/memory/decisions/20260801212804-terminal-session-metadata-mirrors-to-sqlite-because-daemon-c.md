@@ -33,6 +33,8 @@ linkedMemories:
     memory/patterns/20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md
   - >-
     memory/insights/20260801213238-xterm-headless-needs-a-default-import-drain-writes-before-se.md
+  - >-
+    memory/insights/20260801213319-initial-command-injection-races-interactive-shell-startup.md
 scenarioIds: []
 ---
 **Rule:** Keep surviving-terminal metadata in a SQLite mirror of `terminalSessionMeta` (`terminal_sessions`, write-through + boot restore). Do not move it to the architecturally cleaner daemon-echoed-meta design unless a daemon-restarting change is already shipping anyway.

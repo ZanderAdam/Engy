@@ -46,6 +46,8 @@ linkedMemories:
     memory/patterns/20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md
   - >-
     memory/insights/20260801213238-xterm-headless-needs-a-default-import-drain-writes-before-se.md
+  - >-
+    memory/insights/20260801213319-initial-command-injection-races-interactive-shell-startup.md
 scenarioIds: []
 ---
 Kill-is-final contract: server must send {t:'exit'} to other attached browsers BEFORE close(1001) — client terminal.tsx exit handler calls socket.markFinal() which suppresses ReconnectingSocket's reconnect. Closing alone causes ghost respawn because kill already deleted terminalSessionMeta, so the auto-reconnect is misclassified as a fresh spawn.
