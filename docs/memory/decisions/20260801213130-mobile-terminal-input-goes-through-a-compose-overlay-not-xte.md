@@ -16,7 +16,17 @@ tags:
   - terminal
   - mobile
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/decisions/20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md
+  - >-
+    memory/conventions/20260801212851-drag-gestures-over-xterm-must-use-pointer-events-with-setpoi.md
+  - >-
+    memory/conventions/20260801213102-gate-per-tab-radix-overlays-on-tab-isactive-portals-escape-d.md
+  - >-
+    memory/decisions/20260801213110-mobileidentitybar-mounts-at-three-sites-to-stay-inside-mobil.md
+  - >-
+    memory/conventions/20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md
 scenarioIds: []
 ---
 **Rule:** Do not try to make typing directly into xterm's hidden helper textarea work on mobile. Deliver finished text from a plain-textarea compose overlay as one bracketed paste plus a separate Enter.

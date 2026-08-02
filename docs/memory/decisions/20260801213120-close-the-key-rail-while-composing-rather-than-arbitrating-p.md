@@ -29,6 +29,8 @@ linkedMemories:
     memory/decisions/20260801213110-mobileidentitybar-mounts-at-three-sites-to-stay-inside-mobil.md
   - >-
     memory/conventions/20260801213102-gate-per-tab-radix-overlays-on-tab-isactive-portals-escape-d.md
+  - >-
+    memory/decisions/20260801213130-mobile-terminal-input-goes-through-a-compose-overlay-not-xte.md
 scenarioIds: []
 ---
 **Rule:** On the mobile terminal pane, remove coexistence rather than arbitrate paint order — close the extra-key column and disable its toggle while the composer is open. Any new mobile affordance there must state whether it can coexist with the composer.
