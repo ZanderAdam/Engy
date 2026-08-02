@@ -18,5 +18,6 @@ Permanent notes on insights — observations, hypotheses, and learnings that do 
 - [20260801212913-a-passing-pnpm-build-proves-nothing-about-node-modules-turbo.md](20260801212913-a-passing-pnpm-build-proves-nothing-about-node-modules-turbo.md) — **Rule:** Never treat a green `pnpm build` as evidence that the dependency graph
 - [20260801212935-tooltipprovider-is-not-global-components-outside-the-project.md](20260801212935-tooltipprovider-is-not-global-components-outside-the-project.md) — **Rule:** Any component using shadcn `<Tooltip>` that can render outside `web/sr
 - [20260801212954-qmd-publishes-only-its-root-export-embed-via-store-internal-.md](20260801212954-qmd-publishes-only-its-root-export-embed-via-store-internal-.md) — **Rule:** To embed arbitrary text with qmd, use `store.internal.llm` (LlamaCpp —
+- [20260801213139-terminal-paste-reads-the-cli-host-s-clipboard-a-mobile-paste.md](20260801213139-terminal-paste-reads-the-cli-host-s-clipboard-a-mobile-paste.md) — **Rule:** Do not add a "Paste" affordance to the mobile terminal rail. To get a 
 
 <!-- INDEX END -->
