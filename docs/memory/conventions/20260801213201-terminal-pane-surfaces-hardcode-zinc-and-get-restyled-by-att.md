@@ -20,6 +20,8 @@ linkedMemories:
     memory/decisions/20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md
   - >-
     memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
+  - >-
+    memory/patterns/20260801213210-cyberpunk-theme-is-an-override-stylesheet-fix-colours-there-.md
 scenarioIds: []
 ---
 **Rule:** Adding a themed surface to the terminal pane is a two-file change: hardcode the zinc colours in the component, then add a matching override block in `web/src/app/cyberpunk-theme.css` keyed on an attribute selector (`[role='toolbar'][aria-label='Terminal keys'] button`, `button[aria-label='Compose message']`, `[role='dialog'][aria-label='Compose terminal message']`).

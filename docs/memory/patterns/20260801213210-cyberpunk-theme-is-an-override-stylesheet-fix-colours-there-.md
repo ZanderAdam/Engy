@@ -18,7 +18,9 @@ tags:
   - ui
   - theming
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801213201-terminal-pane-surfaces-hardcode-zinc-and-get-restyled-by-att.md
 scenarioIds: []
 ---
 **Rule:** When a surface shows wrong colours under the cyberpunk flavor, add a remap rule to `web/src/app/cyberpunk-theme.css`, not a component edit. Components stay flavor-agnostic.
