@@ -25,5 +25,6 @@ Permanent notes on conventions — agreed coding standards, process norms, and t
 - [20260801213422-a-new-project-section-tab-needs-three-wiring-points-not-two.md](20260801213422-a-new-project-section-tab-needs-three-wiring-points-not-two.md) — **Rule:** Adding a project section tab requires THREE wiring points: the `sectio
 - [20260801213430-gh-api-paginate-needs-slurp-before-json-parse.md](20260801213430-gh-api-paginate-needs-slurp-before-json-parse.md) — **Rule:** Every `gh api --paginate` call in the daemon must add `--slurp` (then 
 - [20260801213448-expand-tilde-at-the-server-boundary-the-daemon-is-never-tild.md](20260801213448-expand-tilde-at-the-server-boundary-the-daemon-is-never-tild.md) — **Rule:** Expand `~` at the SERVER boundary via `expandTilde` (exported from `we
+- [20260801213456-mutate-worktrees-at-the-path-git-reports-never-a-recomputed-.md](20260801213456-mutate-worktrees-at-the-path-git-reports-never-a-recomputed-.md) — **Rule:** Any worktree *mutation* must target the path `git worktree list` actua
 
 <!-- INDEX END -->
