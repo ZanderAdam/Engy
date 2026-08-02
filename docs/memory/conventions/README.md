@@ -28,5 +28,6 @@ Permanent notes on conventions — agreed coding standards, process norms, and t
 - [20260801213456-mutate-worktrees-at-the-path-git-reports-never-a-recomputed-.md](20260801213456-mutate-worktrees-at-the-path-git-reports-never-a-recomputed-.md) — **Rule:** Any worktree *mutation* must target the path `git worktree list` actua
 - [20260801213533-the-relay-sync-no-browser-branch-must-do-full-worker-teardow.md](20260801213533-the-relay-sync-no-browser-branch-must-do-full-worker-teardow.md) — **Rule:** The relay sync handler's no-browser cleanup branch must do full worker
 - [20260801213547-an-injected-prompt-must-state-that-the-terminal-is-invisible.md](20260801213547-an-injected-prompt-must-state-that-the-terminal-is-invisible.md) — **Rule:** When an injected prompt asks a CLI agent to return a value via an MCP 
+- [20260801213740-calibrate-similarity-thresholds-against-the-real-corpus-neve.md](20260801213740-calibrate-similarity-thresholds-against-the-real-corpus-neve.md) — **Rule:** Calibrate a similarity threshold by measuring the real corpus's score 
 
 <!-- INDEX END -->
