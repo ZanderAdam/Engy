@@ -19,6 +19,8 @@ sources: []
 linkedMemories:
   - >-
     memory/conventions/20260801213001-assert-mcp-zod-constraints-against-the-schema-not-through-ca.md
+  - >-
+    memory/conventions/20260801213339-file-watching-is-subscription-driven-a-file-change-consumer-.md
 scenarioIds: []
 ---
 **Rule:** Never assume a headless execution agent can be attributed through MCP. Attributing MCP tool calls to a headless session requires first wiring a per-session MCP config into the execution dispatch path — the terminal plumbing cannot be reused as-is.
