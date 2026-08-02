@@ -28,6 +28,8 @@ linkedMemories:
     memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
   - >-
     memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
+  - >-
+    memory/conventions/20260801212843-never-mirror-xterm-s-auto-follow-state-in-app-code.md
 scenarioIds: []
 ---
 **Rule:** When a dockview panel with `renderer: 'always'` becomes visible again, force an xterm Viewport resync — `scrollback = N±1` then back, or a `scrollLines(-1)`/`scrollLines(+1)` pair. A same-value poke is a no-op.

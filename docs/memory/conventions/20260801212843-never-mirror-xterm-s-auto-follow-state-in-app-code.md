@@ -15,7 +15,17 @@ tags:
   - terminal
   - frontend
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/insights/20260801212834-resync-xterm-s-viewport-when-a-hidden-dockview-panel-becomes.md
+  - >-
+    memory/patterns/20260801212703-drive-xterm-scrolling-yourself-its-native-wheel-and-touch-pa.md
+  - >-
+    memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
+  - >-
+    memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
+  - >-
+    memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
 scenarioIds: []
 ---
 **Rule:** Never mirror xterm's auto-follow state in application code. `BufferService.isUserScrolling` is already the single source of truth — `scroll()` only advances `ydisp` while it is false, `scrollLines(negative)` sets it, and any scroll reaching `ybase` clears it.
