@@ -19,5 +19,6 @@ Permanent notes on insights — observations, hypotheses, and learnings that do 
 - [20260801212935-tooltipprovider-is-not-global-components-outside-the-project.md](20260801212935-tooltipprovider-is-not-global-components-outside-the-project.md) — **Rule:** Any component using shadcn `<Tooltip>` that can render outside `web/sr
 - [20260801212954-qmd-publishes-only-its-root-export-embed-via-store-internal-.md](20260801212954-qmd-publishes-only-its-root-export-embed-via-store-internal-.md) — **Rule:** To embed arbitrary text with qmd, use `store.internal.llm` (LlamaCpp —
 - [20260801213139-terminal-paste-reads-the-cli-host-s-clipboard-a-mobile-paste.md](20260801213139-terminal-paste-reads-the-cli-host-s-clipboard-a-mobile-paste.md) — **Rule:** Do not add a "Paste" affordance to the mobile terminal rail. To get a 
+- [20260801213220-wake-triggered-clear-and-replay-is-what-corrupts-terminal-sc.md](20260801213220-wake-triggered-clear-and-replay-is-what-corrupts-terminal-sc.md) — **Rule:** Do not force-close a healthy terminal socket on `visibilitychange`. Pr
 
 <!-- INDEX END -->
