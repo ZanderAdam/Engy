@@ -15,5 +15,6 @@ Permanent notes capturing significant decisions — what was chosen, what altern
 - [20260801213130-mobile-terminal-input-goes-through-a-compose-overlay-not-xte.md](20260801213130-mobile-terminal-input-goes-through-a-compose-overlay-not-xte.md) — **Rule:** Do not try to make typing directly into xterm's hidden helper textarea
 - [20260801213358-specwatcher-polls-the-whole-docsdir-assuming-it-is-a-dedicat.md](20260801213358-specwatcher-polls-the-whole-docsdir-assuming-it-is-a-dedicat.md) — **Rule:** Keep a workspace's `docsDir` pointed at a dedicated docs directory, ne
 - [20260801213407-code-tab-s-worktree-selector-is-localonly-because-tree-ops-l.md](20260801213407-code-tab-s-worktree-selector-is-localonly-because-tree-ops-l.md) — **Rule:** Keep the Code tab's `WorktreeSelector` restricted to LOCAL worktrees v
+- [20260801213438-pr-monitoring-authenticates-via-the-user-s-gh-auth-login-sto.md](20260801213438-pr-monitoring-authenticates-via-the-user-s-gh-auth-login-sto.md) — **Rule:** PR/CI monitoring authenticates exclusively through the user's existing
 
 <!-- INDEX END -->
