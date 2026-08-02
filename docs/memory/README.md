@@ -10,7 +10,7 @@ This directory holds the workspace knowledge base organised into the Zettelkaste
 - [decisions](decisions/) — Choices made with rationale (3 notes)
 - [facts](facts/) — Verified information
 - [insights](insights/) — Observations and learnings (8 notes)
-- [patterns](patterns/) — Recurring solutions and approaches (4 notes)
+- [patterns](patterns/) — Recurring solutions and approaches (5 notes)
 - [references](references/) — Durable external link records
 - [sources](sources/) — Immutable snapshots of non-durable content
 
