@@ -27,6 +27,8 @@ linkedMemories:
     memory/conventions/20260801213533-the-relay-sync-no-browser-branch-must-do-full-worker-teardow.md
   - >-
     memory/patterns/20260801213516-cross-cutting-terminal-views-read-the-server-registry-not-th.md
+  - >-
+    memory/insights/20260801213751-check-server-cpu-before-waiting-on-a-slow-mcp-call-it-may-be.md
 scenarioIds: []
 ---
 **Rule:** Derive a spawned agent's MCP origin from the CALLER's own spawn command — regex `/(https?:\/\/[^\/\s'"]+)\/mcp\//` over `meta.command` — rather than trusting env or config. Fall back to `http://localhost:$PORT`.

@@ -16,7 +16,13 @@ tags:
   - mcp
   - dx
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801213001-assert-mcp-zod-constraints-against-the-schema-not-through-ca.md
+  - >-
+    memory/decisions/20260801213540-terminal-spawn-derives-mcp-origin-from-the-caller-s-own-spaw.md
+  - >-
+    memory/facts/20260801213252-execution-and-terminal-session-ids-are-separate-namespaces-t.md
 scenarioIds: []
 ---
 **Rule:** When `mcp__Engy__*` calls start timing out, check the server's CPU before waiting. Idle means a stale MCP session; pegged means real embedding work. To recover without restarting the whole Claude session, hand-craft a fresh session over HTTP: `curl POST /mcp` initialize, capture the `mcp-session-id` header, then `tools/call` with that id.
