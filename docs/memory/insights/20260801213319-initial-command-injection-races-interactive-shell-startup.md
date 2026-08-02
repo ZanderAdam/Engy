@@ -26,6 +26,8 @@ linkedMemories:
     memory/patterns/20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md
   - >-
     memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
+  - >-
+    memory/conventions/20260801213329-a-buildcommand-change-must-account-for-all-three-terminalses.md
 scenarioIds: []
 ---
 **Rule:** Do not inject a spawn command into a PTY on first shell output. Wait for a stable prompt (or zle readiness), or prefix the command with a newline to flush any pending prompt.

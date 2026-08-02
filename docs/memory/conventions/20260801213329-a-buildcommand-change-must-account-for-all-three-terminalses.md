@@ -15,7 +15,17 @@ tags:
   - terminal
   - architecture
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
+  - >-
+    memory/patterns/20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md
+  - >-
+    memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
+  - >-
+    memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
+  - >-
+    memory/insights/20260801213319-initial-command-injection-races-interactive-shell-startup.md
 scenarioIds: []
 ---
 **Rule:** Any change to what `claude`/`codex` `buildCommand` emits (`web/src/lib/agent-types.ts`) must account for ALL three `terminalSessionMeta.set` production sites: browser spawn and restart-adoption (both in `terminal-server.ts`) and the server-originated `spawnAgentTerminal` (`terminal-dispatch.ts`, MCP `terminal_spawn`).
