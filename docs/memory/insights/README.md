@@ -20,5 +20,6 @@ Permanent notes on insights — observations, hypotheses, and learnings that do 
 - [20260801212954-qmd-publishes-only-its-root-export-embed-via-store-internal-.md](20260801212954-qmd-publishes-only-its-root-export-embed-via-store-internal-.md) — **Rule:** To embed arbitrary text with qmd, use `store.internal.llm` (LlamaCpp —
 - [20260801213139-terminal-paste-reads-the-cli-host-s-clipboard-a-mobile-paste.md](20260801213139-terminal-paste-reads-the-cli-host-s-clipboard-a-mobile-paste.md) — **Rule:** Do not add a "Paste" affordance to the mobile terminal rail. To get a 
 - [20260801213220-wake-triggered-clear-and-replay-is-what-corrupts-terminal-sc.md](20260801213220-wake-triggered-clear-and-replay-is-what-corrupts-terminal-sc.md) — **Rule:** Do not force-close a healthy terminal socket on `visibilitychange`. Pr
+- [20260801213238-xterm-headless-needs-a-default-import-drain-writes-before-se.md](20260801213238-xterm-headless-needs-a-default-import-drain-writes-before-se.md) — **Rule:** Import `@xterm/headless` via its default export (`import headless from
 
 <!-- INDEX END -->
