@@ -27,6 +27,8 @@ linkedMemories:
     memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
   - >-
     memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
+  - >-
+    memory/patterns/20260801212703-drive-xterm-scrolling-yourself-its-native-wheel-and-touch-pa.md
 scenarioIds: []
 ---
 Terminal spawn gate (spawningSessions): waiters must re-check the gate in a LOOP after awaiting, then classify on terminalSessionMeta. A single await + meta check either dead-ends the waiter when the original spawn was abandoned (Strict Mode teardown mid-container-start) or double-spawns when multiple waiters wake together. The fall-through-to-spawn path installs a new gate synchronously before any await, which is what serializes the remaining waiters.

@@ -28,6 +28,8 @@ linkedMemories:
     memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
   - >-
     memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
+  - >-
+    memory/patterns/20260801212703-drive-xterm-scrolling-yourself-its-native-wheel-and-touch-pa.md
 scenarioIds: []
 ---
 Kill-is-final contract: server must send {t:'exit'} to other attached browsers BEFORE close(1001) — client terminal.tsx exit handler calls socket.markFinal() which suppresses ReconnectingSocket's reconnect. Closing alone causes ghost respawn because kill already deleted terminalSessionMeta, so the auto-reconnect is misclassified as a fresh spawn.

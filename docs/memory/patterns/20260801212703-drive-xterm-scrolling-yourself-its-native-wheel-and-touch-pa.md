@@ -16,7 +16,17 @@ tags:
   - terminal
   - frontend
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/insights/20260623232850-terminal-tab-title-pin-titlepinned-is-browser-local-lost-in-.md
+  - >-
+    memory/patterns/20260623233015-terminal-spawn-gate-waiters-must-re-check-spawningsessions-i.md
+  - >-
+    memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
+  - >-
+    memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
+  - >-
+    memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
 scenarioIds: []
 ---
 **Rule:** Never leave scrolling to xterm.js's native pipeline in an Engy terminal. Intercept wheel via `attachCustomWheelEventHandler` and touch via capture-phase handlers on the container, and drive `term.scrollLines()` directly.
