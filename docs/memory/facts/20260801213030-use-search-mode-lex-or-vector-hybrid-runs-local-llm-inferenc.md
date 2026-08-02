@@ -16,7 +16,11 @@ tags:
   - search
   - dx
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/insights/20260801212954-qmd-publishes-only-its-root-export-embed-via-store-internal-.md
+  - >-
+    memory/conventions/20260801213018-never-compare-a-qmd-search-score-to-a-cosine-threshold.md
 scenarioIds: []
 ---
 **Rule:** Pass `mode: 'lex'` or `mode: 'vector'` to the MCP `search` tool. Never leave it on the default hybrid, and never pass `intent` unless hybrid is genuinely wanted.
