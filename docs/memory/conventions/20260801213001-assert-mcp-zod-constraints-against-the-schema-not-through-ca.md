@@ -15,7 +15,13 @@ tags:
   - testing
   - mcp
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/insights/20260623233026-web-src-server-ws-tests-bind-real-sockets-run-with-bash-sand.md
+  - >-
+    memory/conventions/20260801212900-verify-a-regression-test-fails-for-the-reason-you-think-not-.md
+  - >-
+    memory/insights/20260623233118-web-ws-search-test-suites-flake-under-blt-need-isolated-engy.md
 scenarioIds: []
 ---
 **Rule:** To test a zod-only constraint on an MCP tool (e.g. `content.min(1)`), assert the schema directly — `tools.<name>.inputSchema.safeParse({...})` with `success === false`. Calling the tool and asserting `isError` can never verify it.

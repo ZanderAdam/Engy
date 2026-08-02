@@ -22,6 +22,8 @@ linkedMemories:
     memory/insights/20260623233118-web-ws-search-test-suites-flake-under-blt-need-isolated-engy.md
   - >-
     memory/insights/20260623233026-web-src-server-ws-tests-bind-real-sockets-run-with-bash-sand.md
+  - >-
+    memory/conventions/20260801213001-assert-mcp-zod-constraints-against-the-schema-not-through-ca.md
 scenarioIds: []
 ---
 **Rule:** Reverting the fix to confirm a regression test catches the bug is necessary but not sufficient — also confirm it fails for the *reason* you believe. A security test that passes vacuously is worse than no test, because it certifies the gap. Concretely on macOS: always `fs.realpathSync()` a temp root at creation before using it in path-containment assertions.
