@@ -20,5 +20,6 @@ Permanent notes on conventions — agreed coding standards, process norms, and t
 - [20260801213304-brace-shell-variables-in-git-rev-path-arguments-zsh-eats-the.md](20260801213304-brace-shell-variables-in-git-rev-path-arguments-zsh-eats-the.md) — **Rule:** Always brace a shell variable used to build a git `rev:path` argument 
 - [20260801213311-use-playwright-cli-goto-not-open-open-relaunches-and-wipes-l.md](20260801213311-use-playwright-cli-goto-not-open-open-relaunches-and-wipes-l.md) — **Rule:** Use `goto <url>` for navigation within a playwright-cli session. Reser
 - [20260801213329-a-buildcommand-change-must-account-for-all-three-terminalses.md](20260801213329-a-buildcommand-change-must-account-for-all-three-terminalses.md) — **Rule:** Any change to what `claude`/`codex` `buildCommand` emits (`web/src/lib
+- [20260801213339-file-watching-is-subscription-driven-a-file-change-consumer-.md](20260801213339-file-watching-is-subscription-driven-a-file-change-consumer-.md) — **Rule:** Any new `FILE_CHANGE` consumer must declare its paths via `useWatchPat
 
 <!-- INDEX END -->
