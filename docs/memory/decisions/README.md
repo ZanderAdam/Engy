@@ -14,5 +14,6 @@ Permanent notes capturing significant decisions — what was chosen, what altern
 - [20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md](20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md) — **Rule:** On the mobile terminal pane, remove coexistence rather than arbitrate 
 - [20260801213130-mobile-terminal-input-goes-through-a-compose-overlay-not-xte.md](20260801213130-mobile-terminal-input-goes-through-a-compose-overlay-not-xte.md) — **Rule:** Do not try to make typing directly into xterm's hidden helper textarea
 - [20260801213358-specwatcher-polls-the-whole-docsdir-assuming-it-is-a-dedicat.md](20260801213358-specwatcher-polls-the-whole-docsdir-assuming-it-is-a-dedicat.md) — **Rule:** Keep a workspace's `docsDir` pointed at a dedicated docs directory, ne
+- [20260801213407-code-tab-s-worktree-selector-is-localonly-because-tree-ops-l.md](20260801213407-code-tab-s-worktree-selector-is-localonly-because-tree-ops-l.md) — **Rule:** Keep the Code tab's `WorktreeSelector` restricted to LOCAL worktrees v
 
 <!-- INDEX END -->
