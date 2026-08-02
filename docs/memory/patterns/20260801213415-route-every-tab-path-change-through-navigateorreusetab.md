@@ -26,6 +26,8 @@ linkedMemories:
     memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
   - >-
     memory/conventions/20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md
+  - >-
+    memory/conventions/20260801213422-a-new-project-section-tab-needs-three-wiring-points-not-two.md
 scenarioIds: []
 ---
 **Rule:** Route ALL tab path changes through a pure helper (`navigateOrReuseTab`) that focuses an existing tab with the same `projectTabKey` (workspace/project@worktree) instead of navigating in place. Leave the origin tab untouched so home and workspace pages act as launchers.

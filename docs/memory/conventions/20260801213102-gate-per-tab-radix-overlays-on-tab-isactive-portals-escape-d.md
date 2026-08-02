@@ -39,6 +39,8 @@ linkedMemories:
     memory/facts/20260801213147-bottom-anchored-mobile-controls-need-no-js-keyboard-avoidanc.md
   - >-
     memory/patterns/20260801213415-route-every-tab-path-change-through-navigateorreusetab.md
+  - >-
+    memory/conventions/20260801213422-a-new-project-section-tab-needs-three-wiring-points-not-two.md
 scenarioIds: []
 ---
 **Rule:** Every per-tab Radix Sheet/Dialog mounted inside a TabPanel must gate its `open` on `tab.isActive` (via `useOptionalTab`). Queued `terminal:open`-style events must likewise be dropped in inactive tabs, or they replay stale on activation.

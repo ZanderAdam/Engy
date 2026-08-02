@@ -42,6 +42,8 @@ linkedMemories:
     memory/facts/20260801213147-bottom-anchored-mobile-controls-need-no-js-keyboard-avoidanc.md
   - >-
     memory/patterns/20260801213415-route-every-tab-path-change-through-navigateorreusetab.md
+  - >-
+    memory/conventions/20260801213422-a-new-project-section-tab-needs-three-wiring-points-not-two.md
 scenarioIds: []
 ---
 **Rule:** When reviewing z-index inside a portaled or nested overlay, hit-test with `document.elementFromPoint()` rather than comparing the numbers in the class names. Nesting decides the outcome, not the literals.

@@ -42,6 +42,8 @@ linkedMemories:
     memory/facts/20260801213147-bottom-anchored-mobile-controls-need-no-js-keyboard-avoidanc.md
   - >-
     memory/patterns/20260801213415-route-every-tab-path-change-through-navigateorreusetab.md
+  - >-
+    memory/conventions/20260801213422-a-new-project-section-tab-needs-three-wiring-points-not-two.md
 scenarioIds: []
 ---
 **Rule:** Full-screen mobile overlays in `web/` must use `z-[60]` and responsive Tailwind classes (`max-md:`/`md:`), never a `useIsMobile` JS branch.

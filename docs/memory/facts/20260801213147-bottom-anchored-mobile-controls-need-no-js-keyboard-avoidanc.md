@@ -29,6 +29,8 @@ linkedMemories:
     memory/decisions/20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md
   - >-
     memory/patterns/20260801213415-route-every-tab-path-change-through-navigateorreusetab.md
+  - >-
+    memory/conventions/20260801213422-a-new-project-section-tab-needs-three-wiring-points-not-two.md
 scenarioIds: []
 ---
 **Rule:** Do not add JS keyboard-avoidance to bottom-anchored mobile controls. `web/src/app/layout.tsx` sets `interactiveWidget: 'resizes-content'`, so the layout viewport shrinks with the on-screen keyboard and bottom-anchored UI rides up on its own.

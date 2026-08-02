@@ -14,7 +14,17 @@ tags:
   - ui
   - frontend
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/patterns/20260801213415-route-every-tab-path-change-through-navigateorreusetab.md
+  - >-
+    memory/conventions/20260801213102-gate-per-tab-radix-overlays-on-tab-isactive-portals-escape-d.md
+  - >-
+    memory/conventions/20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md
+  - >-
+    memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
+  - >-
+    memory/facts/20260801213147-bottom-anchored-mobile-controls-need-no-js-keyboard-avoidanc.md
 scenarioIds: []
 ---
 **Rule:** Adding a project section tab requires THREE wiring points: the `sections.ts` registry entry, the app route `page.tsx`, AND a `case '<segment>'` in `dispatchProject` (`web/src/components/tabs/tab-content.tsx`).
