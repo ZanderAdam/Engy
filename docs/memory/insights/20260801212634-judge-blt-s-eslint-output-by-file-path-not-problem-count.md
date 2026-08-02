@@ -16,7 +16,9 @@ tags:
   - dx
   - tooling
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/insights/20260801212913-a-passing-pnpm-build-proves-nothing-about-node-modules-turbo.md
 scenarioIds: []
 ---
 **Rule:** Judge `pnpm blt`'s eslint output by the file paths in it, never by the total problem count — and never assume it covers root-level `scripts/`.
