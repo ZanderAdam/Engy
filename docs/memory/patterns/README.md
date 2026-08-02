@@ -12,5 +12,6 @@ Permanent notes on recurring patterns — reusable solutions, design motifs, and
 - [20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md](20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md) — **Rule:** Never feed dockview a zero-size or mid-CSS-transition layout. Animate 
 - [20260801212739-monaco-diffeditor-needs-per-file-model-paths-and-scrolltop-o.md](20260801212739-monaco-diffeditor-needs-per-file-model-paths-and-scrolltop-o.md) — **Rule:** Always pass `originalModelPath`/`modifiedModelPath` to `@monaco-editor
 - [20260801213210-cyberpunk-theme-is-an-override-stylesheet-fix-colours-there-.md](20260801213210-cyberpunk-theme-is-an-override-stylesheet-fix-colours-there-.md) — **Rule:** When a surface shows wrong colours under the cyberpunk flavor, add a r
+- [20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md](20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md) — **Rule:** A browser-leg terminal WS message that terminates at the server follow
 
 <!-- INDEX END -->
