@@ -15,5 +15,6 @@ Permanent notes on insights — observations, hypotheses, and learnings that do 
 - [20260623233544-turbopack-dev-cache-corruption-crashes-web-but-daemon-keeps-.md](20260623233544-turbopack-dev-cache-corruption-crashes-web-but-daemon-keeps-.md) — **Core claim:** The Next 16 (turbopack canary\) `pnpm dev` web server can crash m
 - [20260801212634-judge-blt-s-eslint-output-by-file-path-not-problem-count.md](20260801212634-judge-blt-s-eslint-output-by-file-path-not-problem-count.md) — **Rule:** Judge `pnpm blt`'s eslint output by the file paths in it, never by the
 - [20260801212834-resync-xterm-s-viewport-when-a-hidden-dockview-panel-becomes.md](20260801212834-resync-xterm-s-viewport-when-a-hidden-dockview-panel-becomes.md) — **Rule:** When a dockview panel with `renderer: 'always'` becomes visible again,
+- [20260801212913-a-passing-pnpm-build-proves-nothing-about-node-modules-turbo.md](20260801212913-a-passing-pnpm-build-proves-nothing-about-node-modules-turbo.md) — **Rule:** Never treat a green `pnpm build` as evidence that the dependency graph
 
 <!-- INDEX END -->
