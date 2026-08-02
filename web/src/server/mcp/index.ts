@@ -1462,15 +1462,15 @@ function registerMemoryTools(mcp: McpServer): void {
 
   mcp.tool(
     'listReviewClusters',
-    'Group pending (non-dismissed, non-promoted) fleeting memories into similarity clusters for batch review — embeddings are computed ad-hoc and nothing is persisted to the search index. Degrades to one singleton cluster per memory when the embedded LLM is unavailable.',
+    'Group pending (non-dismissed, non-promoted) fleeting memories into similarity clusters for batch review — embeddings are computed ad-hoc and nothing is persisted to the search index. Degrades to one singleton cluster per memory when the embedded LLM is unavailable; `degraded: true` marks that case, so an all-singleton result is not mistaken for "no near-duplicates found".',
     listReviewClustersInput,
     async ({ workspaceId }) => {
       const db = getDb();
       const ws = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
       if (!ws) return mcpError('Workspace not found');
 
-      const { clusters, truncated } = await clusterReviewCandidates(ws);
-      return mcpResult({ clusters, truncated });
+      const { clusters, truncated, degraded } = await clusterReviewCandidates(ws);
+      return mcpResult({ clusters, truncated, degraded });
     },
   );
 

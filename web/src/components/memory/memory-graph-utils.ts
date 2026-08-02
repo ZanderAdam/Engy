@@ -2,7 +2,7 @@ import type { RouterOutputs } from '@/lib/trpc';
 
 export type MemoryGraphData = RouterOutputs['memory']['graph'];
 export type MemoryGraphNode = MemoryGraphData['nodes'][number];
-export type MemoryGraphLink = MemoryGraphData['links'][number];
+type MemoryGraphLink = MemoryGraphData['links'][number];
 
 export type GraphGroupBy = 'subtype' | 'type' | 'theme' | 'tag' | 'repo' | 'kind';
 
@@ -96,7 +96,7 @@ export function colorForGroupValue(value: string): string {
   return `hsl(${hashHue(value)}, 65%, 58%)`;
 }
 
-export interface GraphLegendEntry {
+interface GraphLegendEntry {
   value: string;
   color: string;
   count: number;

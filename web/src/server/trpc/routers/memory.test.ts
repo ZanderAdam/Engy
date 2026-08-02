@@ -1284,6 +1284,9 @@ describe('memory router', () => {
       expect(result.clusters.every((cl) => cl.memberCount === 1 && cl.ids.length === 1)).toBe(true);
       const contents = result.clusters.map((cl) => cl.members[0].content).sort();
       expect(contents).toEqual(['Pending A', 'Pending B']);
+      // QMD_SKIP=1 in tests, so these singletons come from a degraded pass
+      // rather than a queue that genuinely holds no near-duplicates.
+      expect(result.degraded).toBe(true);
     });
 
     it('should throw NOT_FOUND for unknown workspace', async () => {
@@ -1294,7 +1297,7 @@ describe('memory router', () => {
 
     it('should return no clusters when there are no pending fleeting memories', async () => {
       const result = await caller.memory.reviewCandidateClusters({ workspaceSlug });
-      expect(result).toEqual({ clusters: [], truncated: false });
+      expect(result).toEqual({ clusters: [], truncated: false, degraded: false });
     });
   });
 

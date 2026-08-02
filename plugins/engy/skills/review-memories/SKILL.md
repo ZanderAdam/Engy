@@ -10,7 +10,7 @@ Batch-review unpromoted fleeting memories, enrich each one with LLM-proposed met
 ## MCP Tools
 
 - `listWorkspaces` — discover workspaceId when not known from context
-- `listReviewClusters` — group pending fleeting memories into similarity clusters (ad-hoc embeddings, nothing indexed) for batch review; each cluster is `{ ids, memberCount, members }`
+- `listReviewClusters` — group pending fleeting memories into similarity clusters (ad-hoc embeddings, nothing indexed) for batch review; each cluster is `{ ids, memberCount, members }`, alongside `truncated` and `degraded` flags
 - `listMemories` — fetch all fleeting memories or permanent memories with enriched metadata
 - `search` — find similar permanent memories
 - `promoteMemory` — promote approved fleeting to permanent (writes DB row + markdown file)
@@ -28,6 +28,8 @@ Resolve the `workspaceId` from the current session/route context. If ambiguous, 
 ### Step 2: Fetch Candidates
 
 Call `listReviewClusters({ workspaceId })`. This groups pending (non-dismissed, non-promoted) fleeting memories into similarity clusters computed ad-hoc at review time — nothing is written to the search index. Each cluster is `{ ids, memberCount, members }`, sorted largest cluster first with singletons last. If no clusters come back, print "No unpromoted fleeting memories found." and stop. If `truncated` is true, mention that only the newest 200 pending candidates were clustered — the rest will surface on a later run.
+
+If `degraded` is true, embedding was unavailable for at least one candidate, so the grouping is unreliable and near-duplicates will look like unrelated singletons. Say so explicitly before reviewing — `Clustering degraded this run (embedding unavailable); near-duplicates may appear as separate candidates.` Never present an all-singleton degraded result as "no near-duplicates found", and treat merge decisions with extra suspicion. If the whole run came back degraded, offer to stop and retry later rather than promoting near-duplicates as separate permanent notes.
 
 Show a one-line header: `Found <N> pending memories in <M> clusters (<K> multi-member). Starting review...`
 

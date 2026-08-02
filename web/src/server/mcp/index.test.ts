@@ -1218,6 +1218,9 @@ describe('MCP Server', () => {
       expect(data.truncated).toBe(false);
       expect(data.clusters).toHaveLength(2);
       expect(data.clusters.every((cl: { memberCount: number }) => cl.memberCount === 1)).toBe(true);
+      // QMD_SKIP=1 in tests, so these singletons come from a degraded pass
+      // rather than a queue that genuinely holds no near-duplicates.
+      expect(data.degraded).toBe(true);
     });
 
     it('should return an error for an unknown workspace', async () => {

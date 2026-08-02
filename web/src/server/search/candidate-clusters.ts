@@ -5,21 +5,33 @@ import { getStore } from './qmd-store';
 
 type FleetingMemory = typeof fleetingMemories.$inferSelect;
 
-export interface ReviewCluster {
+interface ReviewCluster {
   ids: number[];
   memberCount: number;
   members: FleetingMemory[];
 }
 
-export interface ClusterReviewCandidatesResult {
+interface ClusterReviewCandidatesResult {
   clusters: ReviewCluster[];
   truncated: boolean;
+  /**
+   * True when at least one candidate could not be embedded, so the result may
+   * under-cluster. Without this, an all-singleton response is identical whether
+   * the queue genuinely holds no near-duplicates or embedding was unavailable —
+   * the ambiguity that hid a miscalibrated threshold for the life of the feature.
+   */
+  degraded: boolean;
 }
 
-// Empirically (embeddinggemma-300M on raw unformatted content): a reworded
-// near-duplicate pair measured 0.9158 cosine while unrelated captures measured
-// ~0.42, so 0.88 catches paraphrase-level duplicates with a wide margin.
-const DEFAULT_THRESHOLD = 0.88;
+// Calibrated against the real pending queue (75 captures, 2775 pairs,
+// embeddinggemma-300M on raw unformatted content): max observed similarity was
+// 0.8216, median 0.4038. The earlier 0.88 came from a synthetically reworded
+// pair and sat above the entire real distribution, so nothing ever clustered.
+// At 0.75 every linked pair was verified same-topic; the nearest rejected pair
+// (0.7434) joined two distinct claims, and lowering to 0.72 chained unrelated
+// claims into one cluster. Re-measure if the embedding model or path changes —
+// these are absolute cosines against this specific model's raw-text output.
+const DEFAULT_THRESHOLD = 0.75;
 const MAX_CANDIDATES = 200;
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -120,5 +132,10 @@ export async function clusterReviewCandidates(
     }
   }
 
-  return { clusters: greedyCluster(rows, embeddings, threshold), truncated };
+  // One derivation covers every fallback path — QMD_SKIP, a store with no llm,
+  // getStore/embedBatch throwing, and a single row whose embedding came back
+  // null all surface here as a missing embedding. An empty queue is not degraded.
+  const degraded = rows.length > 0 && embeddings.some((e) => e === null);
+
+  return { clusters: greedyCluster(rows, embeddings, threshold), truncated, degraded };
 }
