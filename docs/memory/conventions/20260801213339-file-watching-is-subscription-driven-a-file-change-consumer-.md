@@ -21,6 +21,8 @@ linkedMemories:
     memory/decisions/20260801213358-specwatcher-polls-the-whole-docsdir-assuming-it-is-a-dedicat.md
   - >-
     memory/decisions/20260801213438-pr-monitoring-authenticates-via-the-user-s-gh-auth-login-sto.md
+  - >-
+    memory/conventions/20260801213448-expand-tilde-at-the-server-boundary-the-daemon-is-never-tild.md
 scenarioIds: []
 ---
 **Rule:** Any new `FILE_CHANGE` consumer must declare its paths via `useWatchPaths`. The daemon watches ONLY subscribed paths, so a consumer that forgets gets zero events and no error.

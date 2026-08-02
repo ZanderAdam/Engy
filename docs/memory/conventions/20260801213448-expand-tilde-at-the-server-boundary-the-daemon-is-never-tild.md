@@ -16,7 +16,13 @@ tags:
   - architecture
   - daemon
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/decisions/20260801213358-specwatcher-polls-the-whole-docsdir-assuming-it-is-a-dedicat.md
+  - >-
+    memory/conventions/20260801213339-file-watching-is-subscription-driven-a-file-change-consumer-.md
+  - >-
+    memory/decisions/20260801213438-pr-monitoring-authenticates-via-the-user-s-gh-auth-login-sto.md
 scenarioIds: []
 ---
 **Rule:** Expand `~` at the SERVER boundary via `expandTilde` (exported from `web/src/server/db/client.ts`). Apply it in the workspace router create/update so the DB stores the absolute form, and in the dispatch layer (`dispatchValidation`/`dispatchCreateDir`/`dispatchGitInit`) so neither the UI pre-check nor the daemon ever sees a literal `~`. Never make the daemon tilde-aware.
