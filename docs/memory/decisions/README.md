@@ -10,5 +10,6 @@ Permanent notes capturing significant decisions — what was chosen, what altern
 - [20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md](20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md) — T449 design divergence: the daemon tracker omits acknowledge(\)-on-view (it has n
 - [20260623233531-docs-outline-derives-headings-live-from-active-blocknote-edi.md](20260623233531-docs-outline-derives-headings-live-from-active-blocknote-edi.md) — **Core claim:** The docs outline (table of contents\) derives headings live from 
 - [20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md](20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md) — **Rule:** Keep surviving-terminal metadata in a SQLite mirror of `terminalSessio
+- [20260801213110-mobileidentitybar-mounts-at-three-sites-to-stay-inside-mobil.md](20260801213110-mobileidentitybar-mounts-at-three-sites-to-stay-inside-mobil.md) — **Rule:** Keep `MobileIdentityBar` mounted at its three separate sites (HomePage
 
 <!-- INDEX END -->
