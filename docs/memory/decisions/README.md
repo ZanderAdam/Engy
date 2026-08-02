@@ -11,5 +11,6 @@ Permanent notes capturing significant decisions — what was chosen, what altern
 - [20260623233531-docs-outline-derives-headings-live-from-active-blocknote-edi.md](20260623233531-docs-outline-derives-headings-live-from-active-blocknote-edi.md) — **Core claim:** The docs outline (table of contents\) derives headings live from 
 - [20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md](20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md) — **Rule:** Keep surviving-terminal metadata in a SQLite mirror of `terminalSessio
 - [20260801213110-mobileidentitybar-mounts-at-three-sites-to-stay-inside-mobil.md](20260801213110-mobileidentitybar-mounts-at-three-sites-to-stay-inside-mobil.md) — **Rule:** Keep `MobileIdentityBar` mounted at its three separate sites (HomePage
+- [20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md](20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md) — **Rule:** On the mobile terminal pane, remove coexistence rather than arbitrate 
 
 <!-- INDEX END -->
