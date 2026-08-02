@@ -17,7 +17,11 @@ tags:
   - memory
   - search
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/facts/20260801212943-fleeting-memories-are-invisible-to-search-until-promoted.md
+  - >-
+    memory/insights/20260801212954-qmd-publishes-only-its-root-export-embed-via-store-internal-.md
 scenarioIds: []
 ---
 **Rule:** Only compare scores to a cosine threshold when they came from `searchVector`. `store.search` with `rerank: false` returns `score = 1/rrfRank` (rank 1 → 1.0, rank 2 → 0.5, rank 3 → 0.33), which is a reciprocal-rank scale, not a 0..1 similarity.
