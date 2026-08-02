@@ -9,7 +9,7 @@
 - [node_modules](node_modules/) — README
 - [projects](projects/) — README
 - [screenshots](screenshots/) — README
-- [system](system/) — README (1 notes)
+- [system](system/) — Workspace system documentation — overview, features, and technical concerns (1 notes)
 - [web](web/) — README
 
 <!-- INDEX END -->
