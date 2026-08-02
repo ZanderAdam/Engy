@@ -27,6 +27,8 @@ linkedMemories:
     memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
   - >-
     memory/conventions/20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md
+  - >-
+    memory/decisions/20260801213507-image-preview-in-code-and-diffs-routes-through-the-daemon-no.md
 scenarioIds: []
 ---
 **Rule:** Always pass `originalModelPath`/`modifiedModelPath` to `@monaco-editor/react`'s DiffEditor, and preserve view state as `modifiedEditor.getScrollTop()`/`setScrollTop()` only — never `restoreViewState`.

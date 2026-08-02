@@ -17,7 +17,11 @@ tags:
   - architecture
   - ui
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/decisions/20260801213407-code-tab-s-worktree-selector-is-localonly-because-tree-ops-l.md
+  - >-
+    memory/patterns/20260801212739-monaco-diffeditor-needs-per-file-model-paths-and-scrolltop-o.md
 scenarioIds: []
 ---
 **Rule:** Image and binary preview in the Code and Diffs tabs must route through the client daemon (`FILE_READ_IMAGE_REQUEST`/`RESPONSE` → `file.readImage` tRPC), not the server-fs reader (`dir.readImage`/`readImageAsDataUri`) that the docs editor uses.
