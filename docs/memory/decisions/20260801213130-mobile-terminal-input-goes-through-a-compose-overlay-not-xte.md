@@ -27,6 +27,8 @@ linkedMemories:
     memory/decisions/20260801213110-mobileidentitybar-mounts-at-three-sites-to-stay-inside-mobil.md
   - >-
     memory/conventions/20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md
+  - >-
+    memory/insights/20260801213139-terminal-paste-reads-the-cli-host-s-clipboard-a-mobile-paste.md
 scenarioIds: []
 ---
 **Rule:** Do not try to make typing directly into xterm's hidden helper textarea work on mobile. Deliver finished text from a plain-textarea compose overlay as one bracketed paste plus a separate Enter.

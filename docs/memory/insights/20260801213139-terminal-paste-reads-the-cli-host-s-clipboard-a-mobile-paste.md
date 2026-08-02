@@ -16,7 +16,17 @@ tags:
   - terminal
   - mobile
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/decisions/20260801213130-mobile-terminal-input-goes-through-a-compose-overlay-not-xte.md
+  - >-
+    memory/conventions/20260801212851-drag-gestures-over-xterm-must-use-pointer-events-with-setpoi.md
+  - >-
+    memory/decisions/20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md
+  - >-
+    memory/conventions/20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md
+  - >-
+    memory/decisions/20260801213110-mobileidentitybar-mounts-at-three-sites-to-stay-inside-mobil.md
 scenarioIds: []
 ---
 **Rule:** Do not add a "Paste" affordance to the mobile terminal rail. To get a phone-held image or text into a prompt, capture bytes in the composer, cross the WebSocket, write a file on the machine the CLI runs on, and put *that path* into the prompt.

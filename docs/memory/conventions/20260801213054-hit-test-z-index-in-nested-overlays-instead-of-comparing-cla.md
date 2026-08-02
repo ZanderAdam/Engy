@@ -36,6 +36,8 @@ linkedMemories:
     memory/decisions/20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md
   - >-
     memory/decisions/20260801213130-mobile-terminal-input-goes-through-a-compose-overlay-not-xte.md
+  - >-
+    memory/insights/20260801213139-terminal-paste-reads-the-cli-host-s-clipboard-a-mobile-paste.md
 scenarioIds: []
 ---
 **Rule:** When reviewing z-index inside a portaled or nested overlay, hit-test with `document.elementFromPoint()` rather than comparing the numbers in the class names. Nesting decides the outcome, not the literals.
