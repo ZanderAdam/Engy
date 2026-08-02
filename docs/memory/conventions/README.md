@@ -27,5 +27,6 @@ Permanent notes on conventions — agreed coding standards, process norms, and t
 - [20260801213448-expand-tilde-at-the-server-boundary-the-daemon-is-never-tild.md](20260801213448-expand-tilde-at-the-server-boundary-the-daemon-is-never-tild.md) — **Rule:** Expand `~` at the SERVER boundary via `expandTilde` (exported from `we
 - [20260801213456-mutate-worktrees-at-the-path-git-reports-never-a-recomputed-.md](20260801213456-mutate-worktrees-at-the-path-git-reports-never-a-recomputed-.md) — **Rule:** Any worktree *mutation* must target the path `git worktree list` actua
 - [20260801213533-the-relay-sync-no-browser-branch-must-do-full-worker-teardow.md](20260801213533-the-relay-sync-no-browser-branch-must-do-full-worker-teardow.md) — **Rule:** The relay sync handler's no-browser cleanup branch must do full worker
+- [20260801213547-an-injected-prompt-must-state-that-the-terminal-is-invisible.md](20260801213547-an-injected-prompt-must-state-that-the-terminal-is-invisible.md) — **Rule:** When an injected prompt asks a CLI agent to return a value via an MCP 
 
 <!-- INDEX END -->
