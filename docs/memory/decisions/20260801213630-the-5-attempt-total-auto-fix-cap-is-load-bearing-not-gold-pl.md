@@ -15,7 +15,9 @@ tags:
   - architecture
   - agents
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/decisions/20260801213612-per-agent-settings-fall-back-to-legacy-skill-columns-instead.md
 scenarioIds: []
 ---
 **Rule:** Keep the total cap of 5 auto-fix attempts per PR, alongside the 2-per-head-SHA cap. Do not remove it as redundant.
