@@ -34,6 +34,8 @@ linkedMemories:
     memory/insights/20260801213319-initial-command-injection-races-interactive-shell-startup.md
   - >-
     memory/conventions/20260801213329-a-buildcommand-change-must-account-for-all-three-terminalses.md
+  - >-
+    memory/patterns/20260801213516-cross-cutting-terminal-views-read-the-server-registry-not-th.md
 scenarioIds: []
 ---
 **Rule:** A browser-leg terminal WS message that terminates at the server follows one pattern: type it in `common/src/ws/protocol.ts` for the shared contract, exclude it from the daemon-facing `TerminalRelayCommand`/`TerminalRelayEvent` unions, and intercept it by string prefix before the generic daemon forward.

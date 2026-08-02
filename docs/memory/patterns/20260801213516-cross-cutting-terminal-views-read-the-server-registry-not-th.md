@@ -15,7 +15,17 @@ tags:
   - terminal
   - architecture
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801213329-a-buildcommand-change-must-account-for-all-three-terminalses.md
+  - >-
+    memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
+  - >-
+    memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
+  - >-
+    memory/patterns/20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md
+  - >-
+    memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
 scenarioIds: []
 ---
 **Rule:** Any cross-cutting terminal view must be driven from the server registry (`GET /api/terminal/sessions?all=1` plus the `TERMINAL_ACTIVITY_CHANGE`/`TERMINAL_SESSIONS_CHANGE` broadcasts), never from the in-memory browser store.

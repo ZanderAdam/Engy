@@ -37,6 +37,8 @@ linkedMemories:
     memory/insights/20260801213319-initial-command-injection-races-interactive-shell-startup.md
   - >-
     memory/conventions/20260801213329-a-buildcommand-change-must-account-for-all-three-terminalses.md
+  - >-
+    memory/patterns/20260801213516-cross-cutting-terminal-views-read-the-server-registry-not-th.md
 scenarioIds: []
 ---
 **Rule:** Keep surviving-terminal metadata in a SQLite mirror of `terminalSessionMeta` (`terminal_sessions`, write-through + boot restore). Do not move it to the architecturally cleaner daemon-echoed-meta design unless a daemon-restarting change is already shipping anyway.

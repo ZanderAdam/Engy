@@ -26,6 +26,8 @@ linkedMemories:
     memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
   - >-
     memory/insights/20260801213319-initial-command-injection-races-interactive-shell-startup.md
+  - >-
+    memory/patterns/20260801213516-cross-cutting-terminal-views-read-the-server-registry-not-th.md
 scenarioIds: []
 ---
 **Rule:** Any change to what `claude`/`codex` `buildCommand` emits (`web/src/lib/agent-types.ts`) must account for ALL three `terminalSessionMeta.set` production sites: browser spawn and restart-adoption (both in `terminal-server.ts`) and the server-originated `spawnAgentTerminal` (`terminal-dispatch.ts`, MCP `terminal_spawn`).
