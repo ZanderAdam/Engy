@@ -22,5 +22,6 @@ Permanent notes on insights — observations, hypotheses, and learnings that do 
 - [20260801213220-wake-triggered-clear-and-replay-is-what-corrupts-terminal-sc.md](20260801213220-wake-triggered-clear-and-replay-is-what-corrupts-terminal-sc.md) — **Rule:** Do not force-close a healthy terminal socket on `visibilitychange`. Pr
 - [20260801213238-xterm-headless-needs-a-default-import-drain-writes-before-se.md](20260801213238-xterm-headless-needs-a-default-import-drain-writes-before-se.md) — **Rule:** Import `@xterm/headless` via its default export (`import headless from
 - [20260801213319-initial-command-injection-races-interactive-shell-startup.md](20260801213319-initial-command-injection-races-interactive-shell-startup.md) — **Rule:** Do not inject a spawn command into a PTY on first shell output. Wait f
+- [20260801213751-check-server-cpu-before-waiting-on-a-slow-mcp-call-it-may-be.md](20260801213751-check-server-cpu-before-waiting-on-a-slow-mcp-call-it-may-be.md) — **Rule:** When `mcp__Engy__*` calls start timing out, check the server's CPU bef
 
 <!-- INDEX END -->
