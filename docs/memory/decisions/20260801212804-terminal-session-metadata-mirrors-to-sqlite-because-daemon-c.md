@@ -16,7 +16,17 @@ tags:
   - terminal
   - architecture
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
+  - >-
+    memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
+  - >-
+    memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
+  - >-
+    memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
+  - >-
+    memory/patterns/20260801212703-drive-xterm-scrolling-yourself-its-native-wheel-and-touch-pa.md
 scenarioIds: []
 ---
 **Rule:** Keep surviving-terminal metadata in a SQLite mirror of `terminalSessionMeta` (`terminal_sessions`, write-through + boot restore). Do not move it to the architecturally cleaner daemon-echoed-meta design unless a daemon-restarting change is already shipping anyway.
