@@ -34,6 +34,8 @@ linkedMemories:
     memory/decisions/20260801213130-mobile-terminal-input-goes-through-a-compose-overlay-not-xte.md
   - >-
     memory/insights/20260801213139-terminal-paste-reads-the-cli-host-s-clipboard-a-mobile-paste.md
+  - >-
+    memory/facts/20260801213147-bottom-anchored-mobile-controls-need-no-js-keyboard-avoidanc.md
 scenarioIds: []
 ---
 **Rule:** Keep `MobileIdentityBar` mounted at its three separate sites (HomePage, the workspace layout's non-project branch, MobileHeader). Do not hoist it into TabShell/TabPanel for a single mount.

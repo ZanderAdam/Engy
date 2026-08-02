@@ -16,7 +16,17 @@ tags:
   - frontend
   - mobile
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/decisions/20260801213110-mobileidentitybar-mounts-at-three-sites-to-stay-inside-mobil.md
+  - >-
+    memory/conventions/20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md
+  - >-
+    memory/conventions/20260801213102-gate-per-tab-radix-overlays-on-tab-isactive-portals-escape-d.md
+  - >-
+    memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
+  - >-
+    memory/decisions/20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md
 scenarioIds: []
 ---
 **Rule:** Do not add JS keyboard-avoidance to bottom-anchored mobile controls. `web/src/app/layout.tsx` sets `interactiveWidget: 'resizes-content'`, so the layout viewport shrinks with the on-screen keyboard and bottom-anchored UI rides up on its own.
