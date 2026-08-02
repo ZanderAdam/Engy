@@ -50,6 +50,8 @@ linkedMemories:
     memory/insights/20260801213220-wake-triggered-clear-and-replay-is-what-corrupts-terminal-sc.md
   - >-
     memory/patterns/20260801213415-route-every-tab-path-change-through-navigateorreusetab.md
+  - >-
+    memory/decisions/20260801213619-the-terminal-rail-s-dots-mode-is-deliberately-focus-only.md
 scenarioIds: []
 ---
 **Rule:** Never feed dockview a zero-size or mid-CSS-transition layout. Animate an outer clip wrapper while the inner dockview host keeps a fixed px size, and additionally self-heal with a forced `api.layout(w, h, true)` on ancestor `animationend`/`transitionend` and root ResizeObserver changes.

@@ -37,6 +37,8 @@ linkedMemories:
     memory/facts/20260801213147-bottom-anchored-mobile-controls-need-no-js-keyboard-avoidanc.md
   - >-
     memory/conventions/20260801213201-terminal-pane-surfaces-hardcode-zinc-and-get-restyled-by-att.md
+  - >-
+    memory/decisions/20260801213619-the-terminal-rail-s-dots-mode-is-deliberately-focus-only.md
 scenarioIds: []
 ---
 **Rule:** On the mobile terminal pane, remove coexistence rather than arbitrate paint order — close the extra-key column and disable its toggle while the composer is open. Any new mobile affordance there must state whether it can coexist with the composer.

@@ -32,6 +32,8 @@ linkedMemories:
     memory/conventions/20260801213533-the-relay-sync-no-browser-branch-must-do-full-worker-teardow.md
   - >-
     memory/decisions/20260801213540-terminal-spawn-derives-mcp-origin-from-the-caller-s-own-spaw.md
+  - >-
+    memory/decisions/20260801213619-the-terminal-rail-s-dots-mode-is-deliberately-focus-only.md
 scenarioIds: []
 ---
 **Rule:** Any cross-cutting terminal view must be driven from the server registry (`GET /api/terminal/sessions?all=1` plus the `TERMINAL_ACTIVITY_CHANGE`/`TERMINAL_SESSIONS_CHANGE` broadcasts), never from the in-memory browser store.

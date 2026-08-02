@@ -14,7 +14,17 @@ tags:
   - ui
   - terminal
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
+  - >-
+    memory/decisions/20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md
+  - >-
+    memory/patterns/20260801213516-cross-cutting-terminal-views-read-the-server-registry-not-th.md
+  - >-
+    memory/conventions/20260801213533-the-relay-sync-no-browser-branch-must-do-full-worker-teardow.md
+  - >-
+    memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
 scenarioIds: []
 ---
 **Rule:** Keep the terminal rail's collapsed "dots" mode focus-only. All management actions — rename, close, per-project new-terminal creation — live exclusively in the expanded list mode.
