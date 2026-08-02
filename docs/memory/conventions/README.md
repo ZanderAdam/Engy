@@ -16,5 +16,6 @@ Permanent notes on conventions — agreed coding standards, process norms, and t
 - [20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md](20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md) — **Rule:** Full-screen mobile overlays in `web/` must use `z-[60\]` and responsive
 - [20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md](20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md) — **Rule:** When reviewing z-index inside a portaled or nested overlay, hit-test w
 - [20260801213102-gate-per-tab-radix-overlays-on-tab-isactive-portals-escape-d.md](20260801213102-gate-per-tab-radix-overlays-on-tab-isactive-portals-escape-d.md) — **Rule:** Every per-tab Radix Sheet/Dialog mounted inside a TabPanel must gate i
+- [20260801213201-terminal-pane-surfaces-hardcode-zinc-and-get-restyled-by-att.md](20260801213201-terminal-pane-surfaces-hardcode-zinc-and-get-restyled-by-att.md) — **Rule:** Adding a themed surface to the terminal pane is a two-file change: har
 
 <!-- INDEX END -->
