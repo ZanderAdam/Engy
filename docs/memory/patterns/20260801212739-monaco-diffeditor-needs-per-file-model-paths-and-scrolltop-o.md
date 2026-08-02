@@ -23,6 +23,8 @@ linkedMemories:
     memory/conventions/20260801212648-scrollarea-in-a-flex-column-needs-min-h-0-plus-the-viewport-.md
   - >-
     memory/insights/20260801212935-tooltipprovider-is-not-global-components-outside-the-project.md
+  - >-
+    memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
 scenarioIds: []
 ---
 **Rule:** Always pass `originalModelPath`/`modifiedModelPath` to `@monaco-editor/react`'s DiffEditor, and preserve view state as `modifiedEditor.getScrollTop()`/`setScrollTop()` only — never `restoreViewState`.

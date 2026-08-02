@@ -22,6 +22,8 @@ linkedMemories:
     memory/patterns/20260801212739-monaco-diffeditor-needs-per-file-model-paths-and-scrolltop-o.md
   - >-
     memory/insights/20260801212935-tooltipprovider-is-not-global-components-outside-the-project.md
+  - >-
+    memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
 scenarioIds: []
 ---
 **Rule:** A `<ScrollArea>` used as a flex-column child must carry `flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block`. A bare `flex-1` is the bug signature — grep for it.

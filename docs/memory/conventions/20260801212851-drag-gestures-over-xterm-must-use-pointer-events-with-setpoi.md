@@ -28,6 +28,8 @@ linkedMemories:
     memory/insights/20260801212834-resync-xterm-s-viewport-when-a-hidden-dockview-panel-becomes.md
   - >-
     memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
+  - >-
+    memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
 scenarioIds: []
 ---
 **Rule:** Any drag gesture over xterm content must use pointer events plus `setPointerCapture`, never touch events. `touch-action` must also forbid panning — `pinch-zoom` is the narrowest value that works.
