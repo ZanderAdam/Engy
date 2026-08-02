@@ -47,6 +47,8 @@ linkedMemories:
     memory/conventions/20260801213329-a-buildcommand-change-must-account-for-all-three-terminalses.md
   - >-
     memory/patterns/20260801213516-cross-cutting-terminal-views-read-the-server-registry-not-th.md
+  - >-
+    memory/facts/20260801213525-last-sent-equals-actual-pty-size-is-a-system-wide-invariant.md
 scenarioIds: []
 ---
 T449 (per-project terminal activity badges): activity detection is computed daemon-side in client/src/terminal/ (activity-parse.ts + activity-tracker.ts) as INTENTIONAL duplicates of the web/ versions — common/ is types-only so the runtime logic can't be shared. The two daemon files are added to .jscpd.json ignore for that reason. Don't 'dedupe' them into common.

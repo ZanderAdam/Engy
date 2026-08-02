@@ -40,6 +40,8 @@ linkedMemories:
     memory/conventions/20260801213329-a-buildcommand-change-must-account-for-all-three-terminalses.md
   - >-
     memory/patterns/20260801213516-cross-cutting-terminal-views-read-the-server-registry-not-th.md
+  - >-
+    memory/facts/20260801213525-last-sent-equals-actual-pty-size-is-a-system-wide-invariant.md
 scenarioIds: []
 ---
 T449 design divergence: the daemon tracker omits acknowledge()-on-view (it has no view signal), so a project badge stays 'done' until the user types into that terminal or it exits — viewing it in the browser clears the browser-local tab dot but NOT the daemon-driven badge. Deliberate ('finished but unacknowledged'). If clear-on-view is wanted later, needs a browser→server→daemon 'viewed' signal.

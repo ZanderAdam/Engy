@@ -26,6 +26,8 @@ linkedMemories:
     memory/patterns/20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md
   - >-
     memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
+  - >-
+    memory/facts/20260801213525-last-sent-equals-actual-pty-size-is-a-system-wide-invariant.md
 scenarioIds: []
 ---
 **Rule:** Any cross-cutting terminal view must be driven from the server registry (`GET /api/terminal/sessions?all=1` plus the `TERMINAL_ACTIVITY_CHANGE`/`TERMINAL_SESSIONS_CHANGE` broadcasts), never from the in-memory browser store.
