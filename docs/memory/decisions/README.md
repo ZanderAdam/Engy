@@ -20,5 +20,6 @@ Permanent notes capturing significant decisions — what was chosen, what altern
 - [20260801213540-terminal-spawn-derives-mcp-origin-from-the-caller-s-own-spaw.md](20260801213540-terminal-spawn-derives-mcp-origin-from-the-caller-s-own-spaw.md) — **Rule:** Derive a spawned agent's MCP origin from the CALLER's own spawn comman
 - [20260801213604-codex-mode-is-a-single-preset-dropdown-not-its-two-real-flag.md](20260801213604-codex-mode-is-a-single-preset-dropdown-not-its-two-real-flag.md) — **Rule:** Keep Codex's "mode" in workspace agent settings as a single preset dro
 - [20260801213612-per-agent-settings-fall-back-to-legacy-skill-columns-instead.md](20260801213612-per-agent-settings-fall-back-to-legacy-skill-columns-instead.md) — **Rule:** Per-agent workspace settings (the `agent_settings` JSON column keyed b
+- [20260801213619-the-terminal-rail-s-dots-mode-is-deliberately-focus-only.md](20260801213619-the-terminal-rail-s-dots-mode-is-deliberately-focus-only.md) — **Rule:** Keep the terminal rail's collapsed "dots" mode focus-only. All managem
 
 <!-- INDEX END -->
