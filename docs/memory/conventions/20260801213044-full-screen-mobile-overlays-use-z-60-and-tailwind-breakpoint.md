@@ -40,6 +40,8 @@ linkedMemories:
     memory/decisions/20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md
   - >-
     memory/facts/20260801213147-bottom-anchored-mobile-controls-need-no-js-keyboard-avoidanc.md
+  - >-
+    memory/patterns/20260801213415-route-every-tab-path-change-through-navigateorreusetab.md
 scenarioIds: []
 ---
 **Rule:** Full-screen mobile overlays in `web/` must use `z-[60]` and responsive Tailwind classes (`max-md:`/`md:`), never a `useIsMobile` JS branch.

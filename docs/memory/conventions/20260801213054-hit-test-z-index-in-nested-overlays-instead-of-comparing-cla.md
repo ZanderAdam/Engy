@@ -40,6 +40,8 @@ linkedMemories:
     memory/insights/20260801213139-terminal-paste-reads-the-cli-host-s-clipboard-a-mobile-paste.md
   - >-
     memory/facts/20260801213147-bottom-anchored-mobile-controls-need-no-js-keyboard-avoidanc.md
+  - >-
+    memory/patterns/20260801213415-route-every-tab-path-change-through-navigateorreusetab.md
 scenarioIds: []
 ---
 **Rule:** When reviewing z-index inside a portaled or nested overlay, hit-test with `document.elementFromPoint()` rather than comparing the numbers in the class names. Nesting decides the outcome, not the literals.

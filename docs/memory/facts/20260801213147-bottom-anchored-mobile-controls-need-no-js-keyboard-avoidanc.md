@@ -27,6 +27,8 @@ linkedMemories:
     memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
   - >-
     memory/decisions/20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md
+  - >-
+    memory/patterns/20260801213415-route-every-tab-path-change-through-navigateorreusetab.md
 scenarioIds: []
 ---
 **Rule:** Do not add JS keyboard-avoidance to bottom-anchored mobile controls. `web/src/app/layout.tsx` sets `interactiveWidget: 'resizes-content'`, so the layout viewport shrinks with the on-screen keyboard and bottom-anchored UI rides up on its own.

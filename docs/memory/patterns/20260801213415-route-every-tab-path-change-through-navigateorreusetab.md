@@ -15,7 +15,17 @@ tags:
   - ui
   - frontend
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801213102-gate-per-tab-radix-overlays-on-tab-isactive-portals-escape-d.md
+  - >-
+    memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
+  - >-
+    memory/facts/20260801213147-bottom-anchored-mobile-controls-need-no-js-keyboard-avoidanc.md
+  - >-
+    memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
+  - >-
+    memory/conventions/20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md
 scenarioIds: []
 ---
 **Rule:** Route ALL tab path changes through a pure helper (`navigateOrReuseTab`) that focuses an existing tab with the same `projectTabKey` (workspace/project@worktree) instead of navigating in place. Leave the origin tab untouched so home and workspace pages act as launchers.

@@ -37,6 +37,8 @@ linkedMemories:
     memory/decisions/20260801213130-mobile-terminal-input-goes-through-a-compose-overlay-not-xte.md
   - >-
     memory/facts/20260801213147-bottom-anchored-mobile-controls-need-no-js-keyboard-avoidanc.md
+  - >-
+    memory/patterns/20260801213415-route-every-tab-path-change-through-navigateorreusetab.md
 scenarioIds: []
 ---
 **Rule:** Every per-tab Radix Sheet/Dialog mounted inside a TabPanel must gate its `open` on `tab.isActive` (via `useOptionalTab`). Queued `terminal:open`-style events must likewise be dropped in inactive tabs, or they replay stale on activation.
