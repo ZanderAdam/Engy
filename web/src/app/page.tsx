@@ -11,9 +11,12 @@ import { Button } from "@/components/ui/button";
 import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog";
 import { OpenDirDialog } from "@/components/open-dir/open-dir-dialog";
 import { useRecentDirs } from "@/hooks/use-recent-dirs";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { MobileIdentityBar } from "@/components/layout/mobile-identity-bar";
 import { RiFolderOpenLine, RiGitBranchLine, RiWindow2Line } from "@remixicon/react";
 
 export default function HomePage() {
+  const isMobile = useIsMobile();
   const { data: workspaces, isLoading, error } = trpc.workspace.list.useQuery();
   const [openDirDialogOpen, setOpenDirDialogOpen] = useState(false);
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
@@ -26,123 +29,126 @@ export default function HomePage() {
   );
 
   return (
-    <div className="mx-auto w-[95%] max-w-4xl overflow-y-auto py-8">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Workspaces</h1>
-        <Button variant="outline" size="sm" onClick={() => setOpenDirDialogOpen(true)}>
-          <RiFolderOpenLine className="mr-2 size-4" />
-          Open Directory
-        </Button>
-      </div>
-
-      <OpenDirDialog open={openDirDialogOpen} onOpenChange={setOpenDirDialogOpen} />
-
-      {isLoading && (
-        <p className="text-sm text-muted-foreground" aria-live="polite">Loading...</p>
-      )}
-
-      {error && (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-2 py-12">
-            <p className="text-sm font-medium">Failed to load workspaces</p>
-            <p className="text-xs text-muted-foreground">{error.message}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {!isLoading && workspaces?.length === 0 && (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-4 py-12">
-            <p className="text-sm text-muted-foreground">
-              No workspaces yet. Create one to get started.
-            </p>
-            <CreateWorkspaceDialog />
-          </CardContent>
-        </Card>
-      )}
-
-      {workspaces && workspaces.length > 0 && (
-        <div className="flex flex-col gap-3">
-          {workspaces.map((ws) => (
-            <VLink key={ws.id} href={`/w/${ws.slug}`}>
-              <Card className="bg-transparent transition-colors hover:bg-muted/50">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm">{ws.name}</CardTitle>
-                    <Badge variant="secondary" className="font-mono text-xs">
-                      {ws.slug}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">
-                    Created {new Date(ws.createdAt).toLocaleDateString()}
-                  </p>
-                </CardContent>
-              </Card>
-            </VLink>
-          ))}
-          <div className="mt-2">
-            <CreateWorkspaceDialog />
-          </div>
+    <>
+      {isMobile && <MobileIdentityBar />}
+      <div className="mx-auto w-[95%] max-w-4xl overflow-y-auto py-8">
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="text-lg font-semibold">Workspaces</h1>
+          <Button variant="outline" size="sm" onClick={() => setOpenDirDialogOpen(true)}>
+            <RiFolderOpenLine className="mr-2 size-4" />
+            Open Directory
+          </Button>
         </div>
-      )}
 
-      {tabsList && openProjectTabs.length > 0 && (
-        <div className="mt-8">
-          <h2 className="mb-3 text-sm font-medium text-muted-foreground">Open Projects</h2>
-          <div className="flex flex-col gap-1">
-            {openProjectTabs.map((tab) => {
-              const { segments, worktree } = deriveTabTitle(tab.virtualPath);
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted/50"
-                  onClick={() => tabsList.activateTab(tab.id)}
-                >
-                  <RiWindow2Line className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{segments.join(" › ")}</span>
-                  {worktree && (
-                    <span className="flex min-w-0 items-center gap-0.5 font-mono text-[10px] text-muted-foreground">
-                      <RiGitBranchLine className="size-2.5 shrink-0" />
-                      <span className="truncate">{worktree}</span>
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+        <OpenDirDialog open={openDirDialogOpen} onOpenChange={setOpenDirDialogOpen} />
 
-      {mounted && recentDirs.length > 0 && (
-        <div className="mt-8">
-          <h2 className="mb-3 text-sm font-medium text-muted-foreground">Recent Directories</h2>
-          <div className="flex flex-col gap-1">
-            {recentDirs.map((dir) => (
-              <div key={dir} className="flex items-center gap-2 group">
-                <button
-                  type="button"
-                  className="flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted/50 truncate"
-                  onClick={() => nav.push(`/open?path=${encodeURIComponent(dir)}`)}
-                >
-                  <RiFolderOpenLine className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate font-mono text-xs">{dir}</span>
-                </button>
-                <button
-                  type="button"
-                  className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-foreground px-1"
-                  onClick={() => removeDir(dir)}
-                  aria-label="Remove from recent"
-                >
-                  ×
-                </button>
-              </div>
+        {isLoading && (
+          <p className="text-sm text-muted-foreground" aria-live="polite">Loading...</p>
+        )}
+
+        {error && (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-2 py-12">
+              <p className="text-sm font-medium">Failed to load workspaces</p>
+              <p className="text-xs text-muted-foreground">{error.message}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {!isLoading && workspaces?.length === 0 && (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-4 py-12">
+              <p className="text-sm text-muted-foreground">
+                No workspaces yet. Create one to get started.
+              </p>
+              <CreateWorkspaceDialog />
+            </CardContent>
+          </Card>
+        )}
+
+        {workspaces && workspaces.length > 0 && (
+          <div className="flex flex-col gap-3">
+            {workspaces.map((ws) => (
+              <VLink key={ws.id} href={`/w/${ws.slug}`}>
+                <Card className="bg-transparent transition-colors hover:bg-muted/50">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm">{ws.name}</CardTitle>
+                      <Badge variant="secondary" className="font-mono text-xs">
+                        {ws.slug}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-xs text-muted-foreground">
+                      Created {new Date(ws.createdAt).toLocaleDateString()}
+                    </p>
+                  </CardContent>
+                </Card>
+              </VLink>
             ))}
+            <div className="mt-2">
+              <CreateWorkspaceDialog />
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+
+        {tabsList && openProjectTabs.length > 0 && (
+          <div className="mt-8">
+            <h2 className="mb-3 text-sm font-medium text-muted-foreground">Open Projects</h2>
+            <div className="flex flex-col gap-1">
+              {openProjectTabs.map((tab) => {
+                const { segments, worktree } = deriveTabTitle(tab.virtualPath);
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted/50"
+                    onClick={() => tabsList.activateTab(tab.id)}
+                  >
+                    <RiWindow2Line className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{segments.join(" › ")}</span>
+                    {worktree && (
+                      <span className="flex min-w-0 items-center gap-0.5 font-mono text-[10px] text-muted-foreground">
+                        <RiGitBranchLine className="size-2.5 shrink-0" />
+                        <span className="truncate">{worktree}</span>
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {mounted && recentDirs.length > 0 && (
+          <div className="mt-8">
+            <h2 className="mb-3 text-sm font-medium text-muted-foreground">Recent Directories</h2>
+            <div className="flex flex-col gap-1">
+              {recentDirs.map((dir) => (
+                <div key={dir} className="flex items-center gap-2 group">
+                  <button
+                    type="button"
+                    className="flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted/50 truncate"
+                    onClick={() => nav.push(`/open?path=${encodeURIComponent(dir)}`)}
+                  >
+                    <RiFolderOpenLine className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate font-mono text-xs">{dir}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-foreground px-1"
+                    onClick={() => removeDir(dir)}
+                    aria-label="Remove from recent"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

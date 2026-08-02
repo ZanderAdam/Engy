@@ -24,6 +24,7 @@ import {
   type ShortcutDef,
   matchShortcut,
 } from '@/components/layout/three-panel-layout';
+import { MobileIdentityBar } from '@/components/layout/mobile-identity-bar';
 import { MobileOverlayProvider } from '@/components/layout/mobile-overlay-context';
 import { WorkspaceMobileTerminalToggle } from '@/components/layout/workspace-mobile-terminal-toggle';
 import {
@@ -578,6 +579,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         workspaceSlug={params.workspace}
       />
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+        {!isProjectRoute && isMobile && <MobileIdentityBar workspace={workspace} />}
         {!isProjectRoute && (
           <nav className="border-b border-border" aria-label="Workspace sections">
             <div className={cn('flex items-center', isMobile ? 'px-3' : 'px-6')}>
