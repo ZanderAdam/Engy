@@ -35,6 +35,8 @@ linkedMemories:
     memory/conventions/20260801212900-verify-a-regression-test-fails-for-the-reason-you-think-not-.md
   - >-
     memory/conventions/20260801213001-assert-mcp-zod-constraints-against-the-schema-not-through-ca.md
+  - >-
+    memory/conventions/20260801213740-calibrate-similarity-thresholds-against-the-real-corpus-neve.md
 scenarioIds: []
 ---
 web WS/search test suites (src/server/search/repo-adapter.test.ts, validate.test.ts) are environment-dependent: they read the ambient ENGY_DIR and connect to a real daemon WS. Under `pnpm blt` (turbo parallel load) they flake with 'Daemon disconnected' rejections and a WORKSPACES_SYNC-ordering race (the test expects GLOB_FILES_REQUEST as the daemon's first message, but a WORKSPACES_SYNC from the real ~/.engy DB with 6 workspaces lands first). They pass deterministically when run standalone with `--no-file-parallelism` and an isolated ENGY_DIR (ENGY_DIR=$TMPDIR/x/ pnpm vitest run --no-file-parallelism src/server/search src/server/ws).

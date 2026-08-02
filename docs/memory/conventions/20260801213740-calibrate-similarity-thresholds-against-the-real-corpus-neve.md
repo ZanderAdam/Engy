@@ -20,7 +20,17 @@ tags:
   - memory
   - testing
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801213018-never-compare-a-qmd-search-score-to-a-cosine-threshold.md
+  - >-
+    memory/facts/20260801212943-fleeting-memories-are-invisible-to-search-until-promoted.md
+  - >-
+    memory/conventions/20260801213001-assert-mcp-zod-constraints-against-the-schema-not-through-ca.md
+  - >-
+    memory/insights/20260801212954-qmd-publishes-only-its-root-export-embed-via-store-internal-.md
+  - >-
+    memory/insights/20260623233118-web-ws-search-test-suites-flake-under-blt-need-isolated-engy.md
 scenarioIds: []
 ---
 **Rule:** Calibrate a similarity threshold by measuring the real corpus's score distribution, never by constructing one example pair. And whenever a degraded path can produce output shaped identically to a real result, give callers a flag that distinguishes them.
