@@ -28,6 +28,8 @@ linkedMemories:
     memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
   - >-
     memory/conventions/20260801213102-gate-per-tab-radix-overlays-on-tab-isactive-portals-escape-d.md
+  - >-
+    memory/decisions/20260801213110-mobileidentitybar-mounts-at-three-sites-to-stay-inside-mobil.md
 scenarioIds: []
 ---
 **Rule:** Any component using shadcn `<Tooltip>` that can render outside `web/src/app/w/[workspace]/projects/[project]/layout.tsx` must supply its own `<TooltipProvider>`. Nesting providers is safe, so wrap at the component that owns the tooltips rather than hunting every route.

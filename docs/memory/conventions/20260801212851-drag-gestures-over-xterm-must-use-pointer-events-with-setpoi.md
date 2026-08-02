@@ -34,6 +34,8 @@ linkedMemories:
     memory/conventions/20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md
   - >-
     memory/conventions/20260801213102-gate-per-tab-radix-overlays-on-tab-isactive-portals-escape-d.md
+  - >-
+    memory/decisions/20260801213110-mobileidentitybar-mounts-at-three-sites-to-stay-inside-mobil.md
 scenarioIds: []
 ---
 **Rule:** Any drag gesture over xterm content must use pointer events plus `setPointerCapture`, never touch events. `touch-action` must also forbid panning — `pinch-zoom` is the narrowest value that works.

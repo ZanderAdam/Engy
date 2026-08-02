@@ -29,6 +29,8 @@ linkedMemories:
     memory/conventions/20260801212851-drag-gestures-over-xterm-must-use-pointer-events-with-setpoi.md
   - >-
     memory/insights/20260801212935-tooltipprovider-is-not-global-components-outside-the-project.md
+  - >-
+    memory/decisions/20260801213110-mobileidentitybar-mounts-at-three-sites-to-stay-inside-mobil.md
 scenarioIds: []
 ---
 **Rule:** Every per-tab Radix Sheet/Dialog mounted inside a TabPanel must gate its `open` on `tab.isActive` (via `useOptionalTab`). Queued `terminal:open`-style events must likewise be dropped in inactive tabs, or they replay stale on activation.

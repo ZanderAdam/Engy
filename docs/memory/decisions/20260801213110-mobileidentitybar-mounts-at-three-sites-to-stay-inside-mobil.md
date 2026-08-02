@@ -17,7 +17,17 @@ tags:
   - frontend
   - mobile
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801213102-gate-per-tab-radix-overlays-on-tab-isactive-portals-escape-d.md
+  - >-
+    memory/conventions/20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md
+  - >-
+    memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
+  - >-
+    memory/insights/20260801212935-tooltipprovider-is-not-global-components-outside-the-project.md
+  - >-
+    memory/conventions/20260801212851-drag-gestures-over-xterm-must-use-pointer-events-with-setpoi.md
 scenarioIds: []
 ---
 **Rule:** Keep `MobileIdentityBar` mounted at its three separate sites (HomePage, the workspace layout's non-project branch, MobileHeader). Do not hoist it into TabShell/TabPanel for a single mount.
