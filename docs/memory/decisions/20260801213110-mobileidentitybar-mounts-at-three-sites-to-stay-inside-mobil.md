@@ -28,6 +28,8 @@ linkedMemories:
     memory/insights/20260801212935-tooltipprovider-is-not-global-components-outside-the-project.md
   - >-
     memory/conventions/20260801212851-drag-gestures-over-xterm-must-use-pointer-events-with-setpoi.md
+  - >-
+    memory/decisions/20260801213120-close-the-key-rail-while-composing-rather-than-arbitrating-p.md
 scenarioIds: []
 ---
 **Rule:** Keep `MobileIdentityBar` mounted at its three separate sites (HomePage, the workspace layout's non-project branch, MobileHeader). Do not hoist it into TabShell/TabPanel for a single mount.

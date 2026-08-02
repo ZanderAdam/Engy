@@ -18,7 +18,17 @@ tags:
   - terminal
   - mobile
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801212851-drag-gestures-over-xterm-must-use-pointer-events-with-setpoi.md
+  - >-
+    memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
+  - >-
+    memory/conventions/20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md
+  - >-
+    memory/decisions/20260801213110-mobileidentitybar-mounts-at-three-sites-to-stay-inside-mobil.md
+  - >-
+    memory/conventions/20260801213102-gate-per-tab-radix-overlays-on-tab-isactive-portals-escape-d.md
 scenarioIds: []
 ---
 **Rule:** On the mobile terminal pane, remove coexistence rather than arbitrate paint order — close the extra-key column and disable its toggle while the composer is open. Any new mobile affordance there must state whether it can coexist with the composer.
