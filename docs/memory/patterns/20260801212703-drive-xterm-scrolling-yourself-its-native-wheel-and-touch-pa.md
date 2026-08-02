@@ -37,6 +37,8 @@ linkedMemories:
     memory/conventions/20260801212843-never-mirror-xterm-s-auto-follow-state-in-app-code.md
   - >-
     memory/conventions/20260801212851-drag-gestures-over-xterm-must-use-pointer-events-with-setpoi.md
+  - >-
+    memory/insights/20260801213220-wake-triggered-clear-and-replay-is-what-corrupts-terminal-sc.md
 scenarioIds: []
 ---
 **Rule:** Never leave scrolling to xterm.js's native pipeline in an Engy terminal. Intercept wheel via `attachCustomWheelEventHandler` and touch via capture-phase handlers on the container, and drive `term.scrollLines()` directly.

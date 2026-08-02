@@ -16,7 +16,17 @@ tags:
   - terminal
   - frontend
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
+  - >-
+    memory/conventions/20260801212851-drag-gestures-over-xterm-must-use-pointer-events-with-setpoi.md
+  - >-
+    memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
+  - >-
+    memory/insights/20260801212834-resync-xterm-s-viewport-when-a-hidden-dockview-panel-becomes.md
+  - >-
+    memory/patterns/20260801212703-drive-xterm-scrolling-yourself-its-native-wheel-and-touch-pa.md
 scenarioIds: []
 ---
 **Rule:** Do not force-close a healthy terminal socket on `visibilitychange`. Probe liveness instead — the clear-and-replay cycle it triggers both corrupts scrollback and truncates history.
