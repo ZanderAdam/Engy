@@ -11,5 +11,6 @@ Permanent notes on verified facts — confirmed behaviours, measured metrics, an
 - [20260801213147-bottom-anchored-mobile-controls-need-no-js-keyboard-avoidanc.md](20260801213147-bottom-anchored-mobile-controls-need-no-js-keyboard-avoidanc.md) — **Rule:** Do not add JS keyboard-avoidance to bottom-anchored mobile controls. `
 - [20260801213252-execution-and-terminal-session-ids-are-separate-namespaces-t.md](20260801213252-execution-and-terminal-session-ids-are-separate-namespaces-t.md) — **Rule:** Never assume a headless execution agent can be attributed through MCP.
 - [20260801213525-last-sent-equals-actual-pty-size-is-a-system-wide-invariant.md](20260801213525-last-sent-equals-actual-pty-size-is-a-system-wide-invariant.md) — **Rule:** Treat "last sent cols/rows === actual PTY size" as a system-wide invar
+- [20260801213557-codex-dispatch-workers-are-not-hands-off-two-interactive-gat.md](20260801213557-codex-dispatch-workers-are-not-hands-off-two-interactive-gat.md) — **Rule:** Do not assume a Codex terminal spawned as a dispatch worker can answer
 
 <!-- INDEX END -->
