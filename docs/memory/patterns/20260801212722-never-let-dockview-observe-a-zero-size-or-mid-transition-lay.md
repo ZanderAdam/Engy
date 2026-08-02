@@ -42,6 +42,8 @@ linkedMemories:
     memory/insights/20260801212935-tooltipprovider-is-not-global-components-outside-the-project.md
   - >-
     memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
+  - >-
+    memory/conventions/20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md
 scenarioIds: []
 ---
 **Rule:** Never feed dockview a zero-size or mid-CSS-transition layout. Animate an outer clip wrapper while the inner dockview host keeps a fixed px size, and additionally self-heal with a forced `api.layout(w, h, true)` on ancestor `animationend`/`transitionend` and root ResizeObserver changes.

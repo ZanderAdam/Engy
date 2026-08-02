@@ -30,6 +30,8 @@ linkedMemories:
     memory/patterns/20260801212739-monaco-diffeditor-needs-per-file-model-paths-and-scrolltop-o.md
   - >-
     memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
+  - >-
+    memory/conventions/20260801213054-hit-test-z-index-in-nested-overlays-instead-of-comparing-cla.md
 scenarioIds: []
 ---
 **Rule:** Full-screen mobile overlays in `web/` must use `z-[60]` and responsive Tailwind classes (`max-md:`/`md:`), never a `useIsMobile` JS branch.

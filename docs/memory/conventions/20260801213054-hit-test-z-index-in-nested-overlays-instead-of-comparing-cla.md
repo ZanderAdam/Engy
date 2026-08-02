@@ -17,7 +17,17 @@ tags:
   - frontend
   - mobile
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801213044-full-screen-mobile-overlays-use-z-60-and-tailwind-breakpoint.md
+  - >-
+    memory/conventions/20260801212851-drag-gestures-over-xterm-must-use-pointer-events-with-setpoi.md
+  - >-
+    memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
+  - >-
+    memory/patterns/20260801212739-monaco-diffeditor-needs-per-file-model-paths-and-scrolltop-o.md
+  - >-
+    memory/conventions/20260801212648-scrollarea-in-a-flex-column-needs-min-h-0-plus-the-viewport-.md
 scenarioIds: []
 ---
 **Rule:** When reviewing z-index inside a portaled or nested overlay, hit-test with `document.elementFromPoint()` rather than comparing the numbers in the class names. Nesting decides the outcome, not the literals.
