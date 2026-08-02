@@ -14,7 +14,13 @@ tags:
   - architecture
   - git
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/decisions/20260801213407-code-tab-s-worktree-selector-is-localonly-because-tree-ops-l.md
+  - >-
+    memory/conventions/20260801212926-commit-with-a-pathspec-another-agent-session-may-hold-the-gi.md
+  - >-
+    memory/conventions/20260801213304-brace-shell-variables-in-git-rev-path-arguments-zsh-eats-the.md
 scenarioIds: []
 ---
 **Rule:** Any worktree *mutation* must target the path `git worktree list` actually reports, resolved via `dispatchGitWorktreeList` and matched by branch — never a path recomputed from `getProjectWorktreeDir(...)`. Only create/sync may compute a canonical path, because they are creating it.

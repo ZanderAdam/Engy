@@ -17,7 +17,9 @@ tags:
   - ui
   - architecture
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801213456-mutate-worktrees-at-the-path-git-reports-never-a-recomputed-.md
 scenarioIds: []
 ---
 **Rule:** Keep the Code tab's `WorktreeSelector` restricted to LOCAL worktrees via its `localOnly` prop. Do not copy the Diffs page's unrestricted selector.

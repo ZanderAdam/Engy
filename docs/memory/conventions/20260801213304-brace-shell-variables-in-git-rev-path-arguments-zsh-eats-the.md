@@ -18,6 +18,8 @@ sources: []
 linkedMemories:
   - >-
     memory/conventions/20260801212926-commit-with-a-pathspec-another-agent-session-may-hold-the-gi.md
+  - >-
+    memory/conventions/20260801213456-mutate-worktrees-at-the-path-git-reports-never-a-recomputed-.md
 scenarioIds: []
 ---
 **Rule:** Always brace a shell variable used to build a git `rev:path` argument — `"${TREE}:web/src/x"`, never `"$TREE:web/src/x"`.
