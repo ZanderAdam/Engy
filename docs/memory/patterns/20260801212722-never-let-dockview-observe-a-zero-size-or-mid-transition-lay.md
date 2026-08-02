@@ -17,7 +17,17 @@ tags:
   - frontend
   - terminal
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/patterns/20260801212703-drive-xterm-scrolling-yourself-its-native-wheel-and-touch-pa.md
+  - >-
+    memory/conventions/20260801212648-scrollarea-in-a-flex-column-needs-min-h-0-plus-the-viewport-.md
+  - >-
+    memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
+  - >-
+    memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
+  - >-
+    memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
 scenarioIds: []
 ---
 **Rule:** Never feed dockview a zero-size or mid-CSS-transition layout. Animate an outer clip wrapper while the inner dockview host keeps a fixed px size, and additionally self-heal with a forced `api.layout(w, h, true)` on ancestor `animationend`/`transitionend` and root ResizeObserver changes.

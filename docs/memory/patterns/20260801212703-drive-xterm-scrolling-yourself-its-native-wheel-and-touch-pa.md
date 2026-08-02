@@ -27,6 +27,8 @@ linkedMemories:
     memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
   - >-
     memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
+  - >-
+    memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
 scenarioIds: []
 ---
 **Rule:** Never leave scrolling to xterm.js's native pipeline in an Engy terminal. Intercept wheel via `attachCustomWheelEventHandler` and touch via capture-phase handlers on the container, and drive `term.scrollLines()` directly.
