@@ -17,7 +17,17 @@ tags:
   - terminal
   - architecture
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/insights/20260801213220-wake-triggered-clear-and-replay-is-what-corrupts-terminal-sc.md
+  - >-
+    memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
+  - >-
+    memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
+  - >-
+    memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
+  - >-
+    memory/decisions/20260623233407-daemon-activity-badge-stays-done-until-typed-into-exit-no-vi.md
 scenarioIds: []
 ---
 **Rule:** A browser-leg terminal WS message that terminates at the server follows one pattern: type it in `common/src/ws/protocol.ts` for the shared contract, exclude it from the daemon-facing `TerminalRelayCommand`/`TerminalRelayEvent` unions, and intercept it by string prefix before the generic daemon forward.

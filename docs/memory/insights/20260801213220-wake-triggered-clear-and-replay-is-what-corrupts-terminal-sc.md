@@ -27,6 +27,8 @@ linkedMemories:
     memory/insights/20260801212834-resync-xterm-s-viewport-when-a-hidden-dockview-panel-becomes.md
   - >-
     memory/patterns/20260801212703-drive-xterm-scrolling-yourself-its-native-wheel-and-touch-pa.md
+  - >-
+    memory/patterns/20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md
 scenarioIds: []
 ---
 **Rule:** Do not force-close a healthy terminal socket on `visibilitychange`. Probe liveness instead — the clear-and-replay cycle it triggers both corrupts scrollback and truncates history.

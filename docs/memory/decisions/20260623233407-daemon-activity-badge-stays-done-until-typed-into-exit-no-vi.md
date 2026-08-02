@@ -32,6 +32,8 @@ linkedMemories:
     memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
   - >-
     memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
+  - >-
+    memory/patterns/20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md
 scenarioIds: []
 ---
 T449 design divergence: the daemon tracker omits acknowledge()-on-view (it has no view signal), so a project badge stays 'done' until the user types into that terminal or it exits — viewing it in the browser clears the browser-local tab dot but NOT the daemon-driven badge. Deliberate ('finished but unacknowledged'). If clear-on-view is wanted later, needs a browser→server→daemon 'viewed' signal.
