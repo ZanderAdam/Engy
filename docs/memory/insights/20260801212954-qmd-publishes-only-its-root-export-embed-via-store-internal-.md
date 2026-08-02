@@ -16,7 +16,9 @@ tags:
   - memory
   - search
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/facts/20260801212943-fleeting-memories-are-invisible-to-search-until-promoted.md
 scenarioIds: []
 ---
 **Rule:** To embed arbitrary text with qmd, use `store.internal.llm` (LlamaCpp — has `embed`/`embedBatch`). Deep imports fail and the formatting helpers are unavailable, so any threshold tuned against these embeddings must be re-measured if the embed model changes.

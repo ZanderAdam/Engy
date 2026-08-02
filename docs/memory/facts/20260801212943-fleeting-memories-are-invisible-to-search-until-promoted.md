@@ -14,7 +14,9 @@ tags:
   - memory
   - architecture
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/insights/20260801212954-qmd-publishes-only-its-root-export-embed-via-store-internal-.md
 scenarioIds: []
 ---
 **Rule:** Do not expect `search` to surface anything from fleeting memories. They are DB rows with no backing `.md` file, and qmd indexes only files under the four collection dirs. Promotion is what makes a memory retrievable at all — treat the review backlog as a retrieval outage, not bookkeeping.
