@@ -30,6 +30,8 @@ linkedMemories:
     memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
   - >-
     memory/conventions/20260801212843-never-mirror-xterm-s-auto-follow-state-in-app-code.md
+  - >-
+    memory/conventions/20260801212851-drag-gestures-over-xterm-must-use-pointer-events-with-setpoi.md
 scenarioIds: []
 ---
 **Rule:** When a dockview panel with `renderer: 'always'` becomes visible again, force an xterm Viewport resync — `scrollback = N±1` then back, or a `scrollLines(-1)`/`scrollLines(+1)` pair. A same-value poke is a no-op.

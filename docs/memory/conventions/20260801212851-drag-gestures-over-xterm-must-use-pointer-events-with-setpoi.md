@@ -17,7 +17,17 @@ tags:
   - frontend
   - mobile
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801212843-never-mirror-xterm-s-auto-follow-state-in-app-code.md
+  - >-
+    memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
+  - >-
+    memory/patterns/20260801212703-drive-xterm-scrolling-yourself-its-native-wheel-and-touch-pa.md
+  - >-
+    memory/insights/20260801212834-resync-xterm-s-viewport-when-a-hidden-dockview-panel-becomes.md
+  - >-
+    memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
 scenarioIds: []
 ---
 **Rule:** Any drag gesture over xterm content must use pointer events plus `setPointerCapture`, never touch events. `touch-action` must also forbid panning — `pinch-zoom` is the narrowest value that works.

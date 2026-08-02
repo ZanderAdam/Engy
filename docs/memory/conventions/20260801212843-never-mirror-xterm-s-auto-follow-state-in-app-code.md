@@ -26,6 +26,8 @@ linkedMemories:
     memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
   - >-
     memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
+  - >-
+    memory/conventions/20260801212851-drag-gestures-over-xterm-must-use-pointer-events-with-setpoi.md
 scenarioIds: []
 ---
 **Rule:** Never mirror xterm's auto-follow state in application code. `BufferService.isUserScrolling` is already the single source of truth — `scroll()` only advances `ydisp` while it is false, `scrollLines(negative)` sets it, and any scroll reaching `ybase` clears it.
