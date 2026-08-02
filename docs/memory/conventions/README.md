@@ -12,5 +12,6 @@ Permanent notes on conventions — agreed coding standards, process norms, and t
 - [20260801212900-verify-a-regression-test-fails-for-the-reason-you-think-not-.md](20260801212900-verify-a-regression-test-fails-for-the-reason-you-think-not-.md) — **Rule:** Reverting the fix to confirm a regression test catches the bug is nece
 - [20260801212926-commit-with-a-pathspec-another-agent-session-may-hold-the-gi.md](20260801212926-commit-with-a-pathspec-another-agent-session-may-hold-the-gi.md) — **Rule:** Treat the git index as shared mutable state another live agent session
 - [20260801213001-assert-mcp-zod-constraints-against-the-schema-not-through-ca.md](20260801213001-assert-mcp-zod-constraints-against-the-schema-not-through-ca.md) — **Rule:** To test a zod-only constraint on an MCP tool (e.g. `content.min(1\)`\), 
+- [20260801213018-never-compare-a-qmd-search-score-to-a-cosine-threshold.md](20260801213018-never-compare-a-qmd-search-score-to-a-cosine-threshold.md) — **Rule:** Only compare scores to a cosine threshold when they came from `searchV
 
 <!-- INDEX END -->
