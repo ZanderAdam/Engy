@@ -14,7 +14,9 @@ tags:
   - mcp
   - prompting
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/facts/20260801213557-codex-dispatch-workers-are-not-hands-off-two-interactive-gat.md
 scenarioIds: []
 ---
 **Rule:** When an injected prompt asks a CLI agent to return a value via an MCP tool, the contract must state that the terminal is INVISIBLE to the requester and that the tool's result field carries the answer itself.

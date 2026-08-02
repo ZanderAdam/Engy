@@ -15,7 +15,9 @@ tags:
   - mcp
   - agents
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/conventions/20260801213547-an-injected-prompt-must-state-that-the-terminal-is-invisible.md
 scenarioIds: []
 ---
 **Rule:** Do not assume a Codex terminal spawned as a dispatch worker can answer autonomously. Two interactive gates need a human Enter/"Allow" in the Codex TUI first: the initial "Do you trust this directory?" prompt, and an approval prompt on every `terminal_reply` MCP call. Also default the Codex adapter to `--sandbox workspace-write`.
