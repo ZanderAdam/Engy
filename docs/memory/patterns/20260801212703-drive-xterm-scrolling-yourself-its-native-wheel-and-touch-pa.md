@@ -31,6 +31,8 @@ linkedMemories:
     memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
   - >-
     memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
+  - >-
+    memory/insights/20260801212834-resync-xterm-s-viewport-when-a-hidden-dockview-panel-becomes.md
 scenarioIds: []
 ---
 **Rule:** Never leave scrolling to xterm.js's native pipeline in an Engy terminal. Intercept wheel via `attachCustomWheelEventHandler` and touch via capture-phase handlers on the container, and drive `term.scrollLines()` directly.

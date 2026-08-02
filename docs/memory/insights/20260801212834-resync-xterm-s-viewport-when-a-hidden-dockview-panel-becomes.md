@@ -17,7 +17,17 @@ tags:
   - terminal
   - frontend
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/patterns/20260801212703-drive-xterm-scrolling-yourself-its-native-wheel-and-touch-pa.md
+  - >-
+    memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
+  - >-
+    memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
+  - >-
+    memory/patterns/20260623233039-kill-is-final-server-sends-t-exit-before-close-1001-to-suppr.md
+  - >-
+    memory/decisions/20260623233244-terminal-activity-detection-is-intentionally-duplicated-daem.md
 scenarioIds: []
 ---
 **Rule:** When a dockview panel with `renderer: 'always'` becomes visible again, force an xterm Viewport resync — `scrollback = N±1` then back, or a `scrollLines(-1)`/`scrollLines(+1)` pair. A same-value poke is a no-op.

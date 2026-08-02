@@ -34,6 +34,8 @@ linkedMemories:
     memory/patterns/20260801212722-never-let-dockview-observe-a-zero-size-or-mid-transition-lay.md
   - >-
     memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
+  - >-
+    memory/insights/20260801212834-resync-xterm-s-viewport-when-a-hidden-dockview-panel-becomes.md
 scenarioIds: []
 ---
 Kill-is-final contract: server must send {t:'exit'} to other attached browsers BEFORE close(1001) — client terminal.tsx exit handler calls socket.markFinal() which suppresses ReconnectingSocket's reconnect. Closing alone causes ghost respawn because kill already deleted terminalSessionMeta, so the auto-reconnect is misclassified as a fresh spawn.
