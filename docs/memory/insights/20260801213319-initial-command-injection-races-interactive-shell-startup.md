@@ -28,6 +28,8 @@ linkedMemories:
     memory/decisions/20260801212804-terminal-session-metadata-mirrors-to-sqlite-because-daemon-c.md
   - >-
     memory/conventions/20260801213329-a-buildcommand-change-must-account-for-all-three-terminalses.md
+  - >-
+    memory/conventions/20260801213430-gh-api-paginate-needs-slurp-before-json-parse.md
 scenarioIds: []
 ---
 **Rule:** Do not inject a spawn command into a PTY on first shell output. Wait for a stable prompt (or zle readiness), or prefix the command with a newline to flush any pending prompt.

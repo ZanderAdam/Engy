@@ -15,7 +15,11 @@ tags:
   - daemon
   - tooling
 sources: []
-linkedMemories: []
+linkedMemories:
+  - >-
+    memory/insights/20260801213319-initial-command-injection-races-interactive-shell-startup.md
+  - >-
+    memory/insights/20260801213238-xterm-headless-needs-a-default-import-drain-writes-before-se.md
 scenarioIds: []
 ---
 **Rule:** Every `gh api --paginate` call in the daemon must add `--slurp` (then `.flat()`), or split on newlines. Never `JSON.parse(stdout)` directly.
