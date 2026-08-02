@@ -14,5 +14,6 @@ Permanent notes on recurring patterns — reusable solutions, design motifs, and
 - [20260801213210-cyberpunk-theme-is-an-override-stylesheet-fix-colours-there-.md](20260801213210-cyberpunk-theme-is-an-override-stylesheet-fix-colours-there-.md) — **Rule:** When a surface shows wrong colours under the cyberpunk flavor, add a r
 - [20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md](20260801213229-browser-only-terminal-ws-messages-are-typed-but-excluded-fro.md) — **Rule:** A browser-leg terminal WS message that terminates at the server follow
 - [20260801213415-route-every-tab-path-change-through-navigateorreusetab.md](20260801213415-route-every-tab-path-change-through-navigateorreusetab.md) — **Rule:** Route ALL tab path changes through a pure helper (`navigateOrReuseTab`
+- [20260801213516-cross-cutting-terminal-views-read-the-server-registry-not-th.md](20260801213516-cross-cutting-terminal-views-read-the-server-registry-not-th.md) — **Rule:** Any cross-cutting terminal view must be driven from the server registr
 
 <!-- INDEX END -->
