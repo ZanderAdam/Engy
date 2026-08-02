@@ -17,5 +17,6 @@ Permanent notes capturing significant decisions — what was chosen, what altern
 - [20260801213407-code-tab-s-worktree-selector-is-localonly-because-tree-ops-l.md](20260801213407-code-tab-s-worktree-selector-is-localonly-because-tree-ops-l.md) — **Rule:** Keep the Code tab's `WorktreeSelector` restricted to LOCAL worktrees v
 - [20260801213438-pr-monitoring-authenticates-via-the-user-s-gh-auth-login-sto.md](20260801213438-pr-monitoring-authenticates-via-the-user-s-gh-auth-login-sto.md) — **Rule:** PR/CI monitoring authenticates exclusively through the user's existing
 - [20260801213507-image-preview-in-code-and-diffs-routes-through-the-daemon-no.md](20260801213507-image-preview-in-code-and-diffs-routes-through-the-daemon-no.md) — **Rule:** Image and binary preview in the Code and Diffs tabs must route through
+- [20260801213540-terminal-spawn-derives-mcp-origin-from-the-caller-s-own-spaw.md](20260801213540-terminal-spawn-derives-mcp-origin-from-the-caller-s-own-spaw.md) — **Rule:** Derive a spawned agent's MCP origin from the CALLER's own spawn comman
 
 <!-- INDEX END -->
