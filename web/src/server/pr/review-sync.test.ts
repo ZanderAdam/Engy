@@ -18,6 +18,8 @@ function makePrRow(overrides: Partial<typeof prsTable.$inferSelect> = {}): typeo
     isDraft: false,
     ciStatus: 'passing',
     checks: [],
+    commentCount: 0,
+    authoredByViewer: false,
     reviewDecision: null,
     lastFailedHeadSha: null,
     autoFixAttempts: 0,

@@ -50,6 +50,8 @@ const coderConfigSchema = z
 
 const autoAgentCompletionSchema = z.enum(['pr', 'merge']).optional();
 
+const prScopeSchema = z.enum(['mine', 'all']).optional();
+
 // Validated against the agent-types registry rather than a fixed enum, so a new
 // agent CLI needs only a registry entry — no schema/router change here.
 const defaultAgentTypeSchema = z
@@ -188,6 +190,7 @@ export const workspaceRouter = router({
         autoAgentCompletion: autoAgentCompletionSchema,
         autoStart: z.boolean().optional(),
         autoCiFix: z.boolean().optional(),
+        prScope: prScopeSchema,
         createMissingDirs: z.boolean().optional(),
       }),
     )
@@ -218,6 +221,7 @@ export const workspaceRouter = router({
           autoAgentCompletion: input.autoAgentCompletion,
           autoStart: input.autoStart,
           autoCiFix: input.autoCiFix,
+          prScope: input.prScope,
         })
         .returning()
         .get();
@@ -289,6 +293,7 @@ export const workspaceRouter = router({
         remoteEnabled: z.boolean().nullable().optional(),
         autoStart: z.boolean().nullable().optional(),
         autoCiFix: z.boolean().nullable().optional(),
+        prScope: prScopeSchema,
         createMissingDirs: z.boolean().optional(),
       }),
     )
@@ -336,6 +341,7 @@ export const workspaceRouter = router({
         input.remoteEnabled !== undefined ? input.remoteEnabled : existing.remoteEnabled;
       const newAutoStart = input.autoStart !== undefined ? input.autoStart : existing.autoStart;
       const newAutoCiFix = input.autoCiFix !== undefined ? input.autoCiFix : existing.autoCiFix;
+      const newPrScope = input.prScope !== undefined ? input.prScope : existing.prScope;
       const newExecutionBackend =
         input.executionBackend !== undefined ? input.executionBackend : existing.executionBackend;
       const newCoderConfig =
@@ -389,6 +395,7 @@ export const workspaceRouter = router({
           remoteEnabled: newRemoteEnabled,
           autoStart: newAutoStart,
           autoCiFix: newAutoCiFix,
+          prScope: newPrScope,
         })
         .where(eq(workspaces.id, input.id))
         .returning()
@@ -421,6 +428,7 @@ export const workspaceRouter = router({
               remoteEnabled: existing.remoteEnabled,
               autoStart: existing.autoStart,
               autoCiFix: existing.autoCiFix,
+              prScope: existing.prScope,
             })
             .where(eq(workspaces.id, input.id))
             .run();

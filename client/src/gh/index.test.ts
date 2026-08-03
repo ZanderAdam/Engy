@@ -242,6 +242,73 @@ describe('[FR-PRMON-010] listOpenPrs', () => {
   });
 });
 
+// Routes `gh api user` separately from `gh pr list`, unlike the single-stdout
+// runner above — attribution needs the two calls to answer differently.
+function makeSplitRunner(
+  prListStdout: string,
+  viewer: string | Error,
+): { runner: GhRunner; calls: string[][] } {
+  const calls: string[][] = [];
+  const runner: GhRunner = async (args) => {
+    calls.push(args);
+    if (args[0] === 'api') {
+      if (viewer instanceof Error) throw viewer;
+      return { stdout: `${viewer}\n`, stderr: '' };
+    }
+    return { stdout: prListStdout, stderr: '' };
+  };
+  return { runner, calls };
+}
+
+function prJson(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify([{ ...JSON.parse(SINGLE_PR_NO_CHECKS)[0], ...overrides }]);
+}
+
+describe('[FR-PRMON-180] listOpenPrs comment counts', () => {
+  it('counts conversation comments plus reviews that carry a body', async () => {
+    const raw = prJson({
+      comments: [{ body: 'first' }, { body: 'second' }],
+      reviews: [{ body: 'please fix' }, { body: '' }, { body: '   ' }],
+    });
+    const { runner } = makeSplitRunner(raw, 'alice');
+    const prs = await listOpenPrs('/repo', runner);
+    expect(prs[0].commentCount).toBe(3);
+  });
+
+  it('reports zero comments when gh omits both fields', async () => {
+    const { runner } = makeSplitRunner(SINGLE_PR_NO_CHECKS, 'alice');
+    const prs = await listOpenPrs('/repo', runner);
+    expect(prs[0].commentCount).toBe(0);
+  });
+});
+
+describe('[FR-PRMON-190] listOpenPrs viewer attribution', () => {
+  it('flags a PR authored by the gh viewer', async () => {
+    const { runner } = makeSplitRunner(SINGLE_PR_NO_CHECKS, 'alice');
+    const prs = await listOpenPrs('/repo', runner);
+    expect(prs[0].authoredByViewer).toBe(true);
+  });
+
+  it('flags a PR authored by someone else', async () => {
+    const { runner } = makeSplitRunner(SINGLE_PR_NO_CHECKS, 'bob');
+    const prs = await listOpenPrs('/repo', runner);
+    expect(prs[0].authoredByViewer).toBe(false);
+  });
+
+  it('returns null attribution when the viewer identity cannot be resolved', async () => {
+    const { runner } = makeSplitRunner(SINGLE_PR_NO_CHECKS, new Error('gh: not logged in'));
+    const prs = await listOpenPrs('/repo', runner);
+    expect(prs[0].authoredByViewer).toBeNull();
+  });
+
+  it('skips the identity call when no PRs are open', async () => {
+    const { runner, calls } = makeSplitRunner(EMPTY_PR_LIST, 'alice');
+    const prs = await listOpenPrs('/repo', runner);
+    expect(prs).toEqual([]);
+    expect(calls).toEqual([expect.arrayContaining(['pr', 'list'])]);
+  });
+});
+
 describe('[FR-PRMON-080] fetchFailedLogs', () => {
   const FAILING_CHECKS = JSON.stringify([
     { name: 'Lint', state: 'FAILURE', link: 'https://github.com/owner/repo/actions/runs/111/jobs/999', bucket: 'fail' },

@@ -69,6 +69,7 @@ interface EditWorkspaceDialogProps {
     autoStart: boolean | null;
     autoCiFix: boolean | null;
     autoAgentCompletion: 'pr' | 'merge' | null;
+    prScope: 'mine' | 'all' | null;
   };
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -111,6 +112,7 @@ export function EditWorkspaceDialog({
     autoStart: workspace.autoStart ?? false,
     autoCiFix: workspace.autoCiFix ?? false,
     autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
+    prScope: workspace.prScope ?? 'mine',
   });
 
   const utils = trpc.useUtils();
@@ -155,6 +157,7 @@ export function EditWorkspaceDialog({
       autoStart: container.autoStart,
       autoCiFix: container.autoCiFix,
       autoAgentCompletion: container.autoAgentCompletion,
+      prScope: container.prScope,
       ...(createMissingDirs ? { createMissingDirs: true } : {}),
     });
   }
@@ -226,6 +229,7 @@ export function EditWorkspaceDialog({
         autoStart: workspace.autoStart ?? false,
         autoCiFix: workspace.autoCiFix ?? false,
         autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
+        prScope: workspace.prScope ?? 'mine',
       };
     }
     onOpenChange(val);
@@ -337,6 +341,7 @@ export function EditWorkspaceDialog({
                   autoStart: workspace.autoStart ?? false,
                   autoCiFix: workspace.autoCiFix ?? false,
                   autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
+                  prScope: workspace.prScope ?? 'mine',
                 }}
                 onChange={(data) => {
                   containerDataRef.current = data;

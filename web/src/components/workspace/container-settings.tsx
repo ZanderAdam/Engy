@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import type { PrScope } from '@/components/prs/pr-helpers';
 import type { ContainerConfig, CoderConfig, ExecutionBackend } from '@/server/db/schema';
 
 export type AutoAgentCompletion = 'pr' | 'merge';
@@ -26,6 +27,7 @@ export interface ContainerSettingsData {
   autoStart: boolean;
   autoCiFix: boolean;
   autoAgentCompletion: AutoAgentCompletion;
+  prScope: PrScope;
 }
 
 interface ContainerSettingsProps {
@@ -77,6 +79,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
   const [autoAgentCompletion, setAutoAgentCompletion] = useState<AutoAgentCompletion>(
     initialData.autoAgentCompletion ?? 'pr',
   );
+  const [prScope, setPrScope] = useState<PrScope>(initialData.prScope ?? 'mine');
   const [maxConcurrency, setMaxConcurrency] = useState(initialData.maxConcurrency);
   const [idleTimeout, setIdleTimeout] = useState(initialData.containerConfig?.idleTimeout ?? 30);
   const [domains, setDomains] = useState(listToLines(initialData.containerConfig?.allowedDomains));
@@ -94,6 +97,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
     autoStart: boolean;
     autoCiFix: boolean;
     autoAgentCompletion: AutoAgentCompletion;
+    prScope: PrScope;
     maxConcurrency: number;
     idleTimeout: number;
     domains: string;
@@ -108,6 +112,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
     const start = overrides.autoStart ?? autoStart;
     const ciFix = overrides.autoCiFix ?? autoCiFix;
     const completion = overrides.autoAgentCompletion ?? autoAgentCompletion;
+    const scope = overrides.prScope ?? prScope;
     const concurrency = overrides.maxConcurrency ?? maxConcurrency;
     const timeout = overrides.idleTimeout ?? idleTimeout;
     const doms = overrides.domains ?? domains;
@@ -123,6 +128,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
       autoStart: start,
       autoCiFix: ciFix,
       autoAgentCompletion: completion,
+      prScope: scope,
       maxConcurrency: concurrency,
       containerConfig: {
         allowedDomains: linesToList(doms),
@@ -229,6 +235,28 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
             emit({ autoCiFix: checked });
           }}
         />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="pr-scope">PRs tab shows</Label>
+        <Select
+          value={prScope}
+          onValueChange={(value: PrScope) => {
+            setPrScope(value);
+            emit({ prScope: value });
+          }}
+        >
+          <SelectTrigger id="pr-scope">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="mine">My PRs only</SelectItem>
+            <SelectItem value="all">All open PRs</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Default filter for this workspace — switchable per visit from the tab.
+        </p>
       </div>
 
       <div className="flex flex-col gap-2">

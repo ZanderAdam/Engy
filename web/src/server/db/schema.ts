@@ -47,6 +47,9 @@ export const workspaces = sqliteTable('workspaces', {
   remoteEnabled: integer('remote_enabled', { mode: 'boolean' }).default(false),
   autoStart: integer('auto_start', { mode: 'boolean' }).default(false),
   autoCiFix: integer('auto_ci_fix', { mode: 'boolean' }).default(false),
+  // Which PRs the PRs tab shows by default — own-authored only, or every open
+  // PR in the workspace repos. The tab can override this per visit.
+  prScope: text('pr_scope', { enum: ['mine', 'all'] }).default('mine'),
   createdAt: text('created_at')
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -483,6 +486,8 @@ export const prs = sqliteTable(
       .notNull()
       .default('unknown'),
     checks: text('checks', { mode: 'json' }).$type<GhPrCheck[]>().notNull(),
+    commentCount: integer('comment_count').notNull().default(0),
+    authoredByViewer: integer('authored_by_viewer', { mode: 'boolean' }).notNull().default(false),
     reviewDecision: text('review_decision'),
     lastFailedHeadSha: text('last_failed_head_sha'),
     autoFixAttempts: integer('auto_fix_attempts').notNull().default(0),

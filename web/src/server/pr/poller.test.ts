@@ -87,6 +87,8 @@ function makePr(overrides: Partial<GhPr> = {}): GhPr {
     reviewDecision: null,
     ciStatus: 'passing',
     checks: [],
+    commentCount: 0,
+    authoredByViewer: false,
     updatedAt: '2024-01-01T00:00:00Z',
     ...overrides,
   };

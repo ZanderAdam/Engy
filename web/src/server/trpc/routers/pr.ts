@@ -81,7 +81,7 @@ export function findCorrelatedSession(
 export interface MaterialChange {
   number: number;
   repo: string;
-  type: 'new' | 'ciStatus' | 'reviewDecision' | 'removed';
+  type: 'new' | 'ciStatus' | 'reviewDecision' | 'commentCount' | 'removed';
   previous?: string | null;
   current: string;
 }
@@ -127,6 +127,10 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
             isDraft: ghPr.isDraft,
             ciStatus: ghPr.ciStatus,
             checks: ghPr.checks,
+            commentCount: ghPr.commentCount,
+            // A new row has no prior attribution to preserve, so an unresolved
+            // gh identity lands on "not mine" until the next successful poll.
+            authoredByViewer: ghPr.authoredByViewer ?? false,
             reviewDecision: ghPr.reviewDecision,
             updatedAt: now,
           })
@@ -154,6 +158,15 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
             current: ghPr.reviewDecision ?? '',
           });
         }
+        if (existingPr.commentCount !== ghPr.commentCount) {
+          prChanges.push({
+            number: ghPr.number,
+            repo,
+            type: 'commentCount',
+            previous: String(existingPr.commentCount),
+            current: String(ghPr.commentCount),
+          });
+        }
 
         tx.update(prs)
           .set({
@@ -165,6 +178,10 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
             isDraft: ghPr.isDraft,
             ciStatus: ghPr.ciStatus,
             checks: ghPr.checks,
+            commentCount: ghPr.commentCount,
+            // null means the gh identity was unresolvable this cycle — keep the
+            // last known attribution instead of demoting every PR to "not mine".
+            authoredByViewer: ghPr.authoredByViewer ?? existingPr.authoredByViewer,
             reviewDecision: ghPr.reviewDecision,
             updatedAt: now,
           })

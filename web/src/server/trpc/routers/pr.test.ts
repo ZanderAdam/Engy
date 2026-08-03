@@ -5,7 +5,7 @@ import { setupTestDb, type TestContext } from '../test-helpers';
 import { workspaces, prs, agentSessions, taskGroups, tasks, projects } from '../../db/schema';
 import { upsertPrs, findCorrelatedSession } from './pr';
 import type { GhPr } from '@engy/common';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -22,6 +22,8 @@ function makePr(overrides: Partial<GhPr> = {}): GhPr {
     reviewDecision: null,
     ciStatus: 'passing',
     checks: [],
+    commentCount: 0,
+    authoredByViewer: false,
     ...overrides,
   };
 }
@@ -211,6 +213,43 @@ describe('pr router', () => {
       upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 })]);
 
       expect(ctx.db.select().from(prs).where(eq(prs.number, 2)).get()).toBeUndefined();
+    });
+
+    it('[FR-PRMON-180] should persist commentCount and report its change', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 7, commentCount: 2 })]);
+      const result = upsertPrs(ctx.db, '/repo-a', [makePr({ number: 7, commentCount: 5 })]);
+
+      expect(result.changes).toHaveLength(1);
+      expect(result.changes[0]).toMatchObject({
+        type: 'commentCount',
+        number: 7,
+        previous: '2',
+        current: '5',
+      });
+      expect(ctx.db.select().from(prs).where(eq(prs.number, 7)).get()?.commentCount).toBe(5);
+    });
+
+    it('[FR-PRMON-190] should persist viewer authorship', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+
+      upsertPrs(ctx.db, '/repo-a', [
+        makePr({ number: 1, authoredByViewer: true }),
+        makePr({ number: 2, authoredByViewer: false }),
+      ]);
+
+      expect(ctx.db.select().from(prs).where(eq(prs.number, 1)).get()?.authoredByViewer).toBe(true);
+      expect(ctx.db.select().from(prs).where(eq(prs.number, 2)).get()?.authoredByViewer).toBe(false);
+    });
+
+    it('[FR-PRMON-190] should keep known authorship when the viewer identity is unresolved', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, authoredByViewer: true })]);
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, authoredByViewer: null })]);
+
+      expect(ctx.db.select().from(prs).where(eq(prs.number, 1)).get()?.authoredByViewer).toBe(true);
     });
 
     it('should not clear attentionReason for PRs that remain open', () => {

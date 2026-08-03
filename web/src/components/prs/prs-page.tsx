@@ -14,6 +14,7 @@ import {
 } from '@remixicon/react';
 import { cn } from '@/lib/utils';
 import { getAttentionInfo } from './pr-attention';
+import { coercePrScope, filterPrsByScope, type PrScope } from './pr-helpers';
 import {
   classifyPrRepoErrors,
   repoDisplayName,
@@ -93,20 +94,64 @@ function RepoErrorRow({ error }: { error: RepoPrError }) {
   );
 }
 
+function ScopeToggle({
+  scope,
+  onChange,
+  mineCount,
+  totalCount,
+}: {
+  scope: PrScope;
+  onChange: (scope: PrScope) => void;
+  mineCount: number;
+  totalCount: number;
+}) {
+  const options: Array<{ value: PrScope; label: string; count: number }> = [
+    { value: 'mine', label: 'Mine', count: mineCount },
+    { value: 'all', label: 'All', count: totalCount },
+  ];
+
+  return (
+    <div className="flex items-center border border-border">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          className={cn(
+            'px-2 py-0.5 text-xs transition-colors cursor-pointer',
+            scope === option.value
+              ? 'bg-muted text-foreground'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {option.label}
+          <span className="ml-1 text-muted-foreground">{option.count}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
   const [mutationError, setMutationError] = useState<string | null>(null);
+  // Null until the user picks: the workspace's configured scope is the default,
+  // and a pick only overrides it for this visit.
+  const [scopeOverride, setScopeOverride] = useState<PrScope | null>(null);
   const utils = trpc.useUtils();
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
 
   const workspaceId = workspace?.id ?? 0;
   const workspaceRepos = (workspace?.repos as string[] | null) ?? [];
+  const scope = scopeOverride ?? coercePrScope(workspace?.prScope);
 
   const {
     data: prData,
     isLoading,
   } = trpc.pr.list.useQuery({ workspaceId }, { enabled: !!workspace });
-  const prs = prData?.prs;
+  const allPrs = prData?.prs;
+  const prs = allPrs && filterPrsByScope(allPrs, scope);
+  const mineCount = allPrs ? filterPrsByScope(allPrs, 'mine').length : 0;
   const { global: globalError, perRepo: repoErrors } = classifyPrRepoErrors(
     prData?.repoErrors ?? {},
   );
@@ -147,8 +192,13 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
         <div className="flex items-center gap-2">
           <RiGitPullRequestLine className="size-4 text-muted-foreground" />
           <span className="text-sm font-medium">Open Pull Requests</span>
-          {prs && prs.length > 0 && (
-            <span className="text-xs text-muted-foreground">({prs.length})</span>
+          {allPrs && allPrs.length > 0 && (
+            <ScopeToggle
+              scope={scope}
+              onChange={setScopeOverride}
+              mineCount={mineCount}
+              totalCount={allPrs.length}
+            />
           )}
         </div>
         <Button
@@ -188,12 +238,30 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
         ) : !prs || prs.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-center px-4">
             <RiGitPullRequestLine className="size-8 text-muted-foreground/40" />
-            <div>
-              <p className="text-sm font-medium">No open pull requests</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Click Refresh to fetch the latest PRs from GitHub.
-              </p>
-            </div>
+            {allPrs && allPrs.length > 0 ? (
+              <div>
+                <p className="text-sm font-medium">No open pull requests of yours</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {allPrs.length} open {allPrs.length === 1 ? 'PR is' : 'PRs are'} authored by
+                  someone else.
+                </p>
+                <Button
+                  variant="outline"
+                  size="xs"
+                  className="mt-3"
+                  onClick={() => setScopeOverride('all')}
+                >
+                  Show all PRs
+                </Button>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm font-medium">No open pull requests</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Click Refresh to fetch the latest PRs from GitHub.
+                </p>
+              </div>
+            )}
           </div>
         ) : (
           <PrList

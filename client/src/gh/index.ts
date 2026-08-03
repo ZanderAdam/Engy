@@ -38,6 +38,8 @@ interface RawPr {
   state: string;
   reviewDecision: string | null;
   statusCheckRollup: RawStatusCheckEntry[] | null;
+  comments: Array<{ body: string }> | null;
+  reviews: Array<{ body: string }> | null;
   updatedAt: string;
 }
 
@@ -98,11 +100,39 @@ function normalizeCheck(entry: RawStatusCheckEntry): GhPrCheck {
 }
 
 const PR_LIST_FIELDS =
-  'number,title,url,headRefName,headRefOid,author,isDraft,state,reviewDecision,statusCheckRollup,updatedAt';
+  'number,title,url,headRefName,headRefOid,author,isDraft,state,reviewDecision,statusCheckRollup,comments,reviews,updatedAt';
+
+/**
+ * Discussion volume as a reviewer perceives it: conversation comments plus
+ * review submissions that say something. Bodyless reviews (bare approvals)
+ * are not comments, and inline review comments are not exposed by `gh pr list`.
+ */
+function countComments(pr: RawPr): number {
+  const comments = pr.comments?.length ?? 0;
+  const reviews = (pr.reviews ?? []).filter((r) => r.body.trim().length > 0).length;
+  return comments + reviews;
+}
+
+/**
+ * Resolves the gh account authenticated for this repo's host. Returns null when
+ * the identity cannot be resolved, so callers can leave a previously known
+ * "authored by me" flag untouched rather than flipping every PR to "not mine".
+ */
+async function fetchViewerLogin(repoDir: string, runner: GhRunner): Promise<string | null> {
+  try {
+    const { stdout } = await runner(['api', 'user', '--jq', '.login'], repoDir);
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 export async function listOpenPrs(repoDir: string, runner: GhRunner = localGhRunner): Promise<GhPr[]> {
   const { stdout } = await runner(['pr', 'list', '--json', PR_LIST_FIELDS], repoDir);
   const raw: RawPr[] = JSON.parse(stdout);
+  // Skip the identity round-trip when there is nothing to attribute.
+  const viewer = raw.length > 0 ? await fetchViewerLogin(repoDir, runner) : null;
+
   return raw.map((pr) => ({
     number: pr.number,
     title: pr.title,
@@ -115,6 +145,8 @@ export async function listOpenPrs(repoDir: string, runner: GhRunner = localGhRun
     reviewDecision: pr.reviewDecision ?? null,
     ciStatus: deriveCiStatus(pr.statusCheckRollup),
     checks: (pr.statusCheckRollup ?? []).map(normalizeCheck),
+    commentCount: countComments(pr),
+    authoredByViewer: viewer === null ? null : pr.author.login === viewer,
     updatedAt: pr.updatedAt,
   }));
 }

@@ -229,6 +229,17 @@ describe('workspace router', () => {
       );
     });
 
+    it('[FR-PRMON-190] should default prScope to mine and persist an update to all', async () => {
+      const ws = await caller.workspace.create({ name: 'Pr Scope' });
+      expect(ws.prScope).toBe('mine');
+
+      const updated = await caller.workspace.update({ id: ws.id, prScope: 'all' });
+      expect(updated.prScope).toBe('all');
+
+      const untouched = await caller.workspace.update({ id: ws.id, name: 'Pr Scope Renamed' });
+      expect(untouched.prScope).toBe('all');
+    });
+
     it('[FR-WORKSPACE-020] should fail when repos provided but no daemon connected', async () => {
       const ws = await caller.workspace.create({ name: 'Repo Update' });
       await expect(caller.workspace.update({ id: ws.id, repos: ['/some/path'] })).rejects.toThrow(

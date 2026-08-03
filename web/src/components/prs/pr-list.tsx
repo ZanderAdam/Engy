@@ -12,6 +12,7 @@ import {
   RiQuestionLine,
   RiTerminalLine,
   RiAlarmWarningLine,
+  RiChat1Line,
 } from '@remixicon/react';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -40,6 +41,7 @@ interface PrItem {
   isDraft: boolean;
   ciStatus: GhPrCiStatus;
   checks: GhPrCheck[];
+  commentCount: number;
   reviewDecision: string | null;
   updatedAt: string;
   sessionId: string | null;
@@ -203,6 +205,25 @@ function PrRow({ pr, showRepo, workspaceSlug, projectSlug }: PrRowProps) {
             </Badge>
           )}
         </div>
+        {pr.commentCount > 0 && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a
+                href={pr.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <RiChat1Line className="size-3" />
+                {pr.commentCount}
+              </a>
+            </TooltipTrigger>
+            <TooltipContent>
+              {pr.commentCount === 1 ? '1 comment' : `${pr.commentCount} comments`} — conversation
+              and reviews
+            </TooltipContent>
+          </Tooltip>
+        )}
         <span className="shrink-0 text-xs text-muted-foreground">{formatRelativeTime(pr.updatedAt)}</span>
       </div>
 
