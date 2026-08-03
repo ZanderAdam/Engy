@@ -241,6 +241,48 @@ describe('TerminalManager', () => {
     expect(replayMsg.snapshot).toContain('line2');
   });
 
+  it('[FR-TERMINAL-450] serializes only the screen for command sessions', async () => {
+    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24, command: 'claude' });
+    for (let i = 0; i < 40; i++) onDataCallback?.(`frame${i}\r\n`);
+    sent.length = 0;
+    manager.suspend('abc');
+
+    const replayMsg = await reconnectSnapshot('abc');
+    expect(replayMsg.snapshot).toContain('frame39');
+    expect(replayMsg.snapshot).not.toContain('frame5');
+  });
+
+  it('[FR-TERMINAL-450] serializes only the screen for coder command sessions', async () => {
+    manager.spawn({
+      sessionId: 'abc',
+      workingDir: '/tmp',
+      cols: 80,
+      rows: 24,
+      command: 'claude',
+      coderWorkspace: 'my-ws',
+    });
+    for (let i = 0; i < 40; i++) onDataCallback?.(`frame${i}\r\n`);
+    sent.length = 0;
+    manager.suspend('abc');
+
+    const replayMsg = await reconnectSnapshot('abc');
+    expect(replayMsg.snapshot).toContain('frame39');
+    expect(replayMsg.snapshot).not.toContain('frame5');
+    // The command rides in the SSH shell invocation — never typed into the PTY.
+    expect(mockPtyProcess.write).not.toHaveBeenCalled();
+  });
+
+  it('[FR-TERMINAL-450] keeps full scrollback in snapshots for plain sessions', async () => {
+    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+    for (let i = 0; i < 40; i++) onDataCallback?.(`frame${i}\r\n`);
+    sent.length = 0;
+    manager.suspend('abc');
+
+    const replayMsg = await reconnectSnapshot('abc');
+    expect(replayMsg.snapshot).toContain('frame5');
+    expect(replayMsg.snapshot).toContain('frame39');
+  });
+
   it('skips the snapshot when the session is killed before the flush fires', async () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
     manager.suspend('abc');
