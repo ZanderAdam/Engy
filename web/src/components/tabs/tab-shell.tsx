@@ -2,13 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { RiAddLine, RiCloseLine, RiGitBranchLine } from '@remixicon/react';
+import { RiAddLine, RiArrowDownSLine, RiCloseLine, RiGitBranchLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
 import { HeaderActions } from '@/components/header-actions';
-import { TabContext, TabsListContext, type TabContextValue, type TabsListContextValue } from './tab-context';
+import { OpenTabsPicker } from './open-tabs-picker';
+import {
+  TabContext,
+  TabsListContext,
+  type TabContextValue,
+  type TabsListContextValue,
+} from './tab-context';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { TabContent } from './tab-content';
 import {
+  collapseToFreshTab,
   computeInitialTabs,
   deriveDefaultTitle,
   deriveTabTitle,
@@ -77,7 +84,10 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
   const { tabs, activeTabId } = state;
   const isMobile = useIsMobile();
 
-  const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) ?? null, [tabs, activeTabId]);
+  const activeTab = useMemo(
+    () => tabs.find((t) => t.id === activeTabId) ?? null,
+    [tabs, activeTabId],
+  );
 
   // Last `{tabId}::{virtualPath}` we wrote to history. Used to skip writes that
   // originate from a popstate-driven state restore (we already are in sync).
@@ -191,9 +201,8 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
       const closingActive = s.activeTabId === id;
       const remaining = s.tabs.filter((t) => t.id !== id);
       if (remaining.length === 0) {
-        const fresh = makeTab('/');
         replaceNextRef.current = true;
-        return { tabs: [fresh], activeTabId: fresh.id };
+        return collapseToFreshTab();
       }
       if (closingActive) {
         const next = remaining[Math.min(idx, remaining.length - 1)];
@@ -201,6 +210,13 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
         return { tabs: remaining, activeTabId: next.id };
       }
       return { tabs: remaining, activeTabId: s.activeTabId };
+    });
+  }, []);
+
+  const closeAllTabs = useCallback(() => {
+    setState(() => {
+      replaceNextRef.current = true;
+      return collapseToFreshTab();
     });
   }, []);
 
@@ -237,8 +253,8 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
   }, []);
 
   const tabsListValue = useMemo<TabsListContextValue>(
-    () => ({ tabs, activeTabId, activateTab, closeTab, openNewTab }),
-    [tabs, activeTabId, activateTab, closeTab, openNewTab],
+    () => ({ tabs, activeTabId, activateTab, closeTab, closeAllTabs, openNewTab }),
+    [tabs, activeTabId, activateTab, closeTab, closeAllTabs, openNewTab],
   );
 
   return (
@@ -409,9 +425,7 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
                       >
                         {seg}
                         {i === segments.length - 1 && ordinalSuffix && (
-                          <span className="font-normal text-muted-foreground">
-                            {ordinalSuffix}
-                          </span>
+                          <span className="font-normal text-muted-foreground">{ordinalSuffix}</span>
                         )}
                       </span>
                     </span>
@@ -460,6 +474,16 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
           <RiAddLine className="size-4" />
         </button>
       </div>
+      <OpenTabsPicker align="end">
+        <button
+          type="button"
+          aria-label="Open tabs"
+          className="flex shrink-0 items-center gap-0.5 border-l border-border px-2 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+        >
+          <span className="tabular-nums">{tabs.length}</span>
+          <RiArrowDownSLine className="size-3.5" />
+        </button>
+      </OpenTabsPicker>
       <HeaderActions />
     </div>
   );

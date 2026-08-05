@@ -1,6 +1,12 @@
 'use client';
 
-import { RiAddLine, RiCheckLine, RiCloseLine, RiGitBranchLine } from '@remixicon/react';
+import {
+  RiAddLine,
+  RiCheckLine,
+  RiCloseCircleLine,
+  RiCloseLine,
+  RiGitBranchLine,
+} from '@remixicon/react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,28 +14,34 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useTabsList } from '@/components/tabs/tab-context';
-import { deriveTabTitle } from '@/components/tabs/tab-state';
+import { useTabsList } from './tab-context';
+import { deriveTabTitle } from './tab-state';
 import { cn } from '@/lib/utils';
 
 interface OpenTabsPickerProps {
   children: React.ReactNode;
+  /**
+   * `start` pins the menu to the viewport's left edge, which the mobile
+   * identity bar relies on to get a full-width list; `end` anchors it under
+   * the trigger for the desktop tab strip's right-hand button.
+   */
+  align?: 'start' | 'end';
 }
 
-export function OpenTabsPicker({ children }: OpenTabsPickerProps) {
+export function OpenTabsPicker({ children, align = 'start' }: OpenTabsPickerProps) {
   const ctx = useTabsList();
   if (!ctx) {
     return <>{children}</>;
   }
-  const { tabs, activeTabId, activateTab, closeTab, openNewTab } = ctx;
+  const { tabs, activeTabId, activateTab, closeTab, closeAllTabs, openNewTab } = ctx;
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
       <DropdownMenuContent
-        align="start"
+        align={align}
         sideOffset={4}
-        alignOffset={-9999}
+        alignOffset={align === 'start' ? -9999 : 0}
         collisionPadding={8}
         className="md:min-w-[16rem] md:w-auto md:max-w-none w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)]"
       >
@@ -91,6 +103,12 @@ export function OpenTabsPicker({ children }: OpenTabsPickerProps) {
           <RiAddLine className="size-3" />
           <span>New tab</span>
         </DropdownMenuItem>
+        {tabs.length > 1 && (
+          <DropdownMenuItem onSelect={closeAllTabs}>
+            <RiCloseCircleLine className="size-3" />
+            <span>Close all tabs</span>
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -170,6 +170,16 @@ export function makeTab(virtualPath: string): Tab {
   };
 }
 
+/**
+ * Discards every open tab and starts over on a single blank one. The shell must
+ * never render zero tabs, so both "close the last remaining tab" and "close all
+ * tabs" land here rather than on an empty tab list.
+ */
+export function collapseToFreshTab(): TabsState {
+  const fresh = makeTab('/');
+  return { tabs: [fresh], activeTabId: fresh.id };
+}
+
 export function navigateTab(tabs: Tab[], tabId: string, path: string): Tab[] {
   return tabs.map((t) =>
     t.id === tabId

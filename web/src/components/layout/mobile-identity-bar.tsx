@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { ProjectActivityBadge } from '@/components/projects/project-activity-badge';
 import { WorkspaceSwitcher } from './header/workspace-switcher';
 import { ProjectSwitcher } from './header/project-switcher';
-import { OpenTabsPicker } from './header/open-tabs-picker';
+import { OpenTabsPicker } from '@/components/tabs/open-tabs-picker';
 import { HeaderActions } from '@/components/header-actions';
 import { useOptionalMobileOverlay } from './mobile-overlay-context';
 

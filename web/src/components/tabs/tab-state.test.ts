@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  collapseToFreshTab,
   computeInitialTabs,
   dedupeProjectTabs,
   findReusableProjectTab,
@@ -233,6 +234,19 @@ describe('tab-state dedup', () => {
       expect(tabs).toHaveLength(1);
       expect(activeTabId).toBe('new');
       expect(tabs[0].virtualPath).toBe(PATH);
+    });
+  });
+
+  describe('collapseToFreshTab', () => {
+    it('should return exactly one blank tab so the shell never renders zero tabs', () => {
+      const { tabs, activeTabId } = collapseToFreshTab();
+      expect(tabs).toHaveLength(1);
+      expect(tabs[0].virtualPath).toBe('/');
+      expect(activeTabId).toBe(tabs[0].id);
+    });
+
+    it('should mint a distinct tab on every call', () => {
+      expect(collapseToFreshTab().tabs[0].id).not.toBe(collapseToFreshTab().tabs[0].id);
     });
   });
 });
