@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  closeOtherTabs,
+  closeTabsToRight,
   collapseToFreshTab,
   computeInitialTabs,
   dedupeProjectTabs,
@@ -234,6 +236,60 @@ describe('tab-state dedup', () => {
       expect(tabs).toHaveLength(1);
       expect(activeTabId).toBe('new');
       expect(tabs[0].virtualPath).toBe(PATH);
+    });
+  });
+
+  describe('closeOtherTabs', () => {
+    const state = {
+      tabs: [tab({ id: 'a', virtualPath: '/a' }), tab({ id: 'b', virtualPath: '/b' })],
+      activeTabId: 'a',
+    };
+
+    it('should keep only the anchor and focus it', () => {
+      const next = closeOtherTabs(state, 'b');
+      expect(next.tabs.map((t) => t.id)).toEqual(['b']);
+      expect(next.activeTabId).toBe('b');
+    });
+
+    it('should leave state untouched for an unknown id', () => {
+      expect(closeOtherTabs(state, 'gone')).toBe(state);
+    });
+
+    it('should leave state untouched when the anchor is already alone', () => {
+      const only = { tabs: [tab({ id: 'a', virtualPath: '/a' })], activeTabId: 'a' };
+      expect(closeOtherTabs(only, 'a')).toBe(only);
+    });
+  });
+
+  describe('closeTabsToRight', () => {
+    const state = {
+      tabs: [
+        tab({ id: 'a', virtualPath: '/a' }),
+        tab({ id: 'b', virtualPath: '/b' }),
+        tab({ id: 'c', virtualPath: '/c' }),
+      ],
+      activeTabId: 'a',
+    };
+
+    it('should drop every tab after the anchor', () => {
+      const next = closeTabsToRight(state, 'b');
+      expect(next.tabs.map((t) => t.id)).toEqual(['a', 'b']);
+    });
+
+    it('should keep the active tab focused when it survives', () => {
+      expect(closeTabsToRight(state, 'b').activeTabId).toBe('a');
+    });
+
+    it('should fall back to the anchor when the active tab was closed', () => {
+      expect(closeTabsToRight({ ...state, activeTabId: 'c' }, 'a').activeTabId).toBe('a');
+    });
+
+    it('should leave state untouched on the rightmost tab', () => {
+      expect(closeTabsToRight(state, 'c')).toBe(state);
+    });
+
+    it('should leave state untouched for an unknown id', () => {
+      expect(closeTabsToRight(state, 'gone')).toBe(state);
     });
   });
 

@@ -19,6 +19,8 @@ export interface TabsListContextValue {
   activeTabId: string | null;
   activateTab: (id: string) => void;
   closeTab: (id: string) => void;
+  closeOtherTabs: (id: string) => void;
+  closeTabsToRight: (id: string) => void;
   closeAllTabs: () => void;
   openNewTab: (path: string, activate?: boolean) => string;
 }

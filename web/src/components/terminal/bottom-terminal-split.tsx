@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
+import { isTypingTarget } from '@/lib/keyboard';
 import { matchShortcut, type ShortcutDef } from '@/components/layout/three-panel-layout';
 import { BottomTerminalProvider } from '@/components/layout/workspace-terminal-context';
 import {
@@ -93,12 +94,7 @@ export function BottomTerminalSplit({
   // Keyboard shortcut: Ctrl+J
   useEffect(() => {
     function handler(e: KeyboardEvent) {
-      const isEditing =
-        document.activeElement instanceof HTMLInputElement ||
-        document.activeElement instanceof HTMLTextAreaElement ||
-        document.activeElement?.closest('[contenteditable="true"]') !== null;
-
-      if (isEditing) return;
+      if (isTypingTarget()) return;
 
       if (matchShortcut(BOTTOM_TERMINAL_SHORTCUT, e)) {
         e.preventDefault();

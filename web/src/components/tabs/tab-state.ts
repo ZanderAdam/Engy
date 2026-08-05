@@ -180,6 +180,32 @@ export function collapseToFreshTab(): TabsState {
   return { tabs: [fresh], activeTabId: fresh.id };
 }
 
+/**
+ * Reduces the strip to `keepId` alone and focuses it. Unlike `closeTab` this
+ * can never empty the strip, since the anchor always survives. Returns `state`
+ * untouched when the id is unknown or there is nothing left to close, so a
+ * no-op never triggers a re-render, a persist, or a history rewrite.
+ */
+export function closeOtherTabs(state: TabsState, keepId: string): TabsState {
+  const keep = state.tabs.find((t) => t.id === keepId);
+  if (!keep) return state;
+  if (state.tabs.length === 1 && state.activeTabId === keepId) return state;
+  return { tabs: [keep], activeTabId: keepId };
+}
+
+/**
+ * Drops every tab after `keepId`. Focus only moves when the active tab was one
+ * of the closed ones — otherwise the user stays exactly where they were. Same
+ * no-op contract as `closeOtherTabs`.
+ */
+export function closeTabsToRight(state: TabsState, keepId: string): TabsState {
+  const idx = state.tabs.findIndex((t) => t.id === keepId);
+  if (idx < 0 || idx === state.tabs.length - 1) return state;
+  const tabs = state.tabs.slice(0, idx + 1);
+  const activeSurvives = tabs.some((t) => t.id === state.activeTabId);
+  return { tabs, activeTabId: activeSurvives ? state.activeTabId : keepId };
+}
+
 export function navigateTab(tabs: Tab[], tabId: string, path: string): Tab[] {
   return tabs.map((t) =>
     t.id === tabId

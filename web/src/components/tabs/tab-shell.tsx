@@ -4,7 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { usePathname, useSearchParams } from 'next/navigation';
 import { RiAddLine, RiArrowDownSLine, RiCloseLine, RiGitBranchLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
+import { isTypingTarget } from '@/lib/keyboard';
 import { HeaderActions } from '@/components/header-actions';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { OpenTabsPicker } from './open-tabs-picker';
 import {
   TabContext,
@@ -15,6 +24,8 @@ import {
 import { useIsMobile } from '@/hooks/use-mobile';
 import { TabContent } from './tab-content';
 import {
+  closeOtherTabs,
+  closeTabsToRight,
   collapseToFreshTab,
   computeInitialTabs,
   deriveDefaultTitle,
@@ -213,6 +224,22 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
     });
   }, []);
 
+  const closeOthers = useCallback((id: string) => {
+    setState((s) => {
+      const next = closeOtherTabs(s, id);
+      if (next !== s) replaceNextRef.current = true;
+      return next;
+    });
+  }, []);
+
+  const closeToRight = useCallback((id: string) => {
+    setState((s) => {
+      const next = closeTabsToRight(s, id);
+      if (next !== s) replaceNextRef.current = true;
+      return next;
+    });
+  }, []);
+
   const closeAllTabs = useCallback(() => {
     setState(() => {
       replaceNextRef.current = true;
@@ -220,9 +247,9 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
     });
   }, []);
 
-  const latest = useRef({ tabs, activeTabId, openNewTab, activateTab });
+  const latest = useRef({ tabs, activeTabId, openNewTab, activateTab, closeTab });
   useEffect(() => {
-    latest.current = { tabs, activeTabId, openNewTab, activateTab };
+    latest.current = { tabs, activeTabId, openNewTab, activateTab, closeTab };
   });
 
   useEffect(() => {
@@ -230,9 +257,27 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
 
+      // The letter combos collide with readline bindings a focused terminal or
+      // input needs (Ctrl+W deletes a word, Ctrl+T transposes), so they yield
+      // while typing. Arrow switching has no such collision and stays global.
+      const typing = isTypingTarget();
+
       if (e.key === 't' && !e.altKey && !e.shiftKey) {
+        if (typing) return;
         e.preventDefault();
         latest.current.openNewTab('/');
+        return;
+      }
+
+      // Matched on `code` so the Option key's macOS character remapping (W → ∑)
+      // can't hide it: Cmd+W is reserved by the browser in a plain tab and
+      // never reaches us there, but Cmd+Alt+W always does — and it mirrors the
+      // Cmd+Alt+Arrow switching already bound below.
+      if (e.code === 'KeyW' && !e.shiftKey) {
+        const { activeTabId: aid } = latest.current;
+        if (typing || !aid) return;
+        e.preventDefault();
+        latest.current.closeTab(aid);
         return;
       }
 
@@ -253,8 +298,17 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
   }, []);
 
   const tabsListValue = useMemo<TabsListContextValue>(
-    () => ({ tabs, activeTabId, activateTab, closeTab, closeAllTabs, openNewTab }),
-    [tabs, activeTabId, activateTab, closeTab, closeAllTabs, openNewTab],
+    () => ({
+      tabs,
+      activeTabId,
+      activateTab,
+      closeTab,
+      closeOtherTabs: closeOthers,
+      closeTabsToRight: closeToRight,
+      closeAllTabs,
+      openNewTab,
+    }),
+    [tabs, activeTabId, activateTab, closeTab, closeOthers, closeToRight, closeAllTabs, openNewTab],
   );
 
   return (
@@ -265,6 +319,9 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
           activeTabId={activeTabId}
           onActivate={activateTab}
           onClose={closeTab}
+          onCloseOthers={closeOthers}
+          onCloseToRight={closeToRight}
+          onCloseAll={closeAllTabs}
           onNew={() => openNewTab('/')}
         />
       )}
@@ -320,10 +377,22 @@ interface TabStripProps {
   activeTabId: string | null;
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
+  onCloseOthers: (id: string) => void;
+  onCloseToRight: (id: string) => void;
+  onCloseAll: () => void;
   onNew: () => void;
 }
 
-function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripProps) {
+function TabStrip({
+  tabs,
+  activeTabId,
+  onActivate,
+  onClose,
+  onCloseOthers,
+  onCloseToRight,
+  onCloseAll,
+  onNew,
+}: TabStripProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -372,97 +441,121 @@ function TabStrip({ tabs, activeTabId, onActivate, onClose, onNew }: TabStripPro
             titleOrdinals.set(base, ordinal);
             ordinalSuffix = ` (${ordinal})`;
           }
+          const isLast = tab.id === tabs[tabs.length - 1].id;
           return (
-            <div
-              key={tab.id}
-              role="tab"
-              aria-selected={isActive}
-              tabIndex={0}
-              onClick={(e) => {
-                if ((e.target as HTMLElement).closest('[data-tab-close]')) return;
-                onActivate(tab.id);
-              }}
-              onAuxClick={(e) => {
-                if (e.button === 1) {
-                  e.preventDefault();
-                  onClose(tab.id);
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onActivate(tab.id);
-                }
-              }}
-              title={tab.virtualPath}
-              className={cn(
-                'group flex min-w-0 shrink-0 cursor-pointer items-center gap-1.5 border-r border-border px-3 text-xs transition-all',
-                isActive
-                  ? 'bg-secondary text-foreground shadow-[inset_0_-1px_0_0_var(--foreground)]'
-                  : 'text-muted-foreground/50 opacity-60 hover:bg-muted/40 hover:text-foreground hover:opacity-100',
-              )}
-            >
-              <span className="flex min-w-0 max-w-[22rem] flex-col justify-center gap-0.5 py-1">
-                <span className="flex items-center gap-1 truncate leading-tight">
-                  {segments.map((seg, i) => (
-                    <span key={i} className="flex items-center gap-1">
-                      {i > 0 && (
-                        <span className={isActive ? 'text-muted-foreground/60' : 'opacity-60'}>
-                          ›
+            <ContextMenu key={tab.id}>
+              <ContextMenuTrigger asChild>
+                <div
+                  role="tab"
+                  aria-selected={isActive}
+                  tabIndex={0}
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest('[data-tab-close]')) return;
+                    onActivate(tab.id);
+                  }}
+                  onAuxClick={(e) => {
+                    if (e.button === 1) {
+                      e.preventDefault();
+                      onClose(tab.id);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onActivate(tab.id);
+                    }
+                  }}
+                  title={tab.virtualPath}
+                  className={cn(
+                    'group flex min-w-0 shrink-0 cursor-pointer items-center gap-1.5 border-r border-border px-3 text-xs transition-all',
+                    isActive
+                      ? 'bg-secondary text-foreground shadow-[inset_0_-1px_0_0_var(--foreground)]'
+                      : 'text-muted-foreground/50 opacity-60 hover:bg-muted/40 hover:text-foreground hover:opacity-100',
+                  )}
+                >
+                  <span className="flex min-w-0 max-w-[22rem] flex-col justify-center gap-0.5 py-1">
+                    <span className="flex items-center gap-1 truncate leading-tight">
+                      {segments.map((seg, i) => (
+                        <span key={i} className="flex items-center gap-1">
+                          {i > 0 && (
+                            <span className={isActive ? 'text-muted-foreground/60' : 'opacity-60'}>
+                              ›
+                            </span>
+                          )}
+                          <span
+                            className={cn(
+                              'truncate',
+                              i === segments.length - 1
+                                ? isActive
+                                  ? 'font-semibold text-foreground'
+                                  : 'font-semibold'
+                                : isActive
+                                  ? 'text-muted-foreground'
+                                  : '',
+                            )}
+                          >
+                            {seg}
+                            {i === segments.length - 1 && ordinalSuffix && (
+                              <span className="font-normal text-muted-foreground">
+                                {ordinalSuffix}
+                              </span>
+                            )}
+                          </span>
                         </span>
-                      )}
+                      ))}
+                    </span>
+                    {worktree ? (
                       <span
                         className={cn(
-                          'truncate',
-                          i === segments.length - 1
-                            ? isActive
-                              ? 'font-semibold text-foreground'
-                              : 'font-semibold'
-                            : isActive
-                              ? 'text-muted-foreground'
-                              : '',
+                          'flex items-center gap-0.5 font-mono text-[9px] leading-none',
+                          isActive ? 'text-muted-foreground' : 'text-muted-foreground/70',
                         )}
+                        title={`Worktree: ${worktree}`}
                       >
-                        {seg}
-                        {i === segments.length - 1 && ordinalSuffix && (
-                          <span className="font-normal text-muted-foreground">{ordinalSuffix}</span>
-                        )}
+                        <RiGitBranchLine className="size-2.5" />
+                        <span className="max-w-[10rem] truncate">{worktree}</span>
                       </span>
-                    </span>
-                  ))}
-                </span>
-                {worktree ? (
-                  <span
-                    className={cn(
-                      'flex items-center gap-0.5 font-mono text-[9px] leading-none',
-                      isActive ? 'text-muted-foreground' : 'text-muted-foreground/70',
+                    ) : (
+                      <span aria-hidden className="h-2.5" />
                     )}
-                    title={`Worktree: ${worktree}`}
-                  >
-                    <RiGitBranchLine className="size-2.5" />
-                    <span className="max-w-[10rem] truncate">{worktree}</span>
                   </span>
-                ) : (
-                  <span aria-hidden className="h-2.5" />
-                )}
-              </span>
-              <ProjectActivityBadge projectSlug={projectSlug} className="shrink-0" />
-              <button
-                type="button"
-                aria-label={`Close ${tab.title}`}
-                data-tab-close
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClose(tab.id);
-                }}
-                className={cn(
-                  'flex size-4 shrink-0 items-center justify-center rounded transition-opacity hover:bg-background',
-                  isActive ? 'opacity-60 hover:opacity-100' : 'opacity-0 group-hover:opacity-60',
-                )}
-              >
-                <RiCloseLine className="size-3" />
-              </button>
-            </div>
+                  <ProjectActivityBadge projectSlug={projectSlug} className="shrink-0" />
+                  <button
+                    type="button"
+                    aria-label={`Close ${tab.title}`}
+                    data-tab-close
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onClose(tab.id);
+                    }}
+                    className={cn(
+                      'flex size-4 shrink-0 items-center justify-center rounded transition-opacity hover:bg-background',
+                      isActive
+                        ? 'opacity-60 hover:opacity-100'
+                        : 'opacity-0 group-hover:opacity-60',
+                    )}
+                  >
+                    <RiCloseLine className="size-3" />
+                  </button>
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent className="min-w-48">
+                <ContextMenuItem onSelect={() => onClose(tab.id)}>
+                  Close
+                  {isActive && <ContextMenuShortcut>⌥⌘W</ContextMenuShortcut>}
+                </ContextMenuItem>
+                <ContextMenuItem disabled={tabs.length <= 1} onSelect={() => onCloseOthers(tab.id)}>
+                  Close others
+                </ContextMenuItem>
+                <ContextMenuItem disabled={isLast} onSelect={() => onCloseToRight(tab.id)}>
+                  Close tabs to the right
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem disabled={tabs.length <= 1} onSelect={onCloseAll}>
+                  Close all tabs
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           );
         })}
         <button

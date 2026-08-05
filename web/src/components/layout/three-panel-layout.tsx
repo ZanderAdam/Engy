@@ -10,6 +10,7 @@ import { MobileFilesSheet } from './mobile-files-sheet';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { usePanelResize, type PanelConfig } from '@/lib/hooks/use-panel-resize';
+import { isTypingTarget } from '@/lib/keyboard';
 
 export interface ShortcutDef {
   mod?: boolean;
@@ -167,12 +168,7 @@ export function ThreePanelLayout({
     function handler(e: KeyboardEvent) {
       if (!containerRef.current || containerRef.current.offsetWidth === 0) return;
 
-      const isEditing =
-        document.activeElement instanceof HTMLInputElement ||
-        document.activeElement instanceof HTMLTextAreaElement ||
-        document.activeElement?.closest('[contenteditable="true"]') !== null;
-
-      if (isEditing) return;
+      if (isTypingTarget()) return;
 
       if (leftPanel && matchShortcut(leftShortcut, e)) {
         e.preventDefault();

@@ -103,12 +103,10 @@ export function OpenTabsPicker({ children, align = 'start' }: OpenTabsPickerProp
           <RiAddLine className="size-3" />
           <span>New tab</span>
         </DropdownMenuItem>
-        {tabs.length > 1 && (
-          <DropdownMenuItem onSelect={closeAllTabs}>
-            <RiCloseCircleLine className="size-3" />
-            <span>Close all tabs</span>
-          </DropdownMenuItem>
-        )}
+        <DropdownMenuItem disabled={tabs.length <= 1} onSelect={closeAllTabs}>
+          <RiCloseCircleLine className="size-3" />
+          <span>Close all tabs</span>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
