@@ -7,6 +7,12 @@ export default defineConfig({
     // Workspace-creating hooks (fresh ENGY_DIR + git init) can exceed the 10s
     // default under full-suite parallel load — see m7-validation.md Phase 1.
     hookTimeout: 30_000,
+    // Same reason, same budget: router tests seed workspaces and projects from
+    // inside the test body too, so the 5s default made whichever suite lost the
+    // CPU race fail on `pnpm blt` (which runs the suite alongside build, lint
+    // and knip) while passing standalone. A timeout here means genuinely stuck,
+    // not merely slow.
+    testTimeout: 30_000,
     // Suppress qmd model initialisation in all tests by default. Individual test
     // files that need real qmd search (search.test.ts) clear this flag selectively.
     env: { QMD_SKIP: '1' },

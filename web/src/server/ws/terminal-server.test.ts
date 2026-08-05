@@ -46,7 +46,13 @@ function startServer(state: AppState): Promise<{ server: Server; port: number }>
       }
     });
 
-    server.listen(0, () => {
+    // Bound to 127.0.0.1, not the default dual-stack address: macOS lets a
+    // `listen(0)` on `::` succeed on a port another process already holds on
+    // IPv4, and the clients below dial 127.0.0.1 — so they would land on that
+    // process instead and fail with whatever it answers (a 404 from any Next
+    // server running on the machine). Binding IPv4 makes the OS reserve the
+    // port the clients actually connect to.
+    server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : 0;
       resolve({ server, port });
