@@ -1,5 +1,13 @@
 export type GitFileStatus = 'added' | 'modified' | 'deleted' | 'renamed';
 
+/**
+ * Which of a path's two pending changes a row describes: what the index holds
+ * relative to the last commit, or what the working tree holds relative to the
+ * index. Views without an index to speak of (a commit, a branch range) have
+ * neither.
+ */
+export type DiffSide = 'staged' | 'unstaged';
+
 export interface ChangedFile {
   path: string;
   status: GitFileStatus;
@@ -10,6 +18,8 @@ export interface ChangedFile {
    * against it so they expire when the file changes again.
    */
   contentId?: string;
+  /** Identity of what the index holds for this path; absent when nothing is staged. */
+  indexId?: string;
 }
 
 export type ViewMode = 'split' | 'unified';

@@ -162,6 +162,7 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       resolvePendingResponse(msg.payload, state.pendingGitStatus, (p) => ({
         files: p.files,
         branch: p.branch,
+        head: p.head,
       }));
       break;
     case 'GIT_LOG_RESPONSE':
@@ -178,6 +179,7 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       resolvePendingResponse(msg.payload, state.pendingGitBranchFiles, (p) => ({
         files: p.files,
         mergeBase: p.mergeBase,
+        head: p.head,
       }));
       break;
     case 'GIT_FETCH_RESPONSE':

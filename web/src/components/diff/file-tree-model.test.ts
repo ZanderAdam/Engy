@@ -53,18 +53,19 @@ describe('file tree model', () => {
       expect(buildFileTree([])).toEqual([]);
     });
 
-    it('namespaces directory ids by prefix while leaving file ids untouched', () => {
+    it('namespaces both directory and file ids by prefix', () => {
       const items = buildFileTree(['src/a.ts'], 'staged:');
 
       expect(items[0].id).toBe(`staged:${DIR_ID_PREFIX}src`);
-      expect(items[0].children?.[0].id).toBe('src/a.ts');
+      expect(items[0].children?.[0].id).toBe('staged:src/a.ts');
     });
 
-    it('gives the same path distinct dir ids under different prefixes', () => {
+    it('[FR-GIT-260] gives the same path distinct ids under different prefixes', () => {
       const staged = buildFileTree(['src/a.ts'], 'staged:');
       const unstaged = buildFileTree(['src/a.ts'], 'unstaged:');
 
       expect(staged[0].id).not.toBe(unstaged[0].id);
+      expect(staged[0].children?.[0].id).not.toBe(unstaged[0].children?.[0].id);
     });
   });
 

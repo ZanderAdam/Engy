@@ -15,6 +15,15 @@ import {
 import { imageMimeType } from '@/lib/file-types';
 
 /**
+ * Identity of the content the caller expects to read back. The reads themselves
+ * ignore it: `HEAD` and the working tree name different bytes at different
+ * times, so without something that changes when the content does, a client
+ * cache keyed on the request would keep serving the first answer forever.
+ * Callers pass it for mutable refs and omit it for a commit hash.
+ */
+const contentIdInput = z.string().optional();
+
+/**
  * Compose rootDir + relPath into an absolute path for the daemon, rejecting
  * escapes. FS_DELETE/FS_RENAME validate on the daemon side; CREATE_DIR is a
  * raw mkdir op (also used with absolute paths by workspace creation), so the
@@ -93,6 +102,7 @@ export const fileRouter = router({
         ref: z.string().optional(),
         worktreePath: z.string().optional(),
         coderWorkspace: z.string().optional(),
+        contentId: contentIdInput,
       }),
     )
     .query(async ({ input, ctx }) => {
@@ -110,6 +120,7 @@ export const fileRouter = router({
         ref: z.string().optional(),
         worktreePath: z.string().optional(),
         coderWorkspace: z.string().optional(),
+        contentId: contentIdInput,
       }),
     )
     .query(async ({ input, ctx }) => {

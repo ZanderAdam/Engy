@@ -1,3 +1,4 @@
+import { rowId } from './diff-selection';
 import type { ChangedFile, GitFileStatus } from './types';
 
 export type MatchMode = 'substring' | 'regex' | 'glob';
@@ -89,6 +90,7 @@ export function createPathMatcher(
 
 interface FilterContext {
   commentCounts?: Map<string, number>;
+  /** Keyed by row id — one path's staged and unstaged halves tick off separately. */
   viewedPaths?: Set<string>;
 }
 
@@ -102,7 +104,7 @@ export function filterFiles(
   const filtered = files.filter((file) => {
     if (filter.statuses.size > 0 && !filter.statuses.has(file.status)) return false;
     if (filter.commentedOnly && !(context.commentCounts?.get(file.path) ?? 0)) return false;
-    if (filter.unviewedOnly && context.viewedPaths?.has(file.path)) return false;
+    if (filter.unviewedOnly && context.viewedPaths?.has(rowId(file))) return false;
     return matcher.matches(file.path);
   });
 

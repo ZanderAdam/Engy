@@ -16,6 +16,7 @@ import {
   fetchRemote,
   localGitRunner,
   parsePorcelainStatus,
+  expandStatusEntry,
   parseWorktreeList,
   globTestFiles,
 } from './index.js';
@@ -183,6 +184,113 @@ describe('git integration', () => {
 
       expect(result.files).toHaveLength(1);
       expect(result.files[0].status).toBe('deleted');
+    });
+
+    it('[FR-GIT-330] reports an unmerged path as a single unstaged row', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('other');
+      await commitFile(repoDir, 'conflict.txt', 'from the other branch');
+      await git.checkout(mainBranch);
+      await commitFile(repoDir, 'conflict.txt', 'from main');
+      // Add/add conflict: porcelain reports `AA`, which carries no `U` at all.
+      await git.merge(['other']).catch(() => undefined);
+
+      const result = await getStatusDetailed(repoDir);
+
+      const rows = result.files.filter((f) => f.path === 'conflict.txt');
+      expect(rows).toHaveLength(1);
+      // A conflicted path has no stage-0 entry, so it must never read as staged.
+      expect(rows[0].staged).toBe(false);
+    });
+
+    it('[FR-GIT-260] splits a path changed on both sides into a staged and an unstaged row', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'file.txt', 'original');
+      await writeFile(join(repoDir, 'file.txt'), 'staged');
+      await simpleGit(repoDir).add('file.txt');
+      await writeFile(join(repoDir, 'file.txt'), 'staged then edited again');
+
+      const result = await getStatusDetailed(repoDir);
+
+      const rows = result.files.filter((f) => f.path === 'file.txt');
+      expect(rows).toHaveLength(2);
+      expect(rows.map((r) => r.staged).sort()).toEqual([false, true]);
+    });
+
+    it('[FR-GIT-270] reports the pre-rename path on the staged row only', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'old.txt', 'content');
+      const git = simpleGit(repoDir);
+      await git.mv('old.txt', 'new.txt');
+      await writeFile(join(repoDir, 'new.txt'), 'content edited after the rename');
+
+      const result = await getStatusDetailed(repoDir);
+
+      const staged = result.files.find((f) => f.path === 'new.txt' && f.staged);
+      const unstaged = result.files.find((f) => f.path === 'new.txt' && !f.staged);
+      expect(staged).toMatchObject({ status: 'renamed', oldPath: 'old.txt' });
+      expect(unstaged?.oldPath).toBeUndefined();
+    });
+
+    it('[FR-GIT-280] reports the commit HEAD resolves to', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'file.txt', 'content');
+      const expected = (await simpleGit(repoDir).revparse(['HEAD'])).trim();
+
+      const result = await getStatusDetailed(repoDir);
+
+      expect(result.head).toBe(expected);
+    });
+
+    it('[FR-GIT-280] omits the head commit for a repo with no commits yet', async () => {
+      repoDir = await createTempRepo();
+      await writeFile(join(repoDir, 'file.txt'), 'content');
+
+      const result = await getStatusDetailed(repoDir);
+
+      expect(result.head).toBeUndefined();
+    });
+
+    it('[FR-GIT-290] identifies staged content and re-identifies it after another add', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'file.txt', 'original');
+      const git = simpleGit(repoDir);
+      await writeFile(join(repoDir, 'file.txt'), 'first staged version');
+      await git.add('file.txt');
+
+      const first = await getStatusDetailed(repoDir);
+      const firstId = first.files.find((f) => f.staged)?.indexId;
+
+      await writeFile(join(repoDir, 'file.txt'), 'second staged version');
+      await git.add('file.txt');
+      const second = await getStatusDetailed(repoDir);
+
+      expect(firstId).toBeTruthy();
+      expect(second.files.find((f) => f.staged)?.indexId).not.toBe(firstId);
+    });
+
+    it('[FR-GIT-290] omits the index identity for a path with nothing staged', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'file.txt', 'original');
+      await writeFile(join(repoDir, 'file.txt'), 'modified in the working tree only');
+
+      const result = await getStatusDetailed(repoDir);
+
+      expect(result.files[0].indexId).toBeUndefined();
+    });
+
+    it('[FR-GIT-290] omits the index identity for a path staged for deletion', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'file.txt', 'content');
+      await simpleGit(repoDir).rm('file.txt');
+
+      const result = await getStatusDetailed(repoDir);
+
+      expect(result.files[0]).toMatchObject({ status: 'deleted', staged: true });
+      expect(result.files[0].indexId).toBeUndefined();
     });
   });
 
@@ -567,6 +675,20 @@ describe('git integration', () => {
       expect(files).toMatchObject([{ path: 'committed.txt', status: 'added' }]);
     });
 
+    it('[FR-GIT-280] reports the commit HEAD resolves to alongside the merge base', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'base.txt', 'base');
+      const git = simpleGit(repoDir);
+      const mainBranch = (await git.status()).current!;
+      await git.checkoutLocalBranch('feature');
+      await commitFile(repoDir, 'feature.txt', 'feature');
+      const expected = (await git.revparse(['HEAD'])).trim();
+
+      const { head } = await getBranchFiles(repoDir, mainBranch, localGitRunner, 'head');
+
+      expect(head).toBe(expected);
+    });
+
     it('[FR-GIT-240] matches git three-dot output, which is what a PR shows', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'base.txt', 'base');
@@ -738,6 +860,39 @@ describe('git integration', () => {
     });
   });
 
+  describe('expandStatusEntry', () => {
+    it('[FR-GIT-260] emits a row per occupied column', () => {
+      expect(expandStatusEntry('M', ' ')).toEqual([{ status: 'modified', staged: true }]);
+      expect(expandStatusEntry(' ', 'M')).toEqual([{ status: 'modified', staged: false }]);
+      expect(expandStatusEntry('M', 'M')).toEqual([
+        { status: 'modified', staged: true },
+        { status: 'modified', staged: false },
+      ]);
+    });
+
+    it('[FR-GIT-260] assigns an unmapped code to the column that reported it', () => {
+      // A staged type change (file → symlink) occupies the index column only.
+      expect(expandStatusEntry('T', ' ')).toEqual([{ status: 'modified', staged: true }]);
+      expect(expandStatusEntry(' ', 'T')).toEqual([{ status: 'modified', staged: false }]);
+      expect(expandStatusEntry('T', 'T')).toEqual([
+        { status: 'modified', staged: true },
+        { status: 'modified', staged: false },
+      ]);
+    });
+
+    it('[FR-GIT-330] reports every unmerged code as one unstaged row', () => {
+      for (const code of ['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']) {
+        expect(expandStatusEntry(code[0], code[1])).toEqual([
+          { status: 'modified', staged: false },
+        ]);
+      }
+    });
+
+    it('[FR-GIT-260] reports an untracked path as one unstaged addition', () => {
+      expect(expandStatusEntry('?', '?')).toEqual([{ status: 'added', staged: false }]);
+    });
+  });
+
   describe('parsePorcelainStatus', () => {
     it('parses branch and entries with NUL separators', () => {
       const out = '## main...origin/main\0 M file1.txt\0A  file2.txt\0?? file3.txt\0';
@@ -750,11 +905,18 @@ describe('git integration', () => {
       ]);
     });
 
-    it('handles renames by skipping the original-path token', () => {
+    it('[FR-GIT-270] treats a rename with no original-path token as a plain status', () => {
+      // Truncated stream: the old-path token never arrives.
+      const out = '## main\0R  newname.txt\0';
+      const result = parsePorcelainStatus(out);
+      expect(result.entries).toEqual([{ index: 'R', workingDir: ' ', path: 'newname.txt' }]);
+    });
+
+    it('[FR-GIT-270] keeps the original path of a rename and resumes parsing after it', () => {
       const out = '## main\0R  newname.txt\0oldname.txt\0 M other.txt\0';
       const result = parsePorcelainStatus(out);
       expect(result.entries).toEqual([
-        { index: 'R', workingDir: ' ', path: 'newname.txt' },
+        { index: 'R', workingDir: ' ', path: 'newname.txt', origPath: 'oldname.txt' },
         { index: ' ', workingDir: 'M', path: 'other.txt' },
       ]);
     });

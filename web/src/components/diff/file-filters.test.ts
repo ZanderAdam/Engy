@@ -8,6 +8,7 @@ import {
   isFilterActive,
   toggleStatus,
 } from './file-filters';
+import { rowId } from './diff-selection';
 import type { ChangedFile, GitFileStatus } from './types';
 
 function file(path: string, status: GitFileStatus = 'modified', staged = false): ChangedFile {
@@ -141,7 +142,10 @@ describe('file filters', () => {
     });
 
     it('hides viewed files when unviewedOnly is set', () => {
-      const viewedPaths = new Set(['client/src/git/index.ts', 'docs/README.md']);
+      const viewedPaths = new Set([
+        rowId(file('client/src/git/index.ts')),
+        rowId(file('docs/README.md')),
+      ]);
 
       const { files } = filterFiles(
         FILES,
@@ -151,6 +155,15 @@ describe('file filters', () => {
 
       expect(files.map((f) => f.path)).not.toContain('client/src/git/index.ts');
       expect(files).toHaveLength(3);
+    });
+
+    it('[FR-GIT-340] hides only the reviewed half of a path changed on both sides', () => {
+      const both = [file('a.ts', 'modified', true), file('a.ts', 'modified', false)];
+      const viewedPaths = new Set([rowId(both[0])]);
+
+      const { files } = filterFiles(both, { ...EMPTY_FILTER, unviewedOnly: true }, { viewedPaths });
+
+      expect(files).toEqual([both[1]]);
     });
 
     it('surfaces the matcher error without emptying the list', () => {

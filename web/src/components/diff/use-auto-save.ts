@@ -38,7 +38,15 @@ export function useAutoSave(
   // Sequence counter — only the latest write updates status.
   const writeSeqRef = useRef(0);
 
-  const writeMutation = trpc.file.write.useMutation();
+  // A save changes what the working tree holds, which is the "after" side of
+  // every diff on screen and the identity the file list reports for the path.
+  // Without this the list keeps describing the file as it was before the edit.
+  const utils = trpc.useUtils();
+  const writeMutation = trpc.file.write.useMutation({
+    onSuccess: () => {
+      void utils.diff.getStatus.invalidate();
+    },
+  });
   const mutateRef = useRef(writeMutation.mutateAsync);
   useEffect(() => { mutateRef.current = writeMutation.mutateAsync; }, [writeMutation.mutateAsync]);
   const [resetKey, setResetKey] = useState(`${repoDir}:${filePath}`);

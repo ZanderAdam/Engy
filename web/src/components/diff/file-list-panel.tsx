@@ -17,6 +17,8 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { FileTree } from './file-tree';
+import { FileTreeSection } from './file-tree-section';
+import { useSectionSplit } from './use-section-split';
 import { DiffFilterBar } from './diff-filter-bar';
 import { buildFileTree, collectDirIds } from './file-tree-model';
 import {
@@ -27,18 +29,26 @@ import {
   isFilterActive,
 } from './file-filters';
 import type { FilterState } from './file-filters';
-import type { ChangedFile, GitFileStatus } from '@/components/diff/types';
+import { decodeSelection, encodeSelection, rowId, selectionPrefix } from './diff-selection';
+import type { ChangedFile, DiffSide, GitFileStatus } from '@/components/diff/types';
 
 interface FileListPanelProps {
   files: ChangedFile[];
+  /** Whatever `onSelectFile` last emitted — a side-qualified id when `sided`. */
   selectedFile: string | null;
-  onSelectFile: (path: string) => void;
+  onSelectFile: (selection: string) => void;
   onRefresh: () => void;
   isLoading?: boolean;
   commentCounts?: Map<string, number>;
   viewedPaths?: Set<string>;
   onToggleViewed?: (path: string) => void;
   onSetViewed?: (paths: string[], viewed: boolean) => void;
+  /**
+   * Whether the list is showing pending work, where one path can be listed
+   * twice — once staged, once not — and selection has to say which. Views of a
+   * commit or a branch range have a single row per path and set this false.
+   */
+  sided?: boolean;
 }
 
 const STATUS_COLORS: Record<GitFileStatus, string> = {
@@ -48,12 +58,22 @@ const STATUS_COLORS: Record<GitFileStatus, string> = {
   renamed: 'text-yellow-500',
 };
 
+const SECTION_SPLIT_STORAGE_KEY = 'engy-diffs-section-split';
+
 const STATUS_LABELS: Record<GitFileStatus, string> = {
   added: 'A',
   modified: 'M',
   deleted: 'D',
   renamed: 'R',
 };
+
+/**
+ * Rows and files are not the same count once a path can be listed on both
+ * sides of the index, and anything phrased as a number of files has to say the
+ * latter.
+ */
+const countPaths = (files: ChangedFile[], match: (f: ChangedFile) => boolean = () => true): number =>
+  new Set(files.filter(match).map((f) => f.path)).size;
 
 interface RenderItemContext {
   fileStatusMap: Map<string, GitFileStatus>;
@@ -78,8 +98,12 @@ function createRenderItem({
       );
     }
 
+    // Tree ids are row ids, so the status letter and the viewed mark are per
+    // row — a rename can be staged while a later edit to the same path is not.
+    // Comments belong to the file itself, so they stay keyed on the path.
+    const path = decodeSelection(item.id, true).path!;
     const status = fileStatusMap.get(item.id);
-    const commentCount = commentCounts?.get(item.id);
+    const commentCount = commentCounts?.get(path);
     const isViewed = viewedPaths?.has(item.id) ?? false;
 
     return (
@@ -149,6 +173,7 @@ export function FileListPanel({
   viewedPaths,
   onToggleViewed,
   onSetViewed,
+  sided = false,
 }: FileListPanelProps) {
   const [filter, setFilter] = useState<FilterState>(EMPTY_FILTER);
   // Directories start collapsed and open one level at a time. The set lives here
@@ -159,13 +184,16 @@ export function FileListPanel({
 
   const statusCounts = useMemo(() => countByStatus(files), [files]);
 
+  const fileCount = useMemo(() => countPaths(files), [files]);
+
   const commentedCount = useMemo(
-    () => files.filter((f) => (commentCounts?.get(f.path) ?? 0) > 0).length,
+    () => countPaths(files, (f) => (commentCounts?.get(f.path) ?? 0) > 0),
     [files, commentCounts],
   );
 
+  // Rows, not paths: each half of a path is reviewed on its own.
   const unviewedCount = useMemo(
-    () => files.filter((f) => !viewedPaths?.has(f.path)).length,
+    () => files.filter((f) => !viewedPaths?.has(rowId(f))).length,
     [files, viewedPaths],
   );
 
@@ -176,7 +204,7 @@ export function FileListPanel({
 
   const fileStatusMap = useMemo(() => {
     const map = new Map<string, GitFileStatus>();
-    for (const f of files) map.set(f.path, f.status);
+    for (const f of files) map.set(rowId(f), f.status);
     return map;
   }, [files]);
 
@@ -185,23 +213,58 @@ export function FileListPanel({
     [fileStatusMap, commentCounts, viewedPaths, onToggleViewed],
   );
 
-  const { stagedItems, unstagedItems, allItems, hasStagedAndUnstaged } = useMemo(() => {
-    const staged = visibleFiles.filter((f) => f.staged).map((f) => f.path);
-    const unstaged = visibleFiles.filter((f) => !f.staged).map((f) => f.path);
-    return {
-      stagedItems: buildFileTree(staged, 'staged:'),
-      unstagedItems: buildFileTree(unstaged, 'unstaged:'),
-      allItems: buildFileTree(visibleFiles.map((f) => f.path)),
-      hasStagedAndUnstaged: staged.length > 0 && unstaged.length > 0,
-    };
-  }, [visibleFiles]);
+  const { stagedItems, unstagedItems, allItems, soleSide, stagedCount, unstagedCount } =
+    useMemo(() => {
+      const staged = visibleFiles.filter((f) => f.staged).map((f) => f.path);
+      const unstaged = visibleFiles.filter((f) => !f.staged).map((f) => f.path);
+      const sole: DiffSide = staged.length > 0 && unstaged.length === 0 ? 'staged' : 'unstaged';
+      return {
+        stagedItems: buildFileTree(staged, selectionPrefix('staged')),
+        unstagedItems: buildFileTree(unstaged, selectionPrefix('unstaged')),
+        allItems: buildFileTree(
+          visibleFiles.map((f) => f.path),
+          selectionPrefix(sole),
+        ),
+        soleSide: sole,
+        stagedCount: staged.length,
+        unstagedCount: unstaged.length,
+      };
+    }, [visibleFiles]);
+
+  const {
+    fraction: splitFraction,
+    isDragging: splitDragging,
+    containerRef: splitContainerRef,
+    onHandleMouseDown: onSplitMouseDown,
+  } = useSectionSplit(SECTION_SPLIT_STORAGE_KEY);
+  const [collapsed, setCollapsed] = useState({ staged: false, unstaged: false });
+  const toggleSection = (side: DiffSide) =>
+    setCollapsed((prev) => ({ ...prev, [side]: !prev[side] }));
+
+  // An empty section has nothing to scroll, so it never claims height either.
+  const stagedOpen = !collapsed.staged && stagedCount > 0;
+  const unstagedOpen = !collapsed.unstaged && unstagedCount > 0;
+  // The divider only means anything while both are competing for height, and
+  // only then do the two shares have to add up to the whole pane.
+  const bothExpanded = stagedOpen && unstagedOpen;
+  const stagedGrow = bothExpanded ? splitFraction : 1;
+  const unstagedGrow = bothExpanded ? 1 - splitFraction : 1;
+
+  // Trees always key on side-qualified ids so the same path can sit in both.
+  // Callers that don't track a side get the bare path back, and their selection
+  // is re-qualified per tree to find the row again.
+  const handleSelect = (id: string) => onSelectFile(sided ? id : decodeSelection(id, true).path!);
+  const treeSelection = (side: DiffSide) => {
+    if (selectedFile === null) return null;
+    return sided ? selectedFile : encodeSelection(selectedFile, side);
+  };
 
   const allDirIds = useMemo(
     () =>
-      hasStagedAndUnstaged
+      sided
         ? [...collectDirIds(stagedItems), ...collectDirIds(unstagedItems)]
         : collectDirIds(allItems),
-    [hasStagedAndUnstaged, stagedItems, unstagedItems, allItems],
+    [sided, stagedItems, unstagedItems, allItems],
   );
 
   const allExpanded = allDirIds.length > 0 && allDirIds.every((id) => expandedIds.has(id));
@@ -212,16 +275,11 @@ export function FileListPanel({
 
   // Bulk marking acts on exactly what the filters leave on screen, so narrowing
   // to a subset and clearing it in one go is the intended workflow.
-  const allVisibleViewed = allViewed(
-    visibleFiles.map((f) => f.path),
-    viewedPaths ?? new Set(),
-  );
+  const visibleRowIds = useMemo(() => visibleFiles.map(rowId), [visibleFiles]);
 
-  const toggleViewedForVisible = () =>
-    onSetViewed?.(
-      visibleFiles.map((f) => f.path),
-      !allVisibleViewed,
-    );
+  const allVisibleViewed = allViewed(visibleRowIds, viewedPaths ?? new Set());
+
+  const toggleViewedForVisible = () => onSetViewed?.(visibleRowIds, !allVisibleViewed);
 
   // The panel is rendered on routes without a surrounding provider (the /open
   // quick-diff view), so it supplies its own; nesting providers is safe.
@@ -230,8 +288,8 @@ export function FileListPanel({
       <div className="flex h-full flex-col">
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <span className="text-xs font-medium text-muted-foreground">
-            {filtering ? `${visibleFiles.length} of ${files.length}` : files.length} file
-            {files.length !== 1 ? 's' : ''} changed
+            {filtering ? `${countPaths(visibleFiles)} of ${fileCount}` : fileCount} file
+            {fileCount !== 1 ? 's' : ''} changed
           </span>
           <div className="flex items-center gap-0.5">
             {onSetViewed && visibleFiles.length > 0 && (
@@ -319,43 +377,67 @@ export function FileListPanel({
           </div>
         )}
 
-        {visibleFiles.length > 0 && (
+        {visibleFiles.length > 0 && !sided && (
           <div className="flex-1 overflow-auto">
-            {hasStagedAndUnstaged ? (
-              <>
-                <div className="px-2 pt-2 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-                  Staged
-                </div>
-                <FileTree
-                  items={stagedItems}
-                  selectedFile={selectedFile}
-                  onSelectFile={onSelectFile}
-                  renderItem={renderItem}
-                  expandedIds={expandedIds}
-                  onExpandedChange={setExpandedIds}
-                />
-                <div className="px-2 pt-3 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-                  Unstaged
-                </div>
-                <FileTree
-                  items={unstagedItems}
-                  selectedFile={selectedFile}
-                  onSelectFile={onSelectFile}
-                  renderItem={renderItem}
-                  expandedIds={expandedIds}
-                  onExpandedChange={setExpandedIds}
-                />
-              </>
-            ) : (
+            <FileTree
+              items={allItems}
+              selectedFile={treeSelection(soleSide)}
+              onSelectFile={handleSelect}
+              renderItem={renderItem}
+              expandedIds={expandedIds}
+              onExpandedChange={setExpandedIds}
+            />
+          </div>
+        )}
+
+        {visibleFiles.length > 0 && sided && (
+          <div ref={splitContainerRef} className="flex min-h-0 flex-1 flex-col">
+            <FileTreeSection
+              title="Staged"
+              count={stagedCount}
+              expanded={stagedOpen}
+              onToggle={() => toggleSection('staged')}
+              grow={stagedGrow}
+            >
               <FileTree
-                items={allItems}
-                selectedFile={selectedFile}
-                onSelectFile={onSelectFile}
+                items={stagedItems}
+                selectedFile={treeSelection('staged')}
+                onSelectFile={handleSelect}
                 renderItem={renderItem}
                 expandedIds={expandedIds}
                 onExpandedChange={setExpandedIds}
               />
+            </FileTreeSection>
+
+            {bothExpanded && (
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                title="Drag to resize"
+                onMouseDown={onSplitMouseDown}
+                className={cn(
+                  'h-1 shrink-0 cursor-row-resize bg-border transition-colors hover:bg-blue-500',
+                  splitDragging && 'bg-blue-500',
+                )}
+              />
             )}
+
+            <FileTreeSection
+              title="Unstaged"
+              count={unstagedCount}
+              expanded={unstagedOpen}
+              onToggle={() => toggleSection('unstaged')}
+              grow={unstagedGrow}
+            >
+              <FileTree
+                items={unstagedItems}
+                selectedFile={treeSelection('unstaged')}
+                onSelectFile={handleSelect}
+                renderItem={renderItem}
+                expandedIds={expandedIds}
+                onExpandedChange={setExpandedIds}
+              />
+            </FileTreeSection>
           </div>
         )}
       </div>

@@ -1,12 +1,15 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import { FileListPanel } from './file-list-panel';
 import { DiffViewerPanel } from './diff-viewer-panel';
 import { DiffHeader } from './diff-header';
 import { ReviewActions } from './review-actions';
 import { useDiffComments } from './use-diff-comments';
+import { decodeSelection, findSelectedFile } from './diff-selection';
+import { latestRefs } from './diff-refs';
+import { refreshDiff } from './diff-refresh';
 import type { ChangedFile, ViewMode } from './types';
 
 interface DirDiffPanelProps {
@@ -14,33 +17,50 @@ interface DirDiffPanelProps {
 }
 
 export function DirDiffPanel({ dirPath }: DirDiffPanelProps) {
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selection, setSelection] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('unified');
 
-  const {
-    data: statusData,
-    isLoading: isStatusLoading,
-    refetch: refetchStatus,
-  } = trpc.diff.getStatus.useQuery({ repoDir: dirPath });
+  const { path: selectedFile, side: selectedSide } = decodeSelection(selection, true);
+
+  const { data: statusData, isLoading: isStatusLoading } = trpc.diff.getStatus.useQuery(
+    { repoDir: dirPath },
+    { staleTime: 0, refetchOnWindowFocus: true },
+  );
+
+  const utils = trpc.useUtils();
+  const handleRefresh = useCallback(() => refreshDiff(utils), [utils]);
 
   const { diffComments } = useDiffComments(dirPath);
 
   const files: ChangedFile[] = useMemo(() => statusData?.files ?? [], [statusData]);
 
   const selectedFileData = useMemo(
-    () => files.find((f) => f.path === selectedFile),
-    [files, selectedFile],
+    () => findSelectedFile(files, selectedFile, selectedSide),
+    [files, selectedFile, selectedSide],
   );
 
-  // File content: original (HEAD)
+  const { originalRef, modifiedRef, originalId, modifiedId } = useMemo(
+    () =>
+      selectedFileData && selectedSide
+        ? latestRefs(selectedFileData, selectedSide, statusData?.head)
+        : {},
+    [selectedFileData, selectedSide, statusData],
+  );
+
+  // File content: original
   const { data: originalData } = trpc.file.read.useQuery(
-    { repoDir: dirPath, filePath: selectedFile!, ref: 'HEAD' },
-    { enabled: !!selectedFile && selectedFileData?.status !== 'added', retry: false },
+    {
+      repoDir: dirPath,
+      filePath: selectedFileData?.oldPath ?? selectedFile!,
+      ref: originalRef,
+      contentId: originalId,
+    },
+    { enabled: !!selectedFile && !!originalRef, retry: false },
   );
 
-  // File content: modified (working tree)
+  // File content: modified
   const { data: modifiedData } = trpc.file.read.useQuery(
-    { repoDir: dirPath, filePath: selectedFile! },
+    { repoDir: dirPath, filePath: selectedFile!, ref: modifiedRef, contentId: modifiedId },
     { enabled: !!selectedFile && selectedFileData?.status !== 'deleted', retry: false },
   );
 
@@ -59,9 +79,10 @@ export function DirDiffPanel({ dirPath }: DirDiffPanelProps) {
       <div className="flex w-[240px] flex-shrink-0 flex-col border-r border-border">
         <FileListPanel
           files={files}
-          selectedFile={selectedFile}
-          onSelectFile={setSelectedFile}
-          onRefresh={() => refetchStatus()}
+          selectedFile={selection}
+          onSelectFile={setSelection}
+          onRefresh={handleRefresh}
+          sided
           isLoading={isStatusLoading}
         />
       </div>

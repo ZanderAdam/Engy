@@ -105,9 +105,12 @@ export interface GitStatusResponseMessage {
           path: string;
           status: GitFileStatus;
           staged: boolean;
+          oldPath?: string;
           contentId?: string;
+          indexId?: string;
         }>;
         branch: string;
+        head?: string;
       }
     | {
         requestId: string;
@@ -219,6 +222,9 @@ export interface GitBranchFilesResponseMessage {
         // and HEAD. Callers read file contents at this ref so the viewer and the
         // file list agree on what "before" means.
         mergeBase: string;
+        // Commit HEAD pointed at. Callers name it explicitly rather than reading
+        // `HEAD`, so a cached read cannot survive the branch moving on.
+        head?: string;
       }
     | {
         requestId: string;

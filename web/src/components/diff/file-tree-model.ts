@@ -24,11 +24,7 @@ function buildTrie(filePaths: string[]): TrieNode {
   return root;
 }
 
-function trieToTreeItems(
-  node: TrieNode,
-  parentPath: string,
-  dirIdPrefix: string,
-): TreeDataItem[] {
+function trieToTreeItems(node: TrieNode, parentPath: string, idPrefix: string): TreeDataItem[] {
   const dirEntries = [...node.children.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 
   const dirItems: TreeDataItem[] = dirEntries.map(([dirName, dirNode]) => {
@@ -46,14 +42,14 @@ function trieToTreeItems(
     }
 
     return {
-      id: `${dirIdPrefix}${DIR_ID_PREFIX}${compactedPath}`,
+      id: `${idPrefix}${DIR_ID_PREFIX}${compactedPath}`,
       name: compactedName,
-      children: trieToTreeItems(current, compactedPath, dirIdPrefix),
+      children: trieToTreeItems(current, compactedPath, idPrefix),
     };
   });
 
   const fileItems: TreeDataItem[] = node.files.map((filePath) => ({
-    id: filePath,
+    id: `${idPrefix}${filePath}`,
     name: filePath.split('/').pop() ?? filePath,
   }));
 
@@ -61,12 +57,14 @@ function trieToTreeItems(
 }
 
 /**
- * `dirIdPrefix` namespaces directory ids so trees rendered side by side (the
- * staged and unstaged lists) expand independently even where their paths
- * coincide. File ids are always the raw path — callers use them for selection.
+ * `idPrefix` namespaces every id so trees rendered side by side (the staged and
+ * unstaged lists) expand and select independently even where their paths
+ * coincide — the same path really can appear in both, as two different diffs.
+ * Callers hand file ids straight back as the selection, so the prefix has to
+ * match whatever they decode with.
  */
-export function buildFileTree(filePaths: string[], dirIdPrefix = ''): TreeDataItem[] {
-  return trieToTreeItems(buildTrie(filePaths), '', dirIdPrefix);
+export function buildFileTree(filePaths: string[], idPrefix = ''): TreeDataItem[] {
+  return trieToTreeItems(buildTrie(filePaths), '', idPrefix);
 }
 
 export function collectDirIds(items: TreeDataItem[]): string[] {

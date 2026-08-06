@@ -749,10 +749,19 @@ export class WsClient {
   private async handleGitStatusRequest(message: GitStatusRequestMessage): Promise<void> {
     const { requestId, repoDir, coderWorkspace } = message.payload;
     try {
-      const result = await getStatusDetailed(repoDir, this.gitRunnerFor(coderWorkspace));
+      const result = await getStatusDetailed(
+        repoDir,
+        this.gitRunnerFor(coderWorkspace),
+        !coderWorkspace,
+      );
       this.send({
         type: 'GIT_STATUS_RESPONSE',
-        payload: { requestId, files: result.files, branch: result.branch },
+        payload: {
+          requestId,
+          files: result.files,
+          branch: result.branch,
+          head: result.head,
+        },
       });
     } catch (err) {
       this.send({
@@ -819,7 +828,7 @@ export class WsClient {
   private async handleGitBranchFilesRequest(message: GitBranchFilesRequestMessage): Promise<void> {
     const { requestId, repoDir, base, compareTo, coderWorkspace } = message.payload;
     try {
-      const { files, mergeBase } = await getBranchFiles(
+      const { files, mergeBase, head } = await getBranchFiles(
         repoDir,
         base,
         this.gitRunnerFor(coderWorkspace),
@@ -827,7 +836,7 @@ export class WsClient {
       );
       this.send({
         type: 'GIT_BRANCH_FILES_RESPONSE',
-        payload: { requestId, files, mergeBase },
+        payload: { requestId, files, mergeBase, head },
       });
     } catch (err) {
       this.send({

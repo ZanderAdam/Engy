@@ -58,14 +58,14 @@ export const diffRouter = router({
     .query(async ({ input, ctx }) => {
       const dir = input.worktreePath ?? input.repoDir;
       try {
-        const { files, mergeBase } = await dispatchGitBranchFiles(
+        const { files, mergeBase, head } = await dispatchGitBranchFiles(
           dir,
           input.base,
           ctx.state,
           input.coderWorkspace,
           input.compareTo,
         );
-        return { files: files.map((f) => ({ ...f, staged: false })), mergeBase };
+        return { files: files.map((f) => ({ ...f, staged: false })), mergeBase, head };
       } catch (err) {
         throw new TRPCError({
           code: 'BAD_REQUEST',

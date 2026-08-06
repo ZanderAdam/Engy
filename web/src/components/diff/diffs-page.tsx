@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import { DynamicMonacoCodeEditor } from '@/components/editor/dynamic-monaco-editors';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
@@ -20,6 +20,9 @@ import { ReviewActions } from './review-actions';
 import { GithubCommentTriage } from './github-comment-triage';
 import { useDiffComments, extractFilePathFromDocPath } from './use-diff-comments';
 import { resolveFileReadError } from './diff-content-state';
+import { decodeSelection, findSelectedFile, rowId } from './diff-selection';
+import { latestRefs, type DiffRefs } from './diff-refs';
+import { refreshDiff } from './diff-refresh';
 import { useAutoSave } from './use-auto-save';
 import { useViewedFiles } from './use-viewed-files';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
@@ -73,7 +76,6 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   // belong to a specific changed-files list), so open tabs are always drawn from
   // the current `files`.
   const tabs = useEditorTabs();
-  const selectedFile = tabs.active;
   const [viewMode, setViewMode] = useState<ViewMode>('unified');
   const [diffViewMode, setDiffViewMode] = useState<DiffViewMode>('latest');
   const [editorMode, setEditorMode] = useState<EditorMode>('diff');
@@ -83,6 +85,11 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   const [branchTarget, setBranchTarget] = useState<BranchDiffTarget>('worktree');
   const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(null);
   const [userSelectedWorktree, setUserSelectedWorktree] = useState<WorktreeSelection>(null);
+
+  // Only pending work has an index to be on one side of; a commit or a branch
+  // range lists each path once.
+  const sided = diffViewMode === 'latest';
+  const { path: selectedFile, side: selectedSide } = decodeSelection(tabs.active, sided);
 
   const handleUserWorktreeChange = (worktree: WorktreeSelection) => {
     setUserSelectedWorktree(worktree);
@@ -162,18 +169,24 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     setSelectedCommit(null);
   };
 
-  // Latest changes data
+  // Latest changes data. Uncommitted work changes under the reviewer while they
+  // read it, so this list opts out of the app-wide staleness window and reloads
+  // whenever attention comes back to the browser — every content read downstream
+  // is keyed on identities it reports.
   const {
     data: statusData,
     isLoading: isStatusLoading,
-    refetch: refetchStatus,
   } = trpc.diff.getStatus.useQuery(
     {
       repoDir: selectedRepo!,
       worktreePath: selectedWorktree?.worktreePath,
       coderWorkspace: selectedWorktree?.coderWorkspace,
     },
-    { enabled: !!selectedRepo && diffViewMode === 'latest' },
+    {
+      enabled: !!selectedRepo && diffViewMode === 'latest',
+      staleTime: 0,
+      refetchOnWindowFocus: true,
+    },
   );
 
   // Commit history data
@@ -191,7 +204,6 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     data: commitDiffData,
     isLoading: isCommitDiffLoading,
     error: commitDiffError,
-    refetch: refetchCommitDiff,
   } = trpc.diff.getCommitDiff.useQuery(
     {
       repoDir: selectedRepo!,
@@ -229,6 +241,8 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     },
   });
 
+  const handleRefresh = useCallback(() => refreshDiff(utils), [utils]);
+
   // Branch diff data (for file list)
   const {
     data: branchDiffData,
@@ -245,23 +259,57 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     { enabled: !!selectedRepo && diffViewMode === 'branch' && baseBranch.length > 0, retry: false },
   );
 
-  // Resolve the original ref based on view mode. Branch mode reads content at the
-  // merge base the file list was computed from, so the viewer and the list agree
-  // on "before" even after the base branch has moved on.
-  const originalRef = useMemo(() => {
-    if (diffViewMode === 'latest') return 'HEAD';
-    if (diffViewMode === 'history' && selectedCommit) return `${selectedCommit}~1`;
-    if (diffViewMode === 'branch') return branchDiffData?.mergeBase ?? baseBranch;
-    return undefined;
-  }, [diffViewMode, selectedCommit, baseBranch, branchDiffData]);
+  // Resolve files list based on view mode
+  const files: ChangedFile[] = useMemo(() => {
+    if (diffViewMode === 'latest') return statusData?.files ?? [];
+    if (diffViewMode === 'history' && commitDiffData) {
+      return commitDiffData.files.map((f) => ({ ...f, staged: false }));
+    }
+    if (diffViewMode === 'branch' && branchDiffData) {
+      return branchDiffData.files.map((f) => ({ ...f, staged: false }));
+    }
+    return [];
+  }, [diffViewMode, statusData, commitDiffData, branchDiffData]);
 
-  // Resolve the modified ref (undefined = working tree)
-  const modifiedRef = useMemo(() => {
-    if (diffViewMode === 'history' && selectedCommit) return selectedCommit;
-    // Branch mode in PR parity reads the committed side, matching its file list.
-    if (diffViewMode === 'branch' && branchTarget === 'head') return 'HEAD';
-    return undefined; // working tree otherwise
-  }, [diffViewMode, selectedCommit, branchTarget]);
+  const selectedFileData = useMemo(
+    () => findSelectedFile(files, selectedFile, selectedSide),
+    [files, selectedFile, selectedSide],
+  );
+
+  // Which two snapshots the panes show. Branch mode reads content at the merge
+  // base the file list was computed from, so the viewer and the list agree on
+  // "before" even after the base branch has moved on, and it names the commit
+  // HEAD resolved to rather than `HEAD` itself, which would go on meaning
+  // something different after the next commit.
+  const { originalRef, modifiedRef, originalId, modifiedId } = useMemo((): DiffRefs => {
+    if (diffViewMode === 'latest') {
+      if (!selectedFileData || !selectedSide) return {};
+      return latestRefs(selectedFileData, selectedSide, statusData?.head);
+    }
+    if (diffViewMode === 'history' && selectedCommit) {
+      return { originalRef: `${selectedCommit}~1`, modifiedRef: selectedCommit };
+    }
+    if (diffViewMode === 'branch') {
+      // Until the file list arrives there is no commit to pin either side to,
+      // and reading `HEAD` or a branch name would cache content under a ref
+      // that means something else by the next commit.
+      if (!branchDiffData) return {};
+      if (branchTarget === 'head') {
+        return { originalRef: branchDiffData.mergeBase, modifiedRef: branchDiffData.head };
+      }
+      // Working-tree target: the right pane has no ref, only what is on disk.
+      return { originalRef: branchDiffData.mergeBase, modifiedId: selectedFileData?.contentId };
+    }
+    return {};
+  }, [
+    diffViewMode,
+    selectedFileData,
+    selectedSide,
+    statusData,
+    selectedCommit,
+    branchTarget,
+    branchDiffData,
+  ]);
 
   // Comments
   const {
@@ -306,25 +354,13 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     [selectedFile, commentsForFile],
   );
 
-  const handleAddComment = (lineNumber: number, side: 'modified' | 'original', text: string) => {
-    if (selectedFile) addLineComment(selectedFile, lineNumber, '', text, side);
-  };
-
-  // Resolve files list based on view mode
-  const files: ChangedFile[] = useMemo(() => {
-    if (diffViewMode === 'latest') return statusData?.files ?? [];
-    if (diffViewMode === 'history' && commitDiffData) {
-      return commitDiffData.files.map((f) => ({ ...f, staged: false }));
-    }
-    if (diffViewMode === 'branch' && branchDiffData) {
-      return branchDiffData.files.map((f) => ({ ...f, staged: false }));
-    }
-    return [];
-  }, [diffViewMode, statusData, commitDiffData, branchDiffData]);
-
-  const selectedFileData = useMemo(
-    () => files.find((f) => f.path === selectedFile),
-    [files, selectedFile],
+  // Stable across renders: the diff editor subscribes to this, and a fresh
+  // closure each render would tear the subscription down mid-interaction.
+  const handleAddComment = useCallback(
+    (lineNumber: number, side: 'modified' | 'original', text: string) => {
+      if (selectedFile) addLineComment(selectedFile, lineNumber, '', text, side);
+    },
+    [selectedFile, addLineComment],
   );
 
   // Review progress is scoped to workspace, project, checkout and what is being
@@ -337,10 +373,13 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     return 'latest';
   }, [diffViewMode, baseBranch, selectedCommit]);
 
-  // Content identity per file, so a tick expires once the file changes again.
+  // Content identity per row, so a tick expires once that row's diff changes.
+  // A staged row is identified by the index rather than the working tree:
+  // re-staging is exactly the case where the reviewed content moved on while
+  // the file on disk did not.
   const contentIds = useMemo(() => {
     const ids = new Map<string, string | undefined>();
-    for (const file of files) ids.set(file.path, file.contentId);
+    for (const file of files) ids.set(rowId(file), file.staged ? file.indexId : file.contentId);
     return ids;
   }, [files]);
 
@@ -367,6 +406,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
       ref: originalRef,
       worktreePath: selectedWorktree?.worktreePath,
       coderWorkspace: selectedWorktree?.coderWorkspace,
+      contentId: originalId,
     },
     { enabled: !!selectedRepo && isTextLike && !!originalRef, retry: false },
   );
@@ -379,6 +419,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
       ref: modifiedRef,
       worktreePath: selectedWorktree?.worktreePath,
       coderWorkspace: selectedWorktree?.coderWorkspace,
+      contentId: modifiedId,
     },
     { enabled: !!selectedRepo && isTextLike, retry: false },
   );
@@ -395,6 +436,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
       ref: originalRef,
       worktreePath: selectedWorktree?.worktreePath,
       coderWorkspace: selectedWorktree?.coderWorkspace,
+      contentId: originalId,
     },
     {
       enabled:
@@ -419,6 +461,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
       ref: modifiedRef,
       worktreePath: selectedWorktree?.worktreePath,
       coderWorkspace: selectedWorktree?.coderWorkspace,
+      contentId: modifiedId,
     },
     {
       enabled:
@@ -658,7 +701,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                         </p>
                         <button
                           type="button"
-                          onClick={() => refetchCommitDiff()}
+                          onClick={handleRefresh}
                           className="border border-border px-2 py-1 text-xs text-foreground hover:bg-muted"
                         >
                           Retry
@@ -667,9 +710,9 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                     ) : (
                       <FileListPanel
                         files={files}
-                        selectedFile={selectedFile}
+                        selectedFile={tabs.active}
                         onSelectFile={tabs.open}
-                        onRefresh={() => refetchCommitDiff()}
+                        onRefresh={handleRefresh}
                         isLoading={isCommitDiffLoading}
                         commentCounts={fileCommentCounts}
                         viewedPaths={viewedPaths}
@@ -683,11 +726,10 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
             ) : (
               <FileListPanel
                 files={files}
-                selectedFile={selectedFile}
+                selectedFile={tabs.active}
                 onSelectFile={tabs.open}
-                onRefresh={() => {
-                  if (diffViewMode === 'latest') refetchStatus();
-                }}
+                onRefresh={handleRefresh}
+                sided={sided}
                 isLoading={isFileListLoading}
                 commentCounts={fileCommentCounts}
                 viewedPaths={viewedPaths}

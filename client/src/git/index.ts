@@ -49,28 +49,57 @@ interface DetailedFileStatus {
   path: string;
   status: GitFileStatus;
   staged: boolean;
+  oldPath?: string;
   contentId?: string;
+  indexId?: string;
 }
 
 interface DetailedStatus {
   files: DetailedFileStatus[];
   branch: string;
+  head?: string;
 }
 
-function mapStatusCode(
+/**
+ * The full set of unmerged two-letter codes. A conflicted path has no stage-0
+ * index entry, so nothing can read it as "the staged version" — it must never
+ * become a staged row. `AA` and `DD` carry no `U` at all, which is why the set
+ * is matched whole rather than by looking for a `U` in either column.
+ */
+const UNMERGED_CODES = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
+
+/**
+ * Porcelain reports two independent codes per path: what the index holds
+ * relative to HEAD, and what the working tree holds relative to the index. Those
+ * are two different diffs against two different bases, so a path changed on both
+ * sides becomes two rows rather than one row labelled with whichever side won.
+ *
+ * A column holding a space means that side is unchanged. Which side a row
+ * belongs to therefore comes from which column is occupied, never from whether
+ * the code has a known status — an unrecognised code (a type change, say) still
+ * belongs to the side that reported it.
+ */
+export function expandStatusEntry(
   index: string,
   workingDir: string,
-): { status: GitFileStatus; staged: boolean } {
-  if (index === 'A') return { status: 'added', staged: true };
-  if (index === 'M') return { status: 'modified', staged: true };
-  if (index === 'D') return { status: 'deleted', staged: true };
-  if (index === 'R') return { status: 'renamed', staged: true };
+): Array<{ status: GitFileStatus; staged: boolean }> {
+  // Untracked paths have no index side to compare against.
+  if (index === '?') return [{ status: 'added', staged: false }];
+  // The resolution an unmerged path is waiting for lives in the working tree.
+  if (UNMERGED_CODES.has(index + workingDir)) {
+    return [{ status: 'modified', staged: false }];
+  }
 
-  if (workingDir === 'M') return { status: 'modified', staged: false };
-  if (workingDir === 'D') return { status: 'deleted', staged: false };
-  if (workingDir === '?') return { status: 'added', staged: false };
+  const rows: Array<{ status: GitFileStatus; staged: boolean }> = [];
+  if (index !== ' ') rows.push({ status: GIT_STATUS_MAP[index] ?? 'modified', staged: true });
+  if (workingDir !== ' ') {
+    rows.push({ status: GIT_STATUS_MAP[workingDir] ?? 'modified', staged: false });
+  }
 
-  return { status: 'modified', staged: false };
+  // Neither column occupied should not reach here, but a path git bothered to
+  // report is worth showing rather than dropping.
+  if (rows.length === 0) rows.push({ status: 'modified', staged: false });
+  return rows;
 }
 
 function parseNameStatusOutput(
@@ -113,7 +142,7 @@ export async function getStatus(dir: string): Promise<FileStatus[]> {
 
 interface ParsedPorcelainStatus {
   branch: string;
-  entries: Array<{ index: string; workingDir: string; path: string }>;
+  entries: Array<{ index: string; workingDir: string; path: string; origPath?: string }>;
 }
 
 export function parsePorcelainStatus(output: string): ParsedPorcelainStatus {
@@ -122,7 +151,7 @@ export function parsePorcelainStatus(output: string): ParsedPorcelainStatus {
   // Remaining tokens: `XY <path>`. Renames add an extra NUL-separated old path.
   const tokens = output.split('\0');
   let branch = 'HEAD';
-  const entries: Array<{ index: string; workingDir: string; path: string }> = [];
+  const entries: ParsedPorcelainStatus['entries'] = [];
 
   let i = 0;
   while (i < tokens.length) {
@@ -148,31 +177,91 @@ export function parsePorcelainStatus(output: string): ParsedPorcelainStatus {
     const path = tok.slice(3);
     const index = xy[0];
     const workingDir = xy[1];
-    entries.push({ index, workingDir, path });
-    if (index === 'R' || index === 'C') {
-      // Rename/copy entry: skip the original-path token
-      i += 2;
-    } else {
-      i++;
-    }
+    // Rename/copy entries carry the pre-rename path in a second token. It is
+    // where the file's "before" content still lives, so it is kept, not skipped.
+    // A truncated stream leaves that token empty — `-z` always ends with a NUL,
+    // so the split's final element is never a real path — and the entry is
+    // still worth reporting as a plain status.
+    const origPath = tokens[i + 1];
+    const isRename = (index === 'R' || index === 'C') && !!origPath;
+    entries.push({ index, workingDir, path, ...(isRename ? { origPath } : {}) });
+    i += isRename ? 2 : 1;
   }
 
   return { branch, entries };
 }
 
+/**
+ * Commit HEAD points at, so callers can name it instead of the moving `HEAD`
+ * alias. A repo with no commits yet has none.
+ */
+async function readHead(dir: string, runGit: GitRunner): Promise<string | undefined> {
+  try {
+    const { stdout } = await runGit(['-C', dir, 'rev-parse', 'HEAD']);
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Blob hash the index holds for each staged path. The working tree's identity
+ * comes from `lstat`, but the index has no file to stat — without this, staged
+ * content has no identity at all, and anything keyed on one keeps showing the
+ * snapshot from before the last `git add`. Bounded by the staged change count
+ * rather than the size of the index.
+ */
+async function readStagedBlobIds(dir: string, runGit: GitRunner): Promise<Map<string, string>> {
+  const ids = new Map<string, string>();
+  try {
+    // Raw format, NUL-separated: `:<srcmode> <dstmode> <srcsha> <dstsha> <X>\0<path>\0`.
+    const { stdout } = await runGit(['-C', dir, 'diff-index', '--cached', '-z', 'HEAD']);
+    const tokens = stdout.split('\0');
+    for (let i = 0; i + 1 < tokens.length; i += 2) {
+      const meta = tokens[i];
+      if (!meta.startsWith(':')) break;
+      const dstSha = meta.slice(1).split(' ')[3];
+      // All-zero destination means the path is staged for deletion.
+      if (dstSha && !/^0+$/.test(dstSha)) ids.set(tokens[i + 1], dstSha);
+    }
+  } catch {
+    // No commits yet (no HEAD to diff against), or a repo git refuses to read.
+    // A missing id just means "identity unknown" to callers.
+  }
+  return ids;
+}
+
 export async function getStatusDetailed(
   dir: string,
   runGit: GitRunner = localGitRunner,
+  /** False when `dir` names a path on another machine, where `lstat` would
+   *  describe an unrelated local file or nothing at all. */
+  localFs = true,
 ): Promise<DetailedStatus> {
   const { stdout } = await runGit(['-C', dir, 'status', '--porcelain=v1', '-b', '-z']);
   const { branch, entries } = parsePorcelainStatus(stdout);
 
-  const parsed: DetailedFileStatus[] = entries.map((e) => {
-    const { status, staged } = mapStatusCode(e.index, e.workingDir.trim());
-    return { path: e.path, status, staged };
-  });
+  const parsed: DetailedFileStatus[] = entries.flatMap((e) =>
+    expandStatusEntry(e.index, e.workingDir).map((row) => ({
+      path: e.path,
+      ...row,
+      // Only the staged half of a rename spans two paths; the unstaged half
+      // compares the index and the working tree, both at the new path.
+      ...(row.staged && e.origPath ? { oldPath: e.origPath } : {}),
+    })),
+  );
 
-  return { files: await withContentIds(dir, parsed), branch };
+  const [withIds, stagedIds, head] = await Promise.all([
+    localFs ? withContentIds(dir, parsed) : Promise.resolve(parsed),
+    readStagedBlobIds(dir, runGit),
+    readHead(dir, runGit),
+  ]);
+
+  return {
+    files: withIds.map((file) => ({ ...file, indexId: stagedIds.get(file.path) })),
+    branch,
+    head,
+  };
 }
 
 /**
@@ -205,12 +294,16 @@ async function withContentIds<T extends { path: string; status: GitFileStatus }>
   dir: string,
   files: T[],
 ): Promise<Array<T & { contentId?: string }>> {
-  return Promise.all(
-    files.map(async (file) => ({
-      ...file,
-      contentId: file.status === 'deleted' ? undefined : await fileIdentity(dir, file.path),
-    })),
+  // A path can occupy more than one row (its staged and unstaged halves) but
+  // has only one working-tree state, so it is stat'd once.
+  const paths = [...new Set(files.map((f) => f.path))];
+  const ids = new Map(
+    await Promise.all(paths.map(async (p) => [p, await fileIdentity(dir, p)] as const)),
   );
+  return files.map((file) => ({
+    ...file,
+    contentId: file.status === 'deleted' ? undefined : ids.get(file.path),
+  }));
 }
 
 async function isTracked(dir: string, filePath: string, runGit: GitRunner): Promise<boolean> {
@@ -433,15 +526,17 @@ export async function getBranchFiles(
 ): Promise<{
   files: Array<{ path: string; status: GitFileStatus; oldPath?: string; contentId?: string }>;
   mergeBase: string;
+  head?: string;
 }> {
   const mergeBase = await resolveMergeBase(dir, base, runGit);
   // `-M` matches getShow, so branch diffs report renames rather than add+delete pairs.
   const diffArgs = ['-C', dir, 'diff', '--name-status', '-M', mergeBase];
   if (compareTo === 'head') diffArgs.push('HEAD');
 
-  const [{ stdout }, untracked] = await Promise.all([
+  const [{ stdout }, untracked, head] = await Promise.all([
     runGit(diffArgs),
     compareTo === 'worktree' ? getUntrackedFiles(dir, runGit) : Promise.resolve([]),
+    readHead(dir, runGit),
   ]);
 
   const files = parseNameStatusOutput(stdout);
@@ -453,7 +548,7 @@ export async function getBranchFiles(
     if (!seen.has(path)) files.push({ path, status: 'added' });
   }
 
-  return { files: await withContentIds(dir, files), mergeBase };
+  return { files: await withContentIds(dir, files), mergeBase, head };
 }
 
 // Remote names come from a user-editable base ref, so anything that could be
