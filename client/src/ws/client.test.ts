@@ -111,6 +111,17 @@ describe('[FR-WS-130] computeBackoff', () => {
   });
 });
 
+/**
+ * Bound to 127.0.0.1 rather than the default dual-stack address: on macOS a
+ * `listen(0)` on `::` can be handed a port another process already holds on
+ * IPv4, and every client below dials 127.0.0.1 — so it would reach that
+ * process instead and fail with whatever it answers. Binding IPv4 makes the
+ * OS reserve the port the clients actually connect to.
+ */
+function testWsServer(): WebSocketServer {
+  return new WebSocketServer({ port: 0, host: '127.0.0.1' });
+}
+
 describe('WsClient', () => {
   let server: WebSocketServer;
   let port: number;
@@ -129,7 +140,7 @@ describe('WsClient', () => {
   }
 
   beforeEach(async () => {
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) {
         resolve();
@@ -149,7 +160,7 @@ describe('WsClient', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync: vi.fn(),
     });
     client.connect();
@@ -164,7 +175,7 @@ describe('WsClient', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync,
     });
     client.connect();
@@ -192,7 +203,7 @@ describe('WsClient', () => {
     });
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync: vi.fn(),
     });
     client.connect();
@@ -224,7 +235,7 @@ describe('WsClient', () => {
     let connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync,
     });
     client.connect();
@@ -245,7 +256,7 @@ describe('WsClient', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync: vi.fn(),
     });
     client.connect();
@@ -264,7 +275,7 @@ describe('WsClient', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync: vi.fn(),
     });
 
@@ -331,7 +342,7 @@ describe('WsClient terminal relay', () => {
     });
 
     await new Promise<void>((resolve) => {
-      httpServer.listen(0, () => resolve());
+      httpServer.listen(0, '127.0.0.1', () => resolve());
     });
     const addr = httpServer.address();
     port = typeof addr === 'object' && addr ? addr.port : 0;
@@ -348,7 +359,7 @@ describe('WsClient terminal relay', () => {
     const relayConn = waitForConnection(relayWss);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       terminalManager: mockTm,
     });
     client.connect();
@@ -366,7 +377,7 @@ describe('WsClient terminal relay', () => {
     const relayConn = waitForConnection(relayWss);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       terminalManager: mockTm,
     });
     client.connect();
@@ -400,7 +411,7 @@ describe('WsClient terminal relay', () => {
     const relayConn = waitForConnection(relayWss);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       terminalManager: mockTm,
     });
     client.connect();
@@ -419,7 +430,7 @@ describe('WsClient terminal relay', () => {
     const relayConn = waitForConnection(relayWss);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       terminalManager: mockTm,
     });
     client.connect();
@@ -438,7 +449,7 @@ describe('WsClient terminal relay', () => {
     let relayConn = waitForConnection(relayWss);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       terminalManager: mockTm,
     });
     client.connect();
@@ -467,7 +478,7 @@ describe('WsClient terminal relay', () => {
     const relayConn = waitForConnection(relayWss);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       terminalManager: mockTm,
     });
     client.connect();
@@ -491,7 +502,7 @@ describe('WsClient terminal relay', () => {
     const relayConn = waitForConnection(relayWss);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       terminalManager: mockTm,
     });
     client.connect();
@@ -517,7 +528,7 @@ describe('WsClient terminal relay', () => {
     let relayConn = waitForConnection(relayWss);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       terminalManager: mockTm,
     });
     client.connect();
@@ -561,7 +572,7 @@ describe('WsClient terminal relay', () => {
     let relayConn = waitForConnection(relayWss);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       terminalManager: mockTm,
     });
     client.connect();
@@ -615,7 +626,7 @@ describe('WsClient execution handlers', () => {
   }
 
   beforeEach(async () => {
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) {
         resolve();
@@ -636,7 +647,7 @@ describe('WsClient execution handlers', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       runner: mockRunner,
     });
     client.connect();
@@ -683,7 +694,7 @@ describe('WsClient execution handlers', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       runner: mockRunner,
     });
     client.connect();
@@ -715,7 +726,7 @@ describe('WsClient execution handlers', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       runner: mockRunner,
     });
     client.connect();
@@ -751,7 +762,7 @@ describe('WsClient execution handlers', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       runner: mockRunner,
     });
     client.connect();
@@ -780,7 +791,7 @@ describe('WsClient execution handlers', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       runner: mockRunner,
     });
     client.connect();
@@ -818,7 +829,7 @@ describe('WsClient execution handlers', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       runner: mockRunner,
     });
     client.connect();
@@ -877,7 +888,7 @@ describe('WsClient remote file sync handlers', () => {
   }
 
   beforeEach(async () => {
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) {
         resolve();
@@ -903,7 +914,7 @@ describe('WsClient remote file sync handlers', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync: vi.fn(),
     });
     client.connect();
@@ -936,7 +947,7 @@ describe('WsClient remote file sync handlers', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync: vi.fn(),
     });
     client.connect();
@@ -978,7 +989,7 @@ describe('WsClient remote file sync handlers', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync: vi.fn(),
     });
     client.connect();
@@ -1036,7 +1047,7 @@ describe('WsClient remote file sync handlers', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync: vi.fn(),
     });
     client.connect();
@@ -1086,7 +1097,7 @@ describe('WsClient remote file sync handlers', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync: vi.fn(),
     });
     client.connect();
@@ -1139,7 +1150,7 @@ describe('WsClient worktree merge handler', () => {
   }
 
   beforeEach(async () => {
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) {
         resolve();
@@ -1174,7 +1185,7 @@ describe('WsClient worktree merge handler', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync: vi.fn(),
     });
     client.connect();
@@ -1214,7 +1225,7 @@ describe('WsClient worktree merge handler', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync: vi.fn(),
     });
     client.connect();
@@ -1260,7 +1271,7 @@ describe('WsClient worktree merge handler', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync: vi.fn(),
     });
     client.connect();
@@ -1304,7 +1315,7 @@ describe('WsClient worktree add/remove handlers', () => {
   }
 
   beforeEach(async () => {
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) resolve();
       else server.on('listening', () => resolve());
@@ -1342,7 +1353,7 @@ describe('WsClient worktree add/remove handlers', () => {
   async function setupAndSend(req: object): Promise<string> {
     const connPromise = waitForConnection(server);
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       onWatchPathsSync: vi.fn(),
     });
     client.connect();
@@ -1594,7 +1605,7 @@ describe('WsClient devcontainer config generate handler', () => {
 
   beforeEach(async () => {
     mockedGenerate.mockReset();
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) {
         resolve();
@@ -1614,7 +1625,7 @@ describe('WsClient devcontainer config generate handler', () => {
     mockedGenerate.mockResolvedValueOnce(undefined);
     const connPromise = waitForConnection(server);
 
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
 
     const ws = await connPromise;
@@ -1648,7 +1659,7 @@ describe('WsClient devcontainer config generate handler', () => {
     mockedGenerate.mockRejectedValueOnce(new Error('permission denied'));
     const connPromise = waitForConnection(server);
 
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
 
     const ws = await connPromise;
@@ -1687,7 +1698,7 @@ describe('WsClient dir list handler', () => {
   }
 
   beforeEach(async () => {
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) {
         resolve();
@@ -1713,7 +1724,7 @@ describe('WsClient dir list handler', () => {
     nodeFs.mkdirSync(nodePath.join(tmpDir, 'src'));
 
     const connPromise = waitForConnection(server);
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
 
     const ws = await connPromise;
@@ -1742,7 +1753,7 @@ describe('WsClient dir list handler', () => {
 
   it('returns error for unreadable path', async () => {
     const connPromise = waitForConnection(server);
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
 
     const ws = await connPromise;
@@ -1782,7 +1793,7 @@ describe('WsClient search files handler', () => {
   }
 
   beforeEach(async () => {
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) {
         resolve();
@@ -1813,7 +1824,7 @@ describe('WsClient search files handler', () => {
     mockedExecFile[promisify.custom].mockRejectedValue(new Error('not a git repo'));
 
     const connPromise = waitForConnection(server);
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
 
     const ws = await connPromise;
@@ -1851,7 +1862,7 @@ describe('WsClient search files handler', () => {
       .mockResolvedValueOnce({ stdout: 'src/index.ts\nREADME.md\n', stderr: '' });
 
     const connPromise = waitForConnection(server);
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
 
     const ws = await connPromise;
@@ -1889,7 +1900,7 @@ describe('WsClient CREATE_DIR_REQUEST handler', () => {
   }
 
   beforeEach(async () => {
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) resolve();
       else server.on('listening', () => resolve());
@@ -1906,7 +1917,7 @@ describe('WsClient CREATE_DIR_REQUEST handler', () => {
 
   async function setupAndSend(req: object): Promise<string> {
     const connPromise = waitForConnection(server);
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
     const ws = await connPromise;
     await waitForMessage(ws); // consume REGISTER
@@ -1984,7 +1995,7 @@ describe('WsClient CREATE_DIR_REQUEST handler', () => {
   describe('[FR-WS-010] REGISTER with homeDir', () => {
     it('[FR-WS-010] should include homeDir in REGISTER payload', async () => {
       const connPromise = waitForConnection(server);
-      client = new WsClient({ serverUrl: `http://localhost:${port}` });
+      client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
       client.connect();
 
       const ws = await connPromise;
@@ -2012,7 +2023,7 @@ describe('WsClient dir list mtime', () => {
   }
 
   beforeEach(async () => {
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) resolve();
       else server.on('listening', () => resolve());
@@ -2033,7 +2044,7 @@ describe('WsClient dir list mtime', () => {
     nodeFs.mkdirSync(nodePath.join(tmpDir, 'src'));
 
     const connPromise = waitForConnection(server);
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
     const ws = await connPromise;
     await waitForMessage(ws);
@@ -2073,7 +2084,7 @@ describe('WsClient FS_DELETE_REQUEST handler', () => {
 
   async function setupAndSend(req: object): Promise<string> {
     const connPromise = waitForConnection(server);
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
     const ws = await connPromise;
     await waitForMessage(ws);
@@ -2082,7 +2093,7 @@ describe('WsClient FS_DELETE_REQUEST handler', () => {
   }
 
   beforeEach(async () => {
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) resolve();
       else server.on('listening', () => resolve());
@@ -2219,7 +2230,7 @@ describe('WsClient FS_RENAME_REQUEST handler', () => {
 
   async function setupAndSend(req: object): Promise<string> {
     const connPromise = waitForConnection(server);
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
     const ws = await connPromise;
     await waitForMessage(ws);
@@ -2228,7 +2239,7 @@ describe('WsClient FS_RENAME_REQUEST handler', () => {
   }
 
   beforeEach(async () => {
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) resolve();
       else server.on('listening', () => resolve());
@@ -2363,7 +2374,7 @@ describe('[FR-WS-120] WsClient outbox (execution event queue)', () => {
   }
 
   beforeEach(async () => {
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) resolve();
       else server.on('listening', () => resolve());
@@ -2381,7 +2392,7 @@ describe('[FR-WS-120] WsClient outbox (execution event queue)', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       runner: mockRunner,
     });
     client.connect();
@@ -2438,7 +2449,7 @@ describe('[FR-WS-120] WsClient outbox (execution event queue)', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       runner: mockRunner,
     });
     client.connect();
@@ -2494,7 +2505,7 @@ describe('[FR-WS-120] WsClient outbox (execution event queue)', () => {
     const connPromise = waitForConnection(server);
 
     client = new WsClient({
-      serverUrl: `http://localhost:${port}`,
+      serverUrl: `http://127.0.0.1:${port}`,
       runner: mockRunner,
     });
     client.connect();
@@ -2560,7 +2571,7 @@ describe('[FR-WS-120] WsClient outbox (execution event queue)', () => {
   it('[FR-WS-120] does not queue non-execution messages', async () => {
     const connPromise = waitForConnection(server);
 
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
 
     const ws1 = await connPromise;
@@ -2612,7 +2623,7 @@ describe('[FR-WS-140] WsClient pong deadline', () => {
       });
     });
     await new Promise<void>((resolve) => {
-      httpServer.listen(0, () => resolve());
+      httpServer.listen(0, '127.0.0.1', () => resolve());
     });
     const addr = httpServer.address();
     port = typeof addr === 'object' && addr ? addr.port : 0;
@@ -2629,7 +2640,7 @@ describe('[FR-WS-140] WsClient pong deadline', () => {
     // receives it without error, and stays connected.
     const connPromise = waitForConnection(mainWss);
 
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
 
     const serverWs = await connPromise;
@@ -2658,7 +2669,7 @@ describe('[FR-WS-140] WsClient pong deadline', () => {
       mainWss.once('connection', resolve);
     });
 
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
 
     // Wait for first connection
@@ -2695,7 +2706,7 @@ describe('WsClient GH handlers', () => {
 
   beforeEach(async () => {
     mockedExecFile[promisify.custom].mockReset();
-    server = new WebSocketServer({ port: 0 });
+    server = testWsServer();
     await new Promise<void>((resolve) => {
       if (server.address()) resolve();
       else server.on('listening', () => resolve());
@@ -2710,7 +2721,7 @@ describe('WsClient GH handlers', () => {
 
   async function setupAndSend(req: object): Promise<string> {
     const connPromise = waitForConnection(server);
-    client = new WsClient({ serverUrl: `http://localhost:${port}` });
+    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
     client.connect();
     const ws = await connPromise;
     await waitForMessage(ws); // consume REGISTER

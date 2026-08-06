@@ -1790,7 +1790,7 @@ describe('MCP Server', () => {
       // Cleanup mock
       mockGetStore.mockReset();
       void sibling;
-    }, 30000);
+    });
 
     it('should use provided content when content override is supplied', async () => {
       process.env.QMD_SKIP = '1';
@@ -2041,7 +2041,7 @@ describe('MCP Server', () => {
         expect(data).toHaveProperty('collections');
         expect(Array.isArray(data.collections)).toBe(true);
         expect(data.collections).toHaveLength(4);
-      }, 30000);
+      });
 
       it('should report unchanged files after an initial reindex', async () => {
         writeFixture('docs/stable.md', '---\ntitle: Stable\n---\n');
@@ -2054,7 +2054,7 @@ describe('MCP Server', () => {
           (c: { collection: string }) => c.collection === 'docs',
         );
         expect(docs.unchanged).toBeGreaterThan(0);
-      }, 30000);
+      });
     });
 
     describe('validateWorkspace', () => {
@@ -2082,7 +2082,7 @@ describe('MCP Server', () => {
           infos: expect.any(Number),
           total: expect.any(Number),
         });
-      }, 30000);
+      });
 
       it('should detect broken link in linkedMemories', async () => {
         const db = getDb();
@@ -2109,7 +2109,7 @@ describe('MCP Server', () => {
         expect(brokenLinks.length).toBeGreaterThan(0);
         expect(brokenLinks[0].severity).toBe('error');
         expect(brokenLinks[0].message).toContain('missing.md');
-      }, 30000);
+      });
 
       it('should detect orphaned permanentMemory row when file is missing on disk', async () => {
         const db = getDb();
@@ -2134,7 +2134,7 @@ describe('MCP Server', () => {
         expect(orphans.length).toBeGreaterThan(0);
         expect(orphans[0].severity).toBe('error');
         expect(orphans[0].path).toBe('memory/facts/orphan.md');
-      }, 30000);
+      });
 
       it('should detect lifecycle inconsistency for promoted fleeting missing promotedFromId', async () => {
         const db = getDb();
@@ -2162,7 +2162,7 @@ describe('MCP Server', () => {
         expect(lcIssues.length).toBeGreaterThan(0);
         expect(lcIssues[0].severity).toBe('warning');
         expect(lcIssues[0].message).toContain('promotedFromId');
-      }, 30000);
+      });
 
       it('should detect schema compliance issue for memory file missing title', async () => {
         writeFixture(
@@ -2185,7 +2185,7 @@ describe('MCP Server', () => {
         expect(
           schemaIssues.some((f: { message: string }) => f.message.includes('title')),
         ).toBe(true);
-      }, 30000);
+      });
     });
   });
 

@@ -43,7 +43,7 @@ export function setupTestDb(): TestContext {
       // A git child process can still be writing into .git here, which surfaces
       // as ENOTEMPTY and turns one slow test into a second, misleading failure.
       // `force` only forgives ENOENT, so the retries are what cover that race.
-      fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       delete process.env.ENGY_DIR;
       resetDb();
       resetAppState();

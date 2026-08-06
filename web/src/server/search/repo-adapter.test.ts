@@ -31,6 +31,8 @@ function startServer(state: AppState): Promise<{ server: Server; port: number }>
         wss.emit('connection', ws, req);
       });
     });
+    // 127.0.0.1, not the default dual-stack address — see terminal-server.test.ts
+    // startServer for the port-collision race this avoids.
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : 0;
@@ -283,6 +285,8 @@ describe('chooseRepoAdapter', () => {
           wss.emit('connection', ws, req);
         });
       });
+      // 127.0.0.1, not the default dual-stack address — see terminal-server.test.ts
+      // startServer for the port-collision race this avoids.
       server.listen(0, '127.0.0.1', () => {
         const addr = server.address();
         const port = typeof addr === 'object' && addr ? addr.port : 0;
