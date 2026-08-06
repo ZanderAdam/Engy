@@ -295,3 +295,29 @@
   margin-left: 3px;
   cursor: pointer;
 }
+
+/* Follows the pointer down the gutter to show the line it would comment on. */
+.engy-add-comment-glyph {
+  cursor: pointer;
+}
+
+.engy-add-comment-glyph::before {
+  content: '+';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin: auto;
+  border-radius: 2px;
+  background-color: oklch(0.65 0.15 250);
+  color: oklch(0.98 0 0);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.engy-add-comment-glyph:hover::before {
+  background-color: oklch(0.72 0.16 250);
+}

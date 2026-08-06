@@ -1,6 +1,6 @@
 'use client';
 
-import { createElement, useCallback, useEffect, useRef, useState } from 'react';
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { editor } from 'monaco-editor';
 import { MonacoCommentZone } from './monaco-comment-zone';
@@ -108,6 +108,7 @@ export function useMonacoComments({
 }: UseMonacoCommentsOptions) {
   const entriesRef = useRef<CommentZoneEntry[]>([]);
   const [newCommentLine, setNewCommentLine] = useState<number | null>(null);
+  const [hoveredLine, setHoveredLine] = useState<number | null>(null);
 
   // Store callbacks in refs to avoid stale closures in detached React roots
   const onAddCommentRef = useRef(onAddComment);
@@ -168,14 +169,18 @@ export function useMonacoComments({
     };
   }, [editorInstance, comments]);
 
+  const commentedLines = useMemo(
+    () => new Set(comments.map((c) => c.lineNumber)),
+    [comments],
+  );
+
   // Gutter decorations for lines with comments
   useEffect(() => {
-    if (!editorInstance || comments.length === 0) return;
+    if (!editorInstance || commentedLines.size === 0) return;
 
     const targetEditor = getTargetEditor(editorInstance);
-    const uniqueLines = [...new Set(comments.map((c) => c.lineNumber))];
     const collection = targetEditor.createDecorationsCollection(
-      uniqueLines.map((lineNumber) => ({
+      [...commentedLines].map((lineNumber) => ({
         range: { startLineNumber: lineNumber, startColumn: 1, endLineNumber: lineNumber, endColumn: 1 },
         options: {
           glyphMarginClassName: 'engy-comment-glyph',
@@ -185,7 +190,55 @@ export function useMonacoComments({
     );
 
     return () => collection.clear();
-  }, [editorInstance, comments]);
+  }, [editorInstance, commentedLines]);
+
+  // The gutter is clickable on every line, but nothing said so — an empty margin
+  // reads as decoration, not as a target. Tracking the line under the pointer
+  // lets one "+" follow the cursor, the same affordance a pull request shows.
+  //
+  // Depends on the editor alone. Keying this on `onAddComment` would re-subscribe
+  // whenever the caller passes a fresh closure, and the teardown would land
+  // between the pointer moving and the glyph rendering.
+  useEffect(() => {
+    if (!editorInstance) return;
+
+    const targetEditor = getTargetEditor(editorInstance);
+    const move = targetEditor.onMouseMove((e) => {
+      if (!onAddCommentRef.current) return;
+      setHoveredLine(e.target.position?.lineNumber ?? null);
+    });
+    const leave = targetEditor.onMouseLeave(() => setHoveredLine(null));
+
+    return () => {
+      move.dispose();
+      leave.dispose();
+    };
+  }, [editorInstance]);
+
+  useEffect(() => {
+    if (!editorInstance) return;
+    // A line that already carries a comment shows its own marker; a second
+    // glyph in the same margin would just collide with it.
+    if (hoveredLine === null || commentedLines.has(hoveredLine)) return;
+
+    const targetEditor = getTargetEditor(editorInstance);
+    const collection = targetEditor.createDecorationsCollection([
+      {
+        range: {
+          startLineNumber: hoveredLine,
+          startColumn: 1,
+          endLineNumber: hoveredLine,
+          endColumn: 1,
+        },
+        options: {
+          glyphMarginClassName: 'engy-add-comment-glyph',
+          glyphMarginHoverMessage: { value: 'Comment on this line' },
+        },
+      },
+    ]);
+
+    return () => collection.clear();
+  }, [editorInstance, hoveredLine, commentedLines]);
 
   // Render new comment input zone when gutter is clicked
   useEffect(() => {
