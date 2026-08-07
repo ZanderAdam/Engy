@@ -9,6 +9,8 @@ import { RepoSelector } from '@/components/diff/repo-selector';
 import { WorktreeSelector } from '@/components/diff/worktree-selector';
 import type { WorktreeSelection } from '@/components/diff/worktree-selector';
 import { RepoFileTree } from '@/components/code/repo-file-tree';
+import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { Button } from '@/components/ui/button';
 import { getLanguageFromPath } from '@/components/editor/language-map';
@@ -26,6 +28,13 @@ import {
   type CodePageState,
 } from './code-page-state';
 
+const SIDEBAR_CONFIG = {
+  defaultWidth: 280,
+  minWidth: 180,
+  maxWidth: 420,
+  storageKey: 'engy-code-sidebar-width',
+} as const;
+
 interface CodePageProps {
   workspaceSlug: string;
   projectSlug?: string;
@@ -41,6 +50,14 @@ function loadCodeState(workspaceSlug: string, projectSlug: string | undefined): 
 
 export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
   const [initialState] = useState(() => loadCodeState(workspaceSlug, projectSlug));
+
+  const isMobile = useIsMobile();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [prevIsMobile, setPrevIsMobile] = useState(false);
+  if (isMobile !== prevIsMobile) {
+    setPrevIsMobile(isMobile);
+    setSidebarCollapsed(isMobile);
+  }
 
   const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(initialState.repo);
   const [userSelectedWorktree, setUserSelectedWorktree] = useState<WorktreeSelection>(null);
@@ -250,9 +267,14 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
         </div>
       </div>
 
-      <div className="flex flex-1 min-h-0">
-        <div className="w-[280px] flex-shrink-0 border-r border-border">
-          {effectiveRoot && selectedRepo ? (
+      <ThreePanelLayout
+        className="flex-1 min-h-0"
+        left={SIDEBAR_CONFIG}
+        isMobile={isMobile}
+        leftCollapsed={sidebarCollapsed}
+        onLeftCollapsedChange={setSidebarCollapsed}
+        leftContent={
+          effectiveRoot && selectedRepo ? (
             <RepoFileTree
               key={effectiveRoot}
               rootDir={effectiveRoot}
@@ -265,48 +287,49 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
             <div className="flex h-full items-center justify-center">
               <p className="text-xs text-muted-foreground">No repository selected</p>
             </div>
-          )}
-        </div>
+          )
+        }
+        centerContent={
+          <>
+            <EditorTabsBar tabs={tabs} />
 
-        <div className="flex flex-1 min-w-0 flex-col">
-          <EditorTabsBar tabs={tabs} />
+            <div className="flex-1 min-h-0">
+              {!selectedFile || !effectiveRoot ? (
+                <div className="flex h-full items-center justify-center">
+                  <p className="text-sm text-muted-foreground">Select a file to edit</p>
+                </div>
+              ) : kind === 'image' || kind === 'binary' ? (
+                <NonTextFileView
+                  kind={kind}
+                  fileName={selectedFile.split('/').pop() ?? selectedFile}
+                  image={{ isLoading: imageLoading, error: imageError, dataUri: imageData?.dataUri }}
+                />
+              ) : (
+                <DynamicMonacoCodeEditor
+                  content={fileData?.content ?? ''}
+                  filePath={selectedFile}
+                  repoRoot={effectiveRoot}
+                  wordWrap={wordWrap}
+                  minimap={minimap}
+                  onChange={(value) => save(value)}
+                  onCursorChange={setCursor}
+                />
+              )}
+            </div>
 
-          <div className="flex-1 min-h-0">
-            {!selectedFile || !effectiveRoot ? (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-sm text-muted-foreground">Select a file to edit</p>
-              </div>
-            ) : kind === 'image' || kind === 'binary' ? (
-              <NonTextFileView
-                kind={kind}
-                fileName={selectedFile.split('/').pop() ?? selectedFile}
-                image={{ isLoading: imageLoading, error: imageError, dataUri: imageData?.dataUri }}
-              />
-            ) : (
-              <DynamicMonacoCodeEditor
-                content={fileData?.content ?? ''}
-                filePath={selectedFile}
-                repoRoot={effectiveRoot}
+            {selectedFile && (
+              <EditorStatusBar
+                language={language}
+                cursor={cursor}
                 wordWrap={wordWrap}
                 minimap={minimap}
-                onChange={(value) => save(value)}
-                onCursorChange={setCursor}
+                onToggleWordWrap={() => setWordWrap((v) => !v)}
+                onToggleMinimap={() => setMinimap((v) => !v)}
               />
             )}
-          </div>
-
-          {selectedFile && (
-            <EditorStatusBar
-              language={language}
-              cursor={cursor}
-              wordWrap={wordWrap}
-              minimap={minimap}
-              onToggleWordWrap={() => setWordWrap((v) => !v)}
-              onToggleMinimap={() => setMinimap((v) => !v)}
-            />
-          )}
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {effectiveRoot && (
         <QuickOpen
