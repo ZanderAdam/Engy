@@ -215,6 +215,14 @@
   gap: 0.5rem;
 }
 
+/* BlockNote: @blocknote/shadcn gives every thread card a fixed w-[300px], which
+   overflows the comments sidebar and forces horizontal scrolling. Let the card
+   follow the sidebar width instead. Scoped to the sidebar so the floating
+   composer keeps the library's fixed width. */
+.bn-threads-sidebar .bn-thread {
+  width: 100%;
+}
+
 /* BlockNote: inline code needs its own background — the library only sets monospace */
 .bn-editor .bn-inline-content code {
   background-color: var(--muted);
