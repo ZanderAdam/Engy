@@ -12,10 +12,14 @@ interface MobileComposerProps {
 
 /**
  * Full-pane compose overlay for mobile. Typing happens in a real textarea with
- * every keyboard nicety left on — autocorrect, suggestions, a working Enter key
- * — and the finished text goes to the PTY as a single paste. That sidesteps
- * predictive-keyboard composition against xterm's hidden input, which duplicates
- * and jumbles characters on Android (xterm.js#3600).
+ * room to see and edit the whole message, and a working Enter key for newlines
+ * — neither of which a terminal can offer, since Enter there submits. The
+ * finished text reaches the PTY as a single paste, so a multi-line prompt
+ * arrives as one message rather than being run a line at a time.
+ *
+ * This is for composing at length, not a workaround for typing: the pane itself
+ * takes on-screen keyboard input directly (`soft-keyboard-input.ts`),
+ * suggestions and all.
  *
  * Actions sit at the bottom, under the thumb, padded up by the keyboard's own
  * height so it can never cover them.

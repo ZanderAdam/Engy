@@ -30,7 +30,7 @@ export const engyDarkTheme: editor.IStandaloneThemeData = {
 
 export const ENGY_CYBERPUNK_THEME_NAME = 'engy-cyberpunk';
 
-/** Neon syntax palette matching the cyberpunk flavor's xterm theme. */
+/** Neon syntax palette matching the cyberpunk flavor's terminal theme. */
 export const engyCyberpunkTheme: editor.IStandaloneThemeData = {
   base: 'vs-dark',
   inherit: true,

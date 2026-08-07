@@ -13,9 +13,9 @@ import type { PersistentSession } from './types.js';
 const { Terminal: HeadlessTerminal } = headless;
 
 const SIGTERM_TIMEOUT_MS = 3_000;
-// Matches the browser xterm's scrollback (terminal.tsx) so a snapshot resync
+// Matches the browser pane's scrollback (terminal.tsx) so a snapshot resync
 // restores the same history depth the browser would have accumulated live.
-const SCROLLBACK_LINES = 5_000;
+const SCROLLBACK_LINES = 10_000;
 // Blocks unsandboxed execution on host for any agent CLI: Claude Code's
 // --dangerously-skip-permissions and Codex's --dangerously-bypass-approvals-and-sandbox.
 const DANGEROUS_FLAG_RE =
@@ -124,8 +124,8 @@ export class TerminalManager {
       ? `cd '${escapedDir}' && ${command}; exec /bin/bash`
       : `cd '${escapedDir}' && exec /bin/bash`;
     sshArgs.push(workspace, '--', '/bin/bash', '-c', shellCmd);
-    // The command is baked into the shell invocation above, so mark it as
-    // already sent — session.command must survive for reconnect snapshots.
+    // The command is baked into the shell invocation above. Mark it as sent, or
+    // the first output chunk makes spawnPty write it to the PTY a second time.
     this.spawnPty(opts, 'coder', sshArgs, undefined, { commandInShell: true });
   }
 
@@ -340,11 +340,7 @@ export class TerminalManager {
         console.log(`[terminal] handleReconnect: session ${sessionId} gone before flush, skipping snapshot`);
         return;
       }
-      // Command sessions: TUIs repaint constantly, so scrollback is stacked
-      // frames, not history — screen only.
-      const snapshot = session.serializeAddon.serialize(
-        session.command ? { scrollback: 0 } : undefined,
-      );
+      const snapshot = session.serializeAddon.serialize();
       console.log(
         `[terminal] handleReconnect: session ${sessionId} snapshot ${snapshot.length} chars`,
       );

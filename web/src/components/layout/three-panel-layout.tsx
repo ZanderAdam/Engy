@@ -344,7 +344,7 @@ export function ThreePanelLayout({
           {/* Collapse/expand only animates this clip wrapper. The inner host
               keeps its fixed width so panel content (dockview terminals) never
               lays out through zero or mid-transition widths — those degenerate
-              layouts left xterm overlays stuck at sliver sizes. The transition
+              layouts left terminal overlays stuck at sliver sizes. The transition
               is disabled while drag-resizing so both divs track the pointer. */}
           <div
             className={cn(

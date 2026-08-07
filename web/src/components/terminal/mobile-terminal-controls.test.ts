@@ -10,7 +10,7 @@ import {
  * Byte-mapping contract for the mobile terminal control column.
  *
  * The PTY relay on the server forwards the `data` payload verbatim, so these
- * byte sequences must match what xterm.js sends for the equivalent physical
+ * byte sequences must match what a terminal emulator sends for the equivalent physical
  * keys. Changing any of them silently breaks Claude's interactive prompts on
  * mobile.
  */

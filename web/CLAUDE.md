@@ -38,7 +38,7 @@ src/server/
 │   └── routers/                  # workspace, project, milestone, task-group, task, comment, dir, diff, file, execution, question, worktree, memory, search
 ├── ws/
 │   ├── server.ts                 # Main /ws — daemon communication + request-response maps
-│   ├── terminal-server.ts        # /ws/terminal + /ws/terminal-relay — browser xterm connection and daemon PTY relay
+│   ├── terminal-server.ts        # /ws/terminal + /ws/terminal-relay — browser terminal connection and daemon PTY relay
 │   ├── broadcast.ts              # Shared broadcast helpers (terminal sessions change, etc.)
 │   └── events-server.ts          # /ws/events — file change broadcasts to browsers
 ├── mcp/
@@ -108,7 +108,7 @@ src/components/
 ├── layout/                       # Three-panel resizable layout
 ├── projects/                     # Task cards, kanban board, eisenhower matrix, dependency graph
 ├── diff/                         # Diff viewer, file list, repo selector
-├── terminal/                     # xterm integration, terminal dock
+├── terminal/                     # ghostty-web terminal integration, terminal dock
 ├── editor/                       # BlockNote document editor
 ├── workspace/                    # Workspace-specific UI
 └── providers.tsx                 # QueryClient + tRPC provider setup

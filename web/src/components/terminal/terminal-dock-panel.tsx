@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic';
 import type { IDockviewPanelProps } from 'dockview';
 import { useTerminalDock } from './terminal-dock-context';
-import { useXtermTheme } from '@/hooks/use-xterm-theme';
+import { useTerminalTheme } from '@/hooks/use-terminal-theme';
 import type { TerminalPanelParams } from './types';
 import { TerminalTaskBar } from './terminal-task-bar';
 
@@ -14,7 +14,7 @@ const TerminalInstance = dynamic(
 
 export function TerminalDockPanel({ params, api }: IDockviewPanelProps<TerminalPanelParams>) {
   const { handleStatusChange, handleActivity, handleReady, handleOscTitle } = useTerminalDock();
-  const xtermTheme = useXtermTheme();
+  const terminalTheme = useTerminalTheme();
   const { taskId, workspaceSlug } = params.tab.scope;
 
   return (
@@ -23,7 +23,7 @@ export function TerminalDockPanel({ params, api }: IDockviewPanelProps<TerminalP
       <div className="flex min-h-0 flex-1">
         <TerminalInstance
           tab={params.tab}
-          xtermTheme={xtermTheme}
+          terminalTheme={terminalTheme}
           onStatusChange={handleStatusChange}
           onReady={handleReady}
           onActivity={handleActivity}

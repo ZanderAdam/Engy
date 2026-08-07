@@ -4,7 +4,8 @@ import { attachTouchScroll, createTouchScrollTracker } from './touch-scroll';
 /**
  * A stand-in for the terminal container. `hasPointerCapture` is modelled
  * faithfully because the gesture's whole point is that moves keep arriving on
- * the captured element after xterm destroys whatever the finger first landed on.
+ * the captured element after the renderer destroys whatever the finger first
+ * landed on.
  */
 function createFakeTarget(clientHeight = 240) {
   const listeners = new Map<string, (event: never) => void>();
@@ -66,7 +67,7 @@ describe('terminal touch scrolling', () => {
       expect(scrollLines).not.toHaveBeenCalled();
     });
 
-    it('[FR-TERMINAL-390] should leave mouse pointers to xterm', () => {
+    it('[FR-TERMINAL-390] should leave mouse pointers to the emulator', () => {
       const target = createFakeTarget();
       const scrollLines = vi.fn();
       attachTouchScroll(target, { rows: () => 24, scrollLines });
@@ -96,6 +97,97 @@ describe('terminal touch scrolling', () => {
       target.emit('pointercancel', touch(200));
 
       expect(target.captured.size).toBe(0);
+    });
+
+    it('[FR-TERMINAL-480] should report the start of a drag, so the pane can drop the input focus', () => {
+      const target = createFakeTarget();
+      const onDragStart = vi.fn();
+      attachTouchScroll(target, { rows: () => 24, scrollLines: vi.fn(), onDragStart });
+
+      target.emit('pointerdown', touch(200));
+      target.emit('pointermove', touch(150));
+      target.emit('pointermove', touch(120));
+
+      // Once per gesture, not once per move.
+      expect(onDragStart).toHaveBeenCalledTimes(1);
+    });
+
+    it('[FR-TERMINAL-480] should not report a drag for a tap', () => {
+      const target = createFakeTarget();
+      const onDragStart = vi.fn();
+      attachTouchScroll(target, { rows: () => 24, scrollLines: vi.fn(), onDragStart });
+
+      target.emit('pointerdown', touch(200));
+      target.emit('pointermove', touch(195));
+
+      expect(onDragStart).not.toHaveBeenCalled();
+    });
+
+    it('[FR-TERMINAL-480] should report a drag again for the next gesture', () => {
+      const target = createFakeTarget();
+      const onDragStart = vi.fn();
+      attachTouchScroll(target, { rows: () => 24, scrollLines: vi.fn(), onDragStart });
+
+      target.emit('pointerdown', touch(200));
+      target.emit('pointermove', touch(150));
+      target.emit('pointerup', touch(150));
+      target.emit('pointerdown', touch(200));
+      target.emit('pointermove', touch(150));
+
+      expect(onDragStart).toHaveBeenCalledTimes(2);
+    });
+
+    it('[FR-TERMINAL-480] should keep the end of a drag from the emulator, so the keyboard stays down', () => {
+      const target = createFakeTarget();
+      attachTouchScroll(target, { rows: () => 24, scrollLines: vi.fn() });
+      const touchEnd = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+
+      target.emit('pointerdown', touch(200));
+      target.emit('pointermove', touch(150));
+      target.emit('touchend', touchEnd);
+
+      expect(touchEnd.stopPropagation).toHaveBeenCalled();
+      expect(touchEnd.preventDefault).toHaveBeenCalled();
+    });
+
+    it('[FR-TERMINAL-480] should let the end of a tap through, so it opens the keyboard', () => {
+      const target = createFakeTarget();
+      attachTouchScroll(target, { rows: () => 24, scrollLines: vi.fn() });
+      const touchEnd = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+
+      target.emit('pointerdown', touch(200));
+      target.emit('touchend', touchEnd);
+
+      expect(touchEnd.stopPropagation).not.toHaveBeenCalled();
+      expect(touchEnd.preventDefault).not.toHaveBeenCalled();
+    });
+
+    it('[FR-TERMINAL-480] should count a small movement as a tap, not a drag', () => {
+      const target = createFakeTarget();
+      attachTouchScroll(target, { rows: () => 24, scrollLines: vi.fn() });
+      const touchEnd = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+
+      target.emit('pointerdown', touch(200));
+      target.emit('pointermove', touch(195));
+      target.emit('touchend', touchEnd);
+
+      expect(touchEnd.stopPropagation).not.toHaveBeenCalled();
+    });
+
+    it('[FR-TERMINAL-480] should treat each gesture on its own', () => {
+      const target = createFakeTarget();
+      attachTouchScroll(target, { rows: () => 24, scrollLines: vi.fn() });
+      const tapEnd = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+
+      target.emit('pointerdown', touch(200));
+      target.emit('pointermove', touch(150));
+      target.emit('touchend', { preventDefault: vi.fn(), stopPropagation: vi.fn() });
+      target.emit('pointerup', touch(150));
+
+      target.emit('pointerdown', touch(200));
+      target.emit('touchend', tapEnd);
+
+      expect(tapEnd.stopPropagation).not.toHaveBeenCalled();
     });
 
     it('[FR-TERMINAL-390] should remove every listener on dispose', () => {

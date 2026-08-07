@@ -14,11 +14,20 @@ for `/ws/terminal-relay`) and the daemon side in `client/src/terminal/manager.ts
 
 ## Architecture
 
-Browser xterm panes connect to `/ws/terminal` with `sessionId`, `workingDir`,
-`cols`, `rows`, `scopeType`, and `scopeLabel` as URL query parameters. The server
-relays those connections through `/ws/terminal-relay` to the daemon, which owns
-the actual PTY processes. The two-layer design allows the server to run remotely
-while PTYs live on the developer's machine.
+Browser terminal panes (ghostty-web) connect to `/ws/terminal` with `sessionId`,
+`workingDir`, `cols`, `rows`, `scopeType`, and `scopeLabel` as URL query
+parameters. The server relays those connections through `/ws/terminal-relay` to
+the daemon, which owns the actual PTY processes. The two-layer design allows the
+server to run remotely while PTYs live on the developer's machine.
+
+**`ghostty-web` is pinned to an exact version, not a range.** Three parts of the
+pane compensate for behaviour of that version: `soft-keyboard-input.ts` (the
+emulator reads no `beforeinput`), `preserve-scroll.ts` (each write moves the
+view to the bottom, upstream issue #127), and `touch-scroll.ts` (the emulator
+gets no touch drag). Each becomes wrong, not merely unnecessary, if the emulator
+starts to do the same work — a version that reads `beforeinput` makes the pane
+send every keystroke twice. Read those three modules before you raise the
+version, and test the pane on a phone after.
 
 Server state is held in `AppState` (defined in `web/src/server/trpc/context.ts`):
 
@@ -48,7 +57,7 @@ best-effort — DB failures are logged and never interrupt the relay.
 The daemon side tracks sessions via `SessionManager` (a typed `Map` wrapper with
 a 5-minute expiry constant `SESSION_EXPIRY_MS` and a 30-second cleanup interval
 `CLEANUP_INTERVAL_MS`, both in `session-manager.ts`). Every session feeds its raw
-PTY output into a per-session `@xterm/headless` terminal (5000-line scrollback,
+PTY output into a per-session `@xterm/headless` terminal (10,000-line scrollback,
 sized with the PTY) whose serialized state — via `@xterm/addon-serialize` — is
 the replay source for reconnecting browsers. Raw chunk history is never replayed:
 TUI repaint frames are cursor-relative and only render correctly against the
@@ -237,34 +246,92 @@ conversation continues instead of failing on a duplicate id.
 
 ## Viewport scrolling
 
-The browser pane (`web/src/components/terminal/terminal.tsx`) leaves auto-follow
-to xterm's own `isUserScrolling` state rather than mirroring it: scrolling into
-the scrollback stops output from following the bottom, and reaching the bottom
-resumes it. The pane only reads the buffer, to show a "Bottom" button while the
-view sits above `baseY`. Two gestures need help. An upward wheel from the bottom
-gets a forced one-line scroll, because while following, each write resets the
-viewport and sub-line trackpad deltas never accumulate.
+The browser pane (`web/src/components/terminal/terminal.tsx`) owns auto-follow
+itself, because ghostty-web has no equivalent of xterm's `isUserScrolling`: its
+`write` snaps the viewport to the bottom whenever it isn't already there, so
+every PTY byte would cancel a scroll — and an agent TUI emits them continuously.
+`preserve-scroll.ts` reconstructs the behaviour from the one number ghostty-web
+does expose: `viewportY` counts lines above the bottom, and a write only shifts
+the content under it by however many lines it pushed into scrollback, so
+re-pinning by that delta holds the same text in view. A viewport already at the
+bottom is left alone, so output follows. The same number drives the "Bottom"
+button, which shows whenever `viewportY` is above zero.
+
+Wheel scrolling needs nothing from the pane — ghostty-web registers its own
+capture-phase wheel listener on the container and accumulates sub-line trackpad
+deltas itself.
 
 Touch drags are handled outright (`touch-scroll.ts` converts drag pixels to
-whole lines), because xterm's own touch handlers bail out while a program has
-mouse reporting on — which agent TUIs do — and native scrolling only covers the
-margins beyond the last row and column, where a drag reaches `.xterm-viewport`
-instead of the `.xterm-screen` overlay. The pane uses **pointer** events and
-takes a pointer capture on the container at `pointerdown`, rather than touch
-events: a finger lands on a `<span>` inside a row, and the first line scrolled
-makes xterm re-render that row and destroy the span, at which point iOS Safari
-stops delivering the gesture (Chrome retargets detached nodes, so this only
-reproduces on a device). The capture keeps the rest of the drag on the
-container. The container's `touch-action: pinch-zoom` is part of the mechanism —
+whole lines), because ghostty-web only wires touch up to focus the hidden input:
+a drag over the screen scrolls nothing, and there is no scrollable DOM to fall
+back on, since the screen is a single `<canvas>`. The pane uses **pointer**
+events and takes a pointer capture on the container at `pointerdown`, rather
+than touch events, so the whole drag stays on the container whatever the
+renderer does to the node the finger first landed on. (Under xterm that was
+load-bearing: the first line scrolled re-rendered the row and destroyed the
+`<span>` under the finger, at which point iOS Safari stopped delivering the
+gesture, while Chrome retargeted detached nodes — so it only reproduced on a
+device.) The container's `touch-action: pinch-zoom` is part of the mechanism —
 a browser-claimed pan cancels the pointer stream — and is the narrowest value
 that still works, so two-finger zoom stays with the browser. The trade-off is
-that a single-finger drag always scrolls and can never select text; xterm's
-selection is mouse-driven and never worked from touch anyway.
+that a single-finger drag always scrolls and can never select text; selection is
+mouse-driven and never worked from touch anyway.
+
+Keeping the on-screen keyboard down while the user scrolls takes three separate
+measures, because three separate things raise it.
+
+The first is an attribute. The emulator marks the pane container
+`contenteditable`, as a hint to browser extensions. A phone reads more into it:
+focus on an editable element opens the keyboard, so merely activating the panel
+covered the text the user came to read. The pane removes the attribute after
+`open()`, together with the `textbox` role that goes with it — the hidden
+textarea is the real input and carries the label.
+
+The second is the end of the drag. The emulator focuses that textarea on every
+`touchend`. The pane claims `touchend` in the capture phase and stops it when
+the touch moved more than 8 pixels, which keeps the emulator's handler away from
+the end of a drag. A tap moves less and passes through, so a tap still focuses
+the pane and opens the keyboard to type. `preventDefault` on the stopped event
+also blocks the synthetic mouse events, which reach the same handler by another
+route.
+
+The third is focus that is already there, and it is the one the other two miss.
+When the user hides the keyboard, the textarea keeps the focus; the keyboard is
+hidden, not released. A phone then shows it again at the next touch on a focused
+input, with no call to `focus()` for the pane to intercept. Only a blur keeps it
+down, so the drag drops the focus as soon as it counts as a drag. The blur waits
+while a composition is open: a keyboard that predicts words holds one across
+keystrokes, the emulator commits that text on `compositionend`, and a blur
+mid-word would end the composition and lose it.
+
+## On-screen keyboard
+
+ghostty-web 0.4.0 reads keyboard input from `keydown` alone. A physical keyboard
+supplies that, but an on-screen one largely does not: Android and iOS deliver
+ordinary characters as `beforeinput` and report the placeholder `keyCode` 229 on
+keydown, which the emulator discards. Left alone the pane renders output
+normally and silently ignores every tap on the soft keyboard — while the mobile
+key rail keeps working, because those keys are written straight to the socket and
+never pass through the emulator.
+
+`soft-keyboard-input.ts` closes the gap, claiming `beforeinput` in the capture
+phase on the pane container (ahead of the textarea the emulator created) and
+writing the mapped bytes to the socket. It maps text, line breaks, and the
+delete gestures. An autocorrection needs care: the keyboard sends the
+replacement alone and identifies the text it replaces with a DOM range, which a
+PTY cannot use — and `getTargetRanges()` returns nothing for a textarea. The
+replacement is therefore prefixed with Ctrl+W, so the terminal drops the word
+before the cursor first; without it, accepting "the" for "teh" leaves "tehthe".
+The mapper deliberately ignores `insertCompositionText` and `insertFromPaste`,
+which the emulator's own `compositionend` and `paste` handlers commit —
+claiming those too would deliver every composed word twice.
+Upstream added a `beforeinput` path after 0.4.0 was published, so this can go
+once that ships.
 
 ## Mobile compose
 
-Typing straight into xterm's hidden textarea is unreliable on mobile: Chrome for
-Android ignores the `autocorrect`/`spellcheck` attributes xterm sets
+Typing straight into the emulator's hidden textarea is unreliable on mobile:
+Chrome for Android ignores the `autocorrect`/`spellcheck` attributes it sets
 (crbug.com/901839), and Gboard's composition events duplicate and jumble
 characters (xterm.js#3600). The pane sets `inputmode` on that textarea to get an
 input type Android treats as suggestion-free, and a floating pencil button in the
@@ -344,7 +411,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-010 | WHEN a browser connects to `/ws/terminal` without a `sessionId` or without a `workingDir` query parameter, the system SHALL close the WebSocket with code 1008. |
 | FR-TERMINAL-020 | WHEN a browser connects to `/ws/terminal` with valid `sessionId` and `workingDir` and no session for that id exists, the system SHALL send `{ t: 'spawn', sessionId, workingDir, cols, rows, scopeType, scopeLabel }` to the daemon relay and persist the session metadata in `terminalSessionMeta`. |
 | FR-TERMINAL-030 | WHEN a new terminal session is successfully spawned, the system SHALL broadcast a `created` terminal-sessions change event. |
-| FR-TERMINAL-040 | WHEN all browser sockets for a session close, the system SHALL set the daemon-side session state to `suspended`, retain `terminalSessionMeta`, and continue writing PTY output into the session's headless terminal mirror (5000-line scrollback) without forwarding it to any browser. |
+| FR-TERMINAL-040 | WHEN all browser sockets for a session close, the system SHALL set the daemon-side session state to `suspended`, retain `terminalSessionMeta`, and continue writing PTY output into the session's headless terminal mirror (10,000-line scrollback) without forwarding it to any browser. |
 | FR-TERMINAL-050 | WHEN a browser reconnects with a `sessionId` whose metadata is already present, the system SHALL send `{ t: 'reconnect', sessionId }` to the daemon and deliver the `{ t: 'reconnected', sessionId, snapshot }` reply — the serialized state of the session's headless terminal (scrollback depth per FR-TERMINAL-450), serialized only after its write queue has drained — exclusively to the browsers that issued the reconnect request, not to all attached browsers. |
 | FR-TERMINAL-060 | WHILE multiple browsers are attached to the same session, the system SHALL broadcast every `{ t: 'o' }` output frame to all attached browser sockets and forward input from any attached browser raw to the daemon. |
 | FR-TERMINAL-070 | WHEN one browser disconnects from a session that still has other attached browsers, the system SHALL retain the session entry and continue delivering output to the remaining browsers; the entry SHALL be removed only when all attached browsers have disconnected. |
@@ -385,7 +452,10 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-420 | WHEN the server forwards a `reconnected` snapshot to the pending browsers of a session that has a stored `lastTitle`, it SHALL follow the snapshot with `{ t: 'title', sessionId, title }` to those same browsers. |
 | FR-TERMINAL-430 | WHEN spawning a terminal session, the daemon SHALL set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` in the session environment — via the PTY env on host, `--remote-env` for container sessions, and `coder ssh -e` for Coder sessions — so CLAUDE.md files from `--add-dir` directories load into context. |
 | FR-TERMINAL-440 | WHEN the user activates the `⋯` toggle on the mobile key rail, the system SHALL open a second key column — `4`, `5`, `Ctrl+C` (`\x03`), `Ctrl+V` (`\x16`), `←` (`\x1b[D`), `→` (`\x1b[C`) top-to-bottom — overlaid on the terminal pane without resizing it; WHILE that column is open, pressing any key in it SHALL send that key and leave the column open, and the column SHALL close only WHEN the toggle is activated again or a pointer press lands outside the control area, without preventing that press from reaching the terminal. WHILE the mobile compose overlay is open, the column SHALL be hidden and its toggle disabled — so no key can sit over the overlay's own actions — and SHALL return to whichever state it held once the overlay closes. |
-| FR-TERMINAL-450 | WHEN serializing a reconnect snapshot, the daemon SHALL include the headless terminal's full scrollback for sessions spawned without a command, and SHALL serialize only the visible screen (zero scrollback lines) for sessions spawned with a command — full-screen agent TUIs repaint continuously, so their scrollback holds stacked repaint frames rather than history. |
+| FR-TERMINAL-450 | WHEN serializing a reconnect snapshot, the daemon SHALL include the headless terminal's full scrollback, for sessions spawned with a command and without one alike. |
+| FR-TERMINAL-460 | WHEN PTY output is written to a terminal pane WHILE its viewport sits above the bottom, the system SHALL keep the same buffer content in view by re-pinning the viewport by the number of lines the write added to scrollback; WHILE the viewport is at the bottom, the pane SHALL follow the output. |
+| FR-TERMINAL-470 | WHEN a terminal pane receives a `beforeinput` event, the system SHALL write the corresponding bytes to the PTY — the inserted text with line breaks as carriage returns, `\r` for a line break or paragraph, `\x7f` for a backward delete, `\x1b[3~` for a forward delete, `\x17` for a backward word delete, and `\x17` followed by the replacement for a replacement insert — and SHALL claim the event so it reaches no other handler; WHEN the event is provisional composition text or a paste, the system SHALL ignore it and leave it to the emulator's own composition and paste handling. |
+| FR-TERMINAL-480 | The system SHALL open the on-screen keyboard for a tap on a terminal pane, and for no other reason. To that end it SHALL NOT leave the pane container editable, SHALL keep the `touchend` that ends a touch drag from every other handler, and SHALL drop the input focus as soon as a touch counts as a drag — except WHILE a composition is open, when it SHALL keep the focus so the composed text still reaches the PTY. A touch that moves no more than 8 pixels counts as a tap, not a drag. |
 
 ## Sources
 
