@@ -32,6 +32,10 @@ Subdirectory CLAUDE.mds codify patterns at the point of use (auto-loaded when Cl
 ```bash
 pnpm dev          # Dev: web + client with hot reload (tsx watch)
 pnpm blt          # Pre-commit gate: build + lint + test + knip + jscpd
+pnpm jscpd:report # Full clone inventory at 10-line granularity.
+                  #   blt and lint fail only on clones of 30 lines or more.
+                  #   Run this command to find smaller duplication.
+                  #   It also enforces the 3% total budget in .jscpd.json.
 
 # Production (PM2-managed, see ecosystem.config.js). Requires a prior `pnpm build`.
 pnpm start        # Start web + client as two PM2 processes (engy-web, engy-client)
