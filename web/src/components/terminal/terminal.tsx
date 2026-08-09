@@ -16,6 +16,7 @@ import { MobileComposer } from "./mobile-composer";
 import { toBracketedPaste } from "./bracketed-paste";
 import { shouldSendResize } from "./terminal-resize";
 import { attachTouchScroll } from "./touch-scroll";
+import { attachScrollbar } from "./scrollbar";
 import { loadGhostty } from "./ghostty-runtime";
 import { writePreservingScroll } from "./preserve-scroll";
 import { attachSoftKeyboardInput } from "./soft-keyboard-input";
@@ -190,6 +191,10 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
     term.open(containerRef.current);
     const fitTimer = setTimeout(() => { if (!isCleanedUp) fitAddon.fit(); }, 50);
 
+    // Replaces the scrollbar the emulator paints inside the text canvas, which
+    // covers the rightmost columns while it is up.
+    const detachScrollbar = attachScrollbar(containerRef.current, term);
+
     // The emulator marks the container `contenteditable`, as a hint to browser
     // extensions that the pane takes keyboard input. On a phone the attribute
     // means more than a hint: focus on an editable element opens the on-screen
@@ -350,6 +355,11 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
             // The snapshot re-establishes screen state from scratch, so reset
             // (not clear) — it also drops modes a torn-down program left set.
             term.reset();
+            // reset() empties the buffer but leaves viewportY where the user
+            // left it, and emits no scroll event to say so. Anything reading
+            // that number — the re-pinning of the next write, the scrollbar —
+            // would work from a position the new buffer no longer has.
+            term.scrollToBottom();
             // A session that produced no output yet serializes to an empty
             // snapshot, and an empty write throws inside the emulator: it gives
             // the zero-length array to Uint8Array.set, which reports an offset
@@ -431,6 +441,7 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
       activityTracker.dispose();
       activityTrackerRef.current = null;
       scrollSub.dispose();
+      detachScrollbar();
       detachSoftKeyboard();
       detachTouchScroll();
       container.removeEventListener('compositionstart', onCompositionStart);

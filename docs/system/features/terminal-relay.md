@@ -20,14 +20,16 @@ parameters. The server relays those connections through `/ws/terminal-relay` to
 the daemon, which owns the actual PTY processes. The two-layer design allows the
 server to run remotely while PTYs live on the developer's machine.
 
-**`ghostty-web` is pinned to an exact version, not a range.** Three parts of the
+**`ghostty-web` is pinned to an exact version, not a range.** Four parts of the
 pane compensate for behaviour of that version: `soft-keyboard-input.ts` (the
 emulator reads no `beforeinput`), `preserve-scroll.ts` (each write moves the
-view to the bottom, upstream issue #127), and `touch-scroll.ts` (the emulator
-gets no touch drag). Each becomes wrong, not merely unnecessary, if the emulator
-starts to do the same work — a version that reads `beforeinput` makes the pane
-send every keystroke twice. Read those three modules before you raise the
-version, and test the pane on a phone after.
+view to the bottom, upstream issue #127), `touch-scroll.ts` (the emulator gets
+no touch drag), and `scrollbar.ts` (the emulator paints its scrollbar over the
+text). Each becomes wrong, not merely unnecessary, if the emulator starts to do
+the same work — a version that reads `beforeinput` makes the pane send every
+keystroke twice, and `scrollbar.ts` reaches into two private members that a
+version bump can rename. Read those four modules before you raise the version,
+and test the pane on a phone after.
 
 Server state is held in `AppState` (defined in `web/src/server/trpc/context.ts`):
 
@@ -261,6 +263,22 @@ Wheel scrolling needs nothing from the pane — ghostty-web registers its own
 capture-phase wheel listener on the container and accumulates sub-line trackpad
 deltas itself.
 
+The scrollbar, though, is the pane's own (`scrollbar.ts`). The emulator draws
+one, but it draws it into the text canvas, and that canvas is exactly as wide as
+the columns it holds: before drawing the bar it fills the last 14 pixels of
+every row with the background colour, which erases the two rightmost columns for
+as long as the bar is up, and its `mousedown` hit test claims the same band, so
+a selection started at the right edge scrolled instead. Neither has an option to
+turn it off, so the pane overwrites the private `renderScrollbar` with a no-op
+and removes the private `handleMouseDown` listener, then hangs its own bar in
+the DOM. There is room for it because `FitAddon` already subtracts 15 pixels for
+a scrollbar when it works out the column count — a strip that sat empty while
+the emulator drew inside the grid instead. The bar keeps the emulator's own
+behaviour: it fades in on any scroll, fades out 1.5 seconds after the last one,
+and is absent entirely while there is no scrollback. Being DOM, it sits inside
+the container, so a wheel or touch drag over it still reaches the handlers that
+scroll the pane; only a grab of the bar stops there.
+
 Touch drags are handled outright (`touch-scroll.ts` converts drag pixels to
 whole lines), because ghostty-web only wires touch up to focus the hidden input:
 a drag over the screen scrolls nothing, and there is no scrollable DOM to fall
@@ -456,6 +474,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-460 | WHEN PTY output is written to a terminal pane WHILE its viewport sits above the bottom, the system SHALL keep the same buffer content in view by re-pinning the viewport by the number of lines the write added to scrollback; WHILE the viewport is at the bottom, the pane SHALL follow the output. |
 | FR-TERMINAL-470 | WHEN a terminal pane receives a `beforeinput` event, the system SHALL write the corresponding bytes to the PTY — the inserted text with line breaks as carriage returns, `\r` for a line break or paragraph, `\x7f` for a backward delete, `\x1b[3~` for a forward delete, `\x17` for a backward word delete, and `\x17` followed by the replacement for a replacement insert — and SHALL claim the event so it reaches no other handler; WHEN the event is provisional composition text or a paste, the system SHALL ignore it and leave it to the emulator's own composition and paste handling. |
 | FR-TERMINAL-480 | The system SHALL open the on-screen keyboard for a tap on a terminal pane, and for no other reason. To that end it SHALL NOT leave the pane container editable, SHALL keep the `touchend` that ends a touch drag from every other handler, and SHALL drop the input focus as soon as a touch counts as a drag — except WHILE a composition is open, when it SHALL keep the focus so the composed text still reaches the PTY. A touch that moves no more than 8 pixels counts as a tap, not a drag. |
+| FR-TERMINAL-490 | WHILE a terminal pane holds scrollback, the system SHALL show its scroll position in a scrollbar placed beside the text grid rather than over it, sized to the share of the buffer on screen and positioned by how far the viewport sits above the bottom, and SHALL scroll the buffer to the position a drag of that scrollbar indicates. WHILE the pane holds no scrollback, it SHALL show no scrollbar. |
 
 ## Sources
 
