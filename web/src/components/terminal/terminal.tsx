@@ -17,6 +17,8 @@ import { toBracketedPaste } from "./bracketed-paste";
 import { shouldSendResize } from "./terminal-resize";
 import { attachTouchScroll } from "./touch-scroll";
 import { attachScrollbar } from "./scrollbar";
+import { confineSelectionAutoScroll } from "./selection-autoscroll";
+import { keyOverrideBytes } from "./key-overrides";
 import { loadGhostty } from "./ghostty-runtime";
 import { writePreservingScroll } from "./preserve-scroll";
 import { attachSoftKeyboardInput } from "./soft-keyboard-input";
@@ -194,6 +196,10 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
     // Replaces the scrollbar the emulator paints inside the text canvas, which
     // covers the rightmost columns while it is up.
     const detachScrollbar = attachScrollbar(containerRef.current, term);
+
+    // Keeps a selection drag near the top or bottom edge from swallowing the
+    // whole buffer.
+    confineSelectionAutoScroll(term);
 
     // The emulator marks the container `contenteditable`, as a hint to browser
     // extensions that the pane takes keyboard input. On a phone the attribute
@@ -409,28 +415,29 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
     socketRef.current = socket;
     onReady?.(sessionId, actions);
 
-    const detachSoftKeyboard = attachSoftKeyboardInput(container, (data) => {
+    // Every route from this pane to the PTY: the emulator's own key encoding,
+    // the chords it gets wrong, and a soft keyboard's edits. Each is the user
+    // typing, so each resets the activity dot.
+    const sendInput = (data: string) => {
       socket.send(JSON.stringify({ t: 'i', sessionId, d: data }));
       activityTracker.resetOnUserInput();
-    });
+    };
 
-    // Intercept Shift+Enter to send shell line continuation.
+    const detachSoftKeyboard = attachSoftKeyboardInput(container, sendInput);
+
     // NB: ghostty-web inverts xterm's contract for this hook despite the
     // identical name and signature — here `true` means "handled, suppress the
     // default", where xterm meant "carry on and process normally". Returning
-    // xterm's values swallows every keystroke.
+    // xterm's values swallows every keystroke. `true` also preventDefaults,
+    // which is what keeps Shift+Tab from moving the browser's focus instead.
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
-      if (event.key === 'Enter' && event.shiftKey) {
-        socket.send(JSON.stringify({ t: 'i', sessionId, d: '\\\r' }));
-        return true;
-      }
-      return false;
+      const bytes = keyOverrideBytes(event);
+      if (bytes === null) return false;
+      sendInput(bytes);
+      return true;
     });
 
-    term.onData((data) => {
-      socket.send(JSON.stringify({ t: 'i', sessionId, d: data }));
-      activityTracker.resetOnUserInput();
-    });
+    term.onData(sendInput);
 
     const resizeObserver = new ResizeObserver(fitAndSyncResize);
     resizeObserver.observe(containerRef.current);

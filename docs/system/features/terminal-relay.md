@@ -20,16 +20,20 @@ parameters. The server relays those connections through `/ws/terminal-relay` to
 the daemon, which owns the actual PTY processes. The two-layer design allows the
 server to run remotely while PTYs live on the developer's machine.
 
-**`ghostty-web` is pinned to an exact version, not a range.** Four parts of the
+**`ghostty-web` is pinned to an exact version, not a range.** Six parts of the
 pane compensate for behaviour of that version: `soft-keyboard-input.ts` (the
 emulator reads no `beforeinput`), `preserve-scroll.ts` (each write moves the
 view to the bottom, upstream issue #127), `touch-scroll.ts` (the emulator gets
-no touch drag), and `scrollbar.ts` (the emulator paints its scrollbar over the
-text). Each becomes wrong, not merely unnecessary, if the emulator starts to do
-the same work — a version that reads `beforeinput` makes the pane send every
-keystroke twice, and `scrollbar.ts` reaches into two private members that a
-version bump can rename. Read those four modules before you raise the version,
-and test the pane on a phone after.
+no touch drag), `scrollbar.ts` (the emulator paints its scrollbar over the
+text), `selection-autoscroll.ts` (a drag near an edge throws the selection
+away), and `key-overrides.ts` (Shift+Tab reaches the PTY as a plain tab). Each
+becomes wrong, not merely unnecessary, if the emulator starts to do the same
+work — a version that reads `beforeinput` makes the pane send every keystroke
+twice — and three of them reach into private members a version bump can rename:
+`renderScrollbar` and `handleMouseDown` in `scrollbar.ts`, `updateAutoScroll` in
+`selection-autoscroll.ts`. A member that is gone is reported to the console, not
+thrown, so the symptom is a returned bug rather than a dead pane. Read those six
+modules before you raise the version, and test the pane on a phone after.
 
 Server state is held in `AppState` (defined in `web/src/server/trpc/context.ts`):
 
@@ -322,6 +326,41 @@ while a composition is open: a keyboard that predicts words holds one across
 keystrokes, the emulator commits that text on `compositionend`, and a blur
 mid-word would end the composition and lose it.
 
+## Selection and copy
+
+Mouse selection is the emulator's own: it listens on the canvas, draws the
+highlight itself, and copies the text on mouse-up. One part of it is removed
+(`selection-autoscroll.ts`). ghostty-web auto-scrolls whenever a drag sits
+within 30 pixels of the pane's top or bottom edge, and a tick of that scroll
+does not extend the selection — it moves the loose end to the far end of the
+buffer, `{ col: 0, absoluteRow: top }` going up and the last cell going down.
+The result is that a drag anywhere near an edge selects everything up to that
+point rather than the text under the pointer.
+
+Thirty pixels is two rows at the top and two at the bottom of a 13-row terminal
+dock — where the prompt and the newest output sit, so selecting the output of
+the last command never worked at all. The pane replaces the edge trigger with a
+call that stops any scroll instead of starting one. Dragging out of the pane
+still auto-scrolls, through the emulator's own `mouseleave` and document-level
+handlers, which is where a terminal is expected to do it.
+
+## Key overrides
+
+`key-overrides.ts` maps the chords ghostty-web encodes wrongly to the bytes they
+owe the PTY, and the pane sends those itself through
+`attachCustomKeyEventHandler`. Returning `true` from that hook means "handled,
+suppress the default" — the inverse of xterm's contract for the identically
+named hook — and the `preventDefault` it carries is also what stops Shift+Tab
+moving the browser's focus out of the pane.
+
+Two chords qualify. **Shift+Enter** sends `\\\r`, a line continuation, so a
+shell reads the next line as part of the same command. **Shift+Tab** sends
+`\x1b[Z`: the emulator encodes a Shift-modified key exactly as the unmodified
+one, so backtab arrived as a plain tab and no program could tell the two apart —
+a TUI cycling backwards through its modes never saw the key. The mobile key rail
+already sent `\x1b[Z` for its "Mode" button, so only the physical keyboard was
+affected. A chord carrying any modifier beyond Shift is left to the emulator.
+
 ## On-screen keyboard
 
 ghostty-web 0.4.0 reads keyboard input from `keydown` alone. A physical keyboard
@@ -475,6 +514,9 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-470 | WHEN a terminal pane receives a `beforeinput` event, the system SHALL write the corresponding bytes to the PTY — the inserted text with line breaks as carriage returns, `\r` for a line break or paragraph, `\x7f` for a backward delete, `\x1b[3~` for a forward delete, `\x17` for a backward word delete, and `\x17` followed by the replacement for a replacement insert — and SHALL claim the event so it reaches no other handler; WHEN the event is provisional composition text or a paste, the system SHALL ignore it and leave it to the emulator's own composition and paste handling. |
 | FR-TERMINAL-480 | The system SHALL open the on-screen keyboard for a tap on a terminal pane, and for no other reason. To that end it SHALL NOT leave the pane container editable, SHALL keep the `touchend` that ends a touch drag from every other handler, and SHALL drop the input focus as soon as a touch counts as a drag — except WHILE a composition is open, when it SHALL keep the focus so the composed text still reaches the PTY. A touch that moves no more than 8 pixels counts as a tap, not a drag. |
 | FR-TERMINAL-490 | WHILE a terminal pane holds scrollback, the system SHALL show its scroll position in a scrollbar placed beside the text grid rather than over it, sized to the share of the buffer on screen and positioned by how far the viewport sits above the bottom, and SHALL scroll the buffer to the position a drag of that scrollbar indicates. WHILE the pane holds no scrollback, it SHALL show no scrollbar. |
+| FR-TERMINAL-500 | WHEN the user presses Shift+Tab in a terminal pane, the system SHALL write backtab (`ESC [ Z`) to the PTY and SHALL claim the key event, so that the emulator suppresses the browser's own handling of it — which would otherwise move the focus out of the pane; WHEN the chord carries any modifier beyond Shift, the system SHALL leave the key to the emulator. |
+| FR-TERMINAL-510 | WHEN the user presses Shift+Enter in a terminal pane, the system SHALL write a line continuation (`\\` followed by a carriage return) to the PTY; WHEN the chord carries any modifier beyond Shift, the system SHALL leave the key to the emulator. |
+| FR-TERMINAL-520 | WHILE the user drags a mouse selection inside a terminal pane, the system SHALL NOT scroll the buffer, however close to the pane's top or bottom edge the drag sits, so the selection covers the text the drag covers; a drag that leaves the pane SHALL still scroll it. |
 
 ## Sources
 
