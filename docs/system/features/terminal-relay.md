@@ -14,26 +14,11 @@ for `/ws/terminal-relay`) and the daemon side in `client/src/terminal/manager.ts
 
 ## Architecture
 
-Browser terminal panes (ghostty-web) connect to `/ws/terminal` with `sessionId`,
-`workingDir`, `cols`, `rows`, `scopeType`, and `scopeLabel` as URL query
-parameters. The server relays those connections through `/ws/terminal-relay` to
-the daemon, which owns the actual PTY processes. The two-layer design allows the
-server to run remotely while PTYs live on the developer's machine.
-
-**`ghostty-web` is pinned to an exact version, not a range.** Six parts of the
-pane compensate for behaviour of that version: `soft-keyboard-input.ts` (the
-emulator reads no `beforeinput`), `preserve-scroll.ts` (each write moves the
-view to the bottom, upstream issue #127), `touch-scroll.ts` (the emulator gets
-no touch drag), `scrollbar.ts` (the emulator paints its scrollbar over the
-text), `selection-autoscroll.ts` (a drag near an edge throws the selection
-away), and `key-overrides.ts` (Shift+Tab reaches the PTY as a plain tab). Each
-becomes wrong, not merely unnecessary, if the emulator starts to do the same
-work — a version that reads `beforeinput` makes the pane send every keystroke
-twice — and three of them reach into private members a version bump can rename:
-`renderScrollbar` and `handleMouseDown` in `scrollbar.ts`, `updateAutoScroll` in
-`selection-autoscroll.ts`. A member that is gone is reported to the console, not
-thrown, so the symptom is a returned bug rather than a dead pane. Read those six
-modules before you raise the version, and test the pane on a phone after.
+Browser xterm panes connect to `/ws/terminal` with `sessionId`, `workingDir`,
+`cols`, `rows`, `scopeType`, and `scopeLabel` as URL query parameters. The server
+relays those connections through `/ws/terminal-relay` to the daemon, which owns
+the actual PTY processes. The two-layer design allows the server to run remotely
+while PTYs live on the developer's machine.
 
 Server state is held in `AppState` (defined in `web/src/server/trpc/context.ts`):
 
@@ -252,143 +237,34 @@ conversation continues instead of failing on a duplicate id.
 
 ## Viewport scrolling
 
-The browser pane (`web/src/components/terminal/terminal.tsx`) owns auto-follow
-itself, because ghostty-web has no equivalent of xterm's `isUserScrolling`: its
-`write` snaps the viewport to the bottom whenever it isn't already there, so
-every PTY byte would cancel a scroll — and an agent TUI emits them continuously.
-`preserve-scroll.ts` reconstructs the behaviour from the one number ghostty-web
-does expose: `viewportY` counts lines above the bottom, and a write only shifts
-the content under it by however many lines it pushed into scrollback, so
-re-pinning by that delta holds the same text in view. A viewport already at the
-bottom is left alone, so output follows. The same number drives the "Bottom"
-button, which shows whenever `viewportY` is above zero.
-
-Wheel scrolling needs nothing from the pane — ghostty-web registers its own
-capture-phase wheel listener on the container and accumulates sub-line trackpad
-deltas itself.
-
-The scrollbar, though, is the pane's own (`scrollbar.ts`). The emulator draws
-one, but it draws it into the text canvas, and that canvas is exactly as wide as
-the columns it holds: before drawing the bar it fills the last 14 pixels of
-every row with the background colour, which erases the two rightmost columns for
-as long as the bar is up, and its `mousedown` hit test claims the same band, so
-a selection started at the right edge scrolled instead. Neither has an option to
-turn it off, so the pane overwrites the private `renderScrollbar` with a no-op
-and removes the private `handleMouseDown` listener, then hangs its own bar in
-the DOM. There is room for it because `FitAddon` already subtracts 15 pixels for
-a scrollbar when it works out the column count — a strip that sat empty while
-the emulator drew inside the grid instead. The bar keeps the emulator's own
-behaviour: it fades in on any scroll, fades out 1.5 seconds after the last one,
-and is absent entirely while there is no scrollback. Being DOM, it sits inside
-the container, so a wheel or touch drag over it still reaches the handlers that
-scroll the pane; only a grab of the bar stops there.
+The browser pane (`web/src/components/terminal/terminal.tsx`) leaves auto-follow
+to xterm's own `isUserScrolling` state rather than mirroring it: scrolling into
+the scrollback stops output from following the bottom, and reaching the bottom
+resumes it. The pane only reads the buffer, to show a "Bottom" button while the
+view sits above `baseY`. Two gestures need help. An upward wheel from the bottom
+gets a forced one-line scroll, because while following, each write resets the
+viewport and sub-line trackpad deltas never accumulate.
 
 Touch drags are handled outright (`touch-scroll.ts` converts drag pixels to
-whole lines), because ghostty-web only wires touch up to focus the hidden input:
-a drag over the screen scrolls nothing, and there is no scrollable DOM to fall
-back on, since the screen is a single `<canvas>`. The pane uses **pointer**
-events and takes a pointer capture on the container at `pointerdown`, rather
-than touch events, so the whole drag stays on the container whatever the
-renderer does to the node the finger first landed on. (Under xterm that was
-load-bearing: the first line scrolled re-rendered the row and destroyed the
-`<span>` under the finger, at which point iOS Safari stopped delivering the
-gesture, while Chrome retargeted detached nodes — so it only reproduced on a
-device.) The container's `touch-action: pinch-zoom` is part of the mechanism —
+whole lines), because xterm's own touch handlers bail out while a program has
+mouse reporting on — which agent TUIs do — and native scrolling only covers the
+margins beyond the last row and column, where a drag reaches `.xterm-viewport`
+instead of the `.xterm-screen` overlay. The pane uses **pointer** events and
+takes a pointer capture on the container at `pointerdown`, rather than touch
+events: a finger lands on a `<span>` inside a row, and the first line scrolled
+makes xterm re-render that row and destroy the span, at which point iOS Safari
+stops delivering the gesture (Chrome retargets detached nodes, so this only
+reproduces on a device). The capture keeps the rest of the drag on the
+container. The container's `touch-action: pinch-zoom` is part of the mechanism —
 a browser-claimed pan cancels the pointer stream — and is the narrowest value
 that still works, so two-finger zoom stays with the browser. The trade-off is
-that a single-finger drag always scrolls and can never select text; selection is
-mouse-driven and never worked from touch anyway.
-
-Keeping the on-screen keyboard down while the user scrolls takes three separate
-measures, because three separate things raise it.
-
-The first is an attribute. The emulator marks the pane container
-`contenteditable`, as a hint to browser extensions. A phone reads more into it:
-focus on an editable element opens the keyboard, so merely activating the panel
-covered the text the user came to read. The pane removes the attribute after
-`open()`, together with the `textbox` role that goes with it — the hidden
-textarea is the real input and carries the label.
-
-The second is the end of the drag. The emulator focuses that textarea on every
-`touchend`. The pane claims `touchend` in the capture phase and stops it when
-the touch moved more than 8 pixels, which keeps the emulator's handler away from
-the end of a drag. A tap moves less and passes through, so a tap still focuses
-the pane and opens the keyboard to type. `preventDefault` on the stopped event
-also blocks the synthetic mouse events, which reach the same handler by another
-route.
-
-The third is focus that is already there, and it is the one the other two miss.
-When the user hides the keyboard, the textarea keeps the focus; the keyboard is
-hidden, not released. A phone then shows it again at the next touch on a focused
-input, with no call to `focus()` for the pane to intercept. Only a blur keeps it
-down, so the drag drops the focus as soon as it counts as a drag. The blur waits
-while a composition is open: a keyboard that predicts words holds one across
-keystrokes, the emulator commits that text on `compositionend`, and a blur
-mid-word would end the composition and lose it.
-
-## Selection and copy
-
-Mouse selection is the emulator's own: it listens on the canvas, draws the
-highlight itself, and copies the text on mouse-up. One part of it is removed
-(`selection-autoscroll.ts`). ghostty-web auto-scrolls whenever a drag sits
-within 30 pixels of the pane's top or bottom edge, and a tick of that scroll
-does not extend the selection — it moves the loose end to the far end of the
-buffer, `{ col: 0, absoluteRow: top }` going up and the last cell going down.
-The result is that a drag anywhere near an edge selects everything up to that
-point rather than the text under the pointer.
-
-Thirty pixels is two rows at the top and two at the bottom of a 13-row terminal
-dock — where the prompt and the newest output sit, so selecting the output of
-the last command never worked at all. The pane replaces the edge trigger with a
-call that stops any scroll instead of starting one. Dragging out of the pane
-still auto-scrolls, through the emulator's own `mouseleave` and document-level
-handlers, which is where a terminal is expected to do it.
-
-## Key overrides
-
-`key-overrides.ts` maps the chords ghostty-web encodes wrongly to the bytes they
-owe the PTY, and the pane sends those itself through
-`attachCustomKeyEventHandler`. Returning `true` from that hook means "handled,
-suppress the default" — the inverse of xterm's contract for the identically
-named hook — and the `preventDefault` it carries is also what stops Shift+Tab
-moving the browser's focus out of the pane.
-
-Two chords qualify. **Shift+Enter** sends `\\\r`, a line continuation, so a
-shell reads the next line as part of the same command. **Shift+Tab** sends
-`\x1b[Z`: the emulator encodes a Shift-modified key exactly as the unmodified
-one, so backtab arrived as a plain tab and no program could tell the two apart —
-a TUI cycling backwards through its modes never saw the key. The mobile key rail
-already sent `\x1b[Z` for its "Mode" button, so only the physical keyboard was
-affected. A chord carrying any modifier beyond Shift is left to the emulator.
-
-## On-screen keyboard
-
-ghostty-web 0.4.0 reads keyboard input from `keydown` alone. A physical keyboard
-supplies that, but an on-screen one largely does not: Android and iOS deliver
-ordinary characters as `beforeinput` and report the placeholder `keyCode` 229 on
-keydown, which the emulator discards. Left alone the pane renders output
-normally and silently ignores every tap on the soft keyboard — while the mobile
-key rail keeps working, because those keys are written straight to the socket and
-never pass through the emulator.
-
-`soft-keyboard-input.ts` closes the gap, claiming `beforeinput` in the capture
-phase on the pane container (ahead of the textarea the emulator created) and
-writing the mapped bytes to the socket. It maps text, line breaks, and the
-delete gestures. An autocorrection needs care: the keyboard sends the
-replacement alone and identifies the text it replaces with a DOM range, which a
-PTY cannot use — and `getTargetRanges()` returns nothing for a textarea. The
-replacement is therefore prefixed with Ctrl+W, so the terminal drops the word
-before the cursor first; without it, accepting "the" for "teh" leaves "tehthe".
-The mapper deliberately ignores `insertCompositionText` and `insertFromPaste`,
-which the emulator's own `compositionend` and `paste` handlers commit —
-claiming those too would deliver every composed word twice.
-Upstream added a `beforeinput` path after 0.4.0 was published, so this can go
-once that ships.
+that a single-finger drag always scrolls and can never select text; xterm's
+selection is mouse-driven and never worked from touch anyway.
 
 ## Mobile compose
 
-Typing straight into the emulator's hidden textarea is unreliable on mobile:
-Chrome for Android ignores the `autocorrect`/`spellcheck` attributes it sets
+Typing straight into xterm's hidden textarea is unreliable on mobile: Chrome for
+Android ignores the `autocorrect`/`spellcheck` attributes xterm sets
 (crbug.com/901839), and Gboard's composition events duplicate and jumble
 characters (xterm.js#3600). The pane sets `inputmode` on that textarea to get an
 input type Android treats as suggestion-free, and a floating pencil button in the
@@ -509,14 +385,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-420 | WHEN the server forwards a `reconnected` snapshot to the pending browsers of a session that has a stored `lastTitle`, it SHALL follow the snapshot with `{ t: 'title', sessionId, title }` to those same browsers. |
 | FR-TERMINAL-430 | WHEN spawning a terminal session, the daemon SHALL set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` in the session environment — via the PTY env on host, `--remote-env` for container sessions, and `coder ssh -e` for Coder sessions — so CLAUDE.md files from `--add-dir` directories load into context. |
 | FR-TERMINAL-440 | WHEN the user activates the `⋯` toggle on the mobile key rail, the system SHALL open a second key column — `4`, `5`, `Ctrl+C` (`\x03`), `Ctrl+V` (`\x16`), `←` (`\x1b[D`), `→` (`\x1b[C`) top-to-bottom — overlaid on the terminal pane without resizing it; WHILE that column is open, pressing any key in it SHALL send that key and leave the column open, and the column SHALL close only WHEN the toggle is activated again or a pointer press lands outside the control area, without preventing that press from reaching the terminal. WHILE the mobile compose overlay is open, the column SHALL be hidden and its toggle disabled — so no key can sit over the overlay's own actions — and SHALL return to whichever state it held once the overlay closes. |
-| FR-TERMINAL-450 | WHEN serializing a reconnect snapshot, the daemon SHALL include the headless terminal's full scrollback, for sessions spawned with a command and without one alike. |
-| FR-TERMINAL-460 | WHEN PTY output is written to a terminal pane WHILE its viewport sits above the bottom, the system SHALL keep the same buffer content in view by re-pinning the viewport by the number of lines the write added to scrollback; WHILE the viewport is at the bottom, the pane SHALL follow the output. |
-| FR-TERMINAL-470 | WHEN a terminal pane receives a `beforeinput` event, the system SHALL write the corresponding bytes to the PTY — the inserted text with line breaks as carriage returns, `\r` for a line break or paragraph, `\x7f` for a backward delete, `\x1b[3~` for a forward delete, `\x17` for a backward word delete, and `\x17` followed by the replacement for a replacement insert — and SHALL claim the event so it reaches no other handler; WHEN the event is provisional composition text or a paste, the system SHALL ignore it and leave it to the emulator's own composition and paste handling. |
-| FR-TERMINAL-480 | The system SHALL open the on-screen keyboard for a tap on a terminal pane, and for no other reason. To that end it SHALL NOT leave the pane container editable, SHALL keep the `touchend` that ends a touch drag from every other handler, and SHALL drop the input focus as soon as a touch counts as a drag — except WHILE a composition is open, when it SHALL keep the focus so the composed text still reaches the PTY. A touch that moves no more than 8 pixels counts as a tap, not a drag. |
-| FR-TERMINAL-490 | WHILE a terminal pane holds scrollback, the system SHALL show its scroll position in a scrollbar placed beside the text grid rather than over it, sized to the share of the buffer on screen and positioned by how far the viewport sits above the bottom, and SHALL scroll the buffer to the position a drag of that scrollbar indicates. WHILE the pane holds no scrollback, it SHALL show no scrollbar. |
-| FR-TERMINAL-500 | WHEN the user presses Shift+Tab in a terminal pane, the system SHALL write backtab (`ESC [ Z`) to the PTY and SHALL claim the key event, so that the emulator suppresses the browser's own handling of it — which would otherwise move the focus out of the pane; WHEN the chord carries any modifier beyond Shift, the system SHALL leave the key to the emulator. |
-| FR-TERMINAL-510 | WHEN the user presses Shift+Enter in a terminal pane, the system SHALL write a line continuation (`\\` followed by a carriage return) to the PTY; WHEN the chord carries any modifier beyond Shift, the system SHALL leave the key to the emulator. |
-| FR-TERMINAL-520 | WHILE the user drags a mouse selection inside a terminal pane, the system SHALL NOT scroll the buffer, however close to the pane's top or bottom edge the drag sits, so the selection covers the text the drag covers; a drag that leaves the pane SHALL still scroll it. |
+| FR-TERMINAL-450 | WHEN serializing a reconnect snapshot, the daemon SHALL include the headless terminal's full scrollback for sessions spawned without a command, and SHALL serialize only the visible screen (zero scrollback lines) for sessions spawned with a command — full-screen agent TUIs repaint continuously, so their scrollback holds stacked repaint frames rather than history. |
 
 ## Sources
 

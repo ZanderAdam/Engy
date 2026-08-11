@@ -3,9 +3,9 @@
 import { useMemo } from 'react';
 import { useTheme } from 'next-themes';
 import { useThemeFlavor } from '@/components/theme-provider';
-import type { ITheme } from 'ghostty-web';
+import type { ITheme } from '@xterm/xterm';
 
-export const DARK_TERMINAL_THEME: ITheme = {
+export const DARK_XTERM_THEME: ITheme = {
   background: '#0a0a0a',
   foreground: '#fafafa',
   cursor: '#fafafa',
@@ -77,12 +77,12 @@ const CYBERPUNK: ITheme = {
   brightWhite: '#fff1ee',
 };
 
-export function useTerminalTheme(): ITheme {
+export function useXtermTheme(): ITheme {
   const { resolvedTheme } = useTheme();
   const { flavor } = useThemeFlavor();
 
   return useMemo(() => {
     if (flavor === 'cyberpunk') return CYBERPUNK;
-    return resolvedTheme === 'light' ? LIGHT : DARK_TERMINAL_THEME;
+    return resolvedTheme === 'light' ? LIGHT : DARK_XTERM_THEME;
   }, [resolvedTheme, flavor]);
 }

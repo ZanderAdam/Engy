@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
-import { Terminal, FitAddon } from "ghostty-web";
-import type { Ghostty, ITheme } from "ghostty-web";
+import { Terminal as XTerm } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import "@xterm/xterm/css/xterm.css";
+import type { ITheme } from "@xterm/xterm";
 import type { TerminalPingCmd, TerminalTitleMsg } from "@engy/common";
 import type { DockviewPanelApi } from "dockview";
-import { DARK_TERMINAL_THEME } from "@/hooks/use-terminal-theme";
+import { DARK_XTERM_THEME } from "@/hooks/use-xterm-theme";
 import { RiArrowDownSLine, RiPencilLine } from "@remixicon/react";
 import type { ActivityEvent, TerminalTab } from "./types";
 import { createTerminalActivityParser } from "./parse-terminal-activity";
@@ -16,12 +19,6 @@ import { MobileComposer } from "./mobile-composer";
 import { toBracketedPaste } from "./bracketed-paste";
 import { shouldSendResize } from "./terminal-resize";
 import { attachTouchScroll } from "./touch-scroll";
-import { attachScrollbar } from "./scrollbar";
-import { confineSelectionAutoScroll } from "./selection-autoscroll";
-import { keyOverrideBytes } from "./key-overrides";
-import { loadGhostty } from "./ghostty-runtime";
-import { writePreservingScroll } from "./preserve-scroll";
-import { attachSoftKeyboardInput } from "./soft-keyboard-input";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 export interface TerminalActions {
@@ -31,7 +28,7 @@ export interface TerminalActions {
 
 interface TerminalProps {
   tab: TerminalTab;
-  terminalTheme?: ITheme;
+  xtermTheme?: ITheme;
   onStatusChange: (sessionId: string, status: TerminalTab['status']) => void;
   onReady?: (sessionId: string, actions: TerminalActions | null) => void;
   onActivity?: (sessionId: string, event: ActivityEvent) => void;
@@ -76,9 +73,9 @@ function buildWsUrl(tab: TerminalTab): string {
   return `${base}/ws/terminal?${params.toString()}`;
 }
 
-export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, onActivity, onOscTitle, panelApi }: TerminalProps) {
+export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onActivity, onOscTitle, panelApi }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<Terminal | null>(null);
+  const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const socketRef = useRef<ReconnectingSocket | null>(null);
   const lastSentColsRef = useRef(0);
@@ -86,35 +83,8 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
   const activityTrackerRef = useRef<ReturnType<typeof createActivityTracker> | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [composing, setComposing] = useState(false);
-  const [ghostty, setGhostty] = useState<Ghostty | null>(null);
-  const [wasmFailed, setWasmFailed] = useState(false);
   const sessionId = tab.sessionId;
   const isMobile = useIsMobile();
-
-  // ghostty-web parses VT in WebAssembly, so the module has to be fetched and
-  // compiled before a terminal can exist. Gating the session effect on the
-  // loaded instance keeps that effect synchronous; the module-level cache makes
-  // every terminal after the first resolve without another fetch.
-  useEffect(() => {
-    let cancelled = false;
-    loadGhostty().then(
-      (instance) => {
-        if (!cancelled) setGhostty(instance);
-      },
-      (error: unknown) => {
-        if (cancelled) return;
-        console.error('[terminal-ui] Failed to load ghostty WASM', error);
-        setWasmFailed(true);
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (wasmFailed) onStatusChange(sessionId, 'error');
-  }, [wasmFailed, sessionId, onStatusChange]);
 
   const sendKey = useCallback(
     (data: string) => {
@@ -135,14 +105,14 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
   );
 
   const handleScrollToBottom = useCallback(() => {
-    termRef.current?.scrollToBottom();
+    xtermRef.current?.scrollToBottom();
     setShowScrollButton(false);
   }, []);
 
   const fitAndSyncResize = useCallback(() => {
     const container = containerRef.current;
     const fitAddon = fitAddonRef.current;
-    const term = termRef.current;
+    const term = xtermRef.current;
     const socket = socketRef.current;
     if (!container || !fitAddon || !term) return;
 
@@ -171,69 +141,44 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
   }, [sessionId]);
 
   useEffect(() => {
-    if (!containerRef.current || !ghostty) return;
+    if (!containerRef.current) return;
 
     let isCleanedUp = false;
 
-    const term = new Terminal({
-      ghostty,
+    const term = new XTerm({
       cursorBlink: true,
       convertEol: true,
       scrollback: 10000,
       fontFamily: "'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace",
       fontSize: 13,
-      theme: terminalTheme ?? DARK_TERMINAL_THEME,
+      theme: xtermTheme ?? DARK_XTERM_THEME,
     });
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+    term.loadAddon(new WebLinksAddon());
 
-    // No web-links addon: ghostty-web registers OSC 8 and URL-regex link
-    // providers itself when the terminal is opened.
     term.open(containerRef.current);
     const fitTimer = setTimeout(() => { if (!isCleanedUp) fitAddon.fit(); }, 50);
 
-    // Replaces the scrollbar the emulator paints inside the text canvas, which
-    // covers the rightmost columns while it is up.
-    const detachScrollbar = attachScrollbar(containerRef.current, term);
+    // xterm only sets autocorrect/autocapitalize/spellcheck on its hidden input.
+    // Chrome for Android ignores those (crbug.com/901839), so the virtual keyboard
+    // still runs predictive text over a terminal — composing words ahead of the
+    // cursor and corrupting backspace. `inputmode` is the one lever Android does
+    // honour: it maps to an input type the keyboard treats as suggestion-free,
+    // while keeping a normal layout (space bar included) on both iOS and Android.
+    term.textarea?.setAttribute('autocomplete', 'off');
+    term.textarea?.setAttribute('inputmode', 'email');
 
-    // Keeps a selection drag near the top or bottom edge from swallowing the
-    // whole buffer.
-    confineSelectionAutoScroll(term);
-
-    // The emulator marks the container `contenteditable`, as a hint to browser
-    // extensions that the pane takes keyboard input. On a phone the attribute
-    // means more than a hint: focus on an editable element opens the on-screen
-    // keyboard. Any focus of the pane thus raised the keyboard over the text the
-    // user came to read. The hidden textarea is the real input, and a tap still
-    // focuses it and opens the keyboard, so only the unwanted trigger goes.
-    // The textbox role goes with it: the container no longer accepts an edit,
-    // and the textarea inside it carries the label a reader needs.
-    containerRef.current.removeAttribute('contenteditable');
-    containerRef.current.removeAttribute('role');
-    containerRef.current.removeAttribute('aria-multiline');
-
-    // Predictive text is left on, overriding the emulator's own suppression of
-    // it. The suppression existed because xterm read the hidden textarea
-    // directly, where a keyboard composing words ahead of the cursor corrupted
-    // backspace — Chrome for Android ignores autocorrect/spellcheck
-    // (crbug.com/901839), so `inputmode` was the only lever that silenced it.
-    // Input now arrives as `beforeinput`, where a correction is an explicit
-    // `insertReplacementText` or `deleteContentBackward` that
-    // `soft-keyboard-input.ts` maps like any other edit, so suggestions cost
-    // nothing. Autocapitalise stays off: commands are case-sensitive.
-    term.textarea?.setAttribute('autocorrect', 'on');
-    term.textarea?.setAttribute('spellcheck', 'true');
-
-    termRef.current = term;
+    xtermRef.current = term;
     fitAddonRef.current = fitAddon;
     setShowScrollButton(false);
 
     // Activity detection via OSC title changes and PTY output bytes parsed from
-    // raw WebSocket data, rather than the emulator's own title/bell events —
-    // parsing the wire keeps detection independent of how (and when) the
-    // emulator surfaces them. One stateful parser instance per session so OSC
-    // sequences split across WS chunks are reassembled before title/bell detection.
+    // raw WebSocket data. This works even when the terminal tab is hidden
+    // (display:none), unlike xterm's onTitleChange which defers processing.
+    // One stateful parser instance per session so OSC sequences split across
+    // WS chunks are reassembled before title/bell detection.
     const activityParser = createTerminalActivityParser();
     let lastTitle = '';
     const activityTracker = createActivityTracker({
@@ -255,46 +200,41 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
       );
     };
 
-    // ghostty-web counts viewportY in lines above the bottom, so anything above
-    // zero means the user is reading scrollback and needs the "Bottom" button.
-    // (xterm expressed the same thing as viewportY < baseY.)
-    const scrollSub = term.onScroll((viewportY) => {
-      setShowScrollButton(viewportY > 0);
+    // xterm's BufferService.isUserScrolling is the single source of truth for
+    // auto-follow: scrolling into the scrollback sets it, reaching the bottom
+    // clears it, and output follows the bottom only while it is clear. Mirroring
+    // that with our own "pinned" flag is what used to snap the view back — the
+    // mirror could disagree with xterm and every write then forced a
+    // scrollToBottom(), which also reset isUserScrolling. So we only read the
+    // buffer here, to decide whether the "Bottom" button is needed.
+    const scrollSub = term.onScroll(() => {
+      const buf = term.buffer.active;
+      setShowScrollButton(buf.viewportY < buf.baseY);
     });
 
     const container = containerRef.current;
 
-    // No wheel handler of our own: ghostty-web accumulates sub-line wheel deltas
-    // itself, so the one-line nudge xterm needed to escape its auto-follow zone
-    // has nothing left to fix — and its own listener is registered in the
-    // capture phase on this same element.
+    // Nudge one line on an upward wheel from the bottom so small trackpad deltas
+    // escape the auto-follow zone: while following, each write resets the
+    // viewport, so sub-line deltas never accumulate into a scroll of their own.
+    // The nudge sets isUserScrolling, which durably stops output from following.
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY >= 0) return;
+      const buf = term.buffer.active;
+      if (buf.baseY > 0 && buf.viewportY >= buf.baseY) term.scrollLines(-1);
+    };
+    container.addEventListener('wheel', handleWheel, { passive: true });
 
-    // Touch scrolling is driven here rather than by the emulator, which only
-    // wires touch up to focus the input — a drag over the canvas scrolls
-    // nothing. There is no scrollable DOM to fall back on either: the screen is
-    // a single <canvas>, so the browser has nothing of its own to pan.
-    // A keyboard that predicts words keeps a composition open across keystrokes,
-    // and the emulator commits that text only when `compositionend` gives it.
-    // Blur ends a composition, so a drag mid-word must not blur, or the word
-    // goes nowhere.
-    let composing = false;
-    const onCompositionStart = () => { composing = true; };
-    const onCompositionEnd = () => { composing = false; };
-    container.addEventListener('compositionstart', onCompositionStart);
-    container.addEventListener('compositionend', onCompositionEnd);
-
+    // Touch scrolling is driven here rather than by xterm, whose own touch
+    // handlers bail out while a program has mouse reporting on — which every
+    // agent TUI does. Native scrolling doesn't cover for them either: only
+    // `.xterm-viewport` scrolls, and `.xterm-screen` overlays it, so a drag
+    // lands on the viewport only in the margins beyond the last row/column.
     const detachTouchScroll = attachTouchScroll(container, {
       rows: () => term.rows,
       scrollLines: (lines) => term.scrollLines(lines),
-      // A drag must drop the input focus, not merely avoid taking it. When the
-      // user hides the on-screen keyboard, the textarea keeps the focus, and a
-      // phone shows the keyboard again at the next touch on a focused input —
-      // with no call to focus() to stop. Blur is the only way to keep it down.
-      onDragStart: () => {
-        if (!composing) term.textarea?.blur();
-      },
     });
-    // focusin bubbles from the hidden textarea (unlike focus), so any click/keyboard
+    // focusin bubbles from xterm's textarea (unlike focus), so any click/keyboard
     // focus re-syncs PTY size when the viewport changed while the panel was hidden,
     // and acknowledges the session so a done/waiting indicator clears once viewed.
     // The ack is also relayed so the server meta and daemon tracker clear too —
@@ -338,8 +278,8 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
           }
 
           if (msg.t === 'o' && msg.d) {
-            // Parse activity from the raw data rather than the rendered screen,
-            // so it is detected even while the tab is hidden.
+            // Parse activity from raw data before writing to xterm — this works
+            // even when the terminal tab is hidden (xterm defers processing).
             const activity = activityParser.parse(msg.d);
             for (const title of activity.titles) handleTitleChange(title);
             if (activity.hasBell) {
@@ -352,7 +292,11 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
               activityTracker.bumpActivity(activity.hasPrompt);
             }
 
-            writePreservingScroll(term, msg.d);
+            // xterm natively preserves the viewport while the user is scrolled
+            // up (its BufferService.isUserScrolling flag, set whenever we or the
+            // wheel/touch handlers scroll into the scrollback) and follows the
+            // bottom otherwise. Writing plainly leans on that.
+            term.write(msg.d);
           } else if (msg.t === 'reconnected' && typeof msg.snapshot === 'string') {
             console.log(
               `[terminal-ui] Reconnected session ${sessionId}, snapshot: ${msg.snapshot.length} chars`,
@@ -361,20 +305,9 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
             // The snapshot re-establishes screen state from scratch, so reset
             // (not clear) — it also drops modes a torn-down program left set.
             term.reset();
-            // reset() empties the buffer but leaves viewportY where the user
-            // left it, and emits no scroll event to say so. Anything reading
-            // that number — the re-pinning of the next write, the scrollbar —
-            // would work from a position the new buffer no longer has.
-            term.scrollToBottom();
-            // A session that produced no output yet serializes to an empty
-            // snapshot, and an empty write throws inside the emulator: it gives
-            // the zero-length array to Uint8Array.set, which reports an offset
-            // out of bounds and takes the pane down.
-            if (msg.snapshot.length > 0) {
-              term.write(msg.snapshot, () => {
-                term.scrollToBottom();
-              });
-            }
+            term.write(msg.snapshot, () => {
+              term.scrollToBottom();
+            });
             setShowScrollButton(false);
           } else if (msg.t === 'pong') {
             socket.confirmAlive();
@@ -395,12 +328,12 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
                 : code === 0
                   ? 'Process exited'
                   : `Process exited with code ${code}`;
-            writePreservingScroll(term, `\r\n\x1b[2m[${label}]\x1b[0m\r\n`);
+            term.write(`\r\n\x1b[2m[${label}]\x1b[0m\r\n`);
           } else if (msg.t === 'error') {
             console.error(`[terminal-ui] Error for session ${sessionId}: no daemon`);
             socket.markFinal();
             onStatusChange(sessionId, 'error');
-            writePreservingScroll(term, '\r\n\x1b[31m[Error: no daemon connected]\x1b[0m\r\n');
+            term.write('\r\n\x1b[31m[Error: no daemon connected]\x1b[0m\r\n');
           }
         },
         onClose: (event) => {
@@ -415,29 +348,21 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
     socketRef.current = socket;
     onReady?.(sessionId, actions);
 
-    // Every route from this pane to the PTY: the emulator's own key encoding,
-    // the chords it gets wrong, and a soft keyboard's edits. Each is the user
-    // typing, so each resets the activity dot.
-    const sendInput = (data: string) => {
-      socket.send(JSON.stringify({ t: 'i', sessionId, d: data }));
-      activityTracker.resetOnUserInput();
-    };
-
-    const detachSoftKeyboard = attachSoftKeyboardInput(container, sendInput);
-
-    // NB: ghostty-web inverts xterm's contract for this hook despite the
-    // identical name and signature — here `true` means "handled, suppress the
-    // default", where xterm meant "carry on and process normally". Returning
-    // xterm's values swallows every keystroke. `true` also preventDefaults,
-    // which is what keeps Shift+Tab from moving the browser's focus instead.
+    // Intercept Shift+Enter to send shell line continuation
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
-      const bytes = keyOverrideBytes(event);
-      if (bytes === null) return false;
-      sendInput(bytes);
+      if (event.key === 'Enter' && event.shiftKey) {
+        if (event.type === 'keydown') {
+          socket.send(JSON.stringify({ t: 'i', sessionId, d: '\\\r' }));
+        }
+        return false;
+      }
       return true;
     });
 
-    term.onData(sendInput);
+    term.onData((data) => {
+      socket.send(JSON.stringify({ t: 'i', sessionId, d: data }));
+      activityTracker.resetOnUserInput();
+    });
 
     const resizeObserver = new ResizeObserver(fitAndSyncResize);
     resizeObserver.observe(containerRef.current);
@@ -448,42 +373,41 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
       activityTracker.dispose();
       activityTrackerRef.current = null;
       scrollSub.dispose();
-      detachScrollbar();
-      detachSoftKeyboard();
+      container.removeEventListener('wheel', handleWheel);
       detachTouchScroll();
-      container.removeEventListener('compositionstart', onCompositionStart);
-      container.removeEventListener('compositionend', onCompositionEnd);
       container.removeEventListener('focusin', handleFocusIn);
       resizeObserver.disconnect();
       onReady?.(sessionId, null);
       socket.close();
       term.dispose();
-      termRef.current = null;
+      xtermRef.current = null;
       fitAddonRef.current = null;
       socketRef.current = null;
     };
-    // Intentionally only depends on sessionId, fitAndSyncResize and the loaded WASM
-    // instance — do NOT add tab or scope, to avoid reconnecting when props change.
-    // sessionId is stable per tab lifetime; ghostty is a module-level singleton.
+    // Intentionally only depends on sessionId and fitAndSyncResize — do NOT add tab or scope
+    // to avoid reconnecting when props change. sessionId is stable per tab lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, fitAndSyncResize, ghostty]);
+  }, [sessionId, fitAndSyncResize]);
 
   useEffect(() => {
-    if (termRef.current && terminalTheme) {
-      termRef.current.options.theme = terminalTheme;
+    if (xtermRef.current && xtermTheme) {
+      xtermRef.current.options.theme = xtermTheme;
     }
-  }, [terminalTheme]);
+  }, [xtermTheme]);
 
-  // Refit the terminal when the dockview panel becomes visible (tab switch), in
-  // case the viewport changed while it was hidden (e.g. mobile ↔ desktop switch).
-  // No explicit repaint: ghostty-web renders from a requestAnimationFrame loop
-  // that keeps running while the panel is display:none, so the canvas is already
-  // current — the fit is what needs a frame to measure against.
+  // Repaint and refit terminal when the dockview panel becomes visible (tab switch).
+  // xterm's renderer pauses while display:none → need refresh() to repaint.
+  // fitAndSyncResize re-syncs PTY dimensions in case the viewport changed while
+  // the panel was hidden (e.g. mobile ↔ desktop switch).
   useEffect(() => {
     if (!panelApi) return;
     const disposable = panelApi.onDidVisibilityChange((e) => {
       if (e.isVisible) {
-        requestAnimationFrame(() => fitAndSyncResize());
+        requestAnimationFrame(() => {
+          const term = xtermRef.current;
+          if (term) term.refresh(0, term.rows - 1);
+          fitAndSyncResize();
+        });
       }
     });
     return () => disposable.dispose();
@@ -495,13 +419,6 @@ export function TerminalInstance({ tab, terminalTheme, onStatusChange, onReady, 
         {/* Panning is ours — a browser-claimed pan cancels the pointer stream
             mid-drag — but two-finger zoom stays with the browser. */}
         <div ref={containerRef} className="size-full touch-pinch-zoom" />
-        {/* Without the WASM module no terminal is ever constructed, so the pane
-            would otherwise sit blank and look frozen rather than broken. */}
-        {wasmFailed && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center p-4 text-center text-xs text-red-400">
-            Terminal engine failed to load. Reload the page to try again.
-          </div>
-        )}
         {isMobile && !composing && (
           <button
             type="button"

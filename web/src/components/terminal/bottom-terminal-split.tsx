@@ -149,7 +149,7 @@ export function BottomTerminalSplit({
         {/* Terminal — hidden when collapsed to preserve live connections.
             Only the outer clip wrapper collapses; the inner host keeps its
             expanded height so the dockview terminals never lay out at zero
-            height (which left terminal overlays stuck at sliver sizes). */}
+            height (which left xterm overlays stuck at sliver sizes). */}
         <div
           className="shrink-0 overflow-hidden"
           style={{

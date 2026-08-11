@@ -13,7 +13,7 @@ import type { PersistentSession } from './types.js';
 const { Terminal: HeadlessTerminal } = headless;
 
 const SIGTERM_TIMEOUT_MS = 3_000;
-// Matches the browser pane's scrollback (terminal.tsx) so a snapshot resync
+// Matches the browser xterm's scrollback (terminal.tsx) so a snapshot resync
 // restores the same history depth the browser would have accumulated live.
 const SCROLLBACK_LINES = 10_000;
 // Blocks unsandboxed execution on host for any agent CLI: Claude Code's
@@ -340,7 +340,11 @@ export class TerminalManager {
         console.log(`[terminal] handleReconnect: session ${sessionId} gone before flush, skipping snapshot`);
         return;
       }
-      const snapshot = session.serializeAddon.serialize();
+      // Command sessions: TUIs repaint constantly, so scrollback is stacked
+      // frames, not history — screen only.
+      const snapshot = session.serializeAddon.serialize(
+        session.command ? { scrollback: 0 } : undefined,
+      );
       console.log(
         `[terminal] handleReconnect: session ${sessionId} snapshot ${snapshot.length} chars`,
       );

@@ -5,7 +5,7 @@ Four independent endpoints on the single HTTP server (upgrade routing in `web/se
 | Path | File | Direction | Purpose |
 |---|---|---|---|
 | `/ws` | `server.ts` | daemon ↔ server | Control channel — registration, validation, git, file I/O, container & execution lifecycle |
-| `/ws/terminal` | `terminal-server.ts` | browser ↔ server | terminal UI sockets (one per terminal pane) |
+| `/ws/terminal` | `terminal-server.ts` | browser ↔ server | xterm UI sockets (one per terminal pane) |
 | `/ws/terminal-relay` | `terminal-server.ts` | daemon ↔ server | Daemon-side terminal I/O; server relays bytes between this and `/ws/terminal` |
 | `/ws/events` | `events-server.ts` | server → browsers | Broadcast (file/task/question/terminal-sessions change) |
 

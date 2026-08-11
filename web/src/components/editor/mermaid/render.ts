@@ -11,7 +11,7 @@ let mermaidPromise: Promise<MermaidModule> | null = null;
 let initializedTheme: MermaidTheme | null = null;
 
 // Neon variables on mermaid's customizable `base` theme, matching the
-// cyberpunk flavor's terminal/Monaco palette.
+// cyberpunk flavor's xterm/Monaco palette.
 const CYBERPUNK_THEME_CONFIG = {
   theme: 'base',
   themeVariables: {

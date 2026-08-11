@@ -26,9 +26,6 @@ coverage/
 # Heap dumps
 *.heapsnapshot
 
-# Copied out of node_modules by `web`'s sync:wasm script
-web/public/ghostty-vt.wasm
-
 # OS
 .DS_Store
 

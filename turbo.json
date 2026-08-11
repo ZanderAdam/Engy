@@ -13,13 +13,7 @@
     },
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [
-        ".next/**",
-        "!.next/cache/**",
-        "dist/**",
-        "dist-server/**",
-        "public/ghostty-vt.wasm"
-      ]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**", "dist-server/**"]
     },
     "lint:eslint": {
       "dependsOn": ["^build"]
