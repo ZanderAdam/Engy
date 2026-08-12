@@ -20,7 +20,7 @@ import { projectDocGroupKey, type DocScope } from '@/components/docs/types';
 const SIDEBAR_CONFIG = {
   defaultWidth: 256,
   minWidth: 180,
-  maxWidth: 384,
+  maxWidth: 900,
   storageKey: 'engy-docs-sidebar-width',
 } as const;
 

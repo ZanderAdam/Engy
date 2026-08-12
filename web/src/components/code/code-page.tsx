@@ -31,7 +31,7 @@ import {
 const SIDEBAR_CONFIG = {
   defaultWidth: 280,
   minWidth: 180,
-  maxWidth: 420,
+  maxWidth: 900,
   storageKey: 'engy-code-sidebar-width',
 } as const;
 

@@ -19,7 +19,7 @@ import { DocsSectionTree } from './docs-tree';
 const SIDEBAR_CONFIG = {
   defaultWidth: 256,
   minWidth: 180,
-  maxWidth: 384,
+  maxWidth: 900,
   storageKey: 'engy-workspace-docs-sidebar-width',
 } as const;
 

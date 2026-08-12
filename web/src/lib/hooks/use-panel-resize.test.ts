@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { clampWidth, readStoredWidth, type PanelConfig } from './use-panel-resize';
+import { clampWidth, readStoredWidth, resolveMaxWidth, type PanelConfig } from './use-panel-resize';
 
 describe('use-panel-resize', () => {
   describe('clampWidth', () => {
@@ -25,6 +25,34 @@ describe('use-panel-resize', () => {
     it('should handle exact boundary values', () => {
       expect(clampWidth(200, 200, 600)).toBe(200);
       expect(clampWidth(600, 200, 600)).toBe(600);
+    });
+  });
+
+  describe('resolveMaxWidth', () => {
+    const config: PanelConfig = { defaultWidth: 300, minWidth: 200, maxWidth: 900 };
+
+    it('should return the configured maximum when the container is wide enough', () => {
+      expect(resolveMaxWidth(config, 1600)).toBe(900);
+    });
+
+    it('should reserve room for the center column on a narrow container', () => {
+      expect(resolveMaxWidth(config, 1000)).toBe(680);
+    });
+
+    it('should never drop below the configured minimum', () => {
+      expect(resolveMaxWidth(config, 400)).toBe(200);
+    });
+
+    it('should fall back to the configured maximum before the container is measured', () => {
+      expect(resolveMaxWidth(config, 0)).toBe(900);
+    });
+
+    it('should subtract the opposite panel from the available budget', () => {
+      expect(resolveMaxWidth(config, 1600, 600)).toBe(680);
+    });
+
+    it('should ignore a collapsed opposite panel', () => {
+      expect(resolveMaxWidth(config, 1600, 0)).toBe(900);
     });
   });
 
@@ -54,14 +82,14 @@ describe('use-panel-resize', () => {
       expect(readStoredWidth(config)).toBe(400);
     });
 
-    it('should return null when stored value is below minimum', () => {
+    it('should clamp to minimum when stored value is below minimum', () => {
       localStorage.setItem('test-panel-width', '100');
-      expect(readStoredWidth(config)).toBeNull();
+      expect(readStoredWidth(config)).toBe(200);
     });
 
-    it('should return null when stored value is above maximum', () => {
+    it('should clamp to maximum when stored value is above maximum', () => {
       localStorage.setItem('test-panel-width', '800');
-      expect(readStoredWidth(config)).toBeNull();
+      expect(readStoredWidth(config)).toBe(600);
     });
 
     it('should return null when stored value is not a number', () => {

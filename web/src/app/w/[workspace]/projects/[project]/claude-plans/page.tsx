@@ -8,7 +8,7 @@ import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
 const SIDEBAR_CONFIG = {
   defaultWidth: 256,
   minWidth: 180,
-  maxWidth: 384,
+  maxWidth: 900,
   storageKey: 'engy-claude-plans-sidebar-width',
 } as const;
 

@@ -105,6 +105,40 @@ function ShortcutButton({
   );
 }
 
+// A hairline reads well but is a poor pointer target. The element itself is a
+// transparent 12px column that owns the grab area — widening it in layout
+// rather than overlaying the neighbours keeps sibling clicks intact — and the
+// visible line is drawn centred inside it.
+function ResizeHandle({
+  panel,
+  onCollapse,
+  label,
+  className,
+}: {
+  panel: { isResizing: boolean; handleMouseDown: (e: React.MouseEvent) => void };
+  onCollapse: () => void;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      className={cn(
+        'relative w-3 cursor-col-resize',
+        "after:absolute after:inset-y-0 after:left-1/2 after:w-1 after:-translate-x-1/2 after:content-[''] after:bg-border after:transition-colors after:pointer-events-none",
+        'hover:after:bg-blue-500',
+        panel.isResizing && 'after:bg-blue-500',
+        className,
+      )}
+      onMouseDown={panel.handleMouseDown}
+      onDoubleClick={onCollapse}
+      title={label}
+    />
+  );
+}
+
 export function ThreePanelLayout({
   left,
   right,
@@ -197,7 +231,9 @@ export function ThreePanelLayout({
         <>
           <div
             className={cn(
-              'transition-[width] duration-200 ease-in-out',
+              // The transition is disabled while drag-resizing so the panel
+              // tracks the pointer instead of lagging 200ms behind it.
+              !leftPanel.isResizing && 'transition-[width] duration-200 ease-in-out',
               isLeftCollapsed ? 'w-0 overflow-hidden' : '',
             )}
             style={{
@@ -229,14 +265,11 @@ export function ThreePanelLayout({
                 keys={leftKeys}
                 icon={RiArrowLeftSLine}
               />
-              <div
-                className={cn(
-                  'flex-1 w-1 bg-border hover:bg-blue-500 cursor-col-resize transition-colors',
-                  leftPanel.isResizing && 'bg-blue-500',
-                )}
-                onMouseDown={leftPanel.handleMouseDown}
-                onDoubleClick={() => setLeftCollapsed(true)}
-                title="Drag to resize sidebar"
+              <ResizeHandle
+                panel={leftPanel}
+                onCollapse={() => setLeftCollapsed(true)}
+                label="Drag to resize sidebar"
+                className="flex-1"
               />
             </div>
           )}
@@ -292,14 +325,11 @@ export function ThreePanelLayout({
             // here, as the leftmost edge (no handle when collapsed — nothing to
             // resize).
             !isRightCollapsed && (
-              <div
-                className={cn(
-                  'w-1 flex-shrink-0 bg-border hover:bg-blue-500 cursor-col-resize transition-colors',
-                  rightPanel.isResizing && 'bg-blue-500',
-                )}
-                onMouseDown={rightPanel.handleMouseDown}
-                onDoubleClick={() => setRightCollapsed(true)}
-                title="Drag to resize panel"
+              <ResizeHandle
+                panel={rightPanel}
+                onCollapse={() => setRightCollapsed(true)}
+                label="Drag to resize panel"
+                className="flex-shrink-0"
               />
             )
           ) : (
@@ -313,14 +343,11 @@ export function ThreePanelLayout({
                     keys={rightKeys}
                     icon={RiArrowRightSLine}
                   />
-                  <div
-                    className={cn(
-                      'flex-1 w-1 bg-border hover:bg-blue-500 cursor-col-resize transition-colors',
-                      rightPanel.isResizing && 'bg-blue-500',
-                    )}
-                    onMouseDown={rightPanel.handleMouseDown}
-                    onDoubleClick={() => setRightCollapsed(true)}
-                    title="Drag to resize panel"
+                  <ResizeHandle
+                    panel={rightPanel}
+                    onCollapse={() => setRightCollapsed(true)}
+                    label="Drag to resize panel"
+                    className="flex-1"
                   />
                 </div>
               )}

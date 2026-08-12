@@ -53,7 +53,7 @@ const BRANCH_TARGETS: Array<{ value: BranchDiffTarget; label: string; hint: stri
 const SIDEBAR_CONFIG = {
   defaultWidth: 280,
   minWidth: 180,
-  maxWidth: 450,
+  maxWidth: 900,
   storageKey: 'engy-diffs-sidebar-width',
 } as const;
 
