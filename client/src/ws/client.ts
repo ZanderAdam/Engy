@@ -701,7 +701,7 @@ export class WsClient {
         this.terminalManager?.kill(msg.sessionId);
         break;
       case 'reconnect':
-        this.terminalManager?.handleReconnect(msg.sessionId);
+        this.terminalManager?.handleReconnect(msg.sessionId, msg.cols, msg.rows);
         break;
       case 'ack':
         this.terminalManager?.acknowledge(msg.sessionId);

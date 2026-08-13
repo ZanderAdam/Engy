@@ -322,7 +322,7 @@ export class TerminalManager {
     this.disposeSession(sessionId, session);
   }
 
-  handleReconnect(sessionId: string): void {
+  handleReconnect(sessionId: string, cols?: number, rows?: number): void {
     const session = this.sessions.get(sessionId);
     if (!session) {
       console.warn(
@@ -335,6 +335,16 @@ export class TerminalManager {
     console.log(`[terminal] handleReconnect: session ${sessionId} found, state=${session.state}`);
     session.state = 'active';
     session.suspendedAt = undefined;
+
+    // Serialize at the size the reattaching browser renders at. The mirror keeps
+    // whatever size it last held, which is the spawn default for a session no
+    // browser ever fitted; a snapshot addressed to that geometry lands in the
+    // pane as torn frames and blank rows. The size given here is the last one a
+    // browser reported, so a pane that has since changed size still corrects it
+    // with its own resize after attaching.
+    if (cols && rows && (session.screen.cols !== cols || session.screen.rows !== rows)) {
+      this.resize(sessionId, cols, rows);
+    }
 
     // Serialize only after xterm's write queue has drained, so output that
     // arrived just before the reconnect is part of the snapshot.

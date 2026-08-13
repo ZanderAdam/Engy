@@ -937,6 +937,14 @@ export interface TerminalKillCmd {
 export interface TerminalReconnectCmd {
   t: 'reconnect';
   sessionId: string;
+  /**
+   * Last known size of the session. The daemon sizes its screen mirror to this
+   * before serializing, so the snapshot is addressed to the geometry the
+   * reattaching browser renders at instead of whatever size the mirror drifted
+   * to while no browser was attached. Absent when no size was ever recorded.
+   */
+  cols?: number;
+  rows?: number;
 }
 
 /**

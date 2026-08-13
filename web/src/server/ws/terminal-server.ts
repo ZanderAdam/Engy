@@ -438,7 +438,19 @@ async function handleTerminalConnection(
         state.pendingReconnects.set(sessionId, pendingSet);
       }
       pendingSet.add(ws);
-      daemon.send(JSON.stringify({ t: 'reconnect', sessionId } satisfies TerminalReconnectCmd));
+      // Carry the stored size so the mirror is serialized at the geometry this
+      // browser renders at. A pane that was never fitted (hidden at spawn) left
+      // the mirror at the spawn default, and a snapshot addressed to that size
+      // replays as torn frames once the pane fits itself.
+      const stored = state.terminalSessionMeta.get(sessionId);
+      daemon.send(
+        JSON.stringify({
+          t: 'reconnect',
+          sessionId,
+          cols: stored?.cols,
+          rows: stored?.rows,
+        } satisfies TerminalReconnectCmd),
+      );
       broadcastTerminalSessionsChange(
         'attached',
         sessionId,

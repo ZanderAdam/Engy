@@ -185,7 +185,7 @@ describe('Terminal WebSocket Server', () => {
 
       const reconnectRaw = await reconnectMsgPromise;
       const reconnectMsg = JSON.parse(reconnectRaw);
-      expect(reconnectMsg).toEqual({ t: 'reconnect', sessionId: 'sess-r' });
+      expect(reconnectMsg).toEqual({ t: 'reconnect', sessionId: 'sess-r', cols: 80, rows: 24 });
 
       // Both browsers should remain connected (multi-attach — no replacement)
       expect(browser1.readyState).toBe(WebSocket.OPEN);
@@ -604,7 +604,12 @@ describe('Terminal WebSocket Server', () => {
 
       const reconnectRaw = await reconnectPromise;
       const reconnectMsg = JSON.parse(reconnectRaw);
-      expect(reconnectMsg).toEqual({ t: 'reconnect', sessionId: 'sess-refresh' });
+      expect(reconnectMsg).toEqual({
+        t: 'reconnect',
+        sessionId: 'sess-refresh',
+        cols: 80,
+        rows: 24,
+      });
     });
 
     it('[FR-TERMINAL-080] should send exit to other attached browsers before closing them on kill', async () => {
@@ -821,6 +826,42 @@ describe('Terminal WebSocket Server', () => {
       });
     });
 
+    it('[FR-TERMINAL-470] should send the last known size with the reconnect command', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      const browser = await connectBrowser(port, {
+        sessionId: 'resize-reconnect-sess',
+        workingDir: '/tmp/proj',
+      });
+      await spawnPromise; // consume initial spawn (80x24)
+
+      const resizePromise = waitForMessage(daemonWs);
+      browser.send(
+        JSON.stringify({ t: 'resize', sessionId: 'resize-reconnect-sess', cols: 200, rows: 50 }),
+      );
+      await resizePromise;
+
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.get('resize-reconnect-sess')?.cols).toBe(200);
+      });
+
+      // A second browser attaches: the daemon must be told to serialize at the
+      // size the session actually runs at, not the spawn default.
+      const reconnectPromise = waitForMessage(daemonWs);
+      await connectBrowser(port, {
+        sessionId: 'resize-reconnect-sess',
+        workingDir: '/tmp/proj',
+      });
+
+      expect(JSON.parse(await reconnectPromise)).toEqual({
+        t: 'reconnect',
+        sessionId: 'resize-reconnect-sess',
+        cols: 200,
+        rows: 50,
+      });
+    });
+
     it('[FR-TERMINAL-160] should re-assert last known size for surviving sessions with an attached browser', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
@@ -962,7 +1003,12 @@ describe('Terminal WebSocket Server', () => {
         groupKey: 'grp-1',
       });
 
-      expect(JSON.parse(await msgPromise)).toEqual({ t: 'reconnect', sessionId: 'surviving-sess' });
+      expect(JSON.parse(await msgPromise)).toEqual({
+        t: 'reconnect',
+        sessionId: 'surviving-sess',
+        cols: 80,
+        rows: 24,
+      });
 
       // Meta was rebuilt from the connect params
       expect(state.terminalSessionMeta.get('surviving-sess')).toMatchObject({
@@ -995,7 +1041,12 @@ describe('Terminal WebSocket Server', () => {
       daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: ['early-sess'] }));
 
       await vi.waitFor(() => expect(messages).toHaveLength(1));
-      expect(JSON.parse(messages[0])).toEqual({ t: 'reconnect', sessionId: 'early-sess' });
+      expect(JSON.parse(messages[0])).toEqual({
+        t: 'reconnect',
+        sessionId: 'early-sess',
+        cols: 80,
+        rows: 24,
+      });
     });
 
     it('[FR-TERMINAL-210] should classify a pre-daemon browser connect once the daemon connects and syncs', async () => {
@@ -1007,6 +1058,8 @@ describe('Terminal WebSocket Server', () => {
       expect(JSON.parse(await waitForMessage(daemonWs))).toEqual({
         t: 'reconnect',
         sessionId: 'early-sess-2',
+        cols: 80,
+        rows: 24,
       });
     });
 
@@ -1136,7 +1189,12 @@ describe('Terminal WebSocket Server', () => {
 
       await connectBrowser(port, { sessionId: 'restored-sess', workingDir: '/tmp' });
 
-      expect(JSON.parse(await msgPromise)).toEqual({ t: 'reconnect', sessionId: 'restored-sess' });
+      expect(JSON.parse(await msgPromise)).toEqual({
+        t: 'reconnect',
+        sessionId: 'restored-sess',
+        cols: 80,
+        rows: 24,
+      });
 
       // Daemon does not know the session — its exit -1 reply cleans up meta and row
       daemonWs.send(JSON.stringify({ t: 'exit', sessionId: 'restored-sess', exitCode: -1 }));
@@ -1311,7 +1369,12 @@ describe('Terminal WebSocket Server', () => {
       await vi.waitFor(() => {
         expect(daemonMessages).toHaveLength(1);
       });
-      expect(JSON.parse(daemonMessages[0])).toEqual({ t: 'reconnect', sessionId: 'sess-conc' });
+      expect(JSON.parse(daemonMessages[0])).toEqual({
+        t: 'reconnect',
+        sessionId: 'sess-conc',
+        cols: 80,
+        rows: 24,
+      });
     });
 
     it('should clear the spawn gate after a successful spawn', async () => {

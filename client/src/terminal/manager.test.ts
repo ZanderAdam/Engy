@@ -97,8 +97,8 @@ describe('TerminalManager', () => {
 
   // The snapshot is serialized behind xterm's async write queue, so the
   // reconnected message lands a tick after handleReconnect returns.
-  async function reconnectSnapshot(sessionId: string) {
-    manager.handleReconnect(sessionId);
+  async function reconnectSnapshot(sessionId: string, cols?: number, rows?: number) {
+    manager.handleReconnect(sessionId, cols, rows);
     await vi.waitFor(() =>
       expect(sent.some((m) => m.startsWith('{"t":"reconnected"'))).toBe(true),
     );
@@ -294,6 +294,40 @@ describe('TerminalManager', () => {
     // 5,000 scrollback lines back from the end — anything older is dropped even
     // though the 10,000-line mirror still holds it.
     expect(replayMsg.snapshot).not.toContain('line100\r');
+  });
+
+  it('[FR-TERMINAL-470] sizes the mirror to the reattaching browser before serializing', async () => {
+    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+    sent.length = 0;
+
+    await reconnectSnapshot('abc', 120, 40);
+
+    expect(mockPtyProcess.resize).toHaveBeenCalledWith(120, 40);
+    expect(sessions.get('abc')!.screen.cols).toBe(120);
+    expect(sessions.get('abc')!.screen.rows).toBe(40);
+  });
+
+  it('[FR-TERMINAL-470] snapshots the repaint the resize provokes, not the pre-resize screen', async () => {
+    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+    onDataCallback?.('before-resize\r\n');
+    // A full-screen program repaints on SIGWINCH; that burst must land in the
+    // snapshot rather than race past the flush.
+    mockPtyProcess.resize.mockImplementationOnce(() => onDataCallback?.('after-resize\r\n'));
+    sent.length = 0;
+
+    const replayMsg = await reconnectSnapshot('abc', 120, 40);
+
+    expect(replayMsg.snapshot).toContain('after-resize');
+  });
+
+  it('[FR-TERMINAL-470] keeps the mirror size when the reconnect carries none', async () => {
+    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+    sent.length = 0;
+
+    await reconnectSnapshot('abc');
+
+    expect(mockPtyProcess.resize).not.toHaveBeenCalled();
+    expect(sessions.get('abc')!.screen.cols).toBe(80);
   });
 
   it('skips the snapshot when the session is killed before the flush fires', async () => {
