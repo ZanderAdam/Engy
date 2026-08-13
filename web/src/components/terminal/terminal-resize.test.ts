@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shouldSendResize } from './terminal-resize';
+import { canFitPane, shouldSendResize } from './terminal-resize';
 
 describe('terminal resize guard', () => {
   describe('shouldSendResize', () => {
@@ -17,6 +17,21 @@ describe('terminal resize guard', () => {
 
     it('should return true when both cols and rows differ', () => {
       expect(shouldSendResize(100, 30, 80, 24)).toBe(true);
+    });
+  });
+
+  describe('canFitPane', () => {
+    it('[FR-TERMINAL-460] should refuse to fit a pane with no laid-out box', () => {
+      expect(canFitPane(0, 0)).toBe(false);
+    });
+
+    it('[FR-TERMINAL-460] should refuse to fit a pane with only one measured axis', () => {
+      expect(canFitPane(480, 0)).toBe(false);
+      expect(canFitPane(0, 924)).toBe(false);
+    });
+
+    it('[FR-TERMINAL-460] should fit a pane the browser has measured', () => {
+      expect(canFitPane(480, 924)).toBe(true);
     });
   });
 });

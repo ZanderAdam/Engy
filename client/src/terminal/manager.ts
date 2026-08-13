@@ -16,6 +16,13 @@ const SIGTERM_TIMEOUT_MS = 3_000;
 // Matches the browser xterm's scrollback (terminal.tsx) so a snapshot resync
 // restores the same history depth the browser would have accumulated live.
 const SCROLLBACK_LINES = 10_000;
+// How much of that mirror a reconnect snapshot carries. Every attached browser
+// parses the snapshot in one write, and a resync of a dozen sessions lands at
+// once after a refresh, so the wire and parse cost is bounded here rather than
+// at the full mirror depth. A full-screen program's frames never land in this
+// buffer — they live in the alternate screen, which the serializer appends on
+// its own — so the lines counted here are history worth restoring.
+const SNAPSHOT_SCROLLBACK_LINES = 5_000;
 // Blocks unsandboxed execution on host for any agent CLI: Claude Code's
 // --dangerously-skip-permissions and Codex's --dangerously-bypass-approvals-and-sandbox.
 const DANGEROUS_FLAG_RE =
@@ -340,11 +347,9 @@ export class TerminalManager {
         console.log(`[terminal] handleReconnect: session ${sessionId} gone before flush, skipping snapshot`);
         return;
       }
-      // Command sessions: TUIs repaint constantly, so scrollback is stacked
-      // frames, not history — screen only.
-      const snapshot = session.serializeAddon.serialize(
-        session.command ? { scrollback: 0 } : undefined,
-      );
+      const snapshot = session.serializeAddon.serialize({
+        scrollback: SNAPSHOT_SCROLLBACK_LINES,
+      });
       console.log(
         `[terminal] handleReconnect: session ${sessionId} snapshot ${snapshot.length} chars`,
       );

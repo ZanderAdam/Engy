@@ -17,7 +17,7 @@ import { ReconnectingSocket } from "./reconnecting-socket";
 import { MobileTerminalControls } from "./mobile-terminal-controls";
 import { MobileComposer } from "./mobile-composer";
 import { toBracketedPaste } from "./bracketed-paste";
-import { shouldSendResize } from "./terminal-resize";
+import { canFitPane, shouldSendResize } from "./terminal-resize";
 import { attachTouchScroll } from "./touch-scroll";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -116,8 +116,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     const socket = socketRef.current;
     if (!container || !fitAddon || !term) return;
 
-    // Skip when panel is hidden (display:none gives 0 dimensions)
-    if (container.offsetWidth === 0 || container.offsetHeight === 0) return;
+    // The single place this pane is ever fitted — every other path routes here
+    // so the hidden-pane guard cannot be bypassed (see canFitPane).
+    if (!canFitPane(container.offsetWidth, container.offsetHeight)) return;
 
     fitAddon.fit();
 
@@ -159,7 +160,10 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     term.loadAddon(new WebLinksAddon());
 
     term.open(containerRef.current);
-    const fitTimer = setTimeout(() => { if (!isCleanedUp) fitAddon.fit(); }, 50);
+    // xterm measures its cell size on open, so the first fit waits a tick for
+    // that measurement. A pane that is still hidden then stays at its default
+    // size until the ResizeObserver below reports a real box.
+    const fitTimer = setTimeout(() => { if (!isCleanedUp) fitAndSyncResize(); }, 50);
 
     // xterm only sets autocorrect/autocapitalize/spellcheck on its hidden input.
     // Chrome for Android ignores those (crbug.com/901839), so the virtual keyboard

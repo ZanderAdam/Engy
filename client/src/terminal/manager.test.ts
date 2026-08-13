@@ -241,18 +241,18 @@ describe('TerminalManager', () => {
     expect(replayMsg.snapshot).toContain('line2');
   });
 
-  it('[FR-TERMINAL-450] serializes only the screen for command sessions', async () => {
+  it('[FR-TERMINAL-450] keeps scrollback in snapshots for command sessions', async () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24, command: 'claude' });
-    for (let i = 0; i < 40; i++) onDataCallback?.(`frame${i}\r\n`);
+    for (let i = 0; i < 40; i++) onDataCallback?.(`line${i}\r\n`);
     sent.length = 0;
     manager.suspend('abc');
 
     const replayMsg = await reconnectSnapshot('abc');
-    expect(replayMsg.snapshot).toContain('frame39');
-    expect(replayMsg.snapshot).not.toContain('frame5');
+    expect(replayMsg.snapshot).toContain('line5');
+    expect(replayMsg.snapshot).toContain('line39');
   });
 
-  it('[FR-TERMINAL-450] serializes only the screen for coder command sessions', async () => {
+  it('[FR-TERMINAL-450] keeps scrollback in snapshots for coder command sessions', async () => {
     manager.spawn({
       sessionId: 'abc',
       workingDir: '/tmp',
@@ -261,26 +261,39 @@ describe('TerminalManager', () => {
       command: 'claude',
       coderWorkspace: 'my-ws',
     });
-    for (let i = 0; i < 40; i++) onDataCallback?.(`frame${i}\r\n`);
+    for (let i = 0; i < 40; i++) onDataCallback?.(`line${i}\r\n`);
     sent.length = 0;
     manager.suspend('abc');
 
     const replayMsg = await reconnectSnapshot('abc');
-    expect(replayMsg.snapshot).toContain('frame39');
-    expect(replayMsg.snapshot).not.toContain('frame5');
+    expect(replayMsg.snapshot).toContain('line5');
+    expect(replayMsg.snapshot).toContain('line39');
     // The command rides in the SSH shell invocation — never typed into the PTY.
     expect(mockPtyProcess.write).not.toHaveBeenCalled();
   });
 
-  it('[FR-TERMINAL-450] keeps full scrollback in snapshots for plain sessions', async () => {
+  it('[FR-TERMINAL-450] keeps scrollback in snapshots for plain sessions', async () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
-    for (let i = 0; i < 40; i++) onDataCallback?.(`frame${i}\r\n`);
+    for (let i = 0; i < 40; i++) onDataCallback?.(`line${i}\r\n`);
     sent.length = 0;
     manager.suspend('abc');
 
     const replayMsg = await reconnectSnapshot('abc');
-    expect(replayMsg.snapshot).toContain('frame5');
-    expect(replayMsg.snapshot).toContain('frame39');
+    expect(replayMsg.snapshot).toContain('line5');
+    expect(replayMsg.snapshot).toContain('line39');
+  });
+
+  it('[FR-TERMINAL-450] caps snapshot scrollback so a resync stays bounded', async () => {
+    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+    for (let i = 0; i < 6_000; i++) onDataCallback?.(`line${i}\r\n`);
+    sent.length = 0;
+    manager.suspend('abc');
+
+    const replayMsg = await reconnectSnapshot('abc');
+    expect(replayMsg.snapshot).toContain('line5999');
+    // 5,000 scrollback lines back from the end — anything older is dropped even
+    // though the 10,000-line mirror still holds it.
+    expect(replayMsg.snapshot).not.toContain('line100\r');
   });
 
   it('skips the snapshot when the session is killed before the flush fires', async () => {
