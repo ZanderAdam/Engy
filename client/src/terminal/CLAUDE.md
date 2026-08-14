@@ -12,6 +12,8 @@ Spawns and manages PTYs locally; relays I/O to the server over `/ws/terminal-rel
 
 `active` → `suspended` on WS disconnect → `active` on reconnect (with snapshot resync via `reconnected` message). Sessions expire after the configured idle window — the expire callback sends `{ t: 'exit', sessionId, exitCode: -1 }` so the server can clean up its mirror.
 
+`resize()` drops a resize to the size the mirror already holds. Panes re-assert their size on every activation (a session is shared, so another device may have resized the PTY), and most of those assertions change nothing — passing them on would cost the running program a SIGWINCH redraw each time.
+
 ## Compact message protocol
 
 Server expects these literal short keys — **don't expand to verbose keys** (bandwidth-sensitive, schema is in `@engy/common`):

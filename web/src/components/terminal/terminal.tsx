@@ -141,6 +141,19 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     activityTrackerRef.current?.suppressOutput(RESIZE_SUPPRESS_MS);
   }, [sessionId]);
 
+  // The PTY has one size but any number of attached browsers, so a resize from
+  // another device silently invalidates the guard above: our own dimensions have
+  // not changed, yet the PTY is no longer at them — a session left sized for a
+  // phone stays that way on the laptop that takes it over. Whenever this pane
+  // becomes the one being looked at, drop the guard so its size is re-asserted
+  // instead of assumed. The daemon ignores a resize to the size it already has,
+  // so re-asserting costs nothing when the pane was the last to set it.
+  const reassertSize = useCallback(() => {
+    lastSentColsRef.current = 0;
+    lastSentRowsRef.current = 0;
+    fitAndSyncResize();
+  }, [fitAndSyncResize]);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -244,11 +257,20 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     // The ack is also relayed so the server meta and daemon tracker clear too —
     // otherwise the per-project badge keeps counting this session as done/waiting.
     const handleFocusIn = () => {
-      fitAndSyncResize();
+      reassertSize();
       activityTracker.acknowledge();
       socketRef.current?.send(JSON.stringify({ t: 'ack', sessionId }));
     };
     container.addEventListener('focusin', handleFocusIn);
+
+    // Coming back to a tab left open on another device is the case no local
+    // event covers: nothing here moved, so neither the observer nor the panel
+    // fires, yet the PTY may have been resized by whichever device was used in
+    // between. A visible document with a laid-out pane re-asserts its size.
+    const handleDocumentVisible = () => {
+      if (document.visibilityState === 'visible') reassertSize();
+    };
+    document.addEventListener('visibilitychange', handleDocumentVisible);
 
     const actions: TerminalActions = {
       write: (data) => socketRef.current?.send(JSON.stringify({ t: 'i', sessionId, d: data })),
@@ -265,13 +287,12 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
         onOpen: () => {
           console.log(`[terminal-ui] WS open for session ${sessionId}`);
           onStatusChange(sessionId, 'active');
-          // Reset the last-sent guard so every (re)connect re-asserts real, post-fit
-          // dimensions. The PTY may have (re)spawned at the URL default (80x24), and
-          // these refs persist across socket reconnects — without the reset a matching
-          // guard could suppress the resize and leave the PTY stuck at the stale size.
-          lastSentColsRef.current = 0;
-          lastSentRowsRef.current = 0;
-          fitAndSyncResize();
+          // Every (re)connect re-asserts real, post-fit dimensions. The PTY may
+          // have (re)spawned at the URL default (80x24), and the last-sent refs
+          // persist across socket reconnects — without the reset a matching
+          // guard could suppress the resize and leave the PTY stuck at the stale
+          // size.
+          reassertSize();
         },
         onMessage: (event) => {
           let msg: { t: string; d?: string; snapshot?: string; title?: string; exitCode?: number };
@@ -380,6 +401,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       container.removeEventListener('wheel', handleWheel);
       detachTouchScroll();
       container.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('visibilitychange', handleDocumentVisible);
       resizeObserver.disconnect();
       onReady?.(sessionId, null);
       socket.close();
@@ -388,10 +410,11 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
       fitAddonRef.current = null;
       socketRef.current = null;
     };
-    // Intentionally only depends on sessionId and fitAndSyncResize — do NOT add tab or scope
-    // to avoid reconnecting when props change. sessionId is stable per tab lifetime.
+    // Intentionally only depends on sessionId and the two size callbacks — do NOT
+    // add tab or scope, to avoid reconnecting when props change. sessionId is
+    // stable per tab lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, fitAndSyncResize]);
+  }, [sessionId, fitAndSyncResize, reassertSize]);
 
   useEffect(() => {
     if (xtermRef.current && xtermTheme) {
@@ -399,10 +422,11 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     }
   }, [xtermTheme]);
 
-  // Repaint and refit terminal when the dockview panel becomes visible (tab switch).
-  // xterm's renderer pauses while display:none → need refresh() to repaint.
-  // fitAndSyncResize re-syncs PTY dimensions in case the viewport changed while
-  // the panel was hidden (e.g. mobile ↔ desktop switch).
+  // Repaint and re-assert size when the dockview panel becomes visible (tab
+  // switch). xterm's renderer pauses while display:none → need refresh() to
+  // repaint. The pane may also have been hidden while another device resized the
+  // PTY, so the size is re-asserted rather than compared against what this pane
+  // last sent.
   useEffect(() => {
     if (!panelApi) return;
     const disposable = panelApi.onDidVisibilityChange((e) => {
@@ -410,12 +434,12 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
         requestAnimationFrame(() => {
           const term = xtermRef.current;
           if (term) term.refresh(0, term.rows - 1);
-          fitAndSyncResize();
+          reassertSize();
         });
       }
     });
     return () => disposable.dispose();
-  }, [panelApi, fitAndSyncResize]);
+  }, [panelApi, reassertSize]);
 
   return (
     <div className="flex size-full">

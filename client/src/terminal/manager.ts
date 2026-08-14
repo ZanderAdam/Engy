@@ -282,6 +282,11 @@ export class TerminalManager {
       console.warn(`[terminal] resize: session ${sessionId} not found, ignoring`);
       return;
     }
+    // Browsers re-assert their size whenever their pane becomes the one being
+    // looked at, because another device may have resized the PTY meanwhile.
+    // Most of those land on a size the PTY already has, and passing one on
+    // would cost the program a SIGWINCH redraw for nothing.
+    if (session.screen.cols === cols && session.screen.rows === rows) return;
     try {
       session.ptyProcess.resize(cols, rows);
       session.screen.resize(cols, rows);
@@ -342,9 +347,7 @@ export class TerminalManager {
     // pane as torn frames and blank rows. The size given here is the last one a
     // browser reported, so a pane that has since changed size still corrects it
     // with its own resize after attaching.
-    if (cols && rows && (session.screen.cols !== cols || session.screen.rows !== rows)) {
-      this.resize(sessionId, cols, rows);
-    }
+    if (cols && rows) this.resize(sessionId, cols, rows);
 
     // Serialize only after xterm's write queue has drained, so output that
     // arrived just before the reconnect is part of the snapshot.

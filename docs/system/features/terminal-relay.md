@@ -77,8 +77,7 @@ into the headless terminal but is not forwarded. When a browser reconnects (or a
 a live session), the server sends `{ t: 'reconnect', sessionId, cols, rows }`,
 carrying the last known size so the daemon can size the PTY and its screen
 mirror to the geometry the reattaching browser renders at before serializing.
-The daemon
-flushes the headless terminal's write queue and replies with
+The daemon flushes the headless terminal's write queue and replies with
 `{ t: 'reconnected', sessionId, snapshot }` — the serialized screen plus
 scrollback; the server delivers this resync exclusively to the browsers tracked
 in `pendingReconnects` (followed by the session's stored `lastTitle`, since the
@@ -111,10 +110,19 @@ at `manager.ts:9`).
 **Resize.** Browsers send `{ t: 'resize', sessionId, cols, rows }` whenever the
 fitted xterm dimensions change. The server updates `cols`/`rows` on the session's
 `terminalSessionMeta` entry before forwarding, so the meta always reflects the
-last known size rather than the initial spawn size. This matters because the
-browser only resends a resize when its fitted dimensions change — it assumes the
-PTY already has whatever it last sent, so any server-side respawn or dropped
+last known size rather than the initial spawn size. This matters because a
+browser otherwise only resends when its own fitted dimensions change — it assumes
+the PTY already has whatever it last sent — so any server-side respawn or dropped
 resize must be healed from the meta, not the browser.
+
+That assumption does not survive a session being shared. The PTY has one size and
+any number of attached browsers, so a phone resizing it leaves the laptop's pane
+believing a size the PTY no longer has, with nothing local to trigger a correction
+— the terminal stays sized for the phone. A pane therefore **re-asserts** its size,
+rather than comparing it against what it last sent, whenever it becomes the one
+being looked at: its dock panel turns visible, focus enters it, or its document
+returns to `visible`. The daemon drops a resize to the size its mirror already
+holds, so the re-assertions that change nothing never reach the running program.
 
 **PTY natural exit.** When the PTY process exits the daemon sends `{ t: 'exit',
 sessionId, exitCode }`. The server forwards it to all attached browsers, removes
@@ -391,6 +399,8 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-450 | WHEN serializing a reconnect snapshot, the daemon SHALL include up to 5,000 lines of the headless terminal's scrollback for every session, whether or not it was spawned with a command, so a browser that reattaches keeps the history it would have held live; a full-screen program's repaint frames stay out of that scrollback on their own, because they are drawn on the alternate screen, which the serializer appends as a single screen. |
 | FR-TERMINAL-460 | WHILE a terminal pane has no laid-out box (a background workspace tab, an unselected dock tab, or a collapsed panel), the browser SHALL NOT fit the pane nor send a resize for it, and SHALL fit it once the browser reports a measured box — a hidden element's computed style yields the declared percentage rather than pixels, which would size the pane to roughly 10 columns by 5 rows and reflow away its buffer. |
 | FR-TERMINAL-470 | WHEN sending a reconnect to the daemon, the system SHALL include the session's last known `cols`/`rows` from `terminalSessionMeta`, and the daemon SHALL resize the PTY and its screen mirror to that size — when it differs from the mirror's current size — before serializing the snapshot, so the snapshot is addressed to the geometry the reattaching browser renders at rather than the size the mirror drifted to while unattended. |
+| FR-TERMINAL-480 | WHEN a terminal pane becomes the one being looked at — its dock panel turns visible, focus enters it, or its document returns to `visible` — the browser SHALL re-assert the pane's fitted size to the PTY rather than compare it against the size that pane last sent, because a session is shared and another device may have resized it meanwhile. |
+| FR-TERMINAL-490 | WHEN the daemon receives a resize for a session whose screen mirror already has those dimensions, it SHALL ignore it — neither resizing the PTY nor suppressing activity — so the re-assertions of FR-TERMINAL-480 cost the running program no redraw. |
 
 ## Sources
 

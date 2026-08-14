@@ -307,6 +307,27 @@ describe('TerminalManager', () => {
     expect(sessions.get('abc')!.screen.rows).toBe(40);
   });
 
+  it('[FR-TERMINAL-490] ignores a resize to the size the session already has', () => {
+    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+
+    manager.resize('abc', 80, 24);
+
+    expect(mockPtyProcess.resize).not.toHaveBeenCalled();
+  });
+
+  it('[FR-TERMINAL-490] applies a resize that differs from the current size', () => {
+    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+
+    manager.resize('abc', 120, 40);
+    // A second, identical assertion of the new size is the common case once a
+    // pane re-asserts on every activation — it must not reach the PTY again.
+    manager.resize('abc', 120, 40);
+
+    expect(mockPtyProcess.resize).toHaveBeenCalledTimes(1);
+    expect(mockPtyProcess.resize).toHaveBeenCalledWith(120, 40);
+    expect(sessions.get('abc')!.screen.cols).toBe(120);
+  });
+
   it('[FR-TERMINAL-470] snapshots the repaint the resize provokes, not the pre-resize screen', async () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
     onDataCallback?.('before-resize\r\n');

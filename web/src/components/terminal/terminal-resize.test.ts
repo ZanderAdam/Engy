@@ -18,6 +18,12 @@ describe('terminal resize guard', () => {
     it('should return true when both cols and rows differ', () => {
       expect(shouldSendResize(100, 30, 80, 24)).toBe(true);
     });
+
+    it('[FR-TERMINAL-480] should send an unchanged size again once the guard is dropped', () => {
+      // A pane re-asserting on activation zeroes what it last sent, because
+      // another device may have resized the shared PTY since.
+      expect(shouldSendResize(80, 24, 0, 0)).toBe(true);
+    });
   });
 
   describe('canFitPane', () => {
