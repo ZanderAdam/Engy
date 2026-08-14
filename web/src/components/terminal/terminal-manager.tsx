@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { DockviewReact, type DockviewApi, type SerializedDockview } from "dockview";
 import type { TerminalActions } from "./terminal";
-import type { ActivityEvent, TerminalActivityState, TerminalTab, TerminalScope, TerminalPanelParams, SplitPosition, TerminalDropdownGroup } from "./types";
+import { isStoppedTerminal, type ActivityEvent, type TerminalActivityState, type TerminalTab, type TerminalScope, type TerminalPanelParams, type SplitPosition, type TerminalDropdownGroup } from "./types";
 import { TerminalDockContext, type TerminalDockContextValue } from "./terminal-dock-context";
 import { TerminalDockPanel } from "./terminal-dock-panel";
 import { TerminalDockTab } from "./terminal-dock-tab";
@@ -13,7 +13,8 @@ import { useOnServerEvent } from "@/contexts/events-context";
 import { applyOscTitle } from "./osc-title";
 import { useOptionalTab } from "@/components/tabs/tab-context";
 import { randomId } from "@/lib/random-id";
-import { isAgentTypeId, type AgentTypeId } from "@/lib/agent-types";
+import { trpc } from "@/lib/trpc";
+import { sessionToTab, type SessionListItem } from "./session-to-tab";
 import { publishTerminalSessions, clearTerminalSessions, terminalRailKey } from "./terminal-session-store";
 
 interface InjectEvent {
@@ -59,23 +60,6 @@ interface TerminalManagerProps {
   global?: boolean;
 }
 
-interface SessionListItem {
-  sessionId: string;
-  scopeType: TerminalScope['scopeType'];
-  scopeLabel: string;
-  workingDir: string;
-  command?: string;
-  agentType?: string;
-  groupKey?: string;
-  workspaceSlug?: string;
-  projectSlug?: string;
-  taskId?: number;
-  worktreeBranch?: string;
-  activityState?: TerminalActivityState;
-  status: 'active' | 'suspended';
-  browserCount: number;
-}
-
 const ENGY_THEME = {
   name: 'engy',
   className: 'dockview-theme-engy',
@@ -111,28 +95,6 @@ function clearLayout(layoutKey: string): void {
   } catch {
     // ignore
   }
-}
-
-function sessionToTab(s: SessionListItem, fallbackGroupKey: string): TerminalTab {
-  return {
-    sessionId: s.sessionId,
-    scope: {
-      scopeType: s.scopeType,
-      scopeLabel: s.scopeLabel,
-      workingDir: s.workingDir,
-      command: s.command,
-      agentType: isAgentTypeId(s.agentType ?? '') ? (s.agentType as AgentTypeId) : undefined,
-      groupKey: s.groupKey ?? fallbackGroupKey,
-      workspaceSlug: s.workspaceSlug ?? '',
-      projectSlug: s.projectSlug,
-      taskId: s.taskId,
-      worktreeBranch: s.worktreeBranch,
-    },
-    status: 'connecting',
-    // Seed the daemon-tracked activity so the dot is correct on first paint,
-    // before this session's WebSocket delivers its first live update.
-    activityState: s.activityState ?? 'idle',
-  };
 }
 
 export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled, disableExternalEvents = false, publishKey, global = false }: TerminalManagerProps) {
@@ -242,7 +204,20 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     });
   }, []);
 
+  const discardDormant = trpc.terminal.discardDormantSession.useMutation({
+    onError: (err) => console.error('Failed to discard dormant session:', err),
+  });
+  const discardDormantRef = useRef(discardDormant.mutate);
+  useEffect(() => {
+    discardDormantRef.current = discardDormant.mutate;
+  }, [discardDormant.mutate]);
+
   const cleanupTerminal = useCallback((sessionId: string) => {
+    // A dormant tab holds no socket, so there is no kill to send — the server
+    // still has its metadata and would list the session again on the next load.
+    if (tabsRef.current.get(sessionId)?.status === 'dormant') {
+      discardDormantRef.current({ sessionId });
+    }
     tabWsRefs.current.get(sessionId)?.kill();
     tabsRef.current.delete(sessionId);
     tabWsRefs.current.delete(sessionId);
@@ -253,7 +228,9 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     const api = dockviewApiRef.current;
     const activeId = api?.activePanel?.id;
     const tab = activeId != null ? tabsRef.current.get(activeId) : undefined;
-    const hasActiveTab = tab != null && tab.status !== 'exited';
+    // A dormant tab holds no session, so it must not auto-expand the dock the
+    // way a restored live session does.
+    const hasActiveTab = tab != null && !isStoppedTerminal(tab.status);
     const tabId = myTabIdRef.current;
 
     // Write per-tab map so useTerminalActive can seed correctly for any tab.

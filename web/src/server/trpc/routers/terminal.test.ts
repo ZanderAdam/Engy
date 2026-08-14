@@ -3,6 +3,7 @@ import { appRouter } from '../root';
 import { type AppState } from '../context';
 import { setupTestDb, type TestContext } from '../test-helpers';
 import { terminalSessionHistory } from '../../db/schema';
+import { recordSessionStart } from '../../ws/terminal-session-history';
 
 function addSession(state: AppState, sessionId: string, resumedFrom?: string): void {
   state.terminalSessionMeta.set(sessionId, {
@@ -70,8 +71,43 @@ describe('terminal router', () => {
     });
   });
 
+  describe('discardDormantSession', () => {
+    it('[FR-TERMINAL-530] should drop a dormant session and stamp its history row closed', async () => {
+      addSession(state, 'dormant-sess');
+      state.terminalSessionMeta.get('dormant-sess')!.dormant = true;
+      state.terminalSessionMeta.get('dormant-sess')!.workspaceSlug = 'ws1';
+      recordSessionStart('dormant-sess', state.terminalSessionMeta.get('dormant-sess')!);
+
+      await caller.terminal.discardDormantSession({ sessionId: 'dormant-sess' });
+
+      expect(state.terminalSessionMeta.has('dormant-sess')).toBe(false);
+      const rows = ctx.db.select().from(terminalSessionHistory).all();
+      expect(rows[0].closedAt).not.toBeNull();
+    });
+
+    it('[FR-TERMINAL-530] should refuse to discard a live session', async () => {
+      addSession(state, 'live-sess');
+
+      await expect(
+        caller.terminal.discardDormantSession({ sessionId: 'live-sess' }),
+      ).rejects.toThrow(/live/);
+      expect(state.terminalSessionMeta.has('live-sess')).toBe(true);
+    });
+
+    it('[FR-TERMINAL-530] should succeed for a session that is already gone', async () => {
+      await expect(
+        caller.terminal.discardDormantSession({ sessionId: 'never-existed' }),
+      ).resolves.toEqual({ ok: true });
+    });
+  });
+
   describe('listSessionHistory', () => {
-    function seedRow(sessionId: string, startedAt: string, workspaceSlug = 'ws1'): void {
+    function seedRow(
+      sessionId: string,
+      startedAt: string,
+      workspaceSlug = 'ws1',
+      projectSlug?: string,
+    ): void {
       ctx.db
         .insert(terminalSessionHistory)
         .values({
@@ -81,6 +117,7 @@ describe('terminal router', () => {
           scopeLabel: `label-${sessionId}`,
           summary: `summary-${sessionId}`,
           workspaceSlug,
+          projectSlug,
           startedAt,
         })
         .run();
@@ -104,6 +141,18 @@ describe('terminal router', () => {
       const rows = await caller.terminal.listSessionHistory({ workspaceSlug: 'ws1' });
 
       expect(rows.map((r) => r.sessionId)).toEqual(['closed-sess']);
+    });
+
+    it('[FR-TERMINAL-350] should return only the viewed project rows when a project is given', async () => {
+      seedRow('alpha-sess', '2026-07-22T10:00:00.000Z', 'ws1', 'alpha');
+      seedRow('beta-sess', '2026-07-22T11:00:00.000Z', 'ws1', 'beta');
+
+      const rows = await caller.terminal.listSessionHistory({
+        workspaceSlug: 'ws1',
+        projectSlug: 'alpha',
+      });
+
+      expect(rows.map((r) => r.sessionId)).toEqual(['alpha-sess']);
     });
 
     it('[FR-TERMINAL-350] should exclude rows matching a live session resumedFrom', async () => {

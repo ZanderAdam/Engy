@@ -16,6 +16,8 @@ interface TerminalSessionListItem {
   activityState: string;
   status: 'active' | 'suspended';
   browserCount: number;
+  /** PTY lost on a daemon restart — the tab is restorable, not live. */
+  dormant: boolean;
 }
 
 interface TerminalSessionListQuery {
@@ -69,6 +71,7 @@ export function listTerminalSessions(
         activityState: m.activityState ?? 'idle',
         status: browserCount > 0 ? ('active' as const) : ('suspended' as const),
         browserCount,
+        dormant: m.dormant === true,
       };
     });
 }

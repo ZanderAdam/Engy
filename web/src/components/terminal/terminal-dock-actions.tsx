@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { CloseTerminalDialog } from './close-terminal-dialog';
 import { useTerminalDock } from './terminal-dock-context';
-import { type TerminalPanelParams, type TerminalTab } from './types';
+import { isStoppedTerminal, type TerminalPanelParams, type TerminalTab } from './types';
 import { TerminalSessionLabel } from './terminal-session-label';
 import { TerminalNewMenuContent } from './terminal-new-menu';
 import { TerminalWorkerButton } from './terminal-worker-button';
@@ -130,13 +130,13 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
                   )}
                   {group.tabs.map((liveTab) => {
                     const panel = panelById.get(liveTab.sessionId)!;
-                    const isExited = liveTab.status === 'exited';
+                    const isStopped = isStoppedTerminal(liveTab.status);
                     const isActive = activePanel?.id === panel.id;
                     return (
                       <DropdownMenuItem
                         key={panel.id}
                         onClick={() => panel.api.setActive()}
-                        className={cn('items-start', isExited && 'opacity-60')}
+                        className={cn('items-start', isStopped && 'opacity-60')}
                         aria-current={isActive || undefined}
                       >
                         <TerminalSessionLabel tab={liveTab} />
@@ -312,7 +312,7 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
                               className={cn(
                                 'flex items-start rounded-sm',
                                 isActive && 'bg-muted',
-                                liveTab.status === 'exited' && 'opacity-60',
+                                isStoppedTerminal(liveTab.status) && 'opacity-60',
                               )}
                             >
                               <button

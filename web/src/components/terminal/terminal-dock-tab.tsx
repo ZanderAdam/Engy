@@ -13,7 +13,12 @@ import {
 import { CloseTerminalDialog } from './close-terminal-dialog';
 import { useCanHover } from '@/hooks/use-can-hover';
 import { useTerminalDock } from './terminal-dock-context';
-import { getTerminalIconStyle, type TerminalPanelParams, type TerminalTab } from './types';
+import {
+  getTerminalIconStyle,
+  isStoppedTerminal,
+  type TerminalPanelParams,
+  type TerminalTab,
+} from './types';
 
 function collapseLabel(label: string): string {
   const parts = label.split('/').filter(Boolean);
@@ -97,7 +102,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
     <div
       className={cn(
         'group flex h-full max-w-[180px] items-center gap-1.5 px-2.5 text-xs',
-        tab.status === 'exited' && 'opacity-50',
+        isStoppedTerminal(tab.status) && 'opacity-50',
       )}
     >
       <RiTerminalLine className={cn('size-[11px] shrink-0', getTerminalIconStyle(tab))} />
@@ -114,8 +119,10 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
           </Tooltip>
         </TooltipProvider>
       )}
-      {tab.status === 'exited' && (
-        <span className="shrink-0 text-[9px] text-muted-foreground">[exited]</span>
+      {isStoppedTerminal(tab.status) && (
+        <span className="shrink-0 text-[9px] text-muted-foreground">
+          {tab.status === 'dormant' ? '[dormant]' : '[exited]'}
+        </span>
       )}
       <button
         onClick={(e) => {

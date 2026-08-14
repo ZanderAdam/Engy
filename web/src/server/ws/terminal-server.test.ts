@@ -675,12 +675,13 @@ describe('Terminal WebSocket Server', () => {
   });
 
   describe('daemon sync', () => {
-    it('[FR-TERMINAL-110] should clean up stale sessions with no browser connected', async () => {
+    it('[FR-TERMINAL-500] should mark stale sessions with no browser connected dormant', async () => {
       // Pre-populate meta for a session the daemon has lost
       state.terminalSessionMeta.set('stale-sess', {
         scopeType: 'workspace',
         scopeLabel: 'test',
         workingDir: '/tmp',
+        activityState: 'waiting',
         cols: 80,
         rows: 24,
       });
@@ -691,8 +692,45 @@ describe('Terminal WebSocket Server', () => {
       daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: [] }));
 
       await vi.waitFor(() => {
-        expect(state.terminalSessionMeta.has('stale-sess')).toBe(false);
+        expect(state.terminalSessionMeta.get('stale-sess')?.dormant).toBe(true);
       });
+      // The PTY is gone — the badge must not keep asking for attention
+      expect(state.terminalSessionMeta.get('stale-sess')?.activityState).toBe('idle');
+      const row = ctx.db.select().from(terminalSessionsTable).all()[0];
+      expect((row?.meta as { dormant?: boolean }).dormant).toBe(true);
+    });
+
+    it('[FR-TERMINAL-510] should spawn with --resume when a browser connects for a dormant session', async () => {
+      state.terminalSessionMeta.set('dormant-sess', {
+        scopeType: 'project',
+        scopeLabel: 'my-proj',
+        workingDir: '/tmp/proj',
+        command: 'claude --session-id dormant-sess',
+        dormant: true,
+        cols: 120,
+        rows: 40,
+      });
+
+      const daemonWs = await connectDaemonRelay(port, false);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      await connectBrowser(port, {
+        sessionId: 'dormant-sess',
+        workingDir: '/tmp/proj',
+        scopeType: 'project',
+        scopeLabel: 'my-proj',
+      });
+
+      const msg = JSON.parse(await spawnPromise);
+      expect(msg).toMatchObject({
+        t: 'spawn',
+        sessionId: 'dormant-sess',
+        workingDir: '/tmp/proj',
+        command: 'claude --resume dormant-sess',
+        cols: 120,
+        rows: 40,
+      });
+      expect(state.terminalSessionMeta.get('dormant-sess')?.dormant).toBeUndefined();
     });
 
     it('[FR-TERMINAL-110] should fail dispatches and drop the worker entry for a stale browserless worker', async () => {
@@ -763,8 +801,8 @@ describe('Terminal WebSocket Server', () => {
         cols: 80,
         rows: 24,
       });
-      // Marker entry absent from the daemon list with no browser — its purge is
-      // the synchronous signal that the sync loop has fully run.
+      // Marker entry absent from the daemon list with no browser — its dormant
+      // marking is the signal that the sync loop has fully run.
       state.terminalSessionMeta.set('sync-marker-sess', {
         scopeType: 'workspace',
         scopeLabel: 'test',
@@ -779,11 +817,12 @@ describe('Terminal WebSocket Server', () => {
       daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: ['alive-sess'] }));
 
       await vi.waitFor(() => {
-        expect(state.terminalSessionMeta.has('sync-marker-sess')).toBe(false);
+        expect(state.terminalSessionMeta.get('sync-marker-sess')?.dormant).toBe(true);
       });
 
-      // Meta should still be there
+      // Meta should still be there, untouched
       expect(state.terminalSessionMeta.has('alive-sess')).toBe(true);
+      expect(state.terminalSessionMeta.get('alive-sess')?.dormant).toBeUndefined();
     });
 
     it('[FR-TERMINAL-150] should respawn stale sessions at the last resized dimensions', async () => {
@@ -898,8 +937,8 @@ describe('Terminal WebSocket Server', () => {
         cols: 120,
         rows: 30,
       });
-      // Marker entry absent from the daemon list with no browser — its purge is
-      // the synchronous signal that the sync loop has fully run.
+      // Marker entry absent from the daemon list with no browser — its dormant
+      // marking is the signal that the sync loop has fully run.
       state.terminalSessionMeta.set('sync-marker-sess', {
         scopeType: 'workspace',
         scopeLabel: 'test',
@@ -914,7 +953,7 @@ describe('Terminal WebSocket Server', () => {
 
       daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: ['no-browser-sess'] }));
       await vi.waitFor(() => {
-        expect(state.terminalSessionMeta.has('sync-marker-sess')).toBe(false);
+        expect(state.terminalSessionMeta.get('sync-marker-sess')?.dormant).toBe(true);
       });
 
       // Flush the daemon socket with a real round-trip: a fresh browser connect
@@ -1221,7 +1260,7 @@ describe('Terminal WebSocket Server', () => {
       expect(freshState.restoredTerminalSessions.size).toBe(0);
     });
 
-    it('should purge the persisted row when the daemon sync reports a session dead with no browser', async () => {
+    it('[FR-TERMINAL-500] should keep the persisted row when the daemon sync reports a session dead with no browser', async () => {
       // As after a boot-time restore: meta present, no browser attached
       const meta = {
         scopeType: 'workspace',
@@ -1236,7 +1275,30 @@ describe('Terminal WebSocket Server', () => {
       await connectDaemonRelay(port); // auto-sync with empty alive set
 
       await vi.waitFor(() => {
-        expect(state.terminalSessionMeta.has('dead-sess')).toBe(false);
+        expect(state.terminalSessionMeta.get('dead-sess')?.dormant).toBe(true);
+      });
+      // The row survives so the tab is still restorable after a server restart
+      const rows = ctx.db.select().from(terminalSessionsTable).all();
+      expect(rows).toHaveLength(1);
+      expect((rows[0].meta as { dormant?: boolean }).dormant).toBe(true);
+    });
+
+    it('[FR-TERMINAL-500] should purge the persisted row of a stale agent-spawned session', async () => {
+      const meta = {
+        scopeType: 'project',
+        scopeLabel: 'spawned claude',
+        workingDir: '/tmp',
+        spawnedBy: 'orchestrator-sess',
+        cols: 80,
+        rows: 24,
+      };
+      state.terminalSessionMeta.set('agent-sess', meta);
+      persistTerminalSession('agent-sess', meta);
+
+      await connectDaemonRelay(port); // auto-sync with empty alive set
+
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.has('agent-sess')).toBe(false);
       });
       expect(ctx.db.select().from(terminalSessionsTable).all()).toHaveLength(0);
     });
@@ -1355,7 +1417,8 @@ describe('Terminal WebSocket Server', () => {
       await new Promise((r) => setTimeout(r, 50));
       expect(daemonMessages).toHaveLength(0);
 
-      // Originating spawn completes: meta persisted, gate cleared, promise resolved
+      // Originating spawn completes: meta persisted, session registered as alive
+      // on the daemon, gate cleared, promise resolved
       state.terminalSessionMeta.set('sess-conc', {
         scopeType: 'workspace',
         scopeLabel: 'test',
@@ -1363,6 +1426,7 @@ describe('Terminal WebSocket Server', () => {
         cols: 80,
         rows: 24,
       });
+      state.daemonTerminalSessions.ids.add('sess-conc');
       state.spawningSessions.delete('sess-conc');
       resolveSpawn();
 
@@ -1722,7 +1786,7 @@ describe('Terminal WebSocket Server', () => {
       });
     });
 
-    it('[FR-TERMINAL-340] should stamp closedAt when a daemon sync purges a stale session', async () => {
+    it('[FR-TERMINAL-340] should stamp closedAt when a daemon sync purges a stale agent session', async () => {
       // Crash recovery: meta restored from the mirror, PTY gone, no browser.
       state.terminalSessionMeta.set('sess-hist-purge', {
         scopeType: 'workspace',
@@ -1730,6 +1794,7 @@ describe('Terminal WebSocket Server', () => {
         workingDir: '/tmp/proj',
         agentType: 'claude',
         workspaceSlug: 'ws1',
+        spawnedBy: 'orchestrator-sess',
         cols: 80,
         rows: 24,
       });
@@ -1742,6 +1807,29 @@ describe('Terminal WebSocket Server', () => {
         expect(state.terminalSessionMeta.has('sess-hist-purge')).toBe(false);
         expect(historyRows()[0].closedAt).not.toBeNull();
       });
+    });
+
+    it('[FR-TERMINAL-500] should leave the history row open for a session that goes dormant', async () => {
+      // Dormant is not a teardown: the tab is still there to be restored, so
+      // the session must not also show up as resumable in the dropdown.
+      state.terminalSessionMeta.set('sess-hist-dormant', {
+        scopeType: 'workspace',
+        scopeLabel: 'engy',
+        workingDir: '/tmp/proj',
+        agentType: 'claude',
+        workspaceSlug: 'ws1',
+        cols: 80,
+        rows: 24,
+      });
+      recordSessionStart('sess-hist-dormant', state.terminalSessionMeta.get('sess-hist-dormant')!);
+
+      const daemonWs = await connectDaemonRelay(port, false);
+      daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: [] }));
+
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.get('sess-hist-dormant')?.dormant).toBe(true);
+      });
+      expect(historyRows()[0].closedAt).toBeNull();
     });
 
     it('[FR-TERMINAL-380] should rewrite --session-id to --resume when respawning a stale session', async () => {

@@ -46,6 +46,10 @@ export interface TerminalSessionMeta {
   // Activity state computed daemon-side (per-project badges); updated by the
   // relay 'act' handler, available even when no browser has the terminal mounted.
   activityState?: TerminalActivityState;
+  // Set when a daemon sync reports the PTY gone while no browser was attached.
+  // The session keeps its place in the dock as a tab the user can restore; the
+  // restore spawns a fresh PTY (resuming the agent conversation) on demand.
+  dormant?: boolean;
   cols: number;
   rows: number;
 }

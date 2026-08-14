@@ -9,7 +9,9 @@ import {
 
 export type TerminalScopeType = 'project' | 'workspace' | 'dir' | 'worktree';
 
-export type TerminalStatus = 'connecting' | 'active' | 'exited' | 'error';
+// 'dormant' = the daemon restarted while nobody was attached, so the tab is a
+// restorable placeholder: it holds no socket until the user restores it.
+export type TerminalStatus = 'connecting' | 'active' | 'exited' | 'error' | 'dormant';
 
 export type TerminalActivityState = 'idle' | 'active' | 'waiting' | 'done';
 
@@ -28,9 +30,14 @@ export const TERMINAL_ACTIVITY_STYLES: Partial<Record<TerminalActivityState | Te
   connecting: 'animate-pulse text-muted-foreground',
 };
 
+/** No PTY behind the tab: exited for good, or dormant until the user restores it. */
+export function isStoppedTerminal(status: TerminalStatus): boolean {
+  return status === 'exited' || status === 'dormant';
+}
+
 export function getTerminalIconStyle(tab: TerminalTab): string | undefined {
   if (tab.status === 'connecting') return TERMINAL_ACTIVITY_STYLES.connecting;
-  if (tab.status === 'exited') return undefined;
+  if (isStoppedTerminal(tab.status)) return undefined;
   if (tab.activityState && tab.activityState !== 'idle') return TERMINAL_ACTIVITY_STYLES[tab.activityState];
   return undefined;
 }
@@ -47,7 +54,7 @@ const TERMINAL_ACTIVITY_BOX_STYLES: Record<TerminalActivityState, string> = {
 export function getTerminalRailBoxStyle(tab: TerminalTab): string {
   if (tab.status === 'connecting') return 'bg-muted text-muted-foreground animate-pulse';
   if (tab.status === 'error') return 'bg-destructive/25 text-destructive';
-  if (tab.status === 'exited') return 'bg-muted/40 text-muted-foreground';
+  if (isStoppedTerminal(tab.status)) return 'bg-muted/40 text-muted-foreground';
   return TERMINAL_ACTIVITY_BOX_STYLES[tab.activityState ?? 'idle'];
 }
 

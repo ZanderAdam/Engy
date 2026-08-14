@@ -26,7 +26,8 @@ Server state is held in `AppState` (defined in `web/src/server/trpc/context.ts`)
   currently attached to a session (supports multi-attach).
 - `terminalSessionMeta: Map<sessionId, TerminalSessionMeta>` — spawn parameters
   and activity state, kept alive across browser disconnects so sessions can be
-  respawned when the daemon reconnects.
+  respawned when the daemon reconnects. A `dormant` marker records that the PTY
+  died with the daemon while nobody was attached.
 - `terminalDaemon: WebSocket | null` — the single relay socket to the daemon.
 - `pendingReconnects: Map<sessionId, Set<WebSocket>>` — tracks which specific
   browser sockets requested a reconnect, so the snapshot resync is directed only
@@ -139,10 +140,28 @@ When a new daemon connects it sends `{ t: 'sync', sessionIds: [...] }`. The
 server records that alive set in `daemonTerminalSessions.ids`, then compares its
 meta map against it: sessions absent from the daemon that have an open browser
 are respawned transparently (with container config restored from the DB, at the
-last known `cols`/`rows`); sessions with no open browser are purged from both
-maps. Sessions the daemon still has get a `{ t: 'resize' }` with the last known
-size re-asserted if a browser is attached — resizes sent while the relay was
-down were dropped, and the browser will not resend them.
+last known `cols`/`rows`); agent-spawned sessions with no open browser are
+purged from both maps, because a worker nobody watches may still hold unsettled
+dispatches. Every other browserless session goes **dormant** (see below) rather
+than being deleted. Sessions the daemon still has get a `{ t: 'resize' }` with
+the last known size re-asserted if a browser is attached — resizes sent while
+the relay was down were dropped, and the browser will not resend them.
+
+**Dormant sessions.** A daemon restart kills every PTY, and the terminals the
+user had open are exactly the ones nobody is attached to when it happens (page
+closed, another project on screen). Those sessions keep their metadata — marked
+`dormant: true` with the activity state reset to `idle`, mirrored to SQLite —
+so the tab is still there next time the project is opened. Nothing respawns on
+its own: restoring resumes an agent conversation, which is not something to do
+behind the user's back for every terminal they ever left open. The dock renders
+a dormant tab as a placeholder holding no socket, and its restore action mounts
+the terminal — the resulting socket connect is what tells the server to spawn a
+fresh PTY from the stored metadata (`--session-id` rewritten to `--resume`, per
+FR-TERMINAL-380). The same spawn-instead-of-reconnect rule covers any connect
+for a session a synced daemon does not list: a reconnect for an unknown session
+comes back as `exit -1` and would tear down the session the connect meant to
+restore. A dormant session still counts as live for the resume dropdown, which
+only offers sessions with no tab left to restore.
 
 **Server restart.** The mirror scenario — the server restarts (e.g. `pnpm
 cycle-web`) while the daemon keeps its PTYs alive — wipes all in-memory state,
@@ -237,8 +256,9 @@ timing loses a session. The browser reports OSC title changes over the terminal
 socket (`{ t: 'title' }`, server-terminated) and the last title becomes the
 row's summary. The new-terminal dropdown's "Resume Session" group
 (`terminal.listSessionHistory` tRPC query + `session-history-entries.ts`) lists
-closed sessions per repo/worktree and reopens them in their original cwd with
-`claude --resume <id>`; resumed terminals carry `resumedFrom` so history keeps
+closed sessions per repo/worktree — narrowed to the project being viewed, so a
+project's dropdown never offers another project's sessions — and reopens them in
+their original cwd with `claude --resume <id>`; resumed terminals carry `resumedFrom` so history keeps
 tracking the original conversation. Codex cannot be assigned a session id at
 spawn, so directories with recorded Codex sessions get a "Resume Codex
 session…" entry that launches `codex resume` (the CLI's own cwd-filtered
@@ -362,7 +382,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-080 | WHEN a browser sends `{ t: 'kill', sessionId }`, the system SHALL delete session metadata, send `{ t: 'exit', sessionId, exitCode: 0 }` to every other attached browser and close their sockets with code 1001, remove the session entry, forward the kill message to the daemon (which SHALL send SIGTERM and escalate to SIGKILL after 3 seconds), and broadcast a `destroyed` terminal-sessions change event with `reason: 'killed'` (on which browsers remove the terminal tab). |
 | FR-TERMINAL-090 | WHEN the PTY process exits on the daemon side for a session still known to the server, the system SHALL forward `{ t: 'exit', sessionId, exitCode }` to all attached browsers, remove the session from both `terminalSessions` and `terminalSessionMeta`, and broadcast a `destroyed` terminal-sessions change event without a `reason` (the tab stays visible with its final output); an exit for a session already torn down (killed or agent-closed) SHALL be ignored rather than re-broadcast. |
 | FR-TERMINAL-100 | WHEN the `/ws/terminal-relay` socket closes, the system SHALL set `terminalDaemon` to null and retain all `terminalSessionMeta` entries so sessions can be respawned when a new daemon connects. |
-| FR-TERMINAL-110 | WHEN a newly connected daemon sends `{ t: 'sync', sessionIds }`, the system SHALL respawn (with container/coder config restored) every session in `terminalSessionMeta` absent from the daemon list that has at least one open browser socket; entries absent from the daemon list with no open browser socket SHALL be removed fully — session meta deleted, unsettled dispatches failed, the dispatch-worker entry dropped, and a `destroyed` terminal-sessions change broadcast. |
+| FR-TERMINAL-110 | WHEN a newly connected daemon sends `{ t: 'sync', sessionIds }`, the system SHALL respawn (with container/coder config restored) every session in `terminalSessionMeta` absent from the daemon list that has at least one open browser socket; agent-spawned entries absent from the daemon list with no open browser socket (metadata carrying `spawnedBy`, or a connected dispatch worker) SHALL be removed fully — session meta deleted, unsettled dispatches failed, the dispatch-worker entry dropped, and a `destroyed` terminal-sessions change broadcast. |
 | FR-TERMINAL-120 | WHEN two browser connections for the same `sessionId` arrive concurrently before the first spawn completes, the system SHALL serialise them so the second connection routes through the reconnect path once the first spawn resolves, rather than spawning a duplicate PTY. |
 | FR-TERMINAL-130 | WHILE a session is active or suspended, the system SHALL parse PTY output for bell and prompt signals, debounce the signals with a 3-second window, and send `{ t: 'act', sessionId, state }` to the server; the server SHALL store the activity state on session metadata and broadcast a per-project terminal-activity change event. |
 | FR-TERMINAL-140 | IF a spawn command on a host-mode session (no `containerWorkspaceFolder` and no `coderWorkspace`) contains a permission-bypass flag (`--dangerously-skip-permissions` or `--dangerously-bypass-approvals-and-sandbox`), the system SHALL send `{ t: 'exit', sessionId, exitCode: 1 }` and not spawn the PTY. |
@@ -386,7 +406,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-320 | WHEN building a Claude terminal command without a resume target, the system SHALL include `--session-id __ENGY_SESSION__` so the spawned CLI adopts the terminal's session id (substituted at spawn per FR-TERMINAL-310, including server-originated `terminal_spawn` spawns), making the conversation addressable for later resume. |
 | FR-TERMINAL-330 | WHEN the browser detects an OSC 0/2 title change on a terminal, it SHALL send `{ t: 'title', sessionId, title }` on the terminal socket; the server SHALL sanitize it, store it as `lastTitle` on the session metadata, update the session's history-row summary, and SHALL NOT forward the message to the daemon. |
 | FR-TERMINAL-340 | WHEN an agent terminal session (metadata carries `agentType`) is spawned, the system SHALL upsert a session-history row keyed by the session's agent-CLI session id (`resumedFrom` when the terminal is a resume, else the terminal `sessionId`) carrying agentType, workingDir, scopeLabel, summary (initially `scopeLabel`), workspaceSlug, projectSlug, worktreeBranch, containerMode, and startedAt — so the row exists even if the daemon or machine dies mid-session; WHEN the session is torn down (daemon exit, kill/destroy, or daemon-sync purge) the system SHALL stamp `closedAt` on the row. History SHALL be pruned to the newest 50 rows per workspace; sessions without `agentType` SHALL NOT be recorded. |
-| FR-TERMINAL-350 | WHEN the client queries recent session history for a workspace, the system SHALL return stored rows newest-first, excluding rows whose key matches a currently-live session's `resumedFrom` or `sessionId`, so open terminals never appear as resumable. |
+| FR-TERMINAL-350 | WHEN the client queries recent session history for a workspace, the system SHALL return stored rows newest-first, excluding rows whose key matches a currently-live session's `resumedFrom` or `sessionId`, so open terminals never appear as resumable; WHEN the query carries a project slug the returned rows SHALL be limited to that project, and the client SHALL carry the project it is viewing so a project's dropdown never offers another project's sessions. |
 | FR-TERMINAL-360 | WHEN the user activates a resume entry in the new-terminal dropdown, the system SHALL open a new terminal in the history row's original workingDir (and original containerMode) whose command is `claude --resume <session-id>` plus the standard MCP config, permission-mode, and `--add-dir` flags — and without `--session-id` — and SHALL tag the new session's metadata with `resumedFrom: <session-id>`. |
 | FR-TERMINAL-370 | WHILE the Codex agent is active, the new-terminal dropdown SHALL offer a "Resume Codex session…" entry for each directory with recorded Codex session history, opening a terminal running `codex resume` (the CLI's interactive picker) in that directory; directories without any session history SHALL NOT appear in the resume group. |
 | FR-TERMINAL-380 | WHEN the server respawns a session whose stored command contains `--session-id <id>` (daemon lost the PTY), it SHALL rewrite the flag to `--resume <id>` before sending the spawn, so the respawned CLI continues the conversation instead of failing on a duplicate session id. |
@@ -401,6 +421,10 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-470 | WHEN sending a reconnect to the daemon, the system SHALL include the session's last known `cols`/`rows` from `terminalSessionMeta`, and the daemon SHALL resize the PTY and its screen mirror to that size — when it differs from the mirror's current size — before serializing the snapshot, so the snapshot is addressed to the geometry the reattaching browser renders at rather than the size the mirror drifted to while unattended. |
 | FR-TERMINAL-480 | WHEN a terminal pane becomes the one being looked at — its dock panel turns visible, focus enters it, or its document returns to `visible` — the browser SHALL re-assert the pane's fitted size to the PTY rather than compare it against the size that pane last sent, because a session is shared and another device may have resized it meanwhile. |
 | FR-TERMINAL-490 | WHEN the daemon receives a resize for a session whose screen mirror already has those dimensions, it SHALL ignore it — neither resizing the PTY nor suppressing activity — so the re-assertions of FR-TERMINAL-480 cost the running program no redraw. |
+| FR-TERMINAL-500 | WHEN a newly connected daemon sends `{ t: 'sync', sessionIds }` and a user-opened session in `terminalSessionMeta` is absent from the daemon list with no open browser socket, the system SHALL mark that session dormant — persisting `dormant: true` and an `idle` activity state on its metadata — instead of deleting it, so a terminal nobody was watching survives the daemon restart as a restorable tab. |
+| FR-TERMINAL-510 | WHEN a browser connects for a session whose stored metadata is dormant, or which a synced daemon does not report alive, the system SHALL spawn a fresh PTY from the stored metadata (command rewritten per FR-TERMINAL-380, last known size, container/coder config restored) and clear the dormant marker, rather than sending `{ t: 'reconnect' }` — which the daemon answers for an unknown session with `exit -1`, destroying the session the connect meant to restore. |
+| FR-TERMINAL-520 | WHILE the session list reports a session as dormant, the browser SHALL render its tab as a stopped placeholder that opens no terminal socket and offers a restore action, and SHALL mount the terminal — connecting its socket, which restores the session per FR-TERMINAL-510 — only WHEN that action is activated. |
+| FR-TERMINAL-530 | WHEN the user closes a dormant tab, the client SHALL ask the server to discard that session — deleting its metadata and persisted row, stamping its history row closed so the conversation returns to the resume dropdown, and broadcasting the `destroyed` change — because a dormant tab has no terminal socket to carry a kill; a discard request for a session that is not dormant SHALL be refused. |
 
 ## Sources
 

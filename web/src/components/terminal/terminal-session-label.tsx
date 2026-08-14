@@ -2,7 +2,12 @@
 
 import { RiTerminalLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
-import { getTerminalIconStyle, getTerminalRailBoxStyle, type TerminalTab } from './types';
+import {
+  getTerminalIconStyle,
+  getTerminalRailBoxStyle,
+  isStoppedTerminal,
+  type TerminalTab,
+} from './types';
 
 interface TerminalSessionLabelProps {
   tab: TerminalTab;
@@ -23,7 +28,7 @@ export function TerminalSessionLabel({ tab, className, iconBox }: TerminalSessio
     <span
       className={cn(
         'flex min-w-0 items-start gap-1.5',
-        tab.status === 'exited' && 'opacity-60',
+        isStoppedTerminal(tab.status) && 'opacity-60',
         className,
       )}
     >

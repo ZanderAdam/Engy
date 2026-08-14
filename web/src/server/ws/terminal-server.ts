@@ -122,6 +122,90 @@ function sendTerminalError(ws: WebSocket, message: string): void {
 }
 
 /**
+ * Spawn command that brings a session the daemon no longer has back to life:
+ * the stored command with `--session-id` rewritten to `--resume` (rerunning a
+ * duplicate id would fail), at the last known size, with the container/coder
+ * config re-read from the DB so isolated sessions come back isolated.
+ */
+function buildRespawnCmd(sessionId: string, meta: TerminalSessionMeta): TerminalSpawnCmd {
+  const spawnCmd: TerminalSpawnCmd = {
+    t: 'spawn',
+    sessionId,
+    workingDir: meta.workingDir,
+    command: meta.command && sessionIdFlagToResume(meta.command),
+    cols: meta.cols,
+    rows: meta.rows,
+    scopeType: meta.scopeType,
+    scopeLabel: meta.scopeLabel,
+  };
+
+  if (meta.containerMode !== 'container' || !meta.workspaceSlug) return spawnCmd;
+
+  try {
+    const db = getDb();
+    const workspace = db.select().from(workspaces).where(eq(workspaces.slug, meta.workspaceSlug)).get();
+    if (!workspace?.containerEnabled || !workspace.docsDir) return spawnCmd;
+
+    if (workspace.executionBackend === 'coder') {
+      const coderCfg = workspace.coderConfig as { workspace: string } | null;
+      if (coderCfg?.workspace) {
+        spawnCmd.coderWorkspace = coderCfg.workspace;
+        spawnCmd.serverPort = parseInt(process.env.PORT ?? '3000', 10);
+      }
+    } else {
+      spawnCmd.containerWorkspaceFolder = workspace.docsDir;
+    }
+  } catch {
+    // DB unavailable — spawn on host as fallback
+  }
+  return spawnCmd;
+}
+
+/** Respawn a session the daemon lost, clearing any dormant marker. */
+function respawnLostSession(
+  state: AppState,
+  daemon: WebSocket,
+  sessionId: string,
+  meta: TerminalSessionMeta,
+): void {
+  daemon.send(JSON.stringify(buildRespawnCmd(sessionId, meta)));
+  state.daemonTerminalSessions.ids.add(sessionId);
+  if (meta.dormant) {
+    delete meta.dormant;
+    persistTerminalSession(sessionId, meta);
+  }
+  broadcastTerminalSessionsChange('created', sessionId, meta.groupKey);
+}
+
+/**
+ * A session the daemon lost while nobody was watching. The meta (and its DB
+ * row) is kept so the tab survives the daemon restart and the user can restore
+ * it deliberately — restoring resumes the agent conversation, which is not
+ * something to do behind their back for every terminal they ever left open.
+ */
+function markSessionDormant(sessionId: string, meta: TerminalSessionMeta): void {
+  meta.dormant = true;
+  // The PTY is gone; a leftover waiting/done badge would keep asking for
+  // attention no restore will ever satisfy.
+  meta.activityState = 'idle';
+  persistTerminalSession(sessionId, meta);
+  if (meta.projectSlug) {
+    broadcastTerminalActivityChange({ sessionId, projectSlug: meta.projectSlug, state: 'idle' });
+  }
+}
+
+/**
+ * True when the server's meta outlived the PTY it describes: an explicit
+ * dormant marker, or a synced daemon that does not list the session. Both mean
+ * a browser connect must respawn rather than reconnect — a reconnect for an
+ * unknown session comes back as `exit -1` and tears the session down.
+ */
+function isSessionLost(state: AppState, sessionId: string, meta: TerminalSessionMeta): boolean {
+  if (meta.dormant) return true;
+  return state.daemonTerminalSessions.synced && !state.daemonTerminalSessions.ids.has(sessionId);
+}
+
+/**
  * If the workspace has containerEnabled, start the container and stream progress.
  * Sets spawnCmd.containerWorkspaceFolder on success.
  * Returns false if container start failed and the connection should be aborted.
@@ -427,9 +511,19 @@ async function handleTerminalConnection(
 
   // Classify after the wait: meta present → the spawn succeeded, join via
   // reconnect. Meta absent → the spawn was abandoned or failed; spawn fresh.
-  if (state.terminalSessionMeta.has(sessionId)) {
+  const storedMeta = state.terminalSessionMeta.get(sessionId);
+  if (storedMeta) {
     const daemon = state.terminalDaemon;
-    if (daemon && daemon.readyState === daemon.OPEN) {
+    if (!daemon || daemon.readyState !== daemon.OPEN) {
+      // Retain meta so the sync handler can respawn the session when the daemon reconnects.
+      console.log(`[terminal] reconnect path but no daemon — keeping meta sid=${short}`);
+      sendTerminalError(ws, 'No daemon connected');
+    } else if (isSessionLost(state, sessionId, storedMeta)) {
+      // The PTY is gone (daemon restart). Connecting to a dormant session IS
+      // the restore — the dock only opens this socket once the user asks for it.
+      console.log(`[terminal] restoring lost session sid=${short}`);
+      respawnLostSession(state, daemon, sessionId, storedMeta);
+    } else {
       console.log(`[terminal] sending reconnect to daemon for sid=${short}`);
       // Track this WS so the reconnected buffer is replayed only to it, not all browsers
       let pendingSet = state.pendingReconnects.get(sessionId);
@@ -442,24 +536,15 @@ async function handleTerminalConnection(
       // browser renders at. A pane that was never fitted (hidden at spawn) left
       // the mirror at the spawn default, and a snapshot addressed to that size
       // replays as torn frames once the pane fits itself.
-      const stored = state.terminalSessionMeta.get(sessionId);
       daemon.send(
         JSON.stringify({
           t: 'reconnect',
           sessionId,
-          cols: stored?.cols,
-          rows: stored?.rows,
+          cols: storedMeta.cols,
+          rows: storedMeta.rows,
         } satisfies TerminalReconnectCmd),
       );
-      broadcastTerminalSessionsChange(
-        'attached',
-        sessionId,
-        state.terminalSessionMeta.get(sessionId)?.groupKey,
-      );
-    } else {
-      // Retain meta so the sync handler can respawn the session when the daemon reconnects.
-      console.log(`[terminal] reconnect path but no daemon — keeping meta sid=${short}`);
-      sendTerminalError(ws, 'No daemon connected');
+      broadcastTerminalSessionsChange('attached', sessionId, storedMeta.groupKey);
     }
   } else {
     // Gate the spawn so concurrent connects for the same sessionId wait instead of
@@ -616,54 +701,21 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
                   } satisfies TerminalResizeCmd),
                 );
               }
+            } else if (hasAnyOpenBrowser(state, sessionId)) {
+              // Browser is still connected — respawn the session transparently
+              console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — respawning on daemon`);
+              respawnLostSession(state, ws, sessionId, meta);
+            } else if (meta.spawnedBy || isTrackedWorker(state, sessionId)) {
+              // Agent-spawned terminals have no user watching them and may hold
+              // unsettled dispatches — full teardown so no phantom worker entry
+              // or pending dispatch outlives the PTY.
+              console.log(`[terminal-relay] Stale agent session ${sessionId} (${meta.scopeLabel}) — cleaning up`);
+              destroyTerminalSession(state, sessionId);
             } else {
-              if (hasAnyOpenBrowser(state, sessionId)) {
-                // Browser is still connected — respawn the session transparently
-                console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — respawning on daemon`);
-                const spawnCmd: TerminalSpawnCmd = {
-                  t: 'spawn',
-                  sessionId,
-                  workingDir: meta.workingDir,
-                  // Rerunning `claude --session-id X` would fail on a duplicate
-                  // session id — `--resume X` continues the conversation instead.
-                  command: meta.command && sessionIdFlagToResume(meta.command),
-                  cols: meta.cols,
-                  rows: meta.rows,
-                  scopeType: meta.scopeType,
-                  scopeLabel: meta.scopeLabel,
-                };
-                // Restore container/coder config for isolated sessions
-                if (meta.containerMode === 'container' && meta.workspaceSlug) {
-                  try {
-                    const db = getDb();
-                    const workspace = db.select().from(workspaces)
-                      .where(eq(workspaces.slug, meta.workspaceSlug)).get();
-                    if (workspace?.containerEnabled && workspace.docsDir) {
-                      if (workspace.executionBackend === 'coder') {
-                        const coderCfg = workspace.coderConfig as { workspace: string } | null;
-                        if (coderCfg?.workspace) {
-                          spawnCmd.coderWorkspace = coderCfg.workspace;
-                          spawnCmd.serverPort = parseInt(process.env.PORT ?? '3000', 10);
-                        }
-                      } else {
-                        spawnCmd.containerWorkspaceFolder = workspace.docsDir;
-                      }
-                    }
-                  } catch {
-                    // DB unavailable — spawn on host as fallback
-                  }
-                }
-                ws.send(JSON.stringify(spawnCmd));
-                daemonSessionIds.add(sessionId);
-                broadcastTerminalSessionsChange('created', sessionId, meta.groupKey);
-              } else {
-                // No browser connected — full teardown. Agent-spawned workers
-                // always land here (they never have a browser), so this must
-                // fail dispatches, drop the worker entry, and clear activity
-                // badges instead of leaking phantom state.
-                console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — no browser, cleaning up`);
-                destroyTerminalSession(state, sessionId);
-              }
+              // Nobody watching — keep the tab as a dormant session the user
+              // can restore deliberately (see markSessionDormant).
+              console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — no browser, marking dormant`);
+              markSessionDormant(sessionId, meta);
             }
           }
 

@@ -59,6 +59,18 @@ describe('terminal relay', () => {
       expect(s2.activityState).toBe('idle');
     });
 
+    it('[FR-TERMINAL-520] reports the dormant marker so the client can offer a restore', () => {
+      const state = makeState([
+        ['s1', meta({ dormant: true })],
+        ['s2', meta()],
+      ]);
+
+      const result = listTerminalSessions(state, { all: true, groupKey: null, scopeType: '', scopeLabel: '' });
+
+      expect(result.find((r) => r.sessionId === 's1')!.dormant).toBe(true);
+      expect(result.find((r) => r.sessionId === 's2')!.dormant).toBe(false);
+    });
+
     it('[FR-TERMINAL-170] non-all mode filters by groupKey', () => {
       const state = makeState([
         ['s1', meta({ groupKey: 'gk-a' })],

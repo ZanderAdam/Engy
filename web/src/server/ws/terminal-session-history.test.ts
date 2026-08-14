@@ -200,5 +200,22 @@ describe('terminal session history', () => {
       const rows = listSessionHistory('ws-empty', new Set());
       expect(rows).toHaveLength(0);
     });
+
+    it('[FR-TERMINAL-350] should return only the given project rows when a project is supplied', () => {
+      recordSessionStart('alpha-1', makeAgentMeta({ workspaceSlug: 'ws-proj', projectSlug: 'alpha' }));
+      recordSessionStart('beta-1', makeAgentMeta({ workspaceSlug: 'ws-proj', projectSlug: 'beta' }));
+      recordSessionStart('ws-level', makeAgentMeta({ workspaceSlug: 'ws-proj' }));
+
+      const rows = listSessionHistory('ws-proj', new Set(), 'alpha');
+      expect(rows.map((r) => r.sessionId)).toEqual(['alpha-1']);
+    });
+
+    it('[FR-TERMINAL-350] should return every project row when no project is supplied', () => {
+      recordSessionStart('alpha-2', makeAgentMeta({ workspaceSlug: 'ws-all', projectSlug: 'alpha' }));
+      recordSessionStart('beta-2', makeAgentMeta({ workspaceSlug: 'ws-all', projectSlug: 'beta' }));
+
+      const rows = listSessionHistory('ws-all', new Set());
+      expect(rows.map((r) => r.sessionId).sort()).toEqual(['alpha-2', 'beta-2']);
+    });
   });
 });

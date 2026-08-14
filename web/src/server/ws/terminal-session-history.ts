@@ -89,18 +89,24 @@ export function markSessionClosed(key: string): void {
   }
 }
 
+/**
+ * Resumable history for a workspace, newest first. `projectSlug` narrows the
+ * list to one project's sessions — a project's terminal dropdown offers what
+ * ran in that project, not every session in the workspace.
+ */
 export function listSessionHistory(
   workspaceSlug: string,
   liveKeys: ReadonlySet<string>,
+  projectSlug?: string,
 ): SessionHistoryRow[] {
   try {
     const db = getDb();
     const liveArr = [...liveKeys];
-    const bucketCondition = eq(terminalSessionHistory.workspaceSlug, workspaceSlug);
-    const condition =
-      liveArr.length > 0
-        ? and(bucketCondition, notInArray(terminalSessionHistory.sessionId, liveArr))
-        : bucketCondition;
+    const condition = and(
+      eq(terminalSessionHistory.workspaceSlug, workspaceSlug),
+      projectSlug ? eq(terminalSessionHistory.projectSlug, projectSlug) : undefined,
+      liveArr.length > 0 ? notInArray(terminalSessionHistory.sessionId, liveArr) : undefined,
+    );
     return db
       .select()
       .from(terminalSessionHistory)

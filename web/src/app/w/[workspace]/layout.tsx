@@ -507,11 +507,16 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   const worktreeGroup = useWorktreeSessions(params.workspace);
 
-  // Recent agent sessions resumable via `claude --resume`. Freshness comes
-  // from cache invalidation on TERMINAL_SESSIONS_CHANGE broadcasts — the hook
-  // lives in AutoInvalidation (inside EventsProvider), not here.
+  // Recent agent sessions resumable via `claude --resume`, scoped to the
+  // project being viewed so its dropdown offers that project's sessions rather
+  // than every project in the workspace. Freshness comes from cache
+  // invalidation on TERMINAL_SESSIONS_CHANGE broadcasts — the hook lives in
+  // AutoInvalidation (inside EventsProvider), not here.
   const { data: sessionHistory, dataUpdatedAt: sessionHistoryFetchedAt } =
-    trpc.terminal.listSessionHistory.useQuery({ workspaceSlug: params.workspace });
+    trpc.terminal.listSessionHistory.useQuery({
+      workspaceSlug: params.workspace,
+      projectSlug: isProjectRoute ? params.project : undefined,
+    });
 
   const resumeGroup = useMemo<TerminalDropdownGroup | undefined>(() => {
     if (!workspace || !sessionHistory) return undefined;
