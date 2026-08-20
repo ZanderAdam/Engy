@@ -1,6 +1,6 @@
 {
   "ignore": [],
-  "ignoreDependencies": ["prettier"],
+  "ignoreDependencies": ["prettier", "@playwright/cli"],
   "workspaces": {
     ".": {
       "entry": ["scripts/*.mjs"]
