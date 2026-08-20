@@ -22,6 +22,8 @@ import {
 
 type Milestone = { ref: string; title: string };
 
+const NO_MILESTONE = '__none__';
+
 export function TaskGroupForm({
   milestones,
   open,
@@ -34,21 +36,21 @@ export function TaskGroupForm({
   onCreated?: () => void;
 }) {
   const [name, setName] = useState("");
-  const [milestoneRef, setMilestoneRef] = useState<string>("");
+  const [milestoneRef, setMilestoneRef] = useState<string>(NO_MILESTONE);
 
   const createGroup = trpc.taskGroup.create.useMutation({
     onSuccess: () => {
       setName("");
-      setMilestoneRef("");
+      setMilestoneRef(NO_MILESTONE);
       onCreated?.();
     },
   });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !milestoneRef) return;
+    if (!name.trim()) return;
     createGroup.mutate({
-      milestoneRef,
+      milestoneRef: milestoneRef === NO_MILESTONE ? undefined : milestoneRef,
       name: name.trim(),
     });
   }
@@ -80,6 +82,7 @@ export function TaskGroupForm({
                   <SelectValue placeholder="Select milestone" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={NO_MILESTONE}>No milestone</SelectItem>
                   {milestones.map((ms) => (
                     <SelectItem key={ms.ref} value={ms.ref}>
                       {ms.title}
@@ -93,7 +96,7 @@ export function TaskGroupForm({
           <DialogFooter>
             <Button
               type="submit"
-              disabled={!name.trim() || !milestoneRef || createGroup.isPending}
+              disabled={!name.trim() || createGroup.isPending}
             >
               Create
             </Button>

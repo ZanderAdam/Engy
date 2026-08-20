@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { MilestoneList } from './milestone-list';
+import { MilestoneList, StandaloneGroupList } from './milestone-list';
 import { MilestoneForm } from './milestone-form';
 import { TaskDialog } from './task-dialog';
 import { RiAddLine } from '@remixicon/react';
@@ -78,6 +78,13 @@ export function ProjectOverview({
             containerEnabled={containerEnabled}
           />
         </div>
+
+        <StandaloneGroupList
+          projectId={project.id}
+          showDone={showDone}
+          onTaskClick={setSelectedTaskId}
+          containerEnabled={containerEnabled}
+        />
 
         <MilestoneForm
           projectId={project.id}

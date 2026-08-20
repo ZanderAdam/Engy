@@ -109,6 +109,46 @@ describe('task-group router', () => {
     });
   });
 
+  describe('[FR-TASK-180] create without a milestone', () => {
+    it('should create a standalone group with a null milestoneRef', async () => {
+      const group = await caller.taskGroup.create({ name: 'Standalone' });
+      expect(group.milestoneRef).toBeNull();
+    });
+
+    it('should number standalone groups in their own bucket', async () => {
+      const ws = await caller.workspace.create({ name: 'Standalone WS' });
+      const proj = await caller.project.create({ workspaceSlug: ws.slug, name: 'Standalone Project' });
+      await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'In m1' });
+      const first = await caller.taskGroup.create({ projectId: proj.id, name: 'Loose A' });
+      const second = await caller.taskGroup.create({ projectId: proj.id, name: 'Loose B' });
+      expect(first.numInMilestone).toBe(1);
+      expect(second.numInMilestone).toBe(2);
+    });
+  });
+
+  describe('[FR-TASK-190] list standalone groups', () => {
+    it('should return only null-milestone groups when milestoneRef is null', async () => {
+      const ws = await caller.workspace.create({ name: 'Standalone WS' });
+      const proj = await caller.project.create({ workspaceSlug: ws.slug, name: 'Standalone Project' });
+      await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'In m1' });
+      await caller.taskGroup.create({ projectId: proj.id, name: 'Loose' });
+
+      const result = await caller.taskGroup.list({ projectId: proj.id, milestoneRef: null });
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('Loose');
+    });
+
+    it('should return groups regardless of milestone when the filter is omitted', async () => {
+      const ws = await caller.workspace.create({ name: 'Standalone WS' });
+      const proj = await caller.project.create({ workspaceSlug: ws.slug, name: 'Standalone Project' });
+      await caller.taskGroup.create({ projectId: proj.id, milestoneRef: 'm1', name: 'In m1' });
+      await caller.taskGroup.create({ projectId: proj.id, name: 'Loose' });
+
+      const result = await caller.taskGroup.list({ projectId: proj.id });
+      expect(result).toHaveLength(2);
+    });
+  });
+
   describe('[FR-TASK-150] create numInMilestone', () => {
     it('should assign 1 to the first group in a milestone', async () => {
       const ws = await caller.workspace.create({ name: 'Num WS' });

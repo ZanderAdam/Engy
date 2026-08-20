@@ -223,14 +223,21 @@ const taskIdInput = {
 
 const createTaskGroupInput = {
   projectId: z.number().optional().describe('Project ID'),
-  milestoneRef: z.string().describe('Milestone ref (e.g. "m1")'),
+  milestoneRef: z
+    .string()
+    .optional()
+    .describe('Milestone ref (e.g. "m1"); omit for a standalone group'),
   name: z.string().describe('Task group name'),
   repos: z.array(z.string()).optional().describe('Repository paths'),
 };
 
 const listTaskGroupsInput = {
   projectId: z.number().optional().describe('Filter by project ID'),
-  milestoneRef: z.string().optional().describe('Filter by milestone ref (e.g. "m1")'),
+  milestoneRef: z
+    .string()
+    .nullable()
+    .optional()
+    .describe('Filter by milestone ref (e.g. "m1"); null matches standalone groups'),
 };
 
 const taskGroupIdInput = {
@@ -991,7 +998,7 @@ function registerTaskTools(mcp: McpServer): void {
 function registerTaskGroupTools(mcp: McpServer): void {
   mcp.tool(
     'createTaskGroup',
-    'Create a new task group within a milestone. Returns the new group ID.',
+    'Create a new task group, optionally within a milestone. Returns the new group ID.',
     createTaskGroupInput,
     async ({ projectId, milestoneRef, name, repos }) => {
       const db = getDb();
@@ -1015,7 +1022,13 @@ function registerTaskGroupTools(mcp: McpServer): void {
       const db = getDb();
       const conditions: SQL[] = [];
       if (projectId !== undefined) conditions.push(eq(taskGroups.projectId, projectId));
-      if (milestoneRef !== undefined) conditions.push(eq(taskGroups.milestoneRef, milestoneRef));
+      if (milestoneRef !== undefined) {
+        conditions.push(
+          milestoneRef === null
+            ? isNull(taskGroups.milestoneRef)
+            : eq(taskGroups.milestoneRef, milestoneRef),
+        );
+      }
 
       const rows = conditions.length > 0
         ? db.select().from(taskGroups).where(and(...conditions)).all()

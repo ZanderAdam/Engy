@@ -5,7 +5,7 @@ order: 4
 
 # Task Management
 
-Tasks are the atomic unit of work in Engy. Each task belongs to an optional project, and may be further grouped by milestone reference (a free-text key matching a plan file on disk) and by a task group (a named container within a milestone). The full hierarchy is: Workspace → Project → Milestone → TaskGroup → Task.
+Tasks are the atomic unit of work in Engy. Each task belongs to an optional project, and may be further grouped by milestone reference (a free-text key matching a plan file on disk) and by a task group (a named container that may sit inside a milestone or stand alone). The full hierarchy is: Workspace → Project → Milestone → TaskGroup → Task, with the milestone level optional for both tasks and groups.
 
 ## Key source files
 
@@ -27,7 +27,7 @@ Both the tRPC and MCP surfaces share `validateDependencies` and `attachBlockedBy
 
 ## Task groups
 
-A task group (`task_groups` table) is a named container within a `(projectId, milestoneRef)` bucket. Its `numInMilestone` counter is assigned by `nextNumInMilestone()` which queries `MAX(numInMilestone)` for the bucket and returns `max + 1` (starts at 1 for empty buckets). Deletion leaves gaps — survivors are never renumbered. Task groups have a `status` enum (`planned`/`active`/`review`/`complete`) and an optional `repos` JSON array.
+A task group (`task_groups` table) is a named container within a `(projectId, milestoneRef)` bucket. `milestoneRef` is nullable: a group created without one is standalone, and is numbered in the `(projectId, NULL)` bucket alongside other standalone groups of the same project. Its `numInMilestone` counter is assigned by `nextNumInMilestone()` which queries `MAX(numInMilestone)` for the bucket and returns `max + 1` (starts at 1 for empty buckets). Deletion leaves gaps — survivors are never renumbered. Task groups have a `status` enum (`planned`/`active`/`review`/`complete`) and an optional `repos` JSON array.
 
 ## MCP surface
 
@@ -64,6 +64,8 @@ When `task.create` is called with `type:'ai'` and `status:'todo'` and neither `t
 | FR-TASK-150 | WHEN `taskGroup.create` or the MCP `createTaskGroup` tool is called, the system SHALL assign `numInMilestone` as `MAX(numInMilestone) + 1` within the `(projectId, milestoneRef)` bucket, starting at 1 for an empty bucket, with gaps left by deletions never refilled. |
 | FR-TASK-160 | WHEN `taskGroup.get` / `getTaskGroup` or `taskGroup.update` / `updateTaskGroup` is called with an id that does not exist, the system SHALL return `NOT_FOUND` / MCP error. |
 | FR-TASK-170 | WHEN `task.create` is called with `type:'ai'` and `status:'todo'` and neither `taskGroupId` nor `milestoneRef` is set, the system SHALL invoke `triggerAutoStart` fire-and-forget after the transaction commits; the same trigger SHALL fire on `task.update` when `type` transitions to `'ai'` under the same conditions. |
+| FR-TASK-180 | WHEN `taskGroup.create` or the MCP `createTaskGroup` tool is called without a `milestoneRef`, the system SHALL create a standalone group with a NULL `milestone_ref`, numbered within the `(projectId, NULL)` bucket by the same `MAX + 1` rule. |
+| FR-TASK-190 | WHEN `taskGroup.list` or the MCP `listTaskGroups` tool is called with `milestoneRef` set to `null`, the system SHALL return only groups whose `milestone_ref` IS NULL; omitting the filter SHALL return groups regardless of milestone. |
 
 ## Sources
 

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { and, eq, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
@@ -11,7 +11,7 @@ export const taskGroupRouter = router({
     .input(
       z.object({
         projectId: z.number().optional(),
-        milestoneRef: z.string(),
+        milestoneRef: z.string().optional(),
         name: z.string().min(1),
         repos: z.array(z.string()).optional(),
       }),
@@ -39,15 +39,20 @@ export const taskGroupRouter = router({
       z.object({
         workspaceId: z.number().optional(),
         projectId: z.number().optional(),
-        milestoneRef: z.string().optional(),
+        milestoneRef: z.string().nullable().optional(),
       }),
     )
     .query(({ input }) => {
       const db = getDb();
       const conditions: SQL[] = [];
       if (input.projectId !== undefined) conditions.push(eq(taskGroups.projectId, input.projectId));
-      if (input.milestoneRef !== undefined)
-        conditions.push(eq(taskGroups.milestoneRef, input.milestoneRef));
+      if (input.milestoneRef !== undefined) {
+        conditions.push(
+          input.milestoneRef === null
+            ? isNull(taskGroups.milestoneRef)
+            : eq(taskGroups.milestoneRef, input.milestoneRef),
+        );
+      }
 
       if (input.workspaceId !== undefined) {
         conditions.push(eq(projects.workspaceId, input.workspaceId));

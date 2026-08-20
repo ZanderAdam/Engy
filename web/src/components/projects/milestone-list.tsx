@@ -115,6 +115,48 @@ export function MilestoneList({
   );
 }
 
+export function StandaloneGroupList({
+  projectId,
+  showDone,
+  onTaskClick,
+  containerEnabled,
+}: {
+  projectId: number;
+  showDone: boolean;
+  onTaskClick?: (taskId: number) => void;
+  containerEnabled?: boolean;
+}) {
+  const { data: tasks } = trpc.task.list.useQuery({ projectId });
+  const { data: taskGroups } = trpc.taskGroup.list.useQuery({ projectId, milestoneRef: null });
+
+  const tasksByGroup = groupTasksByTg(tasks ?? []);
+  const sorted = taskGroups ? sortTaskGroups(taskGroups, tasksByGroup) : [];
+  const visible = showDone
+    ? sorted
+    : sorted.filter((tg) => !isAllDone(tasksByGroup.get(tg.id) ?? []));
+
+  if (visible.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="text-xs font-semibold">Groups</h3>
+      <div className="flex flex-col gap-1 border border-border px-3 py-2">
+        {visible.map((tg) => (
+          <TaskGroupRow
+            key={tg.id}
+            taskGroup={tg}
+            tasks={tasksByGroup.get(tg.id) ?? []}
+            milestoneRef={null}
+            showDone={showDone}
+            onTaskClick={onTaskClick}
+            containerEnabled={containerEnabled}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MilestoneRow({
   projectId,
   milestone,
@@ -304,7 +346,7 @@ function TaskGroupRow({
 }: {
   taskGroup: TaskGroup;
   tasks: Task[];
-  milestoneRef: string;
+  milestoneRef: string | null;
   showDone: boolean;
   onTaskClick?: (taskId: number) => void;
   containerEnabled?: boolean;
@@ -351,6 +393,7 @@ function TaskGroupRow({
           taskGroupId={taskGroup.id}
           milestoneRef={milestoneRef}
           numInMilestone={taskGroup.numInMilestone}
+          name={taskGroup.name}
         />
       )}
       <div className="flex flex-1 flex-col gap-0.5">
@@ -420,10 +463,12 @@ function TaskGroupQuickAction({
   taskGroupId,
   milestoneRef,
   numInMilestone,
+  name,
 }: {
   taskGroupId: number;
-  milestoneRef: string;
+  milestoneRef: string | null;
   numInMilestone: number;
+  name: string;
 }) {
   const { disabled, launch, projectSlug } = useQuickAction();
   const {
@@ -433,9 +478,16 @@ function TaskGroupQuickAction({
   } = useExecutionStatus('taskGroup', taskGroupId);
 
   function handleImplementTaskGroup() {
+    if (milestoneRef) {
+      launch({
+        prompt: `Use /engy:implement-milestone for ${milestoneRef} TG${numInMilestone} in project ${projectSlug}`,
+        scopeLabel: `impl-tg: ${milestoneRef} TG${numInMilestone}`,
+      });
+      return;
+    }
     launch({
-      prompt: `Use /engy:implement-milestone for ${milestoneRef} TG${numInMilestone} in project ${projectSlug}`,
-      scopeLabel: `impl-tg: ${milestoneRef} TG${numInMilestone}`,
+      prompt: `Use /engy:implement for task group "${name}" in project ${projectSlug}`,
+      scopeLabel: `impl-tg: ${name}`,
     });
   }
 

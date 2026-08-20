@@ -23,6 +23,8 @@ import {
 
 type Milestone = { ref: string; title: string };
 
+const NO_MILESTONE = '__none__';
+
 export function GroupFromSelectionDialog({
   milestones,
   selectedIds,
@@ -37,7 +39,7 @@ export function GroupFromSelectionDialog({
   onComplete?: () => void;
 }) {
   const [name, setName] = useState('');
-  const [milestoneRef, setMilestoneRef] = useState<string>('');
+  const [milestoneRef, setMilestoneRef] = useState<string>(NO_MILESTONE);
 
   const utils = trpc.useUtils();
   const createGroup = trpc.taskGroup.create.useMutation({
@@ -49,7 +51,7 @@ export function GroupFromSelectionDialog({
       utils.task.get.invalidate();
       utils.taskGroup.list.invalidate();
       setName('');
-      setMilestoneRef('');
+      setMilestoneRef(NO_MILESTONE);
       onComplete?.();
     },
     onError: () => toast.error('Failed to assign tasks to group'),
@@ -57,15 +59,16 @@ export function GroupFromSelectionDialog({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !milestoneRef || selectedIds.size === 0) return;
+    if (!name.trim() || selectedIds.size === 0) return;
+    const ref = milestoneRef === NO_MILESTONE ? undefined : milestoneRef;
     createGroup.mutate(
-      { milestoneRef, name: name.trim() },
+      { milestoneRef: ref, name: name.trim() },
       {
         onSuccess: (group) => {
           bulkUpdate.mutate({
             ids: Array.from(selectedIds),
             taskGroupId: group.id,
-            milestoneRef,
+            milestoneRef: ref,
           });
         },
       },
@@ -101,6 +104,7 @@ export function GroupFromSelectionDialog({
                   <SelectValue placeholder="Select milestone" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={NO_MILESTONE}>No milestone</SelectItem>
                   {milestones.map((ms) => (
                     <SelectItem key={ms.ref} value={ms.ref}>
                       {ms.title}
@@ -112,7 +116,7 @@ export function GroupFromSelectionDialog({
           </div>
 
           <DialogFooter>
-            <Button type="submit" disabled={!name.trim() || !milestoneRef || isPending}>
+            <Button type="submit" disabled={!name.trim() || isPending}>
               Create Group
             </Button>
           </DialogFooter>
