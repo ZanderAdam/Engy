@@ -1,6 +1,6 @@
 # Dev Environment for Screenshots
 
-Everything about getting a stable, well-seeded dev instance. All `curl localhost` / `playwright-cli` / process commands need `dangerouslyDisableSandbox: true`.
+Everything about getting a stable, well-seeded dev instance. All `curl localhost` / `pnpm exec playwright-cli` / process commands need `dangerouslyDisableSandbox: true`.
 
 ## Port discovery & health
 
@@ -89,5 +89,5 @@ Identify each with `lsof -nP -iTCP -sTCP:LISTEN | grep node` and the process com
 
 ## Tooling availability
 
-- `PIL` (Pillow) is available for Python image work; `ImageMagick`/`magick`/`convert` are **not**. `sips` exists but only center-crops — use `scripts/crop-region.py` for offset crops.
-- `playwright-cli` writes a session file under `~/Library/Caches/ms-playwright/...` — blocked by the sandbox, hence `dangerouslyDisableSandbox` on every call.
+- `PIL` (Pillow) is available for Python image work; `ImageMagick`/`magick`/`convert` and `sips` are **not**. Use `scripts/crop-region.py` for crops.
+- `pnpm exec playwright-cli` writes browser state under `~/.cache/ms-playwright/` and per-session snapshots into `.playwright-cli/` — the cache write is blocked by the sandbox, hence `dangerouslyDisableSandbox` on every call.

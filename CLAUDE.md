@@ -98,7 +98,10 @@ Trophy testing pattern with BDD style — maximize vertical-slice integration te
 These are non-negotiable and must be verified before committing:
 1. Run `/engy:review` when done with changes
 2. Run `pnpm blt` 
-3. If UI changes, test using playwright-cli. Check `playwright-cli --help` for available commands.
+3. If UI changes, test using `pnpm exec playwright-cli` (a devDependency — the bare name is not on
+   PATH). Check `pnpm exec playwright-cli --help` for available commands. It opens the `chrome`
+   channel by default; where Chrome is absent, pass `--browser=chromium` after a one-time
+   `pnpm exec playwright-cli install-browser chromium`.
 4. If you changed behaviour in a feature area, update its `docs/system/features/<area>.md` FRs and the `[FR-AREA-NNN]` test tags to match (see Feature Requirements above).
 
 ### Validation Setup

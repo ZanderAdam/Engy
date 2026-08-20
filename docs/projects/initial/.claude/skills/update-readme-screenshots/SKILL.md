@@ -39,8 +39,9 @@ Read the port from the `[dev]` log line (it auto-picks a free one). If a healthy
 
 ## Step 3 — Drive the browser
 
-- Always use a named session: `playwright-cli -s=readme <cmd>` (the default session collides with other Claude sessions).
-- Set a wide window once: `playwright-cli -s=readme resize 1792 1120`. Screenshots come out 1792-wide — plenty for GitHub.
+- Invoke it as `pnpm exec playwright-cli` — it is a devDependency and the bare name is not on PATH. Add `--browser=chromium` where Chrome is absent (one-time `pnpm exec playwright-cli install-browser chromium`).
+- Always use a named session: `pnpm exec playwright-cli -s=readme <cmd>` (the default session collides with other Claude sessions).
+- Set a wide window once: `pnpm exec playwright-cli -s=readme resize 1792 1120`. Screenshots come out 1792-wide — plenty for GitHub.
 - **Navigate between tabs by clicking the in-app nav links, not `goto`.** `goto` reloads and re-expands the terminal panel and resets UI state; in-app clicks preserve the collapsed-terminal state.
 - After each `screenshot`, **Read the PNG** to verify content before saving it — the app frequently shows empty/`Loading…`/`Select a file` states that look fine to the tool but are blank.
 - URL shape: `http://localhost:<port>/w/engy/projects/initial/<tab>` where tab ∈ `''|docs|tasks|claude-plans|diffs|code|memory`.

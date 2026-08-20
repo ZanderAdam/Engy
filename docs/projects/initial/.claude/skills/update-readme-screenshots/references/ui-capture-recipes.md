@@ -1,10 +1,10 @@
 # UI Capture Recipes
 
-Per-screenshot interaction recipes for `playwright-cli -s=readme`. All commands need `dangerouslyDisableSandbox: true`. After every `screenshot`, Read the PNG to verify it isn't a blank/`Loading…`/`Select a file` state.
+Per-screenshot interaction recipes for `pnpm exec playwright-cli -s=readme`. All commands need `dangerouslyDisableSandbox: true`. After every `screenshot`, Read the PNG to verify it isn't a blank/`Loading…`/`Select a file` state.
 
 ## General driving notes
 
-- **Clicking by coordinates:** `playwright-cli -s=readme mousemove X Y` then `mousedown` then `mouseup`. Use this for elements that resist eval-clicks (tree rows, diagram toolbar icons, Monaco gutter).
+- **Clicking by coordinates:** `pnpm exec playwright-cli -s=readme mousemove X Y` then `mousedown` then `mouseup`. Use this for elements that resist eval-clicks (tree rows, diagram toolbar icons, Monaco gutter).
 - **Clicking by element:** prefer dispatching the full sequence so React handlers fire:
   ```js
   ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(t => el.dispatchEvent(new MouseEvent(t,{bubbles:true})))
