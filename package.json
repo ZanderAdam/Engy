@@ -1,6 +1,7 @@
 {
   "name": "engy",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "dotenv -e .dev.env -- node scripts/dev.mjs",
     "start": "dotenv -e .env -- pm2 start ecosystem.config.js",
