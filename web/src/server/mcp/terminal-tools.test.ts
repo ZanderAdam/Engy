@@ -390,16 +390,15 @@ describe('MCP terminal tools', () => {
       expect(String(data.error)).toContain("Unknown agentType 'gemini'");
     });
 
-    it('[FR-MCP-160] should refuse same-type spawns', async () => {
+    it('[FR-MCP-170] should allow same-type spawns', async () => {
       addCallerSession('sess-claude', 'claude');
       const { isError, data } = await callTool(makeMcp('sess-claude'), 'terminal_spawn')({
         agentType: 'claude',
         cwd: '/repo',
         description: 'worker',
       });
-      expect(isError).toBe(true);
-      expect(String(data.error)).toContain('Same-type spawn refused');
-      expect(String(data.error)).toContain('subagent');
+      expect(isError).toBe(false);
+      expect(data.agentType).toBe('claude');
     });
 
     it('[FR-MCP-160] should refuse when the live agent-spawned session limit is reached', async () => {
@@ -700,7 +699,7 @@ describe('MCP terminal tools', () => {
       expect(state.dispatchWorkers.has(spawned.sessionId as string)).toBe(true);
     });
 
-    it('[FR-MCP-170] should allow the spawned worker to spawn back cross-type within the cap', async () => {
+    it('[FR-MCP-170] should allow a spawned worker to spawn on within the cap', async () => {
       addCallerSession('sess-claude', 'claude');
       const first = await callTool(makeMcp('sess-claude'), 'terminal_spawn')({
         agentType: 'codex',
@@ -709,7 +708,6 @@ describe('MCP terminal tools', () => {
       });
       const codexSessionId = first.data.sessionId as string;
 
-      // The spawned codex can spawn a claude (cross-type), but not another codex
       const backSpawn = await callTool(makeMcp(codexSessionId), 'terminal_spawn')({
         agentType: 'claude',
         cwd: '/repo',
@@ -720,10 +718,9 @@ describe('MCP terminal tools', () => {
       const sameType = await callTool(makeMcp(codexSessionId), 'terminal_spawn')({
         agentType: 'codex',
         cwd: '/repo',
-        description: 'codex clone',
+        description: 'second codex worker',
       });
-      expect(sameType.isError).toBe(true);
-      expect(String(sameType.data.error)).toContain('Same-type spawn refused');
+      expect(sameType.isError).toBe(false);
     });
   });
 

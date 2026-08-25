@@ -58,7 +58,7 @@ session. The path is the only identity channel every MCP client honors: a client
 always POSTs to the endpoint URL it was configured with (the MCP `Mcp-Session-Id`
 is server-assigned and does not convey client identity). `terminal_whoami` exposes
 the resolved identity; plain `/mcp` (hand-configured agents, the daemon) stays
-anonymous. This underpins `terminal_spawn`'s different-type rule and dispatch
+anonymous. This underpins `terminal_spawn`'s caller checks and dispatch
 attribution.
 
 ## Cross-terminal dispatch tools
@@ -87,15 +87,14 @@ the Terminal Relay feature.
 
 ### Agent-originated spawn (`terminal_spawn`)
 
-An identified agent can spawn a terminal running a **different** agent CLI —
-cross-agent delegation (a Claude orchestrator spawning a Codex reviewer),
-never self-replication: same-type spawning is refused because that is what an
-agent's built-in subagents are for. The caller's own type is resolved
-server-side from its `/mcp/<token>` identity, so no self-reporting is
-involved. Guard rails: the `cwd` must be inside a workspace repo (worktrees
-under a repo count), at most 3 agent-spawned sessions may be live at once
-(`AGENT_SPAWN_LIMIT` — this also bounds spawn chains like claude → codex →
-claude), and a terminal daemon must be connected. `spawnAgentTerminal`
+An identified agent can spawn a terminal running any registered agent CLI,
+including its own type — a Claude orchestrator can spawn a Codex reviewer or
+another Claude. The caller's identity is resolved server-side from its
+`/mcp/<token>` identity, so no self-reporting is involved. Guard rails: the
+`cwd` must be inside a workspace repo (worktrees under a repo count), at most
+3 agent-spawned sessions may be live at once (`AGENT_SPAWN_LIMIT` — type-agnostic,
+so it also bounds spawn chains like claude → codex → claude), and a terminal
+daemon must be connected. `spawnAgentTerminal`
 (`web/src/server/terminal-dispatch.ts`) performs the server-originated spawn:
 unlike browser-initiated spawns, the session id is generated first, so the
 spawned CLI command carries its resolved `/mcp/<sessionId>` endpoint (no
@@ -136,7 +135,7 @@ Functional requirements in EARS notation. These are the single source of truth f
 | FR-MCP-130 | WHEN `terminal_list_workers` is called, the system SHALL return every connected worker with its description, agent type, scope label, and activity state, and SHALL return an empty list with a hint when no workers are connected. |
 | FR-MCP-140 | WHEN `terminal_status` is called with a connected worker's session id, the system SHALL return the worker info plus a recent output tail with terminal escape sequences stripped, capped at 2000 characters. |
 | FR-MCP-150 | WHEN an MCP client connects at a per-session endpoint `/mcp/<terminalSessionId>`, the system SHALL bind that terminal session id to the connection; `terminal_whoami` SHALL return `{ identified: true, live, terminalSessionId, agentType, scopeLabel, workingDir }` resolved from `terminalSessionMeta` (`live: false` and `agentType: null` when no live session backs the token). WHEN the client connects at plain `/mcp` or empty-token `/mcp/`, `terminal_whoami` SHALL return `{ identified: false }`; WHEN the path token has invalid percent-encoding, the request SHALL be rejected with HTTP 400. |
-| FR-MCP-160 | WHEN `terminal_spawn` is called, the system SHALL refuse: anonymous callers (no path token), callers without a live terminal session, callers whose agent type is unknown, callers whose session has no workspace context (the agent-settings guard would be unenforceable), an unknown requested `agentType`, a requested `agentType` equal to the caller's own type (same-type work belongs to the agent's built-in subagents), a requested `agentType` deactivated in the caller workspace's per-agent settings, a `cwd` outside every workspace repo, more than 3 live agent-spawned sessions, and spawning with no terminal daemon connected. |
+| FR-MCP-160 | WHEN `terminal_spawn` is called, the system SHALL refuse: anonymous callers (no path token), callers without a live terminal session, callers whose agent type is unknown, callers whose session has no workspace context (the agent-settings guard would be unenforceable), an unknown requested `agentType`, a requested `agentType` deactivated in the caller workspace's per-agent settings, a `cwd` outside every workspace repo, more than 3 live agent-spawned sessions, and spawning with no terminal daemon connected. |
 | FR-MCP-170 | WHEN `terminal_spawn` passes validation, the system SHALL generate a new terminal session id, send a spawn command to the daemon whose agent CLI command carries the resolved per-session MCP endpoint `/mcp/<newSessionId>`, register session metadata recording `spawnedBy`, inheriting the caller's UI scope (groupKey, workspace, project), and starting at activity state `active` (so dispatches sent while the CLI boots queue and deliver on its first idle/done settle), auto-connect the session as a dispatch worker, broadcast the session creation, and return the new session id. |
 | FR-MCP-180 | WHEN a dispatch created by an identified caller settles (replied or failed) and the dispatch was async or its sync wait timed out, the system SHALL inject an informational `[engy-notice <correlationId>]` settled-notice (worker description, result or error capped at 2000 chars, and a do-not-reply/re-dispatch note) into the origin terminal — immediately when the origin is idle with no queued dispatches or notices, otherwise queued and flushed combined on the origin's next idle transition, before any queued dispatch; a flush that fails because no daemon is connected SHALL requeue the notices. Notices whose origin terminal no longer exists SHALL be dropped. |
 | FR-MCP-190 | WHEN `terminal_close` is called by an identified caller with the session id of a terminal whose `spawnedBy` equals the caller's session, the system SHALL send a kill command to the daemon and tear down the session's server state (meta, worker registration, unsettled dispatches failed, destroyed broadcast), freeing its agent-spawn slot; the system SHALL refuse anonymous callers, unknown sessions, terminals not spawned by the caller (user-opened or foreign-spawned), and closes attempted with no daemon connected (leaving state untouched). |

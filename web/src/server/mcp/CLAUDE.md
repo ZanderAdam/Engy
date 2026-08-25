@@ -81,7 +81,7 @@ Tools are registered by domain in separate `register*Tools(mcp)` functions:
 - `registerQuestionTools` — `askQuestion`
 - `registerIndexTools` — `reindex`, `indexStatus`, `validateWorkspace`
 - `registerSearchTools` — `search` (unified; replaces `listMemories` for discovery use cases), `trace` (requirements traceability: FR ↔ tests ↔ source, via `search/trace.ts`)
-- `registerTerminalTools` (in `terminal-tools.ts`) — `terminal_whoami` (caller identity from the `/mcp/<token>` path), `terminal_list_workers`, `terminal_dispatch`, `terminal_collect`, `terminal_reply`, `terminal_status`, `terminal_spawn` (cross-type-only agent spawning: different agentType, cwd inside a workspace repo, ≤3 live agent-spawned sessions; server-originated spawn via `spawnAgentTerminal`), `terminal_close` (spawner-only close of agent-spawned terminals via `closeAgentTerminal`). State and mechanics in `../terminal-dispatch.ts`. Takes the caller's terminal session id from `getMcpServer(callerTerminalSessionId)` — the path token parsed in `attachMCP`.
+- `registerTerminalTools` (in `terminal-tools.ts`) — `terminal_whoami` (caller identity from the `/mcp/<token>` path), `terminal_list_workers`, `terminal_dispatch`, `terminal_collect`, `terminal_reply`, `terminal_status`, `terminal_spawn` (agent spawning of any registered agentType, own type included: cwd inside a workspace repo, ≤3 live agent-spawned sessions; server-originated spawn via `spawnAgentTerminal`), `terminal_close` (spawner-only close of agent-spawned terminals via `closeAgentTerminal`). State and mechanics in `../terminal-dispatch.ts`. Takes the caller's terminal session id from `getMcpServer(callerTerminalSessionId)` — the path token parsed in `attachMCP`.
 
 ## Authoring Tools
 

@@ -382,9 +382,9 @@ export function waitForDispatchReply(
 
 // ── Agent-originated spawn (terminal_spawn) ─────────────────────────
 
-// Hard ceiling on live agent-spawned terminals. Cross-type-only spawning
-// (enforced by the tool) plus this cap bound any spawn chain: claude → codex →
-// claude → … stops once 3 agent-spawned sessions are alive.
+// Hard ceiling on live agent-spawned terminals. Type-agnostic, so it bounds any
+// spawn chain — claude → codex → claude → … stops once 3 agent-spawned sessions
+// are alive.
 export const AGENT_SPAWN_LIMIT = 3;
 
 const SPAWNED_TERMINAL_COLS = 80;

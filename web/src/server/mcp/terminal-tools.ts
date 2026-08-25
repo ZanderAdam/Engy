@@ -75,7 +75,7 @@ const terminalSpawnInput = {
   agentType: z
     .string()
     .describe(
-      "Agent CLI to spawn ('claude' | 'codex'). Must DIFFER from your own type — same-type work belongs to your built-in subagents. The server already knows your type; a same-type attempt is refused with a hint",
+      "Agent CLI to spawn ('claude' | 'codex'). Any registered type is allowed, including your own",
     ),
   cwd: z
     .string()
@@ -174,7 +174,7 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
 
   mcp.tool(
     'terminal_spawn',
-    'Spawn a new agent terminal of a DIFFERENT agent type (cross-agent delegation; same-type work belongs to your built-in subagents). The spawned terminal auto-connects as a dispatch worker — send it work via terminal_dispatch',
+    'Spawn a new agent terminal of any registered agent type, including your own. The spawned terminal auto-connects as a dispatch worker — send it work via terminal_dispatch',
     terminalSpawnInput,
     async ({ agentType, cwd, description, prompt }) => {
       const state = getAppState();
@@ -187,21 +187,14 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
       if (!callerMeta) {
         return mcpError('Caller terminal session is not live — cannot attribute the spawn.');
       }
-      const callerType = callerMeta.agentType;
-      if (!callerType || !isAgentTypeId(callerType)) {
+      if (!callerMeta.agentType || !isAgentTypeId(callerMeta.agentType)) {
         return mcpError(
-          'Caller agent type is unknown — cannot enforce the different-type rule, spawn refused.',
+          'Caller agent type is unknown — only registered agent terminals can spawn, spawn refused.',
         );
       }
       const knownTypes = listAgentTypes().map((t) => t.id);
       if (!isAgentTypeId(agentType)) {
         return mcpError(`Unknown agentType '${agentType}'. Available: ${knownTypes.join(', ')}.`);
-      }
-      if (agentType === callerType) {
-        const otherTypes = knownTypes.filter((id) => id !== callerType);
-        return mcpError(
-          `Same-type spawn refused: you are already a ${callerType} agent — use your own subagent mechanism for ${callerType} work. terminal_spawn is for cross-agent delegation (available: ${otherTypes.join(', ')}).`,
-        );
       }
       // Workspace-level per-agent settings: a deactivated agent type must not
       // be spawnable, and an active one boots in its configured default mode.
