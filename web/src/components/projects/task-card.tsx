@@ -10,6 +10,7 @@ import { TaskTerminalButton } from '@/components/projects/task-terminal-button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
+import { isSelfActivation } from '@/lib/keyboard';
 import {
   RiCheckboxLine,
   RiCheckboxBlankLine,
@@ -160,7 +161,9 @@ export function TaskCard({
       tabIndex={handleClick ? 0 : undefined}
       onClick={handleClick}
       onKeyDown={handleClick ? (e) => {
-        if (e.key === 'Enter' || e.key === ' ') handleClick();
+        if (!isSelfActivation(e)) return;
+        e.preventDefault();
+        handleClick();
       } : undefined}
       className={cn(
         'group/task text-left text-xs transition-colors hover:bg-muted',

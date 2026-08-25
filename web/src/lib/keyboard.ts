@@ -14,3 +14,19 @@ export function isTypingTarget(): boolean {
     el.closest('[contenteditable="true"]') !== null
   );
 }
+
+/**
+ * True when Enter or space was pressed on a `role="button"`/`role="tab"` row
+ * itself, not on a control nested inside it. React events — including those
+ * from portalled dialogs, which bubble up the React tree rather than the DOM —
+ * reach the row from every descendant, so a row that activates on bare `key`
+ * steals space from any nested textarea and Enter from any nested button.
+ */
+export function isSelfActivation(e: {
+  key: string;
+  target: EventTarget | null;
+  currentTarget: EventTarget | null;
+}): boolean {
+  if (e.target !== e.currentTarget) return false;
+  return e.key === 'Enter' || e.key === ' ';
+}

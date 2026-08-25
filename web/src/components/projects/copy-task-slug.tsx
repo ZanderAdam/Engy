@@ -5,6 +5,7 @@ import { useVirtualParams } from '@/components/tabs/tab-context';
 import { RiFileCopyLine, RiCheckLine } from '@remixicon/react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { copyToClipboard } from '@/lib/clipboard';
+import { isSelfActivation } from '@/lib/keyboard';
 
 interface CopyTaskSlugProps {
   taskId: number;
@@ -38,7 +39,9 @@ export function CopyTaskSlug({ taskId }: CopyTaskSlugProps) {
             tabIndex={0}
             onClick={handleClick}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') handleClick(e);
+              if (!isSelfActivation(e)) return;
+              e.preventDefault();
+              handleClick(e);
             }}
             className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-0.5 rounded border border-border px-1 font-mono text-[10px] text-muted-foreground transition-colors hover:text-foreground"
           >

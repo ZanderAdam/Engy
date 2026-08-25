@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { usePathname, useSearchParams } from 'next/navigation';
 import { RiAddLine, RiArrowDownSLine, RiCloseLine, RiGitBranchLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
-import { isTypingTarget } from '@/lib/keyboard';
+import { isSelfActivation, isTypingTarget } from '@/lib/keyboard';
 import { HeaderActions } from '@/components/header-actions';
 import {
   ContextMenu,
@@ -460,10 +460,9 @@ function TabStrip({
                     }
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      onActivate(tab.id);
-                    }
+                    if (!isSelfActivation(e)) return;
+                    e.preventDefault();
+                    onActivate(tab.id);
                   }}
                   title={tab.virtualPath}
                   className={cn(
