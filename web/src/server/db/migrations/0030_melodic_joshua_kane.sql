@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `voice_enabled` integer DEFAULT false;

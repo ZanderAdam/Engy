@@ -9,24 +9,41 @@ export function useSendToTerminal() {
   const terminalActive = useTerminalActive();
   const tabId = useTabId();
 
+  const dispatchInject = useCallback(
+    (context: string, terminalId?: string): boolean => {
+      // useTabId() returns null outside a TabContext; only `undefined` means
+      // "any tab may take this" — null would address a tab that doesn't exist.
+      const detail: { context: string; terminalId?: string; tabId?: string; handled?: boolean } = {
+        context,
+        ...(terminalId ? { terminalId } : {}),
+        ...(tabId ? { tabId } : {}),
+      };
+      window.dispatchEvent(new CustomEvent('terminal:inject', { detail }));
+      // Listeners ran synchronously above, so this already reflects whether a
+      // terminal took the text.
+      return detail.handled === true;
+    },
+    [tabId],
+  );
+
   const sendToTerminal = useCallback(
     (content: string, terminalId?: string) => {
       if (!content) return;
-
-      const inject = (context: string) =>
-        window.dispatchEvent(
-          new CustomEvent('terminal:inject', {
-            detail: terminalId
-              ? { context, terminalId, tabId }
-              : { context, tabId },
-          }),
-        );
-
-      inject(content);
+      dispatchInject(content, terminalId);
       // Send Enter as a separate event so the PTY processes the content first
-      setTimeout(() => inject('\r'), 50);
+      setTimeout(() => dispatchInject('\r', terminalId), 50);
     },
-    [tabId],
+    [dispatchInject],
+  );
+
+  // Same wire event as sendToTerminal, minus the trailing \r — for callers
+  // (voice dictation) that must never auto-submit into a live agent terminal.
+  const insertToTerminal = useCallback(
+    (content: string, terminalId?: string): boolean => {
+      if (!content) return false;
+      return dispatchInject(content, terminalId);
+    },
+    [dispatchInject],
   );
 
   const openNewTerminal = useCallback(
@@ -38,5 +55,5 @@ export function useSendToTerminal() {
     [tabId],
   );
 
-  return { sendToTerminal, openNewTerminal, terminalActive };
+  return { sendToTerminal, insertToTerminal, openNewTerminal, terminalActive };
 }

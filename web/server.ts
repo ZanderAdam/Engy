@@ -7,6 +7,10 @@ import {
   createTerminalRelayWebSocketServer,
 } from './src/server/ws/terminal-server';
 import { createEventsWebSocketServer } from './src/server/ws/events-server';
+import {
+  createVoiceWebSocketServer,
+  isVoiceEnabledForWorkspace,
+} from './src/server/ws/voice-server';
 import { broadcastTerminalSessionsChange } from './src/server/ws/broadcast';
 import { listTerminalSessions } from './src/server/ws/terminal-session-list';
 import { loadPersistedTerminalSessions } from './src/server/ws/terminal-session-store';
@@ -110,10 +114,12 @@ app.prepare().then(() => {
   const terminalWss = createTerminalWebSocketServer(state);
   const terminalRelayWss = createTerminalRelayWebSocketServer(state);
   const eventsWss = createEventsWebSocketServer(state);
+  const voiceWss = createVoiceWebSocketServer();
   const nextUpgrade = app.getUpgradeHandler();
 
   server.on('upgrade', (req, socket, head) => {
-    const { pathname } = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    const upgradeUrl = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    const { pathname } = upgradeUrl;
     if (pathname === '/ws') {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit('connection', ws, req);
@@ -129,6 +135,17 @@ app.prepare().then(() => {
     } else if (pathname === '/ws/events') {
       eventsWss.handleUpgrade(req, socket, head, (ws) => {
         eventsWss.emit('connection', ws, req);
+      });
+    } else if (pathname === '/ws/voice') {
+      // Denying here is what keeps voice a true no-op when off: nothing
+      // downstream — recognizer, VAD, model download — is ever constructed.
+      if (!isVoiceEnabledForWorkspace(upgradeUrl.searchParams.get('workspace'))) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      voiceWss.handleUpgrade(req, socket, head, (ws) => {
+        voiceWss.emit('connection', ws, req);
       });
     } else {
       nextUpgrade(req, socket, head);

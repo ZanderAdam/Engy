@@ -1,6 +1,6 @@
 # WebSocket Server
 
-Four independent endpoints on the single HTTP server (upgrade routing in `web/server.ts`):
+Five independent endpoints on the single HTTP server (upgrade routing in `web/server.ts`):
 
 | Path | File | Direction | Purpose |
 |---|---|---|---|
@@ -8,6 +8,9 @@ Four independent endpoints on the single HTTP server (upgrade routing in `web/se
 | `/ws/terminal` | `terminal-server.ts` | browser ↔ server | xterm UI sockets (one per terminal pane) |
 | `/ws/terminal-relay` | `terminal-server.ts` | daemon ↔ server | Daemon-side terminal I/O; server relays bytes between this and `/ws/terminal` |
 | `/ws/events` | `events-server.ts` | server → browsers | Broadcast (file/task/question/terminal-sessions change) |
+| `/ws/voice` | `voice-server.ts` | browser ↔ server | Voice-dictation channel — JSON `voice_start`/`voice_stop` control plus binary 16kHz s16le PCM frames; never touches the daemon |
+
+`/ws/voice` is the one gated upgrade. The client passes `?workspace=<slug>`, and `web/server.ts` rejects the upgrade with a 403 unless that workspace has `voiceEnabled`. Voice is opt-in and off by default, so nothing downstream — the ~630MB model download, the recogniser, the native `sherpa-onnx-node` addon — may be reachable from module top-level. Both `voice-server.ts` and `workspace.ts` reach `voice/recognizer` through a dynamic `import()` for that reason; a static import would load the addon on every boot and fail the whole server on a platform it does not support.
 
 `/ws/terminal` and `/ws/terminal-relay` are distinct `WebSocketServer` instances in `terminal-server.ts`. Don't multiplex — each endpoint has its own message vocabulary and lifecycle.
 

@@ -104,4 +104,11 @@ export type {
   TerminalActivityState,
   TerminalActivityEvent,
   TerminalRelayEvent,
+  VoiceStartCmd,
+  VoiceStopCmd,
+  VoiceSegmentEvent,
+  VoiceFinalEvent,
+  VoiceErrorEvent,
+  VoiceControlCmd,
+  VoiceEvent,
 } from './ws/protocol.js';

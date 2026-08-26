@@ -16,6 +16,8 @@ web/tsconfig.tsbuildinfo
 .env.*.local
 
 # Data
+# .dev-engy/ also covers the voice ASR model cache downloaded to
+# {ENGY_DIR}/models/ on first use (100MB+ binaries) — never committed.
 .dev-engy/
 .playwright-cli/
 docs/**/plans/

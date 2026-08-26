@@ -16,11 +16,41 @@ import { randomId } from "@/lib/random-id";
 import { trpc } from "@/lib/trpc";
 import { sessionToTab, type SessionListItem } from "./session-to-tab";
 import { publishTerminalSessions, clearTerminalSessions, terminalRailKey } from "./terminal-session-store";
+import { registerPrimaryInjectTarget, isPrimaryReadyFor } from "./terminal-inject-priority";
+
+/** Pure decision for the `terminal:inject` race: which session id (if any)
+ * this manager should write `context` to. Exported for unit testing —
+ * TerminalManager itself isn't feasible to render in a test.
+ *
+ * A BOTTOM (fallback) manager defers to a ready primary for an unaddressed
+ * event; without this, mount order alone (BOTTOM mounts first) would decide
+ * the race even with its dock collapsed and invisible. */
+export function resolveInjectTarget(params: {
+  eventTabId: string | undefined | null;
+  myTabId: string | null;
+  terminalId: string | undefined;
+  disableExternalEvents: boolean;
+  primaryReady: boolean;
+  activePanelId: string | undefined;
+  hasHandler: (targetId: string) => boolean;
+}): string | null {
+  const { eventTabId, myTabId, terminalId, disableExternalEvents, primaryReady, activePanelId, hasHandler } = params;
+  // `!= null` deliberately: an absent tabId means "any manager may take
+  // this", and a null must not be mistaken for a tab address no one owns.
+  if (eventTabId != null && eventTabId !== myTabId) return null;
+  if (disableExternalEvents && !terminalId && primaryReady) return null;
+  const targetId = terminalId ?? activePanelId;
+  if (!targetId || !hasHandler(targetId)) return null;
+  return targetId;
+}
 
 interface InjectEvent {
   context: string;
   terminalId?: string;
   tabId?: string;
+  /** Set by whichever manager writes the text. Read back synchronously after
+   * dispatch to tell "delivered" from "silently dropped". */
+  handled?: boolean;
 }
 
 interface OpenEvent {
@@ -379,23 +409,41 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     };
   }, [disableExternalEvents]);
 
+  // RIGHT (primary) registers its live readiness so BOTTOM (fallback) can
+  // defer to it — see terminal-inject-priority.ts.
   useEffect(() => {
     if (disableExternalEvents) return;
+    return registerPrimaryInjectTarget(myTabId, () => {
+      const targetId = dockviewApiRef.current?.activePanel?.id;
+      return targetId != null && tabWsRefs.current.has(targetId);
+    });
+  }, [disableExternalEvents, myTabId]);
 
+  // Deliberately NOT gated on disableExternalEvents — BOTTOM is often the
+  // only manager holding a live terminal. The `handled` flag makes the first
+  // manager that can route it the sole writer; priority is resolveInjectTarget.
+  useEffect(() => {
     function onInject(e: Event) {
-      const { context, terminalId, tabId } = (e as CustomEvent<InjectEvent>).detail;
-      if (tabId !== undefined && tabId !== myTabId) return;
-      const api = dockviewApiRef.current;
-      const targetId = terminalId ?? api?.activePanel?.id;
+      const detail = (e as CustomEvent<InjectEvent>).detail;
+      if (detail.handled) return;
+      const targetId = resolveInjectTarget({
+        eventTabId: detail.tabId,
+        myTabId,
+        terminalId: detail.terminalId,
+        disableExternalEvents,
+        primaryReady: disableExternalEvents && !detail.terminalId && isPrimaryReadyFor(detail.tabId),
+        activePanelId: dockviewApiRef.current?.activePanel?.id,
+        hasHandler: (id) => tabWsRefs.current.has(id),
+      });
       if (!targetId) return;
 
-      const handler = tabWsRefs.current.get(targetId);
-      handler?.write(context);
+      tabWsRefs.current.get(targetId)!.write(detail.context);
+      detail.handled = true;
     }
 
     window.addEventListener('terminal:inject', onInject);
     return () => window.removeEventListener('terminal:inject', onInject);
-  }, [disableExternalEvents, myTabId]);
+  }, [myTabId, disableExternalEvents]);
 
   useEffect(() => {
     if (disableExternalEvents) return;

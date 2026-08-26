@@ -4,12 +4,12 @@
     "dev": {
       "persistent": true,
       "cache": false,
-      "passThroughEnv": ["ENGY_DIR", "PORT", "ENGY_SERVER_URL"]
+      "passThroughEnv": ["ENGY_DIR", "PORT", "ENGY_SERVER_URL", "ENGY_VOICE_DUMP"]
     },
     "start": {
       "persistent": true,
       "cache": false,
-      "passThroughEnv": ["ENGY_DIR", "PORT", "ENGY_SERVER_URL"]
+      "passThroughEnv": ["ENGY_DIR", "PORT", "ENGY_SERVER_URL", "ENGY_VOICE_DUMP"]
     },
     "build": {
       "dependsOn": ["^build"],

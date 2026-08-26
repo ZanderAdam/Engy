@@ -56,6 +56,7 @@ interface EditWorkspaceDialogProps {
     repos: string[] | null;
     docsDir: string | null;
     splitWorktrees: boolean | null;
+    voiceEnabled: boolean | null;
     planSkill: string | null;
     implementSkill: string | null;
     defaultAgentType: string | null;
@@ -94,6 +95,7 @@ export function EditWorkspaceDialog({
   const [docsDir, setDocsDir] = useState(workspace.docsDir ?? '');
   const [repos, setRepos] = useState<string[]>(initialRepos(workspace.repos));
   const [splitWorktrees, setSplitWorktrees] = useState(workspace.splitWorktrees ?? false);
+  const [voiceEnabled, setVoiceEnabled] = useState(workspace.voiceEnabled ?? false);
   const [agentSettings, setAgentSettings] = useState<WorkspaceAgentSettings>(() =>
     seedAgentSettings(workspace),
   );
@@ -146,6 +148,7 @@ export function EditWorkspaceDialog({
       repos: filteredRepos,
       docsDir: trimmedDocsDir || null,
       splitWorktrees,
+      voiceEnabled,
       agentSettings: normalizeAgentSettings(agentSettings),
       defaultAgentType,
       containerEnabled: container.containerEnabled,
@@ -214,6 +217,7 @@ export function EditWorkspaceDialog({
       setDocsDir(workspace.docsDir ?? '');
       setRepos(initialRepos(workspace.repos));
       setSplitWorktrees(workspace.splitWorktrees ?? false);
+      setVoiceEnabled(workspace.voiceEnabled ?? false);
       setAgentSettings(seedAgentSettings(workspace));
       setDefaultAgentType(coerceAgentTypeId(workspace.defaultAgentType));
       setError(null);
@@ -317,6 +321,21 @@ export function EditWorkspaceDialog({
                     </p>
                   </div>
                 )}
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="edit-workspace-voice">Voice dictation</Label>
+                    <Switch
+                      id="edit-workspace-voice"
+                      checked={voiceEnabled}
+                      onCheckedChange={setVoiceEnabled}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Off (default): nothing is downloaded or loaded. On: hold Right Ctrl to dictate
+                    into the focused terminal. Turning it on downloads a ~630MB speech model once,
+                    shared by every workspace.
+                  </p>
+                </div>
               </div>
             </TabsContent>
 

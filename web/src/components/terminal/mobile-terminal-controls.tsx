@@ -8,6 +8,8 @@ import {
   RiArrowLeftSLine,
   RiArrowRightSLine,
   RiMoreLine,
+  RiMicLine,
+  RiStopFill,
 } from '@remixicon/react';
 import { cn } from '@/lib/utils';
 
@@ -15,6 +17,10 @@ interface MobileTerminalControlsProps {
   onKey: (data: string) => void;
   /** Compose overlay is up — the extra-key column must not be open over it. */
   composing?: boolean;
+  /** Starts or stops dictation. Absent when voice is off for the workspace,
+   * which is what keeps the key out of the column entirely. */
+  onMic?: () => void;
+  micListening?: boolean;
 }
 
 /**
@@ -90,7 +96,12 @@ function KeyButton({ btn, onKey }: { btn: ControlButton; onKey: (data: string) =
   );
 }
 
-export function MobileTerminalControls({ onKey, composing = false }: MobileTerminalControlsProps) {
+export function MobileTerminalControls({
+  onKey,
+  composing = false,
+  onMic,
+  micListening = false,
+}: MobileTerminalControlsProps) {
   const [expanded, setExpanded] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -133,6 +144,27 @@ export function MobileTerminalControls({ onKey, composing = false }: MobileTermi
           role="group"
           aria-label="More terminal keys"
         >
+          {onMic && (
+            <button
+              type="button"
+              aria-label={micListening ? 'Stop dictation' : 'Start dictation'}
+              aria-pressed={micListening}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                onMic();
+              }}
+              className={cn(
+                KEY_BUTTON_CLASS,
+                micListening ? 'bg-red-600 text-zinc-50' : 'bg-zinc-800/80 active:bg-zinc-700',
+              )}
+            >
+              {micListening ? (
+                <RiStopFill className="size-4" aria-hidden />
+              ) : (
+                <RiMicLine className="size-4" aria-hidden />
+              )}
+            </button>
+          )}
           {MOBILE_TERMINAL_EXTRA_BUTTONS.map((btn) => (
             <KeyButton key={btn.id} btn={btn} onKey={onKey} />
           ))}

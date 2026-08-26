@@ -291,6 +291,7 @@ export const workspaceRouter = router({
         maxConcurrency: z.number().min(1).nullable().optional(),
         autoAgentCompletion: autoAgentCompletionSchema.nullable().optional(),
         remoteEnabled: z.boolean().nullable().optional(),
+        voiceEnabled: z.boolean().nullable().optional(),
         autoStart: z.boolean().nullable().optional(),
         autoCiFix: z.boolean().nullable().optional(),
         prScope: prScopeSchema,
@@ -339,6 +340,8 @@ export const workspaceRouter = router({
           : existing.autoAgentCompletion;
       const newRemoteEnabled =
         input.remoteEnabled !== undefined ? input.remoteEnabled : existing.remoteEnabled;
+      const newVoiceEnabled =
+        input.voiceEnabled !== undefined ? input.voiceEnabled : existing.voiceEnabled;
       const newAutoStart = input.autoStart !== undefined ? input.autoStart : existing.autoStart;
       const newAutoCiFix = input.autoCiFix !== undefined ? input.autoCiFix : existing.autoCiFix;
       const newPrScope = input.prScope !== undefined ? input.prScope : existing.prScope;
@@ -393,6 +396,7 @@ export const workspaceRouter = router({
           maxConcurrency: newMaxConcurrency,
           autoAgentCompletion: newAutoAgentCompletion,
           remoteEnabled: newRemoteEnabled,
+          voiceEnabled: newVoiceEnabled,
           autoStart: newAutoStart,
           autoCiFix: newAutoCiFix,
           prScope: newPrScope,
@@ -426,6 +430,7 @@ export const workspaceRouter = router({
               maxConcurrency: existing.maxConcurrency,
               autoAgentCompletion: existing.autoAgentCompletion,
               remoteEnabled: existing.remoteEnabled,
+              voiceEnabled: existing.voiceEnabled,
               autoStart: existing.autoStart,
               autoCiFix: existing.autoCiFix,
               prScope: existing.prScope,
@@ -463,6 +468,21 @@ export const workspaceRouter = router({
         implementSkill: updated.implementSkill,
         earsBdd: updated.earsBdd ?? false,
       });
+
+      // Downloading the ~630MB ASR model is the whole cost of voice, so it is
+      // paid here — the moment the user opts in — never at server startup.
+      if (updated.voiceEnabled === true && existing.voiceEnabled !== true) {
+        // Dynamic: a static import would load the native sherpa addon on every
+        // server boot, including for workspaces that never turn voice on.
+        void import('../../voice/recognizer')
+          .then((m) => m.preloadRecognizer())
+          .catch((err) => {
+            console.warn(
+              '[workspace.update] voice model preload failed',
+              err instanceof Error ? err.message : err,
+            );
+          });
+      }
 
       const backend = updated.executionBackend ?? 'devcontainer';
       const { docsDir } = updated;

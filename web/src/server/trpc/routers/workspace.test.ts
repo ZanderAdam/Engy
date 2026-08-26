@@ -14,6 +14,16 @@ import {
   getWorkspaceDir,
 } from '../../engy-dir/init';
 
+const preloadRecognizer = vi.fn();
+// The preload is fire-and-forget behind a dynamic import, so it lands a few
+// microtasks after the mutation resolves — negative assertions need this or
+// they pass for the wrong reason.
+const flushPreload = () => new Promise((resolve) => setImmediate(resolve));
+// Never let a test reach the real preload — it downloads a ~630MB model.
+vi.mock('../../voice/recognizer', () => ({
+  preloadRecognizer: () => preloadRecognizer(),
+}));
+
 describe('workspace router', () => {
   let ctx: TestContext;
   let caller: ReturnType<typeof appRouter.createCaller>;
@@ -21,6 +31,7 @@ describe('workspace router', () => {
   beforeEach(() => {
     ctx = setupTestDb();
     caller = appRouter.createCaller({ state: ctx.state });
+    preloadRecognizer.mockClear();
   });
 
   afterEach(() => {
@@ -186,6 +197,54 @@ describe('workspace router', () => {
       const yamlPath = path.join(ctx.tmpDir, 'no-docs', 'workspace.yaml');
       const parsed = yaml.load(fs.readFileSync(yamlPath, 'utf-8')) as Record<string, unknown>;
       expect(parsed.docsDir).toBeUndefined();
+    });
+  });
+
+  describe('voice opt-in', () => {
+    it('[FR-TG1.7] should default a new workspace to voice off', async () => {
+      const ws = await caller.workspace.create({ name: 'Voice Default' });
+      await flushPreload();
+      expect(ws.voiceEnabled).toBe(false);
+      expect(preloadRecognizer).not.toHaveBeenCalled();
+    });
+
+    it('[FR-TG1.8] should download the model only when voice is switched on', async () => {
+      const ws = await caller.workspace.create({ name: 'Voice Toggle' });
+
+      await caller.workspace.update({ id: ws.id, name: 'Voice Toggle 2' });
+      await flushPreload();
+      expect(preloadRecognizer).not.toHaveBeenCalled();
+
+      const on = await caller.workspace.update({ id: ws.id, voiceEnabled: true });
+      expect(on.voiceEnabled).toBe(true);
+      await vi.waitFor(() => expect(preloadRecognizer).toHaveBeenCalledTimes(1));
+    });
+
+    it('[FR-TG1.3] should not re-download when an already-enabled workspace is saved again', async () => {
+      const ws = await caller.workspace.create({ name: 'Voice Resave' });
+      await caller.workspace.update({ id: ws.id, voiceEnabled: true });
+      await vi.waitFor(() => expect(preloadRecognizer).toHaveBeenCalledTimes(1));
+      preloadRecognizer.mockClear();
+
+      await caller.workspace.update({ id: ws.id, voiceEnabled: true });
+      await caller.workspace.update({ id: ws.id, name: 'Voice Resave 2' });
+      await flushPreload();
+
+      expect(preloadRecognizer).not.toHaveBeenCalled();
+    });
+
+    it('should preserve voiceEnabled across an unrelated update', async () => {
+      const ws = await caller.workspace.create({ name: 'Voice Preserve' });
+      await caller.workspace.update({ id: ws.id, voiceEnabled: true });
+      const updated = await caller.workspace.update({ id: ws.id, name: 'Voice Preserve 2' });
+      expect(updated.voiceEnabled).toBe(true);
+    });
+
+    it('should turn voice back off', async () => {
+      const ws = await caller.workspace.create({ name: 'Voice Off' });
+      await caller.workspace.update({ id: ws.id, voiceEnabled: true });
+      const off = await caller.workspace.update({ id: ws.id, voiceEnabled: false });
+      expect(off.voiceEnabled).toBe(false);
     });
   });
 

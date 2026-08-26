@@ -57,6 +57,8 @@ import {
 import { deriveScope } from '@/components/terminal/use-terminal-scope';
 import { scopeForAgent, toContainerScope } from '@/components/terminal/types';
 import { QuickCaptureDialog } from '@/components/memory/quick-capture-dialog';
+import { VoiceIndicator } from '@/components/voice/voice-indicator';
+import { VoiceProvider } from '@/components/voice/voice-context';
 
 const TERMINAL_CONFIG = {
   defaultWidth: 480,
@@ -578,6 +580,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const content = (
     <>
       <AutoInvalidation />
+      <VoiceIndicator />
       <QuickCaptureDialog
         open={quickCaptureOpen}
         onOpenChange={setQuickCaptureOpen}
@@ -660,23 +663,25 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   return (
     <EventsProvider workspaceSlug={params.workspace}>
-      {isMobile ? (
-        <MobileOverlayProvider>
-          {content}
-          {/* RIGHT terminal (Claude) — opened from the mobile header */}
-          <MobileTerminalSheet
-            extraDropdownGroups={allDropdownGroups}
-            containerEnabled={isContainerEnabled}
-          />
-          {/* BOTTOM terminal (shell) — opened from the floating toggle */}
-          <MobileShellTerminalSheet
-            extraDropdownGroups={allDropdownGroups}
-            containerEnabled={isContainerEnabled}
-          />
-        </MobileOverlayProvider>
-      ) : (
-        content
-      )}
+      <VoiceProvider enabled={workspace?.voiceEnabled ?? false} workspaceSlug={params.workspace}>
+        {isMobile ? (
+          <MobileOverlayProvider>
+            {content}
+            {/* RIGHT terminal (Claude) — opened from the mobile header */}
+            <MobileTerminalSheet
+              extraDropdownGroups={allDropdownGroups}
+              containerEnabled={isContainerEnabled}
+            />
+            {/* BOTTOM terminal (shell) — opened from the floating toggle */}
+            <MobileShellTerminalSheet
+              extraDropdownGroups={allDropdownGroups}
+              containerEnabled={isContainerEnabled}
+            />
+          </MobileOverlayProvider>
+        ) : (
+          content
+        )}
+      </VoiceProvider>
     </EventsProvider>
   );
 }

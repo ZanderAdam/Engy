@@ -45,6 +45,7 @@ export const workspaces = sqliteTable('workspaces', {
   maxConcurrency: integer('max_concurrency').default(1),
   autoAgentCompletion: text('auto_agent_completion', { enum: ['pr', 'merge'] }).default('pr'),
   remoteEnabled: integer('remote_enabled', { mode: 'boolean' }).default(false),
+  voiceEnabled: integer('voice_enabled', { mode: 'boolean' }).default(false),
   autoStart: integer('auto_start', { mode: 'boolean' }).default(false),
   autoCiFix: integer('auto_ci_fix', { mode: 'boolean' }).default(false),
   // Which PRs the PRs tab shows by default — own-authored only, or every open

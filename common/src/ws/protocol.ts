@@ -1054,3 +1054,48 @@ export type TerminalRelayEvent =
   | TerminalErrorEvent
   | TerminalSyncEvent
   | TerminalActivityEvent;
+
+// ── Voice dictation messages (browser ↔ server only — never touches the daemon) ──
+
+/** Browser → server: begin a voice-dictation turn; a `TurnRecognizer` is created for it. */
+export interface VoiceStartCmd {
+  t: 'voice_start';
+}
+
+/** Browser → server: end the current turn; flushes any remaining text as final. */
+export interface VoiceStopCmd {
+  t: 'voice_stop';
+}
+
+/**
+ * Server → browser: one finalized speech segment, decoded as soon as
+ * server-side VAD (Silero, via `sherpa-onnx-node`) closes it — or, for the
+ * turn's last segment, when `voice_stop` flushes a trailing span that never
+ * closed on silence. This is NOT the old streaming `voice_partial`: it never
+ * revises a growing hypothesis. Each message is complete, final text for its
+ * own span of audio, and the client appends it rather than replacing
+ * anything. Zero or more arrive per turn, in order, ahead of the
+ * turn-ending `voice_final`.
+ */
+export interface VoiceSegmentEvent {
+  t: 'voice_segment';
+  transcript: string;
+}
+
+/** Server → browser: the turn has fully ended — every segment for it
+ * (including any flushed trailing span) has already been sent as
+ * `voice_segment`. Carries no text of its own; it is purely a completion
+ * signal so the client can stop the finalize-timeout clock and return to
+ * idle. */
+export interface VoiceFinalEvent {
+  t: 'voice_final';
+}
+
+/** Server → browser: the recognizer failed to initialise or process audio. */
+export interface VoiceErrorEvent {
+  t: 'voice_error';
+  message: string;
+}
+
+export type VoiceControlCmd = VoiceStartCmd | VoiceStopCmd;
+export type VoiceEvent = VoiceSegmentEvent | VoiceFinalEvent | VoiceErrorEvent;

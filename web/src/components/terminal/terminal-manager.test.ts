@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { resolveInjectTarget } from './terminal-manager';
 
 /**
  * Tests for the tabId-scoped event filtering in TerminalManager.
@@ -12,12 +13,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 describe('TerminalManager tabId filter predicate', () => {
   /**
    * The guard logic extracted from the terminal-manager listeners:
-   *   if (tabId !== undefined && tabId !== myTabId) return;
+   *   if (tabId != null && tabId !== myTabId) return;
    *
    * Returns true if the event should be processed (not filtered out).
    */
-  function shouldProcess(eventTabId: string | undefined, myTabId: string | null): boolean {
-    if (eventTabId !== undefined && eventTabId !== myTabId) return false;
+  function shouldProcess(eventTabId: string | undefined | null, myTabId: string | null): boolean {
+    if (eventTabId != null && eventTabId !== myTabId) return false;
     return true;
   }
 
@@ -26,6 +27,14 @@ describe('TerminalManager tabId filter predicate', () => {
       expect(shouldProcess(undefined, 'tab-a')).toBe(true);
       expect(shouldProcess(undefined, 'tab-b')).toBe(true);
       expect(shouldProcess(undefined, null)).toBe(true);
+    });
+
+    // useTabId() returns null (not undefined) outside a TabContext, which is
+    // where the voice indicator lives. Treating that null as a tab address
+    // meant every manager dropped dictation silently.
+    it('should process a null tabId as broadcast, not as an unmatched address', () => {
+      expect(shouldProcess(null, 'tab-a')).toBe(true);
+      expect(shouldProcess(null, null)).toBe(true);
     });
   });
 
@@ -168,5 +177,78 @@ describe('window event dispatching with tabId', () => {
     );
     expect(dispatched[0].detail.tabId).toBe(TAB_ID);
     expect(dispatched[0].detail.sessionId).toBe('sess-close');
+  });
+});
+
+describe('resolveInjectTarget', () => {
+  const base = {
+    eventTabId: undefined as string | undefined | null,
+    myTabId: null as string | null,
+    terminalId: undefined as string | undefined,
+    disableExternalEvents: false,
+    primaryReady: false,
+    activePanelId: 'panel-1',
+    hasHandler: () => true,
+  };
+
+  it('declines when the event addresses a different tab', () => {
+    expect(resolveInjectTarget({ ...base, eventTabId: 'tab-a', myTabId: 'tab-b' })).toBeNull();
+  });
+
+  it('a null event tabId is a broadcast, not an address no one owns', () => {
+    expect(resolveInjectTarget({ ...base, eventTabId: null, myTabId: 'tab-a' })).toBe('panel-1');
+  });
+
+  it('declines when there is no active panel', () => {
+    expect(resolveInjectTarget({ ...base, activePanelId: undefined })).toBeNull();
+  });
+
+  it('declines when the active panel has no registered write handler', () => {
+    expect(resolveInjectTarget({ ...base, hasHandler: () => false })).toBeNull();
+  });
+
+  it('an explicit terminalId is targeted directly, bypassing activePanelId', () => {
+    expect(resolveInjectTarget({ ...base, terminalId: 'panel-2', activePanelId: 'panel-1' })).toBe(
+      'panel-2',
+    );
+  });
+
+  // Regression: the BOTTOM (fallback, disableExternalEvents=true) manager's
+  // terminal:inject listener registers before the RIGHT (primary) manager's —
+  // it lives in ThreePanelLayout's centerContent, mounted ahead of
+  // rightContent — so a plain "first eligible listener claims it" race always
+  // let a collapsed, invisible BOTTOM terminal steal dictation from a visible
+  // RIGHT one. Without the primaryReady guard, resolveInjectTarget would
+  // return 'panel-1' here (BOTTOM has an active panel + handler) even though
+  // a primary is ready and should take it instead.
+  describe('fallback (BOTTOM) defers to a ready primary', () => {
+    it('a fallback manager with its own active panel still declines when a primary is ready', () => {
+      expect(
+        resolveInjectTarget({ ...base, disableExternalEvents: true, primaryReady: true }),
+      ).toBeNull();
+    });
+
+    it('a fallback manager claims when no primary is ready (the right panel is empty)', () => {
+      expect(
+        resolveInjectTarget({ ...base, disableExternalEvents: true, primaryReady: false }),
+      ).toBe('panel-1');
+    });
+
+    it('a primary manager (disableExternalEvents=false) always claims its own active panel', () => {
+      expect(
+        resolveInjectTarget({ ...base, disableExternalEvents: false, primaryReady: true }),
+      ).toBe('panel-1');
+    });
+
+    it('an explicit terminalId bypasses the defer-to-primary guard', () => {
+      expect(
+        resolveInjectTarget({
+          ...base,
+          disableExternalEvents: true,
+          primaryReady: true,
+          terminalId: 'panel-1',
+        }),
+      ).toBe('panel-1');
+    });
   });
 });

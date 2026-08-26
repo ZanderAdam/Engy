@@ -20,6 +20,7 @@ import { toBracketedPaste } from "./bracketed-paste";
 import { canFitPane, shouldSendResize } from "./terminal-resize";
 import { attachTouchScroll } from "./touch-scroll";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useOptionalVoice } from "@/components/voice/voice-context";
 
 export interface TerminalActions {
   write: (data: string) => void;
@@ -85,6 +86,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
   const [composing, setComposing] = useState(false);
   const sessionId = tab.sessionId;
   const isMobile = useIsMobile();
+  const voice = useOptionalVoice();
 
   const sendKey = useCallback(
     (data: string) => {
@@ -471,7 +473,14 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
           </button>
         )}
       </div>
-      {isMobile && <MobileTerminalControls onKey={sendKey} composing={composing} />}
+      {isMobile && (
+        <MobileTerminalControls
+          onKey={sendKey}
+          composing={composing}
+          onMic={voice ? voice.toggle : undefined}
+          micListening={voice?.phase === 'listening'}
+        />
+      )}
     </div>
   );
 }
