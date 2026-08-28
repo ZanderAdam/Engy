@@ -1,12 +1,12 @@
 'use client';
 
-import { useRef, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { DiffEditor, type DiffBeforeMount, type DiffOnMount } from '@monaco-editor/react';
 import type { editor, IDisposable } from 'monaco-editor';
 import { ENGY_THEME_NAME, ENGY_CYBERPUNK_THEME_NAME } from './monaco-theme';
 import { configureMonaco } from './monaco-setup';
 import { getLanguageFromPath } from './language-map';
-import { diffModelPaths } from './monaco-models';
+import { diffModelPaths, needsContentSync } from './monaco-models';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useThemeFlavor } from '@/components/theme-provider';
 
@@ -34,6 +34,9 @@ export function MonacoDiffEditor({
   onEditorMount,
 }: MonacoDiffEditorProps) {
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
+  // Held in state, not just the ref, so the content-sync effect below re-runs
+  // for each newly created editor — its identity is what changes on a remount.
+  const [mountedEditor, setMountedEditor] = useState<editor.IStandaloneDiffEditor | null>(null);
   const onChangeRef = useRef(onChange);
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   // Per-file scroll position (pixels), keyed by model path, so switching tabs
@@ -58,6 +61,7 @@ export function MonacoDiffEditor({
   const handleMount: DiffOnMount = useCallback(
     (editor) => {
       editorRef.current = editor;
+      setMountedEditor(editor);
       onEditorMount?.(editor);
 
       const modifiedEditor = editor.getModifiedEditor();
@@ -103,6 +107,21 @@ export function MonacoDiffEditor({
       if (top !== undefined) scrollTops.set(modifiedModelPath, top);
     };
   }, [modifiedModelPath]);
+
+  // Re-assert the attached models against the props — see `needsContentSync`.
+  // The model paths are dependencies because the pair of attached models changes
+  // with them, even on a render where neither content prop moved.
+  useEffect(() => {
+    const models = mountedEditor?.getModel();
+    if (!mountedEditor || !models) return;
+    if (needsContentSync(models.original.getValue(), original)) {
+      models.original.setValue(original);
+    }
+    const focused = mountedEditor.getModifiedEditor().hasTextFocus();
+    if (needsContentSync(models.modified.getValue(), modified, focused)) {
+      models.modified.setValue(modified);
+    }
+  }, [mountedEditor, original, modified, originalModelPath, modifiedModelPath]);
 
   const language = getLanguageFromPath(filePath);
 

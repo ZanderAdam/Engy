@@ -231,6 +231,7 @@ FR id in their title string, e.g. `it('[FR-GIT-010] ...', ...)`, and run
 | FR-GIT-320 | WHEN the diff surface's refresh is invoked, the system SHALL reload both the changed-file list and the content of every open pane, in every view mode. |
 | FR-GIT-330 | WHEN a path is unmerged — any of the porcelain codes `DD`, `AU`, `UD`, `UA`, `DU`, `AA`, `UU` — `getStatusDetailed` SHALL report it as a single `staged: false` entry, because a conflicted path has no stage-0 index entry for a staged view to read. |
 | FR-GIT-340 | WHEN a row is marked viewed, the system SHALL record the mark against that row rather than its path, identified by the index for a staged row and by the working tree for an unstaged one, so re-staging expires a staged row's mark and editing the working tree does not. |
+| FR-GIT-350 | WHEN a diff pane's editor is created, including the re-creation that follows a content reload, the system SHALL rewrite both sides with the content fetched for the current selection, rather than keep what a reused editor model still holds. |
 
 ## Sources
 

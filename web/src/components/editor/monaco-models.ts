@@ -35,3 +35,15 @@ export function diffModelPaths(
   const base = namespacedModelPath(namespace, repoRoot, relPath);
   return { originalModelPath: `${base}:original`, modifiedModelPath: `${base}:modified` };
 }
+
+/**
+ * Whether a Monaco model must be rewritten to hold `next`. @monaco-editor/react
+ * writes content into a model only when it creates one, and models here outlive
+ * the editor (`keepCurrent*Model`), so a re-created editor re-attaches a model
+ * still holding an earlier revision. `focused` guards the editable side: a
+ * focused editor holds the user's own in-flight edit, which must not be
+ * overwritten.
+ */
+export function needsContentSync(current: string, next: string, focused = false): boolean {
+  return current !== next && !focused;
+}
