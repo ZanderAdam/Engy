@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `agent_worktrees` integer DEFAULT false;

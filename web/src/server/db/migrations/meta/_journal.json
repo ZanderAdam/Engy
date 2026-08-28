@@ -211,6 +211,13 @@
       "when": 1785769280465,
       "tag": "0029_young_deathbird",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1787865402648,
+      "tag": "0030_yellow_silvermane",
+      "breakpoints": true
     }
   ]
 }

@@ -56,6 +56,7 @@ interface EditWorkspaceDialogProps {
     repos: string[] | null;
     docsDir: string | null;
     splitWorktrees: boolean | null;
+    agentWorktrees: boolean | null;
     planSkill: string | null;
     implementSkill: string | null;
     defaultAgentType: string | null;
@@ -94,6 +95,7 @@ export function EditWorkspaceDialog({
   const [docsDir, setDocsDir] = useState(workspace.docsDir ?? '');
   const [repos, setRepos] = useState<string[]>(initialRepos(workspace.repos));
   const [splitWorktrees, setSplitWorktrees] = useState(workspace.splitWorktrees ?? false);
+  const [agentWorktrees, setAgentWorktrees] = useState(workspace.agentWorktrees ?? false);
   const [agentSettings, setAgentSettings] = useState<WorkspaceAgentSettings>(() =>
     seedAgentSettings(workspace),
   );
@@ -146,6 +148,7 @@ export function EditWorkspaceDialog({
       repos: filteredRepos,
       docsDir: trimmedDocsDir || null,
       splitWorktrees,
+      agentWorktrees,
       agentSettings: normalizeAgentSettings(agentSettings),
       defaultAgentType,
       containerEnabled: container.containerEnabled,
@@ -214,6 +217,7 @@ export function EditWorkspaceDialog({
       setDocsDir(workspace.docsDir ?? '');
       setRepos(initialRepos(workspace.repos));
       setSplitWorktrees(workspace.splitWorktrees ?? false);
+      setAgentWorktrees(workspace.agentWorktrees ?? false);
       setAgentSettings(seedAgentSettings(workspace));
       setDefaultAgentType(coerceAgentTypeId(workspace.defaultAgentType));
       setError(null);
@@ -324,6 +328,8 @@ export function EditWorkspaceDialog({
               <AgentSettingsTab
                 defaultAgentType={defaultAgentType}
                 onDefaultAgentTypeChange={setDefaultAgentType}
+                agentWorktrees={agentWorktrees}
+                onAgentWorktreesChange={setAgentWorktrees}
                 value={agentSettings}
                 onChange={setAgentSettings}
               />

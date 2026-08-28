@@ -182,6 +182,7 @@ export const workspaceRouter = router({
         defaultAgentType: defaultAgentTypeSchema.optional(),
         earsBdd: z.boolean().optional(),
         splitWorktrees: z.boolean().optional(),
+        agentWorktrees: z.boolean().optional(),
         containerEnabled: z.boolean().optional(),
         containerConfig: containerConfigSchema,
         executionBackend: executionBackendSchema,
@@ -213,6 +214,7 @@ export const workspaceRouter = router({
           defaultAgentType: input.defaultAgentType ?? 'claude',
           earsBdd: input.earsBdd ?? false,
           splitWorktrees: input.splitWorktrees ?? false,
+          agentWorktrees: input.agentWorktrees ?? false,
           containerEnabled: input.containerEnabled,
           containerConfig: input.containerConfig,
           executionBackend: input.executionBackend,
@@ -284,6 +286,7 @@ export const workspaceRouter = router({
         agentSettings: agentSettingsSchema.nullable().optional(),
         earsBdd: z.boolean().optional(),
         splitWorktrees: z.boolean().optional(),
+        agentWorktrees: z.boolean().optional(),
         containerEnabled: z.boolean().nullable().optional(),
         containerConfig: containerConfigSchema.nullable().optional(),
         executionBackend: executionBackendSchema.nullable().optional(),
@@ -327,6 +330,8 @@ export const workspaceRouter = router({
       const newEarsBdd = input.earsBdd !== undefined ? input.earsBdd : existing.earsBdd;
       const newSplitWorktrees =
         input.splitWorktrees !== undefined ? input.splitWorktrees : existing.splitWorktrees;
+      const newAgentWorktrees =
+        input.agentWorktrees !== undefined ? input.agentWorktrees : existing.agentWorktrees;
       const newContainerEnabled =
         input.containerEnabled !== undefined ? input.containerEnabled : existing.containerEnabled;
       const newContainerConfig =
@@ -386,6 +391,7 @@ export const workspaceRouter = router({
           agentSettings: newAgentSettings,
           earsBdd: newEarsBdd,
           splitWorktrees: newSplitWorktrees,
+          agentWorktrees: newAgentWorktrees,
           containerEnabled: newContainerEnabled,
           containerConfig: newContainerConfig,
           executionBackend: newExecutionBackend,
@@ -419,6 +425,7 @@ export const workspaceRouter = router({
               agentSettings: existing.agentSettings,
               earsBdd: existing.earsBdd,
               splitWorktrees: existing.splitWorktrees,
+              agentWorktrees: existing.agentWorktrees,
               containerEnabled: existing.containerEnabled,
               containerConfig: existing.containerConfig,
               executionBackend: existing.executionBackend,

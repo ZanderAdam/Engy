@@ -672,6 +672,22 @@ describe('workspace router', () => {
       expect(result.splitWorktrees).toBe(true);
       expect(result.combinedWorktrees).toBe(false);
     });
+
+    it('[FR-WORKSPACE-170] should default agentWorktrees to false and persist an update', async () => {
+      const ws = await caller.workspace.create({ name: 'Agent Worktrees' });
+      expect(ws.agentWorktrees).toBe(false);
+
+      await caller.workspace.update({ id: ws.id, agentWorktrees: true });
+      const enabled = await caller.workspace.get({ slug: ws.slug });
+      expect(enabled.agentWorktrees).toBe(true);
+    });
+
+    it('[FR-WORKSPACE-170] should preserve agentWorktrees when the field is omitted', async () => {
+      const ws = await caller.workspace.create({ name: 'Keep Worktrees', agentWorktrees: true });
+      await caller.workspace.update({ id: ws.id, name: 'Keep Worktrees Renamed' });
+      const result = await caller.workspace.get({ slug: ws.slug });
+      expect(result.agentWorktrees).toBe(true);
+    });
   });
 
   describe('delete', () => {

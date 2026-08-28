@@ -38,6 +38,9 @@ export const workspaces = sqliteTable('workspaces', {
   agentSettings: text('agent_settings', { mode: 'json' }).$type<WorkspaceAgentSettings>(),
   earsBdd: integer('ears_bdd', { mode: 'boolean' }).default(false),
   splitWorktrees: integer('split_worktrees', { mode: 'boolean' }).default(false),
+  // Quick actions only — background executions already get a worktree from
+  // the daemon runner.
+  agentWorktrees: integer('agent_worktrees', { mode: 'boolean' }).default(false),
   containerEnabled: integer('container_enabled', { mode: 'boolean' }).default(false),
   containerConfig: text('container_config', { mode: 'json' }).$type<ContainerConfig>(),
   executionBackend: text('execution_backend', { enum: ['devcontainer', 'coder'] }).default('devcontainer'),

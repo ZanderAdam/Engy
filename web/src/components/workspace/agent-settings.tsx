@@ -66,6 +66,8 @@ export function normalizeAgentSettings(
 interface AgentSettingsTabProps {
   defaultAgentType: AgentTypeId;
   onDefaultAgentTypeChange: (id: AgentTypeId) => void;
+  agentWorktrees: boolean;
+  onAgentWorktreesChange: (next: boolean) => void;
   value: WorkspaceAgentSettings;
   onChange: (next: WorkspaceAgentSettings) => void;
 }
@@ -73,6 +75,8 @@ interface AgentSettingsTabProps {
 export function AgentSettingsTab({
   defaultAgentType,
   onDefaultAgentTypeChange,
+  agentWorktrees,
+  onAgentWorktreesChange,
   value,
   onChange,
 }: AgentSettingsTabProps) {
@@ -103,6 +107,22 @@ export function AgentSettingsTab({
               ))}
           </SelectContent>
         </Select>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="workspace-agent-worktrees">Agent worktrees</Label>
+          <Switch
+            id="workspace-agent-worktrees"
+            checked={agentWorktrees}
+            onCheckedChange={onAgentWorktreesChange}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Implement quick actions tell the agent to create its own git worktree and work inside it.
+          Background executions always get a worktree, and terminals already scoped to one are left
+          alone.
+        </p>
       </div>
 
       <Tabs defaultValue={defaultAgentType} className="flex flex-col gap-2">

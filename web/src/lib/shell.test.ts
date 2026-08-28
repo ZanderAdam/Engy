@@ -187,6 +187,23 @@ describe('shell utilities', () => {
       expect(result).not.toContain('EARS-BDD');
     });
 
+    it('[FR-EXECUTION-310] should instruct the agent to create a worktree when agentWorktree is true', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+        agentWorktree: true,
+      });
+      expect(result).toContain('Create a dedicated git worktree for this work');
+    });
+
+    it('[FR-EXECUTION-310] should omit the worktree instruction when agentWorktree is not set', () => {
+      const result = buildContextBlock({
+        workspace: { id: 1, slug: 'engy' },
+        repos: [],
+      });
+      expect(result).not.toContain('Create a dedicated git worktree');
+    });
+
     it('should include session id line when sessionId is provided', () => {
       const result = buildContextBlock({
         workspace: { id: 1, slug: 'engy' },

@@ -37,6 +37,7 @@ interface ContextBlockInput {
   repos: string[];
   autoAgentCompletion?: 'pr' | 'merge';
   earsBdd?: boolean;
+  agentWorktree?: boolean;
   sessionId?: string;
 }
 
@@ -46,6 +47,7 @@ export function buildContextBlock({
   repos,
   autoAgentCompletion,
   earsBdd,
+  agentWorktree,
   sessionId,
 }: ContextBlockInput): string {
   const lines: string[] = [
@@ -73,6 +75,11 @@ export function buildContextBlock({
   if (earsBdd) {
     lines.push(
       'EARS-BDD mode is enabled for this workspace — when implementing, follow the EARS → BDD requirements flow: establish/trace the functional requirements (FRs), write FR-tagged tests, and verify coverage.',
+    );
+  }
+  if (agentWorktree) {
+    lines.push(
+      'Create a dedicated git worktree for this work and make all changes inside it — leave the main checkout untouched.',
     );
   }
   if (sessionId) {
@@ -144,4 +151,22 @@ export function buildQuickActionDirs(
     ...repos.slice(1),
   ];
   return { workingDir, additionalDirs };
+}
+
+interface AgentWorktreeInput {
+  implementing: boolean;
+  agentWorktrees: boolean;
+  worktreeBranch?: string;
+}
+
+/**
+ * A terminal already scoped to a worktree must not nest another one, so the
+ * instruction is only added for main-checkout implementation dispatches.
+ */
+export function shouldRequestAgentWorktree({
+  implementing,
+  agentWorktrees,
+  worktreeBranch,
+}: AgentWorktreeInput): boolean {
+  return implementing && agentWorktrees && !worktreeBranch;
 }

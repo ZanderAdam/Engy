@@ -3,7 +3,7 @@
 import { useVirtualParams, useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
-import { buildQuickActionDirs, buildContextBlock } from '@/lib/shell';
+import { buildQuickActionDirs, buildContextBlock, shouldRequestAgentWorktree } from '@/lib/shell';
 import { buildAgentCommand, getMcpUrl } from '@/lib/agent-types';
 import { projectGroupKey, normalizeWtParam } from '@/components/terminal/group-key';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
@@ -50,13 +50,20 @@ export function useQuickAction() {
     scopeLabel: string;
     containerMode?: ContainerMode;
     taskId?: number;
+    implementing?: boolean;
   }) {
     if (!workingDir || !projectDir || !workspace || !project) return;
+    const agentWorktree = shouldRequestAgentWorktree({
+      implementing: !!opts.implementing,
+      agentWorktrees: workspace.agentWorktrees ?? false,
+      worktreeBranch,
+    });
     const ctx = buildContextBlock({
       workspace: { id: workspace.id, slug: workspaceSlug },
       project: { id: project.id, slug: projectSlug, dir: projectDir },
       repos: effectiveRepos,
       earsBdd: workspace.earsBdd ?? false,
+      agentWorktree,
     });
     const isContainer = opts.containerMode === 'container';
     const scope: TerminalScope = {

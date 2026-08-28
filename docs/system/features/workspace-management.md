@@ -147,6 +147,10 @@ Effects:
   executions launch claude and therefore use claude's skills. The Agents tab in
   workspace settings edits all of this per agent; the legacy columns are no
   longer edited by the UI and survive only as a fallback.
+- **Agent worktrees** (`agent_worktrees`, off by default) — when on, implement
+  quick actions add a line to the context block asking the agent to create its
+  own git worktree. It is workspace-wide, not per agent, and lives at the top
+  of the Agents tab.
 
 ## MCP surface
 
@@ -196,6 +200,7 @@ second run creates no additional commit.
 | FR-WORKSPACE-140 | WHEN `workspace.update` receives `agentSettings`, the system SHALL validate every key against the agent-type registry and every `mode` against that agent's mode list (rejecting unknown values with `BAD_REQUEST`), SHALL reject settings that deactivate the workspace's effective default agent, and SHALL persist the value; WHEN the field is omitted, the existing value SHALL be preserved. |
 | FR-WORKSPACE-150 | WHEN building an agent terminal command, the system SHALL apply the workspace's configured per-agent default mode (Claude: `--permission-mode <mode>`; Codex: the preset's sandbox/approval flags), falling back to the agent's registry default (`acceptEdits` / `workspace-write`) when unset or unknown; a permission-bypass spawn (container) SHALL override the mode, and the Codex `read-only` preset SHALL omit `--add-dir` flags. |
 | FR-WORKSPACE-160 | WHEN resolving plan/implement skills for an agent, the system SHALL use the agent's `agentSettings` entry first, then the legacy workspace-level `planSkill`/`implementSkill` columns, then the `/engy:plan` / `/engy:implement` defaults. |
+| FR-WORKSPACE-170 | WHEN `workspace.create` or `workspace.update` receives `agentWorktrees`, the system SHALL persist it on the workspace row; `workspace.create` SHALL default it to `false` when absent, and `workspace.update` SHALL preserve the existing value when the field is omitted. |
 
 ## Sources
 

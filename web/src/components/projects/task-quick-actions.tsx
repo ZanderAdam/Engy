@@ -110,6 +110,7 @@ export function TaskQuickActions({
       scopeLabel: `impl: ${taskSlug}`,
       containerMode: useContainer ? 'container' : undefined,
       taskId,
+      implementing: true,
     });
     maybePromote();
   }

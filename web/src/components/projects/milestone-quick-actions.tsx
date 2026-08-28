@@ -30,6 +30,7 @@ export function MilestoneQuickActions({ milestoneRef }: MilestoneQuickActionsPro
       prompt: `Use /engy:implement-milestone for ${milestoneRef} in project ${projectSlug}`,
       scopeLabel: `impl-ms: ${milestoneRef}`,
       containerMode: useContainer ? 'container' : undefined,
+      implementing: true,
     });
   }
 
