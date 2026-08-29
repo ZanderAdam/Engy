@@ -54,14 +54,18 @@ merge).
 
 For `task` scope the system prompt is produced by `buildContextBlock` and
 carries workspace slug, project slug, repo paths, `autoAgentCompletion` mode,
-`earsBdd` flag, and the live session id.  Its optional `agentWorktree` line is
-set only by quick actions (`shouldRequestAgentWorktree`) — background
-executions never pass it, because the daemon runner already creates the
-worktree they run in.  The main prompt is
+`earsBdd` flag, and the live session id.  The main prompt is
 `Use <implementSkill> for <ws-slug>-T<id>`.  All additional dirs from
 `buildQuickActionDirs` are passed as `--add-dir` flags.  Planning scope uses
 `buildPromptForPlan` (planSkill + same context block); taskGroup and milestone
 scopes have their own builders.
+
+The agent-worktree instruction rides the prompt
+(`withAgentWorktreeInstruction`), gated by `shouldRequestAgentWorktree`, rather
+than the context block: the system prompt reaches every subagent the dispatched
+agent spawns, which would ask each of them for a worktree of its own.
+Background executions never get it — the daemon runner already creates the
+worktree they run in.
 
 Remote sessions receive a plain-text prompt built by `buildRemotePrompt`
 (workspace context, task title/description, plan file content if present) and
@@ -131,7 +135,7 @@ their title string, e.g. `it('[FR-EXECUTION-010] ...', ...)`, and run
 | FR-EXECUTION-140 | IF `retryExecution` or `sendFeedback` is called for a session with `status:'submitted'`, THEN the system SHALL throw `BAD_REQUEST` with a message directing the user to follow up on claude.ai/code. |
 | FR-EXECUTION-150 | WHEN `sendFeedback` is called for a non-remote session, the system SHALL write the feedback text to `tasks.feedback`, dispatch `EXECUTION_START_REQUEST` with a resume prompt wrapping the feedback, and on success SHALL clear `tasks.feedback` and set `subStatus:'implementing'`. |
 | FR-EXECUTION-160 | WHEN `EXECUTION_COMPLETE_EVENT` arrives with `success:true` for a task-scope session whose task is not blocked, the system SHALL set `agentSessions.status:'completed'` and move the task to `status:'done'`, `subStatus:null`; WHEN `autoAgentCompletion` is `'merge'`, the system SHALL dispatch a worktree merge request asynchronously. |
-| FR-EXECUTION-170 | WHEN `EXECUTION_COMPLETE_EVENT` arrives with `success:true` for a planning-scope session, the system SHALL set `agentSessions.status:'completed'` and move the task to `subStatus:'plan_review'`; for Coder workspaces the system SHALL dispatch `REMOTE_FILE_PULL_REQUEST` to pull the plan file from the remote asynchronously. |
+| FR-EXECUTION-170 | WHEN `EXECUTION_COMPLETE_EVENT` arrives with `success:true` for a planning-scope session, the system SHALL set `agentSessions.status:'completed'` and move the task to `subStatus:'plan_review'`; for Coder workspaces the system SHALL dispatch a `resolveGlob` `REMOTE_FILE_PULL_REQUEST` matching `plans/<ws-slug>-T<id>.plan.md plans/<ws-slug>-T<id>-*.plan.md` and SHALL write the pulled content into the local project under the filename the daemon resolved. |
 | FR-EXECUTION-180 | WHEN `EXECUTION_COMPLETE_EVENT` arrives for a session whose task has `subStatus:'blocked'`, the system SHALL set `agentSessions.status:'paused'` and SHALL NOT change the task's `subStatus`. |
 | FR-EXECUTION-190 | IF `EXECUTION_COMPLETE_EVENT` arrives for a session already in a terminal state (`completed`, `stopped`, `paused`, or `submitted`), THEN the system SHALL silently ignore the event and perform no DB write. |
 | FR-EXECUTION-200 | WHEN a new top-level task (no `taskGroupId`, no `milestoneRef`) is created in a workspace with `autoStart:true` and a daemon is connected, the system SHALL call `triggerAutoStart`, which SHALL dispatch `startExecution` with `scope:'planning'` when `needsPlan` is true and no plan file exists on disk, or `scope:'task'` otherwise; any dispatch error SHALL set `subStatus:'failed'` on the task without re-throwing. |
@@ -143,9 +147,9 @@ their title string, e.g. `it('[FR-EXECUTION-010] ...', ...)`, and run
 | FR-EXECUTION-260 | WHILE an agent process has been running for `DEFAULT_TIMEOUT_MS` (30 minutes) without exiting, the system SHALL send SIGTERM followed by SIGKILL after a 5-second grace period. |
 | FR-EXECUTION-270 | IF `Runner.stop` has emitted a synthetic `EXECUTION_COMPLETE_EVENT` for a session and the agent process later exits naturally, THEN the system SHALL suppress the second `EXECUTION_COMPLETE_EVENT` so exactly one event is emitted per session. |
 | FR-EXECUTION-280 | WHEN `getSessionFile` is queried for a session id, the system SHALL search `~/.claude/projects/` directories on the local filesystem for a matching `<sessionId>.jsonl` file and return its parsed JSONL entries; IF no local file is found and the session belongs to a Coder workspace, the system SHALL fall back to locating and reading the file via `coder ssh`; IF neither source yields a file, the system SHALL return an empty array. |
-| FR-EXECUTION-290 | WHEN `pushRemoteFile` is called for a task in a Coder workspace, the system SHALL dispatch `REMOTE_FILE_PUSH_REQUEST` to the daemon with the plan path computed server-side as `plans/<ws-slug>-T<id>.plan.md` and SHALL clear `tasks.needsPlan` only after a successful push; for non-Coder workspaces the system SHALL clear `tasks.needsPlan` without dispatching. |
+| FR-EXECUTION-290 | WHEN `pushRemoteFile` is called for a task in a Coder workspace, the system SHALL dispatch `REMOTE_FILE_PUSH_REQUEST` to the daemon with the plan path resolved server-side from the local `plans/` directory (falling back to `plans/<ws-slug>-T<id>.plan.md` when no plan file exists) and SHALL clear `tasks.needsPlan` only after a successful push; for non-Coder workspaces the system SHALL clear `tasks.needsPlan` without dispatching. |
 | FR-EXECUTION-300 | WHEN spawning an agent process in host, container, or Coder mode, the system SHALL set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` in the process environment so CLAUDE.md files from `--add-dir` directories (including the project docs dir) load into context. |
-| FR-EXECUTION-310 | WHEN a quick action launches implementation work (task implement, task group, milestone) in a workspace with `agentWorktrees` enabled AND the terminal is not already scoped to a worktree, the system SHALL add an instruction to the context block telling the agent to create a dedicated git worktree and work inside it; for every other dispatch — including background executions, which the daemon already places in a worktree — the instruction SHALL be absent. |
+| FR-EXECUTION-310 | WHEN a quick action launches implementation work (task implement, task group, milestone) in a workspace with `agentWorktrees` enabled AND the terminal is not already scoped to a worktree, the system SHALL append an instruction to the agent's **prompt** — not the context block — telling it to create a dedicated git worktree and work inside it; for every other dispatch — including background executions, which the daemon already places in a worktree — the prompt SHALL be unchanged. |
 
 ## Sources
 

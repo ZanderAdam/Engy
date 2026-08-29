@@ -37,7 +37,6 @@ interface ContextBlockInput {
   repos: string[];
   autoAgentCompletion?: 'pr' | 'merge';
   earsBdd?: boolean;
-  agentWorktree?: boolean;
   sessionId?: string;
 }
 
@@ -47,7 +46,6 @@ export function buildContextBlock({
   repos,
   autoAgentCompletion,
   earsBdd,
-  agentWorktree,
   sessionId,
 }: ContextBlockInput): string {
   const lines: string[] = [
@@ -75,11 +73,6 @@ export function buildContextBlock({
   if (earsBdd) {
     lines.push(
       'EARS-BDD mode is enabled for this workspace — when implementing, follow the EARS → BDD requirements flow: establish/trace the functional requirements (FRs), write FR-tagged tests, and verify coverage.',
-    );
-  }
-  if (agentWorktree) {
-    lines.push(
-      'Create a dedicated git worktree for this work and make all changes inside it — leave the main checkout untouched.',
     );
   }
   if (sessionId) {
@@ -169,4 +162,16 @@ export function shouldRequestAgentWorktree({
   worktreeBranch,
 }: AgentWorktreeInput): boolean {
   return implementing && agentWorktrees && !worktreeBranch;
+}
+
+export const AGENT_WORKTREE_INSTRUCTION =
+  'Before you start, create a dedicated git worktree for this work and make all changes ' +
+  'inside it — leave the main checkout untouched.';
+
+/**
+ * The instruction rides the prompt, not the system prompt, so it reaches the
+ * agent that was dispatched and not every subagent it spawns.
+ */
+export function withAgentWorktreeInstruction(prompt: string, requested: boolean): string {
+  return requested ? `${prompt}\n\n${AGENT_WORKTREE_INSTRUCTION}` : prompt;
 }

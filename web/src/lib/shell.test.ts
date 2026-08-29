@@ -4,6 +4,8 @@ import {
   buildAddDirFlags,
   buildContextBlock,
   buildQuickActionDirs,
+  withAgentWorktreeInstruction,
+  AGENT_WORKTREE_INSTRUCTION,
   ENGY_ORIENTATION,
 } from './shell';
 
@@ -187,23 +189,6 @@ describe('shell utilities', () => {
       expect(result).not.toContain('EARS-BDD');
     });
 
-    it('[FR-EXECUTION-310] should instruct the agent to create a worktree when agentWorktree is true', () => {
-      const result = buildContextBlock({
-        workspace: { id: 1, slug: 'engy' },
-        repos: [],
-        agentWorktree: true,
-      });
-      expect(result).toContain('Create a dedicated git worktree for this work');
-    });
-
-    it('[FR-EXECUTION-310] should omit the worktree instruction when agentWorktree is not set', () => {
-      const result = buildContextBlock({
-        workspace: { id: 1, slug: 'engy' },
-        repos: [],
-      });
-      expect(result).not.toContain('Create a dedicated git worktree');
-    });
-
     it('should include session id line when sessionId is provided', () => {
       const result = buildContextBlock({
         workspace: { id: 1, slug: 'engy' },
@@ -234,6 +219,23 @@ describe('shell utilities', () => {
       const lines = result.split('\n');
       const sessionLine = lines.findIndex((l) => l.startsWith('Engy session id:'));
       expect(sessionLine).toBe(lines.length - 1);
+    });
+  });
+
+  describe('withAgentWorktreeInstruction', () => {
+    it('[FR-EXECUTION-310] appends the worktree instruction to the prompt when requested', () => {
+      const result = withAgentWorktreeInstruction('Use /engy:implement for engy-T1', true);
+      expect(result).toBe(`Use /engy:implement for engy-T1\n\n${AGENT_WORKTREE_INSTRUCTION}`);
+    });
+
+    it('[FR-EXECUTION-310] returns the prompt untouched when not requested', () => {
+      const prompt = 'Use /engy:implement for engy-T1';
+      expect(withAgentWorktreeInstruction(prompt, false)).toBe(prompt);
+    });
+
+    it('[FR-EXECUTION-310] keeps the worktree instruction out of the context block', () => {
+      const result = buildContextBlock({ workspace: { id: 1, slug: 'engy' }, repos: [] });
+      expect(result).not.toContain('git worktree for this work');
     });
   });
 
