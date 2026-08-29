@@ -10,6 +10,7 @@ import {
   dispatchGlobFiles,
   dispatchGitWorktreeList,
   dispatchGitFetch,
+  dispatchGitPatch,
   dispatchWorktreeAdd,
   dispatchWorktreeRemove,
   dispatchCreateDir,
@@ -214,6 +215,105 @@ describe('WebSocket Server', () => {
 
     it('[FR-GIT-020] should reject if no daemon is connected', async () => {
       await expect(dispatchGitFetch('/repo', 'origin/main', state)).rejects.toThrow(
+        'No daemon connected',
+      );
+    });
+  });
+
+  describe('GIT_DIFF_RESPONSE', () => {
+    async function registeredClient() {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
+      return ws;
+    }
+
+    it('[FR-GIT-370] should send the patch spec through to the daemon and resolve with the patch', async () => {
+      const ws = await registeredClient();
+
+      const messagePromise = waitForMessage(ws);
+      const patchPromise = dispatchGitPatch(
+        '/repo',
+        'src/a.ts',
+        { kind: 'range', from: 'base1', to: 'head1' },
+        state,
+        'src/old.ts',
+        'my-coder-ws',
+      );
+
+      const request = (await messagePromise) as {
+        type: string;
+        payload: {
+          requestId: string;
+          repoDir: string;
+          filePath: string;
+          oldPath?: string;
+          coderWorkspace?: string;
+          spec: { kind: string; from?: string; to?: string };
+        };
+      };
+      expect(request.type).toBe('GIT_DIFF_REQUEST');
+      expect(request.payload.repoDir).toBe('/repo');
+      expect(request.payload.filePath).toBe('src/a.ts');
+      expect(request.payload.oldPath).toBe('src/old.ts');
+      // Coder worktrees diff through the same git ops as local ones.
+      expect(request.payload.coderWorkspace).toBe('my-coder-ws');
+      expect(request.payload.spec).toEqual({ kind: 'range', from: 'base1', to: 'head1' });
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_DIFF_RESPONSE',
+          payload: { requestId: request.payload.requestId, patch: '@@ -1 +1 @@\n-a\n+b\n' },
+        }),
+      );
+
+      await expect(patchPromise).resolves.toEqual({
+        patch: '@@ -1 +1 @@\n-a\n+b\n',
+        truncated: undefined,
+      });
+    });
+
+    it('[FR-GIT-390] should carry the truncated marker back to the caller', async () => {
+      const ws = await registeredClient();
+
+      const messagePromise = waitForMessage(ws);
+      const patchPromise = dispatchGitPatch('/repo', 'big.bin', { kind: 'unstaged' }, state);
+      const request = (await messagePromise) as { payload: { requestId: string } };
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_DIFF_RESPONSE',
+          payload: { requestId: request.payload.requestId, patch: '', truncated: true },
+        }),
+      );
+
+      await expect(patchPromise).resolves.toEqual({ patch: '', truncated: true });
+    });
+
+    it('[FR-GIT-370] should surface a daemon-side patch failure', async () => {
+      const ws = await registeredClient();
+
+      const messagePromise = waitForMessage(ws);
+      const patchPromise = dispatchGitPatch('/repo', 'a.ts', { kind: 'unstaged' }, state);
+      const request = (await messagePromise) as { payload: { requestId: string } };
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_DIFF_RESPONSE',
+          payload: { requestId: request.payload.requestId, error: 'bad revision "nope"' },
+        }),
+      );
+
+      await expect(patchPromise).rejects.toThrow('bad revision "nope"');
+    });
+
+    it('[FR-GIT-020] should reject if no daemon is connected', async () => {
+      await expect(dispatchGitPatch('/repo', 'a.ts', { kind: 'unstaged' }, state)).rejects.toThrow(
         'No daemon connected',
       );
     });

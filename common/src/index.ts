@@ -14,6 +14,7 @@ export type {
   GitFileStatus,
   GitStatusRequestMessage,
   GitStatusResponseMessage,
+  GitPatchSpec,
   GitDiffRequestMessage,
   GitDiffResponseMessage,
   GitLogRequestMessage,

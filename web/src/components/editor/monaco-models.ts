@@ -21,29 +21,3 @@ export function buildModelPath(repoRoot: string, relPath: string): string {
 export function namespacedModelPath(namespace: string, repoRoot: string, relPath: string): string {
   return `${namespace}:${buildModelPath(repoRoot, relPath)}`;
 }
-
-/**
- * A diff editor needs two distinct models per file — one per side. Derives both
- * from the same namespaced base so each file (and each side) gets a stable,
- * collision-free model, exactly like the single-file editor.
- */
-export function diffModelPaths(
-  namespace: string,
-  repoRoot: string,
-  relPath: string,
-): { originalModelPath: string; modifiedModelPath: string } {
-  const base = namespacedModelPath(namespace, repoRoot, relPath);
-  return { originalModelPath: `${base}:original`, modifiedModelPath: `${base}:modified` };
-}
-
-/**
- * Whether a Monaco model must be rewritten to hold `next`. @monaco-editor/react
- * writes content into a model only when it creates one, and models here outlive
- * the editor (`keepCurrent*Model`), so a re-created editor re-attaches a model
- * still holding an earlier revision. `focused` guards the editable side: a
- * focused editor holds the user's own in-flight edit, which must not be
- * overwritten.
- */
-export function needsContentSync(current: string, next: string, focused = false): boolean {
-  return current !== next && !focused;
-}

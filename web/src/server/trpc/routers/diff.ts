@@ -7,6 +7,7 @@ import {
   dispatchGitStatus,
   dispatchGitLog,
   dispatchGitShow,
+  dispatchGitPatch,
   dispatchGitBranchFiles,
   dispatchGitDefaultBase,
   dispatchGitFetch,
@@ -21,6 +22,14 @@ type WorktreeLocation = 'local' | { coderWorkspace: string };
 export interface TaggedWorktreeEntry extends GitWorktreeEntry {
   location: WorktreeLocation;
 }
+
+/** Mirrors `GitPatchSpec` in `@engy/common` — which two snapshots to compare. */
+const patchSpecInput = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('staged'), head: z.string().optional() }),
+  z.object({ kind: z.literal('unstaged') }),
+  z.object({ kind: z.literal('commit'), hash: z.string().min(1) }),
+  z.object({ kind: z.literal('range'), from: z.string().min(1), to: z.string().optional() }),
+]);
 
 const worktreeInput = z.object({
   repoDir: z.string().min(1),
@@ -39,6 +48,32 @@ export const diffRouter = router({
     .query(async ({ input, ctx }) => {
       const dir = input.worktreePath ?? input.repoDir;
       return dispatchGitLog(dir, ctx.state, input.maxCount, input.coderWorkspace);
+    }),
+
+  /**
+   * Unified diff text for one file, computed by git in the daemon. `contentId`
+   * is never read — it is mixed into the query key so a working-tree or index
+   * patch is refetched once the content behind it moves (see FR-GIT-310).
+   */
+  getPatch: publicProcedure
+    .input(
+      worktreeInput.extend({
+        filePath: z.string().min(1),
+        oldPath: z.string().optional(),
+        spec: patchSpecInput,
+        contentId: z.string().optional(),
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      const dir = input.worktreePath ?? input.repoDir;
+      return dispatchGitPatch(
+        dir,
+        input.filePath,
+        input.spec,
+        ctx.state,
+        input.oldPath,
+        input.coderWorkspace,
+      );
     }),
 
   getCommitDiff: publicProcedure

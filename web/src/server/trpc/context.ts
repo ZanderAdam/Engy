@@ -83,6 +83,12 @@ export interface GitLogResult {
   commits: Array<{ hash: string; message: string; author: string; date: string }>;
 }
 
+export interface GitPatchResult {
+  patch: string;
+  /** Set when the patch exceeded the daemon's size cap; `patch` is then empty. */
+  truncated?: boolean;
+}
+
 export interface GitShowResult {
   files: Array<{ path: string; status: GitFileStatus; oldPath?: string }>;
 }
@@ -257,6 +263,13 @@ export interface AppState {
     string,
     {
       resolve: (result: GitShowResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingGitPatch: Map<
+    string,
+    {
+      resolve: (result: GitPatchResult) => void;
       reject: (reason: Error) => void;
     }
   >;
@@ -518,6 +531,7 @@ export function createAppState(): AppState {
     pendingGitStatus: new Map(),
     pendingGitLog: new Map(),
     pendingGitShow: new Map(),
+    pendingGitPatch: new Map(),
     pendingGitBranchFiles: new Map(),
     pendingGitDefaultBase: new Map(),
     pendingGitFetch: new Map(),

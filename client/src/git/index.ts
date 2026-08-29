@@ -306,7 +306,11 @@ async function withContentIds<T extends { path: string; status: GitFileStatus }>
   }));
 }
 
-async function isTracked(dir: string, filePath: string, runGit: GitRunner): Promise<boolean> {
+export async function isTracked(
+  dir: string,
+  filePath: string,
+  runGit: GitRunner,
+): Promise<boolean> {
   try {
     await runGit(['-C', dir, 'ls-files', '--error-unmatch', filePath]);
     return true;
@@ -315,7 +319,7 @@ async function isTracked(dir: string, filePath: string, runGit: GitRunner): Prom
   }
 }
 
-async function getGitRoot(dir: string, runGit: GitRunner): Promise<string> {
+export async function getGitRoot(dir: string, runGit: GitRunner): Promise<string> {
   try {
     const { stdout } = await runGit(['-C', dir, 'rev-parse', '--show-toplevel']);
     return stdout.trim();
@@ -394,47 +398,6 @@ async function resolveMergeBase(dir: string, base: string, runGit: GitRunner): P
     // which is the only computable answer when there is no fork point.
   }
   return base;
-}
-
-export async function getDiff(
-  dir: string,
-  filePath: string,
-  base?: string,
-  staged?: boolean,
-  runGit: GitRunner = localGitRunner,
-): Promise<string> {
-  // filePath from git status is always relative to the git root, which may differ
-  // from dir when dir is a subdirectory of the repo
-  const root = await getGitRoot(dir, runGit);
-
-  if (staged && !base) {
-    const { stdout } = await runGit(['-C', root, 'diff', '--cached', '--', filePath]);
-    return stdout || diffAgainstEmpty(root, filePath, runGit);
-  }
-
-  try {
-    const { stdout } = await runGit(['-C', root, 'diff', base ?? 'HEAD', '--', filePath]);
-    if (stdout) return stdout;
-
-    if (!base && !(await isTracked(root, filePath, runGit))) {
-      return diffAgainstEmpty(root, filePath, runGit);
-    }
-    return '';
-  } catch {
-    return diffAgainstEmpty(root, filePath, runGit);
-  }
-}
-
-async function diffAgainstEmpty(dir: string, filePath: string, runGit: GitRunner): Promise<string> {
-  const absolutePath = isAbsolute(filePath) ? filePath : join(dir, filePath);
-  try {
-    const { stdout } = await runGit(['-C', dir, 'diff', '--no-index', '/dev/null', absolutePath]);
-    return stdout;
-  } catch (e: unknown) {
-    // git diff --no-index exits with code 1 when files differ
-    const stdout = (e as { stdout?: string })?.stdout;
-    return typeof stdout === 'string' ? stdout : '';
-  }
 }
 
 export async function getLog(

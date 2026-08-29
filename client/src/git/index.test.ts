@@ -7,7 +7,6 @@ import {
   getBranchInfo,
   getStatus,
   getStatusDetailed,
-  getDiff,
   getLog,
   getShow,
   getBranchFiles,
@@ -291,79 +290,6 @@ describe('git integration', () => {
 
       expect(result.files[0]).toMatchObject({ status: 'deleted', staged: true });
       expect(result.files[0].indexId).toBeUndefined();
-    });
-  });
-
-  describe('getDiff', () => {
-    it('returns unified diff for a modified file', async () => {
-      repoDir = await createTempRepo();
-      await commitFile(repoDir, 'file.txt', 'original');
-      await writeFile(join(repoDir, 'file.txt'), 'modified');
-
-      const diff = await getDiff(repoDir, 'file.txt');
-
-      expect(diff).toContain('--- a/file.txt');
-      expect(diff).toContain('+++ b/file.txt');
-      expect(diff).toContain('-original');
-      expect(diff).toContain('+modified');
-    });
-
-    it('returns diff against a base ref', async () => {
-      repoDir = await createTempRepo();
-      await commitFile(repoDir, 'file.txt', 'v1');
-      const git = simpleGit(repoDir);
-      const log1 = await git.log();
-      const baseHash = log1.latest!.hash;
-      await writeFile(join(repoDir, 'file.txt'), 'v2');
-      await git.add('file.txt');
-      await git.commit('update file');
-
-      const diff = await getDiff(repoDir, 'file.txt', baseHash);
-
-      expect(diff).toContain('-v1');
-      expect(diff).toContain('+v2');
-    });
-
-    it('returns empty string for unchanged file', async () => {
-      repoDir = await createTempRepo();
-      await commitFile(repoDir, 'file.txt', 'content');
-
-      const diff = await getDiff(repoDir, 'file.txt');
-
-      expect(diff).toBe('');
-    });
-
-    it('returns diff for a staged new file', async () => {
-      repoDir = await createTempRepo();
-      await commitFile(repoDir, 'init.txt', 'hello');
-      await writeFile(join(repoDir, 'new.txt'), 'staged content');
-      const git = simpleGit(repoDir);
-      await git.add('new.txt');
-
-      const diff = await getDiff(repoDir, 'new.txt', undefined, true);
-
-      expect(diff).toContain('+staged content');
-    });
-
-    it('returns diff for an untracked file (path resolution bug fix)', async () => {
-      repoDir = await createTempRepo();
-      await commitFile(repoDir, 'init.txt', 'hello');
-      await writeFile(join(repoDir, 'untracked.txt'), 'untracked content');
-
-      const diff = await getDiff(repoDir, 'untracked.txt');
-
-      expect(diff).toContain('+untracked content');
-    });
-
-    it('returns diff for a staged new file in a repo with no HEAD', async () => {
-      repoDir = await createTempRepo();
-      await writeFile(join(repoDir, 'first.txt'), 'first file');
-      const git = simpleGit(repoDir);
-      await git.add('first.txt');
-
-      const diff = await getDiff(repoDir, 'first.txt', undefined, true);
-
-      expect(diff).toContain('+first file');
     });
   });
 

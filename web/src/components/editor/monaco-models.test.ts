@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildModelPath, needsContentSync } from './monaco-models';
+import { buildModelPath } from './monaco-models';
 
 describe('buildModelPath', () => {
   it('should join repo root and relative path into a single absolute path', () => {
@@ -18,23 +18,5 @@ describe('buildModelPath', () => {
     const a = buildModelPath('/repo-a', 'src/app.ts');
     const b = buildModelPath('/repo-b', 'src/app.ts');
     expect(a).not.toBe(b);
-  });
-});
-
-describe('needsContentSync', () => {
-  it('[FR-GIT-350] should rewrite a model still holding an earlier revision', () => {
-    expect(needsContentSync('old content', 'new content')).toBe(true);
-  });
-
-  it('[FR-GIT-350] should leave a model that already holds the content', () => {
-    expect(needsContentSync('same', 'same')).toBe(false);
-  });
-
-  it('[FR-GIT-350] should refill a model left empty while its read was in flight', () => {
-    expect(needsContentSync('', 'fetched content')).toBe(true);
-  });
-
-  it('should never overwrite the side the user is typing into', () => {
-    expect(needsContentSync('what the user typed', 'what was fetched', true)).toBe(false);
   });
 });

@@ -1,8 +1,9 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "dockview/dist/styles/dockview.css";
-@import "../components/terminal/dockview-theme.css";
-@import "./cyberpunk-theme.css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'dockview/dist/styles/dockview.css';
+@import '../components/terminal/dockview-theme.css';
+@import 'react-diff-view/style/index.css';
+@import './cyberpunk-theme.css';
 
 @source "../../node_modules/@blocknote/shadcn/dist";
 
@@ -133,35 +134,35 @@
 .theme-cyberpunk {
   --background: oklch(0.06 0.02 345);
   --foreground: oklch(0.78 0.14 25);
-  --card: oklch(0.10 0.03 350);
+  --card: oklch(0.1 0.03 350);
   --card-foreground: oklch(0.78 0.14 25);
-  --popover: oklch(0.10 0.03 350);
+  --popover: oklch(0.1 0.03 350);
   --popover-foreground: oklch(0.78 0.14 25);
   --primary: oklch(0.92 0.19 105);
   --primary-foreground: oklch(0.15 0.02 350);
   --secondary: oklch(0.18 0.06 350);
-  --secondary-foreground: oklch(0.80 0.15 195);
+  --secondary-foreground: oklch(0.8 0.15 195);
   --muted: oklch(0.15 0.04 350);
   --muted-foreground: oklch(0.58 0.12 20);
-  --accent: oklch(0.80 0.15 195);
-  --accent-foreground: oklch(0.10 0.02 350);
+  --accent: oklch(0.8 0.15 195);
+  --accent-foreground: oklch(0.1 0.02 350);
   --destructive: oklch(0.65 0.29 18);
-  --border: oklch(0.50 0.22 18);
+  --border: oklch(0.5 0.22 18);
   --input: oklch(0.15 0.04 350);
-  --ring: oklch(0.80 0.15 195);
+  --ring: oklch(0.8 0.15 195);
   --chart-1: oklch(0.65 0.29 18);
-  --chart-2: oklch(0.80 0.15 195);
-  --chart-3: oklch(0.60 0.25 330);
+  --chart-2: oklch(0.8 0.15 195);
+  --chart-3: oklch(0.6 0.25 330);
   --chart-4: oklch(0.92 0.19 105);
-  --chart-5: oklch(0.50 0.20 280);
+  --chart-5: oklch(0.5 0.2 280);
   --sidebar: oklch(0.08 0.03 350);
   --sidebar-foreground: oklch(0.78 0.14 25);
   --sidebar-primary: oklch(0.92 0.19 105);
   --sidebar-primary-foreground: oklch(0.15 0.02 350);
   --sidebar-accent: oklch(0.18 0.06 350);
-  --sidebar-accent-foreground: oklch(0.80 0.15 195);
-  --sidebar-border: oklch(0.50 0.22 18);
-  --sidebar-ring: oklch(0.80 0.15 195);
+  --sidebar-accent-foreground: oklch(0.8 0.15 195);
+  --sidebar-border: oklch(0.5 0.22 18);
+  --sidebar-ring: oklch(0.8 0.15 195);
 }
 
 @layer base {
@@ -197,15 +198,15 @@
 }
 
 /* BlockNote: code blocks and tables use horizontal scroll, not word-break */
-.bn-editor .bn-block-content[data-content-type="codeBlock"],
-.bn-editor .bn-block-content[data-content-type="table"] {
+.bn-editor .bn-block-content[data-content-type='codeBlock'],
+.bn-editor .bn-block-content[data-content-type='table'] {
   overflow-x: auto;
   overflow-wrap: normal;
   word-break: normal;
 }
 
 /* BlockNote: mermaid diagrams scroll horizontally instead of clipping */
-.bn-editor .bn-block-content[data-content-type="mermaid"] {
+.bn-editor .bn-block-content[data-content-type='mermaid'] {
   overflow-x: auto;
 }
 
@@ -238,7 +239,7 @@
 }
 
 .theme-cyberpunk .bn-shadcn .bn-editor a {
-  color: oklch(0.80 0.15 195);
+  color: oklch(0.8 0.15 195);
 }
 
 /* BlockNote: override internal theme for cyberpunk */
@@ -251,9 +252,9 @@
   --bn-colors-tooltip-text: var(--foreground);
   --bn-colors-hovered-background: oklch(0.15 0.05 350);
   --bn-colors-hovered-text: var(--foreground);
-  --bn-colors-selected-background: oklch(0.20 0.08 350);
+  --bn-colors-selected-background: oklch(0.2 0.08 350);
   --bn-colors-selected-text: var(--foreground);
-  --bn-colors-disabled-background: oklch(0.10 0.03 350);
+  --bn-colors-disabled-background: oklch(0.1 0.03 350);
   --bn-colors-disabled-text: var(--muted-foreground);
   --bn-colors-border: var(--border);
   --bn-border-radius: 0px;
@@ -268,49 +269,92 @@
 
 .theme-cyberpunk .bn-container .ProseMirror {
   color: var(--foreground) !important;
-  caret-color: oklch(0.80 0.15 195);
+  caret-color: oklch(0.8 0.15 195);
 }
 
 .theme-cyberpunk .bn-container .ProseMirror h1,
 .theme-cyberpunk .bn-container .ProseMirror h2,
 .theme-cyberpunk .bn-container .ProseMirror h3 {
-  color: oklch(0.80 0.20 18) !important;
+  color: oklch(0.8 0.2 18) !important;
 }
 
 .theme-cyberpunk .bn-container .ProseMirror p,
 .theme-cyberpunk .bn-container .ProseMirror li,
 .theme-cyberpunk .bn-container .ProseMirror td {
-  color: oklch(0.60 0.10 20) !important;
+  color: oklch(0.6 0.1 20) !important;
 }
 
 .theme-cyberpunk .bn-container .ProseMirror .is-empty::before {
   color: var(--muted-foreground) !important;
 }
 
-/* Monaco: comment gutter indicators */
-.engy-comment-glyph {
-  background-color: oklch(0.65 0.15 250);
-  border-radius: 50%;
-  margin: auto;
-  width: 8px !important;
-  height: 8px !important;
-  cursor: pointer;
+/* react-diff-view: theme the library's own custom properties from app tokens,
+   so both theme flavours follow without a second palette. */
+.engy-diff {
+  --diff-background-color: transparent;
+  --diff-text-color: var(--foreground);
+  --diff-font-family: 'JetBrains Mono', Consolas, Courier, monospace;
+  --diff-selection-background-color: var(--accent);
+  --diff-gutter-insert-background-color: oklch(0.32 0.07 150);
+  --diff-gutter-delete-background-color: oklch(0.32 0.09 20);
+  --diff-gutter-selected-background-color: var(--muted);
+  --diff-code-insert-background-color: oklch(0.26 0.045 150);
+  --diff-code-delete-background-color: oklch(0.26 0.055 20);
+  --diff-code-insert-edit-background-color: oklch(0.42 0.11 150);
+  --diff-code-delete-edit-background-color: oklch(0.42 0.13 20);
+  --diff-code-selected-background-color: var(--muted);
+  --diff-omit-gutter-line-color: var(--border);
+
+  /* Prism token colours: `tokenize` emits Prism's class names but neither
+     react-diff-view nor refractor ships a theme, so without these the code
+     renders monochrome. Values track the Monaco themes so both editors match. */
+  --tok-comment: #6a9955;
+  --tok-keyword: #569cd6;
+  --tok-string: #ce9178;
+  --tok-number: #b5cea8;
+  --tok-type: #4ec9b0;
+  --tok-function: #dcdcaa;
+  --tok-variable: #9cdcfe;
+  --tok-operator: #d4d4d4;
+  --tok-constant: #4fc1ff;
+  --tok-regex: #d16969;
+
+  font-size: 12px;
+  line-height: 18px;
 }
 
-.engy-comment-line-decoration {
-  background-color: oklch(0.65 0.15 250);
-  width: 3px !important;
-  margin-left: 3px;
-  cursor: pointer;
+.theme-cyberpunk .engy-diff {
+  --diff-gutter-insert-background-color: oklch(0.36 0.11 165);
+  --diff-gutter-delete-background-color: oklch(0.36 0.15 350);
+  --diff-code-insert-background-color: oklch(0.24 0.06 165);
+  --diff-code-delete-background-color: oklch(0.24 0.08 350);
+  --diff-code-insert-edit-background-color: oklch(0.46 0.15 165);
+  --diff-code-delete-edit-background-color: oklch(0.46 0.18 350);
+
+  --tok-comment: #8a4a52;
+  --tok-keyword: #ff3bd4;
+  --tok-string: #00ff9f;
+  --tok-number: #fcee0a;
+  --tok-type: #00f0ff;
+  --tok-function: #ff6b5e;
+  --tok-variable: #ffd9d4;
+  --tok-operator: #ff5c73;
+  --tok-constant: #fcee0a;
+  --tok-regex: #fcee0a;
 }
 
-/* Follows the pointer down the gutter to show the line it would comment on. */
-.engy-add-comment-glyph {
-  cursor: pointer;
+.engy-diff .diff-gutter {
+  position: relative;
+  color: var(--muted-foreground);
 }
 
-.engy-add-comment-glyph::before {
+/* The gutter is clickable on every line, but an empty margin reads as
+   decoration. One "+" follows the pointer, the affordance a pull request shows. */
+.engy-diff .diff-gutter:hover::after {
   content: '+';
+  position: absolute;
+  inset-block: 0;
+  left: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -320,12 +364,77 @@
   border-radius: 2px;
   background-color: oklch(0.65 0.15 250);
   color: oklch(0.98 0 0);
-  font-family: inherit;
   font-size: 12px;
   font-weight: 600;
   line-height: 1;
 }
 
-.engy-add-comment-glyph:hover::before {
-  background-color: oklch(0.72 0.16 250);
+.engy-diff .token.comment,
+.engy-diff .token.prolog,
+.engy-diff .token.doctype,
+.engy-diff .token.cdata {
+  color: var(--tok-comment);
+  font-style: italic;
+}
+
+.engy-diff .token.punctuation,
+.engy-diff .token.operator,
+.engy-diff .token.entity {
+  color: var(--tok-operator);
+}
+
+.engy-diff .token.keyword,
+.engy-diff .token.atrule,
+.engy-diff .token.rule,
+.engy-diff .token.important,
+.engy-diff .token.tag {
+  color: var(--tok-keyword);
+}
+
+.engy-diff .token.string,
+.engy-diff .token.char,
+.engy-diff .token.attr-value,
+.engy-diff .token.url {
+  color: var(--tok-string);
+}
+
+.engy-diff .token.number,
+.engy-diff .token.boolean {
+  color: var(--tok-number);
+}
+
+.engy-diff .token.class-name,
+.engy-diff .token.builtin,
+.engy-diff .token.namespace {
+  color: var(--tok-type);
+}
+
+.engy-diff .token.function,
+.engy-diff .token.selector {
+  color: var(--tok-function);
+}
+
+.engy-diff .token.property,
+.engy-diff .token.attr-name,
+.engy-diff .token.variable,
+.engy-diff .token.parameter {
+  color: var(--tok-variable);
+}
+
+.engy-diff .token.constant,
+.engy-diff .token.symbol {
+  color: var(--tok-constant);
+}
+
+.engy-diff .token.regex {
+  color: var(--tok-regex);
+}
+
+.engy-diff .diff-widget-content {
+  background-color: var(--background);
+}
+
+.engy-diff .diff-expand-row {
+  border-block: 1px solid var(--border);
+  background-color: var(--muted);
 }

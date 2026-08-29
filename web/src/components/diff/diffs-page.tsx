@@ -2,7 +2,6 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { trpc } from '@/lib/trpc';
-import { DynamicMonacoCodeEditor } from '@/components/editor/dynamic-monaco-editors';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { FileListPanel } from './file-list-panel';
@@ -19,11 +18,14 @@ import type { WorktreeSelection } from './worktree-selector';
 import { ReviewActions } from './review-actions';
 import { GithubCommentTriage } from './github-comment-triage';
 import { useDiffComments, extractFilePathFromDocPath } from './use-diff-comments';
-import { resolveFileReadError } from './diff-content-state';
-import { decodeSelection, findSelectedFile, rowId } from './diff-selection';
-import { latestRefs, type DiffRefs } from './diff-refs';
+import { decodeSelection, encodeSelection, findSelectedFile, rowId } from './diff-selection';
+import { refsFor } from './diff-refs';
+import { patchSpecFor, patchContentId } from './diff-patch-spec';
+import { DiffStack } from './diff-stack';
+import type { DiffSectionContext } from './diff-file-section';
+import { resolveReviewMode, type ReviewMode } from './review-mode';
+import { useFilePatch } from './use-file-patch';
 import { refreshDiff } from './diff-refresh';
-import { useAutoSave } from './use-auto-save';
 import { useViewedFiles } from './use-viewed-files';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { RiGitBranchLine, RiDownloadLine } from '@remixicon/react';
@@ -34,7 +36,7 @@ import { useOnServerEvent } from '@/contexts/events-context';
 import { EditorTabsBar } from '@/components/editor/editor-tabs';
 import { useEditorTabs } from '@/components/editor/use-editor-tabs';
 import type { BranchDiffTarget } from '@engy/common';
-import type { ChangedFile, ViewMode, DiffViewMode, EditorMode } from './types';
+import type { ChangedFile, ViewMode, DiffViewMode } from './types';
 
 // `worktree` keeps uncommitted work visible; `head` reproduces the pull request.
 const BRANCH_TARGETS: Array<{ value: BranchDiffTarget; label: string; hint: string }> = [
@@ -78,12 +80,16 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   const tabs = useEditorTabs();
   const [viewMode, setViewMode] = useState<ViewMode>('unified');
   const [diffViewMode, setDiffViewMode] = useState<DiffViewMode>('latest');
-  const [editorMode, setEditorMode] = useState<EditorMode>('diff');
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   // null = follow the repo's detected default branch; a string is an explicit override.
   const [userBaseBranch, setUserBaseBranch] = useState<string | null>(null);
   const [branchTarget, setBranchTarget] = useState<BranchDiffTarget>('worktree');
   const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(null);
+  // null follows the file count; a choice overrides it until the view changes.
+  const [userReviewMode, setUserReviewMode] = useState<ReviewMode | null>(null);
+  // What the stack reports as it scrolls, so the file list can follow along
+  // without that feedback re-triggering a scroll.
+  const [visibleRowId, setVisibleRowId] = useState<string | null>(null);
   const [userSelectedWorktree, setUserSelectedWorktree] = useState<WorktreeSelection>(null);
 
   // Only pending work has an index to be on one side of; a commit or a branch
@@ -164,7 +170,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
   const handleDiffViewModeChange = (mode: DiffViewMode) => {
     setDiffViewMode(mode);
-    setEditorMode('diff');
+    setUserReviewMode(null);
     tabs.reset();
     setSelectedCommit(null);
   };
@@ -173,10 +179,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   // read it, so this list opts out of the app-wide staleness window and reloads
   // whenever attention comes back to the browser — every content read downstream
   // is keyed on identities it reports.
-  const {
-    data: statusData,
-    isLoading: isStatusLoading,
-  } = trpc.diff.getStatus.useQuery(
+  const { data: statusData, isLoading: isStatusLoading } = trpc.diff.getStatus.useQuery(
     {
       repoDir: selectedRepo!,
       worktreePath: selectedWorktree?.worktreePath,
@@ -281,35 +284,27 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   // "before" even after the base branch has moved on, and it names the commit
   // HEAD resolved to rather than `HEAD` itself, which would go on meaning
   // something different after the next commit.
-  const { originalRef, modifiedRef, originalId, modifiedId } = useMemo((): DiffRefs => {
-    if (diffViewMode === 'latest') {
-      if (!selectedFileData || !selectedSide) return {};
-      return latestRefs(selectedFileData, selectedSide, statusData?.head);
-    }
-    if (diffViewMode === 'history' && selectedCommit) {
-      return { originalRef: `${selectedCommit}~1`, modifiedRef: selectedCommit };
-    }
-    if (diffViewMode === 'branch') {
-      // Until the file list arrives there is no commit to pin either side to,
-      // and reading `HEAD` or a branch name would cache content under a ref
-      // that means something else by the next commit.
-      if (!branchDiffData) return {};
-      if (branchTarget === 'head') {
-        return { originalRef: branchDiffData.mergeBase, modifiedRef: branchDiffData.head };
-      }
-      // Working-tree target: the right pane has no ref, only what is on disk.
-      return { originalRef: branchDiffData.mergeBase, modifiedId: selectedFileData?.contentId };
-    }
-    return {};
-  }, [
-    diffViewMode,
-    selectedFileData,
-    selectedSide,
-    statusData,
-    selectedCommit,
-    branchTarget,
-    branchDiffData,
-  ]);
+  const { originalRef, modifiedRef, originalId, modifiedId } = useMemo(
+    () =>
+      refsFor({
+        diffViewMode,
+        file: selectedFileData,
+        side: selectedSide,
+        head: statusData?.head,
+        selectedCommit,
+        branchTarget,
+        branchDiff: branchDiffData,
+      }),
+    [
+      diffViewMode,
+      selectedFileData,
+      selectedSide,
+      statusData,
+      selectedCommit,
+      branchTarget,
+      branchDiffData,
+    ],
+  );
 
   // Comments
   const {
@@ -363,6 +358,18 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     [selectedFile, addLineComment],
   );
 
+  // The stack names the file, since one handler serves every section.
+  const handleAddCommentTo = useCallback(
+    (
+      filePath: string,
+      lineNumber: number,
+      side: 'modified' | 'original',
+      text: string,
+      codeLine: string,
+    ) => addLineComment(filePath, lineNumber, codeLine, text, side),
+    [addLineComment],
+  );
+
   // Review progress is scoped to workspace, project, checkout and what is being
   // diffed, so switching any of them doesn't inherit another review's ticked
   // files. The branch scope keys off the base branch name rather than the merge
@@ -397,32 +404,6 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   const isImage = kind === 'image';
   const isBinary = kind === 'binary';
   const isTextLike = kind === 'text' || kind === 'markdown';
-
-  // File content: original (renamed files read their previous path)
-  const { data: originalData, error: originalError } = trpc.file.read.useQuery(
-    {
-      repoDir: selectedRepo!,
-      filePath: selectedFileData?.oldPath ?? selectedFile!,
-      ref: originalRef,
-      worktreePath: selectedWorktree?.worktreePath,
-      coderWorkspace: selectedWorktree?.coderWorkspace,
-      contentId: originalId,
-    },
-    { enabled: !!selectedRepo && isTextLike && !!originalRef, retry: false },
-  );
-
-  // File content: modified
-  const { data: modifiedData, error: modifiedError } = trpc.file.read.useQuery(
-    {
-      repoDir: selectedRepo!,
-      filePath: selectedFile!,
-      ref: modifiedRef,
-      worktreePath: selectedWorktree?.worktreePath,
-      coderWorkspace: selectedWorktree?.coderWorkspace,
-      contentId: modifiedId,
-    },
-    { enabled: !!selectedRepo && isTextLike, retry: false },
-  );
 
   // Image bytes: original/modified sides (skipped for added/deleted respectively)
   const {
@@ -474,30 +455,37 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     },
   );
 
-  const fileReadError = resolveFileReadError(
-    selectedFileData?.status,
-    originalError?.message ?? null,
-    modifiedError?.message ?? null,
+  const patchSpec = useMemo(
+    () =>
+      patchSpecFor({
+        diffViewMode,
+        selectedSide,
+        head: statusData?.head,
+        selectedCommit,
+        branchTarget,
+        branchDiff: branchDiffData,
+      }),
+    [diffViewMode, selectedSide, statusData, selectedCommit, branchTarget, branchDiffData],
   );
 
-  // Resolve file content (handle added/deleted files)
-  const originalContent = useMemo(() => {
-    if (selectedFileData?.status === 'added') return '';
-    return originalData?.content ?? '';
-  }, [originalData, selectedFileData]);
-
-  const modifiedContent = useMemo(() => {
-    if (selectedFileData?.status === 'deleted') return '';
-    return modifiedData?.content ?? '';
-  }, [modifiedData, selectedFileData]);
-
-  // Auto-save
-  const { status: saveStatus, save } = useAutoSave(
-    diffViewMode === 'latest' ? selectedRepo : null,
-    selectedFile,
-    selectedWorktree?.worktreePath,
-    selectedWorktree?.coderWorkspace,
-  );
+  const {
+    patch,
+    oldSource,
+    truncated: patchTruncated,
+    isLoading: isPatchLoading,
+    error: patchError,
+  } = useFilePatch({
+    repoDir: selectedRepo,
+    filePath: selectedFile,
+    oldPath: selectedFileData?.oldPath,
+    spec: patchSpec,
+    contentId: patchSpec ? patchContentId(patchSpec, selectedFileData) : undefined,
+    originalRef,
+    originalId,
+    worktreePath: selectedWorktree?.worktreePath,
+    coderWorkspace: selectedWorktree?.coderWorkspace,
+    enabled: isTextLike,
+  });
 
   const isFileListLoading =
     (diffViewMode === 'latest' && isStatusLoading) ||
@@ -527,6 +515,38 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   }, [diffComments, files, selectedRepo]);
 
   const selectedFileName = selectedFile ? (selectedFile.split('/').pop() ?? selectedFile) : '';
+
+  const reviewMode = resolveReviewMode(userReviewMode, files.length);
+
+  // One value every section derives its own refs from, so no per-file wiring
+  // has to be threaded through the stack.
+  const sectionContext: DiffSectionContext = useMemo(
+    () => ({
+      diffViewMode,
+      head: statusData?.head,
+      selectedCommit,
+      branchTarget,
+      branchDiff: branchDiffData,
+      repoDir: selectedRepo,
+      worktreePath: selectedWorktree?.worktreePath,
+      coderWorkspace: selectedWorktree?.coderWorkspace,
+    }),
+    [
+      diffViewMode,
+      statusData,
+      selectedCommit,
+      branchTarget,
+      branchDiffData,
+      selectedRepo,
+      selectedWorktree,
+    ],
+  );
+
+  // The stack scrolls to whatever the list last selected; the list highlights
+  // whatever the stack last scrolled past. Keeping the two in separate state is
+  // what stops them driving each other in a loop.
+  const scrollToRowId = selectedFileData ? rowId(selectedFileData) : null;
+  const listSelection = reviewMode === 'stack' ? (visibleRowId ?? tabs.active) : tabs.active;
 
   // The page mounts outside the project layout's tooltip provider, so it brings
   // its own; nesting providers is safe.
@@ -558,7 +578,34 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
               </div>
             )}
           </div>
-          <div className="shrink-0 px-3">
+          <div className="flex shrink-0 items-center gap-2 px-3">
+            {files.length > 0 && !isMobile && (
+              <div className="flex shrink-0">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => setUserReviewMode('stack')}
+                      className={cn(reviewMode === 'stack' && 'bg-muted text-foreground')}
+                    >
+                      All files
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    Every file in one scrolling review
+                  </TooltipContent>
+                </Tooltip>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setUserReviewMode('single')}
+                  className={cn(reviewMode === 'single' && 'bg-muted text-foreground')}
+                >
+                  One file
+                </Button>
+              </div>
+            )}
             <ReviewActions repoDir={selectedRepo} diffComments={currentFileComments} />
           </div>
         </div>
@@ -710,7 +757,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                     ) : (
                       <FileListPanel
                         files={files}
-                        selectedFile={tabs.active}
+                        selectedFile={listSelection}
                         onSelectFile={tabs.open}
                         onRefresh={handleRefresh}
                         isLoading={isCommitDiffLoading}
@@ -726,7 +773,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
             ) : (
               <FileListPanel
                 files={files}
-                selectedFile={tabs.active}
+                selectedFile={listSelection}
                 onSelectFile={tabs.open}
                 onRefresh={handleRefresh}
                 sided={sided}
@@ -740,12 +787,39 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
           }
           centerContent={
             <div className="flex flex-1 min-h-0 flex-col">
-              <EditorTabsBar tabs={tabs} />
+              {reviewMode === 'single' && <EditorTabsBar tabs={tabs} />}
               {allRepos.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center">
                   <p className="text-sm text-muted-foreground">
                     No repositories configured for this workspace
                   </p>
+                </div>
+              ) : reviewMode === 'stack' ? (
+                <div className="flex flex-1 min-h-0 flex-col">
+                  <DiffStack
+                    files={files}
+                    context={sectionContext}
+                    viewMode={isMobile ? 'unified' : viewMode}
+                    scrollToRowId={scrollToRowId}
+                    onVisibleRowChange={setVisibleRowId}
+                    commentsForFile={commentsForFile}
+                    viewedPaths={viewedPaths}
+                    onToggleViewed={toggleViewed}
+                    onOpenSingle={(file) => {
+                      setUserReviewMode('single');
+                      tabs.open(
+                        encodeSelection(
+                          file.path,
+                          sided ? (file.staged ? 'staged' : 'unstaged') : null,
+                        ),
+                      );
+                    }}
+                    onAddComment={handleAddCommentTo}
+                    onReply={replyToThread}
+                    onResolve={resolve}
+                    onDelete={remove}
+                    onDeleteComment={removeComment}
+                  />
                 </div>
               ) : !selectedFile ? (
                 <div className="flex flex-1 items-center justify-center">
@@ -763,10 +837,6 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                       status={selectedFileData.status}
                       viewMode={viewMode}
                       onViewModeChange={setViewMode}
-                      editorMode={editorMode}
-                      onEditorModeChange={isTextLike ? setEditorMode : undefined}
-                      diffViewMode={diffViewMode}
-                      saveStatus={isTextLike ? saveStatus : undefined}
                       hideViewModeToggle={isMobile || !isTextLike}
                       isViewed={viewedPaths.has(selectedFile)}
                       onToggleViewed={() => toggleViewed(selectedFile)}
@@ -790,23 +860,16 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                       />
                     ) : isBinary ? (
                       <NonTextFileView kind="binary" fileName={selectedFileName} />
-                    ) : editorMode === 'edit' && diffViewMode === 'latest' ? (
-                      <DynamicMonacoCodeEditor
-                        content={modifiedContent}
-                        filePath={selectedFile}
-                        repoRoot={selectedWorktree?.worktreePath ?? selectedRepo ?? ''}
-                        modelNamespace="diff-edit"
-                        onChange={save}
-                      />
                     ) : (
                       <DiffViewerPanel
-                        originalContent={originalContent}
-                        modifiedContent={modifiedContent}
+                        patch={patch}
+                        oldSource={oldSource}
                         viewMode={isMobile ? 'unified' : viewMode}
                         filePath={selectedFile}
-                        repoRoot={selectedWorktree?.worktreePath ?? selectedRepo ?? ''}
-                        loadError={fileReadError}
-                        onChange={diffViewMode === 'latest' ? save : undefined}
+                        scrollKey={tabs.active ?? undefined}
+                        isLoading={isPatchLoading}
+                        truncated={patchTruncated}
+                        loadError={patchError}
                         fileComments={fileComments}
                         onAddComment={handleAddComment}
                         onReply={replyToThread}

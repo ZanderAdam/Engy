@@ -55,7 +55,6 @@ import {
 } from '../gh/index.js';
 import {
   getStatusDetailed,
-  getDiff,
   getLog,
   getShow,
   getBranchFiles,
@@ -70,6 +69,7 @@ import {
   type GitRunner,
   globTestFiles,
 } from '../git/index.js';
+import { getPatch } from '../git/patch.js';
 import { ContainerManager } from '../container/manager.js';
 import { CoderManager, shellQuote } from '../container/coder-manager.js';
 import { generateDevcontainerConfig } from '../container/config-generator.js';
@@ -772,18 +772,18 @@ export class WsClient {
   }
 
   private async handleGitDiffRequest(message: GitDiffRequestMessage): Promise<void> {
-    const { requestId, repoDir, filePath, base, staged, coderWorkspace } = message.payload;
+    const { requestId, repoDir, filePath, spec, oldPath, coderWorkspace } = message.payload;
     try {
-      const diff = await getDiff(
+      const { patch, truncated } = await getPatch(
         repoDir,
         filePath,
-        base,
-        staged,
+        spec,
+        oldPath,
         this.gitRunnerFor(coderWorkspace),
       );
       this.send({
         type: 'GIT_DIFF_RESPONSE',
-        payload: { requestId, diff },
+        payload: { requestId, patch, truncated },
       });
     } catch (err) {
       this.send({

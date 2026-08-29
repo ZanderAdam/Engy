@@ -1,12 +1,12 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { RiGithubLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import type { DiffComment } from '@/components/diff/use-diff-comments';
+import type { DiffComment } from './use-diff-comments';
 
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -19,7 +19,7 @@ function formatRelativeTime(dateStr: string): string {
   return `${days}d ago`;
 }
 
-interface MonacoCommentZoneProps {
+interface CommentWidgetProps {
   comment?: DiffComment;
   onSave: (text: string) => void;
   onReply?: (threadId: string, text: string) => void;
@@ -27,19 +27,17 @@ interface MonacoCommentZoneProps {
   onDelete?: (threadId: string) => void;
   onDeleteComment?: (threadId: string, commentId: string) => void;
   onCancel: () => void;
-  onHeightChange?: (height: number) => void;
 }
 
-export function MonacoCommentZone({
+export function CommentWidget({
   comment,
   onSave,
   onReply,
   onDelete,
   onDeleteComment,
   onCancel,
-  onHeightChange,
   onResolve,
-}: MonacoCommentZoneProps) {
+}: CommentWidgetProps) {
   const [text, setText] = useState('');
 
   const handleKeyDown = useCallback(
@@ -72,23 +70,6 @@ export function MonacoCommentZone({
     setText('');
   };
 
-  const observerRef = useRef<ResizeObserver | null>(null);
-  const setContainerRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-        observerRef.current = null;
-      }
-      if (node && onHeightChange) {
-        observerRef.current = new ResizeObserver(() => {
-          onHeightChange(node.offsetHeight);
-        });
-        observerRef.current.observe(node);
-      }
-    },
-    [onHeightChange],
-  );
-
   const isGithub = comment?.source === 'github';
 
   function commentLabel(c: DiffComment['comments'][number], i: number): string {
@@ -99,7 +80,6 @@ export function MonacoCommentZone({
   return (
     <TooltipProvider>
       <div
-        ref={setContainerRef}
         className={cn(
           'border border-border bg-background p-3',
           isGithub && 'border-l-2 border-l-muted-foreground/30',

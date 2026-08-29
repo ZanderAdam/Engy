@@ -9,6 +9,8 @@ import { ReviewActions } from './review-actions';
 import { useDiffComments } from './use-diff-comments';
 import { decodeSelection, findSelectedFile } from './diff-selection';
 import { latestRefs } from './diff-refs';
+import { patchSpecFor, patchContentId } from './diff-patch-spec';
+import { useFilePatch } from './use-file-patch';
 import { refreshDiff } from './diff-refresh';
 import type { ChangedFile, ViewMode } from './types';
 
@@ -39,7 +41,7 @@ export function DirDiffPanel({ dirPath }: DirDiffPanelProps) {
     [files, selectedFile, selectedSide],
   );
 
-  const { originalRef, modifiedRef, originalId, modifiedId } = useMemo(
+  const { originalRef, originalId } = useMemo(
     () =>
       selectedFileData && selectedSide
         ? latestRefs(selectedFileData, selectedSide, statusData?.head)
@@ -47,32 +49,27 @@ export function DirDiffPanel({ dirPath }: DirDiffPanelProps) {
     [selectedFileData, selectedSide, statusData],
   );
 
-  // File content: original
-  const { data: originalData } = trpc.file.read.useQuery(
-    {
-      repoDir: dirPath,
-      filePath: selectedFileData?.oldPath ?? selectedFile!,
-      ref: originalRef,
-      contentId: originalId,
-    },
-    { enabled: !!selectedFile && !!originalRef, retry: false },
+  const spec = useMemo(
+    () =>
+      patchSpecFor({
+        diffViewMode: 'latest',
+        selectedSide,
+        head: statusData?.head,
+        selectedCommit: null,
+        branchTarget: 'worktree',
+      }),
+    [selectedSide, statusData],
   );
 
-  // File content: modified
-  const { data: modifiedData } = trpc.file.read.useQuery(
-    { repoDir: dirPath, filePath: selectedFile!, ref: modifiedRef, contentId: modifiedId },
-    { enabled: !!selectedFile && selectedFileData?.status !== 'deleted', retry: false },
-  );
-
-  const originalContent = useMemo(() => {
-    if (selectedFileData?.status === 'added') return '';
-    return originalData?.content ?? '';
-  }, [originalData, selectedFileData]);
-
-  const modifiedContent = useMemo(() => {
-    if (selectedFileData?.status === 'deleted') return '';
-    return modifiedData?.content ?? '';
-  }, [modifiedData, selectedFileData]);
+  const { patch, oldSource, truncated, isLoading, error } = useFilePatch({
+    repoDir: dirPath,
+    filePath: selectedFile,
+    oldPath: selectedFileData?.oldPath,
+    spec,
+    contentId: spec ? patchContentId(spec, selectedFileData) : undefined,
+    originalRef,
+    originalId,
+  });
 
   return (
     <div className="flex flex-1 min-h-0">
@@ -108,11 +105,14 @@ export function DirDiffPanel({ dirPath }: DirDiffPanelProps) {
             )}
             <div className="flex-1 min-h-0">
               <DiffViewerPanel
-                originalContent={originalContent}
-                modifiedContent={modifiedContent}
+                patch={patch}
+                oldSource={oldSource}
                 viewMode={viewMode}
                 filePath={selectedFile}
-                repoRoot={dirPath}
+                scrollKey={selection ?? undefined}
+                isLoading={isLoading}
+                truncated={truncated}
+                loadError={error}
               />
             </div>
           </div>

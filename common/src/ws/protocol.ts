@@ -118,14 +118,30 @@ export interface GitStatusResponseMessage {
       };
 }
 
+/**
+ * Which two snapshots a patch compares, named rather than expressed as a pair of
+ * refs. Each kind maps to one git invocation, so the daemon never has to guess
+ * what a ref like `:0` was supposed to mean.
+ */
+export type GitPatchSpec =
+  /** Last commit against the index — `git diff --cached`. */
+  | { kind: 'staged'; head?: string }
+  /** Index against the working tree — `git diff`. */
+  | { kind: 'unstaged' }
+  /** A commit against its first parent. */
+  | { kind: 'commit'; hash: string }
+  /** An explicit range; `to` absent means the working tree. */
+  | { kind: 'range'; from: string; to?: string };
+
 export interface GitDiffRequestMessage {
   type: 'GIT_DIFF_REQUEST';
   payload: {
     requestId: string;
     repoDir: string;
     filePath: string;
-    base?: string;
-    staged?: boolean;
+    spec: GitPatchSpec;
+    /** Previous path of a rename, so `-M` can pair the two sides. */
+    oldPath?: string;
     coderWorkspace?: string;
   };
 }
@@ -135,7 +151,9 @@ export interface GitDiffResponseMessage {
   payload:
     | {
         requestId: string;
-        diff: string;
+        patch: string;
+        /** Set when the patch exceeded the size cap; `patch` is then empty. */
+        truncated?: boolean;
       }
     | {
         requestId: string;

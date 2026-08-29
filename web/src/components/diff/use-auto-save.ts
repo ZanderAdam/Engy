@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 
-export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 const DEBOUNCE_MS = 1_000;
 
@@ -48,7 +48,9 @@ export function useAutoSave(
     },
   });
   const mutateRef = useRef(writeMutation.mutateAsync);
-  useEffect(() => { mutateRef.current = writeMutation.mutateAsync; }, [writeMutation.mutateAsync]);
+  useEffect(() => {
+    mutateRef.current = writeMutation.mutateAsync;
+  }, [writeMutation.mutateAsync]);
   const [resetKey, setResetKey] = useState(`${repoDir}:${filePath}`);
 
   // Detect file change via derived state

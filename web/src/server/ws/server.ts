@@ -13,12 +13,14 @@ import type {
   WorktreeRemoveErrorCode,
   FleetingMemoryType,
   BranchDiffTarget,
+  GitPatchSpec,
 } from '@engy/common';
 import type {
   AppState,
   GitStatusResult,
   GitLogResult,
   GitShowResult,
+  GitPatchResult,
   GitBranchFilesResult,
   GitDefaultBaseResult,
   GitFetchResult,
@@ -114,6 +116,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingGitStatus,
     state.pendingGitLog,
     state.pendingGitShow,
+    state.pendingGitPatch,
     state.pendingGitBranchFiles,
     state.pendingGitDefaultBase,
     state.pendingGitFetch,
@@ -180,6 +183,12 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'GIT_SHOW_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGitShow, (p) => ({
         files: p.files,
+      }));
+      break;
+    case 'GIT_DIFF_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGitPatch, (p) => ({
+        patch: p.patch,
+        truncated: p.truncated,
       }));
       break;
     case 'GIT_BRANCH_FILES_RESPONSE':
@@ -1024,6 +1033,23 @@ export function dispatchGitShow(
   return dispatchDaemonOp(state, state.pendingGitShow, 'GIT_SHOW_REQUEST', {
     repoDir,
     commitHash,
+    coderWorkspace,
+  });
+}
+
+export function dispatchGitPatch(
+  repoDir: string,
+  filePath: string,
+  spec: GitPatchSpec,
+  state: AppState,
+  oldPath?: string,
+  coderWorkspace?: string,
+): Promise<GitPatchResult> {
+  return dispatchDaemonOp(state, state.pendingGitPatch, 'GIT_DIFF_REQUEST', {
+    repoDir,
+    filePath,
+    spec,
+    oldPath,
     coderWorkspace,
   });
 }

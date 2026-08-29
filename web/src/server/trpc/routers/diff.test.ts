@@ -42,6 +42,66 @@ describe('diff router', () => {
     });
   });
 
+  describe('getPatch', () => {
+    it('[FR-GIT-020] throws when no daemon is connected', async () => {
+      ctx = setupTestDb();
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(
+        caller.diff.getPatch({
+          repoDir: '/tmp/repo',
+          filePath: 'src/a.ts',
+          spec: { kind: 'unstaged' },
+        }),
+      ).rejects.toThrow('No daemon connected');
+    });
+
+    it('[FR-GIT-390] accepts every patch spec kind', async () => {
+      ctx = setupTestDb();
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const specs = [
+        { kind: 'staged' as const, head: 'abc' },
+        { kind: 'unstaged' as const },
+        { kind: 'commit' as const, hash: 'abc' },
+        { kind: 'range' as const, from: 'base', to: 'head' },
+      ];
+
+      for (const spec of specs) {
+        await expect(
+          caller.diff.getPatch({ repoDir: '/tmp/repo', filePath: 'a.ts', spec }),
+        ).rejects.toThrow('No daemon connected');
+      }
+    });
+
+    it('[FR-GIT-390] rejects a spec kind it does not know', async () => {
+      ctx = setupTestDb();
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(
+        caller.diff.getPatch({
+          repoDir: '/tmp/repo',
+          filePath: 'a.ts',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          spec: { kind: 'whatever' } as any,
+        }),
+      ).rejects.toThrow();
+    });
+
+    it('[FR-GIT-010] accepts a worktreePath as the effective dir', async () => {
+      ctx = setupTestDb();
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(
+        caller.diff.getPatch({
+          repoDir: '/tmp/repo',
+          worktreePath: '/tmp/worktree',
+          filePath: 'a.ts',
+          spec: { kind: 'unstaged' },
+        }),
+      ).rejects.toThrow('No daemon connected');
+    });
+  });
+
   describe('getCommitDiff', () => {
     it('[FR-GIT-020] throws when no daemon is connected', async () => {
       ctx = setupTestDb();
