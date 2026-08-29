@@ -28,7 +28,7 @@ describe('generateDiffFeedback', () => {
     expect(generateDiffFeedback(threads, REPO)).toBe('');
   });
 
-  it('generates markdown for a single file', () => {
+  it('[FR-GIT-360] generates markdown for a single file', () => {
     const threads = [
       makeThread('src/app.ts', 10, 'Add error handling', { codeLine: 'const x = foo()' }),
     ];
@@ -40,6 +40,14 @@ describe('generateDiffFeedback', () => {
     expect(result).toContain('**Line 10**');
     expect(result).toContain('const x = foo()');
     expect(result).toContain('Add error handling');
+  });
+
+  it('[FR-GIT-360] omits the code fence when no line was captured', () => {
+    const threads = [makeThread('src/app.ts', 10, 'Add error handling')];
+    const result = generateDiffFeedback(threads, REPO);
+
+    expect(result).toContain('**Line 10**');
+    expect(result).not.toContain('```');
   });
 
   it('generates markdown for multiple files', () => {

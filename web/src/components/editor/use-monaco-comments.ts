@@ -9,7 +9,12 @@ import type { DiffComment } from '@/components/diff/use-diff-comments';
 interface UseMonacoCommentsOptions {
   editor: editor.IStandaloneCodeEditor | editor.IStandaloneDiffEditor | null;
   comments: DiffComment[];
-  onAddComment?: (lineNumber: number, side: 'modified' | 'original', text: string) => void;
+  onAddComment?: (
+    lineNumber: number,
+    side: 'modified' | 'original',
+    text: string,
+    codeLine: string,
+  ) => void;
   onReply?: (threadId: string, text: string) => void;
   onResolve?: (threadId: string) => void;
   onDelete?: (threadId: string) => void;
@@ -252,7 +257,10 @@ export function useMonacoComments({
       'comment-zone-new',
       createElement(MonacoCommentZone, {
         onSave: (text: string) => {
-          onAddCommentRef.current?.(newCommentLine, 'modified', text);
+          // The line the comment anchors to, read as the reviewer saw it. Captured
+          // here because this is the only layer holding the model.
+          const codeLine = targetEditor.getModel()?.getLineContent(newCommentLine) ?? '';
+          onAddCommentRef.current?.(newCommentLine, 'modified', text, codeLine);
           setNewCommentLine(null);
         },
         onCancel: () => setNewCommentLine(null),

@@ -357,8 +357,8 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   // Stable across renders: the diff editor subscribes to this, and a fresh
   // closure each render would tear the subscription down mid-interaction.
   const handleAddComment = useCallback(
-    (lineNumber: number, side: 'modified' | 'original', text: string) => {
-      if (selectedFile) addLineComment(selectedFile, lineNumber, '', text, side);
+    (lineNumber: number, side: 'modified' | 'original', text: string, codeLine: string) => {
+      if (selectedFile) addLineComment(selectedFile, lineNumber, codeLine, text, side);
     },
     [selectedFile, addLineComment],
   );

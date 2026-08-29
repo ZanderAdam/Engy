@@ -17,7 +17,12 @@ interface DiffViewerPanelProps {
   loadError?: string | null;
   onChange?: (value: string) => void;
   fileComments?: DiffComment[];
-  onAddComment?: (lineNumber: number, side: 'modified' | 'original', text: string) => void;
+  onAddComment?: (
+    lineNumber: number,
+    side: 'modified' | 'original',
+    text: string,
+    codeLine: string,
+  ) => void;
   onReply?: (threadId: string, text: string) => void;
   onResolve?: (threadId: string) => void;
   onDelete?: (threadId: string) => void;
