@@ -33,6 +33,24 @@ const DISABLED_SLUG = 'voice-off';
 
 const recognizerCloseSpies: ReturnType<typeof vi.fn>[] = [];
 
+// This suite tests the WS layer — connection isolation, buffering, timing —
+// not wake-word acoustics (that's spotter.test.ts's job, against the real
+// model). The fixture never says the wake word, so leaving the real spotter
+// wired in would make every pre-existing segment test fail as a side effect
+// of FR-TG2.12's gating. Defaulting to "always woken" here reproduces the
+// pre-wake-word behaviour those tests assert; the gating-specific tests below
+// flip it explicitly.
+let wakeOnChunk: (chunk: Buffer) => boolean = () => true;
+vi.mock('../voice/spotter', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../voice/spotter')>();
+  return {
+    ...actual,
+    createWakeStream: vi.fn(async () => ({
+      writeChunk: (chunk: Buffer) => wakeOnChunk(chunk),
+    })),
+  };
+});
+
 vi.mock('../voice/recognizer', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../voice/recognizer')>();
   return {
@@ -90,11 +108,14 @@ function closeServer(server: Server): Promise<void> {
 
 /** Collects every `voice_*` control message received on `ws` into typed
  * buckets. `finals` records one entry per content-free `voice_final` — its
- * length is the number of turns the connection has seen end. */
+ * length is the number of turns the connection has seen end. `wakes` records
+ * one entry per `voice_wake`, sent distinctly from `voice_segment` per
+ * FR-TG2.15. */
 function collectEvents(ws: WebSocket) {
   const segments: string[] = [];
   const finals: true[] = [];
   const errors: string[] = [];
+  const wakes: true[] = [];
   ws.on('message', (data) => {
     const msg = JSON.parse(data.toString('utf-8')) as {
       t: string;
@@ -104,8 +125,9 @@ function collectEvents(ws: WebSocket) {
     if (msg.t === 'voice_segment' && msg.transcript) segments.push(msg.transcript);
     if (msg.t === 'voice_final') finals.push(true);
     if (msg.t === 'voice_error' && msg.message) errors.push(msg.message);
+    if (msg.t === 'voice_wake') wakes.push(true);
   });
-  return { segments, finals, errors };
+  return { segments, finals, errors, wakes };
 }
 
 function streamFixture(ws: WebSocket, pcm: Buffer): void {
@@ -184,6 +206,7 @@ describe('voice WebSocket server', () => {
   beforeEach(async () => {
     openClients = [];
     recognizerCloseSpies.length = 0;
+    wakeOnChunk = () => true;
     vi.mocked(createTurnRecognizer).mockClear();
     const result = await startServer();
     server = result.server;
@@ -330,4 +353,56 @@ describe('voice WebSocket server', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(writes).toEqual([]);
   });
+
+  it(
+    '[FR-TG2.14] discards every segment, and reports no voice_wake, when the wake word never fires',
+    async () => {
+      wakeOnChunk = () => false;
+      const pcm = readWavPcm16(FIXTURE_PATH);
+      const ws = await connectVoice(port);
+      const events = collectEvents(ws);
+
+      ws.send(JSON.stringify({ t: 'voice_start' }));
+      await waitUntil(() => vi.mocked(createTurnRecognizer).mock.calls.length >= 1);
+
+      streamFixture(ws, pcm);
+      ws.send(JSON.stringify({ t: 'voice_stop' }));
+      await waitUntil(() => events.finals.length > 0);
+
+      expect(events.segments).toEqual([]);
+      expect(events.wakes).toEqual([]);
+      expect(events.errors).toEqual([]);
+    },
+    MODEL_TEST_TIMEOUT,
+  );
+
+  it(
+    '[FR-TG2.15] reports voice_wake distinctly from, and ahead of, the decoded voice_segment',
+    async () => {
+      // wakeOnChunk fires on every chunk in the default beforeEach setup —
+      // exactly what's needed here: assert voice_wake precedes voice_segment
+      // for the very first segment, proving it's a separate signal rather
+      // than folded into the segment payload.
+      const pcm = readWavPcm16(FIXTURE_PATH);
+      const ws = await connectVoice(port);
+      const order: string[] = [];
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString('utf-8')) as { t: string };
+        order.push(msg.t);
+      });
+
+      ws.send(JSON.stringify({ t: 'voice_start' }));
+      await waitUntil(() => vi.mocked(createTurnRecognizer).mock.calls.length >= 1);
+
+      streamFixture(ws, pcm);
+      ws.send(JSON.stringify({ t: 'voice_stop' }));
+      await waitUntil(() => order.includes('voice_final'));
+
+      const wakeIdx = order.indexOf('voice_wake');
+      const segmentIdx = order.indexOf('voice_segment');
+      expect(wakeIdx).toBeGreaterThanOrEqual(0);
+      expect(segmentIdx).toBeGreaterThan(wakeIdx);
+    },
+    MODEL_TEST_TIMEOUT,
+  );
 });

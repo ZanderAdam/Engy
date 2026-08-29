@@ -82,4 +82,50 @@ declare module 'sherpa-onnx-node' {
     flush(): void;
     reset(): void;
   }
+
+  /** A streaming input handle shared by OnlineRecognizer and KeywordSpotter —
+   * feed it waveform chunks as they arrive. */
+  export class OnlineStream {
+    acceptWaveform(waveform: Waveform): void;
+    inputFinished(): void;
+  }
+
+  export interface KeywordSpotterConfig {
+    featConfig: { sampleRate: number; featureDim: number };
+    modelConfig: OfflineModelConfig;
+    maxActivePaths?: number;
+    numTrailingBlanks?: number;
+    /** Global boost applied to every keyword's LM score; overridden per-line
+     * by a keywords-file entry's own `:boost`. */
+    keywordsScore?: number;
+    /** Global trigger threshold; overridden per-line by `#threshold`. */
+    keywordsThreshold?: number;
+    /** Path to a `sherpa-onnx` keywords-file (see `keywords.ts`'s
+     * `formatKeywordLine`). */
+    keywordsFile: string;
+  }
+
+  export interface KeywordResult {
+    /** The "@id" field of the keywords-file line that fired, or `""` when no
+     * keyword has fired since the stream was created or last `reset()`. */
+    keyword: string;
+    start_time: number;
+    timestamps: number[];
+    tokens: string[];
+  }
+
+  /** Streaming keyword spotter. Like OnlineRecognizer, the spotter instance
+   * itself is stateless config wrapping the loaded model; all per-utterance
+   * state (buffered frames, the armed/fired keyword) lives on the
+   * OnlineStream from `createStream()`. */
+  export class KeywordSpotter {
+    constructor(config: KeywordSpotterConfig);
+    createStream(): OnlineStream;
+    isReady(stream: OnlineStream): boolean;
+    decode(stream: OnlineStream): void;
+    /** Clears the stream's fired keyword so a later utterance in the same
+     * stream can trigger again. */
+    reset(stream: OnlineStream): void;
+    getResult(stream: OnlineStream): KeywordResult;
+  }
 }

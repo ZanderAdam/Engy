@@ -79,6 +79,7 @@ export function createVoiceWebSocketServer(): WebSocketServer {
           const { createTurnRecognizer } = await import('../voice/recognizer');
           const rec = await createTurnRecognizer({
             onSegment: (transcript) => sendVoiceEvent(ws, { t: 'voice_segment', transcript }),
+            onWake: () => sendVoiceEvent(ws, { t: 'voice_wake' }),
             onError: (error) => sendVoiceEvent(ws, { t: 'voice_error', message: error.message }),
           });
 

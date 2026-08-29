@@ -8,6 +8,7 @@ import type {
 } from 'sherpa-onnx-node';
 
 import { resolveModelDir, resolveVadModelPath } from './models';
+import { createWakeStream, preloadSpotter, type WakeStream } from './spotter';
 
 // sherpa-onnx-node's CommonJS exports are invisible to Node's ESM lexer; a
 // named import passes under Vitest's interop but throws in the real server.
@@ -31,8 +32,13 @@ const VAD_BUFFER_SECONDS = 30;
 export interface TurnRecognizerOpts {
   /** Called once per finalized, VAD-closed speech segment, in order. Not a
    * revision of a growing hypothesis — each call is complete decoded text
-   * for its own span of audio. */
+   * for its own span of audio. Only segments that carried the wake word
+   * reach this callback; see FR-TG2.12. */
   onSegment: (text: string) => void;
+  /** Called the moment the wake word is detected, independently of segment
+   * decode — this is what lets the browser show "it heard me" even before
+   * (or if never) a segment closes and resolves. See FR-TG2.15. */
+  onWake: () => void;
   onError: (error: Error) => void;
 }
 
@@ -89,6 +95,7 @@ async function getSharedRecognizer(): Promise<OfflineRecognizer> {
 export function preloadRecognizer(): void {
   void getSharedRecognizer().catch(() => {});
   void resolveVadModelPath().catch(() => {});
+  preloadSpotter();
 }
 
 function pcm16ToFloat32(chunk: Buffer): Float32Array {
@@ -130,8 +137,18 @@ async function createVad(): Promise<Vad> {
  * `onSegment` while the turn is still in progress.
  */
 export async function createTurnRecognizer(opts: TurnRecognizerOpts): Promise<TurnRecognizer> {
-  const [recognizer, vad] = await Promise.all([getSharedRecognizer(), createVad()]);
+  const [recognizer, vad, wakeStream]: [OfflineRecognizer, Vad, WakeStream] = await Promise.all([
+    getSharedRecognizer(),
+    createVad(),
+    createWakeStream(),
+  ]);
   let closed = false;
+  // True once the wake word has fired since the currently-open VAD segment
+  // started (or since the last segment was drained, if none is open yet).
+  // This is the whole wake-gating mechanism: the spotter decides *whether* a
+  // segment gets decoded, the VAD decides *what span*. See FR-TG2.12 and
+  // "How a turn works" in the M13 plan.
+  let wokenSinceLastSegment = false;
 
   function decodeSegment(samples: Float32Array): void {
     try {
@@ -148,7 +165,11 @@ export async function createTurnRecognizer(opts: TurnRecognizerOpts): Promise<Tu
   function drainClosedSegments(): void {
     while (!vad.isEmpty()) {
       const segment = vad.front();
-      decodeSegment(segment.samples);
+      const woken = wokenSinceLastSegment;
+      wokenSinceLastSegment = false;
+      // FR-TG2.14: a segment with no wake hit is discarded — never decoded,
+      // never reported. Silence and unaddressed speech never reach parakeet.
+      if (woken) decodeSegment(segment.samples);
       vad.pop();
     }
   }
@@ -157,6 +178,10 @@ export async function createTurnRecognizer(opts: TurnRecognizerOpts): Promise<Tu
     writeChunk(chunk: Buffer): void {
       if (closed) return;
       vad.acceptWaveform(pcm16ToFloat32(chunk));
+      if (wakeStream.writeChunk(chunk)) {
+        wokenSinceLastSegment = true;
+        opts.onWake();
+      }
       drainClosedSegments();
     },
     close(): void {

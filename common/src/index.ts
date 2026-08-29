@@ -109,6 +109,7 @@ export type {
   VoiceSegmentEvent,
   VoiceFinalEvent,
   VoiceErrorEvent,
+  VoiceWakeEvent,
   VoiceControlCmd,
   VoiceEvent,
 } from './ws/protocol.js';

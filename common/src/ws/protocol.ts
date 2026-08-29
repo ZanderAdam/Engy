@@ -1097,5 +1097,19 @@ export interface VoiceErrorEvent {
   message: string;
 }
 
+/**
+ * Server → browser: the wake word was detected in the live audio stream.
+ * Sent the moment the streaming KeywordSpotter fires, independently of
+ * `voice_segment` — a turn can see a `voice_wake` with no `voice_segment`
+ * ever following it (the utterance was addressed but resolution then found
+ * nothing to decode into, or the VAD segment closed before decode finished).
+ * This is what lets the client distinguish "it did not hear me" (no
+ * `voice_wake` at all) from "it heard me but did not understand" (a
+ * `voice_wake` with no matching action) per FR-TG2.15.
+ */
+export interface VoiceWakeEvent {
+  t: 'voice_wake';
+}
+
 export type VoiceControlCmd = VoiceStartCmd | VoiceStopCmd;
-export type VoiceEvent = VoiceSegmentEvent | VoiceFinalEvent | VoiceErrorEvent;
+export type VoiceEvent = VoiceSegmentEvent | VoiceFinalEvent | VoiceErrorEvent | VoiceWakeEvent;
