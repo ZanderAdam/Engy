@@ -1,7 +1,7 @@
 name: engy
 slug: engy
 repos:
-  - path: /Users/aleks/dev/engy
-docsDir: /Users/aleks/dev/engy/docs
+  - path: /home/aleks/dev/Engy
+docsDir: /home/aleks/dev/Engy/docs
 planSkill: /engy:planning
 implementSkill: /engy:implement
