@@ -362,8 +362,20 @@ export async function update(
 /**
  * Fire-and-forget embed pass. Errors are caught and logged with an [indexer] prefix.
  * Used after a dir mutation to generate embeddings without blocking the response.
+ *
+ * Skipped when QMD_SKIP=1, matching the guards the search, memory-linking and
+ * clustering paths already apply. (Named indirectly on purpose: a structural
+ * test asserts this file never mentions the linking module, which is how the
+ * recursion bound is enforced.) This is the only place the indexer runs inference,
+ * so without the guard every memory mutation in the test suite loaded the real
+ * embedding model — and because the pass is fire-and-forget it outlived the test
+ * that spawned it, landing on a torn-down DB ("connection is not open") after
+ * paying full inference cost. Read at call time, not module load, so the
+ * describe.skipIf(!QMD_AVAILABLE) suites that delete the flag still embed.
  */
 function spawnEmbedPass(workspaceSlug: string): void {
+  if (process.env.QMD_SKIP === '1') return;
+
   // Embed pass uses slug-only lookup; the store is already cached from update().
   const db = getDb();
   const ws = db.select().from(workspaces).where(eq(workspaces.slug, workspaceSlug)).get();

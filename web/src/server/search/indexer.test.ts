@@ -13,7 +13,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { eq, and } from 'drizzle-orm';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { appRouter } from '../trpc/root';
@@ -685,6 +685,58 @@ describe('WorkspaceIndexer', () => {
 
     it('should swallow errors for an unknown workspace slug instead of throwing', () => {
       expect(() => triggerMemoryIndexOnWrite('no-such-workspace')).not.toThrow();
+    });
+  });
+
+  describe('background embed pass gating', () => {
+    // store.embed() is the indexer's only model-inference call. Stubbing it lets
+    // both cases assert the gate without a GGUF model present, so neither test
+    // needs the QMD_AVAILABLE skip.
+    async function stubEmbed() {
+      const wsRow = ctx.db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.slug, workspaceSlug))
+        .get()!;
+      const store = await getStore(wsRow);
+      return vi
+        .spyOn(store, 'embed')
+        .mockResolvedValue({ docsProcessed: 0, chunksEmbedded: 0, errors: 0, durationMs: 0 });
+    }
+
+    it('[FR-MEMORY-240] should skip the background embed pass when QMD_SKIP=1', async () => {
+      const embedSpy = await stubEmbed();
+      writeFixture(
+        'memory/facts/guarded.md',
+        `---\ntitle: Guarded\nsubtype: fact\n---\n\nGuarded fact.\n`,
+      );
+
+      triggerMemoryIndexOnWrite(workspaceSlug);
+      await _flushMemoryIndexOnWrite(workspaceSlug);
+
+      // The hash scan and frontmatter sync still run — only inference is gated.
+      expect(readFrontmatterRows('memory').map((r) => r.path)).toContain(
+        'memory/facts/guarded.md',
+      );
+      expect(embedSpy).not.toHaveBeenCalled();
+    });
+
+    it('[FR-MEMORY-240] should run the background embed pass when QMD_SKIP is unset', async () => {
+      const embedSpy = await stubEmbed();
+      writeFixture(
+        'memory/facts/embedded.md',
+        `---\ntitle: Embedded\nsubtype: fact\n---\n\nEmbedded fact.\n`,
+      );
+
+      delete process.env.QMD_SKIP;
+      try {
+        triggerMemoryIndexOnWrite(workspaceSlug);
+        await _flushMemoryIndexOnWrite(workspaceSlug);
+      } finally {
+        process.env.QMD_SKIP = '1';
+      }
+
+      expect(embedSpy).toHaveBeenCalled();
     });
   });
 });
