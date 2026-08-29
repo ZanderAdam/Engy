@@ -1,5 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  PLANS_DIR,
+  isPlanFile,
+  planFilePathFromStem,
+  planStemFromFilename,
+  taskIdFromStem,
+} from '../../lib/plan-naming';
 
 function validatePath(base: string, target: string): string {
   const resolved = path.resolve(base, target);
@@ -10,8 +17,41 @@ function validatePath(base: string, target: string): string {
   return resolved;
 }
 
-export function taskPlanSlug(workspaceSlug: string, taskId: number): string {
-  return `${workspaceSlug}-T${taskId}`;
+/**
+ * Every task plan in a project, keyed by task id. Filenames carry an
+ * agent-chosen description, so plans are discovered here rather than computed
+ * anywhere else; when a replan leaves two files behind, the most recently
+ * written one wins.
+ */
+export function readTaskPlans(
+  projectDir: string,
+  workspaceSlug: string,
+): Record<number, string> {
+  const plansDir = validatePath(projectDir, PLANS_DIR);
+  if (!fs.existsSync(plansDir)) return {};
+
+  const newestFirst = fs
+    .readdirSync(plansDir)
+    .filter(isPlanFile)
+    .map((f) => ({ f, mtime: fs.statSync(path.join(plansDir, f)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime || a.f.localeCompare(b.f));
+
+  const plans: Record<number, string> = {};
+  for (const { f } of newestFirst) {
+    const taskId = taskIdFromStem(planStemFromFilename(f), workspaceSlug);
+    if (taskId !== null && !(taskId in plans)) {
+      plans[taskId] = planFilePathFromStem(planStemFromFilename(f));
+    }
+  }
+  return plans;
+}
+
+export function findTaskPlanPath(
+  projectDir: string,
+  workspaceSlug: string,
+  taskId: number,
+): string | null {
+  return readTaskPlans(projectDir, workspaceSlug)[taskId] ?? null;
 }
 
 export function readTaskPlan(
@@ -19,10 +59,9 @@ export function readTaskPlan(
   workspaceSlug: string,
   taskId: number,
 ): string | null {
-  const slug = taskPlanSlug(workspaceSlug, taskId);
-  const planPath = validatePath(projectDir, path.join('plans', `${slug}.plan.md`));
-  if (!fs.existsSync(planPath)) return null;
-  return fs.readFileSync(planPath, 'utf-8');
+  const relPath = findTaskPlanPath(projectDir, workspaceSlug, taskId);
+  if (!relPath) return null;
+  return fs.readFileSync(validatePath(projectDir, relPath), 'utf-8');
 }
 
 export function slugify(title: string): string {
@@ -45,7 +84,7 @@ export function writePlanFile(
 ): void {
   const specDir = validatePath(specsDir, specSlug);
   const filePath = validatePath(specDir, filename);
-  fs.mkdirSync(specDir, { recursive: true });
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
 }
 
@@ -73,7 +112,7 @@ export function listPlanFiles(specsDir: string, specSlug: string): string[] {
 
   return fs
     .readdirSync(specDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.plan.md'))
+    .filter((entry) => entry.isFile() && isPlanFile(entry.name))
     .map((entry) => entry.name)
     .sort();
 }

@@ -17,7 +17,7 @@ re-rooting, and a two-step completion/archive flow.
 
 | File | Role |
 |---|---|
-| `web/src/server/trpc/routers/project.ts` | tRPC procedures: `create`, `list`, `get`, `getBySlug`, `listWithProgress`, `updateStatus`, `delete`, `listFiles`, `getSpec`, `updateSpec`, `readFile`, `readImage`, `writeFile`, `mkdir`, `deleteFile`, `deleteDir`, `renameFile`, `renameDir`, `listContextFiles`, `readContextFile`, `writeContextFile`, `deleteContextFile`, `startCompletion`, `archive`, `getPlanSlugs` |
+| `web/src/server/trpc/routers/project.ts` | tRPC procedures: `create`, `list`, `get`, `getBySlug`, `listWithProgress`, `updateStatus`, `delete`, `listFiles`, `getSpec`, `updateSpec`, `readFile`, `readImage`, `writeFile`, `mkdir`, `deleteFile`, `deleteDir`, `renameFile`, `renameDir`, `listContextFiles`, `readContextFile`, `writeContextFile`, `deleteContextFile`, `startCompletion`, `archive`, `getTaskPlans` |
 | `web/src/server/project/service.ts` | Pure filesystem helpers: `initProjectDir`, `removeProjectDir`, `listProjectFiles`, `getProjectSpec`, `updateProjectSpec`, `readProjectFile`, `readProjectImage`, `writeProjectFile`, `mkdirProject`, `deleteProjectFile`, `deleteProjectSubDir`, `renameProjectFile`, `renameProjectSubDir`, `listProjectContextFiles`, `readProjectContextFile`, `writeProjectContextFile`, `deleteProjectContextFile`, `checkProjectReadiness` (module-private: `validatePath`) |
 | `web/src/server/services/project-completion.ts` | `ProjectCompletionService` — `startCompletion` and `archive`; singleton exported as `projectCompletionService` |
 | `web/src/server/mcp/index.ts` | `startProjectCompletion` and `archiveProject` MCP tools (registered inside `registerWorkspaceTools`) |
@@ -86,12 +86,28 @@ the file; `readProjectContextFile` and `deleteProjectContextFile` throw `not
 found` when the file is absent. All four operations pass filenames through
 `validatePath` to reject traversal.
 
-## Plan slug enumeration
+## Task plan enumeration
 
-`readPlanSlugs` (internal to `project.ts`) lists `{project}/plans/*.plan.md`
-and returns the stems. Non-`.plan.md` files and a missing `plans/` directory
-both yield `[]`. The slugs are attached to the `getBySlug` response via
-`enrichProject` and are also available directly via `getPlanSlugs`.
+`getTaskPlans` returns every plan in a project keyed by task id, computed by
+`readTaskPlans` (`web/src/server/plan/service.ts`). Non-`.plan.md` files, plans
+naming another workspace's tasks, and a missing `plans/` directory all yield no
+entry. This is the only place plan selection happens: `findTaskPlanPath` — the
+server-side single-task lookup — is a lookup into the same map, so server and
+browser can never disagree about which file is a task's plan.
+
+## Task plan file naming
+
+A task's plan file is `{project}/plans/<workspace-slug>-T<task-id>[-<description>].plan.md`.
+The `<workspace-slug>-T<task-id>` part is the task identifier used in agent
+prompts and the UI; the trailing `-<description>` is written by the planning
+agent so the filename says what the plan is about. Because the description is
+not derivable from task metadata, consumers resolve the filename instead of
+computing it. `web/src/lib/plan-naming.ts` owns the naming rules — the `plans/`
+directory and `.plan.md` extension constants, `taskPlanSlug`, and the
+stem parsers `taskIdFromStem` / `taskSlugFromStem` — and `readTaskPlans` in
+`web/src/server/plan/service.ts` is the sole resolver. A replan reuses the
+filename that already exists so plan comment threads, which are keyed by file
+path, stay attached.
 
 ## Worktree branch re-rooting
 
@@ -140,10 +156,11 @@ rather than thrown.
 | FR-PROJECT-100 | The system SHALL reject `writeFile`, `deleteFile`, and `renameFile` requests targeting `spec.md` (including paths that resolve to `spec.md` after traversal normalisation), and SHALL reject `deleteDir` requests whose resolved path equals the project root directory (enforced by service-level path-resolution equality, not Zod input validation). |
 | FR-PROJECT-110 | IF `readFile` is called with a path whose extension is not in the text-file allowlist, the system SHALL reject the request with `BAD_REQUEST`. |
 | FR-PROJECT-120 | WHEN `writeContextFile` is called, the system SHALL create `{project}/context/` if absent and write the file; WHEN `readContextFile` or `deleteContextFile` is called for a filename that does not exist, the system SHALL throw `NOT_FOUND`. |
-| FR-PROJECT-130 | WHEN `getPlanSlugs` or `getBySlug` is called, the system SHALL return the stems of all `*.plan.md` files under `{project}/plans/` and SHALL return an empty list when the `plans/` directory is absent. |
+| FR-PROJECT-130 | WHEN `getTaskPlans` is called, the system SHALL return the project-relative path of every `*.plan.md` file under `{project}/plans/` keyed by the task id its filename names, and SHALL return an empty map when the `plans/` directory is absent. |
 | FR-PROJECT-140 | WHEN `project.startCompletion` is called, the system SHALL set the project's status to `completing` and SHALL return all unpromoted fleeting memories scoped to the same workspace, sorted by signal score descending (tags-present, then non-agent-sourced, then has-sources), with newest-first as tiebreaker; promoted memories and memories from other workspaces SHALL be excluded. |
 | FR-PROJECT-150 | WHEN `project.archive` is called and the project's status is not `completing`, the system SHALL reject the request with `PRECONDITION_FAILED`. |
 | FR-PROJECT-160 | WHEN `project.archive` is called on a project in `completing` status, the system SHALL set `status='archived'` and SHALL hard-delete all matching `agentSessions` rows linked to the project's tasks or task groups, leaving tasks, task groups, fleeting memories, and plan files intact; agent sessions belonging to other projects SHALL be unaffected. |
+| FR-PROJECT-180 | WHEN resolving a task's plan file, the system SHALL match `{project}/plans/<workspace-slug>-T<task-id>[-<description>].plan.md`, SHALL NOT match a stem whose task id only shares the prefix (`ws-T50` for task 5) or whose workspace slug differs, and SHALL select the most recently written file when several match. |
 | FR-PROJECT-170 | The system SHALL expose `startProjectCompletion` and `archiveProject` as MCP tools that delegate to the `projectCompletionService` singleton and return errors via `mcpError(message)` rather than throwing. |
 
 ## Sources

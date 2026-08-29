@@ -57,8 +57,10 @@ carries workspace slug, project slug, repo paths, `autoAgentCompletion` mode,
 `earsBdd` flag, and the live session id.  The main prompt is
 `Use <implementSkill> for <ws-slug>-T<id>`.  All additional dirs from
 `buildQuickActionDirs` are passed as `--add-dir` flags.  Planning scope uses
-`buildPromptForPlan` (planSkill + same context block); taskGroup and milestone
-scopes have their own builders.
+`buildPromptForPlan` (planSkill + same context block), which appends the plan
+output path — the existing plan file when one is already on disk, otherwise the
+`plans/<ws-slug>-T<id>-<short-slug>.plan.md` shape for the agent to fill in;
+taskGroup and milestone scopes have their own builders.
 
 The agent-worktree instruction rides the prompt
 (`withAgentWorktreeInstruction`), gated by `shouldRequestAgentWorktree`, rather

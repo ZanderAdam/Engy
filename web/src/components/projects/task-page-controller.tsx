@@ -10,6 +10,7 @@ import {
   useVirtualSearchParams,
 } from '@/components/tabs/tab-context';
 import { parseTaskId } from '@/components/search/task-id';
+import { planStemFromWatchedPath, taskSlugFromStem } from '@/lib/plan-naming';
 import { useOnFileChange } from '@/contexts/events-context';
 import { useTaskSelection } from '@/hooks/use-task-selection';
 import { TaskDialog } from '@/components/projects/task-dialog';
@@ -33,7 +34,7 @@ type TaskDialogTab = 'description' | 'plan' | 'execution' | 'questions' | undefi
 
 interface TaskPageControllerOptions {
   /** Docs URL opened by the "Review" action of the plan-ready toast. */
-  planReviewUrl: (taskSlug: string) => string;
+  planReviewUrl: (planStem: string) => string;
   /** Invalidation to run when a task's plan file changes on disk. */
   onPlanChange: () => void;
 }
@@ -131,17 +132,17 @@ export function useTaskPageController({ planReviewUrl, onPlanChange }: TaskPageC
   useOnFileChange(
     useCallback(
       (filePath: string, eventType: string) => {
-        const planMatch = filePath.match(/\/plans\/([^/]+)\.plan\.md$/);
-        if (!planMatch) return;
+        const planStem = planStemFromWatchedPath(filePath);
+        if (!planStem) return;
 
-        const taskSlug = planMatch[1];
-        const existing = debounceTimers.current.get(taskSlug);
+        const taskSlug = taskSlugFromStem(planStem);
+        const existing = debounceTimers.current.get(planStem);
         if (existing) clearTimeout(existing);
 
         debounceTimers.current.set(
-          taskSlug,
+          planStem,
           setTimeout(() => {
-            debounceTimers.current.delete(taskSlug);
+            debounceTimers.current.delete(planStem);
             onPlanChange();
 
             if (eventType !== 'unlink') {
@@ -149,7 +150,7 @@ export function useTaskPageController({ planReviewUrl, onPlanChange }: TaskPageC
                 action: {
                   label: 'Review',
                   onClick: () => {
-                    nav.push(planReviewUrl(taskSlug));
+                    nav.push(planReviewUrl(planStem));
                   },
                 },
               });

@@ -19,6 +19,18 @@ Use MCP to discover context, then Read/Glob/Grep for codebase exploration and sp
 
 Check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (`earsBdd: true`). When enabled, the `## Functional Requirements` section is written as `| FR-<AREA>-<NNN> | <EARS SHALL text> |` table rows (the reference's format) — **not** the numbered "The system shall…" list with source tags shown in the templates below. Reuse the spec/milestone ids the task draws on, and allocate a new durable id only for behaviour the task itself introduces. Follow the planning augmentations in `plugins/engy/skills/implement/references/ears-bdd.md` for FR-graph orientation (use the area's existing FRs + `trace` to find current behaviour, tests, and code before exploring), the id scheme, allocation rule, and funnel discipline. When disabled, write FRs using the format in the templates below unchanged.
 
+## Output Location
+
+Write the plan to the path given in the prompt. When no path is given and the
+plan belongs to a task, write it to
+`{projectDir}/plans/{workspace-slug}-T{task-id}-{short-slug}.plan.md`, where
+`{short-slug}` is 2-5 kebab-case words describing the task — for example
+`engy-T123-add-api-routing.plan.md`. The `{workspace-slug}-T{task-id}` prefix is
+mandatory; Engy finds the plan by that prefix.
+
+When replanning, keep the filename the existing plan already has. A rename
+detaches the plan review comments, which are keyed by file path.
+
 ## Step 0: Triage
 
 Assess complexity before committing to the full process:

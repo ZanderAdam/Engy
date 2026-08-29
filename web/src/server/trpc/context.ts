@@ -141,6 +141,7 @@ export interface FileWriteResult {
 
 export interface RemoteFilePullResult {
   content: string;
+  filePath: string;
 }
 
 export interface RemoteFilePushResult {

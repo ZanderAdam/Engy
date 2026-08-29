@@ -1173,13 +1173,43 @@ export class WsClient {
     }
   }
 
+  /**
+   * Expand a glob inside the Coder workspace and return the newest match. The
+   * pattern reaches the remote shell unquoted, so each space-separated
+   * alternative is checked against a workspace-relative shape rather than
+   * escaped — no metacharacters, no absolute paths, no traversal, and no
+   * leading `-`, which `ls` would read as a flag instead of a path.
+   */
+  private async resolveRemoteGlob(coderWorkspace: string, pattern: string): Promise<string> {
+    const alternatives = pattern.split(' ').filter(Boolean);
+    const safe =
+      alternatives.length > 0 &&
+      alternatives.every(
+        (alt) =>
+          /^[A-Za-z0-9._*][A-Za-z0-9._*-]*(\/[A-Za-z0-9._*-]+)*$/.test(alt) && !alt.includes('..'),
+      );
+    if (!safe) {
+      throw new Error(`Unsafe remote glob pattern: ${pattern}`);
+    }
+    const { stdout } = await this.coderManager.execCapture(coderWorkspace, 'sh', [
+      '-c',
+      `ls -1t ${pattern} 2>/dev/null | head -n 1`,
+    ]);
+    const resolved = stdout.trim();
+    if (!resolved) throw new Error(`No remote file matches ${pattern}`);
+    return resolved;
+  }
+
   private async handleRemoteFilePullRequest(message: RemoteFilePullRequestMessage): Promise<void> {
-    const { requestId, coderWorkspace, filePath } = message.payload;
+    const { requestId, coderWorkspace, filePath, resolveGlob } = message.payload;
     try {
-      const { stdout } = await this.coderManager.execCapture(coderWorkspace, 'cat', [filePath]);
+      const target = resolveGlob
+        ? await this.resolveRemoteGlob(coderWorkspace, filePath)
+        : filePath;
+      const { stdout } = await this.coderManager.execCapture(coderWorkspace, 'cat', [target]);
       this.send({
         type: 'REMOTE_FILE_PULL_RESPONSE',
-        payload: { requestId, content: stdout },
+        payload: { requestId, content: stdout, filePath: target },
       });
     } catch (err) {
       this.send({

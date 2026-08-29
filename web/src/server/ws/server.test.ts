@@ -19,7 +19,10 @@ import {
   dispatchGhPrFailedLogs,
   dispatchGhPrReviewComments,
 } from './server';
+import fs from 'node:fs';
+import path from 'node:path';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
+import { getWorkspaceDir } from '../engy-dir/init';
 import {
   agentSessions,
   tasks,
@@ -1158,8 +1161,161 @@ describe('Execution event handling', () => {
         const pullMsg = received.find((m) => m.type === 'REMOTE_FILE_PULL_REQUEST');
         expect(pullMsg).toBeDefined();
         expect(pullMsg!.payload.coderWorkspace).toBe('my-coder-ws');
-        expect(pullMsg!.payload.filePath).toBe(`plans/coder-ws-T${task.id}.plan.md`);
+        expect(pullMsg!.payload.filePath).toBe(
+          `plans/coder-ws-T${task.id}.plan.md plans/coder-ws-T${task.id}-*.plan.md`,
+        );
+        expect(pullMsg!.payload.resolveGlob).toBe(true);
       });
+    });
+
+    it('[FR-EXECUTION-170] should write the pulled plan under the name the agent chose', async () => {
+      const ws0 = ctx.db
+        .insert(workspaces)
+        .values({
+          name: 'CoderWs2',
+          slug: 'coder-ws2',
+          executionBackend: 'coder',
+          coderConfig: { workspace: 'my-coder-ws', repoBasePath: '/home/coder' },
+        })
+        .returning()
+        .get();
+      const proj = ctx.db
+        .insert(projects)
+        .values({
+          workspaceId: ws0.id,
+          name: 'Coder Project 2',
+          slug: 'coder-proj-2',
+          projectDir: 'coder-proj-2',
+        })
+        .returning()
+        .get();
+      const task = ctx.db
+        .insert(tasks)
+        .values({
+          title: 'Coder planning task',
+          projectId: proj.id,
+          status: 'in_progress',
+          subStatus: 'planning',
+        })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'coder-plan-2',
+          taskId: task.id,
+          status: 'active',
+          executionMode: 'planning',
+        })
+        .run();
+
+      const ws = await connectClient(port);
+      const pullRequest = new Promise<{ requestId: string }>((resolve) => {
+        ws.on('message', (data) => {
+          const msg = JSON.parse(data.toString());
+          if (msg.type === 'REMOTE_FILE_PULL_REQUEST') resolve(msg.payload);
+        });
+      });
+
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+      ws.send(
+        JSON.stringify({
+          type: 'EXECUTION_COMPLETE_EVENT',
+          payload: { sessionId: 'coder-plan-2', exitCode: 0, success: true },
+        }),
+      );
+
+      const { requestId } = await pullRequest;
+      const remoteName = `plans/coder-ws2-T${task.id}-add-api-routing.plan.md`;
+      ws.send(
+        JSON.stringify({
+          type: 'REMOTE_FILE_PULL_RESPONSE',
+          payload: { requestId, content: '# Plan', filePath: remoteName },
+        }),
+      );
+
+      const localPath = path.join(
+        getWorkspaceDir(ws0),
+        'projects',
+        'coder-proj-2',
+        remoteName,
+      );
+      await vi.waitFor(() => expect(fs.existsSync(localPath)).toBe(true));
+      expect(fs.readFileSync(localPath, 'utf-8')).toBe('# Plan');
+    });
+
+    it('[FR-EXECUTION-170] should fall back to the project slug when projectDir is unset', async () => {
+      const ws0 = ctx.db
+        .insert(workspaces)
+        .values({
+          name: 'CoderWs3',
+          slug: 'coder-ws3',
+          executionBackend: 'coder',
+          coderConfig: { workspace: 'my-coder-ws', repoBasePath: '/home/coder' },
+        })
+        .returning()
+        .get();
+      const proj = ctx.db
+        .insert(projects)
+        .values({
+          workspaceId: ws0.id,
+          name: 'Coder Project 3',
+          slug: 'coder-proj-3',
+          projectDir: null,
+        })
+        .returning()
+        .get();
+      const task = ctx.db
+        .insert(tasks)
+        .values({
+          title: 'Coder planning task',
+          projectId: proj.id,
+          status: 'in_progress',
+          subStatus: 'planning',
+        })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'coder-plan-3',
+          taskId: task.id,
+          status: 'active',
+          executionMode: 'planning',
+        })
+        .run();
+
+      const ws = await connectClient(port);
+      const pullRequest = new Promise<{ requestId: string }>((resolve) => {
+        ws.on('message', (data) => {
+          const msg = JSON.parse(data.toString());
+          if (msg.type === 'REMOTE_FILE_PULL_REQUEST') resolve(msg.payload);
+        });
+      });
+
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+      ws.send(
+        JSON.stringify({
+          type: 'EXECUTION_COMPLETE_EVENT',
+          payload: { sessionId: 'coder-plan-3', exitCode: 0, success: true },
+        }),
+      );
+
+      const { requestId } = await pullRequest;
+      const remoteName = `plans/coder-ws3-T${task.id}-fallback.plan.md`;
+      ws.send(
+        JSON.stringify({
+          type: 'REMOTE_FILE_PULL_RESPONSE',
+          payload: { requestId, content: '# Plan', filePath: remoteName },
+        }),
+      );
+
+      const localPath = path.join(getWorkspaceDir(ws0), 'projects', 'coder-proj-3', remoteName);
+      await vi.waitFor(() => expect(fs.existsSync(localPath)).toBe(true));
     });
 
     it('[FR-EXECUTION-160] should dispatch WORKTREE_MERGE_REQUEST on implementation success with merge setting', async () => {

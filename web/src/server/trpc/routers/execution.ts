@@ -14,7 +14,7 @@ import type { AppState } from '../context';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { agentSessions, tasks, taskGroups, projects, workspaces } from '../../db/schema';
-import { taskPlanSlug, readPlanFile, readTaskPlan } from '../../plan/service';
+import { findTaskPlanPath, readTaskPlan } from '../../plan/service';
 import {
   dispatchExecutionStart,
   dispatchExecutionStop,
@@ -25,6 +25,12 @@ import { broadcastTaskChange } from '../../ws/broadcast';
 import { getWorkspaceDir, resolveProjectDir } from '../../engy-dir/init';
 import { buildContextBlock, buildQuickActionDirs } from '../../../lib/shell';
 import { resolveAgentSkills, type WorkspaceAgentSettings } from '../../../lib/agent-types';
+import {
+  PLANS_DIR,
+  defaultTaskPlanFilename,
+  planOutputTarget,
+  taskPlanSlug,
+} from '../../../lib/plan-naming';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -147,7 +153,12 @@ function buildPromptForPlan(
 ) {
   const taskSlug = taskPlanSlug(workspace.slug, task.id);
   const { planSkill } = resolveAgentSkills(workspace, 'claude');
-  const prompt = `Use ${planSkill} for ${taskSlug}`;
+  const target = planOutputTarget(
+    projectDir,
+    taskSlug,
+    findTaskPlanPath(projectDir, workspace.slug, task.id),
+  );
+  const prompt = `Use ${planSkill} for ${taskSlug}, output plan to ${target}`;
   const systemPrompt = buildContextBlock({
     workspace: { id: workspace.id, slug: workspace.slug },
     project: { id: project.id, slug: project.slug, dir: projectDir },
@@ -268,10 +279,8 @@ function buildRemotePrompt(
 
   // Plan content (if exists)
   const wsDir = getWorkspaceDir(workspace);
-  const specsDir = path.join(wsDir, 'projects');
-  const specSlug = project.projectDir ?? project.slug;
-  const planFilename = `plans/${slug}.plan.md`;
-  const planContent = readPlanFile(specsDir, specSlug, planFilename);
+  const projDir = path.join(wsDir, 'projects', project.projectDir ?? project.slug);
+  const planContent = readTaskPlan(projDir, workspace.slug, task.id);
   if (planContent) {
     parts.push('## Implementation Plan');
     parts.push(planContent);
@@ -1131,7 +1140,7 @@ export const executionRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      const { workspace } = resolveTaskContext(input.taskId);
+      const { workspace, projectDir } = resolveTaskContext(input.taskId);
 
       const clearNeedsPlan = () =>
         db
@@ -1154,9 +1163,10 @@ export const executionRouter = router({
         return { pushed: false };
       }
 
-      // Plan path is computed server-side from task metadata — no user input
-      const planSlug = taskPlanSlug(workspace.slug, input.taskId);
-      const planFilePath = `plans/${planSlug}.plan.md`;
+      // Plan path is resolved server-side from the local plans directory — no user input
+      const planFilePath =
+        findTaskPlanPath(projectDir, workspace.slug, input.taskId) ??
+        `${PLANS_DIR}/${defaultTaskPlanFilename(taskPlanSlug(workspace.slug, input.taskId))}`;
 
       await dispatchRemoteFilePush(
         ctx.state,

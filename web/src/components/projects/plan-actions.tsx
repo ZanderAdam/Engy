@@ -19,7 +19,8 @@ interface ThreadLike {
 
 interface PlanActionsProps {
   taskId: number;
-  taskSlug: string;
+  /** Project-relative path of the plan file, resolved by useTaskHasPlan. */
+  planFilePath: string;
   threads: Map<string, ThreadLike>;
   /** False until the thread store has finished its initial DB load. */
   threadsReady: boolean;
@@ -33,7 +34,7 @@ interface PlanActionsProps {
 
 export function PlanActions({
   taskId,
-  taskSlug,
+  planFilePath,
   threads,
   threadsReady,
   getMarkdown,
@@ -48,7 +49,6 @@ export function PlanActions({
 
   const pushRemoteFileMutation = trpc.execution.pushRemoteFile.useMutation();
 
-  const planFilePath = `plans/${taskSlug}.plan.md`;
   const planningSessionActive = isActive || status === 'paused';
 
   // Ref-based re-entry guard. Disabled-state checks reading React state can let

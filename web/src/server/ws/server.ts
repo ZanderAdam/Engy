@@ -51,7 +51,9 @@ import {
   projects,
   fleetingMemories,
 } from '../db/schema';
-import { taskPlanSlug } from '../plan/service';
+import { writePlanFile } from '../plan/service';
+import { planFilePathFromStem, taskPlanSlug } from '../../lib/plan-naming';
+import { getWorkspaceDir } from '../engy-dir/init';
 import { broadcastFileChange, broadcastTaskChange } from './broadcast';
 import { sendWatchPathsSync } from './watch-subscriptions';
 
@@ -260,6 +262,7 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'REMOTE_FILE_PULL_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingRemoteFilePull, (p) => ({
         content: p.content,
+        filePath: p.filePath,
       }));
       break;
     case 'REMOTE_FILE_PUSH_RESPONSE':
@@ -543,24 +546,35 @@ function handleExecutionCompleteEvent(
         repoBasePath: string;
       } | null;
       if (workspaceContext.workspace.executionBackend === 'coder' && coderCfg?.workspace) {
-        const planSlug = taskPlanSlug(workspaceContext.workspace.slug, session.taskId);
-        const planFilePath = `plans/${planSlug}.plan.md`;
+        const taskSlug = taskPlanSlug(workspaceContext.workspace.slug, session.taskId);
+        // The planning agent names the file, so the remote name is discovered,
+        // not computed: match the bare slug and any described variant.
+        const planGlob = `${planFilePathFromStem(taskSlug)} ${planFilePathFromStem(`${taskSlug}-*`)}`;
         const taskIdForPull = session.taskId;
-        dispatchRemoteFilePull(state, coderCfg.workspace, planFilePath).catch((err) => {
-          console.error(
-            `[ws-main-server] Failed to pull plan file for session=${payload.sessionId}: ${err.message}`,
-          );
-          const failNow = new Date().toISOString();
-          const db = getDb();
-          const reverted = db
-            .update(tasks)
-            .set({ subStatus: 'failed' as typeof tasks.$inferInsert.subStatus, updatedAt: failNow })
-            .where(eq(tasks.id, taskIdForPull))
-            .returning()
-            .get();
-          if (reverted)
-            broadcastTaskChange('updated', taskIdForPull, reverted.projectId ?? undefined);
-        });
+        const projectDirName = workspaceContext.projectDir;
+        dispatchRemoteFilePull(state, coderCfg.workspace, planGlob, true)
+          .then(({ content, filePath }) => {
+            const specsDir = path.join(getWorkspaceDir(workspaceContext.workspace), 'projects');
+            writePlanFile(specsDir, projectDirName, filePath, content);
+          })
+          .catch((err) => {
+            console.error(
+              `[ws-main-server] Failed to pull plan file for session=${payload.sessionId}: ${err.message}`,
+            );
+            const failNow = new Date().toISOString();
+            const db = getDb();
+            const reverted = db
+              .update(tasks)
+              .set({
+                subStatus: 'failed' as typeof tasks.$inferInsert.subStatus,
+                updatedAt: failNow,
+              })
+              .where(eq(tasks.id, taskIdForPull))
+              .returning()
+              .get();
+            if (reverted)
+              broadcastTaskChange('updated', taskIdForPull, reverted.projectId ?? undefined);
+          });
       }
     } else if (
       session.executionMode === 'task' &&
@@ -759,7 +773,7 @@ function resolveWorkspaceIdFromSession(
 function resolveWorkspaceContext(
   db: ReturnType<typeof getDb>,
   taskId: number | null,
-): { workspace: typeof workspaces.$inferSelect; projectDir: string | null } | null {
+): { workspace: typeof workspaces.$inferSelect; projectDir: string } | null {
   if (!taskId) return null;
 
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
@@ -775,7 +789,7 @@ function resolveWorkspaceContext(
     .get();
   if (!workspace) return null;
 
-  return { workspace, projectDir: project.projectDir };
+  return { workspace, projectDir: project.projectDir ?? project.slug };
 }
 
 export function dispatchFileSearch(
@@ -1226,12 +1240,13 @@ function dispatchRemoteFilePull(
   state: AppState,
   coderWorkspace: string,
   filePath: string,
+  resolveGlob = false,
 ): Promise<RemoteFilePullResult> {
   return dispatchDaemonOp(
     state,
     state.pendingRemoteFilePull,
     'REMOTE_FILE_PULL_REQUEST',
-    { coderWorkspace, filePath },
+    { coderWorkspace, filePath, resolveGlob },
     REMOTE_FILE_TIMEOUT_MS,
   );
 }

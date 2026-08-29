@@ -422,13 +422,18 @@ export interface RemoteFilePullRequestMessage {
   payload: {
     requestId: string;
     coderWorkspace: string;
+    /** Literal remote path, or a shell glob when `resolveGlob` is set. */
     filePath: string;
+    /** Expand `filePath` remotely and pull the most recently written match. */
+    resolveGlob?: boolean;
   };
 }
 
 export interface RemoteFilePullResponseMessage {
   type: 'REMOTE_FILE_PULL_RESPONSE';
-  payload: { requestId: string; content: string } | { requestId: string; error: string };
+  payload:
+    | { requestId: string; content: string; filePath: string }
+    | { requestId: string; error: string };
 }
 
 export interface RemoteFilePushRequestMessage {

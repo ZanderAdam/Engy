@@ -18,6 +18,7 @@ import {
   TaskSelectionBar,
   useTaskPageController,
 } from "@/components/projects/task-page-controller";
+import { planFilePathFromStem } from "@/lib/plan-naming";
 import {
   TaskFilter,
   applyTaskFilters,
@@ -104,8 +105,8 @@ export default function ProjectTasksPage() {
 
   const controller = useTaskPageController({
     planReviewUrl: useCallback(
-      (taskSlug: string) =>
-        `/w/${params.workspace}/projects/${params.project}/docs?file=plans/${taskSlug}.plan.md`,
+      (planStem: string) =>
+        `/w/${params.workspace}/projects/${params.project}/docs?file=${planFilePathFromStem(planStem)}`,
       [params.workspace, params.project],
     ),
     onPlanChange: useCallback(() => {

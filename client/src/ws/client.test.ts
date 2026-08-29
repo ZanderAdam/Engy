@@ -935,8 +935,105 @@ describe('WsClient remote file sync handlers', () => {
     const response = await waitForMessage(ws);
     expect(JSON.parse(response)).toEqual({
       type: 'REMOTE_FILE_PULL_RESPONSE',
-      payload: { requestId: 'pull-1', content: 'file-content-here' },
+      payload: {
+        requestId: 'pull-1',
+        content: 'file-content-here',
+        filePath: '/home/user/file.txt',
+      },
     });
+  });
+
+  it('resolves a glob remotely and pulls the newest match', async () => {
+    mockedExecFile[promisify.custom]
+      .mockResolvedValueOnce({ stdout: 'plans/ws-T7-add-api-routing.plan.md\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '# Plan', stderr: '' });
+
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://127.0.0.1:${port}`,
+      onWatchPathsSync: vi.fn(),
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: RemoteFilePullRequestMessage = {
+      type: 'REMOTE_FILE_PULL_REQUEST',
+      payload: {
+        requestId: 'pull-glob',
+        coderWorkspace: 'my-workspace',
+        filePath: 'plans/ws-T7.plan.md plans/ws-T7-*.plan.md',
+        resolveGlob: true,
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    expect(JSON.parse(response)).toEqual({
+      type: 'REMOTE_FILE_PULL_RESPONSE',
+      payload: {
+        requestId: 'pull-glob',
+        content: '# Plan',
+        filePath: 'plans/ws-T7-add-api-routing.plan.md',
+      },
+    });
+  });
+
+  it('rejects a glob pattern carrying shell metacharacters', async () => {
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://127.0.0.1:${port}`,
+      onWatchPathsSync: vi.fn(),
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    const request: RemoteFilePullRequestMessage = {
+      type: 'REMOTE_FILE_PULL_REQUEST',
+      payload: {
+        requestId: 'pull-unsafe',
+        coderWorkspace: 'my-workspace',
+        filePath: 'plans/*.plan.md; rm -rf /',
+        resolveGlob: true,
+      },
+    };
+    ws.send(JSON.stringify(request));
+
+    const response = await waitForMessage(ws);
+    expect(JSON.parse(response).payload.error).toContain('Unsafe remote glob pattern');
+  });
+
+  it('rejects a glob pattern escaping the workspace directory', async () => {
+    const connPromise = waitForConnection(server);
+
+    client = new WsClient({
+      serverUrl: `http://127.0.0.1:${port}`,
+      onWatchPathsSync: vi.fn(),
+    });
+    client.connect();
+
+    const ws = await connPromise;
+    await waitForMessage(ws); // consume REGISTER
+
+    for (const [requestId, filePath] of [
+      ['pull-abs', '/etc/*'],
+      ['pull-dotdot', 'plans/../../etc/*'],
+      ['pull-flag', '-rf'],
+    ]) {
+      const request: RemoteFilePullRequestMessage = {
+        type: 'REMOTE_FILE_PULL_REQUEST',
+        payload: { requestId, coderWorkspace: 'my-workspace', filePath, resolveGlob: true },
+      };
+      ws.send(JSON.stringify(request));
+
+      const response = await waitForMessage(ws);
+      expect(JSON.parse(response).payload.error).toContain('Unsafe remote glob pattern');
+    }
   });
 
   it('responds to REMOTE_FILE_PULL_REQUEST with error for missing file', async () => {

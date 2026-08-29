@@ -31,6 +31,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
 import { resolveAgentSkills } from '@/lib/agent-types';
+import { planOutputTarget } from '@/lib/plan-naming';
 import { useQuickAction } from '@/hooks/use-quick-action';
 import { useExecutionStatus } from '@/hooks/use-execution-status';
 import { useTaskHasPlan } from '@/hooks/use-task-has-plan';
@@ -60,7 +61,7 @@ export function TaskQuickActions({
   // Quick actions launch claude (see useQuickAction), so claude's skills apply.
   const { planSkill, implementSkill } = resolveAgentSkills(workspace ?? {}, 'claude');
 
-  const { taskSlug, hasPlan } = useTaskHasPlan(taskId, projectId);
+  const { taskSlug, hasPlan, planFilePath } = useTaskHasPlan(taskId, projectId);
   const projectDir = project?.projectDir;
 
   const [promptOpen, setPromptOpen] = useState(false);
@@ -87,10 +88,10 @@ export function TaskQuickActions({
   // Planning always runs on host — read-only analysis, no need for container sandbox
   function handlePlan(replan = false) {
     if (!projectDir || !projectSlug || !taskSlug) return;
-    const planPath = `${projectDir}/plans/${taskSlug}.plan.md`;
+    const target = planOutputTarget(projectDir, taskSlug, planFilePath || null);
     const prompt = replan
-      ? `Use ${planSkill} to replan ${taskSlug}, existing plan at ${planPath}. Replan based on the updated task description.`
-      : `Use ${planSkill} to plan ${taskSlug}, output plan to ${planPath}`;
+      ? `Use ${planSkill} to replan ${taskSlug}, existing plan at ${target}. Replan based on the updated task description.`
+      : `Use ${planSkill} to plan ${taskSlug}, output plan to ${target}`;
     launch({
       prompt,
       scopeLabel: `${replan ? 'replan' : 'plan'}: ${taskSlug}`,
@@ -102,9 +103,10 @@ export function TaskQuickActions({
   function handleImplement() {
     if (disabled || !projectDir || !projectSlug || !taskSlug) return;
     const useContainer = workspace?.containerEnabled ?? false;
-    const prompt = needsPlan
-      ? `Use ${implementSkill} for ${taskSlug}, plan at ${projectDir}/plans/${taskSlug}.plan.md`
-      : `Use ${implementSkill} for ${taskSlug}`;
+    const prompt =
+      needsPlan && planFilePath
+        ? `Use ${implementSkill} for ${taskSlug}, plan at ${projectDir}/${planFilePath}`
+        : `Use ${implementSkill} for ${taskSlug}`;
     launch({
       prompt,
       scopeLabel: `impl: ${taskSlug}`,
