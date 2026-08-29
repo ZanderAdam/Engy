@@ -17,7 +17,7 @@ Use MCP to discover context, then Read/Glob/Grep for codebase exploration and sp
 
 ## EARS-BDD Mode
 
-Check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (`earsBdd: true`). When enabled, the `## Functional Requirements` section is written as `| FR-<AREA>-<NNN> | <EARS SHALL text> |` table rows (the reference's format) — **not** the numbered "The system shall…" list with source tags shown in the templates below. Reuse the spec/milestone ids the task draws on, and allocate a new durable id only for behaviour the task itself introduces. Follow the planning augmentations in `plugins/engy/skills/implement/references/ears-bdd.md` for FR-graph orientation (use the area's existing FRs + `trace` to find current behaviour, tests, and code before exploring), the id scheme, allocation rule, and funnel discipline. When disabled, write FRs using the format in the templates below unchanged.
+Check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (`earsBdd: true`). When enabled, the `## Functional Requirements` section is written as `| FR-<AREA>-<NNN> | <EARS SHALL text> |` table rows (the reference's format) — **not** the numbered "The system shall…" list with source tags shown in the templates below. Reuse the spec/milestone ids the task draws on, and allocate a new durable id only for behaviour the task itself introduces. Follow the planning augmentations in `../implement/references/ears-bdd.md` for FR-graph orientation (use the area's existing FRs + `trace` to find current behaviour, tests, and code before exploring), the id scheme, allocation rule, and funnel discipline. When disabled, write FRs using the format in the templates below unchanged.
 
 ## Step 0: Triage
 
@@ -82,6 +82,8 @@ Present: "Based on the codebase, I plan to [summary]. I need your input on these
 
 Each question should state what was inferred and why user judgment is needed, with tradeoffs where applicable. Only surface questions the codebase cannot answer — business decisions, preferences, and ambiguous tradeoffs.
 
+Before surfacing a question, classify it. If a **cheap** probe settles it — a script, a query, running the code and looking — run the probe and present the result instead of asking. A question whose answer is an observable fact is not the user's to answer, and a result they can react to beats a decision they have to make. Keep asking when the probe would cost more than the answer is worth, and always for preference and business calls no experiment can settle.
+
 Run for up to 3 rounds. After each response, re-evaluate: did answers surface new unknowns? If everything is clear, move to Step 2. Do not ask questions for the sake of filling rounds — stop as soon as requirements are unambiguous.
 
 ## Step 2: Analyze
@@ -92,6 +94,18 @@ Cross-check all gathered requirements (user-stated + inferred + elicited) for:
 - **Codebase conflicts** — requirements that contradict existing architecture or conventions
 - **Implicit dependencies** — requirement A silently requires B
 - **Priority** — must-have vs. deferrable
+- **Blast radius** — what else consumes the thing being changed
+
+Listing the callers is not the blast radius; a symbol search finds those in a second. The risk is
+the coupling a symbol search cannot see, so check the paths it misses: the shape of data crossing a
+process or network boundary, a stored schema or migration, a serialized format something else
+parses, another language or service reading the same bytes, a config or feature flag, and consumers
+three hops downstream. Also read the source of any library whose behaviour the change depends on,
+and note its pinned version.
+
+Most changes that look frightening are safe because of one specific fact ("this only drops entries
+already marked dead"). Find that fact and state it. Time spent proving it beats a long list of
+maybes, and the risks that survive it belong in the plan with a way to check each one.
 
 This is an internal reasoning step. If conflicts are found, present them to the user with resolution options before proceeding. If no conflicts, proceed to Step 3.
 

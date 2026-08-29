@@ -37,7 +37,7 @@ Read the project's **CLAUDE.md** to find all explicit validation and testing ins
 
 1. **Lightweight validation** — the commands each subagent must run before returning (build, lint, changed tests). Derive this from CLAUDE.md's quality gates and testing sections.
 2. **Full validation** — the complete validation command set for end-to-end checks after each task group completes and after all tasks complete. This is whatever CLAUDE.md specifies as the pre-commit or CI gate.
-3. **Cross-package type checks** — when tasks span multiple packages in a monorepo, include cross-package type checks (e.g., `tsc` at the monorepo root or across dependent packages) in both lightweight and full validation commands — not just the package being modified.
+3. **Cross-package checks** — when tasks span multiple packages in a monorepo, include the repo-wide type or build check (run at the root, or across dependent packages) in both lightweight and full validation — not just the package being modified. A change can compile inside its own package and still break a consumer.
 
 ### Step 3: Plan Execution Order
 
@@ -100,11 +100,20 @@ CRITICAL safety rules:
 
 #### 4b. Process Results
 
+A returning agent's summary is a rung-1 claim — it says what the agent believes, not what happened.
+Confirm it against the repo before you trust it.
+
 As each team member returns:
 
-1. Verify the agent reports a successful commit.
-2. Mark the task as `done` via `updateTask(id, status: "done")`.
-3. If the agent reports failure, decide: dispatch a fix agent or escalate to user.
+1. Confirm the commit exists yourself: `git log` for the SHA and `git show --stat` for the files it
+   actually touched. An agent reporting success with no commit is a failure, not a success.
+2. Read the diff. It is yours now — you own what lands, and reviewing it is the reason to dispatch
+   rather than implement.
+3. Mark the task `done` via `updateTask(id, status: "done")` only after both.
+4. If the agent reports failure, or its claim does not survive step 1 or 2, decide: dispatch a fix
+   agent or escalate to the user. Dispatch a **fresh** agent with the consolidated scope rather than
+   messaging the original one — a resumed agent quietly drops directives, so its second "done" is
+   less trustworthy than its first.
 
 #### 4c. Post-Group Validation
 
@@ -125,9 +134,9 @@ After all task groups complete:
 
 Present a summary to the user:
 
-1. **Tasks completed** — list of tasks and their commits.
-2. **Validation results** — which gates were run and their results (pass/fail).
-3. **Follow-ups** — any remaining issues, deferred feedback, or potential improvements.
+1. **Tasks completed** — list of tasks and the commit SHAs you confirmed.
+2. **Validation results** — each gate with its verdict (VERIFIED / NOT VERIFIED / INCONCLUSIVE), evidence rung, and artifact.
+3. **Follow-ups** — remaining issues, deferred feedback, and anything left INCONCLUSIVE.
 
 ## Key Principles
 
@@ -136,7 +145,7 @@ Present a summary to the user:
 - **Task groups sequential, tasks parallel.** Groups run in order; independent tasks within a group run concurrently as team members.
 - **Subagents validate and commit.** Each agent runs validation commands and commits before returning.
 - **Commit before done.** Task status is only set to `done` after a successful commit.
-- **Evidence before claims.** Run validation, read full output, verify explicitly.
+- **Evidence before claims.** Grade each claim on the ladder in `../implement/references/evidence-ladder.md` and say where it stopped. A subagent's "done" is rung 1 until you check the commit and diff.
 - **Fresh context per agent.** Each team member gets a complete, self-contained task description with validation commands. Never assume shared context.
 - **No worktree isolation.** Never use `isolation: "worktree"` for parallel agents — use regular agents with explicit file-ownership lists.
 - **No destructive git.** Agents must never run `git stash`, `git reset`, or other destructive git commands.
@@ -146,7 +155,8 @@ Present a summary to the user:
 
 ### Reference Files
 
-- **`references/agent-team-coordination.md`** - Task-level parallelization criteria, agent context requirements, and conflict prevention guidelines
+- For parallelization criteria, agent context requirements, and conflict prevention, see [references/agent-team-coordination.md](references/agent-team-coordination.md)
+- For grading a claim and choosing a verdict, see [../implement/references/evidence-ladder.md](../implement/references/evidence-ladder.md)
 
 ## Flow Position
 

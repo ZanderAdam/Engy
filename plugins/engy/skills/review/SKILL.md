@@ -45,7 +45,7 @@ Agent tool:
     Project conventions: [path to CLAUDE.md if available]
     Features: [path to any plan files, tasks or features lists user provided one, otherwise omit]
 
-    Run both phases (Simplify then Review) on these files.
+    Run all three phases (Simplify, Apply, Review) on these files.
 
     If plan/spec files are provided, also validate requirements coverage:
     - Check each referenced FR in the plan
@@ -53,15 +53,19 @@ Agent tool:
     - Report any FRs that are missing, only partially implemented, or not covered by tests
 ```
 
-The agent runs two phases internally:
-1. **Simplify** — direct code changes, no behavior modifications, no user approval
-2. **Review** — surface findings tagged with severity and file:line
+The agent runs three phases internally:
+1. **Simplify** — five angles: reuse, simplification, efficiency, altitude, and the engineering principles it carries
+2. **Apply** — direct code changes, no behavior modifications, no user approval
+3. **Review** — findings tagged with severity, `file:line`, and an evidence rung
 
 ### Step 2: Verify Build
 
-After the agent completes, run the project build/test command (discovered from CLAUDE.md, package.json, or Makefile).
+The agent already fixes and reverts its own breakage inside Phase 2, so this step is an independent
+confirmation, not a second repair cycle. Its report that the gate passed is a rung-1 claim; run the
+gate yourself (discovered from CLAUDE.md, package.json, or Makefile) and read the output.
 
-If simplification broke the build: agent fixes (2 attempts max), then reverts simplification and keeps review findings.
+If it still fails, the agent's own revert did not hold. Revert its simplification yourself with
+`git checkout -- <files>` and keep the review findings, which are unaffected.
 
 ### Step 3: Present Results
 
@@ -76,12 +80,14 @@ Format the agent's output into the report below. Number all findings, sorted Cri
 [Summary of direct changes made, or "No simplifications" / "Reverted due to build failure"]
 
 ### Issues
-1. **[CRITICAL]** `file:line` — Description — Suggested fix: ...
+1. **[CRITICAL]** `file:line` — Description — rung N — Suggested fix: ...
 2. **[HIGH]** ...
 3. **[MEDIUM]** ...
 
 ### Requirements Coverage
-[Only if plan/spec was provided. For each FR: status (covered / partial / missing) and evidence.]
+[Only if plan/spec was provided. For each FR: VERIFIED / NOT VERIFIED / INCONCLUSIVE, the evidence
+rung, and the artifact. Code existing for an FR is
+rung 2, not coverage — an FR with no test that exercises it is INCONCLUSIVE.]
 
 ### Summary
 [2-3 sentences: assessment, severity counts, recommendation]
@@ -98,8 +104,12 @@ Format the agent's output into the report below. Number all findings, sorted Cri
 - **Orchestrate, do not review** — dispatch the agent, format results
 - **Simplification is autonomous** — no approval needed, no behavior changes
 - **Single agent, single pass** — saves tokens
-- **Build verification** — if simplification breaks build, fix or revert
+- **Build verification** — confirm the gate yourself; the agent's "it passed" is a rung-1 claim
 - **Every finding:** file:line + concrete suggestion
+
+## Additional resources
+
+- For the evidence ladder and the three verdicts, see [../implement/references/evidence-ladder.md](../implement/references/evidence-ladder.md)
 
 ## Flow Position
 

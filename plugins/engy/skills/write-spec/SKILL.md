@@ -33,7 +33,7 @@ Determine mode from user intent and filesystem state:
 
 ## EARS-BDD Mode
 
-Check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (`earsBdd: true`). When enabled, the SRS is the **first allocation point** for durable `FR-<AREA>-<NNN>` requirements: milestone FR lists in Section 6 carry EARS SHALL rows with durable ids (instead of `FR-N.M`), and those ids flow unchanged through milestone planning, task planning, and implementation. Follow the planning augmentations in `plugins/engy/skills/implement/references/ears-bdd.md` for FR-graph orientation (use existing FRs + `trace` to find current behaviour, tests, and code before exploring), the id scheme, EARS patterns, allocation rule, and funnel discipline. When disabled, author FRs using the milestone-keyed scheme below unchanged.
+Check whether EARS-BDD is enabled for this workspace — the agent's appended system prompt or `getWorkspaceDetails` will indicate it (`earsBdd: true`). When enabled, the SRS is the **first allocation point** for durable `FR-<AREA>-<NNN>` requirements: milestone FR lists in Section 6 carry EARS SHALL rows with durable ids (instead of `FR-N.M`), and those ids flow unchanged through milestone planning, task planning, and implementation. Follow the planning augmentations in `../implement/references/ears-bdd.md` for FR-graph orientation (use existing FRs + `trace` to find current behaviour, tests, and code before exploring), the id scheme, EARS patterns, allocation rule, and funnel discipline. When disabled, author FRs using the milestone-keyed scheme below unchanged.
 
 ## Process
 
