@@ -89,7 +89,7 @@ For each extracted requirement, check the document under review:
 **EARS-BDD FR check** (only when EARS-BDD is enabled for the workspace) - For each `FR-<AREA>-<NNN>` id in the plan:
 - Well-formed: SCREAMING-KEBAB area, zero-padded number, carries a `SHALL`.
 - Unique: not duplicated within the plan, and not colliding with an id already claimed in the parent spec, another milestone plan, or an existing `system/features/<area>.md` row — unless the plan is intentionally reusing an upstream id verbatim.
-- Conventions per `plugins/engy/skills/implement/references/ears-bdd.md`. Flag malformed or colliding ids as **High** — they break the trace graph once implementation writes them to `system/features`.
+- Conventions per `../implement/references/ears-bdd.md`. Flag malformed or colliding ids as **High** — they break the trace graph once implementation writes them to `system/features`.
 
 ### Phase 4: Produce Report
 
