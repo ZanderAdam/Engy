@@ -65,6 +65,12 @@ export function loadPersistedTerminalSessions(state: AppState): void {
         continue;
       }
       if (!state.terminalSessionMeta.has(row.sessionId)) {
+        // The live subagent id set (hooks/subagent.ts) is process-only and does
+        // not survive a restart, so a persisted count has nothing backing it —
+        // reset it rather than let it desync from the next SubagentStop, which
+        // recomputes from an empty set and would otherwise floor a stale count
+        // to 0 instead of decrementing it.
+        row.meta.activeSubagents = undefined;
         state.terminalSessionMeta.set(row.sessionId, row.meta);
         state.restoredTerminalSessions.add(row.sessionId);
         restored++;

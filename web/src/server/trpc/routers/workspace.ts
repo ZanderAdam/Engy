@@ -67,6 +67,9 @@ const agentSettingsSchema = z.record(
     // resolveAgentSkills — reject it instead (clear with null/omission).
     planSkill: z.string().min(1).nullable().optional(),
     implementSkill: z.string().min(1).nullable().optional(),
+    // Gates the PreCompact/SessionEnd memory-capture hooks (off by default —
+    // each firing is a billed model call). Claude-only; other agents ignore it.
+    memoryCapture: z.boolean().optional(),
   }),
 );
 

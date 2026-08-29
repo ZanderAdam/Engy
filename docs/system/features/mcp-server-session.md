@@ -78,7 +78,11 @@ oldest delivered dispatch (sound because delivery is one-at-a-time per worker,
 so replies arrive in delivery order), and the injected contract is just
 "report the outcome via terminal_reply". Workers without a per-session
 endpoint fall back to the legacy single-use correlation id embedded in the
-`[engy-dispatch <id>]` marker. Async dispatches from identified callers do
+`[engy-dispatch <id>]` marker. `terminal_status` additionally surfaces
+`activeSubagents` and `lastFailure` — a live subagent count and any recorded
+`StopFailure` state, both maintained on the session by the Claude Code hook
+channel (see the terminal-relay area) — so a dispatching agent can see why a
+worker went quiet. Async dispatches from identified callers do
 not need `terminal_collect` polling — the settled result is pushed into the
 origin terminal as an informational notice (idle-gated, queued while the
 origin is busy); the same push happens when a sync wait times out or the
@@ -139,6 +143,7 @@ Functional requirements in EARS notation. These are the single source of truth f
 | FR-MCP-170 | WHEN `terminal_spawn` passes validation, the system SHALL generate a new terminal session id, send a spawn command to the daemon whose agent CLI command carries the resolved per-session MCP endpoint `/mcp/<newSessionId>`, register session metadata recording `spawnedBy`, inheriting the caller's UI scope (groupKey, workspace, project), and starting at activity state `active` (so dispatches sent while the CLI boots queue and deliver on its first idle/done settle), auto-connect the session as a dispatch worker, broadcast the session creation, and return the new session id. |
 | FR-MCP-180 | WHEN a dispatch created by an identified caller settles (replied or failed) and the dispatch was async or its sync wait timed out, the system SHALL inject an informational `[engy-notice <correlationId>]` settled-notice (worker description, result or error capped at 2000 chars, and a do-not-reply/re-dispatch note) into the origin terminal — immediately when the origin is idle with no queued dispatches or notices, otherwise queued and flushed combined on the origin's next idle transition, before any queued dispatch; a flush that fails because no daemon is connected SHALL requeue the notices. Notices whose origin terminal no longer exists SHALL be dropped. |
 | FR-MCP-190 | WHEN `terminal_close` is called by an identified caller with the session id of a terminal whose `spawnedBy` equals the caller's session, the system SHALL send a kill command to the daemon and tear down the session's server state (meta, worker registration, unsettled dispatches failed, destroyed broadcast), freeing its agent-spawn slot; the system SHALL refuse anonymous callers, unknown sessions, terminals not spawned by the caller (user-opened or foreign-spawned), and closes attempted with no daemon connected (leaving state untouched). |
+| FR-MCP-200 | WHEN `terminal_status` is called, the system SHALL additionally include `activeSubagents` (defaulting to 0) and `lastFailure` (defaulting to `undefined`) resolved from the worker's session metadata, alongside the existing worker info and output tail. |
 
 ## Sources
 

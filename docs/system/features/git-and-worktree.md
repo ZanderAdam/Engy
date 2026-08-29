@@ -172,6 +172,20 @@ follow-up forced re-call, which re-resolves the path. A forced remove targets th
 All lifecycle mutations validate that every supplied repo path is a member of
 `workspace.repos`, and that the branch name matches `[A-Za-z0-9._/-]+`.
 
+## CLI-created worktrees
+
+A `claude --worktree` run, or a subagent spawned with `isolation: worktree`,
+creates a git worktree Engy's own lifecycle above never touches — it is not
+one of the paths `worktree.create`/`worktree.sync`/`worktree.remove` manage,
+and the runner owns cleanup of only the worktrees it created itself. The Claude
+Code hook channel (see the terminal-relay area) registers `WorktreeCreate` and
+`WorktreeRemove` handlers (`web/src/server/hooks/worktree.ts`) that record
+these paths on the originating terminal session's `cliWorktrees` field —
+separate from anything the runner writes, so a CLI-created worktree is never
+adopted or cleaned up by the runner's own worktree lifecycle. Neither handler
+can block: `WorktreeCreate` always returns a non-blocking result, since Engy
+has no basis to veto a worktree the user asked for.
+
 ## Multi-repo grouping
 
 `worktree.listGrouped` queries all repos in `workspace.repos` in parallel using
@@ -233,6 +247,8 @@ FR id in their title string, e.g. `it('[FR-GIT-010] ...', ...)`, and run
 | FR-GIT-340 | WHEN a row is marked viewed, the system SHALL record the mark against that row rather than its path, identified by the index for a staged row and by the working tree for an unstaged one, so re-staging expires a staged row's mark and editing the working tree does not. |
 | FR-GIT-350 | WHEN a diff pane's editor is created, including the re-creation that follows a content reload, the system SHALL rewrite both sides with the content fetched for the current selection, rather than keep what a reused editor model still holds. |
 | FR-GIT-360 | WHEN a comment is added to a diff line, the system SHALL record the text of that line alongside the comment, and SHALL quote it in the feedback sent to an agent; IF no line text was recorded, THEN the feedback SHALL name the line number alone. |
+| FR-GIT-370 | WHEN a `WorktreeCreate` hook fires, the system SHALL append the reported path (`worktree_path`, falling back to `path`, then `cwd`) to the originating session's `cliWorktrees` list if not already present, and SHALL always allow creation to proceed — never returning a blocking hook result. `cliWorktrees` SHALL be exposed through the terminal session list. |
+| FR-GIT-380 | WHEN a `WorktreeRemove` hook fires with a path present in the session's `cliWorktrees`, the system SHALL remove it; a remove for a path not recorded, or for a session with no recorded worktrees, SHALL be a no-op. |
 
 ## Sources
 

@@ -1,4 +1,5 @@
 import { buildAddDirFlags, shellEscape } from './shell';
+import { buildMemoryCaptureCommand } from '../server/hooks/memory';
 
 export type AgentTypeId = 'claude' | 'codex';
 
@@ -14,6 +15,15 @@ export interface AgentSettings {
   mode?: string;
   planSkill?: string | null;
   implementSkill?: string | null;
+  /**
+   * Registers the PreCompact/SessionEnd memory-capture hooks (off by
+   * default). Each firing is a real, billed model call — measured $0.34 on a
+   * near-empty transcript, scaling with transcript size — so this rides the
+   * same per-agent settings blob every other agent toggle already reaches
+   * every spawn call site through, rather than a new top-level workspace
+   * column that would need threading into each one individually.
+   */
+  memoryCapture?: boolean;
 }
 
 export type WorkspaceAgentSettings = Partial<Record<string, AgentSettings>>;
@@ -39,6 +49,11 @@ interface BuildAgentCommandOptions {
    * prompt/systemPrompt are ignored (the resumed conversation already has its context).
    */
   resumeSessionId?: string;
+  /**
+   * Session display name for `claude --name` (prompt box, /resume picker,
+   * terminal title). Claude-only; other agent builders ignore it.
+   */
+  displayName?: string;
 }
 
 interface AgentType {
@@ -66,11 +81,123 @@ const MCP_SERVER_NAME = 'Engy';
 // calling (and thus its agent type). See web/src/server/ws/terminal-server.ts.
 export const MCP_SESSION_PLACEHOLDER = '__ENGY_SESSION__';
 
+function claudeNameFlag(displayName: string): string {
+  return ` --name '${shellEscape(displayName)}'`;
+}
+
+/** `--name` value: project + scope for project-scoped terminals, scope alone for workspace-scoped ones. */
+export function composeDisplayName(scopeLabel: string | undefined): string | undefined {
+  return scopeLabel || undefined;
+}
+
+const CLAUDE_COMMAND_RE = /^claude(\s|$)/;
+
+/**
+ * Appends `--name` to an already-built claude command string. The terminal
+ * server receives commands the browser already built via buildAgentCommand —
+ * it can only post-process them, not rebuild through claudeSharedFlags.
+ */
+export function appendClaudeNameFlag(
+  command: string | undefined,
+  displayName: string | undefined,
+): string | undefined {
+  if (!command || !displayName || !CLAUDE_COMMAND_RE.test(command)) return command;
+  return `${command}${claudeNameFlag(displayName)}`;
+}
+
 function claudeMcpFlag(mcpUrl: string): string {
   const config = JSON.stringify({
     mcpServers: { [MCP_SERVER_NAME]: { type: 'http', url: mcpUrl } },
   });
   return ` --mcp-config '${shellEscape(config)}'`;
+}
+
+// Hook events this milestone wires up. Registered with matcher omitted
+// (match-all) and routed server-side by hook_event_name — one URL for all
+// eleven avoids a config that must change (and force a respawn) every time
+// a new event's handler ships in a later task group.
+const HOOK_EVENTS = [
+  'SessionStart',
+  'UserPromptSubmit',
+  'Stop',
+  'StopFailure',
+  'Notification',
+  'SessionEnd',
+  'PreCompact',
+  'SubagentStart',
+  'SubagentStop',
+  'WorktreeCreate',
+  'WorktreeRemove',
+] as const;
+
+// `async`/`asyncRewake` only apply to `command`-type hooks — an `http`
+// handler has no fire-and-forget mode and always sits in the turn's
+// critical path, awaited up to `timeout`. That makes an explicit short
+// timeout on every handler load-bearing rather than a nicety.
+const HOOK_TIMEOUT_SECONDS = 5;
+
+// claude 2.1.251 silently drops `type: "http"` hooks registered for
+// SessionStart (logs "Skipping HTTP hook ... not supported for SessionStart")
+// — confirmed by probe, so this event alone runs as a `command` hook that
+// curls the same endpoint and echoes its response on stdout.
+function sessionStartHookCommand(hookUrl: string): string {
+  return `curl -s -m ${HOOK_TIMEOUT_SECONDS} -X POST '${shellEscape(hookUrl)}' -H 'Content-Type: application/json' -d @-`;
+}
+
+const MEMORY_CAPTURE_EVENTS = new Set(['PreCompact', 'SessionEnd']);
+
+/**
+ * Inline per-session `--settings` payload registering the Engy hook channel
+ * for every event this milestone uses. Never written to
+ * plugins/engy/hooks/hooks.json or any settings.json — the Engy plugin is
+ * enabled user-wide, so a hook placed there would fire in every Claude
+ * session on the machine, not just ones Engy spawned.
+ *
+ * PreCompact/SessionEnd are omitted entirely — not registered as a no-op —
+ * when `memoryCaptureEnabled` is false: each firing is a billed model call
+ * (TG6 spike), so an unused registration still costing a round trip per
+ * event is not acceptable for a feature nobody opted into.
+ */
+export function buildHookSettings(hookUrl: string, memoryCaptureEnabled: boolean): string {
+  const hooks: Record<string, unknown> = {};
+  for (const event of HOOK_EVENTS) {
+    if (MEMORY_CAPTURE_EVENTS.has(event)) {
+      if (!memoryCaptureEnabled) continue;
+      hooks[event] = [
+        {
+          hooks: [
+            {
+              type: 'command',
+              command: buildMemoryCaptureCommand(hookUrl),
+              timeout: HOOK_TIMEOUT_SECONDS,
+            },
+          ],
+        },
+      ];
+      continue;
+    }
+    hooks[event] =
+      event === 'SessionStart'
+        ? [
+            {
+              hooks: [
+                {
+                  type: 'command',
+                  command: sessionStartHookCommand(hookUrl),
+                  timeout: HOOK_TIMEOUT_SECONDS,
+                },
+              ],
+            },
+          ]
+        : [{ hooks: [{ type: 'http', url: hookUrl, timeout: HOOK_TIMEOUT_SECONDS }] }];
+  }
+  return JSON.stringify({ hooks });
+}
+
+function claudeHooksFlag(mcpUrl: string, memoryCaptureEnabled: boolean): string {
+  const hookUrl = mcpUrl.replace('/mcp/', '/hooks/');
+  const settings = buildHookSettings(hookUrl, memoryCaptureEnabled);
+  return ` --settings '${shellEscape(settings)}'`;
 }
 
 const CLAUDE_DEFAULT_MODE_ID = 'acceptEdits';
@@ -80,10 +207,22 @@ const CLAUDE_DEFAULT_MODE_ID = 'acceptEdits';
 // would make an interactive Engy terminal silently refuse every action.
 const CLAUDE_MODES: AgentMode[] = [
   { id: 'default', label: 'Default', description: 'Prompt on first use of each tool' },
-  { id: 'acceptEdits', label: 'Accept edits', description: 'Auto-accept edits in the working directory' },
+  {
+    id: 'acceptEdits',
+    label: 'Accept edits',
+    description: 'Auto-accept edits in the working directory',
+  },
   { id: 'plan', label: 'Plan', description: 'Read-only analysis and planning' },
-  { id: 'auto', label: 'Auto', description: 'Claude decides; a safety classifier blocks destructive actions' },
-  { id: 'bypassPermissions', label: 'Bypass permissions', description: 'Approve everything without prompting' },
+  {
+    id: 'auto',
+    label: 'Auto',
+    description: 'Claude decides; a safety classifier blocks destructive actions',
+  },
+  {
+    id: 'bypassPermissions',
+    label: 'Bypass permissions',
+    description: 'Approve everything without prompting',
+  },
 ];
 
 function coerceModeId(modes: AgentMode[], defaultModeId: string, mode: string | undefined): string {
@@ -93,13 +232,21 @@ function coerceModeId(modes: AgentMode[], defaultModeId: string, mode: string | 
 /** MCP + permission flags shared by claude's fresh-spawn and resume commands. */
 function claudeSharedFlags(options?: BuildAgentCommandOptions): string {
   let cmd = '';
+  if (options?.displayName) {
+    cmd += claudeNameFlag(options.displayName);
+  }
   if (options?.mcpUrl) {
     cmd += claudeMcpFlag(options.mcpUrl);
+    cmd += claudeHooksFlag(options.mcpUrl, options?.agentSettings?.claude?.memoryCapture ?? false);
   }
   if (options?.dangerouslySkipPermissions) {
     cmd += ' --dangerously-skip-permissions';
   } else {
-    const mode = coerceModeId(CLAUDE_MODES, CLAUDE_DEFAULT_MODE_ID, options?.agentSettings?.claude?.mode);
+    const mode = coerceModeId(
+      CLAUDE_MODES,
+      CLAUDE_DEFAULT_MODE_ID,
+      options?.agentSettings?.claude?.mode,
+    );
     cmd += ` --permission-mode ${mode}`;
   }
   return cmd;
@@ -145,7 +292,11 @@ const claude: AgentType = {
 // the dropdown exposes single presets so it mirrors Claude's one-mode UX.
 const CODEX_MODES: AgentMode[] = [
   { id: 'read-only', label: 'Read only', description: 'Analyse without writing' },
-  { id: 'workspace-write', label: 'Workspace write', description: 'Edit the workspace, ask beyond it' },
+  {
+    id: 'workspace-write',
+    label: 'Workspace write',
+    description: 'Edit the workspace, ask beyond it',
+  },
   { id: 'full-auto', label: 'Full auto', description: 'Workspace write, never ask for approval' },
   { id: 'danger-full-access', label: 'Full access', description: 'No sandbox — dangerous' },
 ];

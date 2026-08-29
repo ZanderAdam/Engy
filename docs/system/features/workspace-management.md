@@ -119,7 +119,7 @@ merged or split project view.
 ## Per-agent settings (agentSettings)
 
 The `agent_settings` JSON column stores per-agent overrides keyed by agent-type
-id: `{ [agentTypeId]: { active, mode, planSkill, implementSkill } }`
+id: `{ [agentTypeId]: { active, mode, planSkill, implementSkill, memoryCapture } }`
 (`WorkspaceAgentSettings` in `web/src/lib/agent-types.ts`). An absent key means
 active with the agent's registry defaults. `workspace.update` validates keys
 against the agent-type registry, `mode` against that agent's `modes` list, and
@@ -151,6 +151,13 @@ Effects:
   quick actions add a line to the context block asking the agent to create its
   own git worktree. It is workspace-wide, not per agent, and lives at the top
   of the Agents tab.
+- **Memory capture** (claude entry's `memoryCapture`, off by default) — gates
+  whether `buildHookSettings` registers the `PreCompact`/`SessionEnd`
+  memory-capture command hooks at all (omitted from the `--settings` blob
+  entirely when off, not merely a no-op — each firing is a billed model
+  call). Rides the existing `agentSettings` blob rather than a new workspace
+  column so it reaches every `buildAgentCommand` call site the same way
+  `mode`/`planSkill` already do, with no extra plumbing.
 
 ## MCP surface
 

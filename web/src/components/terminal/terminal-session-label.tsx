@@ -8,6 +8,8 @@ import {
   isStoppedTerminal,
   type TerminalTab,
 } from './types';
+import { resolveTerminalLabel } from './terminal-label';
+import { AttentionBadge } from './attention-badge';
 
 interface TerminalSessionLabelProps {
   tab: TerminalTab;
@@ -17,13 +19,17 @@ interface TerminalSessionLabelProps {
   iconBox?: boolean;
 }
 
-// Shared icon + scope label + OSC subtitle. Rendered by the dock tab, the
-// "all terminals" dropdown, and the terminal rail's hover so a session reads
-// identically wherever it appears. The icon colour/animation comes from
+// Shared icon + label + branch subtitle. Rendered by the "all terminals"
+// dropdown and the terminal rail's hover so a session reads identically in
+// both. The dock tab has a parallel implementation (its own tab chrome) that
+// calls the same resolveTerminalLabel precedence helper rather than reusing
+// this component directly. The icon colour/animation comes from
 // getTerminalIconStyle (idle/active/waiting/done), keeping the activity cue
 // consistent across surfaces. With iconBox the activity state colours the whole
 // box (getTerminalRailBoxStyle), matching the collapsed rail's filled dots.
 export function TerminalSessionLabel({ tab, className, iconBox }: TerminalSessionLabelProps) {
+  const mainLabel = resolveTerminalLabel(tab.scope, tab.oscTitle);
+  const branch = tab.scope.worktreeBranch;
   return (
     <span
       className={cn(
@@ -45,10 +51,13 @@ export function TerminalSessionLabel({ tab, className, iconBox }: TerminalSessio
         <RiTerminalLine className={cn('mt-0.5 size-3 shrink-0', getTerminalIconStyle(tab))} />
       )}
       <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="truncate leading-tight">{tab.scope.scopeLabel}</span>
-        {tab.oscTitle && (
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="truncate leading-tight">{mainLabel}</span>
+          <AttentionBadge needsAttention={tab.needsAttention} />
+        </span>
+        {branch && (
           <span className="truncate font-mono text-[9px] leading-none text-muted-foreground">
-            {tab.oscTitle}
+            {branch}
           </span>
         )}
       </span>

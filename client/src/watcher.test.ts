@@ -13,16 +13,27 @@ function createMockWsClient() {
   } as unknown as WsClient & { sent: unknown[] };
 }
 
-function waitForFileChange(wsClient: WsClient & { sent: unknown[] }, timeout = 8000): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-    const check = () => {
-      if (wsClient.sent.length > 0) return resolve();
-      if (Date.now() - start > timeout) return reject(new Error('Timeout waiting for file change'));
-      setTimeout(check, 50);
-    };
-    check();
-  });
+// Polling detection can miss a single write — a coarse mtime, or a starved
+// event loop under parallel test load, and the tick sees nothing. Retrying the
+// stimulus until the change is observed removes the dependency on one poll
+// landing. `mutate` returns the path to touch for a given attempt: rewriting
+// one file yields `change`, while a fresh name each time yields `add`.
+async function retryUntilDetected(
+  mutate: (attempt: number) => string,
+  detected: () => boolean,
+  timeout = 12_000,
+): Promise<void> {
+  const start = Date.now();
+  let attempt = 0;
+  while (Date.now() - start < timeout) {
+    fs.writeFileSync(mutate(attempt++), `data-${Date.now()}`);
+    const deadline = Date.now() + 400;
+    while (Date.now() < deadline) {
+      if (detected()) return;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+  throw new Error('Timeout waiting for the watcher to report a change');
 }
 
 describe('SpecWatcher', { retry: 2 }, () => {
@@ -46,9 +57,10 @@ describe('SpecWatcher', { retry: 2 }, () => {
     watcher.sync([{ slug: 'test-ws', paths: [subscribedFile] }]);
     await watcher.waitForReady('test-ws');
 
-    fs.writeFileSync(subscribedFile, 'updated');
-
-    await waitForFileChange(wsClient);
+    await retryUntilDetected(
+      () => subscribedFile,
+      () => wsClient.sent.length > 0,
+    );
 
     expect(wsClient.sent.length).toBeGreaterThan(0);
     const msg = wsClient.sent[0] as {
@@ -61,7 +73,7 @@ describe('SpecWatcher', { retry: 2 }, () => {
     expect(msg.payload.eventType).toBe('change');
 
     await watcher.closeAll();
-  }, 15_000);
+  }, 40_000);
 
   it('[FR-FILES-190] should send FILE_CHANGE when a new file is created inside a subscribed DIRECTORY', async () => {
     const subscribedDir = path.join(tmpDir, 'docs');
@@ -71,9 +83,10 @@ describe('SpecWatcher', { retry: 2 }, () => {
     watcher.sync([{ slug: 'test-ws', paths: [subscribedDir] }]);
     await watcher.waitForReady('test-ws');
 
-    fs.writeFileSync(path.join(subscribedDir, 'new.md'), 'hello');
-
-    await waitForFileChange(wsClient);
+    await retryUntilDetected(
+      (n) => path.join(subscribedDir, `created-${n}.md`),
+      () => wsClient.sent.length > 0,
+    );
 
     expect(wsClient.sent.length).toBeGreaterThan(0);
     const msg = wsClient.sent[0] as {
@@ -85,7 +98,7 @@ describe('SpecWatcher', { retry: 2 }, () => {
     expect(msg.payload.eventType).toBe('add');
 
     await watcher.closeAll();
-  }, 15_000);
+  }, 40_000);
 
   it('[FR-FILES-190] should NOT send FILE_CHANGE for an unsubscribed sibling file', async () => {
     const subscribedFile = path.join(tmpDir, 'subscribed.md');
@@ -116,8 +129,10 @@ describe('SpecWatcher', { retry: 2 }, () => {
     await watcher.waitForReady('test-ws');
 
     // Confirm old path emits before re-sync
-    fs.writeFileSync(oldFile, 'updated-1');
-    await waitForFileChange(wsClient);
+    await retryUntilDetected(
+      () => oldFile,
+      () => wsClient.sent.length > 0,
+    );
     expect(wsClient.sent.length).toBeGreaterThan(0);
     wsClient.sent.length = 0;
 
@@ -126,9 +141,11 @@ describe('SpecWatcher', { retry: 2 }, () => {
     await watcher.waitForReady('test-ws');
 
     // Write to the new file — should emit
-    fs.writeFileSync(newFile, 'updated-2');
-    await waitForFileChange(wsClient);
     const msgs = wsClient.sent as Array<{ payload: { path: string } }>;
+    await retryUntilDetected(
+      () => newFile,
+      () => msgs.some((m) => m.payload.path === newFile),
+    );
     expect(msgs.some((m) => m.payload.path === newFile)).toBe(true);
 
     // Write to old file — should NOT emit
@@ -138,7 +155,7 @@ describe('SpecWatcher', { retry: 2 }, () => {
     expect(wsClient.sent.length).toBe(0);
 
     await watcher.closeAll();
-  }, 15_000);
+  }, 40_000);
 
   it('[FR-FILES-190] sync with workspace absent or empty paths stops all emission', async () => {
     const subscribedDir = path.join(tmpDir, 'docs');

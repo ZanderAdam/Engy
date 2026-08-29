@@ -30,6 +30,7 @@ export type {
   GitWorktreeEntry,
   GitWorktreeListRequestMessage,
   GitWorktreeListResponseMessage,
+  WorktreeBranchChangedMessage,
   DirListEntry,
   DirListRequestMessage,
   DirListResponseMessage,

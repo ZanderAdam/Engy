@@ -10,6 +10,7 @@ import { TerminalDockTab } from "./terminal-dock-tab";
 import { TerminalDockWatermark } from "./terminal-dock-watermark";
 import { TerminalDockActions } from "./terminal-dock-actions";
 import { useOnServerEvent } from "@/contexts/events-context";
+import { applyServerActivity } from "@/hooks/use-terminal-activity";
 import { applyOscTitle } from "./osc-title";
 import { useOptionalTab } from "@/components/tabs/tab-context";
 import { randomId } from "@/lib/random-id";
@@ -95,6 +96,23 @@ function clearLayout(layoutKey: string): void {
   } catch {
     // ignore
   }
+}
+
+// FR-TERMINAL-800: once a session is hook-driven, its badge is server-owned — the
+// local PTY heuristic (handleActivity) is suppressed for it rather than raced
+// against the TERMINAL_ACTIVITY_CHANGE broadcast. Returns null when nothing
+// changes, so the caller can skip a redundant commitTab.
+export function reduceServerActivity(
+  existing: TerminalTab,
+  activityPayload: { state?: TerminalActivityState; hookDriven?: boolean },
+): TerminalTab | null {
+  const hookDriven = activityPayload.hookDriven ?? existing.hookDriven ?? false;
+  if (!hookDriven) return null;
+  const activityState = activityPayload.state ?? existing.activityState;
+  if (hookDriven === (existing.hookDriven ?? false) && activityState === existing.activityState) {
+    return null;
+  }
+  return { ...existing, hookDriven, activityState };
 }
 
 export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled, disableExternalEvents = false, publishKey, global = false }: TerminalManagerProps) {
@@ -309,6 +327,10 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     (sessionId: string, event: ActivityEvent) => {
       const existing = tabsRef.current.get(sessionId);
       if (!existing) return;
+      // A hook-driven session's badge is server-owned (see the
+      // TERMINAL_ACTIVITY_CHANGE subscription below) — applying the local PTY
+      // heuristic here would race it rather than defer to it.
+      if (existing.hookDriven) return;
 
       const activityState: TerminalActivityState = event === 'start' ? 'active' : event;
       if (existing.activityState === activityState) return;
@@ -334,7 +356,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     const existing = tabsRef.current.get(sessionId);
     if (!existing) return;
 
-    commitTab(sessionId, { ...existing, scope: { ...existing.scope, scopeLabel: newLabel } });
+    commitTab(sessionId, { ...existing, scope: { ...existing.scope, renamedLabel: newLabel } });
   }, [commitTab]);
 
   const handleOscTitle = useCallback((sessionId: string, title: string) => {
@@ -518,6 +540,54 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     // final output stays readable — the WS exit event marks it exited.
     // 'attached'/'detached' are informational — no action needed
   }, [updateTabLabel, buildSessionsUrl]));
+
+  // Single TERMINAL_ACTIVITY_CHANGE subscription driving two things:
+  //
+  // 1. FR-TERMINAL-800: for a hook-driven session, the broadcast state is
+  //    authoritative for the tab badge. Commit it directly and feed the same
+  //    terminal:activity-changed store the local tracker uses (dispatchActivityEvent)
+  //    so other consumers (the "all terminals" dropdown, task cards) see it
+  //    too — handleActivity has already stopped emitting for this session.
+  //
+  // 2. needsAttention has no broadcast of its own — every hook event that can
+  //    change it (Notification sets it, Stop/UserPromptSubmit clear it, and
+  //    the ack path clears it) already drives this same broadcast, so it's
+  //    reused as the "maybe changed, go check" signal. Narrowed to a
+  //    'waiting' state or a tab that currently shows the mark, so an ordinary
+  //    active/idle cycle on a hook-driven session doesn't trigger a refetch.
+  useOnServerEvent('TERMINAL_ACTIVITY_CHANGE', useCallback((payload) => {
+    const existing = tabsRef.current.get(payload.sessionId);
+    if (existing) {
+      const reduced = reduceServerActivity(existing, payload);
+      if (reduced) {
+        commitTab(payload.sessionId, reduced);
+        if (payload.state) applyServerActivity(payload.sessionId, payload.state);
+      }
+    }
+
+    if (payload.state !== 'waiting' && !existing?.needsAttention) return;
+
+    const url = buildSessionsUrl();
+    if (!url) return;
+    fetch(url)
+      .then((res) => res.json())
+      .then((data: { sessions: SessionListItem[] }) => {
+        const s = data.sessions.find((x) => x.sessionId === payload.sessionId);
+        const current = tabsRef.current.get(payload.sessionId);
+        if (!s || !current || current.needsAttention === s.needsAttention) return;
+        commitTab(payload.sessionId, { ...current, needsAttention: s.needsAttention });
+      })
+      .catch((err: unknown) => console.error('Failed to refresh attention state:', err));
+  }, [buildSessionsUrl, commitTab]));
+
+  useOnServerEvent('TERMINAL_BRANCH_CHANGE', useCallback((payload) => {
+    const existing = tabsRef.current.get(payload.sessionId);
+    if (!existing || existing.scope.worktreeBranch === payload.worktreeBranch) return;
+    commitTab(payload.sessionId, {
+      ...existing,
+      scope: { ...existing.scope, worktreeBranch: payload.worktreeBranch },
+    });
+  }, [commitTab]));
 
   const handleDockviewReady = useCallback(
     (event: { api: DockviewApi }) => {

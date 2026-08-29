@@ -13,11 +13,26 @@ interface TerminalSessionListItem {
   projectSlug?: string;
   taskId?: number;
   worktreeBranch?: string;
+  renamedLabel?: string;
+  lastTitle?: string;
+  needsAttention: boolean;
   activityState: string;
   status: 'active' | 'suspended';
   browserCount: number;
   /** PTY lost on a daemon restart — the tab is restorable, not live. */
   dormant: boolean;
+  activeSubagents: number;
+  lastFailure?: { type: string; message: string; at: number };
+  /** Worktrees a CLI created inside this session, distinct from runner-managed ones. */
+  cliWorktrees: string[];
+  /**
+   * FR-TERMINAL-800: seeds the tab's server-owned override at initial page
+   * load. Without this, a freshly loaded tab for an already-hook-driven
+   * session has `hookDriven === undefined` until the next hook event fires,
+   * reintroducing the local-PTY-heuristic race the override exists to
+   * prevent, once per page load.
+   */
+  hookDriven: boolean;
 }
 
 interface TerminalSessionListQuery {
@@ -68,10 +83,17 @@ export function listTerminalSessions(
         projectSlug: m.projectSlug,
         taskId: m.taskId,
         worktreeBranch: m.worktreeBranch,
+        renamedLabel: m.renamedLabel,
+        lastTitle: m.lastTitle,
+        needsAttention: m.needsAttention === true,
         activityState: m.activityState ?? 'idle',
         status: browserCount > 0 ? ('active' as const) : ('suspended' as const),
         browserCount,
         dormant: m.dormant === true,
+        activeSubagents: m.activeSubagents ?? 0,
+        lastFailure: m.lastFailure,
+        cliWorktrees: m.cliWorktrees ?? [],
+        hookDriven: m.hookDriven === true,
       };
     });
 }

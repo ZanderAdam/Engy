@@ -30,6 +30,7 @@ import {
   projects,
   workspaces,
   fleetingMemories,
+  terminalSessions as terminalSessionsTable,
 } from '../db/schema';
 
 let openClients: WebSocket[] = [];
@@ -2693,5 +2694,168 @@ describe('[FR-WS-180] GH_PR_REVIEW_COMMENTS_RESPONSE', () => {
       payload: { requestId: string; coderWorkspace?: string };
     };
     expect(request.payload.coderWorkspace).toBe('my-coder-ws');
+  });
+});
+
+describe('WORKTREE_BRANCH_CHANGED_EVENT', () => {
+  let ctx: TestContext;
+  let server: Server;
+  let port: number;
+
+  function baseMeta(workingDir: string, worktreeBranch?: string) {
+    return {
+      scopeType: 'project',
+      scopeLabel: 'test',
+      workingDir,
+      cols: 80,
+      rows: 24,
+      ...(worktreeBranch ? { worktreeBranch } : {}),
+    };
+  }
+
+  beforeEach(async () => {
+    openClients = [];
+    ctx = setupTestDb();
+    const result = await startServer(ctx.state);
+    server = result.server;
+    port = result.port;
+  });
+
+  afterEach(async () => {
+    for (const ws of openClients) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.terminate();
+      }
+    }
+    openClients = [];
+    await closeServer(server);
+    ctx.cleanup();
+  });
+
+  it('should update meta.worktreeBranch for the session matching workingDir', async () => {
+    ctx.state.terminalSessionMeta.set('sess-1', baseMeta('/repo/main', 'old-branch'));
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/main', branch: 'feature-x' },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(ctx.state.terminalSessionMeta.get('sess-1')?.worktreeBranch).toBe('feature-x');
+    });
+  });
+
+  it('should update every session sharing the same workingDir', async () => {
+    ctx.state.terminalSessionMeta.set('sess-a', baseMeta('/repo/shared'));
+    ctx.state.terminalSessionMeta.set('sess-b', baseMeta('/repo/shared'));
+    ctx.state.terminalSessionMeta.set('sess-other', baseMeta('/repo/other'));
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/shared', branch: 'shared-branch' },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(ctx.state.terminalSessionMeta.get('sess-a')?.worktreeBranch).toBe('shared-branch');
+      expect(ctx.state.terminalSessionMeta.get('sess-b')?.worktreeBranch).toBe('shared-branch');
+    });
+    expect(ctx.state.terminalSessionMeta.get('sess-other')?.worktreeBranch).toBeUndefined();
+  });
+
+  it('should persist the updated meta to the database', async () => {
+    ctx.state.terminalSessionMeta.set('sess-persist', baseMeta('/repo/persist'));
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/persist', branch: 'persisted-branch' },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const row = ctx.db
+        .select()
+        .from(terminalSessionsTable)
+        .where(eq(terminalSessionsTable.sessionId, 'sess-persist'))
+        .get();
+      expect((row?.meta as { worktreeBranch?: string } | undefined)?.worktreeBranch).toBe(
+        'persisted-branch',
+      );
+    });
+  });
+
+  it('should broadcast TERMINAL_BRANCH_CHANGE to attached browsers', async () => {
+    ctx.state.terminalSessionMeta.set('sess-broadcast', baseMeta('/repo/broadcast'));
+
+    const events: string[] = [];
+    const listener = {
+      readyState: 1,
+      OPEN: 1,
+      send: (d: string) => events.push(d),
+    } as unknown as import('ws').WebSocket;
+    ctx.state.fileChangeListeners.add(listener);
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/broadcast', branch: 'broadcast-branch' },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const branchEvents = events.filter((e) => e.includes('TERMINAL_BRANCH_CHANGE'));
+      expect(branchEvents).toHaveLength(1);
+      const parsed = JSON.parse(branchEvents[0]) as {
+        payload: { sessionId: string; worktreeBranch: string };
+      };
+      expect(parsed.payload.sessionId).toBe('sess-broadcast');
+      expect(parsed.payload.worktreeBranch).toBe('broadcast-branch');
+    });
+  });
+
+  it('should ignore an unknown workingDir with no matching session', async () => {
+    ctx.state.terminalSessionMeta.set('sess-known', baseMeta('/repo/known'));
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/unknown', branch: 'irrelevant' },
+      }),
+    );
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(ctx.state.terminalSessionMeta.get('sess-known')?.worktreeBranch).toBeUndefined();
+  });
+
+  it('should be a no-op when the branch already matches', async () => {
+    ctx.state.terminalSessionMeta.set('sess-nochange', baseMeta('/repo/nochange', 'same-branch'));
+
+    const events: string[] = [];
+    const listener = {
+      readyState: 1,
+      OPEN: 1,
+      send: (d: string) => events.push(d),
+    } as unknown as import('ws').WebSocket;
+    ctx.state.fileChangeListeners.add(listener);
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/nochange', branch: 'same-branch' },
+      }),
+    );
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(events.filter((e) => e.includes('TERMINAL_BRANCH_CHANGE'))).toHaveLength(0);
   });
 });

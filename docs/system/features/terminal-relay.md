@@ -244,6 +244,81 @@ queued settled-dispatch notices for that terminal (see FR-MCP-180) flush first.
 The relay keeps a bounded output tail for connected workers so
 `terminal_status` can report recent output.
 
+## Hook channel
+
+`POST /hooks/<sessionId>` (`web/src/server/hooks/index.ts`, mounted in
+`web/server.ts` beside `/mcp`) is a second per-session HTTP endpoint, addressed
+the same way as `/mcp/<sessionId>`: the terminal session id in the path is the
+bearer token. Claude Code's `type: "http"` hooks POST every lifecycle event —
+turn start/end, permission prompts, API failures, compaction, subagent
+fan-out, worktree creation — to this endpoint. A `Record<string,
+HookHandler[]>` registry dispatches each event to every handler registered for
+it, in a fixed declared order, merging their partial results by "later
+non-empty field wins" (`web/src/server/hooks/index.ts`). An unknown session id
+or an unregistered event both return `200 {}` rather than erroring, since
+sessions outlive a server's memory of them.
+
+The hook configuration is built as inline JSON passed to `claude --settings`
+(`buildHookSettings` in `web/src/lib/agent-types.ts`), deriving the hook URL
+from the session's own `mcpUrl`. It travels as argv, never as a file on disk —
+the Engy plugin is enabled user-wide, so a hook registered in
+`plugins/engy/hooks/hooks.json` would fire in every Claude session on the
+machine, not only ones Engy spawned. Registration is claude-only. `claude`
+2.1.251 silently drops `type: "http"` hooks registered for `SessionStart`, so
+that one event alone is a `command` hook that curls the endpoint with the
+payload piped from stdin and requires the CLI's nested `{ hookSpecificOutput:
+{ hookEventName, additionalContext } }` response shape instead of every other
+handler's flat one. Every handler carries an explicit 5-second `timeout`
+(`http` hooks have no fire-and-forget mode — the CLI always awaits them, so a
+short timeout is what bounds a slow or dead endpoint).
+
+Once a session accepts any hook event its metadata is marked `hookDriven` with
+`lastHookAt` stamped and persisted, which is what the activity override below
+and the terminal-identity title path key off. `Stop` and `UserPromptSubmit`
+(and `StopFailure`, `Notification`) can also fire from inside a subagent,
+distinguished only by a `agent_id` field on the payload — subagent events reuse
+the parent session's own `session_id`, so every handler that mutates
+session-level state ignores a payload carrying one; only `SubagentStart` and
+`SubagentStop`, which are about the subagent itself, read it.
+
+Hook-driven activity replaces the bell/regex heuristic for sessions that opt
+in by producing at least one event: `UserPromptSubmit` → `active`, `Stop` →
+`done`, a `Notification` matching `permission_prompt` / `agent_needs_input` /
+`elicitation_dialog` → `waiting`, matching `idle_prompt` → `idle`
+(`web/src/server/hooks/activity.ts`). Because hook POSTs and PTY output travel
+different transports, a `Stop` can land before trailing PTY output that would
+otherwise re-trigger the daemon's own heuristic and flip the state back —
+so relay-sourced `{t:'act'}` messages are ignored for a `hookDriven` session
+while its `lastHookAt` is inside a 6-second trust window
+(`ACTIVITY_HOOK_TRUST_WINDOW_MS`, double the daemon's 3-second
+`ACTIVITY_DEBOUNCE_MS`). Past that window relay truth is trusted again, so a
+dropped `Stop` self-heals instead of pinning a session at `active` forever and
+silently stalling its dispatch inbox. Hook-derived transitions persist,
+broadcast, and flush the dispatch inbox through the same applier as
+daemon-derived ones; the browser tab badge for a `hookDriven` session follows
+the broadcast instead of its own local PTY heuristic. `hookDriven` is also
+surfaced on `listTerminalSessions` (`GET /api/terminal/sessions` →
+`SessionListItem` → `sessionToTab`), so a freshly loaded browser tab for an
+already-hook-driven session starts with the override already in effect
+instead of running the local heuristic until the next hook event's broadcast
+arrives.
+
+The channel also feeds terminal identity and dispatch delivery. On `Stop` a
+title is derived from `last_assistant_message` and stored server-side
+(`meta.lastTitle`) so an agent-spawned terminal with no browser attached still
+gets one; a `Notification` matching the three prompt/input types above marks
+the session `needsAttention` and returns an OSC 9;4 progress escape sequence
+(`terminalSequence` in the hook result) for terminals whose own chrome
+understands it, cleared on the next `Stop`, `UserPromptSubmit`, or browser
+focus ack. A `Stop` carrying the `prompt_id` of the turn a dispatch was
+delivered into settles that dispatch as replied — a safety net alongside the
+pasted `[engy-dispatch]` reply contract, recorded as `settledBy: 'hook'` vs.
+`'reply'`. `StopFailure` records `lastFailure` on the session and holds it out
+of dispatch delivery until the session's next turn (or a 5-minute fallback,
+`STOP_FAILURE_HOLD_MS`, in case it never turns again).
+`SubagentStart`/`SubagentStop` maintain a live `activeSubagents` count, floored
+at zero against an unmatched stop.
+
 ## Session resume
 
 Claude terminals adopt the terminal's own session id as the CLI conversation id
@@ -265,6 +340,36 @@ session…" entry that launches `codex resume` (the CLI's own cwd-filtered
 picker). When the daemon loses a PTY
 and the server respawns it, `--session-id` is rewritten to `--resume` so the
 conversation continues instead of failing on a duplicate id.
+
+## Terminal identity
+
+A terminal's label carries two lines: the main line is `renamedLabel ??
+oscTitle ?? scopeLabel` (`resolveTerminalLabel` in
+`web/src/components/terminal/terminal-label.ts`, shared by the rail hover, the
+"all terminals" dropdown, and the dock tab's own parallel render) — a manual
+rename always wins, then the agent's own hook-derived title, then the scope
+name. The sub line is the session's live `worktreeBranch`, kept current by a
+daemon-side `chokidar` watch on the repo's `HEAD` (resolving a worktree's
+`.git` file to its real git dir via `git rev-parse --absolute-git-dir`, one
+watch per resolved git dir shared across every session pointed at it) rather
+than the URL param it was seeded from at spawn, which never updated once a
+session switched branches. `--name`, composed from the project slug and scope
+label, gives a `claude` session's own prompt box, `/resume` picker, and
+terminal title the same identity — the CLI-side lever alongside the two
+server-side ones above.
+
+## Live session context
+
+On `SessionStart`, a project-bound session receives `additionalContext`
+summarising its project/workspace/branch, in-progress tasks (`todo`,
+`in_progress`, `review`, each with `blockedBy`), and a few relevant workspace
+memories (lexical search, 3-second timeout, degrading to task-only context on
+failure) — capped at a combined 4,000-character budget with a visible
+truncation marker (`web/src/server/hooks/session-context.ts`). The same
+content is returned regardless of the `SessionStart` matcher (`startup`,
+`resume`, `compact`, `fork`), which is what makes a `--resume`d session's
+otherwise-frozen context current again. A session with no `projectId` bound
+gets `{}`.
 
 ## Viewport scrolling
 
@@ -425,6 +530,39 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-510 | WHEN a browser connects for a session whose stored metadata is dormant, or which a synced daemon does not report alive, the system SHALL spawn a fresh PTY from the stored metadata (command rewritten per FR-TERMINAL-380, last known size, container/coder config restored) and clear the dormant marker, rather than sending `{ t: 'reconnect' }` — which the daemon answers for an unknown session with `exit -1`, destroying the session the connect meant to restore. |
 | FR-TERMINAL-520 | WHILE the session list reports a session as dormant, the browser SHALL render its tab as a stopped placeholder that opens no terminal socket and offers a restore action, and SHALL mount the terminal — connecting its socket, which restores the session per FR-TERMINAL-510 — only WHEN that action is activated. |
 | FR-TERMINAL-530 | WHEN the user closes a dormant tab, the client SHALL ask the server to discard that session — deleting its metadata and persisted row, stamping its history row closed so the conversation returns to the resume dropdown, and broadcasting the `destroyed` change — because a dormant tab has no terminal socket to carry a kill; a discard request for a session that is not dormant SHALL be refused. |
+| FR-TERMINAL-540 | WHEN a `POST /hooks/<sessionId>` request arrives with a JSON body carrying `hook_event_name`, the system SHALL respond `200` with a JSON hook result; a malformed (non-JSON) body or one missing `hook_event_name` SHALL respond `400`, and a non-`POST` method SHALL respond `405`. |
+| FR-TERMINAL-550 | WHEN a hook event has one or more handlers registered for its `hook_event_name`, the system SHALL invoke every registered handler in a fixed, declared registration order (four handlers on `Stop`, four on `UserPromptSubmit`, two on `Notification`); WHEN no handler is registered for an event, the system SHALL log it and respond `200 {}` without failing. |
+| FR-TERMINAL-560 | WHEN dispatching a hook event to multiple handlers, the system SHALL merge their partial results into one response so a later handler's non-empty field overrides an earlier handler's value for that field; IF more than one handler for the same event returns a `terminalSequence`, THEN the system SHALL fail the request rather than silently picking one. |
+| FR-TERMINAL-570 | WHEN a hook POST arrives for a session id absent from `terminalSessionMeta`, the system SHALL respond `200 {}` without invoking any handler, and SHALL log the unknown session id at most once per id through a bounded (500-entry) LRU set rather than an unbounded map. |
+| FR-TERMINAL-580 | WHEN a hook request body exceeds 1,000,000 bytes, the system SHALL reject it with `413` and stop buffering further chunks rather than concatenating an oversized body into memory. |
+| FR-TERMINAL-590 | WHEN a hook POST is accepted for a known session, the system SHALL set `hookDriven: true` and `lastHookAt` to the current time on that session's metadata and persist it, so the activity override rule (FR-TERMINAL-770) survives a server restart. |
+| FR-TERMINAL-600 | WHEN a `Stop`, `UserPromptSubmit`, `StopFailure`, or `Notification` hook payload carries an `agent_id` — fired from inside a subagent, which reuses its parent session's own `session_id` — every handler that mutates session-level state (activity, title, attention, dispatch settlement and turn-tagging, `StopFailure` recording/clearing) SHALL ignore the payload; `SubagentStart` and `SubagentStop`, which are about the subagent itself, SHALL NOT apply this exclusion. |
+| FR-TERMINAL-610 | The system SHALL build the Claude hook configuration as inline JSON passed to `claude --settings`, deriving the hook URL by replacing the `/mcp/` segment of the session's `mcpUrl` with `/hooks/`; this flag SHALL be emitted only for the `claude` agent type (never `codex`) and SHALL be present at all three places a claude command is built — browser-initiated spawn, restart-adoption (the stored command replayed verbatim), and server-originated `spawnAgentTerminal` — including on the `--resume` branch. |
+| FR-TERMINAL-620 | Every hook handler registered in the `--settings` blob SHALL carry an explicit `timeout` of 5 seconds, well below the CLI's 600-second default; no handler SHALL carry an `async` field, since `async`/`asyncRewake` apply only to `command`-type hooks and every `http` handler is always awaited by the CLI's dispatcher. |
+| FR-TERMINAL-630 | The hook configuration SHALL be built per-session as inline `--settings` argv only; the system SHALL NOT write it to `plugins/engy/hooks/hooks.json`, `.claude/settings.json`, or `~/.claude/settings.json`, since the Engy plugin is enabled user-wide and a hook placed there would fire in every Claude session on the machine. |
+| FR-TERMINAL-640 | `SessionStart` SHALL be registered as a `command` hook that curls `/hooks/<sessionId>` with the payload piped from stdin and prints the response — not `type: "http"`, which the CLI silently discards for this event. WHEN the session's metadata carries a bound `projectId`, the response SHALL be the nested `{ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext } }` shape containing the project/workspace name, branch, and in-progress tasks (`todo`, `in_progress`, `review`, sorted `in_progress` → `review` → `todo`, each with its `blockedBy`); the same content SHALL be returned regardless of the `SessionStart` matcher (`startup`, `resume`, `compact`, `fork`). WHEN the session carries no `projectId`, the system SHALL return `{}`. |
+| FR-TERMINAL-650 | The `SessionStart` context SHALL additionally include up to 3 workspace memories relevant to the project name, found via a lexical-mode search bounded by an explicit 3-second timeout and filtered to exclude superseded memories; a search failure or timeout SHALL degrade to task-only context rather than failing the hook. The combined tasks-plus-memories block SHALL be capped at 4,000 characters, appending a visible truncation marker when the cap is exceeded. |
+| FR-TERMINAL-660 | The terminal label's main line SHALL render the session's manual rename (`renamedLabel`) if set, otherwise the agent-derived title (`oscTitle`), otherwise the scope label, in that precedence. |
+| FR-TERMINAL-670 | The terminal label's sub line SHALL render the session's current `worktreeBranch`, and SHALL render no sub line when the branch is unset. |
+| FR-TERMINAL-680 | WHEN a terminal is renamed, the system SHALL record the new value in `renamedLabel`, distinct from `scopeLabel`, so the original scope identity stays available (e.g. to the tooltip) and the label precedence (FR-TERMINAL-660) can distinguish a manual rename from the default scope name. |
+| FR-TERMINAL-690 | The daemon SHALL watch each terminal session's working directory's `HEAD` (resolved via `git rev-parse --absolute-git-dir`, so a worktree's `.git` file resolves correctly) and, on a branch change, send `WORKTREE_BRANCH_CHANGED_EVENT`; the server SHALL update the matching sessions' `worktreeBranch`, persist it, and broadcast the change. Watches SHALL be deduplicated by resolved git directory, one per repo shared across every session pointed at it. |
+| FR-TERMINAL-700 | WHEN spawning or resuming a `claude` terminal, the system SHALL pass `--name` with the session's scope label, so the CLI's prompt box, `/resume` picker, and terminal title carry it; a `codex` command SHALL be left unchanged. |
+| FR-TERMINAL-710 | WHEN `Stop` fires for a session (excluding a subagent's own `Stop`), the system SHALL derive a title from the first non-blank line of `last_assistant_message`, and — WHEN it differs from the stored `lastTitle` — SHALL store it, push it to any already-attached browsers, and update the session-history row (keyed by `resumedFrom` when the terminal is a resume, else the session id) with it as the summary, so an agent-spawned terminal with no browser attached still gets a title and a resumable summary. |
+| FR-TERMINAL-720 | A title SHALL pass through `sanitizeOscTitle` (stripping control characters, trimming, and capping length at a code-point boundary) before being persisted, regardless of whether it originated from the browser's OSC report or the hook-derived `Stop` title. |
+| FR-TERMINAL-730 | WHEN a `Notification` matches `permission_prompt`, `agent_needs_input`, or `elicitation_dialog` (and is not a subagent event), the system SHALL set the session's `needsAttention` and, WHEN that is a real transition, return an OSC 9;4 "set" `terminalSequence` (`ESC ] 9 ; 4 ; 4 ; 0 BEL`); the mark SHALL be cleared on the session's next `Stop`, `UserPromptSubmit`, or browser focus ack, returning an OSC 9;4 "clear" `terminalSequence` (`ESC ] 9 ; 4 ; 0 ; 0 BEL`) on a real transition. |
+| FR-TERMINAL-740 | The terminal rail hover and the "all terminals" dropdown (`TerminalSessionLabel`) SHALL render a distinct attention indicator alongside the main label when the session's `needsAttention` is set, separate from the activity-state icon coloring. |
+| FR-TERMINAL-750 | The browser's terminal-activity OSC parser SHALL additionally recognise `ESC ] 9 ; 4 ; 4 ; 0 BEL` and `ESC ] 9 ; 4 ; 0 ; 0 BEL` as attention "set"/"clear" signals alongside the OSC 0/2 title sequences it already extracts, including when a sequence is split across chunk boundaries. |
+| FR-TERMINAL-760 | WHEN a hook-driven session receives `UserPromptSubmit` (non-subagent), the system SHALL set its activity state to `active`; WHEN it receives `Stop` (non-subagent), to `done`; WHEN it receives `Notification` matching `permission_prompt`, `agent_needs_input`, or `elicitation_dialog`, to `waiting`; WHEN it receives `Notification` matching `idle_prompt`, to `idle`. |
+| FR-TERMINAL-770 | WHILE a session is `hookDriven` and its `lastHookAt` is less than 6 seconds old (`ACTIVITY_HOOK_TRUST_WINDOW_MS`, double the daemon's 3-second `ACTIVITY_DEBOUNCE_MS`), the system SHALL ignore a relay-sourced `{t:'act'}` message for that session, so trailing PTY output cannot overwrite a fresher hook-derived state; a hook-sourced or user-sourced (focus ack) activity change SHALL always apply regardless of the window. |
+| FR-TERMINAL-780 | WHEN a relay-sourced `{t:'act'}` message arrives for a `hookDriven` session whose `lastHookAt` is 6 seconds old or older, the system SHALL apply it, so a session that stops receiving hook events (e.g. after its last `UserPromptSubmit`) returns to daemon-derived activity rather than being stranded at a stale state with its dispatch inbox blocked. |
+| FR-TERMINAL-790 | A hook-derived activity change SHALL persist and broadcast through the same applier as a daemon-derived one, carrying the session's `hookDriven` flag on the broadcast payload, and SHALL flush the session's dispatch inbox on a transition to `idle` or `done`. |
+| FR-TERMINAL-800 | FOR a session whose activity broadcast OR initial `listTerminalSessions` entry carries `hookDriven: true`, the browser tab badge SHALL follow the server-broadcast activity state instead of the tab's locally computed PTY heuristic, which SHALL stop emitting for that session from the tab's initial load onward. |
+| FR-TERMINAL-810 | WHEN `Stop` fires (non-subagent) carrying the `prompt_id` that a prior `UserPromptSubmit` tagged onto the worker's oldest untagged delivered dispatch, the system SHALL settle that dispatch as replied using `last_assistant_message` with control characters stripped before it reaches the terminal injection; a `Stop` for a turn that never delivered a dispatch, or for an unrelated turn, SHALL leave any outstanding dispatch delivered and untouched. |
+| FR-TERMINAL-820 | A dispatch already settled (`replied` or `failed`) — including one settled by an explicit `terminal_reply` before its `Stop` hook fires — SHALL NOT be re-settled by a subsequent `Stop` hook. |
+| FR-TERMINAL-830 | A dispatch settled by the `Stop`-hook safety net SHALL record `settledBy: 'hook'`; one settled by an explicit `terminal_reply` SHALL record `settledBy: 'reply'`; both fields SHALL be exposed through the terminal session list. |
+| FR-TERMINAL-840 | WHEN `StopFailure` fires (non-subagent), the system SHALL record `{ type, message, at }` as the session's `lastFailure` and hold it out of dispatch delivery (`isDeliverable` returns false) until the earlier of: the session's next `UserPromptSubmit` or `Stop` (which clears `lastFailure` immediately), or 5 minutes elapsing since the failure (`STOP_FAILURE_HOLD_MS`, a fallback for a session that never turns again); `lastFailure` SHALL be exposed through the terminal session list. |
+| FR-TERMINAL-850 | WHEN `SubagentStart` fires, the system SHALL add the reported `agent_id` to the session's active-subagent set and set `activeSubagents` to the set's size; WHEN `SubagentStop` fires, it SHALL remove that `agent_id`; an unmatched `SubagentStop` SHALL be a no-op, so the count never goes negative. `activeSubagents` SHALL be exposed through the terminal session list. |
+| FR-TERMINAL-860 | WHEN persisted terminal sessions are restored at server boot, the system SHALL reset each restored session's `activeSubagents` to `undefined`, because the live active-subagent set is process-only and cannot be recovered, so a stale persisted count cannot desync from the next `SubagentStop`. |
 
 ## Sources
 

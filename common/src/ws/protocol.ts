@@ -302,6 +302,20 @@ export interface GitWorktreeListResponseMessage {
     | { requestId: string; error: string };
 }
 
+/**
+ * Daemon → server: fired when a watched repo's `HEAD` moves to a different
+ * branch (`git checkout`/`switch`), not on every commit. `workingDir` is the
+ * value a terminal session was registered under, so the server matches it
+ * against `TerminalSessionMeta.workingDir` rather than a resolved git root.
+ */
+export interface WorktreeBranchChangedMessage {
+  type: 'WORKTREE_BRANCH_CHANGED_EVENT';
+  payload: {
+    workingDir: string;
+    branch: string;
+  };
+}
+
 // ── File operations (server ↔ daemon) ────────────────────────────────────────
 
 export interface DirListEntry {
@@ -782,6 +796,7 @@ export type WsMessage =
   | GitFetchResponseMessage
   | GitWorktreeListRequestMessage
   | GitWorktreeListResponseMessage
+  | WorktreeBranchChangedMessage
   | DirListRequestMessage
   | DirListResponseMessage
   | FileReadRequestMessage
@@ -843,6 +858,7 @@ export type ClientToServerMessage =
   | GitDefaultBaseResponseMessage
   | GitFetchResponseMessage
   | GitWorktreeListResponseMessage
+  | WorktreeBranchChangedMessage
   | DirListResponseMessage
   | FileReadResponseMessage
   | FileReadImageResponseMessage

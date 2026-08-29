@@ -160,6 +160,42 @@ describe('terminal dispatch', () => {
     });
   });
 
+  describe('[FR-TERMINAL-840] StopFailure hold', () => {
+    it('should queue a dispatch created while a StopFailure is on the session', () => {
+      addSession(state, 'w1', { activityState: 'idle' });
+      state.terminalSessionMeta.get('w1')!.lastFailure = {
+        type: 'rate_limit',
+        message: 'rate limited',
+        at: Date.now(),
+      };
+      const entry = createDispatch(state, 'w1', 'task');
+      expect(entry.status).toBe('queued');
+    });
+
+    it('should recover deliverability once the bounded hold window elapses, with no further hook event', () => {
+      addSession(state, 'w1', { activityState: 'idle' });
+      state.terminalSessionMeta.get('w1')!.lastFailure = {
+        type: 'rate_limit',
+        message: 'rate limited',
+        at: Date.now(),
+      };
+      vi.advanceTimersByTime(5 * 60_000 + 1);
+      const entry = createDispatch(state, 'w1', 'task');
+      expect(entry.status).toBe('delivered');
+    });
+
+    it('should still deliver while a stale lastFailure sits past the window', () => {
+      addSession(state, 'w1', { activityState: 'idle' });
+      state.terminalSessionMeta.get('w1')!.lastFailure = {
+        type: 'server_error',
+        message: '',
+        at: Date.now() - 6 * 60_000,
+      };
+      const entry = createDispatch(state, 'w1', 'task');
+      expect(entry.status).toBe('delivered');
+    });
+  });
+
   describe('flushDispatchInbox', () => {
     it('[FR-TERMINAL-280] should deliver exactly one queued dispatch when the worker goes idle', () => {
       addSession(state, 'w1', { activityState: 'active' });
@@ -204,6 +240,13 @@ describe('terminal dispatch', () => {
 
     it('should reject unknown correlation ids', () => {
       expect(resolveDispatchReply(state, 'nope', 'result')).toBe(false);
+    });
+
+    it('[FR-TERMINAL-830] should record settledBy as reply', () => {
+      addSession(state, 'w1', { activityState: 'idle' });
+      const entry = createDispatch(state, 'w1', 'task');
+      resolveDispatchReply(state, entry.correlationId, 'done');
+      expect(entry.settledBy).toBe('reply');
     });
   });
 
@@ -373,6 +416,14 @@ describe('terminal dispatch', () => {
     it('[FR-MCP-120] should return null when the worker has no delivered dispatch', () => {
       addSession(state, 'w1', { activityState: 'idle' });
       expect(resolveWorkerReply(state, 'w1', 'orphan')).toBeNull();
+    });
+
+    it('[FR-TERMINAL-830] should record settledBy as reply', () => {
+      addSession(state, 'w1', { activityState: 'idle', agentType: 'codex' });
+      connectWorker(state, 'w1', 'worker');
+      const entry = createDispatch(state, 'w1', 'task');
+      resolveWorkerReply(state, 'w1', 'done');
+      expect(entry.settledBy).toBe('reply');
     });
   });
 

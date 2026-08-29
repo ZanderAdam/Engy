@@ -62,6 +62,17 @@ interface TerminalActivityChangeEvent {
     state?: TerminalActivityState;
     // True when the session ended — consumers drop it from the rollup.
     removed?: boolean;
+    // True once a hook event has landed for this session — the browser tab
+    // badge trusts this state over its own PTY-parsed heuristic when set.
+    hookDriven?: boolean;
+  };
+}
+
+interface TerminalBranchChangeEvent {
+  type: 'TERMINAL_BRANCH_CHANGE';
+  payload: {
+    sessionId: string;
+    worktreeBranch: string;
   };
 }
 
@@ -98,6 +109,7 @@ type ServerEvent =
   | TerminalSessionsChangeEvent
   | MemoryChangeEvent
   | TerminalActivityChangeEvent
+  | TerminalBranchChangeEvent
   | PrChangeEvent
   | PrAttentionEvent
   | TerminalWorkersChangeEvent;
@@ -175,6 +187,10 @@ export function broadcastTerminalActivityChange(
   payload: TerminalActivityChangeEvent['payload'],
 ): void {
   broadcastEvent({ type: 'TERMINAL_ACTIVITY_CHANGE', payload });
+}
+
+export function broadcastTerminalBranchChange(sessionId: string, worktreeBranch: string): void {
+  broadcastEvent({ type: 'TERMINAL_BRANCH_CHANGE', payload: { sessionId, worktreeBranch } });
 }
 
 export function broadcastPrChange(workspaceId: number, repo: string): void {

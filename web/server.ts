@@ -9,8 +9,12 @@ import {
 import { createEventsWebSocketServer } from './src/server/ws/events-server';
 import { broadcastTerminalSessionsChange } from './src/server/ws/broadcast';
 import { listTerminalSessions } from './src/server/ws/terminal-session-list';
-import { loadPersistedTerminalSessions } from './src/server/ws/terminal-session-store';
+import {
+  loadPersistedTerminalSessions,
+  persistTerminalSession,
+} from './src/server/ws/terminal-session-store';
 import { attachMCP, isMcpPath } from './src/server/mcp/index';
+import { isHookPath, handleHookRequest } from './src/server/hooks/index';
 import { runMigrations, runPostMigrationBackfills } from './src/server/db/migrate';
 import { startPrPoller, stopPrPoller } from './src/server/pr/poller';
 
@@ -47,7 +51,9 @@ app.prepare().then(() => {
       });
 
       if (dev) {
-        console.log(`[terminal] GET /api/terminal/sessions → returning ${sessions.length} sessions (total meta: ${state.terminalSessionMeta.size})`);
+        console.log(
+          `[terminal] GET /api/terminal/sessions → returning ${sessions.length} sessions (total meta: ${state.terminalSessionMeta.size})`,
+        );
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ sessions }));
@@ -73,11 +79,21 @@ app.prepare().then(() => {
     // Terminal session rename endpoint
     if (req.method === 'POST' && url.pathname === '/api/terminal/sessions/rename') {
       let body = '';
-      req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+      req.on('data', (chunk: Buffer) => {
+        body += chunk.toString();
+      });
       req.on('end', () => {
         try {
-          const { sessionId, newLabel } = JSON.parse(body) as { sessionId: string; newLabel: string };
-          if (typeof sessionId !== 'string' || !sessionId || typeof newLabel !== 'string' || !newLabel.trim()) {
+          const { sessionId, newLabel } = JSON.parse(body) as {
+            sessionId: string;
+            newLabel: string;
+          };
+          if (
+            typeof sessionId !== 'string' ||
+            !sessionId ||
+            typeof newLabel !== 'string' ||
+            !newLabel.trim()
+          ) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'sessionId and newLabel are required strings' }));
             return;
@@ -88,7 +104,8 @@ app.prepare().then(() => {
             res.end(JSON.stringify({ error: 'Session not found' }));
             return;
           }
-          meta.scopeLabel = newLabel;
+          meta.renamedLabel = newLabel;
+          persistTerminalSession(sessionId, meta);
           broadcastTerminalSessionsChange('renamed', sessionId, meta.groupKey, newLabel);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true }));
@@ -97,6 +114,14 @@ app.prepare().then(() => {
           res.end(JSON.stringify({ error: 'Invalid request body' }));
         }
       });
+      return;
+    }
+
+    // Claude Code lifecycle hook POSTs — /hooks/<terminalSessionId>. Mounted
+    // above /mcp: both are token-in-path routes handled directly on this
+    // server, ahead of Next's handler.
+    if (isHookPath(url.pathname)) {
+      handleHookRequest(state, req, res);
       return;
     }
 

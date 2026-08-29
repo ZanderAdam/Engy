@@ -4,6 +4,7 @@ import type { TerminalExitEvent, TerminalKillCmd, TerminalSpawnCmd } from '@engy
 import type { AppState, DispatchEntry, TerminalSessionMeta } from './trpc/context';
 import {
   buildAgentCommand,
+  composeDisplayName,
   getAgentType,
   isAgentTypeId,
   MCP_SESSION_PLACEHOLDER,
@@ -43,7 +44,7 @@ export function replyContract(correlationId: string, hasSessionEndpoint: boolean
   if (hasSessionEndpoint) {
     return (
       '[engy-dispatch] This request comes from another agent that can NOT see this ' +
-      "terminal — only what you pass to the Engy MCP tool `terminal_reply` reaches it. " +
+      'terminal — only what you pass to the Engy MCP tool `terminal_reply` reaches it. ' +
       'Put your actual answer/deliverable in the `result` field, not a note that you ' +
       'answered. Call the tool even if you fail or cannot proceed.'
     );
@@ -102,12 +103,27 @@ export function listWorkers(state: AppState): WorkerInfo[] {
   });
 }
 
+// Bounds a StopFailure hold. FR-TERMINAL-840 clears it on the session's next
+// UserPromptSubmit or Stop (hooks/failure.ts) — that is the normal, immediate
+// path. This is the fallback for a session that never sends either again (the
+// worker died mid-failure): without it, a StopFailure would strand its inbox
+// forever, the same silent-forever-queue failure mode the activity trust
+// window (ACTIVITY_HOOK_TRUST_WINDOW_MS) exists to avoid on the relay side.
+const STOP_FAILURE_HOLD_MS = 5 * 60_000;
+
 // A worker can receive input when it isn't mid-turn ('active') and isn't
 // blocked on an interactive prompt ('waiting' — injecting there would answer
-// the pending prompt instead of starting a new turn).
+// the pending prompt instead of starting a new turn), and isn't holding a
+// StopFailure that hasn't yet cleared.
 function isDeliverable(state: AppState, workerSessionId: string): boolean {
-  const activity = state.terminalSessionMeta.get(workerSessionId)?.activityState;
-  return activity == null || activity === 'idle' || activity === 'done';
+  const meta = state.terminalSessionMeta.get(workerSessionId);
+  const activity = meta?.activityState;
+  if (!(activity == null || activity === 'idle' || activity === 'done')) return false;
+
+  const lastFailure = meta?.lastFailure;
+  if (lastFailure && Date.now() - lastFailure.at < STOP_FAILURE_HOLD_MS) return false;
+
+  return true;
 }
 
 function pruneOldDispatches(state: AppState, now: number): void {
@@ -266,17 +282,20 @@ function notifyOrigin(state: AppState, entry: DispatchEntry): void {
   state.dispatchReplyNotices.set(origin, pending);
 }
 
-function settleDispatch(
+/** Exported for the Stop-hook settlement path (`hooks/dispatch.ts`) — the hook is a new trigger for this, not a new settlement path. */
+export function settleDispatch(
   state: AppState,
   entry: DispatchEntry,
   status: 'replied' | 'failed',
   result?: string,
   error?: string,
+  settledBy?: DispatchEntry['settledBy'],
 ): void {
   entry.status = status;
   entry.result = result;
   entry.error = error;
   entry.repliedAt = Date.now();
+  entry.settledBy = settledBy;
   const waiters = state.dispatchWaiters.get(entry.correlationId);
   state.dispatchWaiters.delete(entry.correlationId);
   if (waiters) {
@@ -300,7 +319,7 @@ export function resolveDispatchReply(
 ): boolean {
   const entry = state.dispatches.get(correlationId);
   if (!entry || entry.status === 'replied' || entry.status === 'failed') return false;
-  settleDispatch(state, entry, 'replied', result);
+  settleDispatch(state, entry, 'replied', result, undefined, 'reply');
   console.log(`[dispatch] reply for ${correlationId} (${result.length} chars)`);
   return true;
 }
@@ -323,7 +342,7 @@ export function resolveWorkerReply(
     if (!oldest || (entry.deliveredAt ?? 0) < (oldest.deliveredAt ?? 0)) oldest = entry;
   }
   if (!oldest) return null;
-  settleDispatch(state, oldest, 'replied', result);
+  settleDispatch(state, oldest, 'replied', result, undefined, 'reply');
   console.log(
     `[dispatch] reply for ${oldest.correlationId} via worker identity ${workerSessionId.slice(0, 8)} (${result.length} chars)`,
   );
@@ -434,6 +453,7 @@ export function spawnAgentTerminal(
     prompt: opts.prompt,
     mcpUrl: `${opts.mcpOrigin}/mcp/${sessionId}`,
     agentSettings: opts.agentSettings,
+    displayName: composeDisplayName(opts.description),
   }).replaceAll(MCP_SESSION_PLACEHOLDER, sessionId);
 
   const { callerMeta } = opts;

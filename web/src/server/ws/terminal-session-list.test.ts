@@ -40,13 +40,21 @@ describe('terminal relay', () => {
     it('[FR-TERMINAL-170] in all mode returns every session with project, worktree, and activity fields', () => {
       const state = makeState(
         [
-          ['s1', meta({ projectSlug: 'alpha', worktreeBranch: 'feature-x', activityState: 'waiting' })],
+          [
+            's1',
+            meta({ projectSlug: 'alpha', worktreeBranch: 'feature-x', activityState: 'waiting' }),
+          ],
           ['s2', meta({ projectSlug: 'beta', scopeLabel: 'shell' })],
         ],
         { s1: new Set([openWs()]) },
       );
 
-      const result = listTerminalSessions(state, { all: true, groupKey: null, scopeType: '', scopeLabel: '' });
+      const result = listTerminalSessions(state, {
+        all: true,
+        groupKey: null,
+        scopeType: '',
+        scopeLabel: '',
+      });
 
       expect(result.map((r) => r.sessionId).sort()).toEqual(['s1', 's2']);
       const s1 = result.find((r) => r.sessionId === 's1')!;
@@ -59,16 +67,101 @@ describe('terminal relay', () => {
       expect(s2.activityState).toBe('idle');
     });
 
+    it('[FR-TERMINAL-740] surfaces needsAttention, defaulting to false when unset', () => {
+      const state = makeState([
+        ['s1', meta({ needsAttention: true })],
+        ['s2', meta()],
+      ]);
+
+      const result = listTerminalSessions(state, {
+        all: true,
+        groupKey: null,
+        scopeType: '',
+        scopeLabel: '',
+      });
+
+      expect(result.find((r) => r.sessionId === 's1')!.needsAttention).toBe(true);
+      expect(result.find((r) => r.sessionId === 's2')!.needsAttention).toBe(false);
+    });
+
     it('[FR-TERMINAL-520] reports the dormant marker so the client can offer a restore', () => {
       const state = makeState([
         ['s1', meta({ dormant: true })],
         ['s2', meta()],
       ]);
 
-      const result = listTerminalSessions(state, { all: true, groupKey: null, scopeType: '', scopeLabel: '' });
+      const result = listTerminalSessions(state, {
+        all: true,
+        groupKey: null,
+        scopeType: '',
+        scopeLabel: '',
+      });
 
       expect(result.find((r) => r.sessionId === 's1')!.dormant).toBe(true);
       expect(result.find((r) => r.sessionId === 's2')!.dormant).toBe(false);
+    });
+
+    it('[FR-TERMINAL-840][FR-TERMINAL-850] surfaces activeSubagents and lastFailure, defaulting to 0 / undefined', () => {
+      const state = makeState([
+        [
+          's1',
+          meta({
+            activeSubagents: 2,
+            lastFailure: { type: 'rate_limit', message: 'try again later', at: 123 },
+          }),
+        ],
+        ['s2', meta()],
+      ]);
+
+      const result = listTerminalSessions(state, {
+        all: true,
+        groupKey: null,
+        scopeType: '',
+        scopeLabel: '',
+      });
+
+      const s1 = result.find((r) => r.sessionId === 's1')!;
+      expect(s1.activeSubagents).toBe(2);
+      expect(s1.lastFailure).toEqual({ type: 'rate_limit', message: 'try again later', at: 123 });
+      const s2 = result.find((r) => r.sessionId === 's2')!;
+      expect(s2.activeSubagents).toBe(0);
+      expect(s2.lastFailure).toBeUndefined();
+    });
+
+    it('[FR-GIT-370][FR-GIT-380] surfaces cliWorktrees, defaulting to an empty list', () => {
+      const state = makeState([
+        ['s1', meta({ cliWorktrees: ['/repo/.worktrees/feature'] })],
+        ['s2', meta()],
+      ]);
+
+      const result = listTerminalSessions(state, {
+        all: true,
+        groupKey: null,
+        scopeType: '',
+        scopeLabel: '',
+      });
+
+      expect(result.find((r) => r.sessionId === 's1')!.cliWorktrees).toEqual([
+        '/repo/.worktrees/feature',
+      ]);
+      expect(result.find((r) => r.sessionId === 's2')!.cliWorktrees).toEqual([]);
+    });
+
+    it('[FR-TERMINAL-800] surfaces hookDriven, defaulting to false when unset', () => {
+      const state = makeState([
+        ['s1', meta({ hookDriven: true })],
+        ['s2', meta()],
+      ]);
+
+      const result = listTerminalSessions(state, {
+        all: true,
+        groupKey: null,
+        scopeType: '',
+        scopeLabel: '',
+      });
+
+      expect(result.find((r) => r.sessionId === 's1')!.hookDriven).toBe(true);
+      expect(result.find((r) => r.sessionId === 's2')!.hookDriven).toBe(false);
     });
 
     it('[FR-TERMINAL-170] non-all mode filters by groupKey', () => {

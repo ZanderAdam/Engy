@@ -18,15 +18,29 @@ function subscribe(listener: Listener): () => void {
   return () => listeners.delete(listener);
 }
 
-function handleEvent(e: Event) {
-  const { sessionId, activityState } = (e as CustomEvent<ActivityChangeDetail>).detail;
+function setActivity(sessionId: string, activityState: TerminalActivityState): void {
   if (stateMap.get(sessionId) === activityState) return;
   stateMap.set(sessionId, activityState);
   for (const listener of listeners) listener();
 }
 
+function handleEvent(e: Event) {
+  const { sessionId, activityState } = (e as CustomEvent<ActivityChangeDetail>).detail;
+  setActivity(sessionId, activityState);
+}
+
 if (typeof window !== 'undefined') {
   window.addEventListener('terminal:activity-changed', handleEvent);
+}
+
+/**
+ * Feeds a server-broadcast (TERMINAL_ACTIVITY_CHANGE) activity state into this
+ * store. This is a hook-driven session's only path in — TerminalManager
+ * suppresses its local-tracker emission for those sessions rather than
+ * racing this with the heuristic's own verdict.
+ */
+export function applyServerActivity(sessionId: string, activityState: TerminalActivityState): void {
+  setActivity(sessionId, activityState);
 }
 
 // Rollup urgency (after herdr's Blocked > Working > Done > Idle ordering):

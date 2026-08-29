@@ -50,6 +50,18 @@ export interface TerminalSessionMeta {
   // The session keeps its place in the dock as a tab the user can restore; the
   // restore spawns a fresh PTY (resuming the agent conversation) on demand.
   dormant?: boolean;
+  hookDriven?: boolean;
+  // Bounds the hookDriven override: past this window relay `{t:'act'}` is
+  // trusted again, so a dropped Stop hook cannot pin the session forever.
+  lastHookAt?: number;
+  // Separate from scopeLabel so a rename stays distinguishable from the default
+  // scope name, which the tooltip still shows.
+  renamedLabel?: string;
+  needsAttention?: boolean;
+  lastFailure?: { type: string; message: string; at: number };
+  activeSubagents?: number;
+  // Kept apart from runner-managed worktrees so cleanup never adopts these.
+  cliWorktrees?: string[];
   cols: number;
   rows: number;
 }
@@ -196,6 +208,14 @@ export interface DispatchEntry {
   originSessionId?: string;
   /** Push the settled result into the origin terminal instead of requiring terminal_collect polling. */
   notifyOnReply?: boolean;
+  /** Which path settled this dispatch: the model's own reply, or the Stop-hook fallback. */
+  settledBy?: 'reply' | 'hook';
+  /**
+   * `prompt_id` of the UserPromptSubmit that opened the turn this dispatch's
+   * paste started — the same Stop that closes that turn carries an identical
+   * id, so settlement matches on it instead of settling on any Stop.
+   */
+  deliveryPromptId?: string;
 }
 
 interface DispatchWorker {

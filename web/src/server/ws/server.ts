@@ -54,8 +54,13 @@ import {
 import { writePlanFile } from '../plan/service';
 import { planFilePathFromStem, taskPlanSlug } from '../../lib/plan-naming';
 import { getWorkspaceDir } from '../engy-dir/init';
-import { broadcastFileChange, broadcastTaskChange } from './broadcast';
+import {
+  broadcastFileChange,
+  broadcastTaskChange,
+  broadcastTerminalBranchChange,
+} from './broadcast';
 import { sendWatchPathsSync } from './watch-subscriptions';
+import { persistTerminalSession } from './terminal-session-store';
 
 const VALIDATION_TIMEOUT_MS = 5_000;
 const FILE_SEARCH_TIMEOUT_MS = 10_000;
@@ -198,6 +203,9 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       resolvePendingResponse(msg.payload, state.pendingGitWorktreeList, (p) => ({
         worktrees: p.worktrees,
       }));
+      break;
+    case 'WORKTREE_BRANCH_CHANGED_EVENT':
+      handleWorktreeBranchChanged(msg.payload, state);
       break;
     case 'CONTAINER_UP_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingContainerUp, (p) => ({
@@ -355,6 +363,21 @@ function handleFileChange(msg: {
 }): void {
   const { workspaceSlug, path, eventType } = msg.payload;
   broadcastFileChange(workspaceSlug, path, eventType);
+}
+
+// A repo root's HEAD watch is shared across sessions, so one event can carry
+// a branch update for several sessions with the same `workingDir`.
+function handleWorktreeBranchChanged(
+  payload: { workingDir: string; branch: string },
+  state: AppState,
+): void {
+  const { workingDir, branch } = payload;
+  for (const [sessionId, meta] of state.terminalSessionMeta) {
+    if (meta.workingDir !== workingDir || meta.worktreeBranch === branch) continue;
+    meta.worktreeBranch = branch;
+    persistTerminalSession(sessionId, meta);
+    broadcastTerminalBranchChange(sessionId, branch);
+  }
 }
 
 function handleSearchFilesResponse(

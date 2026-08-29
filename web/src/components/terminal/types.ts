@@ -23,7 +23,9 @@ export type ContainerMode = 'host' | 'container';
 // waiting = blocked on input (bell/prompt), done = finished but unseen,
 // idle = acknowledged. `done` is a calm steady green vs `waiting`'s urgent
 // bouncing amber, so "finished" no longer masquerades as "needs input".
-export const TERMINAL_ACTIVITY_STYLES: Partial<Record<TerminalActivityState | TerminalStatus, string>> = {
+export const TERMINAL_ACTIVITY_STYLES: Partial<
+  Record<TerminalActivityState | TerminalStatus, string>
+> = {
   active: 'animate-pulse text-blue-500',
   waiting: 'animate-bounce text-amber-400',
   done: 'text-emerald-400',
@@ -38,7 +40,8 @@ export function isStoppedTerminal(status: TerminalStatus): boolean {
 export function getTerminalIconStyle(tab: TerminalTab): string | undefined {
   if (tab.status === 'connecting') return TERMINAL_ACTIVITY_STYLES.connecting;
   if (isStoppedTerminal(tab.status)) return undefined;
-  if (tab.activityState && tab.activityState !== 'idle') return TERMINAL_ACTIVITY_STYLES[tab.activityState];
+  if (tab.activityState && tab.activityState !== 'idle')
+    return TERMINAL_ACTIVITY_STYLES[tab.activityState];
   return undefined;
 }
 
@@ -88,6 +91,9 @@ export interface TerminalScope {
   // Worktree branch this terminal targets (undefined = default branch). Used to
   // group terminals by worktree in combined mode; does not affect groupKey.
   worktreeBranch?: string;
+  // Manual rename, kept separate from scopeLabel so the original scope survives
+  // to the tooltip and a later agent title can still take the main line.
+  renamedLabel?: string;
   // Agent-CLI session id this terminal resumes (`claude --resume <id>`). Sent
   // to the server so history keeps tracking the original conversation instead
   // of forking a new row per resume.
@@ -99,8 +105,18 @@ export interface TerminalTab {
   scope: TerminalScope;
   status: TerminalStatus;
   activityState?: TerminalActivityState;
-  /** Dynamic title from OSC 0/2 escape sequences, shown as subtitle under scopeLabel. */
+  // Subtitle under scopeLabel — from OSC 0/2 escapes when a browser is
+  // attached, or seeded from the server's hook-derived lastTitle otherwise.
   oscTitle?: string;
+  // Server-tracked: a Notification hook (permission prompt, agent needing
+  // input, elicitation dialog) fired and hasn't been followed by a Stop,
+  // UserPromptSubmit, or focus ack yet. Distinct from activityState so a
+  // dismissed prompt doesn't masquerade as still-running activity.
+  needsAttention?: boolean;
+  // Set once a TERMINAL_ACTIVITY_CHANGE broadcast reports this session as
+  // hook-driven. While true, activityState is server-owned — the local PTY
+  // heuristic is suppressed rather than raced against the broadcast.
+  hookDriven?: boolean;
 }
 
 export interface TerminalPanelParams {

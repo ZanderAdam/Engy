@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { WsClient } from './ws/client.js';
 import { SpecWatcher } from './watcher.js';
+import { BranchWatcher } from './git/branch-watch.js';
 import { TerminalManager } from './terminal/manager.js';
 import { SessionManager } from './terminal/session-manager.js';
 
@@ -93,15 +94,19 @@ function main(): void {
   });
 
   const specWatcher = new SpecWatcher(wsClient);
+  const branchWatcher = new BranchWatcher(wsClient);
+  terminalManager.setBranchWatcher(branchWatcher);
 
   wsClient.connect();
 
   const shutdown = (signal: string) => {
-    console.log(`[daemon] Shutting down (${signal}), killing ${terminalManager.getAllSessions().length} sessions`);
+    console.log(
+      `[daemon] Shutting down (${signal}), killing ${terminalManager.getAllSessions().length} sessions`,
+    );
     releasePidFile();
     sessions.stop();
     terminalManager.killAll();
-    specWatcher.closeAll().then(() => {
+    Promise.all([specWatcher.closeAll(), branchWatcher.closeAll()]).then(() => {
       wsClient.close();
       process.exit(0);
     });
@@ -124,7 +129,9 @@ function main(): void {
   const heartbeat = setInterval(() => {
     const sessionCount = terminalManager.getAllSessions().length;
     const memMB = Math.round(process.memoryUsage().rss / 1024 / 1024);
-    console.log(`[daemon] heartbeat: sessions=${sessionCount} mem=${memMB}MB ws=${wsClient.connected ? 'up' : 'down'}`);
+    console.log(
+      `[daemon] heartbeat: sessions=${sessionCount} mem=${memMB}MB ws=${wsClient.connected ? 'up' : 'down'}`,
+    );
   }, 60_000);
   heartbeat.unref();
 

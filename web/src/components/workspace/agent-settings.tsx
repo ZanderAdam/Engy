@@ -58,6 +58,7 @@ export function normalizeAgentSettings(
     const implementSkill = entry.implementSkill?.trim();
     if (planSkill) cleaned.planSkill = planSkill;
     if (implementSkill) cleaned.implementSkill = implementSkill;
+    if (entry.memoryCapture !== undefined) cleaned.memoryCapture = entry.memoryCapture;
     if (Object.keys(cleaned).length > 0) normalized[agentId] = cleaned;
   }
   return normalized;
@@ -199,6 +200,27 @@ export function AgentSettingsTab({
                     placeholder={`${DEFAULT_IMPLEMENT_SKILL} (implement)`}
                   />
                 </div>
+
+                {agent.id === 'claude' && (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor={`agent-memory-capture-${agent.id}`}>
+                        Memory capture (paid, off by default)
+                      </Label>
+                      <Switch
+                        id={`agent-memory-capture-${agent.id}`}
+                        checked={entry.memoryCapture ?? false}
+                        onCheckedChange={(memoryCapture) => patch({ memoryCapture })}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      On compaction and session end, runs a background Claude call to distill and
+                      save memories from the session automatically. Each firing is a real, billed
+                      model call — measured around $0.34 on a near-empty session, scaling with
+                      transcript size — so it stays off until you turn it on.
+                    </p>
+                  </div>
+                )}
               </div>
             </TabsContent>
           );

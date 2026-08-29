@@ -353,6 +353,23 @@ describe('workspace router', () => {
       });
     });
 
+    it('[FR-WORKSPACE-140] should persist memoryCapture within a per-agent entry, defaulting absent to unset', async () => {
+      const ws = await caller.workspace.create({ name: 'Memory Capture Setting' });
+      expect(ws.agentSettings).toBeNull();
+
+      const enabled = await caller.workspace.update({
+        id: ws.id,
+        agentSettings: { claude: { memoryCapture: true } },
+      });
+      expect(enabled.agentSettings).toEqual({ claude: { memoryCapture: true } });
+
+      const disabled = await caller.workspace.update({
+        id: ws.id,
+        agentSettings: { claude: { memoryCapture: false } },
+      });
+      expect(disabled.agentSettings).toEqual({ claude: { memoryCapture: false } });
+    });
+
     it('[FR-WORKSPACE-140] should preserve agentSettings when not provided in update', async () => {
       const ws = await caller.workspace.create({ name: 'Agent Settings Keep' });
       await caller.workspace.update({

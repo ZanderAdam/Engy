@@ -203,7 +203,32 @@ Stop and evaluate before TG3–TG7 (TG2 tasks 1–3 proceed regardless, needing 
 
 ### Completion Summary
 
-_Blank until TG1 completes._
+Measured against `claude` 2.1.251 on 2026-08-29, by pointing all eleven events at a capture server and running both a headless (`-p`) and an interactive (node-pty) session. Raw captures and the probe scripts are outside the repo, in the session scratchpad.
+
+**Verdict: proceed.** The transport works. Three plan assumptions were wrong and are corrected below; one gate question remains open and is designed around rather than answered.
+
+**Confirmed payload fields** (these are what the later task groups may rely on):
+
+| Event | Fields beyond the common set |
+|---|---|
+| `UserPromptSubmit` | `prompt`, `prompt_id`, `permission_mode` |
+| `Stop` | `last_assistant_message`, `prompt_id`, `stop_hook_active`, `effort`, `background_tasks`, `session_crons` |
+| `SubagentStop` | all of `Stop`, plus `agent_id`, `agent_type`, `agent_transcript_path` |
+| `SessionEnd` | `reason` (observed `other`; matchers are `clear`, `resume`, `logout`, `prompt_input_exit`, `other`) |
+
+The common set is `session_id`, `transcript_path`, `cwd`, `prompt_id`, `hook_event_name`.
+
+**Corrections to the plan, all load-bearing:**
+
+1. **`async` does not exist for `http` hooks.** It is a `command`-hook field only; the CLI's dispatcher always awaits an http handler. FR-TG1.9 is not implementable and was dropped. Every handler therefore sits in the turn's critical path, bounded only by `timeout` — which makes FR-TG1.8 the only thing standing between a slow endpoint and a stalled turn. All eleven events carry `timeout: 5` (seconds).
+2. **`SessionStart` silently discards `http` hooks.** The CLI filters `type: 'http'` out of `SessionStart` and `Setup` before dispatch, logging `Skipping HTTP hook <url> — HTTP hooks are not supported for SessionStart`. This is why no `SessionStart` POST was ever captured. **TG5 cannot work as designed.** The registration is kept (harmless, and keeps the command string stable), but TG5 needs a different transport. **Confirmed by probe:** the same `SessionStart` registered as a `command` hook fires normally and delivers `{session_id, transcript_path, cwd, hook_event_name, source, model}` on stdin, where `source` is the matcher value (`startup` observed). So the route is a `command` hook that curls `/hooks/<sessionId>` and prints the JSON response, which the CLI host can reach by construction.
+3. **`Stop` and `UserPromptSubmit` can fire inside a subagent**, distinguished only by the presence of `agent_id`. Any handler that mutates *session*-level state must ignore payloads carrying `agent_id` — otherwise a subagent finishing marks the parent session `done`, and settles the parent's outstanding dispatch with the subagent's last message. Not anticipated by the plan; now a standing rule for TG3 and TG4.
+
+**`prompt_id` resolves FR-TG4.1 cleanly.** `Stop` carries the same `prompt_id` as the `UserPromptSubmit` that opened the turn, so "settle only the turn that carried the dispatch" is an id comparison rather than the ordering heuristic the plan proposed.
+
+**Open: the `Notification` payload was never captured.** Headless auto-denies rather than prompting, and the interactive probe did not reach a permission prompt. So whether the body carries a `notification_type` field is still unknown — the one gate question the plan flagged as potentially forcing a redesign. Rather than guess, `Notification` is registered with **per-type matchers at distinct URLs** (the type rides a query parameter the server reads), which is correct whether or not the field exists. Cost is a few extra entries in the settings blob. If a later capture shows the field present, the registration can collapse back to match-all.
+
+**Not measured, and needs a human:** devcontainer and coder reachability, `Stop` lag against visible end-of-turn, whether trailing PTY output lands after `Stop` (this is the evidence FR-TG3.2's trust window is meant to be sized from), and whether the `--settings` blob makes `meta.command` unpleasant in the session-list UI. The blob adds **+1231 characters** (206 → 1437 on a representative fresh spawn); `hasSessionEndpoint()`'s `/mcp/<sessionId>` match is unaffected, covered by a test. Because the trailing-output question is unanswered, FR-TG3.2's window was implemented rather than deleted, sized from the daemon's 3 s `ACTIVITY_DEBOUNCE_MS`.
 ## TG2: Terminal Identity — Title, Branch, and Attention
 
 **The milestone's priority.** Makes a terminal identifiable at a glance and makes "this one needs you" visible without clicking into it.
@@ -410,7 +435,23 @@ Replaces spawn-time-frozen context with context fetched when the session actuall
 
 ### Completion Summary
 
-_Blank until TG5 completes._
+Both tasks landed together in `5d8e338`; task 2 extends task 1's file, so splitting the commit would have been artificial.
+
+**The transport changed.** The plan specified an `http` hook returning `additionalContext`. That cannot work — CLI 2.1.251 silently discards `type: "http"` hooks registered for `SessionStart` (see the TG1 Completion Summary). `SessionStart` is now registered as a `command` hook:
+
+```
+curl -s -m 5 -X POST '<hookUrl>' -H 'Content-Type: application/json' -d @-
+```
+
+It pipes the payload from stdin to the same `/hooks/<sessionId>` endpoint and prints the response. Only the `SessionStart` entry changed; the other ten stay `http`.
+
+**A second shape difference, found by probing rather than by reading.** `SessionStart` requires the nested `{ hookSpecificOutput: { hookEventName, additionalContext } }` form. The flat `{ additionalContext }` shape that the other ten hooks use is silently ignored here — verified by two live `claude -p` runs against a capture server: the nested reply had its marker echoed back verbatim by the model, the flat reply produced no context at all. `buildSessionStartContext` therefore returns the nested shape and deliberately sits outside the shared synchronous `HookHandler` type, which is flat.
+
+**Budget:** `SESSION_CONTEXT_CHAR_BUDGET = 4000` across the combined task and memory block, with a visible truncation marker.
+
+**Memory search** runs through the existing `runQmdSearch` in `lex` mode behind an explicit 3 s timeout, filtered against superseded paths. Any failure or timeout degrades to task-only context rather than failing the hook — required, because this hook is on the critical path of every session start, resume, fork and compaction.
+
+**Not verified:** devcontainer and coder reachability of the command hook. It relies on `curl` existing on the CLI host and on that host reaching the hook URL — the same reachability property `mcpOrigin` already guarantees, but the command-hook form specifically was only exercised on the host.
 
 ## TG6: Memory Capture at Compaction and Session End
 
@@ -444,7 +485,26 @@ _Blank until TG5 completes._
 
 ### Completion Summary
 
-_Blank until TG6 completes._
+**Spike verdict: proceed, but not with `type: "agent"`.** Use a `command` hook that detaches a nested `claude -p`. Everything below was tested against CLI 2.1.251, not read from docs.
+
+**`type: "agent"` hooks do inherit the parent's MCP servers — proven, and then ruled out anyway.** An agent hook registered on `Stop` with an `--mcp-config` did reach a probe MCP tool and call it (`Tool 'probe_record_memory' completed successfully in 8ms`). So the mechanism can do what TG6 wants. It is gated off both events TG6 needs:
+
+- `SessionEnd` → `Agent stop hooks are not yet supported outside REPL`, in headless *and* in a real PTY. A lifecycle limit, not an interactivity one.
+- `PreCompact` → silently never fires. No log, no error. A `command` hook on the same event fired normally, so this is the same silent-drop pattern TG1 found for `SessionStart`.
+
+An agent hook also does **not** inherit the transcript. Each firing is a brand-new isolated query (`Starting agent query with 1 messages`) handed `transcript_path` as text to read itself — no shortcut. It blocks rather than running async.
+
+**The working route.** A `command` hook reads `transcript_path` from stdin, detaches a nested `claude -p` with `nohup … & disown`, and returns `{}` immediately. Validated end-to-end on both events: `PreCompact` returned well inside a 5 s timeout while the background job ran 18.5 s and recorded a real distillation; `SessionEnd` the same at 15.7 s. **The background job survived the parent PTY being killed** — the property that matters most, since on `SessionEnd` the parent is exiting by definition. Detach explicitly; do not rely on the hook framework to keep an orphan alive.
+
+This makes FR-TG6.3 structural rather than timeout-tuned: the parent never waits on the distillation at all.
+
+**Two payload fields TG1 missed**, because TG1 never provoked a real `/compact`: `PreCompact` carries `trigger` (`manual` observed) and `custom_instructions` (`null` observed) alongside the common set. `SessionEnd`'s `reason` was observed as `other` (headless exit) and `prompt_input_exit` (interactive `/exit`) — never `clear`, consistent with FR-TG6.2's target set.
+
+**FR-TG6.5 needs no new work.** The nested call reaches `createFleetingMemory` through the same server path as every other channel, so the existing 50-item / 10,000-char / type-clamp enforcement applies for free.
+
+**The cost, and why the feature ships disabled by default.** Every firing is a genuine extra model call that reads the transcript. Measured **$0.34** on a near-*empty* test transcript, driven mostly by cache-read volume, and it scales with transcript size. `PreCompact` fires exactly when a transcript is at its largest. Multiplied across every compaction and every session end, on a machine that runs many agents at once, that is a real and continuous spend the user has not agreed to — and it is invisible, since the work happens in a detached background process.
+
+So TG6 ships behind a workspace setting that is **off** by default, and the implementation caps how much transcript it feeds rather than passing it whole. Turning it on is a deliberate choice made with the cost in view. This is a departure from the plan, which assumed the capture would simply be on.
 
 ## TG7: Worktree Lifecycle Visibility
 

@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { reduceServerActivity } from './terminal-manager';
+import type { TerminalTab } from './types';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 /**
  * Tests for the tabId-scoped event filtering in TerminalManager.
@@ -168,5 +172,99 @@ describe('window event dispatching with tabId', () => {
     );
     expect(dispatched[0].detail.tabId).toBe(TAB_ID);
     expect(dispatched[0].detail.sessionId).toBe('sess-close');
+  });
+});
+
+// The server broadcasts TERMINAL_BRANCH_CHANGE, but the branch only reached the
+// UI on a refetch because nothing in the browser subscribed to it. A server-side
+// test that the broadcast is *sent* cannot catch that, so pin the consumer here.
+describe('TERMINAL_BRANCH_CHANGE consumer (FR-TERMINAL-690)', () => {
+  it('should subscribe to the broadcast and be typed in the event map', () => {
+    const manager = readFileSync(join(__dirname, 'terminal-manager.tsx'), 'utf8');
+    expect(manager).toContain("useOnServerEvent('TERMINAL_BRANCH_CHANGE'");
+
+    const events = readFileSync(join(__dirname, '../../contexts/events-context.tsx'), 'utf8');
+    expect(events).toContain('TERMINAL_BRANCH_CHANGE:');
+  });
+});
+
+describe('reduceServerActivity (FR-TERMINAL-800)', () => {
+  function tab(overrides: Partial<TerminalTab> = {}): TerminalTab {
+    return {
+      sessionId: 'sess-1',
+      status: 'active',
+      scope: {
+        scopeType: 'project',
+        scopeLabel: 'claude: web',
+        workingDir: '/repo/web',
+        groupKey: 'project:ws:alpha',
+        workspaceSlug: 'ws',
+      },
+      activityState: 'idle',
+      ...overrides,
+    };
+  }
+
+  it('a non-hook-driven session ignores the broadcast — local tracker owns the badge', () => {
+    const existing = tab({ activityState: 'idle' });
+    const result = reduceServerActivity(existing, { state: 'active', hookDriven: false });
+    expect(result).toBeNull();
+  });
+
+  it('a broadcast with no hookDriven flag and no prior hookDriven state is a no-op', () => {
+    const existing = tab({ activityState: 'idle' });
+    const result = reduceServerActivity(existing, { state: 'active' });
+    expect(result).toBeNull();
+  });
+
+  it('a hook-driven session takes the broadcast state over its own', () => {
+    const existing = tab({ activityState: 'active', hookDriven: true });
+    const result = reduceServerActivity(existing, { state: 'done', hookDriven: true });
+    expect(result).toEqual(tab({ activityState: 'done', hookDriven: true }));
+  });
+
+  it('marks a session hookDriven on its first hook-sourced broadcast', () => {
+    const existing = tab({ activityState: 'active' });
+    const result = reduceServerActivity(existing, { state: 'active', hookDriven: true });
+    expect(result).toEqual(tab({ activityState: 'active', hookDriven: true }));
+  });
+
+  it('stays hookDriven across a later broadcast that omits the flag', () => {
+    const existing = tab({ activityState: 'done', hookDriven: true });
+    const result = reduceServerActivity(existing, { state: 'idle' });
+    expect(result).toEqual(tab({ activityState: 'idle', hookDriven: true }));
+  });
+
+  it('is a no-op once already in sync with the broadcast (avoids a redundant commit)', () => {
+    const existing = tab({ activityState: 'waiting', hookDriven: true });
+    const result = reduceServerActivity(existing, { state: 'waiting', hookDriven: true });
+    expect(result).toBeNull();
+  });
+
+  it('a needsAttention-only broadcast (no state field) leaves activityState untouched', () => {
+    const existing = tab({ activityState: 'waiting', hookDriven: true });
+    const result = reduceServerActivity(existing, { hookDriven: true });
+    expect(result).toBeNull();
+  });
+});
+
+describe('handleActivity local-tracker suppression guard (FR-TERMINAL-800)', () => {
+  /**
+   * The guard logic extracted from handleActivity:
+   *   if (existing.hookDriven) return;
+   *
+   * Returns true if the local PTY heuristic should still update the tab.
+   */
+  function shouldApplyLocalActivity(hookDriven: boolean | undefined): boolean {
+    return !hookDriven;
+  }
+
+  it('applies the local heuristic for a non-hook-driven session', () => {
+    expect(shouldApplyLocalActivity(undefined)).toBe(true);
+    expect(shouldApplyLocalActivity(false)).toBe(true);
+  });
+
+  it('suppresses the local heuristic once a session is hook-driven — the broadcast owns the badge', () => {
+    expect(shouldApplyLocalActivity(true)).toBe(false);
   });
 });

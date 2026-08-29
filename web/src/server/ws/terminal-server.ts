@@ -17,19 +17,22 @@ import { workspaces } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { dispatchContainerUp } from './server';
 import { broadcastTerminalSessionsChange, broadcastTerminalActivityChange } from './broadcast';
-import {
-  persistTerminalSession,
-  deletePersistedTerminalSession,
-} from './terminal-session-store';
+import { persistTerminalSession, deletePersistedTerminalSession } from './terminal-session-store';
+import { applyActivityState } from '../hooks/activity';
+import { clearAttention } from '../hooks/title';
 import {
   destroyTerminalSession,
   disconnectWorker,
   failWorkerDispatches,
-  flushDispatchInbox,
   isTrackedWorker,
   recordWorkerOutput,
 } from '../terminal-dispatch';
-import { MCP_SESSION_PLACEHOLDER, sessionIdFlagToResume } from '@/lib/agent-types';
+import {
+  appendClaudeNameFlag,
+  composeDisplayName,
+  MCP_SESSION_PLACEHOLDER,
+  sessionIdFlagToResume,
+} from '@/lib/agent-types';
 import { sanitizeOscTitle } from '@/lib/osc-title';
 import {
   recordSessionStart,
@@ -143,7 +146,11 @@ function buildRespawnCmd(sessionId: string, meta: TerminalSessionMeta): Terminal
 
   try {
     const db = getDb();
-    const workspace = db.select().from(workspaces).where(eq(workspaces.slug, meta.workspaceSlug)).get();
+    const workspace = db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.slug, meta.workspaceSlug))
+      .get();
     if (!workspace?.containerEnabled || !workspace.docsDir) return spawnCmd;
 
     if (workspace.executionBackend === 'coder') {
@@ -260,7 +267,11 @@ async function maybeStartContainer(
       coderCfg?.workspace,
       requestId,
     );
-    sendTerminalOutput(ws, sessionId, `\x1b[32m${isCoder ? 'Workspace' : 'Container'} ready.\x1b[0m\r\n`);
+    sendTerminalOutput(
+      ws,
+      sessionId,
+      `\x1b[32m${isCoder ? 'Workspace' : 'Container'} ready.\x1b[0m\r\n`,
+    );
     return true;
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -308,8 +319,13 @@ async function handleTerminalConnection(
 
   // Swap the MCP session placeholder for the real sessionId, so the agent's
   // Engy MCP endpoint is /mcp/<sessionId> — its identity on every tool call.
-  // Stored substituted in meta so respawns reuse the same endpoint.
-  const resolvedCommand = command?.replaceAll(MCP_SESSION_PLACEHOLDER, sessionId);
+  // Stored substituted in meta so respawns reuse the same endpoint. The browser
+  // already built the command via buildAgentCommand, so --name is appended
+  // here rather than threaded through every browser call site.
+  const resolvedCommand = appendClaudeNameFlag(
+    command?.replaceAll(MCP_SESSION_PLACEHOLDER, sessionId),
+    composeDisplayName(scopeLabel),
+  );
 
   // Initial classification (log only): persisted metadata (set after successful
   // spawn) or an in-flight spawn for the same sessionId. Using terminalSessions
@@ -380,16 +396,12 @@ async function handleTerminalConnection(
     if (str.startsWith('{"t":"ack"')) {
       const meta = state.terminalSessionMeta.get(sessionId);
       if (meta && meta.activityState && meta.activityState !== 'idle') {
-        meta.activityState = 'idle';
-        persistTerminalSession(sessionId, meta);
-        if (meta.projectSlug) {
-          broadcastTerminalActivityChange({
-            sessionId,
-            projectSlug: meta.projectSlug,
-            state: 'idle',
-          });
-        }
+        applyActivityState(state, sessionId, 'idle', 'user');
       }
+      // Answering a permission prompt resumes the same turn, so neither Stop
+      // nor UserPromptSubmit fires — the focus ack is the only signal left to
+      // clear a stale attention mark (FR-TERMINAL-730).
+      clearAttention(state, sessionId);
     }
 
     // The browser's resize guard assumes "last sent" === "PTY size". Track the
@@ -646,7 +658,9 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
   const wss = new WebSocketServer({ noServer: true });
 
   wss.on('connection', (ws: WebSocket) => {
-    console.log(`[terminal-relay] Daemon connected to terminal relay (meta count: ${state.terminalSessionMeta.size})`);
+    console.log(
+      `[terminal-relay] Daemon connected to terminal relay (meta count: ${state.terminalSessionMeta.size})`,
+    );
     state.terminalDaemon = ws;
 
     // Hot path: forward daemon terminal output raw to browser
@@ -674,15 +688,7 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
           for (const { sessionId, state: actState } of sync.activity ?? []) {
             const meta = state.terminalSessionMeta.get(sessionId);
             if (!meta || (meta.activityState ?? 'idle') === actState) continue;
-            meta.activityState = actState;
-            persistTerminalSession(sessionId, meta);
-            if (meta.projectSlug) {
-              broadcastTerminalActivityChange({
-                sessionId,
-                projectSlug: meta.projectSlug,
-                state: actState,
-              });
-            }
+            applyActivityState(state, sessionId, actState, 'relay');
           }
 
           // Respawn or clean up sessions the daemon no longer has
@@ -703,18 +709,24 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
               }
             } else if (hasAnyOpenBrowser(state, sessionId)) {
               // Browser is still connected — respawn the session transparently
-              console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — respawning on daemon`);
+              console.log(
+                `[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — respawning on daemon`,
+              );
               respawnLostSession(state, ws, sessionId, meta);
             } else if (meta.spawnedBy || isTrackedWorker(state, sessionId)) {
               // Agent-spawned terminals have no user watching them and may hold
               // unsettled dispatches — full teardown so no phantom worker entry
               // or pending dispatch outlives the PTY.
-              console.log(`[terminal-relay] Stale agent session ${sessionId} (${meta.scopeLabel}) — cleaning up`);
+              console.log(
+                `[terminal-relay] Stale agent session ${sessionId} (${meta.scopeLabel}) — cleaning up`,
+              );
               destroyTerminalSession(state, sessionId);
             } else {
               // Nobody watching — keep the tab as a dormant session the user
               // can restore deliberately (see markSessionDormant).
-              console.log(`[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — no browser, marking dormant`);
+              console.log(
+                `[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — no browser, marking dormant`,
+              );
               markSessionDormant(sessionId, meta);
             }
           }
@@ -739,21 +751,7 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
       if (str.startsWith('{"t":"act"')) {
         try {
           const act = JSON.parse(str) as TerminalActivityEvent;
-          const meta = state.terminalSessionMeta.get(act.sessionId);
-          if (meta) {
-            meta.activityState = act.state;
-            persistTerminalSession(act.sessionId, meta);
-            broadcastTerminalActivityChange({
-              sessionId: act.sessionId,
-              projectSlug: meta.projectSlug,
-              state: act.state,
-            });
-            // Idle-gated dispatch delivery: a worker that just finished its
-            // turn receives the next queued cross-terminal dispatch.
-            if (act.state === 'idle' || act.state === 'done') {
-              flushDispatchInbox(state, act.sessionId);
-            }
-          }
+          applyActivityState(state, act.sessionId, act.state, 'relay');
         } catch {
           console.warn('[terminal-relay] Failed to parse act message');
         }
@@ -826,7 +824,10 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
       // terminal_close ran destroyTerminalSession before the daemon's exit
       // arrived) — re-running would emit a second 'destroyed' broadcast with
       // no groupKey context.
-      if (isExit && (state.terminalSessionMeta.has(sessionId) || state.terminalSessions.has(sessionId))) {
+      if (
+        isExit &&
+        (state.terminalSessionMeta.has(sessionId) || state.terminalSessions.has(sessionId))
+      ) {
         console.log(`[terminal-relay] Exit for session ${sessionId}, cleaning up meta and WS`);
         const exitMeta = state.terminalSessionMeta.get(sessionId);
         if (exitMeta?.agentType) {
@@ -838,7 +839,11 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         disconnectWorker(state, sessionId);
         broadcastTerminalSessionsChange('destroyed', sessionId, exitMeta?.groupKey);
         if (exitMeta?.projectSlug) {
-          broadcastTerminalActivityChange({ sessionId, projectSlug: exitMeta.projectSlug, removed: true });
+          broadcastTerminalActivityChange({
+            sessionId,
+            projectSlug: exitMeta.projectSlug,
+            removed: true,
+          });
         }
       }
     });
@@ -848,7 +853,9 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         `[terminal-relay] Daemon disconnected: code=${code} reason=${reason?.toString() ?? ''}`,
       );
       if (state.terminalDaemon === ws) {
-        console.log(`[terminal] daemon relay disconnected — retaining ${state.terminalSessionMeta.size} session meta entries for respawn`);
+        console.log(
+          `[terminal] daemon relay disconnected — retaining ${state.terminalSessionMeta.size} session meta entries for respawn`,
+        );
         state.terminalDaemon = null;
         // Keep terminalSessionMeta intact so the sync handler can respawn
         // sessions with active browsers when a new daemon connects.
