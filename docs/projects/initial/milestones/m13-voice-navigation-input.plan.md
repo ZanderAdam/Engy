@@ -7,11 +7,13 @@ status: draft
 
 ## Overview
 
-M13 adds voice as a second input head to Engy: speech-to-text dictation into terminal sessions, and spoken navigation across and within projects. Audio is captured in the browser, streamed over a dedicated WebSocket to the server, and transcribed in-process by a local streaming ASR model. Recognized text either dispatches a navigation action or is staged into a terminal for the user to send. Nothing leaves the machine.
+M13 adds voice as a second input head to Engy: speech-to-text dictation into terminal sessions, and spoken navigation across and within projects. Audio is captured in the browser, streamed over a dedicated WebSocket to the server, and transcribed in-process by a local ASR model. Recognized text either dispatches a navigation action or is staged into a terminal for the user to send. Nothing leaves the machine.
+
+After TG1 passed its gate, TG2 and TG3 were replanned around a wake word and an always-on session, replacing the original push-to-talk-only command model. The wake word is what makes always-on safe: it decides whether speech was addressed to the machine at all, so unaddressed speech is discarded undecoded rather than typed into a terminal.
 
 **TG1 is a go/no-go gate.** It builds the thinnest possible end-to-end path — hold a key, speak, see text land in the focused terminal — and stops. If dictation into a live agent terminal does not feel worth the friction, M13 ends there and TG2/TG3 are dropped. TG1 is deliberately under-built: no action registry, no HUD chrome, no settings, no persistence. Do not gold-plate it; its only job is to answer the question.
 
-Boundary: no TTS, no agent voice responses, no wake word, no barge-in, no speaker identification, no multi-language support, no per-terminal voice assignment, no changes to the existing cmdk palette.
+Boundary: no TTS, no agent voice responses, no barge-in, no speaker identification, no multi-language support, no per-terminal voice assignment, no changes to the existing cmdk palette. (A wake word was out of scope when this was written and is now TG2's core mechanism — see the replan note above.)
 
 ## Codebase Context
 
@@ -54,8 +56,8 @@ No GPU needed. The npm package `sherpa-onnx` is the single-threaded WASM build �
 ## Task Group Sequencing
 
 - **TG1: Dictation MVP (gated)** — no dependencies. Can start immediately. **Ends in an explicit go/no-go decision.**
-- **TG2: Voice Navigation** — depends on TG1 passing its gate (reuses the capture path, `/ws/voice` transport, and recognizer wrapper wholesale).
-- **TG3: Modes, Settings & Mobile** — depends on TG2 (needs the action registry to gate open-mic commands against, and navigation to have a settings surface worth building).
+- **TG2: Wake Word & Command Resolution** — depends on TG1 passing its gate (reuses the capture path, `/ws/voice` transport, VAD segmentation, and recognizer wholesale). **Gate passed; TG2 is live.**
+- **TG3: Always-On Session, Modes & Safety** — depends on TG2 (needs the spotter to reject unaddressed speech and the registry to reject low-confidence input before a mic can be left open).
 
 If TG1's gate fails, TG2 and TG3 are dropped and the milestone closes.
 
@@ -138,9 +140,25 @@ Answers to the gate questions, including where the question itself went stale:
 
 **Not done:** no `docs/system/features/` area doc for voice — the area is still tracked by local `FR-TG1.N` ids here. Author it via `/engy:feature-docs` before voice is considered shipped.
 
-## TG2: Voice Navigation
+## TG2: Wake Word & Command Resolution
 
-Adds the action registry and spoken navigation. Reuses TG1's capture path, transport, and recognizer without modification. `global-search.tsx` is not touched — the registry is a new, voice-only consumer, and navigation actions are defined in it independently of the existing palette.
+Makes voice addressable. A wake word decides whether speech is meant for the machine at all; only speech that carries it is decoded as a command. Reuses TG1's capture path, transport, VAD segmentation, and offline recognizer without modification.
+
+Replanned after TG1. The original TG2 assumed commands arrive because a key is held, so nothing had to decide whether speech was addressed to the app. Always-on removes that guarantee and makes addressing the central problem, which is what the wake word solves.
+
+`global-search.tsx` is not touched — the registry is a new, voice-only consumer, and navigation actions are defined in it independently of the existing palette.
+
+### How a turn works
+
+Three stages, each waking the next, so silence and unaddressed speech cost almost nothing:
+
+1. **Silero VAD** (shipped in TG1) gates on speech and defines the utterance span.
+2. **KeywordSpotter** (`sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01`, streaming, int8) scans continuously for the wake word.
+3. **Parakeet** (shipped in TG1, offline) decodes a VAD segment only when the spotter fired inside it.
+
+The wake word and the command are one utterance — "Engy, select project web" — because the spotter says *whether* to decode while VAD says *what span* to decode. The resolver strips the wake prefix before matching. A segment with no wake hit is discarded undecoded.
+
+This is why TG1's lack of a streaming recognizer does not block always-on: what always-on needs is streaming *keyword spotting*, and that is a separate, purpose-built model the library already provides.
 
 ### Requirements
 
@@ -154,91 +172,123 @@ Adds the action registry and spoken navigation. Reuses TG1's capture path, trans
 8. The system shall provide a help surface listing every registered voice action and its phrase templates, derived from the action registry rather than a maintained list. *(source: user request)* (FR-TG2.8)
 9. The help surface shall show the live vocabulary — current project, tab, and terminal names — resolved into example phrases the user can actually say. *(inferred: a template like "select project &lt;name&gt;" is not actionable without knowing the valid names)* (FR-TG2.9)
 10. The help surface shall be reachable by voice as well as by keyboard. *(inferred: a hands-free feature whose discovery requires the keyboard defeats itself)* (FR-TG2.10)
+11. The system shall detect a configurable wake word in the audio stream using a streaming keyword spotter, independently of the offline recognizer. *(source: user request — "maybe if I say a keyword")* (FR-TG2.11)
+12. The system shall decode a speech segment with the offline recognizer only when the wake word was detected within that segment, or when dictation mode is active. *(inferred from FR-TG2.11: decoding every utterance defeats the point of a wake word and transcribes unaddressed speech)* (FR-TG2.12)
+13. The system shall strip the wake word from the transcript before resolving it against the action registry. *(inferred: the wake word is addressing, not part of the command)* (FR-TG2.13)
+14. The system shall discard, without decoding or reporting, any speech segment carrying no wake word while dictation mode is inactive. *(source: user request implies always-on; discarding is what makes always-on safe to leave running)* (FR-TG2.14)
+15. The system shall report a wake-word detection to the browser distinctly from a transcript, so the user can see it was addressed even when resolution then fails. *(inferred from TG1's recurring failure mode: every bug was a silent drop, and "it did not hear me" and "it heard me but did not understand" need different fixes)* (FR-TG2.15)
 
 ### Tasks
 
-1. **Action registry core + phonetic resolver**
+1. **Action registry core + phonetic resolver in `web/`**
    - Files: `web/src/lib/voice/registry.ts` [NEW], `web/src/lib/voice/resolve.ts` [NEW], `web/src/lib/voice/resolve.test.ts` [NEW], `web/src/lib/voice/phonetic.ts` [NEW], `web/src/lib/voice/phonetic.test.ts` [NEW]
-   - Implements FR-TG2.1, FR-TG2.3
-   - `{ id, title, phrases[], params, run(ctx) }`. Double Metaphone + edit distance for tier 2. Pure functions, no React, no I/O — this is the most testable part of the milestone and should carry the densest unit tests. Table-test against real STT mangles of your actual project slugs (e.g. `engy-web` → "engie web", "n g web", "energy web").
+   - Implements FR-TG2.1, FR-TG2.3, FR-TG2.13
+   - `{ id, title, phrases[], params, run(ctx) }`. Double Metaphone + edit distance for tier 2. Wake-prefix stripping is a pure function here, tolerant of the spotter's own transcription of the wake word and of trailing punctuation ("Engy," / "Engie" / "N G").
+   - Pure functions, no React, no I/O — the most testable part of the milestone, and it should carry the densest unit tests. Table-test against real STT mangles of actual project slugs (`engy-web` -> "engie web", "n g web", "energy web").
+   - Unaffected by the wake-word redesign; can start before the spotter exists.
    - Verify: `cd web && pnpm vitest run src/lib/voice/`
 
-2. **Live vocabulary + hotword biasing** (depends on task 1)
-   - Files: `web/src/components/voice/use-voice-vocabulary.ts` [NEW], `web/src/components/voice/use-voice-vocabulary.test.ts` [NEW], `web/src/server/voice/recognizer.ts` [MODIFY]
-   - Implements FR-TG2.2, FR-TG2.5
-   - Assemble projects/tabs/terminals into a vocabulary. Terminals come from `GET /api/terminal/sessions?all=1`, never `terminal-session-store.ts`. Push the vocabulary to the recognizer as `hotwordsFile`/`hotwordsScore` so biasing happens at the ASR layer as well as in fuzzy matching.
-   - Verify: `cd web && pnpm vitest run src/components/voice/use-voice-vocabulary.test.ts` — assert terminals from an unmounted project still appear.
+2. **Wake-word spotter: model bootstrap + keyword encoding in `web/`**
+   - Files: `web/src/server/voice/kws-models.ts` [NEW], `web/src/server/voice/kws-models.test.ts` [NEW], `web/src/server/voice/keywords.ts` [NEW], `web/src/server/voice/keywords.test.ts` [NEW]
+   - Implements FR-TG2.11 (model half)
+   - Download and cache `sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01` (int8) beside the parakeet model under `{ENGY_DIR}/models/`, reusing `models.ts`'s atomic staging-then-rename and its "already complete, do not refetch" guard. It is ~3.3M params, so the download is small next to parakeet's 630MB.
+   - The spotter's keywords file wants token sequences, not words — the same encoding chore as hotwords, but tractable here because **this model ships `bpe.model`** (parakeet does not) and the wake word is one fixed phrase encoded once at config time, not a live vocabulary regenerated per turn. Format is `TOKENS @KEYWORD_ID` with an optional per-keyword threshold and boost. Port the `text2token` BPE encoding rather than shelling out to the Python CLI.
+   - Gate the download behind `voiceEnabled` exactly as TG1 gates parakeet's — see `isVoiceEnabledForWorkspace` and the preload-on-opt-in path in `workspace.update`.
+   - Verify: `cd web && pnpm vitest run src/server/voice/kws-models.test.ts src/server/voice/keywords.test.ts` — assert a warm cache never fetches, and that a known phrase encodes to the expected token sequence.
 
-3. **Navigation + terminal-focus actions** (depends on task 2)
-   - Files: `web/src/lib/voice/actions/navigation.ts` [NEW], `web/src/lib/voice/actions/terminal.ts` [NEW], `web/src/lib/voice/actions/navigation.test.ts` [NEW], `web/src/components/voice/voice-indicator.tsx` [MODIFY]
-   - Implements FR-TG2.4, FR-TG2.6, FR-TG2.7
-   - Register "select project X", "open tab Y", "focus terminal N". Navigation goes through `navigateOrReuseTab` (`web/src/components/tabs/tab-state.ts`); focus emits `{t:'ack', sessionId}`. Extend the indicator to show transcript + matched action + confidence. If M13 later adds a project-section tab, remember a new tab type needs three wiring points — the `sections.ts` registry entry, the route `page.tsx`, **and** a `case` in `dispatchProject` (`web/src/components/tabs/tab-content.tsx`); omitting the third compiles clean and silently renders NotFound.
-   - Verify: `cd web && pnpm vitest run src/lib/voice/actions/`, then `pnpm blt`, then `pnpm exec playwright-cli` to confirm no duplicate tabs.
+3. **Wake-gated turn routing in `web/`** (depends on task 2)
+   - Files: `web/src/server/voice/recognizer.ts` [MODIFY], `web/src/server/voice/spotter.ts` [NEW], `web/src/server/voice/spotter.test.ts` [NEW], `web/src/server/ws/voice-server.ts` [MODIFY], `common/src/ws/protocol.ts` [MODIFY]
+   - Implements FR-TG2.11 (runtime half), FR-TG2.12, FR-TG2.14, FR-TG2.15
+   - Feed each PCM chunk to both the VAD and a `KeywordSpotter` `OnlineStream`. When a VAD segment closes, decode it with parakeet only if the spotter fired within its span; otherwise drop it without decoding. Add a `voice_wake` event to the protocol so the browser can show it was addressed even when resolution later fails.
+   - Keep the per-turn isolation TG1 established: the recognizer is shared and loaded once, the VAD is per turn. Decide deliberately which the spotter is, and write down why — a spotter carrying state across turns will fire on a stale hit.
+   - **Do not** regress TG1's guarantees: the `/ws/voice` upgrade stays gated on `voiceEnabled`, `startTurn` keeps its per-turn re-check, and nothing may reach a model or the native addon while voice is off.
+   - Known risk: sherpa's KWS has reported false-reject problems ([issue #2678](https://github.com/k2-fsa/sherpa-onnx/issues/2678)). Measure the accept and reject rate on real recordings of the chosen wake word before tuning anything else, and report the numbers. `keywordsThreshold` and the per-keyword boost are the knobs.
+   - Verify: `cd web && pnpm vitest run src/server/voice/ src/server/ws/`, plus a replay of a real recording against the live server. TG1's lesson stands: fake-socket unit tests cannot catch the timing and lifecycle bugs on this path.
 
-4. **Voice help surface** (depends on task 2)
+4. **Live vocabulary + navigation and terminal-focus actions in `web/`** (depends on task 3)
+   - Files: `web/src/components/voice/use-voice-vocabulary.ts` [NEW], `web/src/components/voice/use-voice-vocabulary.test.ts` [NEW], `web/src/lib/voice/actions/navigation.ts` [NEW], `web/src/lib/voice/actions/terminal.ts` [NEW], `web/src/lib/voice/actions/navigation.test.ts` [NEW], `web/src/components/voice/voice-indicator.tsx` [MODIFY]
+   - Implements FR-TG2.2, FR-TG2.4, FR-TG2.5, FR-TG2.6, FR-TG2.7
+   - Assemble projects/tabs/terminals into a vocabulary. Terminals come from `GET /api/terminal/sessions?all=1`, never `terminal-session-store.ts` — the browser store drops unmounted projects.
+   - Register "select project X", "open tab Y", "focus terminal N". Navigation goes through `navigateOrReuseTab` (`web/src/components/tabs/tab-state.ts`); focus emits `{t:'ack', sessionId}`.
+   - ASR-level hotword biasing of this vocabulary is **out of scope**. It needs `decodingMethod: 'modified_beam_search'` plus hand-rolled BPE tokenization against parakeet's `tokens.txt` (which ships no bpe vocab), and it would cost the greedy-decode latency TG1 measured. FR-TG2.2 requires only that the vocabulary be built from live state, not pushed into the ASR. The phonetic resolver carries it.
+   - Indicator state as of TG1, since the earlier plan text is stale: it reads from `useOptionalVoice()` (`components/voice/voice-context.tsx`), which returns `null` when voice is off; while listening it renders as a `<button>` that stops the turn; it is `fixed bottom-4 left-4 z-[60]`, where the z-index is load-bearing against the mobile terminal sheet. Do not call `useVoiceCapture` directly, and do not add a start control here.
+   - Verify: `cd web && pnpm vitest run src/lib/voice/actions/ src/components/voice/use-voice-vocabulary.test.ts`, then `pnpm blt`, then `pnpm exec playwright-cli` to confirm no duplicate tabs. Assert terminals from an unmounted project still appear.
+
+5. **Voice help surface in `web/`** (depends on task 4)
    - Files: `web/src/components/voice/voice-help-dialog.tsx` [NEW], `web/src/components/voice/voice-help-entries.ts` [NEW], `web/src/components/voice/voice-help-entries.test.ts` [NEW], `web/src/lib/voice/actions/help.ts` [NEW]
    - Implements FR-TG2.8, FR-TG2.9, FR-TG2.10
-   - A dialog (reuse `components/ui/dialog`) that enumerates every action in the registry, grouped by category, showing each phrase template. `voice-help-entries.ts` is the pure part: it takes the registry plus the live vocabulary from `use-voice-vocabulary.ts` and expands templates into concrete example phrases — `select project <name>` renders as the actual project names currently open, capped at a few per action with a "+N more" affordance. Unmatched-parameter actions fall back to showing the bare template.
-   - Register a `voice.help` action in `actions/help.ts` with phrases like "what can I say", "show voice help", "help" — so the help surface is itself voice-reachable. Own the keyboard trigger inside `voice-help-dialog.tsx` (bail via `isTypingTarget()`), **not** in `voice-indicator.tsx` — this keeps the task's files disjoint from task 3 so the two can run concurrently.
-   - The dialog must render correctly when the registry contains actions this task did not write, since task 3 adds actions in parallel. Drive it entirely off the registry; never hardcode an action list.
-   - Verify: `cd web && pnpm vitest run src/components/voice/voice-help-entries.test.ts` — assert that adding an action to the registry changes the rendered entries with no edit to the help component, and that a template with no live vocabulary values degrades to the bare template.
+   - A dialog (reuse `components/ui/dialog`) enumerating every registry action, grouped by category. `voice-help-entries.ts` is the pure part: registry plus live vocabulary expanded into concrete example phrases — `select project <name>` renders as the actual open project names, capped with a "+N more" affordance, degrading to the bare template when a parameter has no live values.
+   - Show the current wake word in the examples, so the help text reads as something the user can say verbatim.
+   - Register a `voice.help` action with phrases like "what can I say", "show voice help", "help". Own the keyboard trigger inside `voice-help-dialog.tsx` (bail via `isTypingTarget()` from `web/src/lib/keyboard.ts`), **not** in `voice-indicator.tsx`, keeping this task's files disjoint from task 4.
+   - Drive it entirely off the registry; never hardcode an action list. Read availability from `useOptionalVoice()` and offer nothing when voice is off.
+   - Verify: `cd web && pnpm vitest run src/components/voice/voice-help-entries.test.ts` — assert that adding a registry action changes the rendered entries with no edit to the help component.
 
-**Parallelizable:** tasks 3 and 4 both depend only on task 2 and own disjoint files — they can run concurrently. Tasks 1 → 2 are strictly sequential.
+**Parallelizable:** tasks 1 and 2 are independent and can run concurrently. 3 depends on 2, 4 on 3, 5 on 4. The chain is longer than the old TG2's because the wake word sits underneath everything that follows.
 
 ### Completion Summary
 
 _Blank until TG2 completes._
 
-## TG3: Modes, Settings & Mobile
+## TG3: Always-On Session, Modes & Safety
 
-Adds the open-mic session mode alongside PTT, persists preferences, and makes the phone path usable. Sequenced last because open-mic is only safe once the registry can reject low-confidence input, and settings are only worth a surface once there is something to configure.
+Turns the wake word into a session you can leave running, adds the dictation sub-mode, persists what is configurable, and makes the phone path usable. Sequenced last because always-on is only safe once the registry can reject low-confidence input and the spotter can reject unaddressed speech.
+
+Replanned after TG1. Two of the original TG3 tasks already shipped: `voiceEnabled` plus its migration, and the mobile control (a mic key in `terminal/mobile-terminal-controls.tsx`). What remains of those is `voiceConfig` and the secure-context banner.
+
+### The safety rule this group exists to hold
+
+Always-on plus terminal input is the risky combination in this milestone. The rule is that **unaddressed speech is discarded, never dictated**. Speech reaches a terminal only when it carries the wake word, or when dictation mode was explicitly entered by a wake-word command. A mode where the machine listens and types without being addressed turns a phone call in the same room into terminal input, and is not built.
 
 ### Requirements
 
-1. The system shall support a session-scoped open-mic mode in addition to push-to-talk, with push-to-talk as the default. *(source: user request)* (FR-TG3.1)
-2. The system shall segment utterances in open-mic mode using the recognizer's built-in endpointing. *(inferred: `rule2MinTrailingSilence` already exists; a separate turn-detector model is unnecessary)* (FR-TG3.2)
-3. The system shall close an open-mic session on an explicit user action or after an idle timeout. *(inferred: an indefinitely open mic is a privacy and battery problem)* (FR-TG3.3)
+1. The system shall support an always-on session mode in addition to push-to-talk, with push-to-talk as the default. *(source: user request — "ideal if voice mode is just on")* (FR-TG3.1)
+2. *(Retired. Originally required segmenting open-mic utterances with the recognizer's built-in endpointing and named `rule2MinTrailingSilence`. That is an `OnlineRecognizer` API, and TG1 ships an `OfflineRecognizer` with Silero VAD after the streaming model was rejected on accuracy. Segmentation is covered by the VAD path TG1 already built.)*
+3. The system shall close an always-on session on an explicit user action or after an idle timeout. *(inferred: an indefinitely open mic is a privacy and battery problem)* (FR-TG3.3)
 4. The system shall persist voice preferences per workspace. *(inferred: follows `containerEnabled`/`containerConfig` precedent)* (FR-TG3.4)
-5. The system shall warn the user when the page is not a secure context, and explain how to reach one. *(inferred: `http://100.x.x.x` over Tailscale is NOT a secure context — only the `*.ts.net` hostname is)* (FR-TG3.5)
-6. The system shall gate first microphone activation behind a real user gesture. *(inferred: iOS Safari requirement, confirmed in crouton's `bridge-client.ts`)* (FR-TG3.6)
+5. The system shall warn the user when the page is not a secure context, and explain how to reach one. *(inferred, and confirmed during TG1: `http://100.x.x.x` over Tailscale is not a secure context, so `getUserMedia` refuses; reaching one needs HTTPS or a browser origin allowlist)* (FR-TG3.5)
+6. The system shall gate first microphone activation behind a real user gesture. *(inferred: iOS Safari requirement, confirmed in crouton's `bridge-client.ts`, and hit during TG1 when awaiting the permission prompt consumed the activation)* (FR-TG3.6)
+7. The system shall enter and leave dictation mode by voice command, and shall route every speech segment to the terminal while it is active. *(source: user request — "send inputs to terminals" without holding a key)* (FR-TG3.7)
+8. The system shall recognize a wake-word command while dictation mode is active, and shall treat it as a command rather than dictated text. *(inferred from FR-TG3.7: a dictation mode with no spoken exit can only be left by hand, which defeats it)* (FR-TG3.8)
+9. The system shall never append a submit character to voice-inserted terminal text, in any mode. *(source: user request in TG1 — never auto-submit into a live agent terminal; always-on raises the cost of breaking this from a stray line to an executed one)* (FR-TG3.9)
+10. The system shall show, whenever the microphone is open, that it is open and in which mode. *(inferred: an always-on mic the user cannot see is the privacy failure FR-TG3.3 only partly addresses)* (FR-TG3.10)
 
 ### Tasks
 
-1. **Open-mic session mode**
-   - Files: `web/src/components/voice/use-voice-capture.ts` [MODIFY], `web/src/components/voice/session-mode.ts` [NEW], `web/src/components/voice/session-mode.test.ts` [NEW], `web/src/server/voice/recognizer.ts` [MODIFY]
-   - Implements FR-TG3.1, FR-TG3.2, FR-TG3.3
-   - Tap to open a session; the recognizer's endpointing segments utterances until the user closes it or an idle timeout fires. PTT remains the default. Note the input-state machine now has two entry paths — keep the audio path identical between them so only the framing differs.
+1. **Always-on session lifecycle in `web/`**
+   - Files: `web/src/components/voice/use-voice-capture.ts` [MODIFY], `web/src/components/voice/session-mode.ts` [NEW], `web/src/components/voice/session-mode.test.ts` [NEW]
+   - Implements FR-TG3.1, FR-TG3.3, FR-TG3.10
+   - A session holds the mic open and streams continuously; the spotter decides what gets decoded. Push-to-talk stays the default and keeps its existing behaviour.
+   - The input-state machine now has two entry paths. Keep the audio path identical between them so only the framing differs — TG1's controller already separates "holding" from "turn in flight", and that seam is where this belongs.
+   - Idle timeout and explicit close both end the session and release the mic. Releasing matters beyond tidiness: TG1 releases at key-up specifically so the OS microphone indicator clears.
    - Verify: `cd web && pnpm vitest run src/components/voice/session-mode.test.ts`
 
-2. **Workspace voice settings** (depends on task 1)
+2. **Dictation sub-mode in `web/`** (depends on task 1)
+   - Files: `web/src/lib/voice/actions/dictation.ts` [NEW], `web/src/lib/voice/actions/dictation.test.ts` [NEW], `web/src/components/voice/use-voice-capture.ts` [MODIFY]
+   - Implements FR-TG3.7, FR-TG3.8, FR-TG3.9
+   - Register "dictate" and "stop dictating" as wake-word commands. While active, every decoded segment is inserted into the focused terminal; a segment that carries the wake word is resolved as a command instead, which is what makes "Engy, stop dictating" work.
+   - Insertion reuses TG1's `insertToTerminal` path, which never appends `\r`. Add a test that asserts the absence of the submit character rather than trusting it — FR-TG3.9 is the one requirement here whose breach is not reversible.
+   - Verify: `cd web && pnpm vitest run src/lib/voice/actions/dictation.test.ts`
+
+3. **Workspace voice settings in `web/`** (depends on task 1)
    - Files: `web/src/server/db/schema.ts` [MODIFY], `web/src/server/db/migrations/` [NEW], `web/src/components/workspace/voice-settings.tsx` [NEW], `web/src/server/trpc/routers/workspace.ts` [MODIFY]
    - Implements FR-TG3.4
-   - `voiceEnabled` boolean + `voiceConfig` JSON, mirroring `containerEnabled`/`containerConfig`. Config carries mode (ptt/open-mic), PTT keybinding, model choice, and idle timeout. Run `cd web && pnpm drizzle-kit generate` after the schema change.
+   - Add `voiceConfig` JSON beside the `voiceEnabled` boolean TG1 already shipped, mirroring `containerConfig`. It carries mode (ptt / always-on), wake word, spotter threshold, PTT keybinding, and idle timeout. Do **not** re-add `voiceEnabled` or its migration.
+   - Changing the wake word re-encodes the keywords file, so treat it as invalidating cached spotter config rather than a plain settings write.
+   - Run `cd web && pnpm drizzle-kit generate` after the schema change.
    - Verify: `cd web && pnpm vitest run src/server/trpc/routers/workspace.test.ts`
 
-3. **Secure-context banner + mobile control** (depends on task 1)
-   - Files: `web/src/components/voice/secure-context-banner.tsx` [NEW — adapt from crouton], `web/src/components/terminal/mobile-terminal-controls.tsx` [MODIFY]
+4. **Secure-context banner in `web/`** (depends on task 1)
+   - Files: `web/src/components/voice/secure-context-banner.tsx` [NEW — adapt from crouton]
    - Implements FR-TG3.5, FR-TG3.6
-   - Adapt crouton's banner, rewording guidance for Engy: desktop uses `http://localhost` (already a secure context); phone must use the Tailscale `*.ts.net` hostname, not the `100.x.x.x` IP. Add the PTT control to the mobile terminal controls, gated behind a real tap for iOS.
-   - Verify: `pnpm blt`, then manual over Tailscale on the phone.
+   - Explain the actual remedies found during TG1, not a generic "needs HTTPS": either an HTTPS origin (`tailscale serve`, which requires enabling tailnet HTTPS certificates and publishes device names to public Certificate Transparency logs) or the browser's insecure-origin allowlist, which stores a full origin including the port.
+   - Do not modify `terminal/mobile-terminal-controls.tsx`; TG1 already added the mic key there.
+   - Verify: `pnpm exec playwright-cli` against a non-secure origin.
 
-**Parallelizable:** tasks 2 and 3 both depend only on task 1 and touch disjoint files — they can run concurrently.
+**Parallelizable:** tasks 2, 3 and 4 all depend only on task 1 and own disjoint files.
 
 ### Completion Summary
 
 _Blank until TG3 completes._
-
-## Prerequisites (not code tasks)
-
-- Phone access must use the Tailscale `*.ts.net` hostname. `http://100.x.x.x` is not a secure context and `getUserMedia` will silently refuse. Tailscale terminates TLS in front of the plain-HTTP server; Engy needs no cert handling of its own. Crouton documents this at `crouton/README.md:31-37`.
-- Desktop over `http://localhost:<port>` is already a secure context. No action needed.
-
-## Known Risks
-
-- **20M-model accuracy on real mic input is unmeasured.** The benchmark used a clean studio clip. If WER is poor, swap to a larger streaming zipformer or accept parakeet's higher latency — TG1's recognizer wrapper isolates this choice to one file.
-- **Terminal identity is documented as fragile** — open tickets cover status indicators, reconnect after sleep, remembering the terminal tab across refresh, and cross-browser sessions. "Focus terminal 2" inherits whatever is wrong there. Reading the server registry (FR-TG2.5) is the mitigation, not a fix.
-- **Model asset handling is unprecedented in this repo.** TG1 task 1 sets the pattern for every future local model; get the `ENGY_DIR` caching and `.gitignore` treatment right the first time.
-- **The search index was empty when this milestone was researched** (129 files on disk, 0 indexed) and was repopulated during planning. 201 embeddings remain pending, so vector/hybrid search stays degraded until an embed pass runs. Separately, the `projects` collection reports stale paths for several completed milestone plans — worth a targeted reindex.
 
 ## Out of Scope
 
