@@ -42,6 +42,10 @@ export type VoicePhase = 'idle' | 'listening' | 'transcribing';
 export interface VoiceCaptureState {
   phase: VoicePhase;
   error: string | null;
+  /** Segments accumulated for the current or most recently completed turn,
+   * for display and command resolution. Resets at the start of the next
+   * turn, the same lifecycle `error` already follows. */
+  transcript: string | null;
 }
 
 /** `onSegment` fires on exactly one subscriber per segment, so a finalized
@@ -89,6 +93,7 @@ export class VoicePttController {
   private readonly subscribers = new Set<VoiceCaptureObserver>();
   private phase: VoicePhase = 'idle';
   private error: string | null = null;
+  private transcript = '';
   private mic: Pick<MicCapture, 'start' | 'stop'> | null = null;
   private ws: WebSocket | null = null;
   private holding = false;
@@ -110,7 +115,11 @@ export class VoicePttController {
     const wasEmpty = this.subscribers.size === 0;
     this.subscribers.add(observer);
     if (wasEmpty) this.attach();
-    observer.onStateChange({ phase: this.phase, error: this.error });
+    observer.onStateChange({
+      phase: this.phase,
+      error: this.error,
+      transcript: this.transcript || null,
+    });
     return () => this.unsubscribe(observer);
   }
 
@@ -178,6 +187,7 @@ export class VoicePttController {
     this.turnToken = token;
     this.turnStartedAt = Date.now();
     this.isFirstSegmentOfTurn = true;
+    this.transcript = '';
     this.setPhase('listening');
 
     const slug = this.activeSubscriber()?.workspaceSlug();
@@ -207,6 +217,8 @@ export class VoicePttController {
         if (this.turnToken === token) {
           const text = this.isFirstSegmentOfTurn ? msg.transcript : ` ${msg.transcript}`;
           this.isFirstSegmentOfTurn = false;
+          this.transcript += text;
+          this.notifyState();
           this.emitSegment(text);
         }
       } else if (msg.t === 'voice_final') {
@@ -345,7 +357,11 @@ export class VoicePttController {
   }
 
   private notifyState(): void {
-    const state: VoiceCaptureState = { phase: this.phase, error: this.error };
+    const state: VoiceCaptureState = {
+      phase: this.phase,
+      error: this.error,
+      transcript: this.transcript || null,
+    };
     for (const subscriber of this.subscribers) subscriber.onStateChange(state);
   }
 
@@ -392,6 +408,7 @@ export function useVoiceCapture(
   const [state, setState] = useState<VoiceCaptureState>({
     phase: 'idle',
     error: null,
+    transcript: null,
   });
 
   useEffect(() => {

@@ -202,7 +202,7 @@ describe('VoicePttController', () => {
 
     firePtt('keydown');
 
-    expect(onStateChange).toHaveBeenCalledWith({ phase: 'listening', error: null });
+    expect(onStateChange).toHaveBeenCalledWith({ phase: 'listening', error: null, transcript: null });
     expect(FakeMicCapture.instances).toHaveLength(1);
     const ws = FakeWebSocket.instances[0];
     expect(ws.url).toBe('ws://test/ws/voice');
@@ -226,7 +226,7 @@ describe('VoicePttController', () => {
 
     firePtt('keydown');
 
-    expect(onStateChange).toHaveBeenCalledWith({ phase: 'listening', error: null });
+    expect(onStateChange).toHaveBeenCalledWith({ phase: 'listening', error: null, transcript: null });
     expect(FakeWebSocket.instances).toHaveLength(1);
     expect(FakeMicCapture.instances).toHaveLength(1);
   });
@@ -378,7 +378,11 @@ describe('VoicePttController', () => {
 
       ws.simulateMessage(JSON.stringify({ t: 'voice_error', message: 'decode failed' }));
 
-      expect(onStateChange).toHaveBeenCalledWith({ phase: 'idle', error: 'decode failed' });
+      expect(onStateChange).toHaveBeenCalledWith({
+        phase: 'idle',
+        error: 'decode failed',
+        transcript: null,
+      });
       expect(onSegment).not.toHaveBeenCalled();
       expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
       expect(lastPhase(onStateChange)).toBe('idle');
@@ -412,6 +416,7 @@ describe('VoicePttController', () => {
     expect(onStateChange).toHaveBeenCalledWith({
       phase: 'idle',
       error: 'getUserMedia not available (insecure context?)',
+      transcript: null,
     });
     expect(lastPhase(onStateChange)).toBe('idle');
   });
@@ -441,7 +446,11 @@ describe('VoicePttController', () => {
     window.dispatchEvent(new Event('blur'));
 
     expect(mic.stop).toHaveBeenCalledTimes(1);
-    expect(onStateChange).toHaveBeenCalledWith({ phase: 'idle', error: 'voice connection closed' });
+    expect(onStateChange).toHaveBeenCalledWith({
+      phase: 'idle',
+      error: 'voice connection closed',
+      transcript: null,
+    });
   });
 
   it('treats an unexpected socket close while listening as an error and releases the mic', () => {
@@ -455,7 +464,11 @@ describe('VoicePttController', () => {
 
     ws.close();
 
-    expect(onStateChange).toHaveBeenCalledWith({ phase: 'idle', error: 'voice connection closed' });
+    expect(onStateChange).toHaveBeenCalledWith({
+      phase: 'idle',
+      error: 'voice connection closed',
+      transcript: null,
+    });
     expect(mic.stop).toHaveBeenCalledTimes(1);
   });
 
@@ -763,7 +776,7 @@ describe('VoicePttController', () => {
       unsubscribe = controller.subscribe(observer);
 
       controller.toggle();
-      expect(lastState(onStateChange)).toEqual({ phase: 'listening', error: null });
+      expect(lastState(onStateChange)).toEqual({ phase: 'listening', error: null, transcript: null });
       expect(FakeMicCapture.instances).toHaveLength(1);
       FakeWebSocket.instances[0].simulateOpen();
 
@@ -832,6 +845,7 @@ describe('VoicePttController', () => {
       expect(lastState(onStateChange)).toEqual({
         phase: 'idle',
         error: 'No workspace to dictate into.',
+        transcript: null,
       });
     });
 
@@ -879,7 +893,7 @@ describe('VoicePttController', () => {
       const sub2 = makeObserver();
       unsubscribe = controller.subscribe(sub2.observer);
 
-      expect(sub2.onStateChange).toHaveBeenCalledWith({ phase: 'listening', error: null });
+      expect(sub2.onStateChange).toHaveBeenCalledWith({ phase: 'listening', error: null, transcript: null });
 
       firePtt('keyup');
       unsub1();
