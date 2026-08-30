@@ -58,6 +58,7 @@ import { deriveScope } from '@/components/terminal/use-terminal-scope';
 import { scopeForAgent, toContainerScope } from '@/components/terminal/types';
 import { QuickCaptureDialog } from '@/components/memory/quick-capture-dialog';
 import { VoiceIndicator } from '@/components/voice/voice-indicator';
+import { VoiceHelpDialog } from '@/components/voice/voice-help-dialog';
 import { VoiceProvider } from '@/components/voice/voice-context';
 
 const TERMINAL_CONFIG = {
@@ -581,6 +582,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     <>
       <AutoInvalidation />
       <VoiceIndicator />
+      <VoiceHelpDialog />
       <QuickCaptureDialog
         open={quickCaptureOpen}
         onOpenChange={setQuickCaptureOpen}
