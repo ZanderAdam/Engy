@@ -32,9 +32,12 @@ const VAD_BUFFER_SECONDS = 30;
 export interface TurnRecognizerOpts {
   /** Called once per finalized, VAD-closed speech segment, in order. Not a
    * revision of a growing hypothesis — each call is complete decoded text
-   * for its own span of audio. Only segments that carried the wake word
-   * reach this callback; see FR-TG2.12. */
-  onSegment: (text: string) => void;
+   * for its own span of audio. Every segment is decoded and reported,
+   * regardless of the wake word — the key hold is already the deliberate
+   * gesture a wake word would otherwise authorise (FR-TG2.12). `wake`
+   * reports whether the wake word fired anywhere within this segment's
+   * span, leaving the dictation-vs-command routing decision to the caller. */
+  onSegment: (text: string, wake: boolean) => void;
   /** Called the moment the wake word is detected, independently of segment
    * decode — this is what lets the browser show "it heard me" even before
    * (or if never) a segment closes and resolves. See FR-TG2.15. */
@@ -145,18 +148,17 @@ export async function createTurnRecognizer(opts: TurnRecognizerOpts): Promise<Tu
   let closed = false;
   // True once the wake word has fired since the currently-open VAD segment
   // started (or since the last segment was drained, if none is open yet).
-  // This is the whole wake-gating mechanism: the spotter decides *whether* a
-  // segment gets decoded, the VAD decides *what span*. See FR-TG2.12 and
-  // "How a turn works" in the M13 plan.
+  // The VAD decides *what span* a segment covers; this only decides what
+  // `wake` reports for it — decoding itself is unconditional (FR-TG2.12).
   let wokenSinceLastSegment = false;
 
-  function decodeSegment(samples: Float32Array): void {
+  function decodeSegment(samples: Float32Array, wake: boolean): void {
     try {
       const stream: OfflineStream = recognizer.createStream();
       stream.acceptWaveform({ samples, sampleRate: SAMPLE_RATE });
       recognizer.decode(stream);
       const text = recognizer.getResult(stream).text.trim();
-      if (text) opts.onSegment(text);
+      if (text) opts.onSegment(text, wake);
     } catch (err) {
       opts.onError(err instanceof Error ? err : new Error(String(err)));
     }
@@ -167,9 +169,7 @@ export async function createTurnRecognizer(opts: TurnRecognizerOpts): Promise<Tu
       const segment = vad.front();
       const woken = wokenSinceLastSegment;
       wokenSinceLastSegment = false;
-      // FR-TG2.14: a segment with no wake hit is discarded — never decoded,
-      // never reported. Silence and unaddressed speech never reach parakeet.
-      if (woken) decodeSegment(segment.samples);
+      decodeSegment(segment.samples, woken);
       vad.pop();
     }
   }

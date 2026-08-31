@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { DEFAULT_WAKE_WORD } from '@/server/voice/keywords';
+import type { ResolveResult } from '@/lib/voice/resolve';
 import {
   VoicePttController,
   isPttKeyEvent,
@@ -12,6 +14,9 @@ import {
   type VoicePhase,
 } from './use-voice-capture';
 import type { MicCaptureOpts } from './mic-capture';
+
+const WAKE_WORD = 'ENGY';
+const NO_MATCH: ResolveResult = { matched: false, reason: 'no_match' };
 
 class FakeWebSocket {
   static CONNECTING = 0 as const;
@@ -104,17 +109,22 @@ function makeOpts(overrides: Partial<VoicePttControllerOpts> = {}): VoicePttCont
 /** A test double for a `useVoiceCapture()` caller: records every state push
  * and every segment handed to it via spies, so assertions read the same way
  * whether the observer is the sole subscriber or one of several. */
-function makeObserver(): {
+function makeObserver(
+  onCommandImpl: (text: string) => ResolveResult = () => NO_MATCH,
+): {
   observer: VoiceCaptureObserver;
   onStateChange: ReturnType<typeof vi.fn>;
   onSegment: ReturnType<typeof vi.fn>;
+  onCommand: ReturnType<typeof vi.fn>;
 } {
   const onStateChange = vi.fn();
   const onSegment = vi.fn();
+  const onCommand = vi.fn(onCommandImpl);
   return {
-    observer: { workspaceSlug: () => 'ws-slug', onStateChange, onSegment },
+    observer: { workspaceSlug: () => 'ws-slug', onStateChange, onSegment, onCommand },
     onStateChange,
     onSegment,
+    onCommand,
   };
 }
 
@@ -174,6 +184,16 @@ describe('getVoicePttController', () => {
   });
 });
 
+describe('WAKE_WORD', () => {
+  it('[test-infra] mirrors the real DEFAULT_WAKE_WORD constant', () => {
+    // Client components can't import `keywords.ts` (it reads node:fs), so
+    // `use-voice-capture.ts` keeps a local mirror of this value, same as
+    // `voice-help-dialog.tsx`. This is the tripwire: if the real constant
+    // changes, this fails instead of routing silently drifting from it.
+    expect(WAKE_WORD).toBe(DEFAULT_WAKE_WORD);
+  });
+});
+
 describe('VoicePttController', () => {
   let controller: VoicePttController | null = null;
   let unsubscribe: (() => void) | null = null;
@@ -202,7 +222,12 @@ describe('VoicePttController', () => {
 
     firePtt('keydown');
 
-    expect(onStateChange).toHaveBeenCalledWith({ phase: 'listening', error: null, transcript: null });
+    expect(onStateChange).toHaveBeenCalledWith({
+      phase: 'listening',
+      error: null,
+      transcript: null,
+      command: null,
+    });
     expect(FakeMicCapture.instances).toHaveLength(1);
     const ws = FakeWebSocket.instances[0];
     expect(ws.url).toBe('ws://test/ws/voice');
@@ -226,7 +251,12 @@ describe('VoicePttController', () => {
 
     firePtt('keydown');
 
-    expect(onStateChange).toHaveBeenCalledWith({ phase: 'listening', error: null, transcript: null });
+    expect(onStateChange).toHaveBeenCalledWith({
+      phase: 'listening',
+      error: null,
+      transcript: null,
+      command: null,
+    });
     expect(FakeWebSocket.instances).toHaveLength(1);
     expect(FakeMicCapture.instances).toHaveLength(1);
   });
@@ -382,6 +412,7 @@ describe('VoicePttController', () => {
         phase: 'idle',
         error: 'decode failed',
         transcript: null,
+        command: null,
       });
       expect(onSegment).not.toHaveBeenCalled();
       expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
@@ -417,6 +448,7 @@ describe('VoicePttController', () => {
       phase: 'idle',
       error: 'getUserMedia not available (insecure context?)',
       transcript: null,
+      command: null,
     });
     expect(lastPhase(onStateChange)).toBe('idle');
   });
@@ -450,6 +482,7 @@ describe('VoicePttController', () => {
       phase: 'idle',
       error: 'voice connection closed',
       transcript: null,
+      command: null,
     });
   });
 
@@ -468,6 +501,7 @@ describe('VoicePttController', () => {
       phase: 'idle',
       error: 'voice connection closed',
       transcript: null,
+      command: null,
     });
     expect(mic.stop).toHaveBeenCalledTimes(1);
   });
@@ -776,7 +810,12 @@ describe('VoicePttController', () => {
       unsubscribe = controller.subscribe(observer);
 
       controller.toggle();
-      expect(lastState(onStateChange)).toEqual({ phase: 'listening', error: null, transcript: null });
+      expect(lastState(onStateChange)).toEqual({
+        phase: 'listening',
+        error: null,
+        transcript: null,
+        command: null,
+      });
       expect(FakeMicCapture.instances).toHaveLength(1);
       FakeWebSocket.instances[0].simulateOpen();
 
@@ -846,6 +885,7 @@ describe('VoicePttController', () => {
         phase: 'idle',
         error: 'No workspace to dictate into.',
         transcript: null,
+        command: null,
       });
     });
 
@@ -893,7 +933,12 @@ describe('VoicePttController', () => {
       const sub2 = makeObserver();
       unsubscribe = controller.subscribe(sub2.observer);
 
-      expect(sub2.onStateChange).toHaveBeenCalledWith({ phase: 'listening', error: null, transcript: null });
+      expect(sub2.onStateChange).toHaveBeenCalledWith({
+        phase: 'listening',
+        error: null,
+        transcript: null,
+        command: null,
+      });
 
       firePtt('keyup');
       unsub1();
@@ -961,6 +1006,126 @@ describe('VoicePttController', () => {
 
       expect(onSegment).toHaveBeenCalledTimes(1);
       expect(onSegment).toHaveBeenCalledWith('turn two');
+    });
+  });
+
+  describe('dual-mode routing (FR-TG2.16)', () => {
+    it('[FR-TG2.16] should insert a transcript with no wake word into the terminal', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onSegment, onCommand } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+      firePtt('keydown');
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+
+      ws.simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: 'open the pod bay doors', wake: false }),
+      );
+
+      expect(onSegment).toHaveBeenCalledWith('open the pod bay doors');
+      expect(onCommand).not.toHaveBeenCalled();
+    });
+
+    it('[FR-TG2.16] should resolve a wake-word transcript against the action registry instead of the terminal', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onSegment, onCommand } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+      firePtt('keydown');
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+
+      ws.simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: `${WAKE_WORD} select project web`, wake: true }),
+      );
+
+      // [FR-TG2.13] wake prefix stripped before the observer resolves it.
+      expect(onCommand).toHaveBeenCalledWith('select project web');
+      expect(onSegment).not.toHaveBeenCalled();
+    });
+
+    it('[FR-TG2.16] should never fall back to inserting an unresolved wake-word transcript into the terminal', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onSegment, onCommand } = makeObserver(() => ({
+        matched: false,
+        reason: 'no_match',
+      }));
+      unsubscribe = controller.subscribe(observer);
+      firePtt('keydown');
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+
+      ws.simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: `${WAKE_WORD} do something odd`, wake: true }),
+      );
+
+      expect(onCommand).toHaveBeenCalledTimes(1);
+      expect(onSegment).not.toHaveBeenCalled();
+    });
+
+    it('[FR-TG2.16] should surface the resolution outcome in state.command for every subscriber', () => {
+      controller = new VoicePttController(makeOpts());
+      const matched: ResolveResult = {
+        matched: true,
+        result: {
+          action: { id: 'a', title: 'Select project', phrases: [], run: () => {} },
+          phrase: 'select project {name}',
+          params: { name: 'web' },
+          confidence: 1,
+          tier: 'exact',
+        },
+      };
+      const { observer, onStateChange } = makeObserver(() => matched);
+      unsubscribe = controller.subscribe(observer);
+      firePtt('keydown');
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+
+      ws.simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: `${WAKE_WORD} select project web`, wake: true }),
+      );
+
+      expect(lastState(onStateChange)?.command).toEqual(matched);
+    });
+
+    it('resets state.command to null at the start of a fresh turn', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onStateChange } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      firePtt('keydown');
+      const firstWs = FakeWebSocket.instances[0];
+      firstWs.simulateOpen();
+      firstWs.simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: `${WAKE_WORD} help`, wake: true }),
+      );
+      expect(lastState(onStateChange)?.command).not.toBeNull();
+      firePtt('keyup');
+      firstWs.simulateMessage(JSON.stringify({ t: 'voice_final' }));
+
+      firePtt('keydown');
+      expect(lastState(onStateChange)?.command).toBeNull();
+    });
+
+    it('keeps dictation-segment terminal spacing independent of an earlier command segment in the same turn', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onSegment } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+      firePtt('keydown');
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+
+      ws.simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: `${WAKE_WORD} help`, wake: true }),
+      );
+      ws.simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: 'take a note', wake: false }),
+      );
+
+      // The command segment never reaches onSegment, so the dictation
+      // segment is still the terminal's first insertion — no stray leading
+      // space carried over from it.
+      expect(onSegment).toHaveBeenCalledTimes(1);
+      expect(onSegment).toHaveBeenCalledWith('take a note');
     });
   });
 });

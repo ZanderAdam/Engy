@@ -35,11 +35,10 @@ const recognizerCloseSpies: ReturnType<typeof vi.fn>[] = [];
 
 // This suite tests the WS layer — connection isolation, buffering, timing —
 // not wake-word acoustics (that's spotter.test.ts's job, against the real
-// model). The fixture never says the wake word, so leaving the real spotter
-// wired in would make every pre-existing segment test fail as a side effect
-// of FR-TG2.12's gating. Defaulting to "always woken" here reproduces the
-// pre-wake-word behaviour those tests assert; the gating-specific tests below
-// flip it explicitly.
+// model), so the wake signal is a controllable double rather than the real
+// KeywordSpotter. Defaulting to "always woken" reproduces the original
+// always-decode behaviour for tests that don't care about it; the
+// wake-specific tests below flip it explicitly.
 let wakeOnChunk: (chunk: Buffer) => boolean = () => true;
 vi.mock('../voice/spotter', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../voice/spotter')>();
@@ -110,9 +109,11 @@ function closeServer(server: Server): Promise<void> {
  * buckets. `finals` records one entry per content-free `voice_final` — its
  * length is the number of turns the connection has seen end. `wakes` records
  * one entry per `voice_wake`, sent distinctly from `voice_segment` per
- * FR-TG2.15. */
+ * FR-TG2.15. `segmentWakes` records each `voice_segment`'s own `wake` flag,
+ * in the same order as `segments` (FR-TG2.12). */
 function collectEvents(ws: WebSocket) {
   const segments: string[] = [];
+  const segmentWakes: boolean[] = [];
   const finals: true[] = [];
   const errors: string[] = [];
   const wakes: true[] = [];
@@ -120,14 +121,18 @@ function collectEvents(ws: WebSocket) {
     const msg = JSON.parse(data.toString('utf-8')) as {
       t: string;
       transcript?: string;
+      wake?: boolean;
       message?: string;
     };
-    if (msg.t === 'voice_segment' && msg.transcript) segments.push(msg.transcript);
+    if (msg.t === 'voice_segment' && msg.transcript) {
+      segments.push(msg.transcript);
+      segmentWakes.push(!!msg.wake);
+    }
     if (msg.t === 'voice_final') finals.push(true);
     if (msg.t === 'voice_error' && msg.message) errors.push(msg.message);
     if (msg.t === 'voice_wake') wakes.push(true);
   });
-  return { segments, finals, errors, wakes };
+  return { segments, segmentWakes, finals, errors, wakes };
 }
 
 function streamFixture(ws: WebSocket, pcm: Buffer): void {
@@ -355,7 +360,7 @@ describe('voice WebSocket server', () => {
   });
 
   it(
-    '[FR-TG2.14] discards every segment, and reports no voice_wake, when the wake word never fires',
+    '[FR-TG2.16] decodes and reports every segment even when the wake word never fires, but reports no voice_wake',
     async () => {
       wakeOnChunk = () => false;
       const pcm = readWavPcm16(FIXTURE_PATH);
@@ -369,9 +374,31 @@ describe('voice WebSocket server', () => {
       ws.send(JSON.stringify({ t: 'voice_stop' }));
       await waitUntil(() => events.finals.length > 0);
 
-      expect(events.segments).toEqual([]);
+      expect(events.segments.length).toBeGreaterThanOrEqual(1);
+      expect(events.segmentWakes.every((wake) => wake === false)).toBe(true);
       expect(events.wakes).toEqual([]);
       expect(events.errors).toEqual([]);
+    },
+    MODEL_TEST_TIMEOUT,
+  );
+
+  it(
+    '[FR-TG2.12] reports voice_segment.wake true for a segment whose span saw the wake word fire',
+    async () => {
+      // wakeOnChunk fires on every chunk in the default beforeEach setup.
+      const pcm = readWavPcm16(FIXTURE_PATH);
+      const ws = await connectVoice(port);
+      const events = collectEvents(ws);
+
+      ws.send(JSON.stringify({ t: 'voice_start' }));
+      await waitUntil(() => vi.mocked(createTurnRecognizer).mock.calls.length >= 1);
+
+      streamFixture(ws, pcm);
+      ws.send(JSON.stringify({ t: 'voice_stop' }));
+      await waitUntil(() => events.finals.length > 0);
+
+      expect(events.segments.length).toBeGreaterThanOrEqual(1);
+      expect(events.segmentWakes.every((wake) => wake === true)).toBe(true);
     },
     MODEL_TEST_TIMEOUT,
   );

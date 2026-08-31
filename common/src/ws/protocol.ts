@@ -1076,10 +1076,17 @@ export interface VoiceStopCmd {
  * own span of audio, and the client appends it rather than replacing
  * anything. Zero or more arrive per turn, in order, ahead of the
  * turn-ending `voice_final`.
+ *
+ * Push-to-talk decodes every segment regardless of the wake word (the key
+ * hold is already the deliberate gesture — see FR-TG2.12); `wake` reports
+ * whether the wake word fired anywhere within this segment's span, which is
+ * what the client routes on: false inserts as dictation, true resolves
+ * against the action registry instead (FR-TG2.16).
  */
 export interface VoiceSegmentEvent {
   t: 'voice_segment';
   transcript: string;
+  wake: boolean;
 }
 
 /** Server → browser: the turn has fully ended — every segment for it

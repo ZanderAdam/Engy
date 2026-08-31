@@ -1,21 +1,18 @@
 'use client';
 
-import { useMemo } from 'react';
-import { resolveAction } from '@/lib/voice/resolve';
 import { useOptionalVoice } from './voice-context';
-import { useVoiceVocabulary } from './use-voice-vocabulary';
 
 const BOX_CLASS =
   'fixed bottom-4 left-4 z-[60] flex max-w-sm items-start gap-2 rounded border border-border bg-background px-3 py-2 text-xs shadow-md';
 
-type VoiceState = NonNullable<ReturnType<typeof useOptionalVoice>>;
-
 /**
  * Minimal dictation status: a listening chip while the mic captures, a
  * transcribing dot while the tail segment is decoded, or a visible error.
- * Once a turn completes, shows what was recognised and, against the live
- * voice action vocabulary, what it resolved to and at what confidence —
- * feedback that stays until the next turn starts.
+ * Once a turn completes, shows what was recognised and, for a segment that
+ * carried the wake word, what it resolved to and at what confidence (or
+ * that nothing matched) — feedback that stays until the next turn starts.
+ * The resolution itself happens once, in `useVoiceCapture`, not here — this
+ * only renders the outcome it already computed.
  *
  * While listening the chip is itself the stop control, so ending a turn does
  * not mean reopening the terminal key menu the turn was started from. The
@@ -30,20 +27,9 @@ type VoiceState = NonNullable<ReturnType<typeof useOptionalVoice>>;
 export function VoiceIndicator() {
   const voice = useOptionalVoice();
   if (!voice) return null;
-  return <ActiveVoiceIndicator voice={voice} />;
-}
+  const { phase, error, toggle, transcript, command } = voice;
 
-/** Split out so `useVoiceVocabulary()` (tRPC + a terminal-session fetch)
- * only ever runs for a workspace that has voice enabled. */
-function ActiveVoiceIndicator({ voice }: { voice: VoiceState }) {
-  const { phase, error, toggle, transcript } = voice;
-  const actions = useVoiceVocabulary();
-  const resolved = useMemo(
-    () => (transcript ? resolveAction(transcript, actions) : null),
-    [transcript, actions],
-  );
-
-  if (phase === 'idle' && !error && !transcript) return null;
+  if (phase === 'idle' && !error && !transcript && !command) return null;
 
   if (phase === 'listening') {
     return (
@@ -66,17 +52,18 @@ function ActiveVoiceIndicator({ voice }: { voice: VoiceState }) {
         </>
       )}
       {error && <span className="text-destructive">{error}</span>}
-      {!error && phase === 'idle' && transcript && (
+      {!error && phase === 'idle' && (transcript || command) && (
         <div className="flex flex-col gap-0.5">
-          <span className="text-muted-foreground">&ldquo;{transcript}&rdquo;</span>
-          {resolved?.matched ? (
-            <span className="text-foreground">
-              {resolved.result.action.title} · {Math.round(resolved.result.confidence * 100)}%
-              match
-            </span>
-          ) : (
-            <span className="text-muted-foreground">No matching action</span>
-          )}
+          {transcript && <span className="text-muted-foreground">&ldquo;{transcript}&rdquo;</span>}
+          {command &&
+            (command.matched ? (
+              <span className="text-foreground">
+                {command.result.action.title} · {Math.round(command.result.confidence * 100)}%
+                match
+              </span>
+            ) : (
+              <span className="text-muted-foreground">No matching action</span>
+            ))}
         </div>
       )}
     </div>

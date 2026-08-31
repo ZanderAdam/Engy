@@ -5,11 +5,21 @@ import type { VoiceEvent, VoiceStartCmd, VoiceStopCmd } from '@engy/common';
 
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { useOptionalTab } from '@/components/tabs/tab-context';
+import { resolveAction, type ResolveResult } from '@/lib/voice/resolve';
 import { MicCapture, type MicCaptureOpts } from './mic-capture';
+import { routeVoiceSegment } from './route-voice-segment';
+import { useVoiceVocabulary } from './use-voice-vocabulary';
 
 /** Physical Right Ctrl, held to talk. Matched on `e.code`, not `e.key`,
  * since `e.key` reports `'Control'` for both sides. */
 export const VOICE_PTT_CODE = 'ControlRight';
+
+// Mirrors `DEFAULT_WAKE_WORD` in `web/src/server/voice/keywords.ts`. That
+// module reads `node:fs`, which breaks the client bundle if imported here —
+// `use-voice-capture.test.ts` imports the real constant and asserts it still
+// equals this one, so a change there fails a test instead of drifting
+// silently. Same pattern as `voice-help-dialog.tsx`.
+const WAKE_WORD = 'ENGY';
 
 const DEFAULT_WORKLET_URL = '/audio-worklet.js';
 
@@ -42,10 +52,16 @@ export type VoicePhase = 'idle' | 'listening' | 'transcribing';
 export interface VoiceCaptureState {
   phase: VoicePhase;
   error: string | null;
-  /** Segments accumulated for the current or most recently completed turn,
-   * for display and command resolution. Resets at the start of the next
-   * turn, the same lifecycle `error` already follows. */
+  /** Dictation segments accumulated for the current or most recently
+   * completed turn, for display. Resets at the start of the next turn, the
+   * same lifecycle `error` already follows. Never carries a command segment
+   * — see `command`. */
   transcript: string | null;
+  /** The action-registry resolution for the turn's most recent wake-word
+   * segment (FR-TG2.16). Null until a wake-word segment has been seen this
+   * turn — a pure dictation turn never touches it. Resets at the start of
+   * the next turn. */
+  command: ResolveResult | null;
 }
 
 /** `onSegment` fires on exactly one subscriber per segment, so a finalized
@@ -58,10 +74,17 @@ export interface VoiceCaptureObserver {
    * upgrade only for one that has voice enabled. */
   workspaceSlug: () => string;
   onStateChange: (state: VoiceCaptureState) => void;
-  /** Called once per finalized segment, in arrival order. Each call after
-   * the turn's first already carries a leading space. Never called for a
-   * superseded or aborted turn. */
+  /** Called once per finalized dictation segment (no wake word), in arrival
+   * order. Each call after the turn's first dictation segment already
+   * carries a leading space. Never called for a superseded or aborted turn,
+   * and never called for a wake-word segment — see `onCommand`. */
   onSegment: (text: string) => void;
+  /** Called once per wake-word segment, already stripped of the wake prefix
+   * (FR-TG2.13). Must resolve it against the live action registry and run
+   * any match; returns the outcome purely so the controller can fold it
+   * into the state it broadcasts to every subscriber. A wake-word segment
+   * that resolves to nothing must never fall back to `onSegment`. */
+  onCommand: (text: string) => ResolveResult;
 }
 
 export interface VoicePttControllerOpts {
@@ -94,6 +117,7 @@ export class VoicePttController {
   private phase: VoicePhase = 'idle';
   private error: string | null = null;
   private transcript = '';
+  private command: ResolveResult | null = null;
   private mic: Pick<MicCapture, 'start' | 'stop'> | null = null;
   private ws: WebSocket | null = null;
   private holding = false;
@@ -102,8 +126,14 @@ export class VoicePttController {
   private turnStartedAt = 0;
   private chunkWatchdog: ReturnType<typeof setTimeout> | null = null;
   private finalizeTimer: ReturnType<typeof setTimeout> | null = null;
-  // Gates the leading space on segment text — none on a turn's first segment.
+  // Gates the leading space in the displayed `transcript`, across every
+  // segment of the turn regardless of kind — none on the turn's first.
   private isFirstSegmentOfTurn = true;
+  // Gates the leading space on text actually inserted into the terminal,
+  // tracked separately: a command segment ahead of a dictation one must not
+  // make the dictation segment think it already has predecessors in the
+  // terminal.
+  private isFirstDictationSegmentOfTurn = true;
 
   constructor(opts: VoicePttControllerOpts = {}) {
     this.opts = opts;
@@ -119,6 +149,7 @@ export class VoicePttController {
       phase: this.phase,
       error: this.error,
       transcript: this.transcript || null,
+      command: this.command,
     });
     return () => this.unsubscribe(observer);
   }
@@ -187,7 +218,9 @@ export class VoicePttController {
     this.turnToken = token;
     this.turnStartedAt = Date.now();
     this.isFirstSegmentOfTurn = true;
+    this.isFirstDictationSegmentOfTurn = true;
     this.transcript = '';
+    this.command = null;
     this.setPhase('listening');
 
     const slug = this.activeSubscriber()?.workspaceSlug();
@@ -215,11 +248,21 @@ export class VoicePttController {
         // A segment for an already-superseded/aborted turn must never be
         // inserted, even if it arrives before the socket finishes closing.
         if (this.turnToken === token) {
-          const text = this.isFirstSegmentOfTurn ? msg.transcript : ` ${msg.transcript}`;
+          const displayText = this.isFirstSegmentOfTurn ? msg.transcript : ` ${msg.transcript}`;
           this.isFirstSegmentOfTurn = false;
-          this.transcript += text;
+          this.transcript += displayText;
           this.notifyState();
-          this.emitSegment(text);
+
+          const route = routeVoiceSegment(msg.transcript, msg.wake, WAKE_WORD);
+          if (route.kind === 'dictation') {
+            const insertText = this.isFirstDictationSegmentOfTurn
+              ? route.text
+              : ` ${route.text}`;
+            this.isFirstDictationSegmentOfTurn = false;
+            this.emitSegment(insertText);
+          } else {
+            this.emitCommand(route.text);
+          }
         }
       } else if (msg.t === 'voice_final') {
         this.endTurn(token, { kind: 'final' });
@@ -361,6 +404,7 @@ export class VoicePttController {
       phase: this.phase,
       error: this.error,
       transcript: this.transcript || null,
+      command: this.command,
     };
     for (const subscriber of this.subscribers) subscriber.onStateChange(state);
   }
@@ -378,6 +422,14 @@ export class VoicePttController {
   private emitSegment(text: string): void {
     this.activeSubscriber()?.onSegment(text);
   }
+
+  // The resolution outcome comes back from the active subscriber (only it
+  // has the live action vocabulary) and is folded into the state broadcast
+  // to every subscriber, mirroring how `transcript` already works.
+  private emitCommand(text: string): void {
+    this.command = this.activeSubscriber()?.onCommand(text) ?? null;
+    this.notifyState();
+  }
 }
 
 let sharedController: VoicePttController | null = null;
@@ -390,9 +442,11 @@ export function getVoicePttController(): VoicePttController {
   return sharedController;
 }
 
-/** Hold Right Ctrl, speak, release — each finalized segment is inserted into
- * the focused terminal, unsent. Only mounted for a voice-enabled workspace;
- * the server rejects the upgrade otherwise. */
+/** Hold Right Ctrl, speak, release — a dictation segment (no wake word) is
+ * inserted into the focused terminal, unsent; a segment carrying the wake
+ * word resolves against the live action registry and runs the match
+ * instead (FR-TG2.16). Only mounted for a voice-enabled workspace; the
+ * server rejects the upgrade otherwise. */
 export function useVoiceCapture(
   workspaceSlug: string,
 ): VoiceCaptureState & { toggle: () => void } {
@@ -400,15 +454,17 @@ export function useVoiceCapture(
   const tabCtx = useOptionalTab();
   // A tab with no TabContext is the only view there is, so treat it as active.
   const isActiveTab = tabCtx?.isActive ?? true;
-  const liveRef = useRef({ insertToTerminal, isActiveTab, workspaceSlug });
+  const actions = useVoiceVocabulary();
+  const liveRef = useRef({ insertToTerminal, isActiveTab, workspaceSlug, actions });
   useEffect(() => {
-    liveRef.current = { insertToTerminal, isActiveTab, workspaceSlug };
+    liveRef.current = { insertToTerminal, isActiveTab, workspaceSlug, actions };
   });
 
   const [state, setState] = useState<VoiceCaptureState>({
     phase: 'idle',
     error: null,
     transcript: null,
+    command: null,
   });
 
   useEffect(() => {
@@ -422,6 +478,14 @@ export function useVoiceCapture(
         if (!liveRef.current.insertToTerminal(text)) {
           setState((s) => ({ ...s, error: 'Recognised, but no terminal accepted it.' }));
         }
+      },
+      onCommand: (text) => {
+        const resolved = resolveAction(text, liveRef.current.actions);
+        // Never a terminal fallback here — an unresolved command stays
+        // unresolved, visibly (FR-TG2.16), rather than typing the phrase
+        // into a shell.
+        if (resolved.matched) void resolved.result.action.run({ params: resolved.result.params });
+        return resolved;
       },
     });
   }, []);

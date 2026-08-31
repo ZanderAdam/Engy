@@ -11,11 +11,9 @@ import type { WakeStream } from './spotter';
 
 // Real wake-word acoustics belong to spotter.test.ts (which measures the
 // real model's accept/false-accept rates). Here, createTurnRecognizer's own
-// integration logic — decode only when woken, drop otherwise — is what's
-// under test, so the wake signal is a controllable double rather than the
-// real KeywordSpotter: gating tests below flip it explicitly, and the
-// pre-existing segment tests default it to "always woken" to preserve their
-// original always-decode behaviour.
+// integration logic — decode every segment regardless, report whether it
+// was woken — is what's under test, so the wake signal is a controllable
+// double rather than the real KeywordSpotter.
 let wakeOnChunk: (chunk: Buffer) => boolean = () => true;
 vi.mock('./spotter', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./spotter')>();
@@ -184,15 +182,15 @@ describe('voice recognizer', () => {
     );
 
     it(
-      '[FR-TG2.14] should discard a segment with no wake word without decoding it',
+      '[FR-TG2.12] should decode a segment and report wake:false when the wake word never fires',
       async () => {
         wakeOnChunk = () => false;
         const pcm = readWavPcm16(FIXTURE_PATH);
-        const segments: string[] = [];
+        const segments: { text: string; wake: boolean }[] = [];
         const errors: Error[] = [];
 
         const turn = await createTurnRecognizer({
-          onSegment: (text) => segments.push(text),
+          onSegment: (text, wake) => segments.push({ text, wake }),
           onWake: () => {},
           onError: (err) => errors.push(err),
         });
@@ -203,13 +201,15 @@ describe('voice recognizer', () => {
         turn.close();
 
         expect(errors).toEqual([]);
-        expect(segments).toEqual([]);
+        expect(segments.length).toBeGreaterThanOrEqual(1);
+        expect(segments.every((s) => s.text.length > 0)).toBe(true);
+        expect(segments.every((s) => s.wake === false)).toBe(true);
       },
       MODEL_TEST_TIMEOUT,
     );
 
     it(
-      '[FR-TG2.12] should decode a segment once the wake word fires partway through it',
+      '[FR-TG2.12] should report wake:true on a segment whose span contains a wake-word hit',
       async () => {
         // The wake hit lands after the segment has already been speaking for
         // a while — still counts, because the whole span between VAD open
@@ -221,10 +221,10 @@ describe('voice recognizer', () => {
           return chunkIndex === wakeAtChunk;
         };
         const pcm = readWavPcm16(FIXTURE_PATH);
-        const segments: string[] = [];
+        const segments: { text: string; wake: boolean }[] = [];
 
         const turn = await createTurnRecognizer({
-          onSegment: (text) => segments.push(text),
+          onSegment: (text, wake) => segments.push({ text, wake }),
           onWake: () => {},
           onError: (err) => {
             throw err;
@@ -237,6 +237,7 @@ describe('voice recognizer', () => {
         turn.close();
 
         expect(segments.length).toBeGreaterThanOrEqual(1);
+        expect(segments[0].wake).toBe(true);
       },
       MODEL_TEST_TIMEOUT,
     );
