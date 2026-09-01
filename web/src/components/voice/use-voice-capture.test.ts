@@ -15,7 +15,7 @@ import {
 } from './use-voice-capture';
 import type { MicCaptureOpts } from './mic-capture';
 
-const WAKE_WORD = 'ENGY';
+const WAKE_WORD = 'ANGIE';
 const NO_MATCH: ResolveResult = { matched: false, reason: 'no_match' };
 
 class FakeWebSocket {

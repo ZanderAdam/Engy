@@ -1,7 +1,16 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-export const DEFAULT_WAKE_WORD = 'ENGY';
+// Several spellings of the same spoken name are registered together: the
+// spotter matches token sequences, so what the user says and what the UI
+// calls the product are independent. "ENGY" encodes to ▁E NG Y — three
+// pieces, a few hundred milliseconds, too little acoustic evidence to clear
+// any threshold (measured 0/48). The longer variants exist to give the
+// spotter more to work with, and any of them firing counts as the wake.
+export const WAKE_WORDS = ['ANGIE', 'OK ANGIE', 'HEY ANGIE'] as const;
+
+/** The variant shown in help text and stripped from a command transcript. */
+export const DEFAULT_WAKE_WORD = WAKE_WORDS[0];
 
 enum SentencePieceType {
   Normal = 1,

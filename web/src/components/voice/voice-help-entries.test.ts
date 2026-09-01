@@ -6,7 +6,7 @@ import { createTerminalActions } from '@/lib/voice/actions/terminal';
 import { createHelpActions } from '@/lib/voice/actions/help';
 import { buildVoiceHelpEntries, groupVoiceHelpEntries } from './voice-help-entries';
 
-const WAKE_WORD = 'ENGY';
+const WAKE_WORD = 'ANGIE';
 
 function selectProjectAction(): VoiceAction[] {
   return createNavigationActions({
@@ -74,8 +74,8 @@ describe('voice help entries', () => {
       const selectProject = entries.find((e) => e.id === 'voice.navigation.select-project');
       const firstPhrase = selectProject?.phrases[0];
       expect(firstPhrase?.examples).toEqual([
-        'ENGY, select project Engy Web',
-        'ENGY, select project Engy Client',
+        'ANGIE, select project Engy Web',
+        'ANGIE, select project Engy Client',
       ]);
       expect(firstPhrase?.moreCount).toBe(0);
     });
@@ -100,7 +100,7 @@ describe('voice help entries', () => {
       const firstPhrase = entries.find((e) => e.id === 'voice.navigation.select-project')
         ?.phrases[0];
       expect(firstPhrase?.examples).toEqual([]);
-      expect(firstPhrase?.template).toBe('ENGY, select project {name}');
+      expect(firstPhrase?.template).toBe('ANGIE, select project {name}');
     });
 
     it('[FR-TG2.9] should degrade to the bare template when no lookup is supplied at all', () => {
@@ -115,7 +115,7 @@ describe('voice help entries', () => {
       ];
       const entries = buildVoiceHelpEntries(actions, WAKE_WORD);
       expect(entries[0].phrases[0]).toEqual({
-        template: 'ENGY, focus terminal {name}',
+        template: 'ANGIE, focus terminal {name}',
         examples: [],
         moreCount: 0,
       });
@@ -137,9 +137,9 @@ describe('voice help entries', () => {
       const entries = buildVoiceHelpEntries(createHelpActions({ openHelp: () => {} }), WAKE_WORD);
       const help = entries.find((e) => e.id === 'voice.help.show');
       expect(help?.phrases.map((p) => p.template)).toEqual([
-        'ENGY, what can I say',
-        'ENGY, show voice help',
-        'ENGY, help',
+        'ANGIE, what can I say',
+        'ANGIE, show voice help',
+        'ANGIE, help',
       ]);
     });
   });

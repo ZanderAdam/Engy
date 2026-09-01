@@ -14,12 +14,12 @@ import { useVoiceVocabulary } from './use-voice-vocabulary';
  * since `e.key` reports `'Control'` for both sides. */
 export const VOICE_PTT_CODE = 'ControlRight';
 
-// Mirrors `DEFAULT_WAKE_WORD` in `web/src/server/voice/keywords.ts`. That
-// module reads `node:fs`, which breaks the client bundle if imported here —
+// Mirrors `WAKE_WORDS` in `web/src/server/voice/keywords.ts`. That module
+// reads `node:fs`, which breaks the client bundle if imported here —
 // `use-voice-capture.test.ts` imports the real constant and asserts it still
 // equals this one, so a change there fails a test instead of drifting
 // silently. Same pattern as `voice-help-dialog.tsx`.
-const WAKE_WORD = 'ENGY';
+const WAKE_WORDS = ['ANGIE', 'OK ANGIE', 'HEY ANGIE'];
 
 const DEFAULT_WORKLET_URL = '/audio-worklet.js';
 
@@ -253,7 +253,7 @@ export class VoicePttController {
           this.transcript += displayText;
           this.notifyState();
 
-          const route = routeVoiceSegment(msg.transcript, msg.wake, WAKE_WORD);
+          const route = routeVoiceSegment(msg.transcript, msg.wake, WAKE_WORDS);
           if (route.kind === 'dictation') {
             const insertText = this.isFirstDictationSegmentOfTurn
               ? route.text

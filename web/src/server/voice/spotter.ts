@@ -8,7 +8,7 @@ import type {
 } from 'sherpa-onnx-node';
 
 import { resolveKwsModelDir } from './kws-models';
-import { DEFAULT_WAKE_WORD, encodeWakeWord } from './keywords';
+import { WAKE_WORDS, encodeWakeWord } from './keywords';
 
 // sherpa-onnx-node's CommonJS exports are invisible to Node's ESM lexer; a
 // named import passes under Vitest's interop but throws in the real server —
@@ -23,24 +23,30 @@ const ENCODER_FILE = 'encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx';
 const DECODER_FILE = 'decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx';
 const JOINER_FILE = 'joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx';
 
-// Measured against 48 synthesized "Engy" clips (espeak-ng TTS — no real
-// recordings of the wake word exist yet) and 135 real, wake-word-free
-// recordings: false accepts were 0/135 at every threshold/boost tried, but
-// so was accept rate at every practical setting except this one (1/48). Not
-// a validated-safe operating point — see the task report for the full sweep.
-const KEYWORDS_THRESHOLD = 0.35;
-const KEYWORDS_SCORE = 3.0;
+// Measured on real recordings, not synthesis: the model's own shipped
+// "GO HOME" keyword fired on 3/7 real takes here with 0/60 false accepts,
+// while every synthesized measurement scored zero including that control —
+// treat TTS results for this model as void. Raising the score made
+// detection strictly worse (0 hits at 3.0, every threshold), which is the
+// opposite of how it reads.
+const KEYWORDS_THRESHOLD = 0.05;
+const KEYWORDS_SCORE = 1.0;
 
 async function ensureKeywordsFile(kwsModelDir: string): Promise<string> {
-  const keywordsPath = path.join(kwsModelDir, `keywords-${DEFAULT_WAKE_WORD}.txt`);
+  // Keyed by the variants themselves, so changing the wake words writes a
+  // new file rather than silently reusing one encoded from the old set.
+  const key = WAKE_WORDS.join('_').replace(/\s+/g, '-');
+  const keywordsPath = path.join(kwsModelDir, `keywords-${key}.txt`);
   try {
     await fs.access(keywordsPath);
     return keywordsPath;
   } catch {
     // Not written yet — encode it below.
   }
-  const line = await encodeWakeWord(DEFAULT_WAKE_WORD, kwsModelDir);
-  await fs.writeFile(keywordsPath, `${line}\n`, 'utf8');
+  const lines = await Promise.all(
+    WAKE_WORDS.map((phrase) => encodeWakeWord(phrase, kwsModelDir)),
+  );
+  await fs.writeFile(keywordsPath, `${lines.join('\n')}\n`, 'utf8');
   return keywordsPath;
 }
 

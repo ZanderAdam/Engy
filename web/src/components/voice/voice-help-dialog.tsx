@@ -28,7 +28,7 @@ import {
 // `voice-help-entries.test.ts` imports the real constant and asserts it
 // still equals this one, so a change there fails a test instead of drifting
 // silently.
-const WAKE_WORD = 'ENGY';
+const WAKE_WORD = 'ANGIE';
 
 function buildValueLookup(
   projectNames: string[],

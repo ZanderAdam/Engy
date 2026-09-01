@@ -15,8 +15,16 @@ type VoiceSegmentRoute =
 export function routeVoiceSegment(
   transcript: string,
   wake: boolean,
-  wakeWord: string,
+  wakeWords: readonly string[],
 ): VoiceSegmentRoute {
   if (!wake) return { kind: 'dictation', text: transcript };
-  return { kind: 'command', text: stripWakeWord(transcript, wakeWord) };
+
+  // Longest first: "ok angie" must not lose only "angie" and leave "ok"
+  // sitting in front of the command.
+  const byLength = [...wakeWords].sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length);
+  for (const wakeWord of byLength) {
+    const stripped = stripWakeWord(transcript, wakeWord);
+    if (stripped !== transcript) return { kind: 'command', text: stripped };
+  }
+  return { kind: 'command', text: transcript };
 }

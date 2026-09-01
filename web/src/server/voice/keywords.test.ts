@@ -104,7 +104,7 @@ describe('keyword encoding', () => {
       async () => {
         const kwsModelDir = await resolveKwsModelDir();
         const line = await encodeWakeWord(DEFAULT_WAKE_WORD, kwsModelDir);
-        expect(line).toBe('▁E NG Y @ENGY');
+        expect(line).toBe('▁A NG I E @ANGIE');
       },
       MODEL_TEST_TIMEOUT,
     );
