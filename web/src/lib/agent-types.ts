@@ -49,11 +49,6 @@ interface BuildAgentCommandOptions {
    * prompt/systemPrompt are ignored (the resumed conversation already has its context).
    */
   resumeSessionId?: string;
-  /**
-   * Session display name for `claude --name` (prompt box, /resume picker,
-   * terminal title). Claude-only; other agent builders ignore it.
-   */
-  displayName?: string;
 }
 
 interface AgentType {
@@ -81,30 +76,6 @@ const MCP_SERVER_NAME = 'Engy';
 // calling (and thus its agent type). See web/src/server/ws/terminal-server.ts.
 export const MCP_SESSION_PLACEHOLDER = '__ENGY_SESSION__';
 
-function claudeNameFlag(displayName: string): string {
-  return ` --name '${shellEscape(displayName)}'`;
-}
-
-/** `--name` value: project + scope for project-scoped terminals, scope alone for workspace-scoped ones. */
-export function composeDisplayName(scopeLabel: string | undefined): string | undefined {
-  return scopeLabel || undefined;
-}
-
-const CLAUDE_COMMAND_RE = /^claude(\s|$)/;
-
-/**
- * Appends `--name` to an already-built claude command string. The terminal
- * server receives commands the browser already built via buildAgentCommand —
- * it can only post-process them, not rebuild through claudeSharedFlags.
- */
-export function appendClaudeNameFlag(
-  command: string | undefined,
-  displayName: string | undefined,
-): string | undefined {
-  if (!command || !displayName || !CLAUDE_COMMAND_RE.test(command)) return command;
-  return `${command}${claudeNameFlag(displayName)}`;
-}
-
 function claudeMcpFlag(mcpUrl: string): string {
   const config = JSON.stringify({
     mcpServers: { [MCP_SERVER_NAME]: { type: 'http', url: mcpUrl } },
@@ -114,8 +85,16 @@ function claudeMcpFlag(mcpUrl: string): string {
 
 // Hook events this milestone wires up. Registered with matcher omitted
 // (match-all) and routed server-side by hook_event_name — one URL for all
-// eleven avoids a config that must change (and force a respawn) every time
-// a new event's handler ships in a later task group.
+// of them avoids a config that must change (and force a respawn) every time
+// a new event's handler ships.
+//
+// WorktreeCreate/WorktreeRemove are deliberately absent. They are provider
+// hooks that REPLACE git worktree creation for other VCS, not notifications:
+// a registered WorktreeCreate that returns no `hookSpecificOutput.worktreePath`
+// fails creation outright with no fallback to git (measured on claude
+// 2.1.251), which broke --worktree, worktree isolation, and background
+// sessions in every Engy-spawned terminal. A worktree the CLI enters is
+// observed through `cwd` on ordinary events instead — see hooks/cwd.ts.
 const HOOK_EVENTS = [
   'SessionStart',
   'UserPromptSubmit',
@@ -126,8 +105,6 @@ const HOOK_EVENTS = [
   'PreCompact',
   'SubagentStart',
   'SubagentStop',
-  'WorktreeCreate',
-  'WorktreeRemove',
 ] as const;
 
 // `async`/`asyncRewake` only apply to `command`-type hooks — an `http`
@@ -232,9 +209,6 @@ function coerceModeId(modes: AgentMode[], defaultModeId: string, mode: string | 
 /** MCP + permission flags shared by claude's fresh-spawn and resume commands. */
 function claudeSharedFlags(options?: BuildAgentCommandOptions): string {
   let cmd = '';
-  if (options?.displayName) {
-    cmd += claudeNameFlag(options.displayName);
-  }
   if (options?.mcpUrl) {
     cmd += claudeMcpFlag(options.mcpUrl);
     cmd += claudeHooksFlag(options.mcpUrl, options?.agentSettings?.claude?.memoryCapture ?? false);

@@ -353,10 +353,17 @@ daemon-side `chokidar` watch on the repo's `HEAD` (resolving a worktree's
 `.git` file to its real git dir via `git rev-parse --absolute-git-dir`, one
 watch per resolved git dir shared across every session pointed at it) rather
 than the URL param it was seeded from at spawn, which never updated once a
-session switched branches. `--name`, composed from the project slug and scope
-label, gives a `claude` session's own prompt box, `/resume` picker, and
-terminal title the same identity — the CLI-side lever alongside the two
-server-side ones above.
+session switched branches. The watch follows the agent rather than the PTY:
+hook payloads carry no branch field, so `cwd` on each non-subagent event is
+the only signal that a session entered a worktree, and a differing one is
+stored as `agentCwd` and pushed to the daemon as `{t:'cwd'}` to re-resolve the
+git dir (`web/src/server/hooks/cwd.ts`). `workingDir` stays the spawn
+identity, so a respawn still lands where the terminal was opened.
+
+`claude --name` is deliberately not passed. It pins the CLI's OSC terminal
+title to a constant, and the daemon's OSC path persists every reported title
+into `lastTitle` — so the name overwrote each hook-derived title on the next
+repaint and froze the label at the scope name.
 
 ## Live session context
 
@@ -545,8 +552,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-660 | The terminal label's main line SHALL render the session's manual rename (`renamedLabel`) if set, otherwise the agent-derived title (`oscTitle`), otherwise the scope label, in that precedence. |
 | FR-TERMINAL-670 | The terminal label's sub line SHALL render the session's current `worktreeBranch`, and SHALL render no sub line when the branch is unset. |
 | FR-TERMINAL-680 | WHEN a terminal is renamed, the system SHALL record the new value in `renamedLabel`, distinct from `scopeLabel`, so the original scope identity stays available (e.g. to the tooltip) and the label precedence (FR-TERMINAL-660) can distinguish a manual rename from the default scope name. |
-| FR-TERMINAL-690 | The daemon SHALL watch each terminal session's working directory's `HEAD` (resolved via `git rev-parse --absolute-git-dir`, so a worktree's `.git` file resolves correctly) and, on a branch change, send `WORKTREE_BRANCH_CHANGED_EVENT`; the server SHALL update the matching sessions' `worktreeBranch`, persist it, and broadcast the change. Watches SHALL be deduplicated by resolved git directory, one per repo shared across every session pointed at it. |
-| FR-TERMINAL-700 | WHEN spawning or resuming a `claude` terminal, the system SHALL pass `--name` with the session's scope label, so the CLI's prompt box, `/resume` picker, and terminal title carry it; a `codex` command SHALL be left unchanged. |
+| FR-TERMINAL-690 | The daemon SHALL watch each terminal session's tracked directory's `HEAD` (resolved via `git rev-parse --absolute-git-dir`, so a worktree's `.git` file resolves correctly) and, on a branch change, send `WORKTREE_BRANCH_CHANGED_EVENT`; the server SHALL update the matching sessions' `worktreeBranch`, persist it, and broadcast the change. Watches SHALL be deduplicated by resolved git directory, one per repo shared across every session pointed at it. |
 | FR-TERMINAL-710 | WHEN `Stop` fires for a session (excluding a subagent's own `Stop`), the system SHALL derive a title from the first non-blank line of `last_assistant_message`, and — WHEN it differs from the stored `lastTitle` — SHALL store it, push it to any already-attached browsers, and update the session-history row (keyed by `resumedFrom` when the terminal is a resume, else the session id) with it as the summary, so an agent-spawned terminal with no browser attached still gets a title and a resumable summary. |
 | FR-TERMINAL-720 | A title SHALL pass through `sanitizeOscTitle` (stripping control characters, trimming, and capping length at a code-point boundary) before being persisted, regardless of whether it originated from the browser's OSC report or the hook-derived `Stop` title. |
 | FR-TERMINAL-730 | WHEN a `Notification` matches `permission_prompt`, `agent_needs_input`, or `elicitation_dialog` (and is not a subagent event), the system SHALL set the session's `needsAttention` and, WHEN that is a real transition, return an OSC 9;4 "set" `terminalSequence` (`ESC ] 9 ; 4 ; 4 ; 0 BEL`); the mark SHALL be cleared on the session's next `Stop`, `UserPromptSubmit`, or browser focus ack, returning an OSC 9;4 "clear" `terminalSequence` (`ESC ] 9 ; 4 ; 0 ; 0 BEL`) on a real transition. |
@@ -563,6 +569,9 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-840 | WHEN `StopFailure` fires (non-subagent), the system SHALL record `{ type, message, at }` as the session's `lastFailure` and hold it out of dispatch delivery (`isDeliverable` returns false) until the earlier of: the session's next `UserPromptSubmit` or `Stop` (which clears `lastFailure` immediately), or 5 minutes elapsing since the failure (`STOP_FAILURE_HOLD_MS`, a fallback for a session that never turns again); `lastFailure` SHALL be exposed through the terminal session list. |
 | FR-TERMINAL-850 | WHEN `SubagentStart` fires, the system SHALL add the reported `agent_id` to the session's active-subagent set and set `activeSubagents` to the set's size; WHEN `SubagentStop` fires, it SHALL remove that `agent_id`; an unmatched `SubagentStop` SHALL be a no-op, so the count never goes negative. `activeSubagents` SHALL be exposed through the terminal session list. |
 | FR-TERMINAL-860 | WHEN persisted terminal sessions are restored at server boot, the system SHALL reset each restored session's `activeSubagents` to `undefined`, because the live active-subagent set is process-only and cannot be recovered, so a stale persisted count cannot desync from the next `SubagentStop`. |
+| FR-TERMINAL-870 | WHEN a non-subagent hook event reports a `cwd` differing from the session's tracked directory, the system SHALL record it as `agentCwd`, persist it, and send the daemon a `{t:'cwd'}` command so the session's `HEAD` watch is re-resolved against that directory; `workingDir` SHALL be left as the spawn identity a respawn reuses. The system SHALL match `WORKTREE_BRANCH_CHANGED_EVENT` against `agentCwd ?? workingDir`, so a session whose agent entered a worktree reports that worktree's branch. WHEN a lost session is respawned, the system SHALL clear `agentCwd`, because the new PTY starts at `workingDir` and the daemon reports that directory's branch immediately — a retained `agentCwd` would reject that report and strand the session on the branch of a worktree it has left. |
+| FR-TERMINAL-880 | WHEN the daemon handles a reconnect for a session, it SHALL suppress that session's activity tracking for the full activity-suppress window, applied after any resize the reconnect performs, so the reattach redraw is not counted as the program doing work. A browser socket drops routinely (a backgrounded tab, a flaky network), and without this every reattached terminal settled to `done` and read as finished work. |
+| FR-TERMINAL-890 | An activity tracker's output-suppression window SHALL never be shortened by a later, shorter suppression request, so the narrow window a resize sets cannot cancel the wider one a reconnect sets regardless of the order the two arrive. |
 
 ## Sources
 

@@ -60,8 +60,10 @@ export interface TerminalSessionMeta {
   needsAttention?: boolean;
   lastFailure?: { type: string; message: string; at: number };
   activeSubagents?: number;
-  // Kept apart from runner-managed worktrees so cleanup never adopts these.
-  cliWorktrees?: string[];
+  // Where the agent reports it is working, when that differs from the spawn
+  // directory (it entered a worktree, or cd'ed). Branch tracking follows this;
+  // workingDir stays the spawn identity a respawn must reuse.
+  agentCwd?: string;
   cols: number;
   rows: number;
 }

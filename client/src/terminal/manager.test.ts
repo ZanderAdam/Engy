@@ -484,6 +484,24 @@ describe('TerminalManager', () => {
       expect(branchWatcher.watch).toHaveBeenLastCalledWith('abc', '/tmp/repo2');
     });
 
+    it('re-points the watch when the agent reports a new working directory', () => {
+      const branchWatcher = makeFakeBranchWatcher();
+      manager.setBranchWatcher(branchWatcher);
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp/repo', cols: 80, rows: 24 });
+      manager.rewatchBranch('abc', '/tmp/repo/.claude/worktrees/feat');
+      expect(branchWatcher.watch).toHaveBeenLastCalledWith(
+        'abc',
+        '/tmp/repo/.claude/worktrees/feat',
+      );
+    });
+
+    it('ignores a rewatch for a session it does not own', () => {
+      const branchWatcher = makeFakeBranchWatcher();
+      manager.setBranchWatcher(branchWatcher);
+      manager.rewatchBranch('gone', '/tmp/repo/.claude/worktrees/feat');
+      expect(branchWatcher.watch).not.toHaveBeenCalled();
+    });
+
     describe('end to end with a real BranchWatcher', { retry: 2 }, () => {
       let repoDir: string;
       let branchWatcher: BranchWatcher;
@@ -705,6 +723,39 @@ describe('TerminalManager', () => {
       onDataCallback?.('b');
       expect(acts().map((m) => m.state)).toEqual(['active']);
       vi.advanceTimersByTime(3000);
+      expect(acts().map((m) => m.state)).toEqual(['active', 'done']);
+    });
+
+    // A reconnect redraw is not the program doing something. Sockets drop
+    // often (backgrounded tab, flaky network), and each reconnect resizes the
+    // PTY and replays a snapshot; counting that burst as activity turned every
+    // reattached terminal green.
+    it('[FR-TERMINAL-880] does not report activity for a reconnect redraw', () => {
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      vi.advanceTimersByTime(3001); // past the initial suppress window
+
+      manager.handleReconnect('abc', 100, 40);
+
+      // The SIGWINCH repaint streams well past the 1s resize-suppress window.
+      vi.advanceTimersByTime(1500);
+      onDataCallback?.('repaint-chunk-1');
+      onDataCallback?.('repaint-chunk-2');
+      vi.advanceTimersByTime(3000);
+
+      expect(acts().map((m) => m.state)).toEqual([]);
+    });
+
+    it('[FR-TERMINAL-880] still reports activity once the reconnect suppression has passed', () => {
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      vi.advanceTimersByTime(3001);
+
+      manager.handleReconnect('abc', 100, 40);
+      vi.advanceTimersByTime(3001);
+
+      onDataCallback?.('a');
+      onDataCallback?.('b');
+      vi.advanceTimersByTime(3000);
+
       expect(acts().map((m) => m.state)).toEqual(['active', 'done']);
     });
 

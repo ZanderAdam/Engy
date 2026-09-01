@@ -84,6 +84,21 @@ export class TerminalManager {
     this.branchWatcher = watcher;
   }
 
+  /**
+   * Re-point a session's branch watch at a new directory. The PTY's own cwd is
+   * left alone — this only follows where the agent says it is working, so a
+   * respawn still starts in the directory the session was spawned in.
+   * `BranchWatcher.watch` unwatches the previous registration itself.
+   */
+  rewatchBranch(sessionId: string, workingDir: string): void {
+    if (!this.sessions.get(sessionId)) return;
+    void this.branchWatcher
+      ?.watch(sessionId, workingDir)
+      .catch((err) =>
+        console.warn(`[terminal] branch rewatch failed for session ${sessionId}:`, err),
+      );
+  }
+
   spawn(opts: SpawnOptions): void {
     const { sessionId, workingDir, cols, rows, command, containerWorkspaceFolder } = opts;
 
@@ -375,6 +390,14 @@ export class TerminalManager {
     // browser reported, so a pane that has since changed size still corrects it
     // with its own resize after attaching.
     if (cols && rows) this.resize(sessionId, cols, rows);
+
+    // A reconnect is a known-noisy event, not the program doing something:
+    // sockets drop often, and each reattach can resize the PTY and make it
+    // repaint. That burst outlives the resize path's own 1s window, so it is
+    // widened here — after resize, whose shorter window would otherwise replace
+    // this one. Without it every reattached terminal settles to `done` and
+    // reads as finished work.
+    this.activity.get(sessionId)?.tracker.suppressOutput(ACTIVITY_SUPPRESS_MS);
 
     // Serialize only after xterm's write queue has drained, so output that
     // arrived just before the reconnect is part of the snapshot.

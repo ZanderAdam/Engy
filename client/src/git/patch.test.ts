@@ -7,7 +7,7 @@ import { getPatch, patchArgs, untrackedPatchArgs, MAX_PATCH_BYTES } from './patc
 
 describe('git patch', () => {
   describe('patchArgs', () => {
-    it('[FR-GIT-370] should always disable path quoting and external diff drivers', () => {
+    it('[FR-GIT-390] should always disable path quoting and external diff drivers', () => {
       const args = patchArgs('/repo', { kind: 'unstaged' }, 'a.txt');
 
       expect(args.slice(0, 4)).toEqual(['-c', 'core.quotePath=false', '-C', '/repo']);
@@ -38,7 +38,7 @@ describe('git patch', () => {
       expect(args).toContain('--cached');
     });
 
-    it('[FR-GIT-370] should render a commit with -m --first-parent, which a merge commit needs', () => {
+    it('[FR-GIT-390] should render a commit with -m --first-parent, which a merge commit needs', () => {
       const args = patchArgs('/repo', { kind: 'commit', hash: 'deadbee' }, 'a.txt');
 
       expect(args).toContain('show');
@@ -48,25 +48,25 @@ describe('git patch', () => {
       expect(args.slice(-3)).toEqual(['deadbee', '--', 'a.txt']);
     });
 
-    it('[FR-GIT-370] should diff a range against the working tree when it has no upper end', () => {
+    it('[FR-GIT-390] should diff a range against the working tree when it has no upper end', () => {
       const args = patchArgs('/repo', { kind: 'range', from: 'base1' }, 'a.txt');
 
       expect(args.slice(-3)).toEqual(['base1', '--', 'a.txt']);
     });
 
-    it('[FR-GIT-370] should diff a range between two refs when it has both ends', () => {
+    it('[FR-GIT-390] should diff a range between two refs when it has both ends', () => {
       const args = patchArgs('/repo', { kind: 'range', from: 'base1', to: 'head1' }, 'a.txt');
 
       expect(args.slice(-4)).toEqual(['base1', 'head1', '--', 'a.txt']);
     });
 
-    it('[FR-GIT-370] should pass both sides of a rename so -M can pair them', () => {
+    it('[FR-GIT-390] should pass both sides of a rename so -M can pair them', () => {
       const args = patchArgs('/repo', { kind: 'unstaged' }, 'new.txt', 'old.txt');
 
       expect(args.slice(-3)).toEqual(['--', 'old.txt', 'new.txt']);
     });
 
-    it('[FR-GIT-370] should not repeat the path when the old path equals the new one', () => {
+    it('[FR-GIT-390] should not repeat the path when the old path equals the new one', () => {
       const args = patchArgs('/repo', { kind: 'unstaged' }, 'a.txt', 'a.txt');
 
       expect(args.slice(-2)).toEqual(['--', 'a.txt']);
@@ -106,7 +106,7 @@ describe('git patch', () => {
       if (repoDir) await rm(repoDir, { recursive: true, force: true });
     });
 
-    it('[FR-GIT-370] should produce a unified patch for a modified file', async () => {
+    it('[FR-GIT-390] should produce a unified patch for a modified file', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'file.txt', 'original\n');
       await writeFile(join(repoDir, 'file.txt'), 'modified\n');
@@ -119,7 +119,7 @@ describe('git patch', () => {
       expect(patch).toContain('+modified');
     });
 
-    it('[FR-GIT-370] should return an empty patch for an unchanged file', async () => {
+    it('[FR-GIT-390] should return an empty patch for an unchanged file', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'file.txt', 'content\n');
 
@@ -161,7 +161,7 @@ describe('git patch', () => {
       expect(patch).toContain('+first file');
     });
 
-    it('[FR-GIT-370] should render a root commit as a whole-file addition', async () => {
+    it('[FR-GIT-390] should render a root commit as a whole-file addition', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'file.txt', 'a\nb\n');
       const hash = (await simpleGit(repoDir).log()).latest!.hash;
@@ -173,7 +173,7 @@ describe('git patch', () => {
       expect(patch).toContain('+b');
     });
 
-    it('[FR-GIT-370] should render a merge commit against its first parent', async () => {
+    it('[FR-GIT-390] should render a merge commit against its first parent', async () => {
       repoDir = await createTempRepo();
       const git = simpleGit(repoDir);
       await commitFile(repoDir, 'file.txt', 'a\nb\nc\n');
@@ -198,7 +198,7 @@ describe('git patch', () => {
       expect(patch).toContain('+d');
     });
 
-    it('[FR-GIT-370] should report a rename as one change rather than an add/delete pair', async () => {
+    it('[FR-GIT-390] should report a rename as one change rather than an add/delete pair', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'old.txt', 'stable content\n');
       const git = simpleGit(repoDir);
@@ -217,7 +217,7 @@ describe('git patch', () => {
       expect(patch).toContain('rename to new.txt');
     });
 
-    it('[FR-GIT-370] should keep a non-ASCII path literal rather than octal-escaping it', async () => {
+    it('[FR-GIT-390] should keep a non-ASCII path literal rather than octal-escaping it', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'café.txt', 'original\n');
       await writeFile(join(repoDir, 'café.txt'), 'modified\n');
@@ -228,7 +228,7 @@ describe('git patch', () => {
       expect(patch).not.toContain('\\303');
     });
 
-    it('[FR-GIT-370] should diff a branch range against the working tree', async () => {
+    it('[FR-GIT-390] should diff a branch range against the working tree', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'file.txt', 'v1\n');
       const base = await simpleGit(repoDir).revparse(['HEAD']);
@@ -240,7 +240,7 @@ describe('git patch', () => {
       expect(patch).toContain('+v2');
     });
 
-    it('[FR-GIT-370] should diff a branch range between two commits', async () => {
+    it('[FR-GIT-390] should diff a branch range between two commits', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'file.txt', 'v1\n');
       const git = simpleGit(repoDir);
@@ -258,7 +258,7 @@ describe('git patch', () => {
       expect(patch).not.toContain('+v3');
     });
 
-    it('[FR-GIT-370] should resolve paths against the repo root when given a subdirectory', async () => {
+    it('[FR-GIT-390] should resolve paths against the repo root when given a subdirectory', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'file.txt', 'original\n');
       await writeFile(join(repoDir, 'file.txt'), 'modified\n');
@@ -284,7 +284,7 @@ describe('git patch', () => {
       expect(result.patch).toBe('');
     });
 
-    it('[FR-GIT-370] should surface a bad ref as an error rather than a silent empty patch', async () => {
+    it('[FR-GIT-390] should surface a bad ref as an error rather than a silent empty patch', async () => {
       repoDir = await createTempRepo();
       await commitFile(repoDir, 'file.txt', 'content\n');
 

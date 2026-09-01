@@ -61,6 +61,7 @@ import {
   broadcastTaskChange,
   broadcastTerminalBranchChange,
 } from './broadcast';
+import { resolveTrackedDir } from '../hooks/cwd';
 import { sendWatchPathsSync } from './watch-subscriptions';
 import { persistTerminalSession } from './terminal-session-store';
 
@@ -375,14 +376,16 @@ function handleFileChange(msg: {
 }
 
 // A repo root's HEAD watch is shared across sessions, so one event can carry
-// a branch update for several sessions with the same `workingDir`.
+// a branch update for several sessions tracking the same directory. Matched on
+// the tracked directory, not the spawn one, so a session whose agent moved into
+// a worktree receives that worktree's branch rather than its origin's.
 function handleWorktreeBranchChanged(
   payload: { workingDir: string; branch: string },
   state: AppState,
 ): void {
   const { workingDir, branch } = payload;
   for (const [sessionId, meta] of state.terminalSessionMeta) {
-    if (meta.workingDir !== workingDir || meta.worktreeBranch === branch) continue;
+    if (resolveTrackedDir(meta) !== workingDir || meta.worktreeBranch === branch) continue;
     meta.worktreeBranch = branch;
     persistTerminalSession(sessionId, meta);
     broadcastTerminalBranchChange(sessionId, branch);

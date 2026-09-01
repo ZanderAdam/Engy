@@ -706,6 +706,9 @@ export class WsClient {
       case 'ack':
         this.terminalManager?.acknowledge(msg.sessionId);
         break;
+      case 'cwd':
+        this.terminalManager?.rewatchBranch(msg.sessionId, msg.workingDir);
+        break;
     }
   }
 

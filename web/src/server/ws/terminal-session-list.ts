@@ -23,8 +23,6 @@ interface TerminalSessionListItem {
   dormant: boolean;
   activeSubagents: number;
   lastFailure?: { type: string; message: string; at: number };
-  /** Worktrees a CLI created inside this session, distinct from runner-managed ones. */
-  cliWorktrees: string[];
   /**
    * FR-TERMINAL-800: seeds the tab's server-owned override at initial page
    * load. Without this, a freshly loaded tab for an already-hook-driven
@@ -92,7 +90,6 @@ export function listTerminalSessions(
         dormant: m.dormant === true,
         activeSubagents: m.activeSubagents ?? 0,
         lastFailure: m.lastFailure,
-        cliWorktrees: m.cliWorktrees ?? [],
         hookDriven: m.hookDriven === true,
       };
     });

@@ -106,9 +106,11 @@ export function createActivityTracker({
   }
 
   // Short ignore window for a resize-triggered redraw, preserving current state
-  // and any pending settle.
+  // and any pending settle. Never shortens an active window — a reconnect
+  // widens suppression past the resize it performs, and that shorter call must
+  // not undo the longer one.
   function suppressOutput(ms: number) {
-    suppressActivityUntil = Date.now() + ms;
+    suppressActivityUntil = Math.max(suppressActivityUntil, Date.now() + ms);
     chunkCount = 0;
   }
 

@@ -1856,5 +1856,32 @@ describe('Terminal WebSocket Server', () => {
       expect(respawn.command).toContain('--resume sess-respawn-resume');
       expect(respawn.command).not.toContain('--session-id');
     });
+
+    it('[FR-TERMINAL-870] should reset the tracked directory when respawning, so the new PTY reports its own branch', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+
+      await connectBrowser(port, {
+        sessionId: 'sess-respawn-cwd',
+        workingDir: '/tmp/proj',
+        agentType: 'claude',
+      });
+      await spawnPromise;
+
+      // The agent had moved into a worktree before the daemon lost the PTY.
+      state.terminalSessionMeta.get('sess-respawn-cwd')!.agentCwd =
+        '/tmp/proj/.claude/worktrees/feat';
+
+      daemonWs.close();
+      await vi.waitFor(() => expect(state.terminalDaemon).toBeNull());
+
+      const newDaemonWs = await connectDaemonRelay(port, false);
+      const respawnPromise = waitForMessage(newDaemonWs);
+      newDaemonWs.send(JSON.stringify({ t: 'sync', sessionIds: [] }));
+
+      const respawn = JSON.parse(await respawnPromise);
+      expect(respawn.workingDir).toBe('/tmp/proj');
+      expect(state.terminalSessionMeta.get('sess-respawn-cwd')?.agentCwd).toBeUndefined();
+    });
   });
 });

@@ -233,7 +233,7 @@ describe('WebSocket Server', () => {
       return ws;
     }
 
-    it('[FR-GIT-370] should send the patch spec through to the daemon and resolve with the patch', async () => {
+    it('[FR-GIT-390] should send the patch spec through to the daemon and resolve with the patch', async () => {
       const ws = await registeredClient();
 
       const messagePromise = waitForMessage(ws);
@@ -295,7 +295,7 @@ describe('WebSocket Server', () => {
       await expect(patchPromise).resolves.toEqual({ patch: '', truncated: true });
     });
 
-    it('[FR-GIT-370] should surface a daemon-side patch failure', async () => {
+    it('[FR-GIT-390] should surface a daemon-side patch failure', async () => {
       const ws = await registeredClient();
 
       const messagePromise = waitForMessage(ws);
@@ -2846,6 +2846,46 @@ describe('WORKTREE_BRANCH_CHANGED_EVENT', () => {
     await vi.waitFor(() => {
       expect(ctx.state.terminalSessionMeta.get('sess-1')?.worktreeBranch).toBe('feature-x');
     });
+  });
+
+  it('[FR-TERMINAL-870] should follow agentCwd instead of the spawn directory', async () => {
+    ctx.state.terminalSessionMeta.set('sess-moved', {
+      ...baseMeta('/repo/main', 'main'),
+      agentCwd: '/repo/main/.claude/worktrees/feat',
+    });
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/main/.claude/worktrees/feat', branch: 'feat' },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(ctx.state.terminalSessionMeta.get('sess-moved')?.worktreeBranch).toBe('feat');
+    });
+  });
+
+  it('[FR-TERMINAL-870] should ignore the spawn directory once the agent has moved', async () => {
+    ctx.state.terminalSessionMeta.set('sess-moved', {
+      ...baseMeta('/repo/main', 'feat'),
+      agentCwd: '/repo/main/.claude/worktrees/feat',
+    });
+    ctx.state.terminalSessionMeta.set('sess-home', baseMeta('/repo/main', 'main'));
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/main', branch: 'main-renamed' },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(ctx.state.terminalSessionMeta.get('sess-home')?.worktreeBranch).toBe('main-renamed');
+    });
+    expect(ctx.state.terminalSessionMeta.get('sess-moved')?.worktreeBranch).toBe('feat');
   });
 
   it('should update every session sharing the same workingDir', async () => {

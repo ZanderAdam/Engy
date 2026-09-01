@@ -28,8 +28,6 @@ import {
   recordWorkerOutput,
 } from '../terminal-dispatch';
 import {
-  appendClaudeNameFlag,
-  composeDisplayName,
   MCP_SESSION_PLACEHOLDER,
   sessionIdFlagToResume,
 } from '@/lib/agent-types';
@@ -175,12 +173,18 @@ function respawnLostSession(
   sessionId: string,
   meta: TerminalSessionMeta,
 ): void {
+  // The new PTY starts at workingDir, and the daemon re-registers its branch
+  // watch there and reports that branch straight away. A stale agentCwd would
+  // make the report fail resolveTrackedDir's match and leave the session
+  // showing the branch of a worktree it is no longer in.
+  const trackedDirReset = meta.agentCwd !== undefined;
+  delete meta.agentCwd;
+
   daemon.send(JSON.stringify(buildRespawnCmd(sessionId, meta)));
   state.daemonTerminalSessions.ids.add(sessionId);
-  if (meta.dormant) {
-    delete meta.dormant;
-    persistTerminalSession(sessionId, meta);
-  }
+  const wasDormant = meta.dormant;
+  if (wasDormant) delete meta.dormant;
+  if (wasDormant || trackedDirReset) persistTerminalSession(sessionId, meta);
   broadcastTerminalSessionsChange('created', sessionId, meta.groupKey);
 }
 
@@ -319,13 +323,8 @@ async function handleTerminalConnection(
 
   // Swap the MCP session placeholder for the real sessionId, so the agent's
   // Engy MCP endpoint is /mcp/<sessionId> — its identity on every tool call.
-  // Stored substituted in meta so respawns reuse the same endpoint. The browser
-  // already built the command via buildAgentCommand, so --name is appended
-  // here rather than threaded through every browser call site.
-  const resolvedCommand = appendClaudeNameFlag(
-    command?.replaceAll(MCP_SESSION_PLACEHOLDER, sessionId),
-    composeDisplayName(scopeLabel),
-  );
+  // Stored substituted in meta so respawns reuse the same endpoint.
+  const resolvedCommand = command?.replaceAll(MCP_SESSION_PLACEHOLDER, sessionId);
 
   // Initial classification (log only): persisted metadata (set after successful
   // spawn) or an in-flight spawn for the same sessionId. Using terminalSessions

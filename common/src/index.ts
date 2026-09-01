@@ -94,6 +94,7 @@ export type {
   TerminalKillCmd,
   TerminalReconnectCmd,
   TerminalAckCmd,
+  TerminalCwdCmd,
   TerminalPingCmd,
   TerminalPongEvent,
   TerminalTitleMsg,

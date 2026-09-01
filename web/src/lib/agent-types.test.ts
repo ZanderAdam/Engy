@@ -1,10 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  appendClaudeNameFlag,
   buildAgentCommand,
   buildHookSettings,
   coerceAgentTypeId,
-  composeDisplayName,
   getAgentType,
   getMcpUrl,
   isAgentTypeId,
@@ -201,31 +199,6 @@ describe('agent types', () => {
         expect(adopted).toContain(`http://localhost:3123/hooks/${sessionId}`);
         expect(adopted).toContain('--resume');
         expect(adopted).not.toContain('--session-id');
-      });
-    });
-
-    describe('display name (--name)', () => {
-      it('[FR-TERMINAL-700] should emit --name with a composed display name', () => {
-        const cmd = buildAgentCommand('claude', { displayName: 'terminal identity' });
-        expect(cmd).toContain(`--name 'terminal identity'`);
-      });
-
-      it('[FR-TERMINAL-700] should escape single quotes in the display name', () => {
-        const cmd = buildAgentCommand('claude', { displayName: "it's a name" });
-        expect(cmd).toContain(`--name 'it'\\''s a name'`);
-      });
-
-      it('[FR-TERMINAL-700] should omit --name when no display name is supplied', () => {
-        expect(buildAgentCommand('claude')).not.toContain('--name');
-      });
-
-      it('[FR-TERMINAL-700] should emit --name on the --resume branch too', () => {
-        const cmd = buildAgentCommand('claude', {
-          resumeSessionId: 'abc-123',
-          displayName: 'terminal identity',
-        });
-        expect(cmd).toContain(`--name 'terminal identity'`);
-        expect(cmd).toContain("--resume 'abc-123'");
       });
     });
 
@@ -502,8 +475,6 @@ describe('buildHookSettings', () => {
     'Notification',
     'SubagentStart',
     'SubagentStop',
-    'WorktreeCreate',
-    'WorktreeRemove',
   ];
   const ALL_EVENTS = [...ALWAYS_ON_EVENTS, ...MEMORY_CAPTURE_EVENTS];
 
@@ -606,44 +577,6 @@ describe('buildHookSettings', () => {
       expect(hooks.PreCompact).toBeUndefined();
       expect(hooks.SessionEnd).toBeUndefined();
     });
-  });
-});
-
-describe('composeDisplayName', () => {
-  it('[FR-TERMINAL-700] should use the scope label alone', () => {
-    expect(composeDisplayName('implement feature')).toBe('implement feature');
-    expect(composeDisplayName('workspace shell')).toBe('workspace shell');
-  });
-
-  it('[FR-TERMINAL-700] should return undefined when there is no scope label', () => {
-    expect(composeDisplayName(undefined)).toBeUndefined();
-    expect(composeDisplayName('')).toBeUndefined();
-  });
-});
-
-describe('appendClaudeNameFlag', () => {
-  it('[FR-TERMINAL-700] should append --name to a claude command', () => {
-    expect(appendClaudeNameFlag('claude --permission-mode acceptEdits', 'my task')).toBe(
-      `claude --permission-mode acceptEdits --name 'my task'`,
-    );
-  });
-
-  it('[FR-TERMINAL-700] should escape single quotes in the appended display name', () => {
-    expect(appendClaudeNameFlag('claude', "it's a name")).toBe(`claude --name 'it'\\''s a name'`);
-  });
-
-  it('[FR-TERMINAL-700] should leave a codex (non-claude) command unchanged', () => {
-    expect(appendClaudeNameFlag('codex --sandbox workspace-write', 'my task')).toBe(
-      'codex --sandbox workspace-write',
-    );
-  });
-
-  it('[FR-TERMINAL-700] should return the command unchanged when no display name is given', () => {
-    expect(appendClaudeNameFlag('claude --resume abc', undefined)).toBe('claude --resume abc');
-  });
-
-  it('[FR-TERMINAL-700] should return the command unchanged when it is undefined', () => {
-    expect(appendClaudeNameFlag(undefined, 'my task')).toBeUndefined();
   });
 });
 

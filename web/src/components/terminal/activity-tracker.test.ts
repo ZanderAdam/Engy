@@ -366,6 +366,20 @@ describe('createActivityTracker', () => {
       expect(events).toEqual(['start', 'done']);
     });
 
+    it('[FR-TERMINAL-890] should not let a shorter call cut an active longer window short', () => {
+      const { tracker, events } = setup();
+      skipInitialSuppress();
+
+      tracker.suppressOutput(3000);
+      tracker.suppressOutput(1000);
+
+      vi.advanceTimersByTime(1500);
+      tracker.bumpActivity();
+      tracker.bumpActivity();
+
+      expect(events).toEqual([]);
+    });
+
     it('should resume counting output after the window expires', () => {
       const { tracker, events } = setup();
       skipInitialSuppress();

@@ -115,9 +115,11 @@ export function createActivityTracker({
   // Light, short ignore window for a resize-triggered redraw (collapse/expand,
   // tab reselect, drag-resize). Unlike suppress() this preserves the current
   // state and any pending settle timer, so a quiet done/active dot stays put and
-  // a real settle still fires — the redraw burst is simply not counted.
+  // a real settle still fires — the redraw burst is simply not counted. Never
+  // shortens an active window, so a short resize call cannot undo the longer
+  // suppression a reconnect sets.
   function suppressOutput(ms: number) {
-    suppressActivityUntil = Date.now() + ms;
+    suppressActivityUntil = Math.max(suppressActivityUntil, Date.now() + ms);
     chunkCount = 0;
   }
 

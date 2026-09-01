@@ -996,6 +996,18 @@ export interface TerminalAckCmd {
 }
 
 /**
+ * Server → daemon: the agent reported a working directory different from the
+ * one its PTY was spawned in — it entered a worktree, or simply `cd`ed. The
+ * daemon re-resolves the git dir and re-points this session's `HEAD` watch, so
+ * the branch subheader follows the agent instead of freezing at spawn.
+ */
+export interface TerminalCwdCmd {
+  t: 'cwd';
+  sessionId: string;
+  workingDir: string;
+}
+
+/**
  * Browser → server only (never forwarded to the daemon): liveness probe sent by
  * the wake handler while the socket looks OPEN. Answered with `TerminalPongEvent`.
  */
@@ -1027,7 +1039,8 @@ export type TerminalRelayCommand =
   | TerminalResizeCmd
   | TerminalKillCmd
   | TerminalReconnectCmd
-  | TerminalAckCmd;
+  | TerminalAckCmd
+  | TerminalCwdCmd;
 
 // Daemon → Server events
 export interface TerminalOutputEvent {

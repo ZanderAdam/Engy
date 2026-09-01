@@ -177,14 +177,16 @@ All lifecycle mutations validate that every supplied repo path is a member of
 A `claude --worktree` run, or a subagent spawned with `isolation: worktree`,
 creates a git worktree Engy's own lifecycle above never touches — it is not
 one of the paths `worktree.create`/`worktree.sync`/`worktree.remove` manage,
-and the runner owns cleanup of only the worktrees it created itself. The Claude
-Code hook channel (see the terminal-relay area) registers `WorktreeCreate` and
-`WorktreeRemove` handlers (`web/src/server/hooks/worktree.ts`) that record
-these paths on the originating terminal session's `cliWorktrees` field —
-separate from anything the runner writes, so a CLI-created worktree is never
-adopted or cleaned up by the runner's own worktree lifecycle. Neither handler
-can block: `WorktreeCreate` always returns a non-blocking result, since Engy
-has no basis to veto a worktree the user asked for.
+and the runner owns cleanup of only the worktrees it created itself.
+
+Engy deliberately registers no `WorktreeCreate`/`WorktreeRemove` hooks. They
+are not notifications — they *replace* git worktree creation so other VCS can
+be driven from Claude Code, and a registered `WorktreeCreate` that returns no
+`hookSpecificOutput.worktreePath` fails creation outright with no fallback to
+git. Registering them match-all therefore broke `--worktree`, worktree
+isolation, and background sessions in every Engy-spawned terminal. A worktree
+the CLI enters is observed through `cwd` on ordinary hook events instead (see
+the terminal-relay area), which is what keeps the session's branch current.
 
 ## Multi-repo grouping
 
@@ -247,8 +249,6 @@ FR id in their title string, e.g. `it('[FR-GIT-010] ...', ...)`, and run
 | FR-GIT-340 | WHEN a row is marked viewed, the system SHALL record the mark against that row rather than its path, identified by the index for a staged row and by the working tree for an unstaged one, so re-staging expires a staged row's mark and editing the working tree does not. |
 | FR-GIT-350 | WHEN a diff pane renders, it SHALL show only the patch computed for the current selection; IF the selection is incomplete — no side, no commit, or no known fork point — THEN the pane SHALL render nothing rather than content carried over from an earlier selection. |
 | FR-GIT-360 | WHEN a comment is added to a diff line, the system SHALL record the text of that line alongside the comment, and SHALL quote it in the feedback sent to an agent; IF no line text was recorded, THEN the feedback SHALL name the line number alone. |
-| FR-GIT-370 | WHEN a `WorktreeCreate` hook fires, the system SHALL append the reported path (`worktree_path`, falling back to `path`, then `cwd`) to the originating session's `cliWorktrees` list if not already present, and SHALL always allow creation to proceed — never returning a blocking hook result. `cliWorktrees` SHALL be exposed through the terminal session list. |
-| FR-GIT-380 | WHEN a `WorktreeRemove` hook fires with a path present in the session's `cliWorktrees`, the system SHALL remove it; a remove for a path not recorded, or for a session with no recorded worktrees, SHALL be a no-op. |
 | FR-GIT-390 | WHEN a diff pane needs a file's changes, the system SHALL obtain unified diff text from git through the daemon, named by an explicit patch spec — `staged`, `unstaged`, `commit`, or `range` — rather than by comparing two separately-read file contents in the browser; the request SHALL carry `coderWorkspace` and the rename's `oldPath`, and git SHALL be invoked so that a merge commit, a non-ASCII path, and a user-configured external diff driver each still yield a parseable patch. |
 | FR-GIT-400 | WHEN a patch leaves unchanged lines out of its hunks, the diff pane SHALL expand any gap shorter than 10 lines automatically and SHALL offer a control naming the hidden line count for longer gaps; expansion and syntax highlighting SHALL read the original side's text, and IF no grammar is registered for the file's type, THEN the pane SHALL render it unhighlighted rather than fail. |
 | FR-GIT-410 | IF a file's patch exceeds the daemon's size cap, THEN the daemon SHALL report it as truncated instead of sending the body; IF a patch renders more changed lines than the pane's cap, THEN the pane SHALL name the count and require confirmation before rendering it. |

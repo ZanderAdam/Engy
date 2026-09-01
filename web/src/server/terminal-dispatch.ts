@@ -4,7 +4,6 @@ import type { TerminalExitEvent, TerminalKillCmd, TerminalSpawnCmd } from '@engy
 import type { AppState, DispatchEntry, TerminalSessionMeta } from './trpc/context';
 import {
   buildAgentCommand,
-  composeDisplayName,
   getAgentType,
   isAgentTypeId,
   MCP_SESSION_PLACEHOLDER,
@@ -453,7 +452,6 @@ export function spawnAgentTerminal(
     prompt: opts.prompt,
     mcpUrl: `${opts.mcpOrigin}/mcp/${sessionId}`,
     agentSettings: opts.agentSettings,
-    displayName: composeDisplayName(opts.description),
   }).replaceAll(MCP_SESSION_PLACEHOLDER, sessionId);
 
   const { callerMeta } = opts;

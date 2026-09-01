@@ -128,25 +128,6 @@ describe('terminal relay', () => {
       expect(s2.lastFailure).toBeUndefined();
     });
 
-    it('[FR-GIT-370][FR-GIT-380] surfaces cliWorktrees, defaulting to an empty list', () => {
-      const state = makeState([
-        ['s1', meta({ cliWorktrees: ['/repo/.worktrees/feature'] })],
-        ['s2', meta()],
-      ]);
-
-      const result = listTerminalSessions(state, {
-        all: true,
-        groupKey: null,
-        scopeType: '',
-        scopeLabel: '',
-      });
-
-      expect(result.find((r) => r.sessionId === 's1')!.cliWorktrees).toEqual([
-        '/repo/.worktrees/feature',
-      ]);
-      expect(result.find((r) => r.sessionId === 's2')!.cliWorktrees).toEqual([]);
-    });
-
     it('[FR-TERMINAL-800] surfaces hookDriven, defaulting to false when unset', () => {
       const state = makeState([
         ['s1', meta({ hookDriven: true })],

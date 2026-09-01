@@ -6,6 +6,7 @@ import {
   handleStopActivity,
   handleUserPromptSubmitActivity,
 } from './activity';
+import { handleCwdChange } from './cwd';
 import { settleDispatchOnStop, tagDispatchDeliveryTurn } from './dispatch';
 import { clearFailureOnStop, clearFailureOnUserPromptSubmit, recordStopFailure } from './failure';
 import { handleMemoryCaptureIngest } from './memory-capture-ingest';
@@ -14,7 +15,6 @@ import { buildSessionStartContext } from './session-context';
 import { handleSubagentStart, handleSubagentStop } from './subagent';
 import { handleClearAttention, handleNotificationAttention, handleStopTitle } from './title';
 import type { HookHandler, HookPayload, HookRegistry, HookResult } from './types';
-import { handleWorktreeCreate, handleWorktreeRemove } from './worktree';
 
 /**
  * Every module's hook handler, in one reviewable list, grouped into a
@@ -37,12 +37,14 @@ import { handleWorktreeCreate, handleWorktreeRemove } from './worktree';
 // Exported so a test can assert the Stop-ordering invariant above against
 // the actual registry, not a synthetic stand-in array.
 export const HOOK_HANDLER_REGISTRATIONS: Array<{ event: string; handler: HookHandler }> = [
+  { event: 'Stop', handler: handleCwdChange },
   { event: 'Stop', handler: settleDispatchOnStop },
   { event: 'Stop', handler: handleStopTitle },
   { event: 'Stop', handler: handleClearAttention },
   { event: 'Stop', handler: clearFailureOnStop },
   { event: 'Stop', handler: handleStopActivity },
 
+  { event: 'UserPromptSubmit', handler: handleCwdChange },
   { event: 'UserPromptSubmit', handler: tagDispatchDeliveryTurn },
   { event: 'UserPromptSubmit', handler: handleClearAttention },
   { event: 'UserPromptSubmit', handler: clearFailureOnUserPromptSubmit },
@@ -55,9 +57,6 @@ export const HOOK_HANDLER_REGISTRATIONS: Array<{ event: string; handler: HookHan
 
   { event: 'SubagentStart', handler: handleSubagentStart },
   { event: 'SubagentStop', handler: handleSubagentStop },
-
-  { event: 'WorktreeCreate', handler: handleWorktreeCreate },
-  { event: 'WorktreeRemove', handler: handleWorktreeRemove },
 ];
 
 export function buildHookRegistry(
