@@ -63,7 +63,9 @@ function matchPhrase(transcriptWords: string[], parsed: ParsedPhrase): PhraseMat
 
     const fixedWords = transcriptWords.slice(0, parsed.words.length);
     const paramWords = transcriptWords.slice(parsed.words.length);
-    if (!normalizeToken(paramWords.join(''))) return null;
+    // Non-empty, not non-empty-of-letters: `normalizeToken` drops digits, so
+    // testing it here rejected every numeric parameter ("focus terminal 2").
+    if (!paramWords.join('').replace(/[^a-z0-9]/gi, '')) return null;
 
     const { tier, confidence } = matchFixedWords(fixedWords, parsed.words);
     return { tier, confidence, params: { [parsed.paramName]: paramWords.join(' ') } };
@@ -151,10 +153,15 @@ export function stripWakeWord(transcript: string, wakeWord: string): string {
     const joined = normalizeToken(prefixTokens.join(''));
     if (!joined) continue;
 
-    const isSpelledOut = prefixTokens.every((token) => normalizeToken(token).length === 1);
+    // The recognizer has no word for the wake word, so it renders it as
+    // fragments of one — "Angie" comes back as "NG", "N G", or "Engie". A
+    // prefix whose letters appear in order within the wake word is one of
+    // those fragments; two letters is enough, because this only runs on a
+    // segment the spotter already accepted, and no command phrase starts
+    // with a subsequence of the wake word.
     const matches =
       joined === normalizedWake ||
-      (isSpelledOut && joined.length >= 2 && isSubsequence(joined, normalizedWake)) ||
+      (joined.length >= 2 && isSubsequence(joined, normalizedWake)) ||
       (prefixLength === 1 &&
         joined.length >= 3 &&
         rawSimilarity(joined, normalizedWake) >= WAKE_WORD_RAW_MATCH_THRESHOLD);

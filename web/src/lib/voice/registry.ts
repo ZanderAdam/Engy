@@ -12,7 +12,10 @@ export interface VoiceAction {
   title: string;
   phrases: string[];
   params?: VoiceActionParam[];
-  run: (ctx: VoiceActionContext) => void | Promise<void>;
+  /** A returned string is the answer to show the user — a status readout, or
+   * why the action could not act. Returning nothing means the visible effect
+   * (a focus, a navigation) is the whole result. */
+  run: (ctx: VoiceActionContext) => void | string | Promise<void | string>;
 }
 
 export class VoiceActionRegistry {

@@ -166,7 +166,7 @@ This is why TG1's lack of a streaming recognizer does not block always-on: what 
 2. The system shall build its recognition vocabulary from live application state — open projects, tab names, and terminal sessions — at recognition time. *(inferred: names change at runtime)* (FR-TG2.2)
 3. The system shall resolve a transcript to an action by exact phrase match, then by phonetic fuzzy match, and shall reject rather than guess below a confidence threshold. *(inferred: STT mangles slugs; a wrong navigation is cheap but a wrong dispatch is not)* (FR-TG2.3)
 4. The system shall navigate to a named project or tab using `navigateOrReuseTab`. *(inferred: bypassing it causes duplicate tabs)* (FR-TG2.4)
-5. The system shall resolve terminal references by ordinal or label against the server session registry, not the browser session store. *(inferred: browser store drops unmounted projects)* (FR-TG2.5)
+5. The system shall resolve terminal references by number or label against the terminals currently open on screen, and shall number them in that order. *(revised after testing: the original resolved against the server session registry, which lists sessions that have no open dockview panel — focusing one silently did nothing, because focus works by activating a panel. Numbering what cannot be focused also made every number wrong.)* (FR-TG2.5)
 6. The system shall focus a voice-selected terminal by emitting the existing `{t:'ack', sessionId}` signal. *(inferred: FR-TERMINAL-240 already owns this path)* (FR-TG2.6)
 7. The system shall display the recognized transcript, the matched action, and the match confidence before or as it acts. *(source: user request — feedback loop is what makes command voice usable)* (FR-TG2.7)
 8. The system shall provide a help surface listing every registered voice action and its phrase templates, derived from the action registry rather than a maintained list. *(source: user request)* (FR-TG2.8)
@@ -178,6 +178,9 @@ This is why TG1's lack of a streaming recognizer does not block always-on: what 
 14. In always-on, the system shall discard, without decoding or reporting, any speech segment carrying no wake word while dictation mode is inactive. *(discarding is what makes an open mic safe to leave running; scoped to always-on after testing showed it wrongly disabled push-to-talk dictation)* (FR-TG2.14)
 16. In push-to-talk, the system shall insert a transcript carrying no wake word into the focused terminal, and shall resolve a transcript carrying one against the action registry instead. *(source: user request — "dual mode, should work with input (default) and command execution")* (FR-TG2.16)
 15. The system shall report a wake-word detection to the browser distinctly from a transcript, so the user can see it was addressed even when resolution then fails. *(inferred from TG1's recurring failure mode: every bug was a silent drop, and "it did not hear me" and "it heard me but did not understand" need different fixes)* (FR-TG2.15)
+17. The system shall display each open terminal's spoken number on the terminal rail while voice is enabled. *(source: user request — "we should also number terminals when in voice mode so its easier"; a number nobody can read is not speakable)* (FR-TG2.17)
+18. The system shall report the status of all open terminals, and of one named terminal, in answer to a voice command, ordering the summary so terminals awaiting the user come first. *(source: user request — "get terminal status, tells me status of terminals")* (FR-TG2.18)
+19. A matched action shall be able to answer in text, and the system shall display that answer. *(inferred: a status command has no visible side effect, so without this its result is invisible)* (FR-TG2.19)
 
 ### Tasks
 
@@ -208,7 +211,7 @@ This is why TG1's lack of a streaming recognizer does not block always-on: what 
 
 4. **Live vocabulary + navigation and terminal-focus actions in `web/`** (depends on task 3)
    - Files: `web/src/components/voice/use-voice-vocabulary.ts` [NEW], `web/src/components/voice/use-voice-vocabulary.test.ts` [NEW], `web/src/lib/voice/actions/navigation.ts` [NEW], `web/src/lib/voice/actions/terminal.ts` [NEW], `web/src/lib/voice/actions/navigation.test.ts` [NEW], `web/src/components/voice/voice-indicator.tsx` [MODIFY]
-   - Implements FR-TG2.2, FR-TG2.4, FR-TG2.5, FR-TG2.6, FR-TG2.7
+   - Implements FR-TG2.2, FR-TG2.4, FR-TG2.5, FR-TG2.6, FR-TG2.7, FR-TG2.17, FR-TG2.18, FR-TG2.19
    - Assemble projects/tabs/terminals into a vocabulary. Terminals come from `GET /api/terminal/sessions?all=1`, never `terminal-session-store.ts` — the browser store drops unmounted projects.
    - Register "select project X", "open tab Y", "focus terminal N". Navigation goes through `navigateOrReuseTab` (`web/src/components/tabs/tab-state.ts`); focus emits `{t:'ack', sessionId}`.
    - ASR-level hotword biasing of this vocabulary is **out of scope**. It needs `decodingMethod: 'modified_beam_search'` plus hand-rolled BPE tokenization against parakeet's `tokens.txt` (which ships no bpe vocab), and it would cost the greedy-decode latency TG1 measured. FR-TG2.2 requires only that the vocabulary be built from live state, not pushed into the ASR. The phonetic resolver carries it.

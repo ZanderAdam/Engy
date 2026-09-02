@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { RiMicLine } from '@remixicon/react';
 import {
   Dialog,
@@ -14,8 +13,8 @@ import { trpc } from '@/lib/trpc';
 import { useTabsList, useVirtualParams } from '@/components/tabs/tab-context';
 import type { VirtualParams } from '@/components/tabs/tab-state';
 import { isTypingTarget } from '@/lib/keyboard';
+import { useOpenTerminals } from '@/components/terminal/terminal-session-store';
 import { useOptionalVoice, type VoiceControl } from './voice-context';
-import { fetchAllTerminalSessions } from './use-voice-vocabulary';
 import {
   buildVoiceHelpEntries,
   groupVoiceHelpEntries,
@@ -41,6 +40,7 @@ function buildValueLookup(
       case 'voice.navigation.open-tab':
         return tabTitles;
       case 'voice.terminal.focus':
+      case 'voice.terminal.status.one':
         return terminalLabels;
       default:
         return [];
@@ -61,11 +61,7 @@ function ActiveVoiceHelpDialog({ voice }: { voice: VoiceControl }) {
     { workspaceId: workspace?.id ?? 0 },
     { enabled: !!workspace },
   );
-  const { data: terminals } = useQuery({
-    queryKey: ['voice-vocabulary-terminal-sessions'],
-    queryFn: fetchAllTerminalSessions,
-    refetchInterval: 5_000,
-  });
+  const terminals = useOpenTerminals();
   const tabsList = useTabsList();
 
   const lookupValues = useMemo(
@@ -73,7 +69,9 @@ function ActiveVoiceHelpDialog({ voice }: { voice: VoiceControl }) {
       buildValueLookup(
         (projects ?? []).map((p) => p.name),
         (tabsList?.tabs ?? []).map((t) => t.title),
-        (terminals ?? []).map((t) => t.label),
+        // Numbers first, then labels: both are sayable on their own, and a
+        // combined "1 (build)" example reads as a phrase nobody can speak.
+        [...terminals.map((_, i) => String(i + 1)), ...terminals.map((t) => t.scope.scopeLabel)],
       ),
     [projects, tabsList, terminals],
   );
@@ -105,7 +103,8 @@ function ActiveVoiceHelpDialog({ voice }: { voice: VoiceControl }) {
             Voice commands
           </DialogTitle>
           <DialogDescription>
-            Say &ldquo;{WAKE_WORD}&rdquo; before any phrase below to address the app.
+            Say &ldquo;{WAKE_WORD}&rdquo; before any phrase below to address the app. Terminals are
+            numbered on the rail while voice is on — say the number.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">

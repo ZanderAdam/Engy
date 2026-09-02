@@ -27,9 +27,9 @@ const BOX_CLASS =
 export function VoiceIndicator() {
   const voice = useOptionalVoice();
   if (!voice) return null;
-  const { phase, error, toggle, transcript, command } = voice;
+  const { phase, error, toggle, transcript, command, answer } = voice;
 
-  if (phase === 'idle' && !error && !transcript && !command) return null;
+  if (phase === 'idle' && !error && !transcript && !command && !answer) return null;
 
   if (phase === 'listening') {
     return (
@@ -52,7 +52,7 @@ export function VoiceIndicator() {
         </>
       )}
       {error && <span className="text-destructive">{error}</span>}
-      {!error && phase === 'idle' && (transcript || command) && (
+      {!error && phase === 'idle' && (transcript || command || answer) && (
         <div className="flex flex-col gap-0.5">
           {transcript && <span className="text-muted-foreground">&ldquo;{transcript}&rdquo;</span>}
           {command &&
@@ -63,6 +63,7 @@ export function VoiceIndicator() {
             ) : (
               <span className="text-muted-foreground">No matching action</span>
             ))}
+          {answer && <span className="whitespace-pre-line text-foreground">{answer}</span>}
         </div>
       )}
     </div>

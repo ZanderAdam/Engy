@@ -48,7 +48,50 @@ function subscribe(listener: () => void): () => void {
 export function useTerminalSessions(key: string | undefined): TerminalSessionsSnapshot {
   return useSyncExternalStore(
     subscribe,
-    () => (key ? byKey.get(key) ?? EMPTY : EMPTY),
+    () => (key ? (byKey.get(key) ?? EMPTY) : EMPTY),
     () => EMPTY,
   );
+}
+
+let openTerminalsCache: TerminalTab[] = [];
+
+/**
+ * Every open terminal across all scopes, in a stable order — the list voice
+ * numbers against ("focus terminal 2"). Deliberately not the server's session
+ * registry: focusing works by activating a dockview panel, so a session with
+ * no open panel cannot be focused and must not take a number.
+ *
+ * `useSyncExternalStore` compares snapshots by identity, so the flattened
+ * array is cached and only rebuilt when its contents actually change.
+ */
+function readOpenTerminals(): TerminalTab[] {
+  const seen = new Set<string>();
+  const next: TerminalTab[] = [];
+  for (const snapshot of byKey.values()) {
+    for (const tab of snapshot.tabs) {
+      if (seen.has(tab.sessionId)) continue;
+      seen.add(tab.sessionId);
+      next.push(tab);
+    }
+  }
+
+  const unchanged =
+    next.length === openTerminalsCache.length &&
+    next.every((tab, i) => tab === openTerminalsCache[i]);
+  if (!unchanged) openTerminalsCache = next;
+  return openTerminalsCache;
+}
+
+/** The flattening and its identity caching are what voice numbering rests
+ * on; exported so both can be asserted without a React renderer. */
+export const readOpenTerminalsForTest = readOpenTerminals;
+
+export function useOpenTerminals(): TerminalTab[] {
+  return useSyncExternalStore(subscribe, readOpenTerminals, () => openTerminalsCache);
+}
+
+/** The 1-based number spoken as "focus terminal N", or null when not open. */
+export function terminalOrdinal(tabs: TerminalTab[], sessionId: string): number | null {
+  const index = tabs.findIndex((tab) => tab.sessionId === sessionId);
+  return index === -1 ? null : index + 1;
 }

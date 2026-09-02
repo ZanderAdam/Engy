@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   publishTerminalSessions,
   clearTerminalSessions,
+  readOpenTerminalsForTest,
+  terminalOrdinal,
   terminalRailKey,
 } from './terminal-session-store';
 import type { TerminalTab } from './types';
@@ -44,6 +46,53 @@ describe('terminal-session-store', () => {
         // Clearing a missing key is a no-op (early-out), must not throw.
         clearTerminalSessions(key);
       }).not.toThrow();
+    });
+  });
+
+  describe('open terminals', () => {
+    const A = terminalRailKey('t', 'gk-a');
+    const B = terminalRailKey('t', 'gk-b');
+
+    afterEach(() => {
+      clearTerminalSessions(A);
+      clearTerminalSessions(B);
+    });
+
+    // Voice numbers terminals by this list, so a scope the user has open in a
+    // second dock must not restart the numbering at 1.
+    it('[FR-TG2.5] should flatten every published scope into one numbered list', () => {
+      publishTerminalSessions(A, { tabs: [makeTab('a1'), makeTab('a2')], activeId: 'a1' });
+      publishTerminalSessions(B, { tabs: [makeTab('b1')], activeId: null });
+
+      const open = readOpenTerminalsForTest();
+      expect(open.map((t) => t.sessionId)).toEqual(['a1', 'a2', 'b1']);
+      expect(terminalOrdinal(open, 'b1')).toBe(3);
+    });
+
+    // Two managers can publish the same session; it must take one number.
+    it('should count a session published under two keys once', () => {
+      publishTerminalSessions(A, { tabs: [makeTab('same')], activeId: null });
+      publishTerminalSessions(B, { tabs: [makeTab('same')], activeId: null });
+
+      expect(readOpenTerminalsForTest().map((t) => t.sessionId)).toEqual(['same']);
+    });
+
+    // useSyncExternalStore compares by identity and loops forever on a fresh
+    // array each read, so an unchanged list must return the same reference.
+    it('should return a stable reference while the tabs are unchanged', () => {
+      publishTerminalSessions(A, { tabs: [makeTab('a1')], activeId: null });
+      expect(readOpenTerminalsForTest()).toBe(readOpenTerminalsForTest());
+    });
+
+    it('should return a new reference once the tabs change', () => {
+      publishTerminalSessions(A, { tabs: [makeTab('a1')], activeId: null });
+      const before = readOpenTerminalsForTest();
+      publishTerminalSessions(A, { tabs: [makeTab('a1'), makeTab('a2')], activeId: null });
+      expect(readOpenTerminalsForTest()).not.toBe(before);
+    });
+
+    it('should report no ordinal for a session that is not open', () => {
+      expect(terminalOrdinal(readOpenTerminalsForTest(), 'nope')).toBeNull();
     });
   });
 });

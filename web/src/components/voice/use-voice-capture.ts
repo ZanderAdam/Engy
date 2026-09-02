@@ -448,7 +448,7 @@ export function getVoicePttController(): VoicePttController {
 export function useVoiceCapture(
   workspaceSlug: string,
   actions: VoiceAction[],
-): VoiceCaptureState & { toggle: () => void } {
+): VoiceCaptureState & { toggle: () => void; answer: string | null } {
   const { insertToTerminal } = useSendToTerminal();
   const tabCtx = useOptionalTab();
   // A tab with no TabContext is the only view there is, so treat it as active.
@@ -464,12 +464,18 @@ export function useVoiceCapture(
     transcript: null,
     command: null,
   });
+  const [answer, setAnswer] = useState<string | null>(null);
 
   useEffect(() => {
     return getVoicePttController().subscribe({
       isActiveTab: () => liveRef.current.isActiveTab,
       workspaceSlug: () => liveRef.current.workspaceSlug,
-      onStateChange: setState,
+      onStateChange: (next) => {
+        // A new turn's answer is not known yet, and last turn's would read as
+        // this turn's.
+        if (next.phase === 'listening') setAnswer(null);
+        setState(next);
+      },
       onSegment: (text) => {
         // A dropped inject (wrong tab, no active panel, no socket) is silent
         // by default — recognised speech must never disappear unreported.
@@ -482,7 +488,11 @@ export function useVoiceCapture(
         // Never a terminal fallback here — an unresolved command stays
         // unresolved, visibly (FR-TG2.16), rather than typing the phrase
         // into a shell.
-        if (resolved.matched) void resolved.result.action.run({ params: resolved.result.params });
+        if (resolved.matched) {
+          void Promise.resolve(resolved.result.action.run({ params: resolved.result.params }))
+            .then((answer) => setAnswer(answer ?? null))
+            .catch((e: unknown) => setAnswer(e instanceof Error ? e.message : 'Action failed.'));
+        }
         return resolved;
       },
     });
@@ -490,5 +500,5 @@ export function useVoiceCapture(
 
   const toggle = useCallback(() => getVoicePttController().toggle(), []);
 
-  return { ...state, toggle };
+  return { ...state, answer, toggle };
 }

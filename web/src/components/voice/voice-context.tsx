@@ -8,6 +8,7 @@ import { useVoiceVocabulary } from './use-voice-vocabulary';
 
 export type VoiceControl = VoiceCaptureState & {
   toggle: () => void;
+  answer: string | null;
   actions: VoiceAction[];
   helpOpen: boolean;
   setHelpOpen: (open: boolean) => void;

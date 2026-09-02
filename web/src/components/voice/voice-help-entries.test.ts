@@ -146,7 +146,7 @@ describe('voice help entries', () => {
     it('should group entries by category, preserving registry order within a group', () => {
       const actions = [
         ...selectProjectAction(),
-        ...createTerminalActions({ sessions: [{ sessionId: 's1', label: 'main' }] }),
+        ...createTerminalActions({ sessions: [{ sessionId: 's1', label: 'main', activity: 'idle' as const, stopped: false }] }),
         ...createHelpActions({ openHelp: () => {} }),
       ];
       const entries = buildVoiceHelpEntries(actions, WAKE_WORD);

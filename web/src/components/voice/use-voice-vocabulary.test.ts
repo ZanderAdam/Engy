@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { resolveAction } from '@/lib/voice/resolve';
-import { assembleVoiceVocabulary, fetchAllTerminalSessions } from './use-voice-vocabulary';
+import { assembleVoiceVocabulary } from './use-voice-vocabulary';
+import { routeVoiceSegment } from './route-voice-segment';
+import { WAKE_PREFIXES } from './use-voice-capture';
 
 describe('assembleVoiceVocabulary', () => {
   // The registry the resolver matches against and the registry the help
@@ -31,6 +33,32 @@ describe('assembleVoiceVocabulary', () => {
     if (!resolved.matched) return;
     void resolved.result.action.run({ params: {} });
     expect(openHelp).toHaveBeenCalled();
+  });
+
+  // Real transcripts, end to end: the recognizer renders the spoken wake
+  // word as a fragment ("NG"), so routing and resolution have to survive a
+  // wake word the recognizer never spells correctly.
+  it.each([
+    ['NG Focus Terminal Test.', 'voice.terminal.focus'],
+    ['NG go to tab docs', 'voice.navigation.open-tab'],
+    ['Angie, select project web', 'voice.navigation.select-project'],
+    ['Okay, Angie, what can I do?', 'voice.help.show'],
+  ])('[FR-TG2.16] should route and resolve "%s"', (transcript, expectedId) => {
+    const actions = assembleVoiceVocabulary({
+      workspaceSlug: 'engy',
+      projects: [{ slug: 'web', name: 'web' }],
+      tabs: [{ id: 't1', label: 'docs' }],
+      sessions: [{ sessionId: 's1', label: 'test', activity: 'idle', stopped: false }],
+      navigate: vi.fn(),
+      activateTab: vi.fn(),
+      openHelp: vi.fn(),
+    });
+
+    const route = routeVoiceSegment(transcript, true, WAKE_PREFIXES);
+    const resolved = resolveAction(route.text, actions);
+    expect(resolved.matched, `"${route.text}" did not resolve`).toBe(true);
+    if (!resolved.matched) return;
+    expect(resolved.result.action.id).toBe(expectedId);
   });
 
   it('should return no actions without a workspace slug', () => {
@@ -72,7 +100,7 @@ describe('assembleVoiceVocabulary', () => {
       workspaceSlug: 'engy',
       projects: [{ slug: 'mounted-project', name: 'Mounted Project' }],
       tabs: [],
-      sessions: [{ sessionId: 'sess-unmounted', label: 'build' }],
+      sessions: [{ sessionId: 'sess-unmounted', label: 'build', activity: 'idle', stopped: false }],
       navigate: vi.fn(),
       activateTab: vi.fn(),
       openHelp: vi.fn(),
@@ -87,34 +115,5 @@ describe('assembleVoiceVocabulary', () => {
       expect(resolved.result.action.id).toBe('voice.terminal.focus');
       expect(resolved.result.params.name).toBe('build');
     }
-  });
-});
-
-describe('fetchAllTerminalSessions', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('[FR-TG2.5] should request the server session registry across every project via all=1', async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        sessions: [{ sessionId: 'sess-1', scopeLabel: 'build', scopeType: 'project' }],
-      }),
-    }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await fetchAllTerminalSessions();
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/terminal/sessions?all=1');
-    expect(result).toEqual([{ sessionId: 'sess-1', label: 'build' }]);
-  });
-
-  it('should return no sessions when the request fails', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: false, json: async () => ({ sessions: [] }) })),
-    );
-    expect(await fetchAllTerminalSessions()).toEqual([]);
   });
 });

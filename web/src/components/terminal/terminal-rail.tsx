@@ -11,18 +11,19 @@ import {
   RiListUnordered,
   RiTerminalLine,
 } from '@remixicon/react';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { CloseTerminalDialog } from './close-terminal-dialog';
 import { useCanHover } from '@/hooks/use-can-hover';
 import { cn } from '@/lib/utils';
 import { useTabId } from '@/components/tabs/tab-context';
 import { useTerminalScope } from './use-terminal-scope';
-import { useTerminalSessions, terminalRailKey } from './terminal-session-store';
+import {
+  useTerminalSessions,
+  useOpenTerminals,
+  terminalOrdinal,
+  terminalRailKey,
+} from './terminal-session-store';
+import { useOptionalVoice } from '@/components/voice/voice-context';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -80,6 +81,8 @@ export function TerminalRail({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [closingTab, setClosingTab] = useState<TerminalTab | null>(null);
   const canHover = useCanHover();
+  const openTerminals = useOpenTerminals();
+  const voiceOn = useOptionalVoice() !== null;
 
   function focusSession(sessionId: string) {
     window.dispatchEvent(new CustomEvent('terminal:focus', { detail: { sessionId, tabId } }));
@@ -190,7 +193,9 @@ export function TerminalRail({
                 </span>
               </TooltipTrigger>
               <TooltipContent side="left" className="text-xs">
-                {section.workspaceSlug ? `${section.workspaceSlug} / ${section.projectLabel}` : section.projectLabel}
+                {section.workspaceSlug
+                  ? `${section.workspaceSlug} / ${section.projectLabel}`
+                  : section.projectLabel}
               </TooltipContent>
             </Tooltip>
           ) : (
@@ -230,7 +235,9 @@ export function TerminalRail({
                       <RiAddLine className="size-3" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="left">New terminal in {section.projectLabel}</TooltipContent>
+                  <TooltipContent side="left">
+                    New terminal in {section.projectLabel}
+                  </TooltipContent>
                 </Tooltip>
               )}
             </div>
@@ -248,7 +255,8 @@ export function TerminalRail({
         defaultValue={tab.scope.scopeLabel}
         autoFocus
         onKeyDown={(e) => {
-          if (e.key === 'Enter') commitRename(tab.sessionId, e.currentTarget.value, tab.scope.scopeLabel);
+          if (e.key === 'Enter')
+            commitRename(tab.sessionId, e.currentTarget.value, tab.scope.scopeLabel);
           else if (e.key === 'Escape') setEditingId(null);
         }}
         onBlur={(e) => commitRename(tab.sessionId, e.currentTarget.value, tab.scope.scopeLabel)}
@@ -287,13 +295,17 @@ export function TerminalRail({
   }
 
   function renderDot(tab: TerminalTab) {
+    // While voice is on the dot shows the number the user says ("focus
+    // terminal 2") instead of the generic terminal glyph — the number is
+    // useless unless it is visible, and the glyph is identical on every dot.
+    const voiceNumber = voiceOn ? terminalOrdinal(openTerminals, tab.sessionId) : null;
     return (
       <Tooltip key={tab.sessionId}>
         <TooltipTrigger asChild>
           <button
             type="button"
             onClick={() => focusSession(tab.sessionId)}
-            aria-label={`Focus terminal ${tab.scope.scopeLabel}${tab.oscTitle ? `: ${tab.oscTitle}` : ''}`}
+            aria-label={`Focus terminal ${voiceNumber === null ? '' : `${voiceNumber} `}${tab.scope.scopeLabel}${tab.oscTitle ? `: ${tab.oscTitle}` : ''}`}
             aria-current={tab.sessionId === activeId || undefined}
             className={cn(
               'flex size-6 items-center justify-center rounded-[5px] transition-colors',
@@ -301,7 +313,11 @@ export function TerminalRail({
               tab.sessionId === activeId && 'ring-1 ring-inset ring-foreground/60',
             )}
           >
-            <RiTerminalLine className="size-3" />
+            {voiceNumber === null ? (
+              <RiTerminalLine className="size-3" />
+            ) : (
+              <span className="text-[11px] font-medium tabular-nums">{voiceNumber}</span>
+            )}
           </button>
         </TooltipTrigger>
         <TooltipContent side="left" className="max-w-72">
@@ -320,7 +336,12 @@ export function TerminalRail({
         )}
       >
         {/* Controls — vertical icons when narrow, a header row when expanded. */}
-        <div className={cn('flex gap-1', listExpanded ? 'flex-row items-center px-1' : 'flex-col items-center')}>
+        <div
+          className={cn(
+            'flex gap-1',
+            listExpanded ? 'flex-row items-center px-1' : 'flex-col items-center',
+          )}
+        >
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -336,7 +357,9 @@ export function TerminalRail({
                 )}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="left">{collapsed ? 'Show panel' : 'Collapse panel'}</TooltipContent>
+            <TooltipContent side="left">
+              {collapsed ? 'Show panel' : 'Collapse panel'}
+            </TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -373,7 +396,10 @@ export function TerminalRail({
                     type="button"
                     disabled
                     aria-label="New terminal (disabled in Command Center)"
-                    className={cn(ctrlButton, 'opacity-40 hover:bg-transparent hover:text-muted-foreground')}
+                    className={cn(
+                      ctrlButton,
+                      'opacity-40 hover:bg-transparent hover:text-muted-foreground',
+                    )}
                   >
                     <RiAddLine className="size-3.5" />
                   </button>
@@ -395,7 +421,11 @@ export function TerminalRail({
                   <RiAddLine className="size-3.5" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="left" align="start" className="max-h-[70vh] overflow-y-auto">
+              <DropdownMenuContent
+                side="left"
+                align="start"
+                className="max-h-[70vh] overflow-y-auto"
+              >
                 <TerminalNewMenuContent
                   openTerminal={openTerminalFromRail}
                   extraDropdownGroups={extraDropdownGroups}

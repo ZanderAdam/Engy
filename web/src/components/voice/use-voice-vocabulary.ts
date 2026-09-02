@@ -1,11 +1,11 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { trpc } from '@/lib/trpc';
 import { useTabsList, useVirtualNavigate, useVirtualParams } from '@/components/tabs/tab-context';
 import type { VirtualParams } from '@/components/tabs/tab-state';
-import type { SessionListItem } from '@/components/terminal/session-to-tab';
+import { useOpenTerminals } from '@/components/terminal/terminal-session-store';
+import { isStoppedTerminal, type TerminalTab } from '@/components/terminal/types';
 import type { VoiceAction } from '@/lib/voice/registry';
 import {
   createNavigationActions,
@@ -16,16 +16,20 @@ import { createTerminalActions, type VoiceTerminalVocabEntry } from '@/lib/voice
 import { createHelpActions } from '@/lib/voice/actions/help';
 
 /**
- * Every persisted session, across every project — the server registry, not
- * `terminal-session-store.ts`. That browser store only tracks the projects
- * currently mounted, so a terminal in a project the user isn't looking at
- * would silently vanish from the vocabulary.
+ * The open terminals, numbered as the rail shows them. Not the server's
+ * session registry: focus works by activating a dockview panel, so a
+ * persisted session with no open panel cannot be focused and must not take a
+ * number — numbering sessions the user cannot see was why "focus terminal N"
+ * silently did nothing.
  */
-export async function fetchAllTerminalSessions(): Promise<VoiceTerminalVocabEntry[]> {
-  const res = await fetch('/api/terminal/sessions?all=1');
-  if (!res.ok) return [];
-  const data = (await res.json()) as { sessions: SessionListItem[] };
-  return data.sessions.map((s) => ({ sessionId: s.sessionId, label: s.scopeLabel }));
+function toTerminalVocab(tabs: TerminalTab[]): VoiceTerminalVocabEntry[] {
+  return tabs.map((tab) => ({
+    sessionId: tab.sessionId,
+    label: tab.scope.scopeLabel,
+    activity: tab.activityState ?? 'idle',
+    stopped: isStoppedTerminal(tab.status),
+    detail: tab.oscTitle,
+  }));
 }
 
 interface VocabularyInput {
@@ -78,11 +82,8 @@ export function useVoiceVocabulary(openHelp: () => void): VoiceAction[] {
     { workspaceId: workspace?.id ?? 0 },
     { enabled: !!workspace },
   );
-  const { data: sessions } = useQuery({
-    queryKey: ['voice-vocabulary-terminal-sessions'],
-    queryFn: fetchAllTerminalSessions,
-    refetchInterval: 5_000,
-  });
+  const openTerminals = useOpenTerminals();
+  const sessions = useMemo(() => toTerminalVocab(openTerminals), [openTerminals]);
 
   const tabsList = useTabsList();
   const { push } = useVirtualNavigate();
@@ -93,7 +94,7 @@ export function useVoiceVocabulary(openHelp: () => void): VoiceAction[] {
         workspaceSlug,
         projects: (projects ?? []).map((p) => ({ slug: p.slug, name: p.name })),
         tabs: (tabsList?.tabs ?? []).map((t) => ({ id: t.id, label: t.title })),
-        sessions: sessions ?? [],
+        sessions,
         navigate: push,
         activateTab: (id) => tabsList?.activateTab(id),
         openHelp,
