@@ -42,6 +42,12 @@ interface DiffFileSectionProps {
    * renders so the stack keeps its shape and stays scrollable.
    */
   deferred?: boolean;
+  /**
+   * Deferred because the stack is already rendering as many files as it can
+   * hold, not because the reader has yet to reach it — so scrolling further
+   * will not load it and the section has to say so.
+   */
+  capped?: boolean;
   /** Opens this file on its own, for the kinds the stack does not render. */
   onOpenSingle: () => void;
   onAddComment?: (
@@ -65,6 +71,7 @@ export function DiffFileSection({
   isViewed,
   onToggleViewed,
   deferred = false,
+  capped = false,
   onOpenSingle,
   onAddComment,
   onReply,
@@ -144,6 +151,15 @@ export function DiffFileSection({
 
       {isViewed ? (
         <p className="px-3 py-2 text-xs text-muted-foreground">Marked viewed — collapsed.</p>
+      ) : capped ? (
+        <button
+          type="button"
+          onClick={onOpenSingle}
+          className="w-full px-3 py-3 text-left text-xs text-muted-foreground hover:text-foreground"
+        >
+          Diff not loaded — this review already holds as many files as it can render at once. Open
+          this file on its own.
+        </button>
       ) : deferred ? (
         <div className="h-24" aria-hidden />
       ) : isTextLike ? (

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DiffFileSection, type DiffSectionContext } from './diff-file-section';
 import { rowId } from './diff-selection';
+import { admitSections, MAX_MOUNTED_SECTIONS } from './review-mode';
 import type { DiffComment } from './use-diff-comments';
 import type { ChangedFile, ViewMode } from './types';
 
@@ -50,10 +51,13 @@ export function DiffStack({
   const scrollRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const lastScrolled = useRef<string | null>(null);
-  // Sections that have come close enough to the viewport to be worth fetching.
-  // Grows only: once mounted a section stays mounted, so scrolling back never
-  // refetches and the scroll position never shifts under the reader.
+  // Sections close enough to the viewport to be worth fetching. Mounted
+  // sections are never released — releasing one collapses it under the reader
+  // and jumps the scroll — so the set is capped instead. Without a cap, reading
+  // to the end of a large pull request holds every file's DOM table at once,
+  // which exhausts memory rather than merely slowing down.
   const [mounted, setMounted] = useState<Set<string>>(new Set());
+  const atCapacity = mounted.size >= MAX_MOUNTED_SECTIONS;
 
   const registerSection = useCallback((id: string, node: HTMLElement | null) => {
     if (node) sectionRefs.current.set(id, node);
@@ -84,11 +88,7 @@ export function DiffStack({
           .map((e) => e.target.getAttribute('data-row-id'))
           .filter((id): id is string => !!id);
         if (arrived.length === 0) return;
-        setMounted((previous) => {
-          const next = new Set(previous);
-          for (const id of arrived) next.add(id);
-          return next.size === previous.size ? previous : next;
-        });
+        setMounted((previous) => admitSections(previous, arrived));
       },
       { root, rootMargin: '800px 0px' },
     );
@@ -148,6 +148,7 @@ export function DiffStack({
               comments={commentsForFile(file.path)}
               isViewed={viewedPaths.has(file.path)}
               deferred={!mounted.has(id)}
+              capped={!mounted.has(id) && atCapacity}
               onToggleViewed={() => onToggleViewed(file.path)}
               onOpenSingle={() => onOpenSingle(file)}
               onAddComment={onAddComment}
