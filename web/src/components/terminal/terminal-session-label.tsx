@@ -2,6 +2,7 @@
 
 import { RiTerminalLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
+import { useVoiceTerminalNumber } from '@/components/voice/use-voice-terminal-number';
 import {
   getTerminalIconStyle,
   getTerminalRailBoxStyle,
@@ -23,7 +24,12 @@ interface TerminalSessionLabelProps {
 // getTerminalIconStyle (idle/active/waiting/done), keeping the activity cue
 // consistent across surfaces. With iconBox the activity state colours the whole
 // box (getTerminalRailBoxStyle), matching the collapsed rail's filled dots.
+//
+// The voice number lives here rather than at each call site so it reaches
+// every surface that names a terminal at once — it went missing from the
+// expanded rail when only the collapsed dot rendered it.
 export function TerminalSessionLabel({ tab, className, iconBox }: TerminalSessionLabelProps) {
+  const voiceNumber = useVoiceTerminalNumber(tab.sessionId);
   return (
     <span
       className={cn(
@@ -45,7 +51,14 @@ export function TerminalSessionLabel({ tab, className, iconBox }: TerminalSessio
         <RiTerminalLine className={cn('mt-0.5 size-3 shrink-0', getTerminalIconStyle(tab))} />
       )}
       <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="truncate leading-tight">{tab.scope.scopeLabel}</span>
+        <span className="truncate leading-tight">
+          {voiceNumber !== null && (
+            <span className="mr-1 rounded-[3px] bg-foreground/15 px-1 text-[10px] tabular-nums text-foreground/80">
+              {voiceNumber}
+            </span>
+          )}
+          {tab.scope.scopeLabel}
+        </span>
         {tab.oscTitle && (
           <span className="truncate font-mono text-[9px] leading-none text-muted-foreground">
             {tab.oscTitle}

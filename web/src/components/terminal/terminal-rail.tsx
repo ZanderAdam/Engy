@@ -17,13 +17,8 @@ import { useCanHover } from '@/hooks/use-can-hover';
 import { cn } from '@/lib/utils';
 import { useTabId } from '@/components/tabs/tab-context';
 import { useTerminalScope } from './use-terminal-scope';
-import {
-  useTerminalSessions,
-  useOpenTerminals,
-  terminalOrdinal,
-  terminalRailKey,
-} from './terminal-session-store';
-import { useOptionalVoice } from '@/components/voice/voice-context';
+import { useTerminalSessions, terminalRailKey } from './terminal-session-store';
+import { useVoiceTerminalNumber } from '@/components/voice/use-voice-terminal-number';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -81,8 +76,6 @@ export function TerminalRail({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [closingTab, setClosingTab] = useState<TerminalTab | null>(null);
   const canHover = useCanHover();
-  const openTerminals = useOpenTerminals();
-  const voiceOn = useOptionalVoice() !== null;
 
   function focusSession(sessionId: string) {
     window.dispatchEvent(new CustomEvent('terminal:focus', { detail: { sessionId, tabId } }));
@@ -295,35 +288,13 @@ export function TerminalRail({
   }
 
   function renderDot(tab: TerminalTab) {
-    // While voice is on the dot shows the number the user says ("focus
-    // terminal 2") instead of the generic terminal glyph — the number is
-    // useless unless it is visible, and the glyph is identical on every dot.
-    const voiceNumber = voiceOn ? terminalOrdinal(openTerminals, tab.sessionId) : null;
     return (
-      <Tooltip key={tab.sessionId}>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={() => focusSession(tab.sessionId)}
-            aria-label={`Focus terminal ${voiceNumber === null ? '' : `${voiceNumber} `}${tab.scope.scopeLabel}${tab.oscTitle ? `: ${tab.oscTitle}` : ''}`}
-            aria-current={tab.sessionId === activeId || undefined}
-            className={cn(
-              'flex size-6 items-center justify-center rounded-[5px] transition-colors',
-              getTerminalRailBoxStyle(tab),
-              tab.sessionId === activeId && 'ring-1 ring-inset ring-foreground/60',
-            )}
-          >
-            {voiceNumber === null ? (
-              <RiTerminalLine className="size-3" />
-            ) : (
-              <span className="text-[11px] font-medium tabular-nums">{voiceNumber}</span>
-            )}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="left" className="max-w-72">
-          <TerminalSessionLabel tab={tab} />
-        </TooltipContent>
-      </Tooltip>
+      <TerminalRailDot
+        key={tab.sessionId}
+        tab={tab}
+        active={tab.sessionId === activeId}
+        onFocus={() => focusSession(tab.sessionId)}
+      />
     );
   }
 
@@ -476,5 +447,49 @@ export function TerminalRail({
         onConfirm={() => closeSession(closingTab!.sessionId)}
       />
     </TooltipProvider>
+  );
+}
+
+// A dot is its own component so it can call useVoiceTerminalNumber — the same
+// hook the expanded list gets its number from via TerminalSessionLabel. The
+// collapsed dot swaps the glyph for the number rather than adding a badge:
+// the glyph is identical on every dot, so it carries nothing the number does
+// not.
+function TerminalRailDot({
+  tab,
+  active,
+  onFocus,
+}: {
+  tab: TerminalTab;
+  active: boolean;
+  onFocus: () => void;
+}) {
+  const voiceNumber = useVoiceTerminalNumber(tab.sessionId);
+  const spoken = voiceNumber === null ? '' : `${voiceNumber} `;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onFocus}
+          aria-label={`Focus terminal ${spoken}${tab.scope.scopeLabel}${tab.oscTitle ? `: ${tab.oscTitle}` : ''}`}
+          aria-current={active || undefined}
+          className={cn(
+            'flex size-6 items-center justify-center rounded-[5px] transition-colors',
+            getTerminalRailBoxStyle(tab),
+            active && 'ring-1 ring-inset ring-foreground/60',
+          )}
+        >
+          {voiceNumber === null ? (
+            <RiTerminalLine className="size-3" />
+          ) : (
+            <span className="text-[11px] font-medium tabular-nums">{voiceNumber}</span>
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="left" className="max-w-72">
+        <TerminalSessionLabel tab={tab} />
+      </TooltipContent>
+    </Tooltip>
   );
 }
