@@ -47,10 +47,16 @@ describe('prove prompt', () => {
       expect(prompt).toContain('INCONCLUSIVE');
     });
 
-    it('should point the agent at diff_review_list rather than an invented reply tool', () => {
+    it('should point the agent at diff_review_list for the thread current text', () => {
       const prompt = buildProvePrompt(makeInput());
 
       expect(prompt).toContain('diff_review_list');
+    });
+
+    it('should send the verdict back into the thread, not just the terminal', () => {
+      const prompt = buildProvePrompt(makeInput());
+
+      expect(prompt).toContain('replyToComment');
     });
   });
 });

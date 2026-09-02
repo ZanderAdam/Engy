@@ -4,8 +4,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getDb } from '../db/client';
 import { commentThreads, threadComments } from '../db/schema';
 import { getAppState } from '../trpc/context';
+import { setThreadResolved } from '../services/comment';
 import { broadcastCommentChange } from '../ws/broadcast';
 import { randomId } from '@/lib/random-id';
+import { AGENT_USER_ID } from '@/lib/comment-feedback';
 import { mcpError, mcpResult } from './result';
 
 // Diff-review authoring tools. Agent-only (no tRPC counterparts by design —
@@ -17,7 +19,6 @@ import { mcpError, mcpResult } from './result';
 // comment.listThreadsByPrefix with no workspaceSlug, which filters on
 // `workspaceId IS NULL` — a workspace-scoped thread would be invisible to it.
 
-const AGENT_USER_ID = 'agent';
 
 const severityField = z
   .enum(['critical', 'high', 'medium'])
@@ -161,7 +162,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
         },
         findingBody(args),
       );
-      broadcastCommentChange(filePath(args.repoDir, args.filePath));
+      broadcastCommentChange(filePath(args.repoDir, args.filePath), threadId);
       return mcpResult({ threadId });
     },
   );
@@ -182,7 +183,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
         { type: 'review-summary', ...authorMetadata(callerTerminalSessionId) },
         args.summary,
       );
-      broadcastCommentChange(path);
+      broadcastCommentChange(path, threadId);
       return mcpResult({ threadId });
     },
   );
@@ -208,12 +209,8 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
         );
       }
 
-      const now = new Date().toISOString();
-      db.update(commentThreads)
-        .set({ resolved: true, resolvedBy: AGENT_USER_ID, resolvedAt: now, updatedAt: now })
-        .where(eq(commentThreads.id, args.threadId))
-        .run();
-      broadcastCommentChange(thread.documentPath);
+      setThreadResolved(args.threadId, true, AGENT_USER_ID);
+      broadcastCommentChange(thread.documentPath, args.threadId);
       return mcpResult({ threadId: args.threadId, resolved: true });
     },
   );

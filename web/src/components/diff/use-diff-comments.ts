@@ -90,6 +90,14 @@ export function useDiffComments(repoDir: string | null) {
     });
   }, [threads]);
 
+  // The summary sits at the repo root path, so the same prefix query returns it
+  // but it never matches a file's exact path.
+  const reviewSummary = useMemo<DiffComment | null>(() => {
+    if (!repoDir) return null;
+    const rootPath = `diff://${repoDir}/`;
+    return diffComments.find((c) => c.documentPath === rootPath) ?? null;
+  }, [repoDir, diffComments]);
+
   const commentsForFile = useCallback(
     (filePath: string): DiffComment[] => {
       if (!repoDir) return [];
@@ -136,6 +144,7 @@ export function useDiffComments(repoDir: string | null) {
 
   return {
     diffComments,
+    reviewSummary,
     commentsForFile,
     addLineComment,
     replyToThread,
