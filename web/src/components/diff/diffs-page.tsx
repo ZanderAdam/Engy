@@ -16,6 +16,7 @@ import { RepoSelector } from './repo-selector';
 import { WorktreeSelector } from './worktree-selector';
 import type { WorktreeSelection } from './worktree-selector';
 import { ReviewActions } from './review-actions';
+import { ReviewSummaryPanel } from './review-summary-panel';
 import { GithubCommentTriage } from './github-comment-triage';
 import { useDiffComments, extractFilePathFromDocPath } from './use-diff-comments';
 import { decodeSelection, encodeSelection, findSelectedFile, rowId } from './diff-selection';
@@ -309,6 +310,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   // Comments
   const {
     diffComments,
+    reviewSummary,
     commentsForFile,
     addLineComment,
     replyToThread,
@@ -606,7 +608,11 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                 </Button>
               </div>
             )}
-            <ReviewActions repoDir={selectedRepo} diffComments={currentFileComments} />
+            <ReviewActions
+              repoDir={selectedRepo}
+              diffComments={currentFileComments}
+              patchSpec={patchSpec}
+            />
           </div>
         </div>
 
@@ -796,6 +802,13 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                 </div>
               ) : reviewMode === 'stack' ? (
                 <div className="flex flex-1 min-h-0 flex-col">
+                  <ReviewSummaryPanel
+                    summary={reviewSummary}
+                    findingCount={
+                      currentFileComments.filter((c) => c.source === 'agent' && !c.resolved).length
+                    }
+                    onDismiss={remove}
+                  />
                   <DiffStack
                     files={files}
                     context={sectionContext}
@@ -866,6 +879,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                         oldSource={oldSource}
                         viewMode={isMobile ? 'unified' : viewMode}
                         filePath={selectedFile}
+                        repoDir={selectedRepo}
                         scrollKey={tabs.active ?? undefined}
                         isLoading={isPatchLoading}
                         truncated={patchTruncated}

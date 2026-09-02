@@ -46,6 +46,8 @@ interface DiffViewerPanelProps {
   oldSource: string;
   viewMode: ViewMode;
   filePath?: string;
+  /** Passed through to CommentWidget so it can recover a finding's file path for "Prove it". */
+  repoDir?: string | null;
   /**
    * `pane` fills a fixed-height parent and owns its scrolling; `flow` grows to
    * its content so a stack of files shares one scroll container.
@@ -96,6 +98,7 @@ export function DiffViewerPanel({
   oldSource,
   viewMode,
   filePath,
+  repoDir,
   layout = 'pane',
   scrollKey,
   isLoading,
@@ -183,6 +186,7 @@ export function DiffViewerPanel({
             <CommentWidget
               key={thread.threadId}
               comment={thread}
+              repoDir={repoDir}
               onSave={() => {}}
               onReply={onReply}
               onResolve={onResolve}
@@ -221,6 +225,7 @@ export function DiffViewerPanel({
     fileComments,
     anchors,
     newCommentChange,
+    repoDir,
     onReply,
     onResolve,
     onDelete,
@@ -314,6 +319,7 @@ export function DiffViewerPanel({
       {unanchored.length > 0 && (
         <UnanchoredComments
           comments={unanchored}
+          repoDir={repoDir}
           onReply={onReply}
           onResolve={onResolve}
           onDelete={onDelete}
@@ -353,12 +359,14 @@ export function DiffViewerPanel({
  */
 function UnanchoredComments({
   comments,
+  repoDir,
   onReply,
   onResolve,
   onDelete,
   onDeleteComment,
 }: {
   comments: DiffComment[];
+  repoDir?: string | null;
   onReply?: (threadId: string, text: string) => void;
   onResolve?: (threadId: string) => void;
   onDelete?: (threadId: string) => void;
@@ -378,6 +386,7 @@ function UnanchoredComments({
             </p>
             <CommentWidget
               comment={comment}
+              repoDir={repoDir}
               onSave={() => {}}
               onReply={onReply}
               onResolve={onResolve}

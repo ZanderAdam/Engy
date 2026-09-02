@@ -5,10 +5,12 @@ import { RiGithubLine, RiRobot2Line } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { cn } from '@/lib/utils';
 import { AGENT_USER_ID } from '@/lib/comment-feedback';
 import { SEVERITY_PRESENTATION } from './agent-findings';
-import type { DiffComment } from './use-diff-comments';
+import { buildProvePrompt } from './prove-prompt';
+import { extractFilePathFromDocPath, type DiffComment } from './use-diff-comments';
 
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -23,6 +25,8 @@ function formatRelativeTime(dateStr: string): string {
 
 interface CommentWidgetProps {
   comment?: DiffComment;
+  /** Needed to recover the finding's file path from `comment.documentPath` for the "Prove it" prompt. */
+  repoDir?: string | null;
   onSave: (text: string) => void;
   onReply?: (threadId: string, text: string) => void;
   onResolve?: (threadId: string) => void;
@@ -33,6 +37,7 @@ interface CommentWidgetProps {
 
 export function CommentWidget({
   comment,
+  repoDir,
   onSave,
   onReply,
   onDelete,
@@ -41,6 +46,7 @@ export function CommentWidget({
   onResolve,
 }: CommentWidgetProps) {
   const [text, setText] = useState('');
+  const { sendToTerminal, terminalActive } = useSendToTerminal();
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -75,6 +81,21 @@ export function CommentWidget({
   const isGithub = comment?.source === 'github';
   const isAgent = comment?.source === 'agent';
   const severity = comment?.severity ? SEVERITY_PRESENTATION[comment.severity] : undefined;
+
+  const handleProveIt = () => {
+    if (!comment || !repoDir) return;
+    const filePath = extractFilePathFromDocPath(comment.documentPath, repoDir);
+    if (!filePath) return;
+    const findingBody = comment.comments[0]?.body;
+    sendToTerminal(
+      buildProvePrompt({
+        threadId: comment.threadId,
+        filePath,
+        lineNumber: comment.lineNumber,
+        findingBody: typeof findingBody === 'string' ? findingBody : JSON.stringify(findingBody),
+      }),
+    );
+  };
 
   function commentLabel(c: DiffComment['comments'][number], i: number): string {
     if (isGithub) return c.userId ?? comment?.githubAuthor ?? 'GitHub';
@@ -163,6 +184,25 @@ export function CommentWidget({
               </div>
             ))}
             <div className="flex items-center gap-1.5 pt-1">
+              {isAgent && !comment.resolved && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={handleProveIt}
+                      disabled={!terminalActive}
+                    >
+                      Prove it
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {terminalActive
+                      ? 'Send this finding to the terminal and ask the agent to verify it'
+                      : 'No active terminal to send this to'}
+                  </TooltipContent>
+                </Tooltip>
+              )}
               {onResolve && !comment.resolved && (
                 <Button variant="ghost" size="xs" onClick={() => onResolve(comment.threadId)}>
                   {isGithub ? 'Dismiss' : 'Resolve'}

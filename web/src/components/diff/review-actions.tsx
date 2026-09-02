@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
-import { RiSendPlaneLine, RiFileCopyLine, RiCodeLine } from '@remixicon/react';
+import { RiSendPlaneLine, RiFileCopyLine, RiCodeLine, RiRobot2Line } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
@@ -10,15 +10,19 @@ import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { copyToClipboard } from '@/lib/clipboard';
 import { generateDiffFeedback } from './feedback-markdown';
+import { buildReviewPrompt } from './review-dispatch';
 import type { DiffComment } from './use-diff-comments';
+import type { GitPatchSpec } from '@engy/common';
 
 interface ReviewActionsProps {
   repoDir: string | null;
   diffComments: DiffComment[];
   taskId?: number;
+  /** Which two snapshots are on screen, so the agent reviews what you see. */
+  patchSpec?: GitPatchSpec | null;
 }
 
-export function ReviewActions({ repoDir, diffComments, taskId }: ReviewActionsProps) {
+export function ReviewActions({ repoDir, diffComments, taskId, patchSpec }: ReviewActionsProps) {
   const { sendToTerminal, terminalActive } = useSendToTerminal();
   const { status: sessionStatus, sessionId } = useExecutionStatus(
     'task',
@@ -68,6 +72,11 @@ export function ReviewActions({ repoDir, diffComments, taskId }: ReviewActionsPr
     if (!ok) toast.error('Copy failed — clipboard unavailable');
   }, [buildFeedback]);
 
+  const handleReviewDiff = useCallback(() => {
+    if (!repoDir || !patchSpec) return;
+    sendToTerminal(buildReviewPrompt(repoDir, patchSpec));
+  }, [repoDir, patchSpec, sendToTerminal]);
+
   const handleOpenInVSCode = useCallback(() => {
     if (!repoDir) return;
     window.open(`vscode://file/${repoDir}`, '_blank');
@@ -86,6 +95,26 @@ export function ReviewActions({ repoDir, diffComments, taskId }: ReviewActionsPr
   return (
     <TooltipProvider>
       <div className="flex items-center gap-1">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleReviewDiff}
+              disabled={!repoDir || !patchSpec || !terminalActive}
+              className="h-7 gap-1.5 px-2 text-xs"
+            >
+              <RiRobot2Line className="size-3.5" />
+              Review diff
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {terminalActive
+              ? 'Review the diff on screen and leave findings on the lines'
+              : 'No active terminal'}
+          </TooltipContent>
+        </Tooltip>
+
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

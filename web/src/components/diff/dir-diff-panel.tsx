@@ -109,6 +109,7 @@ export function DirDiffPanel({ dirPath }: DirDiffPanelProps) {
                 oldSource={oldSource}
                 viewMode={viewMode}
                 filePath={selectedFile}
+                repoDir={dirPath}
                 scrollKey={selection ?? undefined}
                 isLoading={isLoading}
                 truncated={truncated}
