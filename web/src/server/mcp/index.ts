@@ -58,6 +58,7 @@ import { resolveWorktreeRoots } from '../trpc/routers/shared';
 import { mcpResult, mcpError } from './result';
 import { registerTerminalTools } from './terminal-tools';
 import { registerCommentTools } from './comment-tools';
+import { registerDiffReviewTools } from './diff-review-tools';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 // Envelope helpers live in ./result (shared with register*Tools modules).
@@ -391,6 +392,7 @@ export function getMcpServer(callerTerminalSessionId?: string): McpServer {
   registerSearchTools(mcp);
   registerTerminalTools(mcp, callerTerminalSessionId);
   registerCommentTools(mcp);
+  registerDiffReviewTools(mcp, callerTerminalSessionId);
 
   return mcp;
 }

@@ -117,6 +117,19 @@ unsettled dispatches, destroyed broadcast — via the same
 `destroyTerminalSession` path as a browser kill), freeing the agent-spawn
 slot. User-opened and foreign-spawned terminals are refused.
 
+## Diff review tools
+
+`registerDiffReviewTools` (`web/src/server/mcp/diff-review-tools.ts`) lets a reviewing agent write its findings into the same `commentThreads` / `threadComments` tables the Diffs tab reads, so a review appears as inline comments on the diff rather than as text in a terminal. Three tools: `diff_review_comment` anchors one finding to a line, `diff_review_summary` writes the single unanchored summary shown above the first file, and `diff_review_list` reads back what is already on the diff — the agent's own findings and the human comments left on it.
+
+Like the `terminal_*` tools these are agent-only and have no tRPC counterpart. The browser writes the same rows through `comment.createThread` and builds the `diff://` path itself in `use-diff-comments.ts`; the MCP tools exist so an agent does not reconstruct that path and metadata shape by hand, and therefore take a diff-shaped input instead of mirroring the comment router.
+
+Two invariants make the surface work:
+
+- **Threads are workspace-less.** The Diffs tab calls `comment.listThreadsByPrefix` with no `workspaceSlug`, and that query filters on `workspaceId IS NULL`. A workspace-scoped thread would be written successfully and never appear.
+- **Authorship is derived, not declared.** `source: 'agent'`, `agentSessionId` and `agentType` come from the `/mcp/<terminalSessionId>` token and its `terminalSessionMeta` entry. A caller cannot set them, which is what makes `source` reliable as the discriminator that separates agent findings from the user's own comments — a re-review clears the former without touching the latter.
+
+`diff_review_comment` requires a `failureScenario` alongside the finding. A finding whose failure cannot be described concretely is the kind that reads as true but costs the reader attention, so the tool boundary is where that is refused rather than the prompt.
+
 ## Requirements
 
 Functional requirements in EARS notation. These are the single source of truth for the MCP server session feature's behaviour. Tag the verifying tests with the FR id in their title string, e.g. `it('[FR-MCP-010] ...', ...)`, and run `trace` (or `engy:validate`) to check coverage.
@@ -145,6 +158,10 @@ Functional requirements in EARS notation. These are the single source of truth f
 | FR-MCP-190 | WHEN `terminal_close` is called by an identified caller with the session id of a terminal whose `spawnedBy` equals the caller's session, the system SHALL send a kill command to the daemon and tear down the session's server state (meta, worker registration, unsettled dispatches failed, destroyed broadcast), freeing its agent-spawn slot; the system SHALL refuse anonymous callers, unknown sessions, terminals not spawned by the caller (user-opened or foreign-spawned), and closes attempted with no daemon connected (leaving state untouched). |
 | FR-MCP-200 | WHEN `terminal_status` is called, the system SHALL additionally include `activeSubagents` (defaulting to 0) and `lastFailure` (defaulting to `undefined`) resolved from the worker's session metadata, alongside the existing worker info and output tail. |
 | FR-MCP-210 | WHEN `replyToComment` is called with a `threadId` and `body`, the system SHALL append an `agent`-attributed comment to that thread, serialised to the thread's own body shape, and SHALL return the thread id, comment id, document path, and thread kind; IF `resolve` is true the thread SHALL also be marked resolved; an unknown `threadId` SHALL produce a tool error. |
+| FR-MCP-220 | WHEN `diff_review_comment` is called, the system SHALL insert a comment thread at `diff://<repoDir>/<filePath>` with `workspaceId: null` and metadata `{ type: 'diff', source: 'agent', lineNumber, codeLine, side, severity }` — `side` defaulting to `modified` — whose single comment body carries the finding, its failure scenario, and the suggested fix when one is given, and SHALL return the new thread id. |
+| FR-MCP-230 | WHEN a diff-review tool writes a thread, the system SHALL derive `source: 'agent'` and, for a caller identified by a `/mcp/<terminalSessionId>` token backed by live session metadata, `agentSessionId` and `agentType`, from the connection alone; a caller-supplied `source` SHALL NOT be honoured, and an anonymous caller's thread SHALL still record `source: 'agent'` with no `agentSessionId`. |
+| FR-MCP-240 | WHEN `diff_review_summary` is called, the system SHALL delete any existing thread at `diff://<repoDir>/` before inserting the new summary thread with metadata `{ type: 'review-summary', source: 'agent' }`, so one summary stands per repo while anchored findings are left untouched. |
+| FR-MCP-250 | WHEN `diff_review_list` is called without a `filePath`, the system SHALL return every workspace-less thread whose `documentPath` starts with `diff://<repoDir>/`; WHEN a `filePath` is given, the system SHALL return only threads whose `documentPath` equals `diff://<repoDir>/<filePath>` exactly, so a file is never paired with one whose name extends it (`Foo.ts` with `Foo.tsx`). Each thread SHALL be returned as `{ threadId, type, source, filePath, lineNumber, side, severity, resolved, body }`, alongside a `summary` field carrying the review-summary body or `null` when no review exists. |
 
 ## Sources
 
