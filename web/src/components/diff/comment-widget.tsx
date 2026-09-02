@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { RiGithubLine } from '@remixicon/react';
+import { RiGithubLine, RiRobot2Line } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { AGENT_USER_ID } from '@/lib/comment-feedback';
+import { SEVERITY_PRESENTATION } from './agent-findings';
 import type { DiffComment } from './use-diff-comments';
 
 function formatRelativeTime(dateStr: string): string {
@@ -72,11 +73,13 @@ export function CommentWidget({
   };
 
   const isGithub = comment?.source === 'github';
+  const isAgent = comment?.source === 'agent';
+  const severity = comment?.severity ? SEVERITY_PRESENTATION[comment.severity] : undefined;
 
   function commentLabel(c: DiffComment['comments'][number], i: number): string {
     if (isGithub) return c.userId ?? comment?.githubAuthor ?? 'GitHub';
-    if (c.userId === AGENT_USER_ID) return 'Agent';
-    return i === 0 ? 'Comment' : 'Reply';
+    if (i === 0) return isAgent ? 'Finding' : 'Comment';
+    return c.userId === AGENT_USER_ID ? 'Agent' : 'Reply';
   }
 
   return (
@@ -85,6 +88,7 @@ export function CommentWidget({
         className={cn(
           'border border-border bg-background p-3',
           isGithub && 'border-l-2 border-l-muted-foreground/30',
+          isAgent && 'border-l-2 border-l-primary/50',
         )}
       >
         {comment && comment.comments.length > 0 && (
@@ -107,6 +111,22 @@ export function CommentWidget({
                     </TooltipTrigger>
                     <TooltipContent>Open this comment on GitHub</TooltipContent>
                   </Tooltip>
+                )}
+              </div>
+            )}
+            {isAgent && (
+              <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <RiRobot2Line className="size-3.5 shrink-0" />
+                <span className="font-medium">{comment.agentType ?? 'Agent'}</span>
+                {severity && (
+                  <span
+                    className={cn(
+                      'ml-auto text-[10px] font-medium uppercase tracking-wide',
+                      severity.className,
+                    )}
+                  >
+                    {severity.label}
+                  </span>
                 )}
               </div>
             )}
