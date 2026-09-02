@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { RiMicLine } from '@remixicon/react';
 import {
@@ -14,9 +14,8 @@ import { trpc } from '@/lib/trpc';
 import { useTabsList, useVirtualParams } from '@/components/tabs/tab-context';
 import type { VirtualParams } from '@/components/tabs/tab-state';
 import { isTypingTarget } from '@/lib/keyboard';
-import { createHelpActions } from '@/lib/voice/actions/help';
-import { useOptionalVoice } from './voice-context';
-import { fetchAllTerminalSessions, useVoiceVocabulary } from './use-voice-vocabulary';
+import { useOptionalVoice, type VoiceControl } from './voice-context';
+import { fetchAllTerminalSessions } from './use-voice-vocabulary';
 import {
   buildVoiceHelpEntries,
   groupVoiceHelpEntries,
@@ -49,15 +48,8 @@ function buildValueLookup(
   };
 }
 
-function ActiveVoiceHelpDialog() {
-  const [open, setOpen] = useState(false);
-
-  const vocabularyActions = useVoiceVocabulary();
-  const helpActions = useMemo(() => createHelpActions({ openHelp: () => setOpen(true) }), []);
-  const actions = useMemo(
-    () => [...vocabularyActions, ...helpActions],
-    [vocabularyActions, helpActions],
-  );
+function ActiveVoiceHelpDialog({ voice }: { voice: VoiceControl }) {
+  const { actions, helpOpen: open, setHelpOpen: setOpen } = voice;
 
   const params = useVirtualParams<VirtualParams>();
   const workspaceSlug = params.workspace ?? '';
@@ -98,11 +90,11 @@ function ActiveVoiceHelpDialog() {
       if (e.key !== '?') return;
       if (isTypingTarget()) return;
       e.preventDefault();
-      setOpen((o) => !o);
+      setOpen(!open);
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [open, setOpen]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -141,7 +133,9 @@ function ActiveVoiceHelpDialog() {
                           )}
                         </>
                       ) : (
-                        <span className="text-muted-foreground">&ldquo;{phrase.template}&rdquo;</span>
+                        <span className="text-muted-foreground">
+                          &ldquo;{phrase.template}&rdquo;
+                        </span>
                       )}
                     </div>
                   ))}
@@ -160,5 +154,5 @@ function ActiveVoiceHelpDialog() {
 export function VoiceHelpDialog() {
   const voice = useOptionalVoice();
   if (!voice) return null;
-  return <ActiveVoiceHelpDialog />;
+  return <ActiveVoiceHelpDialog voice={voice} />;
 }

@@ -110,9 +110,7 @@ function makeOpts(overrides: Partial<VoicePttControllerOpts> = {}): VoicePttCont
 /** A test double for a `useVoiceCapture()` caller: records every state push
  * and every segment handed to it via spies, so assertions read the same way
  * whether the observer is the sole subscriber or one of several. */
-function makeObserver(
-  onCommandImpl: (text: string) => ResolveResult = () => NO_MATCH,
-): {
+function makeObserver(onCommandImpl: (text: string) => ResolveResult = () => NO_MATCH): {
   observer: VoiceCaptureObserver;
   onStateChange: ReturnType<typeof vi.fn>;
   onSegment: ReturnType<typeof vi.fn>;
@@ -372,7 +370,9 @@ describe('VoicePttController', () => {
 
       firePtt('keyup');
       // And the tail segment, flushed after voice_stop, keeps the pattern.
-      ws.simulateMessage(JSON.stringify({ t: 'voice_segment', transcript: 'Can you hear me now?' }));
+      ws.simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: 'Can you hear me now?' }),
+      );
 
       expect(onSegment.mock.calls.map((call) => call[0])).toEqual([
         'Hello.',
@@ -853,7 +853,7 @@ describe('VoicePttController', () => {
       expect(lastState(onStateChange)?.phase).toBe('transcribing');
     });
 
-    it('[FR-TG1.9] addresses the socket to the active tab\'s workspace', () => {
+    it("[FR-TG1.9] addresses the socket to the active tab's workspace", () => {
       // wsUrlFactory stays unset here — the point is the real slug resolution
       // the server-side gate reads, which every other test bypasses.
       controller = new VoicePttController({ ...makeOpts(), wsUrlFactory: undefined });
@@ -1040,7 +1040,11 @@ describe('VoicePttController', () => {
       ws.simulateOpen();
 
       ws.simulateMessage(
-        JSON.stringify({ t: 'voice_segment', transcript: `${WAKE_WORD} select project web`, wake: true }),
+        JSON.stringify({
+          t: 'voice_segment',
+          transcript: `${WAKE_WORD} select project web`,
+          wake: true,
+        }),
       );
 
       // [FR-TG2.13] wake prefix stripped before the observer resolves it.
@@ -1060,7 +1064,11 @@ describe('VoicePttController', () => {
       ws.simulateOpen();
 
       ws.simulateMessage(
-        JSON.stringify({ t: 'voice_segment', transcript: `${WAKE_WORD} do something odd`, wake: true }),
+        JSON.stringify({
+          t: 'voice_segment',
+          transcript: `${WAKE_WORD} do something odd`,
+          wake: true,
+        }),
       );
 
       expect(onCommand).toHaveBeenCalledTimes(1);
@@ -1086,7 +1094,11 @@ describe('VoicePttController', () => {
       ws.simulateOpen();
 
       ws.simulateMessage(
-        JSON.stringify({ t: 'voice_segment', transcript: `${WAKE_WORD} select project web`, wake: true }),
+        JSON.stringify({
+          t: 'voice_segment',
+          transcript: `${WAKE_WORD} select project web`,
+          wake: true,
+        }),
       );
 
       expect(lastState(onStateChange)?.command).toEqual(matched);

@@ -1,10 +1,17 @@
 'use client';
 
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 
+import type { VoiceAction } from '@/lib/voice/registry';
 import { useVoiceCapture, type VoiceCaptureState } from './use-voice-capture';
+import { useVoiceVocabulary } from './use-voice-vocabulary';
 
-type VoiceControl = VoiceCaptureState & { toggle: () => void };
+export type VoiceControl = VoiceCaptureState & {
+  toggle: () => void;
+  actions: VoiceAction[];
+  helpOpen: boolean;
+  setHelpOpen: (open: boolean) => void;
+};
 
 const VoiceContext = createContext<VoiceControl | null>(null);
 
@@ -14,6 +21,11 @@ export function useOptionalVoice(): VoiceControl | null {
   return useContext(VoiceContext);
 }
 
+/**
+ * Owns the one action registry. The resolver and the help dialog must match
+ * and render the *same* list, so the registry is assembled here and shared,
+ * rather than each consumer building its own.
+ */
 function ActiveVoiceProvider({
   workspaceSlug,
   children,
@@ -21,9 +33,16 @@ function ActiveVoiceProvider({
   workspaceSlug: string;
   children: ReactNode;
 }) {
-  return (
-    <VoiceContext.Provider value={useVoiceCapture(workspaceSlug)}>{children}</VoiceContext.Provider>
+  const [helpOpen, setHelpOpen] = useState(false);
+  const openHelp = useCallback(() => setHelpOpen(true), []);
+  const actions = useVoiceVocabulary(openHelp);
+  const capture = useVoiceCapture(workspaceSlug, actions);
+
+  const value = useMemo(
+    () => ({ ...capture, actions, helpOpen, setHelpOpen }),
+    [capture, actions, helpOpen],
   );
+  return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;
 }
 
 /**

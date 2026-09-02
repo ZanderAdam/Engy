@@ -67,10 +67,7 @@ describe('voice help entries', () => {
 
     it('[FR-TG2.9] should expand a templated phrase into concrete examples from live vocabulary', () => {
       const actions = selectProjectAction();
-      const entries = buildVoiceHelpEntries(actions, WAKE_WORD, () => [
-        'Engy Web',
-        'Engy Client',
-      ]);
+      const entries = buildVoiceHelpEntries(actions, WAKE_WORD, () => ['Engy Web', 'Engy Client']);
       const selectProject = entries.find((e) => e.id === 'voice.navigation.select-project');
       const firstPhrase = selectProject?.phrases[0];
       expect(firstPhrase?.examples).toEqual([
@@ -138,6 +135,7 @@ describe('voice help entries', () => {
       const help = entries.find((e) => e.id === 'voice.help.show');
       expect(help?.phrases.map((p) => p.template)).toEqual([
         'ANGIE, what can I say',
+        'ANGIE, what can I do',
         'ANGIE, show voice help',
         'ANGIE, help',
       ]);

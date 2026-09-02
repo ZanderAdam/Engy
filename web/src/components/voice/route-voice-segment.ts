@@ -1,8 +1,6 @@
 import { stripWakeWord } from '@/lib/voice/resolve';
 
-type VoiceSegmentRoute =
-  | { kind: 'dictation'; text: string }
-  | { kind: 'command'; text: string };
+type VoiceSegmentRoute = { kind: 'dictation'; text: string } | { kind: 'command'; text: string };
 
 /**
  * The dual-mode decision at the heart of push-to-talk: every segment is

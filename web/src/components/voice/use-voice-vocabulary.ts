@@ -3,11 +3,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { trpc } from '@/lib/trpc';
-import {
-  useTabsList,
-  useVirtualNavigate,
-  useVirtualParams,
-} from '@/components/tabs/tab-context';
+import { useTabsList, useVirtualNavigate, useVirtualParams } from '@/components/tabs/tab-context';
 import type { VirtualParams } from '@/components/tabs/tab-state';
 import type { SessionListItem } from '@/components/terminal/session-to-tab';
 import type { VoiceAction } from '@/lib/voice/registry';
@@ -17,6 +13,7 @@ import {
   type VoiceTabVocabEntry,
 } from '@/lib/voice/actions/navigation';
 import { createTerminalActions, type VoiceTerminalVocabEntry } from '@/lib/voice/actions/terminal';
+import { createHelpActions } from '@/lib/voice/actions/help';
 
 /**
  * Every persisted session, across every project — the server registry, not
@@ -38,6 +35,7 @@ interface VocabularyInput {
   sessions: VoiceTerminalVocabEntry[];
   navigate: (path: string) => void;
   activateTab: (tabId: string) => void;
+  openHelp: () => void;
 }
 
 /** Pure assembly, independent of how each list was fetched — this is what
@@ -53,6 +51,7 @@ export function assembleVoiceVocabulary(input: VocabularyInput): VoiceAction[] {
       activateTab: input.activateTab,
     }),
     ...createTerminalActions({ sessions: input.sessions }),
+    ...createHelpActions({ openHelp: input.openHelp }),
   ];
 }
 
@@ -61,8 +60,13 @@ export function assembleVoiceVocabulary(input: VocabularyInput): VoiceAction[] {
  * session on the server. Refetches terminal sessions on an interval, same as
  * `useTaskTerminals`, so a session opened elsewhere becomes speakable without
  * a page reload.
+ *
+ * The single place the registry is assembled. Help belongs here, not beside
+ * the dialog it opens: a registry built for rendering help is not the one the
+ * resolver matches against, so "what can I say" listed itself and then failed
+ * to resolve.
  */
-export function useVoiceVocabulary(): VoiceAction[] {
+export function useVoiceVocabulary(openHelp: () => void): VoiceAction[] {
   const params = useVirtualParams<VirtualParams>();
   const workspaceSlug = params.workspace ?? '';
 
@@ -92,7 +96,8 @@ export function useVoiceVocabulary(): VoiceAction[] {
         sessions: sessions ?? [],
         navigate: push,
         activateTab: (id) => tabsList?.activateTab(id),
+        openHelp,
       }),
-    [workspaceSlug, projects, tabsList, sessions, push],
+    [workspaceSlug, projects, tabsList, sessions, push, openHelp],
   );
 }

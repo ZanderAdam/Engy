@@ -65,9 +65,7 @@ export function buildVoiceHelpEntries(
   }));
 }
 
-export function groupVoiceHelpEntries(
-  entries: VoiceHelpEntry[],
-): Record<string, VoiceHelpEntry[]> {
+export function groupVoiceHelpEntries(entries: VoiceHelpEntry[]): Record<string, VoiceHelpEntry[]> {
   const grouped: Record<string, VoiceHelpEntry[]> = {};
   for (const entry of entries) {
     (grouped[entry.category] ??= []).push(entry);

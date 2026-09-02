@@ -6,9 +6,9 @@ import type { VoiceEvent, VoiceStartCmd, VoiceStopCmd } from '@engy/common';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { useOptionalTab } from '@/components/tabs/tab-context';
 import { resolveAction, type ResolveResult } from '@/lib/voice/resolve';
+import type { VoiceAction } from '@/lib/voice/registry';
 import { MicCapture, type MicCaptureOpts } from './mic-capture';
 import { routeVoiceSegment } from './route-voice-segment';
-import { useVoiceVocabulary } from './use-voice-vocabulary';
 
 /** Physical Right Ctrl, held to talk. Matched on `e.code`, not `e.key`,
  * since `e.key` reports `'Control'` for both sides. */
@@ -255,9 +255,7 @@ export class VoicePttController {
 
           const route = routeVoiceSegment(msg.transcript, msg.wake, WAKE_PREFIXES);
           if (route.kind === 'dictation') {
-            const insertText = this.isFirstDictationSegmentOfTurn
-              ? route.text
-              : ` ${route.text}`;
+            const insertText = this.isFirstDictationSegmentOfTurn ? route.text : ` ${route.text}`;
             this.isFirstDictationSegmentOfTurn = false;
             this.emitSegment(insertText);
           } else {
@@ -449,12 +447,12 @@ export function getVoicePttController(): VoicePttController {
  * server rejects the upgrade otherwise. */
 export function useVoiceCapture(
   workspaceSlug: string,
+  actions: VoiceAction[],
 ): VoiceCaptureState & { toggle: () => void } {
   const { insertToTerminal } = useSendToTerminal();
   const tabCtx = useOptionalTab();
   // A tab with no TabContext is the only view there is, so treat it as active.
   const isActiveTab = tabCtx?.isActive ?? true;
-  const actions = useVoiceVocabulary();
   const liveRef = useRef({ insertToTerminal, isActiveTab, workspaceSlug, actions });
   useEffect(() => {
     liveRef.current = { insertToTerminal, isActiveTab, workspaceSlug, actions };

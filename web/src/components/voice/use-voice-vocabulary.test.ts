@@ -3,6 +3,36 @@ import { resolveAction } from '@/lib/voice/resolve';
 import { assembleVoiceVocabulary, fetchAllTerminalSessions } from './use-voice-vocabulary';
 
 describe('assembleVoiceVocabulary', () => {
+  // The registry the resolver matches against and the registry the help
+  // dialog renders must be the same one. They were not: help lived beside
+  // the dialog, so "what can I say" listed itself in help and then failed to
+  // resolve. Resolving against the assembled vocabulary is what catches that
+  // — asserting on a hand-built action list cannot.
+  it('[FR-TG2.10] should resolve the help phrases against the assembled vocabulary', () => {
+    const openHelp = vi.fn();
+    const actions = assembleVoiceVocabulary({
+      workspaceSlug: 'engy',
+      projects: [],
+      tabs: [],
+      sessions: [],
+      navigate: vi.fn(),
+      activateTab: vi.fn(),
+      openHelp,
+    });
+
+    for (const phrase of ['what can I say', 'what can I do', 'help']) {
+      const resolved = resolveAction(phrase, actions);
+      expect(resolved.matched, `"${phrase}" did not resolve`).toBe(true);
+      if (!resolved.matched) return;
+      expect(resolved.result.action.id).toBe('voice.help.show');
+    }
+
+    const resolved = resolveAction('help', actions);
+    if (!resolved.matched) return;
+    void resolved.result.action.run({ params: {} });
+    expect(openHelp).toHaveBeenCalled();
+  });
+
   it('should return no actions without a workspace slug', () => {
     const actions = assembleVoiceVocabulary({
       workspaceSlug: '',
@@ -11,6 +41,7 @@ describe('assembleVoiceVocabulary', () => {
       sessions: [],
       navigate: vi.fn(),
       activateTab: vi.fn(),
+      openHelp: vi.fn(),
     });
     expect(actions).toEqual([]);
   });
@@ -24,6 +55,7 @@ describe('assembleVoiceVocabulary', () => {
       sessions: [],
       navigate,
       activateTab: vi.fn(),
+      openHelp: vi.fn(),
     });
 
     const resolved = resolveAction('select project engy web', actions);
@@ -43,6 +75,7 @@ describe('assembleVoiceVocabulary', () => {
       sessions: [{ sessionId: 'sess-unmounted', label: 'build' }],
       navigate: vi.fn(),
       activateTab: vi.fn(),
+      openHelp: vi.fn(),
     });
 
     const focusAction = actions.find((a) => a.id === 'voice.terminal.focus');

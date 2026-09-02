@@ -58,8 +58,7 @@ export function VoiceIndicator() {
           {command &&
             (command.matched ? (
               <span className="text-foreground">
-                {command.result.action.title} · {Math.round(command.result.confidence * 100)}%
-                match
+                {command.result.action.title} · {Math.round(command.result.confidence * 100)}% match
               </span>
             ) : (
               <span className="text-muted-foreground">No matching action</span>
