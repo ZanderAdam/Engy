@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { AGENT_USER_ID } from '@/lib/comment-feedback';
 import type { DiffComment } from './use-diff-comments';
 
 function formatRelativeTime(dateStr: string): string {
@@ -74,6 +75,7 @@ export function CommentWidget({
 
   function commentLabel(c: DiffComment['comments'][number], i: number): string {
     if (isGithub) return c.userId ?? comment?.githubAuthor ?? 'GitHub';
+    if (c.userId === AGENT_USER_ID) return 'Agent';
     return i === 0 ? 'Comment' : 'Reply';
   }
 

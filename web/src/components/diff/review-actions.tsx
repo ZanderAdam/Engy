@@ -37,6 +37,7 @@ export function ReviewActions({ repoDir, diffComments, taskId }: ReviewActionsPr
   const buildFeedback = useCallback(() => {
     if (!repoDir) return '';
     const threads = unresolvedThreads.map((c) => ({
+      id: c.threadId,
       documentPath: c.documentPath,
       metadata: { lineNumber: c.lineNumber, codeLine: c.codeLine },
       resolved: c.resolved,

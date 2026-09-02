@@ -76,6 +76,11 @@ interface TerminalWorkersChangePayload {
   connected: boolean;
 }
 
+interface CommentChangePayload {
+  documentPath: string;
+  threadId: string;
+}
+
 interface TerminalBranchChangePayload {
   sessionId: string;
   worktreeBranch: string;
@@ -92,6 +97,7 @@ interface ServerEventMap {
   PR_ATTENTION: PrAttentionPayload;
   TERMINAL_WORKERS_CHANGE: TerminalWorkersChangePayload;
   TERMINAL_BRANCH_CHANGE: TerminalBranchChangePayload;
+  COMMENT_CHANGE: CommentChangePayload;
 }
 
 type ServerEventType = keyof ServerEventMap;

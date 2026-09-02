@@ -3,6 +3,7 @@
 import { useCallback, useMemo } from 'react';
 import { trpc } from '@/lib/trpc';
 import { randomId } from '@/lib/random-id';
+import { useOnServerEvent } from '@/contexts/events-context';
 
 export interface DiffComment {
   threadId: string;
@@ -38,6 +39,12 @@ export function useDiffComments(repoDir: string | null) {
     { documentPathPrefix: prefix },
     { enabled: !!repoDir },
   );
+
+  // An agent replying over MCP writes straight to the DB, so a mutation-local
+  // refetch would never see it.
+  useOnServerEvent('COMMENT_CHANGE', (payload) => {
+    if (prefix && payload.documentPath.startsWith(prefix)) refetch();
+  });
 
   const createThread = trpc.comment.createThread.useMutation({ onSuccess: () => refetch() });
   const addComment = trpc.comment.addComment.useMutation({ onSuccess: () => refetch() });

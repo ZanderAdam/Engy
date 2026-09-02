@@ -1,4 +1,7 @@
+import { REPLY_HINT, threadIdLine } from '@/lib/comment-feedback';
+
 interface DiffThread {
+  id: string;
   documentPath: string;
   metadata?: Record<string, unknown> | null;
   resolved?: boolean;
@@ -51,7 +54,11 @@ interface FileEntry {
  * count, then one `###` section per file with its entries ordered by line.
  * Files with no entries never reach here, so an empty map means no feedback.
  */
-function renderFeedbackDocument(heading: string, byFile: Map<string, FileEntry[]>): string {
+function renderFeedbackDocument(
+  heading: string,
+  byFile: Map<string, FileEntry[]>,
+  preamble?: string,
+): string {
   if (byFile.size === 0) return '';
 
   for (const entries of byFile.values()) {
@@ -62,6 +69,7 @@ function renderFeedbackDocument(heading: string, byFile: Map<string, FileEntry[]
   const lines = [
     `## ${heading}`,
     `${total} comment${total === 1 ? '' : 's'} across ${byFile.size} file${byFile.size === 1 ? '' : 's'}`,
+    ...(preamble ? [preamble] : []),
     '',
   ];
 
@@ -90,6 +98,7 @@ export function generateDiffFeedback(threads: DiffThread[], repoDir: string): st
 
     const body: string[] = [];
     if (lineNumber > 0) body.push(`**Line ${lineNumber}**`);
+    body.push(threadIdLine(thread.id));
     // The reviewed line itself, so the agent reads the comment against what the
     // reviewer was looking at rather than re-deriving it from a line number.
     if (codeLine) body.push('```', codeLine, '```');
@@ -100,7 +109,7 @@ export function generateDiffFeedback(threads: DiffThread[], repoDir: string): st
     byFile.get(filePath)!.push({ lineNumber, body });
   }
 
-  return renderFeedbackDocument('Code Review Feedback', byFile);
+  return renderFeedbackDocument('Code Review Feedback', byFile, REPLY_HINT);
 }
 
 /**

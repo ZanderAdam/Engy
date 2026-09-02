@@ -94,6 +94,14 @@ interface PrAttentionEvent {
   };
 }
 
+interface CommentChangeEvent {
+  type: 'COMMENT_CHANGE';
+  payload: {
+    documentPath: string;
+    threadId: string;
+  };
+}
+
 interface TerminalWorkersChangeEvent {
   type: 'TERMINAL_WORKERS_CHANGE';
   payload: {
@@ -112,7 +120,8 @@ type ServerEvent =
   | TerminalBranchChangeEvent
   | PrChangeEvent
   | PrAttentionEvent
-  | TerminalWorkersChangeEvent;
+  | TerminalWorkersChangeEvent
+  | CommentChangeEvent;
 
 // ── Generic Broadcast ───────────────────────────────────────────────
 
@@ -208,4 +217,8 @@ export function broadcastPrAttention(
 
 export function broadcastTerminalWorkersChange(sessionId: string, connected: boolean): void {
   broadcastEvent({ type: 'TERMINAL_WORKERS_CHANGE', payload: { sessionId, connected } });
+}
+
+export function broadcastCommentChange(documentPath: string, threadId: string): void {
+  broadcastEvent({ type: 'COMMENT_CHANGE', payload: { documentPath, threadId } });
 }

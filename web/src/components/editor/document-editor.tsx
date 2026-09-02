@@ -43,6 +43,7 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { stripFrontmatter } from "./frontmatter";
 import { normalizeMarkdown } from "./remark-normalize";
+import { useOnServerEvent } from "@/contexts/events-context";
 import { mermaidBlockSpec } from "./mermaid/block";
 import { insertMermaidItem } from "./mermaid/slash-menu";
 import { codeBlockToMermaid, mermaidToCodeBlock } from "./mermaid/markdown-bridge";
@@ -150,6 +151,12 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       setHasOpenThreads(checkOpen());
     });
   }, [threadStore]);
+
+  // An agent replying over MCP writes straight to the DB, behind this store's
+  // local state.
+  useOnServerEvent("COMMENT_CHANGE", (payload) => {
+    if (payload.documentPath === threadStore.documentPath) void threadStore.refresh?.();
+  });
 
   const utils = trpc.useUtils();
   const mentionDirsRef = useRef(mentionDirs);

@@ -254,6 +254,7 @@ FR id in their title string, e.g. `it('[FR-GIT-010] ...', ...)`, and run
 | FR-GIT-410 | IF a file's patch exceeds the daemon's size cap, THEN the daemon SHALL report it as truncated instead of sending the body; IF a patch renders more changed lines than the pane's cap, THEN the pane SHALL name the count and require confirmation before rendering it. |
 | FR-GIT-420 | WHEN a comment thread is rendered, the system SHALL anchor it to the change matching its stored line number and side, deriving the side of a new comment from the change it is placed on so a deleted line records `original`; IF a thread's line is not among the rendered changes, THEN the system SHALL list the thread with its line number and recorded text rather than omit it. |
 | FR-GIT-430 | The diff surface SHALL be read-only: it SHALL NOT offer an edit mode, save state, or any affordance that writes to the file being reviewed. |
+| FR-GIT-440 | WHEN diff comments are sent to an agent as feedback, the system SHALL name each thread's id alongside its line and quoted code, and SHALL state how to reply to a thread. |
 
 ## Sources
 

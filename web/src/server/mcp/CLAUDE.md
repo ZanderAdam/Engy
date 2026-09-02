@@ -8,13 +8,14 @@ See `../trpc/routers/CLAUDE.md` for the parity rule from the tRPC side.
 
 The MCP surface and tRPC surface expose the same domain operations (workspace/task/memory CRUD, search, index). This is **intentional duplication** — the two API surfaces exist side by side and have separate implementations in `index.ts` and the tRPC routers respectively. Both share the same Drizzle DB and AppState singleton. Do not try to call tRPC procedures from MCP handlers; duplicate the logic.
 
-- Every MCP tool corresponds to a tRPC procedure with matching input shape, error semantics, and side effects. **When you change one, change the other.** Exception: the `terminal_*` dispatch tools (`terminal-tools.ts`) are agent-only by design — browsers manage the worker set via the `terminal` tRPC router; agents alone call dispatch/reply/collect/status.
+- Every MCP tool corresponds to a tRPC procedure with matching input shape, error semantics, and side effects. **When you change one, change the other.** Exception: the `terminal_*` dispatch tools (`terminal-tools.ts`) are agent-only by design — browsers manage the worker set via the `terminal` tRPC router; agents alone call dispatch/reply/collect/status. `replyToComment` (`comment-tools.ts`) is a second exception: it composes `addComment` + optional `resolveThread` from the shared service into one text-level call and takes no `workspaceSlug`, because thread ids are globally unique.
 - Shared helpers live outside both layers and **must be imported**, not copied:
   - `validateDependencies`, `attachBlockedBy` from `../tasks/validation`
   - `getWorkspaceDir`, `resolveProjectDir` from `../engy-dir/init`
   - `broadcastTaskChange`, `broadcastQuestionChange`, `broadcastMemoryChange` from `../ws/broadcast`
   - `taskStatusSchema` from `@/lib/task-status`
   - `readTaskPlan` from `../plan/service`
+  - `addComment`, `replyToThread`, `setThreadResolved`, `textToBody` from `../services/comment`
 - Cycle detection is **not** reimplemented here — `validateDependencies`/`attachBlockedBy` are imported from `../tasks/validation` (see above) and shared with the tRPC layer.
 - File system / git on user repos still goes through the daemon via `../ws/server` dispatchers. MCP must not call `fs`/`simple-git` on user repos directly, just like tRPC.
 
@@ -81,6 +82,7 @@ Tools are registered by domain in separate `register*Tools(mcp)` functions:
 - `registerQuestionTools` — `askQuestion`
 - `registerIndexTools` — `reindex`, `indexStatus`, `validateWorkspace`
 - `registerSearchTools` — `search` (unified; replaces `listMemories` for discovery use cases), `trace` (requirements traceability: FR ↔ tests ↔ source, via `search/trace.ts`)
+- `registerCommentTools` (in `comment-tools.ts`) — `replyToComment` (answers a diff or doc comment thread by id, optionally resolving it). Writes go through `../services/comment`, shared with the `comment` tRPC router.
 - `registerTerminalTools` (in `terminal-tools.ts`) — `terminal_whoami` (caller identity from the `/mcp/<token>` path), `terminal_list_workers`, `terminal_dispatch`, `terminal_collect`, `terminal_reply`, `terminal_status`, `terminal_spawn` (agent spawning of any registered agentType, own type included: cwd inside a workspace repo, ≤3 live agent-spawned sessions; server-originated spawn via `spawnAgentTerminal`), `terminal_close` (spawner-only close of agent-spawned terminals via `closeAgentTerminal`). State and mechanics in `../terminal-dispatch.ts`. Takes the caller's terminal session id from `getMcpServer(callerTerminalSessionId)` — the path token parsed in `attachMCP`.
 
 ## Authoring Tools

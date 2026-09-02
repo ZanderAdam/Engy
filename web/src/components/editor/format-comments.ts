@@ -1,3 +1,5 @@
+import { REPLY_HINT, threadIdLine } from '@/lib/comment-feedback';
+
 interface ThreadLike {
   resolved: boolean;
   deletedAt?: Date | null;
@@ -23,10 +25,11 @@ export function formatCommentsForExport({
 
   if (filePath) {
     lines.push(`# Comments on ${filePath}`);
+    lines.push(REPLY_HINT);
     lines.push('');
   }
 
-  for (const [, thread] of threads) {
+  for (const [threadId, thread] of threads) {
     if (thread.deletedAt || thread.resolved) continue;
     const threadComments = thread.comments.filter((c) => !c.deletedAt);
     if (threadComments.length === 0) continue;
@@ -42,6 +45,7 @@ export function formatCommentsForExport({
       lines.push(`"${exact}"`);
     }
 
+    lines.push(threadIdLine(threadId));
     for (const comment of threadComments) {
       lines.push(`> ${extractCommentText(comment.body)}`);
     }
