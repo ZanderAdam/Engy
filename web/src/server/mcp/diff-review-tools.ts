@@ -4,8 +4,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getDb } from '../db/client';
 import { commentThreads, threadComments } from '../db/schema';
 import { getAppState } from '../trpc/context';
+import { broadcastCommentChange } from '../ws/broadcast';
 import { randomId } from '@/lib/random-id';
-import { mcpResult } from './result';
+import { mcpError, mcpResult } from './result';
 
 // Diff-review authoring tools. Agent-only (no tRPC counterparts by design —
 // the browser writes the same rows through comment.createThread and builds the
@@ -42,6 +43,16 @@ const diffReviewCommentInput = {
       'Concrete inputs or state that produce the wrong result. If you cannot describe how the code breaks, it is not a finding — leave it out',
     ),
   suggestedFix: z.string().optional().describe('Concrete change that resolves it'),
+  evidence: z
+    .string()
+    .optional()
+    .describe(
+      'How far up the evidence ladder this got and what proves it, e.g. "rung 4: auth.test.ts:12 reproduces it". Findings that only assert are worth less to the reader than ones that ran',
+    ),
+};
+
+const diffReviewResolveInput = {
+  threadId: z.string().min(1).describe('Thread id from diff_review_list'),
 };
 
 const diffReviewSummaryInput = {
@@ -146,9 +157,11 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
           codeLine: args.codeLine,
           side: args.side,
           severity: args.severity,
+          ...(args.evidence ? { evidence: args.evidence } : {}),
         },
         findingBody(args),
       );
+      broadcastCommentChange(filePath(args.repoDir, args.filePath));
       return mcpResult({ threadId });
     },
   );
@@ -169,7 +182,39 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
         { type: 'review-summary', ...authorMetadata(callerTerminalSessionId) },
         args.summary,
       );
+      broadcastCommentChange(path);
       return mcpResult({ threadId });
+    },
+  );
+
+  mcp.tool(
+    'diff_review_resolve',
+    "Mark one of your own findings resolved — you re-reviewed and it no longer stands. Refuses threads you did not write: closing a human's comment is their call, not yours.",
+    diffReviewResolveInput,
+    async (args) => {
+      const db = getDb();
+      const thread = db
+        .select()
+        .from(commentThreads)
+        .where(eq(commentThreads.id, args.threadId))
+        .get();
+
+      if (!thread) return mcpError(`No thread with id "${args.threadId}"`);
+
+      const meta = (thread.metadata ?? {}) as Record<string, unknown>;
+      if (meta.source !== 'agent') {
+        return mcpError(
+          `Thread "${args.threadId}" was not written by an agent. Reply to it instead — only the person who wrote it can resolve it.`,
+        );
+      }
+
+      const now = new Date().toISOString();
+      db.update(commentThreads)
+        .set({ resolved: true, resolvedBy: AGENT_USER_ID, resolvedAt: now, updatedAt: now })
+        .where(eq(commentThreads.id, args.threadId))
+        .run();
+      broadcastCommentChange(thread.documentPath);
+      return mcpResult({ threadId: args.threadId, resolved: true });
     },
   );
 
@@ -196,6 +241,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
           lineNumber: meta.lineNumber ?? null,
           side: meta.side ?? null,
           severity: meta.severity ?? null,
+          evidence: meta.evidence ?? null,
           resolved: row.resolved ?? false,
           body: firstCommentBody(row.id),
         };

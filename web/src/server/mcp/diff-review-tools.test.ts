@@ -128,6 +128,41 @@ describe('diff review MCP tools', () => {
       expect(body).toContain('Use >= instead of >.');
     });
 
+    it('[FR-MCP-220] carries the evidence rung when the finding earned one', async () => {
+      const mcp = makeMcp();
+      await callTool(mcp, 'diff_review_comment')({
+        repoDir: REPO,
+        filePath: 'src/a.ts',
+        lineNumber: 1,
+        codeLine: 'x',
+        severity: 'critical',
+        finding: 'f',
+        failureScenario: 's',
+        evidence: 'rung 4: src/a.test.ts:12 reproduces it',
+      });
+
+      const threads = await readAsDiffsTabWould(REPO);
+      expect(threads[0].metadata).toMatchObject({
+        evidence: 'rung 4: src/a.test.ts:12 reproduces it',
+      });
+    });
+
+    it('[FR-MCP-220] omits evidence entirely for a finding that only asserts', async () => {
+      const mcp = makeMcp();
+      await callTool(mcp, 'diff_review_comment')({
+        repoDir: REPO,
+        filePath: 'src/a.ts',
+        lineNumber: 1,
+        codeLine: 'x',
+        severity: 'medium',
+        finding: 'f',
+        failureScenario: 's',
+      });
+
+      const meta = (await readAsDiffsTabWould(REPO))[0].metadata as Record<string, unknown>;
+      expect(meta.evidence).toBeUndefined();
+    });
+
     it('[FR-MCP-220] records a deleted line against the original side', async () => {
       const mcp = makeMcp();
       await callTool(mcp, 'diff_review_comment')({
@@ -205,6 +240,53 @@ describe('diff review MCP tools', () => {
 
       const threads = await readAsDiffsTabWould(REPO);
       expect((threads[0].metadata as Record<string, unknown>).source).toBe('agent');
+    });
+  });
+
+  describe('diff_review_resolve', () => {
+    async function fileFinding(mcp: ReturnType<typeof makeMcp>) {
+      const res = await callTool(mcp, 'diff_review_comment')({
+        repoDir: REPO,
+        filePath: 'src/a.ts',
+        lineNumber: 1,
+        codeLine: 'x',
+        severity: 'high',
+        finding: 'f',
+        failureScenario: 's',
+      });
+      return res.data.threadId as string;
+    }
+
+    it('[FR-MCP-260] resolves a finding the agent itself filed', async () => {
+      const mcp = makeMcp();
+      const threadId = await fileFinding(mcp);
+
+      const res = await callTool(mcp, 'diff_review_resolve')({ threadId });
+      expect(res.isError).toBe(false);
+
+      const threads = await readAsDiffsTabWould(REPO);
+      expect(threads[0].resolved).toBe(true);
+    });
+
+    it("[FR-MCP-260] refuses to close a human's comment", async () => {
+      await appRouter.createCaller({ state: getAppState() } as never).comment.createThread({
+        documentPath: `diff://${REPO}/src/a.ts`,
+        threadId: 'human-thread',
+        initialComment: { id: 'c1', body: 'why this way?' },
+        metadata: { type: 'diff', source: 'local', lineNumber: 5, codeLine: 'x', side: 'modified' },
+      });
+
+      const res = await callTool(makeMcp(), 'diff_review_resolve')({ threadId: 'human-thread' });
+      expect(res.isError).toBe(true);
+
+      const threads = await readAsDiffsTabWould(REPO);
+      expect(threads[0].resolved).toBe(false);
+    });
+
+    it('[FR-MCP-260] reports an unknown thread rather than failing silently', async () => {
+      const res = await callTool(makeMcp(), 'diff_review_resolve')({ threadId: 'nope' });
+      expect(res.isError).toBe(true);
+      expect(String(res.data.error)).toContain('nope');
     });
   });
 
