@@ -25,8 +25,8 @@ function formatRelativeTime(dateStr: string): string {
 
 interface CommentWidgetProps {
   comment?: DiffComment;
-  /** Needed to recover the finding's file path from `comment.documentPath` for the "Prove it" prompt. */
-  repoDir?: string | null;
+  /** Recovers the finding's file path from `comment.documentPath` for "Prove it". Required, not optional: an omitted prop silently disables the button. */
+  repoDir: string | null;
   onSave: (text: string) => void;
   onReply?: (threadId: string, text: string) => void;
   onResolve?: (threadId: string) => void;

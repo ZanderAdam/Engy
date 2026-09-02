@@ -186,6 +186,8 @@ describe('diff review MCP tools', () => {
         scopeLabel: 'initial',
         workingDir: REPO,
         agentType: 'claude',
+        cols: 80,
+        rows: 24,
       });
 
       const mcp = makeMcp('sess-1');

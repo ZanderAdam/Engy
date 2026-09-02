@@ -32,10 +32,11 @@ describe('prove prompt', () => {
       expect(prompt).toContain(findingBody);
     });
 
-    it('should ask the agent to climb to rung 4 of the evidence ladder', () => {
+    it('should demand a run artifact rather than an argument', () => {
       const prompt = buildProvePrompt(makeInput());
 
-      expect(prompt).toContain('rung 4');
+      expect(prompt).toContain('failing test');
+      expect(prompt).toMatch(/run the code/i);
       expect(prompt).toMatch(/failing test|repro command/);
     });
 
@@ -45,6 +46,13 @@ describe('prove prompt', () => {
       expect(prompt).toContain('VERIFIED');
       expect(prompt).toContain('NOT VERIFIED');
       expect(prompt).toContain('INCONCLUSIVE');
+    });
+
+    it('should not lean on Engy vocabulary the receiving agent never loaded', () => {
+      const prompt = buildProvePrompt(makeInput());
+
+      expect(prompt).not.toMatch(/rung/i);
+      expect(prompt).not.toMatch(/evidence ladder/i);
     });
 
     it('should point the agent at diff_review_list for the thread current text', () => {

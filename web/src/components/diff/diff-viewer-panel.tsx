@@ -47,7 +47,7 @@ interface DiffViewerPanelProps {
   viewMode: ViewMode;
   filePath?: string;
   /** Passed through to CommentWidget so it can recover a finding's file path for "Prove it". */
-  repoDir?: string | null;
+  repoDir: string | null;
   /**
    * `pane` fills a fixed-height parent and owns its scrolling; `flow` grows to
    * its content so a stack of files shares one scroll container.
@@ -205,6 +205,7 @@ export function DiffViewerPanel({
         <div className="space-y-1 p-1">
           {rendered[key]}
           <CommentWidget
+            repoDir={repoDir}
             onSave={(text) => {
               onAddComment?.(
                 lineForChange(newCommentChange),
@@ -366,7 +367,7 @@ function UnanchoredComments({
   onDeleteComment,
 }: {
   comments: DiffComment[];
-  repoDir?: string | null;
+  repoDir: string | null;
   onReply?: (threadId: string, text: string) => void;
   onResolve?: (threadId: string) => void;
   onDelete?: (threadId: string) => void;

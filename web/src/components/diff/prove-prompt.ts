@@ -5,22 +5,27 @@ interface ProvePromptInput {
   findingBody: string;
 }
 
+/**
+ * Self-contained on purpose: this lands in whatever terminal agent is open,
+ * which has not loaded Engy's evidence ladder and would read a bare "rung 4"
+ * as noise.
+ */
 export function buildProvePrompt({
   threadId,
   filePath,
   lineNumber,
   findingBody,
 }: ProvePromptInput): string {
-  return `Prove finding ${threadId} at ${filePath}:${lineNumber}.
+  return `Prove or disprove this review finding at ${filePath}:${lineNumber}.
 
 ${findingBody}
 
-Climb this one finding to rung 4 of the evidence ladder: run code on the real path in this worktree and produce a failing test or a concrete repro command. Asserting it, citing a file:line, or reasoning about the failure path (rungs 1-3) is not enough here.
+Run the code. Produce a failing test, or a command whose output shows the failure. Reading the code and reasoning that it must break does not count here, however convincing — the whole point of this request is to replace an argument with an artifact. Take only this one finding that far; do not review anything else.
 
-Read the thread's current text first with \`diff_review_list\` (repoDir, filePath), in case it changed since this prompt was written.
+Read the finding's current text first with the \`diff_review_list\` MCP tool (repoDir, filePath), in case it changed since this prompt was written.
 
-Report back into the thread itself with \`replyToComment\` (threadId ${threadId}), so the verdict sits on the line it is about. One of:
-- VERIFIED (rung 4 or 5) — name the artifact: a test file:line, or the repro command and its output.
-- NOT VERIFIED — include the output that disproves it, and pass \`resolve: true\` so the finding stops standing.
-- INCONCLUSIVE — say what blocked verification and what would settle it. Leave the thread open.`;
+Report back with the \`replyToComment\` MCP tool (threadId ${threadId}), so the answer lands on the line it is about rather than scrolling away here. Reply with exactly one of:
+- VERIFIED — name the artifact: the test file:line you added, or the command and its output.
+- NOT VERIFIED — include the output that disproves it, and pass \`resolve: true\` to retract the finding.
+- INCONCLUSIVE — say what blocked you and what would settle it. Leave the thread open.`;
 }

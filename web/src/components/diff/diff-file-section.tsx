@@ -153,6 +153,7 @@ export function DiffFileSection({
           viewMode={viewMode}
           layout="flow"
           filePath={file.path}
+          repoDir={context.repoDir}
           isLoading={isLoading}
           truncated={truncated}
           loadError={error}
