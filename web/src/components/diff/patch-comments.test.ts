@@ -5,6 +5,7 @@ import {
   anchorComments,
   countChanges,
   expansionSource,
+  gapHidingLine,
   groupByChangeKey,
   lineForChange,
   sideForChange,
@@ -182,6 +183,60 @@ describe('patch comments', () => {
       const { anchors } = anchorComments(hunks, comments);
 
       expect(groupByChangeKey(comments, anchors).size).toBe(0);
+    });
+  });
+
+  describe('gapHidingLine', () => {
+    // Two hunks with a gap: old lines 21-39 and new lines 21-38 are hidden.
+    const GAPPED = `diff --git a/a.ts b/a.ts
+--- a/a.ts
++++ b/a.ts
+@@ -10,10 +10,9 @@
+ a
+-b
+ c
+ d
+ e
+ f
+ g
+ h
+ i
+ j
+@@ -40,3 +39,3 @@
+ x
+-y
++Y
+ z
+`;
+
+    it('should find the gap hiding a new-side line so it can be expanded', () => {
+      const gap = gapHidingLine(hunksOf(GAPPED), 30, 'modified');
+
+      expect(gap).not.toBeNull();
+      expect(gap!.start).toBeLessThanOrEqual(30);
+      expect(gap!.end).toBeGreaterThan(30);
+    });
+
+    it('should report the range in original numbering even for a new-side line', () => {
+      const hunks = hunksOf(GAPPED);
+
+      expect(gapHidingLine(hunks, 30, 'modified')).toEqual({ start: 20, end: 40 });
+    });
+
+    it('should find the gap above the first hunk', () => {
+      expect(gapHidingLine(hunksOf(GAPPED), 3, 'original')).toEqual({ start: 1, end: 10 });
+    });
+
+    it('should return null for a line already rendered in a hunk', () => {
+      expect(gapHidingLine(hunksOf(GAPPED), 12, 'original')).toBeNull();
+    });
+
+    it('should return null past the last hunk, where no gap has an end to expand to', () => {
+      expect(gapHidingLine(hunksOf(GAPPED), 500, 'original')).toBeNull();
+    });
+
+    it('should return null when the patch has no hunks', () => {
+      expect(gapHidingLine([], 5, 'modified')).toBeNull();
     });
   });
 

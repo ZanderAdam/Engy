@@ -94,6 +94,38 @@ export function groupByChangeKey(
 }
 
 /**
+ * Old-side range of the collapsed gap hiding `lineNumber`, or null when the line
+ * is already rendered, sits past the last hunk (no gap has an end to expand to),
+ * or the patch has no hunks. The range is in original-file numbering because
+ * that is what `expandRange` slices, while the line arrives in its own side's
+ * numbering — so the gap is found by its own side and reported by the other.
+ */
+export function gapHidingLine(
+  hunks: HunkData[],
+  lineNumber: number,
+  side: CommentSide,
+): { start: number; end: number } | null {
+  if (hunks.length === 0) return null;
+
+  let oldCursor = 1;
+  let newCursor = 1;
+
+  for (const hunk of hunks) {
+    const gapStart = side === 'original' ? oldCursor : newCursor;
+    const gapEnd = side === 'original' ? hunk.oldStart : hunk.newStart;
+
+    if (lineNumber >= gapStart && lineNumber < gapEnd) {
+      return { start: oldCursor, end: hunk.oldStart };
+    }
+
+    oldCursor = hunk.oldStart + hunk.oldLines;
+    newCursor = hunk.newStart + hunk.newLines;
+  }
+
+  return null;
+}
+
+/**
  * The source to hand the expansion hooks, or null to disable them.
  *
  * `expandCollapsedBlockBy` reads `hunks[0].oldStart` with no empty-array guard

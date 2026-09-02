@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Diff,
   Hunk,
@@ -22,6 +22,7 @@ import {
   anchorComments,
   countChanges,
   expansionSource,
+  gapHidingLine,
   groupByChangeKey,
   lineForChange,
   sideForChange,
@@ -172,6 +173,22 @@ export function DiffViewerPanel({
     () => anchorComments(hunks, fileComments),
     [hunks, fileComments],
   );
+
+  // A finding inside a collapsed region has nothing to render against, so it
+  // would sit invisible with no row to click. Open the gap that hides it.
+  // `attempted` stops a finding whose line no longer exists from re-expanding
+  // every render, since expanding will never anchor it.
+  const attempted = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!source || tooLarge) return;
+    for (const comment of unanchored) {
+      if (attempted.current.has(comment.threadId)) continue;
+      const gap = gapHidingLine(hunks, comment.lineNumber, comment.side);
+      if (!gap) continue;
+      attempted.current.add(comment.threadId);
+      expandRange(gap.start, gap.end);
+    }
+  }, [unanchored, hunks, source, tooLarge, expandRange]);
 
   const cancelNewComment = useCallback(() => setNewCommentChange(null), []);
 
