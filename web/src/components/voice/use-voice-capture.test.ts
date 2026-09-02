@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { DEFAULT_WAKE_WORD } from '@/server/voice/keywords';
+import { DEFAULT_WAKE_WORD, WAKE_PREFIXES } from '@/server/voice/keywords';
 import type { ResolveResult } from '@/lib/voice/resolve';
 import {
   VoicePttController,
@@ -8,6 +8,7 @@ import {
   buildVoiceWsUrl,
   getVoicePttController,
   VOICE_PTT_CODE,
+  WAKE_PREFIXES as MIRRORED_WAKE_PREFIXES,
   type VoicePttControllerOpts,
   type VoiceCaptureObserver,
   type VoiceCaptureState,
@@ -191,6 +192,10 @@ describe('WAKE_WORD', () => {
     // `voice-help-dialog.tsx`. This is the tripwire: if the real constant
     // changes, this fails instead of routing silently drifting from it.
     expect(WAKE_WORD).toBe(DEFAULT_WAKE_WORD);
+  });
+
+  it('[test-infra] mirrors the real WAKE_PREFIXES list', () => {
+    expect(MIRRORED_WAKE_PREFIXES).toEqual([...WAKE_PREFIXES]);
   });
 });
 

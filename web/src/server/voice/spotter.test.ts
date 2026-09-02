@@ -43,6 +43,22 @@ async function feedAll(chunks: Buffer[]): Promise<boolean> {
   return fired;
 }
 
+// Recordings from this timestamp on are takes of the wake word itself; the
+// dumps before it predate the wake word and are safe as negatives. The dir
+// is gitignored dev-local capture, so a fresh checkout simply gets none.
+const WAKE_WORD_DUMP_CUTOFF = 'voice-2026-09-02';
+
+function listDumps(before: string, limit: number): string[] {
+  const dumpDir = path.join(__dirname, '../../../.dev-engy/voice-dumps');
+  if (!fs.existsSync(dumpDir)) return [];
+  return fs
+    .readdirSync(dumpDir)
+    .filter((f) => f.endsWith('.wav') && f < before)
+    .sort()
+    .slice(0, limit)
+    .map((f) => path.join(dumpDir, f));
+}
+
 function chunkPcm(pcm: Buffer): Buffer[] {
   const chunks: Buffer[] = [];
   for (let offset = 0; offset < pcm.length; offset += CHUNK_BYTES) {
@@ -61,25 +77,16 @@ describe('wake-word spotter', () => {
 
     // The single most important safety property this module has: an
     // always-on session must not put words in the user's mouth. Every
-    // recording here is a real capture from earlier manual testing (see
+    // recording here is a real capture from manual testing (see
     // web/.dev-engy/voice-dumps and fixture.wav) — none contains the wake
     // word, so any detection here is a false accept. Measured across the
-    // full threshold/boost sweep in the task report: 0/135 false accepts at
-    // every candidate operating point tried, including the shipped one.
+    // full threshold/boost sweep: 0/70 false accepts at every operating
+    // point tried, including the shipped one.
     it(
       '[FR-TG2.11] should not fire on real recordings that never say the wake word',
       async () => {
         const fixturePath = path.join(__dirname, 'fixture.wav');
-        // .dev-engy/ is gitignored (dev-local capture dumps), so it may not
-        // exist in a fresh checkout — fixture.wav alone still guards the
-        // property; the dumps just widen coverage when present locally.
-        const dumpDir = path.join(__dirname, '../../../.dev-engy/voice-dumps');
-        const negativePaths = [fixturePath];
-        if (fs.existsSync(dumpDir)) {
-          for (const f of fs.readdirSync(dumpDir).slice(0, 10)) {
-            if (f.endsWith('.wav')) negativePaths.push(path.join(dumpDir, f));
-          }
-        }
+        const negativePaths = [fixturePath, ...listDumps(WAKE_WORD_DUMP_CUTOFF, 10)];
         expect(negativePaths.length).toBeGreaterThanOrEqual(1);
 
         for (const p of negativePaths) {
@@ -88,6 +95,21 @@ describe('wake-word spotter', () => {
         }
       },
       MODEL_TEST_TIMEOUT * 2,
+    );
+
+    // The counterpart to the false-accept test: a spotter that never fires
+    // passes that one trivially. Tuning is measured on 33 real takes of the
+    // wake word, of which 16 are accepted — so this asserts one known-good
+    // recording still fires, not a rate.
+    it(
+      '[FR-TG2.11] should fire on a real recording of the wake word',
+      async () => {
+        const fired = await feedAll(
+          chunkPcm(readWavPcm16(path.join(__dirname, 'wake-fixture.wav'))),
+        );
+        expect(fired).toBe(true);
+      },
+      MODEL_TEST_TIMEOUT,
     );
   });
 

@@ -156,7 +156,7 @@ Three stages, each waking the next, so silence and unaddressed speech cost almos
 2. **KeywordSpotter** (`sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01`, streaming, int8) scans continuously for the wake word.
 3. **Parakeet** (shipped in TG1, offline) decodes a VAD segment only when the spotter fired inside it.
 
-The wake word and the command are one utterance — "Engy, select project web" — because the spotter says *whether* to decode while VAD says *what span* to decode. The resolver strips the wake prefix before matching. A segment with no wake hit is discarded undecoded.
+The wake word and the command are one utterance — "Angie, select project web" — because the spotter says *whether* to decode while VAD says *what span* to decode. The resolver strips the wake prefix before matching. A segment with no wake hit is discarded undecoded.
 
 This is why TG1's lack of a streaming recognizer does not block always-on: what always-on needs is streaming *keyword spotting*, and that is a separate, purpose-built model the library already provides.
 
@@ -184,7 +184,7 @@ This is why TG1's lack of a streaming recognizer does not block always-on: what 
 1. **Action registry core + phonetic resolver in `web/`**
    - Files: `web/src/lib/voice/registry.ts` [NEW], `web/src/lib/voice/resolve.ts` [NEW], `web/src/lib/voice/resolve.test.ts` [NEW], `web/src/lib/voice/phonetic.ts` [NEW], `web/src/lib/voice/phonetic.test.ts` [NEW]
    - Implements FR-TG2.1, FR-TG2.3, FR-TG2.13
-   - `{ id, title, phrases[], params, run(ctx) }`. Double Metaphone + edit distance for tier 2. Wake-prefix stripping is a pure function here, tolerant of the spotter's own transcription of the wake word and of trailing punctuation ("Engy," / "Engie" / "N G").
+   - `{ id, title, phrases[], params, run(ctx) }`. Double Metaphone + edit distance for tier 2. Wake-prefix stripping is a pure function here, tolerant of the spotter's own transcription of the wake word and of trailing punctuation ("Angie," / "Engie" / "A N G").
    - Pure functions, no React, no I/O — the most testable part of the milestone, and it should carry the densest unit tests. Table-test against real STT mangles of actual project slugs (`engy-web` -> "engie web", "n g web", "energy web").
    - Unaffected by the wake-word redesign; can start before the spotter exists.
    - Verify: `cd web && pnpm vitest run src/lib/voice/`
@@ -228,7 +228,45 @@ This is why TG1's lack of a streaming recognizer does not block always-on: what 
 
 ### Completion Summary
 
-_Blank until TG2 completes._
+_Partial — TG2 is implemented and awaiting the user's own testing._
+
+**Wake word: "Angie", spoken bare or as "Okay Angie".** "Engy" is unusable as
+a wake word — it encodes to three short pieces (`▁E NG Y`) and scored 0/48
+against the spotter, so the spoken name diverges deliberately from the
+product name. The spotter matches token sequences, so the two are free to
+differ.
+
+**Measured on 33 real takes of the wake word, with 70 wake-free recordings
+as negatives** (FR-TG2.11's "measure before tuning" requirement):
+
+| Registered keywords | Best accept | False accepts |
+|---|---|---|
+| ANGIE / OK ANGIE / HEY ANGIE | 14/33 (42%) | 0/70 |
+| + OKAY ANGIE (4 keywords) | 9/33 (27%) | 0/70 |
+| OKAY ANGIE alone | 15/33 (45%) | 0/70 |
+| **ANGIE + OKAY ANGIE (shipped)** | **16/33 (48%)** | **0/70** |
+| four long forms | 15/33 (45%) | 0/70 |
+
+Shipped at `keywordsThreshold: 0.01`, `keywordsScore: 3.0`.
+
+Two findings worth carrying forward:
+
+- **Fewer registered keywords detect better.** Four keywords scored 27% where
+  two scored 48% on identical audio. The spotter appears to divide decoding
+  across registered keywords, so each added variant costs the others. This is
+  why the spot list is minimal and a separate, wider `WAKE_PREFIXES` list
+  handles stripping — text stripping has no detection cost.
+- **Synthesized audio is void for tuning this model.** A full TTS sweep scored
+  zero on every phrase including the model's own shipped `GO HOME` control,
+  which measures 89% on real speech. Only real recordings were used.
+
+**Open: 48% accept is marginal.** Roughly half of wake attempts need
+repeating. Every operating point measured 0% false accepts across 70
+negatives, so the unused headroom is real — a more permissive threshold or a
+different KWS model are the levers. For push-to-talk specifically, a second
+key or button would signal "this is a command" with perfect reliability; the
+wake word is only strictly needed for TG3's always-on, where no gesture
+exists.
 
 ## TG3: Always-On Session, Modes & Safety
 
@@ -266,7 +304,7 @@ Always-on plus terminal input is the risky combination in this milestone. The ru
 2. **Dictation sub-mode in `web/`** (depends on task 1)
    - Files: `web/src/lib/voice/actions/dictation.ts` [NEW], `web/src/lib/voice/actions/dictation.test.ts` [NEW], `web/src/components/voice/use-voice-capture.ts` [MODIFY]
    - Implements FR-TG3.7, FR-TG3.8, FR-TG3.9
-   - Register "dictate" and "stop dictating" as wake-word commands. While active, every decoded segment is inserted into the focused terminal; a segment that carries the wake word is resolved as a command instead, which is what makes "Engy, stop dictating" work.
+   - Register "dictate" and "stop dictating" as wake-word commands. While active, every decoded segment is inserted into the focused terminal; a segment that carries the wake word is resolved as a command instead, which is what makes "Angie, stop dictating" work.
    - Insertion reuses TG1's `insertToTerminal` path, which never appends `\r`. Add a test that asserts the absence of the submit character rather than trusting it — FR-TG3.9 is the one requirement here whose breach is not reversible.
    - Verify: `cd web && pnpm vitest run src/lib/voice/actions/dictation.test.ts`
 

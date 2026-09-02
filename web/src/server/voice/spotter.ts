@@ -23,14 +23,13 @@ const ENCODER_FILE = 'encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx';
 const DECODER_FILE = 'decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx';
 const JOINER_FILE = 'joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx';
 
-// Measured on real recordings, not synthesis: the model's own shipped
-// "GO HOME" keyword fired on 3/7 real takes here with 0/60 false accepts,
-// while every synthesized measurement scored zero including that control —
-// treat TTS results for this model as void. Raising the score made
-// detection strictly worse (0 hits at 3.0, every threshold), which is the
-// opposite of how it reads.
-const KEYWORDS_THRESHOLD = 0.05;
-const KEYWORDS_SCORE = 1.0;
+// Tuned on 33 real recordings of the wake word with 70 wake-free recordings
+// as negatives: 16/33 accepted, 0/70 false. Synthesized audio is useless for
+// tuning this model — every TTS measurement scored zero including its own
+// control. Detection is far more sensitive to score than to threshold, and
+// only starts falling off above a threshold of about 0.15.
+const KEYWORDS_THRESHOLD = 0.01;
+const KEYWORDS_SCORE = 3.0;
 
 async function ensureKeywordsFile(kwsModelDir: string): Promise<string> {
   // Keyed by the variants themselves, so changing the wake words writes a

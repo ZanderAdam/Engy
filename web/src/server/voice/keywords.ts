@@ -1,16 +1,32 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-// Several spellings of the same spoken name are registered together: the
-// spotter matches token sequences, so what the user says and what the UI
-// calls the product are independent. "ENGY" encodes to ▁E NG Y — three
-// pieces, a few hundred milliseconds, too little acoustic evidence to clear
-// any threshold (measured 0/48). The longer variants exist to give the
-// spotter more to work with, and any of them firing counts as the wake.
-export const WAKE_WORDS = ['ANGIE', 'OK ANGIE', 'HEY ANGIE'] as const;
+// The spotter matches token sequences, so what a user says and what the UI
+// calls the product are independent.
+//
+// Two variants, not more: measured on real recordings, four registered
+// keywords scored 27% where these two scored 48% on the same audio. The
+// spotter appears to divide its decoding across registered keywords, so each
+// extra variant costs the others — "more ways to say it" makes detection
+// worse, not better. "OKAY" is one whole token (▁OKAY) while "OK" splits to
+// ▁O K, which is why the spoken-aloud form is the one registered.
+export const WAKE_WORDS = ['ANGIE', 'OKAY ANGIE'] as const;
 
-/** The variant shown in help text and stripped from a command transcript. */
+/** The variant shown in help text. */
 export const DEFAULT_WAKE_WORD = WAKE_WORDS[0];
+
+// Stripped from a command transcript, and deliberately wider than the list
+// above: registering a keyword costs detection accuracy, removing a prefix
+// from already-decoded text costs nothing. So the spotter listens for two
+// forms while the stripper handles every lead-in a user might say in front
+// of them.
+export const WAKE_PREFIXES = [
+  'ANGIE',
+  'OK ANGIE',
+  'OKAY ANGIE',
+  'HEY ANGIE',
+  'HELLO ANGIE',
+] as const;
 
 enum SentencePieceType {
   Normal = 1,
