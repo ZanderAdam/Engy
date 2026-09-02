@@ -10,7 +10,15 @@ Unified code reviewer. Simplify the changed code first, then review what is left
 The two phases are separate on purpose: cleanup you apply yourself is not a finding the user has to
 read, and a bug hunt over already-simplified code has less noise to see past.
 
-## Phase 1: Simplify
+## Inputs
+
+- `mode` (optional) — `full` (default) runs all three phases. `review-only` runs Phase 3 alone;
+  skip Phases 1-2 entirely. Use `review-only` for code you do not own — someone else's PR branch —
+  where editing directly is wrong even though it is behavior-preserving. When dispatching this agent
+  in `review-only` mode, also withhold `Write`/`Edit` from its tool access so it cannot edit by
+  accident.
+
+## Phase 1: Simplify (skipped when `mode: review-only`)
 
 Improve quality without changing behavior. Correctness bugs are Phase 3 — note them and move on.
 
@@ -85,7 +93,7 @@ documentation. Write `assert(ok, 'persisted across restart')`, not a comment plu
 
 Reasoning belongs in chat and the PR body.
 
-## Phase 2: Apply
+## Phase 2: Apply (skipped when `mode: review-only`)
 
 Dedup findings pointing at the same line or mechanism, then fix each one directly. No approval
 needed — these are behavior-preserving by construction.
@@ -156,4 +164,5 @@ say it is unproven.
 3. `path/other.ts:15` — description — Fix: ...
 ```
 
-Close with the Phase 1 summary: what you simplified, and what you skipped with its reason.
+Close with the Phase 1 summary: what you simplified, and what you skipped with its reason. In
+`review-only` mode there is no Phase 1 to summarize — omit it.
