@@ -197,3 +197,20 @@ export function stripWakeWord(transcript: string, wakeWord: string): string {
 
   return words.join(' ');
 }
+
+const NAME_MATCH_THRESHOLD = 0.6;
+
+/** Best phonetic match for STT-mangled free text against a live name list,
+ * rejecting below threshold rather than guessing. */
+export function matchByName<T>(
+  items: T[],
+  spoken: string,
+  getName: (item: T) => string,
+): T | undefined {
+  let best: { item: T; score: number } | null = null;
+  for (const item of items) {
+    const score = phoneticSimilarity(spoken, getName(item));
+    if (!best || score > best.score) best = { item, score };
+  }
+  return best && best.score >= NAME_MATCH_THRESHOLD ? best.item : undefined;
+}

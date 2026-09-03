@@ -9,9 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { trpc } from '@/lib/trpc';
-import { useTabsList, useVirtualParams } from '@/components/tabs/tab-context';
-import type { VirtualParams } from '@/components/tabs/tab-state';
 import { isTypingTarget } from '@/lib/keyboard';
 import { useOpenTerminals } from '@/components/terminal/terminal-session-store';
 import { useOptionalVoice, type VoiceControl } from './voice-context';
@@ -28,17 +25,9 @@ import {
 // silently.
 const WAKE_WORD = 'ANGIE';
 
-function buildValueLookup(
-  projectNames: string[],
-  tabTitles: string[],
-  terminalLabels: string[],
-): VoiceHelpValueLookup {
+function buildValueLookup(terminalLabels: string[]): VoiceHelpValueLookup {
   return (action) => {
     switch (action.id) {
-      case 'voice.navigation.select-project':
-        return projectNames;
-      case 'voice.navigation.open-tab':
-        return tabTitles;
       case 'voice.terminal.focus':
       case 'voice.terminal.status.one':
         return terminalLabels;
@@ -51,29 +40,17 @@ function buildValueLookup(
 function ActiveVoiceHelpDialog({ voice }: { voice: VoiceControl }) {
   const { actions, helpOpen: open, setHelpOpen: setOpen } = voice;
 
-  const params = useVirtualParams<VirtualParams>();
-  const workspaceSlug = params.workspace ?? '';
-  const { data: workspace } = trpc.workspace.get.useQuery(
-    { slug: workspaceSlug },
-    { enabled: !!workspaceSlug },
-  );
-  const { data: projects } = trpc.project.list.useQuery(
-    { workspaceId: workspace?.id ?? 0 },
-    { enabled: !!workspace },
-  );
   const terminals = useOpenTerminals();
-  const tabsList = useTabsList();
 
   const lookupValues = useMemo(
     () =>
-      buildValueLookup(
-        (projects ?? []).map((p) => p.name),
-        (tabsList?.tabs ?? []).map((t) => t.title),
-        // Numbers first, then labels: both are sayable on their own, and a
-        // combined "1 (build)" example reads as a phrase nobody can speak.
-        [...terminals.map((_, i) => String(i + 1)), ...terminals.map((t) => t.scope.scopeLabel)],
-      ),
-    [projects, tabsList, terminals],
+      // Numbers first, then labels: both are sayable on their own, and a
+      // combined "1 (build)" example reads as a phrase nobody can speak.
+      buildValueLookup([
+        ...terminals.map((_, i) => String(i + 1)),
+        ...terminals.map((t) => t.scope.scopeLabel),
+      ]),
+    [terminals],
   );
 
   const entries = useMemo(

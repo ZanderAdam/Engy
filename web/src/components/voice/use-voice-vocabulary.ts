@@ -1,17 +1,12 @@
 'use client';
 
 import { useMemo } from 'react';
-import { trpc } from '@/lib/trpc';
-import { useTabsList, useVirtualNavigate, useVirtualParams } from '@/components/tabs/tab-context';
+import { useVirtualParams } from '@/components/tabs/tab-context';
 import type { VirtualParams } from '@/components/tabs/tab-state';
 import { useOpenTerminals } from '@/components/terminal/terminal-session-store';
+import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { isStoppedTerminal, type TerminalTab } from '@/components/terminal/types';
 import type { VoiceAction } from '@/lib/voice/registry';
-import {
-  createNavigationActions,
-  type VoiceProjectVocabEntry,
-  type VoiceTabVocabEntry,
-} from '@/lib/voice/actions/navigation';
 import { createTerminalActions, type VoiceTerminalVocabEntry } from '@/lib/voice/actions/terminal';
 import { createHelpActions } from '@/lib/voice/actions/help';
 
@@ -34,12 +29,9 @@ function toTerminalVocab(tabs: TerminalTab[]): VoiceTerminalVocabEntry[] {
 
 interface VocabularyInput {
   workspaceSlug: string;
-  projects: VoiceProjectVocabEntry[];
-  tabs: VoiceTabVocabEntry[];
   sessions: VoiceTerminalVocabEntry[];
-  navigate: (path: string) => void;
-  activateTab: (tabId: string) => void;
   openHelp: () => void;
+  submitTerminal: () => boolean;
 }
 
 /** Pure assembly, independent of how each list was fetched — this is what
@@ -47,14 +39,7 @@ interface VocabularyInput {
 export function assembleVoiceVocabulary(input: VocabularyInput): VoiceAction[] {
   if (!input.workspaceSlug) return [];
   return [
-    ...createNavigationActions({
-      workspaceSlug: input.workspaceSlug,
-      projects: input.projects,
-      tabs: input.tabs,
-      navigate: input.navigate,
-      activateTab: input.activateTab,
-    }),
-    ...createTerminalActions({ sessions: input.sessions }),
+    ...createTerminalActions({ sessions: input.sessions, submit: input.submitTerminal }),
     ...createHelpActions({ openHelp: input.openHelp }),
   ];
 }
@@ -71,34 +56,14 @@ export function assembleVoiceVocabulary(input: VocabularyInput): VoiceAction[] {
  * to resolve.
  */
 export function useVoiceVocabulary(openHelp: () => void): VoiceAction[] {
+  const { submitTerminal } = useSendToTerminal();
   const params = useVirtualParams<VirtualParams>();
   const workspaceSlug = params.workspace ?? '';
-
-  const { data: workspace } = trpc.workspace.get.useQuery(
-    { slug: workspaceSlug },
-    { enabled: !!workspaceSlug },
-  );
-  const { data: projects } = trpc.project.list.useQuery(
-    { workspaceId: workspace?.id ?? 0 },
-    { enabled: !!workspace },
-  );
   const openTerminals = useOpenTerminals();
   const sessions = useMemo(() => toTerminalVocab(openTerminals), [openTerminals]);
 
-  const tabsList = useTabsList();
-  const { push } = useVirtualNavigate();
-
   return useMemo(
-    () =>
-      assembleVoiceVocabulary({
-        workspaceSlug,
-        projects: (projects ?? []).map((p) => ({ slug: p.slug, name: p.name })),
-        tabs: (tabsList?.tabs ?? []).map((t) => ({ id: t.id, label: t.title })),
-        sessions,
-        navigate: push,
-        activateTab: (id) => tabsList?.activateTab(id),
-        openHelp,
-      }),
-    [workspaceSlug, projects, tabsList, sessions, push, openHelp],
+    () => assembleVoiceVocabulary({ workspaceSlug, sessions, openHelp, submitTerminal }),
+    [workspaceSlug, sessions, openHelp, submitTerminal],
   );
 }

@@ -46,6 +46,13 @@ export function useSendToTerminal() {
     [dispatchInject],
   );
 
+  // Just the Enter that insertToTerminal deliberately withholds, so voice can
+  // dictate and submit as two separate spoken steps.
+  const submitTerminal = useCallback(
+    (terminalId?: string): boolean => dispatchInject('\r', terminalId),
+    [dispatchInject],
+  );
+
   const openNewTerminal = useCallback(
     (scope: TerminalScope) => {
       window.dispatchEvent(
@@ -55,5 +62,5 @@ export function useSendToTerminal() {
     [tabId],
   );
 
-  return { sendToTerminal, insertToTerminal, openNewTerminal, terminalActive };
+  return { sendToTerminal, insertToTerminal, submitTerminal, openNewTerminal, terminalActive };
 }

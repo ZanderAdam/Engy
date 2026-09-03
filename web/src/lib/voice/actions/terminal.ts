@@ -1,5 +1,5 @@
 import type { VoiceAction } from '../registry';
-import { matchByName } from './navigation';
+import { matchByName } from '../resolve';
 
 export interface VoiceTerminalVocabEntry {
   sessionId: string;
@@ -12,6 +12,9 @@ export interface VoiceTerminalVocabEntry {
 
 interface TerminalActionsDeps {
   sessions: VoiceTerminalVocabEntry[];
+  /** Presses Enter in the focused terminal. Returns false when no terminal
+   * took it. */
+  submit: () => boolean;
 }
 
 const ORDINAL_WORDS: Record<string, number> = {
@@ -123,6 +126,18 @@ export function createTerminalActions(deps: TerminalActionsDeps): VoiceAction[] 
           new CustomEvent('terminal:focus', { detail: { sessionId: target.sessionId } }),
         );
         return `Focused ${target.label}.`;
+      },
+    },
+    {
+      id: 'voice.terminal.send',
+      title: 'Send what is typed',
+      // Dictation deliberately never auto-submits into a live agent terminal,
+      // so submitting is its own spoken step. Short phrases are safe here
+      // because a fixed-word match scores by its worst word.
+      phrases: ['send', 'send it', 'send message', 'submit', 'press enter'],
+      run: () => {
+        if (!deps.submit()) return 'No terminal took it.';
+        return 'Sent.';
       },
     },
     {

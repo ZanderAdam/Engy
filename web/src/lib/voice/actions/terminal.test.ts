@@ -12,8 +12,10 @@ const TWO = [
   entry({ sessionId: 'sess-2', label: 'test' }),
 ];
 
+let submit: () => boolean = () => true;
+
 function runPhrase(sessions: VoiceTerminalVocabEntry[], phrase: string): string | null {
-  const resolved = resolveAction(phrase, createTerminalActions({ sessions }));
+  const resolved = resolveAction(phrase, createTerminalActions({ sessions, submit }));
   expect(resolved.matched, `"${phrase}" did not resolve`).toBe(true);
   if (!resolved.matched) return null;
   return (resolved.result.action.run({ params: resolved.result.params }) as string) ?? null;
@@ -24,6 +26,7 @@ describe('terminal actions', () => {
   let listener: (e: Event) => void;
 
   beforeEach(() => {
+    submit = () => true;
     dispatched = [];
     listener = (e) => dispatched.push(e as CustomEvent);
     window.addEventListener('terminal:focus', listener);
@@ -35,7 +38,7 @@ describe('terminal actions', () => {
   });
 
   it('should omit every terminal action when no sessions are live', () => {
-    expect(createTerminalActions({ sessions: [] })).toEqual([]);
+    expect(createTerminalActions({ sessions: [], submit })).toEqual([]);
   });
 
   describe('focus', () => {
@@ -69,7 +72,7 @@ describe('terminal actions', () => {
     // wrong action — the shared word "terminal" hid the only word that
     // differs. Scoring by the worst word drops it to 0.25.
     it('[FR-TG2.5] should not resolve a focus verb to the status action', () => {
-      const resolved = resolveAction('select terminal 2', createTerminalActions({ sessions: TWO }));
+      const resolved = resolveAction('select terminal 2', createTerminalActions({ sessions: TWO, submit }));
       expect(resolved.matched).toBe(true);
       if (!resolved.matched) return;
       expect(resolved.result.action.id).toBe('voice.terminal.focus');
@@ -97,6 +100,41 @@ describe('terminal actions', () => {
       expect(spy).toHaveBeenCalledTimes(1);
       expect((spy.mock.calls[0][0] as CustomEvent).type).toBe('terminal:focus');
       spy.mockRestore();
+    });
+  });
+
+  describe('send', () => {
+    // Dictation never auto-submits into a live agent terminal, so submitting
+    // is its own spoken step.
+    it.each(['send', 'send it', 'send message', 'submit', 'press enter'])(
+      '[FR-TG2.20] should press Enter via "%s"',
+      (phrase) => {
+        let pressed = 0;
+        submit = () => {
+          pressed += 1;
+          return true;
+        };
+        runPhrase(TWO, phrase);
+        expect(pressed).toBe(1);
+      },
+    );
+
+    it('[FR-TG2.20] should report when no terminal took the Enter', () => {
+      submit = () => false;
+      expect(runPhrase(TWO, 'send')).toBe('No terminal took it.');
+    });
+
+    // "send", "status" and "help" are all one word, and a one-word phrase is
+    // scored by that word alone — so they have to stay far apart.
+    it.each([
+      ['send', 'voice.terminal.send'],
+      ['submit', 'voice.terminal.send'],
+      ['status', 'voice.terminal.status.all'],
+    ])('[FR-TG2.20] should resolve the one-word phrase "%s" to its own action', (phrase, id) => {
+      const resolved = resolveAction(phrase, createTerminalActions({ sessions: TWO, submit }));
+      expect(resolved.matched).toBe(true);
+      if (!resolved.matched) return;
+      expect(resolved.result.action.id).toBe(id);
     });
   });
 

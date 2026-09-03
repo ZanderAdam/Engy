@@ -4,6 +4,21 @@ import { assembleVoiceVocabulary } from './use-voice-vocabulary';
 import { routeVoiceSegment } from './route-voice-segment';
 import { WAKE_PREFIXES } from './use-voice-capture';
 
+const SESSIONS = [
+  { sessionId: 's1', label: 'build', activity: 'idle' as const, stopped: false },
+  { sessionId: 's2', label: 'test', activity: 'idle' as const, stopped: false },
+];
+
+function build(over: Partial<Parameters<typeof assembleVoiceVocabulary>[0]> = {}) {
+  return assembleVoiceVocabulary({
+    workspaceSlug: 'engy',
+    sessions: SESSIONS,
+    openHelp: vi.fn(),
+    submitTerminal: vi.fn(() => true),
+    ...over,
+  });
+}
+
 describe('assembleVoiceVocabulary', () => {
   // The registry the resolver matches against and the registry the help
   // dialog renders must be the same one. They were not: help lived beside
@@ -12,15 +27,7 @@ describe('assembleVoiceVocabulary', () => {
   // — asserting on a hand-built action list cannot.
   it('[FR-TG2.10] should resolve the help phrases against the assembled vocabulary', () => {
     const openHelp = vi.fn();
-    const actions = assembleVoiceVocabulary({
-      workspaceSlug: 'engy',
-      projects: [],
-      tabs: [],
-      sessions: [],
-      navigate: vi.fn(),
-      activateTab: vi.fn(),
-      openHelp,
-    });
+    const actions = build({ openHelp });
 
     for (const phrase of ['what can I say', 'what can I do', 'help']) {
       const resolved = resolveAction(phrase, actions);
@@ -40,20 +47,12 @@ describe('assembleVoiceVocabulary', () => {
   // wake word the recognizer never spells correctly.
   it.each([
     ['NG Focus Terminal Test.', 'voice.terminal.focus'],
-    ['NG go to tab docs', 'voice.navigation.open-tab'],
-    ['Angie, select project web', 'voice.navigation.select-project'],
+    ['NG select terminal 1', 'voice.terminal.focus'],
+    ['Angie, terminal status', 'voice.terminal.status.all'],
+    ['NG send', 'voice.terminal.send'],
     ['Okay, Angie, what can I do?', 'voice.help.show'],
   ])('[FR-TG2.16] should route and resolve "%s"', (transcript, expectedId) => {
-    const actions = assembleVoiceVocabulary({
-      workspaceSlug: 'engy',
-      projects: [{ slug: 'web', name: 'web' }],
-      tabs: [{ id: 't1', label: 'docs' }],
-      sessions: [{ sessionId: 's1', label: 'test', activity: 'idle', stopped: false }],
-      navigate: vi.fn(),
-      activateTab: vi.fn(),
-      openHelp: vi.fn(),
-    });
-
+    const actions = build();
     const route = routeVoiceSegment(transcript, true, WAKE_PREFIXES);
     const resolved = resolveAction(route.text, actions);
     expect(resolved.matched, `"${route.text}" did not resolve`).toBe(true);
@@ -62,58 +61,14 @@ describe('assembleVoiceVocabulary', () => {
   });
 
   it('should return no actions without a workspace slug', () => {
-    const actions = assembleVoiceVocabulary({
-      workspaceSlug: '',
-      projects: [{ slug: 'engy-web', name: 'engy-web' }],
-      tabs: [],
-      sessions: [],
-      navigate: vi.fn(),
-      activateTab: vi.fn(),
-      openHelp: vi.fn(),
-    });
-    expect(actions).toEqual([]);
+    expect(build({ workspaceSlug: '' })).toEqual([]);
   });
 
-  it('[FR-TG2.2] should build a select-project action from live project state', () => {
-    const navigate = vi.fn();
-    const actions = assembleVoiceVocabulary({
-      workspaceSlug: 'engy',
-      projects: [{ slug: 'engy-web', name: 'engy-web' }],
-      tabs: [],
-      sessions: [],
-      navigate,
-      activateTab: vi.fn(),
-      openHelp: vi.fn(),
-    });
-
-    const resolved = resolveAction('select project engy web', actions);
-    expect(resolved.matched).toBe(true);
-    if (resolved.matched) void resolved.result.action.run({ params: resolved.result.params });
-    expect(navigate).toHaveBeenCalledWith('/w/engy/projects/engy-web');
-  });
-
-  it('[FR-TG2.5] should include a terminal session from a project not in the open-projects list', () => {
-    // A "mounted" project list that does not include the session's project —
-    // proving the vocabulary never cross-filters terminals by which projects
-    // happen to be open, the way the browser session store does.
-    const actions = assembleVoiceVocabulary({
-      workspaceSlug: 'engy',
-      projects: [{ slug: 'mounted-project', name: 'Mounted Project' }],
-      tabs: [],
-      sessions: [{ sessionId: 'sess-unmounted', label: 'build', activity: 'idle', stopped: false }],
-      navigate: vi.fn(),
-      activateTab: vi.fn(),
-      openHelp: vi.fn(),
-    });
-
-    const focusAction = actions.find((a) => a.id === 'voice.terminal.focus');
-    expect(focusAction).toBeDefined();
-
-    const resolved = resolveAction('focus terminal build', actions);
-    expect(resolved.matched).toBe(true);
-    if (resolved.matched) {
-      expect(resolved.result.action.id).toBe('voice.terminal.focus');
-      expect(resolved.result.params.name).toBe('build');
-    }
+  // Voice is terminal-only: navigating projects and tabs by voice was removed
+  // after it proved unreliable in use and less useful than terminal control.
+  it('should register no navigation actions', () => {
+    expect(build().every((a) => !a.id.startsWith('voice.navigation.'))).toBe(true);
+    expect(resolveAction('select project engy web', build()).matched).toBe(false);
+    expect(resolveAction('open tab docs', build()).matched).toBe(false);
   });
 });
