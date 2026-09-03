@@ -50,6 +50,31 @@ describe('terminal actions', () => {
       },
     );
 
+    // The verbs a user actually reaches for. "select" is the one used for
+    // projects, so it is what comes to mind for terminals too.
+    it.each([
+      'select terminal 2',
+      'focus terminal 2',
+      'open terminal 2',
+      'switch to terminal 2',
+      'go to terminal 2',
+    ])('[FR-TG2.5] should focus via "%s"', (phrase) => {
+      runPhrase(TWO, phrase);
+      expect(dispatched).toHaveLength(1);
+      expect(dispatched[0].detail).toEqual({ sessionId: 'sess-2' });
+    });
+
+    // "select terminal" scored 0.64 against "status terminal" when the two
+    // phrases were compared joined, clearing the threshold and running the
+    // wrong action — the shared word "terminal" hid the only word that
+    // differs. Scoring by the worst word drops it to 0.25.
+    it('[FR-TG2.5] should not resolve a focus verb to the status action', () => {
+      const resolved = resolveAction('select terminal 2', createTerminalActions({ sessions: TWO }));
+      expect(resolved.matched).toBe(true);
+      if (!resolved.matched) return;
+      expect(resolved.result.action.id).toBe('voice.terminal.focus');
+    });
+
     it('[FR-TG2.5] should focus by label', () => {
       runPhrase(TWO, 'focus terminal build');
       expect(dispatched).toHaveLength(1);

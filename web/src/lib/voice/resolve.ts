@@ -43,6 +43,18 @@ interface PhraseMatch {
   params: VoiceActionContext['params'];
 }
 
+/**
+ * Word-by-word, scored by the worst word — not by the two phrases joined.
+ *
+ * Joining lets a shared word hide the one that discriminates: "select
+ * terminal" against "status terminal" scores 0.64 joined (clearing the
+ * threshold and running the wrong action) while "select" against "status"
+ * scores 0.25. Actions here differ mostly by their verb, so the verb has to
+ * decide, and the minimum is what makes it decide.
+ *
+ * Different word counts still compare joined — that is the case where the
+ * recognizer split or merged words, so position-wise comparison is meaningless.
+ */
 function matchFixedWords(
   fixedWords: string[],
   phraseWords: string[],
@@ -53,7 +65,16 @@ function matchFixedWords(
   if (normalizeToken(spoken) === normalizeToken(expected)) {
     return { tier: 'exact', confidence: 1 };
   }
-  return { tier: 'phonetic', confidence: phoneticSimilarity(spoken, expected) };
+
+  if (fixedWords.length !== phraseWords.length) {
+    return { tier: 'phonetic', confidence: phoneticSimilarity(spoken, expected) };
+  }
+
+  let worst = 1;
+  for (let i = 0; i < fixedWords.length; i++) {
+    worst = Math.min(worst, phoneticSimilarity(fixedWords[i], phraseWords[i]));
+  }
+  return { tier: 'phonetic', confidence: worst };
 }
 
 function matchPhrase(transcriptWords: string[], parsed: ParsedPhrase): PhraseMatch | null {

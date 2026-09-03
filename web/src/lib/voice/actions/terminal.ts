@@ -105,7 +105,15 @@ export function createTerminalActions(deps: TerminalActionsDeps): VoiceAction[] 
     {
       id: 'voice.terminal.focus',
       title: 'Focus terminal',
-      phrases: ['focus terminal {name}', 'switch to terminal {name}', 'go to terminal {name}'],
+      // "select" first because it is the verb already used for projects, so
+      // it is what comes to mind; the rest are what people say instead.
+      phrases: [
+        'select terminal {name}',
+        'focus terminal {name}',
+        'open terminal {name}',
+        'switch to terminal {name}',
+        'go to terminal {name}',
+      ],
       params: [{ name: 'name', description: 'Terminal number or label' }],
       run: (ctx) => {
         const target = resolveTerminalTarget(deps.sessions, ctx.params.name);
