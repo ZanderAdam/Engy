@@ -2,15 +2,17 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 // The spotter matches token sequences, so what a user says and what the UI
-// calls the product are independent.
+// calls the product are independent. "NG" is here because it is what both
+// models actually hear in a spoken "Angie" — registering it took detection
+// from 46% to 71% on 99 real recordings, with no false accept in 70
+// wake-free ones. It is short enough to be a false-accept risk in principle
+// ("going", "thing"), so it is the thing to re-measure before always-on,
+// where nothing else gates the mic.
 //
-// Two variants, not more: measured on real recordings, four registered
-// keywords scored 27% where these two scored 48% on the same audio. The
-// spotter appears to divide its decoding across registered keywords, so each
-// extra variant costs the others — "more ways to say it" makes detection
-// worse, not better. "OKAY" is one whole token (▁OKAY) while "OK" splits to
-// ▁O K, which is why the spoken-aloud form is the one registered.
-export const WAKE_WORDS = ['ANGIE', 'OKAY ANGIE'] as const;
+// Two keywords, not more: four registered keywords measured 27% where two
+// measured 48% on identical audio. The spotter appears to divide decoding
+// across keywords, so each extra one costs the others.
+export const WAKE_WORDS = ['ANGIE', 'NG'] as const;
 
 /** The variant shown in help text. */
 export const DEFAULT_WAKE_WORD = WAKE_WORDS[0];
