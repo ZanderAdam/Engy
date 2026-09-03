@@ -1,14 +1,28 @@
 'use client';
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import type { VoiceAction } from '@/lib/voice/registry';
+import { useOnServerEvent } from '@/contexts/events-context';
 import { useVoiceCapture, type VoiceCaptureState } from './use-voice-capture';
 import { useVoiceVocabulary } from './use-voice-vocabulary';
+import { SpeechQueue, speakUrl } from './speech-queue';
 
 export type VoiceControl = VoiceCaptureState & {
   toggle: () => void;
   answer: string | null;
+  /** Queues one spoken utterance. A no-op when spoken replies are off. */
+  speak: (text: string) => void;
+  ttsEnabled: boolean;
   actions: VoiceAction[];
   helpOpen: boolean;
   setHelpOpen: (open: boolean) => void;
@@ -29,9 +43,11 @@ export function useOptionalVoice(): VoiceControl | null {
  */
 function ActiveVoiceProvider({
   workspaceSlug,
+  ttsEnabled,
   children,
 }: {
   workspaceSlug: string;
+  ttsEnabled: boolean;
   children: ReactNode;
 }) {
   const [helpOpen, setHelpOpen] = useState(false);
@@ -39,9 +55,32 @@ function ActiveVoiceProvider({
   const actions = useVoiceVocabulary(openHelp);
   const capture = useVoiceCapture(workspaceSlug, actions);
 
+  // One queue for the whole workspace: an action acknowledgement and an
+  // agent's `speak` can land in the same instant, and two voices at once are
+  // unintelligible.
+  const [queue] = useState(() => new SpeechQueue({}));
+  const speak = useCallback(
+    (text: string) => {
+      if (!ttsEnabled || !text.trim()) return;
+      queue.enqueue(speakUrl(workspaceSlug, text.trim()));
+    },
+    [ttsEnabled, queue, workspaceSlug],
+  );
+
+  // Answers are spoken once, when they arrive — not on every render that
+  // still carries the same answer.
+  const spokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!capture.answer || capture.answer === spokenRef.current) return;
+    spokenRef.current = capture.answer;
+    speak(capture.answer);
+  }, [capture.answer, speak]);
+
+  useOnServerEvent('VOICE_SPEAK', (payload) => speak(payload.text));
+
   const value = useMemo(
-    () => ({ ...capture, actions, helpOpen, setHelpOpen }),
-    [capture, actions, helpOpen],
+    () => ({ ...capture, actions, helpOpen, setHelpOpen, speak, ttsEnabled }),
+    [capture, actions, helpOpen, speak, ttsEnabled],
   );
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;
 }
@@ -53,13 +92,19 @@ function ActiveVoiceProvider({
  */
 export function VoiceProvider({
   enabled,
+  ttsEnabled = false,
   workspaceSlug,
   children,
 }: {
   enabled: boolean;
+  ttsEnabled?: boolean;
   workspaceSlug: string;
   children: ReactNode;
 }) {
   if (!enabled) return <>{children}</>;
-  return <ActiveVoiceProvider workspaceSlug={workspaceSlug}>{children}</ActiveVoiceProvider>;
+  return (
+    <ActiveVoiceProvider workspaceSlug={workspaceSlug} ttsEnabled={ttsEnabled}>
+      {children}
+    </ActiveVoiceProvider>
+  );
 }

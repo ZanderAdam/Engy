@@ -292,6 +292,7 @@ export const workspaceRouter = router({
         autoAgentCompletion: autoAgentCompletionSchema.nullable().optional(),
         remoteEnabled: z.boolean().nullable().optional(),
         voiceEnabled: z.boolean().nullable().optional(),
+        ttsEnabled: z.boolean().nullable().optional(),
         autoStart: z.boolean().nullable().optional(),
         autoCiFix: z.boolean().nullable().optional(),
         prScope: prScopeSchema,
@@ -342,6 +343,7 @@ export const workspaceRouter = router({
         input.remoteEnabled !== undefined ? input.remoteEnabled : existing.remoteEnabled;
       const newVoiceEnabled =
         input.voiceEnabled !== undefined ? input.voiceEnabled : existing.voiceEnabled;
+      const newTtsEnabled = input.ttsEnabled !== undefined ? input.ttsEnabled : existing.ttsEnabled;
       const newAutoStart = input.autoStart !== undefined ? input.autoStart : existing.autoStart;
       const newAutoCiFix = input.autoCiFix !== undefined ? input.autoCiFix : existing.autoCiFix;
       const newPrScope = input.prScope !== undefined ? input.prScope : existing.prScope;
@@ -397,6 +399,7 @@ export const workspaceRouter = router({
           autoAgentCompletion: newAutoAgentCompletion,
           remoteEnabled: newRemoteEnabled,
           voiceEnabled: newVoiceEnabled,
+          ttsEnabled: newTtsEnabled,
           autoStart: newAutoStart,
           autoCiFix: newAutoCiFix,
           prScope: newPrScope,
@@ -431,6 +434,7 @@ export const workspaceRouter = router({
               autoAgentCompletion: existing.autoAgentCompletion,
               remoteEnabled: existing.remoteEnabled,
               voiceEnabled: existing.voiceEnabled,
+              ttsEnabled: existing.ttsEnabled,
               autoStart: existing.autoStart,
               autoCiFix: existing.autoCiFix,
               prScope: existing.prScope,
@@ -468,6 +472,19 @@ export const workspaceRouter = router({
         implementSkill: updated.implementSkill,
         earsBdd: updated.earsBdd ?? false,
       });
+
+      // Downloading the voice model is the whole cost of each opt-in, so it
+      // is paid here — the moment the user opts in — never at server startup.
+      if (updated.ttsEnabled === true && existing.ttsEnabled !== true) {
+        void import('../../voice/tts')
+          .then((m) => m.preloadTts())
+          .catch((err) => {
+            console.warn(
+              '[workspace.update] TTS model preload failed',
+              err instanceof Error ? err.message : err,
+            );
+          });
+      }
 
       // Downloading the ~630MB ASR model is the whole cost of voice, so it is
       // paid here — the moment the user opts in — never at server startup.

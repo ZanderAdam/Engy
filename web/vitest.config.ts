@@ -20,6 +20,7 @@ export default defineConfig({
       'src/server/**/*.test.ts',
       'src/lib/**/*.test.ts',
       'src/components/**/*.test.ts',
+      'src/contexts/**/*.test.ts',
       'src/hooks/**/*.test.ts',
     ],
     coverage: {

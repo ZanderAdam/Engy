@@ -57,6 +57,7 @@ interface EditWorkspaceDialogProps {
     docsDir: string | null;
     splitWorktrees: boolean | null;
     voiceEnabled: boolean | null;
+    ttsEnabled: boolean | null;
     planSkill: string | null;
     implementSkill: string | null;
     defaultAgentType: string | null;
@@ -96,6 +97,7 @@ export function EditWorkspaceDialog({
   const [repos, setRepos] = useState<string[]>(initialRepos(workspace.repos));
   const [splitWorktrees, setSplitWorktrees] = useState(workspace.splitWorktrees ?? false);
   const [voiceEnabled, setVoiceEnabled] = useState(workspace.voiceEnabled ?? false);
+  const [ttsEnabled, setTtsEnabled] = useState(workspace.ttsEnabled ?? false);
   const [agentSettings, setAgentSettings] = useState<WorkspaceAgentSettings>(() =>
     seedAgentSettings(workspace),
   );
@@ -149,6 +151,7 @@ export function EditWorkspaceDialog({
       docsDir: trimmedDocsDir || null,
       splitWorktrees,
       voiceEnabled,
+      ttsEnabled,
       agentSettings: normalizeAgentSettings(agentSettings),
       defaultAgentType,
       containerEnabled: container.containerEnabled,
@@ -218,6 +221,7 @@ export function EditWorkspaceDialog({
       setRepos(initialRepos(workspace.repos));
       setSplitWorktrees(workspace.splitWorktrees ?? false);
       setVoiceEnabled(workspace.voiceEnabled ?? false);
+      setTtsEnabled(workspace.ttsEnabled ?? false);
       setAgentSettings(seedAgentSettings(workspace));
       setDefaultAgentType(coerceAgentTypeId(workspace.defaultAgentType));
       setError(null);
@@ -334,6 +338,22 @@ export function EditWorkspaceDialog({
                     Off (default): nothing is downloaded or loaded. On: hold Right Ctrl to dictate
                     into the focused terminal. Turning it on downloads a ~630MB speech model once,
                     shared by every workspace.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="edit-workspace-tts">Spoken replies</Label>
+                    <Switch
+                      id="edit-workspace-tts"
+                      checked={ttsEnabled}
+                      onCheckedChange={setTtsEnabled}
+                      disabled={!voiceEnabled}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Needs voice dictation. On: Engy speaks terminal status and action
+                    acknowledgements back, and agents can answer out loud. Downloads a ~65MB voice
+                    once.
                   </p>
                 </div>
               </div>

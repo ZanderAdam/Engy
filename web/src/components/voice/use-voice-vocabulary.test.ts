@@ -15,6 +15,7 @@ function build(over: Partial<Parameters<typeof assembleVoiceVocabulary>[0]> = {}
     sessions: SESSIONS,
     openHelp: vi.fn(),
     submitTerminal: vi.fn(() => true),
+    askTerminal: vi.fn(),
     ...over,
   });
 }

@@ -15,6 +15,7 @@ import {
 } from '../../engy-dir/init';
 
 const preloadRecognizer = vi.fn();
+const preloadTts = vi.fn();
 // The preload is fire-and-forget behind a dynamic import, so it lands a few
 // microtasks after the mutation resolves — negative assertions need this or
 // they pass for the wrong reason.
@@ -22,6 +23,10 @@ const flushPreload = () => new Promise((resolve) => setImmediate(resolve));
 // Never let a test reach the real preload — it downloads a ~630MB model.
 vi.mock('../../voice/recognizer', () => ({
   preloadRecognizer: () => preloadRecognizer(),
+}));
+
+vi.mock('../../voice/tts', () => ({
+  preloadTts: () => preloadTts(),
 }));
 
 describe('workspace router', () => {
@@ -32,6 +37,7 @@ describe('workspace router', () => {
     ctx = setupTestDb();
     caller = appRouter.createCaller({ state: ctx.state });
     preloadRecognizer.mockClear();
+    preloadTts.mockClear();
   });
 
   afterEach(() => {
@@ -197,6 +203,42 @@ describe('workspace router', () => {
       const yamlPath = path.join(ctx.tmpDir, 'no-docs', 'workspace.yaml');
       const parsed = yaml.load(fs.readFileSync(yamlPath, 'utf-8')) as Record<string, unknown>;
       expect(parsed.docsDir).toBeUndefined();
+    });
+  });
+
+  describe('spoken replies opt-in', () => {
+    it('[FR-TG2.25] should default a new workspace to spoken replies off', async () => {
+      const ws = await caller.workspace.create({ name: 'TTS Default' });
+      await flushPreload();
+      expect(ws.ttsEnabled).toBe(false);
+      expect(preloadTts).not.toHaveBeenCalled();
+    });
+
+    // Its own opt-in, and its own model: turning voice input on must not
+    // fetch the voice that speaks back.
+    it('[FR-TG2.25] should download the voice only when spoken replies are switched on', async () => {
+      const ws = await caller.workspace.create({ name: 'TTS Toggle' });
+
+      await caller.workspace.update({ id: ws.id, voiceEnabled: true });
+      await flushPreload();
+      expect(preloadTts).not.toHaveBeenCalled();
+
+      const on = await caller.workspace.update({ id: ws.id, ttsEnabled: true });
+      expect(on.ttsEnabled).toBe(true);
+      await vi.waitFor(() => expect(preloadTts).toHaveBeenCalledTimes(1));
+    });
+
+    it('[FR-TG2.25] should not re-download when an already-enabled workspace is saved again', async () => {
+      const ws = await caller.workspace.create({ name: 'TTS Resave' });
+      await caller.workspace.update({ id: ws.id, ttsEnabled: true });
+      await vi.waitFor(() => expect(preloadTts).toHaveBeenCalledTimes(1));
+      preloadTts.mockClear();
+
+      await caller.workspace.update({ id: ws.id, ttsEnabled: true });
+      await caller.workspace.update({ id: ws.id, name: 'TTS Resave 2' });
+      await flushPreload();
+
+      expect(preloadTts).not.toHaveBeenCalled();
     });
   });
 

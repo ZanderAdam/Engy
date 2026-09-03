@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { TerminalActivityState } from '@engy/common';
+import { isEventForWorkspace } from './event-scope';
 
 // ── Event Types ─────────────────────────────────────────────────────
 
@@ -73,6 +74,13 @@ interface TerminalWorkersChangePayload {
   connected: boolean;
 }
 
+interface VoiceSpeakPayload {
+  text: string;
+  workspaceSlug?: string;
+  sessionId?: string;
+  scopeLabel?: string;
+}
+
 interface ServerEventMap {
   FILE_CHANGE: FileChangePayload;
   TASK_CHANGE: TaskChangePayload;
@@ -83,6 +91,7 @@ interface ServerEventMap {
   PR_CHANGE: PrChangePayload;
   PR_ATTENTION: PrAttentionPayload;
   TERMINAL_WORKERS_CHANGE: TerminalWorkersChangePayload;
+  VOICE_SPEAK: VoiceSpeakPayload;
 }
 
 type ServerEventType = keyof ServerEventMap;
@@ -177,13 +186,7 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
 
         if (!msg.type || !msg.payload) return;
 
-        // Filter file changes by workspace
-        if (
-          msg.type === 'FILE_CHANGE' &&
-          (msg.payload as FileChangePayload).workspaceSlug !== workspaceSlug
-        ) {
-          return;
-        }
+        if (!isEventForWorkspace(msg.payload, workspaceSlug)) return;
 
         const callbacks = subscribersRef.current.get(msg.type);
         if (!callbacks) return;

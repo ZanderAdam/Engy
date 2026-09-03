@@ -22,6 +22,21 @@ export function isVoiceEnabledForWorkspace(slug: string | null | undefined): boo
   return row?.voiceEnabled === true;
 }
 
+/**
+ * Whether the workspace has opted into spoken replies. Deliberately separate
+ * from voice input: being spoken at is its own choice, and it downloads its
+ * own voice model. Requires voice too, since TTS only ever answers voice.
+ */
+export function isTtsEnabledForWorkspace(slug: string | null | undefined): boolean {
+  if (!slug) return false;
+  const row = getDb()
+    .select({ voiceEnabled: workspaces.voiceEnabled, ttsEnabled: workspaces.ttsEnabled })
+    .from(workspaces)
+    .where(eq(workspaces.slug, slug))
+    .get();
+  return row?.voiceEnabled === true && row?.ttsEnabled === true;
+}
+
 function toBuffer(data: Buffer | ArrayBuffer | Buffer[]): Buffer {
   if (Buffer.isBuffer(data)) return data;
   if (Array.isArray(data)) return Buffer.concat(data);

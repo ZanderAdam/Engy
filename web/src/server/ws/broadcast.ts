@@ -91,6 +91,21 @@ interface TerminalWorkersChangeEvent {
   };
 }
 
+// An agent asking to be heard. Carries the terminal it came from so the
+// browser can attribute the voice to a session, and so a future per-terminal
+// mute has something to key on.
+interface VoiceSpeakEvent {
+  type: 'VOICE_SPEAK';
+  payload: {
+    text: string;
+    // Carried so only the workspace that was spoken to hears it — broadcasts
+    // reach every open browser, whatever workspace it is showing.
+    workspaceSlug?: string;
+    sessionId?: string;
+    scopeLabel?: string;
+  };
+}
+
 type ServerEvent =
   | FileChangeEvent
   | TaskChangeEvent
@@ -100,7 +115,8 @@ type ServerEvent =
   | TerminalActivityChangeEvent
   | PrChangeEvent
   | PrAttentionEvent
-  | TerminalWorkersChangeEvent;
+  | TerminalWorkersChangeEvent
+  | VoiceSpeakEvent;
 
 // ── Generic Broadcast ───────────────────────────────────────────────
 
@@ -192,4 +208,8 @@ export function broadcastPrAttention(
 
 export function broadcastTerminalWorkersChange(sessionId: string, connected: boolean): void {
   broadcastEvent({ type: 'TERMINAL_WORKERS_CHANGE', payload: { sessionId, connected } });
+}
+
+export function broadcastVoiceSpeak(payload: VoiceSpeakEvent['payload']): void {
+  broadcastEvent({ type: 'VOICE_SPEAK', payload });
 }

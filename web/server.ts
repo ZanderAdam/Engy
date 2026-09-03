@@ -10,6 +10,7 @@ import { createEventsWebSocketServer } from './src/server/ws/events-server';
 import {
   createVoiceWebSocketServer,
   isVoiceEnabledForWorkspace,
+  isTtsEnabledForWorkspace,
 } from './src/server/ws/voice-server';
 import { broadcastTerminalSessionsChange } from './src/server/ws/broadcast';
 import { listTerminalSessions } from './src/server/ws/terminal-session-list';
@@ -55,6 +56,42 @@ app.prepare().then(() => {
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ sessions }));
+      return;
+    }
+
+    // Spoken answers. GET-with-text (not POST) so the browser can play it
+    // with a plain `new Audio(url)` — no fetch, no blob, no Web Audio graph.
+    if (req.method === 'GET' && url.pathname === '/api/voice/speak') {
+      const workspace = url.searchParams.get('workspace');
+      const text = url.searchParams.get('text') ?? '';
+      if (!isTtsEnabledForWorkspace(workspace)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Spoken replies are not enabled for this workspace.' }));
+        return;
+      }
+      if (!text.trim()) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Nothing to speak.' }));
+        return;
+      }
+      // Dynamic: a static import would load the native sherpa addon on every
+      // server boot, including for workspaces that never turn voice on.
+      void import('./src/server/voice/tts')
+        .then(async (m) => {
+          const wav = await m.synthesize(text);
+          res.writeHead(200, {
+            'Content-Type': 'audio/wav',
+            'Content-Length': String(wav.length),
+            'Cache-Control': 'private, max-age=3600',
+          });
+          res.end(wav);
+        })
+        .catch((err: unknown) => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({ error: err instanceof Error ? err.message : 'Synthesis failed.' }),
+          );
+        });
       return;
     }
 

@@ -665,7 +665,11 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   return (
     <EventsProvider workspaceSlug={params.workspace}>
-      <VoiceProvider enabled={workspace?.voiceEnabled ?? false} workspaceSlug={params.workspace}>
+      <VoiceProvider
+        enabled={workspace?.voiceEnabled ?? false}
+        ttsEnabled={workspace?.ttsEnabled ?? false}
+        workspaceSlug={params.workspace}
+      >
         {isMobile ? (
           <MobileOverlayProvider>
             {content}

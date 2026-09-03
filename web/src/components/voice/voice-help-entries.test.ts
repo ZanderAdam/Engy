@@ -14,6 +14,7 @@ function terminalActions(): VoiceAction[] {
       { sessionId: 's2', label: 'test', activity: 'idle', stopped: false },
     ],
     submit: () => true,
+    ask: () => {},
   });
 }
 

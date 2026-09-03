@@ -8,7 +8,7 @@ See `../trpc/routers/CLAUDE.md` for the parity rule from the tRPC side.
 
 The MCP surface and tRPC surface expose the same domain operations (workspace/task/memory CRUD, search, index). This is **intentional duplication** — the two API surfaces exist side by side and have separate implementations in `index.ts` and the tRPC routers respectively. Both share the same Drizzle DB and AppState singleton. Do not try to call tRPC procedures from MCP handlers; duplicate the logic.
 
-- Every MCP tool corresponds to a tRPC procedure with matching input shape, error semantics, and side effects. **When you change one, change the other.** Exception: the `terminal_*` dispatch tools (`terminal-tools.ts`) are agent-only by design — browsers manage the worker set via the `terminal` tRPC router; agents alone call dispatch/reply/collect/status.
+- Every MCP tool corresponds to a tRPC procedure with matching input shape, error semantics, and side effects. **When you change one, change the other.** Exception: the `terminal_*` dispatch tools (`terminal-tools.ts`) are agent-only by design — browsers manage the worker set via the `terminal` tRPC router; agents alone call dispatch/reply/collect/status. Same for `speak` (`voice-tools.ts`): the browser already speaks its own voice-action answers locally, so its counterpart is `/api/voice/speak`, not a tRPC procedure.
 - Shared helpers live outside both layers and **must be imported**, not copied:
   - `validateDependencies`, `attachBlockedBy` from `../tasks/validation`
   - `getWorkspaceDir`, `resolveProjectDir` from `../engy-dir/init`

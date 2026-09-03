@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useVirtualParams } from '@/components/tabs/tab-context';
 import type { VirtualParams } from '@/components/tabs/tab-state';
 import { useOpenTerminals } from '@/components/terminal/terminal-session-store';
@@ -24,6 +24,7 @@ function toTerminalVocab(tabs: TerminalTab[]): VoiceTerminalVocabEntry[] {
     activity: tab.activityState ?? 'idle',
     stopped: isStoppedTerminal(tab.status),
     detail: tab.oscTitle,
+    agentType: tab.scope.agentType,
   }));
 }
 
@@ -32,6 +33,7 @@ interface VocabularyInput {
   sessions: VoiceTerminalVocabEntry[];
   openHelp: () => void;
   submitTerminal: () => boolean;
+  askTerminal: (sessionId: string, prompt: string) => void;
 }
 
 /** Pure assembly, independent of how each list was fetched — this is what
@@ -39,7 +41,11 @@ interface VocabularyInput {
 export function assembleVoiceVocabulary(input: VocabularyInput): VoiceAction[] {
   if (!input.workspaceSlug) return [];
   return [
-    ...createTerminalActions({ sessions: input.sessions, submit: input.submitTerminal }),
+    ...createTerminalActions({
+      sessions: input.sessions,
+      submit: input.submitTerminal,
+      ask: input.askTerminal,
+    }),
     ...createHelpActions({ openHelp: input.openHelp }),
   ];
 }
@@ -56,14 +62,26 @@ export function assembleVoiceVocabulary(input: VocabularyInput): VoiceAction[] {
  * to resolve.
  */
 export function useVoiceVocabulary(openHelp: () => void): VoiceAction[] {
-  const { submitTerminal } = useSendToTerminal();
+  const { submitTerminal, sendToTerminal } = useSendToTerminal();
   const params = useVirtualParams<VirtualParams>();
   const workspaceSlug = params.workspace ?? '';
   const openTerminals = useOpenTerminals();
   const sessions = useMemo(() => toTerminalVocab(openTerminals), [openTerminals]);
 
+  const askTerminal = useCallback(
+    (sessionId: string, prompt: string) => sendToTerminal(prompt, sessionId),
+    [sendToTerminal],
+  );
+
   return useMemo(
-    () => assembleVoiceVocabulary({ workspaceSlug, sessions, openHelp, submitTerminal }),
-    [workspaceSlug, sessions, openHelp, submitTerminal],
+    () =>
+      assembleVoiceVocabulary({
+        workspaceSlug,
+        sessions,
+        openHelp,
+        submitTerminal,
+        askTerminal,
+      }),
+    [workspaceSlug, sessions, openHelp, submitTerminal, askTerminal],
   );
 }

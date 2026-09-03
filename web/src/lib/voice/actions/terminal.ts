@@ -8,6 +8,9 @@ export interface VoiceTerminalVocabEntry {
   stopped: boolean;
   /** Dynamic OSC title, when the shell set one — usually the running command. */
   detail?: string;
+  /** Set when the terminal runs an agent CLI. An agent can be asked how it is
+   * going; a plain shell can only be described from the outside. */
+  agentType?: string;
 }
 
 interface TerminalActionsDeps {
@@ -15,7 +18,15 @@ interface TerminalActionsDeps {
   /** Presses Enter in the focused terminal. Returns false when no terminal
    * took it. */
   submit: () => boolean;
+  /** Types a prompt into one terminal and submits it. */
+  ask: (sessionId: string, prompt: string) => void;
 }
+
+// Sent to an agent when the user asks how it is going. It has to say "out
+// loud" explicitly: without it the agent writes a long text answer that the
+// user, who is not looking at the screen, never sees.
+const STATUS_PROMPT =
+  'The user just asked out loud how this is going. Answer with the `speak` tool in one or two short sentences: what you are doing now, and anything you need from them. Do not write a long reply.';
 
 const ORDINAL_WORDS: Record<string, number> = {
   one: 1,
@@ -82,6 +93,11 @@ const ATTENTION_ORDER: VoiceTerminalVocabEntry['activity'][] = [
   'idle',
 ];
 
+function focusTerminal(sessionId: string): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('terminal:focus', { detail: { sessionId } }));
+}
+
 function summarize(sessions: VoiceTerminalVocabEntry[]): string {
   const ordered = sessions
     .map((entry, index) => ({ entry, ordinal: index + 1 }))
@@ -121,10 +137,7 @@ export function createTerminalActions(deps: TerminalActionsDeps): VoiceAction[] 
       run: (ctx) => {
         const target = resolveTerminalTarget(deps.sessions, ctx.params.name);
         if (!target) return `No terminal matching "${ctx.params.name}".`;
-        if (typeof window === 'undefined') return;
-        window.dispatchEvent(
-          new CustomEvent('terminal:focus', { detail: { sessionId: target.sessionId } }),
-        );
+        focusTerminal(target.sessionId);
         return `Focused ${target.label}.`;
       },
     },
@@ -156,7 +169,18 @@ export function createTerminalActions(deps: TerminalActionsDeps): VoiceAction[] 
       run: (ctx) => {
         const target = resolveTerminalTarget(deps.sessions, ctx.params.name);
         if (!target) return `No terminal matching "${ctx.params.name}".`;
-        return describe(target, deps.sessions.indexOf(target) + 1);
+
+        // Focus first, whatever answers: asking about a terminal is the start
+        // of talking to it, so the next dictated words should land there.
+        focusTerminal(target.sessionId);
+
+        // Only an agent can say what it is actually doing. A plain shell gets
+        // described from the outside, which is all anyone can know about it.
+        if (!target.agentType || target.stopped) {
+          return describe(target, deps.sessions.indexOf(target) + 1);
+        }
+        deps.ask(target.sessionId, STATUS_PROMPT);
+        return `Asking ${target.label}.`;
       },
     },
   ];

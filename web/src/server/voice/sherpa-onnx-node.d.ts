@@ -128,4 +128,38 @@ declare module 'sherpa-onnx-node' {
     reset(stream: OnlineStream): void;
     getResult(stream: OnlineStream): KeywordResult;
   }
+
+  export interface OfflineTtsVitsModelConfig {
+    model: string;
+    tokens: string;
+    /** espeak-ng data directory shipped inside the Piper model archive; the
+     * phonemizer reads it at load time. */
+    dataDir: string;
+  }
+
+  export interface OfflineTtsConfig {
+    model: {
+      vits: OfflineTtsVitsModelConfig;
+      numThreads?: number;
+      provider?: string;
+      debug?: boolean;
+    };
+    /** Sentences are synthesized in batches of this size. 1 keeps latency
+     * lowest for the short answers this is used for. */
+    maxNumSentences?: number;
+  }
+
+  export interface GeneratedAudio {
+    samples: Float32Array;
+    sampleRate: number;
+  }
+
+  /** Offline (non-streaming) text to speech. One instance wraps the loaded
+   * voice; `generate` is synchronous and re-entrant per call. */
+  export class OfflineTts {
+    constructor(config: OfflineTtsConfig);
+    readonly sampleRate: number;
+    readonly numSpeakers: number;
+    generate(opts: { text: string; sid: number; speed: number }): GeneratedAudio;
+  }
 }
