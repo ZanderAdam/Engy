@@ -46,6 +46,7 @@ vi.mock('../voice/spotter', async (importOriginal) => {
     ...actual,
     createWakeStream: vi.fn(async () => ({
       writeChunk: (chunk: Buffer) => wakeOnChunk(chunk),
+      flush: () => false,
     })),
   };
 });

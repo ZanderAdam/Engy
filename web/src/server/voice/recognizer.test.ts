@@ -15,6 +15,7 @@ import type { WakeStream } from './spotter';
 // was woken — is what's under test, so the wake signal is a controllable
 // double rather than the real KeywordSpotter.
 let wakeOnChunk: (chunk: Buffer) => boolean = () => true;
+let wakeOnFlush = false;
 vi.mock('./spotter', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./spotter')>();
   return {
@@ -22,6 +23,7 @@ vi.mock('./spotter', async (importOriginal) => {
     createWakeStream: vi.fn(
       async (): Promise<WakeStream> => ({
         writeChunk: (chunk: Buffer) => wakeOnChunk(chunk),
+        flush: () => wakeOnFlush,
       }),
     ),
   };
@@ -53,6 +55,7 @@ afterAll(() => {
 
 beforeEach(() => {
   wakeOnChunk = () => true;
+  wakeOnFlush = false;
 });
 
 function readWavPcm16(filePath: string): Buffer {
@@ -204,6 +207,34 @@ describe('voice recognizer', () => {
         expect(segments.length).toBeGreaterThanOrEqual(1);
         expect(segments.every((s) => s.text.length > 0)).toBe(true);
         expect(segments.every((s) => s.wake === false)).toBe(true);
+      },
+      MODEL_TEST_TIMEOUT,
+    );
+
+    // The spotter needs audio after the keyword to confirm it, so a turn
+    // ending on the word ends before the detection emits. Closing feeds
+    // trailing silence to give it that chance — measured to recover 3 of 10
+    // real misses.
+    it(
+      '[FR-TG2.11] should report a wake word that only emits once the turn closes',
+      async () => {
+        wakeOnChunk = () => false;
+        wakeOnFlush = true;
+        const pcm = readWavPcm16(FIXTURE_PATH);
+        let wakes = 0;
+
+        const turn = await createTurnRecognizer({
+          onSegment: () => {},
+          onWake: () => (wakes += 1),
+          onError: () => {},
+        });
+        for (let offset = 0; offset < pcm.length; offset += CHUNK_BYTES) {
+          turn.writeChunk(pcm.subarray(offset, offset + CHUNK_BYTES));
+        }
+        expect(wakes).toBe(0);
+
+        turn.close();
+        expect(wakes).toBe(1);
       },
       MODEL_TEST_TIMEOUT,
     );

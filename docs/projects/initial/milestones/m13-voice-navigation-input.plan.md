@@ -235,26 +235,31 @@ _Partial — TG2 is implemented and awaiting the user's own testing._
 
 **Wake word: the user says "Angie"; the spotter listens for `ANGIE` and `NG`.** "Engy" is unusable — it encodes to three short pieces (`▁E NG Y`) and scored 0/48, so the spoken name diverges deliberately from the product name. The spotter matches token sequences, so the two are free to differ.
 
-**Measured on 99 real takes of the wake word, with 70 wake-free recordings as negatives** (FR-TG2.11's "measure before tuning" requirement), all at `keywordsThreshold: 0.01`, `keywordsScore: 3.0`:
+**The denominator matters more than any tuning knob.** Of 99 recordings captured after the wake word shipped, 19 contain no wake word at all — VAD fragments like "Mm", "Yeah", empty 0.0s clips. Scoring against 99 understated recall by 13 points. The real denominator is **80 wake attempts**, confirmed by transcribing every clip and reading the 18 that fired without an obvious wake word in their transcript: all 18 are the ASR mangling a real attempt ("Okay, and G", "Ok Eng", "Ngi", "PNG", "Hengie", "An engine"). None is a false accept.
 
-| Registered keywords | Accept | False accepts |
-|---|---|---|
-| ANGIE + OKAY ANGIE | 46/99 (46%) | 0/70 |
-| **NG + ANGIE (shipped)** | **70/99 (71%)** | **0/70** |
-| ANGIE + OKAY ANGIE + NG | 70/99 (71%) | 0/70 |
-| NG alone | 65/99 (66%) | 0/70 |
-| ANGY + ANGIE | 48/99 (48%) | 0/70 |
-| ENGIE + ANGIE | 51/99 (52%) | 0/70 |
+**Measured on those 80 real wake attempts, with 70 wake-free recordings as negatives** (FR-TG2.11's "measure before tuning" requirement), at `keywordsThreshold: 0.01` with the close-flush in place:
+
+| Registered keywords | score | Recall | False accepts |
+|---|---|---|---|
+| ANGIE + OKAY ANGIE | 3.0 | 46/80 (58%) | 0/70 |
+| NG + ANGIE | 3.0 | 73/80 (91%) | 0/70 |
+| **NG + ANGIE (shipped)** | **4.0** | **75/80 (94%)** | **0/70** |
+| NG + ANGIE | 5.0 | 76/80 (95%) | 1/70 |
+| NG alone | 4.0 | 68/80 (85%) | 0/70 |
+| NG + ANGIE + ANG | 4.0 | 73/80 (91%) | 0/70 |
+
+Score 5.0 buys one more accept and costs the first false accept, so 4.0 is the edge of the free range.
 
 Three findings worth carrying forward:
 
-- **Register what the model hears, not what the user says.** Both models render a spoken "Angie" as "NG". Registering that fragment took detection from 46% to 71% — the single largest gain in this milestone. Spelling variants that read plausibly to a human (`ANGY`, `ENGIE`) gained almost nothing, because they are not what the acoustic model produces.
+- **Register what the model hears, not what the user says.** Both models render a spoken "Angie" as "NG". Registering that fragment was the single largest gain in this milestone. Spelling variants that read plausibly to a human (`ANGY`, `ENGIE`) gained almost nothing, because they are not what the acoustic model produces.
+- **The spotter needs audio after the keyword.** Detections land 0.8–2.1s into a clip, so a turn ending on the word ends before the detection emits. Feeding 0.5s of silence on close recovers those; the gain plateaus at 0.5s.
 - **Fewer registered keywords detect better.** Four keywords measured 27% where two measured 48% on identical audio. The spotter appears to divide decoding across keywords, so each added variant costs the others. This is why the spot list is minimal while a separate, wider `WAKE_PREFIXES` list handles stripping — text stripping has no detection cost.
 - **Synthesized audio is void for tuning this model.** A full TTS sweep scored zero on every phrase including the model's own shipped `GO HOME` control, which measures 89% on real speech. Only real recordings were used.
 
 **Open: `NG` is two tokens, short enough to be a false-accept risk in principle** ("going", "thing", "running"). It measured 0/70 here, and in push-to-talk a false wake is cheap — the segment resolves as a command and shows "No matching action" instead of being typed. Re-measure before TG3's always-on, where nothing else gates the mic.
 
-**Open: 71% still means roughly three in ten attempts need repeating.** Every operating point measured 0% false accepts, so headroom remains. For push-to-talk specifically, a second key would signal "this is a command" with perfect reliability; the wake word is only strictly needed for always-on.
+**Open: the remaining 5 misses are wake-word-only utterances** — "Okay, Angie." with nothing after it, 1.3–2.4s long. Nothing in the operating grid recovers them, which fits the same cause as the close-flush: too little audio for the model to commit. Saying the command in the same breath is what avoids them, and is what the help text should say.
 
 ## TG3: Always-On Session, Modes & Safety
 

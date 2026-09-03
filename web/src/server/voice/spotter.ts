@@ -23,13 +23,16 @@ const ENCODER_FILE = 'encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx';
 const DECODER_FILE = 'decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx';
 const JOINER_FILE = 'joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx';
 
-// Tuned on 99 real recordings of the wake word with 70 wake-free recordings
-// as negatives: 70/99 accepted, 0/70 false. Synthesized audio is useless for
-// tuning this model — every TTS measurement scored zero including its own
-// control. Detection is far more sensitive to score than to threshold, and
-// falls off above a threshold of about 0.15.
+// Tuned on 80 real wake attempts with 70 wake-free recordings as negatives:
+// 75 accepted (94%), 0/70 false. Score 5.0 accepts one more and costs a
+// false accept, so 4.0 is the edge of the free range. Detection is far more
+// sensitive to score than to threshold, and falls off above a threshold of
+// about 0.05. Synthesized audio is useless for tuning this model — every TTS
+// measurement scored zero including the model's own shipped control.
 const KEYWORDS_THRESHOLD = 0.01;
-const KEYWORDS_SCORE = 3.0;
+const KEYWORDS_SCORE = 4.0;
+// Measured: recovery plateaus at 0.5s, so more buys nothing.
+const FLUSH_SILENCE_SECONDS = 0.5;
 
 async function ensureKeywordsFile(kwsModelDir: string): Promise<string> {
   // Keyed by the variants themselves, so changing the wake words writes a
@@ -121,6 +124,13 @@ export interface WakeStream {
    * same turn can wake it again rather than reporting one long detection.
    */
   writeChunk(chunk: Buffer): boolean;
+  /**
+   * Feeds trailing silence and reports a wake word that had not yet emitted.
+   * The spotter needs audio after the keyword to confirm it — measured
+   * detections land 0.8-2.1s into a clip — so a turn ending right on the
+   * word ends before the detection comes out. Recovers 3 of 10 real misses.
+   */
+  flush(): boolean;
 }
 
 /**
@@ -134,16 +144,27 @@ export async function createWakeStream(): Promise<WakeStream> {
   const spotter = await getSharedSpotter();
   const stream = spotter.createStream();
 
+  function drain(): boolean {
+    while (spotter.isReady(stream)) {
+      spotter.decode(stream);
+    }
+    const result: KeywordResult = spotter.getResult(stream);
+    if (!result.keyword) return false;
+    spotter.reset(stream);
+    return true;
+  }
+
   return {
     writeChunk(chunk: Buffer): boolean {
       stream.acceptWaveform({ samples: pcm16ToFloat32(chunk), sampleRate: SAMPLE_RATE });
-      while (spotter.isReady(stream)) {
-        spotter.decode(stream);
-      }
-      const result: KeywordResult = spotter.getResult(stream);
-      if (!result.keyword) return false;
-      spotter.reset(stream);
-      return true;
+      return drain();
+    },
+    flush(): boolean {
+      stream.acceptWaveform({
+        samples: new Float32Array(Math.round(SAMPLE_RATE * FLUSH_SILENCE_SECONDS)),
+        sampleRate: SAMPLE_RATE,
+      });
+      return drain();
     },
   };
 }

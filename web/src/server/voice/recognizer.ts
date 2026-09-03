@@ -187,6 +187,10 @@ export async function createTurnRecognizer(opts: TurnRecognizerOpts): Promise<Tu
     close(): void {
       if (closed) return;
       closed = true;
+      if (wakeStream.flush()) {
+        wokenSinceLastSegment = true;
+        opts.onWake();
+      }
       vad.flush();
       drainClosedSegments();
     },
