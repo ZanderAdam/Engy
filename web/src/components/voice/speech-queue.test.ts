@@ -37,6 +37,54 @@ describe('SpeechQueue', () => {
     await vi.waitFor(() => expect(playing).toEqual(['first', 'second']));
   });
 
+  // Without this the items of a status readout run together: the voice's own
+  // longest pause is ~0.15s regardless of punctuation.
+  it('[FR-TG2.26] should wait between utterances, but not after the last', async () => {
+    const events: string[] = [];
+    const queue = new SpeechQueue({
+      gapMs: 200,
+      play: async (url) => {
+        events.push(`play:${url}`);
+      },
+      wait: async (ms) => {
+        events.push(`wait:${ms}`);
+      },
+    });
+
+    queue.enqueue('a');
+    queue.enqueue('b');
+    queue.enqueue('c');
+
+    await vi.waitFor(() => expect(events).toHaveLength(5));
+    expect(events).toEqual(['play:a', 'wait:200', 'play:b', 'wait:200', 'play:c']);
+  });
+
+  it('should not wait at all for a single utterance', async () => {
+    const wait = vi.fn(async () => {});
+    const queue = new SpeechQueue({ gapMs: 200, play: async () => {}, wait });
+    queue.enqueue('only');
+    await vi.waitFor(() => expect(queue.size).toBe(0));
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it('should still gap after an utterance that failed', async () => {
+    const wait = vi.fn(async () => {});
+    const queue = new SpeechQueue({
+      gapMs: 200,
+      play: async (url) => {
+        if (url === 'bad') throw new Error('boom');
+      },
+      wait,
+      onError: () => {},
+    });
+
+    queue.enqueue('bad');
+    queue.enqueue('good');
+
+    await vi.waitFor(() => expect(queue.size).toBe(0));
+    expect(wait).toHaveBeenCalledWith(200);
+  });
+
   it('[FR-TG2.22] should ignore an empty url', () => {
     const play = vi.fn(async () => {});
     const queue = new SpeechQueue({ play });

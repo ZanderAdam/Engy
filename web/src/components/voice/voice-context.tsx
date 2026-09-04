@@ -59,10 +59,16 @@ function ActiveVoiceProvider({
   // agent's `speak` can land in the same instant, and two voices at once are
   // unintelligible.
   const [queue] = useState(() => new SpeechQueue({}));
+  // One utterance per line, not one for the whole answer: a status readout is
+  // a list, and the voice does not pause on punctuation, so the gap between
+  // items has to come from the queue playing them separately.
   const speak = useCallback(
     (text: string) => {
-      if (!ttsEnabled || !text.trim()) return;
-      queue.enqueue(speakUrl(workspaceSlug, text.trim()));
+      if (!ttsEnabled) return;
+      for (const line of text.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed) queue.enqueue(speakUrl(workspaceSlug, trimmed));
+      }
     },
     [ttsEnabled, queue, workspaceSlug],
   );

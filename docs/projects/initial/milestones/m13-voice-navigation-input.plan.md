@@ -185,6 +185,7 @@ This is why TG1's lack of a streaming recognizer does not block always-on: what 
 23. The system shall render spoken answers locally, and shall cap an over-long utterance rather than speaking all of it. *(inferred: a spoken answer cannot be skimmed or interrupted)* (FR-TG2.23)
 24. An agent shall be able to answer the user out loud through an MCP tool, only while the workspace has opted into spoken replies. *(source: user request — "new tts tool for mcp")* (FR-TG2.24)
 25. Spoken replies shall be opt-in per workspace, separately from voice input, and shall download their voice only on opt-in. *(inferred: the existing voice opt-in set this precedent — no model is fetched until the feature is turned on)* (FR-TG2.25)
+26. The system shall speak a multi-line answer as one utterance per line, with a pause between them. *(source: user report — "we need a lil pause between terminal readouts, its all one mush together"; measured, the voice's longest pause is ~0.15s whatever the punctuation, so the gap cannot come from the text)* (FR-TG2.26)
 19. A matched action shall be able to answer in text, and the system shall display that answer. *(inferred: a status command has no visible side effect, so without this its result is invisible)* (FR-TG2.19)
 
 ### Tasks

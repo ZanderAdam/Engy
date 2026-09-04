@@ -10,6 +10,21 @@ interface SpeechQueueOpts {
   /** Injectable for tests; defaults to the DOM Audio element. */
   play?: (url: string) => Promise<void>;
   onError?: (message: string) => void;
+  /** Silence inserted between utterances, never after the last one.
+   *
+   * The voice does not pause on punctuation — measured, the longest gap it
+   * produces is ~0.15s whether the text is joined by newlines, periods or
+   * semicolons — so a multi-item readout runs together into one mush unless
+   * the gap is added here. */
+  gapMs?: number;
+  /** Injectable for tests, so they need no timers. */
+  wait?: (ms: number) => Promise<void>;
+}
+
+const DEFAULT_GAP_MS = 350;
+
+function defaultWait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function playViaAudio(url: string): Promise<void> {
@@ -58,6 +73,10 @@ export class SpeechQueue {
         } catch (err) {
           // One utterance failing must not strand the rest of the queue.
           this.opts.onError?.(err instanceof Error ? err.message : 'Speech failed.');
+        }
+        if (this.pending.length > 0) {
+          const gap = this.opts.gapMs ?? DEFAULT_GAP_MS;
+          if (gap > 0) await (this.opts.wait ?? defaultWait)(gap);
         }
       }
     } finally {
