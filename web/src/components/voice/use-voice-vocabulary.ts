@@ -9,6 +9,7 @@ import { isStoppedTerminal, type TerminalTab } from '@/components/terminal/types
 import type { VoiceAction } from '@/lib/voice/registry';
 import { createTerminalActions, type VoiceTerminalVocabEntry } from '@/lib/voice/actions/terminal';
 import { createHelpActions } from '@/lib/voice/actions/help';
+import { createConversationActions } from '@/lib/voice/actions/conversation';
 
 /**
  * The open terminals, numbered as the rail shows them. Not the server's
@@ -34,6 +35,8 @@ interface VocabularyInput {
   openHelp: () => void;
   submitTerminal: () => boolean;
   askTerminal: (sessionId: string, prompt: string) => void;
+  conversation: boolean;
+  setConversation: (on: boolean) => void;
 }
 
 /** Pure assembly, independent of how each list was fetched — this is what
@@ -45,6 +48,10 @@ export function assembleVoiceVocabulary(input: VocabularyInput): VoiceAction[] {
       sessions: input.sessions,
       submit: input.submitTerminal,
       ask: input.askTerminal,
+    }),
+    ...createConversationActions({
+      active: input.conversation,
+      setActive: input.setConversation,
     }),
     ...createHelpActions({ openHelp: input.openHelp }),
   ];
@@ -61,7 +68,11 @@ export function assembleVoiceVocabulary(input: VocabularyInput): VoiceAction[] {
  * resolver matches against, so "what can I say" listed itself and then failed
  * to resolve.
  */
-export function useVoiceVocabulary(openHelp: () => void): VoiceAction[] {
+export function useVoiceVocabulary(
+  openHelp: () => void,
+  conversation: boolean,
+  setConversation: (on: boolean) => void,
+): VoiceAction[] {
   const { submitTerminal, sendToTerminal } = useSendToTerminal();
   const params = useVirtualParams<VirtualParams>();
   const workspaceSlug = params.workspace ?? '';
@@ -81,7 +92,9 @@ export function useVoiceVocabulary(openHelp: () => void): VoiceAction[] {
         openHelp,
         submitTerminal,
         askTerminal,
+        conversation,
+        setConversation,
       }),
-    [workspaceSlug, sessions, openHelp, submitTerminal, askTerminal],
+    [workspaceSlug, sessions, openHelp, submitTerminal, askTerminal, conversation, setConversation],
   );
 }

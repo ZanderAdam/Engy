@@ -27,7 +27,7 @@ const BOX_CLASS =
 export function VoiceIndicator() {
   const voice = useOptionalVoice();
   if (!voice) return null;
-  const { phase, error, toggle, transcript, command, answer } = voice;
+  const { phase, error, toggle, transcript, command, answer, conversation } = voice;
 
   if (phase === 'idle' && !error && !transcript && !command && !answer) return null;
 
@@ -35,7 +35,9 @@ export function VoiceIndicator() {
     return (
       <button type="button" onClick={toggle} aria-label="Stop dictation" className={BOX_CLASS}>
         <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-destructive" aria-hidden />
-        <span className="text-muted-foreground">Listening… (tap to stop)</span>
+        <span className="text-muted-foreground">
+          {conversation ? 'Conversation — sends when you stop' : 'Listening… (tap to stop)'}
+        </span>
       </button>
     );
   }

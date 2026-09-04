@@ -115,12 +115,21 @@ function makeObserver(onCommandImpl: (text: string) => ResolveResult = () => NO_
   onStateChange: ReturnType<typeof vi.fn>;
   onSegment: ReturnType<typeof vi.fn>;
   onCommand: ReturnType<typeof vi.fn>;
+  onAutoSubmit: ReturnType<typeof vi.fn>;
 } {
   const onStateChange = vi.fn();
   const onSegment = vi.fn();
   const onCommand = vi.fn(onCommandImpl);
+  const onAutoSubmit = vi.fn();
   return {
-    observer: { workspaceSlug: () => 'ws-slug', onStateChange, onSegment, onCommand },
+    observer: {
+      workspaceSlug: () => 'ws-slug',
+      onStateChange,
+      onSegment,
+      onCommand,
+      onAutoSubmit,
+    },
+    onAutoSubmit,
     onStateChange,
     onSegment,
     onCommand,
@@ -1143,6 +1152,136 @@ describe('VoicePttController', () => {
       // space carried over from it.
       expect(onSegment).toHaveBeenCalledTimes(1);
       expect(onSegment).toHaveBeenCalledWith('take a note');
+    });
+  });
+
+  describe('conversation mode', () => {
+    // The whole point of the mode: no key, no spoken "send".
+    it('[FR-TG2.27] should submit after a silence following dictation', async () => {
+      controller = new VoicePttController(makeOpts({ autoSubmitMs: 10 }));
+      const { observer, onSegment, onAutoSubmit } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+      controller.setConversationMode(true);
+
+      firePtt('keydown');
+      FakeWebSocket.instances[0].simulateOpen();
+      FakeWebSocket.instances[0].simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: 'run the tests' }),
+      );
+
+      expect(onSegment).toHaveBeenCalledWith('run the tests');
+      expect(onAutoSubmit).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(onAutoSubmit).toHaveBeenCalledTimes(1));
+    });
+
+    // A pause for thought mid-sentence must not send half a thought.
+    it('[FR-TG2.27] should restart the silence window on each new segment', async () => {
+      controller = new VoicePttController(makeOpts({ autoSubmitMs: 40 }));
+      const { observer, onAutoSubmit } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+      controller.setConversationMode(true);
+
+      firePtt('keydown');
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+
+      ws.simulateMessage(JSON.stringify({ t: 'voice_segment', transcript: 'run' }));
+      await new Promise((r) => setTimeout(r, 25));
+      ws.simulateMessage(JSON.stringify({ t: 'voice_segment', transcript: 'the tests' }));
+      await new Promise((r) => setTimeout(r, 25));
+      expect(onAutoSubmit).not.toHaveBeenCalled();
+
+      await vi.waitFor(() => expect(onAutoSubmit).toHaveBeenCalledTimes(1));
+    });
+
+    it('should never submit while the mode is off', async () => {
+      controller = new VoicePttController(makeOpts({ autoSubmitMs: 10 }));
+      const { observer, onAutoSubmit } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      firePtt('keydown');
+      FakeWebSocket.instances[0].simulateOpen();
+      FakeWebSocket.instances[0].simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: 'run the tests' }),
+      );
+
+      await new Promise((r) => setTimeout(r, 40));
+      expect(onAutoSubmit).not.toHaveBeenCalled();
+    });
+
+    it('[FR-TG2.27] should stop submitting once the mode is turned off', async () => {
+      controller = new VoicePttController(makeOpts({ autoSubmitMs: 20 }));
+      const { observer, onAutoSubmit } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+      controller.setConversationMode(true);
+
+      firePtt('keydown');
+      FakeWebSocket.instances[0].simulateOpen();
+      FakeWebSocket.instances[0].simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: 'run the tests' }),
+      );
+      controller.setConversationMode(false);
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(onAutoSubmit).not.toHaveBeenCalled();
+    });
+
+    // The mic stays open through a spoken answer, so without this the answer
+    // is transcribed and dictated straight back — the loop feeds itself.
+    it('[FR-TG2.28] should drop dictation heard while Engy is speaking', async () => {
+      controller = new VoicePttController(makeOpts({ autoSubmitMs: 10 }));
+      const { observer, onSegment, onAutoSubmit } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+      controller.setConversationMode(true);
+
+      firePtt('keydown');
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+      controller.setSpeaking(true);
+
+      ws.simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: 'Tests are green.' }),
+      );
+
+      expect(onSegment).not.toHaveBeenCalled();
+      await new Promise((r) => setTimeout(r, 40));
+      expect(onAutoSubmit).not.toHaveBeenCalled();
+    });
+
+    it('[FR-TG2.28] should resume dictation once Engy stops speaking', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onSegment } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      firePtt('keydown');
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+
+      controller.setSpeaking(true);
+      ws.simulateMessage(JSON.stringify({ t: 'voice_segment', transcript: 'my own voice' }));
+      controller.setSpeaking(false);
+      ws.simulateMessage(JSON.stringify({ t: 'voice_segment', transcript: 'the user' }));
+
+      expect(onSegment).toHaveBeenCalledTimes(1);
+      expect(onSegment).toHaveBeenCalledWith('the user');
+    });
+
+    // A wake-word command is a deliberate address, so it is heard even mid-answer.
+    it('should still route a wake-word command while speaking', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onCommand } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      firePtt('keydown');
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+      controller.setSpeaking(true);
+
+      ws.simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: 'Angie stop conversation', wake: true }),
+      );
+
+      expect(onCommand).toHaveBeenCalledWith('stop conversation');
     });
   });
 });

@@ -13,7 +13,11 @@ import {
 
 import type { VoiceAction } from '@/lib/voice/registry';
 import { useOnServerEvent } from '@/contexts/events-context';
-import { useVoiceCapture, type VoiceCaptureState } from './use-voice-capture';
+import {
+  getVoicePttController,
+  useVoiceCapture,
+  type VoiceCaptureState,
+} from './use-voice-capture';
 import { useVoiceVocabulary } from './use-voice-vocabulary';
 import { SpeechQueue, speakUrl } from './speech-queue';
 
@@ -23,6 +27,9 @@ export type VoiceControl = VoiceCaptureState & {
   /** Queues one spoken utterance. A no-op when spoken replies are off. */
   speak: (text: string) => void;
   ttsEnabled: boolean;
+  /** Hands-free mode: dictation submits itself after a silence. */
+  conversation: boolean;
+  setConversation: (on: boolean) => void;
   actions: VoiceAction[];
   helpOpen: boolean;
   setHelpOpen: (open: boolean) => void;
@@ -52,13 +59,25 @@ function ActiveVoiceProvider({
 }) {
   const [helpOpen, setHelpOpen] = useState(false);
   const openHelp = useCallback(() => setHelpOpen(true), []);
-  const actions = useVoiceVocabulary(openHelp);
+
+  const [conversation, setConversationState] = useState(false);
+  const setConversation = useCallback((on: boolean) => {
+    setConversationState(on);
+    getVoicePttController().setConversationMode(on);
+  }, []);
+
+  const actions = useVoiceVocabulary(openHelp, conversation, setConversation);
   const capture = useVoiceCapture(workspaceSlug, actions);
 
   // One queue for the whole workspace: an action acknowledgement and an
   // agent's `speak` can land in the same instant, and two voices at once are
   // unintelligible.
-  const [queue] = useState(() => new SpeechQueue({}));
+  const [queue] = useState(
+    () =>
+      new SpeechQueue({
+        onSpeakingChange: (speaking) => getVoicePttController().setSpeaking(speaking),
+      }),
+  );
   // One utterance per line, not one for the whole answer: a status readout is
   // a list, and the voice does not pause on punctuation, so the gap between
   // items has to come from the queue playing them separately.
@@ -85,8 +104,17 @@ function ActiveVoiceProvider({
   useOnServerEvent('VOICE_SPEAK', (payload) => speak(payload.text));
 
   const value = useMemo(
-    () => ({ ...capture, actions, helpOpen, setHelpOpen, speak, ttsEnabled }),
-    [capture, actions, helpOpen, speak, ttsEnabled],
+    () => ({
+      ...capture,
+      actions,
+      helpOpen,
+      setHelpOpen,
+      speak,
+      ttsEnabled,
+      conversation,
+      setConversation,
+    }),
+    [capture, actions, helpOpen, speak, ttsEnabled, conversation, setConversation],
   );
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;
 }

@@ -19,6 +19,10 @@ interface SpeechQueueOpts {
   gapMs?: number;
   /** Injectable for tests, so they need no timers. */
   wait?: (ms: number) => Promise<void>;
+  /** Fires true when the queue starts speaking and false when it runs dry.
+   * The mic stays open through an answer, so the caller needs this to stop
+   * the answer being transcribed back. */
+  onSpeakingChange?: (speaking: boolean) => void;
 }
 
 const DEFAULT_GAP_MS = 350;
@@ -64,6 +68,7 @@ export class SpeechQueue {
   private async drain(): Promise<void> {
     if (this.draining) return;
     this.draining = true;
+    this.opts.onSpeakingChange?.(true);
     try {
       while (this.pending.length > 0) {
         const next = this.pending.shift();
@@ -81,6 +86,7 @@ export class SpeechQueue {
       }
     } finally {
       this.draining = false;
+      this.opts.onSpeakingChange?.(false);
     }
   }
 }

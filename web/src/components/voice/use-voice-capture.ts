@@ -14,6 +14,10 @@ import { routeVoiceSegment } from './route-voice-segment';
  * since `e.key` reports `'Control'` for both sides. */
 export const VOICE_PTT_CODE = 'ControlRight';
 
+// Silence after dictation that means "I am done talking". Long enough to
+// pause for thought mid-sentence, short enough not to feel stuck.
+const AUTO_SUBMIT_SILENCE_MS = 2_500;
+
 // Mirrors `WAKE_PREFIXES` in `web/src/server/voice/keywords.ts`. That module
 // reads `node:fs`, which breaks the client bundle if imported here —
 // `use-voice-capture.test.ts` imports the real constant and asserts it still
@@ -85,6 +89,9 @@ export interface VoiceCaptureObserver {
    * into the state it broadcasts to every subscriber. A wake-word segment
    * that resolves to nothing must never fall back to `onSegment`. */
   onCommand: (text: string) => ResolveResult;
+  /** Conversation mode only: fired after a stretch of silence following
+   * dictation, to submit what was dictated. */
+  onAutoSubmit?: () => void;
 }
 
 export interface VoicePttControllerOpts {
@@ -92,6 +99,8 @@ export interface VoicePttControllerOpts {
   workletUrl?: string;
   WebSocketImpl?: typeof WebSocket;
   MicCaptureImpl?: new (opts: MicCaptureOpts) => Pick<MicCapture, 'start' | 'stop'>;
+  /** Injectable so tests need not wait out the real silence window. */
+  autoSubmitMs?: number;
 }
 
 // If no audio chunk arrives in this window, capture is silently stuck (e.g.
@@ -134,6 +143,9 @@ export class VoicePttController {
   // make the dictation segment think it already has predecessors in the
   // terminal.
   private isFirstDictationSegmentOfTurn = true;
+  private conversationMode = false;
+  private speaking = false;
+  private autoSubmitTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(opts: VoicePttControllerOpts = {}) {
     this.opts = opts;
@@ -166,6 +178,45 @@ export class VoicePttController {
   toggle(): void {
     if (this.holding) this.stop();
     else this.start();
+  }
+
+  setConversationMode(on: boolean): void {
+    this.conversationMode = on;
+    if (!on) this.clearAutoSubmit();
+  }
+
+  isConversationMode(): boolean {
+    return this.conversationMode;
+  }
+
+  /**
+   * Told when Engy is talking. The mic stays open through a spoken answer, so
+   * without this the answer is transcribed and dictated straight back into
+   * the terminal — the loop feeds itself. Barge-in is out of scope, so words
+   * spoken over the answer are dropped rather than queued.
+   */
+  setSpeaking(speaking: boolean): void {
+    this.speaking = speaking;
+    if (speaking) this.clearAutoSubmit();
+  }
+
+  private clearAutoSubmit(): void {
+    if (this.autoSubmitTimer !== null) {
+      clearTimeout(this.autoSubmitTimer);
+      this.autoSubmitTimer = null;
+    }
+  }
+
+  // Re-armed by every dictation segment, so a pause for thought mid-sentence
+  // does not submit half a thought.
+  private armAutoSubmit(): void {
+    this.clearAutoSubmit();
+    const delay = this.opts.autoSubmitMs ?? AUTO_SUBMIT_SILENCE_MS;
+    this.autoSubmitTimer = setTimeout(() => {
+      this.autoSubmitTimer = null;
+      this.isFirstDictationSegmentOfTurn = true;
+      this.activeSubscriber()?.onAutoSubmit?.();
+    }, delay);
   }
 
   private attach(): void {
@@ -255,9 +306,15 @@ export class VoicePttController {
 
           const route = routeVoiceSegment(msg.transcript, msg.wake, WAKE_PREFIXES);
           if (route.kind === 'dictation') {
-            const insertText = this.isFirstDictationSegmentOfTurn ? route.text : ` ${route.text}`;
-            this.isFirstDictationSegmentOfTurn = false;
-            this.emitSegment(insertText);
+            // Engy's own voice would otherwise be dictated back.
+            if (!this.speaking) {
+              const insertText = this.isFirstDictationSegmentOfTurn
+                ? route.text
+                : ` ${route.text}`;
+              this.isFirstDictationSegmentOfTurn = false;
+              this.emitSegment(insertText);
+              if (this.conversationMode) this.armAutoSubmit();
+            }
           } else {
             this.emitCommand(route.text);
           }
@@ -360,6 +417,7 @@ export class VoicePttController {
    * after a newer turn has started. */
   private endTurn(token: object, outcome: TurnOutcome): void {
     if (this.turnToken !== token) return;
+    this.clearAutoSubmit();
     if (this.finalizeTimer !== null) {
       clearTimeout(this.finalizeTimer);
       this.finalizeTimer = null;
@@ -449,13 +507,25 @@ export function useVoiceCapture(
   workspaceSlug: string,
   actions: VoiceAction[],
 ): VoiceCaptureState & { toggle: () => void; answer: string | null } {
-  const { insertToTerminal } = useSendToTerminal();
+  const { insertToTerminal, submitTerminal } = useSendToTerminal();
   const tabCtx = useOptionalTab();
   // A tab with no TabContext is the only view there is, so treat it as active.
   const isActiveTab = tabCtx?.isActive ?? true;
-  const liveRef = useRef({ insertToTerminal, isActiveTab, workspaceSlug, actions });
+  const liveRef = useRef({
+    insertToTerminal,
+    submitToTerminal: submitTerminal,
+    isActiveTab,
+    workspaceSlug,
+    actions,
+  });
   useEffect(() => {
-    liveRef.current = { insertToTerminal, isActiveTab, workspaceSlug, actions };
+    liveRef.current = {
+      insertToTerminal,
+      submitToTerminal: submitTerminal,
+      isActiveTab,
+      workspaceSlug,
+      actions,
+    };
   });
 
   const [state, setState] = useState<VoiceCaptureState>({
@@ -482,6 +552,9 @@ export function useVoiceCapture(
         if (!liveRef.current.insertToTerminal(text)) {
           setState((s) => ({ ...s, error: 'Recognised, but no terminal accepted it.' }));
         }
+      },
+      onAutoSubmit: () => {
+        liveRef.current.submitToTerminal();
       },
       onCommand: (text) => {
         const resolved = resolveAction(text, liveRef.current.actions);
