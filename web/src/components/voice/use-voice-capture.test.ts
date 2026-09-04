@@ -1332,6 +1332,86 @@ describe('VoicePttController', () => {
       expect(FakeWebSocket.instances).toHaveLength(2);
     });
 
+    // A conversation left set on the singleton controller would greet the next
+    // subscriber with a mode that has no mic — and a plain key-hold that then
+    // never releases, because keyup defers to the mode.
+    it('[FR-TG2.29] should not let the mode outlive the last subscriber', () => {
+      controller = new VoicePttController(makeOpts());
+      const first = makeObserver();
+      const stop = controller.subscribe(first.observer);
+      firePtt('keydown');
+      controller.setConversationMode(true);
+      stop();
+
+      const second = makeObserver();
+      unsubscribe = controller.subscribe(second.observer);
+
+      expect(controller.isConversationMode()).toBe(false);
+      expect(lastState(second.onStateChange)?.conversation).toBe(false);
+
+      firePtt('keydown');
+      firePtt('keyup');
+      expect(lastPhase(second.onStateChange)).not.toBe('listening');
+    });
+
+    // Engy talking over a half-finished thought killed the silence window and
+    // nothing restarted it, so the dictated text sat in the terminal unsent.
+    it('[FR-TG2.28] should restart the silence window after Engy stops talking', async () => {
+      controller = new VoicePttController(makeOpts({ autoSubmitMs: 20 }));
+      const { observer, onAutoSubmit } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      firePtt('keydown');
+      controller.setConversationMode(true);
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ t: 'voice_segment', transcript: 'run the tests' }));
+
+      controller.setSpeaking(true);
+      await new Promise((r) => setTimeout(r, 40));
+      expect(onAutoSubmit).not.toHaveBeenCalled();
+
+      controller.setSpeaking(false);
+      await vi.waitFor(() => expect(onAutoSubmit).toHaveBeenCalledTimes(1));
+    });
+
+    // Nothing is waiting to be sent, so a spoken answer on its own must not
+    // submit an empty line into the terminal.
+    it('should not submit after speaking when nothing was dictated', async () => {
+      controller = new VoicePttController(makeOpts({ autoSubmitMs: 20 }));
+      const { observer, onAutoSubmit } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      firePtt('keydown');
+      controller.setConversationMode(true);
+      controller.setSpeaking(true);
+      controller.setSpeaking(false);
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(onAutoSubmit).not.toHaveBeenCalled();
+    });
+
+    // An action that opens a conversation starts a new turn from inside the
+    // command's own dispatch — that turn must not inherit the command.
+    it('should clear the command when an action starts a new turn', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onStateChange, onCommand } = makeObserver();
+      onCommand.mockImplementation(() => {
+        controller!.setConversationMode(true);
+        return { matched: true } as never;
+      });
+      unsubscribe = controller.subscribe(observer);
+
+      firePtt('keydown');
+      FakeWebSocket.instances[0].simulateOpen();
+      firePtt('keyup');
+      FakeWebSocket.instances[0].simulateMessage(
+        JSON.stringify({ t: 'voice_segment', transcript: 'start conversation', wake: true }),
+      );
+
+      expect(lastState(onStateChange)?.command).toBeNull();
+    });
+
     it('[FR-TG2.29] should report the mode in its pushed state', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();

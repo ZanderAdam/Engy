@@ -4,7 +4,10 @@ import { createConversationActions } from './conversation';
 
 function run(active: boolean, phrase: string) {
   const setActive = vi.fn();
-  const resolved = resolveAction(phrase, createConversationActions({ isActive: () => active, setActive }));
+  const resolved = resolveAction(
+    phrase,
+    createConversationActions({ isActive: () => active, setActive }),
+  );
   expect(resolved.matched, `"${phrase}" did not resolve`).toBe(true);
   if (!resolved.matched) return { setActive, answer: null, id: null };
   return {

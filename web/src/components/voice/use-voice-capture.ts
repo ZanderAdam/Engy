@@ -150,6 +150,8 @@ export class VoicePttController {
   private conversationMode = false;
   private speaking = false;
   private autoSubmitTimer: ReturnType<typeof setTimeout> | null = null;
+  // Dictation already inserted into the terminal but not yet submitted.
+  private pendingDictation = false;
 
   constructor(opts: VoicePttControllerOpts = {}) {
     this.opts = opts;
@@ -202,6 +204,7 @@ export class VoicePttController {
       if (!this.holding) this.start();
     } else {
       this.clearAutoSubmit();
+      this.pendingDictation = false;
       // Leaving the mode closes the mic: a mode that keeps the mic open has
       // nothing left to do once it is off, and an open mic nobody asked for
       // is the one thing this must never leave behind.
@@ -222,10 +225,17 @@ export class VoicePttController {
    */
   setSpeaking(speaking: boolean): void {
     this.speaking = speaking;
-    if (speaking) this.clearAutoSubmit();
+    if (speaking) {
+      this.clearAutoSubmit();
+      return;
+    }
+    // Text dictated before Engy spoke is sitting in the terminal unsent; its
+    // silence window died with the interruption, so start it over.
+    if (this.conversationMode && this.pendingDictation) this.armAutoSubmit();
   }
 
   private clearAutoSubmit(): void {
+
     if (this.autoSubmitTimer !== null) {
       clearTimeout(this.autoSubmitTimer);
       this.autoSubmitTimer = null;
@@ -240,6 +250,7 @@ export class VoicePttController {
     this.autoSubmitTimer = setTimeout(() => {
       this.autoSubmitTimer = null;
       this.isFirstDictationSegmentOfTurn = true;
+      this.pendingDictation = false;
       this.activeSubscriber()?.onAutoSubmit?.();
     }, delay);
   }
@@ -254,6 +265,12 @@ export class VoicePttController {
     document.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
+    // The controller is a singleton and outlives the React tree, so a mode
+    // left set here would greet the next subscriber with a conversation that
+    // has no mic — and a plain key-hold that never releases.
+    this.conversationMode = false;
+    this.clearAutoSubmit();
+    this.pendingDictation = false;
     if (this.holding) {
       this.holding = false;
       this.clearChunkWatchdog();
@@ -306,6 +323,7 @@ export class VoicePttController {
     this.turnStartedAt = Date.now();
     this.isFirstSegmentOfTurn = true;
     this.isFirstDictationSegmentOfTurn = true;
+    this.pendingDictation = false;
     this.transcript = '';
     this.command = null;
     this.setPhase('listening');
@@ -349,7 +367,10 @@ export class VoicePttController {
                 : ` ${route.text}`;
               this.isFirstDictationSegmentOfTurn = false;
               this.emitSegment(insertText);
-              if (this.conversationMode) this.armAutoSubmit();
+              if (this.conversationMode) {
+                this.pendingDictation = true;
+                this.armAutoSubmit();
+              }
             }
           } else {
             this.emitCommand(route.text);
@@ -520,7 +541,11 @@ export class VoicePttController {
   // has the live action vocabulary) and is folded into the state broadcast
   // to every subscriber, mirroring how `transcript` already works.
   private emitCommand(text: string): void {
-    this.command = this.activeSubscriber()?.onCommand(text) ?? null;
+    const token = this.turnToken;
+    const command = this.activeSubscriber()?.onCommand(text) ?? null;
+    // An action's run() can start a fresh turn synchronously (entering a
+    // conversation does), and that turn's command is not this one.
+    if (this.turnToken === token) this.command = command;
     this.notifyState();
   }
 }
