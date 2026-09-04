@@ -27,8 +27,6 @@ export type VoiceControl = VoiceCaptureState & {
   /** Queues one spoken utterance. A no-op when spoken replies are off. */
   speak: (text: string) => void;
   ttsEnabled: boolean;
-  /** Hands-free mode: dictation submits itself after a silence. */
-  conversation: boolean;
   setConversation: (on: boolean) => void;
   actions: VoiceAction[];
   helpOpen: boolean;
@@ -60,13 +58,14 @@ function ActiveVoiceProvider({
   const [helpOpen, setHelpOpen] = useState(false);
   const openHelp = useCallback(() => setHelpOpen(true), []);
 
-  const [conversation, setConversationState] = useState(false);
-  const setConversation = useCallback((on: boolean) => {
-    setConversationState(on);
-    getVoicePttController().setConversationMode(on);
-  }, []);
-
-  const actions = useVoiceVocabulary(openHelp, conversation, setConversation);
+  // The controller owns the mode and pushes it in its state, so the mic and
+  // the mode cannot disagree — this only forwards the request.
+  const setConversation = useCallback(
+    (on: boolean) => getVoicePttController().setConversationMode(on),
+    [],
+  );
+  const isConversation = useCallback(() => getVoicePttController().isConversationMode(), []);
+  const actions = useVoiceVocabulary(openHelp, isConversation, setConversation);
   const capture = useVoiceCapture(workspaceSlug, actions);
 
   // One queue for the whole workspace: an action acknowledgement and an
@@ -111,10 +110,9 @@ function ActiveVoiceProvider({
       setHelpOpen,
       speak,
       ttsEnabled,
-      conversation,
       setConversation,
     }),
-    [capture, actions, helpOpen, speak, ttsEnabled, conversation, setConversation],
+    [capture, actions, helpOpen, speak, ttsEnabled, setConversation],
   );
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;
 }

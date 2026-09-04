@@ -66,6 +66,10 @@ export interface VoiceCaptureState {
    * turn — a pure dictation turn never touches it. Resets at the start of
    * the next turn. */
   command: ResolveResult | null;
+  /** Hands-free mode: the mic stays open and dictation submits itself after
+   * a silence. Owned here, not by React, so the mic and the mode can never
+   * disagree about whether a session is running. */
+  conversation: boolean;
 }
 
 /** `onSegment` fires on exactly one subscriber per segment, so a finalized
@@ -162,6 +166,7 @@ export class VoicePttController {
       error: this.error,
       transcript: this.transcript || null,
       command: this.command,
+      conversation: this.conversationMode,
     });
     return () => this.unsubscribe(observer);
   }
@@ -176,13 +181,33 @@ export class VoicePttController {
   /** Tap to start, tap again to stop. A phone has no Right Ctrl, and holding
    * a button down while speaking is awkward on a touch screen. */
   toggle(): void {
-    if (this.holding) this.stop();
-    else this.start();
+    if (this.holding) {
+      // Stopping the mic by hand ends the conversation: staying in a mode
+      // with no mic reads as broken.
+      this.conversationMode = false;
+      this.clearAutoSubmit();
+      this.stop();
+    } else {
+      this.start();
+    }
   }
 
   setConversationMode(on: boolean): void {
+    if (this.conversationMode === on) return;
     this.conversationMode = on;
-    if (!on) this.clearAutoSubmit();
+    if (on) {
+      // The command that opens a conversation is transcribed after the key is
+      // already released, so by the time this runs the mic that heard it is
+      // usually gone. Reopen it, or the mode has nothing to listen with.
+      if (!this.holding) this.start();
+    } else {
+      this.clearAutoSubmit();
+      // Leaving the mode closes the mic: a mode that keeps the mic open has
+      // nothing left to do once it is off, and an open mic nobody asked for
+      // is the one thing this must never leave behind.
+      if (this.holding) this.stop();
+    }
+    this.notifyState();
   }
 
   isConversationMode(): boolean {
@@ -242,6 +267,13 @@ export class VoicePttController {
   // chord still reaches the terminal.
   private onKeyDown = (e: KeyboardEvent): void => {
     if (this.holding) {
+      // The key that opened a conversation also closes it: in a hands-free
+      // session there is no hold to repeat, so a second press is the natural
+      // way to end one.
+      if (this.conversationMode && isPttKeyEvent(e)) {
+        this.setConversationMode(false);
+        return;
+      }
       if (e.code !== VOICE_PTT_CODE) this.abort();
       return;
     }
@@ -250,13 +282,17 @@ export class VoicePttController {
 
   private onKeyUp = (e: KeyboardEvent): void => {
     if (!this.holding || !isPttKeyEvent(e)) return;
+    // In a conversation the key is what opened the mic, not what holds it —
+    // the session outlives the press and ends on an explicit stop.
+    if (this.conversationMode) return;
     this.stop();
   };
 
   // Losing window focus mid-hold (alt-tab, OS dialog) leaves no keyup coming
-  // — release the mic defensively.
+  // — release the mic defensively. A conversation is deliberate and survives
+  // it; there is no key being held to lose.
   private onBlur = (): void => {
-    if (this.holding) this.stop();
+    if (this.holding && !this.conversationMode) this.stop();
   };
 
   private start(): void {
@@ -461,6 +497,7 @@ export class VoicePttController {
       error: this.error,
       transcript: this.transcript || null,
       command: this.command,
+      conversation: this.conversationMode,
     };
     for (const subscriber of this.subscribers) subscriber.onStateChange(state);
   }
@@ -533,6 +570,7 @@ export function useVoiceCapture(
     error: null,
     transcript: null,
     command: null,
+    conversation: false,
   });
   const [answer, setAnswer] = useState<string | null>(null);
 

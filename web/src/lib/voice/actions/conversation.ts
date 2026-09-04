@@ -1,7 +1,9 @@
 import type { VoiceAction } from '../registry';
 
 interface ConversationActionsDeps {
-  active: boolean;
+  /** Read at run time, not at registry-build time: the mode can change
+   * between the two, and the answer has to reflect what is true when spoken. */
+  isActive: () => boolean;
   setActive: (on: boolean) => void;
 }
 
@@ -20,7 +22,7 @@ export function createConversationActions(deps: ConversationActionsDeps): VoiceA
       title: 'Start a conversation',
       phrases: ['start conversation', 'start talking', 'conversation mode'],
       run: () => {
-        if (deps.active) return 'Already in a conversation.';
+        if (deps.isActive()) return 'Already in a conversation.';
         deps.setActive(true);
         return 'Conversation on. I will send when you stop talking.';
       },
@@ -30,7 +32,7 @@ export function createConversationActions(deps: ConversationActionsDeps): VoiceA
       title: 'End the conversation',
       phrases: ['stop conversation', 'stop talking', 'end conversation'],
       run: () => {
-        if (!deps.active) return 'Not in a conversation.';
+        if (!deps.isActive()) return 'Not in a conversation.';
         deps.setActive(false);
         return 'Conversation off.';
       },

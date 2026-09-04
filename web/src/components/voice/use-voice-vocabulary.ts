@@ -35,7 +35,7 @@ interface VocabularyInput {
   openHelp: () => void;
   submitTerminal: () => boolean;
   askTerminal: (sessionId: string, prompt: string) => void;
-  conversation: boolean;
+  isConversation: () => boolean;
   setConversation: (on: boolean) => void;
 }
 
@@ -50,7 +50,7 @@ export function assembleVoiceVocabulary(input: VocabularyInput): VoiceAction[] {
       ask: input.askTerminal,
     }),
     ...createConversationActions({
-      active: input.conversation,
+      isActive: input.isConversation,
       setActive: input.setConversation,
     }),
     ...createHelpActions({ openHelp: input.openHelp }),
@@ -70,7 +70,7 @@ export function assembleVoiceVocabulary(input: VocabularyInput): VoiceAction[] {
  */
 export function useVoiceVocabulary(
   openHelp: () => void,
-  conversation: boolean,
+  isConversation: () => boolean,
   setConversation: (on: boolean) => void,
 ): VoiceAction[] {
   const { submitTerminal, sendToTerminal } = useSendToTerminal();
@@ -92,9 +92,17 @@ export function useVoiceVocabulary(
         openHelp,
         submitTerminal,
         askTerminal,
-        conversation,
+        isConversation,
         setConversation,
       }),
-    [workspaceSlug, sessions, openHelp, submitTerminal, askTerminal, conversation, setConversation],
+    [
+      workspaceSlug,
+      sessions,
+      openHelp,
+      submitTerminal,
+      askTerminal,
+      isConversation,
+      setConversation,
+    ],
   );
 }

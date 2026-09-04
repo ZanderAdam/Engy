@@ -239,6 +239,7 @@ describe('VoicePttController', () => {
       error: null,
       transcript: null,
       command: null,
+      conversation: false,
     });
     expect(FakeMicCapture.instances).toHaveLength(1);
     const ws = FakeWebSocket.instances[0];
@@ -268,6 +269,7 @@ describe('VoicePttController', () => {
       error: null,
       transcript: null,
       command: null,
+      conversation: false,
     });
     expect(FakeWebSocket.instances).toHaveLength(1);
     expect(FakeMicCapture.instances).toHaveLength(1);
@@ -427,6 +429,7 @@ describe('VoicePttController', () => {
         error: 'decode failed',
         transcript: null,
         command: null,
+        conversation: false,
       });
       expect(onSegment).not.toHaveBeenCalled();
       expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
@@ -463,6 +466,7 @@ describe('VoicePttController', () => {
       error: 'getUserMedia not available (insecure context?)',
       transcript: null,
       command: null,
+      conversation: false,
     });
     expect(lastPhase(onStateChange)).toBe('idle');
   });
@@ -497,6 +501,7 @@ describe('VoicePttController', () => {
       error: 'voice connection closed',
       transcript: null,
       command: null,
+      conversation: false,
     });
   });
 
@@ -516,6 +521,7 @@ describe('VoicePttController', () => {
       error: 'voice connection closed',
       transcript: null,
       command: null,
+      conversation: false,
     });
     expect(mic.stop).toHaveBeenCalledTimes(1);
   });
@@ -829,6 +835,7 @@ describe('VoicePttController', () => {
         error: null,
         transcript: null,
         command: null,
+        conversation: false,
       });
       expect(FakeMicCapture.instances).toHaveLength(1);
       FakeWebSocket.instances[0].simulateOpen();
@@ -900,6 +907,7 @@ describe('VoicePttController', () => {
         error: 'No workspace to dictate into.',
         transcript: null,
         command: null,
+        conversation: false,
       });
     });
 
@@ -952,6 +960,7 @@ describe('VoicePttController', () => {
         error: null,
         transcript: null,
         command: null,
+        conversation: false,
       });
 
       firePtt('keyup');
@@ -1161,9 +1170,8 @@ describe('VoicePttController', () => {
       controller = new VoicePttController(makeOpts({ autoSubmitMs: 10 }));
       const { observer, onSegment, onAutoSubmit } = makeObserver();
       unsubscribe = controller.subscribe(observer);
-      controller.setConversationMode(true);
-
       firePtt('keydown');
+      controller.setConversationMode(true);
       FakeWebSocket.instances[0].simulateOpen();
       FakeWebSocket.instances[0].simulateMessage(
         JSON.stringify({ t: 'voice_segment', transcript: 'run the tests' }),
@@ -1179,9 +1187,8 @@ describe('VoicePttController', () => {
       controller = new VoicePttController(makeOpts({ autoSubmitMs: 40 }));
       const { observer, onAutoSubmit } = makeObserver();
       unsubscribe = controller.subscribe(observer);
-      controller.setConversationMode(true);
-
       firePtt('keydown');
+      controller.setConversationMode(true);
       const ws = FakeWebSocket.instances[0];
       ws.simulateOpen();
 
@@ -1213,9 +1220,8 @@ describe('VoicePttController', () => {
       controller = new VoicePttController(makeOpts({ autoSubmitMs: 20 }));
       const { observer, onAutoSubmit } = makeObserver();
       unsubscribe = controller.subscribe(observer);
-      controller.setConversationMode(true);
-
       firePtt('keydown');
+      controller.setConversationMode(true);
       FakeWebSocket.instances[0].simulateOpen();
       FakeWebSocket.instances[0].simulateMessage(
         JSON.stringify({ t: 'voice_segment', transcript: 'run the tests' }),
@@ -1226,15 +1232,124 @@ describe('VoicePttController', () => {
       expect(onAutoSubmit).not.toHaveBeenCalled();
     });
 
+    // The bug that made the mode unusable: releasing the key ended the turn,
+    // so there was never a hands-free session to auto-submit into.
+    it('[FR-TG2.29] should keep the mic open when the key is released', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onStateChange } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      firePtt('keydown');
+      FakeWebSocket.instances[0].simulateOpen();
+      controller.setConversationMode(true);
+
+      firePtt('keyup');
+
+      expect(lastPhase(onStateChange)).toBe('listening');
+      expect(FakeWebSocket.instances[0].readyState).toBe(FakeWebSocket.OPEN);
+    });
+
+    it('[FR-TG2.29] should end the session on a second key press', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onStateChange } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      firePtt('keydown');
+      FakeWebSocket.instances[0].simulateOpen();
+      controller.setConversationMode(true);
+      firePtt('keyup');
+
+      firePtt('keydown');
+
+      expect(controller.isConversationMode()).toBe(false);
+      expect(lastState(onStateChange)?.conversation).toBe(false);
+    });
+
+    // Stopping the mic by hand must not leave the mode on, or the next press
+    // would silently resume a conversation the user thought they ended.
+    it('[FR-TG2.29] should leave the mode when the mic is toggled off', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onStateChange } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      controller.toggle();
+      FakeWebSocket.instances[0].simulateOpen();
+      controller.setConversationMode(true);
+
+      controller.toggle();
+
+      expect(controller.isConversationMode()).toBe(false);
+      expect(lastState(onStateChange)?.conversation).toBe(false);
+    });
+
+    it('[FR-TG2.29] should close the mic when the mode is turned off by voice', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onStateChange } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      firePtt('keydown');
+      FakeWebSocket.instances[0].simulateOpen();
+      controller.setConversationMode(true);
+      firePtt('keyup');
+
+      controller.setConversationMode(false);
+
+      expect(lastPhase(onStateChange)).not.toBe('listening');
+    });
+
+    // Losing focus is not a decision; a hands-free session should survive it.
+    it('should survive the window losing focus', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onStateChange } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      firePtt('keydown');
+      FakeWebSocket.instances[0].simulateOpen();
+      controller.setConversationMode(true);
+      firePtt('keyup');
+
+      window.dispatchEvent(new Event('blur'));
+
+      expect(lastPhase(onStateChange)).toBe('listening');
+    });
+
+    // The phrase that starts a conversation is only transcribed after the key
+    // is released, so the mic that heard it has already closed by the time the
+    // action runs. Without reopening it, the mode turns on deaf.
+    it('[FR-TG2.29] should reopen the mic when the mode starts with none open', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onStateChange } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      firePtt('keydown');
+      FakeWebSocket.instances[0].simulateOpen();
+      firePtt('keyup');
+      expect(lastPhase(onStateChange)).not.toBe('listening');
+
+      controller.setConversationMode(true);
+
+      expect(lastPhase(onStateChange)).toBe('listening');
+      expect(FakeWebSocket.instances).toHaveLength(2);
+    });
+
+    it('[FR-TG2.29] should report the mode in its pushed state', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onStateChange } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      expect(lastState(onStateChange)?.conversation).toBe(false);
+      controller.setConversationMode(true);
+      expect(lastState(onStateChange)?.conversation).toBe(true);
+    });
+
     // The mic stays open through a spoken answer, so without this the answer
     // is transcribed and dictated straight back — the loop feeds itself.
     it('[FR-TG2.28] should drop dictation heard while Engy is speaking', async () => {
       controller = new VoicePttController(makeOpts({ autoSubmitMs: 10 }));
       const { observer, onSegment, onAutoSubmit } = makeObserver();
       unsubscribe = controller.subscribe(observer);
-      controller.setConversationMode(true);
-
       firePtt('keydown');
+      controller.setConversationMode(true);
       const ws = FakeWebSocket.instances[0];
       ws.simulateOpen();
       controller.setSpeaking(true);
