@@ -1424,41 +1424,55 @@ describe('VoicePttController', () => {
 
     // The mic stays open through a spoken answer, so without this the answer
     // is transcribed and dictated straight back — the loop feeds itself.
-    it('[FR-TG2.28] should drop dictation heard while Engy is speaking', async () => {
-      controller = new VoicePttController(makeOpts({ autoSubmitMs: 10 }));
-      const { observer, onSegment, onAutoSubmit } = makeObserver();
-      unsubscribe = controller.subscribe(observer);
+    it('[FR-TG2.28] should send silence in place of mic audio while Engy is speaking', () => {
+      controller = new VoicePttController(makeOpts());
+      unsubscribe = controller.subscribe(makeObserver().observer);
       firePtt('keydown');
-      controller.setConversationMode(true);
       const ws = FakeWebSocket.instances[0];
+      const mic = FakeMicCapture.instances[0];
       ws.simulateOpen();
+
       controller.setSpeaking(true);
+      mic.opts.onChunk(new Uint8Array(640).fill(7).buffer);
 
-      ws.simulateMessage(
-        JSON.stringify({ t: 'voice_segment', transcript: 'Tests are green.' }),
-      );
-
-      expect(onSegment).not.toHaveBeenCalled();
-      await new Promise((r) => setTimeout(r, 40));
-      expect(onAutoSubmit).not.toHaveBeenCalled();
+      const sent = ws.sent.at(-1) as ArrayBuffer;
+      expect(sent.byteLength).toBe(640);
+      expect(new Uint8Array(sent).every((b) => b === 0)).toBe(true);
     });
 
-    it('[FR-TG2.28] should resume dictation once Engy stops speaking', () => {
+    it('[FR-TG2.28] should stay silent through the echo tail, then pass audio again', async () => {
+      controller = new VoicePttController(makeOpts({ echoTailMs: 20 }));
+      unsubscribe = controller.subscribe(makeObserver().observer);
+      firePtt('keydown');
+      const ws = FakeWebSocket.instances[0];
+      const mic = FakeMicCapture.instances[0];
+      ws.simulateOpen();
+      const chunk = new Uint8Array(640).fill(7).buffer;
+
+      controller.setSpeaking(true);
+      controller.setSpeaking(false);
+      mic.opts.onChunk(chunk);
+      expect(ws.sent.at(-1)).not.toBe(chunk);
+
+      await new Promise((r) => setTimeout(r, 40));
+      mic.opts.onChunk(chunk);
+      expect(ws.sent.at(-1)).toBe(chunk);
+    });
+
+    // A segment lands only after the speech in it ends, so words spoken just
+    // before Engy answered can arrive while it is talking — they are the user's.
+    it('should keep dictation that arrives while Engy is speaking', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onSegment } = makeObserver();
       unsubscribe = controller.subscribe(observer);
-
       firePtt('keydown');
       const ws = FakeWebSocket.instances[0];
       ws.simulateOpen();
 
       controller.setSpeaking(true);
-      ws.simulateMessage(JSON.stringify({ t: 'voice_segment', transcript: 'my own voice' }));
-      controller.setSpeaking(false);
-      ws.simulateMessage(JSON.stringify({ t: 'voice_segment', transcript: 'the user' }));
+      ws.simulateMessage(JSON.stringify({ t: 'voice_segment', transcript: 'run the tests' }));
 
-      expect(onSegment).toHaveBeenCalledTimes(1);
-      expect(onSegment).toHaveBeenCalledWith('the user');
+      expect(onSegment).toHaveBeenCalledWith('run the tests');
     });
 
     // A wake-word command is a deliberate address, so it is heard even mid-answer.

@@ -105,11 +105,15 @@ export interface VoicePttControllerOpts {
   MicCaptureImpl?: new (opts: MicCaptureOpts) => Pick<MicCapture, 'start' | 'stop'>;
   /** Injectable so tests need not wait out the real silence window. */
   autoSubmitMs?: number;
+  echoTailMs?: number;
 }
 
 // If no audio chunk arrives in this window, capture is silently stuck (e.g.
 // a suspended AudioContext) — surface it as a visible error.
 const NO_AUDIO_TIMEOUT_MS = 1500;
+
+// Room echo and the audio element's own output latency outlast `onended`.
+const ECHO_TAIL_MS = 300;
 
 // Decode time scales roughly with recording length, so the timeout budget
 // scales with it too; FLOOR covers short recordings where jitter, not
@@ -148,7 +152,8 @@ export class VoicePttController {
   // terminal.
   private isFirstDictationSegmentOfTurn = true;
   private conversationMode = false;
-  private speaking = false;
+  // Infinity while Engy talks, then the echo-tail deadline.
+  private mutedUntil = 0;
   private autoSubmitTimer: ReturnType<typeof setTimeout> | null = null;
   // Dictation already inserted into the terminal but not yet submitted.
   private pendingDictation = false;
@@ -219,23 +224,27 @@ export class VoicePttController {
 
   /**
    * Told when Engy is talking. The mic stays open through a spoken answer, so
-   * without this the answer is transcribed and dictated straight back into
-   * the terminal — the loop feeds itself. Barge-in is out of scope, so words
-   * spoken over the answer are dropped rather than queued.
+   * the answer would otherwise be transcribed and dictated straight back.
+   * The audio is silenced at the source: a segment only arrives after the
+   * speech that produced it has ended, so a check when it arrives is too late.
    */
   setSpeaking(speaking: boolean): void {
-    this.speaking = speaking;
     if (speaking) {
+      this.mutedUntil = Infinity;
       this.clearAutoSubmit();
       return;
     }
+    this.mutedUntil = Date.now() + (this.opts.echoTailMs ?? ECHO_TAIL_MS);
     // Text dictated before Engy spoke is sitting in the terminal unsent; its
     // silence window died with the interruption, so start it over.
     if (this.conversationMode && this.pendingDictation) this.armAutoSubmit();
   }
 
-  private clearAutoSubmit(): void {
+  private isMuted(): boolean {
+    return Date.now() < this.mutedUntil;
+  }
 
+  private clearAutoSubmit(): void {
     if (this.autoSubmitTimer !== null) {
       clearTimeout(this.autoSubmitTimer);
       this.autoSubmitTimer = null;
@@ -360,17 +369,14 @@ export class VoicePttController {
 
           const route = routeVoiceSegment(msg.transcript, msg.wake, WAKE_PREFIXES);
           if (route.kind === 'dictation') {
-            // Engy's own voice would otherwise be dictated back.
-            if (!this.speaking) {
-              const insertText = this.isFirstDictationSegmentOfTurn
-                ? route.text
-                : ` ${route.text}`;
-              this.isFirstDictationSegmentOfTurn = false;
-              this.emitSegment(insertText);
-              if (this.conversationMode) {
-                this.pendingDictation = true;
-                this.armAutoSubmit();
-              }
+            const insertText = this.isFirstDictationSegmentOfTurn
+              ? route.text
+              : ` ${route.text}`;
+            this.isFirstDictationSegmentOfTurn = false;
+            this.emitSegment(insertText);
+            if (this.conversationMode) {
+              this.pendingDictation = true;
+              this.armAutoSubmit();
             }
           } else {
             this.emitCommand(route.text);
@@ -391,7 +397,8 @@ export class VoicePttController {
       workletUrl: this.opts.workletUrl ?? DEFAULT_WORKLET_URL,
       onChunk: (chunk) => {
         this.clearChunkWatchdog();
-        if (ws.readyState === WebSocketCtor.OPEN) ws.send(chunk);
+        if (ws.readyState !== WebSocketCtor.OPEN) return;
+        ws.send(this.isMuted() ? new ArrayBuffer(chunk.byteLength) : chunk);
       },
       onError: (err) => this.endTurn(token, { kind: 'error', message: err.message }),
     });
