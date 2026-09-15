@@ -22,13 +22,28 @@ export const MAX_SPEAK_CHARS = 600;
 const CACHE_LIMIT = 64;
 const cache = new Map<string, Buffer>();
 
-// One engine per model, never evicted: the count is bounded by the distinct
-// models in the voice list, and voices that share a model share its engine.
+// Each engine holds a whole model in memory, and every reply in a browser
+// uses one voice, so only the most recently used engines are kept.
+const MAX_ENGINES = 2;
 const engines = new Map<string, Promise<OfflineTtsClass>>();
+
+// Map keeps insertion order, so the first key is the oldest.
+function setBounded<K, V>(map: Map<K, V>, key: K, value: V, limit: number): void {
+  if (map.size >= limit) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+  map.set(key, value);
+}
 
 function getTts(model: string): Promise<OfflineTtsClass> {
   const existing = engines.get(model);
-  if (existing) return existing;
+  if (existing) {
+    // Map keeps insertion order, so re-inserting marks this model as newest.
+    engines.delete(model);
+    engines.set(model, existing);
+    return existing;
+  }
 
   const engine = (async () => {
     const dir = await resolveTtsModelDir(model);
@@ -48,11 +63,12 @@ function getTts(model: string): Promise<OfflineTtsClass> {
     });
   })().catch((err: unknown) => {
     // Never cache a failed load — the next caller should retry rather than
-    // inherit a permanently rejected promise.
-    engines.delete(model);
+    // inherit a permanently rejected promise. Only this load's own entry: an
+    // evicted load can fail after a newer one for the same model is cached.
+    if (engines.get(model) === engine) engines.delete(model);
     throw err;
   });
-  engines.set(model, engine);
+  setBounded(engines, model, engine, MAX_ENGINES);
   return engine;
 }
 
@@ -103,12 +119,7 @@ export async function synthesize(text: string, voiceId?: string | null): Promise
   const audio = tts.generate({ text: trimmed, sid: voice.speakerId, speed: 1.0 });
   const wav = toWav(audio.samples, audio.sampleRate);
 
-  if (cache.size >= CACHE_LIMIT) {
-    // Map keeps insertion order, so the first key is the oldest.
-    const oldest = cache.keys().next().value;
-    if (oldest !== undefined) cache.delete(oldest);
-  }
-  cache.set(key, wav);
+  setBounded(cache, key, wav, CACHE_LIMIT);
   return wav;
 }
 
