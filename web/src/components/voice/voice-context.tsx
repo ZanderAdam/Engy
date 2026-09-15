@@ -22,6 +22,7 @@ import { useVoiceVocabulary } from './use-voice-vocabulary';
 import { SpeechQueue, speakUrl } from './speech-queue';
 import { createSpeakerTab } from './speaker-tab';
 import { recordSpoken } from './spoken-subtitles';
+import { readVoiceId } from './voice-prefs';
 
 export type VoiceControl = VoiceCaptureState & {
   toggle: () => void;
@@ -87,7 +88,7 @@ function ActiveVoiceProvider({
       if (!ttsEnabled) return;
       for (const line of text.split('\n')) {
         const trimmed = line.trim();
-        if (trimmed) queue.enqueue(speakUrl(workspaceSlug, trimmed));
+        if (trimmed) queue.enqueue(speakUrl(workspaceSlug, trimmed, readVoiceId()));
       }
     },
     [ttsEnabled, queue, workspaceSlug],

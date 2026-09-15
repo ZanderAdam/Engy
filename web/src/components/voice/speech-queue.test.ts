@@ -144,4 +144,10 @@ describe('speakUrl', () => {
     expect(params.get('workspace')).toBe('my ws');
     expect(params.get('text')).toBe('Focused build & test?');
   });
+
+  it('[FR-TG2.34] should carry the chosen voice', () => {
+    const url = speakUrl('ws', 'Hello.', 'alan');
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.get('voice')).toBe('alan');
+  });
 });

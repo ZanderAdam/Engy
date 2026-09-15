@@ -1,4 +1,4 @@
-import { readPlaybackRate } from './playback-rate';
+import { readPlaybackRate } from './voice-prefs';
 
 /**
  * Serialises spoken answers. Two utterances at once are unintelligible, and
@@ -94,7 +94,8 @@ export class SpeechQueue {
   }
 }
 
-export function speakUrl(workspaceSlug: string, text: string): string {
+export function speakUrl(workspaceSlug: string, text: string, voiceId?: string): string {
   const params = new URLSearchParams({ workspace: workspaceSlug, text });
+  if (voiceId) params.set('voice', voiceId);
   return `/api/voice/speak?${params.toString()}`;
 }

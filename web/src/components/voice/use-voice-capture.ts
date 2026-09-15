@@ -157,6 +157,9 @@ export class VoicePttController {
   private isFirstDictationSegmentOfTurn = true;
   private conversationMode = false;
   private lastTapAt = 0;
+  // The final of a turn that ended a conversation: its transcript is the
+  // whole conversation, already in the terminal, so it is not shown again.
+  private hideTurnSummary = false;
   // Infinity while Engy talks, then the echo-tail deadline.
   private mutedUntil = 0;
   private autoSubmitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -196,6 +199,7 @@ export class VoicePttController {
     if (this.holding) {
       // Stopping the mic by hand ends the conversation: staying in a mode
       // with no mic reads as broken.
+      if (this.conversationMode) this.hideTurnSummary = true;
       this.conversationMode = false;
       this.clearAutoSubmit();
       this.stop();
@@ -218,7 +222,10 @@ export class VoicePttController {
       // Leaving the mode closes the mic: a mode that keeps the mic open has
       // nothing left to do once it is off, and an open mic nobody asked for
       // is the one thing this must never leave behind.
-      if (this.holding) this.stop();
+      if (this.holding) {
+        this.hideTurnSummary = true;
+        this.stop();
+      }
     }
     this.notifyState();
   }
@@ -348,6 +355,7 @@ export class VoicePttController {
     this.isFirstSegmentOfTurn = true;
     this.isFirstDictationSegmentOfTurn = true;
     this.pendingDictation = false;
+    this.hideTurnSummary = false;
     this.transcript = '';
     this.command = null;
     this.setPhase('listening');
@@ -519,6 +527,11 @@ export class VoicePttController {
         ws.close();
     }
 
+    if (this.hideTurnSummary) {
+      this.hideTurnSummary = false;
+      this.transcript = '';
+      this.command = null;
+    }
     if (outcome.kind === 'error') this.setError(outcome.message);
     this.setPhase('idle');
   }

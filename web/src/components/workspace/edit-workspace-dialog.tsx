@@ -41,8 +41,12 @@ import {
 import {
   PLAYBACK_RATES,
   readPlaybackRate,
+  readVoiceId,
   writePlaybackRate,
-} from '@/components/voice/playback-rate';
+  writeVoiceId,
+} from '@/components/voice/voice-prefs';
+import { playViaAudio, speakUrl } from '@/components/voice/speech-queue';
+import { TTS_VOICES, findVoice } from '@/lib/voice/voices';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   coerceAgentTypeId,
@@ -111,6 +115,7 @@ export function EditWorkspaceDialog({
   const [voiceEnabled, setVoiceEnabled] = useState(workspace.voiceEnabled ?? false);
   const [ttsEnabled, setTtsEnabled] = useState(workspace.ttsEnabled ?? false);
   const [playbackRate, setPlaybackRate] = useState(readPlaybackRate);
+  const [voiceId, setVoiceId] = useState(readVoiceId);
   const [agentSettings, setAgentSettings] = useState<WorkspaceAgentSettings>(() =>
     seedAgentSettings(workspace),
   );
@@ -198,6 +203,17 @@ export function EditWorkspaceDialog({
 
   const pending = updateMutation.isPending || confirmDirs.validating;
 
+  // The sample doubles as the download trigger, so a new voice is ready
+  // before the first real reply needs it. The server checks the saved
+  // setting, so there is nothing to play until spoken replies are saved on.
+  function handleVoiceChange(id: string) {
+    setVoiceId(id);
+    writeVoiceId(id);
+    if (!workspace.voiceEnabled || !workspace.ttsEnabled) return;
+    const sample = speakUrl(workspace.slug, `Hello, I am ${findVoice(id).name}.`, id);
+    void playViaAudio(sample).catch(() => setError('Could not play the voice sample.'));
+  }
+
   // Combined worktrees is unavailable when docs sit inside a repo (content would
   // be worktree-dependent), so split is forced on. Mirror the server's
   // containment check with a simple path-prefix test (no node:path on client).
@@ -236,6 +252,7 @@ export function EditWorkspaceDialog({
       setVoiceEnabled(workspace.voiceEnabled ?? false);
       setTtsEnabled(workspace.ttsEnabled ?? false);
       setPlaybackRate(readPlaybackRate());
+      setVoiceId(readVoiceId());
       setAgentSettings(seedAgentSettings(workspace));
       setDefaultAgentType(coerceAgentTypeId(workspace.defaultAgentType));
       setError(null);
@@ -368,6 +385,31 @@ export function EditWorkspaceDialog({
                     Needs voice dictation. On: Engy speaks terminal status and action
                     acknowledgements back, and agents can answer out loud. Downloads a ~65MB voice
                     once.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="edit-workspace-tts-voice">Voice</Label>
+                    <Select
+                      value={voiceId}
+                      onValueChange={handleVoiceChange}
+                      disabled={!voiceEnabled || !ttsEnabled}
+                    >
+                      <SelectTrigger id="edit-workspace-tts-voice" size="sm" className="w-48">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TTS_VOICES.map((voice) => (
+                          <SelectItem key={voice.id} value={voice.id}>
+                            {voice.name} ({voice.description})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Picking a voice plays a sample. Each new voice downloads once (60–90MB) the
+                    first time it speaks. Applies at once, in this browser.
                   </p>
                 </div>
                 <div className="flex flex-col gap-1.5">

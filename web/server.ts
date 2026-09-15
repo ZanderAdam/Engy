@@ -64,6 +64,7 @@ app.prepare().then(() => {
     if (req.method === 'GET' && url.pathname === '/api/voice/speak') {
       const workspace = url.searchParams.get('workspace');
       const text = url.searchParams.get('text') ?? '';
+      const voice = url.searchParams.get('voice');
       if (!isTtsEnabledForWorkspace(workspace)) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Spoken replies are not enabled for this workspace.' }));
@@ -78,7 +79,7 @@ app.prepare().then(() => {
       // server boot, including for workspaces that never turn voice on.
       void import('./src/server/voice/tts')
         .then(async (m) => {
-          const wav = await m.synthesize(text);
+          const wav = await m.synthesize(text, voice);
           res.writeHead(200, {
             'Content-Type': 'audio/wav',
             'Content-Length': String(wav.length),

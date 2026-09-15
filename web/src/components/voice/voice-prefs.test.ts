@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { readPlaybackRate, writePlaybackRate } from './playback-rate';
+import { DEFAULT_VOICE_ID } from '@/lib/voice/voices';
+import { readPlaybackRate, readVoiceId, writePlaybackRate, writeVoiceId } from './voice-prefs';
 import { playViaAudio } from './speech-queue';
 
-describe('playback rate', () => {
+describe('voice prefs', () => {
   beforeEach(() => {
     localStorage.clear();
   });
@@ -58,5 +59,21 @@ describe('playback rate', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('[FR-TG2.34] should default to the default voice', () => {
+    expect(readVoiceId()).toBe(DEFAULT_VOICE_ID);
+  });
+
+  it('[FR-TG2.34] should remember a chosen voice', () => {
+    writeVoiceId('alan');
+
+    expect(readVoiceId()).toBe('alan');
+  });
+
+  it('should ignore a stored voice that is no longer offered', () => {
+    localStorage.setItem('engy.voice.voice', 'retired');
+
+    expect(readVoiceId()).toBe(DEFAULT_VOICE_ID);
   });
 });

@@ -1280,6 +1280,39 @@ describe('VoicePttController', () => {
       expect(onAutoSubmit).not.toHaveBeenCalled();
     });
 
+    it('[FR-TG2.29] should not show the conversation transcript once it ends', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onStateChange } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+      firePtt('keydown');
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+      controller.setConversationMode(true);
+      firePtt('keyup');
+      ws.simulateMessage(JSON.stringify({ t: 'voice_segment', transcript: 'run the tests' }));
+
+      firePtt('keydown');
+      ws.simulateMessage(JSON.stringify({ t: 'voice_final' }));
+
+      const state = lastState(onStateChange);
+      expect(state?.phase).toBe('idle');
+      expect(state?.transcript).toBeNull();
+    });
+
+    it('should still show the transcript after a plain dictation turn', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onStateChange } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+      firePtt('keydown');
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ t: 'voice_segment', transcript: 'run the tests' }));
+      firePtt('keyup');
+      ws.simulateMessage(JSON.stringify({ t: 'voice_final' }));
+
+      expect(lastState(onStateChange)?.transcript).toBe('run the tests');
+    });
+
     it('[FR-TG2.31] should start a conversation on a double tap', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();
