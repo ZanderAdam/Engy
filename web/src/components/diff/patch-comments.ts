@@ -104,7 +104,7 @@ export function gapHidingLine(
   hunks: HunkData[],
   lineNumber: number,
   side: CommentSide,
-): { start: number; end: number } | null {
+): { start: number; end: number; line: number } | null {
   if (hunks.length === 0) return null;
 
   let oldCursor = 1;
@@ -115,7 +115,8 @@ export function gapHidingLine(
     const gapEnd = side === 'original' ? hunk.oldStart : hunk.newStart;
 
     if (lineNumber >= gapStart && lineNumber < gapEnd) {
-      return { start: oldCursor, end: hunk.oldStart };
+      const line = side === 'original' ? lineNumber : lineNumber - newCursor + oldCursor;
+      return { start: oldCursor, end: hunk.oldStart, line };
     }
 
     oldCursor = hunk.oldStart + hunk.oldLines;
@@ -123,6 +124,29 @@ export function gapHidingLine(
   }
 
   return null;
+}
+
+const FINDING_CONTEXT_LINES = 5;
+
+/**
+ * Old-side range to open so an open agent finding hidden in a collapsed gap gets
+ * a row to render on. Opens a few lines around the finding, not the whole gap,
+ * which in a large file can be thousands of rows. Other threads stay in the
+ * unanchored list rather than expanding on their own.
+ */
+export function expansionForFinding(
+  hunks: HunkData[],
+  comment: { source: string; resolved: boolean; lineNumber: number; side: CommentSide },
+): { start: number; end: number } | null {
+  if (comment.source !== 'agent' || comment.resolved) return null;
+
+  const gap = gapHidingLine(hunks, comment.lineNumber, comment.side);
+  if (!gap) return null;
+
+  return {
+    start: Math.max(gap.start, gap.line - FINDING_CONTEXT_LINES),
+    end: Math.min(gap.end, gap.line + FINDING_CONTEXT_LINES + 1),
+  };
 }
 
 /**

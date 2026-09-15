@@ -1,22 +1,16 @@
 export type ReviewMode = 'stack' | 'single';
 
 /**
- * Past this many files the stack is not the default. Sections mount as they
- * approach the viewport but are never released, so reading to the end of a
- * large pull request accumulates every file's DOM at once.
- */
-export const STACK_FILE_LIMIT = 40;
-
-/**
  * How many sections may hold a rendered diff at once, whatever the file count.
  * Releasing a mounted section would collapse it under the reader and jump the
  * scroll, so a ceiling on how many ever mount is what bounds memory instead.
  */
 export const MAX_MOUNTED_SECTIONS = 25;
 
+/** Past the mount cap a default stack could never show its last files. */
 export function defaultReviewMode(fileCount: number): ReviewMode {
   if (fileCount === 0) return 'single';
-  return fileCount <= STACK_FILE_LIMIT ? 'stack' : 'single';
+  return fileCount <= MAX_MOUNTED_SECTIONS ? 'stack' : 'single';
 }
 
 export function resolveReviewMode(preference: ReviewMode | null, fileCount: number): ReviewMode {
@@ -40,5 +34,15 @@ export function admitSections(
     next.add(id);
   }
 
+  return next.size === previous.size ? previous : next;
+}
+
+/**
+ * Drops sections that no longer need a slot — the file left the list, or it was
+ * marked viewed and renders no diff — so stale ids cannot fill the cap. Returns
+ * the original set when nothing is dropped.
+ */
+export function keepSections(previous: Set<string>, live: Set<string>): Set<string> {
+  const next = new Set([...previous].filter((id) => live.has(id)));
   return next.size === previous.size ? previous : next;
 }

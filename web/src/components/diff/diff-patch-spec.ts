@@ -43,6 +43,18 @@ export function patchSpecFor({
 }
 
 /**
+ * The whole diff on screen, for an agent to review. In `latest` that is staged
+ * and unstaged together, whichever tab is open, because the file list and the
+ * stack show both.
+ */
+export function reviewSpecFor(inputs: Omit<PatchSpecInputs, 'selectedSide'>): GitPatchSpec | null {
+  if (inputs.diffViewMode === 'latest') {
+    return inputs.head ? { kind: 'range', from: inputs.head } : null;
+  }
+  return patchSpecFor({ ...inputs, selectedSide: null });
+}
+
+/**
  * Identity of whatever mutable content the patch reads, mixed into the query key
  * so an edit, a `git add` or a commit is not served the patch computed before it
  * (FR-GIT-310). A range between two commits names its own content and needs none.

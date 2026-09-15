@@ -21,8 +21,8 @@ import { highlighter } from './refractor-highlighter';
 import {
   anchorComments,
   countChanges,
+  expansionForFinding,
   expansionSource,
-  gapHidingLine,
   groupByChangeKey,
   lineForChange,
   sideForChange,
@@ -175,20 +175,23 @@ export function DiffViewerPanel({
   );
 
   // A finding inside a collapsed region has nothing to render against, so it
-  // would sit invisible with no row to click. Open the gap that hides it.
-  // `attempted` stops a finding whose line no longer exists from re-expanding
-  // every render, since expanding will never anchor it.
-  const attempted = useRef<Set<string>>(new Set());
+  // would sit invisible with no row to click. `attempted` stops a finding whose
+  // line no longer exists from re-expanding every render. It resets with the raw
+  // hunks because `useSourceExpansion` drops every opened range when they change.
+  const attempted = useRef({ hunks: rawHunks, source, threads: new Set<string>() });
   useEffect(() => {
+    if (attempted.current.hunks !== rawHunks || attempted.current.source !== source) {
+      attempted.current = { hunks: rawHunks, source, threads: new Set() };
+    }
     if (!source || tooLarge) return;
     for (const comment of unanchored) {
-      if (attempted.current.has(comment.threadId)) continue;
-      const gap = gapHidingLine(hunks, comment.lineNumber, comment.side);
-      if (!gap) continue;
-      attempted.current.add(comment.threadId);
-      expandRange(gap.start, gap.end);
+      if (attempted.current.threads.has(comment.threadId)) continue;
+      const range = expansionForFinding(hunks, comment);
+      if (!range) continue;
+      attempted.current.threads.add(comment.threadId);
+      expandRange(range.start, range.end);
     }
-  }, [unanchored, hunks, source, tooLarge, expandRange]);
+  }, [unanchored, hunks, rawHunks, source, tooLarge, expandRange]);
 
   const cancelNewComment = useCallback(() => setNewCommentChange(null), []);
 

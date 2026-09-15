@@ -4,24 +4,20 @@ import { useState } from 'react';
 import { RiArrowDownSLine, RiArrowRightSLine, RiRobot2Line } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { commentBodyText } from './agent-findings';
 import type { DiffComment } from './use-diff-comments';
 
 interface ReviewSummaryPanelProps {
   summary: DiffComment | null;
   findingCount: number;
-  onDismiss?: (threadId: string) => void;
-}
-
-function bodyText(comment: DiffComment): string {
-  const first = comment.comments[0]?.body;
-  return typeof first === 'string' ? first : JSON.stringify(first ?? '');
+  onDelete?: (threadId: string) => void;
 }
 
 /**
  * The review read before any file. Sits above the stack rather than in a tab so
  * it is on the way to the diff instead of somewhere to navigate to.
  */
-export function ReviewSummaryPanel({ summary, findingCount, onDismiss }: ReviewSummaryPanelProps) {
+export function ReviewSummaryPanel({ summary, findingCount, onDelete }: ReviewSummaryPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   if (!summary) return null;
@@ -45,14 +41,14 @@ export function ReviewSummaryPanel({ summary, findingCount, onDismiss }: ReviewS
             ? 'no findings anchored'
             : `${findingCount} finding${findingCount === 1 ? '' : 's'} on the diff`}
         </span>
-        {onDismiss && (
+        {onDelete && (
           <Button
             variant="ghost"
             size="xs"
             className="ml-auto text-muted-foreground"
-            onClick={() => onDismiss(summary.threadId)}
+            onClick={() => onDelete(summary.threadId)}
           >
-            Dismiss
+            Delete
           </Button>
         )}
       </div>
@@ -62,7 +58,7 @@ export function ReviewSummaryPanel({ summary, findingCount, onDismiss }: ReviewS
           collapsed && 'hidden',
         )}
       >
-        {bodyText(summary)}
+        {commentBodyText(summary.comments[0]?.body)}
       </div>
     </div>
   );

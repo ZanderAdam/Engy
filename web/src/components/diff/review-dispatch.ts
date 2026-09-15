@@ -16,13 +16,22 @@ export function describePatchSpec(spec: GitPatchSpec): string {
   }
 }
 
-export function buildReviewPrompt(repoDir: string, spec: GitPatchSpec): string {
+interface ReviewPromptInput {
+  repoDir: string;
+  /** Where the files on screen live, when that is a worktree rather than the repo itself. */
+  worktreePath?: string;
+  spec: GitPatchSpec;
+}
+
+export function buildReviewPrompt({ repoDir, worktreePath, spec }: ReviewPromptInput): string {
   return [
     '/engy:review-diff',
     '',
     `repoDir: ${repoDir}`,
+    ...(worktreePath ? [`worktreePath: ${worktreePath}`] : []),
     `scope: ${describePatchSpec(spec)}`,
     '',
+    `Run git in ${worktreePath ?? repoDir}.`,
     `Write findings back with the diff_review_* MCP tools against repoDir ${repoDir}, so they appear on the diff I am reading.`,
   ].join('\n');
 }

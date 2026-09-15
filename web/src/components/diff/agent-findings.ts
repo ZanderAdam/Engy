@@ -20,6 +20,10 @@ export function findingSeverity(value: unknown): FindingSeverity | undefined {
   return SEVERITIES.includes(value as FindingSeverity) ? (value as FindingSeverity) : undefined;
 }
 
+export function commentBodyText(body: unknown): string {
+  return typeof body === 'string' ? body : JSON.stringify(body ?? '');
+}
+
 export const SEVERITY_PRESENTATION: Record<
   FindingSeverity,
   { label: string; className: string }

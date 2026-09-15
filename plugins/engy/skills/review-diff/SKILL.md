@@ -12,7 +12,10 @@ knows which one is meant.
 
 ## Inputs
 
-- `repoDir` (or `worktreePath`) — absolute path of the repo or worktree under review.
+- `repoDir` — absolute path of the repo. Every `diff_review_*` call takes this path, so findings land
+  on the diff the reader has open.
+- `worktreePath` (optional) — the worktree the reader is looking at. When given, run git here, not in
+  `repoDir`.
 - A `GitPatchSpec` naming the two snapshots to compare:
   - `{ kind: 'staged', head? }` — last commit against the index (`git diff --cached`)
   - `{ kind: 'unstaged' }` — index against the working tree (`git diff`)
@@ -46,7 +49,8 @@ Call `diff_review_list({ repoDir })`. This returns two things that change what y
 
 ### Step 2: Dispatch `engy:reviewer` in review-only mode
 
-Translate the `GitPatchSpec` to the git invocation the agent should run against `repoDir`:
+Translate the `GitPatchSpec` to the git invocation the agent should run in `worktreePath` when
+given, else in `repoDir`:
 
 | `kind` | command |
 |---|---|
@@ -63,7 +67,7 @@ Agent tool:
   prompt: |
     Run in mode: review-only (Phase 3 alone — do not simplify or edit anything).
 
-    Repo: <repoDir>
+    Repo: <worktreePath, else repoDir>
     Diff: <git command from the table above>
 
     Findings already filed on this diff (do not repeat):

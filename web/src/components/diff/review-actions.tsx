@@ -18,11 +18,23 @@ interface ReviewActionsProps {
   repoDir: string | null;
   diffComments: DiffComment[];
   taskId?: number;
-  /** Which two snapshots are on screen, so the agent reviews what you see. */
-  patchSpec?: GitPatchSpec | null;
+  /**
+   * The whole diff on screen, so the agent reviews what you see. Leave it out
+   * where there is no reviewable scope, which hides "Review diff".
+   */
+  reviewSpec?: GitPatchSpec | null;
+  worktreePath?: string;
+  coderWorkspace?: string;
 }
 
-export function ReviewActions({ repoDir, diffComments, taskId, patchSpec }: ReviewActionsProps) {
+export function ReviewActions({
+  repoDir,
+  diffComments,
+  taskId,
+  reviewSpec,
+  worktreePath,
+  coderWorkspace,
+}: ReviewActionsProps) {
   const { sendToTerminal, terminalActive } = useSendToTerminal();
   const { status: sessionStatus, sessionId } = useExecutionStatus(
     'task',
@@ -72,10 +84,19 @@ export function ReviewActions({ repoDir, diffComments, taskId, patchSpec }: Revi
     if (!ok) toast.error('Copy failed — clipboard unavailable');
   }, [buildFeedback]);
 
+  const canReview = !!repoDir && !!reviewSpec && !coderWorkspace && terminalActive;
+
   const handleReviewDiff = useCallback(() => {
-    if (!repoDir || !patchSpec) return;
-    sendToTerminal(buildReviewPrompt(repoDir, patchSpec));
-  }, [repoDir, patchSpec, sendToTerminal]);
+    if (!repoDir || !reviewSpec) return;
+    sendToTerminal(buildReviewPrompt({ repoDir, worktreePath, spec: reviewSpec }));
+  }, [repoDir, worktreePath, reviewSpec, sendToTerminal]);
+
+  function getReviewTooltip() {
+    if (coderWorkspace) return 'Review is not available for Coder workspaces';
+    if (!reviewSpec) return 'Nothing to review yet — pick a commit or wait for the diff to load';
+    if (!terminalActive) return 'No active terminal';
+    return 'Review the diff on screen and leave findings on the lines';
+  }
 
   const handleOpenInVSCode = useCallback(() => {
     if (!repoDir) return;
@@ -95,25 +116,25 @@ export function ReviewActions({ repoDir, diffComments, taskId, patchSpec }: Revi
   return (
     <TooltipProvider>
       <div className="flex items-center gap-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleReviewDiff}
-              disabled={!repoDir || !patchSpec || !terminalActive}
-              className="h-7 gap-1.5 px-2 text-xs"
-            >
-              <RiRobot2Line className="size-3.5" />
-              Review diff
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {terminalActive
-              ? 'Review the diff on screen and leave findings on the lines'
-              : 'No active terminal'}
-          </TooltipContent>
-        </Tooltip>
+        {reviewSpec !== undefined && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleReviewDiff}
+                  disabled={!canReview}
+                  className="h-7 gap-1.5 px-2 text-xs"
+                >
+                  <RiRobot2Line className="size-3.5" />
+                  Review diff
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{getReviewTooltip()}</TooltipContent>
+          </Tooltip>
+        )}
 
         <Tooltip>
           <TooltipTrigger asChild>

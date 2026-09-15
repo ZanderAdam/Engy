@@ -21,7 +21,7 @@ import { GithubCommentTriage } from './github-comment-triage';
 import { useDiffComments, extractFilePathFromDocPath } from './use-diff-comments';
 import { decodeSelection, encodeSelection, findSelectedFile, rowId } from './diff-selection';
 import { refsFor } from './diff-refs';
-import { patchSpecFor, patchContentId } from './diff-patch-spec';
+import { patchSpecFor, patchContentId, reviewSpecFor } from './diff-patch-spec';
 import { DiffStack } from './diff-stack';
 import type { DiffSectionContext } from './diff-file-section';
 import { resolveReviewMode, type ReviewMode } from './review-mode';
@@ -470,6 +470,18 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     [diffViewMode, selectedSide, statusData, selectedCommit, branchTarget, branchDiffData],
   );
 
+  const reviewSpec = useMemo(
+    () =>
+      reviewSpecFor({
+        diffViewMode,
+        head: statusData?.head,
+        selectedCommit,
+        branchTarget,
+        branchDiff: branchDiffData,
+      }),
+    [diffViewMode, statusData, selectedCommit, branchTarget, branchDiffData],
+  );
+
   const {
     patch,
     oldSource,
@@ -611,7 +623,9 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
             <ReviewActions
               repoDir={selectedRepo}
               diffComments={currentFileComments}
-              patchSpec={patchSpec}
+              reviewSpec={reviewSpec}
+              worktreePath={selectedWorktree?.worktreePath}
+              coderWorkspace={selectedWorktree?.coderWorkspace}
             />
           </div>
         </div>
@@ -793,6 +807,13 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
           }
           centerContent={
             <div className="flex flex-1 min-h-0 flex-col">
+              <ReviewSummaryPanel
+                summary={reviewSummary}
+                findingCount={
+                  currentFileComments.filter((c) => c.source === 'agent' && !c.resolved).length
+                }
+                onDelete={remove}
+              />
               {reviewMode === 'single' && <EditorTabsBar tabs={tabs} />}
               {allRepos.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center">
@@ -802,13 +823,6 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
                 </div>
               ) : reviewMode === 'stack' ? (
                 <div className="flex flex-1 min-h-0 flex-col">
-                  <ReviewSummaryPanel
-                    summary={reviewSummary}
-                    findingCount={
-                      currentFileComments.filter((c) => c.source === 'agent' && !c.resolved).length
-                    }
-                    onDismiss={remove}
-                  />
                   <DiffStack
                     files={files}
                     context={sectionContext}

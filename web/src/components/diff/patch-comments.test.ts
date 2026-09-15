@@ -5,6 +5,7 @@ import {
   anchorComments,
   countChanges,
   expansionSource,
+  expansionForFinding,
   gapHidingLine,
   groupByChangeKey,
   lineForChange,
@@ -220,11 +221,15 @@ describe('patch comments', () => {
     it('should report the range in original numbering even for a new-side line', () => {
       const hunks = hunksOf(GAPPED);
 
-      expect(gapHidingLine(hunks, 30, 'modified')).toEqual({ start: 20, end: 40 });
+      expect(gapHidingLine(hunks, 30, 'modified')).toEqual({ start: 20, end: 40, line: 31 });
     });
 
     it('should find the gap above the first hunk', () => {
-      expect(gapHidingLine(hunksOf(GAPPED), 3, 'original')).toEqual({ start: 1, end: 10 });
+      expect(gapHidingLine(hunksOf(GAPPED), 3, 'original')).toEqual({
+        start: 1,
+        end: 10,
+        line: 3,
+      });
     });
 
     it('should return null for a line already rendered in a hunk', () => {
@@ -237,6 +242,52 @@ describe('patch comments', () => {
 
     it('should return null when the patch has no hunks', () => {
       expect(gapHidingLine([], 5, 'modified')).toBeNull();
+    });
+  });
+
+  describe('expansionForFinding', () => {
+    const GAPPED_WIDE = `diff --git a/a.ts b/a.ts
+--- a/a.ts
++++ b/a.ts
+@@ -10,1 +10,1 @@
+-a
++A
+@@ -19000,1 +19000,1 @@
+-z
++Z
+`;
+    const finding = { source: 'agent', resolved: false, side: 'modified' as const };
+
+    it('[FR-GIT-470] should open a few lines around an open agent finding, not the whole gap', () => {
+      const range = expansionForFinding(hunksOf(GAPPED_WIDE), { ...finding, lineNumber: 9000 });
+
+      expect(range).toEqual({ start: 8995, end: 9006 });
+    });
+
+    it('[FR-GIT-470] should clamp the window to the gap', () => {
+      const range = expansionForFinding(hunksOf(GAPPED_WIDE), { ...finding, lineNumber: 12 });
+
+      expect(range).toEqual({ start: 11, end: 18 });
+    });
+
+    it('[FR-GIT-470] should leave a human comment in the unanchored list', () => {
+      const range = expansionForFinding(hunksOf(GAPPED_WIDE), {
+        ...finding,
+        source: 'local',
+        lineNumber: 9000,
+      });
+
+      expect(range).toBeNull();
+    });
+
+    it('[FR-GIT-470] should leave a resolved finding in the unanchored list', () => {
+      const range = expansionForFinding(hunksOf(GAPPED_WIDE), {
+        ...finding,
+        resolved: true,
+        lineNumber: 9000,
+      });
+
+      expect(range).toBeNull();
     });
   });
 

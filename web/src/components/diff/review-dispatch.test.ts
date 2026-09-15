@@ -32,18 +32,32 @@ describe('review dispatch', () => {
 
   describe('buildReviewPrompt', () => {
     it('should invoke the review-diff skill', () => {
-      expect(buildReviewPrompt(REPO, { kind: 'unstaged' })).toContain('/engy:review-diff');
+      expect(buildReviewPrompt({ repoDir: REPO, spec: { kind: 'unstaged' } })).toContain(
+        '/engy:review-diff',
+      );
     });
 
     it('should pass the repo so findings land on the diff being read', () => {
-      const prompt = buildReviewPrompt(REPO, { kind: 'unstaged' });
-      expect(prompt).toContain(REPO);
+      const prompt = buildReviewPrompt({ repoDir: REPO, spec: { kind: 'unstaged' } });
+      expect(prompt).toContain(`Run git in ${REPO}.`);
       expect(prompt).toContain('diff_review_');
     });
 
     it('should pass the scope so the agent reviews what is on screen', () => {
-      const prompt = buildReviewPrompt(REPO, { kind: 'commit', hash: 'deadbee' });
+      const prompt = buildReviewPrompt({ repoDir: REPO, spec: { kind: 'commit', hash: 'deadbee' } });
       expect(prompt).toContain('deadbee');
+    });
+
+    it('[FR-GIT-450] should run git in the worktree on screen but file findings against the repo', () => {
+      const worktreePath = '/home/dev/proj-wt';
+      const prompt = buildReviewPrompt({
+        repoDir: REPO,
+        worktreePath,
+        spec: { kind: 'unstaged' },
+      });
+
+      expect(prompt).toContain(`Run git in ${worktreePath}.`);
+      expect(prompt).toContain(`against repoDir ${REPO}`);
     });
   });
 });

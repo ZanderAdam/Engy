@@ -4,6 +4,7 @@ import { buildProvePrompt } from './prove-prompt';
 function makeInput(overrides: Partial<Parameters<typeof buildProvePrompt>[0]> = {}) {
   return {
     threadId: 'thread-42',
+    repoDir: '/repos/app',
     filePath: 'src/server/auth.ts',
     lineNumber: 88,
     findingBody: 'Expired tokens are accepted.\n\nFails when: a token past exp is replayed.',
@@ -17,6 +18,12 @@ describe('prove prompt', () => {
       const prompt = buildProvePrompt(makeInput());
 
       expect(prompt).toContain('src/server/auth.ts:88');
+    });
+
+    it('should name the repo, so reading the finding back does not depend on the agent cwd', () => {
+      const prompt = buildProvePrompt(makeInput());
+
+      expect(prompt).toContain('repoDir /repos/app');
     });
 
     it('should include the thread id', () => {

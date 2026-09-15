@@ -255,6 +255,9 @@ FR id in their title string, e.g. `it('[FR-GIT-010] ...', ...)`, and run
 | FR-GIT-420 | WHEN a comment thread is rendered, the system SHALL anchor it to the change matching its stored line number and side, deriving the side of a new comment from the change it is placed on so a deleted line records `original`; IF a thread's line is not among the rendered changes, THEN the system SHALL list the thread with its line number and recorded text rather than omit it. |
 | FR-GIT-430 | The diff surface SHALL be read-only: it SHALL NOT offer an edit mode, save state, or any affordance that writes to the file being reviewed. |
 | FR-GIT-440 | WHEN diff comments are sent to an agent as feedback, the system SHALL name each thread's id alongside its line and quoted code, and SHALL state how to reply to a thread. |
+| FR-GIT-450 | WHEN "Review diff" is invoked, the system SHALL send the terminal a scope that covers the whole diff on screen — in `latest` mode both staged and unstaged changes against the head commit, whichever tab is open — and SHALL tell the agent to run git in the worktree on screen while filing findings against the repo; IF the diff is in a Coder workspace, THEN the action SHALL be disabled. |
+| FR-GIT-460 | WHILE files are stacked, the system SHALL render the diff of at most a fixed number of files at once, SHALL give a slot only to files that render a text diff and are not marked viewed, and SHALL free a file's slot when it leaves the list or is marked viewed; the stack SHALL be the default only when every file fits in a slot. |
+| FR-GIT-470 | WHEN an open agent finding sits on a line hidden in a collapsed gap, the diff pane SHALL expand a few lines around that line, clamped to the gap, and SHALL NOT expand the gap for human, GitHub or resolved threads. |
 
 ## Sources
 

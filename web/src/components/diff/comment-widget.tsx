@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { cn } from '@/lib/utils';
 import { AGENT_USER_ID } from '@/lib/comment-feedback';
-import { SEVERITY_PRESENTATION } from './agent-findings';
+import { commentBodyText, SEVERITY_PRESENTATION } from './agent-findings';
 import { buildProvePrompt } from './prove-prompt';
 import { extractFilePathFromDocPath, type DiffComment } from './use-diff-comments';
 
@@ -86,13 +86,13 @@ export function CommentWidget({
     if (!comment || !repoDir) return;
     const filePath = extractFilePathFromDocPath(comment.documentPath, repoDir);
     if (!filePath) return;
-    const findingBody = comment.comments[0]?.body;
     sendToTerminal(
       buildProvePrompt({
         threadId: comment.threadId,
+        repoDir,
         filePath,
         lineNumber: comment.lineNumber,
-        findingBody: typeof findingBody === 'string' ? findingBody : JSON.stringify(findingBody),
+        findingBody: commentBodyText(comment.comments[0]?.body),
       }),
     );
   };
@@ -179,7 +179,7 @@ export function CommentWidget({
                   )}
                 </div>
                 <span className={cn('whitespace-pre-wrap', comment.resolved && 'line-through')}>
-                  {typeof c.body === 'string' ? c.body : JSON.stringify(c.body)}
+                  {commentBodyText(c.body)}
                 </span>
               </div>
             ))}

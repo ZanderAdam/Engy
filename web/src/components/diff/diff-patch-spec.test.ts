@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { patchSpecFor, patchContentId, type PatchSpecInputs } from './diff-patch-spec';
+import {
+  patchSpecFor,
+  patchContentId,
+  reviewSpecFor,
+  type PatchSpecInputs,
+} from './diff-patch-spec';
 import type { ChangedFile } from './types';
 
 const base: PatchSpecInputs = {
@@ -17,6 +22,22 @@ const file = (over: Partial<ChangedFile> = {}): ChangedFile => ({
 });
 
 describe('diff patch spec', () => {
+  describe('reviewSpecFor', () => {
+    it('[FR-GIT-450] should review staged and unstaged together in latest mode, with no tab open', () => {
+      expect(reviewSpecFor({ ...base, head: 'abc123' })).toEqual({ kind: 'range', from: 'abc123' });
+    });
+
+    it('[FR-GIT-450] should have nothing to review before the head commit is known', () => {
+      expect(reviewSpecFor({ ...base, head: undefined })).toBeNull();
+    });
+
+    it('[FR-GIT-450] should review the selected commit in history mode', () => {
+      expect(reviewSpecFor({ ...base, diffViewMode: 'history', selectedCommit: 'deadbee' })).toEqual(
+        { kind: 'commit', hash: 'deadbee' },
+      );
+    });
+  });
+
   describe('patchSpecFor', () => {
     it('[FR-GIT-300] should compare the head commit against the index for a staged row', () => {
       expect(patchSpecFor({ ...base, selectedSide: 'staged', head: 'abc123' })).toEqual({

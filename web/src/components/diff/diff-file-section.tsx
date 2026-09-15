@@ -63,6 +63,11 @@ interface DiffFileSectionProps {
   onDeleteComment?: (threadId: string, commentId: string) => void;
 }
 
+export function rendersTextDiff(filePath: string): boolean {
+  const kind = fileKind(filePath);
+  return kind === 'text' || kind === 'markdown';
+}
+
 export function DiffFileSection({
   file,
   context,
@@ -81,7 +86,7 @@ export function DiffFileSection({
 }: DiffFileSectionProps) {
   const side: DiffSide = file.staged ? 'staged' : 'unstaged';
   const kind = fileKind(file.path);
-  const isTextLike = kind === 'text' || kind === 'markdown';
+  const isTextLike = rendersTextDiff(file.path);
 
   const spec = useMemo(() => patchSpecFor({ ...context, selectedSide: side }), [context, side]);
   const { originalRef, originalId } = useMemo(
@@ -151,6 +156,14 @@ export function DiffFileSection({
 
       {isViewed ? (
         <p className="px-3 py-2 text-xs text-muted-foreground">Marked viewed — collapsed.</p>
+      ) : !isTextLike ? (
+        <button
+          type="button"
+          onClick={onOpenSingle}
+          className="w-full px-3 py-3 text-left text-xs text-muted-foreground hover:text-foreground"
+        >
+          {kind === 'image' ? 'Image' : 'Binary file'} — open to view
+        </button>
       ) : capped ? (
         <button
           type="button"
@@ -162,7 +175,7 @@ export function DiffFileSection({
         </button>
       ) : deferred ? (
         <div className="h-24" aria-hidden />
-      ) : isTextLike ? (
+      ) : (
         <DiffViewerPanel
           patch={patch}
           oldSource={oldSource}
@@ -185,14 +198,6 @@ export function DiffFileSection({
           onDelete={onDelete}
           onDeleteComment={onDeleteComment}
         />
-      ) : (
-        <button
-          type="button"
-          onClick={onOpenSingle}
-          className="w-full px-3 py-3 text-left text-xs text-muted-foreground hover:text-foreground"
-        >
-          {kind === 'image' ? 'Image' : 'Binary file'} — open to view
-        </button>
       )}
     </section>
   );

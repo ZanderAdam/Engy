@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { DiffFileSection, type DiffSectionContext } from './diff-file-section';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DiffFileSection, rendersTextDiff, type DiffSectionContext } from './diff-file-section';
 import { rowId } from './diff-selection';
-import { admitSections, MAX_MOUNTED_SECTIONS } from './review-mode';
+import { admitSections, keepSections, MAX_MOUNTED_SECTIONS } from './review-mode';
 import type { DiffComment } from './use-diff-comments';
 import type { ChangedFile, ViewMode } from './types';
 
@@ -59,6 +59,24 @@ export function DiffStack({
   const [mounted, setMounted] = useState<Set<string>>(new Set());
   const atCapacity = mounted.size >= MAX_MOUNTED_SECTIONS;
 
+  // Only sections that will render a diff may take a slot. Viewed, image and
+  // binary sections render a line of text, so a slot spent on one is wasted.
+  const admittable = useMemo(
+    () =>
+      new Set(
+        files
+          .filter((file) => !viewedPaths.has(file.path) && rendersTextDiff(file.path))
+          .map(rowId),
+      ),
+    [files, viewedPaths],
+  );
+
+  const [prevAdmittable, setPrevAdmittable] = useState(admittable);
+  if (admittable !== prevAdmittable) {
+    setPrevAdmittable(admittable);
+    setMounted((previous) => keepSections(previous, admittable));
+  }
+
   const registerSection = useCallback((id: string, node: HTMLElement | null) => {
     if (node) sectionRefs.current.set(id, node);
     else sectionRefs.current.delete(id);
@@ -86,7 +104,7 @@ export function DiffStack({
         const arrived = entries
           .filter((e) => e.isIntersecting)
           .map((e) => e.target.getAttribute('data-row-id'))
-          .filter((id): id is string => !!id);
+          .filter((id): id is string => !!id && admittable.has(id));
         if (arrived.length === 0) return;
         setMounted((previous) => admitSections(previous, arrived));
       },
@@ -95,7 +113,7 @@ export function DiffStack({
 
     for (const node of sectionRefs.current.values()) observer.observe(node);
     return () => observer.disconnect();
-  }, [files]);
+  }, [admittable]);
 
   // Reports whichever section owns the top of the viewport. `rootMargin` pulls
   // the detection line down off the very top so a section counts as current

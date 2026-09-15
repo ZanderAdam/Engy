@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   admitSections,
   defaultReviewMode,
+  keepSections,
   resolveReviewMode,
   MAX_MOUNTED_SECTIONS,
-  STACK_FILE_LIMIT,
 } from './review-mode';
 
 describe('review mode', () => {
@@ -14,11 +14,11 @@ describe('review mode', () => {
     });
 
     it('should stack a diff right at the limit', () => {
-      expect(defaultReviewMode(STACK_FILE_LIMIT)).toBe('stack');
+      expect(defaultReviewMode(MAX_MOUNTED_SECTIONS)).toBe('stack');
     });
 
     it('should not stack a diff too large to hold in memory at once', () => {
-      expect(defaultReviewMode(STACK_FILE_LIMIT + 1)).toBe('single');
+      expect(defaultReviewMode(MAX_MOUNTED_SECTIONS + 1)).toBe('single');
       expect(defaultReviewMode(500)).toBe('single');
     });
 
@@ -81,6 +81,34 @@ describe('review mode', () => {
       const arrived = Array.from({ length: 500 }, (_, i) => `f${i}`);
 
       expect(admitSections(new Set(), arrived).size).toBe(MAX_MOUNTED_SECTIONS);
+    });
+
+    it('[FR-GIT-460] should let a default stack mount every one of its files', () => {
+      const files = Array.from({ length: MAX_MOUNTED_SECTIONS }, (_, i) => `f${i}`);
+
+      expect(defaultReviewMode(files.length)).toBe('stack');
+      expect(admitSections(new Set(), files).size).toBe(files.length);
+    });
+  });
+
+  describe('keepSections', () => {
+    it('[FR-GIT-460] should free the slots of files that left the list', () => {
+      const full = new Set(Array.from({ length: MAX_MOUNTED_SECTIONS }, (_, i) => `old${i}`));
+
+      const kept = keepSections(full, new Set(['new0']));
+
+      expect(kept.size).toBe(0);
+      expect(admitSections(kept, ['new0']).has('new0')).toBe(true);
+    });
+
+    it('should keep sections still in the list', () => {
+      expect(keepSections(new Set(['a', 'b']), new Set(['a']))).toEqual(new Set(['a']));
+    });
+
+    it('should return the same set when nothing is dropped, so state does not churn', () => {
+      const previous = new Set(['a']);
+
+      expect(keepSections(previous, new Set(['a', 'b']))).toBe(previous);
     });
   });
 });
