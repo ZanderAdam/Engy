@@ -20,6 +20,8 @@ import {
 } from './use-voice-capture';
 import { useVoiceVocabulary } from './use-voice-vocabulary';
 import { SpeechQueue, speakUrl } from './speech-queue';
+import { createSpeakerTab } from './speaker-tab';
+import { recordSpoken } from './spoken-subtitles';
 
 export type VoiceControl = VoiceCaptureState & {
   toggle: () => void;
@@ -100,7 +102,22 @@ function ActiveVoiceProvider({
     speak(capture.answer);
   }, [capture.answer, speak]);
 
-  useOnServerEvent('VOICE_SPEAK', (payload) => speak(payload.text));
+  const speakerTab = useMemo(() => createSpeakerTab(workspaceSlug), [workspaceSlug]);
+  useEffect(() => {
+    if (document.hasFocus()) speakerTab.claim();
+    window.addEventListener('focus', speakerTab.claim);
+    window.addEventListener('pagehide', speakerTab.release);
+    return () => {
+      window.removeEventListener('focus', speakerTab.claim);
+      window.removeEventListener('pagehide', speakerTab.release);
+      speakerTab.release();
+    };
+  }, [speakerTab]);
+
+  useOnServerEvent('VOICE_SPEAK', (payload) => {
+    if (payload.sessionId) recordSpoken(payload.sessionId, payload.text);
+    if (speakerTab.isSpeaker()) speak(payload.text);
+  });
 
   const value = useMemo(
     () => ({

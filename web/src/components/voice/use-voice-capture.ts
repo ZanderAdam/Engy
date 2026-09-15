@@ -112,6 +112,10 @@ export interface VoicePttControllerOpts {
 // a suspended AudioContext) — surface it as a visible error.
 const NO_AUDIO_TIMEOUT_MS = 1500;
 
+// A press this short is a tap, and a second press this soon after one starts
+// a conversation.
+const DOUBLE_TAP_MS = 350;
+
 // Room echo and the audio element's own output latency outlast `onended`.
 const ECHO_TAIL_MS = 300;
 
@@ -152,6 +156,7 @@ export class VoicePttController {
   // terminal.
   private isFirstDictationSegmentOfTurn = true;
   private conversationMode = false;
+  private lastTapAt = 0;
   // Infinity while Engy talks, then the echo-tail deadline.
   private mutedUntil = 0;
   private autoSubmitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -293,17 +298,26 @@ export class VoicePttController {
   // chord still reaches the terminal.
   private onKeyDown = (e: KeyboardEvent): void => {
     if (this.holding) {
-      // The key that opened a conversation also closes it: in a hands-free
-      // session there is no hold to repeat, so a second press is the natural
-      // way to end one.
-      if (this.conversationMode && isPttKeyEvent(e)) {
-        this.setConversationMode(false);
+      if (this.conversationMode) {
+        // No key is held in a conversation, so another key is typing, not a
+        // chord: the mic stays open, but the user has taken over the message,
+        // so a silence timer must not press Enter under them.
+        if (isPttKeyEvent(e)) {
+          this.setConversationMode(false);
+        } else {
+          this.clearAutoSubmit();
+          this.pendingDictation = false;
+        }
         return;
       }
       if (e.code !== VOICE_PTT_CODE) this.abort();
       return;
     }
-    if (isPttKeyEvent(e)) this.start();
+    if (!isPttKeyEvent(e)) return;
+    const isDoubleTap = Date.now() - this.lastTapAt < DOUBLE_TAP_MS;
+    this.lastTapAt = 0;
+    this.start();
+    if (isDoubleTap) this.setConversationMode(true);
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
@@ -311,6 +325,7 @@ export class VoicePttController {
     // In a conversation the key is what opened the mic, not what holds it —
     // the session outlives the press and ends on an explicit stop.
     if (this.conversationMode) return;
+    if (Date.now() - this.turnStartedAt < DOUBLE_TAP_MS) this.lastTapAt = Date.now();
     this.stop();
   };
 

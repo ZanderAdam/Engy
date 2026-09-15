@@ -7,6 +7,7 @@ import { useXtermTheme } from '@/hooks/use-xterm-theme';
 import type { TerminalPanelParams } from './types';
 import { TerminalTaskBar } from './terminal-task-bar';
 import { TerminalDormantPanel } from './terminal-dormant-panel';
+import { TerminalSubtitle } from '@/components/voice/terminal-subtitle';
 
 const TerminalInstance = dynamic(
   () => import('./terminal').then((m) => m.TerminalInstance),
@@ -42,6 +43,7 @@ export function TerminalDockPanel({ params, api }: IDockviewPanelProps<TerminalP
           />
         )}
       </div>
+      <TerminalSubtitle sessionId={sessionId} />
     </div>
   );
 }

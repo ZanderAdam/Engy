@@ -31,6 +31,18 @@ import { RepoPathsField } from '@/components/repo-paths-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  PLAYBACK_RATES,
+  readPlaybackRate,
+  writePlaybackRate,
+} from '@/components/voice/playback-rate';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   coerceAgentTypeId,
@@ -98,6 +110,7 @@ export function EditWorkspaceDialog({
   const [splitWorktrees, setSplitWorktrees] = useState(workspace.splitWorktrees ?? false);
   const [voiceEnabled, setVoiceEnabled] = useState(workspace.voiceEnabled ?? false);
   const [ttsEnabled, setTtsEnabled] = useState(workspace.ttsEnabled ?? false);
+  const [playbackRate, setPlaybackRate] = useState(readPlaybackRate);
   const [agentSettings, setAgentSettings] = useState<WorkspaceAgentSettings>(() =>
     seedAgentSettings(workspace),
   );
@@ -222,6 +235,7 @@ export function EditWorkspaceDialog({
       setSplitWorktrees(workspace.splitWorktrees ?? false);
       setVoiceEnabled(workspace.voiceEnabled ?? false);
       setTtsEnabled(workspace.ttsEnabled ?? false);
+      setPlaybackRate(readPlaybackRate());
       setAgentSettings(seedAgentSettings(workspace));
       setDefaultAgentType(coerceAgentTypeId(workspace.defaultAgentType));
       setError(null);
@@ -354,6 +368,34 @@ export function EditWorkspaceDialog({
                     Needs voice dictation. On: Engy speaks terminal status and action
                     acknowledgements back, and agents can answer out loud. Downloads a ~65MB voice
                     once.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="edit-workspace-tts-speed">Reply speed</Label>
+                    <Select
+                      value={String(playbackRate)}
+                      onValueChange={(value) => {
+                        setPlaybackRate(Number(value));
+                        writePlaybackRate(Number(value));
+                      }}
+                      disabled={!voiceEnabled || !ttsEnabled}
+                    >
+                      <SelectTrigger id="edit-workspace-tts-speed" size="sm" className="w-24">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PLAYBACK_RATES.map((rate) => (
+                          <SelectItem key={rate} value={String(rate)}>
+                            {rate}×
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    How fast spoken replies play. Applies at once, in this browser, for every
+                    workspace.
                   </p>
                 </div>
               </div>

@@ -1249,6 +1249,89 @@ describe('VoicePttController', () => {
       expect(FakeWebSocket.instances[0].readyState).toBe(FakeWebSocket.OPEN);
     });
 
+    it('[FR-TG2.29] should keep the conversation open when another key is pressed', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onStateChange } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+      firePtt('keydown');
+      FakeWebSocket.instances[0].simulateOpen();
+      controller.setConversationMode(true);
+      firePtt('keyup');
+
+      fireKey('keydown', { code: 'KeyA', key: 'a' });
+
+      expect(controller.isConversationMode()).toBe(true);
+      expect(lastPhase(onStateChange)).toBe('listening');
+    });
+
+    it('should not auto-submit once the user starts typing', async () => {
+      controller = new VoicePttController(makeOpts({ autoSubmitMs: 20 }));
+      const { observer, onAutoSubmit } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+      firePtt('keydown');
+      controller.setConversationMode(true);
+      const ws = FakeWebSocket.instances[0];
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ t: 'voice_segment', transcript: 'run the tests' }));
+
+      fireKey('keydown', { code: 'KeyA', key: 'a' });
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(onAutoSubmit).not.toHaveBeenCalled();
+    });
+
+    it('[FR-TG2.31] should start a conversation on a double tap', () => {
+      controller = new VoicePttController(makeOpts());
+      const { observer, onStateChange } = makeObserver();
+      unsubscribe = controller.subscribe(observer);
+
+      firePtt('keydown');
+      firePtt('keyup');
+      firePtt('keydown');
+      firePtt('keyup');
+
+      expect(controller.isConversationMode()).toBe(true);
+      expect(lastPhase(onStateChange)).toBe('listening');
+    });
+
+    it('should not start a conversation when the first press was a hold', () => {
+      const now = vi.spyOn(Date, 'now');
+      try {
+        controller = new VoicePttController(makeOpts());
+        unsubscribe = controller.subscribe(makeObserver().observer);
+
+        now.mockReturnValue(1_000);
+        firePtt('keydown');
+        now.mockReturnValue(2_000);
+        firePtt('keyup');
+        now.mockReturnValue(2_100);
+        firePtt('keydown');
+
+        expect(controller.isConversationMode()).toBe(false);
+      } finally {
+        now.mockRestore();
+      }
+    });
+
+    it('should not start a conversation when the second press comes late', () => {
+      const now = vi.spyOn(Date, 'now');
+      try {
+        controller = new VoicePttController(makeOpts());
+        unsubscribe = controller.subscribe(makeObserver().observer);
+
+        now.mockReturnValue(1_000);
+        firePtt('keydown');
+        now.mockReturnValue(1_100);
+        firePtt('keyup');
+        now.mockReturnValue(2_000);
+        firePtt('keydown');
+
+        expect(controller.isConversationMode()).toBe(false);
+      } finally {
+        now.mockRestore();
+      }
+    });
+
     it('[FR-TG2.29] should end the session on a second key press', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();

@@ -1,3 +1,5 @@
+import { readPlaybackRate } from './playback-rate';
+
 /**
  * Serialises spoken answers. Two utterances at once are unintelligible, and
  * they arrive from independent sources — a local action acknowledgement and
@@ -31,9 +33,10 @@ function defaultWait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function playViaAudio(url: string): Promise<void> {
+export function playViaAudio(url: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const audio = new Audio(url);
+    audio.playbackRate = readPlaybackRate();
     audio.onended = () => resolve();
     audio.onerror = () => reject(new Error('Could not play the spoken reply.'));
     void audio.play().catch(reject);
