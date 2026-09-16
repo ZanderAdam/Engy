@@ -3,7 +3,12 @@
 import { useVirtualParams, useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
-import { buildQuickActionDirs, buildContextBlock } from '@/lib/shell';
+import {
+  buildQuickActionDirs,
+  buildContextBlock,
+  shouldRequestAgentWorktree,
+  withAgentWorktreeInstruction,
+} from '@/lib/shell';
 import { buildAgentCommand, getMcpUrl } from '@/lib/agent-types';
 import { projectGroupKey, normalizeWtParam } from '@/components/terminal/group-key';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
@@ -50,8 +55,17 @@ export function useQuickAction() {
     scopeLabel: string;
     containerMode?: ContainerMode;
     taskId?: number;
+    implementing?: boolean;
   }) {
     if (!workingDir || !projectDir || !workspace || !project) return;
+    const prompt = withAgentWorktreeInstruction(
+      opts.prompt,
+      shouldRequestAgentWorktree({
+        implementing: !!opts.implementing,
+        agentWorktrees: workspace.agentWorktrees ?? false,
+        worktreeBranch,
+      }),
+    );
     const ctx = buildContextBlock({
       workspace: { id: workspace.id, slug: workspaceSlug },
       project: { id: project.id, slug: projectSlug, dir: projectDir },
@@ -67,7 +81,7 @@ export function useQuickAction() {
       // server runs as claude (see execution.ts buildPromptForTask) — keep the
       // two in sync if this ever becomes agent-configurable.
       command: buildAgentCommand('claude', {
-        prompt: opts.prompt,
+        prompt,
         systemPrompt: ctx,
         additionalDirs,
         dangerouslySkipPermissions: isContainer,

@@ -113,6 +113,34 @@ describe('[FR-TERMINAL-130] createActivityTracker (daemon)', () => {
     expect(events).toEqual(['start', 'done']);
   });
 
+  it('[FR-TERMINAL-890] should not let a shorter suppressOutput cut an active longer one short', () => {
+    const { tracker, events } = setup();
+    skipInitialSuppress();
+    tracker.suppressOutput(3000);
+    tracker.suppressOutput(1000);
+
+    vi.advanceTimersByTime(1500);
+    tracker.bumpActivity();
+    tracker.bumpActivity();
+    vi.advanceTimersByTime(DEBOUNCE_MS + 1);
+
+    expect(events).toEqual([]);
+  });
+
+  it('[FR-TERMINAL-890] should resume counting once the longer suppressOutput window ends', () => {
+    const { tracker, events } = setup();
+    skipInitialSuppress();
+    tracker.suppressOutput(3000);
+    tracker.suppressOutput(1000);
+
+    vi.advanceTimersByTime(3001);
+    tracker.bumpActivity();
+    tracker.bumpActivity();
+    vi.advanceTimersByTime(DEBOUNCE_MS + 1);
+
+    expect(events).toEqual(['start', 'done']);
+  });
+
   it('should not fire after dispose', () => {
     const { tracker, events } = setup();
     skipInitialSuppress();

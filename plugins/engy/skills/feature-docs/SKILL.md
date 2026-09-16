@@ -7,7 +7,7 @@ description: This skill should be used when the user asks to "bootstrap feature 
 
 Owns `system/features/<area>.md` as ONE artifact per area: prose body + `## Requirements` EARS table + `## Sources` + frontmatter. Establishes the EARS functional-requirement (FR) baseline for an existing codebase by reverse-engineering FRs from implemented, tested behaviour. Where a feature doc is missing entirely, it is created (prose intro + requirements); where it exists without a `## Requirements` section, the section is added.
 
-Consult [`../write-sysdocs/references/doc-format.md`](../write-sysdocs/references/doc-format.md) for frontmatter, `## Sources`, README template, and reindex conventions — feature docs must be shaped identically to prose docs. Consult `plugins/engy/skills/implement/references/ears-bdd.md` for EARS patterns, id scheme, format contract, and the FR lifecycle rules (editing, reordering, retiring FRs over time). Authoring is delegated to `engy:feature-author`; this skill orchestrates the area list, the task loop, and the human gates.
+Consult [`../write-sysdocs/references/doc-format.md`](../write-sysdocs/references/doc-format.md) for frontmatter, `## Sources`, README template, and reindex conventions — feature docs must be shaped identically to prose docs. Consult `../implement/references/ears-bdd.md` for EARS patterns, id scheme, format contract, and the FR lifecycle rules (editing, reordering, retiring FRs over time). Authoring is delegated to `engy:feature-author`; this skill orchestrates the area list, the task loop, and the human gates.
 
 ## The Pipeline: code/tests → BDD → EARS
 
@@ -168,6 +168,6 @@ Review the working-tree changes in the diff viewer, then commit or revert.
 
 **Typical trigger:** establishing the EARS FR baseline for a codebase adopting the EARS-BDD flow; or when `engy:write-sysdocs` hands off a feature area during init or refresh.
 
-**Depends on:** `engy:feature-author` (author), `plugins/engy/skills/implement/references/ears-bdd.md` (conventions), `trace` / `engy:validate` (validation), `../write-sysdocs/references/doc-format.md` (doc shape).
+**Depends on:** `engy:feature-author` (author), `../implement/references/ears-bdd.md` (conventions), `trace` / `engy:validate` (validation), `../write-sysdocs/references/doc-format.md` (doc shape).
 
 **Follow-up:** enable EARS-BDD mode on the workspace; use `engy:implement` (EARS-BDD mode) to add tagged tests and close uncovered FRs.

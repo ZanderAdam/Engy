@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { latestRefs } from './diff-refs';
+import { latestRefs, refsFor } from './diff-refs';
 import type { ChangedFile, GitFileStatus } from './types';
 
 const HEAD = 'a1b2c3d4';
@@ -73,6 +73,64 @@ describe('diff refs', () => {
       const refs = latestRefs(file({ staged: true, status: 'added' }), 'staged', HEAD);
 
       expect(refs.originalId).toBeUndefined();
+    });
+  });
+
+  describe('refsFor', () => {
+    const file = (over: Partial<ChangedFile> = {}): ChangedFile => ({
+      path: 'a.ts',
+      status: 'modified',
+      staged: false,
+      ...over,
+    });
+
+    const base = {
+      selectedCommit: null,
+      branchTarget: 'worktree' as const,
+    };
+
+    it('[FR-GIT-300] should defer to the latest-changes rules in latest mode', () => {
+      expect(
+        refsFor({ ...base, diffViewMode: 'latest', file: file({ indexId: 'i' }), side: 'staged', head: 'h' }),
+      ).toEqual(latestRefs(file({ indexId: 'i' }), 'staged', 'h'));
+    });
+
+    it('[FR-GIT-350] should read nothing in latest mode without a side to read', () => {
+      expect(refsFor({ ...base, diffViewMode: 'latest', file: file(), side: null })).toEqual({});
+    });
+
+    it('[FR-GIT-310] should pin a commit against its parent in history mode', () => {
+      expect(
+        refsFor({ ...base, diffViewMode: 'history', side: null, selectedCommit: 'abc' }),
+      ).toEqual({ originalRef: 'abc~1', modifiedRef: 'abc' });
+    });
+
+    it('[FR-GIT-310] should pin both ends of a branch diff in PR mode', () => {
+      expect(
+        refsFor({
+          ...base,
+          diffViewMode: 'branch',
+          side: null,
+          branchTarget: 'head',
+          branchDiff: { mergeBase: 'base1', head: 'head1' },
+        }),
+      ).toEqual({ originalRef: 'base1', modifiedRef: 'head1' });
+    });
+
+    it('[FR-GIT-310] should key the working-tree end of a branch diff on the file on disk', () => {
+      expect(
+        refsFor({
+          ...base,
+          diffViewMode: 'branch',
+          file: file({ contentId: 'wt1' }),
+          side: null,
+          branchDiff: { mergeBase: 'base1' },
+        }),
+      ).toEqual({ originalRef: 'base1', modifiedId: 'wt1' });
+    });
+
+    it('[FR-GIT-350] should read nothing in branch mode before the fork point is known', () => {
+      expect(refsFor({ ...base, diffViewMode: 'branch', side: null })).toEqual({});
     });
   });
 });

@@ -2,8 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { IPty } from 'node-pty';
 import type { Terminal } from '@xterm/headless';
 import type { SerializeAddon } from '@xterm/addon-serialize';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { simpleGit } from 'simple-git';
 import { SessionManager } from './session-manager.js';
 import { TerminalManager } from './manager.js';
+import { BranchWatcher } from '../git/branch-watch.js';
+import type { WsClient } from '../ws/client.js';
 
 // Mock node-pty
 const mockPtyProcess = {
@@ -99,9 +105,7 @@ describe('TerminalManager', () => {
   // reconnected message lands a tick after handleReconnect returns.
   async function reconnectSnapshot(sessionId: string, cols?: number, rows?: number) {
     manager.handleReconnect(sessionId, cols, rows);
-    await vi.waitFor(() =>
-      expect(sent.some((m) => m.startsWith('{"t":"reconnected"'))).toBe(true),
-    );
+    await vi.waitFor(() => expect(sent.some((m) => m.startsWith('{"t":"reconnected"'))).toBe(true));
     return JSON.parse(sent.find((m) => m.startsWith('{"t":"reconnected"'))!);
   }
 
@@ -428,15 +432,144 @@ describe('TerminalManager', () => {
     });
   });
 
+  describe('branch watcher wiring', () => {
+    function makeFakeBranchWatcher() {
+      return {
+        watch: vi.fn().mockResolvedValue(undefined),
+        unwatch: vi.fn(),
+      } as unknown as BranchWatcher & {
+        watch: ReturnType<typeof vi.fn>;
+        unwatch: ReturnType<typeof vi.fn>;
+      };
+    }
+
+    it('registers a watch when a session with a working directory starts', () => {
+      const branchWatcher = makeFakeBranchWatcher();
+      manager.setBranchWatcher(branchWatcher);
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp/repo', cols: 80, rows: 24 });
+      expect(branchWatcher.watch).toHaveBeenCalledWith('abc', '/tmp/repo');
+    });
+
+    it('unwatches when the pty exits', () => {
+      const branchWatcher = makeFakeBranchWatcher();
+      manager.setBranchWatcher(branchWatcher);
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp/repo', cols: 80, rows: 24 });
+      onExitCallback?.({ exitCode: 0 });
+      expect(branchWatcher.unwatch).toHaveBeenCalledWith('abc');
+    });
+
+    it('unwatches on kill', () => {
+      const branchWatcher = makeFakeBranchWatcher();
+      manager.setBranchWatcher(branchWatcher);
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp/repo', cols: 80, rows: 24 });
+      manager.kill('abc');
+      expect(branchWatcher.unwatch).toHaveBeenCalledWith('abc');
+    });
+
+    it('unwatches on session expiry', () => {
+      const branchWatcher = makeFakeBranchWatcher();
+      manager.setBranchWatcher(branchWatcher);
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp/repo', cols: 80, rows: 24 });
+      const cb = (sessions as unknown as { onExpire: (id: string) => void }).onExpire;
+      cb('abc');
+      expect(branchWatcher.unwatch).toHaveBeenCalledWith('abc');
+    });
+
+    it('unwatches the replaced session when respawning the same sessionId', () => {
+      const branchWatcher = makeFakeBranchWatcher();
+      manager.setBranchWatcher(branchWatcher);
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp/repo', cols: 80, rows: 24 });
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp/repo2', cols: 80, rows: 24 });
+      expect(branchWatcher.unwatch).toHaveBeenCalledWith('abc');
+      expect(branchWatcher.watch).toHaveBeenLastCalledWith('abc', '/tmp/repo2');
+    });
+
+    it('re-points the watch when the agent reports a new working directory', () => {
+      const branchWatcher = makeFakeBranchWatcher();
+      manager.setBranchWatcher(branchWatcher);
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp/repo', cols: 80, rows: 24 });
+      manager.rewatchBranch('abc', '/tmp/repo/.claude/worktrees/feat');
+      expect(branchWatcher.watch).toHaveBeenLastCalledWith(
+        'abc',
+        '/tmp/repo/.claude/worktrees/feat',
+      );
+    });
+
+    it('ignores a rewatch for a session it does not own', () => {
+      const branchWatcher = makeFakeBranchWatcher();
+      manager.setBranchWatcher(branchWatcher);
+      manager.rewatchBranch('gone', '/tmp/repo/.claude/worktrees/feat');
+      expect(branchWatcher.watch).not.toHaveBeenCalled();
+    });
+
+    describe('end to end with a real BranchWatcher', { retry: 2 }, () => {
+      let repoDir: string;
+      let branchWatcher: BranchWatcher;
+      let sent: unknown[];
+
+      beforeEach(async () => {
+        repoDir = await mkdtemp(join(tmpdir(), 'engy-manager-branch-watch-'));
+        const git = simpleGit(repoDir);
+        await git.init();
+        await git.addConfig('user.email', 'test@test.com');
+        await git.addConfig('user.name', 'Test');
+        await git.addConfig('commit.gpgsign', 'false');
+        await git.raw(['commit', '--allow-empty', '-m', 'initial']);
+
+        sent = [];
+        const wsClient = { send: vi.fn((msg: unknown) => sent.push(msg)) } as unknown as WsClient;
+        branchWatcher = new BranchWatcher(wsClient, { usePolling: true, pollingInterval: 100 });
+        manager.setBranchWatcher(branchWatcher);
+      });
+
+      afterEach(async () => {
+        await branchWatcher.closeAll();
+        await rm(repoDir, { recursive: true, force: true });
+      });
+
+      it('[FR-TERMINAL-690] pushes WORKTREE_BRANCH_CHANGED_EVENT on the ws send path when the branch changes during a session', async () => {
+        manager.spawn({ sessionId: 'abc', workingDir: repoDir, cols: 80, rows: 24 });
+        // spawn() fires the watch registration without awaiting it — give the
+        // async git-dir resolution + chokidar ready time to settle before the
+        // checkout, or the change can land inside chokidar's initial scan.
+        await new Promise((r) => setTimeout(r, 300));
+        // Registering already reported the starting branch.
+        const seeded = sent.length;
+
+        await simpleGit(repoDir).checkoutLocalBranch('feature-x');
+
+        await vi.waitFor(() => expect(sent.length).toBeGreaterThan(seeded), { timeout: 8000 });
+        expect(sent[sent.length - 1]).toEqual({
+          type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+          payload: { workingDir: repoDir, branch: 'feature-x' },
+        });
+      }, 15_000);
+
+      it('stops pushing branch changes once the session is killed', async () => {
+        manager.spawn({ sessionId: 'abc', workingDir: repoDir, cols: 80, rows: 24 });
+        await new Promise((r) => setTimeout(r, 300));
+
+        manager.kill('abc');
+        const seeded = sent.length;
+        await simpleGit(repoDir).checkoutLocalBranch('feature-y');
+        await new Promise((r) => setTimeout(r, 500));
+
+        expect(sent.length).toBe(seeded);
+      }, 15_000);
+    });
+  });
+
   describe('PTY identity guards', () => {
     it('should not emit exit or remove the new session when the stale PTY exits after respawn', () => {
       // Capture exit callbacks indexed by spawn call order
       const exitCallbacks: Array<(ev: { exitCode: number; signal?: number }) => void> = [];
-      mockPtyProcess.onExit.mockImplementation((cb: (ev: { exitCode: number; signal?: number }) => void) => {
-        exitCallbacks.push(cb);
-        onExitCallback = cb;
-        return { dispose: vi.fn() };
-      });
+      mockPtyProcess.onExit.mockImplementation(
+        (cb: (ev: { exitCode: number; signal?: number }) => void) => {
+          exitCallbacks.push(cb);
+          onExitCallback = cb;
+          return { dispose: vi.fn() };
+        },
+      );
 
       // Spawn first PTY for sessionId 'abc'
       manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
@@ -590,6 +723,39 @@ describe('TerminalManager', () => {
       onDataCallback?.('b');
       expect(acts().map((m) => m.state)).toEqual(['active']);
       vi.advanceTimersByTime(3000);
+      expect(acts().map((m) => m.state)).toEqual(['active', 'done']);
+    });
+
+    // A reconnect redraw is not the program doing something. Sockets drop
+    // often (backgrounded tab, flaky network), and each reconnect resizes the
+    // PTY and replays a snapshot; counting that burst as activity turned every
+    // reattached terminal green.
+    it('[FR-TERMINAL-880] does not report activity for a reconnect redraw', () => {
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      vi.advanceTimersByTime(3001); // past the initial suppress window
+
+      manager.handleReconnect('abc', 100, 40);
+
+      // The SIGWINCH repaint streams well past the 1s resize-suppress window.
+      vi.advanceTimersByTime(1500);
+      onDataCallback?.('repaint-chunk-1');
+      onDataCallback?.('repaint-chunk-2');
+      vi.advanceTimersByTime(3000);
+
+      expect(acts().map((m) => m.state)).toEqual([]);
+    });
+
+    it('[FR-TERMINAL-880] still reports activity once the reconnect suppression has passed', () => {
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+      vi.advanceTimersByTime(3001);
+
+      manager.handleReconnect('abc', 100, 40);
+      vi.advanceTimersByTime(3001);
+
+      onDataCallback?.('a');
+      onDataCallback?.('b');
+      vi.advanceTimersByTime(3000);
+
       expect(acts().map((m) => m.state)).toEqual(['active', 'done']);
     });
 

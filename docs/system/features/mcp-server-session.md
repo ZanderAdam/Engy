@@ -78,7 +78,11 @@ oldest delivered dispatch (sound because delivery is one-at-a-time per worker,
 so replies arrive in delivery order), and the injected contract is just
 "report the outcome via terminal_reply". Workers without a per-session
 endpoint fall back to the legacy single-use correlation id embedded in the
-`[engy-dispatch <id>]` marker. Async dispatches from identified callers do
+`[engy-dispatch <id>]` marker. `terminal_status` additionally surfaces
+`activeSubagents` and `lastFailure` — a live subagent count and any recorded
+`StopFailure` state, both maintained on the session by the Claude Code hook
+channel (see the terminal-relay area) — so a dispatching agent can see why a
+worker went quiet. Async dispatches from identified callers do
 not need `terminal_collect` polling — the settled result is pushed into the
 origin terminal as an informational notice (idle-gated, queued while the
 origin is busy); the same push happens when a sync wait times out or the
@@ -113,6 +117,19 @@ unsettled dispatches, destroyed broadcast — via the same
 `destroyTerminalSession` path as a browser kill), freeing the agent-spawn
 slot. User-opened and foreign-spawned terminals are refused.
 
+## Diff review tools
+
+`registerDiffReviewTools` (`web/src/server/mcp/diff-review-tools.ts`) lets a reviewing agent write its findings into the same `commentThreads` / `threadComments` tables the Diffs tab reads, so a review appears as inline comments on the diff rather than as text in a terminal. Four tools: `diff_review_comment` anchors one finding to a line, `diff_review_summary` writes the single unanchored summary shown above the first file, `diff_review_list` reads back what is already on the diff — the agent's own findings and the human comments left on it — and `diff_review_resolve` closes a finding the agent itself filed. Resolve refuses any thread the agent did not write: closing a human's comment is the human's call.
+
+Like the `terminal_*` tools these are agent-only and have no tRPC counterpart. The browser writes the same rows through `comment.createThread` and builds the `diff://` path itself in `use-diff-comments.ts`; the MCP tools exist so an agent does not reconstruct that path and metadata shape by hand, and therefore take a diff-shaped input instead of mirroring the comment router.
+
+Two invariants make the surface work:
+
+- **Threads are workspace-less.** The Diffs tab calls `comment.listThreadsByPrefix` with no `workspaceSlug`, and that query filters on `workspaceId IS NULL`. A workspace-scoped thread would be written successfully and never appear.
+- **Authorship is derived, not declared.** `source: 'agent'`, `agentSessionId` and `agentType` come from the `/mcp/<terminalSessionId>` token and its `terminalSessionMeta` entry. A caller cannot set them, which is what makes `source` reliable as the discriminator that separates agent findings from the user's own comments — a re-review clears the former without touching the latter.
+
+`diff_review_comment` requires a `failureScenario` alongside the finding. A finding whose failure cannot be described concretely is the kind that reads as true but costs the reader attention, so the tool boundary is where that is refused rather than the prompt.
+
 ## Requirements
 
 Functional requirements in EARS notation. These are the single source of truth for the MCP server session feature's behaviour. Tag the verifying tests with the FR id in their title string, e.g. `it('[FR-MCP-010] ...', ...)`, and run `trace` (or `engy:validate`) to check coverage.
@@ -139,6 +156,13 @@ Functional requirements in EARS notation. These are the single source of truth f
 | FR-MCP-170 | WHEN `terminal_spawn` passes validation, the system SHALL generate a new terminal session id, send a spawn command to the daemon whose agent CLI command carries the resolved per-session MCP endpoint `/mcp/<newSessionId>`, register session metadata recording `spawnedBy`, inheriting the caller's UI scope (groupKey, workspace, project), and starting at activity state `active` (so dispatches sent while the CLI boots queue and deliver on its first idle/done settle), auto-connect the session as a dispatch worker, broadcast the session creation, and return the new session id. |
 | FR-MCP-180 | WHEN a dispatch created by an identified caller settles (replied or failed) and the dispatch was async or its sync wait timed out, the system SHALL inject an informational `[engy-notice <correlationId>]` settled-notice (worker description, result or error capped at 2000 chars, and a do-not-reply/re-dispatch note) into the origin terminal — immediately when the origin is idle with no queued dispatches or notices, otherwise queued and flushed combined on the origin's next idle transition, before any queued dispatch; a flush that fails because no daemon is connected SHALL requeue the notices. Notices whose origin terminal no longer exists SHALL be dropped. |
 | FR-MCP-190 | WHEN `terminal_close` is called by an identified caller with the session id of a terminal whose `spawnedBy` equals the caller's session, the system SHALL send a kill command to the daemon and tear down the session's server state (meta, worker registration, unsettled dispatches failed, destroyed broadcast), freeing its agent-spawn slot; the system SHALL refuse anonymous callers, unknown sessions, terminals not spawned by the caller (user-opened or foreign-spawned), and closes attempted with no daemon connected (leaving state untouched). |
+| FR-MCP-200 | WHEN `terminal_status` is called, the system SHALL additionally include `activeSubagents` (defaulting to 0) and `lastFailure` (defaulting to `undefined`) resolved from the worker's session metadata, alongside the existing worker info and output tail. |
+| FR-MCP-210 | WHEN `replyToComment` is called with a `threadId` and `body`, the system SHALL append an `agent`-attributed comment to that thread, serialised to the thread's own body shape, and SHALL return the thread id, comment id, document path, and thread kind; IF `resolve` is true the thread SHALL also be marked resolved; an unknown `threadId` SHALL produce a tool error. |
+| FR-MCP-220 | WHEN `diff_review_comment` is called, the system SHALL insert a comment thread at `diff://<repoDir>/<filePath>` with `workspaceId: null` and metadata `{ type: 'diff', source: 'agent', lineNumber, codeLine, side, severity }` — `side` defaulting to `modified`, plus `evidence` when the caller supplies one and omitted entirely otherwise — whose single comment body carries the finding, its failure scenario, and the suggested fix when one is given, and SHALL return the new thread id. |
+| FR-MCP-230 | WHEN a diff-review tool writes a thread, the system SHALL derive `source: 'agent'` and, for a caller identified by a `/mcp/<terminalSessionId>` token backed by live session metadata, `agentSessionId` and `agentType`, from the connection alone; a caller-supplied `source` SHALL NOT be honoured, and an anonymous caller's thread SHALL still record `source: 'agent'` with no `agentSessionId`. |
+| FR-MCP-240 | WHEN `diff_review_summary` is called, the system SHALL delete any existing thread at `diff://<repoDir>/` before inserting the new summary thread with metadata `{ type: 'review-summary', source: 'agent' }`, so one summary stands per repo while anchored findings are left untouched. |
+| FR-MCP-250 | WHEN `diff_review_list` is called without a `filePath`, the system SHALL return every workspace-less thread whose `documentPath` starts with `diff://<repoDir>/`; WHEN a `filePath` is given, the system SHALL return only threads whose `documentPath` equals `diff://<repoDir>/<filePath>` exactly, so a file is never paired with one whose name extends it (`Foo.ts` with `Foo.tsx`). Each thread SHALL be returned as `{ threadId, type, source, filePath, lineNumber, side, severity, evidence, resolved, body }`, alongside a `summary` field carrying the review-summary body or `null` when no review exists. |
+| FR-MCP-260 | WHEN `diff_review_resolve` is called with the id of a thread whose metadata records `source: 'agent'`, the system SHALL mark it resolved and broadcast the change; WHEN the thread was written by anyone else, or no thread carries that id, the system SHALL return a tool error naming the reason and leave the thread untouched. |
 
 ## Sources
 

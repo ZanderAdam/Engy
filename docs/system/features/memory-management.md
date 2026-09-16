@@ -57,6 +57,42 @@ Ingested reference material is stored under `memory/sources/` via `writeSourceSn
 
 Every mutating operation (`create`, `update`, `delete`, `promote`, `dismissFleeting`, `restoreFleeting`, `deleteFleeting`) calls `broadcastMemoryChange(action, workspaceId, memoryId?)` (`web/src/server/ws/broadcast.ts`), which emits a `MEMORY_CHANGE` event with an `action` field (`'created' | 'updated' | 'deleted' | 'promoted' | 'dismissed' | 'restored'`) to all connected browser clients.
 
+## Hook-driven capture (PreCompact / SessionEnd)
+
+A third capture channel, alongside the daemon's `CREATE_MEMORIES_EVENT` batch
+path above and an agent calling `createFleetingMemory` directly: the Claude
+Code hook channel (see the terminal-relay area) can register `PreCompact` and
+`SessionEnd` as `command` hooks that build and detach a nested `claude -p`
+job (`web/src/server/hooks/memory.ts`) right before a compaction or session
+end would otherwise discard the transcript. The nested job has **no MCP
+access at all** — no `--mcp-config` is passed, so none of Engy's ~32 MCP
+tools are reachable regardless of allow/deny lists — and a deny list on every
+built-in tool it does not need (`Bash`, `Edit`, `Write`, `NotebookEdit`,
+`WebFetch`, `WebSearch`, `Task`, `Agent`, `KillShell`, `BashOutput`, `Glob`,
+`Grep`, `TodoWrite`; only `Read` is required). A transcript is untrusted
+input read unattended, so `--allowedTools` cannot substitute for the deny
+list — it widens the user's existing CLI permissions rather than replacing
+them. The job reads a capped tail of the transcript and prints a JSON
+distillation (`{"memories":[...]}`) to stdout; the shell script then POSTs
+that stdout to `/hooks/<sessionId>` as a synthetic `MemoryCapture` event,
+ingested server-side by `handleMemoryCaptureIngest`
+(`web/src/server/hooks/memory-capture-ingest.ts`), which parses the JSON
+defensively (malformed input, a non-array `memories`, or an oversized/empty
+entry is dropped rather than trusted), inserts the resulting fleeting
+memories, and force-sets the origin marker `hook-capture` on every one of
+them regardless of what the model's JSON supplied — making FR-MEMORY-310
+structural rather than advisory. `handleMemoryCaptureIngest` is dispatched as
+a special case ahead of `handleHookRequest`'s normal session-liveness gate:
+by the time the POST arrives (up to ~20s later) `SessionEnd`'s originating
+terminal has typically already exited and deleted its live session state, so
+workspace resolution falls back from live `terminalSessionMeta` to the
+persistent `terminalSessionHistory` table (`getHistoryWorkspaceSlug`) before
+giving up. The hook itself still returns `{}` immediately without waiting on
+the detached job, so a compaction or session end is never slowed by it. This
+channel ships disabled by default, gated behind the `memoryCapture` per-agent
+workspace setting (see the workspace-management area) — every firing is a
+real, billed model call.
+
 ## Key files
 
 | File | Role |
@@ -65,6 +101,8 @@ Every mutating operation (`create`, `update`, `delete`, `promote`, `dismissFleet
 | `web/src/server/mcp/index.ts` | MCP tools: `createFleetingMemory`, `dismissFleetingMemory`, `deleteFleetingMemory`, `listMemories`, `createPermanentMemory`, `updatePermanentMemory`, `promoteMemory`, `writeSourceSnapshot`, `listReviewClusters`, `getMemoryGraph` |
 | `web/src/server/search/candidate-clusters.ts` | `clusterReviewCandidates` — ad-hoc embedding cosine clustering of pending fleeting memories; nothing persisted to the index |
 | `web/src/server/ws/server.ts` | `handleCreateMemoriesEvent` — daemon-originated batch fleeting-memory capture from agent sessions (`CREATE_MEMORIES_EVENT`) |
+| `web/src/server/hooks/memory.ts` | Builds the PreCompact/SessionEnd `command` hook script (client-safe — no server/DB imports, since it is also reachable from `@/lib/agent-types` on the client) |
+| `web/src/server/hooks/memory-capture-ingest.ts` | `handleMemoryCaptureIngest` — server-side ingest of the shell script's distillation POST: defensive JSON parsing, FR-MEMORY-250 caps, forced origin tag |
 | `web/src/server/lib/memory-files.ts` | File I/O: `writePermanentMemory`, `rewritePermanentMemory`, `writeSourceSnapshot`, `readPermanentMemory`, `validateSourcePath`, `validateLinkedMemoryPath`, `commitFile` |
 | `web/src/server/lib/promote-proposal.ts` | `proposeMemoryMetadata` — LLM-driven promotion metadata proposal |
 | `web/src/server/lib/readme-index.ts` | `regenerateReadmeChain`, `updateReadmeIndex` — README index regeneration |
@@ -103,12 +141,14 @@ their title string, e.g. `it('[FR-MEMORY-010] ...', ...)`, and run
 | FR-MEMORY-210 | WHEN `memory.deleteFleeting` or `deleteFleetingMemory` is called on an unpromoted fleeting memory, the system SHALL hard-delete the row and broadcast a `MEMORY_CHANGE` event with action `'deleted'`. IF the fleeting memory has already been promoted, THEN the system SHALL reject the request with a BAD_REQUEST error (MCP: an error result) and delete nothing, since the promoted permanent memory is the audit trail. |
 | FR-MEMORY-220 | WHEN `memory.promote` or `promoteMemory` succeeds, the system SHALL null the fleeting memory's `dismissedAt` regardless of its prior value, so promoting from the dismissed view is a valid restore path. |
 | FR-MEMORY-230 | The system SHALL exclude fleeting memories where `dismissedAt` is non-null from `memory.reviewCandidates`'s default (`status: 'pending'`) result set and from `listMemories`'s fleeting scope unless `includeDismissed` is `true`; `memory.reviewCandidates` SHALL support a `status` filter (`'pending' \| 'dismissed'`), optional `type`, `search` (LIKE on content), and `tag` filters, `sort` (createdAt asc/desc, default desc), pagination (`limit` default 100 max 200, `offset`), and SHALL return `{ items, total }` where `total` is the count of matching rows before pagination. |
-| FR-MEMORY-240 | WHEN a permanent memory is created, updated, deleted, or promoted (`memory.create`/`update`/`delete`/`promote` or the MCP tools `createPermanentMemory`/`updatePermanentMemory`/`promoteMemory`), the system SHALL refresh the memory collection's search index (qmd hash scan, orphaned-vector cleanup, and a background embed pass) as a fire-and-forget, error-swallowed call so the change is searchable — including its embedding — without the mutation waiting on it. This refresh SHALL NOT re-run the permanentMemories filesystem mirror sync, since the mutation already wrote the canonical DB row directly and re-scanning could race with a sibling in-flight mutation's own file-write-then-DB-backfill window. Triggers for the same workspace that arrive while a run is already in flight SHALL be coalesced into a single trailing re-run rather than stacking concurrent runs. |
+| FR-MEMORY-240 | WHEN a permanent memory is created, updated, deleted, or promoted (`memory.create`/`update`/`delete`/`promote` or the MCP tools `createPermanentMemory`/`updatePermanentMemory`/`promoteMemory`), the system SHALL refresh the memory collection's search index (qmd hash scan, orphaned-vector cleanup, and a background embed pass) as a fire-and-forget, error-swallowed call so the change is searchable — including its embedding — without the mutation waiting on it. This refresh SHALL NOT re-run the permanentMemories filesystem mirror sync, since the mutation already wrote the canonical DB row directly and re-scanning could race with a sibling in-flight mutation's own file-write-then-DB-backfill window. Triggers for the same workspace that arrive while a run is already in flight SHALL be coalesced into a single trailing re-run rather than stacking concurrent runs. IF `QMD_SKIP=1`, THEN the background embed pass SHALL be skipped while the hash scan, frontmatter sync, and orphaned-vector cleanup still run, so no model inference is started. |
 | FR-MEMORY-250 | WHEN the daemon emits a `CREATE_MEMORIES_EVENT` WS message for a session whose `taskId` or `taskGroupId` resolves to a workspace, the system SHALL insert at most `MAX_MEMORIES_PER_EVENT` (50) fleeting memories from the event's `memories[]`, having first dropped entries with empty content or content exceeding `MAX_MEMORY_CONTENT_LENGTH` (10,000 chars — filtering happens before the 50-item cap is applied, so valid entries are never crowded out by invalid ones), clamping any unrecognized `type` to `'capture'` and forcing `source` to `'agent'` regardless of what the event supplied. IF the session is unknown or its task/task group does not resolve to a workspace, THEN the system SHALL log a warning and insert nothing. |
 | FR-MEMORY-260 | WHEN the `listMemories` MCP tool is called with `scope: 'permanent'` or `'both'`, the system SHALL exclude permanent memories whose `supersededById` is non-null from the `permanent` result set unless `includeSuperseded` is `true`, mirroring the `includeDismissed` opt-in already defined for fleeting memories in FR-MEMORY-230. |
 | FR-MEMORY-270 | WHEN `memory.reviewCandidateClusters` or the `listReviewClusters` MCP tool is called for a workspace, the system SHALL group that workspace's pending (non-dismissed, non-promoted) fleeting memories into clusters by ad-hoc embedding cosine similarity (threshold 0.75, greedy single-link, largest cluster first, singletons last) without persisting any embedding to the search index, cap clustering at the newest 200 pending candidates and mark the response `truncated: true` when more exist, and return every memory as its own singleton cluster instead of erroring when `QMD_SKIP=1` or the embedded LLM is unavailable. WHEN there is at least one pending candidate and any candidate could not be embedded (`QMD_SKIP=1`, no `llm` on the store, `getStore`/`embedBatch` throwing, or an individual null embedding), the system SHALL set `degraded: true` on the response so callers can distinguish a degraded pass from a genuine absence of near-duplicates; otherwise `degraded` SHALL be `false`. |
 | FR-MEMORY-280 | The `memory.reviewCandidateClusters` tRPC procedure and the `listReviewClusters` MCP tool SHALL return the same shape for a given workspace: `{ clusters: [{ ids, memberCount, members }], truncated, degraded }`, where each cluster's `members` are the full fleeting memory rows for its `ids`. |
 | FR-MEMORY-290 | The `memory.graph` tRPC query and the `getMemoryGraph` MCP tool SHALL return the same shape for a given workspace: `{ nodes: [{ id, kind, dbId, title, subtype, type, tags, themes, repo, createdAt }], links: [{ source, target }] }`. Permanent memories SHALL appear as nodes with `id: 'p:<id>'` unless `supersededById` is non-null; pending fleeting memories (not promoted, not dismissed) SHALL appear as nodes with `id: 'f:<id>'` and `title` truncated to their first ~60 characters of content. Links SHALL be derived only from permanent memories' `linkedMemories[]` entries, resolved to the target node via its `filePath`, with unresolvable entries dropped and bidirectional pairs deduplicated to a single link by their sorted id pair; no links SHALL be produced for fleeting memory nodes. |
+| FR-MEMORY-300 | WHEN `PreCompact` fires, or `SessionEnd` fires for any `reason` other than `clear`, on a session whose workspace has memory capture enabled for the `claude` agent, the system SHALL detach a nested `claude -p` job (via `nohup … & disown`, redirecting all its file descriptors) with no MCP access at all and a deny list on every built-in tool it does not need, that reads a capped tail (60,000 bytes) of the transcript and prints a JSON distillation to stdout; the shell script SHALL then POST that stdout to `/hooks/<sessionId>` as a synthetic `MemoryCapture` event, and the hook itself SHALL return `{}` immediately without waiting on either the detached job or that POST. The server-side `MemoryCapture` ingest handler SHALL enforce the same item-count, content-length, and type-clamp limits as every other channel (FR-MEMORY-250) rather than assuming an upstream path already did. |
+| FR-MEMORY-310 | The server-side `MemoryCapture` ingest handler SHALL force-set the origin marker `hook-capture` on every memory it inserts, regardless of whether the model's JSON distillation included it, so `review-memories` can structurally distinguish this channel's output from agent-authored captures. |
 
 ## Sources
 

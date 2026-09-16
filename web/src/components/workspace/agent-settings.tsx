@@ -58,6 +58,7 @@ export function normalizeAgentSettings(
     const implementSkill = entry.implementSkill?.trim();
     if (planSkill) cleaned.planSkill = planSkill;
     if (implementSkill) cleaned.implementSkill = implementSkill;
+    if (entry.memoryCapture !== undefined) cleaned.memoryCapture = entry.memoryCapture;
     if (Object.keys(cleaned).length > 0) normalized[agentId] = cleaned;
   }
   return normalized;
@@ -66,6 +67,8 @@ export function normalizeAgentSettings(
 interface AgentSettingsTabProps {
   defaultAgentType: AgentTypeId;
   onDefaultAgentTypeChange: (id: AgentTypeId) => void;
+  agentWorktrees: boolean;
+  onAgentWorktreesChange: (next: boolean) => void;
   value: WorkspaceAgentSettings;
   onChange: (next: WorkspaceAgentSettings) => void;
 }
@@ -73,6 +76,8 @@ interface AgentSettingsTabProps {
 export function AgentSettingsTab({
   defaultAgentType,
   onDefaultAgentTypeChange,
+  agentWorktrees,
+  onAgentWorktreesChange,
   value,
   onChange,
 }: AgentSettingsTabProps) {
@@ -103,6 +108,22 @@ export function AgentSettingsTab({
               ))}
           </SelectContent>
         </Select>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="workspace-agent-worktrees">Agent worktrees</Label>
+          <Switch
+            id="workspace-agent-worktrees"
+            checked={agentWorktrees}
+            onCheckedChange={onAgentWorktreesChange}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Implement quick actions tell the agent to create its own git worktree and work inside it.
+          Background executions always get a worktree, and terminals already scoped to one are left
+          alone.
+        </p>
       </div>
 
       <Tabs defaultValue={defaultAgentType} className="flex flex-col gap-2">
@@ -179,6 +200,27 @@ export function AgentSettingsTab({
                     placeholder={`${DEFAULT_IMPLEMENT_SKILL} (implement)`}
                   />
                 </div>
+
+                {agent.id === 'claude' && (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor={`agent-memory-capture-${agent.id}`}>
+                        Memory capture (paid, off by default)
+                      </Label>
+                      <Switch
+                        id={`agent-memory-capture-${agent.id}`}
+                        checked={entry.memoryCapture ?? false}
+                        onCheckedChange={(memoryCapture) => patch({ memoryCapture })}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      On compaction and session end, runs a background Claude call to distill and
+                      save memories from the session automatically. Each firing is a real, billed
+                      model call — measured around $0.34 on a near-empty session, scaling with
+                      transcript size — so it stays off until you turn it on.
+                    </p>
+                  </div>
+                )}
               </div>
             </TabsContent>
           );

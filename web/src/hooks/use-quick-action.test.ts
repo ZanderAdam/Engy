@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { projectGroupKey, normalizeWtParam } from '@/components/terminal/group-key';
-import { buildQuickActionDirs } from '@/lib/shell';
+import { buildQuickActionDirs, shouldRequestAgentWorktree } from '@/lib/shell';
 
 /**
  * Tests for the pure logic that use-quick-action.ts applies when a ?wt param
@@ -71,6 +71,30 @@ describe('use-quick-action worktree logic', () => {
 
       expect(groupKey).toBe('project:ws:proj:wt:feat-x');
       expect(workingDir).toBe('/repo/wt/feat-x');
+    });
+  });
+
+  describe('shouldRequestAgentWorktree', () => {
+    it('[FR-EXECUTION-310] asks for a worktree on an implement dispatch in the main checkout', () => {
+      expect(shouldRequestAgentWorktree({ implementing: true, agentWorktrees: true })).toBe(true);
+    });
+
+    it('[FR-EXECUTION-310] stays off for non-implement dispatches', () => {
+      expect(shouldRequestAgentWorktree({ implementing: false, agentWorktrees: true })).toBe(false);
+    });
+
+    it('[FR-EXECUTION-310] stays off when the workspace setting is disabled', () => {
+      expect(shouldRequestAgentWorktree({ implementing: true, agentWorktrees: false })).toBe(false);
+    });
+
+    it('[FR-EXECUTION-310] stays off when the terminal is already scoped to a worktree', () => {
+      expect(
+        shouldRequestAgentWorktree({
+          implementing: true,
+          agentWorktrees: true,
+          worktreeBranch: 'feat-x',
+        }),
+      ).toBe(false);
     });
   });
 });

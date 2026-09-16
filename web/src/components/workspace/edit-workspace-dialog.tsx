@@ -74,6 +74,7 @@ interface EditWorkspaceDialogProps {
     splitWorktrees: boolean | null;
     voiceEnabled: boolean | null;
     ttsEnabled: boolean | null;
+    agentWorktrees: boolean | null;
     planSkill: string | null;
     implementSkill: string | null;
     defaultAgentType: string | null;
@@ -116,6 +117,7 @@ export function EditWorkspaceDialog({
   const [ttsEnabled, setTtsEnabled] = useState(workspace.ttsEnabled ?? false);
   const [playbackRate, setPlaybackRate] = useState(readPlaybackRate);
   const [voiceId, setVoiceId] = useState(readVoiceId);
+  const [agentWorktrees, setAgentWorktrees] = useState(workspace.agentWorktrees ?? false);
   const [agentSettings, setAgentSettings] = useState<WorkspaceAgentSettings>(() =>
     seedAgentSettings(workspace),
   );
@@ -170,6 +172,7 @@ export function EditWorkspaceDialog({
       splitWorktrees,
       voiceEnabled,
       ttsEnabled,
+      agentWorktrees,
       agentSettings: normalizeAgentSettings(agentSettings),
       defaultAgentType,
       containerEnabled: container.containerEnabled,
@@ -253,6 +256,7 @@ export function EditWorkspaceDialog({
       setTtsEnabled(workspace.ttsEnabled ?? false);
       setPlaybackRate(readPlaybackRate());
       setVoiceId(readVoiceId());
+      setAgentWorktrees(workspace.agentWorktrees ?? false);
       setAgentSettings(seedAgentSettings(workspace));
       setDefaultAgentType(coerceAgentTypeId(workspace.defaultAgentType));
       setError(null);
@@ -447,6 +451,8 @@ export function EditWorkspaceDialog({
               <AgentSettingsTab
                 defaultAgentType={defaultAgentType}
                 onDefaultAgentTypeChange={setDefaultAgentType}
+                agentWorktrees={agentWorktrees}
+                onAgentWorktreesChange={setAgentWorktrees}
                 value={agentSettings}
                 onChange={setAgentSettings}
               />

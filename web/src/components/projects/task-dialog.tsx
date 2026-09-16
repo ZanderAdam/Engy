@@ -665,7 +665,7 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
               {taskSlug && (
                 <PlanActions
                   taskId={taskId}
-                  taskSlug={taskSlug}
+                  planFilePath={planFilePath}
                   threads={planThreads}
                   threadsReady={threadStoreReady}
                   getMarkdown={getLatestPlanMarkdown}

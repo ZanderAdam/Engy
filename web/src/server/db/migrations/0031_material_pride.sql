@@ -1,1 +1,0 @@
-ALTER TABLE `workspaces` ADD `tts_enabled` integer DEFAULT false;

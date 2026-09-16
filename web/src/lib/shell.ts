@@ -145,3 +145,33 @@ export function buildQuickActionDirs(
   ];
   return { workingDir, additionalDirs };
 }
+
+interface AgentWorktreeInput {
+  implementing: boolean;
+  agentWorktrees: boolean;
+  worktreeBranch?: string;
+}
+
+/**
+ * A terminal already scoped to a worktree must not nest another one, so the
+ * instruction is only added for main-checkout implementation dispatches.
+ */
+export function shouldRequestAgentWorktree({
+  implementing,
+  agentWorktrees,
+  worktreeBranch,
+}: AgentWorktreeInput): boolean {
+  return implementing && agentWorktrees && !worktreeBranch;
+}
+
+export const AGENT_WORKTREE_INSTRUCTION =
+  'Before you start, create a dedicated git worktree for this work and make all changes ' +
+  'inside it — leave the main checkout untouched.';
+
+/**
+ * The instruction rides the prompt, not the system prompt, so it reaches the
+ * agent that was dispatched and not every subagent it spawns.
+ */
+export function withAgentWorktreeInstruction(prompt: string, requested: boolean): string {
+  return requested ? `${prompt}\n\n${AGENT_WORKTREE_INSTRUCTION}` : prompt;
+}

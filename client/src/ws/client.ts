@@ -55,7 +55,6 @@ import {
 } from '../gh/index.js';
 import {
   getStatusDetailed,
-  getDiff,
   getLog,
   getShow,
   getBranchFiles,
@@ -70,6 +69,7 @@ import {
   type GitRunner,
   globTestFiles,
 } from '../git/index.js';
+import { getPatch } from '../git/patch.js';
 import { ContainerManager } from '../container/manager.js';
 import { CoderManager, shellQuote } from '../container/coder-manager.js';
 import { generateDevcontainerConfig } from '../container/config-generator.js';
@@ -706,6 +706,9 @@ export class WsClient {
       case 'ack':
         this.terminalManager?.acknowledge(msg.sessionId);
         break;
+      case 'cwd':
+        this.terminalManager?.rewatchBranch(msg.sessionId, msg.workingDir);
+        break;
     }
   }
 
@@ -772,18 +775,18 @@ export class WsClient {
   }
 
   private async handleGitDiffRequest(message: GitDiffRequestMessage): Promise<void> {
-    const { requestId, repoDir, filePath, base, staged, coderWorkspace } = message.payload;
+    const { requestId, repoDir, filePath, spec, oldPath, coderWorkspace } = message.payload;
     try {
-      const diff = await getDiff(
+      const { patch, truncated } = await getPatch(
         repoDir,
         filePath,
-        base,
-        staged,
+        spec,
+        oldPath,
         this.gitRunnerFor(coderWorkspace),
       );
       this.send({
         type: 'GIT_DIFF_RESPONSE',
-        payload: { requestId, diff },
+        payload: { requestId, patch, truncated },
       });
     } catch (err) {
       this.send({
@@ -1173,13 +1176,43 @@ export class WsClient {
     }
   }
 
+  /**
+   * Expand a glob inside the Coder workspace and return the newest match. The
+   * pattern reaches the remote shell unquoted, so each space-separated
+   * alternative is checked against a workspace-relative shape rather than
+   * escaped — no metacharacters, no absolute paths, no traversal, and no
+   * leading `-`, which `ls` would read as a flag instead of a path.
+   */
+  private async resolveRemoteGlob(coderWorkspace: string, pattern: string): Promise<string> {
+    const alternatives = pattern.split(' ').filter(Boolean);
+    const safe =
+      alternatives.length > 0 &&
+      alternatives.every(
+        (alt) =>
+          /^[A-Za-z0-9._*][A-Za-z0-9._*-]*(\/[A-Za-z0-9._*-]+)*$/.test(alt) && !alt.includes('..'),
+      );
+    if (!safe) {
+      throw new Error(`Unsafe remote glob pattern: ${pattern}`);
+    }
+    const { stdout } = await this.coderManager.execCapture(coderWorkspace, 'sh', [
+      '-c',
+      `ls -1t ${pattern} 2>/dev/null | head -n 1`,
+    ]);
+    const resolved = stdout.trim();
+    if (!resolved) throw new Error(`No remote file matches ${pattern}`);
+    return resolved;
+  }
+
   private async handleRemoteFilePullRequest(message: RemoteFilePullRequestMessage): Promise<void> {
-    const { requestId, coderWorkspace, filePath } = message.payload;
+    const { requestId, coderWorkspace, filePath, resolveGlob } = message.payload;
     try {
-      const { stdout } = await this.coderManager.execCapture(coderWorkspace, 'cat', [filePath]);
+      const target = resolveGlob
+        ? await this.resolveRemoteGlob(coderWorkspace, filePath)
+        : filePath;
+      const { stdout } = await this.coderManager.execCapture(coderWorkspace, 'cat', [target]);
       this.send({
         type: 'REMOTE_FILE_PULL_RESPONSE',
-        payload: { requestId, content: stdout },
+        payload: { requestId, content: stdout, filePath: target },
       });
     } catch (err) {
       this.send({

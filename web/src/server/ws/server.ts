@@ -13,12 +13,14 @@ import type {
   WorktreeRemoveErrorCode,
   FleetingMemoryType,
   BranchDiffTarget,
+  GitPatchSpec,
 } from '@engy/common';
 import type {
   AppState,
   GitStatusResult,
   GitLogResult,
   GitShowResult,
+  GitPatchResult,
   GitBranchFilesResult,
   GitDefaultBaseResult,
   GitFetchResult,
@@ -51,9 +53,17 @@ import {
   projects,
   fleetingMemories,
 } from '../db/schema';
-import { taskPlanSlug } from '../plan/service';
-import { broadcastFileChange, broadcastTaskChange } from './broadcast';
+import { writePlanFile } from '../plan/service';
+import { planFilePathFromStem, taskPlanSlug } from '../../lib/plan-naming';
+import { getWorkspaceDir } from '../engy-dir/init';
+import {
+  broadcastFileChange,
+  broadcastTaskChange,
+  broadcastTerminalBranchChange,
+} from './broadcast';
+import { resolveTrackedDir } from '../hooks/cwd';
 import { sendWatchPathsSync } from './watch-subscriptions';
+import { persistTerminalSession } from './terminal-session-store';
 
 const VALIDATION_TIMEOUT_MS = 5_000;
 const FILE_SEARCH_TIMEOUT_MS = 10_000;
@@ -107,6 +117,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingGitStatus,
     state.pendingGitLog,
     state.pendingGitShow,
+    state.pendingGitPatch,
     state.pendingGitBranchFiles,
     state.pendingGitDefaultBase,
     state.pendingGitFetch,
@@ -175,6 +186,12 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
         files: p.files,
       }));
       break;
+    case 'GIT_DIFF_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGitPatch, (p) => ({
+        patch: p.patch,
+        truncated: p.truncated,
+      }));
+      break;
     case 'GIT_BRANCH_FILES_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGitBranchFiles, (p) => ({
         files: p.files,
@@ -196,6 +213,9 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       resolvePendingResponse(msg.payload, state.pendingGitWorktreeList, (p) => ({
         worktrees: p.worktrees,
       }));
+      break;
+    case 'WORKTREE_BRANCH_CHANGED_EVENT':
+      handleWorktreeBranchChanged(msg.payload, state);
       break;
     case 'CONTAINER_UP_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingContainerUp, (p) => ({
@@ -260,6 +280,7 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'REMOTE_FILE_PULL_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingRemoteFilePull, (p) => ({
         content: p.content,
+        filePath: p.filePath,
       }));
       break;
     case 'REMOTE_FILE_PUSH_RESPONSE':
@@ -352,6 +373,23 @@ function handleFileChange(msg: {
 }): void {
   const { workspaceSlug, path, eventType } = msg.payload;
   broadcastFileChange(workspaceSlug, path, eventType);
+}
+
+// A repo root's HEAD watch is shared across sessions, so one event can carry
+// a branch update for several sessions tracking the same directory. Matched on
+// the tracked directory, not the spawn one, so a session whose agent moved into
+// a worktree receives that worktree's branch rather than its origin's.
+function handleWorktreeBranchChanged(
+  payload: { workingDir: string; branch: string },
+  state: AppState,
+): void {
+  const { workingDir, branch } = payload;
+  for (const [sessionId, meta] of state.terminalSessionMeta) {
+    if (resolveTrackedDir(meta) !== workingDir || meta.worktreeBranch === branch) continue;
+    meta.worktreeBranch = branch;
+    persistTerminalSession(sessionId, meta);
+    broadcastTerminalBranchChange(sessionId, branch);
+  }
 }
 
 function handleSearchFilesResponse(
@@ -543,24 +581,35 @@ function handleExecutionCompleteEvent(
         repoBasePath: string;
       } | null;
       if (workspaceContext.workspace.executionBackend === 'coder' && coderCfg?.workspace) {
-        const planSlug = taskPlanSlug(workspaceContext.workspace.slug, session.taskId);
-        const planFilePath = `plans/${planSlug}.plan.md`;
+        const taskSlug = taskPlanSlug(workspaceContext.workspace.slug, session.taskId);
+        // The planning agent names the file, so the remote name is discovered,
+        // not computed: match the bare slug and any described variant.
+        const planGlob = `${planFilePathFromStem(taskSlug)} ${planFilePathFromStem(`${taskSlug}-*`)}`;
         const taskIdForPull = session.taskId;
-        dispatchRemoteFilePull(state, coderCfg.workspace, planFilePath).catch((err) => {
-          console.error(
-            `[ws-main-server] Failed to pull plan file for session=${payload.sessionId}: ${err.message}`,
-          );
-          const failNow = new Date().toISOString();
-          const db = getDb();
-          const reverted = db
-            .update(tasks)
-            .set({ subStatus: 'failed' as typeof tasks.$inferInsert.subStatus, updatedAt: failNow })
-            .where(eq(tasks.id, taskIdForPull))
-            .returning()
-            .get();
-          if (reverted)
-            broadcastTaskChange('updated', taskIdForPull, reverted.projectId ?? undefined);
-        });
+        const projectDirName = workspaceContext.projectDir;
+        dispatchRemoteFilePull(state, coderCfg.workspace, planGlob, true)
+          .then(({ content, filePath }) => {
+            const specsDir = path.join(getWorkspaceDir(workspaceContext.workspace), 'projects');
+            writePlanFile(specsDir, projectDirName, filePath, content);
+          })
+          .catch((err) => {
+            console.error(
+              `[ws-main-server] Failed to pull plan file for session=${payload.sessionId}: ${err.message}`,
+            );
+            const failNow = new Date().toISOString();
+            const db = getDb();
+            const reverted = db
+              .update(tasks)
+              .set({
+                subStatus: 'failed' as typeof tasks.$inferInsert.subStatus,
+                updatedAt: failNow,
+              })
+              .where(eq(tasks.id, taskIdForPull))
+              .returning()
+              .get();
+            if (reverted)
+              broadcastTaskChange('updated', taskIdForPull, reverted.projectId ?? undefined);
+          });
       }
     } else if (
       session.executionMode === 'task' &&
@@ -759,7 +808,7 @@ function resolveWorkspaceIdFromSession(
 function resolveWorkspaceContext(
   db: ReturnType<typeof getDb>,
   taskId: number | null,
-): { workspace: typeof workspaces.$inferSelect; projectDir: string | null } | null {
+): { workspace: typeof workspaces.$inferSelect; projectDir: string } | null {
   if (!taskId) return null;
 
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
@@ -775,7 +824,7 @@ function resolveWorkspaceContext(
     .get();
   if (!workspace) return null;
 
-  return { workspace, projectDir: project.projectDir };
+  return { workspace, projectDir: project.projectDir ?? project.slug };
 }
 
 export function dispatchFileSearch(
@@ -987,6 +1036,23 @@ export function dispatchGitShow(
   return dispatchDaemonOp(state, state.pendingGitShow, 'GIT_SHOW_REQUEST', {
     repoDir,
     commitHash,
+    coderWorkspace,
+  });
+}
+
+export function dispatchGitPatch(
+  repoDir: string,
+  filePath: string,
+  spec: GitPatchSpec,
+  state: AppState,
+  oldPath?: string,
+  coderWorkspace?: string,
+): Promise<GitPatchResult> {
+  return dispatchDaemonOp(state, state.pendingGitPatch, 'GIT_DIFF_REQUEST', {
+    repoDir,
+    filePath,
+    spec,
+    oldPath,
     coderWorkspace,
   });
 }
@@ -1226,12 +1292,13 @@ function dispatchRemoteFilePull(
   state: AppState,
   coderWorkspace: string,
   filePath: string,
+  resolveGlob = false,
 ): Promise<RemoteFilePullResult> {
   return dispatchDaemonOp(
     state,
     state.pendingRemoteFilePull,
     'REMOTE_FILE_PULL_REQUEST',
-    { coderWorkspace, filePath },
+    { coderWorkspace, filePath, resolveGlob },
     REMOTE_FILE_TIMEOUT_MS,
   );
 }

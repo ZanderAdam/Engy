@@ -401,9 +401,12 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
       if (!worker) {
         return mcpError('Unknown worker session. Call terminal_list_workers for connected workers.');
       }
+      const meta = state.terminalSessionMeta.get(workerSessionId);
       const tail = getWorkerOutputTail(state, workerSessionId);
       return mcpResult({
         ...worker,
+        activeSubagents: meta?.activeSubagents ?? 0,
+        lastFailure: meta?.lastFailure,
         outputTail: tail.slice(-OUTPUT_TAIL_RESPONSE_CHARS),
       });
     },

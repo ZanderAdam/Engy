@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "14c24fc3-dc85-438e-9631-444e33cc23e3",
-  "prevId": "ea87d426-da61-4ffc-ba52-4099b532deb7",
+  "id": "318bf65a-c6a1-4011-a852-c28b91e470fd",
+  "prevId": "6fb59a00-e3ed-4e7c-9335-0155a730378a",
   "tables": {
     "agent_sessions": {
       "name": "agent_sessions",
@@ -1643,6 +1643,14 @@
         },
         "split_worktrees": {
           "name": "split_worktrees",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": false
+        },
+        "agent_worktrees": {
+          "name": "agent_worktrees",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,

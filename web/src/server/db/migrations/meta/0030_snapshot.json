@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ea87d426-da61-4ffc-ba52-4099b532deb7",
+  "id": "6fb59a00-e3ed-4e7c-9335-0155a730378a",
   "prevId": "80ef7f33-3e0a-4918-b6db-eb8c031bc9f8",
   "tables": {
     "agent_sessions": {
@@ -1649,6 +1649,14 @@
           "autoincrement": false,
           "default": false
         },
+        "agent_worktrees": {
+          "name": "agent_worktrees",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": false
+        },
         "container_enabled": {
           "name": "container_enabled",
           "type": "integer",
@@ -1697,14 +1705,6 @@
         },
         "remote_enabled": {
           "name": "remote_enabled",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": false
-        },
-        "voice_enabled": {
-          "name": "voice_enabled",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,

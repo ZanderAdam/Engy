@@ -4,8 +4,8 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { commentThreads, threadComments, workspaces } from '../../db/schema';
-
-const USER_ID = 'local-user';
+import { LOCAL_USER_ID as USER_ID } from '@/lib/comment-feedback';
+import { addComment as addCommentToThread, setThreadResolved } from '../../services/comment';
 
 type Reaction = { emoji: string; createdAt: string; userIds: string[] };
 
@@ -117,12 +117,7 @@ export const commentRouter = router({
     .input(z.object({ workspaceSlug: workspaceSlugField, threadId: z.string() }))
     .mutation(({ input }) => {
       if (input.workspaceSlug) resolveWorkspace(input.workspaceSlug);
-      const db = getDb();
-      const now = new Date().toISOString();
-      db.update(commentThreads)
-        .set({ resolved: true, resolvedBy: USER_ID, resolvedAt: now, updatedAt: now })
-        .where(eq(commentThreads.id, input.threadId))
-        .run();
+      setThreadResolved(input.threadId, true);
       return getThreadWithComments(input.threadId);
     }),
 
@@ -130,11 +125,7 @@ export const commentRouter = router({
     .input(z.object({ workspaceSlug: workspaceSlugField, threadId: z.string() }))
     .mutation(({ input }) => {
       if (input.workspaceSlug) resolveWorkspace(input.workspaceSlug);
-      const db = getDb();
-      db.update(commentThreads)
-        .set({ resolved: false, resolvedBy: null, resolvedAt: null, updatedAt: new Date().toISOString() })
-        .where(eq(commentThreads.id, input.threadId))
-        .run();
+      setThreadResolved(input.threadId, false);
       return getThreadWithComments(input.threadId);
     }),
 
@@ -150,27 +141,12 @@ export const commentRouter = router({
     )
     .mutation(({ input }) => {
       if (input.workspaceSlug) resolveWorkspace(input.workspaceSlug);
-      const db = getDb();
-      const now = new Date().toISOString();
-
-      db.insert(threadComments)
-        .values({
-          id: input.commentId,
-          threadId: input.threadId,
-          userId: USER_ID,
-          body: input.body,
-          metadata: input.metadata ?? null,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-
-      db.update(commentThreads)
-        .set({ updatedAt: now })
-        .where(eq(commentThreads.id, input.threadId))
-        .run();
-
-      return db.select().from(threadComments).where(eq(threadComments.id, input.commentId)).get()!;
+      return addCommentToThread({
+        threadId: input.threadId,
+        commentId: input.commentId,
+        body: input.body,
+        metadata: input.metadata,
+      });
     }),
 
   updateComment: publicProcedure

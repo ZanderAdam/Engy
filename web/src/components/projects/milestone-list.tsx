@@ -482,12 +482,14 @@ function TaskGroupQuickAction({
       launch({
         prompt: `Use /engy:implement-milestone for ${milestoneRef} TG${numInMilestone} in project ${projectSlug}`,
         scopeLabel: `impl-tg: ${milestoneRef} TG${numInMilestone}`,
+        implementing: true,
       });
       return;
     }
     launch({
       prompt: `Use /engy:implement for task group "${name}" in project ${projectSlug}`,
       scopeLabel: `impl-tg: ${name}`,
+      implementing: true,
     });
   }
 

@@ -3,6 +3,13 @@
 import { useCallback, useMemo } from 'react';
 import { trpc } from '@/lib/trpc';
 import { randomId } from '@/lib/random-id';
+import { useOnServerEvent } from '@/contexts/events-context';
+import {
+  findingSeverity,
+  threadSource,
+  type DiffThreadSource,
+  type FindingSeverity,
+} from './agent-findings';
 
 export interface DiffComment {
   threadId: string;
@@ -11,7 +18,9 @@ export interface DiffComment {
   codeLine: string;
   side: 'modified' | 'original';
   resolved: boolean;
-  source: 'local' | 'github';
+  source: DiffThreadSource;
+  severity?: FindingSeverity;
+  agentType?: string;
   githubAuthor?: string;
   githubUrl?: string;
   comments: Array<{
@@ -39,6 +48,12 @@ export function useDiffComments(repoDir: string | null) {
     { enabled: !!repoDir },
   );
 
+  // An agent replying over MCP writes straight to the DB, so a mutation-local
+  // refetch would never see it.
+  useOnServerEvent('COMMENT_CHANGE', (payload) => {
+    if (prefix && payload.documentPath.startsWith(prefix)) refetch();
+  });
+
   const createThread = trpc.comment.createThread.useMutation({ onSuccess: () => refetch() });
   const addComment = trpc.comment.addComment.useMutation({ onSuccess: () => refetch() });
   const resolveThread = trpc.comment.resolveThread.useMutation({ onSuccess: () => refetch() });
@@ -49,7 +64,8 @@ export function useDiffComments(repoDir: string | null) {
     if (!threads) return [];
     return threads.map((thread) => {
       const meta = (thread.metadata ?? {}) as Record<string, unknown>;
-      const isGithub = meta.source === 'github';
+      const source = threadSource(meta.source);
+      const isGithub = source === 'github';
       return {
         threadId: thread.id,
         documentPath: thread.documentPath,
@@ -57,7 +73,9 @@ export function useDiffComments(repoDir: string | null) {
         codeLine: (meta.codeLine as string) ?? '',
         side: (meta.side as 'modified' | 'original') ?? 'modified',
         resolved: thread.resolved ?? false,
-        source: isGithub ? 'github' : 'local',
+        source,
+        severity: findingSeverity(meta.severity),
+        agentType: source === 'agent' ? (meta.agentType as string | undefined) : undefined,
         githubAuthor: isGithub ? (meta.author as string | undefined) : undefined,
         githubUrl: isGithub ? (meta.url as string | undefined) : undefined,
         comments: thread.comments
@@ -71,6 +89,14 @@ export function useDiffComments(repoDir: string | null) {
       };
     });
   }, [threads]);
+
+  // The summary sits at the repo root path, so the same prefix query returns it
+  // but it never matches a file's exact path.
+  const reviewSummary = useMemo<DiffComment | null>(() => {
+    if (!repoDir) return null;
+    const rootPath = `diff://${repoDir}/`;
+    return diffComments.find((c) => c.documentPath === rootPath) ?? null;
+  }, [repoDir, diffComments]);
 
   const commentsForFile = useCallback(
     (filePath: string): DiffComment[] => {
@@ -118,6 +144,7 @@ export function useDiffComments(repoDir: string | null) {
 
   return {
     diffComments,
+    reviewSummary,
     commentsForFile,
     addLineComment,
     replyToThread,

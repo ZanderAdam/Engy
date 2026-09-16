@@ -16,13 +16,13 @@ function key(
 }
 
 describe('terminal number shortcut', () => {
-  it('[FR-TERMINAL-540] should read the terminal number from Ctrl+Alt and a digit', () => {
+  it('[FR-TERMINAL-900] should read the terminal number from Ctrl+Alt and a digit', () => {
     expect(terminalNumberFromKey(key({ code: 'Digit3', ctrlKey: true, altKey: true }))).toBe(3);
     expect(terminalNumberFromKey(key({ code: 'Digit9', ctrlKey: true, altKey: true }))).toBe(9);
   });
 
   // Ctrl+digit and Alt+digit belong to the browser's own tabs.
-  it('[FR-TERMINAL-540] should ignore a digit without both modifiers', () => {
+  it('[FR-TERMINAL-900] should ignore a digit without both modifiers', () => {
     expect(terminalNumberFromKey(key({ code: 'Digit3' }))).toBeNull();
     expect(terminalNumberFromKey(key({ code: 'Digit3', ctrlKey: true }))).toBeNull();
     expect(terminalNumberFromKey(key({ code: 'Digit3', altKey: true }))).toBeNull();
@@ -43,14 +43,14 @@ describe('terminal number shortcut', () => {
     expect(terminalNumberFromKey(key({ code: 'Numpad3', ctrlKey: true, altKey: true }))).toBeNull();
   });
 
-  it('[FR-TERMINAL-540] should report the modifier being held on its own', () => {
+  it('[FR-TERMINAL-900] should report the modifier being held on its own', () => {
     expect(isNumberHintChord(key({ code: 'ControlLeft', ctrlKey: true, altKey: true }))).toBe(true);
     expect(isNumberHintChord(key({ code: 'ControlLeft', ctrlKey: true }))).toBe(false);
   });
 
   // AltGr reports itself as Ctrl+Alt on several layouts, where its digit row
   // types real characters.
-  it('[FR-TERMINAL-540] should ignore AltGr and a digit', () => {
+  it('[FR-TERMINAL-900] should ignore AltGr and a digit', () => {
     const altGr = key({ code: 'Digit3', ctrlKey: true, altKey: true, altGraph: true });
 
     expect(terminalNumberFromKey(altGr)).toBeNull();

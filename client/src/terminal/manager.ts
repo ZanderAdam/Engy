@@ -5,6 +5,7 @@ import headless from '@xterm/headless';
 import type { ITerminalAddon } from '@xterm/headless';
 import { SerializeAddon } from '@xterm/addon-serialize';
 import type { TerminalActivityState } from '@engy/common';
+import type { BranchWatcher } from '../git/branch-watch.js';
 import { SessionManager } from './session-manager.js';
 import { createTerminalActivityParser, type TerminalActivityParser } from './activity-parse.js';
 import { createActivityTracker } from './activity-tracker.js';
@@ -54,6 +55,7 @@ export class TerminalManager {
   private readonly sessions: SessionManager;
   private readonly activity = new Map<string, SessionActivity>();
   private sendToServer: ((msg: string) => void) | null = null;
+  private branchWatcher: BranchWatcher | null = null;
 
   constructor(sessions: SessionManager = new SessionManager()) {
     this.sessions = sessions;
@@ -71,10 +73,30 @@ export class TerminalManager {
     session?.screen.dispose();
     this.activity.get(sessionId)?.tracker.dispose();
     this.activity.delete(sessionId);
+    this.branchWatcher?.unwatch(sessionId);
   }
 
   setSendCallback(cb: (msg: string) => void): void {
     this.sendToServer = cb;
+  }
+
+  setBranchWatcher(watcher: BranchWatcher): void {
+    this.branchWatcher = watcher;
+  }
+
+  /**
+   * Re-point a session's branch watch at a new directory. The PTY's own cwd is
+   * left alone — this only follows where the agent says it is working, so a
+   * respawn still starts in the directory the session was spawned in.
+   * `BranchWatcher.watch` unwatches the previous registration itself.
+   */
+  rewatchBranch(sessionId: string, workingDir: string): void {
+    if (!this.sessions.get(sessionId)) return;
+    void this.branchWatcher
+      ?.watch(sessionId, workingDir)
+      .catch((err) =>
+        console.warn(`[terminal] branch rewatch failed for session ${sessionId}:`, err),
+      );
   }
 
   spawn(opts: SpawnOptions): void {
@@ -93,7 +115,12 @@ export class TerminalManager {
     console.log(
       `[terminal] Spawning session ${sessionId}: cwd=${workingDir} cols=${cols} rows=${rows} command=${command ?? '(shell)'}`,
     );
-    console.log(`[terminal] Active sessions: [${this.sessions.all().map((s) => s.sessionId).join(', ')}]`);
+    console.log(
+      `[terminal] Active sessions: [${this.sessions
+        .all()
+        .map((s) => s.sessionId)
+        .join(', ')}]`,
+    );
 
     if (opts.coderWorkspace) {
       this.spawnInCoder(opts);
@@ -172,7 +199,9 @@ export class TerminalManager {
     // guard will see a mismatch and skip its cleanup, so we do it here.
     const existing = this.sessions.get(sessionId);
     if (existing) {
-      console.log(`[terminal] Replacing existing PTY for session ${sessionId}, killing old pid=${existing.ptyProcess.pid}`);
+      console.log(
+        `[terminal] Replacing existing PTY for session ${sessionId}, killing old pid=${existing.ptyProcess.pid}`,
+      );
       this.disposeSession(sessionId, existing);
       try {
         existing.ptyProcess.kill('SIGKILL');
@@ -209,6 +238,11 @@ export class TerminalManager {
       initialCommandSent: commandInShell,
     };
     this.sessions.set(sessionId, session);
+    void this.branchWatcher
+      ?.watch(sessionId, workingDir)
+      .catch((err) =>
+        console.warn(`[terminal] branch watch failed for session ${sessionId}:`, err),
+      );
 
     // Activity detection (badges): runs regardless of whether a browser is
     // attached, so per-project status is available for unmounted terminals.
@@ -258,7 +292,12 @@ export class TerminalManager {
       this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: code }));
       this.sessions.delete(sessionId);
       this.disposeSession(sessionId, session);
-      console.log(`[terminal] Remaining sessions: [${this.sessions.all().map((s) => s.sessionId).join(', ')}]`);
+      console.log(
+        `[terminal] Remaining sessions: [${this.sessions
+          .all()
+          .map((s) => s.sessionId)
+          .join(', ')}]`,
+      );
     });
   }
 
@@ -331,7 +370,10 @@ export class TerminalManager {
     const session = this.sessions.get(sessionId);
     if (!session) {
       console.warn(
-        `[terminal] handleReconnect: session ${sessionId} NOT FOUND — sending exit -1. Known sessions: [${this.sessions.all().map((s) => `${s.sessionId}(${s.state})`).join(', ')}]`,
+        `[terminal] handleReconnect: session ${sessionId} NOT FOUND — sending exit -1. Known sessions: [${this.sessions
+          .all()
+          .map((s) => `${s.sessionId}(${s.state})`)
+          .join(', ')}]`,
       );
       this.sendToServer?.(JSON.stringify({ t: 'exit', sessionId, exitCode: -1 }));
       return;
@@ -349,6 +391,14 @@ export class TerminalManager {
     // with its own resize after attaching.
     if (cols && rows) this.resize(sessionId, cols, rows);
 
+    // A reconnect is a known-noisy event, not the program doing something:
+    // sockets drop often, and each reattach can resize the PTY and make it
+    // repaint. That burst outlives the resize path's own 1s window, so it is
+    // widened here — after resize, whose shorter window would otherwise replace
+    // this one. Without it every reattached terminal settles to `done` and
+    // reads as finished work.
+    this.activity.get(sessionId)?.tracker.suppressOutput(ACTIVITY_SUPPRESS_MS);
+
     // Serialize only after xterm's write queue has drained, so output that
     // arrived just before the reconnect is part of the snapshot.
     session.screen.write('', () => {
@@ -357,7 +407,9 @@ export class TerminalManager {
       // the onExit handler; serializing a disposed terminal would throw, and
       // an uncaught throw here takes down every session via shutdown().
       if (this.sessions.get(sessionId) !== session) {
-        console.log(`[terminal] handleReconnect: session ${sessionId} gone before flush, skipping snapshot`);
+        console.log(
+          `[terminal] handleReconnect: session ${sessionId} gone before flush, skipping snapshot`,
+        );
         return;
       }
       const snapshot = session.serializeAddon.serialize({

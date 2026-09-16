@@ -90,6 +90,29 @@ export function markSessionClosed(key: string): void {
 }
 
 /**
+ * Looks up a session's workspace after its live `terminalSessionMeta` may
+ * already be gone (e.g. a `SessionEnd` hook's PTY exits almost immediately,
+ * while the memory-capture job it launched keeps running for seconds after).
+ * Direct-match only: a resumed session's row is keyed by its agent-CLI
+ * conversation id (`meta.resumedFrom` in `recordSessionStart`), not the
+ * terminal session id, so this resolves first-run sessions only.
+ */
+export function getHistoryWorkspaceSlug(sessionId: string): string | null {
+  try {
+    const db = getDb();
+    const row = db
+      .select({ workspaceSlug: terminalSessionHistory.workspaceSlug })
+      .from(terminalSessionHistory)
+      .where(eq(terminalSessionHistory.sessionId, sessionId))
+      .get();
+    return row?.workspaceSlug ?? null;
+  } catch (err) {
+    console.warn(`[terminal-history] Failed to resolve workspace for session ${sessionId}:`, err);
+    return null;
+  }
+}
+
+/**
  * Resumable history for a workspace, newest first. `projectSlug` narrows the
  * list to one project's sessions — a project's terminal dropdown offers what
  * ran in that project, not every session in the workspace.

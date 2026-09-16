@@ -454,6 +454,23 @@ describe('workspace router', () => {
       });
     });
 
+    it('[FR-WORKSPACE-140] should persist memoryCapture within a per-agent entry, defaulting absent to unset', async () => {
+      const ws = await caller.workspace.create({ name: 'Memory Capture Setting' });
+      expect(ws.agentSettings).toBeNull();
+
+      const enabled = await caller.workspace.update({
+        id: ws.id,
+        agentSettings: { claude: { memoryCapture: true } },
+      });
+      expect(enabled.agentSettings).toEqual({ claude: { memoryCapture: true } });
+
+      const disabled = await caller.workspace.update({
+        id: ws.id,
+        agentSettings: { claude: { memoryCapture: false } },
+      });
+      expect(disabled.agentSettings).toEqual({ claude: { memoryCapture: false } });
+    });
+
     it('[FR-WORKSPACE-140] should preserve agentSettings when not provided in update', async () => {
       const ws = await caller.workspace.create({ name: 'Agent Settings Keep' });
       await caller.workspace.update({
@@ -772,6 +789,22 @@ describe('workspace router', () => {
       const result = await caller.workspace.get({ slug: ws.slug });
       expect(result.splitWorktrees).toBe(true);
       expect(result.combinedWorktrees).toBe(false);
+    });
+
+    it('[FR-WORKSPACE-170] should default agentWorktrees to false and persist an update', async () => {
+      const ws = await caller.workspace.create({ name: 'Agent Worktrees' });
+      expect(ws.agentWorktrees).toBe(false);
+
+      await caller.workspace.update({ id: ws.id, agentWorktrees: true });
+      const enabled = await caller.workspace.get({ slug: ws.slug });
+      expect(enabled.agentWorktrees).toBe(true);
+    });
+
+    it('[FR-WORKSPACE-170] should preserve agentWorktrees when the field is omitted', async () => {
+      const ws = await caller.workspace.create({ name: 'Keep Worktrees', agentWorktrees: true });
+      await caller.workspace.update({ id: ws.id, name: 'Keep Worktrees Renamed' });
+      const result = await caller.workspace.get({ slug: ws.slug });
+      expect(result.agentWorktrees).toBe(true);
     });
   });
 

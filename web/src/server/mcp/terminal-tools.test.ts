@@ -740,5 +740,22 @@ describe('MCP terminal tools', () => {
       const { isError } = await callTool(makeMcp(), 'terminal_status')({ workerSessionId: 'x' });
       expect(isError).toBe(true);
     });
+
+    it('[FR-MCP-200] exposes activeSubagents and lastFailure', async () => {
+      addWorkerSession(state, 'w1', 'worker');
+      const meta = state.terminalSessionMeta.get('w1')!;
+      meta.activeSubagents = 2;
+      meta.lastFailure = { type: 'rate_limit', message: 'try again later', at: 123 };
+      const { data } = await callTool(makeMcp(), 'terminal_status')({ workerSessionId: 'w1' });
+      expect(data.activeSubagents).toBe(2);
+      expect(data.lastFailure).toEqual({ type: 'rate_limit', message: 'try again later', at: 123 });
+    });
+
+    it('[FR-MCP-200] defaults activeSubagents to 0 with no lastFailure set', async () => {
+      addWorkerSession(state, 'w1', 'worker');
+      const { data } = await callTool(makeMcp(), 'terminal_status')({ workerSessionId: 'w1' });
+      expect(data.activeSubagents).toBe(0);
+      expect(data.lastFailure).toBeUndefined();
+    });
   });
 });

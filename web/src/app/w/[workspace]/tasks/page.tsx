@@ -10,6 +10,7 @@ import {
   TaskSelectionBar,
   useTaskPageController,
 } from "@/components/projects/task-page-controller";
+import { planFilePathFromStem } from "@/lib/plan-naming";
 import { Button } from "@/components/ui/button";
 import { RiAddLine, RiCheckboxMultipleLine } from "@remixicon/react";
 
@@ -45,8 +46,8 @@ export default function TasksPage() {
 
   const controller = useTaskPageController({
     planReviewUrl: useCallback(
-      (taskSlug: string) =>
-        `/w/${params.workspace}/docs?file=projects/default/plans/${taskSlug}.plan.md`,
+      (planStem: string) =>
+        `/w/${params.workspace}/docs?file=projects/default/${planFilePathFromStem(planStem)}`,
       [params.workspace],
     ),
     onPlanChange: useCallback(() => {

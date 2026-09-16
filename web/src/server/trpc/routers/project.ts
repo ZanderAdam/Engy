@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
@@ -7,6 +7,7 @@ import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { projects, tasks, workspaces } from '../../db/schema';
 import { uniqueProjectSlug } from '../utils';
+import { readTaskPlans } from '../../plan/service';
 import { getWorkspaceDir } from '../../engy-dir/init';
 import { resolveEffectiveWorkspace } from '../../engy-dir/effective';
 import type { AppState } from '../context';
@@ -48,30 +49,20 @@ function errorMessage(e: unknown): string {
 type ProjectRow = typeof projects.$inferSelect;
 type WorkspaceRow = typeof workspaces.$inferSelect;
 
-function readPlanSlugs(projectAbsDir: string): string[] {
-  const plansDir = path.join(projectAbsDir, 'plans');
-  if (!existsSync(plansDir)) return [];
-  return readdirSync(plansDir)
-    .filter((f) => f.endsWith('.plan.md'))
-    .map((f) => f.replace(/\.plan\.md$/, ''));
-}
-
 function enrichProject(
   project: ProjectRow,
   workspace: WorkspaceRow | undefined,
   effectiveDocsDir?: string | null,
 ) {
   let projectDir: string | null = null;
-  let planSlugs: string[] = [];
   if (workspace && project.projectDir) {
     const effectiveWorkspace =
       effectiveDocsDir !== undefined && effectiveDocsDir !== null
         ? { ...workspace, docsDir: effectiveDocsDir }
         : workspace;
     projectDir = path.join(getWorkspaceDir(effectiveWorkspace), 'projects', project.projectDir);
-    planSlugs = readPlanSlugs(projectDir);
   }
-  return { ...project, projectDir, planSlugs };
+  return { ...project, projectDir };
 }
 
 const worktreeBranchSchema = z.string().optional();
@@ -152,7 +143,7 @@ export const projectRouter = router({
     return project;
   }),
 
-  getPlanSlugs: publicProcedure
+  getTaskPlans: publicProcedure
     .input(z.object({ projectId: z.number(), worktreeBranch: worktreeBranchSchema }))
     .query(async ({ input, ctx }) => {
       const db = getDb();
@@ -166,11 +157,14 @@ export const projectRouter = router({
         .where(eq(workspaces.id, project.workspaceId))
         .get();
       if (!workspace || !project.projectDir) {
-        return { workspaceSlug: workspace?.slug ?? '', planSlugs: [] };
+        return { workspaceSlug: workspace?.slug ?? '', taskPlans: {} };
       }
       const effective = await resolveEffectiveWorkspace(workspace, input.worktreeBranch, ctx.state);
       const projectAbsDir = path.join(getWorkspaceDir(effective), 'projects', project.projectDir);
-      return { workspaceSlug: workspace.slug, planSlugs: readPlanSlugs(projectAbsDir) };
+      return {
+        workspaceSlug: workspace.slug,
+        taskPlans: readTaskPlans(projectAbsDir, workspace.slug),
+      };
     }),
 
   getBySlug: publicProcedure

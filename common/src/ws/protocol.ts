@@ -118,14 +118,30 @@ export interface GitStatusResponseMessage {
       };
 }
 
+/**
+ * Which two snapshots a patch compares, named rather than expressed as a pair of
+ * refs. Each kind maps to one git invocation, so the daemon never has to guess
+ * what a ref like `:0` was supposed to mean.
+ */
+export type GitPatchSpec =
+  /** Last commit against the index — `git diff --cached`. */
+  | { kind: 'staged'; head?: string }
+  /** Index against the working tree — `git diff`. */
+  | { kind: 'unstaged' }
+  /** A commit against its first parent. */
+  | { kind: 'commit'; hash: string }
+  /** An explicit range; `to` absent means the working tree. */
+  | { kind: 'range'; from: string; to?: string };
+
 export interface GitDiffRequestMessage {
   type: 'GIT_DIFF_REQUEST';
   payload: {
     requestId: string;
     repoDir: string;
     filePath: string;
-    base?: string;
-    staged?: boolean;
+    spec: GitPatchSpec;
+    /** Previous path of a rename, so `-M` can pair the two sides. */
+    oldPath?: string;
     coderWorkspace?: string;
   };
 }
@@ -135,7 +151,9 @@ export interface GitDiffResponseMessage {
   payload:
     | {
         requestId: string;
-        diff: string;
+        patch: string;
+        /** Set when the patch exceeded the size cap; `patch` is then empty. */
+        truncated?: boolean;
       }
     | {
         requestId: string;
@@ -302,6 +320,20 @@ export interface GitWorktreeListResponseMessage {
     | { requestId: string; error: string };
 }
 
+/**
+ * Daemon → server: fired when a watched repo's `HEAD` moves to a different
+ * branch (`git checkout`/`switch`), not on every commit. `workingDir` is the
+ * value a terminal session was registered under, so the server matches it
+ * against `TerminalSessionMeta.workingDir` rather than a resolved git root.
+ */
+export interface WorktreeBranchChangedMessage {
+  type: 'WORKTREE_BRANCH_CHANGED_EVENT';
+  payload: {
+    workingDir: string;
+    branch: string;
+  };
+}
+
 // ── File operations (server ↔ daemon) ────────────────────────────────────────
 
 export interface DirListEntry {
@@ -422,13 +454,18 @@ export interface RemoteFilePullRequestMessage {
   payload: {
     requestId: string;
     coderWorkspace: string;
+    /** Literal remote path, or a shell glob when `resolveGlob` is set. */
     filePath: string;
+    /** Expand `filePath` remotely and pull the most recently written match. */
+    resolveGlob?: boolean;
   };
 }
 
 export interface RemoteFilePullResponseMessage {
   type: 'REMOTE_FILE_PULL_RESPONSE';
-  payload: { requestId: string; content: string } | { requestId: string; error: string };
+  payload:
+    | { requestId: string; content: string; filePath: string }
+    | { requestId: string; error: string };
 }
 
 export interface RemoteFilePushRequestMessage {
@@ -777,6 +814,7 @@ export type WsMessage =
   | GitFetchResponseMessage
   | GitWorktreeListRequestMessage
   | GitWorktreeListResponseMessage
+  | WorktreeBranchChangedMessage
   | DirListRequestMessage
   | DirListResponseMessage
   | FileReadRequestMessage
@@ -838,6 +876,7 @@ export type ClientToServerMessage =
   | GitDefaultBaseResponseMessage
   | GitFetchResponseMessage
   | GitWorktreeListResponseMessage
+  | WorktreeBranchChangedMessage
   | DirListResponseMessage
   | FileReadResponseMessage
   | FileReadImageResponseMessage
@@ -957,6 +996,18 @@ export interface TerminalAckCmd {
 }
 
 /**
+ * Server → daemon: the agent reported a working directory different from the
+ * one its PTY was spawned in — it entered a worktree, or simply `cd`ed. The
+ * daemon re-resolves the git dir and re-points this session's `HEAD` watch, so
+ * the branch subheader follows the agent instead of freezing at spawn.
+ */
+export interface TerminalCwdCmd {
+  t: 'cwd';
+  sessionId: string;
+  workingDir: string;
+}
+
+/**
  * Browser → server only (never forwarded to the daemon): liveness probe sent by
  * the wake handler while the socket looks OPEN. Answered with `TerminalPongEvent`.
  */
@@ -988,7 +1039,8 @@ export type TerminalRelayCommand =
   | TerminalResizeCmd
   | TerminalKillCmd
   | TerminalReconnectCmd
-  | TerminalAckCmd;
+  | TerminalAckCmd
+  | TerminalCwdCmd;
 
 // Daemon → Server events
 export interface TerminalOutputEvent {

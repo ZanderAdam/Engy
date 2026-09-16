@@ -1,4 +1,5 @@
 import { buildAddDirFlags, shellEscape } from './shell';
+import { buildMemoryCaptureCommand } from '../server/hooks/memory';
 
 export type AgentTypeId = 'claude' | 'codex';
 
@@ -14,6 +15,15 @@ export interface AgentSettings {
   mode?: string;
   planSkill?: string | null;
   implementSkill?: string | null;
+  /**
+   * Registers the PreCompact/SessionEnd memory-capture hooks (off by
+   * default). Each firing is a real, billed model call — measured $0.34 on a
+   * near-empty transcript, scaling with transcript size — so this rides the
+   * same per-agent settings blob every other agent toggle already reaches
+   * every spawn call site through, rather than a new top-level workspace
+   * column that would need threading into each one individually.
+   */
+  memoryCapture?: boolean;
 }
 
 export type WorkspaceAgentSettings = Partial<Record<string, AgentSettings>>;
@@ -73,6 +83,100 @@ function claudeMcpFlag(mcpUrl: string): string {
   return ` --mcp-config '${shellEscape(config)}'`;
 }
 
+// Hook events this milestone wires up. Registered with matcher omitted
+// (match-all) and routed server-side by hook_event_name — one URL for all
+// of them avoids a config that must change (and force a respawn) every time
+// a new event's handler ships.
+//
+// WorktreeCreate/WorktreeRemove are deliberately absent. They are provider
+// hooks that REPLACE git worktree creation for other VCS, not notifications:
+// a registered WorktreeCreate that returns no `hookSpecificOutput.worktreePath`
+// fails creation outright with no fallback to git (measured on claude
+// 2.1.251), which broke --worktree, worktree isolation, and background
+// sessions in every Engy-spawned terminal. A worktree the CLI enters is
+// observed through `cwd` on ordinary events instead — see hooks/cwd.ts.
+const HOOK_EVENTS = [
+  'SessionStart',
+  'UserPromptSubmit',
+  'Stop',
+  'StopFailure',
+  'Notification',
+  'SessionEnd',
+  'PreCompact',
+  'SubagentStart',
+  'SubagentStop',
+] as const;
+
+// `async`/`asyncRewake` only apply to `command`-type hooks — an `http`
+// handler has no fire-and-forget mode and always sits in the turn's
+// critical path, awaited up to `timeout`. That makes an explicit short
+// timeout on every handler load-bearing rather than a nicety.
+const HOOK_TIMEOUT_SECONDS = 5;
+
+// claude 2.1.251 silently drops `type: "http"` hooks registered for
+// SessionStart (logs "Skipping HTTP hook ... not supported for SessionStart")
+// — confirmed by probe, so this event alone runs as a `command` hook that
+// curls the same endpoint and echoes its response on stdout.
+function sessionStartHookCommand(hookUrl: string): string {
+  return `curl -s -m ${HOOK_TIMEOUT_SECONDS} -X POST '${shellEscape(hookUrl)}' -H 'Content-Type: application/json' -d @-`;
+}
+
+const MEMORY_CAPTURE_EVENTS = new Set(['PreCompact', 'SessionEnd']);
+
+/**
+ * Inline per-session `--settings` payload registering the Engy hook channel
+ * for every event this milestone uses. Never written to
+ * plugins/engy/hooks/hooks.json or any settings.json — the Engy plugin is
+ * enabled user-wide, so a hook placed there would fire in every Claude
+ * session on the machine, not just ones Engy spawned.
+ *
+ * PreCompact/SessionEnd are omitted entirely — not registered as a no-op —
+ * when `memoryCaptureEnabled` is false: each firing is a billed model call
+ * (TG6 spike), so an unused registration still costing a round trip per
+ * event is not acceptable for a feature nobody opted into.
+ */
+export function buildHookSettings(hookUrl: string, memoryCaptureEnabled: boolean): string {
+  const hooks: Record<string, unknown> = {};
+  for (const event of HOOK_EVENTS) {
+    if (MEMORY_CAPTURE_EVENTS.has(event)) {
+      if (!memoryCaptureEnabled) continue;
+      hooks[event] = [
+        {
+          hooks: [
+            {
+              type: 'command',
+              command: buildMemoryCaptureCommand(hookUrl),
+              timeout: HOOK_TIMEOUT_SECONDS,
+            },
+          ],
+        },
+      ];
+      continue;
+    }
+    hooks[event] =
+      event === 'SessionStart'
+        ? [
+            {
+              hooks: [
+                {
+                  type: 'command',
+                  command: sessionStartHookCommand(hookUrl),
+                  timeout: HOOK_TIMEOUT_SECONDS,
+                },
+              ],
+            },
+          ]
+        : [{ hooks: [{ type: 'http', url: hookUrl, timeout: HOOK_TIMEOUT_SECONDS }] }];
+  }
+  return JSON.stringify({ hooks });
+}
+
+function claudeHooksFlag(mcpUrl: string, memoryCaptureEnabled: boolean): string {
+  const hookUrl = mcpUrl.replace('/mcp/', '/hooks/');
+  const settings = buildHookSettings(hookUrl, memoryCaptureEnabled);
+  return ` --settings '${shellEscape(settings)}'`;
+}
+
 const CLAUDE_DEFAULT_MODE_ID = 'acceptEdits';
 
 // The CLI also accepts `dontAsk` (deny everything not explicitly allowlisted,
@@ -80,10 +184,22 @@ const CLAUDE_DEFAULT_MODE_ID = 'acceptEdits';
 // would make an interactive Engy terminal silently refuse every action.
 const CLAUDE_MODES: AgentMode[] = [
   { id: 'default', label: 'Default', description: 'Prompt on first use of each tool' },
-  { id: 'acceptEdits', label: 'Accept edits', description: 'Auto-accept edits in the working directory' },
+  {
+    id: 'acceptEdits',
+    label: 'Accept edits',
+    description: 'Auto-accept edits in the working directory',
+  },
   { id: 'plan', label: 'Plan', description: 'Read-only analysis and planning' },
-  { id: 'auto', label: 'Auto', description: 'Claude decides; a safety classifier blocks destructive actions' },
-  { id: 'bypassPermissions', label: 'Bypass permissions', description: 'Approve everything without prompting' },
+  {
+    id: 'auto',
+    label: 'Auto',
+    description: 'Claude decides; a safety classifier blocks destructive actions',
+  },
+  {
+    id: 'bypassPermissions',
+    label: 'Bypass permissions',
+    description: 'Approve everything without prompting',
+  },
 ];
 
 function coerceModeId(modes: AgentMode[], defaultModeId: string, mode: string | undefined): string {
@@ -95,11 +211,16 @@ function claudeSharedFlags(options?: BuildAgentCommandOptions): string {
   let cmd = '';
   if (options?.mcpUrl) {
     cmd += claudeMcpFlag(options.mcpUrl);
+    cmd += claudeHooksFlag(options.mcpUrl, options?.agentSettings?.claude?.memoryCapture ?? false);
   }
   if (options?.dangerouslySkipPermissions) {
     cmd += ' --dangerously-skip-permissions';
   } else {
-    const mode = coerceModeId(CLAUDE_MODES, CLAUDE_DEFAULT_MODE_ID, options?.agentSettings?.claude?.mode);
+    const mode = coerceModeId(
+      CLAUDE_MODES,
+      CLAUDE_DEFAULT_MODE_ID,
+      options?.agentSettings?.claude?.mode,
+    );
     cmd += ` --permission-mode ${mode}`;
   }
   return cmd;
@@ -145,7 +266,11 @@ const claude: AgentType = {
 // the dropdown exposes single presets so it mirrors Claude's one-mode UX.
 const CODEX_MODES: AgentMode[] = [
   { id: 'read-only', label: 'Read only', description: 'Analyse without writing' },
-  { id: 'workspace-write', label: 'Workspace write', description: 'Edit the workspace, ask beyond it' },
+  {
+    id: 'workspace-write',
+    label: 'Workspace write',
+    description: 'Edit the workspace, ask beyond it',
+  },
   { id: 'full-auto', label: 'Full auto', description: 'Workspace write, never ask for approval' },
   { id: 'danger-full-access', label: 'Full access', description: 'No sandbox — dangerous' },
 ];

@@ -18,6 +18,7 @@ import {
   TaskSelectionBar,
   useTaskPageController,
 } from "@/components/projects/task-page-controller";
+import { planFilePathFromStem } from "@/lib/plan-naming";
 import {
   TaskFilter,
   applyTaskFilters,
@@ -25,6 +26,10 @@ import {
   DEFAULT_DONE_LIMIT,
   type TaskFilters,
 } from "@/components/projects/task-filter";
+import {
+  milestoneFilterOptions,
+  groupFilterOptions,
+} from "@/components/projects/task-filter-options";
 import { Button } from "@/components/ui/button";
 import { RiAddLine, RiCheckboxMultipleLine } from "@remixicon/react";
 
@@ -84,19 +89,13 @@ export default function ProjectTasksPage() {
 
   const activeMilestones = useMemo(() => {
     if (!milestones || !tasks) return [];
-    const nonDoneByMilestone = new Set(
-      tasks.filter((t) => t.status !== "done" && t.milestoneRef).map((t) => t.milestoneRef),
-    );
-    return milestones.filter((m) => nonDoneByMilestone.has(m.ref));
-  }, [milestones, tasks]);
+    return milestoneFilterOptions(milestones, tasks, filters.milestoneRef);
+  }, [milestones, tasks, filters.milestoneRef]);
 
   const activeGroups = useMemo(() => {
     if (!taskGroups || !tasks) return [];
-    const nonDoneByGroup = new Set(
-      tasks.filter((t) => t.status !== "done" && t.taskGroupId).map((t) => t.taskGroupId),
-    );
-    return taskGroups.filter((g) => nonDoneByGroup.has(g.id));
-  }, [taskGroups, tasks]);
+    return groupFilterOptions(taskGroups, tasks, filters.groupId);
+  }, [taskGroups, tasks, filters.groupId]);
 
   const [showNewGroup, setShowNewGroup] = useState(false);
 
@@ -104,8 +103,8 @@ export default function ProjectTasksPage() {
 
   const controller = useTaskPageController({
     planReviewUrl: useCallback(
-      (taskSlug: string) =>
-        `/w/${params.workspace}/projects/${params.project}/docs?file=plans/${taskSlug}.plan.md`,
+      (planStem: string) =>
+        `/w/${params.workspace}/projects/${params.project}/docs?file=${planFilePathFromStem(planStem)}`,
       [params.workspace, params.project],
     ),
     onPlanChange: useCallback(() => {

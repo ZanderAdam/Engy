@@ -26,6 +26,7 @@ import {
   taskStatusIcons,
   taskStatusLabels,
 } from '@/components/projects/task-status-badge';
+import { withOrphanOptions, type FilterOption } from '@/components/projects/task-filter-options';
 import { cn } from '@/lib/utils';
 
 export interface TaskFilters {
@@ -50,6 +51,10 @@ export function emptyFilters(): TaskFilters {
     doneLimit: DEFAULT_DONE_LIMIT,
     planStatus: [],
   };
+}
+
+function clearedFilters(): TaskFilters {
+  return { ...emptyFilters(), unassignedOnly: false };
 }
 
 export function applyTaskFilters<
@@ -131,13 +136,14 @@ const SECTION_LABEL = 'mb-1 text-[10px] font-medium uppercase tracking-wider tex
 
 interface MultiSelectComboboxProps {
   label: string;
-  options: { value: string; label: string }[];
+  options: FilterOption[];
   selected: string[];
   onChange: (selected: string[]) => void;
 }
 
 function MultiSelectCombobox({ label, options, selected, onChange }: MultiSelectComboboxProps) {
   const [open, setOpen] = useState(false);
+  const items = withOrphanOptions(options, selected);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -159,7 +165,7 @@ function MultiSelectCombobox({ label, options, selected, onChange }: MultiSelect
           <CommandInput placeholder={`Search ${label.toLowerCase()}...`} />
           <CommandList>
             <CommandEmpty>No {label.toLowerCase()} found.</CommandEmpty>
-            {options.map((opt) => (
+            {items.map((opt) => (
               <CommandItem
                 key={opt.value}
                 value={opt.label}
@@ -201,6 +207,8 @@ interface TaskFilterProps {
 
 export function TaskFilter({ value, onChange, groups, milestones }: TaskFilterProps) {
   const activeCount = countActiveFilters(value);
+  const showMilestones = milestones.length > 0 || value.milestoneRef.length > 0;
+  const showGroups = groups.length > 0 || value.groupId.length > 0;
 
   function handleUnassignedToggle(checked: boolean) {
     if (checked) {
@@ -237,6 +245,18 @@ export function TaskFilter({ value, onChange, groups, milestones }: TaskFilterPr
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[26rem]">
         <div className="flex flex-col gap-3">
+          {activeCount > 0 && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => onChange(clearedFilters())}
+                className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+
           {/* Status */}
           <div>
             <div className={SECTION_LABEL}>Status</div>
@@ -317,9 +337,9 @@ export function TaskFilter({ value, onChange, groups, milestones }: TaskFilterPr
           </div>
 
           {/* Milestone + Group comboboxes */}
-          {(milestones.length > 0 || groups.length > 0) && (
+          {(showMilestones || showGroups) && (
             <div className="flex gap-3">
-              {milestones.length > 0 && (
+              {showMilestones && (
                 <div className="flex-1">
                   <div className={SECTION_LABEL}>Milestone</div>
                   <MultiSelectCombobox
@@ -330,7 +350,7 @@ export function TaskFilter({ value, onChange, groups, milestones }: TaskFilterPr
                   />
                 </div>
               )}
-              {groups.length > 0 && (
+              {showGroups && (
                 <div className="flex-1">
                   <div className={SECTION_LABEL}>Group</div>
                   <MultiSelectCombobox

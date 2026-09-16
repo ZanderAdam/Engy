@@ -77,17 +77,6 @@ describe('project router', () => {
       });
       expect(result.id).toBe(proj.id);
       expect(result.name).toBe('Auth Feature');
-      expect(result.planSlugs).toEqual([]);
-    });
-
-    it('[FR-PROJECT-130] should include plan slugs from the plans dir', async () => {
-      await caller.project.create({ workspaceSlug: 'test-ws', name: 'Has Plans' });
-      const plansDir = path.join(ctx.tmpDir, 'test-ws', 'projects', 'has-plans', 'plans');
-      fs.mkdirSync(plansDir, { recursive: true });
-      fs.writeFileSync(path.join(plansDir, 'test-ws-T1.plan.md'), '# plan');
-      fs.writeFileSync(path.join(plansDir, 'README.md'), 'ignored');
-      const result = await caller.project.getBySlug({ workspaceId, slug: 'has-plans' });
-      expect(result.planSlugs).toEqual(['test-ws-T1']);
     });
 
     it('should throw NOT_FOUND for non-existent slug', async () => {
@@ -97,30 +86,42 @@ describe('project router', () => {
     });
   });
 
-  describe('getPlanSlugs', () => {
-    it('[FR-PROJECT-130] should return empty plan list and workspace slug when no plans dir exists', async () => {
+  describe('getTaskPlans', () => {
+    it('[FR-PROJECT-130] should return an empty map and workspace slug when no plans dir exists', async () => {
       const proj = await caller.project.create({
         workspaceSlug: 'test-ws',
         name: 'No Plans',
       });
-      const result = await caller.project.getPlanSlugs({ projectId: proj.id });
-      expect(result).toEqual({ workspaceSlug: 'test-ws', planSlugs: [] });
+      const result = await caller.project.getTaskPlans({ projectId: proj.id });
+      expect(result).toEqual({ workspaceSlug: 'test-ws', taskPlans: {} });
     });
 
-    it('[FR-PROJECT-130] should list slugs from plans dir, ignoring non-plan files', async () => {
+    it('[FR-PROJECT-130] should key plans by task id, ignoring non-plan files', async () => {
       const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Plans Here' });
       const plansDir = path.join(ctx.tmpDir, 'test-ws', 'projects', 'plans-here', 'plans');
       fs.mkdirSync(plansDir, { recursive: true });
       fs.writeFileSync(path.join(plansDir, 'test-ws-T1.plan.md'), '# plan');
-      fs.writeFileSync(path.join(plansDir, 'test-ws-T2.plan.md'), '# plan');
+      fs.writeFileSync(path.join(plansDir, 'test-ws-T2-add-api-routing.plan.md'), '# plan');
       fs.writeFileSync(path.join(plansDir, 'notes.md'), 'ignored');
-      const result = await caller.project.getPlanSlugs({ projectId: proj.id });
+      const result = await caller.project.getTaskPlans({ projectId: proj.id });
       expect(result.workspaceSlug).toBe('test-ws');
-      expect(result.planSlugs.sort()).toEqual(['test-ws-T1', 'test-ws-T2']);
+      expect(result.taskPlans).toEqual({
+        1: 'plans/test-ws-T1.plan.md',
+        2: 'plans/test-ws-T2-add-api-routing.plan.md',
+      });
+    });
+
+    it('[FR-PROJECT-180] should ignore a plan belonging to another workspace', async () => {
+      const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Foreign' });
+      const plansDir = path.join(ctx.tmpDir, 'test-ws', 'projects', 'foreign', 'plans');
+      fs.mkdirSync(plansDir, { recursive: true });
+      fs.writeFileSync(path.join(plansDir, 'other-ws-T1.plan.md'), '# plan');
+      const result = await caller.project.getTaskPlans({ projectId: proj.id });
+      expect(result.taskPlans).toEqual({});
     });
 
     it('should throw NOT_FOUND for unknown project', async () => {
-      await expect(caller.project.getPlanSlugs({ projectId: 9999 })).rejects.toThrow('not found');
+      await expect(caller.project.getTaskPlans({ projectId: 9999 })).rejects.toThrow('not found');
     });
   });
 

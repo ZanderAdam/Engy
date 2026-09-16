@@ -718,6 +718,32 @@ describe('execution router', () => {
       expect(updated!.needsPlan).toBe(false);
     });
 
+    it('[FR-EXECUTION-290] should push to the described plan filename when one exists', async () => {
+      const { ws, proj } = await seedProject(caller);
+      getDb()
+        .update(workspaces)
+        .set({
+          executionBackend: 'coder',
+          coderConfig: { workspace: 'my-coder-ws', repoBasePath: '/repos' },
+        })
+        .where(eq(workspaces.id, ws.id))
+        .run();
+      const task = await caller.task.create({ projectId: proj.id, title: 'Coder push' });
+
+      const project = await caller.project.getBySlug({ workspaceId: ws.id, slug: proj.slug });
+      const plansDir = path.join(project!.projectDir!, 'plans');
+      fs.mkdirSync(plansDir, { recursive: true });
+      const described = `${ws.slug}-T${task.id}-add-api-routing.plan.md`;
+      fs.writeFileSync(path.join(plansDir, described), '# Plan');
+
+      const { sent } = createPushDaemon(ctx);
+
+      await caller.execution.pushRemoteFile({ taskId: task.id, content: 'edited plan' });
+
+      const msg = JSON.parse(sent[0]);
+      expect(msg.payload.filePath).toBe(`plans/${described}`);
+    });
+
     it('should throw NOT_FOUND for non-existent task', async () => {
       createPushDaemon(ctx);
       await expect(

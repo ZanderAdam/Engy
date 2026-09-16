@@ -21,17 +21,3 @@ export function buildModelPath(repoRoot: string, relPath: string): string {
 export function namespacedModelPath(namespace: string, repoRoot: string, relPath: string): string {
   return `${namespace}:${buildModelPath(repoRoot, relPath)}`;
 }
-
-/**
- * A diff editor needs two distinct models per file — one per side. Derives both
- * from the same namespaced base so each file (and each side) gets a stable,
- * collision-free model, exactly like the single-file editor.
- */
-export function diffModelPaths(
-  namespace: string,
-  repoRoot: string,
-  relPath: string,
-): { originalModelPath: string; modifiedModelPath: string } {
-  const base = namespacedModelPath(namespace, repoRoot, relPath);
-  return { originalModelPath: `${base}:original`, modifiedModelPath: `${base}:modified` };
-}

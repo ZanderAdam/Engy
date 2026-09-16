@@ -172,6 +172,22 @@ follow-up forced re-call, which re-resolves the path. A forced remove targets th
 All lifecycle mutations validate that every supplied repo path is a member of
 `workspace.repos`, and that the branch name matches `[A-Za-z0-9._/-]+`.
 
+## CLI-created worktrees
+
+A `claude --worktree` run, or a subagent spawned with `isolation: worktree`,
+creates a git worktree Engy's own lifecycle above never touches — it is not
+one of the paths `worktree.create`/`worktree.sync`/`worktree.remove` manage,
+and the runner owns cleanup of only the worktrees it created itself.
+
+Engy deliberately registers no `WorktreeCreate`/`WorktreeRemove` hooks. They
+are not notifications — they *replace* git worktree creation so other VCS can
+be driven from Claude Code, and a registered `WorktreeCreate` that returns no
+`hookSpecificOutput.worktreePath` fails creation outright with no fallback to
+git. Registering them match-all therefore broke `--worktree`, worktree
+isolation, and background sessions in every Engy-spawned terminal. A worktree
+the CLI enters is observed through `cwd` on ordinary hook events instead (see
+the terminal-relay area), which is what keeps the session's branch current.
+
 ## Multi-repo grouping
 
 `worktree.listGrouped` queries all repos in `workspace.repos` in parallel using
@@ -226,11 +242,22 @@ FR id in their title string, e.g. `it('[FR-GIT-010] ...', ...)`, and run
 | FR-GIT-270 | WHEN a path is renamed in the index, `getStatusDetailed` SHALL report `oldPath` on the staged entry only; the unstaged entry compares two snapshots of the new path and SHALL omit it. |
 | FR-GIT-280 | WHEN `getStatusDetailed` or `getBranchFiles` is called, the system SHALL report the commit `HEAD` resolves to; IF the repo has no commits yet, THEN it SHALL omit it. |
 | FR-GIT-290 | WHEN a path has content staged, `getStatusDetailed` SHALL report an `indexId` identifying what the index holds — different after each `git add` of different content; IF nothing is staged for the path, or it is staged for deletion, THEN `indexId` SHALL be omitted. |
-| FR-GIT-300 | WHEN a staged row is opened, the diff surface SHALL compare the head commit against the index (`git diff --cached`); WHEN an unstaged row is opened, it SHALL compare the index against the working tree (`git diff`); IF the row's side holds no earlier content — a newly added file, or a repo with no commits — THEN the original side SHALL be empty rather than read. |
+| FR-GIT-300 | WHEN a staged row is opened, the diff surface SHALL compare the head commit against the index (`git diff --cached`); WHEN an unstaged row is opened, it SHALL compare the index against the working tree (`git diff`); IF the row's side holds no earlier content — a newly added file, an untracked path, or a repo with no commits — THEN the comparison SHALL still yield a whole-file addition rather than an empty result. |
 | FR-GIT-310 | WHEN the diff surface reads content at a ref whose meaning can change — the index, the working tree, or a branch tip — it SHALL key that read on an identity of the content (`indexId`, `contentId`, or the head commit) so an edit, a `git add`, or a commit is not served the snapshot fetched before it; WHEN the ref is a commit hash, no identity is required. |
 | FR-GIT-320 | WHEN the diff surface's refresh is invoked, the system SHALL reload both the changed-file list and the content of every open pane, in every view mode. |
 | FR-GIT-330 | WHEN a path is unmerged — any of the porcelain codes `DD`, `AU`, `UD`, `UA`, `DU`, `AA`, `UU` — `getStatusDetailed` SHALL report it as a single `staged: false` entry, because a conflicted path has no stage-0 index entry for a staged view to read. |
 | FR-GIT-340 | WHEN a row is marked viewed, the system SHALL record the mark against that row rather than its path, identified by the index for a staged row and by the working tree for an unstaged one, so re-staging expires a staged row's mark and editing the working tree does not. |
+| FR-GIT-350 | WHEN a diff pane renders, it SHALL show only the patch computed for the current selection; IF the selection is incomplete — no side, no commit, or no known fork point — THEN the pane SHALL render nothing rather than content carried over from an earlier selection. |
+| FR-GIT-360 | WHEN a comment is added to a diff line, the system SHALL record the text of that line alongside the comment, and SHALL quote it in the feedback sent to an agent; IF no line text was recorded, THEN the feedback SHALL name the line number alone. |
+| FR-GIT-390 | WHEN a diff pane needs a file's changes, the system SHALL obtain unified diff text from git through the daemon, named by an explicit patch spec — `staged`, `unstaged`, `commit`, or `range` — rather than by comparing two separately-read file contents in the browser; the request SHALL carry `coderWorkspace` and the rename's `oldPath`, and git SHALL be invoked so that a merge commit, a non-ASCII path, and a user-configured external diff driver each still yield a parseable patch. |
+| FR-GIT-400 | WHEN a patch leaves unchanged lines out of its hunks, the diff pane SHALL expand any gap shorter than 10 lines automatically and SHALL offer a control naming the hidden line count for longer gaps; expansion and syntax highlighting SHALL read the original side's text, and IF no grammar is registered for the file's type, THEN the pane SHALL render it unhighlighted rather than fail. |
+| FR-GIT-410 | IF a file's patch exceeds the daemon's size cap, THEN the daemon SHALL report it as truncated instead of sending the body; IF a patch renders more changed lines than the pane's cap, THEN the pane SHALL name the count and require confirmation before rendering it. |
+| FR-GIT-420 | WHEN a comment thread is rendered, the system SHALL anchor it to the change matching its stored line number and side, deriving the side of a new comment from the change it is placed on so a deleted line records `original`; IF a thread's line is not among the rendered changes, THEN the system SHALL list the thread with its line number and recorded text rather than omit it. |
+| FR-GIT-430 | The diff surface SHALL be read-only: it SHALL NOT offer an edit mode, save state, or any affordance that writes to the file being reviewed. |
+| FR-GIT-440 | WHEN diff comments are sent to an agent as feedback, the system SHALL name each thread's id alongside its line and quoted code, and SHALL state how to reply to a thread. |
+| FR-GIT-450 | WHEN "Review diff" is invoked, the system SHALL send the terminal a scope that covers the whole diff on screen — in `latest` mode both staged and unstaged changes against the head commit, whichever tab is open — and SHALL tell the agent to run git in the worktree on screen while filing findings against the repo; IF the diff is in a Coder workspace, THEN the action SHALL be disabled. |
+| FR-GIT-460 | WHILE files are stacked, the system SHALL render the diff of at most a fixed number of files at once, SHALL give a slot only to files that render a text diff and are not marked viewed, and SHALL free a file's slot when it leaves the list or is marked viewed; the stack SHALL be the default only when every file fits in a slot. |
+| FR-GIT-470 | WHEN an open agent finding sits on a line hidden in a collapsed gap, the diff pane SHALL expand a few lines around that line, clamped to the gap, and SHALL NOT expand the gap for human, GitHub or resolved threads. |
 
 ## Sources
 

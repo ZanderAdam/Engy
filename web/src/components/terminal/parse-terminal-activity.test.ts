@@ -49,6 +49,37 @@ describe('createTerminalActivityParser (single chunk)', () => {
     });
   });
 
+  describe('OSC 9;4 attention state extraction', () => {
+    it('[FR-TERMINAL-750] should extract a "set" attention state from OSC 9;4;4;0', () => {
+      const result = parseTerminalActivity('\x1b]9;4;4;0\x07');
+      expect(result.attention).toEqual(['set']);
+      expect(result.hasBell).toBe(false);
+    });
+
+    it('[FR-TERMINAL-750] should extract a "clear" attention state from OSC 9;4;0;0', () => {
+      const result = parseTerminalActivity('\x1b]9;4;0;0\x07');
+      expect(result.attention).toEqual(['clear']);
+      expect(result.hasBell).toBe(false);
+    });
+
+    it('should ignore an OSC 9 progress state Engy does not emit (e.g. state 1)', () => {
+      const result = parseTerminalActivity('\x1b]9;4;1;50\x07');
+      expect(result.attention).toEqual([]);
+    });
+
+    it('should ignore an OSC 9 sequence that is not the ;4; progress subcommand', () => {
+      const result = parseTerminalActivity('\x1b]9;some other OSC 9 use\x07');
+      expect(result.attention).toEqual([]);
+    });
+
+    it('should extract an OSC 0 title unchanged alongside an OSC 9;4 sequence', () => {
+      const data = '\x1b]0;my title\x07\x1b]9;4;4;0\x07';
+      const result = parseTerminalActivity(data);
+      expect(result.titles).toEqual(['my title']);
+      expect(result.attention).toEqual(['set']);
+    });
+  });
+
   describe('bell detection', () => {
     it('should detect standalone bell character', () => {
       const result = parseTerminalActivity('some output\x07');
@@ -202,6 +233,15 @@ describe('createTerminalActivityParser', () => {
       const result = parser.parse('\x1b]0;full title\x07');
       expect(result.titles).toEqual(['full title']);
       expect(result.hasBell).toBe(false);
+    });
+
+    it('[FR-TERMINAL-750] should parse a 9;4 attention sequence split across two chunks', () => {
+      const parser = createTerminalActivityParser();
+      const r1 = parser.parse('\x1b]9;4;4');
+      const r2 = parser.parse(';0\x07');
+      expect(r1.attention).toEqual([]);
+      expect(r2.attention).toEqual(['set']);
+      expect(r2.hasBell).toBe(false);
     });
 
     it('should handle OSC split across three chunks', () => {

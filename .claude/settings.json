@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-commit-blt.sh",
+            "command": "\"$(git -C \"${CLAUDE_PROJECT_DIR:-.}\" rev-parse --show-toplevel)\"/.claude/hooks/pre-commit-blt.sh",
             "timeout": 300
           }
         ]

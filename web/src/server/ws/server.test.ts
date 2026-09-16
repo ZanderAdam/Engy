@@ -10,6 +10,7 @@ import {
   dispatchGlobFiles,
   dispatchGitWorktreeList,
   dispatchGitFetch,
+  dispatchGitPatch,
   dispatchWorktreeAdd,
   dispatchWorktreeRemove,
   dispatchCreateDir,
@@ -19,7 +20,10 @@ import {
   dispatchGhPrFailedLogs,
   dispatchGhPrReviewComments,
 } from './server';
+import fs from 'node:fs';
+import path from 'node:path';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
+import { getWorkspaceDir } from '../engy-dir/init';
 import {
   agentSessions,
   tasks,
@@ -27,6 +31,7 @@ import {
   projects,
   workspaces,
   fleetingMemories,
+  terminalSessions as terminalSessionsTable,
 } from '../db/schema';
 
 let openClients: WebSocket[] = [];
@@ -210,6 +215,105 @@ describe('WebSocket Server', () => {
 
     it('[FR-GIT-020] should reject if no daemon is connected', async () => {
       await expect(dispatchGitFetch('/repo', 'origin/main', state)).rejects.toThrow(
+        'No daemon connected',
+      );
+    });
+  });
+
+  describe('GIT_DIFF_RESPONSE', () => {
+    async function registeredClient() {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(
+        () => {
+          expect(state.daemon).not.toBeNull();
+        },
+        { timeout: 5000 },
+      );
+      return ws;
+    }
+
+    it('[FR-GIT-390] should send the patch spec through to the daemon and resolve with the patch', async () => {
+      const ws = await registeredClient();
+
+      const messagePromise = waitForMessage(ws);
+      const patchPromise = dispatchGitPatch(
+        '/repo',
+        'src/a.ts',
+        { kind: 'range', from: 'base1', to: 'head1' },
+        state,
+        'src/old.ts',
+        'my-coder-ws',
+      );
+
+      const request = (await messagePromise) as {
+        type: string;
+        payload: {
+          requestId: string;
+          repoDir: string;
+          filePath: string;
+          oldPath?: string;
+          coderWorkspace?: string;
+          spec: { kind: string; from?: string; to?: string };
+        };
+      };
+      expect(request.type).toBe('GIT_DIFF_REQUEST');
+      expect(request.payload.repoDir).toBe('/repo');
+      expect(request.payload.filePath).toBe('src/a.ts');
+      expect(request.payload.oldPath).toBe('src/old.ts');
+      // Coder worktrees diff through the same git ops as local ones.
+      expect(request.payload.coderWorkspace).toBe('my-coder-ws');
+      expect(request.payload.spec).toEqual({ kind: 'range', from: 'base1', to: 'head1' });
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_DIFF_RESPONSE',
+          payload: { requestId: request.payload.requestId, patch: '@@ -1 +1 @@\n-a\n+b\n' },
+        }),
+      );
+
+      await expect(patchPromise).resolves.toEqual({
+        patch: '@@ -1 +1 @@\n-a\n+b\n',
+        truncated: undefined,
+      });
+    });
+
+    it('[FR-GIT-390] should carry the truncated marker back to the caller', async () => {
+      const ws = await registeredClient();
+
+      const messagePromise = waitForMessage(ws);
+      const patchPromise = dispatchGitPatch('/repo', 'big.bin', { kind: 'unstaged' }, state);
+      const request = (await messagePromise) as { payload: { requestId: string } };
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_DIFF_RESPONSE',
+          payload: { requestId: request.payload.requestId, patch: '', truncated: true },
+        }),
+      );
+
+      await expect(patchPromise).resolves.toEqual({ patch: '', truncated: true });
+    });
+
+    it('[FR-GIT-390] should surface a daemon-side patch failure', async () => {
+      const ws = await registeredClient();
+
+      const messagePromise = waitForMessage(ws);
+      const patchPromise = dispatchGitPatch('/repo', 'a.ts', { kind: 'unstaged' }, state);
+      const request = (await messagePromise) as { payload: { requestId: string } };
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_DIFF_RESPONSE',
+          payload: { requestId: request.payload.requestId, error: 'bad revision "nope"' },
+        }),
+      );
+
+      await expect(patchPromise).rejects.toThrow('bad revision "nope"');
+    });
+
+    it('[FR-GIT-020] should reject if no daemon is connected', async () => {
+      await expect(dispatchGitPatch('/repo', 'a.ts', { kind: 'unstaged' }, state)).rejects.toThrow(
         'No daemon connected',
       );
     });
@@ -1158,8 +1262,161 @@ describe('Execution event handling', () => {
         const pullMsg = received.find((m) => m.type === 'REMOTE_FILE_PULL_REQUEST');
         expect(pullMsg).toBeDefined();
         expect(pullMsg!.payload.coderWorkspace).toBe('my-coder-ws');
-        expect(pullMsg!.payload.filePath).toBe(`plans/coder-ws-T${task.id}.plan.md`);
+        expect(pullMsg!.payload.filePath).toBe(
+          `plans/coder-ws-T${task.id}.plan.md plans/coder-ws-T${task.id}-*.plan.md`,
+        );
+        expect(pullMsg!.payload.resolveGlob).toBe(true);
       });
+    });
+
+    it('[FR-EXECUTION-170] should write the pulled plan under the name the agent chose', async () => {
+      const ws0 = ctx.db
+        .insert(workspaces)
+        .values({
+          name: 'CoderWs2',
+          slug: 'coder-ws2',
+          executionBackend: 'coder',
+          coderConfig: { workspace: 'my-coder-ws', repoBasePath: '/home/coder' },
+        })
+        .returning()
+        .get();
+      const proj = ctx.db
+        .insert(projects)
+        .values({
+          workspaceId: ws0.id,
+          name: 'Coder Project 2',
+          slug: 'coder-proj-2',
+          projectDir: 'coder-proj-2',
+        })
+        .returning()
+        .get();
+      const task = ctx.db
+        .insert(tasks)
+        .values({
+          title: 'Coder planning task',
+          projectId: proj.id,
+          status: 'in_progress',
+          subStatus: 'planning',
+        })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'coder-plan-2',
+          taskId: task.id,
+          status: 'active',
+          executionMode: 'planning',
+        })
+        .run();
+
+      const ws = await connectClient(port);
+      const pullRequest = new Promise<{ requestId: string }>((resolve) => {
+        ws.on('message', (data) => {
+          const msg = JSON.parse(data.toString());
+          if (msg.type === 'REMOTE_FILE_PULL_REQUEST') resolve(msg.payload);
+        });
+      });
+
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+      ws.send(
+        JSON.stringify({
+          type: 'EXECUTION_COMPLETE_EVENT',
+          payload: { sessionId: 'coder-plan-2', exitCode: 0, success: true },
+        }),
+      );
+
+      const { requestId } = await pullRequest;
+      const remoteName = `plans/coder-ws2-T${task.id}-add-api-routing.plan.md`;
+      ws.send(
+        JSON.stringify({
+          type: 'REMOTE_FILE_PULL_RESPONSE',
+          payload: { requestId, content: '# Plan', filePath: remoteName },
+        }),
+      );
+
+      const localPath = path.join(
+        getWorkspaceDir(ws0),
+        'projects',
+        'coder-proj-2',
+        remoteName,
+      );
+      await vi.waitFor(() => expect(fs.existsSync(localPath)).toBe(true));
+      expect(fs.readFileSync(localPath, 'utf-8')).toBe('# Plan');
+    });
+
+    it('[FR-EXECUTION-170] should fall back to the project slug when projectDir is unset', async () => {
+      const ws0 = ctx.db
+        .insert(workspaces)
+        .values({
+          name: 'CoderWs3',
+          slug: 'coder-ws3',
+          executionBackend: 'coder',
+          coderConfig: { workspace: 'my-coder-ws', repoBasePath: '/home/coder' },
+        })
+        .returning()
+        .get();
+      const proj = ctx.db
+        .insert(projects)
+        .values({
+          workspaceId: ws0.id,
+          name: 'Coder Project 3',
+          slug: 'coder-proj-3',
+          projectDir: null,
+        })
+        .returning()
+        .get();
+      const task = ctx.db
+        .insert(tasks)
+        .values({
+          title: 'Coder planning task',
+          projectId: proj.id,
+          status: 'in_progress',
+          subStatus: 'planning',
+        })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'coder-plan-3',
+          taskId: task.id,
+          status: 'active',
+          executionMode: 'planning',
+        })
+        .run();
+
+      const ws = await connectClient(port);
+      const pullRequest = new Promise<{ requestId: string }>((resolve) => {
+        ws.on('message', (data) => {
+          const msg = JSON.parse(data.toString());
+          if (msg.type === 'REMOTE_FILE_PULL_REQUEST') resolve(msg.payload);
+        });
+      });
+
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(ctx.state.daemon).not.toBeNull());
+
+      ws.send(
+        JSON.stringify({
+          type: 'EXECUTION_COMPLETE_EVENT',
+          payload: { sessionId: 'coder-plan-3', exitCode: 0, success: true },
+        }),
+      );
+
+      const { requestId } = await pullRequest;
+      const remoteName = `plans/coder-ws3-T${task.id}-fallback.plan.md`;
+      ws.send(
+        JSON.stringify({
+          type: 'REMOTE_FILE_PULL_RESPONSE',
+          payload: { requestId, content: '# Plan', filePath: remoteName },
+        }),
+      );
+
+      const localPath = path.join(getWorkspaceDir(ws0), 'projects', 'coder-proj-3', remoteName);
+      await vi.waitFor(() => expect(fs.existsSync(localPath)).toBe(true));
     });
 
     it('[FR-EXECUTION-160] should dispatch WORKTREE_MERGE_REQUEST on implementation success with merge setting', async () => {
@@ -2537,5 +2794,208 @@ describe('[FR-WS-180] GH_PR_REVIEW_COMMENTS_RESPONSE', () => {
       payload: { requestId: string; coderWorkspace?: string };
     };
     expect(request.payload.coderWorkspace).toBe('my-coder-ws');
+  });
+});
+
+describe('WORKTREE_BRANCH_CHANGED_EVENT', () => {
+  let ctx: TestContext;
+  let server: Server;
+  let port: number;
+
+  function baseMeta(workingDir: string, worktreeBranch?: string) {
+    return {
+      scopeType: 'project',
+      scopeLabel: 'test',
+      workingDir,
+      cols: 80,
+      rows: 24,
+      ...(worktreeBranch ? { worktreeBranch } : {}),
+    };
+  }
+
+  beforeEach(async () => {
+    openClients = [];
+    ctx = setupTestDb();
+    const result = await startServer(ctx.state);
+    server = result.server;
+    port = result.port;
+  });
+
+  afterEach(async () => {
+    for (const ws of openClients) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.terminate();
+      }
+    }
+    openClients = [];
+    await closeServer(server);
+    ctx.cleanup();
+  });
+
+  it('should update meta.worktreeBranch for the session matching workingDir', async () => {
+    ctx.state.terminalSessionMeta.set('sess-1', baseMeta('/repo/main', 'old-branch'));
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/main', branch: 'feature-x' },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(ctx.state.terminalSessionMeta.get('sess-1')?.worktreeBranch).toBe('feature-x');
+    });
+  });
+
+  it('[FR-TERMINAL-870] should follow agentCwd instead of the spawn directory', async () => {
+    ctx.state.terminalSessionMeta.set('sess-moved', {
+      ...baseMeta('/repo/main', 'main'),
+      agentCwd: '/repo/main/.claude/worktrees/feat',
+    });
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/main/.claude/worktrees/feat', branch: 'feat' },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(ctx.state.terminalSessionMeta.get('sess-moved')?.worktreeBranch).toBe('feat');
+    });
+  });
+
+  it('[FR-TERMINAL-870] should ignore the spawn directory once the agent has moved', async () => {
+    ctx.state.terminalSessionMeta.set('sess-moved', {
+      ...baseMeta('/repo/main', 'feat'),
+      agentCwd: '/repo/main/.claude/worktrees/feat',
+    });
+    ctx.state.terminalSessionMeta.set('sess-home', baseMeta('/repo/main', 'main'));
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/main', branch: 'main-renamed' },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(ctx.state.terminalSessionMeta.get('sess-home')?.worktreeBranch).toBe('main-renamed');
+    });
+    expect(ctx.state.terminalSessionMeta.get('sess-moved')?.worktreeBranch).toBe('feat');
+  });
+
+  it('should update every session sharing the same workingDir', async () => {
+    ctx.state.terminalSessionMeta.set('sess-a', baseMeta('/repo/shared'));
+    ctx.state.terminalSessionMeta.set('sess-b', baseMeta('/repo/shared'));
+    ctx.state.terminalSessionMeta.set('sess-other', baseMeta('/repo/other'));
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/shared', branch: 'shared-branch' },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(ctx.state.terminalSessionMeta.get('sess-a')?.worktreeBranch).toBe('shared-branch');
+      expect(ctx.state.terminalSessionMeta.get('sess-b')?.worktreeBranch).toBe('shared-branch');
+    });
+    expect(ctx.state.terminalSessionMeta.get('sess-other')?.worktreeBranch).toBeUndefined();
+  });
+
+  it('should persist the updated meta to the database', async () => {
+    ctx.state.terminalSessionMeta.set('sess-persist', baseMeta('/repo/persist'));
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/persist', branch: 'persisted-branch' },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const row = ctx.db
+        .select()
+        .from(terminalSessionsTable)
+        .where(eq(terminalSessionsTable.sessionId, 'sess-persist'))
+        .get();
+      expect((row?.meta as { worktreeBranch?: string } | undefined)?.worktreeBranch).toBe(
+        'persisted-branch',
+      );
+    });
+  });
+
+  it('should broadcast TERMINAL_BRANCH_CHANGE to attached browsers', async () => {
+    ctx.state.terminalSessionMeta.set('sess-broadcast', baseMeta('/repo/broadcast'));
+
+    const events: string[] = [];
+    const listener = {
+      readyState: 1,
+      OPEN: 1,
+      send: (d: string) => events.push(d),
+    } as unknown as import('ws').WebSocket;
+    ctx.state.fileChangeListeners.add(listener);
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/broadcast', branch: 'broadcast-branch' },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const branchEvents = events.filter((e) => e.includes('TERMINAL_BRANCH_CHANGE'));
+      expect(branchEvents).toHaveLength(1);
+      const parsed = JSON.parse(branchEvents[0]) as {
+        payload: { sessionId: string; worktreeBranch: string };
+      };
+      expect(parsed.payload.sessionId).toBe('sess-broadcast');
+      expect(parsed.payload.worktreeBranch).toBe('broadcast-branch');
+    });
+  });
+
+  it('should ignore an unknown workingDir with no matching session', async () => {
+    ctx.state.terminalSessionMeta.set('sess-known', baseMeta('/repo/known'));
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/unknown', branch: 'irrelevant' },
+      }),
+    );
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(ctx.state.terminalSessionMeta.get('sess-known')?.worktreeBranch).toBeUndefined();
+  });
+
+  it('should be a no-op when the branch already matches', async () => {
+    ctx.state.terminalSessionMeta.set('sess-nochange', baseMeta('/repo/nochange', 'same-branch'));
+
+    const events: string[] = [];
+    const listener = {
+      readyState: 1,
+      OPEN: 1,
+      send: (d: string) => events.push(d),
+    } as unknown as import('ws').WebSocket;
+    ctx.state.fileChangeListeners.add(listener);
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/repo/nochange', branch: 'same-branch' },
+      }),
+    );
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(events.filter((e) => e.includes('TERMINAL_BRANCH_CHANGE'))).toHaveLength(0);
   });
 });

@@ -61,5 +61,20 @@ describe('agent settings helpers', () => {
         codex: { active: true },
       });
     });
+
+    it('[TG6] should keep an explicit memoryCapture flag, true or false', () => {
+      expect(normalizeAgentSettings({ claude: { memoryCapture: true } })).toEqual({
+        claude: { memoryCapture: true },
+      });
+      expect(normalizeAgentSettings({ claude: { memoryCapture: false } })).toEqual({
+        claude: { memoryCapture: false },
+      });
+    });
+
+    it('[TG6] should drop memoryCapture when unset, same as other unset fields', () => {
+      expect(normalizeAgentSettings({ claude: { mode: 'plan' } })).toEqual({
+        claude: { mode: 'plan' },
+      });
+    });
   });
 });

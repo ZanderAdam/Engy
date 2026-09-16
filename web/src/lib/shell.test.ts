@@ -4,6 +4,8 @@ import {
   buildAddDirFlags,
   buildContextBlock,
   buildQuickActionDirs,
+  withAgentWorktreeInstruction,
+  AGENT_WORKTREE_INSTRUCTION,
   ENGY_ORIENTATION,
 } from './shell';
 
@@ -217,6 +219,23 @@ describe('shell utilities', () => {
       const lines = result.split('\n');
       const sessionLine = lines.findIndex((l) => l.startsWith('Engy session id:'));
       expect(sessionLine).toBe(lines.length - 1);
+    });
+  });
+
+  describe('withAgentWorktreeInstruction', () => {
+    it('[FR-EXECUTION-310] appends the worktree instruction to the prompt when requested', () => {
+      const result = withAgentWorktreeInstruction('Use /engy:implement for engy-T1', true);
+      expect(result).toBe(`Use /engy:implement for engy-T1\n\n${AGENT_WORKTREE_INSTRUCTION}`);
+    });
+
+    it('[FR-EXECUTION-310] returns the prompt untouched when not requested', () => {
+      const prompt = 'Use /engy:implement for engy-T1';
+      expect(withAgentWorktreeInstruction(prompt, false)).toBe(prompt);
+    });
+
+    it('[FR-EXECUTION-310] keeps the worktree instruction out of the context block', () => {
+      const result = buildContextBlock({ workspace: { id: 1, slug: 'engy' }, repos: [] });
+      expect(result).not.toContain('git worktree for this work');
     });
   });
 

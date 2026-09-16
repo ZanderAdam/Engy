@@ -10,8 +10,8 @@ import {
   deletePlanFile,
   renamePlanFile,
   titleFromFilename,
-  taskPlanSlug,
   readTaskPlan,
+  findTaskPlanPath,
   buildMilestoneFrontmatter,
   listMilestones,
   planFileExists,
@@ -208,16 +208,6 @@ describe('plan service', () => {
     });
   });
 
-  describe('taskPlanSlug', () => {
-    it('should format workspace slug and task id', () => {
-      expect(taskPlanSlug('engy', 42)).toBe('engy-T42');
-    });
-
-    it('should handle single-char slugs', () => {
-      expect(taskPlanSlug('x', 1)).toBe('x-T1');
-    });
-  });
-
   describe('buildMilestoneFrontmatter', () => {
     it('should produce a round-trippable frontmatter for simple values', () => {
       const fm = buildMilestoneFrontmatter('My Milestone', 'planned', 'Backend only');
@@ -304,6 +294,37 @@ describe('plan service', () => {
       fs.mkdirSync(projectDir, { recursive: true });
 
       expect(readTaskPlan(projectDir, 'ws', 99)).toBeNull();
+    });
+
+    it('[FR-PROJECT-180] should read a plan whose filename carries a description', () => {
+      const projectDir = path.join(tmpDir, 'project-described');
+      const plansDir = path.join(projectDir, 'plans');
+      fs.mkdirSync(plansDir, { recursive: true });
+      fs.writeFileSync(path.join(plansDir, 'ws-T5-add-api-routing.plan.md'), '# Routing');
+
+      expect(readTaskPlan(projectDir, 'ws', 5)).toBe('# Routing');
+      expect(findTaskPlanPath(projectDir, 'ws', 5)).toBe('plans/ws-T5-add-api-routing.plan.md');
+    });
+
+    it('[FR-PROJECT-180] should not confuse a task id with a longer id sharing its prefix', () => {
+      const projectDir = path.join(tmpDir, 'project-prefix');
+      const plansDir = path.join(projectDir, 'plans');
+      fs.mkdirSync(plansDir, { recursive: true });
+      fs.writeFileSync(path.join(plansDir, 'ws-T50-other-task.plan.md'), '# Other');
+
+      expect(findTaskPlanPath(projectDir, 'ws', 5)).toBeNull();
+    });
+
+    it('[FR-PROJECT-180] should pick the most recently written plan when several match', () => {
+      const projectDir = path.join(tmpDir, 'project-dupes');
+      const plansDir = path.join(projectDir, 'plans');
+      fs.mkdirSync(plansDir, { recursive: true });
+      const stale = path.join(plansDir, 'ws-T5-old-name.plan.md');
+      fs.writeFileSync(stale, '# Stale');
+      fs.utimesSync(stale, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+      fs.writeFileSync(path.join(plansDir, 'ws-T5-new-name.plan.md'), '# Fresh');
+
+      expect(readTaskPlan(projectDir, 'ws', 5)).toBe('# Fresh');
     });
 
     it('should return null when plans directory does not exist', () => {

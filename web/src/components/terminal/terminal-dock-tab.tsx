@@ -4,12 +4,7 @@ import { useEffect, useState } from 'react';
 import { RiTerminalLine, RiCloseLine } from '@remixicon/react';
 import type { IDockviewPanelHeaderProps } from 'dockview';
 import { cn } from '@/lib/utils';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { CloseTerminalDialog } from './close-terminal-dialog';
 import { useCanHover } from '@/hooks/use-can-hover';
 import { useTerminalDock } from './terminal-dock-context';
@@ -19,6 +14,8 @@ import {
   type TerminalPanelParams,
   type TerminalTab,
 } from './types';
+import { resolveTerminalLabel } from './terminal-label';
+import { AttentionBadge } from './attention-badge';
 
 function collapseLabel(label: string): string {
   const parts = label.split('/').filter(Boolean);
@@ -43,9 +40,11 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   }, [api]);
 
   const scopeLabel = tab.scope.scopeLabel;
-  const label = scopeLabel;
+  const mainLabel = resolveTerminalLabel(tab.scope, tab.oscTitle);
+  const renameSeed = tab.scope.renamedLabel ?? scopeLabel;
+  const branch = tab.scope.worktreeBranch;
   const isDir = tab.scope.scopeType === 'dir';
-  const displayLabel = isDir ? collapseLabel(scopeLabel) : scopeLabel;
+  const displayLabel = isDir ? collapseLabel(mainLabel) : mainLabel;
 
   function commitRename(value: string) {
     const trimmed = value.trim();
@@ -72,7 +71,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   const editInput = (
     <input
       className="min-w-0 truncate bg-transparent outline-none text-xs font-mono"
-      defaultValue={label}
+      defaultValue={renameSeed}
       onKeyDown={handleKeyDown}
       onBlur={handleBlur}
       onClick={(e) => e.stopPropagation()}
@@ -85,12 +84,18 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   const labelSpan = (
     <span
       className="flex min-w-0 flex-col justify-center gap-0.5"
-      onDoubleClick={() => { setEditStartLabel(label); setIsEditing(true); }}
+      onDoubleClick={() => {
+        setEditStartLabel(renameSeed);
+        setIsEditing(true);
+      }}
     >
-      <span className="truncate leading-tight">{displayLabel}</span>
-      {tab.oscTitle ? (
+      <span className="flex min-w-0 items-center gap-1">
+        <span className="truncate leading-tight">{displayLabel}</span>
+        <AttentionBadge needsAttention={tab.needsAttention} />
+      </span>
+      {branch ? (
         <span className="truncate font-mono text-[9px] leading-none text-muted-foreground">
-          {tab.oscTitle}
+          {branch}
         </span>
       ) : (
         <span aria-hidden className="h-2.5" />
@@ -114,7 +119,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
             <TooltipTrigger asChild>{labelSpan}</TooltipTrigger>
             <TooltipContent side="bottom">
               <p className="font-mono">{scopeLabel}</p>
-              {tab.oscTitle && <p className="font-mono opacity-70">{tab.oscTitle}</p>}
+              <p className="font-mono opacity-70">{tab.scope.workingDir}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -140,7 +145,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
       <CloseTerminalDialog
         open={confirmCloseOpen}
         onOpenChange={setConfirmCloseOpen}
-        label={label}
+        label={mainLabel}
         onConfirm={() => api.close()}
       />
     </div>

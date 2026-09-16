@@ -62,6 +62,17 @@ interface TerminalActivityChangeEvent {
     state?: TerminalActivityState;
     // True when the session ended — consumers drop it from the rollup.
     removed?: boolean;
+    // True once a hook event has landed for this session — the browser tab
+    // badge trusts this state over its own PTY-parsed heuristic when set.
+    hookDriven?: boolean;
+  };
+}
+
+interface TerminalBranchChangeEvent {
+  type: 'TERMINAL_BRANCH_CHANGE';
+  payload: {
+    sessionId: string;
+    worktreeBranch: string;
   };
 }
 
@@ -80,6 +91,14 @@ interface PrAttentionEvent {
     repo: string;
     prNumber: number;
     reason: string;
+  };
+}
+
+interface CommentChangeEvent {
+  type: 'COMMENT_CHANGE';
+  payload: {
+    documentPath: string;
+    threadId: string;
   };
 }
 
@@ -113,10 +132,12 @@ type ServerEvent =
   | TerminalSessionsChangeEvent
   | MemoryChangeEvent
   | TerminalActivityChangeEvent
+  | TerminalBranchChangeEvent
   | PrChangeEvent
   | PrAttentionEvent
   | TerminalWorkersChangeEvent
-  | VoiceSpeakEvent;
+  | VoiceSpeakEvent
+  | CommentChangeEvent;
 
 // ── Generic Broadcast ───────────────────────────────────────────────
 
@@ -193,6 +214,10 @@ export function broadcastTerminalActivityChange(
   broadcastEvent({ type: 'TERMINAL_ACTIVITY_CHANGE', payload });
 }
 
+export function broadcastTerminalBranchChange(sessionId: string, worktreeBranch: string): void {
+  broadcastEvent({ type: 'TERMINAL_BRANCH_CHANGE', payload: { sessionId, worktreeBranch } });
+}
+
 export function broadcastPrChange(workspaceId: number, repo: string): void {
   broadcastEvent({ type: 'PR_CHANGE', payload: { workspaceId, repo } });
 }
@@ -212,4 +237,8 @@ export function broadcastTerminalWorkersChange(sessionId: string, connected: boo
 
 export function broadcastVoiceSpeak(payload: VoiceSpeakEvent['payload']): void {
   broadcastEvent({ type: 'VOICE_SPEAK', payload });
+}
+
+export function broadcastCommentChange(documentPath: string, threadId: string): void {
+  broadcastEvent({ type: 'COMMENT_CHANGE', payload: { documentPath, threadId } });
 }

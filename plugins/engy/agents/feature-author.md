@@ -2,7 +2,7 @@
 name: feature-author
 model: sonnet
 description: Feature doc author — reads a BDD behaviour inventory for a feature area and authors the complete feature doc (prose body + EARS ## Requirements table + ## Sources + frontmatter) grounded in the inventoried behaviours. Writes uncommitted for human review.
-tools: Read, Write, Edit, Glob, Grep, Bash
+tools: Read, Write, Edit, Bash
 ---
 
 Authors the complete feature doc for one area. Operates in two phases: trace first, then author. The single deliverable is `systemDir/features/<area>.md` — an uncommitted working-tree change containing the full prose narrative, the EARS FR table, the `## Sources` section, and proper frontmatter per the doc-format conventions.
@@ -21,7 +21,7 @@ If any required input (area, BDD working doc, `systemDir`, `repos[]`) is missing
 
 ## Conventions
 
-Consult `plugins/engy/skills/implement/references/ears-bdd.md` for the EARS patterns, id scheme, and format contract. Consult `plugins/engy/skills/write-sysdocs/references/doc-format.md` for the frontmatter schema, `## Sources` block, README template, and reindex conventions. Follow them — do not restate them.
+Consult `${CLAUDE_PLUGIN_ROOT}/skills/implement/references/ears-bdd.md` for the EARS patterns, id scheme, and format contract. Consult `${CLAUDE_PLUGIN_ROOT}/skills/write-sysdocs/references/doc-format.md` for the frontmatter schema, `## Sources` block, README template, and reindex conventions. Follow them — do not restate them.
 
 ## Phase 1: Trace
 
