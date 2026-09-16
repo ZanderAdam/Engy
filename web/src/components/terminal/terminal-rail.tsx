@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 import { useTabId } from '@/components/tabs/tab-context';
 import { useTerminalScope } from './use-terminal-scope';
 import { useTerminalSessions, terminalRailKey } from './terminal-session-store';
-import { useVoiceTerminalNumber } from '@/components/voice/use-voice-terminal-number';
+import { useTerminalNumber } from './use-terminal-number';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -450,7 +450,7 @@ export function TerminalRail({
   );
 }
 
-// A dot is its own component so it can call useVoiceTerminalNumber — the same
+// A dot is its own component so it can call useTerminalNumber — the same
 // hook the expanded list gets its number from via TerminalSessionLabel. The
 // collapsed dot swaps the glyph for the number rather than adding a badge:
 // the glyph is identical on every dot, so it carries nothing the number does
@@ -464,8 +464,8 @@ function TerminalRailDot({
   active: boolean;
   onFocus: () => void;
 }) {
-  const voiceNumber = useVoiceTerminalNumber(tab.sessionId);
-  const spoken = voiceNumber === null ? '' : `${voiceNumber} `;
+  const terminalNumber = useTerminalNumber(tab.sessionId);
+  const spoken = terminalNumber === null ? '' : `${terminalNumber} `;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -480,10 +480,10 @@ function TerminalRailDot({
             active && 'ring-1 ring-inset ring-foreground/60',
           )}
         >
-          {voiceNumber === null ? (
+          {terminalNumber === null ? (
             <RiTerminalLine className="size-3" />
           ) : (
-            <span className="text-[11px] font-medium tabular-nums">{voiceNumber}</span>
+            <span className="text-[11px] font-medium tabular-nums">{terminalNumber}</span>
           )}
         </button>
       </TooltipTrigger>

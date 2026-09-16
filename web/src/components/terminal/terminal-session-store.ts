@@ -82,9 +82,10 @@ function readOpenTerminals(): TerminalTab[] {
   return openTerminalsCache;
 }
 
-/** The flattening and its identity caching are what voice numbering rests
- * on; exported so both can be asserted without a React renderer. */
-export const readOpenTerminalsForTest = readOpenTerminals;
+/** The flattening and its identity caching are what terminal numbering rests
+ * on; exported so both can be read outside React — by the Ctrl+Alt+N handler
+ * and by tests — without a renderer. */
+export { readOpenTerminals };
 
 export function useOpenTerminals(): TerminalTab[] {
   return useSyncExternalStore(subscribe, readOpenTerminals, () => openTerminalsCache);

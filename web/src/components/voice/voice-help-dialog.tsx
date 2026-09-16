@@ -81,8 +81,8 @@ function ActiveVoiceHelpDialog({ voice }: { voice: VoiceControl }) {
           </DialogTitle>
           <DialogDescription>
             Say &ldquo;{WAKE_WORD}&rdquo; before any phrase below to address the app. Terminals are
-            numbered on the rail while voice is on — say the number. In a conversation, what you
-            dictate sends itself once you stop talking.
+            numbered on the rail while voice is on — say the number, or press Ctrl+Alt and that
+            number. In a conversation, what you dictate sends itself once you stop talking.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">

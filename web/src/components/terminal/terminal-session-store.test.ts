@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import {
   publishTerminalSessions,
   clearTerminalSessions,
-  readOpenTerminalsForTest,
+  readOpenTerminals,
   terminalOrdinal,
   terminalRailKey,
 } from './terminal-session-store';
@@ -64,7 +64,7 @@ describe('terminal-session-store', () => {
       publishTerminalSessions(A, { tabs: [makeTab('a1'), makeTab('a2')], activeId: 'a1' });
       publishTerminalSessions(B, { tabs: [makeTab('b1')], activeId: null });
 
-      const open = readOpenTerminalsForTest();
+      const open = readOpenTerminals();
       expect(open.map((t) => t.sessionId)).toEqual(['a1', 'a2', 'b1']);
       expect(terminalOrdinal(open, 'b1')).toBe(3);
     });
@@ -74,25 +74,25 @@ describe('terminal-session-store', () => {
       publishTerminalSessions(A, { tabs: [makeTab('same')], activeId: null });
       publishTerminalSessions(B, { tabs: [makeTab('same')], activeId: null });
 
-      expect(readOpenTerminalsForTest().map((t) => t.sessionId)).toEqual(['same']);
+      expect(readOpenTerminals().map((t) => t.sessionId)).toEqual(['same']);
     });
 
     // useSyncExternalStore compares by identity and loops forever on a fresh
     // array each read, so an unchanged list must return the same reference.
     it('should return a stable reference while the tabs are unchanged', () => {
       publishTerminalSessions(A, { tabs: [makeTab('a1')], activeId: null });
-      expect(readOpenTerminalsForTest()).toBe(readOpenTerminalsForTest());
+      expect(readOpenTerminals()).toBe(readOpenTerminals());
     });
 
     it('should return a new reference once the tabs change', () => {
       publishTerminalSessions(A, { tabs: [makeTab('a1')], activeId: null });
-      const before = readOpenTerminalsForTest();
+      const before = readOpenTerminals();
       publishTerminalSessions(A, { tabs: [makeTab('a1'), makeTab('a2')], activeId: null });
-      expect(readOpenTerminalsForTest()).not.toBe(before);
+      expect(readOpenTerminals()).not.toBe(before);
     });
 
     it('should report no ordinal for a session that is not open', () => {
-      expect(terminalOrdinal(readOpenTerminalsForTest(), 'nope')).toBeNull();
+      expect(terminalOrdinal(readOpenTerminals(), 'nope')).toBeNull();
     });
   });
 });

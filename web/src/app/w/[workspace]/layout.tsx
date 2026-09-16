@@ -33,6 +33,7 @@ import {
 } from '@/components/layout/mobile-terminal-sheet';
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
 import { TerminalRail } from '@/components/terminal/terminal-rail';
+import { useTerminalNumberShortcut } from '@/components/terminal/terminal-number-shortcut';
 import { BottomTerminalSplit } from '@/components/terminal/bottom-terminal-split';
 import type { TerminalDropdownGroup, TerminalDropdownEntry } from '@/components/terminal/types';
 import { useWorktreeSessions } from '@/components/terminal/use-worktree-sessions';
@@ -115,6 +116,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
+
+  useTerminalNumberShortcut();
 
   const handleCollapse = useCallback(() => {
     setTerminalCollapsed(true);
