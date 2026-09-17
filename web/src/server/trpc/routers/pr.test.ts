@@ -243,15 +243,6 @@ describe('pr router', () => {
       expect(ctx.db.select().from(prs).where(eq(prs.number, 2)).get()?.authoredByViewer).toBe(false);
     });
 
-    it('[FR-PRMON-190] should keep known authorship when the viewer identity is unresolved', () => {
-      seedWorkspace(ctx, ['/repo-a']);
-
-      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, authoredByViewer: true })]);
-      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1, authoredByViewer: null })]);
-
-      expect(ctx.db.select().from(prs).where(eq(prs.number, 1)).get()?.authoredByViewer).toBe(true);
-    });
-
     it('should not clear attentionReason for PRs that remain open', () => {
       seedWorkspace(ctx, ['/repo-a']);
 

@@ -76,18 +76,18 @@ export function formatRelativeTime(isoDate: string): string {
   return `${days}d ago`;
 }
 
-/** Which PRs the tab lists: only the gh viewer's own PRs, or every open one. */
-export type PrScope = 'mine' | 'all';
+export type PrScope = 'mine' | 'review';
 
 export function coercePrScope(value: string | null | undefined): PrScope {
-  return value === 'all' ? 'all' : 'mine';
+  return value === 'review' ? 'review' : 'mine';
 }
 
 export function filterPrsByScope<T extends { authoredByViewer: boolean }>(
   prs: T[],
   scope: PrScope,
 ): T[] {
-  return scope === 'all' ? prs : prs.filter((pr) => pr.authoredByViewer);
+  const wantAuthored = scope === 'mine';
+  return prs.filter((pr) => pr.authoredByViewer === wantAuthored);
 }
 
 interface CheckSummary {

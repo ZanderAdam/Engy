@@ -94,20 +94,36 @@ function RepoErrorRow({ error }: { error: RepoPrError }) {
   );
 }
 
+const SCOPE_TEXT: Record<
+  PrScope,
+  { emptyTitle: string; summary: (n: number) => string; showAction: string }
+> = {
+  mine: {
+    emptyTitle: 'No open pull requests of yours',
+    summary: (n) => `${n} open ${n === 1 ? 'PR is' : 'PRs are'} yours.`,
+    showAction: 'Show my PRs',
+  },
+  review: {
+    emptyTitle: 'No reviews requested from you',
+    summary: (n) => `${n} open ${n === 1 ? 'PR is' : 'PRs are'} waiting for your review.`,
+    showAction: 'Show review requests',
+  },
+};
+
 function ScopeToggle({
   scope,
   onChange,
   mineCount,
-  totalCount,
+  reviewCount,
 }: {
   scope: PrScope;
   onChange: (scope: PrScope) => void;
   mineCount: number;
-  totalCount: number;
+  reviewCount: number;
 }) {
   const options: Array<{ value: PrScope; label: string; count: number }> = [
     { value: 'mine', label: 'Mine', count: mineCount },
-    { value: 'all', label: 'All', count: totalCount },
+    { value: 'review', label: 'Review', count: reviewCount },
   ];
 
   return (
@@ -144,6 +160,7 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
   const workspaceId = workspace?.id ?? 0;
   const workspaceRepos = (workspace?.repos as string[] | null) ?? [];
   const scope = scopeOverride ?? coercePrScope(workspace?.prScope);
+  const otherScope: PrScope = scope === 'mine' ? 'review' : 'mine';
 
   const {
     data: prData,
@@ -152,6 +169,7 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
   const allPrs = prData?.prs;
   const prs = allPrs && filterPrsByScope(allPrs, scope);
   const mineCount = allPrs ? filterPrsByScope(allPrs, 'mine').length : 0;
+  const reviewCount = allPrs ? allPrs.length - mineCount : 0;
   const { global: globalError, perRepo: repoErrors } = classifyPrRepoErrors(
     prData?.repoErrors ?? {},
   );
@@ -197,7 +215,7 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
               scope={scope}
               onChange={setScopeOverride}
               mineCount={mineCount}
-              totalCount={allPrs.length}
+              reviewCount={reviewCount}
             />
           )}
         </div>
@@ -240,18 +258,17 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
             <RiGitPullRequestLine className="size-8 text-muted-foreground/40" />
             {allPrs && allPrs.length > 0 ? (
               <div>
-                <p className="text-sm font-medium">No open pull requests of yours</p>
+                <p className="text-sm font-medium">{SCOPE_TEXT[scope].emptyTitle}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {allPrs.length} open {allPrs.length === 1 ? 'PR is' : 'PRs are'} authored by
-                  someone else.
+                  {SCOPE_TEXT[otherScope].summary(allPrs.length)}
                 </p>
                 <Button
                   variant="outline"
                   size="xs"
                   className="mt-3"
-                  onClick={() => setScopeOverride('all')}
+                  onClick={() => setScopeOverride(otherScope)}
                 >
-                  Show all PRs
+                  {SCOPE_TEXT[otherScope].showAction}
                 </Button>
               </div>
             ) : (

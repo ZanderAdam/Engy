@@ -250,8 +250,8 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="mine">My PRs only</SelectItem>
-            <SelectItem value="all">All open PRs</SelectItem>
+            <SelectItem value="mine">My PRs</SelectItem>
+            <SelectItem value="review">Review requests</SelectItem>
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">

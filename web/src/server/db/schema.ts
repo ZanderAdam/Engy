@@ -54,9 +54,7 @@ export const workspaces = sqliteTable('workspaces', {
   ttsEnabled: integer('tts_enabled', { mode: 'boolean' }).default(false),
   autoStart: integer('auto_start', { mode: 'boolean' }).default(false),
   autoCiFix: integer('auto_ci_fix', { mode: 'boolean' }).default(false),
-  // Which PRs the PRs tab shows by default — own-authored only, or every open
-  // PR in the workspace repos. The tab can override this per visit.
-  prScope: text('pr_scope', { enum: ['mine', 'all'] }).default('mine'),
+  prScope: text('pr_scope', { enum: ['mine', 'review'] }).default('mine'),
   createdAt: text('created_at')
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

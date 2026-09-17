@@ -219,8 +219,8 @@ describe('[FR-PRMON-190] PR scope filtering', () => {
     expect(filterPrsByScope([mine, theirs], 'mine')).toEqual([mine]);
   });
 
-  it('should keep every PR in "all" scope', () => {
-    expect(filterPrsByScope([mine, theirs], 'all')).toEqual([mine, theirs]);
+  it('should keep only PRs awaiting the viewer review in "review" scope', () => {
+    expect(filterPrsByScope([mine, theirs], 'review')).toEqual([theirs]);
   });
 
   it('should default an unset or unknown workspace scope to "mine"', () => {
@@ -229,7 +229,7 @@ describe('[FR-PRMON-190] PR scope filtering', () => {
     expect(coercePrScope('bogus')).toBe('mine');
   });
 
-  it('should honour a configured "all" workspace scope', () => {
-    expect(coercePrScope('all')).toBe('all');
+  it('should honour a configured "review" workspace scope', () => {
+    expect(coercePrScope('review')).toBe('review');
   });
 });

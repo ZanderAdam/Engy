@@ -242,24 +242,6 @@ describe('[FR-PRMON-010] listOpenPrs', () => {
   });
 });
 
-// Routes `gh api user` separately from `gh pr list`, unlike the single-stdout
-// runner above — attribution needs the two calls to answer differently.
-function makeSplitRunner(
-  prListStdout: string,
-  viewer: string | Error,
-): { runner: GhRunner; calls: string[][] } {
-  const calls: string[][] = [];
-  const runner: GhRunner = async (args) => {
-    calls.push(args);
-    if (args[0] === 'api') {
-      if (viewer instanceof Error) throw viewer;
-      return { stdout: `${viewer}\n`, stderr: '' };
-    }
-    return { stdout: prListStdout, stderr: '' };
-  };
-  return { runner, calls };
-}
-
 function prJson(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify([{ ...JSON.parse(SINGLE_PR_NO_CHECKS)[0], ...overrides }]);
 }
@@ -270,42 +252,76 @@ describe('[FR-PRMON-180] listOpenPrs comment counts', () => {
       comments: [{ body: 'first' }, { body: 'second' }],
       reviews: [{ body: 'please fix' }, { body: '' }, { body: '   ' }],
     });
-    const { runner } = makeSplitRunner(raw, 'alice');
+    const runner = makeRunner(raw);
     const prs = await listOpenPrs('/repo', runner);
     expect(prs[0].commentCount).toBe(3);
   });
 
   it('reports zero comments when gh omits both fields', async () => {
-    const { runner } = makeSplitRunner(SINGLE_PR_NO_CHECKS, 'alice');
+    const runner = makeRunner(SINGLE_PR_NO_CHECKS);
     const prs = await listOpenPrs('/repo', runner);
     expect(prs[0].commentCount).toBe(0);
   });
 });
 
-describe('[FR-PRMON-190] listOpenPrs viewer attribution', () => {
-  it('flags a PR authored by the gh viewer', async () => {
-    const { runner } = makeSplitRunner(SINGLE_PR_NO_CHECKS, 'alice');
+function makeScopedRunner(authored: unknown[], reviewRequested: unknown[]) {
+  const calls: string[][] = [];
+  const runner: GhRunner = async (args) => {
+    calls.push(args);
+    const list = args.includes('--author') ? authored : reviewRequested;
+    return { stdout: JSON.stringify(list), stderr: '' };
+  };
+  return { runner, calls };
+}
+
+describe('[FR-PRMON-190] listOpenPrs scope', () => {
+  const basePr = JSON.parse(SINGLE_PR_NO_CHECKS)[0];
+
+  it('queries the viewer PRs and the PRs awaiting the viewer review', async () => {
+    const { runner, calls } = makeScopedRunner([], []);
+
+    await listOpenPrs('/repo', runner);
+
+    expect(calls).toHaveLength(2);
+    expect(calls).toContainEqual(expect.arrayContaining(['--author', '@me', '--limit', '100']));
+    expect(calls).toContainEqual(
+      expect.arrayContaining(['--search', 'review-requested:@me', '--limit', '100']),
+    );
+  });
+
+  it('flags authored PRs as the viewer and review requests as not', async () => {
+    const { runner } = makeScopedRunner(
+      [{ ...basePr, number: 1 }],
+      [{ ...basePr, number: 2, author: { login: 'bob' } }],
+    );
+
     const prs = await listOpenPrs('/repo', runner);
+
+    expect(prs.map((pr) => [pr.number, pr.authoredByViewer])).toEqual([
+      [1, true],
+      [2, false],
+    ]);
+  });
+
+  it('lists a PR returned by both queries once, as authored', async () => {
+    const pr = { ...basePr, number: 3 };
+    const { runner } = makeScopedRunner([pr], [pr]);
+
+    const prs = await listOpenPrs('/repo', runner);
+
+    expect(prs).toHaveLength(1);
     expect(prs[0].authoredByViewer).toBe(true);
   });
 
-  it('flags a PR authored by someone else', async () => {
-    const { runner } = makeSplitRunner(SINGLE_PR_NO_CHECKS, 'bob');
-    const prs = await listOpenPrs('/repo', runner);
-    expect(prs[0].authoredByViewer).toBe(false);
-  });
+  it('drops non-open PRs that the search still returns', async () => {
+    const { runner } = makeScopedRunner(
+      [{ ...basePr, number: 7, state: 'MERGED' }],
+      [{ ...basePr, number: 8, state: 'CLOSED' }],
+    );
 
-  it('returns null attribution when the viewer identity cannot be resolved', async () => {
-    const { runner } = makeSplitRunner(SINGLE_PR_NO_CHECKS, new Error('gh: not logged in'));
     const prs = await listOpenPrs('/repo', runner);
-    expect(prs[0].authoredByViewer).toBeNull();
-  });
 
-  it('skips the identity call when no PRs are open', async () => {
-    const { runner, calls } = makeSplitRunner(EMPTY_PR_LIST, 'alice');
-    const prs = await listOpenPrs('/repo', runner);
     expect(prs).toEqual([]);
-    expect(calls).toEqual([expect.arrayContaining(['pr', 'list'])]);
   });
 });
 

@@ -113,25 +113,25 @@ function countComments(pr: RawPr): number {
   return comments + reviews;
 }
 
-/**
- * Resolves the gh account authenticated for this repo's host. Returns null when
- * the identity cannot be resolved, so callers can leave a previously known
- * "authored by me" flag untouched rather than flipping every PR to "not mine".
- */
-async function fetchViewerLogin(repoDir: string, runner: GhRunner): Promise<string | null> {
-  try {
-    const { stdout } = await runner(['api', 'user', '--jq', '.login'], repoDir);
-    return stdout.trim() || null;
-  } catch {
-    return null;
-  }
+const PR_QUERY_LIMIT = '100';
+
+async function runPrList(repoDir: string, runner: GhRunner, filterArgs: string[]): Promise<RawPr[]> {
+  const { stdout } = await runner(
+    ['pr', 'list', ...filterArgs, '--limit', PR_QUERY_LIMIT, '--json', PR_LIST_FIELDS],
+    repoDir,
+  );
+  const prs: RawPr[] = JSON.parse(stdout);
+  // Author and review-requested filters go through GitHub search, which can briefly return closed PRs.
+  return prs.filter((pr) => pr.state === 'OPEN');
 }
 
 export async function listOpenPrs(repoDir: string, runner: GhRunner = localGhRunner): Promise<GhPr[]> {
-  const { stdout } = await runner(['pr', 'list', '--json', PR_LIST_FIELDS], repoDir);
-  const raw: RawPr[] = JSON.parse(stdout);
-  // Skip the identity round-trip when there is nothing to attribute.
-  const viewer = raw.length > 0 ? await fetchViewerLogin(repoDir, runner) : null;
+  const [authored, reviewRequested] = await Promise.all([
+    runPrList(repoDir, runner, ['--author', '@me']),
+    runPrList(repoDir, runner, ['--search', 'review-requested:@me']),
+  ]);
+  const authoredNumbers = new Set(authored.map((pr) => pr.number));
+  const raw = [...authored, ...reviewRequested.filter((pr) => !authoredNumbers.has(pr.number))];
 
   return raw.map((pr) => ({
     number: pr.number,
@@ -146,7 +146,7 @@ export async function listOpenPrs(repoDir: string, runner: GhRunner = localGhRun
     ciStatus: deriveCiStatus(pr.statusCheckRollup),
     checks: (pr.statusCheckRollup ?? []).map(normalizeCheck),
     commentCount: countComments(pr),
-    authoredByViewer: viewer === null ? null : pr.author.login === viewer,
+    authoredByViewer: authoredNumbers.has(pr.number),
     updatedAt: pr.updatedAt,
   }));
 }

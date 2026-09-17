@@ -50,7 +50,7 @@ const coderConfigSchema = z
 
 const autoAgentCompletionSchema = z.enum(['pr', 'merge']).optional();
 
-const prScopeSchema = z.enum(['mine', 'all']).optional();
+const prScopeSchema = z.enum(['mine', 'review']).optional();
 
 // Validated against the agent-types registry rather than a fixed enum, so a new
 // agent CLI needs only a registry entry — no schema/router change here.

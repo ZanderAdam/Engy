@@ -128,9 +128,7 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
             ciStatus: ghPr.ciStatus,
             checks: ghPr.checks,
             commentCount: ghPr.commentCount,
-            // A new row has no prior attribution to preserve, so an unresolved
-            // gh identity lands on "not mine" until the next successful poll.
-            authoredByViewer: ghPr.authoredByViewer ?? false,
+            authoredByViewer: ghPr.authoredByViewer,
             reviewDecision: ghPr.reviewDecision,
             updatedAt: now,
           })
@@ -179,9 +177,7 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
             ciStatus: ghPr.ciStatus,
             checks: ghPr.checks,
             commentCount: ghPr.commentCount,
-            // null means the gh identity was unresolvable this cycle — keep the
-            // last known attribution instead of demoting every PR to "not mine".
-            authoredByViewer: ghPr.authoredByViewer ?? existingPr.authoredByViewer,
+            authoredByViewer: ghPr.authoredByViewer,
             reviewDecision: ghPr.reviewDecision,
             updatedAt: now,
           })

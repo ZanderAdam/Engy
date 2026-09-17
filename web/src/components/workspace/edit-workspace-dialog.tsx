@@ -88,7 +88,7 @@ interface EditWorkspaceDialogProps {
     autoStart: boolean | null;
     autoCiFix: boolean | null;
     autoAgentCompletion: 'pr' | 'merge' | null;
-    prScope: 'mine' | 'all' | null;
+    prScope: 'mine' | 'review' | null;
   };
   open: boolean;
   onOpenChange: (open: boolean) => void;

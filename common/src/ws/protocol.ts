@@ -724,8 +724,7 @@ export interface GhPr {
   checks: GhPrCheck[];
   /** Conversation comments plus review submissions that carry a body. */
   commentCount: number;
-  /** null when the gh viewer identity could not be resolved (leave the stored value alone). */
-  authoredByViewer: boolean | null;
+  authoredByViewer: boolean;
   updatedAt?: string;
 }
 
