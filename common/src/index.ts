@@ -115,4 +115,25 @@ export type {
   VoiceWakeEvent,
   VoiceControlCmd,
   VoiceEvent,
+  UsageScanFileState,
+  UsageSessionMeta,
+  UsageSessionScanResult,
+  UsageScanRequestMessage,
+  UsageScanResponseMessage,
 } from './ws/protocol.js';
+
+export type {
+  UsageCostBucket,
+  UsageCauseKind,
+  UsageCauseRollup,
+  UsageTokenTotals,
+  UsageAttribution,
+  UsageToolRollup,
+  UsageFieldRollup,
+  UsageFileRollup,
+  UsageDayRollup,
+  UsageSessionRollup,
+  UsageCallPoint,
+  UsageSessionScan,
+  UsageModelRate,
+} from './usage/types.js';

@@ -1,3 +1,5 @@
+import type { UsageSessionScan } from '../usage/types.js';
+
 export interface RegisterMessage {
   type: 'REGISTER';
   payload: { homeDir?: string };
@@ -787,6 +789,66 @@ export interface GhPrReviewCommentsResponseMessage {
     | { requestId: string; error: string };
 }
 
+// ── Usage analytics scan (server ↔ daemon) ──────────────────────────────────
+
+/**
+ * Incremental bookkeeping for one transcript file. `firstLineDate` /
+ * `lastLineDate` are the dates of the file's first and last parsed lines —
+ * needed (alongside size/mtime) to compute which past days are sealable
+ * without re-reading unchanged files on every scan.
+ */
+export interface UsageScanFileState {
+  sizeBytes: number;
+  mtimeMs: number;
+  bytesScanned: number;
+  firstLineDate: string | null;
+  lastLineDate: string | null;
+}
+
+export interface UsageSessionMeta {
+  durationMinutes: number | null;
+  firstPrompt: string | null;
+  linesAdded: number | null;
+  linesRemoved: number | null;
+  filesModified: number | null;
+  gitCommits: number | null;
+  toolErrors: number | null;
+}
+
+/**
+ * `scan.session` already carries `isSubagent` / `parentSessionId` /
+ * `agentType` / `agentDescription` (the reducer accepts these at
+ * construction) — this wrapper only adds what the reducer has no way to
+ * know: the derived repo root and the session-meta side-file enrichment.
+ */
+export interface UsageSessionScanResult {
+  scan: UsageSessionScan;
+  repoRoot: string | null;
+  meta: UsageSessionMeta | null;
+}
+
+export interface UsageScanRequestMessage {
+  type: 'USAGE_SCAN_REQUEST';
+  payload: {
+    requestId: string;
+    knownFiles: Record<string, UsageScanFileState>;
+    sealedDates: string[];
+  };
+}
+
+export interface UsageScanResponseMessage {
+  type: 'USAGE_SCAN_RESPONSE';
+  payload:
+    | {
+        requestId: string;
+        sessions: UsageSessionScanResult[];
+        files: Record<string, UsageScanFileState>;
+        newlySealedDates: string[];
+        staleSealSkips: number;
+      }
+    | { requestId: string; error: string };
+}
+
 export type WsMessage =
   | RegisterMessage
   | WatchPathsSyncMessage
@@ -859,7 +921,9 @@ export type WsMessage =
   | GhPrFailedLogsRequestMessage
   | GhPrFailedLogsResponseMessage
   | GhPrReviewCommentsRequestMessage
-  | GhPrReviewCommentsResponseMessage;
+  | GhPrReviewCommentsResponseMessage
+  | UsageScanRequestMessage
+  | UsageScanResponseMessage;
 
 export type ClientToServerMessage =
   | RegisterMessage
@@ -900,7 +964,8 @@ export type ClientToServerMessage =
   | CreateMemoriesEventMessage
   | GhPrListResponseMessage
   | GhPrFailedLogsResponseMessage
-  | GhPrReviewCommentsResponseMessage;
+  | GhPrReviewCommentsResponseMessage
+  | UsageScanResponseMessage;
 
 export type ServerToClientMessage =
   | WatchPathsSyncMessage
@@ -935,7 +1000,8 @@ export type ServerToClientMessage =
   | ExecutionStopRequestMessage
   | GhPrListRequestMessage
   | GhPrFailedLogsRequestMessage
-  | GhPrReviewCommentsRequestMessage;
+  | GhPrReviewCommentsRequestMessage
+  | UsageScanRequestMessage;
 
 // ── Compact terminal relay types (server ↔ daemon) ──────────────────────────
 

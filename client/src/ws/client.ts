@@ -42,6 +42,7 @@ import type {
   GhPrListRequestMessage,
   GhPrFailedLogsRequestMessage,
   GhPrReviewCommentsRequestMessage,
+  UsageScanRequestMessage,
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
@@ -70,6 +71,7 @@ import {
   globTestFiles,
 } from '../git/index.js';
 import { getPatch } from '../git/patch.js';
+import { scanUsage } from '../usage/scan.js';
 import { ContainerManager } from '../container/manager.js';
 import { CoderManager, shellQuote } from '../container/coder-manager.js';
 import { generateDevcontainerConfig } from '../container/config-generator.js';
@@ -660,6 +662,9 @@ export class WsClient {
         break;
       case 'GH_PR_REVIEW_COMMENTS_REQUEST':
         this.handleGhPrReviewCommentsRequest(message as GhPrReviewCommentsRequestMessage);
+        break;
+      case 'USAGE_SCAN_REQUEST':
+        this.handleUsageScanRequest(message as UsageScanRequestMessage);
         break;
     }
   }
@@ -1551,6 +1556,26 @@ export class WsClient {
       this.send({
         type: 'GH_PR_REVIEW_COMMENTS_RESPONSE',
         payload: { requestId, error: classifyGhError(err) },
+      });
+    }
+  }
+
+  private async handleUsageScanRequest(message: UsageScanRequestMessage): Promise<void> {
+    const { requestId, knownFiles, sealedDates } = message.payload;
+    try {
+      const result = await scanUsage({
+        homeDir: os.homedir(),
+        knownFiles,
+        sealedDates: new Set(sealedDates),
+      });
+      this.send({
+        type: 'USAGE_SCAN_RESPONSE',
+        payload: { requestId, ...result },
+      });
+    } catch (err) {
+      this.send({
+        type: 'USAGE_SCAN_RESPONSE',
+        payload: { requestId, error: errorText(err) },
       });
     }
   }
