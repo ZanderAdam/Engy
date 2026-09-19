@@ -8,6 +8,8 @@ import type {
   TerminalActivityState,
   WorktreeAddErrorCode,
   WorktreeRemoveErrorCode,
+  UsageSessionScanResult,
+  UsageScanFileState,
 } from '@engy/common';
 
 export interface CreateDirResult {
@@ -200,6 +202,13 @@ export interface GhPrFailedLogsResult {
 
 export interface GhPrReviewCommentsResult {
   comments: GhReviewComment[];
+}
+
+export interface UsageScanDispatchResult {
+  sessions: UsageSessionScanResult[];
+  files: Record<string, UsageScanFileState>;
+  newlySealedDates: string[];
+  staleSealSkips: number;
 }
 
 export interface DispatchEntry {
@@ -457,6 +466,13 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingUsageScan: Map<
+    string,
+    {
+      resolve: (result: UsageScanDispatchResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   daemonHomeDir: string | null;
   /** Per-socket watch subscriptions: socket → (workspaceSlug → paths) */
   watchSubscriptions: Map<WebSocket, Map<string, Set<string>>>;
@@ -560,6 +576,7 @@ export function createAppState(): AppState {
     pendingGhPrList: new Map(),
     pendingGhPrFailedLogs: new Map(),
     pendingGhPrReviewComments: new Map(),
+    pendingUsageScan: new Map(),
     daemonHomeDir: null,
     watchSubscriptions: new Map(),
     watchSyncTimer: null,

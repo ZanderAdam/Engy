@@ -14,6 +14,7 @@ import type {
   FleetingMemoryType,
   BranchDiffTarget,
   GitPatchSpec,
+  UsageScanFileState,
 } from '@engy/common';
 import type {
   AppState,
@@ -43,6 +44,7 @@ import type {
   GhPrListResult,
   GhPrFailedLogsResult,
   GhPrReviewCommentsResult,
+  UsageScanDispatchResult,
 } from '../trpc/context';
 import { getDb } from '../db/client';
 import {
@@ -72,6 +74,9 @@ const GIT_TIMEOUT_MS = 15_000;
 const WORKTREE_MERGE_TIMEOUT_MS = 60_000;
 const GH_LOGS_TIMEOUT_MS = 60_000;
 const CONTAINER_TIMEOUT_MS = 300_000;
+// A cold full scan of a large transcript tree is ~3.5s per the measured
+// baseline; this leaves headroom well past that for a first-ever scan.
+const USAGE_SCAN_TIMEOUT_MS = 60_000;
 
 export function createWebSocketServer(state: AppState): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
@@ -144,6 +149,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingGhPrList,
     state.pendingGhPrFailedLogs,
     state.pendingGhPrReviewComments,
+    state.pendingUsageScan,
   ] as const;
 
   const error = new Error('Daemon disconnected');
@@ -337,6 +343,14 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'GH_PR_REVIEW_COMMENTS_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGhPrReviewComments, (p) => ({
         comments: p.comments,
+      }));
+      break;
+    case 'USAGE_SCAN_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingUsageScan, (p) => ({
+        sessions: p.sessions,
+        files: p.files,
+        newlySealedDates: p.newlySealedDates,
+        staleSealSkips: p.staleSealSkips,
       }));
       break;
   }
@@ -1411,5 +1425,19 @@ export function dispatchGhPrReviewComments(
     'GH_PR_REVIEW_COMMENTS_REQUEST',
     { repoDir, prNumber, coderWorkspace },
     GH_LOGS_TIMEOUT_MS,
+  );
+}
+
+export function dispatchUsageScan(
+  knownFiles: Record<string, UsageScanFileState>,
+  sealedDates: string[],
+  state: AppState,
+): Promise<UsageScanDispatchResult> {
+  return dispatchDaemonOp(
+    state,
+    state.pendingUsageScan,
+    'USAGE_SCAN_REQUEST',
+    { knownFiles, sealedDates },
+    USAGE_SCAN_TIMEOUT_MS,
   );
 }

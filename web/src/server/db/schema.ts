@@ -549,3 +549,241 @@ export const terminalSessionHistory = sqliteTable(
   },
   (table) => [index('idx_tsh_workspace_started').on(table.workspaceSlug, table.startedAt)],
 );
+
+// ── Usage Analytics ─────────────────────────────────────────────────
+
+// Incremental-scan bookkeeping: one row per transcript file on disk, mirroring
+// the daemon's `UsageScanFileState` wire type 1:1 so `refresh()` can hand the
+// whole map back as `knownFiles` on the next scan without translation.
+export const usageScanFile = sqliteTable('usage_scan_file', {
+  path: text('path').primaryKey(),
+  sizeBytes: integer('size_bytes').notNull(),
+  mtimeMs: integer('mtime_ms').notNull(),
+  bytesScanned: integer('bytes_scanned').notNull().default(0),
+  firstLineDate: text('first_line_date'),
+  lastLineDate: text('last_line_date'),
+  lastScanAt: text('last_scan_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const usageSession = sqliteTable(
+  'usage_session',
+  {
+    sessionId: text('session_id').primaryKey(),
+    slug: text('slug').notNull(),
+    cwd: text('cwd'),
+    gitBranch: text('git_branch'),
+    repoRoot: text('repo_root'),
+    // A subagent row's sessionId is its agent id; parentSessionId is the
+    // spawning session. From `agent-<id>.jsonl` + its `.meta.json` sidecar.
+    parentSessionId: text('parent_session_id'),
+    isSubagent: integer('is_subagent', { mode: 'boolean' }).notNull().default(false),
+    agentType: text('agent_type'),
+    agentDescription: text('agent_description'),
+    engyWorkspaceId: integer('engy_workspace_id').references(() => workspaces.id, {
+      onDelete: 'set null',
+    }),
+    engyProjectId: integer('engy_project_id').references(() => projects.id, {
+      onDelete: 'set null',
+    }),
+    model: text('model').notNull(),
+    startedAt: text('started_at'),
+    endedAt: text('ended_at'),
+    apiCalls: integer('api_calls').notNull().default(0),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    thinkingTokens: integer('thinking_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    cacheWrite1hTokens: integer('cache_write_1h_tokens').notNull().default(0),
+    cacheWrite5mTokens: integer('cache_write_5m_tokens').notNull().default(0),
+    webSearchRequests: integer('web_search_requests').notNull().default(0),
+    webFetchRequests: integer('web_fetch_requests').notNull().default(0),
+    estCostCents: integer('est_cost_cents').notNull().default(0),
+    // Enrichment from ~/.claude/usage-data/session-meta/<session>.json — best-effort, may be absent.
+    firstPrompt: text('first_prompt'),
+    durationMinutes: real('duration_minutes'),
+    linesAdded: integer('lines_added'),
+    linesRemoved: integer('lines_removed'),
+    filesModified: integer('files_modified'),
+    gitCommits: integer('git_commits'),
+    toolErrors: integer('tool_errors'),
+    // Auto-compaction events — attribution caps at each boundary, so this is
+    // what explains a session's cost shape not otherwise visible in the totals.
+    compactions: integer('compactions').notNull().default(0),
+  },
+  (table) => [
+    index('idx_usage_session_slug').on(table.slug),
+    index('idx_usage_session_repo_root').on(table.repoRoot),
+    index('idx_usage_session_workspace').on(table.engyWorkspaceId),
+    index('idx_usage_session_project').on(table.engyProjectId),
+    index('idx_usage_session_parent').on(table.parentSessionId),
+  ],
+);
+
+export const usageSessionRelations = relations(usageSession, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [usageSession.engyWorkspaceId],
+    references: [workspaces.id],
+  }),
+  project: one(projects, {
+    fields: [usageSession.engyProjectId],
+    references: [projects.id],
+  }),
+}));
+
+// Time series, pre-bucketed for charts. `date` (not `sessionId`) anchors the
+// key because a session can cross midnight — bucketing by the call's own
+// timestamp keeps every date-range query exact at the edges.
+export const usageDaily = sqliteTable(
+  'usage_daily',
+  {
+    date: text('date').notNull(),
+    slug: text('slug').notNull(),
+    model: text('model').notNull(),
+    // Split out so overview can report subagent spend as its own share
+    // without losing per-day accuracy to a session-level (midnight-crossing)
+    // approximation — totals simply sum across both values.
+    isSubagent: integer('is_subagent', { mode: 'boolean' }).notNull().default(false),
+    apiCalls: integer('api_calls').notNull().default(0),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    thinkingTokens: integer('thinking_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    cacheWrite1hTokens: integer('cache_write_1h_tokens').notNull().default(0),
+    cacheWrite5mTokens: integer('cache_write_5m_tokens').notNull().default(0),
+    estCostCents: integer('est_cost_cents').notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.date, table.slug, table.model, table.isSubagent] }),
+    index('idx_usage_daily_date').on(table.date),
+  ],
+);
+
+// Per-tool rollup — the "what's burning it" table.
+export const usageTool = sqliteTable(
+  'usage_tool',
+  {
+    date: text('date').notNull(),
+    sessionId: text('session_id').notNull(),
+    toolName: text('tool_name').notNull(),
+    calls: integer('calls').notNull().default(0),
+    resultChars: integer('result_chars').notNull().default(0),
+    resultTokensEst: integer('result_tokens_est').notNull().default(0),
+    inputChars: integer('input_chars').notNull().default(0),
+    attributedTokenTurns: integer('attributed_token_turns').notNull().default(0),
+    attributedCostCents: integer('attributed_cost_cents').notNull().default(0),
+    p50ResultChars: integer('p50_result_chars').notNull().default(0),
+    p95ResultChars: integer('p95_result_chars').notNull().default(0),
+    maxResultChars: integer('max_result_chars').notNull().default(0),
+    errorCount: integer('error_count').notNull().default(0),
+    images: integer('images').notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.date, table.sessionId, table.toolName] }),
+    index('idx_usage_tool_date').on(table.date),
+  ],
+);
+
+// Modeled token-turns by content kind (tool result / tool input / assistant
+// text / image / thinking) — the denominator for normalising attribution
+// shares against measured cache-read cost (see usage.ts's `normalizeShare`).
+export const usageCause = sqliteTable(
+  'usage_cause',
+  {
+    date: text('date').notNull(),
+    sessionId: text('session_id').notNull(),
+    kind: text('kind', {
+      enum: ['toolResult', 'toolInput', 'text', 'image', 'thinking'],
+    }).notNull(),
+    tokenTurns: integer('token_turns').notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.date, table.sessionId, table.kind] }),
+    index('idx_usage_cause_date').on(table.date),
+  ],
+);
+
+// Per-call cache-read size within one session, in call order — feeds the
+// session drill-down's context-growth timeline. Scoped to a single session
+// at read time, never a date range, so it carries no `date` column.
+export const usageCall = sqliteTable(
+  'usage_call',
+  {
+    sessionId: text('session_id').notNull(),
+    callIndex: integer('call_index').notNull(),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+  },
+  (table) => [primaryKey({ columns: [table.sessionId, table.callIndex] })],
+);
+
+// Cost by tool input field (`Agent.prompt`, `Bash.command`, ...) — what the
+// model *writes* into context, not just what it reads back.
+export const usageField = sqliteTable(
+  'usage_field',
+  {
+    date: text('date').notNull(),
+    sessionId: text('session_id').notNull(),
+    tool: text('tool').notNull(),
+    field: text('field').notNull(),
+    tokens: integer('tokens').notNull().default(0),
+    tokenTurns: integer('token_turns').notNull().default(0),
+    attributedCostCents: integer('attributed_cost_cents').notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.date, table.sessionId, table.tool, table.field] }),
+    index('idx_usage_field_date').on(table.date),
+  ],
+);
+
+// Per-file-path rollup — "which files am I paying to re-read".
+export const usageFile = sqliteTable(
+  'usage_file',
+  {
+    date: text('date').notNull(),
+    sessionId: text('session_id').notNull(),
+    filePath: text('file_path').notNull(),
+    tool: text('tool').notNull(),
+    reads: integer('reads').notNull().default(0),
+    edits: integer('edits').notNull().default(0),
+    writes: integer('writes').notNull().default(0),
+    totalChars: integer('total_chars').notNull().default(0),
+    tokensEst: integer('tokens_est').notNull().default(0),
+    attributedTokenTurns: integer('attributed_token_turns').notNull().default(0),
+    attributedCostCents: integer('attributed_cost_cents').notNull().default(0),
+    ext: text('ext').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.date, table.sessionId, table.filePath] }),
+    index('idx_usage_file_date').on(table.date),
+  ],
+);
+
+// Past days never change once sealed — a sealed date's rollup rows are read
+// straight from SQLite and never recomputed. `reducerVersion` lets a future
+// attribution-model change force a full re-seal without silently leaving
+// stale historical rows behind.
+export const usageSealedDate = sqliteTable('usage_sealed_date', {
+  date: text('date').primaryKey(),
+  sealedAt: text('sealed_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  fileCount: integer('file_count').notNull().default(0),
+  rowCount: integer('row_count').notNull().default(0),
+  reducerVersion: integer('reducer_version').notNull().default(1),
+});
+
+// Seeded but editable — a rate change is a row update, not a deploy. Rates
+// are stored as micro-cents per token (1 cent = 1,000,000 micro-cents) so
+// every column is an exact integer: micro-cents/token = $-per-MTok × 100.
+export const usagePricing = sqliteTable('usage_pricing', {
+  model: text('model').primaryKey(),
+  inputMicroCentsPerToken: integer('input_micro_cents_per_token').notNull(),
+  outputMicroCentsPerToken: integer('output_micro_cents_per_token').notNull(),
+  cacheWrite1hMicroCentsPerToken: integer('cache_write_1h_micro_cents_per_token').notNull(),
+  cacheWrite5mMicroCentsPerToken: integer('cache_write_5m_micro_cents_per_token').notNull(),
+  cacheReadMicroCentsPerToken: integer('cache_read_micro_cents_per_token').notNull(),
+  updatedAt: text('updated_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});

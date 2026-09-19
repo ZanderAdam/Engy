@@ -102,6 +102,14 @@ interface CommentChangeEvent {
   };
 }
 
+interface UsageChangeEvent {
+  type: 'USAGE_CHANGE';
+  payload: {
+    scannedFiles: number;
+    newSessions: number;
+  };
+}
+
 interface TerminalWorkersChangeEvent {
   type: 'TERMINAL_WORKERS_CHANGE';
   payload: {
@@ -137,7 +145,8 @@ type ServerEvent =
   | PrAttentionEvent
   | TerminalWorkersChangeEvent
   | VoiceSpeakEvent
-  | CommentChangeEvent;
+  | CommentChangeEvent
+  | UsageChangeEvent;
 
 // ── Generic Broadcast ───────────────────────────────────────────────
 
@@ -241,4 +250,8 @@ export function broadcastVoiceSpeak(payload: VoiceSpeakEvent['payload']): void {
 
 export function broadcastCommentChange(documentPath: string, threadId: string): void {
   broadcastEvent({ type: 'COMMENT_CHANGE', payload: { documentPath, threadId } });
+}
+
+export function broadcastUsageChange(scannedFiles: number, newSessions: number): void {
+  broadcastEvent({ type: 'USAGE_CHANGE', payload: { scannedFiles, newSessions } });
 }

@@ -22,6 +22,7 @@ import { attachMCP, isMcpPath } from './src/server/mcp/index';
 import { isHookPath, handleHookRequest } from './src/server/hooks/index';
 import { runMigrations, runPostMigrationBackfills } from './src/server/db/migrate';
 import { startPrPoller, stopPrPoller } from './src/server/pr/poller';
+import { seedUsagePricing } from './src/server/usage/pricing';
 
 const dev = process.env.NODE_ENV !== 'production';
 const port = parseInt(process.env.PORT || '3000', 10);
@@ -34,6 +35,7 @@ app.prepare().then(() => {
   runPostMigrationBackfills().catch((err) =>
     console.error('[db] Post-migration backfills failed:', err),
   );
+  seedUsagePricing();
 
   const state = getAppState();
 
