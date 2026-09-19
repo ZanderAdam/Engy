@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState, type DragEvent } from 'react';
 import {
   RiAddLine,
   RiArrowLeftSLine,
@@ -12,6 +12,7 @@ import {
   RiTerminalLine,
 } from '@remixicon/react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Checkbox } from '@/components/ui/checkbox';
 import { CloseTerminalDialog } from './close-terminal-dialog';
 import { useCanHover } from '@/hooks/use-can-hover';
 import { cn } from '@/lib/utils';
@@ -40,6 +41,16 @@ import {
   type TerminalTab,
 } from './types';
 import { groupTabsByWorktree, type TerminalWorktreeGroup } from './worktree-grouping';
+import { setWorktreeGrouping, useWorktreeGrouping } from './use-worktree-grouping';
+
+interface RailDragHandlers {
+  draggable: boolean;
+  onDragStart: (e: DragEvent<HTMLElement>) => void;
+  onDragOver: (e: DragEvent<HTMLElement>) => void;
+  onDragLeave: () => void;
+  onDrop: (e: DragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
+}
 
 interface TerminalRailProps {
   // Collapse state of the terminal dock (owned by ThreePanelLayout). The rail
@@ -75,6 +86,9 @@ export function TerminalRail({
   const [listExpanded, setListExpanded] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [closingTab, setClosingTab] = useState<TerminalTab | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const draggingIdRef = useRef<string | null>(null);
+  const byWorktree = useWorktreeGrouping();
   const canHover = useCanHover();
 
   function focusSession(sessionId: string) {
@@ -115,7 +129,7 @@ export function TerminalRail({
   // project → worktree with a project header. The per-project rail just groups
   // by worktree (headers only when more than one worktree is in play).
   const sections = commandCenter
-    ? groupTabsByProject(tabs).map((pg) => ({
+    ? groupTabsByProject(tabs, byWorktree).map((pg) => ({
         key: pg.key,
         projectLabel: pg.label,
         isProject: pg.isProject,
@@ -128,9 +142,48 @@ export function TerminalRail({
           projectLabel: undefined,
           isProject: false,
           workspaceSlug: undefined,
-          worktreeGroups: groupTabsByWorktree(tabs),
+          worktreeGroups: groupTabsByWorktree(tabs, byWorktree),
         },
       ];
+
+  // The rail only asks the dock to move the panel; the reordered list comes
+  // back through the session store, so the list and the tab strip cannot drift
+  // apart (see terminal:reorder in TerminalManager).
+  function reorderBefore(targetSessionId: string) {
+    const sessionId = draggingIdRef.current;
+    draggingIdRef.current = null;
+    setDragOverId(null);
+    if (!sessionId || sessionId === targetSessionId) return;
+    window.dispatchEvent(
+      new CustomEvent('terminal:reorder', { detail: { sessionId, targetSessionId, tabId } }),
+    );
+  }
+
+  function dragProps(tab: TerminalTab): RailDragHandlers {
+    return {
+      draggable: true,
+      onDragStart: (e: DragEvent<HTMLElement>) => {
+        draggingIdRef.current = tab.sessionId;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', tab.sessionId);
+      },
+      onDragOver: (e: DragEvent<HTMLElement>) => {
+        if (!draggingIdRef.current || draggingIdRef.current === tab.sessionId) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setDragOverId(tab.sessionId);
+      },
+      onDragLeave: () => setDragOverId((current) => (current === tab.sessionId ? null : current)),
+      onDrop: (e: DragEvent<HTMLElement>) => {
+        e.preventDefault();
+        reorderBefore(tab.sessionId);
+      },
+      onDragEnd: () => {
+        draggingIdRef.current = null;
+        setDragOverId(null);
+      },
+    };
+  }
 
   function renderWorktreeGroup(group: TerminalWorktreeGroup, showHeader: boolean, dots: boolean) {
     return (
@@ -257,9 +310,11 @@ export function TerminalRail({
     ) : (
       <div
         key={tab.sessionId}
+        {...dragProps(tab)}
         className={cn(
           'group flex items-start rounded-sm hover:bg-muted',
           tab.sessionId === activeId && 'bg-muted',
+          dragOverId === tab.sessionId && 'ring-1 ring-inset ring-primary',
         )}
       >
         <button
@@ -293,6 +348,8 @@ export function TerminalRail({
         key={tab.sessionId}
         tab={tab}
         active={tab.sessionId === activeId}
+        dropTarget={dragOverId === tab.sessionId}
+        dragProps={dragProps(tab)}
         onFocus={() => focusSession(tab.sessionId)}
       />
     );
@@ -421,6 +478,19 @@ export function TerminalRail({
             </TooltipTrigger>
             <TooltipContent side="left">Terminal list</TooltipContent>
           </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="flex size-7 items-center justify-center">
+                <Checkbox
+                  checked={byWorktree}
+                  onCheckedChange={(checked) => setWorktreeGrouping(checked === true)}
+                  aria-label="Group terminals by worktree"
+                />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="left">Group by worktree</TooltipContent>
+          </Tooltip>
         </div>
 
         {/* Sessions — colour-coded dots when narrow, labelled rows when
@@ -458,10 +528,14 @@ export function TerminalRail({
 function TerminalRailDot({
   tab,
   active,
+  dropTarget,
+  dragProps,
   onFocus,
 }: {
   tab: TerminalTab;
   active: boolean;
+  dropTarget: boolean;
+  dragProps: RailDragHandlers;
   onFocus: () => void;
 }) {
   const terminalNumber = useTerminalNumber(tab.sessionId);
@@ -472,12 +546,14 @@ function TerminalRailDot({
         <button
           type="button"
           onClick={onFocus}
+          {...dragProps}
           aria-label={`Focus terminal ${spoken}${tab.scope.scopeLabel}${tab.oscTitle ? `: ${tab.oscTitle}` : ''}`}
           aria-current={active || undefined}
           className={cn(
             'flex size-6 items-center justify-center rounded-[5px] transition-colors',
             getTerminalRailBoxStyle(tab),
             active && 'ring-1 ring-inset ring-foreground/60',
+            dropTarget && 'ring-1 ring-inset ring-primary',
           )}
         >
           {terminalNumber === null ? (

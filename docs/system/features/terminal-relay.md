@@ -573,6 +573,8 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-880 | WHEN the daemon handles a reconnect for a session, it SHALL suppress that session's activity tracking for the full activity-suppress window, applied after any resize the reconnect performs, so the reattach redraw is not counted as the program doing work. A browser socket drops routinely (a backgrounded tab, a flaky network), and without this every reattached terminal settled to `done` and read as finished work. |
 | FR-TERMINAL-890 | An activity tracker's output-suppression window SHALL never be shortened by a later, shorter suppression request, so the narrow window a resize sets cannot cancel the wider one a reconnect sets regardless of the order the two arrive. |
 | FR-TERMINAL-900 | WHILE the user holds Ctrl+Alt, the browser SHALL number the open terminals wherever they are listed, and WHEN a digit 1-9 is pressed with Ctrl+Alt held, it SHALL focus the terminal carrying that number. Ctrl+digit and Alt+digit are reserved by browsers for their own tabs and cannot be used. |
+| FR-TERMINAL-910 | The terminal rail SHALL carry a grouping checkbox, on by default, persisted and shared across in-app tabs and browser tabs. WHILE it is off, the rail SHALL list the terminals flat in dock order instead of splitting them into per-worktree groups; Command Center's project grouping SHALL be unaffected. |
+| FR-TERMINAL-920 | The terminal rail SHALL list terminals in the dock's panel order, so a tab reordered in the dock reorders the rail. WHEN the user drags a rail entry onto another, the system SHALL move that terminal's dock panel into the target's place, which republishes the rail list — the rail SHALL hold no order of its own. |
 
 ## Sources
 

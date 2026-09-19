@@ -17,6 +17,7 @@ import { randomId } from "@/lib/random-id";
 import { trpc } from "@/lib/trpc";
 import { sessionToTab, type SessionListItem } from "./session-to-tab";
 import { publishTerminalSessions, clearTerminalSessions, terminalRailKey } from "./terminal-session-store";
+import { orderTabsByPanelIds } from "./tab-order";
 import { registerPrimaryInjectTarget, isPrimaryReadyFor } from "./terminal-inject-priority";
 
 /** Pure decision for the `terminal:inject` race: which session id (if any)
@@ -72,6 +73,12 @@ interface TerminalRenameEvent {
 
 interface TerminalCloseEvent {
   sessionId: string;
+  tabId?: string;
+}
+
+interface TerminalReorderEvent {
+  sessionId: string;
+  targetSessionId: string;
   tabId?: string;
 }
 
@@ -532,6 +539,29 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     return () => window.removeEventListener('terminal:close', onClose);
   }, [myTabId]);
 
+  // terminal:reorder — the rail's drag-and-drop. Moving the dockview panel is
+  // the only write: the rail's own order is republished from the dock's panel
+  // order, so the list and the tab strip cannot drift apart. Inserting at the
+  // target's current index lands the panel in the target's place whichever
+  // direction it came from, because dockview removes the panel before it
+  // re-inserts it.
+  useEffect(() => {
+    function onReorder(e: Event) {
+      const { sessionId, targetSessionId, tabId } = (e as CustomEvent<TerminalReorderEvent>).detail;
+      if (tabId !== undefined && tabId !== myTabId) return;
+      const api = dockviewApiRef.current;
+      if (!api) return;
+      const panel = api.getPanel(sessionId);
+      const target = api.getPanel(targetSessionId);
+      if (!panel || !target || panel === target) return;
+      const group = target.api.group;
+      panel.api.moveTo({ group, index: group.panels.indexOf(target) });
+    }
+
+    window.addEventListener('terminal:reorder', onReorder);
+    return () => window.removeEventListener('terminal:reorder', onReorder);
+  }, [myTabId]);
+
   // Cross-browser session sync: when another browser creates a session for this groupKey,
   // fetch updated session list and add any new sessions as tabs
   useOnServerEvent('TERMINAL_SESSIONS_CHANGE', useCallback((payload) => {
@@ -657,7 +687,10 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
         scheduleLayoutSave();
         bumpTabs();
       });
-      api.onDidMovePanel(() => scheduleLayoutSave());
+      api.onDidMovePanel(() => {
+        scheduleLayoutSave();
+        bumpTabs();
+      });
       api.onDidAddGroup(() => scheduleLayoutSave());
       api.onDidRemoveGroup(() => scheduleLayoutSave());
 
@@ -750,9 +783,10 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   const railKey = publishKey ? terminalRailKey(myTabId, publishKey) : null;
   useEffect(() => {
     if (!railKey) return;
+    const api = dockviewApiRef.current;
     publishTerminalSessions(railKey, {
-      tabs: [...tabsRef.current.values()],
-      activeId: dockviewApiRef.current?.activePanel?.id ?? null,
+      tabs: orderTabsByPanelIds(api?.panels.map((p) => p.id) ?? [], tabsRef.current),
+      activeId: api?.activePanel?.id ?? null,
     });
   }, [railKey, tabsVersion]);
 

@@ -14,8 +14,18 @@ export const DEFAULT_WORKTREE_LABEL = 'default branch';
  * Group terminal tabs by their worktree branch for combined-mode display. The
  * default branch (undefined) sorts first; remaining branches keep first-seen
  * order so the grouping is stable as tabs open and close.
+ *
+ * With `byWorktree` off every tab lands in one group, which the rail renders
+ * headerless — the flat list the grouping checkbox asks for.
  */
-export function groupTabsByWorktree(tabs: TerminalTab[]): TerminalWorktreeGroup[] {
+export function groupTabsByWorktree(
+  tabs: TerminalTab[],
+  byWorktree = true,
+): TerminalWorktreeGroup[] {
+  if (!byWorktree) {
+    return tabs.length === 0 ? [] : [{ branch: undefined, label: DEFAULT_WORKTREE_LABEL, tabs }];
+  }
+
   const order: Array<string | undefined> = [];
   const byBranch = new Map<string | undefined, TerminalTab[]>();
 
