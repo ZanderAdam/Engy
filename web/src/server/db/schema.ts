@@ -686,8 +686,8 @@ export const usageTool = sqliteTable(
 );
 
 // Modeled token-turns by content kind (tool result / tool input / assistant
-// text / image / thinking) — the denominator for normalising attribution
-// shares against measured cache-read cost (see usage.ts's `normalizeShare`).
+// text / image / thinking). Priced directly at the session's cache-read rate;
+// the shortfall against measured cost is the unattributable per-call baseline.
 export const usageCause = sqliteTable(
   'usage_cause',
   {

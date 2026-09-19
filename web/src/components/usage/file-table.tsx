@@ -24,6 +24,12 @@ const ACCESSORS = {
   costCents: (row: UsageFileRow) => row.costCents,
 } as const;
 
+const KEY_LABEL: Record<FileGroupBy, string> = {
+  path: 'Path',
+  ext: 'Extension',
+  dir: 'Directory',
+};
+
 function extensionOf(path: string): string {
   const base = path.split('/').pop() ?? path;
   const dot = base.lastIndexOf('.');
@@ -41,7 +47,7 @@ export function FileTable({ rows, groupBy }: { rows: UsageFileRow[]; groupBy: Fi
     return <p className="text-xs text-muted-foreground">No file activity in this range.</p>;
   }
 
-  const keyLabel = groupBy === 'ext' ? 'Extension' : groupBy === 'dir' ? 'Directory' : 'Path';
+  const keyLabel = KEY_LABEL[groupBy];
 
   return (
     <Table>

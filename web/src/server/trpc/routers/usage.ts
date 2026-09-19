@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { and, eq, gte, lte, inArray, type SQL } from 'drizzle-orm';
+import { and, count, eq, gte, lte, inArray, type SQL } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import type { UsageCauseKind, UsageScanFileState } from '@engy/common';
 import { router, publicProcedure } from '../trpc';
@@ -22,7 +22,6 @@ import type { AppState, UsageScanDispatchResult } from '../context';
 import { dispatchUsageScan } from '../../ws/server';
 import { broadcastUsageChange } from '../../ws/broadcast';
 import {
-  getModelRate,
   listModelRates,
   microCentsForTokens,
   microCentsToCents,
@@ -69,7 +68,7 @@ function loadKnownFiles(db: Db): Record<string, UsageScanFileState> {
 
 // A disconnected daemon (or one that can't yet answer) yields an empty scan
 // rather than failing `refresh()`.
-export async function requestUsageScan(db: Db, state: AppState): Promise<UsageScanDispatchResult> {
+async function requestUsageScan(db: Db, state: AppState): Promise<UsageScanDispatchResult> {
   if (!state.daemon || state.daemon.readyState !== state.daemon.OPEN) return EMPTY_SCAN;
   const knownFiles = loadKnownFiles(db);
   const sealedDates = db.select({ date: usageSealedDate.date }).from(usageSealedDate).all().map((r) => r.date);
@@ -244,25 +243,53 @@ function sessionLabel(row: Pick<UsageSessionRow, 'firstPrompt' | 'sessionId'>): 
 
 // ── Engy workspace/project resolution ─────────────────────────────────
 
-function resolveEngyIds(
-  db: Db,
-  repoRoot: string | null,
-): { workspaceId: number | null; projectId: number | null } {
-  if (!repoRoot) return { workspaceId: null, projectId: null };
+interface EngyIds {
+  workspaceId: number | null;
+  projectId: number | null;
+}
+
+const UNRESOLVED_ENGY_IDS: EngyIds = { workspaceId: null, projectId: null };
+
+// One scan carries thousands of sessions over a handful of repo roots, so the
+// workspace table is read once and each root resolved at most once.
+function createEngyIdResolver(db: Db): (repoRoot: string | null) => EngyIds {
   const allWorkspaces = db.select().from(workspaces).all();
-  const match = allWorkspaces.find((ws) => ((ws.repos as string[] | null) ?? []).includes(repoRoot));
-  if (!match) return { workspaceId: null, projectId: null };
-  const defaultProject = db
-    .select()
-    .from(projects)
-    .where(and(eq(projects.workspaceId, match.id), eq(projects.isDefault, true)))
-    .get();
-  return { workspaceId: match.id, projectId: defaultProject?.id ?? null };
+  const cache = new Map<string, EngyIds>();
+
+  return (repoRoot) => {
+    if (!repoRoot) return UNRESOLVED_ENGY_IDS;
+    const cached = cache.get(repoRoot);
+    if (cached) return cached;
+
+    const match = allWorkspaces.find((ws) =>
+      ((ws.repos as string[] | null) ?? []).includes(repoRoot),
+    );
+    const resolved = match
+      ? {
+          workspaceId: match.id,
+          projectId:
+            db
+              .select()
+              .from(projects)
+              .where(and(eq(projects.workspaceId, match.id), eq(projects.isDefault, true)))
+              .get()?.id ?? null,
+        }
+      : UNRESOLVED_ENGY_IDS;
+    cache.set(repoRoot, resolved);
+    return resolved;
+  };
 }
 
 // ── Upsert ────────────────────────────────────────────────────────────
 
+function dominantFileTool(file: { reads: number; writes: number }): string {
+  if (file.reads > 0) return 'Read';
+  if (file.writes > 0) return 'Write';
+  return 'Edit';
+}
+
 function applyScanFileUpdates(tx: Db, files: Record<string, UsageScanFileState>): void {
+  const lastScanAt = new Date().toISOString();
   for (const [filePath, state] of Object.entries(files)) {
     const values = {
       sizeBytes: state.sizeBytes,
@@ -270,7 +297,7 @@ function applyScanFileUpdates(tx: Db, files: Record<string, UsageScanFileState>)
       bytesScanned: state.bytesScanned,
       firstLineDate: state.firstLineDate,
       lastLineDate: state.lastLineDate,
-      lastScanAt: new Date().toISOString(),
+      lastScanAt,
     };
     tx.insert(usageScanFile)
       .values({ path: filePath, ...values })
@@ -282,9 +309,15 @@ function applyScanFileUpdates(tx: Db, files: Record<string, UsageScanFileState>)
 // A sealed date's rollup rows are read straight from SQLite forever after —
 // fileCount/rowCount are diagnostic only, never read back by any query here.
 function applySealedDates(tx: Db, dates: string[]): void {
+  const sealedAt = new Date().toISOString();
   for (const dateValue of dates) {
-    const rowCount = tx.select().from(usageDaily).where(eq(usageDaily.date, dateValue)).all().length;
-    const values = { sealedAt: new Date().toISOString(), fileCount: 0, rowCount, reducerVersion: 1 };
+    const rowCount =
+      tx
+        .select({ value: count() })
+        .from(usageDaily)
+        .where(eq(usageDaily.date, dateValue))
+        .get()?.value ?? 0;
+    const values = { sealedAt, fileCount: 0, rowCount, reducerVersion: 1 };
     tx.insert(usageSealedDate)
       .values({ date: dateValue, ...values })
       .onConflictDoUpdate({ target: usageSealedDate.date, set: values })
@@ -292,9 +325,11 @@ function applySealedDates(tx: Db, dates: string[]): void {
   }
 }
 
-export function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessions: number } {
+function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessions: number } {
   return db.transaction((tx) => {
     let newSessions = 0;
+    const rates = getRatesMap(tx);
+    const resolveEngyIds = createEngyIdResolver(tx);
 
     for (const result of response.sessions) {
       const { scan, repoRoot, meta } = result;
@@ -306,7 +341,7 @@ export function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { ne
         .get();
       if (!existing) newSessions += 1;
 
-      const rate = getModelRate(tx, session.model);
+      const rate = rates.get(session.model);
       const tokenBuckets = {
         inputTokens: session.inputTokens,
         outputTokens: session.outputTokens,
@@ -316,7 +351,7 @@ export function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { ne
       };
       const estCostCents = rate ? microCentsToCents(microCentsForTokens(tokenBuckets, rate)) : 0;
 
-      const { workspaceId, projectId } = resolveEngyIds(tx, repoRoot);
+      const { workspaceId, projectId } = resolveEngyIds(repoRoot);
 
       const sessionValues = {
         slug: session.slug,
@@ -358,7 +393,7 @@ export function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { ne
         .run();
 
       for (const day of days) {
-        const dayRate = getModelRate(tx, day.model);
+        const dayRate = rates.get(day.model);
         const dayCostCents = dayRate
           ? microCentsToCents(
               microCentsForTokens(
@@ -444,7 +479,7 @@ export function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { ne
 
       for (const file of files) {
         const values = {
-          tool: file.reads > 0 ? 'Read' : file.writes > 0 ? 'Write' : 'Edit',
+          tool: dominantFileTool(file),
           reads: file.reads,
           edits: file.edits,
           writes: file.writes,

@@ -2,14 +2,14 @@ import { useMemo, useState } from 'react';
 
 export type SortDirection = 'asc' | 'desc';
 
-export interface SortState<K extends string> {
+interface SortState<K extends string> {
   key: K;
   direction: SortDirection;
 }
 
-export type SortAccessors<T, K extends string> = Record<K, (row: T) => number | string>;
+type SortAccessors<T, K extends string> = Record<K, (row: T) => number | string>;
 
-export function compareRows<T, K extends string>(
+function compareRows<T, K extends string>(
   accessors: SortAccessors<T, K>,
   sort: SortState<K>,
 ): (a: T, b: T) => number {

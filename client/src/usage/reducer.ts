@@ -144,7 +144,7 @@ function readFilePath(input: Record<string, unknown>): string | null {
   return null;
 }
 
-export interface SessionReducerOptions {
+interface SessionReducerOptions {
   sessionId: string;
   slug: string;
   parentSessionId?: string | null;
@@ -172,7 +172,7 @@ export class SessionReducer {
 
   private readonly totals = EMPTY_TOTALS();
   private readonly modelCalls = new Map<string, number>();
-  private readonly days = new Map<string, Totals & { model: string }>();
+  private readonly days = new Map<string, Totals & { date: string; model: string }>();
   private readonly tools = new Map<string, ToolAcc>();
   private readonly fields = new Map<
     string,
@@ -241,7 +241,7 @@ export class SessionReducer {
       const dayKey = `${date}${KEY_SEP}${model}`;
       let day = this.days.get(dayKey);
       if (!day) {
-        day = { ...EMPTY_TOTALS(), model };
+        day = { ...EMPTY_TOTALS(), date, model };
         this.days.set(dayKey, day);
       }
       addUsageTo(day, usage);
@@ -284,16 +284,14 @@ export class SessionReducer {
     if (name === 'Agent') this.agentCalls += 1;
     if (id) this.pending.set(id, { name, filePath: readFilePath(input) });
 
-    const chars = safeStringify(input).length;
-    const tokens = estimateTextTokens(safeStringify(input));
+    const serialisedInput = safeStringify(input);
+    const tokens = estimateTextTokens(serialisedInput);
     this.addCause('toolInput', tokens);
 
     const tool = this.toolAcc(name);
     tool.inputResidual.add(tokens, this.callsSoFar);
-    tool.inputChars += chars;
+    tool.inputChars += serialisedInput.length;
 
-    // Field-level split is what separates "Agent is expensive" from
-    // "Agent.prompt is expensive" — the latter is actionable.
     for (const [key, value] of Object.entries(input)) {
       const fieldKey = `${this.currentDate}${KEY_SEP}${name}${KEY_SEP}${key}`;
       let field = this.fields.get(fieldKey);
@@ -462,8 +460,8 @@ export class SessionReducer {
       webFetchRequests: this.totals.webFetchRequests,
     };
 
-    const days: UsageDayRollup[] = [...this.days].map(([key, day]) => ({
-      date: key.split('\u0000')[0],
+    const days: UsageDayRollup[] = [...this.days.values()].map((day) => ({
+      date: day.date,
       model: day.model,
       apiCalls: day.apiCalls,
       inputTokens: day.inputTokens,

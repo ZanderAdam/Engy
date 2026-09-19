@@ -17,13 +17,13 @@ const WORKTREE_SEGMENT = path.join('.claude', 'worktrees');
 const TIMESTAMP_MARKER = '"timestamp":"';
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-export interface UsageScanOptions {
+interface UsageScanOptions {
   homeDir: string;
   knownFiles: Record<string, UsageScanFileState>;
   sealedDates: ReadonlySet<string>;
 }
 
-export interface UsageScanResult {
+interface UsageScanResult {
   sessions: UsageSessionScanResult[];
   files: Record<string, UsageScanFileState>;
   newlySealedDates: string[];

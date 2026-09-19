@@ -3,7 +3,6 @@
 import { DELEGATED_COLOR, MAGNITUDE_COLOR } from './chart-palette';
 import { formatMoney, formatMoneyCompact, share } from './format';
 
-/** Rolled-up session cost with the delegated portion shown in place. */
 export function CostSplitCell({
   totalCents,
   subagentCents,

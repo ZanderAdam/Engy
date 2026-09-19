@@ -4,6 +4,12 @@ import { RiArrowDownLine, RiArrowUpLine, RiSubtractLine } from '@remixicon/react
 import { cn } from '@/lib/utils';
 import { formatDelta, type Delta } from './format';
 
+const DIRECTION_ICON = {
+  up: RiArrowUpLine,
+  down: RiArrowDownLine,
+  flat: RiSubtractLine,
+} as const;
+
 interface StatTileProps {
   label: string;
   value: string;
@@ -25,12 +31,7 @@ function DeltaRow({
   deltaLabel?: string;
   upIsGood: boolean;
 }) {
-  const Icon =
-    delta.direction === 'up'
-      ? RiArrowUpLine
-      : delta.direction === 'down'
-        ? RiArrowDownLine
-        : RiSubtractLine;
+  const Icon = DIRECTION_ICON[delta.direction];
   const good = delta.direction === 'flat' ? null : (delta.direction === 'up') === upIsGood;
 
   return (

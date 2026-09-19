@@ -36,5 +36,3 @@ export const MAGNITUDE_COLOR = '#a1a1aa';
 
 /** Reserved for the delegated/direct split wherever it appears. */
 export const DELEGATED_COLOR = '#d55181';
-
-export const GRID_COLOR = 'var(--border)';

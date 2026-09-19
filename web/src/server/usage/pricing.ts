@@ -66,7 +66,7 @@ export interface ModelRateRow {
   cacheReadMicroCentsPerToken: number;
 }
 
-export interface UsageTokenBuckets {
+interface UsageTokenBuckets {
   inputTokens: number;
   outputTokens: number;
   cacheWrite1hTokens: number;

@@ -22,7 +22,7 @@ export const PRESETS: ReadonlyArray<{ id: PresetId; label: string }> = [
   { id: 'allTime', label: 'All time' },
 ];
 
-export const DEFAULT_PRESET: PresetId = 'last30';
+const DEFAULT_PRESET: PresetId = 'last30';
 
 /** Claude Code did not exist before this; it is the open lower bound for "All time". */
 const ALL_TIME_FROM = '2020-01-01';
@@ -85,12 +85,6 @@ export function rangeLengthDays(range: DateRange): number {
   const from = Date.parse(`${range.from}T00:00:00`);
   const to = Date.parse(`${range.to}T00:00:00`);
   return Math.round((to - from) / 86_400_000) + 1;
-}
-
-export function describeRange(range: DateRange, now: Date): string {
-  const preset = matchPreset(range, now);
-  if (preset) return PRESETS.find((p) => p.id === preset)!.label;
-  return `${range.from} → ${range.to}`;
 }
 
 export function previousWindowLabel(range: DateRange, now: Date): string {

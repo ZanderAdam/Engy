@@ -10,7 +10,7 @@ export function estimateTextTokens(text: string): number {
   return text.length / CHARS_PER_TOKEN;
 }
 
-export interface ImageDimensions {
+interface ImageDimensions {
   width: number;
   height: number;
 }
@@ -53,7 +53,7 @@ export function estimateImageTokens(base64Data: string): number {
   return Math.max(1, Math.round(pixels / IMAGE_PIXELS_PER_TOKEN));
 }
 
-export interface BlockEstimate {
+interface BlockEstimate {
   tokens: number;
   isImage: boolean;
 }
