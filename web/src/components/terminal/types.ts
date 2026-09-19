@@ -15,8 +15,6 @@ export type TerminalStatus = 'connecting' | 'active' | 'exited' | 'error' | 'dor
 
 export type TerminalActivityState = 'idle' | 'active' | 'waiting' | 'done';
 
-export type ActivityEvent = 'start' | 'idle' | 'waiting' | 'done';
-
 export type ContainerMode = 'host' | 'container';
 
 // Four-state activity model (after agent-deck / herdr): active = working,
@@ -113,10 +111,6 @@ export interface TerminalTab {
   // UserPromptSubmit, or focus ack yet. Distinct from activityState so a
   // dismissed prompt doesn't masquerade as still-running activity.
   needsAttention?: boolean;
-  // Set once a TERMINAL_ACTIVITY_CHANGE broadcast reports this session as
-  // hook-driven. While true, activityState is server-owned — the local PTY
-  // heuristic is suppressed rather than raced against the broadcast.
-  hookDriven?: boolean;
 }
 
 export interface TerminalPanelParams {

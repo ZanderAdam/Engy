@@ -81,16 +81,16 @@ describe('terminal session list', () => {
       expect(tab.needsAttention).toBeUndefined();
     });
 
-    it('[FR-TERMINAL-800] should seed hookDriven from the list item at initial load', () => {
-      const tab = sessionToTab(listItem({ hookDriven: true }), 'fallback-key');
+    it('[FR-TERMINAL-800] should seed activityState from the server list at initial load', () => {
+      const tab = sessionToTab(listItem({ activityState: 'done' }), 'fallback-key');
 
-      expect(tab.hookDriven).toBe(true);
+      expect(tab.activityState).toBe('done');
     });
 
-    it('[FR-TERMINAL-800] should leave hookDriven falsy when the list item says the session is not hook-driven', () => {
-      const tab = sessionToTab(listItem({ hookDriven: false }), 'fallback-key');
+    it('[FR-TERMINAL-800] should default activityState to idle when the list item omits it', () => {
+      const tab = sessionToTab(listItem(), 'fallback-key');
 
-      expect(tab.hookDriven).toBe(false);
+      expect(tab.activityState).toBe('idle');
     });
   });
 });

@@ -6,31 +6,10 @@ interface TerminalActivityParsed {
   // progress, 2 error, 3 indeterminate) aren't emitted by Engy and are
   // ignored here, same as any other unrecognised OSC param.
   attention: Array<'set' | 'clear'>;
-  hasBell: boolean;
-  hasPrompt: boolean;
 }
 
 const BEL = '\x07';
 const ESC = '\x1b';
-
-// High-precision markers that a program is waiting for user input. Kept
-// conservative so normal output (and shell prompts like starship's bare "❯")
-// don't trip a false "waiting" — the numbered "❯ 1." form is required, and
-// confirmation literals are specific enough to be safe unanchored.
-const PROMPT_PATTERNS: readonly RegExp[] = [
-  /\((?:y\/n|yes\/no|y\/N|Y\/n|n\/y)\)/i,
-  /\[(?:y\/n|yes\/no|y\/N|Y\/n)\]/i,
-  /press\s+(?:enter|return|any key)\s+to\s+continue/i,
-  /do you want to (?:proceed|continue)/i,
-  // Numbered selection menu ("❯ 1. Yes") — the trailing space before the label
-  // avoids matching version strings like "❯ 2.5.0".
-  /❯\s*\d+\.\s/,
-];
-
-/** True when the chunk contains a strong "waiting for input" indicator. */
-function detectPrompt(data: string): boolean {
-  return PROMPT_PATTERNS.some((re) => re.test(data));
-}
 
 /**
  * Stateful parser that carries incomplete OSC sequences across chunk boundaries.
@@ -54,57 +33,52 @@ export function createTerminalActivityParser(): TerminalActivityParser {
 
       const titles: string[] = [];
       const attention: Array<'set' | 'clear'> = [];
-      let hasBell = false;
       let i = 0;
 
       while (i < data.length) {
-        if (data[i] === ESC && data[i + 1] === ']') {
-          const oscStart = i + 2;
+        if (data[i] !== ESC || data[i + 1] !== ']') {
+          i++;
+          continue;
+        }
 
-          let endIdx = -1;
-          let terminatorLen = 0;
-          for (let j = oscStart; j < data.length; j++) {
-            if (data[j] === BEL) {
-              endIdx = j;
-              terminatorLen = 1;
-              break;
-            }
-            if (data[j] === ESC && data[j + 1] === '\\') {
-              endIdx = j;
-              terminatorLen = 2;
-              break;
-            }
-          }
-
-          if (endIdx === -1) {
-            // Unterminated — save everything from the ESC for the next chunk
-            pending = data.slice(i);
+        const oscStart = i + 2;
+        let endIdx = -1;
+        let terminatorLen = 0;
+        for (let j = oscStart; j < data.length; j++) {
+          if (data[j] === BEL) {
+            endIdx = j;
+            terminatorLen = 1;
             break;
           }
-
-          const body = data.slice(oscStart, endIdx);
-          const semiPos = body.indexOf(';');
-          if (semiPos !== -1) {
-            const oscParam = body.slice(0, semiPos);
-            if (oscParam === '0' || oscParam === '2') {
-              titles.push(body.slice(semiPos + 1));
-            } else if (oscParam === '9') {
-              const [progressParam, state] = body.slice(semiPos + 1).split(';');
-              if (progressParam === '4' && state === '4') attention.push('set');
-              else if (progressParam === '4' && state === '0') attention.push('clear');
-            }
+          if (data[j] === ESC && data[j + 1] === '\\') {
+            endIdx = j;
+            terminatorLen = 2;
+            break;
           }
-
-          i = endIdx + terminatorLen;
-        } else if (data[i] === BEL) {
-          hasBell = true;
-          i++;
-        } else {
-          i++;
         }
+
+        if (endIdx === -1) {
+          pending = data.slice(i);
+          break;
+        }
+
+        const body = data.slice(oscStart, endIdx);
+        const semiPos = body.indexOf(';');
+        if (semiPos !== -1) {
+          const oscParam = body.slice(0, semiPos);
+          if (oscParam === '0' || oscParam === '2') {
+            titles.push(body.slice(semiPos + 1));
+          } else if (oscParam === '9') {
+            const [progressParam, state] = body.slice(semiPos + 1).split(';');
+            if (progressParam === '4' && state === '4') attention.push('set');
+            else if (progressParam === '4' && state === '0') attention.push('clear');
+          }
+        }
+
+        i = endIdx + terminatorLen;
       }
 
-      return { titles, attention, hasBell, hasPrompt: detectPrompt(data) };
+      return { titles, attention };
     },
   };
 }

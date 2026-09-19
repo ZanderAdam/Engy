@@ -286,66 +286,35 @@ describe('reduceServerActivity (FR-TERMINAL-800)', () => {
     };
   }
 
-  it('a non-hook-driven session ignores the broadcast — local tracker owns the badge', () => {
+  it('[FR-TERMINAL-800] should take the broadcast state for a session with no hooks', () => {
     const existing = tab({ activityState: 'idle' });
-    const result = reduceServerActivity(existing, { state: 'active', hookDriven: false });
+    const result = reduceServerActivity(existing, 'active');
+    expect(result).toEqual(tab({ activityState: 'active' }));
+  });
+
+  it('[FR-TERMINAL-800] should take the broadcast state over the tab state', () => {
+    const existing = tab({ activityState: 'done' });
+    const result = reduceServerActivity(existing, 'idle');
+    expect(result).toEqual(tab({ activityState: 'idle' }));
+  });
+
+  it('[FR-TERMINAL-800] should be a no-op when already in sync with the broadcast', () => {
+    const existing = tab({ activityState: 'waiting' });
+    const result = reduceServerActivity(existing, 'waiting');
     expect(result).toBeNull();
   });
 
-  it('a broadcast with no hookDriven flag and no prior hookDriven state is a no-op', () => {
-    const existing = tab({ activityState: 'idle' });
-    const result = reduceServerActivity(existing, { state: 'active' });
-    expect(result).toBeNull();
-  });
-
-  it('a hook-driven session takes the broadcast state over its own', () => {
-    const existing = tab({ activityState: 'active', hookDriven: true });
-    const result = reduceServerActivity(existing, { state: 'done', hookDriven: true });
-    expect(result).toEqual(tab({ activityState: 'done', hookDriven: true }));
-  });
-
-  it('marks a session hookDriven on its first hook-sourced broadcast', () => {
-    const existing = tab({ activityState: 'active' });
-    const result = reduceServerActivity(existing, { state: 'active', hookDriven: true });
-    expect(result).toEqual(tab({ activityState: 'active', hookDriven: true }));
-  });
-
-  it('stays hookDriven across a later broadcast that omits the flag', () => {
-    const existing = tab({ activityState: 'done', hookDriven: true });
-    const result = reduceServerActivity(existing, { state: 'idle' });
-    expect(result).toEqual(tab({ activityState: 'idle', hookDriven: true }));
-  });
-
-  it('is a no-op once already in sync with the broadcast (avoids a redundant commit)', () => {
-    const existing = tab({ activityState: 'waiting', hookDriven: true });
-    const result = reduceServerActivity(existing, { state: 'waiting', hookDriven: true });
-    expect(result).toBeNull();
-  });
-
-  it('a needsAttention-only broadcast (no state field) leaves activityState untouched', () => {
-    const existing = tab({ activityState: 'waiting', hookDriven: true });
-    const result = reduceServerActivity(existing, { hookDriven: true });
+  it('[FR-TERMINAL-800] should leave activityState untouched for a broadcast with no state', () => {
+    const existing = tab({ activityState: 'waiting' });
+    const result = reduceServerActivity(existing, undefined);
     expect(result).toBeNull();
   });
 });
 
-describe('handleActivity local-tracker suppression guard (FR-TERMINAL-800)', () => {
-  /**
-   * The guard logic extracted from handleActivity:
-   *   if (existing.hookDriven) return;
-   *
-   * Returns true if the local PTY heuristic should still update the tab.
-   */
-  function shouldApplyLocalActivity(hookDriven: boolean | undefined): boolean {
-    return !hookDriven;
-  }
-
-  it('applies the local heuristic for a non-hook-driven session', () => {
-    expect(shouldApplyLocalActivity(undefined)).toBe(true);
-    expect(shouldApplyLocalActivity(false)).toBe(true);
-  });
-
-  it('suppresses the local heuristic once a session is hook-driven — the broadcast owns the badge', () => {
-    expect(shouldApplyLocalActivity(true)).toBe(false);
+describe('TerminalInstance activity ownership (FR-TERMINAL-800)', () => {
+  it('[FR-TERMINAL-800] should not compute activity from PTY output in the browser', () => {
+    const terminal = readFileSync(join(__dirname, 'terminal.tsx'), 'utf8');
+    expect(terminal).not.toContain('onActivity');
+    expect(terminal).not.toContain('createActivityTracker');
   });
 });

@@ -55,8 +55,6 @@ interface TerminalActivityChangePayload {
   projectSlug?: string;
   state?: TerminalActivityState;
   removed?: boolean;
-  // True once a hook event has landed for this session — the browser tab
-  // badge trusts this state over its own PTY-parsed heuristic when set.
   hookDriven?: boolean;
 }
 

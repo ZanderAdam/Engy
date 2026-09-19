@@ -29,14 +29,12 @@ import { groupTabsByWorktree, type TerminalWorktreeGroup } from './worktree-grou
 import { useCommandCenterMode } from './command-center/use-command-center-mode';
 import { groupTabsByProject } from './command-center/grouping';
 import { cloneScopeForNewTerminal } from './command-center/new-terminal-scope';
-import { useTerminalActivities } from '@/hooks/use-terminal-activity';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActionsProps) {
   const { openTerminal, onCollapse, extraDropdownGroups, containerEnabled, defaultScope } =
     useTerminalDock();
   const isMobile = useIsMobile();
-  const activities = useTerminalActivities(panels.map((p) => p.id));
   const [, forceRender] = useState(0);
   // Mobile: the cramped "all terminals" dropdown is replaced by a full-screen
   // worktree-grouped list (the mobile equivalent of the desktop rail).
@@ -54,10 +52,7 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
 
   const commandCenter = useCommandCenterMode();
   const panelById = new Map(panels.map((p) => [p.id, p]));
-  const liveTabs = panels.map((panel) => {
-    const { tab } = panel.params as TerminalPanelParams;
-    return { ...tab, activityState: activities[panel.id] ?? tab.activityState };
-  });
+  const liveTabs = panels.map((panel) => (panel.params as TerminalPanelParams).tab);
   const groups = groupTabsByWorktree(liveTabs);
   const showGroupHeaders = groups.length > 1;
 

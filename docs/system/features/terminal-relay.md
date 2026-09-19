@@ -211,8 +211,13 @@ browser's project-activity store re-seeds from `GET /api/terminal/activity`
 whenever the `/ws/events` socket (re)connects; and focusing a terminal sends
 `{ t: 'ack', sessionId }`, which the server intercepts (clears `activityState`
 to `idle` and broadcasts) before forwarding to the daemon so its tracker
-settles too — matching the in-browser rail, where viewing a terminal
-acknowledges a `done`/`waiting` indicator.
+settles too.
+
+The browser runs no activity heuristic of its own: every tab badge follows the
+server state, seeded from `listTerminalSessions` and then updated by
+`TERMINAL_ACTIVITY_CHANGE`. A browser-side copy saw only its own resizes and
+reconnects, so a repaint caused by another browser, device, or the server
+settled it to `done` while the daemon correctly ignored it.
 
 ## Security
 
@@ -295,13 +300,9 @@ while its `lastHookAt` is inside a 6-second trust window
 dropped `Stop` self-heals instead of pinning a session at `active` forever and
 silently stalling its dispatch inbox. Hook-derived transitions persist,
 broadcast, and flush the dispatch inbox through the same applier as
-daemon-derived ones; the browser tab badge for a `hookDriven` session follows
-the broadcast instead of its own local PTY heuristic. `hookDriven` is also
-surfaced on `listTerminalSessions` (`GET /api/terminal/sessions` →
-`SessionListItem` → `sessionToTab`), so a freshly loaded browser tab for an
-already-hook-driven session starts with the override already in effect
-instead of running the local heuristic until the next hook event's broadcast
-arrives.
+daemon-derived ones, so the browser tab badge follows them through the same
+broadcast as every other session. `hookDriven` is also surfaced on
+`listTerminalSessions` (`GET /api/terminal/sessions`).
 
 The channel also feeds terminal identity and dispatch delivery. On `Stop` a
 title is derived from `last_assistant_message` and stored server-side
@@ -507,7 +508,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-210 | WHEN a browser connects for a session with no in-memory metadata, or whose metadata was restored from the database and not yet validated by a daemon sync, and no sync has been received on the current relay connection, the system SHALL wait up to 10 seconds for the daemon's `{ t: 'sync' }` before classifying the connection as spawn or reconnect. |
 | FR-TERMINAL-220 | The system SHALL mirror `terminalSessionMeta` to the `terminal_sessions` SQLite table — written through on meta creation and mutation, deleted on exit/kill/sync-purge — and SHALL restore the persisted entries into `terminalSessionMeta` at server boot, so sessions with no attached browser survive a server restart. |
 | FR-TERMINAL-230 | WHEN a newly connected daemon sends `{ t: 'sync' }`, the daemon SHALL include each live session's current activity state, and the server SHALL adopt any state that differs from the stored `activityState` — persisting it and broadcasting a per-project terminal-activity change — so activity transitions dropped during a relay outage are healed. |
-| FR-TERMINAL-240 | WHEN the user focuses a terminal in a browser, the browser SHALL send `{ t: 'ack', sessionId }`; the server SHALL clear the session's stored `activityState` to `idle` (persisting and broadcasting the change) and forward the ack to the daemon, whose activity tracker SHALL settle to idle — so a done/waiting badge clears once the terminal is viewed, matching the in-browser rail indicator. |
+| FR-TERMINAL-240 | WHEN the user focuses a terminal in a browser, the browser SHALL send `{ t: 'ack', sessionId }`; the server SHALL clear the session's stored `activityState` to `idle` (persisting and broadcasting the change) and forward the ack to the daemon, whose activity tracker SHALL settle to idle — so a done/waiting badge clears once the terminal is viewed. |
 | FR-TERMINAL-250 | WHEN the browser's `/ws/events` socket (re)connects, the system SHALL re-seed the project-activity store from `GET /api/terminal/activity`, replacing the full session set, so activity deltas broadcast while the socket was disconnected are healed. |
 | FR-TERMINAL-260 | WHEN a browser connects to `/ws/terminal` with an `agentType` query parameter, the system SHALL persist it on the session metadata and include it in the session list endpoint. |
 | FR-TERMINAL-270 | WHEN a dispatch is created for a connected worker whose activity state is idle or done and whose inbox is empty, the system SHALL immediately inject the message plus the reply contract into the worker's PTY as a bracketed paste, followed by Enter after the worker agent type's submit delay; the contract SHALL be the id-less `[engy-dispatch]` form when the worker's command carries its per-session `/mcp/<sessionId>` endpoint, and the `[engy-dispatch <correlationId>]` form otherwise. |
@@ -562,7 +563,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-770 | WHILE a session is `hookDriven` and its `lastHookAt` is less than 6 seconds old (`ACTIVITY_HOOK_TRUST_WINDOW_MS`, double the daemon's 3-second `ACTIVITY_DEBOUNCE_MS`), the system SHALL ignore a relay-sourced `{t:'act'}` message for that session, so trailing PTY output cannot overwrite a fresher hook-derived state; a hook-sourced or user-sourced (focus ack) activity change SHALL always apply regardless of the window. |
 | FR-TERMINAL-780 | WHEN a relay-sourced `{t:'act'}` message arrives for a `hookDriven` session whose `lastHookAt` is 6 seconds old or older, the system SHALL apply it, so a session that stops receiving hook events (e.g. after its last `UserPromptSubmit`) returns to daemon-derived activity rather than being stranded at a stale state with its dispatch inbox blocked. |
 | FR-TERMINAL-790 | A hook-derived activity change SHALL persist and broadcast through the same applier as a daemon-derived one, carrying the session's `hookDriven` flag on the broadcast payload, and SHALL flush the session's dispatch inbox on a transition to `idle` or `done`. |
-| FR-TERMINAL-800 | FOR a session whose activity broadcast OR initial `listTerminalSessions` entry carries `hookDriven: true`, the browser tab badge SHALL follow the server-broadcast activity state instead of the tab's locally computed PTY heuristic, which SHALL stop emitting for that session from the tab's initial load onward. |
+| FR-TERMINAL-800 | The browser tab badge SHALL show the server's activity state for every session, hook-driven or not: seeded from the session's `listTerminalSessions` entry at load, updated by each `TERMINAL_ACTIVITY_CHANGE` broadcast, and re-read from `listTerminalSessions` on every `/ws/events` reconnect. The shared activity store that feeds task cards and the task terminal button SHALL be seeded and updated from the same sources. The browser SHALL NOT compute activity from PTY output, so a repaint the daemon suppresses (a resize or reconnect from another browser, device, or the server) cannot turn a tab `done`. |
 | FR-TERMINAL-810 | WHEN `Stop` fires (non-subagent) carrying the `prompt_id` that a prior `UserPromptSubmit` tagged onto the worker's oldest untagged delivered dispatch, the system SHALL settle that dispatch as replied using `last_assistant_message` with control characters stripped before it reaches the terminal injection; a `Stop` for a turn that never delivered a dispatch, or for an unrelated turn, SHALL leave any outstanding dispatch delivered and untouched. |
 | FR-TERMINAL-820 | A dispatch already settled (`replied` or `failed`) — including one settled by an explicit `terminal_reply` before its `Stop` hook fires — SHALL NOT be re-settled by a subsequent `Stop` hook. |
 | FR-TERMINAL-830 | A dispatch settled by the `Stop`-hook safety net SHALL record `settledBy: 'hook'`; one settled by an explicit `terminal_reply` SHALL record `settledBy: 'reply'`; both fields SHALL be exposed through the terminal session list. |

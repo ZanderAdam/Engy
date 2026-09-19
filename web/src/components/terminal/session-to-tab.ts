@@ -21,7 +21,6 @@ export interface SessionListItem {
   status: 'active' | 'suspended';
   browserCount: number;
   dormant?: boolean;
-  hookDriven?: boolean;
 }
 
 /**
@@ -46,17 +45,10 @@ export function sessionToTab(s: SessionListItem, fallbackGroupKey: string): Term
       renamedLabel: s.renamedLabel,
     },
     status: s.dormant ? 'dormant' : 'connecting',
-    // Seed the daemon-tracked activity so the dot is correct on first paint,
-    // before this session's WebSocket delivers its first live update.
     activityState: s.activityState ?? 'idle',
     // Seeds the subtitle for a session no browser has ever attached to —
     // otherwise a hook-derived title never reaches a tab built from this list.
     oscTitle: s.lastTitle,
     needsAttention: s.needsAttention,
-    // FR-TERMINAL-800: seeds the server-owned override at initial load, so
-    // the local PTY heuristic is suppressed immediately for an
-    // already-hook-driven session instead of racing it until the next hook
-    // event's TERMINAL_ACTIVITY_CHANGE broadcast arrives.
-    hookDriven: s.hookDriven,
   };
 }
