@@ -1,0 +1,32 @@
+'use client';
+
+import { DELEGATED_COLOR, MAGNITUDE_COLOR } from './chart-palette';
+import { formatMoney, formatMoneyCompact, share } from './format';
+
+/** Rolled-up session cost with the delegated portion shown in place. */
+export function CostSplitCell({
+  totalCents,
+  subagentCents,
+}: {
+  totalCents: number;
+  subagentCents: number;
+}) {
+  const delegatedPct = Math.min(share(subagentCents, totalCents), 1) * 100;
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <span className="tabular-nums">{formatMoney(totalCents)}</span>
+      {subagentCents > 0 && (
+        <>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {formatMoneyCompact(subagentCents)} delegated
+          </span>
+          <div className="flex h-1 w-20 gap-px" aria-hidden>
+            <div style={{ width: `${delegatedPct}%`, backgroundColor: DELEGATED_COLOR }} />
+            <div style={{ width: `${100 - delegatedPct}%`, backgroundColor: MAGNITUDE_COLOR }} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

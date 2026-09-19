@@ -77,6 +77,7 @@ const tabs = [
   { label: 'Tasks', segment: 'tasks' },
   { label: 'Docs', segment: 'docs' },
   { label: 'Memory', segment: 'memory' },
+  { label: 'Usage', segment: 'usage' },
 ] as const;
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {

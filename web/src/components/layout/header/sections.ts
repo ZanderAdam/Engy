@@ -7,6 +7,7 @@ import {
   RiGitPullRequestLine,
   RiCodeLine,
   RiGitMergeLine,
+  RiBarChartBoxLine,
   type RemixiconComponentType,
 } from '@remixicon/react';
 
@@ -27,6 +28,7 @@ export const sections: readonly SectionDef[] = [
   { label: 'Code', segment: 'code', icon: RiCodeLine },
   { label: 'Memory', segment: 'memory', icon: RiBrain2Line },
   { label: 'PRs', segment: 'prs', icon: RiGitPullRequestLine },
+  { label: 'Usage', segment: 'usage', icon: RiBarChartBoxLine },
 ] as const;
 
 export function activeSection(pathname: string, basePath: string): SectionDef | undefined {

@@ -11,6 +11,7 @@ import WorkspaceTasksPage from '@/app/w/[workspace]/tasks/page';
 import WorkspaceDocsPage from '@/app/w/[workspace]/docs/page';
 import WorkspaceMemoryPage from '@/app/w/[workspace]/memory/page';
 import WorkspaceSpecsPage from '@/app/w/[workspace]/specs/page';
+import WorkspaceUsagePage from '@/app/w/[workspace]/usage/page';
 import ProjectLayout from '@/app/w/[workspace]/projects/[project]/layout';
 import ProjectPage from '@/app/w/[workspace]/projects/[project]/page';
 import ProjectTasksPage from '@/app/w/[workspace]/projects/[project]/tasks/page';
@@ -20,6 +21,7 @@ import ProjectCodePage from '@/app/w/[workspace]/projects/[project]/code/page';
 import ProjectClaudePlansPage from '@/app/w/[workspace]/projects/[project]/claude-plans/page';
 import ProjectMemoryPage from '@/app/w/[workspace]/projects/[project]/memory/page';
 import ProjectPrsPage from '@/app/w/[workspace]/projects/[project]/prs/page';
+import ProjectUsagePage from '@/app/w/[workspace]/projects/[project]/usage/page';
 
 function NotFound({ path }: { path: string }) {
   return (
@@ -50,6 +52,8 @@ function dispatchProject(section: string | undefined): React.ReactNode {
       return <ProjectMemoryPage />;
     case 'prs':
       return <ProjectPrsPage />;
+    case 'usage':
+      return <ProjectUsagePage />;
     default:
       return <NotFound path={`project/${section}`} />;
   }
@@ -67,6 +71,8 @@ function dispatchWorkspace(section: string | undefined): React.ReactNode {
       return <WorkspaceMemoryPage />;
     case 'specs':
       return <WorkspaceSpecsPage />;
+    case 'usage':
+      return <WorkspaceUsagePage />;
     default:
       return <NotFound path={`workspace/${section}`} />;
   }
