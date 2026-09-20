@@ -46,3 +46,9 @@ export function resetDb() {
   dbInstance = null;
   engyDirPath = null;
 }
+
+type Database = ReturnType<typeof getDb>;
+// Callers pass either the top-level db handle or a `db.transaction((tx) => ...)`
+// callback's `tx` — both support the same select/insert/update surface.
+type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+export type Db = Database | Transaction;

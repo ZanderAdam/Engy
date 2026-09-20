@@ -38,8 +38,8 @@ function UnpricedWarning({ models }: { models: string[] }) {
           {models.length} unpriced {models.length === 1 ? 'model' : 'models'}
         </p>
         <p className="text-muted-foreground">
-          Tokens for <span className="font-mono">{models.join(', ')}</span> are counted but not
-          costed — no list rate is on file. Totals below understate spend by that amount.
+          Tokens for <span className="font-mono">{models.join(', ')}</span> are counted. No list
+          price is on file for them. Totals below are lower than the real cost.
         </p>
       </div>
     </div>
@@ -132,7 +132,7 @@ export function OverviewScreen({
         subagentShare={overview.subagentShare}
       />
 
-      <Panel title="Cost over time" description="Stacked by cost bucket.">
+      <Panel title="Cost over time">
         <CostAreaChart series={series} />
       </Panel>
 
@@ -145,10 +145,7 @@ export function OverviewScreen({
         </Panel>
 
         <div className="flex flex-col gap-4">
-          <Panel
-            title="Cache TTL efficiency"
-            description="A 1h cache entry pays off once it is read back past break-even."
-          >
+          <Panel title="Cache reads per write">
             <CacheTtlPanel
               efficiency={cacheEfficiency}
               sessions={sessions}
@@ -156,10 +153,7 @@ export function OverviewScreen({
             />
           </Panel>
 
-          <Panel
-            title="What put it in context"
-            description="Share of attributed cache-read spend by content kind."
-          >
+          <Panel title="Cost causes">
             <CauseBreakdown causes={causes} />
           </Panel>
         </div>

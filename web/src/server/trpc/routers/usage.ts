@@ -1,79 +1,58 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { and, count, eq, gte, lte, inArray, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, lte, inArray, type SQL } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
-import type { UsageCauseKind, UsageScanFileState } from '@engy/common';
+import type { UsageCauseKind } from '@engy/common';
 import { router, publicProcedure } from '../trpc';
-import { getDb } from '../../db/client';
+import { getDb, type Db } from '../../db/client';
 import {
   usageSession,
-  usageDaily,
+  usageSessionDaily,
   usageTool,
   usageField,
   usageFile,
   usageCause,
   usageCall,
-  usageScanFile,
-  usageSealedDate,
-  workspaces,
-  projects,
+  usageExpensiveCall,
 } from '../../db/schema';
-import type { AppState, UsageScanDispatchResult } from '../context';
-import { dispatchUsageScan } from '../../ws/server';
-import { broadcastUsageChange } from '../../ws/broadcast';
 import {
-  listModelRates,
-  microCentsForTokens,
+  directMicroCents,
+  getRatesMap,
   microCentsToCents,
+  rateFor,
   type ModelRateRow,
 } from '../../usage/pricing';
+import { rebuildUsageHistory } from '../../usage/rebuild';
+import { refreshUsage } from '../../usage/ingest';
+import { broadcastUsageChange } from '../../ws/broadcast';
 
-type Database = ReturnType<typeof getDb>;
-// Callers pass either the top-level db handle or a `db.transaction((tx) => ...)`
-// callback's `tx` — both support the same select/insert/update surface.
-type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
-type Db = Database | Transaction;
-type UsageDailyRow = typeof usageDaily.$inferSelect;
+type UsageSessionDailyRow = typeof usageSessionDaily.$inferSelect;
 type UsageSessionRow = typeof usageSession.$inferSelect;
 
 const CACHE_EFFICIENCY_BREAK_EVEN = 2.2;
 const LABEL_MAX_LENGTH = 80;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter the date as YYYY-MM-DD.');
+
 const rangeInput = z.object({
   workspaceId: z.number().optional(),
   projectId: z.number().optional(),
-  from: z.string(),
-  to: z.string(),
+  from: isoDate,
+  to: isoDate,
 });
 
-// ── Daemon dispatch ───────────────────────────────────────────────────
-
-const EMPTY_SCAN: UsageScanDispatchResult = { sessions: [], files: {}, newlySealedDates: [], staleSealSkips: 0 };
-
-function loadKnownFiles(db: Db): Record<string, UsageScanFileState> {
-  const rows = db.select().from(usageScanFile).all();
-  const knownFiles: Record<string, UsageScanFileState> = {};
-  for (const row of rows) {
-    knownFiles[row.path] = {
-      sizeBytes: row.sizeBytes,
-      mtimeMs: row.mtimeMs,
-      bytesScanned: row.bytesScanned,
-      firstLineDate: row.firstLineDate,
-      lastLineDate: row.lastLineDate,
-    };
-  }
-  return knownFiles;
+// Every procedure extends `rangeInput` first, then applies this refinement —
+// `.refine()` on the base schema would turn it into a `ZodEffects`, which no
+// longer has `.extend()`.
+function requireValidRange<T extends { from: string; to: string }>(schema: z.ZodType<T>) {
+  return schema.refine((data) => data.from <= data.to, {
+    message: 'The start date must be on or before the end date.',
+    path: ['to'],
+  });
 }
 
-// A disconnected daemon (or one that can't yet answer) yields an empty scan
-// rather than failing `refresh()`.
-async function requestUsageScan(db: Db, state: AppState): Promise<UsageScanDispatchResult> {
-  if (!state.daemon || state.daemon.readyState !== state.daemon.OPEN) return EMPTY_SCAN;
-  const knownFiles = loadKnownFiles(db);
-  const sealedDates = db.select({ date: usageSealedDate.date }).from(usageSealedDate).all().map((r) => r.date);
-  return dispatchUsageScan(knownFiles, sealedDates, state);
-}
+const refreshInput = z.object({ since: isoDate.optional() }).optional();
 
 // ── Date helpers ──────────────────────────────────────────────────────
 
@@ -104,7 +83,6 @@ function startedAtInRange(startedAt: string | null, from: string, to: string): b
 
 interface SessionScope {
   sessionIds: Set<string>;
-  slugs: Set<string>;
 }
 
 function workspaceProjectConditions(input: { workspaceId?: number; projectId?: number }): SQL[] {
@@ -122,20 +100,25 @@ function resolveSessionScope(
   const conditions = workspaceProjectConditions(input);
   if (conditions.length === 0) return null;
   const rows = db
-    .select({ sessionId: usageSession.sessionId, slug: usageSession.slug })
+    .select({ sessionId: usageSession.sessionId })
     .from(usageSession)
     .where(and(...conditions))
     .all();
-  return { sessionIds: new Set(rows.map((r) => r.sessionId)), slugs: new Set(rows.map((r) => r.slug)) };
+  return { sessionIds: new Set(rows.map((r) => r.sessionId)) };
 }
 
 // ── Range-scoped row queries ──────────────────────────────────────────
 
-function queryDailyRows(db: Db, from: string, to: string, slugs: Set<string> | null): UsageDailyRow[] {
-  if (slugs && slugs.size === 0) return [];
-  const conditions = [gte(usageDaily.date, from), lte(usageDaily.date, to)];
-  if (slugs) conditions.push(inArray(usageDaily.slug, [...slugs]));
-  return db.select().from(usageDaily).where(and(...conditions)).all();
+function queryDailyRows(
+  db: Db,
+  from: string,
+  to: string,
+  sessionIds: Set<string> | null,
+): UsageSessionDailyRow[] {
+  if (sessionIds && sessionIds.size === 0) return [];
+  const conditions = [gte(usageSessionDaily.date, from), lte(usageSessionDaily.date, to)];
+  if (sessionIds) conditions.push(inArray(usageSessionDaily.sessionId, [...sessionIds]));
+  return db.select().from(usageSessionDaily).where(and(...conditions)).all();
 }
 
 function queryToolRows(db: Db, from: string, to: string, sessionIds: Set<string> | null) {
@@ -164,23 +147,6 @@ function queryCauseRows(db: Db, from: string, to: string, sessionIds: Set<string
   const conditions = [gte(usageCause.date, from), lte(usageCause.date, to)];
   if (sessionIds) conditions.push(inArray(usageCause.sessionId, [...sessionIds]));
   return db.select().from(usageCause).where(and(...conditions)).all();
-}
-
-// ── Pricing helpers ───────────────────────────────────────────────────
-
-function getRatesMap(db: Db): Map<string, ModelRateRow> {
-  return new Map(listModelRates(db).map((rate) => [rate.model, rate]));
-}
-
-// A cause's cost is its own token-turns at its session's cache-read rate —
-// never scaled up to fill 100% of measured spend. Attribution now caps at
-// compaction boundaries, so modeled token-turns only ever cover a fraction
-// of measured cache-read cost (~0.30x on the reference machine); scaling the
-// rest onto the causes we do measure would blame them for the per-call
-// baseline (system prompt, tool defs, CLAUDE.md) that no content block
-// carries. That gap is `causes.baseline`, computed by the caller.
-function directMicroCents(tokenTurns: number, cacheReadMicroCentsPerToken: number): number {
-  return tokenTurns * cacheReadMicroCentsPerToken;
 }
 
 function buildSessionModelMap(db: Db, sessionIds: Iterable<string>): Map<string, string> {
@@ -214,8 +180,9 @@ function causesWithBaseline(
     thinking: 0,
   };
   for (const row of causeRows) {
+    if (!(row.kind in microTotals)) continue;
     const model = sessionModel.get(row.sessionId);
-    const rate = model ? rates.get(model) : undefined;
+    const rate = model ? rateFor(rates, model) : undefined;
     if (!rate) continue;
     microTotals[row.kind as UsageCauseKind] += directMicroCents(row.tokenTurns, rate.cacheReadMicroCentsPerToken);
   }
@@ -235,309 +202,44 @@ function readsPerWrite(cacheReadTokens: number, cacheCreationTokens: number): nu
   return cacheCreationTokens > 0 ? cacheReadTokens / cacheCreationTokens : 0;
 }
 
+function toSessionRow(row: UsageSessionRow, subagentCostCents: number, subagentCalls: number) {
+  return {
+    sessionId: row.sessionId,
+    slug: row.slug,
+    repoRoot: row.repoRoot,
+    label: sessionLabel(row),
+    model: row.model,
+    startedAt: row.startedAt,
+    apiCalls: row.apiCalls,
+    costCents: row.estCostCents + subagentCostCents,
+    subagentCostCents,
+    subagentCalls,
+    isSubagent: row.isSubagent,
+    parentSessionId: row.parentSessionId,
+    readsPerWrite: readsPerWrite(row.cacheReadTokens, row.cacheWrite1hTokens + row.cacheWrite5mTokens),
+    linesAdded: row.linesAdded,
+    linesRemoved: row.linesRemoved,
+    durationMinutes: row.durationMinutes,
+  };
+}
+
 function sessionLabel(row: Pick<UsageSessionRow, 'firstPrompt' | 'sessionId'>): string {
   const trimmed = row.firstPrompt?.trim();
   if (!trimmed) return row.sessionId;
   return trimmed.length > LABEL_MAX_LENGTH ? `${trimmed.slice(0, LABEL_MAX_LENGTH - 1)}…` : trimmed;
 }
 
-// ── Engy workspace/project resolution ─────────────────────────────────
-
-interface EngyIds {
-  workspaceId: number | null;
-  projectId: number | null;
-}
-
-const UNRESOLVED_ENGY_IDS: EngyIds = { workspaceId: null, projectId: null };
-
-// One scan carries thousands of sessions over a handful of repo roots, so the
-// workspace table is read once and each root resolved at most once.
-function createEngyIdResolver(db: Db): (repoRoot: string | null) => EngyIds {
-  const allWorkspaces = db.select().from(workspaces).all();
-  const cache = new Map<string, EngyIds>();
-
-  return (repoRoot) => {
-    if (!repoRoot) return UNRESOLVED_ENGY_IDS;
-    const cached = cache.get(repoRoot);
-    if (cached) return cached;
-
-    const match = allWorkspaces.find((ws) =>
-      ((ws.repos as string[] | null) ?? []).includes(repoRoot),
-    );
-    const resolved = match
-      ? {
-          workspaceId: match.id,
-          projectId:
-            db
-              .select()
-              .from(projects)
-              .where(and(eq(projects.workspaceId, match.id), eq(projects.isDefault, true)))
-              .get()?.id ?? null,
-        }
-      : UNRESOLVED_ENGY_IDS;
-    cache.set(repoRoot, resolved);
-    return resolved;
-  };
-}
-
-// ── Upsert ────────────────────────────────────────────────────────────
-
-function dominantFileTool(file: { reads: number; writes: number }): string {
-  if (file.reads > 0) return 'Read';
-  if (file.writes > 0) return 'Write';
-  return 'Edit';
-}
-
-function applyScanFileUpdates(tx: Db, files: Record<string, UsageScanFileState>): void {
-  const lastScanAt = new Date().toISOString();
-  for (const [filePath, state] of Object.entries(files)) {
-    const values = {
-      sizeBytes: state.sizeBytes,
-      mtimeMs: state.mtimeMs,
-      bytesScanned: state.bytesScanned,
-      firstLineDate: state.firstLineDate,
-      lastLineDate: state.lastLineDate,
-      lastScanAt,
-    };
-    tx.insert(usageScanFile)
-      .values({ path: filePath, ...values })
-      .onConflictDoUpdate({ target: usageScanFile.path, set: values })
-      .run();
-  }
-}
-
-// A sealed date's rollup rows are read straight from SQLite forever after —
-// fileCount/rowCount are diagnostic only, never read back by any query here.
-function applySealedDates(tx: Db, dates: string[]): void {
-  const sealedAt = new Date().toISOString();
-  for (const dateValue of dates) {
-    const rowCount =
-      tx
-        .select({ value: count() })
-        .from(usageDaily)
-        .where(eq(usageDaily.date, dateValue))
-        .get()?.value ?? 0;
-    const values = { sealedAt, fileCount: 0, rowCount, reducerVersion: 1 };
-    tx.insert(usageSealedDate)
-      .values({ date: dateValue, ...values })
-      .onConflictDoUpdate({ target: usageSealedDate.date, set: values })
-      .run();
-  }
-}
-
-function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessions: number } {
-  return db.transaction((tx) => {
-    let newSessions = 0;
-    const rates = getRatesMap(tx);
-    const resolveEngyIds = createEngyIdResolver(tx);
-
-    for (const result of response.sessions) {
-      const { scan, repoRoot, meta } = result;
-      const { session, days, tools, fields, files, causes, calls } = scan;
-      const existing = tx
-        .select({ sessionId: usageSession.sessionId })
-        .from(usageSession)
-        .where(eq(usageSession.sessionId, session.sessionId))
-        .get();
-      if (!existing) newSessions += 1;
-
-      const rate = rates.get(session.model);
-      const tokenBuckets = {
-        inputTokens: session.inputTokens,
-        outputTokens: session.outputTokens,
-        cacheWrite1hTokens: session.cacheWrite1hTokens,
-        cacheWrite5mTokens: session.cacheWrite5mTokens,
-        cacheReadTokens: session.cacheReadTokens,
-      };
-      const estCostCents = rate ? microCentsToCents(microCentsForTokens(tokenBuckets, rate)) : 0;
-
-      const { workspaceId, projectId } = resolveEngyIds(repoRoot);
-
-      const sessionValues = {
-        slug: session.slug,
-        cwd: session.cwd,
-        gitBranch: session.gitBranch,
-        repoRoot,
-        parentSessionId: session.parentSessionId,
-        isSubagent: session.isSubagent,
-        agentType: session.agentType,
-        agentDescription: session.agentDescription,
-        engyWorkspaceId: workspaceId,
-        engyProjectId: projectId,
-        model: session.model,
-        startedAt: session.startedAt,
-        endedAt: session.endedAt,
-        apiCalls: session.apiCalls,
-        inputTokens: session.inputTokens,
-        outputTokens: session.outputTokens,
-        thinkingTokens: session.thinkingTokens,
-        cacheReadTokens: session.cacheReadTokens,
-        cacheWrite1hTokens: session.cacheWrite1hTokens,
-        cacheWrite5mTokens: session.cacheWrite5mTokens,
-        webSearchRequests: session.webSearchRequests,
-        webFetchRequests: session.webFetchRequests,
-        estCostCents,
-        firstPrompt: meta?.firstPrompt ?? null,
-        durationMinutes: meta?.durationMinutes ?? null,
-        linesAdded: meta?.linesAdded ?? null,
-        linesRemoved: meta?.linesRemoved ?? null,
-        filesModified: meta?.filesModified ?? null,
-        gitCommits: meta?.gitCommits ?? null,
-        toolErrors: meta?.toolErrors ?? null,
-        compactions: scan.compactions,
-      };
-
-      tx.insert(usageSession)
-        .values({ sessionId: session.sessionId, ...sessionValues })
-        .onConflictDoUpdate({ target: usageSession.sessionId, set: sessionValues })
-        .run();
-
-      for (const day of days) {
-        const dayRate = rates.get(day.model);
-        const dayCostCents = dayRate
-          ? microCentsToCents(
-              microCentsForTokens(
-                {
-                  inputTokens: day.inputTokens,
-                  outputTokens: day.outputTokens,
-                  cacheWrite1hTokens: day.cacheWrite1hTokens,
-                  cacheWrite5mTokens: day.cacheWrite5mTokens,
-                  cacheReadTokens: day.cacheReadTokens,
-                },
-                dayRate,
-              ),
-            )
-          : 0;
-        const dailyValues = {
-          apiCalls: day.apiCalls,
-          inputTokens: day.inputTokens,
-          outputTokens: day.outputTokens,
-          thinkingTokens: day.thinkingTokens,
-          cacheReadTokens: day.cacheReadTokens,
-          cacheWrite1hTokens: day.cacheWrite1hTokens,
-          cacheWrite5mTokens: day.cacheWrite5mTokens,
-          estCostCents: dayCostCents,
-        };
-        tx.insert(usageDaily)
-          .values({
-            date: day.date,
-            slug: session.slug,
-            model: day.model,
-            isSubagent: session.isSubagent,
-            ...dailyValues,
-          })
-          .onConflictDoUpdate({
-            target: [usageDaily.date, usageDaily.slug, usageDaily.model, usageDaily.isSubagent],
-            set: dailyValues,
-          })
-          .run();
-      }
-
-      // Direct, unscaled: a row's cost is its own token-turns at this
-      // session's cache-read rate — never inflated to fill 100% of measured
-      // spend (see `causesWithBaseline` for why).
-      const directCostCents = (tokenTurns: number): number =>
-        rate ? microCentsToCents(directMicroCents(tokenTurns, rate.cacheReadMicroCentsPerToken)) : 0;
-
-      for (const tool of tools) {
-        const values = {
-          calls: tool.calls,
-          resultChars: tool.resultChars,
-          resultTokensEst: tool.tokens,
-          inputChars: tool.inputChars,
-          attributedTokenTurns: tool.tokenTurns,
-          attributedCostCents: directCostCents(tool.tokenTurns),
-          p50ResultChars: 0,
-          p95ResultChars: 0,
-          maxResultChars: tool.maxResultChars,
-          errorCount: tool.errors,
-          images: tool.images,
-        };
-        tx.insert(usageTool)
-          .values({ date: tool.date, sessionId: session.sessionId, toolName: tool.tool, ...values })
-          .onConflictDoUpdate({
-            target: [usageTool.date, usageTool.sessionId, usageTool.toolName],
-            set: values,
-          })
-          .run();
-      }
-
-      for (const field of fields) {
-        const values = {
-          tokens: field.tokens,
-          tokenTurns: field.tokenTurns,
-          attributedCostCents: directCostCents(field.tokenTurns),
-        };
-        tx.insert(usageField)
-          .values({ date: field.date, sessionId: session.sessionId, tool: field.tool, field: field.field, ...values })
-          .onConflictDoUpdate({
-            target: [usageField.date, usageField.sessionId, usageField.tool, usageField.field],
-            set: values,
-          })
-          .run();
-      }
-
-      for (const file of files) {
-        const values = {
-          tool: dominantFileTool(file),
-          reads: file.reads,
-          edits: file.edits,
-          writes: file.writes,
-          totalChars: 0,
-          tokensEst: file.tokens,
-          attributedTokenTurns: file.tokenTurns,
-          attributedCostCents: directCostCents(file.tokenTurns),
-          ext: file.ext,
-        };
-        tx.insert(usageFile)
-          .values({ date: file.date, sessionId: session.sessionId, filePath: file.filePath, ...values })
-          .onConflictDoUpdate({
-            target: [usageFile.date, usageFile.sessionId, usageFile.filePath],
-            set: values,
-          })
-          .run();
-      }
-
-      for (const cause of causes) {
-        const values = { tokenTurns: cause.tokenTurns };
-        tx.insert(usageCause)
-          .values({ date: cause.date, sessionId: session.sessionId, kind: cause.kind, ...values })
-          .onConflictDoUpdate({
-            target: [usageCause.date, usageCause.sessionId, usageCause.kind],
-            set: values,
-          })
-          .run();
-      }
-
-      for (const call of calls) {
-        tx.insert(usageCall)
-          .values({ sessionId: session.sessionId, callIndex: call.callIndex, cacheReadTokens: call.cacheReadTokens })
-          .onConflictDoUpdate({
-            target: [usageCall.sessionId, usageCall.callIndex],
-            set: { cacheReadTokens: call.cacheReadTokens },
-          })
-          .run();
-      }
-    }
-
-    applyScanFileUpdates(tx, response.files);
-    applySealedDates(tx, response.newlySealedDates);
-
-    return { newSessions };
-  });
-}
-
 // ── Router ────────────────────────────────────────────────────────────
 
 export const usageRouter = router({
   overview: publicProcedure
-    .input(rangeInput.extend({ groupBy: z.enum(['repo', 'slug']).default('repo') }))
+    .input(requireValidRange(rangeInput.extend({ groupBy: z.enum(['repo', 'slug']).default('repo') })))
     .query(({ input }) => {
       const db = getDb();
       const scope = resolveSessionScope(db, input);
       const rates = getRatesMap(db);
 
-      const dailyRows = queryDailyRows(db, input.from, input.to, scope?.slugs ?? null);
+      const dailyRows = queryDailyRows(db, input.from, input.to, scope?.sessionIds ?? null);
       const causeRows = queryCauseRows(db, input.from, input.to, scope?.sessionIds ?? null);
 
       const slugMetaConditions = workspaceProjectConditions(input);
@@ -586,7 +288,7 @@ export const usageRouter = router({
         totals.cacheWrite5mTokens += row.cacheWrite5mTokens;
         totals.apiCalls += row.apiCalls;
 
-        const rate = rates.get(row.model);
+        const rate = rateFor(rates, row.model);
         const groupKey = groupKeyFor(row.slug);
         const group = groupAgg.get(groupKey) ?? { costMicro: 0, cacheReadTokens: 0 };
         group.cacheReadTokens += row.cacheReadTokens;
@@ -642,13 +344,13 @@ export const usageRouter = router({
       const causes = causesWithBaseline(causeRows, causeSessionModel, rates, costCacheReadMicro);
 
       const previous = previousWindow(input.from, input.to);
-      const previousDailyRows = queryDailyRows(db, previous.from, previous.to, scope?.slugs ?? null);
+      const previousDailyRows = queryDailyRows(db, previous.from, previous.to, scope?.sessionIds ?? null);
       let previousInputMicro = 0;
       let previousOutputMicro = 0;
       let previousCacheWriteMicro = 0;
       let previousCacheReadMicro = 0;
       for (const row of previousDailyRows) {
-        const rate = rates.get(row.model);
+        const rate = rateFor(rates, row.model);
         if (!rate) continue;
         previousInputMicro += row.inputTokens * rate.inputMicroCentsPerToken;
         previousOutputMicro += row.outputTokens * rate.outputMicroCentsPerToken;
@@ -706,7 +408,7 @@ export const usageRouter = router({
     }),
 
   tools: publicProcedure
-    .input(rangeInput.extend({ limit: z.number().default(20) }))
+    .input(requireValidRange(rangeInput.extend({ limit: z.number().int().min(1).max(200).default(20) })))
     .query(({ input }) => {
       const db = getDb();
       const scope = resolveSessionScope(db, input);
@@ -714,64 +416,103 @@ export const usageRouter = router({
 
       const byTool = new Map<
         string,
-        { calls: number; costCents: number; resultTokens: number; maxResultChars: number; images: number; errors: number }
+        {
+          calls: number;
+          costMicroCents: number;
+          resultTokens: number;
+          maxResultChars: number;
+          // p50/p95 are call-weighted across a tool's (date, session) rows —
+          // an approximation, since a true cross-row percentile would need
+          // every row's raw sample, which the reducer never stores.
+          p50Weighted: number;
+          p95Max: number;
+          images: number;
+          errors: number;
+        }
       >();
       for (const row of rows) {
         const agg = byTool.get(row.toolName) ?? {
           calls: 0,
-          costCents: 0,
+          costMicroCents: 0,
           resultTokens: 0,
           maxResultChars: 0,
+          p50Weighted: 0,
+          p95Max: 0,
           images: 0,
           errors: 0,
         };
         agg.calls += row.calls;
-        agg.costCents += row.attributedCostCents;
+        agg.costMicroCents += row.attributedCostMicroCents;
         agg.resultTokens += row.resultTokensEst;
         agg.maxResultChars = Math.max(agg.maxResultChars, row.maxResultChars);
+        agg.p50Weighted += row.p50ResultChars * row.calls;
+        agg.p95Max = Math.max(agg.p95Max, row.p95ResultChars);
         agg.images += row.images;
         agg.errors += row.errorCount;
         byTool.set(row.toolName, agg);
       }
 
       return [...byTool.entries()]
-        .map(([tool, agg]) => ({
-          tool,
-          calls: agg.calls,
-          costCents: agg.costCents,
-          costPerCallCents: agg.calls > 0 ? Math.round(agg.costCents / agg.calls) : 0,
-          resultTokens: agg.resultTokens,
-          maxResultChars: agg.maxResultChars,
-          images: agg.images,
-          errors: agg.errors,
-        }))
+        .map(([tool, agg]) => {
+          const costCents = microCentsToCents(agg.costMicroCents);
+          return {
+            tool,
+            calls: agg.calls,
+            costCents,
+            costPerCallCents: agg.calls > 0 ? Math.round(costCents / agg.calls) : 0,
+            resultTokens: agg.resultTokens,
+            maxResultChars: agg.maxResultChars,
+            p50ResultChars: agg.calls > 0 ? Math.round(agg.p50Weighted / agg.calls) : 0,
+            p95ResultChars: agg.p95Max,
+            images: agg.images,
+            errors: agg.errors,
+          };
+        })
         .sort((a, b) => b.costCents - a.costCents)
         .slice(0, input.limit);
     }),
 
   fields: publicProcedure
-    .input(rangeInput.extend({ limit: z.number().default(20) }))
+    .input(requireValidRange(rangeInput.extend({ limit: z.number().int().min(1).max(200).default(20) })))
     .query(({ input }) => {
       const db = getDb();
       const scope = resolveSessionScope(db, input);
       const rows = queryFieldRows(db, input.from, input.to, scope?.sessionIds ?? null);
 
-      const byField = new Map<string, { tool: string; field: string; tokens: number; costCents: number }>();
+      const byField = new Map<
+        string,
+        { tool: string; field: string; calls: number; tokens: number; costMicroCents: number }
+      >();
       for (const row of rows) {
         const key = `${row.tool}\u0000${row.field}`;
-        const agg = byField.get(key) ?? { tool: row.tool, field: row.field, tokens: 0, costCents: 0 };
+        const agg = byField.get(key) ?? { tool: row.tool, field: row.field, calls: 0, tokens: 0, costMicroCents: 0 };
+        agg.calls += row.calls;
         agg.tokens += row.tokens;
-        agg.costCents += row.attributedCostCents;
+        agg.costMicroCents += row.attributedCostMicroCents;
         byField.set(key, agg);
       }
 
       return [...byField.values()]
+        .map(({ tool, field, calls, tokens, costMicroCents }) => ({
+          tool,
+          field,
+          calls,
+          tokens,
+          costCents: microCentsToCents(costMicroCents),
+        }))
         .sort((a, b) => b.costCents - a.costCents)
         .slice(0, input.limit);
     }),
 
   files: publicProcedure
-    .input(rangeInput.extend({ limit: z.number().default(20), groupBy: z.enum(['path', 'ext', 'dir']).default('path') }))
+    .input(
+      requireValidRange(
+        rangeInput.extend({
+          limit: z.number().int().min(1).max(200).default(20),
+          groupBy: z.enum(['path', 'ext', 'dir']).default('path'),
+        }),
+      ),
+    )
     .query(({ input }) => {
       const db = getDb();
       const scope = resolveSessionScope(db, input);
@@ -788,31 +529,83 @@ export const usageRouter = router({
         }
       };
 
-      const byKey = new Map<string, { reads: number; edits: number; writes: number; tokens: number; costCents: number }>();
+      const byKey = new Map<
+        string,
+        { reads: number; edits: number; writes: number; totalChars: number; tokens: number; costMicroCents: number }
+      >();
       for (const row of rows) {
         const key = keyFor(row.filePath, row.ext);
-        const agg = byKey.get(key) ?? { reads: 0, edits: 0, writes: 0, tokens: 0, costCents: 0 };
+        const agg = byKey.get(key) ?? {
+          reads: 0,
+          edits: 0,
+          writes: 0,
+          totalChars: 0,
+          tokens: 0,
+          costMicroCents: 0,
+        };
         agg.reads += row.reads;
         agg.edits += row.edits;
         agg.writes += row.writes;
+        agg.totalChars += row.totalChars;
         agg.tokens += row.tokensEst;
-        agg.costCents += row.attributedCostCents;
+        agg.costMicroCents += row.attributedCostMicroCents;
         byKey.set(key, agg);
       }
 
       return [...byKey.entries()]
-        .map(([key, agg]) => ({ key, ...agg }))
+        .map(([key, agg]) => ({
+          key,
+          reads: agg.reads,
+          edits: agg.edits,
+          writes: agg.writes,
+          totalChars: agg.totalChars,
+          tokens: agg.tokens,
+          costCents: microCentsToCents(agg.costMicroCents),
+        }))
         .sort((a, b) => b.costCents - a.costCents)
         .slice(0, input.limit);
     }),
 
+  expensiveCalls: publicProcedure
+    .input(requireValidRange(rangeInput.extend({ limit: z.number().int().min(1).max(200).default(20) })))
+    .query(({ input }) => {
+      const db = getDb();
+      const scope = resolveSessionScope(db, input);
+      if (scope && scope.sessionIds.size === 0) return [];
+
+      const conditions = [gte(usageExpensiveCall.date, input.from), lte(usageExpensiveCall.date, input.to)];
+      if (scope) conditions.push(inArray(usageExpensiveCall.sessionId, [...scope.sessionIds]));
+
+      const rows = db
+        .select()
+        .from(usageExpensiveCall)
+        .where(and(...conditions))
+        .orderBy(desc(usageExpensiveCall.tokenTurns))
+        .limit(input.limit)
+        .all();
+
+      return rows.map((row) => ({
+        date: row.date,
+        sessionId: row.sessionId,
+        callIndex: row.callIndex,
+        tool: row.tool,
+        field: row.field,
+        tokens: row.tokens,
+        tokenTurns: row.tokenTurns,
+        costCents: microCentsToCents(row.attributedCostMicroCents),
+        preview: row.preview,
+      }));
+    }),
+
   sessions: publicProcedure
     .input(
-      rangeInput.extend({
-        limit: z.number().default(50),
-        sort: z.enum(['cost', 'calls', 'recent']).default('cost'),
-        includeSubagents: z.boolean().default(false),
-      }),
+      requireValidRange(
+        rangeInput.extend({
+          limit: z.number().int().min(1).max(200).default(50),
+          sort: z.enum(['cost', 'calls', 'recent']).default('cost'),
+          includeSubagents: z.boolean().default(false),
+        }),
+      ),
     )
     .query(({ input }) => {
       const db = getDb();
@@ -833,25 +626,6 @@ export const usageRouter = router({
       }
       const isOrphan = (row: UsageSessionRow): boolean =>
         row.isSubagent && (!row.parentSessionId || !byId.has(row.parentSessionId));
-
-      const toSessionRow = (row: UsageSessionRow, subagentCostCents: number, subagentCalls: number) => ({
-        sessionId: row.sessionId,
-        slug: row.slug,
-        repoRoot: row.repoRoot,
-        label: sessionLabel(row),
-        model: row.model,
-        startedAt: row.startedAt,
-        apiCalls: row.apiCalls,
-        costCents: row.estCostCents + subagentCostCents,
-        subagentCostCents,
-        subagentCalls,
-        isSubagent: row.isSubagent,
-        parentSessionId: row.parentSessionId,
-        readsPerWrite: readsPerWrite(row.cacheReadTokens, row.cacheWrite1hTokens + row.cacheWrite5mTokens),
-        linesAdded: row.linesAdded,
-        linesRemoved: row.linesRemoved,
-        durationMinutes: row.durationMinutes,
-      });
 
       const topLevel = allRows.filter((row) => (!row.isSubagent || isOrphan(row)) && startedAtInRange(row.startedAt, input.from, input.to));
       const rows = topLevel.map((row) => {
@@ -899,25 +673,7 @@ export const usageRouter = router({
     const subagentCostCents = children.reduce((sum, child) => sum + child.estCostCents, 0);
     const subagentCalls = children.reduce((sum, child) => sum + child.apiCalls, 0);
 
-    const session = {
-      sessionId: row.sessionId,
-      slug: row.slug,
-      repoRoot: row.repoRoot,
-      label: sessionLabel(row),
-      model: row.model,
-      startedAt: row.startedAt,
-      apiCalls: row.apiCalls,
-      costCents: row.estCostCents + subagentCostCents,
-      subagentCostCents,
-      subagentCalls,
-      isSubagent: row.isSubagent,
-      parentSessionId: row.parentSessionId,
-      readsPerWrite: readsPerWrite(row.cacheReadTokens, row.cacheWrite1hTokens + row.cacheWrite5mTokens),
-      linesAdded: row.linesAdded,
-      linesRemoved: row.linesRemoved,
-      durationMinutes: row.durationMinutes,
-      compactions: row.compactions,
-    };
+    const session = { ...toSessionRow(row, subagentCostCents, subagentCalls), compactions: row.compactions };
 
     const subagents = children.map((child) => ({
       sessionId: child.sessionId,
@@ -929,16 +685,21 @@ export const usageRouter = router({
     }));
 
     const toolRows = db.select().from(usageTool).where(eq(usageTool.sessionId, input.sessionId)).all();
-    const tools = toolRows.map((tool) => ({
-      tool: tool.toolName,
-      calls: tool.calls,
-      costCents: tool.attributedCostCents,
-      costPerCallCents: tool.calls > 0 ? Math.round(tool.attributedCostCents / tool.calls) : 0,
-      resultTokens: tool.resultTokensEst,
-      maxResultChars: tool.maxResultChars,
-      images: tool.images,
-      errors: tool.errorCount,
-    }));
+    const tools = toolRows.map((tool) => {
+      const costCents = microCentsToCents(tool.attributedCostMicroCents);
+      return {
+        tool: tool.toolName,
+        calls: tool.calls,
+        costCents,
+        costPerCallCents: tool.calls > 0 ? Math.round(costCents / tool.calls) : 0,
+        resultTokens: tool.resultTokensEst,
+        maxResultChars: tool.maxResultChars,
+        p50ResultChars: tool.p50ResultChars,
+        p95ResultChars: tool.p95ResultChars,
+        images: tool.images,
+        errors: tool.errorCount,
+      };
+    });
 
     const fileRows = db.select().from(usageFile).where(eq(usageFile.sessionId, input.sessionId)).all();
     const files = fileRows.map((file) => ({
@@ -946,15 +707,17 @@ export const usageRouter = router({
       reads: file.reads,
       edits: file.edits,
       writes: file.writes,
+      totalChars: file.totalChars,
       tokens: file.tokensEst,
-      costCents: file.attributedCostCents,
+      costCents: microCentsToCents(file.attributedCostMicroCents),
     }));
 
     const fieldRows = db.select().from(usageField).where(eq(usageField.sessionId, input.sessionId)).all();
     const fields = fieldRows.map((field) => ({
       tool: field.tool,
       field: field.field,
-      costCents: field.attributedCostCents,
+      calls: field.calls,
+      costCents: microCentsToCents(field.attributedCostMicroCents),
       tokens: field.tokens,
     }));
 
@@ -969,18 +732,14 @@ export const usageRouter = router({
     return { session, tools, files, fields, callSeries, subagents };
   }),
 
-  refresh: publicProcedure.mutation(async ({ ctx }) => {
+  refresh: publicProcedure
+    .input(refreshInput)
+    .mutation(({ ctx, input }) => refreshUsage(ctx.state, input?.since)),
+
+  rebuild: publicProcedure.mutation(() => {
     const db = getDb();
-    const start = Date.now();
-    const scan = await requestUsageScan(db, ctx.state);
-    const { newSessions } = upsertUsageScan(db, scan);
-    if (scan.staleSealSkips > 0) {
-      // A line landed before an already-sealed day (clock change, machine-
-      // hopping) — never silently reopen the seal, just surface it.
-      console.warn(`[usage] ${scan.staleSealSkips} stale seal skip(s) detected`);
-    }
-    const scannedFiles = Object.keys(scan.files).length;
-    broadcastUsageChange(scannedFiles, newSessions);
-    return { scannedFiles, newSessions, durationMs: Date.now() - start };
+    rebuildUsageHistory(db);
+    broadcastUsageChange(0, 0);
+    return { rebuilt: true };
   }),
 });

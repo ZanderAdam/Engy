@@ -632,13 +632,17 @@ export const usageSessionRelations = relations(usageSession, ({ one }) => ({
   }),
 }));
 
-// Time series, pre-bucketed for charts. `date` (not `sessionId`) anchors the
-// key because a session can cross midnight — bucketing by the call's own
-// timestamp keeps every date-range query exact at the edges.
-export const usageDaily = sqliteTable(
-  'usage_daily',
+// Time series, pre-bucketed for charts. `date` leads the key because a session
+// can cross midnight — bucketing by the call's own timestamp keeps every
+// date-range query exact at the edges. `sessionId` is part of the key too:
+// without it, rows from every session sharing a date/slug/model collide, and a
+// rescan could neither add a session's new tail nor replace its reparsed
+// totals without corrupting its neighbours. Readers sum across sessions.
+export const usageSessionDaily = sqliteTable(
+  'usage_session_daily',
   {
     date: text('date').notNull(),
+    sessionId: text('session_id').notNull(),
     slug: text('slug').notNull(),
     model: text('model').notNull(),
     // Split out so overview can report subagent spend as its own share
@@ -655,8 +659,9 @@ export const usageDaily = sqliteTable(
     estCostCents: integer('est_cost_cents').notNull().default(0),
   },
   (table) => [
-    primaryKey({ columns: [table.date, table.slug, table.model, table.isSubagent] }),
-    index('idx_usage_daily_date').on(table.date),
+    primaryKey({ columns: [table.date, table.sessionId, table.model] }),
+    index('idx_usage_session_daily_date').on(table.date),
+    index('idx_usage_session_daily_session').on(table.sessionId),
   ],
 );
 
@@ -672,7 +677,10 @@ export const usageTool = sqliteTable(
     resultTokensEst: integer('result_tokens_est').notNull().default(0),
     inputChars: integer('input_chars').notNull().default(0),
     attributedTokenTurns: integer('attributed_token_turns').notNull().default(0),
-    attributedCostCents: integer('attributed_cost_cents').notNull().default(0),
+    // Micro-cents, not cents — rounding every row here and summing the rounded
+    // values at query time zeroes most sub-cent rows (thousands of them).
+    // Round once, in the router, after summing.
+    attributedCostMicroCents: integer('attributed_cost_micro_cents').notNull().default(0),
     p50ResultChars: integer('p50_result_chars').notNull().default(0),
     p95ResultChars: integer('p95_result_chars').notNull().default(0),
     maxResultChars: integer('max_result_chars').notNull().default(0),
@@ -682,6 +690,7 @@ export const usageTool = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.date, table.sessionId, table.toolName] }),
     index('idx_usage_tool_date').on(table.date),
+    index('idx_usage_tool_session').on(table.sessionId),
   ],
 );
 
@@ -701,6 +710,7 @@ export const usageCause = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.date, table.sessionId, table.kind] }),
     index('idx_usage_cause_date').on(table.date),
+    index('idx_usage_cause_session').on(table.sessionId),
   ],
 );
 
@@ -726,13 +736,16 @@ export const usageField = sqliteTable(
     sessionId: text('session_id').notNull(),
     tool: text('tool').notNull(),
     field: text('field').notNull(),
+    calls: integer('calls').notNull().default(0),
     tokens: integer('tokens').notNull().default(0),
     tokenTurns: integer('token_turns').notNull().default(0),
-    attributedCostCents: integer('attributed_cost_cents').notNull().default(0),
+    // Micro-cents — see usageTool.attributedCostMicroCents for why.
+    attributedCostMicroCents: integer('attributed_cost_micro_cents').notNull().default(0),
   },
   (table) => [
     primaryKey({ columns: [table.date, table.sessionId, table.tool, table.field] }),
     index('idx_usage_field_date').on(table.date),
+    index('idx_usage_field_session').on(table.sessionId),
   ],
 );
 
@@ -750,12 +763,40 @@ export const usageFile = sqliteTable(
     totalChars: integer('total_chars').notNull().default(0),
     tokensEst: integer('tokens_est').notNull().default(0),
     attributedTokenTurns: integer('attributed_token_turns').notNull().default(0),
-    attributedCostCents: integer('attributed_cost_cents').notNull().default(0),
+    // Micro-cents — see usageTool.attributedCostMicroCents for why.
+    attributedCostMicroCents: integer('attributed_cost_micro_cents').notNull().default(0),
     ext: text('ext').notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.date, table.sessionId, table.filePath] }),
     index('idx_usage_file_date').on(table.date),
+    index('idx_usage_file_session').on(table.sessionId),
+  ],
+);
+
+// Single most expensive tool calls — payload size × later-calls-in-session ×
+// rate, one row per call. The reducer keeps only the top 20 of each scan pass,
+// so an incremental rescan adds at most 20 rows per session per pass, never
+// one per call. `field` is the input field the preview was drawn from (null
+// when the call carried no input).
+export const usageExpensiveCall = sqliteTable(
+  'usage_expensive_call',
+  {
+    date: text('date').notNull(),
+    sessionId: text('session_id').notNull(),
+    callIndex: integer('call_index').notNull(),
+    tool: text('tool').notNull(),
+    field: text('field'),
+    tokens: integer('tokens').notNull().default(0),
+    tokenTurns: integer('token_turns').notNull().default(0),
+    // Micro-cents — see usageTool.attributedCostMicroCents for why.
+    attributedCostMicroCents: integer('attributed_cost_micro_cents').notNull().default(0),
+    preview: text('preview').notNull().default(''),
+  },
+  (table) => [
+    primaryKey({ columns: [table.date, table.sessionId, table.callIndex] }),
+    index('idx_usage_expensive_call_date').on(table.date),
+    index('idx_usage_expensive_call_session').on(table.sessionId),
   ],
 );
 

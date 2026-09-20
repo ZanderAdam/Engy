@@ -44,7 +44,7 @@ export function FileTable({ rows, groupBy }: { rows: UsageFileRow[]; groupBy: Fi
   );
 
   if (rows.length === 0) {
-    return <p className="text-xs text-muted-foreground">No file activity in this range.</p>;
+    return <p className="text-xs text-muted-foreground">No files used in this date range.</p>;
   }
 
   const keyLabel = KEY_LABEL[groupBy];
@@ -59,7 +59,7 @@ export function FileTable({ rows, groupBy }: { rows: UsageFileRow[]; groupBy: Fi
             direction={sort.direction}
             onClick={() => toggle('key')}
           />
-          {groupBy === 'path' && <TableHead>Ext</TableHead>}
+          {groupBy === 'path' && <TableHead>Extension</TableHead>}
           <SortHead
             label="Cost"
             numeric

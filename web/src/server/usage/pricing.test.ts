@@ -4,13 +4,19 @@ import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { usagePricing } from '../db/schema';
 import {
   seedUsagePricing,
-  getModelRate,
+  normaliseModelId,
   listModelRates,
   findUnpricedModels,
   microCentsForTokens,
   microCentsToCents,
   SEED_MODEL_RATES,
 } from './pricing';
+
+function rateOf(ctx: TestContext, model: string) {
+  const rate = listModelRates(ctx.db).find((row) => row.model === model);
+  if (!rate) throw new Error(`no seeded rate for ${model}`);
+  return rate;
+}
 
 describe('usage pricing', () => {
   let ctx: TestContext;
@@ -24,13 +30,13 @@ describe('usage pricing', () => {
   });
 
   describe('seedUsagePricing', () => {
-    it('should insert every seed model rate as exact integer micro-cents', () => {
+    it('[FR-USAGE-160] should insert every seed model rate as exact integer micro-cents', () => {
       seedUsagePricing(ctx.db);
 
       const rows = listModelRates(ctx.db);
       expect(rows).toHaveLength(SEED_MODEL_RATES.length);
 
-      const opus = getModelRate(ctx.db, 'claude-opus-5')!;
+      const opus = rateOf(ctx, 'claude-opus-5');
       expect(opus.inputMicroCentsPerToken).toBe(500);
       expect(opus.outputMicroCentsPerToken).toBe(2500);
       expect(opus.cacheWrite1hMicroCentsPerToken).toBe(1000);
@@ -38,13 +44,13 @@ describe('usage pricing', () => {
       expect(opus.cacheReadMicroCentsPerToken).toBe(50);
 
       // Fable 5.1 is the 0.025x cache-read exception, not the general 0.1x rule.
-      const fable51 = getModelRate(ctx.db, 'claude-fable-5-1')!;
+      const fable51 = rateOf(ctx, 'claude-fable-5-1');
       expect(fable51.cacheReadMicroCentsPerToken).toBe(25);
-      const fable5 = getModelRate(ctx.db, 'claude-fable-5')!;
+      const fable5 = rateOf(ctx, 'claude-fable-5');
       expect(fable5.cacheReadMicroCentsPerToken).toBe(100);
     });
 
-    it('should never overwrite an already-edited rate on reseed', () => {
+    it('[FR-USAGE-160] should never overwrite an already-edited rate on reseed', () => {
       seedUsagePricing(ctx.db);
       ctx.db
         .update(usagePricing)
@@ -54,35 +60,46 @@ describe('usage pricing', () => {
 
       seedUsagePricing(ctx.db);
 
-      const rate = getModelRate(ctx.db, 'claude-sonnet-5')!;
+      const rate = rateOf(ctx, 'claude-sonnet-5');
       expect(rate.inputMicroCentsPerToken).toBe(999);
     });
   });
 
-  describe('getModelRate', () => {
-    it('should return undefined for a model with no pricing row', () => {
-      seedUsagePricing(ctx.db);
-      expect(getModelRate(ctx.db, 'claude-unknown-9')).toBeUndefined();
+  describe('normaliseModelId', () => {
+    it('[FR-USAGE-150] should strip a dated snapshot suffix so it resolves to the base model', () => {
+      expect(normaliseModelId('claude-haiku-4-5-20251001')).toBe('claude-haiku-4-5');
+    });
+
+    it('[FR-USAGE-150] should leave an id that carries no date alone', () => {
+      expect(normaliseModelId('claude-sonnet-5')).toBe('claude-sonnet-5');
+      expect(normaliseModelId('<synthetic>')).toBe('<synthetic>');
     });
   });
 
   describe('findUnpricedModels', () => {
-    it('should list only models absent from usagePricing, never guessing a rate', () => {
+    it('[FR-USAGE-140] should list only models absent from usagePricing, never guessing a rate', () => {
       seedUsagePricing(ctx.db);
       const unpriced = findUnpricedModels(ctx.db, ['claude-sonnet-5', 'claude-unknown-9', 'claude-another-1']);
       expect(unpriced.sort()).toEqual(['claude-another-1', 'claude-unknown-9']);
     });
 
-    it('should return an empty list when every model is priced', () => {
+    it('[FR-USAGE-140] should return an empty list when every model is priced', () => {
       seedUsagePricing(ctx.db);
       expect(findUnpricedModels(ctx.db, ['claude-sonnet-5', 'claude-opus-5'])).toEqual([]);
+    });
+
+    it('[FR-USAGE-150] should treat a dated snapshot of a priced model as priced', () => {
+      seedUsagePricing(ctx.db);
+      expect(findUnpricedModels(ctx.db, ['claude-haiku-4-5-20251001', '<synthetic>'])).toEqual([
+        '<synthetic>',
+      ]);
     });
   });
 
   describe('microCentsForTokens', () => {
-    it('should sum every bucket against its own rate', () => {
+    it('[FR-USAGE-130] should sum every bucket against its own rate', () => {
       seedUsagePricing(ctx.db);
-      const rate = getModelRate(ctx.db, 'claude-sonnet-5')!;
+      const rate = rateOf(ctx, 'claude-sonnet-5');
       const microCents = microCentsForTokens(
         {
           inputTokens: 1_000_000,
@@ -100,7 +117,7 @@ describe('usage pricing', () => {
   });
 
   describe('microCentsToCents', () => {
-    it('should round to the nearest integer cent, never fractional', () => {
+    it('[FR-USAGE-130] should round to the nearest integer cent, never fractional', () => {
       expect(microCentsToCents(1_500_000)).toBe(2);
       expect(microCentsToCents(1_499_999)).toBe(1);
       expect(Number.isInteger(microCentsToCents(333_333))).toBe(true);

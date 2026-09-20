@@ -4,6 +4,7 @@ import type {
   UsageCauseKind,
   UsageCauseRollup,
   UsageDayRollup,
+  UsageExpensiveCall,
   UsageFieldRollup,
   UsageFileRollup,
   UsageSessionRollup,
@@ -11,6 +12,7 @@ import type {
   UsageToolRollup,
 } from '@engy/common';
 import { estimateBlockTokens, estimateTextTokens, safeStringify } from './tokens.js';
+import { localDateFromTimestamp } from './date.js';
 
 /**
  * Cheap gate applied before JSON.parse. Roughly 78% of transcript lines carry
@@ -33,6 +35,20 @@ const COMPACTION_MIN_CONTEXT = 60_000;
 
 const UNKNOWN_DATE = 'unknown';
 const KEY_SEP = '\u0000';
+
+/**
+ * Reservoir cap: bounds a tool's result-size sample to 256 entries no matter
+ * how many results it returns, so memory stays proportional to tool count
+ * rather than call count. 256 is enough for a stable p50/p95 read.
+ */
+const RESULT_SAMPLE_CAP = 256;
+
+const EXPENSIVE_CALL_CAP = 20;
+const PREVIEW_MAX_CHARS = 120;
+
+// An interrupted tool_use never gets the tool_result that would remove it, so
+// this is the one accumulator not bounded by group count.
+const MAX_PENDING_TOOL_USES = 1000;
 
 export function lineMayMatter(line: string): boolean {
   if (line.includes(USAGE_MARKER)) return true;
@@ -75,6 +91,29 @@ class ResidualSum {
   }
 }
 
+/** Reservoir sampling (Algorithm R) — see `RESULT_SAMPLE_CAP` for why. */
+class ReservoirSample {
+  private readonly samples: number[] = [];
+  private seen = 0;
+
+  add(value: number): void {
+    this.seen += 1;
+    if (this.samples.length < RESULT_SAMPLE_CAP) {
+      this.samples.push(value);
+      return;
+    }
+    const slot = Math.floor(Math.random() * this.seen);
+    if (slot < RESULT_SAMPLE_CAP) this.samples[slot] = value;
+  }
+
+  percentile(p: number): number {
+    if (this.samples.length === 0) return 0;
+    const sorted = [...this.samples].sort((a, b) => a - b);
+    const index = Math.min(sorted.length - 1, Math.floor(p * sorted.length));
+    return sorted[index];
+  }
+}
+
 interface ToolAcc {
   date: string;
   tool: string;
@@ -86,6 +125,7 @@ interface ToolAcc {
   images: number;
   errors: number;
   maxResultChars: number;
+  resultCharsSample: ReservoirSample;
 }
 
 interface FileAcc {
@@ -96,11 +136,24 @@ interface FileAcc {
   edits: number;
   writes: number;
   calls: number;
+  totalChars: number;
 }
 
 interface PendingToolUse {
   name: string;
   filePath: string | null;
+  field: string | null;
+  preview: string;
+  inputTokens: number;
+}
+
+interface ExpensiveCallCandidate {
+  date: string;
+  tool: string;
+  field: string | null;
+  preview: string;
+  callIndex: number;
+  residual: ResidualSum;
 }
 
 const EMPTY_TOTALS = () => ({
@@ -144,6 +197,30 @@ function readFilePath(input: Record<string, unknown>): string | null {
   return null;
 }
 
+function truncatePreview(text: string): string {
+  return text.replace(/\r?\n/g, ' ').trim().slice(0, PREVIEW_MAX_CHARS);
+}
+
+/** Identifies the payload of a tool call for the expensive-calls table. */
+function deriveCallPreview(
+  name: string,
+  input: Record<string, unknown>,
+  largest: { field: string; text: string } | null,
+): { field: string | null; preview: string } {
+  if (name === 'Read' || name === 'Write' || name === 'Edit') {
+    for (const key of FILE_PATH_KEYS) {
+      const value = input[key];
+      if (typeof value === 'string' && value.length > 0) {
+        return { field: key, preview: truncatePreview(value) };
+      }
+    }
+  }
+  if (name === 'Bash' && typeof input.command === 'string') {
+    return { field: 'command', preview: truncatePreview(input.command.split('\n')[0] ?? '') };
+  }
+  return largest ? { field: largest.field, preview: truncatePreview(largest.text) } : { field: null, preview: '' };
+}
+
 interface SessionReducerOptions {
   sessionId: string;
   slug: string;
@@ -176,11 +253,12 @@ export class SessionReducer {
   private readonly tools = new Map<string, ToolAcc>();
   private readonly fields = new Map<
     string,
-    { date: string; residual: ResidualSum; tool: string; field: string }
+    { date: string; residual: ResidualSum; tool: string; field: string; calls: number }
   >();
   private readonly files = new Map<string, FileAcc>();
   private readonly causes = new Map<string, { date: string; kind: UsageCauseKind; residual: ResidualSum }>();
   private readonly pending = new Map<string, PendingToolUse>();
+  private readonly expensiveCalls: ExpensiveCallCandidate[] = [];
 
   private callPoints: UsageCallPoint[] = [];
   private callStride = 1;
@@ -223,7 +301,9 @@ export class SessionReducer {
     if (timestamp) {
       if (!this.startedAt) this.startedAt = timestamp;
       this.endedAt = timestamp;
-      this.currentDate = timestamp.slice(0, 10);
+      // The seal boundary and the UI's range picker are both local — bucketing
+      // by the UTC slice of the timestamp misdates rows near local midnight.
+      this.currentDate = localDateFromTimestamp(timestamp);
     }
 
     const message = entry.message as Record<string, unknown> | undefined;
@@ -282,7 +362,6 @@ export class SessionReducer {
     const id = asString(block.id);
 
     if (name === 'Agent') this.agentCalls += 1;
-    if (id) this.pending.set(id, { name, filePath: readFilePath(input) });
 
     const serialisedInput = safeStringify(input);
     const tokens = estimateTextTokens(serialisedInput);
@@ -292,14 +371,29 @@ export class SessionReducer {
     tool.inputResidual.add(tokens, this.callsSoFar);
     tool.inputChars += serialisedInput.length;
 
+    let largest: { field: string; text: string } | null = null;
     for (const [key, value] of Object.entries(input)) {
+      const serialised = safeStringify(value);
+      const text = typeof value === 'string' ? value : serialised;
+      if (!largest || text.length > largest.text.length) largest = { field: key, text };
+
       const fieldKey = `${this.currentDate}${KEY_SEP}${name}${KEY_SEP}${key}`;
       let field = this.fields.get(fieldKey);
       if (!field) {
-        field = { date: this.currentDate, residual: this.newResidual(), tool: name, field: key };
+        field = { date: this.currentDate, residual: this.newResidual(), tool: name, field: key, calls: 0 };
         this.fields.set(fieldKey, field);
       }
-      field.residual.add(estimateTextTokens(safeStringify(value)), this.callsSoFar);
+      field.residual.add(estimateTextTokens(serialised), this.callsSoFar);
+      field.calls += 1;
+    }
+
+    if (id) {
+      const { field, preview } = deriveCallPreview(name, input, largest);
+      this.pending.set(id, { name, filePath: readFilePath(input), field, preview, inputTokens: tokens });
+      if (this.pending.size > MAX_PENDING_TOOL_USES) {
+        const oldest = this.pending.keys().next().value;
+        if (oldest !== undefined) this.pending.delete(oldest);
+      }
     }
   }
 
@@ -317,14 +411,20 @@ export class SessionReducer {
     tool.residual.add(tokens, this.callsSoFar);
     tool.calls += 1;
     tool.resultChars += chars;
+    tool.resultCharsSample.add(chars);
     tool.maxResultChars = Math.max(tool.maxResultChars, chars);
     if (isImage) tool.images += 1;
     if (block.is_error === true) tool.errors += 1;
 
-    if (origin?.filePath) this.addFile(origin.filePath, name, tokens);
+    if (origin?.filePath) this.addFile(origin.filePath, name, tokens, chars);
+
+    // A call's cost is its input plus its result — for `Write`, the input
+    // (the content written) usually dwarfs the result (a short "ok").
+    const callTokens = (origin?.inputTokens ?? 0) + tokens;
+    this.recordExpensiveCall(name, origin?.field ?? null, origin?.preview ?? '', callTokens);
   }
 
-  private addFile(filePath: string, tool: string, tokens: number): void {
+  private addFile(filePath: string, tool: string, tokens: number, chars: number): void {
     const key = `${this.currentDate}${KEY_SEP}${filePath}`;
     let file = this.files.get(key);
     if (!file) {
@@ -336,14 +436,47 @@ export class SessionReducer {
         edits: 0,
         writes: 0,
         calls: 0,
+        totalChars: 0,
       };
       this.files.set(key, file);
     }
     file.residual.add(tokens, this.callsSoFar);
     file.calls += 1;
+    file.totalChars += chars;
     if (tool === 'Read') file.reads += 1;
     else if (tool === 'Write') file.writes += 1;
     else file.edits += 1;
+  }
+
+  /**
+   * Admission is by raw payload size, not token-turns: a call's token-turns
+   * only reach their final value at `finish()` (a later compaction can still
+   * settle them down), so nothing observable mid-scan ranks calls by final
+   * cost. Size is a fair proxy for admission; the surviving top 20 are
+   * re-ranked by settled token-turns once the session closes.
+   */
+  private recordExpensiveCall(tool: string, field: string | null, preview: string, tokens: number): void {
+    if (this.expensiveCalls.length >= EXPENSIVE_CALL_CAP && tokens <= this.expensiveCalls[0].residual.tokens) {
+      return;
+    }
+
+    const residual = new ResidualSum();
+    residual.add(tokens, this.callsSoFar);
+    const candidate: ExpensiveCallCandidate = {
+      date: this.currentDate,
+      tool,
+      field,
+      preview,
+      callIndex: this.callsSoFar,
+      residual,
+    };
+
+    if (this.expensiveCalls.length < EXPENSIVE_CALL_CAP) {
+      this.expensiveCalls.push(candidate);
+    } else {
+      this.expensiveCalls[0] = candidate;
+    }
+    this.expensiveCalls.sort((a, b) => a.residual.tokens - b.residual.tokens);
   }
 
   private newResidual(): ResidualSum {
@@ -367,6 +500,7 @@ export class SessionReducer {
         images: 0,
         errors: 0,
         maxResultChars: 0,
+        resultCharsSample: new ReservoirSample(),
       };
       this.tools.set(key, tool);
     }
@@ -406,6 +540,7 @@ export class SessionReducer {
     if (collapsed) {
       this.compactions += 1;
       for (const residual of this.residuals) residual.settle(this.callsSoFar);
+      for (const candidate of this.expensiveCalls) candidate.residual.settle(this.callsSoFar);
     }
     this.previousContext = context;
   }
@@ -485,6 +620,8 @@ export class SessionReducer {
       images: acc.images,
       errors: acc.errors,
       maxResultChars: acc.maxResultChars,
+      p50ResultChars: Math.round(acc.resultCharsSample.percentile(0.5)),
+      p95ResultChars: Math.round(acc.resultCharsSample.percentile(0.95)),
     }));
 
     const fields: UsageFieldRollup[] = [...this.fields.values()].map((entry) => ({
@@ -493,7 +630,7 @@ export class SessionReducer {
       field: entry.field,
       tokens: entry.residual.tokens,
       tokenTurns: entry.residual.tokenTurns(totalCalls),
-      calls: 0,
+      calls: entry.calls,
     }));
 
     const files: UsageFileRollup[] = [...this.files.values()].map((acc) => ({
@@ -506,6 +643,7 @@ export class SessionReducer {
       calls: acc.calls,
       tokens: acc.residual.tokens,
       tokenTurns: acc.residual.tokenTurns(totalCalls),
+      totalChars: acc.totalChars,
     }));
 
     const causes: UsageCauseRollup[] = [...this.causes.values()].map((entry) => ({
@@ -514,6 +652,19 @@ export class SessionReducer {
       tokenTurns: entry.residual.tokenTurns(totalCalls),
     }));
 
+    const expensiveCalls: UsageExpensiveCall[] = this.expensiveCalls
+      .map((candidate) => ({
+        date: candidate.date,
+        sessionId: this.sessionId,
+        tool: candidate.tool,
+        field: candidate.field,
+        tokens: candidate.residual.tokens,
+        tokenTurns: candidate.residual.tokenTurns(totalCalls),
+        callIndex: candidate.callIndex,
+        preview: candidate.preview,
+      }))
+      .sort((a, b) => b.tokenTurns - a.tokenTurns);
+
     return {
       session,
       days,
@@ -521,6 +672,7 @@ export class SessionReducer {
       fields,
       files,
       causes,
+      expensiveCalls,
       compactions: this.compactions,
       calls: this.callPoints,
       bytesScanned: this.bytesScanned,

@@ -116,6 +116,18 @@ export interface UsageSessionRow {
   durationMinutes?: number | null;
 }
 
+export interface UsageExpensiveCallRow {
+  date: string;
+  sessionId: string;
+  callIndex: number;
+  tool: string;
+  field: string | null;
+  tokens: number;
+  tokenTurns: number;
+  costCents: number;
+  preview: string;
+}
+
 export interface UsageSubagentRow {
   sessionId: string;
   agentType: string | null;
@@ -142,3 +154,5 @@ export interface UsageSessionDetail {
 export type FileGroupBy = 'path' | 'ext' | 'dir';
 export type GroupAxis = 'repo' | 'slug';
 export type UsageView = 'overview' | 'burn' | 'sessions';
+
+export type UsageScope = 'all' | 'workspace' | 'project';

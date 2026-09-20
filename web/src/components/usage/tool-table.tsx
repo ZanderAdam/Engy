@@ -25,7 +25,7 @@ export function ToolTable({ rows }: { rows: UsageToolRow[] }) {
   );
 
   if (rows.length === 0) {
-    return <p className="text-xs text-muted-foreground">No tool calls in this range.</p>;
+    return <p className="text-xs text-muted-foreground">No tool calls in this date range.</p>;
   }
 
   return (
@@ -36,7 +36,7 @@ export function ToolTable({ rows }: { rows: UsageToolRow[] }) {
             [
               ['tool', 'Tool', false],
               ['costCents', 'Cost', true],
-              ['costPerCallCents', 'Cost / call', true],
+              ['costPerCallCents', 'Cost per call', true],
               ['calls', 'Calls', true],
               ['resultTokens', 'Result tokens', true],
               ['errors', 'Errors', true],

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { SessionReducer, lineMayMatter } from './reducer.js';
 
 function usageLine(options: {
@@ -72,16 +72,20 @@ function reduce(lines: string[]) {
 }
 
 describe('usage reducer', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   describe('line pre-filter', () => {
-    it('should keep lines carrying usage', () => {
+    it('[FR-USAGE-020] should keep lines carrying usage', () => {
       expect(lineMayMatter('{"cache_read_input_tokens":5}')).toBe(true);
     });
 
-    it('should keep lines carrying content blocks', () => {
+    it('[FR-USAGE-020] should keep lines carrying content blocks', () => {
       expect(lineMayMatter('{"type":"tool_result"}')).toBe(true);
     });
 
-    it('should drop lines carrying neither', () => {
+    it('[FR-USAGE-020] should drop lines carrying neither', () => {
       expect(lineMayMatter('{"type":"summary","leafUuid":"abc"}')).toBe(false);
     });
   });
@@ -108,7 +112,7 @@ describe('usage reducer', () => {
       expect(scan.session.model).toBe('claude-opus-5');
     });
 
-    it('should bucket usage by date and model', () => {
+    it('[FR-USAGE-170] should bucket usage by date and model', () => {
       const scan = reduce([
         usageLine({ timestamp: '2026-09-01T10:00:00.000Z', cacheRead: 100 }),
         usageLine({ timestamp: '2026-09-02T10:00:00.000Z', cacheRead: 200 }),
@@ -117,7 +121,7 @@ describe('usage reducer', () => {
       expect(scan.days.map((d) => d.date).sort()).toEqual(['2026-09-01', '2026-09-02']);
     });
 
-    it('should skip malformed lines without aborting the scan', () => {
+    it('[FR-USAGE-030] should skip malformed lines without aborting the scan', () => {
       const scan = reduce(['{"cache_read_input_tokens": broken', usageLine({ cacheRead: 42 })]);
       expect(scan.session.cacheReadTokens).toBe(42);
       expect(scan.linesSkipped).toBe(1);
@@ -125,7 +129,7 @@ describe('usage reducer', () => {
   });
 
   describe('residual attribution', () => {
-    it('should charge a block once per API call that follows it', () => {
+    it('[FR-USAGE-090] should charge a block once per API call that follows it', () => {
       // Tool result lands before 3 further calls, so 360 chars (100 tokens)
       // are re-read 3 times.
       const scan = reduce([
@@ -139,7 +143,7 @@ describe('usage reducer', () => {
       expect(causeTokens(scan, 'toolResult')).toBeCloseTo(300, 0);
     });
 
-    it('should include a tool call input in that tool total, not only its result', () => {
+    it('[FR-USAGE-090] should include a tool call input in that tool total, not only its result', () => {
       const lines = (input: Record<string, unknown>) => [
         usageLine({}),
         toolUseLine('t1', 'Read', input),
@@ -153,13 +157,13 @@ describe('usage reducer', () => {
       expect(withPath).toBeGreaterThan(bare);
     });
 
-    it('should charge nothing to content added after the final call', () => {
+    it('[FR-USAGE-090] should charge nothing to content added after the final call', () => {
       const scan = reduce([usageLine({}), toolUseLine('t1', 'Read', {}), toolResultLine('t1', 'x'.repeat(3600))]);
       const read = scan.tools.find((t) => t.tool === 'Read');
       expect(read?.tokenTurns).toBe(0);
     });
 
-    it('should make an early block cost more than an identical late one', () => {
+    it('[FR-USAGE-090] should make an early block cost more than an identical late one', () => {
       const payload = 'x'.repeat(3600);
       const early = reduce([
         toolUseLine('t1', 'Read', {}),
@@ -186,7 +190,7 @@ describe('usage reducer', () => {
   describe('compaction', () => {
     const big = (cacheRead: number) => usageLine({ cacheRead });
 
-    it('should stop charging a block once the context collapses', () => {
+    it('[FR-USAGE-100] should stop charging a block once the context collapses', () => {
       const payload = 'x'.repeat(3600);
       const withCompaction = reduce([
         big(200_000),
@@ -215,7 +219,7 @@ describe('usage reducer', () => {
       );
     });
 
-    it('should charge a block added after a compaction against the later calls', () => {
+    it('[FR-USAGE-100] should charge a block added after a compaction against the later calls', () => {
       const payload = 'x'.repeat(3600);
       const scan = reduce([
         big(200_000),
@@ -229,7 +233,7 @@ describe('usage reducer', () => {
       expect(causeTokens(scan, 'toolResult')).toBeCloseTo(3000, -2);
     });
 
-    it('should report how many times the session compacted', () => {
+    it('[FR-USAGE-100] should report how many times the session compacted', () => {
       const scan = reduce([
         big(200_000),
         big(20_000),
@@ -240,7 +244,7 @@ describe('usage reducer', () => {
       expect(scan.compactions).toBe(2);
     });
 
-    it('should ignore a context drop below the small-context floor', () => {
+    it('[FR-USAGE-100] should ignore a context drop below the small-context floor', () => {
       const payload = 'x'.repeat(3600);
       const scan = reduce([
         big(5_000),
@@ -255,7 +259,7 @@ describe('usage reducer', () => {
   });
 
   describe('cause and field breakdown', () => {
-    it('should separate tool inputs from tool results', () => {
+    it('[FR-USAGE-110] should separate tool inputs from tool results', () => {
       const scan = reduce([
         toolUseLine('t1', 'Agent', { prompt: 'p'.repeat(3600) }),
         toolResultLine('t1', 'r'.repeat(360)),
@@ -264,7 +268,7 @@ describe('usage reducer', () => {
       expect(causeTokens(scan, 'toolInput')).toBeGreaterThan(causeTokens(scan, 'toolResult'));
     });
 
-    it('should attribute input cost down to the individual field', () => {
+    it('[FR-USAGE-290] should attribute input cost down to the individual field', () => {
       const scan = reduce([
         toolUseLine('t1', 'Agent', { prompt: 'p'.repeat(36000), description: 'short' }),
         usageLine({}),
@@ -275,7 +279,20 @@ describe('usage reducer', () => {
       expect(description?.tokenTurns).toBeLessThan(100);
     });
 
-    it('should count an image result as an image cause, not a tool result', () => {
+    it('should count how many tool calls contributed to a field row', () => {
+      const scan = reduce([
+        toolUseLine('t1', 'Agent', { prompt: 'a' }),
+        toolUseLine('t2', 'Agent', { prompt: 'b' }),
+        toolUseLine('t3', 'Agent', { prompt: 'c', description: 'x' }),
+        usageLine({}),
+      ]);
+      const prompt = scan.fields.find((f) => f.tool === 'Agent' && f.field === 'prompt');
+      const description = scan.fields.find((f) => f.tool === 'Agent' && f.field === 'description');
+      expect(prompt?.calls).toBe(3);
+      expect(description?.calls).toBe(1);
+    });
+
+    it('[FR-USAGE-080] should count an image result as an image cause, not a tool result', () => {
       const head = Buffer.alloc(32);
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(head, 0);
       head.writeUInt32BE(1920, 16);
@@ -329,10 +346,157 @@ describe('usage reducer', () => {
       ]);
       expect(scan.files.find((f) => f.filePath === '/Makefile')?.ext).toBe('<none>');
     });
+
+    it('should accumulate the real character count per file, not just the token estimate', () => {
+      const scan = reduce([
+        toolUseLine('t1', 'Read', { file_path: '/a.ts' }),
+        toolResultLine('t1', 'x'.repeat(360)),
+        toolUseLine('t2', 'Read', { file_path: '/a.ts' }),
+        toolResultLine('t2', 'x'.repeat(140)),
+        usageLine({}),
+      ]);
+      expect(scan.files.find((f) => f.filePath === '/a.ts')?.totalChars).toBe(500);
+    });
+  });
+
+  describe('tool result-size distribution', () => {
+    it('should compute exact p50/p95 for a known distribution', () => {
+      const sizes = [100, 200, 300, 400, 500];
+      const lines = sizes.flatMap((size, i) => [
+        toolUseLine(`t${i}`, 'Read', {}),
+        toolResultLine(`t${i}`, 'x'.repeat(size)),
+      ]);
+      const scan = reduce([...lines, usageLine({})]);
+      const read = scan.tools.find((t) => t.tool === 'Read');
+      expect(read?.p50ResultChars).toBe(300);
+      expect(read?.p95ResultChars).toBe(500);
+    });
+
+    it('should stay bounded and correct when fed far more samples than the reservoir cap', () => {
+      const lines: string[] = [];
+      for (let i = 0; i < 5000; i += 1) {
+        lines.push(toolUseLine(`t${i}`, 'Read', {}));
+        lines.push(toolResultLine(`t${i}`, 'x'.repeat(777)));
+      }
+      lines.push(usageLine({}));
+      const scan = reduce(lines);
+      const read = scan.tools.find((t) => t.tool === 'Read');
+      expect(read?.p50ResultChars).toBe(777);
+      expect(read?.p95ResultChars).toBe(777);
+    });
+  });
+
+  describe('expensive calls', () => {
+    it('should keep only the top 20 calls by payload size, dropping the rest', () => {
+      const lines: string[] = [usageLine({})];
+      for (let i = 1; i <= 25; i += 1) {
+        lines.push(toolUseLine(`t${i}`, 'Read', { file_path: `/f${i}.ts` }));
+        lines.push(toolResultLine(`t${i}`, 'x'.repeat(i * 400)));
+      }
+      lines.push(usageLine({}));
+
+      const scan = reduce(lines);
+
+      expect(scan.expensiveCalls).toHaveLength(20);
+      const previews = scan.expensiveCalls.map((c) => c.preview);
+      for (let i = 1; i <= 5; i += 1) expect(previews).not.toContain(`/f${i}.ts`);
+      for (let i = 6; i <= 25; i += 1) expect(previews).toContain(`/f${i}.ts`);
+    });
+
+    it('should sort the surviving calls by settled token-turns descending', () => {
+      const scan = reduce([
+        toolUseLine('t1', 'Read', { file_path: '/small.ts' }),
+        toolResultLine('t1', 'x'.repeat(100)),
+        toolUseLine('t2', 'Read', { file_path: '/big.ts' }),
+        toolResultLine('t2', 'x'.repeat(10_000)),
+        usageLine({}),
+        usageLine({}),
+      ]);
+      expect(scan.expensiveCalls[0].preview).toBe('/big.ts');
+    });
+
+    it('a call before a compaction must not outrank an equal one after it that is re-read more', () => {
+      const payload = 'x'.repeat(3600);
+      const big = (cacheRead: number) => usageLine({ cacheRead });
+
+      const scan = reduce([
+        big(200_000),
+        toolUseLine('a', 'Write', { content: payload }),
+        toolResultLine('a', 'ok'),
+        big(200_000),
+        big(20_000), // context collapses here — settles every open candidate, including "a"
+        toolUseLine('b', 'Write', { content: payload }),
+        toolResultLine('b', 'ok'),
+        big(20_000),
+        big(20_000),
+        big(20_000),
+      ]);
+
+      const a = scan.expensiveCalls.find((c) => c.callIndex === 1);
+      const b = scan.expensiveCalls.find((c) => c.callIndex === 3);
+      expect(a).toBeDefined();
+      expect(b).toBeDefined();
+      // Equal payloads, but "a" settled at the compaction while "b" kept
+      // accumulating afterwards, so "b" must rank above "a".
+      expect(a?.tokens).toBe(b?.tokens);
+      expect(b!.tokenTurns).toBeGreaterThan(a!.tokenTurns);
+      expect(scan.expensiveCalls[0].callIndex).toBe(3);
+    });
+  });
+
+  describe('pending tool_use bound', () => {
+    it('should evict the oldest unmatched tool_use once the pending map exceeds its cap, instead of growing without bound', () => {
+      const lines: string[] = [];
+      for (let i = 0; i <= 1000; i += 1) {
+        lines.push(toolUseLine(`t${i}`, 'Read', { file_path: `/f${i}.ts` }));
+      }
+      lines.push(toolResultLine('t0', 'x'.repeat(360)));
+      lines.push(toolResultLine('t1000', 'x'.repeat(360)));
+      lines.push(usageLine({}));
+
+      const scan = reduce(lines);
+
+      expect(scan.files.find((f) => f.filePath === '/f0.ts')).toBeUndefined();
+      expect(scan.tools.find((t) => t.tool === 'unknown')?.calls).toBe(1);
+      expect(scan.files.find((f) => f.filePath === '/f1000.ts')).toBeDefined();
+    });
+
+    it('should still attribute a tool_result to the right tool and file when the pending map is below its cap', () => {
+      const lines: string[] = [];
+      for (let i = 0; i < 5; i += 1) {
+        lines.push(toolUseLine(`unmatched${i}`, 'Bash', { command: `echo ${i}` }));
+      }
+      lines.push(toolUseLine('t-normal', 'Read', { file_path: '/a.ts' }));
+      lines.push(toolResultLine('t-normal', 'x'.repeat(360)));
+      lines.push(usageLine({}));
+
+      const scan = reduce(lines);
+
+      const file = scan.files.find((f) => f.filePath === '/a.ts');
+      expect(file).toMatchObject({ filePath: '/a.ts', reads: 1 });
+      expect(scan.tools.find((t) => t.tool === 'Read')?.calls).toBe(1);
+    });
+
+    it('should still resolve a tool_use opened before a compaction when its result arrives after it', () => {
+      const payload = 'x'.repeat(360);
+      const big = (cacheRead: number) => usageLine({ cacheRead });
+
+      const scan = reduce([
+        big(200_000),
+        toolUseLine('t1', 'Read', { file_path: '/a.ts' }),
+        big(20_000), // context collapses here; the pending entry for "t1" is kept, not cleared
+        toolResultLine('t1', payload),
+        big(20_000),
+      ]);
+
+      expect(scan.compactions).toBe(1);
+      expect(scan.files.find((f) => f.filePath === '/a.ts')).toMatchObject({ reads: 1 });
+      expect(scan.tools.find((t) => t.tool === 'unknown')).toBeUndefined();
+    });
   });
 
   describe('context-growth series', () => {
-    it('should record one point per API call for a short session', () => {
+    it('[FR-USAGE-230] should record one point per API call for a short session', () => {
       const scan = reduce([
         usageLine({ cacheRead: 100 }),
         usageLine({ cacheRead: 200 }),
@@ -345,14 +509,14 @@ describe('usage reducer', () => {
       ]);
     });
 
-    it('should downsample a long session instead of growing without bound', () => {
+    it('[FR-USAGE-230] should downsample a long session instead of growing without bound', () => {
       const scan = reduce(Array.from({ length: 5000 }, (_, i) => usageLine({ cacheRead: i })));
       expect(scan.session.apiCalls).toBe(5000);
       expect(scan.calls.length).toBeLessThanOrEqual(200);
       expect(scan.calls.length).toBeGreaterThan(50);
     });
 
-    it('should keep the series ordered and spanning the whole session', () => {
+    it('[FR-USAGE-230] should keep the series ordered and spanning the whole session', () => {
       const scan = reduce(Array.from({ length: 5000 }, (_, i) => usageLine({ cacheRead: i * 10 })));
       const indexes = scan.calls.map((p) => p.callIndex);
       expect(indexes).toEqual([...indexes].sort((a, b) => a - b));
@@ -362,7 +526,7 @@ describe('usage reducer', () => {
   });
 
   describe('subagent identity', () => {
-    it('should mark a transcript with a parent as a subagent', () => {
+    it('[FR-USAGE-050] should mark a transcript with a parent as a subagent', () => {
       const reducer = new SessionReducer({
         sessionId: 'agent-abc',
         slug: '-repo',
@@ -379,14 +543,17 @@ describe('usage reducer', () => {
       });
     });
 
-    it('should mark a transcript with no parent as a main session', () => {
+    it('[FR-USAGE-050] should mark a transcript with no parent as a main session', () => {
       const scan = reduce([usageLine({})]);
       expect(scan.session).toMatchObject({ isSubagent: false, parentSessionId: null });
     });
   });
 
   describe('date bucketing', () => {
-    it('should split a tool across the dates its calls fall on', () => {
+    it('[FR-USAGE-170] should split a tool across the dates its calls fall on', () => {
+      // Dates bucket by local time, so pin UTC to keep this boundary-crossing
+      // assertion independent of the host's TZ.
+      vi.stubEnv('TZ', 'UTC');
       const scan = reduce([
         usageLine({ timestamp: '2026-09-01T23:50:00.000Z' }),
         toolUseLine('t1', 'Read', {}),
@@ -400,7 +567,7 @@ describe('usage reducer', () => {
       expect(dates).toEqual(['2026-09-01', '2026-09-02']);
     });
 
-    it('should bucket a file rollup by the date it was touched', () => {
+    it('[FR-USAGE-170] should bucket a file rollup by the date it was touched', () => {
       const scan = reduce([
         usageLine({ timestamp: '2026-09-01T23:50:00.000Z' }),
         toolUseLine('t1', 'Read', { file_path: '/a.ts' }, '2026-09-01T23:51:00.000Z'),
@@ -410,7 +577,7 @@ describe('usage reducer', () => {
       expect(scan.files.find((f) => f.filePath === '/a.ts')?.date).toBe('2026-09-01');
     });
 
-    it('should bucket causes by date', () => {
+    it('[FR-USAGE-170] should bucket causes by date', () => {
       const scan = reduce([
         usageLine({ timestamp: '2026-09-01T23:50:00.000Z' }),
         toolUseLine('t1', 'Read', {}, '2026-09-01T23:51:00.000Z'),

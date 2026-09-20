@@ -18,7 +18,7 @@ export function CostSplitCell({
       {subagentCents > 0 && (
         <>
           <span className="text-xs text-muted-foreground tabular-nums">
-            {formatMoneyCompact(subagentCents)} delegated
+            {formatMoneyCompact(subagentCents)} in subagents
           </span>
           <div className="flex h-1 w-20 gap-px" aria-hidden>
             <div style={{ width: `${delegatedPct}%`, backgroundColor: DELEGATED_COLOR }} />

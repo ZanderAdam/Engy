@@ -1432,12 +1432,13 @@ export function dispatchUsageScan(
   knownFiles: Record<string, UsageScanFileState>,
   sealedDates: string[],
   state: AppState,
+  since?: string,
 ): Promise<UsageScanDispatchResult> {
   return dispatchDaemonOp(
     state,
     state.pendingUsageScan,
     'USAGE_SCAN_REQUEST',
-    { knownFiles, sealedDates },
+    { knownFiles, sealedDates, since },
     USAGE_SCAN_TIMEOUT_MS,
   );
 }

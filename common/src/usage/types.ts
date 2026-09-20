@@ -36,6 +36,8 @@ export interface UsageToolRollup extends UsageAttribution {
   images: number;
   errors: number;
   maxResultChars: number;
+  p50ResultChars: number;
+  p95ResultChars: number;
 }
 
 export interface UsageFieldRollup extends UsageAttribution {
@@ -57,6 +59,25 @@ export interface UsageFileRollup extends UsageAttribution {
   reads: number;
   edits: number;
   writes: number;
+  totalChars: number;
+}
+
+/**
+ * One row per tool call, ranked by settled token-turns — the concrete
+ * "single most expensive calls" view (payload size × later calls × rate).
+ * `field` is the input field the preview was drawn from (`file_path` for
+ * Read/Write/Edit, `command` for Bash, otherwise the largest input field),
+ * or null when the call carried no input.
+ */
+export interface UsageExpensiveCall {
+  date: string;
+  sessionId: string;
+  tool: string;
+  field: string | null;
+  tokens: number;
+  tokenTurns: number;
+  callIndex: number;
+  preview: string;
 }
 
 export interface UsageDayRollup extends UsageTokenTotals {
@@ -94,6 +115,8 @@ export interface UsageSessionScan {
   fields: UsageFieldRollup[];
   files: UsageFileRollup[];
   causes: UsageCauseRollup[];
+  /** Top 20 (by settled token-turns) tool calls in this session-scan pass. */
+  expensiveCalls: UsageExpensiveCall[];
   /** Per-call cache-read size, in call order — drives the context-growth timeline. */
   calls: UsageCallPoint[];
   /** Auto-compaction events in this session — explains its cost shape (attribution caps at each boundary). */

@@ -42,10 +42,10 @@ export function SessionDetail({ detail, onBack }: SessionDetailProps) {
         <StatTile
           label="Total cost"
           value={formatMoneyCompact(session.costCents)}
-          detail="Own work plus delegated subagents"
+          detail="This session and its subagents"
         />
         <StatTile
-          label="Delegated"
+          label="Subagent share"
           value={formatPercent(share(session.subagentCostCents, session.costCents))}
           detail={`${formatMoney(session.subagentCostCents)} · ${formatCount(session.subagentCalls)} calls`}
         />
@@ -61,14 +61,11 @@ export function SessionDetail({ detail, onBack }: SessionDetailProps) {
         />
       </div>
 
-      <Panel
-        title="Context growth"
-        description="Cache-read tokens per API call — every turn re-reads the whole prefix."
-      >
+      <Panel title="Context size">
         <ContextGrowthChart series={callSeries} />
       </Panel>
 
-      <Panel title="Subagents" description="Which delegation burned the tokens.">
+      <Panel title="Subagents">
         <SubagentTable rows={subagents} />
       </Panel>
 

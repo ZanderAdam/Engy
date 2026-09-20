@@ -5,10 +5,10 @@ import { formatPercent, share } from './format';
 import type { UsageCauses } from './types';
 
 const CAUSE_LABEL: Record<keyof UsageCauses, string> = {
-  baseline: 'Baseline context',
+  baseline: 'Base context',
   toolResult: 'Tool results',
-  toolInput: 'Tool call inputs',
-  text: 'Assistant text',
+  toolInput: 'Tool inputs',
+  text: 'Replies',
   image: 'Images',
   thinking: 'Thinking',
 };
@@ -23,12 +23,13 @@ const CAUSE_ORDER: Array<keyof UsageCauses> = [
 ];
 
 const CAUSE_HINT: Record<keyof UsageCauses, string> = {
-  baseline: 'System prompt, tool definitions and CLAUDE.md — re-read on every call, attributable to no single tool',
-  toolResult: 'What tools returned into context',
-  toolInput: 'What the model wrote into tool calls',
-  text: 'Assistant prose',
-  image: 'Screenshots and other images',
-  thinking: 'Reasoning blocks',
+  baseline:
+    'System prompt, tool definitions, and CLAUDE.md. Every API call sends these again. No single tool causes this cost.',
+  toolResult: 'Data that tools returned to Claude.',
+  toolInput: 'Text Claude wrote into tool calls.',
+  text: 'Text Claude wrote in its replies.',
+  image: 'Images in the conversation.',
+  thinking: 'Tokens Claude used to think before it replied.',
 };
 
 export function CauseBreakdown({ causes }: { causes: UsageCauses }) {
@@ -41,7 +42,7 @@ export function CauseBreakdown({ causes }: { causes: UsageCauses }) {
   })).sort((a, b) => b.fraction - a.fraction);
 
   if (total === 0) {
-    return <p className="text-xs text-muted-foreground">No attributed content in this range.</p>;
+    return <p className="text-xs text-muted-foreground">No content in this date range.</p>;
   }
 
   return (

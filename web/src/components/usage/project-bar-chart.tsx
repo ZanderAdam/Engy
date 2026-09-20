@@ -40,7 +40,7 @@ export function ProjectBarChart({ groups }: { groups: UsageGroup[] }) {
   if (data.length === 0) {
     return (
       <p className="py-16 text-center text-xs text-muted-foreground">
-        No projects recorded in this range.
+        No projects in this date range.
       </p>
     );
   }

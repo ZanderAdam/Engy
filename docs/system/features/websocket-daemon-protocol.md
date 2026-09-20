@@ -9,7 +9,7 @@ The `/ws` control channel is the exclusive path between the server (`web/`) and 
 
 ## Architecture
 
-`web/src/server/ws/server.ts` owns the server side: it creates a `WebSocketServer` (no-server mode, upgrade-routed in `web/server.ts`), handles all incoming messages in `handleMessage`, and exposes named dispatcher functions (`dispatchGitStatus`, `dispatchFileSearch`, `dispatchContainerUp`, etc.) that the rest of the server imports. All shared server state — the daemon socket reference, all 30 pending maps, the watch-path subscriptions, and the browser-listener set — lives in `AppState` from `web/src/server/trpc/context.ts` on `globalThis.__engy_app_state__`.
+`web/src/server/ws/server.ts` owns the server side: it creates a `WebSocketServer` (no-server mode, upgrade-routed in `web/server.ts`), handles all incoming messages in `handleMessage`, and exposes named dispatcher functions (`dispatchGitStatus`, `dispatchFileSearch`, `dispatchContainerUp`, etc.) that the rest of the server imports. All shared server state — the daemon socket reference, all 33 pending maps, the watch-path subscriptions, and the browser-listener set — lives in `AppState` from `web/src/server/trpc/context.ts` on `globalThis.__engy_app_state__`.
 
 `client/src/ws/client.ts` owns the client side: `WsClient` manages the `/ws` socket lifecycle (connect, reconnect, ping/keepalive) and dispatches incoming server requests to the appropriate subsystem handler (`handleGitStatusRequest`, `handleContainerUpRequest`, etc.).
 
@@ -17,7 +17,7 @@ The `/ws` control channel is the exclusive path between the server (`web/`) and 
 
 When the daemon connects it immediately sends `REGISTER` carrying `os.homedir()` as `payload.homeDir`. The server's `handleRegister` stores the new socket in `state.daemon` and the home directory in `state.daemonHomeDir`, then force-sends a `WATCH_PATHS_SYNC` message carrying the current per-workspace union of UI-subscribed watch paths (sent even when empty, so a restarted daemon clears stale watchers). If a second daemon registers while one is already registered the old socket is replaced in `state.daemon` first, then terminated via `ws.terminate()` (not `ws.close()`) so no close-frame reaches it. The client-side closure guard `this.ws !== ws` in the `close` handler silently absorbs the resulting close event on the superseded socket.
 
-On disconnect the `close` handler detects `state.daemon === ws`, sets both `state.daemon` and `state.daemonHomeDir` to `null`, and calls `rejectAllPending` which drains all 25 pending maps and rejects every in-flight promise with `Error('Daemon disconnected')`.
+On disconnect the `close` handler detects `state.daemon === ws`, sets both `state.daemon` and `state.daemonHomeDir` to `null`, and calls `rejectAllPending` which drains all 33 pending maps and rejects every in-flight promise with `Error('Daemon disconnected')`.
 
 ## Request/Response Dispatch
 
@@ -44,8 +44,9 @@ Timeout constants are defined per operation class in `server.ts`:
 | `REMOTE_FILE_TIMEOUT_MS` | Remote file pull/push | 30 s |
 | `WORKTREE_MERGE_TIMEOUT_MS` | Worktree merge/add/remove | 60 s |
 | `GH_LOGS_TIMEOUT_MS` | GitHub failed-log / review-comment fetch | 60 s |
+| `USAGE_SCAN_TIMEOUT_MS` | Claude usage transcript scan | 60 s |
 
-Named dispatcher exports (`dispatchGitStatus`, `dispatchFileSearch`, `dispatchContainerUp`, `dispatchExecutionStart`, `dispatchWorktreeMerge`, `dispatchFsDelete`, `dispatchFsRename`, `dispatchGhPrList`, `dispatchGhAuthStatus`, `dispatchGhPrFailedLogs`, `dispatchGhPrReviewComments`, etc.) delegate to `dispatchDaemonOp` — routers and MCP tools import these and never construct raw WebSocket messages themselves.
+Named dispatcher exports (`dispatchGitStatus`, `dispatchFileSearch`, `dispatchContainerUp`, `dispatchExecutionStart`, `dispatchWorktreeMerge`, `dispatchFsDelete`, `dispatchFsRename`, `dispatchGhPrList`, `dispatchGhAuthStatus`, `dispatchGhPrFailedLogs`, `dispatchGhPrReviewComments`, `dispatchUsageScan`, etc.) delegate to `dispatchDaemonOp` — routers and MCP tools import these and never construct raw WebSocket messages themselves.
 
 ## FILE_CHANGE and Watch Subscriptions
 
@@ -58,7 +59,7 @@ When the daemon detects a filesystem change it sends a `FILE_CHANGE` message (`{
 `web/src/server/ws/broadcast.ts` contains the broadcast infrastructure:
 
 - `broadcastEvent(event)` iterates `state.fileChangeListeners` and calls `ws.send(msg)` for every socket whose `readyState === WebSocket.OPEN`. Closed or connecting sockets are silently skipped.
-- Eight typed wrapper functions — `broadcastFileChange`, `broadcastTaskChange`, `broadcastQuestionChange`, `broadcastTerminalSessionsChange`, `broadcastMemoryChange`, `broadcastTerminalActivityChange`, `broadcastPrChange`, `broadcastPrAttention` — each construct their typed payload and call `broadcastEvent`. No caller uses `broadcastEvent` directly.
+- Thirteen typed wrapper functions — `broadcastFileChange`, `broadcastTaskChange`, `broadcastQuestionChange`, `broadcastTerminalSessionsChange`, `broadcastMemoryChange`, `broadcastTerminalActivityChange`, `broadcastTerminalBranchChange`, `broadcastTerminalWorkersChange`, `broadcastPrChange`, `broadcastPrAttention`, `broadcastVoiceSpeak`, `broadcastCommentChange`, `broadcastUsageChange` — each construct their typed payload and call `broadcastEvent`. No caller uses `broadcastEvent` directly.
 
 Broadcasts are fire-and-forget and must not be awaited.
 
@@ -92,6 +93,8 @@ Broadcasts are fire-and-forget and must not be awaited.
 | FR-WS-180 | WHEN the daemon receives `GH_PR_REVIEW_COMMENTS_REQUEST` with `repoDir`, `prNumber`, and optional `coderWorkspace`, the system SHALL fetch review comments via `gh api` with `--paginate --slurp` and respond with `GH_PR_REVIEW_COMMENTS_RESPONSE` containing `{ requestId, comments: GhReviewComment[] }` on success or `{ requestId, error }` on failure. |
 | FR-WS-190 | WHEN a `WATCH_SUBSCRIBE` message arrives on `/ws/events`, the system SHALL replace that socket's stored subscription snapshot with the message's full path set, silently dropping paths that are not absolute, contain a `..` segment, lie outside the workspace's docs dir, or reference an unknown workspace slug. |
 | FR-WS-200 | WHEN the per-workspace union of watch subscriptions changes (message received or socket closed), the system SHALL send the daemon a `WATCH_PATHS_SYNC` with the new union, debounced 300 ms and skipped when identical to the last sent payload; a force send (daemon `REGISTER`) SHALL bypass the dedup. |
+| FR-WS-210 | WHEN the daemon receives `USAGE_SCAN_REQUEST` with `knownFiles` and `sealedDates`, the system SHALL scan the Claude transcript tree under its own home directory and respond with `USAGE_SCAN_RESPONSE` containing `{ requestId, sessions, files, newlySealedDates, staleSealSkips }` on success or `{ requestId, error }` on failure. The response SHALL carry rollups only: no transcript line, content block or file body SHALL cross the channel. |
+| FR-WS-220 | Each `UsageSessionScanResult` in `USAGE_SCAN_RESPONSE` SHALL carry `isFullParse`: false WHEN the daemon resumed the file from a stored byte offset, so the rollups cover the appended tail only; true WHEN the daemon parsed the whole file, so the rollups replace what the server holds. |
 
 ## Sources
 

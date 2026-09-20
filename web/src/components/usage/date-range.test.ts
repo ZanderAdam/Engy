@@ -12,25 +12,25 @@ const NOW = new Date(2026, 8, 19, 23, 30);
 
 describe('usage date range', () => {
   describe('toIsoDate', () => {
-    it('should bucket a late-evening local time onto the local day', () => {
+    it('[FR-USAGE-320] should bucket a late-evening local time onto the local day', () => {
       expect(toIsoDate(NOW)).toBe('2026-09-19');
     });
   });
 
   describe('resolvePreset', () => {
-    it('should make today an inclusive single-day range', () => {
+    it('[FR-USAGE-320] should make today an inclusive single-day range', () => {
       expect(resolvePreset('today', NOW)).toEqual({ from: '2026-09-19', to: '2026-09-19' });
     });
 
-    it('should count the current day as one of the last 7', () => {
+    it('[FR-USAGE-320] should count the current day as one of the last 7', () => {
       expect(resolvePreset('last7', NOW)).toEqual({ from: '2026-09-13', to: '2026-09-19' });
     });
 
-    it('should start this month on the first', () => {
+    it('[FR-USAGE-320] should start this month on the first', () => {
       expect(resolvePreset('thisMonth', NOW)).toEqual({ from: '2026-09-01', to: '2026-09-19' });
     });
 
-    it('should end last month on its final day', () => {
+    it('[FR-USAGE-320] should end last month on its final day', () => {
       expect(resolvePreset('lastMonth', NOW)).toEqual({ from: '2026-08-01', to: '2026-08-31' });
     });
   });
@@ -46,16 +46,16 @@ describe('usage date range', () => {
   });
 
   describe('parseRange', () => {
-    it('should read an explicit range from the URL', () => {
+    it('[FR-USAGE-320] should read an explicit range from the URL', () => {
       const params = new URLSearchParams('from=2026-01-01&to=2026-01-31');
       expect(parseRange(params, NOW)).toEqual({ from: '2026-01-01', to: '2026-01-31' });
     });
 
-    it('should fall back to last 30 days when the range is absent', () => {
+    it('[FR-USAGE-320] should fall back to last 30 days when the range is absent', () => {
       expect(parseRange(new URLSearchParams(), NOW)).toEqual(resolvePreset('last30', NOW));
     });
 
-    it('should fall back when the dates are malformed or inverted', () => {
+    it('[FR-USAGE-320] should fall back when the dates are malformed or inverted', () => {
       const malformed = new URLSearchParams('from=yesterday&to=today');
       const inverted = new URLSearchParams('from=2026-09-19&to=2026-09-01');
       expect(parseRange(malformed, NOW)).toEqual(resolvePreset('last30', NOW));

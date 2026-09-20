@@ -1,13 +1,6 @@
-import { eq } from 'drizzle-orm';
 import type { UsageModelRate } from '@engy/common';
-import { getDb } from '../db/client';
+import { getDb, type Db } from '../db/client';
 import { usagePricing } from '../db/schema';
-
-type Database = ReturnType<typeof getDb>;
-// Callers pass either the top-level db handle or a `db.transaction((tx) => ...)`
-// callback's `tx` — both support the same select/insert/update surface.
-type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
-type Db = Database | Transaction;
 
 // $-per-MTok has at most 2 decimal places, so ×100 always lands on an
 // integer: micro-cents/token = $/MTok × 100 (1 cent = 1,000,000 micro-cents,
@@ -96,19 +89,32 @@ export function seedUsagePricing(db: Db = getDb()): void {
   }
 }
 
-export function getModelRate(db: Db, model: string): ModelRateRow | undefined {
-  return db.select().from(usagePricing).where(eq(usagePricing.model, model)).get();
+/**
+ * Transcripts carry dated model ids (`claude-haiku-4-5-20251001`) for the same
+ * model the rate table lists undated. Pricing the base id keeps a new snapshot
+ * of a known model priced instead of silently landing in `unpricedModels`.
+ */
+export function normaliseModelId(model: string): string {
+  return model.replace(/-\d{8}$/, '');
 }
 
 export function listModelRates(db: Db): ModelRateRow[] {
   return db.select().from(usagePricing).all();
 }
 
+export function getRatesMap(db: Db): Map<string, ModelRateRow> {
+  return new Map(listModelRates(db).map((rate) => [rate.model, rate]));
+}
+
+export function rateFor(rates: Map<string, ModelRateRow>, model: string): ModelRateRow | undefined {
+  return rates.get(normaliseModelId(model));
+}
+
 // Unknown models must render as unpriced with tokens still counted — never
 // silently priced at zero, never priced with a guessed rate.
 export function findUnpricedModels(db: Db, models: Iterable<string>): string[] {
   const priced = new Set(listModelRates(db).map((rate) => rate.model));
-  return [...new Set(models)].filter((model) => !priced.has(model));
+  return [...new Set(models)].filter((model) => !priced.has(normaliseModelId(model)));
 }
 
 // Returns micro-cents, not cents — callers sum across buckets/rows and round
@@ -125,4 +131,10 @@ export function microCentsForTokens(buckets: UsageTokenBuckets, rate: ModelRateR
 
 export function microCentsToCents(microCents: number): number {
   return Math.round(microCents / 1_000_000);
+}
+
+// Attributed content is priced at the cache-read rate because that is the rate
+// it is re-billed at on every later call in the session.
+export function directMicroCents(tokenTurns: number, cacheReadMicroCentsPerToken: number): number {
+  return tokenTurns * cacheReadMicroCentsPerToken;
 }

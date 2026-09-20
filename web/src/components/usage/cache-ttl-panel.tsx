@@ -32,7 +32,6 @@ function Meter({ value, breakEven }: { value: number; breakEven: number }) {
 
 export function CacheTtlPanel({ efficiency, sessions, onSelectSession }: CacheTtlPanelProps) {
   const { readsPerWrite, breakEven } = efficiency;
-  const healthy = readsPerWrite >= breakEven;
   const flagged = sessions
     .filter((s) => s.readsPerWrite > 0 && s.readsPerWrite < breakEven)
     .sort((a, b) => b.costCents - a.costCents);
@@ -44,25 +43,19 @@ export function CacheTtlPanel({ efficiency, sessions, onSelectSession }: CacheTt
           {readsPerWrite.toFixed(2)}×
         </span>
         <span className="text-xs text-muted-foreground">
-          realized cache reads per write · break-even {breakEven.toFixed(2)}×
+          cache reads per write · {breakEven.toFixed(1)}× needed to cover the write cost
         </span>
       </div>
 
       <Meter value={readsPerWrite} breakEven={breakEven} />
-
-      <p className="text-xs text-muted-foreground">
-        {healthy
-          ? 'Cache writes are read back often enough to pay for themselves.'
-          : 'Cache writes are expiring before they are read back often enough to pay for themselves.'}
-      </p>
 
       {flagged.length > 0 && (
         <div className="flex flex-col gap-1.5 border-t border-border pt-3">
           <div className="flex items-center gap-1.5 text-xs">
             <RiAlertLine className="size-3.5 text-[#fab219]" />
             <span className="text-foreground">
-              {flagged.length} {flagged.length === 1 ? 'session is' : 'sessions are'} below
-              break-even
+              {flagged.length} {flagged.length === 1 ? 'session reads' : 'sessions read'} the cache
+              too few times
             </span>
           </div>
           <ul className="flex flex-col gap-1">

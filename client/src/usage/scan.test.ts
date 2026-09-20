@@ -1,8 +1,23 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile, appendFile, stat } from 'node:fs/promises';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { mkdtemp, rm, mkdir, writeFile, appendFile, stat, utimes } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { scanUsage } from './scan.js';
+
+// One transcript on this machine is 54 MB and a prior OOM (task #229) is why
+// the scan must stream. Recording every whole-file read lets a test prove no
+// transcript is ever loaded entire.
+const wholeFileReads: string[] = [];
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    readFile: (target: Parameters<typeof actual.readFile>[0], ...rest: unknown[]) => {
+      wholeFileReads.push(String(target));
+      return (actual.readFile as (...args: unknown[]) => unknown)(target, ...rest);
+    },
+  };
+});
 
 describe('scanUsage', () => {
   let homeDir: string;
@@ -14,6 +29,8 @@ describe('scanUsage', () => {
 
   afterEach(async () => {
     if (homeDir) await rm(homeDir, { recursive: true, force: true });
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   function usageLine(opts: {
@@ -115,7 +132,7 @@ describe('scanUsage', () => {
       expect(result.sessions[0].meta).toBeNull();
     });
 
-    it('should skip a malformed line without aborting the scan', async () => {
+    it('[FR-USAGE-030] should skip a malformed line without aborting the scan', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
       await writeTranscript(filePath, [
@@ -130,7 +147,7 @@ describe('scanUsage', () => {
   });
 
   describe('subagent transcripts', () => {
-    it('should scan subagent transcripts under <sessionId>/subagents and link the parent', async () => {
+    it('[FR-USAGE-040] [FR-USAGE-050] should scan subagent transcripts under <sessionId>/subagents and link the parent', async () => {
       homeDir = await makeHome();
       const sessionDir = join(homeDir, '.claude', 'projects', '-repo', 'sess-1');
       const subagentPath = join(sessionDir, 'subagents', 'agent-abc123.jsonl');
@@ -159,7 +176,7 @@ describe('scanUsage', () => {
       expect(Object.keys(result.files).some((p) => p.includes('tool-results'))).toBe(false);
     });
 
-    it('should not throw when the subagent meta sidecar is missing', async () => {
+    it('[FR-USAGE-050] should not throw when the subagent meta sidecar is missing', async () => {
       homeDir = await makeHome();
       const sessionDir = join(homeDir, '.claude', 'projects', '-repo', 'sess-1');
       const subagentPath = join(sessionDir, 'subagents', 'agent-xyz.jsonl');
@@ -171,8 +188,42 @@ describe('scanUsage', () => {
     });
   });
 
+  describe('streaming reads', () => {
+    it('[FR-USAGE-010] should never read a whole transcript into memory', async () => {
+      homeDir = await makeHome();
+      const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
+      await writeTranscript(filePath, [
+        usageLine({ timestamp: '2026-01-05T10:00:00.000Z', cacheRead: 100 }),
+        usageLine({ timestamp: '2026-01-05T11:00:00.000Z', cacheRead: 200 }),
+      ]);
+
+      const result = await scanUsage({ homeDir, knownFiles: {}, sealedDates: new Set() });
+
+      expect(result.sessions[0].scan.session.cacheReadTokens).toBe(300);
+      expect(wholeFileReads.filter((target) => target.endsWith('.jsonl'))).toEqual([]);
+    });
+
+    it('[FR-USAGE-010] should hold only one line at a time regardless of transcript size', async () => {
+      homeDir = await makeHome();
+      const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-big');
+      const lines: string[] = [];
+      for (let i = 0; i < 4000; i += 1) {
+        lines.push(usageLine({ timestamp: '2026-01-05T10:00:00.000Z', cacheRead: 10 }));
+      }
+      await writeTranscript(filePath, lines);
+
+      const before = process.memoryUsage().heapUsed;
+      const result = await scanUsage({ homeDir, knownFiles: {}, sealedDates: new Set() });
+      const growth = process.memoryUsage().heapUsed - before;
+
+      expect(result.sessions[0].scan.session.apiCalls).toBe(4000);
+      const fileSize = (await stat(filePath)).size;
+      expect(growth).toBeLessThan(fileSize * 2);
+    });
+  });
+
   describe('incremental scan', () => {
-    it('should skip a file whose size and mtime are unchanged', async () => {
+    it('[FR-USAGE-200] should skip a file whose size and mtime are unchanged', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
       await writeTranscript(filePath, [usageLine({ timestamp: '2026-01-05T10:00:00.000Z' })]);
@@ -188,7 +239,7 @@ describe('scanUsage', () => {
       expect(second.files[filePath]).toEqual(first.files[filePath]);
     });
 
-    it('should resume from the stored byte offset for a grown file', async () => {
+    it('[FR-USAGE-200] should resume from the stored byte offset for a grown file', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
       await writeTranscript(filePath, [
@@ -211,13 +262,17 @@ describe('scanUsage', () => {
       });
 
       expect(second.sessions).toHaveLength(1);
-      // Resume feeds only the newly appended line into a fresh reducer.
+      // Resume feeds only the newly appended line into a fresh reducer, so the
+      // rollups are a delta — `isFullParse` is what tells the consumer to add
+      // them to the totals it already holds instead of replacing them.
       expect(second.sessions[0].scan.session.apiCalls).toBe(1);
       expect(second.sessions[0].scan.session.cacheReadTokens).toBe(30);
+      expect(second.sessions[0].isFullParse).toBe(false);
+      expect(first.sessions[0].isFullParse).toBe(true);
       expect(second.files[filePath].bytesScanned).toBe(stats.size);
     });
 
-    it('should fully reparse a shrunk file', async () => {
+    it('[FR-USAGE-200] should fully reparse a shrunk file', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
       await writeTranscript(filePath, [
@@ -242,11 +297,119 @@ describe('scanUsage', () => {
       expect(second.sessions).toHaveLength(1);
       expect(second.sessions[0].scan.session.apiCalls).toBe(1);
       expect(second.sessions[0].scan.session.cacheReadTokens).toBe(5);
+      // Reparsed from byte 0, so these rollups replace the stored ones.
+      expect(second.sessions[0].isFullParse).toBe(true);
+    });
+  });
+
+  describe('range-scoped scan (since)', () => {
+    it('should skip a file older than the window without recording it as scanned', async () => {
+      homeDir = await makeHome();
+      const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
+      await writeTranscript(filePath, [usageLine({ timestamp: '2026-01-05T10:00:00.000Z' })]);
+      const oldDate = new Date('2026-01-06T00:00:00.000Z');
+      await utimes(filePath, oldDate, oldDate);
+
+      const result = await scanUsage({
+        homeDir,
+        knownFiles: {},
+        sealedDates: new Set(),
+        since: '2026-06-01',
+      });
+
+      expect(result.sessions).toHaveLength(0);
+      expect(result.files[filePath]).toBeUndefined();
+    });
+
+    it('should read a skipped file in full on a later scan with no window', async () => {
+      homeDir = await makeHome();
+      const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
+      await writeTranscript(filePath, [
+        usageLine({ timestamp: '2026-01-05T10:00:00.000Z', cacheRead: 700 }),
+      ]);
+      const oldDate = new Date('2026-01-06T00:00:00.000Z');
+      await utimes(filePath, oldDate, oldDate);
+
+      const windowed = await scanUsage({
+        homeDir,
+        knownFiles: {},
+        sealedDates: new Set(),
+        since: '2026-06-01',
+      });
+      expect(windowed.sessions).toHaveLength(0);
+
+      // Claiming the skipped bytes here would make the file look unchanged and
+      // lose its history for good.
+      const full = await scanUsage({
+        homeDir,
+        knownFiles: windowed.files,
+        sealedDates: new Set(),
+      });
+
+      expect(full.sessions).toHaveLength(1);
+      expect(full.sessions[0].scan.session.cacheReadTokens).toBe(700);
+      expect(full.sessions[0].isFullParse).toBe(true);
+    });
+
+    it('should carry a known file forward unchanged when the window skips it', async () => {
+      homeDir = await makeHome();
+      const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
+      await writeTranscript(filePath, [usageLine({ timestamp: '2026-01-05T10:00:00.000Z' })]);
+
+      const first = await scanUsage({ homeDir, knownFiles: {}, sealedDates: new Set() });
+      const oldDate = new Date('2026-01-06T00:00:00.000Z');
+      await utimes(filePath, oldDate, oldDate);
+
+      const windowed = await scanUsage({
+        homeDir,
+        knownFiles: first.files,
+        sealedDates: new Set(),
+        since: '2026-06-01',
+      });
+
+      expect(windowed.files[filePath]).toEqual(first.files[filePath]);
+    });
+
+    it('should still read a file whose mtime falls inside the window', async () => {
+      homeDir = await makeHome();
+      const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
+      await writeTranscript(filePath, [usageLine({ timestamp: '2026-06-05T10:00:00.000Z' })]);
+      const recentDate = new Date('2026-06-05T10:00:00.000Z');
+      await utimes(filePath, recentDate, recentDate);
+
+      const result = await scanUsage({ homeDir, knownFiles: {}, sealedDates: new Set(), since: '2026-06-01' });
+
+      expect(result.sessions).toHaveLength(1);
+    });
+
+    it('should read a skipped file in full once new activity moves it into the window', async () => {
+      homeDir = await makeHome();
+      const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
+      await writeTranscript(filePath, [usageLine({ timestamp: '2026-01-05T10:00:00.000Z' })]);
+      const oldDate = new Date('2026-01-06T00:00:00.000Z');
+      await utimes(filePath, oldDate, oldDate);
+      const preClaimed = await scanUsage({ homeDir, knownFiles: {}, sealedDates: new Set(), since: '2026-06-01' });
+      expect(preClaimed.sessions).toHaveLength(0);
+
+      await appendFile(filePath, usageLine({ timestamp: '2026-06-05T09:00:00.000Z' }) + '\n');
+      const recentDate = new Date('2026-06-05T09:00:00.000Z');
+      await utimes(filePath, recentDate, recentDate);
+
+      const resumed = await scanUsage({
+        homeDir,
+        knownFiles: preClaimed.files,
+        sealedDates: new Set(),
+        since: '2026-06-01',
+      });
+
+      expect(resumed.sessions).toHaveLength(1);
+      expect(resumed.sessions[0].scan.session.apiCalls).toBe(2);
+      expect(resumed.sessions[0].isFullParse).toBe(true);
     });
   });
 
   describe('sealed days', () => {
-    it('should skip lines on an already-sealed date and count staleSealSkips', async () => {
+    it('[FR-USAGE-190] should skip lines on an already-sealed date and count staleSealSkips', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
       await writeTranscript(filePath, [
@@ -265,7 +428,7 @@ describe('scanUsage', () => {
       expect(result.staleSealSkips).toBe(1);
     });
 
-    it('should seal every past date, not stop at the oldest finished file', async () => {
+    it('[FR-USAGE-180] should seal every past date, not stop at the oldest finished file', async () => {
       homeDir = await makeHome();
       await writeTranscript(mainTranscriptPath(homeDir, '-repo', 'sess-a'), [
         usageLine({ timestamp: '2026-01-05T10:00:00.000Z' }),
@@ -285,7 +448,7 @@ describe('scanUsage', () => {
       expect(result.newlySealedDates[0]).toBe('2026-01-05');
     });
 
-    it('should never seal today', async () => {
+    it('[FR-USAGE-180] should never seal today', async () => {
       homeDir = await makeHome();
       const today = new Date();
       const iso = today.toISOString();
@@ -304,7 +467,7 @@ describe('scanUsage', () => {
       expect(result.newlySealedDates).not.toContain(localToday);
     });
 
-    it('should not re-report a date that is already sealed', async () => {
+    it('[FR-USAGE-180] should not re-report a date that is already sealed', async () => {
       homeDir = await makeHome();
       await writeTranscript(mainTranscriptPath(homeDir, '-repo', 'sess-a'), [
         usageLine({ timestamp: '2026-01-05T10:00:00.000Z' }),
@@ -323,8 +486,68 @@ describe('scanUsage', () => {
     });
   });
 
+  describe('local time zones', () => {
+    it('[FR-USAGE-170] should bucket a line by its local date and not seal it while still that local day (UTC+)', async () => {
+      vi.stubEnv('TZ', 'Europe/Berlin');
+      // Berlin is UTC+2 in September, so this UTC instant is 2026-09-19T00:25 local —
+      // early on local Sept 19, not Sept 18 as a raw UTC slice would read it.
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-09-19T08:00:00.000Z'));
+
+      homeDir = await makeHome();
+      const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
+      await writeTranscript(filePath, [usageLine({ timestamp: '2026-09-18T22:25:00.000Z' })]);
+
+      const result = await scanUsage({ homeDir, knownFiles: {}, sealedDates: new Set() });
+
+      expect(result.sessions[0].scan.days[0].date).toBe('2026-09-19');
+      expect(result.newlySealedDates).not.toContain('2026-09-18');
+      expect(result.newlySealedDates).toHaveLength(0);
+    });
+
+    it('[FR-USAGE-170] should bucket a line by its local date (UTC-)', async () => {
+      vi.stubEnv('TZ', 'America/New_York');
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-09-20T08:00:00.000Z'));
+
+      homeDir = await makeHome();
+      const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
+      await writeTranscript(filePath, [usageLine({ timestamp: '2026-09-19T23:30:00.000Z' })]);
+
+      const result = await scanUsage({ homeDir, knownFiles: {}, sealedDates: new Set() });
+
+      expect(result.sessions[0].scan.days[0].date).toBe('2026-09-19');
+    });
+  });
+
+  describe('partial trailing line', () => {
+    it('should not count a line until it is newline-terminated', async () => {
+      homeDir = await makeHome();
+      const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
+      const completeLine = usageLine({ timestamp: '2026-01-05T10:00:00.000Z', cacheRead: 100 });
+      const partialLine = usageLine({ timestamp: '2026-01-05T11:00:00.000Z', cacheRead: 200 });
+      await mkdir(dirname(filePath), { recursive: true });
+      // The second line has no trailing newline yet — as if the scan ran
+      // while this line was still being written.
+      await writeFile(filePath, `${completeLine}\n${partialLine}`);
+
+      const first = await scanUsage({ homeDir, knownFiles: {}, sealedDates: new Set() });
+
+      expect(first.sessions[0].scan.session.apiCalls).toBe(1);
+      expect(first.sessions[0].scan.session.cacheReadTokens).toBe(100);
+      expect(first.files[filePath].bytesScanned).toBe(Buffer.byteLength(`${completeLine}\n`));
+
+      await appendFile(filePath, '\n');
+      const second = await scanUsage({ homeDir, knownFiles: first.files, sealedDates: new Set() });
+
+      expect(second.sessions).toHaveLength(1);
+      expect(second.sessions[0].scan.session.apiCalls).toBe(1);
+      expect(second.sessions[0].scan.session.cacheReadTokens).toBe(200);
+    });
+  });
+
   describe('worktree repoRoot resolution', () => {
-    it('should derive repoRoot from the nearest ancestor .git', async () => {
+    it('[FR-USAGE-220] should derive repoRoot from the nearest ancestor .git', async () => {
       homeDir = await makeHome();
       const repoDir = join(homeDir, 'repo');
       await mkdir(join(repoDir, '.git'), { recursive: true });
@@ -337,7 +560,7 @@ describe('scanUsage', () => {
       expect(result.sessions[0].repoRoot).toBe(repoDir);
     });
 
-    it('should collapse a .claude/worktrees/<name> cwd back to the parent repo', async () => {
+    it('[FR-USAGE-220] should collapse a .claude/worktrees/<name> cwd back to the parent repo', async () => {
       homeDir = await makeHome();
       const repoDir = join(homeDir, 'repo');
       const worktreeDir = join(repoDir, '.claude', 'worktrees', 'feature');
@@ -352,7 +575,7 @@ describe('scanUsage', () => {
       expect(result.sessions[0].repoRoot).toBe(repoDir);
     });
 
-    it('should return a null repoRoot when no cwd was ever recorded', async () => {
+    it('[FR-USAGE-220] should return a null repoRoot when no cwd was ever recorded', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
       await writeTranscript(filePath, ['{"type":"summary","leafUuid":"abc"}']);

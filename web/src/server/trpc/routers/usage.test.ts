@@ -3,8 +3,20 @@ import WebSocket from 'ws';
 import type { UsageSessionScanResult } from '@engy/common';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
-import { usageSession, usageDaily, usageTool, usageField, usageFile, usageCause, usageCall } from '../../db/schema';
+import {
+  usageSession,
+  usageSessionDaily,
+  usageTool,
+  usageField,
+  usageFile,
+  usageCause,
+  usageCall,
+  usageExpensiveCall,
+  usageSealedDate,
+  workspaces,
+} from '../../db/schema';
 import { seedUsagePricing } from '../../usage/pricing';
+import { USAGE_REDUCER_VERSION } from '../../usage/rebuild';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -21,11 +33,12 @@ function seedSession(ctx: TestContext, overrides: Partial<typeof usageSession.$i
     .run();
 }
 
-function seedDaily(ctx: TestContext, overrides: Partial<typeof usageDaily.$inferInsert> = {}) {
+function seedDaily(ctx: TestContext, overrides: Partial<typeof usageSessionDaily.$inferInsert> = {}) {
   ctx.db
-    .insert(usageDaily)
+    .insert(usageSessionDaily)
     .values({
       date: '2024-01-10',
+      sessionId: 's1',
       slug: 'slug-a',
       model: 'claude-sonnet-5',
       ...overrides,
@@ -67,6 +80,19 @@ function seedFile(ctx: TestContext, overrides: Partial<typeof usageFile.$inferIn
       filePath: 'src/index.ts',
       tool: 'Read',
       ext: '.ts',
+      ...overrides,
+    })
+    .run();
+}
+
+function seedExpensiveCall(ctx: TestContext, overrides: Partial<typeof usageExpensiveCall.$inferInsert> = {}) {
+  ctx.db
+    .insert(usageExpensiveCall)
+    .values({
+      date: '2024-01-10',
+      sessionId: 's1',
+      callIndex: 0,
+      tool: 'Write',
       ...overrides,
     })
     .run();
@@ -153,6 +179,8 @@ function makeScanResult(overrides: Partial<UsageSessionScanResult['scan']['sessi
           images: 0,
           errors: 0,
           maxResultChars: 500,
+          p50ResultChars: 150,
+          p95ResultChars: 500,
           tokens: 200,
           tokenTurns: 400,
           calls: 3,
@@ -167,6 +195,7 @@ function makeScanResult(overrides: Partial<UsageSessionScanResult['scan']['sessi
           reads: 2,
           edits: 0,
           writes: 0,
+          totalChars: 720,
           tokens: 150,
           tokenTurns: 300,
           calls: 2,
@@ -181,12 +210,25 @@ function makeScanResult(overrides: Partial<UsageSessionScanResult['scan']['sessi
         { callIndex: 0, cacheReadTokens: 100 },
         { callIndex: 1, cacheReadTokens: 900 },
       ],
+      expensiveCalls: [
+        {
+          date: '2024-01-10',
+          sessionId: 'scan-1',
+          tool: 'Read',
+          field: 'file_path',
+          tokens: 200,
+          tokenTurns: 400,
+          callIndex: 1,
+          preview: 'src/index.ts',
+        },
+      ],
       compactions: 2,
       bytesScanned: 1000,
       linesParsed: 10,
       linesSkipped: 5,
     },
     repoRoot: '/repo',
+    isFullParse: true,
     meta: {
       durationMinutes: 12.5,
       firstPrompt: 'Fix the flaky test',
@@ -220,6 +262,30 @@ function installFakeUsageDaemon(
   ctx.state.daemon = mock as unknown as WebSocket;
 }
 
+function installTrackingUsageDaemon(
+  ctx: TestContext,
+  respond: () => { sessions: UsageSessionScanResult[]; files: Record<string, never>; newlySealedDates: string[]; staleSealSkips: number },
+) {
+  const requests: Array<{ since?: string }> = [];
+  const mock = {
+    readyState: WebSocket.OPEN,
+    OPEN: WebSocket.OPEN,
+    send: (raw: string) => {
+      const msg = JSON.parse(raw) as DaemonMessage;
+      if (msg.type !== 'USAGE_SCAN_REQUEST') return;
+      requests.push({ since: msg.payload.since as string | undefined });
+      queueMicrotask(() => {
+        const pending = ctx.state.pendingUsageScan.get(msg.payload.requestId);
+        if (!pending) return;
+        ctx.state.pendingUsageScan.delete(msg.payload.requestId);
+        pending.resolve({ requestId: msg.payload.requestId, ...respond() } as never);
+      });
+    },
+  };
+  ctx.state.daemon = mock as unknown as WebSocket;
+  return requests;
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────
 
 describe('usage router', () => {
@@ -237,7 +303,7 @@ describe('usage router', () => {
   });
 
   describe('overview', () => {
-    it('should split a session crossing midnight across its two dates', async () => {
+    it('[FR-USAGE-170] should split a session crossing midnight across its two dates', async () => {
       seedDaily(ctx, { date: '2024-01-10', inputTokens: 1000 });
       seedDaily(ctx, { date: '2024-01-11', inputTokens: 2000 });
 
@@ -248,7 +314,7 @@ describe('usage router', () => {
       expect(bothDays.totals.inputTokens).toBe(3000);
     });
 
-    it('should compare against the immediately preceding window of equal length', async () => {
+    it('[FR-USAGE-270] should compare against the immediately preceding window of equal length', async () => {
       // Current window: 2024-01-10..2024-01-11 (2 days). Previous: 2024-01-08..2024-01-09.
       seedDaily(ctx, { date: '2024-01-08', inputTokens: 1_000_000 });
       seedDaily(ctx, { date: '2024-01-09', inputTokens: 1_000_000 });
@@ -267,7 +333,7 @@ describe('usage router', () => {
       expect(overview.cost.total).toBe(200);
     });
 
-    it('should mark an unrecognised model as unpriced while still counting its tokens', async () => {
+    it('[FR-USAGE-140] should mark an unrecognised model as unpriced while still counting its tokens', async () => {
       seedDaily(ctx, { date: '2024-01-10', model: 'claude-unknown-9', inputTokens: 500, cacheReadTokens: 200 });
 
       const overview = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
@@ -277,7 +343,7 @@ describe('usage router', () => {
       expect(overview.cost.total).toBe(0);
     });
 
-    it('should cost each cause directly (not scaled) and fold the shortfall into baseline', async () => {
+    it('[FR-USAGE-110] should cost each cause directly (not scaled) and fold the shortfall into baseline', async () => {
       // sonnet cache-read rate = $0.20/MTok = 20 micro-cents/token.
       seedSession(ctx, { sessionId: 's1', model: 'claude-sonnet-5' });
       seedDaily(ctx, { date: '2024-01-10', cacheReadTokens: 1_000_000 }); // measured = 20¢
@@ -302,7 +368,32 @@ describe('usage router', () => {
       expect(sum).toBe(overview.cost.cacheRead);
     });
 
-    it('should never let baseline go negative when attribution exceeds a short session\'s measured cost', async () => {
+    it('[FR-USAGE-120] should keep the six causes summing to measured cache-read cost across several sessions', async () => {
+      // Causes aggregate every session in range, so the measured side has to
+      // carry every session's daily row too — one lost row and baseline is
+      // floored to 0 while the attributed causes overshoot the total.
+      for (const sessionId of ['s1', 's2', 's3']) {
+        seedSession(ctx, { sessionId, model: 'claude-sonnet-5' });
+        seedDaily(ctx, { date: '2024-01-10', sessionId, cacheReadTokens: 1_000_000 });
+        seedCause(ctx, { date: '2024-01-10', sessionId, kind: 'toolResult', tokenTurns: 200_000 });
+        seedCause(ctx, { date: '2024-01-10', sessionId, kind: 'toolInput', tokenTurns: 100_000 });
+      }
+
+      const overview = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
+
+      const sum =
+        overview.causes.toolResult +
+        overview.causes.toolInput +
+        overview.causes.text +
+        overview.causes.image +
+        overview.causes.thinking +
+        overview.causes.baseline;
+      expect(overview.cost.cacheRead).toBe(60);
+      expect(sum).toBe(overview.cost.cacheRead);
+      expect(overview.causes.baseline).toBeGreaterThan(0);
+    });
+
+    it('[FR-USAGE-120] should never let baseline go negative when attribution exceeds a short session\'s measured cost', async () => {
       seedSession(ctx, { sessionId: 's1', model: 'claude-sonnet-5' });
       // measured: 30,000 tokens * 20µ¢ = 600,000µ¢ -> rounds to 1¢.
       seedDaily(ctx, { date: '2024-01-10', cacheReadTokens: 30_000 });
@@ -316,7 +407,26 @@ describe('usage router', () => {
       expect(overview.causes.baseline).toBe(0);
     });
 
-    it('should never return a fractional cent anywhere in the response', async () => {
+    it('[FR-USAGE-110] should ignore a cause row whose kind is unrecognised', async () => {
+      seedSession(ctx, { sessionId: 's1', model: 'claude-sonnet-5' });
+      seedDaily(ctx, { date: '2024-01-10', cacheReadTokens: 1_000_000 });
+      seedCause(ctx, { kind: 'toolResult', tokenTurns: 100_000 });
+      // A kind the enum doesn't list — e.g. from a reducer version this
+      // router predates. The DB column has no CHECK constraint enforcing it.
+      ctx.db
+        .insert(usageCause)
+        .values({ date: '2024-01-10', sessionId: 's1', kind: 'unknownKind' as any, tokenTurns: 500_000 })
+        .run();
+
+      const overview = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
+
+      for (const value of Object.values(overview.causes)) {
+        expect(Number.isNaN(value)).toBe(false);
+      }
+      expect(overview.causes.toolResult).toBe(2);
+    });
+
+    it('[FR-USAGE-130] should never return a fractional cent anywhere in the response', async () => {
       seedDaily(ctx, {
         date: '2024-01-10',
         inputTokens: 333,
@@ -342,9 +452,42 @@ describe('usage router', () => {
       }
     });
 
-    it('should include subagent spend in cost.total and report it as its own share', async () => {
-      seedDaily(ctx, { date: '2024-01-10', isSubagent: false, inputTokens: 1_000_000 });
-      seedDaily(ctx, { date: '2024-01-10', isSubagent: true, inputTokens: 3_000_000 });
+    it('[FR-USAGE-150] should price a dated model id at the base model rate, not report it unpriced', async () => {
+      // Transcripts stamp a dated snapshot id for a model the rate table lists undated.
+      seedDaily(ctx, { date: '2024-01-10', model: 'claude-haiku-4-5-20251001', inputTokens: 1_000_000 });
+
+      const overview = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
+
+      // haiku-4-5 input rate $1/MTok: 1M tokens = $1.00 = 100¢.
+      expect(overview.unpricedModels).toEqual([]);
+      expect(overview.cost.total).toBe(100);
+    });
+
+    it('[FR-USAGE-110] [FR-USAGE-120] should scope causes by sessionId like every other endpoint, not by slug', async () => {
+      // Two sessions share a slug but only one belongs to the workspace — a
+      // repo added to a workspace after older sessions were scanned leaves
+      // those sessions at engyWorkspaceId: null. Scoping daily rows by slug
+      // while scoping cause rows by sessionId pulls the out-of-scope
+      // session's tokens into totals but drops its causes, so the shortfall
+      // lands entirely in baseline.
+      const ws = ctx.db.insert(workspaces).values({ name: 'WS', slug: 'ws' }).returning().get();
+      seedSession(ctx, { sessionId: 'in-scope', slug: 'shared', engyWorkspaceId: ws.id });
+      seedSession(ctx, { sessionId: 'out-of-scope', slug: 'shared', engyWorkspaceId: null });
+      seedDaily(ctx, { sessionId: 'in-scope', slug: 'shared', cacheReadTokens: 1_000_000_000 });
+      seedDaily(ctx, { sessionId: 'out-of-scope', slug: 'shared', cacheReadTokens: 1_000_000_000 });
+      seedCause(ctx, { sessionId: 'in-scope', kind: 'toolResult', tokenTurns: 1_000_000_000 });
+      seedCause(ctx, { sessionId: 'out-of-scope', kind: 'toolResult', tokenTurns: 1_000_000_000 });
+
+      const overview = await caller.usage.overview({ workspaceId: ws.id, from: '2024-01-10', to: '2024-01-10' });
+
+      expect(overview.totals.cacheReadTokens).toBe(1_000_000_000);
+      expect(overview.causes.toolResult).toBe(overview.cost.cacheRead);
+      expect(overview.causes.baseline).toBe(0);
+    });
+
+    it('[FR-USAGE-330] should include subagent spend in cost.total and report it as its own share', async () => {
+      seedDaily(ctx, { date: '2024-01-10', sessionId: 'main', isSubagent: false, inputTokens: 1_000_000 });
+      seedDaily(ctx, { date: '2024-01-10', sessionId: 'agent-1', isSubagent: true, inputTokens: 3_000_000 });
 
       const overview = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
 
@@ -355,10 +498,25 @@ describe('usage router', () => {
     });
   });
 
+  describe('date range validation', () => {
+    it('should reject a malformed from/to date instead of crashing on Invalid time value', async () => {
+      await expect(caller.usage.overview({ from: 'not-a-date', to: '2024-01-10' })).rejects.toThrow();
+    });
+
+    it('should reject a from date that is after the to date', async () => {
+      await expect(caller.usage.overview({ from: '2024-01-11', to: '2024-01-10' })).rejects.toThrow();
+    });
+
+    it('should reject a limit outside 1-200', async () => {
+      await expect(caller.usage.tools({ from: '2024-01-10', to: '2024-01-10', limit: 0 })).rejects.toThrow();
+      await expect(caller.usage.tools({ from: '2024-01-10', to: '2024-01-10', limit: 500 })).rejects.toThrow();
+    });
+  });
+
   describe('tools', () => {
-    it('should sort tools by their directly attributed cost descending', async () => {
-      seedTool(ctx, { toolName: 'Read', attributedCostCents: 16, calls: 4 });
-      seedTool(ctx, { toolName: 'Bash', attributedCostCents: 4, calls: 10 });
+    it('[FR-USAGE-280] should sort tools by their directly attributed cost descending', async () => {
+      seedTool(ctx, { toolName: 'Read', attributedCostMicroCents: 16_000_000, calls: 4 });
+      seedTool(ctx, { toolName: 'Bash', attributedCostMicroCents: 4_000_000, calls: 10 });
 
       const tools = await caller.usage.tools({ from: '2024-01-10', to: '2024-01-10', limit: 10 });
 
@@ -367,7 +525,7 @@ describe('usage router', () => {
       expect(tools[0].costPerCallCents).toBe(4);
     });
 
-    it('should bucket each tool call under its own date for a session spanning midnight', async () => {
+    it('[FR-USAGE-170] should bucket each tool call under its own date for a session spanning midnight', async () => {
       const scan = makeScanResult({
         sessionId: 'midnight-1',
         startedAt: '2024-01-10T23:30:00.000Z',
@@ -382,6 +540,8 @@ describe('usage router', () => {
           images: 0,
           errors: 0,
           maxResultChars: 100,
+          p50ResultChars: 100,
+          p95ResultChars: 100,
           tokens: 50,
           tokenTurns: 100,
           calls: 1,
@@ -394,11 +554,14 @@ describe('usage router', () => {
           images: 0,
           errors: 0,
           maxResultChars: 200,
+          p50ResultChars: 200,
+          p95ResultChars: 200,
           tokens: 80,
           tokenTurns: 160,
           calls: 2,
         },
       ];
+      scan.scan.expensiveCalls = [];
       scan.scan.days = [
         {
           date: '2024-01-10',
@@ -444,25 +607,82 @@ describe('usage router', () => {
       expect(day2.map((t) => t.tool)).toEqual(['Bash']);
       expect(bothDays.map((t) => t.tool).sort()).toEqual(['Bash', 'Read']);
     });
+
+    it('should surface the reducer-computed p50/p95 result size, not zero', async () => {
+      seedTool(ctx, { toolName: 'Read', calls: 4, p50ResultChars: 300, p95ResultChars: 900 });
+
+      const tools = await caller.usage.tools({ from: '2024-01-10', to: '2024-01-10', limit: 10 });
+
+      expect(tools[0]).toMatchObject({ p50ResultChars: 300, p95ResultChars: 900 });
+    });
   });
 
   describe('fields', () => {
-    it('should aggregate cost by tool.field', async () => {
-      seedField(ctx, { tool: 'Agent', field: 'prompt', attributedCostCents: 14, tokens: 300 });
-      seedField(ctx, { tool: 'Bash', field: 'command', attributedCostCents: 6, tokens: 100 });
+    it('[FR-USAGE-290] should aggregate cost by tool.field', async () => {
+      seedField(ctx, { tool: 'Agent', field: 'prompt', attributedCostMicroCents: 14_000_000, tokens: 300 });
+      seedField(ctx, { tool: 'Bash', field: 'command', attributedCostMicroCents: 6_000_000, tokens: 100 });
 
       const fields = await caller.usage.fields({ from: '2024-01-10', to: '2024-01-10', limit: 10 });
 
       expect(fields[0]).toMatchObject({ tool: 'Agent', field: 'prompt', costCents: 14 });
       expect(fields[1]).toMatchObject({ tool: 'Bash', field: 'command', costCents: 6 });
     });
+
+    it('[FR-USAGE-290] should sum many sub-cent rows sharing a tool.field before rounding, not round each to 0 first', async () => {
+      // Each row is 0.3¢ — rounding per row (the old behaviour) floors every
+      // one of them to 0, and summing thirty zeros stays 0 regardless of how
+      // many rows there are.
+      for (let i = 0; i < 30; i += 1) {
+        seedField(ctx, {
+          sessionId: `s-${i}`,
+          tool: 'Bash',
+          field: 'command',
+          attributedCostMicroCents: 3_000,
+          tokens: 10,
+        });
+      }
+
+      const fields = await caller.usage.fields({ from: '2024-01-10', to: '2024-01-10', limit: 50 });
+
+      // 30 rows * 3,000 micro-cents = 90,000 micro-cents = 0.09¢ -> still 0.
+      expect(fields.find((f) => f.tool === 'Bash' && f.field === 'command')?.costCents ?? 0).toBe(0);
+
+      // One more row of the same size pushes the summed micro-cents over
+      // half a cent (31 * 3,000 = 93,000... not quite) — use a bigger batch
+      // to cross the rounding boundary deterministically.
+      for (let i = 30; i < 200; i += 1) {
+        seedField(ctx, {
+          sessionId: `s-${i}`,
+          tool: 'Bash',
+          field: 'command',
+          attributedCostMicroCents: 3_000,
+          tokens: 10,
+        });
+      }
+
+      const withMoreRows = await caller.usage.fields({ from: '2024-01-10', to: '2024-01-10', limit: 50 });
+      const commandRow = withMoreRows.find((f) => f.tool === 'Bash' && f.field === 'command');
+      // 200 rows * 3,000 micro-cents = 600,000 micro-cents = 0.6¢ -> rounds to
+      // 1¢ once the whole group is summed — impossible if each row rounded
+      // to 0 before being added up.
+      expect(commandRow?.costCents).toBe(1);
+    });
+
+    it('should surface the reducer-computed call count, not zero', async () => {
+      seedField(ctx, { tool: 'Agent', field: 'prompt', calls: 2 });
+      seedField(ctx, { sessionId: 's2', tool: 'Agent', field: 'prompt', calls: 3 });
+
+      const fields = await caller.usage.fields({ from: '2024-01-10', to: '2024-01-10', limit: 10 });
+
+      expect(fields.find((f) => f.tool === 'Agent' && f.field === 'prompt')?.calls).toBe(5);
+    });
   });
 
   describe('files', () => {
-    it('should group by extension when groupBy is ext', async () => {
-      seedFile(ctx, { filePath: 'a.ts', ext: '.ts', attributedCostCents: 8, tokensEst: 100 });
-      seedFile(ctx, { filePath: 'b.ts', ext: '.ts', attributedCostCents: 4, tokensEst: 50 });
-      seedFile(ctx, { filePath: 'c.md', ext: '.md', attributedCostCents: 5, tokensEst: 80 });
+    it('[FR-USAGE-300] should group by extension when groupBy is ext', async () => {
+      seedFile(ctx, { filePath: 'a.ts', ext: '.ts', attributedCostMicroCents: 8_000_000, tokensEst: 100 });
+      seedFile(ctx, { filePath: 'b.ts', ext: '.ts', attributedCostMicroCents: 4_000_000, tokensEst: 50 });
+      seedFile(ctx, { filePath: 'c.md', ext: '.md', attributedCostMicroCents: 5_000_000, tokensEst: 80 });
 
       const files = await caller.usage.files({ from: '2024-01-10', to: '2024-01-10', limit: 10, groupBy: 'ext' });
 
@@ -470,10 +690,37 @@ describe('usage router', () => {
       expect(ts.tokens).toBe(150);
       expect(ts.costCents).toBe(12);
     });
+
+    it('should surface the reducer-computed character count, not zero', async () => {
+      seedFile(ctx, { filePath: 'a.ts', ext: '.ts', totalChars: 1200 });
+
+      const files = await caller.usage.files({ from: '2024-01-10', to: '2024-01-10', limit: 10 });
+
+      expect(files.find((f) => f.key === 'a.ts')?.totalChars).toBe(1200);
+    });
+  });
+
+  describe('expensiveCalls', () => {
+    it('should return the top calls sorted by token-turns descending', async () => {
+      seedExpensiveCall(ctx, { callIndex: 0, tool: 'Write', tokenTurns: 500, preview: 'small.ts' });
+      seedExpensiveCall(ctx, { callIndex: 1, tool: 'Write', tokenTurns: 5_000, preview: 'big.ts' });
+
+      const calls = await caller.usage.expensiveCalls({ from: '2024-01-10', to: '2024-01-10', limit: 10 });
+
+      expect(calls.map((c) => c.preview)).toEqual(['big.ts', 'small.ts']);
+    });
+
+    it('should convert the stored attributed cost to cents, like the other rollups', async () => {
+      seedExpensiveCall(ctx, { attributedCostMicroCents: 20_000_000 });
+
+      const calls = await caller.usage.expensiveCalls({ from: '2024-01-10', to: '2024-01-10', limit: 10 });
+
+      expect(calls[0].costCents).toBe(20);
+    });
   });
 
   describe('sessions', () => {
-    it('should roll a subagent child cost into its parent row', async () => {
+    it('[FR-USAGE-060] should roll a subagent child cost into its parent row', async () => {
       seedSession(ctx, { sessionId: 'p1', isSubagent: false, estCostCents: 100, apiCalls: 5 });
       seedSession(ctx, {
         sessionId: 'c1',
@@ -495,7 +742,7 @@ describe('usage router', () => {
       });
     });
 
-    it('should include subagent rows individually when includeSubagents is true', async () => {
+    it('[FR-USAGE-060] should include subagent rows individually when includeSubagents is true', async () => {
       seedSession(ctx, { sessionId: 'p1', isSubagent: false, estCostCents: 100 });
       seedSession(ctx, {
         sessionId: 'c1',
@@ -513,7 +760,7 @@ describe('usage router', () => {
       expect(child.isSubagent).toBe(true);
     });
 
-    it('should still surface an orphan subagent whose parent row is missing', async () => {
+    it('[FR-USAGE-070] should still surface an orphan subagent whose parent row is missing', async () => {
       seedSession(ctx, {
         sessionId: 'orphan',
         parentSessionId: 'does-not-exist',
@@ -538,16 +785,16 @@ describe('usage router', () => {
   });
 
   describe('session', () => {
-    it('should throw NOT_FOUND for an unknown session id', async () => {
+    it('[FR-USAGE-310] should throw NOT_FOUND for an unknown session id', async () => {
       await expect(caller.usage.session({ sessionId: 'missing' })).rejects.toThrow('missing');
     });
 
-    it('should return tool/file/field/call/subagent breakdowns for one session', async () => {
+    it('[FR-USAGE-310] should return tool/file/field/call/subagent breakdowns for one session', async () => {
       seedSession(ctx, { sessionId: 's1', cacheReadTokens: 1000, compactions: 3 });
       seedSession(ctx, { sessionId: 'child', parentSessionId: 's1', isSubagent: true, estCostCents: 15 });
-      seedTool(ctx, { toolName: 'Read', attributedCostCents: 42 });
-      seedFile(ctx, { attributedCostCents: 10 });
-      seedField(ctx, { tokenTurns: 10, tokens: 5, attributedCostCents: 2 });
+      seedTool(ctx, { toolName: 'Read', attributedCostMicroCents: 42_000_000 });
+      seedFile(ctx, { attributedCostMicroCents: 10_000_000 });
+      seedField(ctx, { tokenTurns: 10, tokens: 5, attributedCostMicroCents: 2_000_000 });
       seedCause(ctx, { kind: 'toolInput', tokenTurns: 10 });
       seedCall(ctx, { callIndex: 0, cacheReadTokens: 500 });
       seedCall(ctx, { callIndex: 1, cacheReadTokens: 500 });
@@ -571,13 +818,13 @@ describe('usage router', () => {
   });
 
   describe('refresh', () => {
-    it('should return an empty result when no daemon is connected', async () => {
+    it('[FR-USAGE-240] should return an empty result when no daemon is connected', async () => {
       const result = await caller.usage.refresh();
       expect(result).toMatchObject({ scannedFiles: 0, newSessions: 0 });
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('should upsert a scanned session from the daemon and broadcast the change', async () => {
+    it('[FR-USAGE-250] [FR-WS-210] should upsert a scanned session from the daemon and broadcast the change', async () => {
       installFakeUsageDaemon(ctx, () => ({
         sessions: [makeScanResult()],
         files: {},
@@ -592,6 +839,248 @@ describe('usage router', () => {
       const sessions = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
       expect(sessions).toHaveLength(1);
       expect(sessions[0]).toMatchObject({ sessionId: 'scan-1', label: 'Fix the flaky test' });
+    });
+
+    it('[FR-USAGE-210] should accumulate usageSessionDaily across two sessions sharing date/slug/model, not overwrite', async () => {
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [makeScanResult({ sessionId: 'sess-a' })],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+      const afterFirst = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
+
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [makeScanResult({ sessionId: 'sess-b' })],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+      const afterSecond = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
+
+      // Each session's daily rollup carries apiCalls: 2 — the shared (date, slug, model)
+      // row must sum both sessions' contributions, not retain only the second write's.
+      expect(afterFirst.totals.apiCalls).toBe(2);
+      expect(afterSecond.totals.apiCalls).toBe(4);
+      expect(afterSecond.totals.cacheReadTokens).toBe(2 * afterFirst.totals.cacheReadTokens);
+    });
+
+    it('[FR-USAGE-210] [FR-WS-220] should add a resumed scan tail to the totals already stored, not replace them', async () => {
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [makeScanResult()],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+      const afterFirst = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
+
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [{ ...makeScanResult(), isFullParse: false }],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+
+      const afterTail = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
+      const session = await caller.usage.session({ sessionId: 'scan-1' });
+
+      expect(afterTail.totals.apiCalls).toBe(2 * afterFirst.totals.apiCalls);
+      expect(afterTail.totals.cacheReadTokens).toBe(2 * afterFirst.totals.cacheReadTokens);
+      expect(session.session.apiCalls).toBe(4);
+      // The tail renumbers its calls from 1, so they continue the stored series.
+      expect(session.callSeries.map((point) => point.callIndex)).toEqual([0, 1, 2, 3]);
+    });
+
+    it('[FR-USAGE-210] [FR-WS-220] should replace a session rescanned in full rather than double-counting it', async () => {
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [makeScanResult()],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+      const afterFirst = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
+
+      // A truncated or rewritten transcript is reparsed from byte 0, so the
+      // rollups are the whole file again.
+      await caller.usage.refresh();
+      const afterReparse = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
+
+      expect(afterReparse.totals.apiCalls).toBe(afterFirst.totals.apiCalls);
+      expect(afterReparse.cost.total).toBe(afterFirst.cost.total);
+
+      const session = await caller.usage.session({ sessionId: 'scan-1' });
+      expect(session.tools[0].calls).toBe(3);
+      expect(session.files[0].reads).toBe(2);
+    });
+
+    it('should persist a scanned session\'s expensive calls', async () => {
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [makeScanResult()],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+
+      const calls = await caller.usage.expensiveCalls({ from: '2024-01-10', to: '2024-01-10', limit: 10 });
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({ tool: 'Read', preview: 'src/index.ts', tokenTurns: 400 });
+    });
+
+    it('should prune a session\'s expensive calls to its top 20 by tokenTurns across many scan passes, not grow unbounded', async () => {
+      const sessionId = 'growing-1';
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [makeScanResult({ sessionId })],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh(); // full parse — one row at tokenTurns 400.
+
+      // 25 incremental tail passes, each contributing one new expensive-call
+      // row (a session refreshed many times must not accumulate one row per
+      // pass forever).
+      for (let i = 0; i < 25; i += 1) {
+        const scan = makeScanResult({ sessionId });
+        scan.isFullParse = false;
+        scan.scan.expensiveCalls = [
+          {
+            date: '2024-01-10',
+            sessionId,
+            tool: 'Write',
+            field: 'file_path',
+            tokens: 100,
+            tokenTurns: 1000 + i,
+            callIndex: 0,
+            preview: `file-${i}.ts`,
+          },
+        ];
+        installFakeUsageDaemon(ctx, () => ({
+          sessions: [scan],
+          files: {},
+          newlySealedDates: [],
+          staleSealSkips: 0,
+        }));
+        await caller.usage.refresh();
+      }
+
+      const calls = await caller.usage.expensiveCalls({ from: '2024-01-10', to: '2024-01-10', limit: 200 });
+      const forSession = calls.filter((c) => c.sessionId === sessionId);
+
+      expect(forSession).toHaveLength(20);
+      // The lowest-tokenTurns rows (the original 400 and the earliest tail
+      // passes) are pruned, keeping only the session's overall top 20.
+      expect(Math.min(...forSession.map((c) => c.tokenTurns))).toBe(1005);
+    });
+
+    it('should forward since to the daemon scan request', async () => {
+      const requests = installTrackingUsageDaemon(ctx, () => ({
+        sessions: [],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+
+      await caller.usage.refresh({ since: '2024-01-01' });
+
+      expect(requests).toEqual([{ since: '2024-01-01' }]);
+    });
+
+    it('should reject a since that is not an ISO date', async () => {
+      await expect(caller.usage.refresh({ since: 'not-a-date' })).rejects.toThrow();
+    });
+
+    it('should serve a second concurrent call from the in-flight scan instead of starting a new one', async () => {
+      const requests = installTrackingUsageDaemon(ctx, () => ({
+        sessions: [makeScanResult()],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+
+      const [first, second] = await Promise.all([caller.usage.refresh(), caller.usage.refresh()]);
+
+      expect(requests).toHaveLength(1);
+      expect(first).toEqual(second);
+    });
+
+    it('should allow a fresh scan once the in-flight one has settled', async () => {
+      const requests = installTrackingUsageDaemon(ctx, () => ({
+        sessions: [],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+
+      await caller.usage.refresh();
+      await caller.usage.refresh();
+
+      expect(requests).toHaveLength(2);
+    });
+
+    it('should invalidate a stale-version seal and force a full rescan', async () => {
+      seedSession(ctx, { sessionId: 's1' });
+      ctx.db
+        .insert(usageSealedDate)
+        .values({ date: '2024-01-01', reducerVersion: USAGE_REDUCER_VERSION - 1 })
+        .run();
+
+      await caller.usage.refresh();
+
+      expect(ctx.db.select().from(usageSealedDate).all()).toHaveLength(0);
+      const sessions = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
+      expect(sessions).toHaveLength(0);
+    });
+
+    it('should leave a current-version seal untouched', async () => {
+      seedSession(ctx, { sessionId: 's1' });
+      ctx.db.insert(usageSealedDate).values({ date: '2024-01-01', reducerVersion: USAGE_REDUCER_VERSION }).run();
+
+      await caller.usage.refresh();
+
+      expect(ctx.db.select().from(usageSealedDate).all()).toHaveLength(1);
+      const sessions = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
+      expect(sessions).toHaveLength(1);
+    });
+  });
+
+  describe('rebuild', () => {
+    it('should clear every usage table and broadcast the change', async () => {
+      seedSession(ctx, { sessionId: 's1' });
+      seedDaily(ctx);
+      seedTool(ctx);
+
+      const result = await caller.usage.rebuild();
+
+      expect(result).toEqual({ rebuilt: true });
+      const sessions = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
+      expect(sessions).toHaveLength(0);
+      const tools = await caller.usage.tools({ from: '2024-01-10', to: '2024-01-10', limit: 10 });
+      expect(tools).toHaveLength(0);
+    });
+
+    it('should leave pricing untouched so the next scan can still price sessions', async () => {
+      await caller.usage.rebuild();
+
+      installFakeUsageDaemon(ctx, () => ({
+        // makeScanResult()'s default token counts round to 0 cents — scale
+        // input up so a wiped pricing table would be visible as 0, not as a
+        // coincidental sub-cent rounding to 0.
+        sessions: [makeScanResult({ inputTokens: 5_000_000 })],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+
+      const sessions = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
+      expect(sessions[0].costCents).toBeGreaterThan(0);
     });
   });
 });

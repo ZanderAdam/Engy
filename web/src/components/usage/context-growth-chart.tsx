@@ -8,7 +8,7 @@ import type { UsageCallSeriesPoint } from './types';
 
 export function ContextGrowthChart({ series }: { series: UsageCallSeriesPoint[] }) {
   if (series.length === 0) {
-    return <p className="text-xs text-muted-foreground">No API calls recorded for this session.</p>;
+    return <p className="text-xs text-muted-foreground">No API calls in this session.</p>;
   }
 
   return (

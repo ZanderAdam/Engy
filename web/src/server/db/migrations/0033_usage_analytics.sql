@@ -14,35 +14,36 @@ CREATE TABLE `usage_cause` (
 );
 --> statement-breakpoint
 CREATE INDEX `idx_usage_cause_date` ON `usage_cause` (`date`);--> statement-breakpoint
-CREATE TABLE `usage_daily` (
+CREATE INDEX `idx_usage_cause_session` ON `usage_cause` (`session_id`);--> statement-breakpoint
+CREATE TABLE `usage_expensive_call` (
 	`date` text NOT NULL,
-	`slug` text NOT NULL,
-	`model` text NOT NULL,
-	`is_subagent` integer DEFAULT false NOT NULL,
-	`api_calls` integer DEFAULT 0 NOT NULL,
-	`input_tokens` integer DEFAULT 0 NOT NULL,
-	`output_tokens` integer DEFAULT 0 NOT NULL,
-	`thinking_tokens` integer DEFAULT 0 NOT NULL,
-	`cache_read_tokens` integer DEFAULT 0 NOT NULL,
-	`cache_write_1h_tokens` integer DEFAULT 0 NOT NULL,
-	`cache_write_5m_tokens` integer DEFAULT 0 NOT NULL,
-	`est_cost_cents` integer DEFAULT 0 NOT NULL,
-	PRIMARY KEY(`date`, `slug`, `model`, `is_subagent`)
+	`session_id` text NOT NULL,
+	`call_index` integer NOT NULL,
+	`tool` text NOT NULL,
+	`field` text,
+	`tokens` integer DEFAULT 0 NOT NULL,
+	`token_turns` integer DEFAULT 0 NOT NULL,
+	`attributed_cost_micro_cents` integer DEFAULT 0 NOT NULL,
+	`preview` text DEFAULT '' NOT NULL,
+	PRIMARY KEY(`date`, `session_id`, `call_index`)
 );
 --> statement-breakpoint
-CREATE INDEX `idx_usage_daily_date` ON `usage_daily` (`date`);--> statement-breakpoint
+CREATE INDEX `idx_usage_expensive_call_date` ON `usage_expensive_call` (`date`);--> statement-breakpoint
+CREATE INDEX `idx_usage_expensive_call_session` ON `usage_expensive_call` (`session_id`);--> statement-breakpoint
 CREATE TABLE `usage_field` (
 	`date` text NOT NULL,
 	`session_id` text NOT NULL,
 	`tool` text NOT NULL,
 	`field` text NOT NULL,
+	`calls` integer DEFAULT 0 NOT NULL,
 	`tokens` integer DEFAULT 0 NOT NULL,
 	`token_turns` integer DEFAULT 0 NOT NULL,
-	`attributed_cost_cents` integer DEFAULT 0 NOT NULL,
+	`attributed_cost_micro_cents` integer DEFAULT 0 NOT NULL,
 	PRIMARY KEY(`date`, `session_id`, `tool`, `field`)
 );
 --> statement-breakpoint
 CREATE INDEX `idx_usage_field_date` ON `usage_field` (`date`);--> statement-breakpoint
+CREATE INDEX `idx_usage_field_session` ON `usage_field` (`session_id`);--> statement-breakpoint
 CREATE TABLE `usage_file` (
 	`date` text NOT NULL,
 	`session_id` text NOT NULL,
@@ -54,12 +55,13 @@ CREATE TABLE `usage_file` (
 	`total_chars` integer DEFAULT 0 NOT NULL,
 	`tokens_est` integer DEFAULT 0 NOT NULL,
 	`attributed_token_turns` integer DEFAULT 0 NOT NULL,
-	`attributed_cost_cents` integer DEFAULT 0 NOT NULL,
+	`attributed_cost_micro_cents` integer DEFAULT 0 NOT NULL,
 	`ext` text NOT NULL,
 	PRIMARY KEY(`date`, `session_id`, `file_path`)
 );
 --> statement-breakpoint
 CREATE INDEX `idx_usage_file_date` ON `usage_file` (`date`);--> statement-breakpoint
+CREATE INDEX `idx_usage_file_session` ON `usage_file` (`session_id`);--> statement-breakpoint
 CREATE TABLE `usage_pricing` (
 	`model` text PRIMARY KEY NOT NULL,
 	`input_micro_cents_per_token` integer NOT NULL,
@@ -130,6 +132,25 @@ CREATE INDEX `idx_usage_session_repo_root` ON `usage_session` (`repo_root`);--> 
 CREATE INDEX `idx_usage_session_workspace` ON `usage_session` (`engy_workspace_id`);--> statement-breakpoint
 CREATE INDEX `idx_usage_session_project` ON `usage_session` (`engy_project_id`);--> statement-breakpoint
 CREATE INDEX `idx_usage_session_parent` ON `usage_session` (`parent_session_id`);--> statement-breakpoint
+CREATE TABLE `usage_session_daily` (
+	`date` text NOT NULL,
+	`session_id` text NOT NULL,
+	`slug` text NOT NULL,
+	`model` text NOT NULL,
+	`is_subagent` integer DEFAULT false NOT NULL,
+	`api_calls` integer DEFAULT 0 NOT NULL,
+	`input_tokens` integer DEFAULT 0 NOT NULL,
+	`output_tokens` integer DEFAULT 0 NOT NULL,
+	`thinking_tokens` integer DEFAULT 0 NOT NULL,
+	`cache_read_tokens` integer DEFAULT 0 NOT NULL,
+	`cache_write_1h_tokens` integer DEFAULT 0 NOT NULL,
+	`cache_write_5m_tokens` integer DEFAULT 0 NOT NULL,
+	`est_cost_cents` integer DEFAULT 0 NOT NULL,
+	PRIMARY KEY(`date`, `session_id`, `model`)
+);
+--> statement-breakpoint
+CREATE INDEX `idx_usage_session_daily_date` ON `usage_session_daily` (`date`);--> statement-breakpoint
+CREATE INDEX `idx_usage_session_daily_session` ON `usage_session_daily` (`session_id`);--> statement-breakpoint
 CREATE TABLE `usage_tool` (
 	`date` text NOT NULL,
 	`session_id` text NOT NULL,
@@ -139,7 +160,7 @@ CREATE TABLE `usage_tool` (
 	`result_tokens_est` integer DEFAULT 0 NOT NULL,
 	`input_chars` integer DEFAULT 0 NOT NULL,
 	`attributed_token_turns` integer DEFAULT 0 NOT NULL,
-	`attributed_cost_cents` integer DEFAULT 0 NOT NULL,
+	`attributed_cost_micro_cents` integer DEFAULT 0 NOT NULL,
 	`p50_result_chars` integer DEFAULT 0 NOT NULL,
 	`p95_result_chars` integer DEFAULT 0 NOT NULL,
 	`max_result_chars` integer DEFAULT 0 NOT NULL,
@@ -148,4 +169,5 @@ CREATE TABLE `usage_tool` (
 	PRIMARY KEY(`date`, `session_id`, `tool_name`)
 );
 --> statement-breakpoint
-CREATE INDEX `idx_usage_tool_date` ON `usage_tool` (`date`);
+CREATE INDEX `idx_usage_tool_date` ON `usage_tool` (`date`);--> statement-breakpoint
+CREATE INDEX `idx_usage_tool_session` ON `usage_tool` (`session_id`);

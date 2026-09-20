@@ -825,6 +825,13 @@ export interface UsageSessionScanResult {
   scan: UsageSessionScan;
   repoRoot: string | null;
   meta: UsageSessionMeta | null;
+  /**
+   * False when the transcript was resumed from a stored byte offset, so the
+   * rollups cover only the appended tail and the consumer must add them to
+   * what it already holds. True after a full parse, where they are the whole
+   * file and must replace it — adding there would double-count.
+   */
+  isFullParse: boolean;
 }
 
 export interface UsageScanRequestMessage {
@@ -833,6 +840,12 @@ export interface UsageScanRequestMessage {
     requestId: string;
     knownFiles: Record<string, UsageScanFileState>;
     sealedDates: string[];
+    /**
+     * ISO date (YYYY-MM-DD). When set, a transcript whose own mtime predates
+     * it is marked fully scanned without being read, so a range-scoped
+     * refresh only pays for files with activity inside the visible window.
+     */
+    since?: string;
   };
 }
 

@@ -22,7 +22,9 @@ export function FieldTable({ rows }: { rows: UsageFieldRow[] }) {
   );
 
   if (rows.length === 0) {
-    return <p className="text-xs text-muted-foreground">No tool inputs in this range.</p>;
+    return (
+      <p className="text-xs text-muted-foreground">No tool input fields in this date range.</p>
+    );
   }
 
   return (
@@ -30,7 +32,7 @@ export function FieldTable({ rows }: { rows: UsageFieldRow[] }) {
       <TableHeader>
         <TableRow>
           <SortHead
-            label="Tool field"
+            label="Tool input field"
             active={sort.key === 'name'}
             direction={sort.direction}
             onClick={() => toggle('name')}

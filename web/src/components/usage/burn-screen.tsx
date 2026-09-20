@@ -1,18 +1,27 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import { ExpensiveCallsTable } from './expensive-calls-table';
 import { FieldTable } from './field-table';
 import { FileTable } from './file-table';
 import { EstimateNotice, Panel } from './panel';
 import { ToolTable } from './tool-table';
-import type { FileGroupBy, UsageFieldRow, UsageFileRow, UsageToolRow } from './types';
+import type {
+  FileGroupBy,
+  UsageExpensiveCallRow,
+  UsageFieldRow,
+  UsageFileRow,
+  UsageToolRow,
+} from './types';
 
 interface BurnScreenProps {
   tools: UsageToolRow[];
   fields: UsageFieldRow[];
   files: UsageFileRow[];
+  expensiveCalls: UsageExpensiveCallRow[];
   fileGroupBy: FileGroupBy;
   onFileGroupByChange: (groupBy: FileGroupBy) => void;
+  onSelectSession: (sessionId: string) => void;
 }
 
 const FILE_GROUPS: Array<{ value: FileGroupBy; label: string }> = [
@@ -53,24 +62,20 @@ export function BurnScreen({
   tools,
   fields,
   files,
+  expensiveCalls,
   fileGroupBy,
   onFileGroupByChange,
+  onSelectSession,
 }: BurnScreenProps) {
   return (
     <div className="flex flex-col gap-4">
-      <EstimateNotice> Per-tool splits are modelled shares, not measurements.</EstimateNotice>
+      <EstimateNotice> Per-tool costs are estimates, not measurements.</EstimateNotice>
 
-      <Panel
-        title="Tools"
-        description="Cost per call ranks expensive-but-rare tools above cheap-but-frequent ones."
-      >
+      <Panel title="Tools">
         <ToolTable rows={tools} />
       </Panel>
 
-      <Panel
-        title="Tool input fields"
-        description="What the model writes into context — the level where a fix is actionable."
-      >
+      <Panel title="Tool input fields">
         <FieldTable rows={fields} />
       </Panel>
 
@@ -79,6 +84,10 @@ export function BurnScreen({
         action={<GroupToggle value={fileGroupBy} onChange={onFileGroupByChange} />}
       >
         <FileTable rows={files} groupBy={fileGroupBy} />
+      </Panel>
+
+      <Panel title="Most expensive calls">
+        <ExpensiveCallsTable rows={expensiveCalls} onSelectSession={onSelectSession} />
       </Panel>
     </div>
   );

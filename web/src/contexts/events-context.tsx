@@ -94,6 +94,11 @@ interface TerminalBranchChangePayload {
   worktreeBranch: string;
 }
 
+interface UsageChangePayload {
+  scannedFiles: number;
+  newSessions: number;
+}
+
 interface ServerEventMap {
   FILE_CHANGE: FileChangePayload;
   TASK_CHANGE: TaskChangePayload;
@@ -107,6 +112,7 @@ interface ServerEventMap {
   VOICE_SPEAK: VoiceSpeakPayload;
   TERMINAL_BRANCH_CHANGE: TerminalBranchChangePayload;
   COMMENT_CHANGE: CommentChangePayload;
+  USAGE_CHANGE: UsageChangePayload;
 }
 
 type ServerEventType = keyof ServerEventMap;

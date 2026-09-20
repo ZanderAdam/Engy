@@ -1561,12 +1561,13 @@ export class WsClient {
   }
 
   private async handleUsageScanRequest(message: UsageScanRequestMessage): Promise<void> {
-    const { requestId, knownFiles, sealedDates } = message.payload;
+    const { requestId, knownFiles, sealedDates, since } = message.payload;
     try {
       const result = await scanUsage({
         homeDir: os.homedir(),
         knownFiles,
         sealedDates: new Set(sealedDates),
+        since,
       });
       this.send({
         type: 'USAGE_SCAN_RESPONSE',

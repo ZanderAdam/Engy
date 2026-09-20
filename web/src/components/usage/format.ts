@@ -83,3 +83,9 @@ export function formatDuration(minutes: number): string {
   const rest = Math.round(minutes % 60);
   return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
 }
+
+export function formatCostPerLine(cents: number | null): string {
+  if (cents === null) return '—';
+  if (cents < 100) return `${cents.toFixed(1)}¢`;
+  return formatMoneyCompact(cents);
+}

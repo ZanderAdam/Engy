@@ -21,7 +21,7 @@ export function SessionsScreen({
 }: SessionsScreenProps) {
   return (
     <div className="flex flex-col gap-4">
-      <EstimateNotice> A session&apos;s cost includes the subagents it spawned.</EstimateNotice>
+      <EstimateNotice> A session&apos;s cost includes its subagents.</EstimateNotice>
 
       <Panel
         title="Sessions"

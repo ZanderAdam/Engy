@@ -2,12 +2,28 @@
 
 import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { CostSplitCell } from './cost-split-cell';
-import { formatCount, formatDuration } from './format';
+import { formatCostPerLine, formatCount, formatDuration } from './format';
 import { SortHead } from './sort-head';
 import type { UsageSessionRow } from './types';
 import { useSortedRows } from './use-sorted-rows';
 
-type SessionSortKey = 'label' | 'startedAt' | 'duration' | 'apiCalls' | 'model' | 'costCents';
+type SessionSortKey =
+  | 'label'
+  | 'startedAt'
+  | 'duration'
+  | 'apiCalls'
+  | 'model'
+  | 'costCents'
+  | 'costPerLine';
+
+function linesChanged(row: UsageSessionRow): number {
+  return (row.linesAdded ?? 0) + (row.linesRemoved ?? 0);
+}
+
+function costPerLine(row: UsageSessionRow): number | null {
+  const lines = linesChanged(row);
+  return lines > 0 ? row.costCents / lines : null;
+}
 
 const ACCESSORS = {
   label: (row: UsageSessionRow) => row.label,
@@ -16,6 +32,7 @@ const ACCESSORS = {
   apiCalls: (row: UsageSessionRow) => row.apiCalls,
   model: (row: UsageSessionRow) => row.model,
   costCents: (row: UsageSessionRow) => row.costCents,
+  costPerLine: (row: UsageSessionRow) => costPerLine(row) ?? -1,
 } as const;
 
 const COLUMNS: Array<[SessionSortKey, string, boolean]> = [
@@ -23,6 +40,7 @@ const COLUMNS: Array<[SessionSortKey, string, boolean]> = [
   ['costCents', 'Cost', true],
   ['duration', 'Duration', true],
   ['apiCalls', 'API calls', true],
+  ['costPerLine', 'Cost per line', true],
   ['model', 'Model', false],
 ];
 
@@ -40,7 +58,7 @@ export function SessionsTable({
   );
 
   if (rows.length === 0) {
-    return <p className="text-xs text-muted-foreground">No sessions in this range.</p>;
+    return <p className="text-xs text-muted-foreground">No sessions in this date range.</p>;
   }
 
   return (
@@ -84,7 +102,13 @@ export function SessionsTable({
             <TableCell className="text-right tabular-nums text-muted-foreground">
               {formatCount(row.apiCalls)}
               {row.subagentCalls > 0 && (
-                <span className="block text-xs">+{formatCount(row.subagentCalls)} delegated</span>
+                <span className="block text-xs">+{formatCount(row.subagentCalls)} in subagents</span>
+              )}
+            </TableCell>
+            <TableCell className="text-right tabular-nums text-muted-foreground">
+              {formatCostPerLine(costPerLine(row))}
+              {linesChanged(row) > 0 && (
+                <span className="block text-xs">{formatCount(linesChanged(row))} lines</span>
               )}
             </TableCell>
             <TableCell className="font-mono text-muted-foreground">{row.model}</TableCell>

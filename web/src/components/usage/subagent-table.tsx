@@ -30,7 +30,7 @@ export function SubagentTable({ rows }: { rows: UsageSubagentRow[] }) {
   );
 
   if (rows.length === 0) {
-    return <p className="text-xs text-muted-foreground">This session delegated no work.</p>;
+    return <p className="text-xs text-muted-foreground">This session used no subagents.</p>;
   }
 
   return (

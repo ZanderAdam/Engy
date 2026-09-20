@@ -44,7 +44,7 @@ export function CostAreaChart({ series }: { series: UsageSeriesPoint[] }) {
   if (series.length === 0) {
     return (
       <p className="py-16 text-center text-xs text-muted-foreground">
-        No usage recorded in this range.
+        No usage in this date range.
       </p>
     );
   }

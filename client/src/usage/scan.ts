@@ -1,6 +1,5 @@
 import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { createInterface } from 'node:readline';
 import path from 'node:path';
 import type {
   UsageScanFileState,
@@ -9,18 +8,22 @@ import type {
   UsageSessionScanResult,
 } from '@engy/common';
 import { SessionReducer } from './reducer.js';
+import { localDateString } from './date.js';
 
 const PROJECTS_DIR = ['.claude', 'projects'];
 const SESSION_META_DIR = ['.claude', 'usage-data', 'session-meta'];
 const SUBAGENTS_DIR = 'subagents';
 const WORKTREE_SEGMENT = path.join('.claude', 'worktrees');
 const TIMESTAMP_MARKER = '"timestamp":"';
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const NEWLINE_BYTE = 0x0a;
+const CR_BYTE = 0x0d;
 
 interface UsageScanOptions {
   homeDir: string;
   knownFiles: Record<string, UsageScanFileState>;
   sealedDates: ReadonlySet<string>;
+  /** ISO date (YYYY-MM-DD). A transcript whose own mtime predates it is pre-claimed as fully scanned, unread. */
+  since?: string;
 }
 
 interface UsageScanResult {
@@ -40,7 +43,7 @@ interface TranscriptFile {
 }
 
 export async function scanUsage(options: UsageScanOptions): Promise<UsageScanResult> {
-  const { homeDir, knownFiles, sealedDates } = options;
+  const { homeDir, knownFiles, sealedDates, since } = options;
   const transcripts = await discoverTranscriptFiles(homeDir);
 
   const outFiles: Record<string, UsageScanFileState> = {};
@@ -57,6 +60,15 @@ export async function scanUsage(options: UsageScanOptions): Promise<UsageScanRes
 
     if (unchanged) {
       outFiles[file.filePath] = known;
+      continue;
+    }
+
+    // A file older than the window is skipped unread. Recording it as scanned
+    // would make it look unchanged forever, so its history would be lost until
+    // a rebuild; carrying the prior state forward, or none at all, lets a later
+    // scan without a window still read it in full.
+    if (since && localDateString(new Date(stats.mtimeMs)) < since) {
+      if (known) outFiles[file.filePath] = known;
       continue;
     }
 
@@ -85,6 +97,7 @@ export async function scanUsage(options: UsageScanOptions): Promise<UsageScanRes
       scan: pass.scan,
       repoRoot: await deriveRepoRoot(pass.scan.session.cwd),
       meta: file.parentSessionId ? null : await readSessionMeta(file.metaPath),
+      isFullParse: startByte === 0,
     });
   }
 
@@ -172,29 +185,45 @@ async function scanTranscriptFile(
   });
 
   const stream = createReadStream(filePath, startByte > 0 ? { start: startByte } : undefined);
-  const rl = createInterface({ input: stream, crlfDelay: Infinity });
 
   let bytesRead = 0;
   let linesRead = 0;
   let staleSealSkips = 0;
   let firstLineDate: string | null = null;
   let lastLineDate: string | null = null;
+  let pending = Buffer.alloc(0);
 
-  for await (const line of rl) {
-    bytesRead += Buffer.byteLength(line) + 1;
-    linesRead += 1;
+  // A refresh can run mid-append: the file's last line may not be
+  // newline-terminated yet. Buffering raw bytes (instead of readline, which
+  // treats end-of-stream as an implicit terminator) lets a trailing partial
+  // line stay unconsumed — and its bytes excluded from `bytesRead` — so the
+  // next scan re-reads it whole instead of resuming inside it.
+  for await (const chunk of stream as AsyncIterable<Buffer>) {
+    pending = Buffer.concat([pending, chunk]);
 
-    const date = extractDate(line);
-    if (date) {
-      if (firstLineDate === null) firstLineDate = date;
-      lastLineDate = date;
+    let newlineIndex = pending.indexOf(NEWLINE_BYTE);
+    while (newlineIndex !== -1) {
+      let lineEnd = newlineIndex;
+      if (lineEnd > 0 && pending[lineEnd - 1] === CR_BYTE) lineEnd -= 1;
+      const line = pending.toString('utf8', 0, lineEnd);
+      bytesRead += newlineIndex + 1;
+      pending = pending.subarray(newlineIndex + 1);
+      linesRead += 1;
+
+      const date = extractDate(line);
+      if (date) {
+        if (firstLineDate === null) firstLineDate = date;
+        lastLineDate = date;
+      }
+
+      if (date && sealedDates.has(date)) {
+        staleSealSkips += 1;
+      } else {
+        reducer.addLine(line);
+      }
+
+      newlineIndex = pending.indexOf(NEWLINE_BYTE);
     }
-
-    if (date && sealedDates.has(date)) {
-      staleSealSkips += 1;
-      continue;
-    }
-    reducer.addLine(line);
   }
 
   return { scan: reducer.finish(), bytesRead, linesRead, firstLineDate, lastLineDate, staleSealSkips };
@@ -202,14 +231,19 @@ async function scanTranscriptFile(
 
 /**
  * Cheap substring extraction, mirroring the reducer's own pre-parse gate —
- * avoids a JSON.parse on every line just to decide whether it is sealed.
+ * avoids a JSON.parse on every line just to decide whether it is sealed. The
+ * seal boundary is a local date (see `date.ts`), so the substring has to
+ * become a `Date` rather than being sliced directly off the UTC timestamp.
  */
 function extractDate(line: string): string | null {
   const idx = line.indexOf(TIMESTAMP_MARKER);
   if (idx === -1) return null;
   const start = idx + TIMESTAMP_MARKER.length;
-  const date = line.slice(start, start + 10);
-  return DATE_PATTERN.test(date) ? date : null;
+  const end = line.indexOf('"', start);
+  if (end === -1) return null;
+  const timestamp = line.slice(start, end);
+  const parsed = new Date(timestamp);
+  return Number.isNaN(parsed.getTime()) ? null : localDateString(parsed);
 }
 
 async function readSessionMeta(metaPath: string): Promise<UsageSessionMeta | null> {
@@ -279,13 +313,6 @@ async function deriveRepoRoot(cwd: string | null): Promise<string | null> {
   if (!cwd) return null;
   const gitRoot = await findGitRoot(cwd);
   return gitRoot ? collapseWorktreeRoot(gitRoot) : null;
-}
-
-function localDateString(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
 }
 
 function nextDay(dateStr: string): string {

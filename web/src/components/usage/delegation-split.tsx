@@ -22,10 +22,11 @@ export function DelegationSplit({
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="flex items-baseline gap-2">
           <span className="text-3xl font-medium leading-none">{formatPercent(subagentShare)}</span>
-          <span className="text-xs text-muted-foreground">of spend is delegated to subagents</span>
+          <span className="text-xs text-muted-foreground">of the cost comes from subagents</span>
         </div>
         <span className="text-xs text-muted-foreground">
-          {formatMoneyCompact(subagentCents)} delegated · {formatMoneyCompact(directCents)} direct
+          {formatMoneyCompact(subagentCents)} subagents · {formatMoneyCompact(directCents)} main
+          session
         </span>
       </div>
 
@@ -40,11 +41,11 @@ export function DelegationSplit({
       <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <span aria-hidden className="size-2" style={{ backgroundColor: DELEGATED_COLOR }} />
-          Delegated (subagents)
+          Subagents
         </span>
         <span className="flex items-center gap-1.5">
           <span aria-hidden className="size-2" style={{ backgroundColor: MAGNITUDE_COLOR }} />
-          Direct (main session)
+          Main session
         </span>
       </div>
     </div>

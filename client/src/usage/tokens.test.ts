@@ -12,43 +12,43 @@ function pngBase64(width: number, height: number): string {
 
 describe('usage token estimation', () => {
   describe('readPngDimensions', () => {
-    it('should read width and height from the IHDR header', () => {
+    it('[FR-USAGE-080] should read width and height from the IHDR header', () => {
       expect(readPngDimensions(pngBase64(1920, 1080))).toEqual({ width: 1920, height: 1080 });
     });
 
-    it('should return null for a payload that is not a PNG', () => {
+    it('[FR-USAGE-080] should return null for a payload that is not a PNG', () => {
       expect(readPngDimensions(Buffer.from('not an image at all!!').toString('base64'))).toBeNull();
     });
 
-    it('should return null for a payload too short to contain a header', () => {
+    it('[FR-USAGE-080] should return null for a payload too short to contain a header', () => {
       expect(readPngDimensions('iVBO')).toBeNull();
     });
   });
 
   describe('estimateImageTokens', () => {
-    it('should price a full-HD screenshot at roughly 1800 tokens', () => {
+    it('[FR-USAGE-080] should price a full-HD screenshot at roughly 1800 tokens', () => {
       const tokens = estimateImageTokens(pngBase64(1920, 1080));
       expect(tokens).toBeGreaterThan(1700);
       expect(tokens).toBeLessThan(1900);
     });
 
-    it('should cap the long edge at 1568px before pricing', () => {
+    it('[FR-USAGE-080] should cap the long edge at 1568px before pricing', () => {
       const huge = estimateImageTokens(pngBase64(6000, 4000));
       const capped = estimateImageTokens(pngBase64(1568, 1045));
       expect(Math.abs(huge - capped)).toBeLessThan(capped * 0.02);
     });
 
-    it('should not scale up an image already below the cap', () => {
+    it('[FR-USAGE-080] should not scale up an image already below the cap', () => {
       expect(estimateImageTokens(pngBase64(280, 720))).toBe(Math.round((280 * 720) / 750));
     });
 
-    it('should fall back to a fixed estimate when dimensions are unreadable', () => {
+    it('[FR-USAGE-080] should fall back to a fixed estimate when dimensions are unreadable', () => {
       expect(estimateImageTokens('')).toBe(1500);
     });
   });
 
   describe('estimateBlockTokens', () => {
-    it('should price an image block by pixels, not by payload length', () => {
+    it('[FR-USAGE-080] should price an image block by pixels, not by payload length', () => {
       // A real base64 screenshot runs to ~1.26M characters. Estimating it as
       // text overstates the cost ~25x and inverts every ranking built on it.
       const data = pngBase64(1920, 1080) + 'A'.repeat(1_260_000);

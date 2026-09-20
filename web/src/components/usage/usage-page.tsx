@@ -1,23 +1,26 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { RiBarChartBoxLine, RiRefreshLine } from '@remixicon/react';
+import { RiBarChartBoxLine, RiRefreshLine, RiRestartLine } from '@remixicon/react';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { useVirtualNavigate, useVirtualSearchParams } from '@/components/tabs/tab-context';
+import { useOnServerEvent } from '@/contexts/events-context';
 import { Button } from '@/components/ui/button';
 import { BurnScreen } from './burn-screen';
 import { DateRangePicker } from './date-range-picker';
+import { RebuildDialog } from './rebuild-dialog';
+import { ScopePicker } from './scope-picker';
 import { parseRange, previousWindowLabel, type DateRange } from './date-range';
 import { OverviewScreen } from './overview-screen';
 import { SessionDetail } from './session-detail';
 import { SessionsScreen } from './sessions-screen';
-import type { FileGroupBy, GroupAxis, UsageView } from './types';
+import type { FileGroupBy, GroupAxis, UsageScope, UsageView } from './types';
 
 const VIEWS: Array<{ id: UsageView; label: string }> = [
   { id: 'overview', label: 'Overview' },
-  { id: 'burn', label: "What's burning it" },
+  { id: 'burn', label: 'Cost by cause' },
   { id: 'sessions', label: 'Sessions' },
 ];
 
@@ -26,6 +29,10 @@ const SESSION_LIMIT = 200;
 
 function isView(value: string | null): value is UsageView {
   return value === 'overview' || value === 'burn' || value === 'sessions';
+}
+
+function isScope(value: string | null): value is UsageScope {
+  return value === 'all' || value === 'workspace' || value === 'project';
 }
 
 interface UsagePageProps {
@@ -47,6 +54,7 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
   const [groupAxis, setGroupAxis] = useState<GroupAxis>('repo');
   const [fileGroupBy, setFileGroupBy] = useState<FileGroupBy>('path');
   const [includeSubagents, setIncludeSubagents] = useState(false);
+  const [rebuildDialogOpen, setRebuildDialogOpen] = useState(false);
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
   const { data: project } = trpc.project.getBySlug.useQuery(
@@ -58,8 +66,22 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
     ? `/w/${workspaceSlug}/projects/${projectSlug}/usage`
     : `/w/${workspaceSlug}/usage`;
 
+  // Omitting workspaceId is what makes a scan-wide view possible: sessions
+  // whose repo never resolved to an Engy workspace are only visible there.
+  const scopeParam = searchParams.get('scope');
+  const scope: UsageScope = isScope(scopeParam)
+    ? scopeParam
+    : projectSlug
+      ? 'project'
+      : 'workspace';
+
   const pushState = useCallback(
-    (next: { range?: DateRange; view?: UsageView; session?: string | null }) => {
+    (next: {
+      range?: DateRange;
+      view?: UsageView;
+      session?: string | null;
+      scope?: UsageScope;
+    }) => {
       const params = new URLSearchParams();
       const effectiveRange = next.range ?? range;
       params.set('from', effectiveRange.from);
@@ -68,14 +90,17 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
       if (effectiveView !== 'overview') params.set('view', effectiveView);
       const effectiveSession = next.session === undefined ? selectedSession : next.session;
       if (effectiveSession) params.set('session', effectiveSession);
+      const effectiveScope = next.scope ?? scope;
+      params.set('scope', effectiveScope);
       nav.push(`${basePath}?${params.toString()}`);
     },
-    [basePath, nav, range, selectedSession, view],
+    [basePath, nav, range, scope, selectedSession, view],
   );
 
-  const workspaceId = workspace?.id;
-  const projectId = projectSlug ? project?.id : undefined;
-  const scopeReady = !!workspace && (!projectSlug || !!project);
+  const workspaceId = scope === 'all' ? undefined : workspace?.id;
+  const projectId = scope === 'project' && projectSlug ? project?.id : undefined;
+  const scopeReady =
+    scope === 'all' ? true : !!workspace && (scope !== 'project' || !projectSlug || !!project);
   const rangeInput = { workspaceId, projectId, from: range.from, to: range.to };
 
   const overviewQuery = trpc.usage.overview.useQuery(
@@ -100,21 +125,42 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
     { ...rangeInput, limit: ROW_LIMIT, groupBy: fileGroupBy },
     { enabled: scopeReady && view === 'burn' },
   );
+  const expensiveCallsQuery = trpc.usage.expensiveCalls.useQuery(
+    { ...rangeInput, limit: ROW_LIMIT },
+    { enabled: scopeReady && view === 'burn' },
+  );
 
   const sessionQuery = trpc.usage.session.useQuery(
     { sessionId: selectedSession ?? '' },
     { enabled: !!selectedSession },
   );
 
+  // A scan started in one tab must reach the others; the mutation's own
+  // onSuccess only fires in the tab that clicked.
+  useOnServerEvent(
+    'USAGE_CHANGE',
+    useCallback(() => {
+      utils.usage.invalidate();
+    }, [utils]),
+  );
+
   const refreshMutation = trpc.usage.refresh.useMutation({
     onSuccess: (result) => {
-      utils.usage.invalidate();
       toast.success(
         `Scanned ${result.scannedFiles} transcripts in ${(result.durationMs / 1000).toFixed(1)}s`,
         { description: `${result.newSessions} new sessions` },
       );
     },
-    onError: (error) => toast.error('Usage scan failed', { description: error.message }),
+    onError: (error) => toast.error('The scan failed', { description: error.message }),
+  });
+
+  const rebuildMutation = trpc.usage.rebuild.useMutation({
+    onSuccess: () => {
+      toast.success('Usage history rebuilt', {
+        description: 'The next scan derives it from your Claude transcripts.',
+      });
+    },
+    onError: (error) => toast.error('The rebuild failed', { description: error.message }),
   });
 
   const previousLabel = previousWindowLabel(range, now);
@@ -128,7 +174,8 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
     sessionsQuery.isLoading ||
     toolsQuery.isLoading ||
     fieldsQuery.isLoading ||
-    filesQuery.isLoading;
+    filesQuery.isLoading ||
+    expensiveCallsQuery.isLoading;
 
   function renderBody() {
     if (selectedSession) {
@@ -146,8 +193,10 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
           tools={toolsQuery.data ?? []}
           fields={fieldsQuery.data ?? []}
           files={filesQuery.data ?? []}
+          expensiveCalls={expensiveCallsQuery.data ?? []}
           fileGroupBy={fileGroupBy}
           onFileGroupByChange={setFileGroupBy}
+          onSelectSession={selectSession}
         />
       );
     }
@@ -166,7 +215,7 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
     if (!overviewQuery.data) {
       return (
         <p className="py-20 text-center text-xs text-muted-foreground">
-          {isLoading ? 'Loading…' : 'No usage data yet — run a scan to populate this range.'}
+          {isLoading ? 'Loading…' : 'No data yet. Click Refresh to scan your Claude sessions.'}
         </p>
       );
     }
@@ -191,6 +240,11 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
           <span className="text-sm font-medium">Usage</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <ScopePicker
+            scope={scope}
+            hasProject={!!projectSlug}
+            onChange={(next) => pushState({ scope: next })}
+          />
           <DateRangePicker
             range={range}
             now={now}
@@ -205,8 +259,23 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
             <RiRefreshLine className={cn('size-3', refreshMutation.isPending && 'animate-spin')} />
             {refreshMutation.isPending ? 'Scanning…' : 'Refresh'}
           </Button>
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => setRebuildDialogOpen(true)}
+            disabled={rebuildMutation.isPending}
+          >
+            <RiRestartLine className={cn('size-3', rebuildMutation.isPending && 'animate-spin')} />
+            {rebuildMutation.isPending ? 'Rebuilding…' : 'Rebuild'}
+          </Button>
         </div>
       </div>
+
+      <RebuildDialog
+        open={rebuildDialogOpen}
+        onOpenChange={setRebuildDialogOpen}
+        onConfirm={() => rebuildMutation.mutate()}
+      />
 
       <nav className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border">
         {VIEWS.map((item) => (

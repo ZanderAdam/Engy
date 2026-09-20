@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "5fb1649d-bd8c-41e2-b482-b952fceb3116",
+  "id": "71993053-cca5-4739-a9d8-db72699e3345",
   "prevId": "a49d9717-5639-400a-b980-5d88d09b6772",
   "tables": {
     "agent_sessions": {
@@ -1645,6 +1645,13 @@
             "date"
           ],
           "isUnique": false
+        },
+        "idx_usage_cause_session": {
+          "name": "idx_usage_cause_session",
+          "columns": [
+            "session_id"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -1661,8 +1668,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "usage_daily": {
-      "name": "usage_daily",
+    "usage_expensive_call": {
+      "name": "usage_expensive_call",
       "columns": {
         "date": {
           "name": "date",
@@ -1671,112 +1678,92 @@
           "notNull": true,
           "autoincrement": false
         },
-        "slug": {
-          "name": "slug",
+        "session_id": {
+          "name": "session_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "model": {
-          "name": "model",
+        "call_index": {
+          "name": "call_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tool": {
+          "name": "tool",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "is_subagent": {
-          "name": "is_subagent",
-          "type": "integer",
+        "field": {
+          "name": "field",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
+          "notNull": false,
+          "autoincrement": false
         },
-        "api_calls": {
-          "name": "api_calls",
+        "tokens": {
+          "name": "tokens",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": 0
         },
-        "input_tokens": {
-          "name": "input_tokens",
+        "token_turns": {
+          "name": "token_turns",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": 0
         },
-        "output_tokens": {
-          "name": "output_tokens",
+        "attributed_cost_micro_cents": {
+          "name": "attributed_cost_micro_cents",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": 0
         },
-        "thinking_tokens": {
-          "name": "thinking_tokens",
-          "type": "integer",
+        "preview": {
+          "name": "preview",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": 0
-        },
-        "cache_read_tokens": {
-          "name": "cache_read_tokens",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "cache_write_1h_tokens": {
-          "name": "cache_write_1h_tokens",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "cache_write_5m_tokens": {
-          "name": "cache_write_5m_tokens",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "est_cost_cents": {
-          "name": "est_cost_cents",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "default": "''"
         }
       },
       "indexes": {
-        "idx_usage_daily_date": {
-          "name": "idx_usage_daily_date",
+        "idx_usage_expensive_call_date": {
+          "name": "idx_usage_expensive_call_date",
           "columns": [
             "date"
+          ],
+          "isUnique": false
+        },
+        "idx_usage_expensive_call_session": {
+          "name": "idx_usage_expensive_call_session",
+          "columns": [
+            "session_id"
           ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "usage_daily_date_slug_model_is_subagent_pk": {
+        "usage_expensive_call_date_session_id_call_index_pk": {
           "columns": [
             "date",
-            "slug",
-            "model",
-            "is_subagent"
+            "session_id",
+            "call_index"
           ],
-          "name": "usage_daily_date_slug_model_is_subagent_pk"
+          "name": "usage_expensive_call_date_session_id_call_index_pk"
         }
       },
       "uniqueConstraints": {},
@@ -1813,6 +1800,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "calls": {
+          "name": "calls",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
         "tokens": {
           "name": "tokens",
           "type": "integer",
@@ -1829,8 +1824,8 @@
           "autoincrement": false,
           "default": 0
         },
-        "attributed_cost_cents": {
-          "name": "attributed_cost_cents",
+        "attributed_cost_micro_cents": {
+          "name": "attributed_cost_micro_cents",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -1843,6 +1838,13 @@
           "name": "idx_usage_field_date",
           "columns": [
             "date"
+          ],
+          "isUnique": false
+        },
+        "idx_usage_field_session": {
+          "name": "idx_usage_field_session",
+          "columns": [
+            "session_id"
           ],
           "isUnique": false
         }
@@ -1941,8 +1943,8 @@
           "autoincrement": false,
           "default": 0
         },
-        "attributed_cost_cents": {
-          "name": "attributed_cost_cents",
+        "attributed_cost_micro_cents": {
+          "name": "attributed_cost_micro_cents",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -1962,6 +1964,13 @@
           "name": "idx_usage_file_date",
           "columns": [
             "date"
+          ],
+          "isUnique": false
+        },
+        "idx_usage_file_session": {
+          "name": "idx_usage_file_session",
+          "columns": [
+            "session_id"
           ],
           "isUnique": false
         }
@@ -2456,6 +2465,140 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "usage_session_daily": {
+      "name": "usage_session_daily",
+      "columns": {
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "is_subagent": {
+          "name": "is_subagent",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "api_calls": {
+          "name": "api_calls",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "input_tokens": {
+          "name": "input_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "output_tokens": {
+          "name": "output_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "thinking_tokens": {
+          "name": "thinking_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "cache_read_tokens": {
+          "name": "cache_read_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "cache_write_1h_tokens": {
+          "name": "cache_write_1h_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "cache_write_5m_tokens": {
+          "name": "cache_write_5m_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "est_cost_cents": {
+          "name": "est_cost_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "idx_usage_session_daily_date": {
+          "name": "idx_usage_session_daily_date",
+          "columns": [
+            "date"
+          ],
+          "isUnique": false
+        },
+        "idx_usage_session_daily_session": {
+          "name": "idx_usage_session_daily_session",
+          "columns": [
+            "session_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "usage_session_daily_date_session_id_model_pk": {
+          "columns": [
+            "date",
+            "session_id",
+            "model"
+          ],
+          "name": "usage_session_daily_date_session_id_model_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "usage_tool": {
       "name": "usage_tool",
       "columns": {
@@ -2520,8 +2663,8 @@
           "autoincrement": false,
           "default": 0
         },
-        "attributed_cost_cents": {
-          "name": "attributed_cost_cents",
+        "attributed_cost_micro_cents": {
+          "name": "attributed_cost_micro_cents",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -2574,6 +2717,13 @@
           "name": "idx_usage_tool_date",
           "columns": [
             "date"
+          ],
+          "isUnique": false
+        },
+        "idx_usage_tool_session": {
+          "name": "idx_usage_tool_session",
+          "columns": [
+            "session_id"
           ],
           "isUnique": false
         }
