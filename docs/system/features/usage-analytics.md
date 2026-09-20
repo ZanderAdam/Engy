@@ -5,7 +5,7 @@ order: 17
 
 # Claude Usage Analytics
 
-Engy reads the local Claude Code transcripts, folds them into rollups, and shows where the tokens go. It answers two questions. The first is how much was spent, per day, per project and per session. The second is what caused the spend: which tool, which file, which tool input field.
+Engy reads the local Claude Code transcripts, folds them into rollups, and shows where the tokens go. It answers two questions. The first is the cost, per day, per project and per session. The second is what caused the cost: which tool, which file, which tool input field.
 
 The feature has three parts. The daemon scans the transcripts and returns rollups. The server stores the rollups in SQLite and prices them. The web app shows three screens over a shared date range.
 
@@ -41,7 +41,7 @@ Before `JSON.parse`, the reducer runs a substring test (`lineMayMatter`). About 
 
 ## The attribution model
 
-Token totals say how much was spent. They do not say what caused it.
+Token totals give the cost. They do not say what caused it.
 
 Every API call re-reads the whole conversation prefix. Content that enters the context at call `c`, in a session that makes `T` calls in total, is billed as a cache read `T - c` more times. The cost the content causes is therefore:
 
@@ -53,7 +53,7 @@ cost(block) = tokens(block) x (API calls that follow it) x cache read rate
 
 **Attribution stops at a compaction boundary.** Auto-compaction replaces the prefix with a summary, so content added before it is no longer re-read. The reducer sees a compaction when the context collapses in one step: the context of a call is below 0.6 of the previous context, and the previous context was more than 60,000 tokens. At each boundary it settles every open accumulator at that call index and starts a new segment.
 
-The cap is not a small correction. Without it, the model claims that cost concentrates in the first decile of a session. Measured cache-read spend is flat across deciles. The uncapped chart shows an artifact, not a trend.
+The cap is not a small correction. Without it, the model claims that cost concentrates in the first decile of a session. Measured cache-read cost is flat across deciles. The uncapped chart shows an artifact, not a trend.
 
 **Images are priced from pixel count.** A base64 PNG in a tool result is about 1.26 M characters and bills about 1,800 tokens. `client/src/usage/tokens.ts` reads width and height from the PNG IHDR header (bytes 16 to 24 of the decoded prefix), scales the long edge down to 1568 px, and divides the pixel count by 750. A character-count estimate overstates a screenshot about 25 times and inverts the whole file cost ranking.
 
@@ -157,11 +157,13 @@ Routes are `web/src/app/w/[workspace]/usage/page.tsx` and the project-scoped var
 
 One date-range picker in the header applies to every screen, chart and table. The range lives in the URL as `?from=YYYY-MM-DD&to=YYYY-MM-DD`, so a view is linkable and survives a reload. A preset resolves to dates before it is written, so a shared link means the same window tomorrow. The default is the last 30 days. Each stat tile compares against the window of equal length that ends the day before the range starts.
 
-- **Overview** (`overview-screen.tsx`) — stat tiles, the stacked cost area chart, the per-project bar chart, the direct-against-delegated split, the six-cause breakdown, and the cache TTL panel. The TTL panel does not warn about 1h writes. The useful metric is realized reads per write, `cacheReadTokens / cacheCreationTokens`; above 2.2 the 1h write has already cost less than it saved.
-- **Cost by cause** (`burn-screen.tsx`) — the tool table, the file table and the tool input field table. Tools sort by attributed cost, and the table also shows cost per call. Files group by path, extension or directory.
+- **Overview** (`overview-screen.tsx`) — stat tiles, the stacked cost area chart, the per-project bar chart, the main-session against subagent split, the six-cause breakdown, and the cache TTL panel. The TTL panel does not warn about 1h writes. The useful metric is realized reads per write, `cacheReadTokens / cacheCreationTokens`; above 2.2 the 1h write has already cost less than it saved.
+- **Cost by cause** (`burn-screen.tsx`) — the tool table, the file table, the tool input field table and the most expensive calls table. Tools sort by attributed cost, and the table also shows cost per call. Files group by path, extension or directory. A row in the expensive calls table opens its session.
 - **Sessions** (`sessions-screen.tsx`, `session-detail.tsx`) — sessions listed by cost, calls or recency, with the subagent cost rolled into the parent row. The detail view shows that session's tools, files, fields, subagents and its context-growth curve.
 
-`usage.refresh` is on-demand, with a manual refresh button. There is no poller: sealed days make a warm refresh touch one day of lines. A refresh with no daemon connected returns an empty result instead of an error.
+A scope picker in the header holds `?scope=all|workspace|project`. `all` queries every scanned session and is the default on the workspace route, because a session carries an `engyWorkspaceId` only when its repo root matched a workspace repo at scan time. A narrower default shows an empty dashboard on any machine where no repo matched. The project route defaults to `project`.
+
+`usage.refresh` is on-demand, with a manual refresh button. There is no poller: sealed days make a warm refresh touch one day of lines. A refresh with no daemon connected returns an empty result instead of an error. A Rebuild button beside it clears the stored history behind a confirm dialog; both rely on the `USAGE_CHANGE` broadcast to refresh every open tab.
 
 ## Out of scope
 
@@ -195,7 +197,7 @@ No per-token invoice: the figures are estimates at list rates. No poller. No ret
 | FR-USAGE-220 | WHEN the daemon has a session `cwd`, the system SHALL set `repoRoot` to the nearest ancestor directory that holds `.git`, and SHALL collapse a `<repo>/.claude/worktrees/<name>` root back to `<repo>`; IF no `cwd` was recorded, THEN `repoRoot` SHALL be null. A session that matches no Engy workspace SHALL keep its rows and stay visible. |
 | FR-USAGE-230 | The system SHALL record at most 200 context-growth points per session; WHEN the buffer is full, the system SHALL keep every second point and double the sampling stride, so the series stays ordered and spans the whole session. |
 | FR-USAGE-240 | IF no daemon is connected, THEN `usage.refresh` SHALL return `scannedFiles` 0 and `newSessions` 0 without an error. |
-| FR-USAGE-250 | WHEN a usage scan response arrives, the system SHALL write every session, day, tool, field, file, cause and call row in one transaction, and SHALL broadcast a `USAGE_CHANGE` event. |
+| FR-USAGE-250 | WHEN a usage scan response arrives, the system SHALL write every session, day, tool, field, file, cause, call and expensive-call row in one transaction, and SHALL broadcast a `USAGE_CHANGE` event. |
 | FR-USAGE-260 | WHEN a refresh starts, IF any sealed date carries a reducer version other than the current `USAGE_REDUCER_VERSION`, THEN the system SHALL delete every usage scan-bookkeeping and rollup row so the scan rebuilds the history from the transcripts, and SHALL leave `usagePricing` unchanged. |
 | FR-USAGE-270 | WHEN `usage.overview` is queried for a range, the system SHALL also return the cost of the window of equal length that ends on the day before the range starts. |
 | FR-USAGE-280 | WHEN `usage.tools` is queried, the system SHALL return tools sorted by attributed cost, highest first, with the cost per call for each tool. |
@@ -203,8 +205,14 @@ No per-token invoice: the figures are estimates at list rates. No poller. No ret
 | FR-USAGE-300 | WHEN `usage.files` is queried, the system SHALL group the rows by full path, by extension, or by directory, as `groupBy` selects. |
 | FR-USAGE-310 | WHEN `usage.session` is queried, the system SHALL return that session's tool, file, field, subagent and context-growth breakdowns; IF the session id is unknown, THEN the system SHALL raise a `NOT_FOUND` error. |
 | FR-USAGE-320 | The usage page SHALL hold its date range in the URL as `from` and `to`, SHALL resolve each preset to inclusive local dates before writing them, and SHALL fall back to the last 30 days IF the range is absent, malformed or inverted. |
-| FR-USAGE-330 | WHEN `usage.overview` is queried, the system SHALL include subagent spend in the total cost and SHALL also report it as `subagentCost` and as a share of the total. |
+| FR-USAGE-330 | WHEN `usage.overview` is queried, the system SHALL include the subagent cost in the total and SHALL also report it as `subagentCost` and as a share of the total. |
 | FR-USAGE-340 | The overview SHALL report realized reads per write as `cacheReadTokens / cacheCreationTokens` against a break-even ratio of 2.2, and SHALL NOT warn about the use of the 1h cache TTL by itself. |
+| FR-USAGE-350 | The system SHALL hold at most 20 expensive calls for each session. The system SHALL rank them by settled token-turns when the session ends, and SHALL NOT rank them when a call is admitted, because a later compaction can still lower the cost of a call. WHEN the server stores a scan result, the system SHALL reduce that session's stored expensive calls to the 20 highest token-turns in the same transaction. WHEN `usage.expensiveCalls` is queried, the system SHALL return the rows in the range sorted by token-turns, highest first. |
+| FR-USAGE-360 | WHEN `usage.rebuild` is called, the system SHALL delete every usage scan-bookkeeping row and every usage rollup row, so the next scan derives the rollups again from the transcripts. The system SHALL leave `usagePricing` unchanged, because it is configuration and not history. The system SHALL broadcast a `USAGE_CHANGE` event. |
+| FR-USAGE-370 | The usage page SHALL hold its scope in the URL as `scope=all`, `scope=workspace` or `scope=project`. WHERE the scope is `all`, the system SHALL apply no workspace filter and no project filter, so a session whose repository matched no Engy workspace stays visible. The workspace route SHALL use `all` as its default scope. The project route SHALL use `project` as its default scope. |
+| FR-USAGE-380 | WHEN `usage.refresh` is called with `since`, the system SHALL scan only the transcript files whose local mtime date is on or after that date. IF the system skips a file for this reason, THEN it SHALL NOT record that file as scanned, so a later scan reads the file in full. A scan with `since` SHALL seal no date. |
+| FR-USAGE-390 | The system SHALL hold at most 1000 unmatched tool calls in the map that pairs a tool call with its result, because an interrupted call never receives the result that removes it. WHEN the map is full, the system SHALL remove the oldest unmatched entry. IF a tool result has no entry in the map, THEN the system SHALL leave that result unattributed, and SHALL NOT attribute it to a different tool. |
+| FR-USAGE-400 | The system SHALL compute the p50 and p95 result size of each tool from a reservoir sample of at most 256 values for that tool, so the memory used stays proportional to the number of tools and not to the number of tool calls. The system SHALL report the two percentiles as approximate values across sessions, and across an incremental rescan of a day that is not yet sealed. |
 
 ## Sources
 

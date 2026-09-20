@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { z } from 'zod';
 import { and, desc, eq, gte, lte, inArray, type SQL } from 'drizzle-orm';
+import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { TRPCError } from '@trpc/server';
 import type { UsageCauseKind } from '@engy/common';
 import { router, publicProcedure } from '../trpc';
@@ -23,7 +24,7 @@ import {
   type ModelRateRow,
 } from '../../usage/pricing';
 import { rebuildUsageHistory } from '../../usage/rebuild';
-import { refreshUsage } from '../../usage/ingest';
+import { refreshUsage, isUsageScanInFlight } from '../../usage/ingest';
 import { broadcastUsageChange } from '../../ws/broadcast';
 
 type UsageSessionDailyRow = typeof usageSessionDaily.$inferSelect;
@@ -73,17 +74,20 @@ function previousWindow(from: string, to: string): { from: string; to: string } 
   return { from: msToDate(prevFromMs), to: msToDate(prevToMs) };
 }
 
-function startedAtInRange(startedAt: string | null, from: string, to: string): boolean {
-  if (!startedAt) return false;
-  const date = startedAt.slice(0, 10);
+// `startedDate` is the daemon's local calendar date for the session's start;
+// falling back to slicing `startedAt` (UTC) only covers rows scanned before
+// the daemon started reporting it.
+function startedDateInRange(
+  row: { startedAt: string | null; startedDate: string | null },
+  from: string,
+  to: string,
+): boolean {
+  const date = row.startedDate ?? (row.startedAt ? row.startedAt.slice(0, 10) : null);
+  if (!date) return false;
   return date >= from && date <= to;
 }
 
-// ── Scope resolution (workspace/project → session/slug sets) ────────────
-
-interface SessionScope {
-  sessionIds: Set<string>;
-}
+// ── Scope resolution (workspace/project → session ids) ────────────────
 
 function workspaceProjectConditions(input: { workspaceId?: number; projectId?: number }): SQL[] {
   const conditions: SQL[] = [];
@@ -93,10 +97,10 @@ function workspaceProjectConditions(input: { workspaceId?: number; projectId?: n
 }
 
 // Returns null when no workspace/project filter applies (query every row).
-function resolveSessionScope(
+function resolveScopedSessionIds(
   db: Db,
   input: { workspaceId?: number; projectId?: number },
-): SessionScope | null {
+): Set<string> | null {
   const conditions = workspaceProjectConditions(input);
   if (conditions.length === 0) return null;
   const rows = db
@@ -104,10 +108,33 @@ function resolveSessionScope(
     .from(usageSession)
     .where(and(...conditions))
     .all();
-  return { sessionIds: new Set(rows.map((r) => r.sessionId)) };
+  return new Set(rows.map((r) => r.sessionId));
 }
 
 // ── Range-scoped row queries ──────────────────────────────────────────
+
+/**
+ * Every rollup table is keyed by `(date, sessionId, …)`, so one filter serves
+ * them all. Scoping by `sessionId` — never by `slug` — is what keeps each
+ * table's rows over the same sessions: two repos can share a slug, and two
+ * sessions in one repo can differ in workspace.
+ */
+type RollupTable = { date: SQLiteColumn; sessionId: SQLiteColumn };
+
+function rangeConditions(
+  table: RollupTable,
+  from: string,
+  to: string,
+  sessionIds: Set<string> | null,
+): SQL[] {
+  const conditions = [gte(table.date, from), lte(table.date, to)];
+  if (sessionIds) conditions.push(inArray(table.sessionId, [...sessionIds]));
+  return conditions;
+}
+
+function isEmptyScope(sessionIds: Set<string> | null): boolean {
+  return sessionIds !== null && sessionIds.size === 0;
+}
 
 function queryDailyRows(
   db: Db,
@@ -115,38 +142,33 @@ function queryDailyRows(
   to: string,
   sessionIds: Set<string> | null,
 ): UsageSessionDailyRow[] {
-  if (sessionIds && sessionIds.size === 0) return [];
-  const conditions = [gte(usageSessionDaily.date, from), lte(usageSessionDaily.date, to)];
-  if (sessionIds) conditions.push(inArray(usageSessionDaily.sessionId, [...sessionIds]));
-  return db.select().from(usageSessionDaily).where(and(...conditions)).all();
+  if (isEmptyScope(sessionIds)) return [];
+  const where = and(...rangeConditions(usageSessionDaily, from, to, sessionIds));
+  return db.select().from(usageSessionDaily).where(where).all();
 }
 
 function queryToolRows(db: Db, from: string, to: string, sessionIds: Set<string> | null) {
-  if (sessionIds && sessionIds.size === 0) return [];
-  const conditions = [gte(usageTool.date, from), lte(usageTool.date, to)];
-  if (sessionIds) conditions.push(inArray(usageTool.sessionId, [...sessionIds]));
-  return db.select().from(usageTool).where(and(...conditions)).all();
+  if (isEmptyScope(sessionIds)) return [];
+  const where = and(...rangeConditions(usageTool, from, to, sessionIds));
+  return db.select().from(usageTool).where(where).all();
 }
 
 function queryFieldRows(db: Db, from: string, to: string, sessionIds: Set<string> | null) {
-  if (sessionIds && sessionIds.size === 0) return [];
-  const conditions = [gte(usageField.date, from), lte(usageField.date, to)];
-  if (sessionIds) conditions.push(inArray(usageField.sessionId, [...sessionIds]));
-  return db.select().from(usageField).where(and(...conditions)).all();
+  if (isEmptyScope(sessionIds)) return [];
+  const where = and(...rangeConditions(usageField, from, to, sessionIds));
+  return db.select().from(usageField).where(where).all();
 }
 
 function queryFileRows(db: Db, from: string, to: string, sessionIds: Set<string> | null) {
-  if (sessionIds && sessionIds.size === 0) return [];
-  const conditions = [gte(usageFile.date, from), lte(usageFile.date, to)];
-  if (sessionIds) conditions.push(inArray(usageFile.sessionId, [...sessionIds]));
-  return db.select().from(usageFile).where(and(...conditions)).all();
+  if (isEmptyScope(sessionIds)) return [];
+  const where = and(...rangeConditions(usageFile, from, to, sessionIds));
+  return db.select().from(usageFile).where(where).all();
 }
 
 function queryCauseRows(db: Db, from: string, to: string, sessionIds: Set<string> | null) {
-  if (sessionIds && sessionIds.size === 0) return [];
-  const conditions = [gte(usageCause.date, from), lte(usageCause.date, to)];
-  if (sessionIds) conditions.push(inArray(usageCause.sessionId, [...sessionIds]));
-  return db.select().from(usageCause).where(and(...conditions)).all();
+  if (isEmptyScope(sessionIds)) return [];
+  const where = and(...rangeConditions(usageCause, from, to, sessionIds));
+  return db.select().from(usageCause).where(where).all();
 }
 
 function buildSessionModelMap(db: Db, sessionIds: Iterable<string>): Map<string, string> {
@@ -158,6 +180,52 @@ function buildSessionModelMap(db: Db, sessionIds: Iterable<string>): Map<string,
     .where(inArray(usageSession.sessionId, ids))
     .all();
   return new Map(rows.map((row) => [row.sessionId, row.model]));
+}
+
+// ── Daily-row pricing ─────────────────────────────────────────────────
+
+interface CostSplitMicro {
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+}
+
+function emptyCostSplit(): CostSplitMicro {
+  return { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
+}
+
+function rowCostMicro(row: UsageSessionDailyRow, rate: ModelRateRow): CostSplitMicro {
+  return {
+    input: row.inputTokens * rate.inputMicroCentsPerToken,
+    output: row.outputTokens * rate.outputMicroCentsPerToken,
+    cacheWrite:
+      row.cacheWrite1hTokens * rate.cacheWrite1hMicroCentsPerToken +
+      row.cacheWrite5mTokens * rate.cacheWrite5mMicroCentsPerToken,
+    cacheRead: row.cacheReadTokens * rate.cacheReadMicroCentsPerToken,
+  };
+}
+
+function addCostSplit(target: CostSplitMicro, cost: CostSplitMicro): void {
+  target.input += cost.input;
+  target.output += cost.output;
+  target.cacheWrite += cost.cacheWrite;
+  target.cacheRead += cost.cacheRead;
+}
+
+function totalCostMicro(cost: CostSplitMicro): number {
+  return cost.input + cost.output + cost.cacheWrite + cost.cacheRead;
+}
+
+// The previous window's delta must be priced exactly like the current one,
+// or the tile reports a change that is an artefact of the two code paths.
+function sumCostMicro(rows: UsageSessionDailyRow[], rates: Map<string, ModelRateRow>): CostSplitMicro {
+  const total = emptyCostSplit();
+  for (const row of rows) {
+    const rate = rateFor(rates, row.model);
+    if (rate) addCostSplit(total, rowCostMicro(row, rate));
+  }
+  return total;
 }
 
 type CauseRow = { sessionId: string; kind: string; tokenTurns: number };
@@ -236,11 +304,11 @@ export const usageRouter = router({
     .input(requireValidRange(rangeInput.extend({ groupBy: z.enum(['repo', 'slug']).default('repo') })))
     .query(({ input }) => {
       const db = getDb();
-      const scope = resolveSessionScope(db, input);
+      const sessionIds = resolveScopedSessionIds(db, input);
       const rates = getRatesMap(db);
 
-      const dailyRows = queryDailyRows(db, input.from, input.to, scope?.sessionIds ?? null);
-      const causeRows = queryCauseRows(db, input.from, input.to, scope?.sessionIds ?? null);
+      const dailyRows = queryDailyRows(db, input.from, input.to, sessionIds);
+      const causeRows = queryCauseRows(db, input.from, input.to, sessionIds);
 
       const slugMetaConditions = workspaceProjectConditions(input);
       const slugMeta =
@@ -270,13 +338,10 @@ export const usageRouter = router({
         apiCalls: 0,
         sessions: 0,
       };
-      let costInputMicro = 0;
-      let costOutputMicro = 0;
-      let costCacheWriteMicro = 0;
-      let costCacheReadMicro = 0;
+      const costMicro = emptyCostSplit();
       let subagentCostMicro = 0;
       const unpricedModels = new Set<string>();
-      const seriesAgg = new Map<string, { input: number; output: number; cacheWrite: number; cacheRead: number }>();
+      const seriesAgg = new Map<string, CostSplitMicro>();
       const groupAgg = new Map<string, { costMicro: number; cacheReadTokens: number }>();
 
       for (const row of dailyRows) {
@@ -299,86 +364,67 @@ export const usageRouter = router({
           continue;
         }
 
-        const inputMicro = row.inputTokens * rate.inputMicroCentsPerToken;
-        const outputMicro = row.outputTokens * rate.outputMicroCentsPerToken;
-        const cacheWriteMicro =
-          row.cacheWrite1hTokens * rate.cacheWrite1hMicroCentsPerToken +
-          row.cacheWrite5mTokens * rate.cacheWrite5mMicroCentsPerToken;
-        const cacheReadMicro = row.cacheReadTokens * rate.cacheReadMicroCentsPerToken;
-        const rowMicro = inputMicro + outputMicro + cacheWriteMicro + cacheReadMicro;
+        const rowCost = rowCostMicro(row, rate);
+        const rowMicro = totalCostMicro(rowCost);
 
-        costInputMicro += inputMicro;
-        costOutputMicro += outputMicro;
-        costCacheWriteMicro += cacheWriteMicro;
-        costCacheReadMicro += cacheReadMicro;
+        addCostSplit(costMicro, rowCost);
         if (row.isSubagent) subagentCostMicro += rowMicro;
 
         group.costMicro += rowMicro;
         groupAgg.set(groupKey, group);
 
-        const series = seriesAgg.get(row.date) ?? { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
-        series.input += inputMicro;
-        series.output += outputMicro;
-        series.cacheWrite += cacheWriteMicro;
-        series.cacheRead += cacheReadMicro;
+        const series = seriesAgg.get(row.date) ?? emptyCostSplit();
+        addCostSplit(series, rowCost);
         seriesAgg.set(row.date, series);
       }
 
-      const totalMicro = costInputMicro + costOutputMicro + costCacheWriteMicro + costCacheReadMicro;
+      const totalMicro = totalCostMicro(costMicro);
 
       const sessionConditions = [...workspaceProjectConditions(input), eq(usageSession.isSubagent, false)];
       const mainSessionRows = db
-        .select({ sessionId: usageSession.sessionId, startedAt: usageSession.startedAt, slug: usageSession.slug })
+        .select({
+          sessionId: usageSession.sessionId,
+          startedAt: usageSession.startedAt,
+          startedDate: usageSession.startedDate,
+          slug: usageSession.slug,
+        })
         .from(usageSession)
         .where(and(...sessionConditions))
         .all();
       const groupSessionCounts = new Map<string, number>();
       for (const row of mainSessionRows) {
-        if (!startedAtInRange(row.startedAt, input.from, input.to)) continue;
+        if (!startedDateInRange(row, input.from, input.to)) continue;
         totals.sessions += 1;
         const key = groupKeyFor(row.slug);
         groupSessionCounts.set(key, (groupSessionCounts.get(key) ?? 0) + 1);
       }
 
       const causeSessionModel = buildSessionModelMap(db, causeRows.map((row) => row.sessionId));
-      const causes = causesWithBaseline(causeRows, causeSessionModel, rates, costCacheReadMicro);
+      const causes = causesWithBaseline(causeRows, causeSessionModel, rates, costMicro.cacheRead);
 
       const previous = previousWindow(input.from, input.to);
-      const previousDailyRows = queryDailyRows(db, previous.from, previous.to, scope?.sessionIds ?? null);
-      let previousInputMicro = 0;
-      let previousOutputMicro = 0;
-      let previousCacheWriteMicro = 0;
-      let previousCacheReadMicro = 0;
-      for (const row of previousDailyRows) {
-        const rate = rateFor(rates, row.model);
-        if (!rate) continue;
-        previousInputMicro += row.inputTokens * rate.inputMicroCentsPerToken;
-        previousOutputMicro += row.outputTokens * rate.outputMicroCentsPerToken;
-        previousCacheWriteMicro +=
-          row.cacheWrite1hTokens * rate.cacheWrite1hMicroCentsPerToken +
-          row.cacheWrite5mTokens * rate.cacheWrite5mMicroCentsPerToken;
-        previousCacheReadMicro += row.cacheReadTokens * rate.cacheReadMicroCentsPerToken;
-      }
-      const previousTotalMicro =
-        previousInputMicro + previousOutputMicro + previousCacheWriteMicro + previousCacheReadMicro;
+      const previousCostMicro = sumCostMicro(
+        queryDailyRows(db, previous.from, previous.to, sessionIds),
+        rates,
+      );
 
       return {
         totals,
         cost: {
-          input: microCentsToCents(costInputMicro),
-          output: microCentsToCents(costOutputMicro),
-          cacheWrite: microCentsToCents(costCacheWriteMicro),
-          cacheRead: microCentsToCents(costCacheReadMicro),
+          input: microCentsToCents(costMicro.input),
+          output: microCentsToCents(costMicro.output),
+          cacheWrite: microCentsToCents(costMicro.cacheWrite),
+          cacheRead: microCentsToCents(costMicro.cacheRead),
           total: microCentsToCents(totalMicro),
           subagentCost: microCentsToCents(subagentCostMicro),
         },
         subagentShare: totalMicro > 0 ? subagentCostMicro / totalMicro : 0,
         previous: {
-          total: microCentsToCents(previousTotalMicro),
-          input: microCentsToCents(previousInputMicro),
-          output: microCentsToCents(previousOutputMicro),
-          cacheWrite: microCentsToCents(previousCacheWriteMicro),
-          cacheRead: microCentsToCents(previousCacheReadMicro),
+          total: microCentsToCents(totalCostMicro(previousCostMicro)),
+          input: microCentsToCents(previousCostMicro.input),
+          output: microCentsToCents(previousCostMicro.output),
+          cacheWrite: microCentsToCents(previousCostMicro.cacheWrite),
+          cacheRead: microCentsToCents(previousCostMicro.cacheRead),
         },
         series: [...seriesAgg.entries()]
           .sort(([a], [b]) => a.localeCompare(b))
@@ -411,8 +457,8 @@ export const usageRouter = router({
     .input(requireValidRange(rangeInput.extend({ limit: z.number().int().min(1).max(200).default(20) })))
     .query(({ input }) => {
       const db = getDb();
-      const scope = resolveSessionScope(db, input);
-      const rows = queryToolRows(db, input.from, input.to, scope?.sessionIds ?? null);
+      const sessionIds = resolveScopedSessionIds(db, input);
+      const rows = queryToolRows(db, input.from, input.to, sessionIds);
 
       const byTool = new Map<
         string,
@@ -476,8 +522,8 @@ export const usageRouter = router({
     .input(requireValidRange(rangeInput.extend({ limit: z.number().int().min(1).max(200).default(20) })))
     .query(({ input }) => {
       const db = getDb();
-      const scope = resolveSessionScope(db, input);
-      const rows = queryFieldRows(db, input.from, input.to, scope?.sessionIds ?? null);
+      const sessionIds = resolveScopedSessionIds(db, input);
+      const rows = queryFieldRows(db, input.from, input.to, sessionIds);
 
       const byField = new Map<
         string,
@@ -515,8 +561,8 @@ export const usageRouter = router({
     )
     .query(({ input }) => {
       const db = getDb();
-      const scope = resolveSessionScope(db, input);
-      const rows = queryFileRows(db, input.from, input.to, scope?.sessionIds ?? null);
+      const sessionIds = resolveScopedSessionIds(db, input);
+      const rows = queryFileRows(db, input.from, input.to, sessionIds);
 
       const keyFor = (filePath: string, ext: string): string => {
         switch (input.groupBy) {
@@ -570,16 +616,13 @@ export const usageRouter = router({
     .input(requireValidRange(rangeInput.extend({ limit: z.number().int().min(1).max(200).default(20) })))
     .query(({ input }) => {
       const db = getDb();
-      const scope = resolveSessionScope(db, input);
-      if (scope && scope.sessionIds.size === 0) return [];
-
-      const conditions = [gte(usageExpensiveCall.date, input.from), lte(usageExpensiveCall.date, input.to)];
-      if (scope) conditions.push(inArray(usageExpensiveCall.sessionId, [...scope.sessionIds]));
+      const sessionIds = resolveScopedSessionIds(db, input);
+      if (isEmptyScope(sessionIds)) return [];
 
       const rows = db
         .select()
         .from(usageExpensiveCall)
-        .where(and(...conditions))
+        .where(and(...rangeConditions(usageExpensiveCall, input.from, input.to, sessionIds)))
         .orderBy(desc(usageExpensiveCall.tokenTurns))
         .limit(input.limit)
         .all();
@@ -627,7 +670,7 @@ export const usageRouter = router({
       const isOrphan = (row: UsageSessionRow): boolean =>
         row.isSubagent && (!row.parentSessionId || !byId.has(row.parentSessionId));
 
-      const topLevel = allRows.filter((row) => (!row.isSubagent || isOrphan(row)) && startedAtInRange(row.startedAt, input.from, input.to));
+      const topLevel = allRows.filter((row) => (!row.isSubagent || isOrphan(row)) && startedDateInRange(row, input.from, input.to));
       const rows = topLevel.map((row) => {
         const children = row.isSubagent ? [] : childrenByParent.get(row.sessionId) ?? [];
         const subagentCostCents = children.reduce((sum, child) => sum + child.estCostCents, 0);
@@ -637,7 +680,7 @@ export const usageRouter = router({
 
       if (input.includeSubagents) {
         const nonOrphanChildren = allRows.filter(
-          (row) => row.isSubagent && !isOrphan(row) && startedAtInRange(row.startedAt, input.from, input.to),
+          (row) => row.isSubagent && !isOrphan(row) && startedDateInRange(row, input.from, input.to),
         );
         for (const child of nonOrphanChildren) {
           rows.push(toSessionRow(child, 0, 0));
@@ -737,6 +780,12 @@ export const usageRouter = router({
     .mutation(({ ctx, input }) => refreshUsage(ctx.state, input?.since)),
 
   rebuild: publicProcedure.mutation(() => {
+    if (isUsageScanInFlight()) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'A scan is running now. Wait for it to finish, then try Rebuild again.',
+      });
+    }
     const db = getDb();
     rebuildUsageHistory(db);
     broadcastUsageChange(0, 0);

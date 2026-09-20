@@ -35,6 +35,29 @@ function isScope(value: string | null): value is UsageScope {
   return value === 'all' || value === 'workspace' || value === 'project';
 }
 
+function defaultScope(hasProject: boolean): UsageScope {
+  return hasProject ? 'project' : 'all';
+}
+
+function EmptyOverview({ scope, onShowAll }: { scope: UsageScope; onShowAll: () => void }) {
+  if (scope === 'all') {
+    return (
+      <p className="py-20 text-center text-xs text-muted-foreground">
+        No usage data yet. Click Refresh to scan your Claude transcripts.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3 py-20 text-center text-xs text-muted-foreground">
+      <p>No usage for this {scope}.</p>
+      <Button variant="outline" size="xs" onClick={onShowAll}>
+        Show the whole machine
+      </Button>
+    </div>
+  );
+}
+
 interface UsagePageProps {
   workspaceSlug: string;
   projectSlug?: string;
@@ -66,14 +89,11 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
     ? `/w/${workspaceSlug}/projects/${projectSlug}/usage`
     : `/w/${workspaceSlug}/usage`;
 
-  // Omitting workspaceId is what makes a scan-wide view possible: sessions
-  // whose repo never resolved to an Engy workspace are only visible there.
+  // The workspace route defaults to 'all': a session only carries an
+  // engyWorkspaceId when its repo root matched a workspace repo at scan time,
+  // so a narrower default shows zeros on every machine where it did not.
   const scopeParam = searchParams.get('scope');
-  const scope: UsageScope = isScope(scopeParam)
-    ? scopeParam
-    : projectSlug
-      ? 'project'
-      : 'workspace';
+  const scope: UsageScope = isScope(scopeParam) ? scopeParam : defaultScope(!!projectSlug);
 
   const pushState = useCallback(
     (next: {
@@ -157,7 +177,7 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
   const rebuildMutation = trpc.usage.rebuild.useMutation({
     onSuccess: () => {
       toast.success('Usage history rebuilt', {
-        description: 'The next scan derives it from your Claude transcripts.',
+        description: 'The next scan rebuilds it from your Claude transcripts.',
       });
     },
     onError: (error) => toast.error('The rebuild failed', { description: error.message }),
@@ -212,17 +232,17 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
       );
     }
 
-    if (!overviewQuery.data) {
-      return (
-        <p className="py-20 text-center text-xs text-muted-foreground">
-          {isLoading ? 'Loading…' : 'No data yet. Click Refresh to scan your Claude sessions.'}
-        </p>
-      );
+    const overview = overviewQuery.data;
+    if (!overview && isLoading) {
+      return <p className="py-20 text-center text-xs text-muted-foreground">Loading…</p>;
+    }
+    if (!overview || overview.totals.apiCalls === 0) {
+      return <EmptyOverview scope={scope} onShowAll={() => pushState({ scope: 'all' })} />;
     }
 
     return (
       <OverviewScreen
-        overview={overviewQuery.data}
+        overview={overview}
         sessions={sessionsQuery.data ?? []}
         groupAxis={groupAxis}
         onGroupAxisChange={setGroupAxis}
@@ -254,7 +274,7 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
             variant="outline"
             size="xs"
             onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending}
+            disabled={refreshMutation.isPending || rebuildMutation.isPending}
           >
             <RiRefreshLine className={cn('size-3', refreshMutation.isPending && 'animate-spin')} />
             {refreshMutation.isPending ? 'Scanning…' : 'Refresh'}
@@ -263,7 +283,7 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
             variant="outline"
             size="xs"
             onClick={() => setRebuildDialogOpen(true)}
-            disabled={rebuildMutation.isPending}
+            disabled={rebuildMutation.isPending || refreshMutation.isPending}
           >
             <RiRestartLine className={cn('size-3', rebuildMutation.isPending && 'animate-spin')} />
             {rebuildMutation.isPending ? 'Rebuilding…' : 'Rebuild'}

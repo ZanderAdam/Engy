@@ -303,7 +303,7 @@ describe('scanUsage', () => {
   });
 
   describe('range-scoped scan (since)', () => {
-    it('should skip a file older than the window without recording it as scanned', async () => {
+    it('[FR-USAGE-380] should skip a file older than the window without recording it as scanned', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
       await writeTranscript(filePath, [usageLine({ timestamp: '2026-01-05T10:00:00.000Z' })]);
@@ -321,7 +321,7 @@ describe('scanUsage', () => {
       expect(result.files[filePath]).toBeUndefined();
     });
 
-    it('should read a skipped file in full on a later scan with no window', async () => {
+    it('[FR-USAGE-380] should read a skipped file in full on a later scan with no window', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
       await writeTranscript(filePath, [
@@ -351,7 +351,7 @@ describe('scanUsage', () => {
       expect(full.sessions[0].isFullParse).toBe(true);
     });
 
-    it('should carry a known file forward unchanged when the window skips it', async () => {
+    it('[FR-USAGE-380] should carry a known file forward unchanged when the window skips it', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
       await writeTranscript(filePath, [usageLine({ timestamp: '2026-01-05T10:00:00.000Z' })]);
@@ -370,7 +370,7 @@ describe('scanUsage', () => {
       expect(windowed.files[filePath]).toEqual(first.files[filePath]);
     });
 
-    it('should still read a file whose mtime falls inside the window', async () => {
+    it('[FR-USAGE-380] should still read a file whose mtime falls inside the window', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
       await writeTranscript(filePath, [usageLine({ timestamp: '2026-06-05T10:00:00.000Z' })]);
@@ -382,7 +382,7 @@ describe('scanUsage', () => {
       expect(result.sessions).toHaveLength(1);
     });
 
-    it('should read a skipped file in full once new activity moves it into the window', async () => {
+    it('[FR-USAGE-380] should read a skipped file in full once new activity moves it into the window', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
       await writeTranscript(filePath, [usageLine({ timestamp: '2026-01-05T10:00:00.000Z' })]);
@@ -405,6 +405,50 @@ describe('scanUsage', () => {
       expect(resumed.sessions).toHaveLength(1);
       expect(resumed.sessions[0].scan.session.apiCalls).toBe(2);
       expect(resumed.sessions[0].isFullParse).toBe(true);
+    });
+  });
+
+  describe('windowed scan sealing', () => {
+    it('[FR-USAGE-380] should seal nothing when the scan skipped an unread file, and recover it on the next unwindowed scan', async () => {
+      homeDir = await makeHome();
+      // Skipped by the window: mtime is January, well before `since`.
+      const skippedPath = mainTranscriptPath(homeDir, '-repo', 'sess-skipped');
+      await writeTranscript(skippedPath, [
+        usageLine({ timestamp: '2026-01-10T10:00:00.000Z', cacheRead: 777 }),
+      ]);
+      const januaryDate = new Date('2026-01-10T00:00:00.000Z');
+      await utimes(skippedPath, januaryDate, januaryDate);
+
+      // Read by the window (June mtime), but its first line dates back to
+      // January — a long-running session that never rotated its transcript.
+      const longRunningPath = mainTranscriptPath(homeDir, '-repo', 'sess-long-running');
+      await writeTranscript(longRunningPath, [
+        usageLine({ timestamp: '2026-01-05T10:00:00.000Z', cacheRead: 10 }),
+        usageLine({ timestamp: '2026-06-02T10:00:00.000Z', cacheRead: 20 }),
+      ]);
+      const juneDate = new Date('2026-06-02T10:00:00.000Z');
+      await utimes(longRunningPath, juneDate, juneDate);
+
+      const windowed = await scanUsage({
+        homeDir,
+        knownFiles: {},
+        sealedDates: new Set(),
+        since: '2026-06-01',
+      });
+
+      expect(windowed.newlySealedDates).toEqual([]);
+
+      const unwindowed = await scanUsage({
+        homeDir,
+        knownFiles: windowed.files,
+        sealedDates: new Set(windowed.newlySealedDates),
+      });
+
+      const recovered = unwindowed.sessions.find(
+        (s) => s.scan.session.sessionId === 'sess-skipped',
+      );
+      expect(recovered?.scan.session.cacheReadTokens).toBe(777);
+      expect(unwindowed.staleSealSkips).toBe(0);
     });
   });
 

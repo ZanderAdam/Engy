@@ -22,7 +22,7 @@ interface UsageScanOptions {
   homeDir: string;
   knownFiles: Record<string, UsageScanFileState>;
   sealedDates: ReadonlySet<string>;
-  /** ISO date (YYYY-MM-DD). A transcript whose own mtime predates it is pre-claimed as fully scanned, unread. */
+  /** ISO date (YYYY-MM-DD). A transcript whose own mtime predates it is left unread for a later scan. */
   since?: string;
 }
 
@@ -104,7 +104,9 @@ export async function scanUsage(options: UsageScanOptions): Promise<UsageScanRes
   return {
     sessions,
     files: outFiles,
-    newlySealedDates: computeNewlySealedDates(outFiles, sealedDates),
+    // A windowed scan skips files outside `since` unread, so it has no basis
+    // to seal any date — sealing here would drop those files' history for good.
+    newlySealedDates: since ? [] : computeNewlySealedDates(outFiles, sealedDates),
     staleSealSkips,
   };
 }

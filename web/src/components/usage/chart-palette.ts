@@ -34,5 +34,5 @@ export const COST_CHART_CONFIG: ChartConfig = Object.fromEntries(
 /** Single-measure magnitude marks stay neutral so no hue impersonates a cost bucket. */
 export const MAGNITUDE_COLOR = '#a1a1aa';
 
-/** Reserved for the delegated/direct split wherever it appears. */
-export const DELEGATED_COLOR = '#d55181';
+/** Reserved for the subagent/main-session split wherever it appears. */
+export const SUBAGENT_COLOR = '#d55181';

@@ -93,6 +93,8 @@ export interface UsageSessionRollup extends UsageTokenTotals {
   gitBranch: string | null;
   model: string;
   startedAt: string | null;
+  /** `startedAt` on the daemon's local calendar day, for filters that must agree with the day it was worked (not its UTC date). */
+  startedDate: string | null;
   endedAt: string | null;
   apiCalls: number;
   agentCalls: number;

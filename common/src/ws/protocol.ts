@@ -842,8 +842,9 @@ export interface UsageScanRequestMessage {
     sealedDates: string[];
     /**
      * ISO date (YYYY-MM-DD). When set, a transcript whose own mtime predates
-     * it is marked fully scanned without being read, so a range-scoped
-     * refresh only pays for files with activity inside the visible window.
+     * it is left unread, so a range-scoped refresh only pays for files with
+     * activity inside the visible window. Its stored state is unchanged, so a
+     * later scan without a window still reads it.
      */
     since?: string;
   };

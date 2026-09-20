@@ -85,8 +85,6 @@ CREATE TABLE `usage_scan_file` (
 CREATE TABLE `usage_sealed_date` (
 	`date` text PRIMARY KEY NOT NULL,
 	`sealed_at` text NOT NULL,
-	`file_count` integer DEFAULT 0 NOT NULL,
-	`row_count` integer DEFAULT 0 NOT NULL,
 	`reducer_version` integer DEFAULT 1 NOT NULL
 );
 --> statement-breakpoint
@@ -104,6 +102,7 @@ CREATE TABLE `usage_session` (
 	`engy_project_id` integer,
 	`model` text NOT NULL,
 	`started_at` text,
+	`started_date` text,
 	`ended_at` text,
 	`api_calls` integer DEFAULT 0 NOT NULL,
 	`input_tokens` integer DEFAULT 0 NOT NULL,
@@ -145,7 +144,6 @@ CREATE TABLE `usage_session_daily` (
 	`cache_read_tokens` integer DEFAULT 0 NOT NULL,
 	`cache_write_1h_tokens` integer DEFAULT 0 NOT NULL,
 	`cache_write_5m_tokens` integer DEFAULT 0 NOT NULL,
-	`est_cost_cents` integer DEFAULT 0 NOT NULL,
 	PRIMARY KEY(`date`, `session_id`, `model`)
 );
 --> statement-breakpoint

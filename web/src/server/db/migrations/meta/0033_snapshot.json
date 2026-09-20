@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "71993053-cca5-4739-a9d8-db72699e3345",
+  "id": "688178b6-5fad-4ff6-bad8-0704642c6a0f",
   "prevId": "a49d9717-5639-400a-b980-5d88d09b6772",
   "tables": {
     "agent_sessions": {
@@ -2125,22 +2125,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "file_count": {
-          "name": "file_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "row_count": {
-          "name": "row_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
         "reducer_version": {
           "name": "reducer_version",
           "type": "integer",
@@ -2246,6 +2230,13 @@
         },
         "started_at": {
           "name": "started_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "started_date": {
+          "name": "started_date",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -2554,14 +2545,6 @@
         },
         "cache_write_5m_tokens": {
           "name": "cache_write_5m_tokens",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "est_cost_cents": {
-          "name": "est_cost_cents",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

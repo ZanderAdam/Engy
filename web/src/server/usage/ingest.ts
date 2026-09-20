@@ -1,4 +1,4 @@
-import { and, count, desc, eq, notInArray, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, notInArray, sql, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { UsageScanFileState } from '@engy/common';
 import { getDb, type Db } from '../db/client';
@@ -91,13 +91,6 @@ function createEngyIdResolver(db: Db): (repoRoot: string | null) => EngyIds {
 
 // ── Upsert ────────────────────────────────────────────────────────────
 
-/**
- * A rescan of a grown transcript resumes at the stored byte offset, so its
- * rollups cover only the appended tail. Every counter therefore adds to what
- * is already stored; replacing would discard everything scanned before.
- * `isFullParse` marks the other case, where the rollups are the whole file —
- * there the session's rows are cleared first so the fresh totals stand alone.
- */
 function addExcluded(column: SQLiteColumn): SQL<number> {
   return sql`${column} + excluded.${sql.identifier(column.name)}`;
 }
@@ -185,18 +178,11 @@ function applyScanFileUpdates(tx: Db, files: Record<string, UsageScanFileState>)
   }
 }
 
-// A sealed date's rollup rows are read straight from SQLite forever after —
-// fileCount/rowCount are diagnostic only, never read back by any query here.
+// A sealed date's rollup rows are read straight from SQLite forever after.
 function applySealedDates(tx: Db, dates: string[]): void {
   const sealedAt = new Date().toISOString();
   for (const dateValue of dates) {
-    const rowCount =
-      tx
-        .select({ value: count() })
-        .from(usageSessionDaily)
-        .where(eq(usageSessionDaily.date, dateValue))
-        .get()?.value ?? 0;
-    const values = { sealedAt, fileCount: 0, rowCount, reducerVersion: USAGE_REDUCER_VERSION };
+    const values = { sealedAt, reducerVersion: USAGE_REDUCER_VERSION };
     tx.insert(usageSealedDate)
       .values({ date: dateValue, ...values })
       .onConflictDoUpdate({ target: usageSealedDate.date, set: values })
@@ -204,6 +190,13 @@ function applySealedDates(tx: Db, dates: string[]): void {
   }
 }
 
+/**
+ * A rescan of a grown transcript resumes at the stored byte offset, so its
+ * rollups cover only the appended tail. Every counter therefore adds to what
+ * is already stored; replacing would discard everything scanned before.
+ * `isFullParse` marks the other case, where the rollups are the whole file —
+ * there the session's rows are cleared first so the fresh totals stand alone.
+ */
 function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessions: number } {
   return db.transaction((tx) => {
     let newSessions = 0;
@@ -249,6 +242,7 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
         engyProjectId: projectId,
         model: session.model,
         startedAt: session.startedAt,
+        startedDate: session.startedDate,
         endedAt: session.endedAt,
         apiCalls: session.apiCalls,
         inputTokens: session.inputTokens,
@@ -275,6 +269,7 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
         : {
             ...sessionValues,
             startedAt: earliestExcluded(usageSession.startedAt),
+            startedDate: earliestExcluded(usageSession.startedDate),
             endedAt: latestExcluded(usageSession.endedAt),
             apiCalls: addExcluded(usageSession.apiCalls),
             inputTokens: addExcluded(usageSession.inputTokens),
@@ -295,21 +290,6 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
         .run();
 
       for (const day of days) {
-        const dayRate = rateFor(rates, day.model);
-        const dayCostCents = dayRate
-          ? microCentsToCents(
-              microCentsForTokens(
-                {
-                  inputTokens: day.inputTokens,
-                  outputTokens: day.outputTokens,
-                  cacheWrite1hTokens: day.cacheWrite1hTokens,
-                  cacheWrite5mTokens: day.cacheWrite5mTokens,
-                  cacheReadTokens: day.cacheReadTokens,
-                },
-                dayRate,
-              ),
-            )
-          : 0;
         tx.insert(usageSessionDaily)
           .values({
             date: day.date,
@@ -324,7 +304,6 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
             cacheReadTokens: day.cacheReadTokens,
             cacheWrite1hTokens: day.cacheWrite1hTokens,
             cacheWrite5mTokens: day.cacheWrite5mTokens,
-            estCostCents: dayCostCents,
           })
           .onConflictDoUpdate({
             target: [usageSessionDaily.date, usageSessionDaily.sessionId, usageSessionDaily.model],
@@ -338,7 +317,6 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
               cacheReadTokens: addExcluded(usageSessionDaily.cacheReadTokens),
               cacheWrite1hTokens: addExcluded(usageSessionDaily.cacheWrite1hTokens),
               cacheWrite5mTokens: addExcluded(usageSessionDaily.cacheWrite5mTokens),
-              estCostCents: addExcluded(usageSessionDaily.estCostCents),
             },
           })
           .run();
@@ -545,4 +523,8 @@ export function refreshUsage(state: AppState, since: string | undefined): Promis
     inFlightRefresh = null;
   });
   return inFlightRefresh;
+}
+
+export function isUsageScanInFlight(): boolean {
+  return inFlightRefresh !== null;
 }

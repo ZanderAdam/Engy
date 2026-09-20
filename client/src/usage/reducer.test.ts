@@ -360,7 +360,7 @@ describe('usage reducer', () => {
   });
 
   describe('tool result-size distribution', () => {
-    it('should compute exact p50/p95 for a known distribution', () => {
+    it('[FR-USAGE-400] should compute exact p50/p95 for a known distribution', () => {
       const sizes = [100, 200, 300, 400, 500];
       const lines = sizes.flatMap((size, i) => [
         toolUseLine(`t${i}`, 'Read', {}),
@@ -372,7 +372,7 @@ describe('usage reducer', () => {
       expect(read?.p95ResultChars).toBe(500);
     });
 
-    it('should stay bounded and correct when fed far more samples than the reservoir cap', () => {
+    it('[FR-USAGE-400] should stay bounded and correct when fed far more samples than the reservoir cap', () => {
       const lines: string[] = [];
       for (let i = 0; i < 5000; i += 1) {
         lines.push(toolUseLine(`t${i}`, 'Read', {}));
@@ -387,7 +387,7 @@ describe('usage reducer', () => {
   });
 
   describe('expensive calls', () => {
-    it('should keep only the top 20 calls by payload size, dropping the rest', () => {
+    it('[FR-USAGE-350] should keep only the top 20 calls by payload size, dropping the rest', () => {
       const lines: string[] = [usageLine({})];
       for (let i = 1; i <= 25; i += 1) {
         lines.push(toolUseLine(`t${i}`, 'Read', { file_path: `/f${i}.ts` }));
@@ -403,7 +403,7 @@ describe('usage reducer', () => {
       for (let i = 6; i <= 25; i += 1) expect(previews).toContain(`/f${i}.ts`);
     });
 
-    it('should sort the surviving calls by settled token-turns descending', () => {
+    it('[FR-USAGE-350] should sort the surviving calls by settled token-turns descending', () => {
       const scan = reduce([
         toolUseLine('t1', 'Read', { file_path: '/small.ts' }),
         toolResultLine('t1', 'x'.repeat(100)),
@@ -415,7 +415,7 @@ describe('usage reducer', () => {
       expect(scan.expensiveCalls[0].preview).toBe('/big.ts');
     });
 
-    it('a call before a compaction must not outrank an equal one after it that is re-read more', () => {
+    it('[FR-USAGE-350] a call before a compaction must not outrank an equal one after it that is re-read more', () => {
       const payload = 'x'.repeat(3600);
       const big = (cacheRead: number) => usageLine({ cacheRead });
 
@@ -433,19 +433,81 @@ describe('usage reducer', () => {
       ]);
 
       const a = scan.expensiveCalls.find((c) => c.callIndex === 1);
-      const b = scan.expensiveCalls.find((c) => c.callIndex === 3);
+      const b = scan.expensiveCalls.find((c) => c.callIndex === 2);
       expect(a).toBeDefined();
       expect(b).toBeDefined();
       // Equal payloads, but "a" settled at the compaction while "b" kept
       // accumulating afterwards, so "b" must rank above "a".
       expect(a?.tokens).toBe(b?.tokens);
       expect(b!.tokenTurns).toBeGreaterThan(a!.tokenTurns);
-      expect(scan.expensiveCalls[0].callIndex).toBe(3);
+      expect(scan.expensiveCalls[0].callIndex).toBe(2);
+    });
+
+    it('should give two parallel tool results carried by one message distinct callIndex values', () => {
+      const scan = reduce([
+        usageLine({}),
+        toolUseLine('t1', 'Read', { file_path: '/a.ts' }),
+        toolUseLine('t2', 'Read', { file_path: '/b.ts' }),
+        // Both results arrive in the same user message — callsSoFar does not
+        // advance between them, so a callIndex keyed off it alone would collide.
+        JSON.stringify({
+          type: 'user',
+          timestamp: '2026-09-01T10:00:00.000Z',
+          message: {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 't1', content: 'x'.repeat(360) },
+              { type: 'tool_result', tool_use_id: 't2', content: 'y'.repeat(360) },
+            ],
+          },
+        }),
+        usageLine({}),
+      ]);
+
+      const reads = scan.expensiveCalls.filter((c) => c.tool === 'Read');
+      expect(reads).toHaveLength(2);
+      expect(new Set(reads.map((c) => c.callIndex)).size).toBe(2);
+    });
+
+    it('should not give an unmatched result a top-20 slot', () => {
+      const scan = reduce([toolResultLine('no-such-id', 'x'.repeat(360)), usageLine({})]);
+
+      expect(scan.expensiveCalls).toHaveLength(0);
+    });
+  });
+
+  describe('call preview truncation', () => {
+    it('should keep a long path\'s basename and mark the cut with an ellipsis', () => {
+      const longDir =
+        '/home/aleks/.claude/projects/-home-aleks-dev-Engy--claude-worktrees-aadamovic-m14-agent-hook-channel';
+      const fileName = 'c72d7d36-29fd-4900-abcd-1234567890ab.jsonl';
+      const scan = reduce([
+        toolUseLine('t1', 'Read', { file_path: `${longDir}/${fileName}` }),
+        toolResultLine('t1', 'ok'),
+        usageLine({}),
+      ]);
+
+      const preview = scan.expensiveCalls.find((c) => c.tool === 'Read')?.preview;
+      expect(preview?.startsWith('…')).toBe(true);
+      expect(preview?.endsWith(fileName)).toBe(true);
+    });
+
+    it('should keep a long command\'s start and mark the cut with an ellipsis', () => {
+      const command = `echo start-marker ${'x'.repeat(200)}`;
+      const scan = reduce([
+        toolUseLine('t1', 'Bash', { command }),
+        toolResultLine('t1', 'ok'),
+        usageLine({}),
+      ]);
+
+      const preview = scan.expensiveCalls.find((c) => c.tool === 'Bash')?.preview;
+      expect(preview?.startsWith('echo start-marker')).toBe(true);
+      expect(preview?.endsWith('…')).toBe(true);
     });
   });
 
   describe('pending tool_use bound', () => {
-    it('should evict the oldest unmatched tool_use once the pending map exceeds its cap, instead of growing without bound', () => {
+    it('[FR-USAGE-390] should evict the oldest unmatched tool_use once the pending map exceeds its cap, instead of growing without bound', () => {
       const lines: string[] = [];
       for (let i = 0; i <= 1000; i += 1) {
         lines.push(toolUseLine(`t${i}`, 'Read', { file_path: `/f${i}.ts` }));
@@ -461,7 +523,7 @@ describe('usage reducer', () => {
       expect(scan.files.find((f) => f.filePath === '/f1000.ts')).toBeDefined();
     });
 
-    it('should still attribute a tool_result to the right tool and file when the pending map is below its cap', () => {
+    it('[FR-USAGE-390] should still attribute a tool_result to the right tool and file when the pending map is below its cap', () => {
       const lines: string[] = [];
       for (let i = 0; i < 5; i += 1) {
         lines.push(toolUseLine(`unmatched${i}`, 'Bash', { command: `echo ${i}` }));
@@ -477,7 +539,7 @@ describe('usage reducer', () => {
       expect(scan.tools.find((t) => t.tool === 'Read')?.calls).toBe(1);
     });
 
-    it('should still resolve a tool_use opened before a compaction when its result arrives after it', () => {
+    it('[FR-USAGE-390] should still resolve a tool_use opened before a compaction when its result arrives after it', () => {
       const payload = 'x'.repeat(360);
       const big = (cacheRead: number) => usageLine({ cacheRead });
 
@@ -601,6 +663,14 @@ describe('usage reducer', () => {
         startedAt: '2026-09-01T08:00:00.000Z',
         endedAt: '2026-09-01T09:30:00.000Z',
       });
+    });
+
+    it('should emit startedDate as the local calendar day, not the UTC day, when they differ', () => {
+      vi.stubEnv('TZ', 'Europe/Berlin');
+      // 2024-01-10T23:30Z is 2024-01-11T00:30 in Berlin (UTC+1 in January).
+      const scan = reduce([usageLine({ timestamp: '2024-01-10T23:30:00.000Z' })]);
+      expect(scan.session.startedAt).toBe('2024-01-10T23:30:00.000Z');
+      expect(scan.session.startedDate).toBe('2024-01-11');
     });
 
     it('should count Agent calls for orchestration overhead', () => {

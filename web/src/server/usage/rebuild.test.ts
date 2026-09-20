@@ -83,7 +83,7 @@ describe('usage rebuild', () => {
   });
 
   describe('rebuildUsageHistory', () => {
-    it('should clear every usage table and nothing else', () => {
+    it('[FR-USAGE-360] should clear every usage table and nothing else', () => {
       seedUsageHistory(ctx);
       seedUsagePricing(ctx.db);
       ctx.db.insert(tasks).values({ title: 'unrelated task' }).run();

@@ -17,6 +17,7 @@ import {
 } from '../../db/schema';
 import { seedUsagePricing } from '../../usage/pricing';
 import { USAGE_REDUCER_VERSION } from '../../usage/rebuild';
+import { refreshUsage } from '../../usage/ingest';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -138,6 +139,7 @@ function makeScanResult(overrides: Partial<UsageSessionScanResult['scan']['sessi
         gitBranch: 'main',
         model: 'claude-sonnet-5',
         startedAt: '2024-01-10T10:00:00.000Z',
+        startedDate: '2024-01-10',
         endedAt: '2024-01-10T11:00:00.000Z',
         apiCalls: 2,
         agentCalls: 0,
@@ -485,6 +487,20 @@ describe('usage router', () => {
       expect(overview.causes.baseline).toBe(0);
     });
 
+    it('[FR-USAGE-370] should include a session with no resolved workspace when no scope filter is applied', async () => {
+      const ws = ctx.db.insert(workspaces).values({ name: 'WS', slug: 'ws' }).returning().get();
+      seedSession(ctx, { sessionId: 'in-workspace', engyWorkspaceId: ws.id });
+      seedSession(ctx, { sessionId: 'unresolved', engyWorkspaceId: null });
+      seedDaily(ctx, { sessionId: 'in-workspace', inputTokens: 1_000_000 });
+      seedDaily(ctx, { sessionId: 'unresolved', inputTokens: 1_000_000 });
+
+      const overview = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
+
+      // sonnet input rate $2/MTok: each session contributes 1M tokens = $2.00 = 200¢.
+      expect(overview.totals.inputTokens).toBe(2_000_000);
+      expect(overview.cost.total).toBe(400);
+    });
+
     it('[FR-USAGE-330] should include subagent spend in cost.total and report it as its own share', async () => {
       seedDaily(ctx, { date: '2024-01-10', sessionId: 'main', isSubagent: false, inputTokens: 1_000_000 });
       seedDaily(ctx, { date: '2024-01-10', sessionId: 'agent-1', isSubagent: true, inputTokens: 3_000_000 });
@@ -495,6 +511,23 @@ describe('usage router', () => {
       expect(overview.cost.total).toBe(800);
       expect(overview.cost.subagentCost).toBe(600);
       expect(overview.subagentShare).toBeCloseTo(600 / 800);
+    });
+
+    it('should count totals.sessions on a session\'s local start date, not the UTC date sliced from startedAt', async () => {
+      // UTC date is 2024-01-11 (02:00Z) but the daemon recorded a local date
+      // of 2024-01-10 — a timezone behind UTC crossing midnight.
+      seedSession(ctx, {
+        sessionId: 'local-boundary',
+        startedAt: '2024-01-11T02:00:00.000Z',
+        startedDate: '2024-01-10',
+      });
+      seedDaily(ctx, { sessionId: 'local-boundary', date: '2024-01-10' });
+
+      const localDay = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
+      expect(localDay.totals.sessions).toBe(1);
+
+      const utcDay = await caller.usage.overview({ from: '2024-01-11', to: '2024-01-11' });
+      expect(utcDay.totals.sessions).toBe(0);
     });
   });
 
@@ -608,7 +641,7 @@ describe('usage router', () => {
       expect(bothDays.map((t) => t.tool).sort()).toEqual(['Bash', 'Read']);
     });
 
-    it('should surface the reducer-computed p50/p95 result size, not zero', async () => {
+    it('[FR-USAGE-400] should surface the reducer-computed p50/p95 result size, not zero', async () => {
       seedTool(ctx, { toolName: 'Read', calls: 4, p50ResultChars: 300, p95ResultChars: 900 });
 
       const tools = await caller.usage.tools({ from: '2024-01-10', to: '2024-01-10', limit: 10 });
@@ -647,9 +680,6 @@ describe('usage router', () => {
       // 30 rows * 3,000 micro-cents = 90,000 micro-cents = 0.09¢ -> still 0.
       expect(fields.find((f) => f.tool === 'Bash' && f.field === 'command')?.costCents ?? 0).toBe(0);
 
-      // One more row of the same size pushes the summed micro-cents over
-      // half a cent (31 * 3,000 = 93,000... not quite) — use a bigger batch
-      // to cross the rounding boundary deterministically.
       for (let i = 30; i < 200; i += 1) {
         seedField(ctx, {
           sessionId: `s-${i}`,
@@ -701,7 +731,7 @@ describe('usage router', () => {
   });
 
   describe('expensiveCalls', () => {
-    it('should return the top calls sorted by token-turns descending', async () => {
+    it('[FR-USAGE-350] should return the top calls sorted by token-turns descending', async () => {
       seedExpensiveCall(ctx, { callIndex: 0, tool: 'Write', tokenTurns: 500, preview: 'small.ts' });
       seedExpensiveCall(ctx, { callIndex: 1, tool: 'Write', tokenTurns: 5_000, preview: 'big.ts' });
 
@@ -781,6 +811,22 @@ describe('usage router', () => {
       const sessions = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10', sort: 'calls' });
 
       expect(sessions.map((s) => s.sessionId)).toEqual(['high', 'low']);
+    });
+
+    it('should bucket a session by its local start date, not the UTC date sliced from startedAt', async () => {
+      // UTC date is 2024-01-11 (02:00Z) but the daemon recorded a local date
+      // of 2024-01-10 — a timezone behind UTC crossing midnight.
+      seedSession(ctx, {
+        sessionId: 'local-boundary',
+        startedAt: '2024-01-11T02:00:00.000Z',
+        startedDate: '2024-01-10',
+      });
+
+      const localDay = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
+      expect(localDay.map((s) => s.sessionId)).toEqual(['local-boundary']);
+
+      const utcDay = await caller.usage.sessions({ from: '2024-01-11', to: '2024-01-11' });
+      expect(utcDay).toHaveLength(0);
     });
   });
 
@@ -918,7 +964,7 @@ describe('usage router', () => {
       expect(session.files[0].reads).toBe(2);
     });
 
-    it('should persist a scanned session\'s expensive calls', async () => {
+    it('[FR-USAGE-350] should persist a scanned session\'s expensive calls', async () => {
       installFakeUsageDaemon(ctx, () => ({
         sessions: [makeScanResult()],
         files: {},
@@ -933,7 +979,7 @@ describe('usage router', () => {
       expect(calls[0]).toMatchObject({ tool: 'Read', preview: 'src/index.ts', tokenTurns: 400 });
     });
 
-    it('should prune a session\'s expensive calls to its top 20 by tokenTurns across many scan passes, not grow unbounded', async () => {
+    it('[FR-USAGE-350] should prune a session\'s expensive calls to its top 20 by tokenTurns across many scan passes, not grow unbounded', async () => {
       const sessionId = 'growing-1';
       installFakeUsageDaemon(ctx, () => ({
         sessions: [makeScanResult({ sessionId })],
@@ -979,7 +1025,7 @@ describe('usage router', () => {
       expect(Math.min(...forSession.map((c) => c.tokenTurns))).toBe(1005);
     });
 
-    it('should forward since to the daemon scan request', async () => {
+    it('[FR-USAGE-380] should forward since to the daemon scan request', async () => {
       const requests = installTrackingUsageDaemon(ctx, () => ({
         sessions: [],
         files: {},
@@ -1051,7 +1097,7 @@ describe('usage router', () => {
   });
 
   describe('rebuild', () => {
-    it('should clear every usage table and broadcast the change', async () => {
+    it('[FR-USAGE-360] should clear every usage table and broadcast the change', async () => {
       seedSession(ctx, { sessionId: 's1' });
       seedDaily(ctx);
       seedTool(ctx);
@@ -1065,7 +1111,54 @@ describe('usage router', () => {
       expect(tools).toHaveLength(0);
     });
 
-    it('should leave pricing untouched so the next scan can still price sessions', async () => {
+    it('should reject rebuild while a scan is running and leave its rows intact', async () => {
+      seedSession(ctx, { sessionId: 'existing' });
+      seedDaily(ctx, { sessionId: 'existing' });
+
+      let resolveScan: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => {
+        resolveScan = resolve;
+      });
+      const mock = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (raw: string) => {
+          const msg = JSON.parse(raw) as DaemonMessage;
+          if (msg.type !== 'USAGE_SCAN_REQUEST') return;
+          gate.then(() => {
+            const pending = ctx.state.pendingUsageScan.get(msg.payload.requestId);
+            if (!pending) return;
+            ctx.state.pendingUsageScan.delete(msg.payload.requestId);
+            pending.resolve({
+              requestId: msg.payload.requestId,
+              sessions: [makeScanResult()],
+              files: {},
+              newlySealedDates: [],
+              staleSealSkips: 0,
+            } as never);
+          });
+        },
+      };
+      ctx.state.daemon = mock as unknown as WebSocket;
+
+      // Calling `refreshUsage` directly (not through the tRPC caller) sets the
+      // in-flight flag synchronously, so `rebuild` is guaranteed to see it —
+      // routing both calls through the caller races on tRPC's own input
+      // validation, which varies per procedure.
+      const refreshPromise = refreshUsage(ctx.state, undefined);
+      await expect(caller.usage.rebuild()).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+
+      const midScan = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
+      expect(midScan.map((s) => s.sessionId)).toContain('existing');
+
+      resolveScan?.();
+      await refreshPromise;
+
+      const afterScan = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
+      expect(afterScan.map((s) => s.sessionId).sort()).toEqual(['existing', 'scan-1']);
+    });
+
+    it('[FR-USAGE-360] should leave pricing untouched so the next scan can still price sessions', async () => {
       await caller.usage.rebuild();
 
       installFakeUsageDaemon(ctx, () => ({

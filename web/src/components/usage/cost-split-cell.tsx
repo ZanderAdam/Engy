@@ -1,6 +1,6 @@
 'use client';
 
-import { DELEGATED_COLOR, MAGNITUDE_COLOR } from './chart-palette';
+import { SUBAGENT_COLOR, MAGNITUDE_COLOR } from './chart-palette';
 import { formatMoney, formatMoneyCompact, share } from './format';
 
 export function CostSplitCell({
@@ -10,7 +10,7 @@ export function CostSplitCell({
   totalCents: number;
   subagentCents: number;
 }) {
-  const delegatedPct = Math.min(share(subagentCents, totalCents), 1) * 100;
+  const subagentPct = Math.min(share(subagentCents, totalCents), 1) * 100;
 
   return (
     <div className="flex flex-col items-end gap-1">
@@ -21,8 +21,8 @@ export function CostSplitCell({
             {formatMoneyCompact(subagentCents)} in subagents
           </span>
           <div className="flex h-1 w-20 gap-px" aria-hidden>
-            <div style={{ width: `${delegatedPct}%`, backgroundColor: DELEGATED_COLOR }} />
-            <div style={{ width: `${100 - delegatedPct}%`, backgroundColor: MAGNITUDE_COLOR }} />
+            <div style={{ width: `${subagentPct}%`, backgroundColor: SUBAGENT_COLOR }} />
+            <div style={{ width: `${100 - subagentPct}%`, backgroundColor: MAGNITUDE_COLOR }} />
           </div>
         </>
       )}

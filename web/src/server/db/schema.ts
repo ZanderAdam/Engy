@@ -589,6 +589,10 @@ export const usageSession = sqliteTable(
     }),
     model: text('model').notNull(),
     startedAt: text('started_at'),
+    // Local calendar date the daemon's machine saw the session start on
+    // (YYYY-MM-DD). `startedAt` is UTC, so filtering by it alone can bucket a
+    // session under the wrong day whenever local time and UTC disagree.
+    startedDate: text('started_date'),
     endedAt: text('ended_at'),
     apiCalls: integer('api_calls').notNull().default(0),
     inputTokens: integer('input_tokens').notNull().default(0),
@@ -656,7 +660,6 @@ export const usageSessionDaily = sqliteTable(
     cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
     cacheWrite1hTokens: integer('cache_write_1h_tokens').notNull().default(0),
     cacheWrite5mTokens: integer('cache_write_5m_tokens').notNull().default(0),
-    estCostCents: integer('est_cost_cents').notNull().default(0),
   },
   (table) => [
     primaryKey({ columns: [table.date, table.sessionId, table.model] }),
@@ -809,8 +812,6 @@ export const usageSealedDate = sqliteTable('usage_sealed_date', {
   sealedAt: text('sealed_at')
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
-  fileCount: integer('file_count').notNull().default(0),
-  rowCount: integer('row_count').notNull().default(0),
   reducerVersion: integer('reducer_version').notNull().default(1),
 });
 

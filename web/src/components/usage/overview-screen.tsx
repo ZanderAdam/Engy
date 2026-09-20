@@ -6,7 +6,7 @@ import { CacheTtlPanel } from './cache-ttl-panel';
 import { CauseBreakdown } from './cause-breakdown';
 import { COST_BUCKET_COLOR } from './chart-palette';
 import { CostAreaChart } from './cost-area-chart';
-import { DelegationSplit } from './delegation-split';
+import { SubagentSplit } from './subagent-split';
 import {
   computeDelta,
   formatCount,
@@ -39,7 +39,7 @@ function UnpricedWarning({ models }: { models: string[] }) {
         </p>
         <p className="text-muted-foreground">
           Tokens for <span className="font-mono">{models.join(', ')}</span> are counted. No list
-          price is on file for them. Totals below are lower than the real cost.
+          price is stored for them. Totals below are lower than the real cost.
         </p>
       </div>
     </div>
@@ -126,7 +126,7 @@ export function OverviewScreen({
         />
       </div>
 
-      <DelegationSplit
+      <SubagentSplit
         totalCents={cost.total}
         subagentCents={cost.subagentCost}
         subagentShare={overview.subagentShare}

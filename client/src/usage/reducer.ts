@@ -197,8 +197,21 @@ function readFilePath(input: Record<string, unknown>): string | null {
   return null;
 }
 
-function truncatePreview(text: string): string {
-  return text.replace(/\r?\n/g, ' ').trim().slice(0, PREVIEW_MAX_CHARS);
+const ELLIPSIS = '…';
+
+/**
+ * A path's identifying part is its filename, at the tail — keeping the head
+ * instead (the old behaviour) can truncate a long path down to nothing but
+ * directory segments. Everything else (a command, a prompt) reads front-to-back,
+ * so the head is what identifies it.
+ */
+function truncatePreview(text: string, keepTail = false): string {
+  const clean = text.replace(/\r?\n/g, ' ').trim();
+  if (clean.length <= PREVIEW_MAX_CHARS) return clean;
+  const sliceLength = PREVIEW_MAX_CHARS - ELLIPSIS.length;
+  return keepTail
+    ? ELLIPSIS + clean.slice(clean.length - sliceLength)
+    : clean.slice(0, sliceLength) + ELLIPSIS;
 }
 
 /** Identifies the payload of a tool call for the expensive-calls table. */
@@ -211,7 +224,7 @@ function deriveCallPreview(
     for (const key of FILE_PATH_KEYS) {
       const value = input[key];
       if (typeof value === 'string' && value.length > 0) {
-        return { field: key, preview: truncatePreview(value) };
+        return { field: key, preview: truncatePreview(value, true) };
       }
     }
   }
@@ -237,6 +250,9 @@ export class SessionReducer {
   private readonly agentDescription: string | null;
 
   private callsSoFar = 0;
+  // `callsSoFar` does not advance between two tool_result blocks carried by
+  // the same message, so it collides as a per-call key for parallel results.
+  private expensiveCallSeq = 0;
   private linesParsed = 0;
   private linesSkipped = 0;
   private bytesScanned = 0;
@@ -418,10 +434,15 @@ export class SessionReducer {
 
     if (origin?.filePath) this.addFile(origin.filePath, name, tokens, chars);
 
-    // A call's cost is its input plus its result — for `Write`, the input
-    // (the content written) usually dwarfs the result (a short "ok").
-    const callTokens = (origin?.inputTokens ?? 0) + tokens;
-    this.recordExpensiveCall(name, origin?.field ?? null, origin?.preview ?? '', callTokens);
+    // An unmatched result (no `pending` entry, e.g. its tool_use fell off the
+    // MAX_PENDING_TOOL_USES eviction) carries no field or preview worth a
+    // top-20 slot — recording it would bump out a call that does.
+    if (origin) {
+      // A call's cost is its input plus its result — for `Write`, the input
+      // (the content written) usually dwarfs the result (a short "ok").
+      const callTokens = origin.inputTokens + tokens;
+      this.recordExpensiveCall(name, origin.field, origin.preview, callTokens);
+    }
   }
 
   private addFile(filePath: string, tool: string, tokens: number, chars: number): void {
@@ -462,12 +483,13 @@ export class SessionReducer {
 
     const residual = new ResidualSum();
     residual.add(tokens, this.callsSoFar);
+    this.expensiveCallSeq += 1;
     const candidate: ExpensiveCallCandidate = {
       date: this.currentDate,
       tool,
       field,
       preview,
-      callIndex: this.callsSoFar,
+      callIndex: this.expensiveCallSeq,
       residual,
     };
 
@@ -578,6 +600,7 @@ export class SessionReducer {
       gitBranch: this.gitBranch,
       model,
       startedAt: this.startedAt,
+      startedDate: this.startedAt ? localDateFromTimestamp(this.startedAt) : null,
       endedAt: this.endedAt,
       apiCalls: totalCalls,
       agentCalls: this.agentCalls,
