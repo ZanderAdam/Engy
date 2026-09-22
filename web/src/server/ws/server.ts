@@ -22,6 +22,7 @@ import type {
   GitShowResult,
   GitPatchResult,
   GitBranchFilesResult,
+  GitBranchResult,
   GitDefaultBaseResult,
   GitFetchResult,
   GitWorktreeListResult,
@@ -119,6 +120,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingGitShow,
     state.pendingGitPatch,
     state.pendingGitBranchFiles,
+    state.pendingGitBranch,
     state.pendingGitDefaultBase,
     state.pendingGitFetch,
     state.pendingContainerUp,
@@ -202,6 +204,11 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'GIT_FETCH_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGitFetch, (p) => ({
         remote: p.remote,
+      }));
+      break;
+    case 'GIT_BRANCH_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGitBranch, (p) => ({
+        branch: p.branch,
       }));
       break;
     case 'GIT_DEFAULT_BASE_RESPONSE':
@@ -1087,6 +1094,17 @@ export function dispatchGitFetch(
     { repoDir, base, coderWorkspace },
     WORKTREE_MERGE_TIMEOUT_MS,
   );
+}
+
+export function dispatchGitBranch(
+  repoDir: string,
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<GitBranchResult> {
+  return dispatchDaemonOp(state, state.pendingGitBranch, 'GIT_BRANCH_REQUEST', {
+    repoDir,
+    coderWorkspace,
+  });
 }
 
 export function dispatchGitDefaultBase(

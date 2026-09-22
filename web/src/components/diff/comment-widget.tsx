@@ -10,7 +10,8 @@ import { cn } from '@/lib/utils';
 import { AGENT_USER_ID } from '@/lib/comment-feedback';
 import { commentBodyText, SEVERITY_PRESENTATION } from './agent-findings';
 import { buildProvePrompt } from './prove-prompt';
-import { extractFilePathFromDocPath, type DiffComment } from './use-diff-comments';
+import { diffDocFilePath } from '@/lib/diff-doc-path';
+import type { DiffComment } from './use-diff-comments';
 
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -84,7 +85,7 @@ export function CommentWidget({
 
   const handleProveIt = () => {
     if (!comment || !repoDir) return;
-    const filePath = extractFilePathFromDocPath(comment.documentPath, repoDir);
+    const filePath = diffDocFilePath(comment.documentPath);
     if (!filePath) return;
     sendToTerminal(
       buildProvePrompt({

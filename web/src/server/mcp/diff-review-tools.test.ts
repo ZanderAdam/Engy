@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { WebSocket } from 'ws';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerDiffReviewTools } from './diff-review-tools';
 import { getAppState } from '../trpc/context';
@@ -6,6 +7,7 @@ import { getDb } from '../db/client';
 import { commentThreads, threadComments } from '../db/schema';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { appRouter } from '../trpc/root';
+import { diffDocPath, diffScopePrefix } from '@/lib/diff-doc-path';
 
 // Mirrors terminal-tools.test.ts: invoke a registered tool handler directly,
 // applying the tool's zod schema (defaults included) like the SDK would.
@@ -43,12 +45,29 @@ function makeMcp(callerTerminalSessionId?: string): McpServer {
 }
 
 const REPO = '/home/dev/proj';
+const BRANCH = 'feature/tokens';
 
 /** The exact query the Diffs tab runs — threads invisible to it do not exist. */
-function readAsDiffsTabWould(repoDir: string) {
+function readAsDiffsTabWould(repoDir: string, branch = BRANCH) {
   return appRouter
     .createCaller({ state: getAppState() } as never)
-    .comment.listThreadsByPrefix({ documentPathPrefix: `diff://${repoDir}/` });
+    .comment.listThreadsByPrefix({ documentPathPrefix: diffScopePrefix(repoDir, branch) });
+}
+
+/**
+ * The tools read the branch under review from the daemon, so every call needs
+ * one answering GIT_BRANCH_REQUEST.
+ */
+function connectDaemonOnBranch(ctx: TestContext, branch = BRANCH): void {
+  ctx.state.daemon = {
+    readyState: WebSocket.OPEN,
+    OPEN: WebSocket.OPEN,
+    send: (data: string) => {
+      const msg = JSON.parse(data);
+      if (msg.type !== 'GIT_BRANCH_REQUEST') return;
+      ctx.state.pendingGitBranch.get(msg.payload.requestId)?.resolve({ branch });
+    },
+  } as unknown as WebSocket;
 }
 
 describe('diff review MCP tools', () => {
@@ -56,6 +75,7 @@ describe('diff review MCP tools', () => {
 
   beforeEach(() => {
     ctx = setupTestDb();
+    connectDaemonOnBranch(ctx);
   });
 
   afterEach(() => {
@@ -81,7 +101,7 @@ describe('diff review MCP tools', () => {
       const threads = await readAsDiffsTabWould(REPO);
       expect(threads).toHaveLength(1);
       const thread = threads[0];
-      expect(thread.documentPath).toBe(`diff://${REPO}/src/auth.ts`);
+      expect(thread.documentPath).toBe(diffDocPath(REPO, BRANCH, 'src/auth.ts'));
       expect(thread.metadata).toMatchObject({
         type: 'diff',
         source: 'agent',
@@ -272,7 +292,7 @@ describe('diff review MCP tools', () => {
 
     it("[FR-MCP-260] refuses to close a human's comment", async () => {
       await appRouter.createCaller({ state: getAppState() } as never).comment.createThread({
-        documentPath: `diff://${REPO}/src/a.ts`,
+        documentPath: diffDocPath(REPO, BRANCH, 'src/a.ts'),
         threadId: 'human-thread',
         initialComment: { id: 'c1', body: 'why this way?' },
         metadata: { type: 'diff', source: 'local', lineNumber: 5, codeLine: 'x', side: 'modified' },
@@ -292,6 +312,36 @@ describe('diff review MCP tools', () => {
     });
   });
 
+  describe('branch scope', () => {
+    it('[FR-MCP-255] refuses to file a finding when the branch under review cannot be read', async () => {
+      ctx.state.daemon = null;
+
+      await expect(
+        callTool(makeMcp(), 'diff_review_comment')({
+          repoDir: REPO,
+          filePath: 'src/a.ts',
+          lineNumber: 1,
+          codeLine: 'x',
+          severity: 'high',
+          finding: 'f',
+          failureScenario: 's',
+        }),
+      ).rejects.toThrow(REPO);
+
+      expect(getDb().select().from(commentThreads).all()).toHaveLength(0);
+    });
+
+    it('[FR-MCP-255] keeps two branches of one repo on separate reviews', async () => {
+      await callTool(makeMcp(), 'diff_review_summary')({ repoDir: REPO, summary: 'on feature' });
+
+      connectDaemonOnBranch(ctx, 'main');
+      await callTool(makeMcp(), 'diff_review_summary')({ repoDir: REPO, summary: 'on main' });
+
+      expect((await readAsDiffsTabWould(REPO))[0].comments[0].body).toBe('on feature');
+      expect((await readAsDiffsTabWould(REPO, 'main'))[0].comments[0].body).toBe('on main');
+    });
+  });
+
   describe('diff_review_summary', () => {
     it('[FR-MCP-240] writes one unanchored summary the prefix query returns', async () => {
       const mcp = makeMcp();
@@ -304,7 +354,7 @@ describe('diff review MCP tools', () => {
 
       const threads = await readAsDiffsTabWould(REPO);
       expect(threads).toHaveLength(1);
-      expect(threads[0].documentPath).toBe(`diff://${REPO}/`);
+      expect(threads[0].documentPath).toBe(diffScopePrefix(REPO, BRANCH));
       expect(threads[0].metadata).toMatchObject({ type: 'review-summary', source: 'agent' });
     });
 
@@ -412,7 +462,7 @@ describe('diff review MCP tools', () => {
       await appRouter
         .createCaller({ state: getAppState() } as never)
         .comment.createThread({
-          documentPath: `diff://${REPO}/src/a.ts`,
+          documentPath: diffDocPath(REPO, BRANCH, 'src/a.ts'),
           threadId: 'user-thread',
           initialComment: { id: 'c1', body: 'why this way?' },
           metadata: { type: 'diff', source: 'local', lineNumber: 5, codeLine: 'x', side: 'modified' },

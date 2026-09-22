@@ -5,7 +5,7 @@ import type { IDockviewPanelProps } from 'dockview';
 import { useTerminalDock } from './terminal-dock-context';
 import { useXtermTheme } from '@/hooks/use-xterm-theme';
 import type { TerminalPanelParams } from './types';
-import { TerminalTaskBar } from './terminal-task-bar';
+import { TerminalTopBar } from './terminal-top-bar';
 import { TerminalDormantPanel } from './terminal-dormant-panel';
 import { TerminalSubtitle } from '@/components/voice/terminal-subtitle';
 
@@ -17,12 +17,11 @@ const TerminalInstance = dynamic(
 export function TerminalDockPanel({ params, api }: IDockviewPanelProps<TerminalPanelParams>) {
   const { handleStatusChange, handleReady, handleOscTitle } = useTerminalDock();
   const xtermTheme = useXtermTheme();
-  const { taskId, workspaceSlug } = params.tab.scope;
   const { sessionId, status } = params.tab;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {taskId != null && <TerminalTaskBar taskId={taskId} workspaceSlug={workspaceSlug} />}
+      <TerminalTopBar scope={params.tab.scope} />
       <div className="flex min-h-0 flex-1">
         {status === 'dormant' ? (
           // Mounting the terminal is what restores the session: its socket

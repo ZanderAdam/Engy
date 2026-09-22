@@ -232,6 +232,13 @@
       "when": 1789670498616,
       "tag": "0032_pr_scope_review",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1790104963189,
+      "tag": "0033_drop_unscoped_diff_comments",
+      "breakpoints": true
     }
   ]
 }
