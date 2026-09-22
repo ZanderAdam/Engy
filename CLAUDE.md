@@ -70,7 +70,11 @@ Typed discriminated union in `@engy/common` (~40 message types spanning registra
 
 Dev overrides are in `.dev.env` (gitignored), which sets `ENGY_DIR=.dev-engy/` for project-local data. `pnpm dev` always picks a free port — no need to edit `.dev.env` for worktrees. Read the running URL from the startup log line: `[dev] web + client running on http://localhost:<port>`.
 
-**To run the app, always use `pnpm dev` and read its port from that log line.** Do NOT start `web`/`client` manually with inline `PORT=...`/`ENGY_DIR=...` prefixes, and do NOT spin up a second instance from a worktree that already has one running — both `web/.next/dev/lock` and the daemon singleton lock are shared, so the second instance fails. If a dev server is already running for this worktree, reuse it (find its port via its `[dev]` log line or the connected daemon's `ENGY_SERVER_URL`); Next hot-reloads code edits into it. Never run a dev server against the prod `~/.engy` (a port-3000 instance with no `ENGY_DIR` override is prod — leave it alone).
+**To run the app, always use `pnpm dev` and read its port from that log line.** Do NOT start `web`/`client` manually with inline `PORT=...`/`ENGY_DIR=...` prefixes.
+
+**One dev instance per checkout, and every checkout can have its own.** Each worktree is a separate checkout, so a `pnpm dev` there takes its own free port, its own `.dev-engy/` (its own SQLite DB), its own `web/.next/dev/lock`, and its own daemon pidfile (`$ENGY_DIR/daemon.pid`, see `client/src/index.ts`) — it never collides with the main checkout's dev instance or with prod. What does collide is a **second** instance for the **same** checkout: the `.next` dev lock and the daemon pidfile are already held, so it fails. If a dev server is already running for this checkout, reuse it (find its port via its `[dev]` log line or the connected daemon's `ENGY_SERVER_URL`); Next hot-reloads code edits into it.
+
+A worktree's `.dev-engy/` starts empty, so its app has no workspaces. Seed it by copying the main checkout's `.dev-engy/` before starting, or create one in the fresh instance (`workspace.create` over tRPC is quicker than clicking through the UI). Never run a dev server against the prod `~/.engy` (a port-3000 instance with no `ENGY_DIR` override is prod — leave it alone).
 
 
 ## Subagents
