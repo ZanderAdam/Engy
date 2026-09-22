@@ -23,6 +23,8 @@ export type {
   GitShowResponseMessage,
   GitBranchFilesRequestMessage,
   GitBranchFilesResponseMessage,
+  GitBranchRequestMessage,
+  GitBranchResponseMessage,
   GitDefaultBaseRequestMessage,
   GitDefaultBaseResponseMessage,
   GitFetchRequestMessage,

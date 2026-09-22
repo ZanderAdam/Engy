@@ -18,7 +18,8 @@ import type { WorktreeSelection } from './worktree-selector';
 import { ReviewActions } from './review-actions';
 import { ReviewSummaryPanel } from './review-summary-panel';
 import { GithubCommentTriage } from './github-comment-triage';
-import { useDiffComments, extractFilePathFromDocPath } from './use-diff-comments';
+import { useDiffComments } from './use-diff-comments';
+import { diffDocFilePath } from '@/lib/diff-doc-path';
 import { decodeSelection, encodeSelection, findSelectedFile, rowId } from './diff-selection';
 import { refsFor } from './diff-refs';
 import { patchSpecFor, patchContentId, reviewSpecFor } from './diff-patch-spec';
@@ -29,6 +30,8 @@ import { useFilePatch } from './use-file-patch';
 import { refreshDiff } from './diff-refresh';
 import { useViewedFiles } from './use-viewed-files';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
+import { useVirtualSearchParams } from '@/components/tabs/tab-context';
+import { diffUrlParams } from './diff-url-params';
 import { RiGitBranchLine, RiDownloadLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -79,13 +82,16 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   // belong to a specific changed-files list), so open tabs are always drawn from
   // the current `files`.
   const tabs = useEditorTabs();
+
+  const { repo: repoParam, view: viewParam } = diffUrlParams(useVirtualSearchParams());
+
   const [viewMode, setViewMode] = useState<ViewMode>('unified');
-  const [diffViewMode, setDiffViewMode] = useState<DiffViewMode>('latest');
+  const [diffViewMode, setDiffViewMode] = useState<DiffViewMode>(viewParam ?? 'latest');
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   // null = follow the repo's detected default branch; a string is an explicit override.
   const [userBaseBranch, setUserBaseBranch] = useState<string | null>(null);
   const [branchTarget, setBranchTarget] = useState<BranchDiffTarget>('worktree');
-  const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(null);
+  const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(repoParam);
   // null follows the file count; a choice overrides it until the view changes.
   const [userReviewMode, setUserReviewMode] = useState<ReviewMode | null>(null);
   // What the stack reports as it scrolls, so the file list can follow along
@@ -103,6 +109,18 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     tabs.reset();
     setSelectedCommit(null);
   };
+
+  // The link can retarget a tab that already shows this page, which stays
+  // mounted, so the params are synced during render rather than only read once.
+  const paramKey = `${repoParam ?? ''}|${viewParam ?? ''}`;
+  const [prevParamKey, setPrevParamKey] = useState(paramKey);
+  if (paramKey !== prevParamKey) {
+    setPrevParamKey(paramKey);
+    if (repoParam) setUserSelectedRepo(repoParam);
+    if (viewParam) setDiffViewMode(viewParam);
+    tabs.reset();
+    setSelectedCommit(null);
+  }
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
   const { data: project } = trpc.project.getBySlug.useQuery(
@@ -192,6 +210,18 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
       refetchOnWindowFocus: true,
     },
   );
+
+  // Comment threads are keyed by the branch under review, so the branch is read
+  // in every view mode — not only the one that lists working-tree files.
+  const { data: branchData } = trpc.diff.getBranch.useQuery(
+    {
+      repoDir: selectedRepo!,
+      worktreePath: selectedWorktree?.worktreePath,
+      coderWorkspace: selectedWorktree?.coderWorkspace,
+    },
+    { enabled: !!selectedRepo },
+  );
+  const checkedOutBranch = branchData?.branch ?? null;
 
   // Commit history data
   const { data: logData, isLoading: isLogLoading } = trpc.diff.getLog.useQuery(
@@ -318,7 +348,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     remove,
     removeComment,
     refetch: refetchComments,
-  } = useDiffComments(selectedRepo);
+  } = useDiffComments(selectedRepo, checkedOutBranch);
 
   // Invalidate comment threads when the server signals a PR change so that
   // GitHub review comments imported by the poller appear without a page reload.
@@ -517,7 +547,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     const counts = new Map<string, number>();
 
     for (const c of diffComments) {
-      const filePath = extractFilePathFromDocPath(c.documentPath, selectedRepo);
+      const filePath = diffDocFilePath(c.documentPath);
       if (!filePath || !filePaths.has(filePath)) continue;
       filtered.push(c);
       if (!c.resolved) {
@@ -635,7 +665,6 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
           set (e.g. PR files not in the working tree) are not shown here. */}
         {selectedRepo && (
           <GithubCommentTriage
-            repoDir={selectedRepo}
             diffComments={currentFileComments}
             sessionId={correlatedSessionId}
             onResolve={resolve}

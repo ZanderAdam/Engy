@@ -10,6 +10,7 @@ import {
   getLog,
   getShow,
   getBranchFiles,
+  getCurrentBranch,
   resolveDefaultBase,
   remoteForBase,
   fetchRemote,
@@ -318,6 +319,32 @@ describe('git integration', () => {
       const commits = await getLog(repoDir, 2);
 
       expect(commits).toHaveLength(2);
+    });
+  });
+
+  describe('getCurrentBranch', () => {
+    it('[FR-GIT-510] reports the checked-out branch', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+      await simpleGit(repoDir).checkoutLocalBranch('feature/login');
+
+      await expect(getCurrentBranch(repoDir)).resolves.toBe('feature/login');
+    });
+
+    it('[FR-GIT-510] reports HEAD when the checkout is detached', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+      const repo = simpleGit(repoDir);
+      const head = (await repo.revparse(['HEAD'])).trim();
+      await repo.checkout([head]);
+
+      await expect(getCurrentBranch(repoDir)).resolves.toBe('HEAD');
+    });
+
+    it('[FR-GIT-510] reports the branch of a repo with no commits yet', async () => {
+      repoDir = await createTempRepo();
+
+      await expect(getCurrentBranch(repoDir)).resolves.toMatch(/^(main|master)$/);
     });
   });
 

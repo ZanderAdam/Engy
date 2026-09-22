@@ -4,16 +4,19 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getDb } from '../db/client';
 import { commentThreads, threadComments } from '../db/schema';
 import { getAppState } from '../trpc/context';
+import { dispatchGitBranch } from '../ws/server';
 import { setThreadResolved } from '../services/comment';
 import { broadcastCommentChange } from '../ws/broadcast';
 import { randomId } from '@/lib/random-id';
 import { AGENT_USER_ID } from '@/lib/comment-feedback';
 import { mcpError, mcpResult } from './result';
+import { diffScopePrefix } from '@/lib/diff-doc-path';
 
 // Diff-review authoring tools. Agent-only (no tRPC counterparts by design —
 // the browser writes the same rows through comment.createThread and builds the
-// `diff://` path itself in use-diff-comments.ts; these tools exist so an agent
-// does not have to reconstruct that path and metadata shape by hand).
+// `diff://` path from the same helper in lib/diff-doc-path.ts; these tools
+// exist so an agent does not have to reconstruct that path and metadata shape
+// by hand).
 //
 // Every row written here is workspace-less. The Diffs tab reads through
 // comment.listThreadsByPrefix with no workspaceSlug, which filters on
@@ -71,12 +74,22 @@ const diffReviewListInput = {
   filePath: z.string().optional().describe('Restrict to one file, relative to the repo root'),
 };
 
-function summaryPath(repoDir: string): string {
-  return `diff://${repoDir}/`;
-}
-
-function filePath(repoDir: string, file: string): string {
-  return `diff://${repoDir}/${file}`;
+/**
+ * A review is keyed by the branch the repo is on, so findings stay with the
+ * branch they were written against. The caller passes only `repoDir`, so the
+ * branch is read from the daemon rather than taken on trust from an agent that
+ * may have moved on since it last looked.
+ */
+async function scopePrefix(repoDir: string): Promise<string> {
+  try {
+    const { branch } = await dispatchGitBranch(repoDir, getAppState());
+    return diffScopePrefix(repoDir, branch);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Cannot read the branch of "${repoDir}", which the review is filed against: ${reason}. Check that the path is a git repo the Engy daemon can reach.`,
+    );
+  }
 }
 
 /** Author fields the caller cannot set, so `source: 'agent'` stays trustworthy. */
@@ -149,8 +162,9 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
     'Anchor one review finding to a line of the diff under review, where it appears inline in the Diffs tab. Anchor only what a reader must act on; everything else belongs in diff_review_summary.',
     diffReviewCommentInput,
     async (args) => {
+      const path = `${await scopePrefix(args.repoDir)}${args.filePath}`;
       const threadId = insertThread(
-        filePath(args.repoDir, args.filePath),
+        path,
         {
           type: 'diff',
           ...authorMetadata(callerTerminalSessionId),
@@ -162,7 +176,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
         },
         findingBody(args),
       );
-      broadcastCommentChange(filePath(args.repoDir, args.filePath), threadId);
+      broadcastCommentChange(path, threadId);
       return mcpResult({ threadId });
     },
   );
@@ -173,7 +187,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
     diffReviewSummaryInput,
     async (args) => {
       const db = getDb();
-      const path = summaryPath(args.repoDir);
+      const path = await scopePrefix(args.repoDir);
       db.delete(commentThreads)
         .where(and(eq(commentThreads.documentPath, path), isNull(commentThreads.workspaceId)))
         .run();
@@ -220,12 +234,12 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
     'Read the review already on this diff — your own findings and the human comments left on it. Call before filing, so a re-review answers open comments instead of repeating findings that already stand.',
     diffReviewListInput,
     async (args) => {
-      const repoPrefix = summaryPath(args.repoDir);
+      const repoPrefix = await scopePrefix(args.repoDir);
 
       // A prefix match would pair every `Foo.ts` with `Foo.tsx`, so one file is
       // read by exact path and only the repo-wide case scans by prefix.
       const rows = args.filePath
-        ? readThreadsWhere(eq(commentThreads.documentPath, filePath(args.repoDir, args.filePath)))
+        ? readThreadsWhere(eq(commentThreads.documentPath, `${repoPrefix}${args.filePath}`))
         : readThreadsWhere(like(commentThreads.documentPath, `${repoPrefix}%`));
 
       const threads = rows.map((row) => {

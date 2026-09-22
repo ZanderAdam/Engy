@@ -348,6 +348,26 @@ async function refExists(dir: string, ref: string, runGit: GitRunner): Promise<b
   }
 }
 
+/**
+ * A repo with no commits yet has no `HEAD` to resolve, so the symbolic ref is
+ * read instead; a detached `HEAD` reports `HEAD`, matching porcelain status.
+ */
+export async function getCurrentBranch(
+  dir: string,
+  runGit: GitRunner = localGitRunner,
+): Promise<string> {
+  try {
+    const { stdout } = await runGit(['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD']);
+    const branch = stdout.trim();
+    if (branch) return branch;
+  } catch {
+    // Fall through to the symbolic ref.
+  }
+
+  const { stdout } = await runGit(['-C', dir, 'symbolic-ref', '--short', 'HEAD']);
+  return stdout.trim() || 'HEAD';
+}
+
 export async function resolveDefaultBase(
   dir: string,
   runGit: GitRunner = localGitRunner,

@@ -195,6 +195,18 @@ the terminal-relay area), which is what keeps the session's branch current.
 sorted groups alongside a per-repo `errors` list for any repo whose enumeration
 failed — partial success is the contract, not all-or-nothing.
 
+## Review scope of a diff comment
+
+A comment thread on a diff is stored at `diff://<repoDir>#<branch>/<filePath>`, built by `diffDocPath` in `web/src/lib/diff-doc-path.ts` — the one place that spells the format, shared by the browser (`use-diff-comments.ts`), the agent tools (`server/mcp/diff-review-tools.ts`) and the GitHub import (`server/pr/review-sync.ts`). The branch is percent-encoded so a branch containing `/` still splits back out of the path. The review summary sits at the prefix itself, with no file part.
+
+The branch comes from the checkout under review, read through `diff.getBranch` / `GIT_BRANCH_REQUEST` — a request that resolves `HEAD` alone. `getStatus` also carries the branch, but it walks the working tree and is only enabled in one view mode; sharing its query key would have forced that walk in every mode. The agent tools read the branch the same way at write time rather than trusting a tool argument, and the GitHub import uses the pull request's head branch instead. A detached `HEAD` reports `HEAD`, so every detached review shares one scope.
+
+Migration `0033_drop_unscoped_diff_comments.sql` deletes the branch-less threads written before this format. GitHub threads return on the next poll; local and agent threads are not recoverable, which is the accepted cost of not carrying two path formats.
+
+## Reaching a review from a terminal
+
+A terminal panel's top bar links to the branch review of the repo the session works in: `resolveDiffTarget` (`web/src/components/terminal/terminal-diff-target.ts`) maps the session's working directory to a repo — through `worktree.listGrouped` for a worktree, otherwise to the innermost `workspace.repos` entry containing it — and `branchDiffHref` builds `/w/<ws>/projects/<project>/diffs?diffView=branch&diffRepo=<repoDir>` plus `wt=<branch>` for a worktree. The Diffs page seeds its repo and view mode from those params, and re-reads them when an already-open tab is retargeted.
+
 ## File glob for test discovery
 
 `globTestFiles` in `client/src/git/index.ts` uses `git ls-files --cached
@@ -258,6 +270,10 @@ FR id in their title string, e.g. `it('[FR-GIT-010] ...', ...)`, and run
 | FR-GIT-450 | WHEN "Review diff" is invoked, the system SHALL send the terminal a scope that covers the whole diff on screen — in `latest` mode both staged and unstaged changes against the head commit, whichever tab is open — and SHALL tell the agent to run git in the worktree on screen while filing findings against the repo; IF the diff is in a Coder workspace, THEN the action SHALL be disabled. |
 | FR-GIT-460 | WHILE files are stacked, the system SHALL render the diff of at most a fixed number of files at once, SHALL give a slot only to files that render a text diff and are not marked viewed, and SHALL free a file's slot when it leaves the list or is marked viewed; the stack SHALL be the default only when every file fits in a slot. |
 | FR-GIT-470 | WHEN an open agent finding sits on a line hidden in a collapsed gap, the diff pane SHALL expand a few lines around that line, clamped to the gap, and SHALL NOT expand the gap for human, GitHub or resolved threads. |
+| FR-GIT-480 | WHEN a comment thread on a diff is written or read, the system SHALL key it on the repo AND the branch under review (`diff://<repoDir>#<branch>/<filePath>`, the branch percent-encoded, the review summary at the prefix itself), so a review left on one branch SHALL NOT appear on another branch of the same checkout; the branch SHALL be taken from the checkout under review — the pull request's head branch for an imported GitHub comment — and threads stored without a branch SHALL be deleted rather than shown. |
+| FR-GIT-490 | WHEN a terminal session works inside a known repo, the system SHALL offer a link from its panel to that repo's branch review, resolving a worktree directory back to its repo and branch and any other directory to the innermost workspace repo containing it; IF no workspace repo contains the directory, THEN no link SHALL be offered. |
+| FR-GIT-510 | WHEN only the checked-out branch is needed, the system SHALL obtain it through a daemon request that resolves `HEAD` alone rather than one that also enumerates working-tree status; a detached checkout SHALL report `HEAD`, and a repo with no commits SHALL report the branch its `HEAD` symbolically points at. |
+| FR-GIT-500 | WHEN the diffs surface is opened with its own repo or view-mode parameter (`diffRepo` / `diffView`, named apart from other sections' parameters because the project nav copies every parameter onto its section links), it SHALL start on that repo and mode instead of its defaults, and SHALL follow the parameters when they change while it stays open. |
 
 ## Sources
 
