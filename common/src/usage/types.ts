@@ -1,3 +1,10 @@
+/**
+ * The daemon and the server each declare their reducer version with this type, so a bump on one
+ * side does not compile until the other side matches. A daemon that still runs older code sends a
+ * different number, and the server refuses its scan.
+ */
+export type UsageReducerVersion = 4;
+
 export type UsageCostBucket = 'input' | 'output' | 'cacheWrite1h' | 'cacheWrite5m' | 'cacheRead';
 
 export type UsageCauseKind =
@@ -146,8 +153,6 @@ export interface UsageSessionScan {
   calls: UsageCallPoint[];
   /** Auto-compaction events in this session — explains its cost shape (attribution caps at each boundary). */
   compactions: number;
-  /** Byte offset consumed, for incremental rescans. */
-  bytesScanned: number;
   linesParsed: number;
   linesSkipped: number;
 }

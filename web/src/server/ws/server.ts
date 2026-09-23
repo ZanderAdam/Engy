@@ -350,7 +350,7 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
         sessions: p.sessions,
         files: p.files,
         newlySealedDates: p.newlySealedDates,
-        staleSealSkips: p.staleSealSkips,
+        reducerVersion: p.reducerVersion,
       }));
       break;
   }

@@ -233,7 +233,7 @@ describe('scanUsage', () => {
     });
   });
 
-  describe('incremental scan', () => {
+  describe('changed files', () => {
     it('[FR-USAGE-200] should skip a file whose size and mtime are unchanged', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
@@ -250,7 +250,7 @@ describe('scanUsage', () => {
       expect(second.files[filePath]).toEqual(first.files[filePath]);
     });
 
-    it('[FR-USAGE-200] should resume from the stored byte offset for a grown file', async () => {
+    it('[FR-USAGE-205] should read a grown file again from byte 0', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
       await writeTranscript(filePath, [
@@ -261,10 +261,6 @@ describe('scanUsage', () => {
       expect(first.sessions[0].scan.session.apiCalls).toBe(2);
 
       await appendFile(filePath, usageLine({ timestamp: '2026-01-05T12:00:00.000Z', cacheRead: 30 }) + '\n');
-      const stats = await stat(filePath);
-      // mtime resolution can be coarser than the write; force a detectable change
-      // so the resume branch (not the unchanged-skip branch) is exercised.
-      expect(first.files[filePath].bytesScanned).toBeLessThan(stats.size);
 
       const second = await scanUsage({
         homeDir,
@@ -273,17 +269,61 @@ describe('scanUsage', () => {
       });
 
       expect(second.sessions).toHaveLength(1);
-      // Resume feeds only the newly appended line into a fresh reducer, so the
-      // rollups are a delta — `isFullParse` is what tells the consumer to add
-      // them to the totals it already holds instead of replacing them.
-      expect(second.sessions[0].scan.session.apiCalls).toBe(1);
-      expect(second.sessions[0].scan.session.cacheReadTokens).toBe(30);
-      expect(second.sessions[0].isFullParse).toBe(false);
-      expect(first.sessions[0].isFullParse).toBe(true);
-      expect(second.files[filePath].bytesScanned).toBe(stats.size);
+      expect(second.sessions[0].scan.session.apiCalls).toBe(3);
+      expect(second.sessions[0].scan.session.cacheReadTokens).toBe(60);
     });
 
-    it('[FR-USAGE-200] should fully reparse a shrunk file', async () => {
+    it('[FR-USAGE-205] should charge content from an earlier read to the calls appended after it', async () => {
+      homeDir = await makeHome();
+      const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
+      const skillListing = JSON.stringify({
+        type: 'attachment',
+        timestamp: '2026-01-05T10:00:00.000Z',
+        attachment: { type: 'skill_listing', content: 'x'.repeat(360) },
+      });
+      await writeTranscript(filePath, [
+        skillListing,
+        usageLine({ timestamp: '2026-01-05T10:01:00.000Z' }),
+      ]);
+      const first = await scanUsage({ homeDir, knownFiles: {}, sealedDates: new Set() });
+
+      await appendFile(
+        filePath,
+        [
+          usageLine({ timestamp: '2026-01-05T10:02:00.000Z' }),
+          usageLine({ timestamp: '2026-01-05T10:03:00.000Z' }),
+        ].join('\n') + '\n',
+      );
+      const second = await scanUsage({ homeDir, knownFiles: first.files, sealedDates: new Set() });
+
+      const attachmentTurns = (result: typeof first) =>
+        result.sessions[0].scan.causes.find((cause) => cause.kind === 'attachment')?.tokenTurns;
+      expect(attachmentTurns(first)).toBeCloseTo(100, 5);
+      expect(attachmentTurns(second)).toBeCloseTo(300, 5);
+    });
+
+    it('[FR-USAGE-205] should read lines on a sealed date when it reads a changed file', async () => {
+      homeDir = await makeHome();
+      const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
+      await writeTranscript(filePath, [
+        usageLine({ timestamp: '2026-01-05T10:00:00.000Z', cacheRead: 100 }),
+        usageLine({ timestamp: '2026-01-06T10:00:00.000Z', cacheRead: 200 }),
+      ]);
+
+      const result = await scanUsage({
+        homeDir,
+        knownFiles: {},
+        sealedDates: new Set(['2026-01-05']),
+      });
+
+      expect(result.sessions[0].scan.session.apiCalls).toBe(2);
+      expect(result.sessions[0].scan.days.map((day) => day.date)).toEqual([
+        '2026-01-05',
+        '2026-01-06',
+      ]);
+    });
+
+    it('[FR-USAGE-205] should read a shrunk file again from byte 0', async () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
       await writeTranscript(filePath, [
@@ -291,7 +331,6 @@ describe('scanUsage', () => {
         usageLine({ timestamp: '2026-01-05T11:00:00.000Z', cacheRead: 20 }),
       ]);
       const first = await scanUsage({ homeDir, knownFiles: {}, sealedDates: new Set() });
-      expect(first.files[filePath].sizeBytes).toBeGreaterThan(0);
 
       await writeTranscript(filePath, [
         usageLine({ timestamp: '2026-01-06T10:00:00.000Z', cacheRead: 5 }),
@@ -308,8 +347,6 @@ describe('scanUsage', () => {
       expect(second.sessions).toHaveLength(1);
       expect(second.sessions[0].scan.session.apiCalls).toBe(1);
       expect(second.sessions[0].scan.session.cacheReadTokens).toBe(5);
-      // Reparsed from byte 0, so these rollups replace the stored ones.
-      expect(second.sessions[0].isFullParse).toBe(true);
     });
   });
 
@@ -349,7 +386,7 @@ describe('scanUsage', () => {
       });
       expect(windowed.sessions).toHaveLength(0);
 
-      // Claiming the skipped bytes here would make the file look unchanged and
+      // Recording the skipped file here would make the file look unchanged and
       // lose its history for good.
       const full = await scanUsage({
         homeDir,
@@ -359,7 +396,6 @@ describe('scanUsage', () => {
 
       expect(full.sessions).toHaveLength(1);
       expect(full.sessions[0].scan.session.cacheReadTokens).toBe(700);
-      expect(full.sessions[0].isFullParse).toBe(true);
     });
 
     it('[FR-USAGE-380] should carry a known file forward unchanged when the window skips it', async () => {
@@ -415,7 +451,6 @@ describe('scanUsage', () => {
 
       expect(resumed.sessions).toHaveLength(1);
       expect(resumed.sessions[0].scan.session.apiCalls).toBe(2);
-      expect(resumed.sessions[0].isFullParse).toBe(true);
     });
   });
 
@@ -459,30 +494,10 @@ describe('scanUsage', () => {
         (s) => s.scan.session.sessionId === 'sess-skipped',
       );
       expect(recovered?.scan.session.cacheReadTokens).toBe(777);
-      expect(unwindowed.staleSealSkips).toBe(0);
     });
   });
 
   describe('sealed days', () => {
-    it('[FR-USAGE-190] should skip lines on an already-sealed date and count staleSealSkips', async () => {
-      homeDir = await makeHome();
-      const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-1');
-      await writeTranscript(filePath, [
-        usageLine({ timestamp: '2026-01-05T10:00:00.000Z', cacheRead: 100 }),
-        usageLine({ timestamp: '2026-01-06T10:00:00.000Z', cacheRead: 200 }),
-      ]);
-
-      const result = await scanUsage({
-        homeDir,
-        knownFiles: {},
-        sealedDates: new Set(['2026-01-05']),
-      });
-
-      expect(result.sessions[0].scan.session.apiCalls).toBe(1);
-      expect(result.sessions[0].scan.session.cacheReadTokens).toBe(200);
-      expect(result.staleSealSkips).toBe(1);
-    });
-
     it('[FR-USAGE-180] should seal every past date, not stop at the oldest finished file', async () => {
       homeDir = await makeHome();
       await writeTranscript(mainTranscriptPath(homeDir, '-repo', 'sess-a'), [
@@ -590,14 +605,13 @@ describe('scanUsage', () => {
 
       expect(first.sessions[0].scan.session.apiCalls).toBe(1);
       expect(first.sessions[0].scan.session.cacheReadTokens).toBe(100);
-      expect(first.files[filePath].bytesScanned).toBe(Buffer.byteLength(`${completeLine}\n`));
 
       await appendFile(filePath, '\n');
       const second = await scanUsage({ homeDir, knownFiles: first.files, sealedDates: new Set() });
 
       expect(second.sessions).toHaveLength(1);
-      expect(second.sessions[0].scan.session.apiCalls).toBe(1);
-      expect(second.sessions[0].scan.session.cacheReadTokens).toBe(200);
+      expect(second.sessions[0].scan.session.apiCalls).toBe(2);
+      expect(second.sessions[0].scan.session.cacheReadTokens).toBe(300);
     });
   });
 

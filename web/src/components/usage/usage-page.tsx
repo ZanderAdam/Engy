@@ -180,8 +180,8 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
 
   const rebuildMutation = trpc.usage.rebuild.useMutation({
     onSuccess: () => {
-      toast.success('Usage history rebuilt', {
-        description: 'The next scan rebuilds it from your Claude transcripts.',
+      toast.success('Rebuild is ready', {
+        description: 'The next refresh reads all Claude transcripts again.',
       });
     },
     onError: (error) => toast.error('The rebuild failed', { description: error.message }),

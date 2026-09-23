@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
+import { eq } from 'drizzle-orm';
 import type { UsageSessionScanResult } from '@engy/common';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
@@ -13,12 +14,14 @@ import {
   usageCall,
   usageContextItem,
   usageExpensiveCall,
+  usageScanFile,
   usageSealedDate,
   workspaces,
 } from '../../db/schema';
 import { seedUsagePricing } from '../../usage/pricing';
 import { USAGE_REDUCER_VERSION } from '../../usage/rebuild';
 import { refreshUsage } from '../../usage/ingest';
+import type { UsageScanDispatchResult } from '../context';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -245,12 +248,10 @@ function makeScanResult(overrides: Partial<UsageSessionScanResult['scan']['sessi
         },
       ],
       compactions: 2,
-      bytesScanned: 1000,
       linesParsed: 10,
       linesSkipped: 5,
     },
     repoRoot: '/repo',
-    isFullParse: true,
     meta: {
       durationMinutes: 12.5,
       firstPrompt: 'Fix the flaky test',
@@ -263,44 +264,35 @@ function makeScanResult(overrides: Partial<UsageSessionScanResult['scan']['sessi
   };
 }
 
-function installFakeUsageDaemon(
-  ctx: TestContext,
-  respond: () => { sessions: UsageSessionScanResult[]; files: Record<string, never>; newlySealedDates: string[]; staleSealSkips: number },
-) {
-  const mock = {
-    readyState: WebSocket.OPEN,
-    OPEN: WebSocket.OPEN,
-    send: (raw: string) => {
-      const msg = JSON.parse(raw) as DaemonMessage;
-      if (msg.type !== 'USAGE_SCAN_REQUEST') return;
-      queueMicrotask(() => {
-        const pending = ctx.state.pendingUsageScan.get(msg.payload.requestId);
-        if (!pending) return;
-        ctx.state.pendingUsageScan.delete(msg.payload.requestId);
-        pending.resolve({ requestId: msg.payload.requestId, ...respond() } as never);
-      });
-    },
-  };
-  ctx.state.daemon = mock as unknown as WebSocket;
+type FakeScanResponse = Partial<UsageScanDispatchResult>;
+
+interface ScanRequest {
+  knownFiles: Record<string, unknown>;
+  sealedDates: string[];
+  since?: string;
 }
 
-function installTrackingUsageDaemon(
-  ctx: TestContext,
-  respond: () => { sessions: UsageSessionScanResult[]; files: Record<string, never>; newlySealedDates: string[]; staleSealSkips: number },
-) {
-  const requests: Array<{ since?: string }> = [];
+function installFakeUsageDaemon(ctx: TestContext, respond: () => FakeScanResponse): ScanRequest[] {
+  const requests: ScanRequest[] = [];
   const mock = {
     readyState: WebSocket.OPEN,
     OPEN: WebSocket.OPEN,
     send: (raw: string) => {
       const msg = JSON.parse(raw) as DaemonMessage;
       if (msg.type !== 'USAGE_SCAN_REQUEST') return;
-      requests.push({ since: msg.payload.since as string | undefined });
+      const { requestId, ...request } = msg.payload;
+      requests.push(request as unknown as ScanRequest);
       queueMicrotask(() => {
-        const pending = ctx.state.pendingUsageScan.get(msg.payload.requestId);
+        const pending = ctx.state.pendingUsageScan.get(requestId);
         if (!pending) return;
-        ctx.state.pendingUsageScan.delete(msg.payload.requestId);
-        pending.resolve({ requestId: msg.payload.requestId, ...respond() } as never);
+        ctx.state.pendingUsageScan.delete(requestId);
+        pending.resolve({
+          sessions: [],
+          files: {},
+          newlySealedDates: [],
+          reducerVersion: USAGE_REDUCER_VERSION,
+          ...respond(),
+        });
       });
     },
   };
@@ -667,9 +659,6 @@ describe('usage router', () => {
 
       installFakeUsageDaemon(ctx, () => ({
         sessions: [scan],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
       }));
       await caller.usage.refresh();
 
@@ -1007,9 +996,6 @@ describe('usage router', () => {
       ];
       installFakeUsageDaemon(ctx, () => ({
         sessions: [result],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
       }));
 
       await caller.usage.refresh();
@@ -1021,9 +1007,6 @@ describe('usage router', () => {
     it('[FR-USAGE-250] [FR-WS-210] should upsert a scanned session from the daemon and broadcast the change', async () => {
       installFakeUsageDaemon(ctx, () => ({
         sessions: [makeScanResult()],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
       }));
 
       const result = await caller.usage.refresh();
@@ -1033,23 +1016,33 @@ describe('usage router', () => {
       const sessions = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
       expect(sessions).toHaveLength(1);
       expect(sessions[0]).toMatchObject({ sessionId: 'scan-1', label: 'Fix the flaky test' });
+      expect(ctx.db.select().from(usageContextItem).all()).toHaveLength(2);
+    });
+
+    it('[FR-USAGE-250] should write no row, context items included, when one insert of the scan fails', async () => {
+      const broken = makeScanResult();
+      broken.scan.calls = [
+        { callIndex: 0, cacheReadTokens: 100 },
+        { callIndex: 0, cacheReadTokens: 200 },
+      ];
+      installFakeUsageDaemon(ctx, () => ({ sessions: [broken] }));
+
+      await expect(caller.usage.refresh()).rejects.toThrow();
+
+      expect(ctx.db.select().from(usageSession).all()).toHaveLength(0);
+      expect(ctx.db.select().from(usageContextItem).all()).toHaveLength(0);
+      expect(ctx.db.select().from(usageCall).all()).toHaveLength(0);
     });
 
     it('[FR-USAGE-210] should accumulate usageSessionDaily across two sessions sharing date/slug/model, not overwrite', async () => {
       installFakeUsageDaemon(ctx, () => ({
         sessions: [makeScanResult({ sessionId: 'sess-a' })],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
       }));
       await caller.usage.refresh();
       const afterFirst = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
 
       installFakeUsageDaemon(ctx, () => ({
         sessions: [makeScanResult({ sessionId: 'sess-b' })],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
       }));
       await caller.usage.refresh();
       const afterSecond = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
@@ -1061,46 +1054,13 @@ describe('usage router', () => {
       expect(afterSecond.totals.cacheReadTokens).toBe(2 * afterFirst.totals.cacheReadTokens);
     });
 
-    it('[FR-USAGE-210] [FR-WS-220] should add a resumed scan tail to the totals already stored, not replace them', async () => {
+    it('[FR-USAGE-210] should replace a rescanned session rather than double-counting it', async () => {
       installFakeUsageDaemon(ctx, () => ({
         sessions: [makeScanResult()],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
       }));
       await caller.usage.refresh();
       const afterFirst = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
 
-      installFakeUsageDaemon(ctx, () => ({
-        sessions: [{ ...makeScanResult(), isFullParse: false }],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
-      }));
-      await caller.usage.refresh();
-
-      const afterTail = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
-      const session = await caller.usage.session({ sessionId: 'scan-1' });
-
-      expect(afterTail.totals.apiCalls).toBe(2 * afterFirst.totals.apiCalls);
-      expect(afterTail.totals.cacheReadTokens).toBe(2 * afterFirst.totals.cacheReadTokens);
-      expect(session.session.apiCalls).toBe(4);
-      // The tail renumbers its calls from 1, so they continue the stored series.
-      expect(session.callSeries.map((point) => point.callIndex)).toEqual([0, 1, 2, 3]);
-    });
-
-    it('[FR-USAGE-210] [FR-WS-220] should replace a session rescanned in full rather than double-counting it', async () => {
-      installFakeUsageDaemon(ctx, () => ({
-        sessions: [makeScanResult()],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
-      }));
-      await caller.usage.refresh();
-      const afterFirst = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
-
-      // A truncated or rewritten transcript is reparsed from byte 0, so the
-      // rollups are the whole file again.
       await caller.usage.refresh();
       const afterReparse = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
 
@@ -1110,89 +1070,33 @@ describe('usage router', () => {
       const session = await caller.usage.session({ sessionId: 'scan-1' });
       expect(session.tools[0].calls).toBe(3);
       expect(session.files[0].reads).toBe(2);
+      expect(session.callSeries.map((point) => point.callIndex)).toEqual([0, 1]);
     });
 
-    it('[FR-USAGE-210] should add a tail scan to the stored context items and replace them on a full parse', async () => {
+    it('[FR-USAGE-210] should drop the stored rows that a rescan no longer reports', async () => {
       installFakeUsageDaemon(ctx, () => ({
         sessions: [makeScanResult()],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
       }));
       await caller.usage.refresh();
 
-      installFakeUsageDaemon(ctx, () => ({
-        sessions: [{ ...makeScanResult(), isFullParse: false }],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
-      }));
-      await caller.usage.refresh();
-      const afterTail = await caller.usage.session({ sessionId: 'scan-1' });
-
-      installFakeUsageDaemon(ctx, () => ({
-        sessions: [makeScanResult()],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
-      }));
-      await caller.usage.refresh();
-      const afterFull = await caller.usage.session({ sessionId: 'scan-1' });
-
-      const hook = (detail: typeof afterTail) =>
-        detail.contextItems.find((item) => item.kind === 'hook_success');
-      expect(hook(afterTail)).toMatchObject({ label: 'Stop', count: 4, tokens: 100 });
-      expect(hook(afterFull)).toMatchObject({ label: 'Stop', count: 2, tokens: 50 });
-    });
-
-    it('[FR-USAGE-215] should keep the first base context size when a tail scan reports another', async () => {
-      installFakeUsageDaemon(ctx, () => ({
-        sessions: [makeScanResult({ baseContextTokens: 20_000 })],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
-      }));
-      await caller.usage.refresh();
-
-      installFakeUsageDaemon(ctx, () => ({
-        sessions: [{ ...makeScanResult({ baseContextTokens: 90_000 }), isFullParse: false }],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
-      }));
+      const rescan = makeScanResult();
+      rescan.scan.contextItems = [
+        { date: '2024-01-10', kind: 'hook_success', label: 'Stop', count: 3, tokens: 75, tokenTurns: 150 },
+      ];
+      rescan.scan.expensiveCalls = [];
+      installFakeUsageDaemon(ctx, () => ({ sessions: [rescan] }));
       await caller.usage.refresh();
 
       const detail = await caller.usage.session({ sessionId: 'scan-1' });
-      expect(detail.session.baseContextTokens).toBe(20_000);
-    });
-
-    it('[FR-USAGE-215] should take the base context size from a tail scan when none is stored', async () => {
-      installFakeUsageDaemon(ctx, () => ({
-        sessions: [makeScanResult({ baseContextTokens: 0 })],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
-      }));
-      await caller.usage.refresh();
-
-      installFakeUsageDaemon(ctx, () => ({
-        sessions: [{ ...makeScanResult({ baseContextTokens: 30_000 }), isFullParse: false }],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
-      }));
-      await caller.usage.refresh();
-
-      const detail = await caller.usage.session({ sessionId: 'scan-1' });
-      expect(detail.session.baseContextTokens).toBe(30_000);
+      expect(detail.contextItems).toHaveLength(1);
+      expect(detail.contextItems[0]).toMatchObject({ kind: 'hook_success', count: 3, tokens: 75 });
+      const calls = await caller.usage.expensiveCalls({ from: '2024-01-10', to: '2024-01-10', limit: 10 });
+      expect(calls).toHaveLength(0);
     });
 
     it('[FR-USAGE-350] should persist a scanned session\'s expensive calls', async () => {
       installFakeUsageDaemon(ctx, () => ({
         sessions: [makeScanResult()],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
       }));
       await caller.usage.refresh();
 
@@ -1202,63 +1106,12 @@ describe('usage router', () => {
       expect(calls[0]).toMatchObject({ tool: 'Read', preview: 'src/index.ts', tokenTurns: 400 });
     });
 
-    it('[FR-USAGE-350] should prune a session\'s expensive calls to its top 20 by tokenTurns across many scan passes, not grow unbounded', async () => {
-      const sessionId = 'growing-1';
-      installFakeUsageDaemon(ctx, () => ({
-        sessions: [makeScanResult({ sessionId })],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
-      }));
-      await caller.usage.refresh(); // full parse — one row at tokenTurns 400.
-
-      // 25 incremental tail passes, each contributing one new expensive-call
-      // row (a session refreshed many times must not accumulate one row per
-      // pass forever).
-      for (let i = 0; i < 25; i += 1) {
-        const scan = makeScanResult({ sessionId });
-        scan.isFullParse = false;
-        scan.scan.expensiveCalls = [
-          {
-            date: '2024-01-10',
-            sessionId,
-            tool: 'Write',
-            field: 'file_path',
-            tokens: 100,
-            tokenTurns: 1000 + i,
-            callIndex: 0,
-            preview: `file-${i}.ts`,
-          },
-        ];
-        installFakeUsageDaemon(ctx, () => ({
-          sessions: [scan],
-          files: {},
-          newlySealedDates: [],
-          staleSealSkips: 0,
-        }));
-        await caller.usage.refresh();
-      }
-
-      const calls = await caller.usage.expensiveCalls({ from: '2024-01-10', to: '2024-01-10', limit: 200 });
-      const forSession = calls.filter((c) => c.sessionId === sessionId);
-
-      expect(forSession).toHaveLength(20);
-      // The lowest-tokenTurns rows (the original 400 and the earliest tail
-      // passes) are pruned, keeping only the session's overall top 20.
-      expect(Math.min(...forSession.map((c) => c.tokenTurns))).toBe(1005);
-    });
-
     it('[FR-USAGE-380] should forward since to the daemon scan request', async () => {
-      const requests = installTrackingUsageDaemon(ctx, () => ({
-        sessions: [],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
-      }));
+      const requests = installFakeUsageDaemon(ctx, () => ({}));
 
       await caller.usage.refresh({ since: '2024-01-01' });
 
-      expect(requests).toEqual([{ since: '2024-01-01' }]);
+      expect(requests.map((request) => request.since)).toEqual(['2024-01-01']);
     });
 
     it('should reject a since that is not an ISO date', async () => {
@@ -1266,11 +1119,8 @@ describe('usage router', () => {
     });
 
     it('should serve a second concurrent call from the in-flight scan instead of starting a new one', async () => {
-      const requests = installTrackingUsageDaemon(ctx, () => ({
+      const requests = installFakeUsageDaemon(ctx, () => ({
         sessions: [makeScanResult()],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
       }));
 
       const [first, second] = await Promise.all([caller.usage.refresh(), caller.usage.refresh()]);
@@ -1280,12 +1130,7 @@ describe('usage router', () => {
     });
 
     it('should allow a fresh scan once the in-flight one has settled', async () => {
-      const requests = installTrackingUsageDaemon(ctx, () => ({
-        sessions: [],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
-      }));
+      const requests = installFakeUsageDaemon(ctx, () => ({}));
 
       await caller.usage.refresh();
       await caller.usage.refresh();
@@ -1293,18 +1138,91 @@ describe('usage router', () => {
       expect(requests).toHaveLength(2);
     });
 
-    it('should invalidate a stale-version seal and force a full rescan', async () => {
-      seedSession(ctx, { sessionId: 's1' });
+    describe('daemon reducer version', () => {
+      function seedStoredHistory(): void {
+        seedSession(ctx, { sessionId: 's1' });
+        seedDaily(ctx, { sessionId: 's1' });
+        ctx.db
+          .insert(usageScanFile)
+          .values({ path: '/home/u/.claude/projects/-repo/s1.jsonl', sizeBytes: 10, mtimeMs: 1 })
+          .run();
+        ctx.db
+          .insert(usageSealedDate)
+          .values({ date: '2024-01-09', reducerVersion: USAGE_REDUCER_VERSION - 1 })
+          .run();
+      }
+
+      function expectStoredHistoryUntouched(): void {
+        expect(ctx.db.select().from(usageSession).all().map((row) => row.sessionId)).toEqual(['s1']);
+        expect(ctx.db.select().from(usageSessionDaily).all()).toHaveLength(1);
+        expect(ctx.db.select().from(usageScanFile).all()).toHaveLength(1);
+        expect(ctx.db.select().from(usageSealedDate).all()).toEqual([
+          expect.objectContaining({ date: '2024-01-09', reducerVersion: USAGE_REDUCER_VERSION - 1 }),
+        ]);
+      }
+
+      it('[FR-USAGE-245] should refuse a scan from a daemon with another reducer version and keep every row', async () => {
+        seedStoredHistory();
+        installFakeUsageDaemon(ctx, () => ({
+          sessions: [makeScanResult()],
+          newlySealedDates: ['2024-01-10'],
+          reducerVersion: USAGE_REDUCER_VERSION - 1,
+        }));
+
+        await expect(caller.usage.refresh()).rejects.toMatchObject({
+          code: 'PRECONDITION_FAILED',
+          message:
+            `The Engy daemon runs an older usage scanner (version ${USAGE_REDUCER_VERSION - 1}, ` +
+            `server needs ${USAGE_REDUCER_VERSION}). Restart the daemon, then refresh.`,
+        });
+        expectStoredHistoryUntouched();
+      });
+
+      it('[FR-USAGE-245] should refuse a scan that carries no reducer version and keep every row', async () => {
+        seedStoredHistory();
+        installFakeUsageDaemon(ctx, () => ({
+          sessions: [makeScanResult()],
+          reducerVersion: undefined,
+        }));
+
+        await expect(caller.usage.refresh()).rejects.toThrow(/version unknown.*Restart the daemon/);
+        expectStoredHistoryUntouched();
+      });
+    });
+
+    it('[FR-USAGE-260] should re-read every transcript on a stale seal and keep the rows of sessions not on disk', async () => {
+      seedSession(ctx, { sessionId: 'gone' });
+      seedDaily(ctx, { sessionId: 'gone' });
+      seedSession(ctx, { sessionId: 'scan-1' });
+      seedDaily(ctx, { sessionId: 'scan-1', apiCalls: 99 });
+      ctx.db
+        .insert(usageScanFile)
+        .values({ path: '/home/u/.claude/projects/-repo/scan-1.jsonl', sizeBytes: 10, mtimeMs: 1 })
+        .run();
       ctx.db
         .insert(usageSealedDate)
         .values({ date: '2024-01-01', reducerVersion: USAGE_REDUCER_VERSION - 1 })
         .run();
+      const requests = installFakeUsageDaemon(ctx, () => ({
+        sessions: [makeScanResult()],
+        newlySealedDates: ['2024-01-10'],
+      }));
 
       await caller.usage.refresh();
 
-      expect(ctx.db.select().from(usageSealedDate).all()).toHaveLength(0);
+      expect(requests).toEqual([{ knownFiles: {}, sealedDates: [] }]);
+      expect(ctx.db.select().from(usageScanFile).all()).toHaveLength(0);
+      expect(ctx.db.select().from(usageSealedDate).all()).toEqual([
+        expect.objectContaining({ date: '2024-01-10', reducerVersion: USAGE_REDUCER_VERSION }),
+      ]);
       const sessions = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
-      expect(sessions).toHaveLength(0);
+      expect(sessions.map((s) => s.sessionId).sort()).toEqual(['gone', 'scan-1']);
+      const daily = ctx.db
+        .select()
+        .from(usageSessionDaily)
+        .where(eq(usageSessionDaily.sessionId, 'scan-1'))
+        .all();
+      expect(daily.map((row) => row.apiCalls)).toEqual([2]);
     });
 
     it('should leave a current-version seal untouched', async () => {
@@ -1320,18 +1238,38 @@ describe('usage router', () => {
   });
 
   describe('rebuild', () => {
-    it('[FR-USAGE-360] should clear every usage table and broadcast the change', async () => {
-      seedSession(ctx, { sessionId: 's1' });
-      seedDaily(ctx);
-      seedTool(ctx);
+    it('[FR-USAGE-360] should keep rows for a transcript no longer on disk and replace rows for one that is', async () => {
+      seedSession(ctx, { sessionId: 'gone' });
+      seedDaily(ctx, { sessionId: 'gone' });
+      seedTool(ctx, { sessionId: 'gone' });
+      seedSession(ctx, { sessionId: 'scan-1' });
+      seedDaily(ctx, { sessionId: 'scan-1', apiCalls: 99 });
+      seedTool(ctx, { sessionId: 'scan-1', toolName: 'Bash' });
+      ctx.db
+        .insert(usageScanFile)
+        .values({ path: '/home/u/.claude/projects/-repo/scan-1.jsonl', sizeBytes: 10, mtimeMs: 1 })
+        .run();
+      ctx.db.insert(usageSealedDate).values({ date: '2024-01-09', reducerVersion: USAGE_REDUCER_VERSION }).run();
 
       const result = await caller.usage.rebuild();
 
       expect(result).toEqual({ rebuilt: true });
-      const sessions = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
-      expect(sessions).toHaveLength(0);
-      const tools = await caller.usage.tools({ from: '2024-01-10', to: '2024-01-10', limit: 10 });
-      expect(tools).toHaveLength(0);
+      expect(ctx.db.select().from(usageScanFile).all()).toHaveLength(0);
+      expect(ctx.db.select().from(usageSealedDate).all()).toHaveLength(0);
+      const kept = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
+      expect(kept.map((s) => s.sessionId).sort()).toEqual(['gone', 'scan-1']);
+
+      const requests = installFakeUsageDaemon(ctx, () => ({ sessions: [makeScanResult()] }));
+      await caller.usage.refresh();
+
+      expect(requests).toEqual([{ knownFiles: {}, sealedDates: [] }]);
+      const after = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
+      expect(after.map((s) => s.sessionId).sort()).toEqual(['gone', 'scan-1']);
+      const scanned = await caller.usage.session({ sessionId: 'scan-1' });
+      expect(scanned.session.apiCalls).toBe(2);
+      expect(scanned.tools.map((tool) => tool.tool)).toEqual(['Read']);
+      const gone = await caller.usage.session({ sessionId: 'gone' });
+      expect(gone.tools.map((tool) => tool.tool)).toEqual(['Read']);
     });
 
     it('should reject rebuild while a scan is running and leave its rows intact', async () => {
@@ -1353,12 +1291,11 @@ describe('usage router', () => {
             if (!pending) return;
             ctx.state.pendingUsageScan.delete(msg.payload.requestId);
             pending.resolve({
-              requestId: msg.payload.requestId,
               sessions: [makeScanResult()],
               files: {},
               newlySealedDates: [],
-              staleSealSkips: 0,
-            } as never);
+              reducerVersion: USAGE_REDUCER_VERSION,
+            });
           });
         },
       };
@@ -1391,9 +1328,6 @@ describe('usage router', () => {
       result.scan.days[0].inputTokens = 5_000_000;
       installFakeUsageDaemon(ctx, () => ({
         sessions: [result],
-        files: {},
-        newlySealedDates: [],
-        staleSealSkips: 0,
       }));
       await caller.usage.refresh();
 

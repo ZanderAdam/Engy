@@ -1,5 +1,5 @@
-import { and, desc, eq, notInArray, sql, type SQL } from 'drizzle-orm';
-import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { TRPCError } from '@trpc/server';
+import { and, eq } from 'drizzle-orm';
 import type { UsageScanFileState } from '@engy/common';
 import { getDb, type Db } from '../db/client';
 import {
@@ -21,11 +21,16 @@ import type { AppState, UsageScanDispatchResult } from '../trpc/context';
 import { dispatchUsageScan } from '../ws/server';
 import { broadcastUsageChange } from '../ws/broadcast';
 import { directMicroCents, getRatesMap, microCentsForTokens, microCentsToCents, rateFor } from './pricing';
-import { USAGE_REDUCER_VERSION, invalidateStaleReducerSeals } from './rebuild';
+import { USAGE_REDUCER_VERSION, hasStaleReducerSeals, rebuildUsageHistory } from './rebuild';
 
 // ── Daemon dispatch ───────────────────────────────────────────────────
 
-const EMPTY_SCAN: UsageScanDispatchResult = { sessions: [], files: {}, newlySealedDates: [], staleSealSkips: 0 };
+const EMPTY_SCAN: UsageScanDispatchResult = {
+  sessions: [],
+  files: {},
+  newlySealedDates: [],
+  reducerVersion: USAGE_REDUCER_VERSION,
+};
 
 function loadKnownFiles(db: Db): Record<string, UsageScanFileState> {
   const rows = db.select().from(usageScanFile).all();
@@ -34,7 +39,6 @@ function loadKnownFiles(db: Db): Record<string, UsageScanFileState> {
     knownFiles[row.path] = {
       sizeBytes: row.sizeBytes,
       mtimeMs: row.mtimeMs,
-      bytesScanned: row.bytesScanned,
       firstLineDate: row.firstLineDate,
       lastLineDate: row.lastLineDate,
     };
@@ -44,11 +48,30 @@ function loadKnownFiles(db: Db): Record<string, UsageScanFileState> {
 
 // A disconnected daemon (or one that can't yet answer) yields an empty scan
 // rather than failing `refresh()`.
-async function requestUsageScan(db: Db, state: AppState, since?: string): Promise<UsageScanDispatchResult> {
+async function requestUsageScan(
+  db: Db,
+  state: AppState,
+  since: string | undefined,
+  rebuild: boolean,
+): Promise<UsageScanDispatchResult> {
   if (!state.daemon || state.daemon.readyState !== state.daemon.OPEN) return EMPTY_SCAN;
+  if (rebuild) return dispatchUsageScan({}, [], state, since);
   const knownFiles = loadKnownFiles(db);
   const sealedDates = db.select({ date: usageSealedDate.date }).from(usageSealedDate).all().map((r) => r.date);
   return dispatchUsageScan(knownFiles, sealedDates, state, since);
+}
+
+// `pnpm cycle-web` restarts only the server, so an older daemon can still be
+// running. Its rollups lack fields this server reads, or were computed by
+// replaced logic, so they must not be stored or sealed.
+function assertDaemonReducerVersion(reducerVersion: number | undefined): void {
+  if (reducerVersion === USAGE_REDUCER_VERSION) return;
+  throw new TRPCError({
+    code: 'PRECONDITION_FAILED',
+    message:
+      `The Engy daemon runs an older usage scanner (version ${reducerVersion ?? 'unknown'}, ` +
+      `server needs ${USAGE_REDUCER_VERSION}). Restart the daemon, then refresh.`,
+  });
 }
 
 // ── Engy workspace/project resolution ─────────────────────────────────
@@ -92,34 +115,9 @@ function createEngyIdResolver(db: Db): (repoRoot: string | null) => EngyIds {
 
 // ── Upsert ────────────────────────────────────────────────────────────
 
-function addExcluded(column: SQLiteColumn): SQL<number> {
-  return sql`${column} + excluded.${sql.identifier(column.name)}`;
-}
-
-function maxExcluded(column: SQLiteColumn): SQL<number> {
-  return sql`max(${column}, excluded.${sql.identifier(column.name)})`;
-}
-
-/** `min`/`max` return NULL if either side is NULL, so fall back to the other. */
-function earliestExcluded(column: SQLiteColumn): SQL<string | null> {
-  const excluded = sql`excluded.${sql.identifier(column.name)}`;
-  return sql`min(coalesce(${column}, ${excluded}), coalesce(${excluded}, ${column}))`;
-}
-
-/** The first stored non-zero value wins, so a tail scan cannot replace the session's first call. */
-function firstNonZeroExcluded(column: SQLiteColumn): SQL<number> {
-  const excluded = sql`excluded.${sql.identifier(column.name)}`;
-  return sql`case when ${column} > 0 then ${column} else ${excluded} end`;
-}
-
-function latestExcluded(column: SQLiteColumn): SQL<string | null> {
-  const excluded = sql`excluded.${sql.identifier(column.name)}`;
-  return sql`max(coalesce(${column}, ${excluded}), coalesce(${excluded}, ${column}))`;
-}
-
 /**
- * A full parse re-derives every row this session owns, and a truncated
- * transcript can leave fewer of them than before, so the old set goes first.
+ * A scan re-derives every row this session owns, and a truncated transcript
+ * can leave fewer of them than before, so the old set goes first.
  */
 function clearSessionRollups(tx: Db, sessionId: string): void {
   tx.delete(usageSessionDaily).where(eq(usageSessionDaily.sessionId, sessionId)).run();
@@ -130,36 +128,6 @@ function clearSessionRollups(tx: Db, sessionId: string): void {
   tx.delete(usageContextItem).where(eq(usageContextItem.sessionId, sessionId)).run();
   tx.delete(usageCall).where(eq(usageCall.sessionId, sessionId)).run();
   tx.delete(usageExpensiveCall).where(eq(usageExpensiveCall.sessionId, sessionId)).run();
-}
-
-const EXPENSIVE_CALL_LIMIT = 20;
-
-/**
- * `usageExpensiveCall`'s key includes `priorCalls + callIndex`, which is
- * fresh on every scan pass — without pruning, a session refreshed many
- * times accumulates one row per pass instead of keeping only its overall
- * biggest calls.
- */
-function pruneExpensiveCalls(tx: Db, sessionId: string): void {
-  const keep = tx
-    .select({ callIndex: usageExpensiveCall.callIndex })
-    .from(usageExpensiveCall)
-    .where(eq(usageExpensiveCall.sessionId, sessionId))
-    .orderBy(desc(usageExpensiveCall.tokenTurns))
-    .limit(EXPENSIVE_CALL_LIMIT)
-    .all();
-  if (keep.length === 0) return;
-  tx.delete(usageExpensiveCall)
-    .where(
-      and(
-        eq(usageExpensiveCall.sessionId, sessionId),
-        notInArray(
-          usageExpensiveCall.callIndex,
-          keep.map((row) => row.callIndex),
-        ),
-      ),
-    )
-    .run();
 }
 
 function dominantFileTool(file: { reads: number; writes: number }): string {
@@ -174,7 +142,6 @@ function applyScanFileUpdates(tx: Db, files: Record<string, UsageScanFileState>)
     const values = {
       sizeBytes: state.sizeBytes,
       mtimeMs: state.mtimeMs,
-      bytesScanned: state.bytesScanned,
       firstLineDate: state.firstLineDate,
       lastLineDate: state.lastLineDate,
       lastScanAt,
@@ -186,7 +153,6 @@ function applyScanFileUpdates(tx: Db, files: Record<string, UsageScanFileState>)
   }
 }
 
-// A sealed date's rollup rows are read straight from SQLite forever after.
 function applySealedDates(tx: Db, dates: string[]): void {
   const sealedAt = new Date().toISOString();
   for (const dateValue of dates) {
@@ -198,33 +164,29 @@ function applySealedDates(tx: Db, dates: string[]): void {
   }
 }
 
-/**
- * A rescan of a grown transcript resumes at the stored byte offset, so its
- * rollups cover only the appended tail. Every counter therefore adds to what
- * is already stored; replacing would discard everything scanned before.
- * `isFullParse` marks the other case, where the rollups are the whole file —
- * there the session's rows are cleared first so the fresh totals stand alone.
- */
-function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessions: number } {
+/** Each scanned session is a whole transcript, so its rows replace the stored ones. */
+function upsertUsageScan(
+  db: Db,
+  response: UsageScanDispatchResult,
+  rebuild: boolean,
+): { newSessions: number } {
   return db.transaction((tx) => {
+    if (rebuild) rebuildUsageHistory(tx);
     let newSessions = 0;
     const rates = getRatesMap(tx);
     const resolveEngyIds = createEngyIdResolver(tx);
 
     for (const result of response.sessions) {
-      const { scan, repoRoot, meta, isFullParse } = result;
+      const { scan, repoRoot, meta } = result;
       const { session, days, tools, fields, files, causes, contextItems, calls, expensiveCalls } =
         scan;
       const existing = tx
-        .select({ sessionId: usageSession.sessionId, apiCalls: usageSession.apiCalls })
+        .select({ sessionId: usageSession.sessionId })
         .from(usageSession)
         .where(eq(usageSession.sessionId, session.sessionId))
         .get();
       if (!existing) newSessions += 1;
-      if (isFullParse) clearSessionRollups(tx, session.sessionId);
-      // Tail rollups number their calls from 1 again, so they continue after
-      // the calls already stored rather than overwriting them.
-      const priorCalls = isFullParse ? 0 : (existing?.apiCalls ?? 0);
+      clearSessionRollups(tx, session.sessionId);
 
       const rate = rateFor(rates, session.model);
       const estCostCents = microCentsToCents(
@@ -272,30 +234,9 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
         baseContextTokens: session.baseContextTokens,
       };
 
-      const sessionSet = isFullParse
-        ? sessionValues
-        : {
-            ...sessionValues,
-            startedAt: earliestExcluded(usageSession.startedAt),
-            startedDate: earliestExcluded(usageSession.startedDate),
-            endedAt: latestExcluded(usageSession.endedAt),
-            apiCalls: addExcluded(usageSession.apiCalls),
-            inputTokens: addExcluded(usageSession.inputTokens),
-            outputTokens: addExcluded(usageSession.outputTokens),
-            thinkingTokens: addExcluded(usageSession.thinkingTokens),
-            cacheReadTokens: addExcluded(usageSession.cacheReadTokens),
-            cacheWrite1hTokens: addExcluded(usageSession.cacheWrite1hTokens),
-            cacheWrite5mTokens: addExcluded(usageSession.cacheWrite5mTokens),
-            webSearchRequests: addExcluded(usageSession.webSearchRequests),
-            webFetchRequests: addExcluded(usageSession.webFetchRequests),
-            estCostCents: addExcluded(usageSession.estCostCents),
-            compactions: addExcluded(usageSession.compactions),
-            baseContextTokens: firstNonZeroExcluded(usageSession.baseContextTokens),
-          };
-
       tx.insert(usageSession)
         .values({ sessionId: session.sessionId, ...sessionValues })
-        .onConflictDoUpdate({ target: usageSession.sessionId, set: sessionSet })
+        .onConflictDoUpdate({ target: usageSession.sessionId, set: sessionValues })
         .run();
 
       for (const day of days) {
@@ -313,20 +254,6 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
             cacheReadTokens: day.cacheReadTokens,
             cacheWrite1hTokens: day.cacheWrite1hTokens,
             cacheWrite5mTokens: day.cacheWrite5mTokens,
-          })
-          .onConflictDoUpdate({
-            target: [usageSessionDaily.date, usageSessionDaily.sessionId, usageSessionDaily.model],
-            set: {
-              slug: session.slug,
-              isSubagent: session.isSubagent,
-              apiCalls: addExcluded(usageSessionDaily.apiCalls),
-              inputTokens: addExcluded(usageSessionDaily.inputTokens),
-              outputTokens: addExcluded(usageSessionDaily.outputTokens),
-              thinkingTokens: addExcluded(usageSessionDaily.thinkingTokens),
-              cacheReadTokens: addExcluded(usageSessionDaily.cacheReadTokens),
-              cacheWrite1hTokens: addExcluded(usageSessionDaily.cacheWrite1hTokens),
-              cacheWrite5mTokens: addExcluded(usageSessionDaily.cacheWrite5mTokens),
-            },
           })
           .run();
       }
@@ -357,25 +284,6 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
             errorCount: tool.errors,
             images: tool.images,
           })
-          .onConflictDoUpdate({
-            target: [usageTool.date, usageTool.sessionId, usageTool.toolName],
-            set: {
-              calls: addExcluded(usageTool.calls),
-              resultChars: addExcluded(usageTool.resultChars),
-              resultTokensEst: addExcluded(usageTool.resultTokensEst),
-              inputChars: addExcluded(usageTool.inputChars),
-              attributedTokenTurns: addExcluded(usageTool.attributedTokenTurns),
-              attributedCostMicroCents: addExcluded(usageTool.attributedCostMicroCents),
-              maxResultChars: maxExcluded(usageTool.maxResultChars),
-              // A reservoir sample can't be merged across scan passes without
-              // its raw draws, so a tail rescan's percentiles simply replace
-              // the prior estimate rather than combining with it.
-              p50ResultChars: tool.p50ResultChars,
-              p95ResultChars: tool.p95ResultChars,
-              errorCount: addExcluded(usageTool.errorCount),
-              images: addExcluded(usageTool.images),
-            },
-          })
           .run();
       }
 
@@ -390,15 +298,6 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
             tokens: field.tokens,
             tokenTurns: field.tokenTurns,
             attributedCostMicroCents: directRowMicroCents(field.tokenTurns),
-          })
-          .onConflictDoUpdate({
-            target: [usageField.date, usageField.sessionId, usageField.tool, usageField.field],
-            set: {
-              calls: addExcluded(usageField.calls),
-              tokens: addExcluded(usageField.tokens),
-              tokenTurns: addExcluded(usageField.tokenTurns),
-              attributedCostMicroCents: addExcluded(usageField.attributedCostMicroCents),
-            },
           })
           .run();
       }
@@ -419,45 +318,24 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
             attributedCostMicroCents: directRowMicroCents(file.tokenTurns),
             ext: file.ext,
           })
-          .onConflictDoUpdate({
-            target: [usageFile.date, usageFile.sessionId, usageFile.filePath],
-            set: {
-              tool: dominantFileTool(file),
-              reads: addExcluded(usageFile.reads),
-              edits: addExcluded(usageFile.edits),
-              writes: addExcluded(usageFile.writes),
-              totalChars: addExcluded(usageFile.totalChars),
-              tokensEst: addExcluded(usageFile.tokensEst),
-              attributedTokenTurns: addExcluded(usageFile.attributedTokenTurns),
-              attributedCostMicroCents: addExcluded(usageFile.attributedCostMicroCents),
-            },
-          })
           .run();
       }
 
       for (const call of expensiveCalls) {
-        const callValues = {
-          tool: call.tool,
-          field: call.field,
-          tokens: call.tokens,
-          tokenTurns: call.tokenTurns,
-          attributedCostMicroCents: directRowMicroCents(call.tokenTurns),
-          preview: call.preview,
-        };
         tx.insert(usageExpensiveCall)
           .values({
             date: call.date,
             sessionId: session.sessionId,
-            callIndex: priorCalls + call.callIndex,
-            ...callValues,
-          })
-          .onConflictDoUpdate({
-            target: [usageExpensiveCall.date, usageExpensiveCall.sessionId, usageExpensiveCall.callIndex],
-            set: callValues,
+            callIndex: call.callIndex,
+            tool: call.tool,
+            field: call.field,
+            tokens: call.tokens,
+            tokenTurns: call.tokenTurns,
+            attributedCostMicroCents: directRowMicroCents(call.tokenTurns),
+            preview: call.preview,
           })
           .run();
       }
-      pruneExpensiveCalls(tx, session.sessionId);
 
       for (const cause of causes) {
         tx.insert(usageCause)
@@ -466,10 +344,6 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
             sessionId: session.sessionId,
             kind: cause.kind,
             tokenTurns: cause.tokenTurns,
-          })
-          .onConflictDoUpdate({
-            target: [usageCause.date, usageCause.sessionId, usageCause.kind],
-            set: { tokenTurns: addExcluded(usageCause.tokenTurns) },
           })
           .run();
       }
@@ -486,20 +360,6 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
             tokenTurns: item.tokenTurns,
             attributedCostMicroCents: directRowMicroCents(item.tokenTurns),
           })
-          .onConflictDoUpdate({
-            target: [
-              usageContextItem.date,
-              usageContextItem.sessionId,
-              usageContextItem.kind,
-              usageContextItem.label,
-            ],
-            set: {
-              count: addExcluded(usageContextItem.count),
-              tokens: addExcluded(usageContextItem.tokens),
-              tokenTurns: addExcluded(usageContextItem.tokenTurns),
-              attributedCostMicroCents: addExcluded(usageContextItem.attributedCostMicroCents),
-            },
-          })
           .run();
       }
 
@@ -507,12 +367,8 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
         tx.insert(usageCall)
           .values({
             sessionId: session.sessionId,
-            callIndex: priorCalls + call.callIndex,
+            callIndex: call.callIndex,
             cacheReadTokens: call.cacheReadTokens,
-          })
-          .onConflictDoUpdate({
-            target: [usageCall.sessionId, usageCall.callIndex],
-            set: { cacheReadTokens: call.cacheReadTokens },
           })
           .run();
       }
@@ -540,16 +396,11 @@ let inFlightRefresh: Promise<RefreshResult> | null = null;
 async function performRefresh(state: AppState, since: string | undefined): Promise<RefreshResult> {
   const db = getDb();
   const start = Date.now();
-  if (invalidateStaleReducerSeals(db)) {
-    console.warn('[usage] reducer version changed — cleared history for a full rebuild');
-  }
-  const scan = await requestUsageScan(db, state, since);
-  const { newSessions } = upsertUsageScan(db, scan);
-  if (scan.staleSealSkips > 0) {
-    // A line landed before an already-sealed day (clock change, machine-
-    // hopping) — never silently reopen the seal, just surface it.
-    console.warn(`[usage] ${scan.staleSealSkips} stale seal skip(s) detected`);
-  }
+  const rebuild = hasStaleReducerSeals(db);
+  const scan = await requestUsageScan(db, state, since, rebuild);
+  assertDaemonReducerVersion(scan.reducerVersion);
+  const { newSessions } = upsertUsageScan(db, scan, rebuild);
+  if (rebuild) console.warn('[usage] reducer version changed — re-read every transcript on disk');
   const scannedFiles = Object.keys(scan.files).length;
   broadcastUsageChange(scannedFiles, newSessions);
   return { scannedFiles, newSessions, durationMs: Date.now() - start };

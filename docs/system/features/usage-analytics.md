@@ -35,9 +35,9 @@ The server never reads user files. The daemon does. Two facts forced the whole a
 
 So the daemon streams each file, keeps only the rollup, and sends the rollup. No transcript line ever crosses the channel.
 
-`client/src/usage/scan.ts` walks the tree and reads each file with `createReadStream`. It buffers raw bytes and cuts each line at a newline it has seen, so a trailing line that is not yet newline-terminated stays unread and its bytes stay outside the stored offset. It holds one line at a time. `client/src/usage/reducer.ts` folds the lines into rollups; its working set is the number of distinct dates, tools, fields, file paths and context items, not the size of the file. `client/src/ws/client.ts` `handleUsageScanRequest` joins the two to the protocol.
+`client/src/usage/scan.ts` walks the tree and reads each file with `createReadStream`. It buffers raw bytes and cuts each line at a newline it has seen. A trailing line that has no newline yet stays unread until a later scan. The scan holds one line at a time. `client/src/usage/reducer.ts` folds the lines into rollups. Its working set is the number of distinct dates, tools, fields, file paths and context items, not the size of the file. `client/src/ws/client.ts` `handleUsageScanRequest` joins the two to the protocol.
 
-Before `JSON.parse`, the reducer runs a substring test (`lineMayMatter`). About 78 % of lines carry no usage record, no content block and no attachment, and parsing them dominates a full scan.
+Before `JSON.parse`, the reducer runs a substring test (`lineMayMatter`). It skips a line that has no usage record, no content block and no attachment. On the reference machine it skipped 12 % of 534,111 lines (September 2026).
 
 ## The attribution model
 
@@ -76,7 +76,7 @@ Claude Code adds context that is not a message content block. It writes this con
 
 Newer Claude Code versions also write three record kinds: `prompt_snapshot` (the system prompt and the tool schemas), `instructions` (the root CLAUDE.md files) and `deferred_tools_record` (the schemas of loaded deferred tools). They record context that the `baseline` cause already holds, and a file can hold more than one `prompt_snapshot`. The reducer skips them, so the cost is not counted twice.
 
-The reducer charges each attachment as the `attachment` cause, with the same token-turns as a content block: it is inserted at the current call index and settled at a compaction. `client/src/usage/attachment.ts` `measureAttachment` estimates its tokens. The rule: sum the length of every string in the attachment, recursively through objects and arrays, and divide by 3.6 characters per token. The sum skips metadata keys (`type`, ids, `timestamp`, `model`, `command`, `hookName`, `hookEvent`, `durationMs`, `exitCode`, paths and file names) and keys that repeat other text: `stdout` repeats the hook `content`, `stderr` of a hook that succeeds is not sent, and the name lists (`names`, `addedNames`, `addedTypes` and the other `*Names`/`*Types` keys) repeat `addedLines` or `content`. Numbers and booleans count as zero.
+The reducer charges each attachment as the `attachment` cause, with the same token-turns as a content block: it is inserted at the current call index and settled at a compaction. `client/src/usage/attachment.ts` `measureAttachment` estimates its tokens. The rule: sum the length of every string in the attachment, recursively through objects and arrays, and divide by 3.6 characters per token. The sum skips two groups of keys, listed in `METADATA_KEYS`. The first group is metadata: `type`, `uuid`, `source_uuid`, `toolUseID`, `timestamp`, `model`, `origin`, `commandMode`, `command`, `hookName`, `hookEvent`, `durationMs`, `exitCode`, `path`, `filePath`, `filename` and `displayPath`. The second group repeats other text. `stdout` repeats the hook `content`, and the model does not see the `stderr` of a hook that succeeds. The name lists repeat `addedLines` or `content`: `names`, `addedNames`, `addedTypes`, `removedNames`, `removedTypes`, `readdedNames`, `surfacedNames`, `skillNames`, `wireHiddenNames`, `pendingMcpServers` and `failedMcpServers`. Numbers and booleans count as zero.
 
 The reducer also keeps one context-item row for each `(date, kind, label)`. The label is `path` for `nested_memory`, `filename` for `file` and `edited_text_file`, `hookName` for `hook_success`, and empty for every other kind. The row holds the count, the tokens and the token-turns. Its working set is bounded by the number of distinct items, like the file rollup.
 
@@ -110,21 +110,20 @@ Measured usage stays the ground truth. Attribution only splits what was billed.
 
 Every rollup row is dated by the local date of the line that produced it (`client/src/usage/date.ts`). Transcript timestamps are UTC. Bucketing by the UTC slice puts late-evening work on the wrong day, and in a UTC+ zone it can seal a date that local lines are still being written into. A session that runs across local midnight splits into one row per date, so a range query is exact at both ends.
 
-Past days never change, so they are never recomputed. `usageSealedDate` records each sealed date. A scan skips a line on a sealed date before it parses the line.
+`usageSealedDate` records each past date and the `USAGE_REDUCER_VERSION` of the last scan that sealed it. Rows of deleted transcripts can come from an older version. The server uses it to find rows that older reducer code computed (see Rebuild). A seal does not stop a scan from reading a line: a changed file is read in full, sealed dates included, because its session rows are replaced as one unit.
 
-The invariant that makes sealing safe: transcript lines are append-only and chronological, and a resumed session appends lines stamped at resume time. No file can gain a line dated before today. `computeNewlySealedDates` therefore seals every date from the earliest first-line date up to, but not including, today. It does not stop at the oldest finished file — one long-finished session would otherwise hold the boundary back and nothing would ever seal.
+Transcript lines are append-only and chronological, and a resumed session appends lines stamped at resume time. No file can gain a line dated before today. `computeNewlySealedDates` therefore seals every date from the earliest first-line date up to, but not including, today. It does not stop at the oldest finished file. If it did, one long-finished session would hold the boundary back and no date would seal.
 
-A clock change or a second machine can still produce a line dated before a sealed day. The scan counts these in `staleSealSkips` and the server logs a warning. It never re-opens a seal. A visible counter costs less than silent data loss.
+## Changed files
 
-## Incremental scan
+Each file is keyed by `(path, size, mtimeMs)` in `usageScanFile`.
 
-Each file is keyed by `(path, size, mtimeMs)` in `usageScanFile`, with the byte offset already consumed.
+- Same size and mtime: the scan skips the file.
+- Any other size or mtime: the scan reads the file again from byte 0.
 
-- Same size and mtime: the file is skipped.
-- Larger size: the read resumes at the stored offset and covers the appended tail only. `isFullParse` is false.
-- Smaller size: the file is read from byte 0. `isFullParse` is true.
+A read of the appended lines only is not correct. Content that an earlier read saw is re-read by every later API call. A new read starts each `ResidualSum` at call 0, so the calls after it would charge that content nothing. That cost would move into `baseline`. A reviewer compared reads of appended lines with full reads on real transcripts. The appended-lines reads kept 1 % to 79 % of the attachment token-turns, usually 5 % to 15 %. The other causes showed the same loss.
 
-`isFullParse` decides what the server does with the rollups. False means the rollups are a tail, so every counter adds to the stored row and the tail's call series continues after the stored calls. True means the rollups are the whole file, so `clearSessionRollups` deletes the session's rows first and the new rows stand alone. Adding a full parse would double-count it; replacing a tail would discard everything scanned before it.
+The server treats each scanned session as the whole file. `clearSessionRollups` deletes that session's rows first, and the new rows replace them. Daemon scan times on the reference machine (1,543 files, 2.4 GB, September 2026): 15 s for the first read of all files, 40 ms when no file changed, and 0.4 s when only the largest file (62.5 MB) changed.
 
 ## Schema
 
@@ -132,8 +131,8 @@ All tables are in `web/src/server/db/schema.ts`. Token counts are integers. Mone
 
 | Table | Key | Holds |
 |---|---|---|
-| `usageScanFile` | `path` | size, mtime, bytes scanned, first and last line date |
-| `usageSealedDate` | `date` | seal time, row count, reducer version |
+| `usageScanFile` | `path` | size, mtime, first and last line date |
+| `usageSealedDate` | `date` | seal time, reducer version |
 | `usageSession` | `sessionId` | one row per session, including subagents, with tokens, cost, base context size and enrichment |
 | `usageSessionDaily` | `(date, sessionId, model)` | the time series the charts read |
 | `usageTool` | `(date, sessionId, toolName)` | calls, result size, attributed cost |
@@ -142,7 +141,7 @@ All tables are in `web/src/server/db/schema.ts`. Token counts are integers. Mone
 | `usageCause` | `(date, sessionId, kind)` | token-turns per cause |
 | `usageContextItem` | `(date, sessionId, kind, label)` | count, tokens, token-turns and attributed cost per injected context item |
 | `usageCall` | `(sessionId, callIndex)` | the context-growth series |
-| `usageExpensiveCall` | `(date, sessionId, callIndex)` | the top tool calls of each scan pass, with a short input preview |
+| `usageExpensiveCall` | `(date, sessionId, callIndex)` | the top 20 tool calls of each session, with a short input preview |
 | `usagePricing` | `model` | rates as integer micro-cents per token |
 
 `date` is part of every rollup key, not `sessionId` alone. Sessions run for hours and cross midnight, so a session-only key forces a range query to take a whole session or drop it, and both are wrong at the edges.
@@ -176,12 +175,20 @@ Money is integer cents at the API boundary. Each row stores micro-cents and the 
 
 ## Rebuild
 
-Migration `0033_usage_analytics.sql` is additive: eleven `CREATE TABLE` statements and no `DROP` or `ALTER`. It cannot remove rows an earlier schema wrote. Migration `0034_usage_context_items.sql` is also additive: it creates `usage_context_item` and adds `base_context_tokens` to `usage_session` with a default of 0.
+Migration `0033_usage_analytics.sql` is additive: eleven `CREATE TABLE` statements and no `DROP` or `ALTER`. It cannot remove rows an earlier schema wrote. Migration `0034_usage_context_items.sql` is also additive: it creates `usage_context_item` and adds `base_context_tokens` to `usage_session` with a default of 0. Migration `0035_usage_drop_bytes_scanned.sql` removes `bytes_scanned` from `usage_scan_file`, because the scan no longer resumes at a byte offset.
 
-Two paths re-derive the history from the transcripts, both in `web/src/server/usage/rebuild.ts`:
+A rebuild derives the rows again from the transcripts that are still on disk. Claude Code deletes transcripts older than 30 days by default (`cleanupPeriodDays`). A rebuild therefore never deletes rollup rows. `rebuildUsageHistory` in `web/src/server/usage/rebuild.ts` clears only `usageScanFile` and `usageSealedDate`. The next scan then reads every file on disk in full, and each of those sessions replaces its own rows. The rows of a session whose file is gone stay as they are. A rebuild leaves `usagePricing` alone: it is configuration, not history.
 
-- `invalidateStaleReducerSeals` runs at the start of every refresh. `usageSealedDate` records the `USAGE_REDUCER_VERSION` each date was sealed under. A row with a different version means the stored rollup came from logic since replaced, so every usage table is cleared and the next scan rebuilds it. Raise `USAGE_REDUCER_VERSION` when the attribution model or the token estimate changes, or a fixed bug never reaches sealed history.
-- `usage.rebuild` is the manual form, with no version check. Both leave `usagePricing` alone: it is configuration, not history.
+Two paths start a rebuild:
+
+- `hasStaleReducerSeals` runs at the start of every refresh. It looks for a sealed date with a `USAGE_REDUCER_VERSION` other than the current one. If it finds one, the refresh asks the daemon for a scan with no known files and no sealed dates. It clears the bookkeeping in the same transaction that stores the scan. Raise `USAGE_REDUCER_VERSION` when the attribution model or the token estimate changes. If you do not, a fixed bug never reaches the stored rows.
+- `usage.rebuild` is the manual form, with no version check. It clears the bookkeeping at once, and the next refresh reads every file.
+
+### Daemon version
+
+`pnpm cycle-web` restarts only the server, so a daemon with older code can still run. Its rollups can lack fields that the server reads, or come from replaced logic. The daemon therefore sends `reducerVersion` in each scan response. The server compares it with its own `USAGE_REDUCER_VERSION` before it deletes, stores or seals anything. If the two are different, or the response has no version, the refresh fails with this message: "The Engy daemon runs an older usage scanner (version X, server needs Y). Restart the daemon, then refresh."
+
+One number is the source of truth. `common/src/usage/types.ts` declares the literal type `UsageReducerVersion`. The server (`web/src/server/usage/rebuild.ts`) and the daemon (`client/src/usage/reducer.ts`) each declare `USAGE_REDUCER_VERSION` with that type. A bump on one side does not compile until the other side and the type agree.
 
 ## UI
 
@@ -195,7 +202,7 @@ One date-range picker in the header applies to every screen, chart and table. Th
 
 A scope picker in the header holds `?scope=all|workspace|project`. `all` queries every scanned session and is the default on the workspace route, because a session carries an `engyWorkspaceId` only when its repo root matched a workspace repo at scan time. A narrower default shows an empty dashboard on any machine where no repo matched. The project route defaults to `project`.
 
-`usage.refresh` is on-demand, with a manual refresh button. There is no poller: sealed days make a warm refresh touch one day of lines. A refresh with no daemon connected returns an empty result instead of an error. A Rebuild button beside it clears the stored history behind a confirm dialog; both rely on the `USAGE_CHANGE` broadcast to refresh every open tab.
+`usage.refresh` is on-demand, with a manual refresh button. There is no poller: a refresh reads only the files that changed. A refresh with no daemon connected returns an empty result instead of an error. A Rebuild button beside it, behind a confirm dialog, makes the next refresh read every transcript again. Both rely on the `USAGE_CHANGE` broadcast to refresh every open tab.
 
 ## Out of scope
 
@@ -217,7 +224,7 @@ No per-token invoice: the figures are estimates at list rates. No poller. No ret
 | FR-USAGE-095 | WHEN the reducer reads a transcript entry with `type` `attachment`, the system SHALL charge it as the `attachment` cause with the same token-turns rule as a content block, including the stop at a compaction. The system SHALL estimate its tokens from the sum of the lengths of all string values in the attachment, found recursively, at 3.6 characters per token, and SHALL skip metadata keys and keys that repeat other text (`stdout`, `stderr`, and the name lists). The system SHALL NOT charge the record kinds `prompt_snapshot`, `instructions` and `deferred_tools_record`. |
 | FR-USAGE-097 | WHEN the reducer charges an attachment, the system SHALL add it to one context-item row for each date, kind and label. The kind SHALL be `attachment.type`. The label SHALL be `path` for `nested_memory`, `filename` for `file` and `edited_text_file`, `hookName` for `hook_success`, and empty for every other kind. |
 | FR-USAGE-100 | WHEN the context of an API call is below 0.6 of the previous call's context AND the previous context was above 60,000 tokens, the system SHALL count one compaction and SHALL stop charging every open block at that call index; a block added after the boundary SHALL be charged only against the calls that follow it. |
-| FR-USAGE-110 | The system SHALL cost each attributed cause from its own token-turns at its session's cache-read rate (the rate of the model with the most calls that bill tokens), SHALL NOT scale the attributed causes up to fill the measured total, and SHALL report the remaining measured cache-read cost as the separate `baseline` cause. The UI SHALL label `baseline` as "System prompt and tools" and `attachment` as "Injected context". |
+| FR-USAGE-110 | The system SHALL cost each attributed cause from its own token-turns at its session's cache-read rate (the rate of the model with the most calls that bill tokens), SHALL NOT scale the attributed causes up to fill the measured total, and SHALL report the remaining measured cache-read cost as the separate `baseline` cause. |
 | FR-USAGE-120 | The system SHALL make the seven causes `toolResult`, `toolInput`, `text`, `image`, `thinking`, `attachment` and `baseline` sum exactly to the reported cache-read cost; IF the attributed causes exceed the measured cost, THEN `baseline` SHALL be 0 and SHALL NOT go negative. |
 | FR-USAGE-130 | The system SHALL store each row's attributed cost as integer micro-cents, SHALL sum micro-cents before it rounds, and SHALL round once to an integer cent at the API boundary; every money value returned by the `usage` router SHALL be an integer number of cents. |
 | FR-USAGE-135 | WHEN the server stores a scanned session, the system SHALL price each day of the session at the rate of the model that ran that day, so a session that changes model is not priced at one model's rate. |
@@ -226,15 +233,16 @@ No per-token invoice: the figures are estimates at list rates. No poller. No ret
 | FR-USAGE-160 | WHEN the pricing seed runs, the system SHALL write each seed rate to `usagePricing` as integer micro-cents per token, and SHALL NOT overwrite a rate that is already stored. |
 | FR-USAGE-170 | The system SHALL date every rollup row by the local date of the transcript line that produced it, so a session that crosses local midnight produces one row per date and a range query includes only the rows inside the range. |
 | FR-USAGE-180 | WHEN a scan ends, the system SHALL report as newly sealed every date from the earliest scanned line up to, but not including, the current local date, excluding dates already sealed; the system SHALL never seal the current local date. |
-| FR-USAGE-190 | WHILE a date is sealed, the system SHALL skip every transcript line dated on it before parsing the line, SHALL count the skip in `staleSealSkips`, and SHALL NOT re-open the seal. |
-| FR-USAGE-200 | WHEN the daemon finds a transcript file whose stored size and mtime are unchanged, the system SHALL skip the file. WHEN the file has grown, the system SHALL resume the read at the stored byte offset and report `isFullParse` false. IF the file is smaller than the stored size, THEN the system SHALL read it from byte 0 and report `isFullParse` true. |
-| FR-USAGE-210 | WHEN the server upserts a scan result with `isFullParse` false, the system SHALL add every counter to the stored row and continue the call series after the calls already stored. WHEN `isFullParse` is true, the system SHALL delete that session's rollup rows first, so the new rows replace them instead of being added to them. |
-| FR-USAGE-215 | The system SHALL record for each session `baseContextTokens`, the context size (`cache_read + cache_creation + input`) of the first API call with a non-zero context. WHEN the server upserts a tail scan, the system SHALL keep a stored non-zero value and SHALL take the tail value only IF the stored value is 0. `usage.session` SHALL return it. |
+| FR-USAGE-200 | WHEN the daemon finds a transcript file whose stored size and mtime are unchanged, the system SHALL skip the file without reading it. |
+| FR-USAGE-205 | WHEN the daemon finds a transcript file whose size or mtime differs from the stored state, the system SHALL read the file again from byte 0 and SHALL pass every line to the reducer, including a line on a sealed date, so the rollups cover the whole file. The system SHALL NOT resume a read at a stored byte offset. |
+| FR-USAGE-210 | WHEN the server stores a scanned session, the system SHALL delete that session's rollup rows first, so the new rows replace them and are not added to them. |
+| FR-USAGE-215 | The system SHALL record for each session `baseContextTokens`, the context size (`cache_read + cache_creation + input`) of the first API call with a non-zero context. `usage.session` SHALL return it. |
 | FR-USAGE-220 | WHEN the daemon has a session `cwd`, the system SHALL set `repoRoot` to the nearest ancestor directory that holds `.git`, and SHALL collapse a `<repo>/.claude/worktrees/<name>` root back to `<repo>`; IF no `cwd` was recorded, THEN `repoRoot` SHALL be null. A session that matches no Engy workspace SHALL keep its rows and stay visible. |
 | FR-USAGE-230 | The system SHALL record at most 200 context-growth points per session; WHEN the buffer is full, the system SHALL keep every second point and double the sampling stride, so the series stays ordered and spans the whole session. |
 | FR-USAGE-240 | IF no daemon is connected, THEN `usage.refresh` SHALL return `scannedFiles` 0 and `newSessions` 0 without an error. |
+| FR-USAGE-245 | WHEN a usage scan response arrives, IF its `reducerVersion` is absent or differs from the server's `USAGE_REDUCER_VERSION`, THEN the system SHALL reject the refresh with a `PRECONDITION_FAILED` error that names both versions and tells the user to restart the daemon. The system SHALL make this check before it deletes, stores or seals any usage row. |
 | FR-USAGE-250 | WHEN a usage scan response arrives, the system SHALL write every session, day, tool, field, file, cause, context-item, call and expensive-call row in one transaction, and SHALL broadcast a `USAGE_CHANGE` event. |
-| FR-USAGE-260 | WHEN a refresh starts, IF any sealed date carries a reducer version other than the current `USAGE_REDUCER_VERSION`, THEN the system SHALL delete every usage scan-bookkeeping and rollup row so the scan rebuilds the history from the transcripts, and SHALL leave `usagePricing` unchanged. |
+| FR-USAGE-260 | WHEN a refresh starts, IF any sealed date carries a reducer version other than the current `USAGE_REDUCER_VERSION`, THEN the system SHALL request a scan with no known files and no sealed dates, and SHALL delete every usage scan-bookkeeping row in the transaction that stores that scan. The system SHALL keep the rollup rows of each session that the scan does not report, and SHALL leave `usagePricing` unchanged. |
 | FR-USAGE-270 | WHEN `usage.overview` is queried for a range, the system SHALL also return the cost of the window of equal length that ends on the day before the range starts. |
 | FR-USAGE-280 | WHEN `usage.tools` is queried, the system SHALL return tools sorted by attributed cost, highest first, with the cost per call for each tool. |
 | FR-USAGE-290 | WHEN `usage.fields` is queried, the system SHALL group the attributed cost by tool and by tool input field name, and SHALL sum all rows that share a `tool.field` before it rounds to cents. |
@@ -244,12 +252,12 @@ No per-token invoice: the figures are estimates at list rates. No poller. No ret
 | FR-USAGE-320 | The usage page SHALL hold its date range in the URL as `from` and `to`, SHALL resolve each preset to inclusive local dates before writing them, and SHALL fall back to the last 30 days IF the range is absent, malformed or inverted. |
 | FR-USAGE-330 | WHEN `usage.overview` is queried, the system SHALL include the subagent cost in the total and SHALL also report it as `subagentCost` and as a share of the total. |
 | FR-USAGE-340 | The overview SHALL report cache reuse as `cacheReadTokens / cacheCreationTokens`, and SHALL NOT warn about the use of the 1h cache TTL by itself. |
-| FR-USAGE-350 | The system SHALL hold at most 20 expensive calls for each session. The system SHALL rank them by settled token-turns when the session ends, and SHALL NOT rank them when a call is admitted, because a later compaction can still lower the cost of a call. WHEN the server stores a scan result, the system SHALL reduce that session's stored expensive calls to the 20 highest token-turns in the same transaction. WHEN `usage.expensiveCalls` is queried, the system SHALL return the rows in the range sorted by token-turns, highest first. |
-| FR-USAGE-360 | WHEN `usage.rebuild` is called, the system SHALL delete every usage scan-bookkeeping row and every usage rollup row, so the next scan derives the rollups again from the transcripts. The system SHALL leave `usagePricing` unchanged, because it is configuration and not history. The system SHALL broadcast a `USAGE_CHANGE` event. |
+| FR-USAGE-350 | The system SHALL hold at most 20 expensive calls for each session. The system SHALL rank them by settled token-turns when the session ends, and SHALL NOT rank them when a call is admitted, because a later compaction can still lower the cost of a call. WHEN `usage.expensiveCalls` is queried, the system SHALL return the rows in the range sorted by token-turns, highest first. |
+| FR-USAGE-360 | WHEN `usage.rebuild` is called, the system SHALL delete every usage scan-bookkeeping row (`usageScanFile` and `usageSealedDate`), so the next scan reads every transcript on disk in full. The system SHALL NOT delete a rollup row, because Claude Code deletes old transcripts and the rows of a deleted transcript cannot be derived again. The system SHALL leave `usagePricing` unchanged and SHALL broadcast a `USAGE_CHANGE` event. |
 | FR-USAGE-370 | The usage page SHALL hold its scope in the URL as `scope=all`, `scope=workspace` or `scope=project`. WHERE the scope is `all`, the system SHALL apply no workspace filter and no project filter, so a session whose repository matched no Engy workspace stays visible. The workspace route SHALL use `all` as its default scope. The project route SHALL use `project` as its default scope. |
 | FR-USAGE-380 | WHEN `usage.refresh` is called with `since`, the system SHALL scan only the transcript files whose local mtime date is on or after that date. IF the system skips a file for this reason, THEN it SHALL NOT record that file as scanned, so a later scan reads the file in full. A scan with `since` SHALL seal no date. |
 | FR-USAGE-390 | The system SHALL hold at most 1000 unmatched tool calls in the map that pairs a tool call with its result, because an interrupted call never receives the result that removes it. WHEN the map is full, the system SHALL remove the oldest unmatched entry. IF a tool result has no entry in the map, THEN the system SHALL leave that result unattributed, and SHALL NOT attribute it to a different tool. |
-| FR-USAGE-400 | The system SHALL compute the p50 and p95 result size of each tool from a reservoir sample of at most 256 values for that tool, so the memory used stays proportional to the number of tools and not to the number of tool calls. The system SHALL report the two percentiles as approximate values across sessions, and across an incremental rescan of a day that is not yet sealed. |
+| FR-USAGE-400 | The system SHALL compute the p50 and p95 result size of each tool from a reservoir sample of at most 256 values for that tool, so the memory used stays proportional to the number of tools and not to the number of tool calls. The system SHALL report the two percentiles as approximate values across sessions. |
 
 ## Sources
 

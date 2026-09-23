@@ -2,12 +2,13 @@ import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type {
+  UsageReducerVersion,
   UsageScanFileState,
   UsageSessionMeta,
   UsageSessionScan,
   UsageSessionScanResult,
 } from '@engy/common';
-import { SessionReducer } from './reducer.js';
+import { SessionReducer, USAGE_REDUCER_VERSION } from './reducer.js';
 import { localDateString } from './date.js';
 
 const PROJECTS_DIR = ['.claude', 'projects'];
@@ -30,7 +31,7 @@ interface UsageScanResult {
   sessions: UsageSessionScanResult[];
   files: Record<string, UsageScanFileState>;
   newlySealedDates: string[];
-  staleSealSkips: number;
+  reducerVersion: UsageReducerVersion;
 }
 
 interface TranscriptFile {
@@ -48,7 +49,6 @@ export async function scanUsage(options: UsageScanOptions): Promise<UsageScanRes
 
   const outFiles: Record<string, UsageScanFileState> = {};
   const sessions: UsageSessionScanResult[] = [];
-  let staleSealSkips = 0;
 
   for (const file of transcripts) {
     const stats = await stat(file.filePath).catch(() => null);
@@ -72,23 +72,21 @@ export async function scanUsage(options: UsageScanOptions): Promise<UsageScanRes
       continue;
     }
 
-    const startByte = known && stats.size >= known.sizeBytes ? known.bytesScanned : 0;
-
+    // A changed file is read again from byte 0: content from an earlier read is re-read by every
+    // later API call, so a read of the appended lines only would lose that part of its cost.
     const agentMeta = file.parentSessionId ? await readSubagentMeta(file.metaPath) : null;
-    const pass = await scanTranscriptFile(
-      file.filePath,
-      startByte,
-      sealedDates,
-      { sessionId: file.sessionId, slug: file.slug, parentSessionId: file.parentSessionId, ...agentMeta },
-    );
-    staleSealSkips += pass.staleSealSkips;
+    const pass = await scanTranscriptFile(file.filePath, {
+      sessionId: file.sessionId,
+      slug: file.slug,
+      parentSessionId: file.parentSessionId,
+      ...agentMeta,
+    });
 
     outFiles[file.filePath] = {
       sizeBytes: stats.size,
       mtimeMs: stats.mtimeMs,
-      bytesScanned: Math.min(startByte + pass.bytesRead, stats.size),
-      firstLineDate: startByte === 0 ? pass.firstLineDate : (known?.firstLineDate ?? null),
-      lastLineDate: pass.lastLineDate ?? (startByte > 0 ? (known?.lastLineDate ?? null) : null),
+      firstLineDate: pass.firstLineDate,
+      lastLineDate: pass.lastLineDate,
     };
 
     if (pass.linesRead === 0) continue;
@@ -97,17 +95,15 @@ export async function scanUsage(options: UsageScanOptions): Promise<UsageScanRes
       scan: pass.scan,
       repoRoot: await deriveRepoRoot(pass.scan.session.cwd),
       meta: file.parentSessionId ? null : await readSessionMeta(file.metaPath),
-      isFullParse: startByte === 0,
     });
   }
 
   return {
     sessions,
     files: outFiles,
-    // A windowed scan skips files outside `since` unread, so it has no basis
-    // to seal any date — sealing here would drop those files' history for good.
+    // A windowed scan did not read every file, so it has no basis to seal a date.
     newlySealedDates: since ? [] : computeNewlySealedDates(outFiles, sealedDates),
-    staleSealSkips,
+    reducerVersion: USAGE_REDUCER_VERSION,
   };
 }
 
@@ -159,17 +155,13 @@ async function discoverTranscriptFiles(homeDir: string): Promise<TranscriptFile[
 
 interface ScanPass {
   scan: UsageSessionScan;
-  bytesRead: number;
   linesRead: number;
   firstLineDate: string | null;
   lastLineDate: string | null;
-  staleSealSkips: number;
 }
 
 async function scanTranscriptFile(
   filePath: string,
-  startByte: number,
-  sealedDates: ReadonlySet<string>,
   reducerOptions: {
     sessionId: string;
     slug: string;
@@ -186,20 +178,17 @@ async function scanTranscriptFile(
     agentDescription: reducerOptions.description ?? null,
   });
 
-  const stream = createReadStream(filePath, startByte > 0 ? { start: startByte } : undefined);
+  const stream = createReadStream(filePath);
 
-  let bytesRead = 0;
   let linesRead = 0;
-  let staleSealSkips = 0;
   let firstLineDate: string | null = null;
   let lastLineDate: string | null = null;
   let pending = Buffer.alloc(0);
 
   // A refresh can run mid-append: the file's last line may not be
   // newline-terminated yet. Buffering raw bytes (instead of readline, which
-  // treats end-of-stream as an implicit terminator) lets a trailing partial
-  // line stay unconsumed — and its bytes excluded from `bytesRead` — so the
-  // next scan re-reads it whole instead of resuming inside it.
+  // treats end-of-stream as an implicit terminator) leaves a trailing partial
+  // line unread until the next scan sees it whole.
   for await (const chunk of stream as AsyncIterable<Buffer>) {
     pending = Buffer.concat([pending, chunk]);
 
@@ -208,7 +197,6 @@ async function scanTranscriptFile(
       let lineEnd = newlineIndex;
       if (lineEnd > 0 && pending[lineEnd - 1] === CR_BYTE) lineEnd -= 1;
       const line = pending.toString('utf8', 0, lineEnd);
-      bytesRead += newlineIndex + 1;
       pending = pending.subarray(newlineIndex + 1);
       linesRead += 1;
 
@@ -217,25 +205,19 @@ async function scanTranscriptFile(
         if (firstLineDate === null) firstLineDate = date;
         lastLineDate = date;
       }
-
-      if (date && sealedDates.has(date)) {
-        staleSealSkips += 1;
-      } else {
-        reducer.addLine(line);
-      }
+      reducer.addLine(line);
 
       newlineIndex = pending.indexOf(NEWLINE_BYTE);
     }
   }
 
-  return { scan: reducer.finish(), bytesRead, linesRead, firstLineDate, lastLineDate, staleSealSkips };
+  return { scan: reducer.finish(), linesRead, firstLineDate, lastLineDate };
 }
 
 /**
- * Cheap substring extraction, mirroring the reducer's own pre-parse gate —
- * avoids a JSON.parse on every line just to decide whether it is sealed. The
- * seal boundary is a local date (see `date.ts`), so the substring has to
- * become a `Date` rather than being sliced directly off the UTC timestamp.
+ * Cheap substring extraction — avoids a JSON.parse on every line just to find
+ * its date. The seal boundary is a local date (see `date.ts`), so the
+ * substring has to become a `Date` rather than being sliced off the UTC timestamp.
  */
 function extractDate(line: string): string | null {
   const idx = line.indexOf(TIMESTAMP_MARKER);

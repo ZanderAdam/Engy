@@ -208,7 +208,8 @@ export interface UsageScanDispatchResult {
   sessions: UsageSessionScanResult[];
   files: Record<string, UsageScanFileState>;
   newlySealedDates: string[];
-  staleSealSkips: number;
+  // Typed loosely: a daemon that runs older code sends another number or none.
+  reducerVersion: number | undefined;
 }
 
 export interface DispatchEntry {

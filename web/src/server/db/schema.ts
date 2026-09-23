@@ -552,14 +552,13 @@ export const terminalSessionHistory = sqliteTable(
 
 // ── Usage Analytics ─────────────────────────────────────────────────
 
-// Incremental-scan bookkeeping: one row per transcript file on disk, mirroring
+// Scan bookkeeping: one row per transcript file on disk, mirroring
 // the daemon's `UsageScanFileState` wire type 1:1 so `refresh()` can hand the
 // whole map back as `knownFiles` on the next scan without translation.
 export const usageScanFile = sqliteTable('usage_scan_file', {
   path: text('path').primaryKey(),
   sizeBytes: integer('size_bytes').notNull(),
   mtimeMs: integer('mtime_ms').notNull(),
-  bytesScanned: integer('bytes_scanned').notNull().default(0),
   firstLineDate: text('first_line_date'),
   lastLineDate: text('last_line_date'),
   lastScanAt: text('last_scan_at')
@@ -641,8 +640,8 @@ export const usageSessionRelations = relations(usageSession, ({ one }) => ({
 // can cross midnight — bucketing by the call's own timestamp keeps every
 // date-range query exact at the edges. `sessionId` is part of the key too:
 // without it, rows from every session sharing a date/slug/model collide, and a
-// rescan could neither add a session's new tail nor replace its reparsed
-// totals without corrupting its neighbours. Readers sum across sessions.
+// rescan could not replace one session's rows without corrupting its
+// neighbours. Readers sum across sessions.
 export const usageSessionDaily = sqliteTable(
   'usage_session_daily',
   {
@@ -802,10 +801,9 @@ export const usageContextItem = sqliteTable(
 );
 
 // Single most expensive tool calls — payload size × later-calls-in-session ×
-// rate, one row per call. The reducer keeps only the top 20 of each scan pass,
-// so an incremental rescan adds at most 20 rows per session per pass, never
-// one per call. `field` is the input field the preview was drawn from (null
-// when the call carried no input).
+// rate, one row per call. The reducer keeps only the top 20 of each session.
+// `field` is the input field the preview was drawn from (null when the call
+// carried no input).
 export const usageExpensiveCall = sqliteTable(
   'usage_expensive_call',
   {
@@ -827,10 +825,7 @@ export const usageExpensiveCall = sqliteTable(
   ],
 );
 
-// Past days never change once sealed — a sealed date's rollup rows are read
-// straight from SQLite and never recomputed. `reducerVersion` lets a future
-// attribution-model change force a full re-seal without silently leaving
-// stale historical rows behind.
+// A `reducerVersion` change makes the next refresh re-read every transcript on disk.
 export const usageSealedDate = sqliteTable('usage_sealed_date', {
   date: text('date').primaryKey(),
   sealedAt: text('sealed_at')

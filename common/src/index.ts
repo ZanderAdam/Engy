@@ -138,4 +138,5 @@ export type {
   UsageCallPoint,
   UsageSessionScan,
   UsageModelRate,
+  UsageReducerVersion,
 } from './usage/types.js';

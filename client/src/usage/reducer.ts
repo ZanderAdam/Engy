@@ -8,6 +8,7 @@ import type {
   UsageExpensiveCall,
   UsageFieldRollup,
   UsageFileRollup,
+  UsageReducerVersion,
   UsageSessionRollup,
   UsageSessionScan,
   UsageToolRollup,
@@ -21,10 +22,8 @@ import {
 import { localDateFromTimestamp } from './date.js';
 import { measureAttachment } from './attachment.js';
 
-/**
- * Cheap gate applied before JSON.parse. Roughly 78% of transcript lines carry
- * neither usage nor content blocks, and parsing them dominates a full scan.
- */
+export const USAGE_REDUCER_VERSION: UsageReducerVersion = 4;
+
 const USAGE_MARKER = '"cache_read_input_tokens"';
 const CONTENT_MARKERS = ['"tool_use"', '"tool_result"', '"thinking"', '"text"'];
 const ATTACHMENT_MARKER = '"type":"attachment"';
@@ -288,7 +287,6 @@ export class SessionReducer {
   private expensiveCallSeq = 0;
   private linesParsed = 0;
   private linesSkipped = 0;
-  private bytesScanned = 0;
 
   private cwd: string | null = null;
   private gitBranch: string | null = null;
@@ -328,7 +326,6 @@ export class SessionReducer {
   }
 
   addLine(line: string): void {
-    this.bytesScanned += Buffer.byteLength(line) + 1;
     if (!lineMayMatter(line)) {
       this.linesSkipped += 1;
       return;
@@ -762,7 +759,6 @@ export class SessionReducer {
       expensiveCalls,
       compactions: this.compactions,
       calls: this.callPoints,
-      bytesScanned: this.bytesScanned,
       linesParsed: this.linesParsed,
       linesSkipped: this.linesSkipped,
     };

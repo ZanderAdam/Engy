@@ -1,4 +1,4 @@
-import type { UsageSessionScan } from '../usage/types.js';
+import type { UsageReducerVersion, UsageSessionScan } from '../usage/types.js';
 
 export interface RegisterMessage {
   type: 'REGISTER';
@@ -792,7 +792,7 @@ export interface GhPrReviewCommentsResponseMessage {
 // ── Usage analytics scan (server ↔ daemon) ──────────────────────────────────
 
 /**
- * Incremental bookkeeping for one transcript file. `firstLineDate` /
+ * Scan bookkeeping for one transcript file. `firstLineDate` /
  * `lastLineDate` are the dates of the file's first and last parsed lines —
  * needed (alongside size/mtime) to compute which past days are sealable
  * without re-reading unchanged files on every scan.
@@ -800,7 +800,6 @@ export interface GhPrReviewCommentsResponseMessage {
 export interface UsageScanFileState {
   sizeBytes: number;
   mtimeMs: number;
-  bytesScanned: number;
   firstLineDate: string | null;
   lastLineDate: string | null;
 }
@@ -825,13 +824,6 @@ export interface UsageSessionScanResult {
   scan: UsageSessionScan;
   repoRoot: string | null;
   meta: UsageSessionMeta | null;
-  /**
-   * False when the transcript was resumed from a stored byte offset, so the
-   * rollups cover only the appended tail and the consumer must add them to
-   * what it already holds. True after a full parse, where they are the whole
-   * file and must replace it — adding there would double-count.
-   */
-  isFullParse: boolean;
 }
 
 export interface UsageScanRequestMessage {
@@ -858,7 +850,7 @@ export interface UsageScanResponseMessage {
         sessions: UsageSessionScanResult[];
         files: Record<string, UsageScanFileState>;
         newlySealedDates: string[];
-        staleSealSkips: number;
+        reducerVersion: UsageReducerVersion;
       }
     | { requestId: string; error: string };
 }

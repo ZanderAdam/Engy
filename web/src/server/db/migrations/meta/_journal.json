@@ -243,8 +243,15 @@
     {
       "idx": 34,
       "version": "6",
-      "when": 1790129799658,
+      "when": 1790129793008,
       "tag": "0034_usage_context_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1790131988500,
+      "tag": "0035_usage_drop_bytes_scanned",
       "breakpoints": true
     }
   ]

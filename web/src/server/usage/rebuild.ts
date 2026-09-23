@@ -1,56 +1,33 @@
 import { ne } from 'drizzle-orm';
-import { getDb } from '../db/client';
-import {
-  usageCall,
-  usageCause,
-  usageContextItem,
-  usageExpensiveCall,
-  usageField,
-  usageFile,
-  usageScanFile,
-  usageSealedDate,
-  usageSession,
-  usageSessionDaily,
-  usageTool,
-} from '../db/schema';
-
-type Db = ReturnType<typeof getDb>;
+import type { UsageReducerVersion } from '@engy/common';
+import { getDb, type Db } from '../db/client';
+import { usageScanFile, usageSealedDate } from '../db/schema';
 
 /**
- * Bump this when the attribution model or token estimate changes. A sealed
- * date carries the version it was sealed under, so a mismatch on the next
- * scan means the stored rollup was computed by logic since replaced and can
- * no longer be trusted.
+ * Bump this, `UsageReducerVersion` in common and the daemon's copy when the
+ * attribution model or token estimate changes. A sealed date carries the
+ * version it was sealed under, so a mismatch makes the next refresh re-read
+ * every transcript on disk.
  */
-export const USAGE_REDUCER_VERSION = 3;
+export const USAGE_REDUCER_VERSION: UsageReducerVersion = 4;
 
-/** Leaves `usagePricing` untouched: it is configuration, not history. */
+/**
+ * Makes the next scan read every transcript on disk in full, which replaces
+ * each of those sessions' rows. Rollup rows stay: Claude Code deletes old
+ * transcripts, so a session whose file is gone cannot be derived again.
+ */
 export function rebuildUsageHistory(db: Db = getDb()): void {
   db.transaction((tx) => {
     tx.delete(usageScanFile).run();
     tx.delete(usageSealedDate).run();
-    tx.delete(usageSession).run();
-    tx.delete(usageSessionDaily).run();
-    tx.delete(usageTool).run();
-    tx.delete(usageField).run();
-    tx.delete(usageFile).run();
-    tx.delete(usageCause).run();
-    tx.delete(usageContextItem).run();
-    tx.delete(usageCall).run();
-    tx.delete(usageExpensiveCall).run();
   });
 }
 
-/** Re-seal on a reducer change: a version bump invalidates every seal and
- * forces a full rebuild, so a fixed bug reaches historical data instead of
- * being masked by rows a stale reducer already sealed. */
-export function invalidateStaleReducerSeals(db: Db = getDb()): boolean {
+export function hasStaleReducerSeals(db: Db = getDb()): boolean {
   const stale = db
     .select({ date: usageSealedDate.date })
     .from(usageSealedDate)
     .where(ne(usageSealedDate.reducerVersion, USAGE_REDUCER_VERSION))
     .get();
-  if (!stale) return false;
-  rebuildUsageHistory(db);
-  return true;
+  return stale !== undefined;
 }

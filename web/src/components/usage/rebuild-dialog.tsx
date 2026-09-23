@@ -24,18 +24,12 @@ export function RebuildDialog({ open, onOpenChange, onConfirm }: RebuildDialogPr
         <AlertDialogHeader>
           <AlertDialogTitle>Rebuild usage history?</AlertDialogTitle>
           <AlertDialogDescription>
-            This deletes all stored usage data. The next scan rebuilds it from your Claude
-            transcripts.
+            The next refresh reads all Claude transcripts again. Data for deleted transcripts stays.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            onClick={onConfirm}
-          >
-            Rebuild
-          </AlertDialogAction>
+          <AlertDialogAction onClick={onConfirm}>Rebuild</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

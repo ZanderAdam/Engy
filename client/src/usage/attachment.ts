@@ -26,6 +26,8 @@ const METADATA_KEYS = new Set([
   'removedNames',
   'removedTypes',
   'readdedNames',
+  'surfacedNames',
+  'skillNames',
   'wireHiddenNames',
   'pendingMcpServers',
   'failedMcpServers',

@@ -373,6 +373,8 @@ describe('usage reducer', () => {
         attachmentLine({
           type: 'deferred_tools_delta',
           addedNames: ['A'.repeat(360)],
+          surfacedNames: ['C'.repeat(360)],
+          skillNames: ['D'.repeat(360)],
           addedLines: ['B'.repeat(72)],
         }),
         usageLine({}),

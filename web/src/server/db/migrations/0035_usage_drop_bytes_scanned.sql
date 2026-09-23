@@ -1,0 +1,1 @@
+ALTER TABLE `usage_scan_file` DROP COLUMN `bytes_scanned`;
