@@ -1,6 +1,12 @@
 export type UsageCostBucket = 'input' | 'output' | 'cacheWrite1h' | 'cacheWrite5m' | 'cacheRead';
 
-export type UsageCauseKind = 'toolResult' | 'toolInput' | 'text' | 'image' | 'thinking';
+export type UsageCauseKind =
+  | 'toolResult'
+  | 'toolInput'
+  | 'text'
+  | 'image'
+  | 'thinking'
+  | 'attachment';
 
 export interface UsageTokenTotals {
   inputTokens: number;
@@ -19,8 +25,8 @@ export interface UsageTokenTotals {
  * compaction boundary. Callers price these directly at the session's
  * cache-read rate — never scaled up to fill 100% of measured cache-read
  * spend, since attribution only ever covers a fraction of it (the rest is
- * the per-call baseline no content block carries: system prompt, tool defs,
- * CLAUDE.md, skills).
+ * the per-call baseline no transcript line carries: system prompt, tool
+ * definitions, root CLAUDE.md).
  */
 export interface UsageAttribution {
   tokens: number;
@@ -60,6 +66,20 @@ export interface UsageFileRollup extends UsageAttribution {
   edits: number;
   writes: number;
   totalChars: number;
+}
+
+/**
+ * Context that Claude Code injects as a top-level `attachment` entry (skill
+ * list, nested CLAUDE.md, hook output, ...). `kind` is `attachment.type`;
+ * `label` is the file path or hook name, or empty for a kind with no item.
+ */
+export interface UsageContextItemRollup {
+  date: string;
+  kind: string;
+  label: string;
+  count: number;
+  tokens: number;
+  tokenTurns: number;
 }
 
 /**
@@ -103,6 +123,8 @@ export interface UsageSessionRollup extends UsageTokenTotals {
   isSubagent: boolean;
   agentType: string | null;
   agentDescription: string | null;
+  /** Context size (cache read + cache write + input) of the first call with a non-zero context. */
+  baseContextTokens: number;
 }
 
 export interface UsageCallPoint {
@@ -117,6 +139,7 @@ export interface UsageSessionScan {
   fields: UsageFieldRollup[];
   files: UsageFileRollup[];
   causes: UsageCauseRollup[];
+  contextItems: UsageContextItemRollup[];
   /** Top 20 (by settled token-turns) tool calls in this session-scan pass. */
   expensiveCalls: UsageExpensiveCall[];
   /** Per-call cache-read size, in call order — drives the context-growth timeline. */

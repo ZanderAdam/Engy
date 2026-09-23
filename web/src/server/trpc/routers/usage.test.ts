@@ -11,6 +11,7 @@ import {
   usageFile,
   usageCause,
   usageCall,
+  usageContextItem,
   usageExpensiveCall,
   usageSealedDate,
   workspaces,
@@ -111,6 +112,19 @@ function seedCause(ctx: TestContext, overrides: Partial<typeof usageCause.$infer
     .run();
 }
 
+function seedContextItem(ctx: TestContext, overrides: Partial<typeof usageContextItem.$inferInsert> = {}) {
+  ctx.db
+    .insert(usageContextItem)
+    .values({
+      date: '2024-01-10',
+      sessionId: 's1',
+      kind: 'nested_memory',
+      label: '/repo/web/CLAUDE.md',
+      ...overrides,
+    })
+    .run();
+}
+
 function seedCall(ctx: TestContext, overrides: Partial<typeof usageCall.$inferInsert> = {}) {
   ctx.db
     .insert(usageCall)
@@ -155,6 +169,7 @@ function makeScanResult(overrides: Partial<UsageSessionScanResult['scan']['sessi
         isSubagent: false,
         agentType: null,
         agentDescription: null,
+        baseContextTokens: 20_000,
         ...overrides,
       },
       days: [
@@ -207,6 +222,11 @@ function makeScanResult(overrides: Partial<UsageSessionScanResult['scan']['sessi
         { date: '2024-01-10', kind: 'toolResult', tokenTurns: 400 },
         { date: '2024-01-10', kind: 'toolInput', tokenTurns: 160 },
         { date: '2024-01-10', kind: 'text', tokenTurns: 40 },
+        { date: '2024-01-10', kind: 'attachment', tokenTurns: 300 },
+      ],
+      contextItems: [
+        { date: '2024-01-10', kind: 'skill_listing', label: '', count: 1, tokens: 100, tokenTurns: 200 },
+        { date: '2024-01-10', kind: 'hook_success', label: 'Stop', count: 2, tokens: 50, tokenTurns: 100 },
       ],
       calls: [
         { callIndex: 0, cacheReadTokens: 100 },
@@ -368,6 +388,7 @@ describe('usage router', () => {
       seedCause(ctx, { kind: 'toolResult', tokenTurns: 300_000 }); // 6,000,000µ¢ = 6¢
       seedCause(ctx, { kind: 'toolInput', tokenTurns: 150_000 }); // 3,000,000µ¢ = 3¢
       seedCause(ctx, { kind: 'text', tokenTurns: 50_000 }); // 1,000,000µ¢ = 1¢
+      seedCause(ctx, { kind: 'attachment', tokenTurns: 100_000 }); // 2,000,000µ¢ = 2¢
 
       const overview = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
 
@@ -375,18 +396,20 @@ describe('usage router', () => {
       expect(overview.causes.toolResult).toBe(6);
       expect(overview.causes.toolInput).toBe(3);
       expect(overview.causes.text).toBe(1);
-      expect(overview.causes.baseline).toBe(10);
+      expect(overview.causes.attachment).toBe(2);
+      expect(overview.causes.baseline).toBe(8);
       const sum =
         overview.causes.toolResult +
         overview.causes.toolInput +
         overview.causes.text +
         overview.causes.image +
         overview.causes.thinking +
+        overview.causes.attachment +
         overview.causes.baseline;
       expect(sum).toBe(overview.cost.cacheRead);
     });
 
-    it('[FR-USAGE-120] should keep the six causes summing to measured cache-read cost across several sessions', async () => {
+    it('[FR-USAGE-120] should keep the seven causes summing to measured cache-read cost across several sessions', async () => {
       // Causes aggregate every session in range, so the measured side has to
       // carry every session's daily row too — one lost row and baseline is
       // floored to 0 while the attributed causes overshoot the total.
@@ -395,6 +418,7 @@ describe('usage router', () => {
         seedDaily(ctx, { date: '2024-01-10', sessionId, cacheReadTokens: 1_000_000 });
         seedCause(ctx, { date: '2024-01-10', sessionId, kind: 'toolResult', tokenTurns: 200_000 });
         seedCause(ctx, { date: '2024-01-10', sessionId, kind: 'toolInput', tokenTurns: 100_000 });
+        seedCause(ctx, { date: '2024-01-10', sessionId, kind: 'attachment', tokenTurns: 100_000 });
       }
 
       const overview = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
@@ -405,6 +429,7 @@ describe('usage router', () => {
         overview.causes.text +
         overview.causes.image +
         overview.causes.thinking +
+        overview.causes.attachment +
         overview.causes.baseline;
       expect(overview.cost.cacheRead).toBe(60);
       expect(sum).toBe(overview.cost.cacheRead);
@@ -746,6 +771,49 @@ describe('usage router', () => {
     });
   });
 
+  describe('contextItems', () => {
+    it('[FR-USAGE-305] should merge rows across dates and sessions and sort them by cost', async () => {
+      seedContextItem(ctx, {
+        date: '2024-01-10',
+        sessionId: 's1',
+        count: 1,
+        tokens: 100,
+        attributedCostMicroCents: 3_000_000,
+      });
+      seedContextItem(ctx, {
+        date: '2024-01-11',
+        sessionId: 's2',
+        count: 2,
+        tokens: 50,
+        attributedCostMicroCents: 2_000_000,
+      });
+      seedContextItem(ctx, {
+        kind: 'skill_listing',
+        label: '',
+        count: 1,
+        tokens: 9000,
+        attributedCostMicroCents: 4_000_000,
+      });
+
+      const items = await caller.usage.contextItems({ from: '2024-01-10', to: '2024-01-11', limit: 10 });
+
+      expect(items).toEqual([
+        { kind: 'nested_memory', label: '/repo/web/CLAUDE.md', count: 3, tokens: 150, costCents: 5 },
+        { kind: 'skill_listing', label: '', count: 1, tokens: 9000, costCents: 4 },
+      ]);
+    });
+
+    it('[FR-USAGE-305] should keep only rows inside the range and slice to the limit', async () => {
+      seedContextItem(ctx, { date: '2024-01-09', label: 'early', attributedCostMicroCents: 9_000_000 });
+      seedContextItem(ctx, { label: 'a', attributedCostMicroCents: 2_000_000 });
+      seedContextItem(ctx, { label: 'b', attributedCostMicroCents: 1_000_000 });
+
+      const items = await caller.usage.contextItems({ from: '2024-01-10', to: '2024-01-10', limit: 1 });
+
+      expect(items.map((item) => item.label)).toEqual(['a']);
+    });
+  });
+
   describe('expensiveCalls', () => {
     it('[FR-USAGE-350] should return the top calls sorted by token-turns descending', async () => {
       seedExpensiveCall(ctx, { callIndex: 0, tool: 'Write', tokenTurns: 500, preview: 'small.ts' });
@@ -858,6 +926,7 @@ describe('usage router', () => {
       seedFile(ctx, { attributedCostMicroCents: 10_000_000 });
       seedField(ctx, { tokenTurns: 10, tokens: 5, attributedCostMicroCents: 2_000_000 });
       seedCause(ctx, { kind: 'toolInput', tokenTurns: 10 });
+      seedContextItem(ctx, { count: 2, tokens: 40, attributedCostMicroCents: 1_000_000 });
       seedCall(ctx, { callIndex: 0, cacheReadTokens: 500 });
       seedCall(ctx, { callIndex: 1, cacheReadTokens: 500 });
 
@@ -870,6 +939,9 @@ describe('usage router', () => {
       expect(detail.files).toHaveLength(1);
       expect(detail.fields).toHaveLength(1);
       expect(detail.fields[0].costCents).toBe(2);
+      expect(detail.contextItems).toEqual([
+        { kind: 'nested_memory', label: '/repo/web/CLAUDE.md', count: 2, tokens: 40, costCents: 1 },
+      ]);
       expect(detail.callSeries).toEqual([
         { callIndex: 0, cacheReadTokens: 500 },
         { callIndex: 1, cacheReadTokens: 500 },
@@ -884,6 +956,7 @@ describe('usage router', () => {
         seedTool(ctx, { date, toolName: 'Bash', calls: 2, attributedCostMicroCents: 1_000_000 });
         seedFile(ctx, { date, reads: 1, attributedCostMicroCents: 1_000_000 });
         seedField(ctx, { date, calls: 1, tokens: 5, attributedCostMicroCents: 1_000_000 });
+        seedContextItem(ctx, { date, count: 1, tokens: 5, attributedCostMicroCents: 1_000_000 });
       }
 
       const detail = await caller.usage.session({ sessionId: 's1' });
@@ -897,6 +970,17 @@ describe('usage router', () => {
       expect(detail.fields).toEqual([
         expect.objectContaining({ field: 'prompt', calls: 2, tokens: 10 }),
       ]);
+      expect(detail.contextItems).toEqual([
+        expect.objectContaining({ kind: 'nested_memory', count: 2, tokens: 10, costCents: 2 }),
+      ]);
+    });
+
+    it('[FR-USAGE-215] should return the base context size of the session', async () => {
+      seedSession(ctx, { sessionId: 's1', baseContextTokens: 18_500 });
+
+      const detail = await caller.usage.session({ sessionId: 's1' });
+
+      expect(detail.session.baseContextTokens).toBe(18_500);
     });
   });
 
@@ -1026,6 +1110,81 @@ describe('usage router', () => {
       const session = await caller.usage.session({ sessionId: 'scan-1' });
       expect(session.tools[0].calls).toBe(3);
       expect(session.files[0].reads).toBe(2);
+    });
+
+    it('[FR-USAGE-210] should add a tail scan to the stored context items and replace them on a full parse', async () => {
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [makeScanResult()],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [{ ...makeScanResult(), isFullParse: false }],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+      const afterTail = await caller.usage.session({ sessionId: 'scan-1' });
+
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [makeScanResult()],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+      const afterFull = await caller.usage.session({ sessionId: 'scan-1' });
+
+      const hook = (detail: typeof afterTail) =>
+        detail.contextItems.find((item) => item.kind === 'hook_success');
+      expect(hook(afterTail)).toMatchObject({ label: 'Stop', count: 4, tokens: 100 });
+      expect(hook(afterFull)).toMatchObject({ label: 'Stop', count: 2, tokens: 50 });
+    });
+
+    it('[FR-USAGE-215] should keep the first base context size when a tail scan reports another', async () => {
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [makeScanResult({ baseContextTokens: 20_000 })],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [{ ...makeScanResult({ baseContextTokens: 90_000 }), isFullParse: false }],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+
+      const detail = await caller.usage.session({ sessionId: 'scan-1' });
+      expect(detail.session.baseContextTokens).toBe(20_000);
+    });
+
+    it('[FR-USAGE-215] should take the base context size from a tail scan when none is stored', async () => {
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [makeScanResult({ baseContextTokens: 0 })],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [{ ...makeScanResult({ baseContextTokens: 30_000 }), isFullParse: false }],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+      await caller.usage.refresh();
+
+      const detail = await caller.usage.session({ sessionId: 'scan-1' });
+      expect(detail.session.baseContextTokens).toBe(30_000);
     });
 
     it('[FR-USAGE-350] should persist a scanned session\'s expensive calls', async () => {

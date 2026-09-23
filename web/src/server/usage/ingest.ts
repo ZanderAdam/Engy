@@ -10,6 +10,7 @@ import {
   usageFile,
   usageCause,
   usageCall,
+  usageContextItem,
   usageExpensiveCall,
   usageScanFile,
   usageSealedDate,
@@ -105,6 +106,12 @@ function earliestExcluded(column: SQLiteColumn): SQL<string | null> {
   return sql`min(coalesce(${column}, ${excluded}), coalesce(${excluded}, ${column}))`;
 }
 
+/** The first stored non-zero value wins, so a tail scan cannot replace the session's first call. */
+function firstNonZeroExcluded(column: SQLiteColumn): SQL<number> {
+  const excluded = sql`excluded.${sql.identifier(column.name)}`;
+  return sql`case when ${column} > 0 then ${column} else ${excluded} end`;
+}
+
 function latestExcluded(column: SQLiteColumn): SQL<string | null> {
   const excluded = sql`excluded.${sql.identifier(column.name)}`;
   return sql`max(coalesce(${column}, ${excluded}), coalesce(${excluded}, ${column}))`;
@@ -120,6 +127,7 @@ function clearSessionRollups(tx: Db, sessionId: string): void {
   tx.delete(usageField).where(eq(usageField.sessionId, sessionId)).run();
   tx.delete(usageFile).where(eq(usageFile.sessionId, sessionId)).run();
   tx.delete(usageCause).where(eq(usageCause.sessionId, sessionId)).run();
+  tx.delete(usageContextItem).where(eq(usageContextItem.sessionId, sessionId)).run();
   tx.delete(usageCall).where(eq(usageCall.sessionId, sessionId)).run();
   tx.delete(usageExpensiveCall).where(eq(usageExpensiveCall.sessionId, sessionId)).run();
 }
@@ -205,7 +213,8 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
 
     for (const result of response.sessions) {
       const { scan, repoRoot, meta, isFullParse } = result;
-      const { session, days, tools, fields, files, causes, calls, expensiveCalls } = scan;
+      const { session, days, tools, fields, files, causes, contextItems, calls, expensiveCalls } =
+        scan;
       const existing = tx
         .select({ sessionId: usageSession.sessionId, apiCalls: usageSession.apiCalls })
         .from(usageSession)
@@ -260,6 +269,7 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
         gitCommits: meta?.gitCommits ?? null,
         toolErrors: meta?.toolErrors ?? null,
         compactions: scan.compactions,
+        baseContextTokens: session.baseContextTokens,
       };
 
       const sessionSet = isFullParse
@@ -280,6 +290,7 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
             webFetchRequests: addExcluded(usageSession.webFetchRequests),
             estCostCents: addExcluded(usageSession.estCostCents),
             compactions: addExcluded(usageSession.compactions),
+            baseContextTokens: firstNonZeroExcluded(usageSession.baseContextTokens),
           };
 
       tx.insert(usageSession)
@@ -459,6 +470,35 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
           .onConflictDoUpdate({
             target: [usageCause.date, usageCause.sessionId, usageCause.kind],
             set: { tokenTurns: addExcluded(usageCause.tokenTurns) },
+          })
+          .run();
+      }
+
+      for (const item of contextItems) {
+        tx.insert(usageContextItem)
+          .values({
+            date: item.date,
+            sessionId: session.sessionId,
+            kind: item.kind,
+            label: item.label,
+            count: item.count,
+            tokens: item.tokens,
+            tokenTurns: item.tokenTurns,
+            attributedCostMicroCents: directRowMicroCents(item.tokenTurns),
+          })
+          .onConflictDoUpdate({
+            target: [
+              usageContextItem.date,
+              usageContextItem.sessionId,
+              usageContextItem.kind,
+              usageContextItem.label,
+            ],
+            set: {
+              count: addExcluded(usageContextItem.count),
+              tokens: addExcluded(usageContextItem.tokens),
+              tokenTurns: addExcluded(usageContextItem.tokenTurns),
+              attributedCostMicroCents: addExcluded(usageContextItem.attributedCostMicroCents),
+            },
           })
           .run();
       }

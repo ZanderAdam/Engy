@@ -3,6 +3,7 @@ import type {
   UsageCallPoint,
   UsageCauseKind,
   UsageCauseRollup,
+  UsageContextItemRollup,
   UsageDayRollup,
   UsageExpensiveCall,
   UsageFieldRollup,
@@ -11,8 +12,14 @@ import type {
   UsageSessionScan,
   UsageToolRollup,
 } from '@engy/common';
-import { estimateBlockTokens, estimateTextTokens, safeStringify } from './tokens.js';
+import {
+  estimateBlockTokens,
+  estimateCharTokens,
+  estimateTextTokens,
+  safeStringify,
+} from './tokens.js';
 import { localDateFromTimestamp } from './date.js';
+import { measureAttachment } from './attachment.js';
 
 /**
  * Cheap gate applied before JSON.parse. Roughly 78% of transcript lines carry
@@ -20,6 +27,7 @@ import { localDateFromTimestamp } from './date.js';
  */
 const USAGE_MARKER = '"cache_read_input_tokens"';
 const CONTENT_MARKERS = ['"tool_use"', '"tool_result"', '"thinking"', '"text"'];
+const ATTACHMENT_MARKER = '"type":"attachment"';
 
 const MAX_CALL_POINTS = 200;
 
@@ -57,7 +65,7 @@ const PREVIEW_MAX_CHARS = 120;
 const MAX_PENDING_TOOL_USES = 1000;
 
 export function lineMayMatter(line: string): boolean {
-  if (line.includes(USAGE_MARKER)) return true;
+  if (line.includes(USAGE_MARKER) || line.includes(ATTACHMENT_MARKER)) return true;
   return CONTENT_MARKERS.some((marker) => line.includes(marker));
 }
 
@@ -145,6 +153,14 @@ interface FileAcc {
   totalChars: number;
 }
 
+interface ContextItemAcc {
+  date: string;
+  kind: string;
+  label: string;
+  residual: ResidualSum;
+  count: number;
+}
+
 interface PendingToolUse {
   name: string;
   filePath: string | null;
@@ -176,8 +192,19 @@ const EMPTY_TOTALS = () => ({
 
 type Totals = ReturnType<typeof EMPTY_TOTALS>;
 
+function num(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function contextTokens(usage: Record<string, unknown>): number {
+  return (
+    num(usage.cache_read_input_tokens) +
+    num(usage.cache_creation_input_tokens) +
+    num(usage.input_tokens)
+  );
+}
+
 function addUsageTo(target: Totals, usage: Record<string, unknown>): void {
-  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
   const cacheCreation = (usage.cache_creation ?? {}) as Record<string, unknown>;
   const outputDetails = (usage.output_tokens_details ?? {}) as Record<string, unknown>;
   const serverTools = (usage.server_tool_use ?? {}) as Record<string, unknown>;
@@ -268,6 +295,7 @@ export class SessionReducer {
   private startedAt: string | null = null;
   private endedAt: string | null = null;
   private agentCalls = 0;
+  private baseContextTokens = 0;
 
   private readonly totals = EMPTY_TOTALS();
   private readonly modelCalls = new Map<string, number>();
@@ -279,6 +307,7 @@ export class SessionReducer {
   >();
   private readonly files = new Map<string, FileAcc>();
   private readonly causes = new Map<string, { date: string; kind: UsageCauseKind; residual: ResidualSum }>();
+  private readonly contextItems = new Map<string, ContextItemAcc>();
   private readonly pending = new Map<string, PendingToolUse>();
   private readonly expensiveCalls: ExpensiveCallCandidate[] = [];
 
@@ -328,6 +357,11 @@ export class SessionReducer {
       this.currentDate = localDateFromTimestamp(timestamp);
     }
 
+    if (entry.type === 'attachment' && entry.attachment && typeof entry.attachment === 'object') {
+      this.consumeAttachment(entry.attachment as Record<string, unknown>);
+      return;
+    }
+
     const message = entry.message as Record<string, unknown> | undefined;
     if (!message || typeof message !== 'object') return;
 
@@ -348,7 +382,9 @@ export class SessionReducer {
       }
       addUsageTo(day, usage);
       this.recordCallPoint(usage);
-      this.detectCompaction(usage);
+      const context = contextTokens(usage);
+      if (this.baseContextTokens === 0) this.baseContextTokens = context;
+      this.detectCompaction(context);
     }
 
     const content = message.content;
@@ -376,6 +412,23 @@ export class SessionReducer {
           break;
       }
     }
+  }
+
+  private consumeAttachment(attachment: Record<string, unknown>): void {
+    const measure = measureAttachment(attachment);
+    if (!measure) return;
+    const { kind, label, chars } = measure;
+    const tokens = estimateCharTokens(chars);
+    this.addCause('attachment', tokens);
+
+    const key = `${this.currentDate}${KEY_SEP}${kind}${KEY_SEP}${label}`;
+    let item = this.contextItems.get(key);
+    if (!item) {
+      item = { date: this.currentDate, kind, label, residual: this.newResidual(), count: 0 };
+      this.contextItems.set(key, item);
+    }
+    item.residual.add(tokens, this.callsSoFar);
+    item.count += 1;
   }
 
   private consumeToolUse(block: Record<string, unknown>): void {
@@ -555,13 +608,7 @@ export class SessionReducer {
     }
   }
 
-  private detectCompaction(usage: Record<string, unknown>): void {
-    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-    const context =
-      num(usage.cache_read_input_tokens) +
-      num(usage.cache_creation_input_tokens) +
-      num(usage.input_tokens);
-
+  private detectCompaction(context: number): void {
     const collapsed =
       this.previousContext > COMPACTION_MIN_CONTEXT &&
       context < COMPACTION_DROP_RATIO * this.previousContext;
@@ -614,6 +661,7 @@ export class SessionReducer {
       isSubagent: this.parentSessionId !== null,
       agentType: this.agentType,
       agentDescription: this.agentDescription,
+      baseContextTokens: this.baseContextTokens,
       inputTokens: this.totals.inputTokens,
       outputTokens: this.totals.outputTokens,
       thinkingTokens: this.totals.thinkingTokens,
@@ -681,6 +729,15 @@ export class SessionReducer {
       tokenTurns: entry.residual.tokenTurns(totalCalls),
     }));
 
+    const contextItems: UsageContextItemRollup[] = [...this.contextItems.values()].map((acc) => ({
+      date: acc.date,
+      kind: acc.kind,
+      label: acc.label,
+      count: acc.count,
+      tokens: acc.residual.tokens,
+      tokenTurns: acc.residual.tokenTurns(totalCalls),
+    }));
+
     const expensiveCalls: UsageExpensiveCall[] = this.expensiveCalls
       .map((candidate) => ({
         date: candidate.date,
@@ -701,6 +758,7 @@ export class SessionReducer {
       fields,
       files,
       causes,
+      contextItems,
       expensiveCalls,
       compactions: this.compactions,
       calls: this.callPoints,

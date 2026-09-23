@@ -615,6 +615,7 @@ export const usageSession = sqliteTable(
     // Auto-compaction events — attribution caps at each boundary, so this is
     // what explains a session's cost shape not otherwise visible in the totals.
     compactions: integer('compactions').notNull().default(0),
+    baseContextTokens: integer('base_context_tokens').notNull().default(0),
   },
   (table) => [
     index('idx_usage_session_slug').on(table.slug),
@@ -698,15 +699,16 @@ export const usageTool = sqliteTable(
 );
 
 // Modeled token-turns by content kind (tool result / tool input / assistant
-// text / image / thinking). Priced directly at the session's cache-read rate;
-// the shortfall against measured cost is the unattributable per-call baseline.
+// text / image / thinking / injected attachment). Priced directly at the
+// session's cache-read rate; the shortfall against measured cost is the
+// unattributable per-call baseline.
 export const usageCause = sqliteTable(
   'usage_cause',
   {
     date: text('date').notNull(),
     sessionId: text('session_id').notNull(),
     kind: text('kind', {
-      enum: ['toolResult', 'toolInput', 'text', 'image', 'thinking'],
+      enum: ['toolResult', 'toolInput', 'text', 'image', 'thinking', 'attachment'],
     }).notNull(),
     tokenTurns: integer('token_turns').notNull().default(0),
   },
@@ -774,6 +776,28 @@ export const usageFile = sqliteTable(
     primaryKey({ columns: [table.date, table.sessionId, table.filePath] }),
     index('idx_usage_file_date').on(table.date),
     index('idx_usage_file_session').on(table.sessionId),
+  ],
+);
+
+// Injected context items (`attachment` transcript entries), keyed by the
+// attachment type and a label: file path, hook name, or '' for a kind with no item.
+export const usageContextItem = sqliteTable(
+  'usage_context_item',
+  {
+    date: text('date').notNull(),
+    sessionId: text('session_id').notNull(),
+    kind: text('kind').notNull(),
+    label: text('label').notNull().default(''),
+    count: integer('count').notNull().default(0),
+    tokens: integer('tokens').notNull().default(0),
+    tokenTurns: integer('token_turns').notNull().default(0),
+    // Micro-cents — see usageTool.attributedCostMicroCents for why.
+    attributedCostMicroCents: integer('attributed_cost_micro_cents').notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.date, table.sessionId, table.kind, table.label] }),
+    index('idx_usage_context_item_date').on(table.date),
+    index('idx_usage_context_item_session').on(table.sessionId),
   ],
 );
 

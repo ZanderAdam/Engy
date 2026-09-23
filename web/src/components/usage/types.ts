@@ -47,6 +47,7 @@ export interface UsageCauses {
   text: number;
   image: number;
   thinking: number;
+  attachment: number;
 }
 
 export interface UsageCacheEfficiency {
@@ -98,6 +99,14 @@ export interface UsageFileRow {
   costCents: number;
 }
 
+export interface UsageContextItemRow {
+  kind: string;
+  label: string;
+  count: number;
+  tokens: number;
+  costCents: number;
+}
+
 export interface UsageSessionRow {
   sessionId: string;
   slug: string;
@@ -142,10 +151,11 @@ export interface UsageCallSeriesPoint {
 }
 
 export interface UsageSessionDetail {
-  session: UsageSessionRow;
+  session: UsageSessionRow & { baseContextTokens: number };
   tools: UsageToolRow[];
   files: UsageFileRow[];
   fields: UsageFieldRow[];
+  contextItems: UsageContextItemRow[];
   subagents: UsageSubagentRow[];
   callSeries: UsageCallSeriesPoint[];
 }

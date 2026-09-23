@@ -131,6 +131,7 @@ export type {
   UsageToolRollup,
   UsageFieldRollup,
   UsageFileRollup,
+  UsageContextItemRollup,
   UsageExpensiveCall,
   UsageDayRollup,
   UsageSessionRollup,

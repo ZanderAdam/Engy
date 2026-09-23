@@ -14,6 +14,7 @@ import {
   usageFile,
   usageCause,
   usageCall,
+  usageContextItem,
   usageExpensiveCall,
 } from '../../db/schema';
 import {
@@ -164,6 +165,12 @@ function queryFileRows(db: Db, from: string, to: string, sessionIds: Set<string>
   return db.select().from(usageFile).where(where).all();
 }
 
+function queryContextItemRows(db: Db, from: string, to: string, sessionIds: Set<string> | null) {
+  if (isEmptyScope(sessionIds)) return [];
+  const where = and(...rangeConditions(usageContextItem, from, to, sessionIds));
+  return db.select().from(usageContextItem).where(where).all();
+}
+
 function summarizeTools(rows: Array<typeof usageTool.$inferSelect>) {
   const byTool = new Map<
     string,
@@ -311,6 +318,37 @@ function summarizeFiles(
     .sort((a, b) => b.costCents - a.costCents);
 }
 
+function summarizeContextItems(rows: Array<typeof usageContextItem.$inferSelect>) {
+  const byItem = new Map<
+    string,
+    { kind: string; label: string; count: number; tokens: number; costMicroCents: number }
+  >();
+  for (const row of rows) {
+    const key = `${row.kind}\u0000${row.label}`;
+    const agg = byItem.get(key) ?? {
+      kind: row.kind,
+      label: row.label,
+      count: 0,
+      tokens: 0,
+      costMicroCents: 0,
+    };
+    agg.count += row.count;
+    agg.tokens += row.tokens;
+    agg.costMicroCents += row.attributedCostMicroCents;
+    byItem.set(key, agg);
+  }
+
+  return [...byItem.values()]
+    .map(({ kind, label, count, tokens, costMicroCents }) => ({
+      kind,
+      label,
+      count,
+      tokens,
+      costCents: microCentsToCents(costMicroCents),
+    }))
+    .sort((a, b) => b.costCents - a.costCents);
+}
+
 function queryCauseRows(db: Db, from: string, to: string, sessionIds: Set<string> | null) {
   if (isEmptyScope(sessionIds)) return [];
   const where = and(...rangeConditions(usageCause, from, to, sessionIds));
@@ -376,23 +414,29 @@ function sumCostMicro(rows: UsageSessionDailyRow[], rates: Map<string, ModelRate
 
 type CauseRow = { sessionId: string; kind: string; tokenTurns: number };
 
+const CAUSE_KINDS: UsageCauseKind[] = [
+  'toolResult',
+  'toolInput',
+  'text',
+  'image',
+  'thinking',
+  'attachment',
+];
+
 // Sums each cause directly, then folds the shortfall against measured
 // cache-read cost into `baseline` — computed as a *cents* remainder (not an
-// independently-rounded micro-cent value) so the six figures sum exactly to
-// the measured total whenever attribution doesn't exceed it.
+// independently-rounded micro-cent value) so all causes sum exactly to the
+// measured total whenever attribution doesn't exceed it.
 function causesWithBaseline(
   causeRows: CauseRow[],
   sessionModel: Map<string, string>,
   rates: Map<string, ModelRateRow>,
   measuredCacheReadMicroCents: number,
 ): Record<UsageCauseKind, number> & { baseline: number } {
-  const microTotals: Record<UsageCauseKind, number> = {
-    toolResult: 0,
-    toolInput: 0,
-    text: 0,
-    image: 0,
-    thinking: 0,
-  };
+  const microTotals = Object.fromEntries(CAUSE_KINDS.map((kind) => [kind, 0])) as Record<
+    UsageCauseKind,
+    number
+  >;
   for (const row of causeRows) {
     if (!(row.kind in microTotals)) continue;
     const model = sessionModel.get(row.sessionId);
@@ -400,13 +444,9 @@ function causesWithBaseline(
     if (!rate) continue;
     microTotals[row.kind as UsageCauseKind] += directMicroCents(row.tokenTurns, rate.cacheReadMicroCentsPerToken);
   }
-  const cents: Record<UsageCauseKind, number> = {
-    toolResult: microCentsToCents(microTotals.toolResult),
-    toolInput: microCentsToCents(microTotals.toolInput),
-    text: microCentsToCents(microTotals.text),
-    image: microCentsToCents(microTotals.image),
-    thinking: microCentsToCents(microTotals.thinking),
-  };
+  const cents = Object.fromEntries(
+    CAUSE_KINDS.map((kind) => [kind, microCentsToCents(microTotals[kind])]),
+  ) as Record<UsageCauseKind, number>;
   const attributedCents = Object.values(cents).reduce((sum, value) => sum + value, 0);
   const baseline = Math.max(0, microCentsToCents(measuredCacheReadMicroCents) - attributedCents);
   return { ...cents, baseline };
@@ -645,6 +685,16 @@ export const usageRouter = router({
       return summarizeFiles(rows, input.groupBy).slice(0, input.limit);
     }),
 
+  contextItems: publicProcedure
+    .input(requireValidRange(rangeInput.extend({ limit: z.number().int().min(1).max(200).default(20) })))
+    .query(({ input }) => {
+      const db = getDb();
+      const sessionIds = resolveScopedSessionIds(db, input);
+      const rows = queryContextItemRows(db, input.from, input.to, sessionIds);
+
+      return summarizeContextItems(rows).slice(0, input.limit);
+    }),
+
   expensiveCalls: publicProcedure
     .input(requireValidRange(rangeInput.extend({ limit: z.number().int().min(1).max(200).default(20) })))
     .query(({ input }) => {
@@ -749,7 +799,11 @@ export const usageRouter = router({
     const subagentCostCents = children.reduce((sum, child) => sum + child.estCostCents, 0);
     const subagentCalls = children.reduce((sum, child) => sum + child.apiCalls, 0);
 
-    const session = { ...toSessionRow(row, subagentCostCents, subagentCalls), compactions: row.compactions };
+    const session = {
+      ...toSessionRow(row, subagentCostCents, subagentCalls),
+      compactions: row.compactions,
+      baseContextTokens: row.baseContextTokens,
+    };
 
     const subagents = children.map((child) => ({
       sessionId: child.sessionId,
@@ -770,6 +824,13 @@ export const usageRouter = router({
     const fields = summarizeFields(
       db.select().from(usageField).where(eq(usageField.sessionId, input.sessionId)).all(),
     );
+    const contextItems = summarizeContextItems(
+      db
+        .select()
+        .from(usageContextItem)
+        .where(eq(usageContextItem.sessionId, input.sessionId))
+        .all(),
+    );
 
     const callRows = db
       .select()
@@ -779,7 +840,7 @@ export const usageRouter = router({
       .all();
     const callSeries = callRows.map((call) => ({ callIndex: call.callIndex, cacheReadTokens: call.cacheReadTokens }));
 
-    return { session, tools, files, fields, callSeries, subagents };
+    return { session, tools, files, fields, contextItems, callSeries, subagents };
   }),
 
   refresh: publicProcedure

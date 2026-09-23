@@ -145,6 +145,10 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
     { ...rangeInput, limit: ROW_LIMIT, groupBy: fileGroupBy },
     { enabled: scopeReady && view === 'burn' },
   );
+  const contextItemsQuery = trpc.usage.contextItems.useQuery(
+    { ...rangeInput, limit: ROW_LIMIT },
+    { enabled: scopeReady && view === 'burn' },
+  );
   const expensiveCallsQuery = trpc.usage.expensiveCalls.useQuery(
     { ...rangeInput, limit: ROW_LIMIT },
     { enabled: scopeReady && view === 'burn' },
@@ -195,6 +199,7 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
     toolsQuery.isLoading ||
     fieldsQuery.isLoading ||
     filesQuery.isLoading ||
+    contextItemsQuery.isLoading ||
     expensiveCallsQuery.isLoading;
 
   function renderBody() {
@@ -213,6 +218,7 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
           tools={toolsQuery.data ?? []}
           fields={fieldsQuery.data ?? []}
           files={filesQuery.data ?? []}
+          contextItems={contextItemsQuery.data ?? []}
           expensiveCalls={expensiveCallsQuery.data ?? []}
           fileGroupBy={fileGroupBy}
           onFileGroupByChange={setFileGroupBy}

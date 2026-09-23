@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import { ContextItemTable } from './context-item-table';
 import { ExpensiveCallsTable } from './expensive-calls-table';
 import { FieldTable } from './field-table';
 import { FileTable } from './file-table';
@@ -8,6 +9,7 @@ import { EstimateNotice, TabbedPanel } from './panel';
 import { ToolTable } from './tool-table';
 import type {
   FileGroupBy,
+  UsageContextItemRow,
   UsageExpensiveCallRow,
   UsageFieldRow,
   UsageFileRow,
@@ -18,6 +20,7 @@ interface BurnScreenProps {
   tools: UsageToolRow[];
   fields: UsageFieldRow[];
   files: UsageFileRow[];
+  contextItems: UsageContextItemRow[];
   expensiveCalls: UsageExpensiveCallRow[];
   fileGroupBy: FileGroupBy;
   onFileGroupByChange: (groupBy: FileGroupBy) => void;
@@ -62,6 +65,7 @@ export function BurnScreen({
   tools,
   fields,
   files,
+  contextItems,
   expensiveCalls,
   fileGroupBy,
   onFileGroupByChange,
@@ -80,6 +84,11 @@ export function BurnScreen({
             label: 'Files',
             action: <GroupToggle value={fileGroupBy} onChange={onFileGroupByChange} />,
             content: <FileTable rows={files} groupBy={fileGroupBy} />,
+          },
+          {
+            value: 'context',
+            label: 'Injected context',
+            content: <ContextItemTable rows={contextItems} />,
           },
           {
             value: 'calls',

@@ -59,6 +59,13 @@ function toolResultLine(
   });
 }
 
+function attachmentLine(
+  attachment: Record<string, unknown>,
+  timestamp = '2026-09-01T10:00:00.000Z',
+): string {
+  return JSON.stringify({ type: 'attachment', timestamp, uuid: 'u-1', attachment });
+}
+
 function causeTokens(scan: { causes: Array<{ kind: string; tokenTurns: number }> }, kind: string) {
   return scan.causes
     .filter((c) => c.kind === kind)
@@ -83,6 +90,12 @@ describe('usage reducer', () => {
 
     it('[FR-USAGE-020] should keep lines carrying content blocks', () => {
       expect(lineMayMatter('{"type":"tool_result"}')).toBe(true);
+    });
+
+    it('[FR-USAGE-020] should keep attachment lines', () => {
+      expect(lineMayMatter(attachmentLine({ type: 'date_change', newDate: '2026-09-01' }))).toBe(
+        true,
+      );
     });
 
     it('[FR-USAGE-020] should drop lines carrying neither', () => {
@@ -323,6 +336,155 @@ describe('usage reducer', () => {
       // Priced by pixels: a char-based estimate would be over 100k tokens.
       expect(causeTokens(scan, 'image')).toBeLessThan(2000);
       expect(scan.tools.find((t) => t.tool === 'Read')?.images).toBe(1);
+    });
+  });
+
+  describe('injected context', () => {
+    const item = (scan: ReturnType<typeof reduce>, kind: string) =>
+      scan.contextItems.find((row) => row.kind === kind);
+
+    it('[FR-USAGE-095] should charge an attachment once per API call that follows it', () => {
+      const scan = reduce([
+        attachmentLine({ type: 'skill_listing', content: 'x'.repeat(360), isInitial: true }),
+        usageLine({}),
+        usageLine({}),
+        usageLine({}),
+      ]);
+      expect(causeTokens(scan, 'attachment')).toBeCloseTo(300, 0);
+      expect(item(scan, 'skill_listing')).toMatchObject({ count: 1, label: '' });
+      expect(item(scan, 'skill_listing')?.tokens).toBeCloseTo(100, 0);
+      expect(item(scan, 'skill_listing')?.tokenTurns).toBeCloseTo(300, 0);
+    });
+
+    it('[FR-USAGE-095] should count only the text the model sees, not metadata or repeated lists', () => {
+      const scan = reduce([
+        attachmentLine({
+          type: 'hook_success',
+          hookName: 'UserPromptSubmit',
+          hookEvent: 'UserPromptSubmit',
+          toolUseID: 'toolu_1',
+          command: 'echo '.repeat(100),
+          content: 'x'.repeat(36),
+          stdout: 'x'.repeat(36),
+          stderr: 'y'.repeat(360),
+          exitCode: 0,
+          durationMs: 70,
+        }),
+        attachmentLine({
+          type: 'deferred_tools_delta',
+          addedNames: ['A'.repeat(360)],
+          addedLines: ['B'.repeat(72)],
+        }),
+        usageLine({}),
+      ]);
+      expect(item(scan, 'hook_success')?.tokens).toBeCloseTo(10, 5);
+      expect(item(scan, 'deferred_tools_delta')?.tokens).toBeCloseTo(20, 5);
+    });
+
+    it('[FR-USAGE-095] should count text nested inside objects and arrays', () => {
+      const scan = reduce([
+        attachmentLine({
+          type: 'nested_memory',
+          path: '/repo/client/CLAUDE.md',
+          displayPath: 'client/CLAUDE.md',
+          content: { path: '/repo/client/CLAUDE.md', type: 'Project', content: 'x'.repeat(36) },
+        }),
+        attachmentLine({
+          type: 'invoked_skills',
+          skills: [{ name: 'ab', path: 'plugin:ab', content: 'y'.repeat(34) }],
+        }),
+        usageLine({}),
+      ]);
+      expect(item(scan, 'nested_memory')?.tokens).toBeCloseTo(10, 5);
+      expect(item(scan, 'invoked_skills')?.tokens).toBeCloseTo(10, 5);
+    });
+
+    it('[FR-USAGE-095] should stop charging an attachment once the context collapses', () => {
+      const big = (cacheRead: number) => usageLine({ cacheRead });
+      const scan = reduce([
+        big(200_000),
+        attachmentLine({ type: 'queued_command', prompt: 'x'.repeat(3600) }),
+        big(200_000),
+        big(20_000),
+        big(20_000),
+        big(20_000),
+      ]);
+      expect(causeTokens(scan, 'attachment')).toBeCloseTo(2000, 0);
+      expect(item(scan, 'queued_command')?.tokenTurns).toBeCloseTo(2000, 0);
+    });
+
+    it('[FR-USAGE-095] should skip records of the system prompt, tool schemas and root CLAUDE.md', () => {
+      const scan = reduce([
+        attachmentLine({ type: 'prompt_snapshot', systemPrompt: ['x'.repeat(3600)] }),
+        attachmentLine({ type: 'instructions', files: [{ path: '/CLAUDE.md', content: 'y' }] }),
+        attachmentLine({ type: 'deferred_tools_record', entries: [{ description: 'z' }] }),
+        usageLine({}),
+        usageLine({}),
+      ]);
+      expect(scan.contextItems).toEqual([]);
+      expect(causeTokens(scan, 'attachment')).toBe(0);
+    });
+
+    it('[FR-USAGE-097] should label an item by its file path or hook name', () => {
+      const scan = reduce([
+        attachmentLine({ type: 'nested_memory', path: '/repo/web/CLAUDE.md', content: 'a' }),
+        attachmentLine({ type: 'file', filename: '/repo/a.ts', content: { type: 'text' } }),
+        attachmentLine({ type: 'edited_text_file', filename: '/repo/b.ts', snippet: 'b' }),
+        attachmentLine({ type: 'hook_success', hookName: 'PreToolUse:Bash', content: 'c' }),
+        attachmentLine({ type: 'total_tokens_reminder', text: 'd' }),
+        usageLine({}),
+      ]);
+      const labels = Object.fromEntries(scan.contextItems.map((row) => [row.kind, row.label]));
+      expect(labels).toEqual({
+        nested_memory: '/repo/web/CLAUDE.md',
+        file: '/repo/a.ts',
+        edited_text_file: '/repo/b.ts',
+        hook_success: 'PreToolUse:Bash',
+        total_tokens_reminder: '',
+      });
+    });
+
+    it('[FR-USAGE-097] should merge repeated items that share a date, kind and label', () => {
+      const hook = attachmentLine({
+        type: 'hook_success',
+        hookName: 'Stop',
+        content: 'x'.repeat(36),
+      });
+      const scan = reduce([hook, usageLine({}), hook, usageLine({})]);
+      const rows = scan.contextItems.filter((row) => row.kind === 'hook_success');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].count).toBe(2);
+      expect(rows[0].tokens).toBeCloseTo(20, 5);
+      expect(rows[0].tokenTurns).toBeCloseTo(30, 5);
+    });
+
+    it('[FR-USAGE-097] should split items across the dates they fall on', () => {
+      const scan = reduce([
+        attachmentLine({ type: 'date_change', newDate: 'x' }, '2026-09-01T10:00:00.000Z'),
+        attachmentLine({ type: 'date_change', newDate: 'y' }, '2026-09-03T10:00:00.000Z'),
+        usageLine({ timestamp: '2026-09-03T10:00:00.000Z' }),
+      ]);
+      expect(scan.contextItems.map((row) => row.date).sort()).toEqual(['2026-09-01', '2026-09-03']);
+    });
+  });
+
+  describe('base context size', () => {
+    it('[FR-USAGE-215] should record the context size of the first API call', () => {
+      const scan = reduce([
+        usageLine({ cacheRead: 10_000, cacheWrite1h: 5_000 }),
+        usageLine({ cacheRead: 40_000 }),
+      ]);
+      expect(scan.session.baseContextTokens).toBe(15_001);
+    });
+
+    it('[FR-USAGE-215] should skip a first call that reports no context', () => {
+      const empty = JSON.stringify({
+        type: 'assistant',
+        timestamp: '2026-09-01T10:00:00.000Z',
+        message: { model: '<synthetic>', content: [], usage: { cache_read_input_tokens: 0 } },
+      });
+      const scan = reduce([empty, usageLine({ cacheRead: 15_000, cacheWrite1h: 5_000 })]);
+      expect(scan.session.baseContextTokens).toBe(20_001);
     });
   });
 

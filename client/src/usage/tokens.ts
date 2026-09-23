@@ -7,7 +7,11 @@ const IMAGE_FALLBACK_TOKENS = 1500;
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 export function estimateTextTokens(text: string): number {
-  return text.length / CHARS_PER_TOKEN;
+  return estimateCharTokens(text.length);
+}
+
+export function estimateCharTokens(chars: number): number {
+  return chars / CHARS_PER_TOKEN;
 }
 
 interface ImageDimensions {

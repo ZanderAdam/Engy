@@ -3,6 +3,7 @@ import { getDb } from '../db/client';
 import {
   usageCall,
   usageCause,
+  usageContextItem,
   usageExpensiveCall,
   usageField,
   usageFile,
@@ -21,7 +22,7 @@ type Db = ReturnType<typeof getDb>;
  * scan means the stored rollup was computed by logic since replaced and can
  * no longer be trusted.
  */
-export const USAGE_REDUCER_VERSION = 2;
+export const USAGE_REDUCER_VERSION = 3;
 
 /** Leaves `usagePricing` untouched: it is configuration, not history. */
 export function rebuildUsageHistory(db: Db = getDb()): void {
@@ -34,6 +35,7 @@ export function rebuildUsageHistory(db: Db = getDb()): void {
     tx.delete(usageField).run();
     tx.delete(usageFile).run();
     tx.delete(usageCause).run();
+    tx.delete(usageContextItem).run();
     tx.delete(usageCall).run();
     tx.delete(usageExpensiveCall).run();
   });

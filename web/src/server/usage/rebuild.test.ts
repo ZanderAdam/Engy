@@ -3,6 +3,7 @@ import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import {
   usageCall,
   usageCause,
+  usageContextItem,
   usageField,
   usageFile,
   usagePricing,
@@ -39,6 +40,10 @@ function seedUsageHistory(ctx: TestContext) {
     .run();
   ctx.db.insert(usageCause).values({ date: '2024-01-09', sessionId: 's1', kind: 'toolResult' }).run();
   ctx.db.insert(usageCall).values({ sessionId: 's1', callIndex: 0 }).run();
+  ctx.db
+    .insert(usageContextItem)
+    .values({ date: '2024-01-09', sessionId: 's1', kind: 'skill_listing' })
+    .run();
   ctx.db
     .insert(usageExpensiveCall)
     .values({ date: '2024-01-09', sessionId: 's1', callIndex: 3, tool: 'Read' })
@@ -99,6 +104,7 @@ describe('usage rebuild', () => {
       expect(ctx.db.select().from(usageFile).all()).toHaveLength(0);
       expect(ctx.db.select().from(usageCause).all()).toHaveLength(0);
       expect(ctx.db.select().from(usageCall).all()).toHaveLength(0);
+      expect(ctx.db.select().from(usageContextItem).all()).toHaveLength(0);
       expect(ctx.db.select().from(usageExpensiveCall).all()).toHaveLength(0);
 
       // Pricing is configuration, not history — a rebuild must not touch it.

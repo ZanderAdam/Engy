@@ -3,9 +3,17 @@
 import { RiArrowLeftLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { ContextGrowthChart } from './context-growth-chart';
+import { ContextItemTable } from './context-item-table';
 import { FieldTable } from './field-table';
 import { FileTable } from './file-table';
-import { formatCount, formatMoney, formatMoneyCompact, formatPercent, share } from './format';
+import {
+  formatCount,
+  formatMoney,
+  formatMoneyCompact,
+  formatPercent,
+  formatTokens,
+  share,
+} from './format';
 import { EstimateNotice, Panel, TabbedPanel } from './panel';
 import { StatTile } from './stat-tile';
 import { SubagentTable } from './subagent-table';
@@ -18,7 +26,7 @@ interface SessionDetailProps {
 }
 
 export function SessionDetail({ detail, onBack }: SessionDetailProps) {
-  const { session, tools, files, fields, subagents, callSeries } = detail;
+  const { session, tools, files, fields, contextItems, subagents, callSeries } = detail;
 
   return (
     <div className="flex flex-col gap-4">
@@ -61,7 +69,14 @@ export function SessionDetail({ detail, onBack }: SessionDetailProps) {
         />
       </div>
 
-      <Panel title="Context size">
+      <Panel
+        title="Context size"
+        action={
+          <span className="text-xs text-muted-foreground">
+            Base context: {formatTokens(session.baseContextTokens)} tokens
+          </span>
+        }
+      >
         <ContextGrowthChart series={callSeries} />
       </Panel>
 
@@ -71,6 +86,11 @@ export function SessionDetail({ detail, onBack }: SessionDetailProps) {
           { value: 'tools', label: 'Tools', content: <ToolTable rows={tools} /> },
           { value: 'fields', label: 'Tool input fields', content: <FieldTable rows={fields} /> },
           { value: 'files', label: 'Files', content: <FileTable rows={files} groupBy="path" /> },
+          {
+            value: 'context',
+            label: 'Injected context',
+            content: <ContextItemTable rows={contextItems} />,
+          },
         ]}
       />
     </div>
