@@ -6,7 +6,7 @@ import { ContextGrowthChart } from './context-growth-chart';
 import { FieldTable } from './field-table';
 import { FileTable } from './file-table';
 import { formatCount, formatMoney, formatMoneyCompact, formatPercent, share } from './format';
-import { EstimateNotice, Panel } from './panel';
+import { EstimateNotice, Panel, TabbedPanel } from './panel';
 import { StatTile } from './stat-tile';
 import { SubagentTable } from './subagent-table';
 import { ToolTable } from './tool-table';
@@ -65,21 +65,14 @@ export function SessionDetail({ detail, onBack }: SessionDetailProps) {
         <ContextGrowthChart series={callSeries} />
       </Panel>
 
-      <Panel title="Subagents">
-        <SubagentTable rows={subagents} />
-      </Panel>
-
-      <Panel title="Tools">
-        <ToolTable rows={tools} />
-      </Panel>
-
-      <Panel title="Tool input fields">
-        <FieldTable rows={fields} />
-      </Panel>
-
-      <Panel title="Files">
-        <FileTable rows={files} groupBy="path" />
-      </Panel>
+      <TabbedPanel
+        tabs={[
+          { value: 'subagents', label: 'Subagents', content: <SubagentTable rows={subagents} /> },
+          { value: 'tools', label: 'Tools', content: <ToolTable rows={tools} /> },
+          { value: 'fields', label: 'Tool input fields', content: <FieldTable rows={fields} /> },
+          { value: 'files', label: 'Files', content: <FileTable rows={files} groupBy="path" /> },
+        ]}
+      />
     </div>
   );
 }
