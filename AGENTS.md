@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents — Claude Code, Codex and the rest — when working with code in this repository. Claude Code reads it only while no root `CLAUDE.md` exists; the nested `CLAUDE.md` files below keep loading as they are.
 
 ## Project Overview
 
@@ -14,7 +14,7 @@ pnpm monorepo with Turborepo orchestration. Three packages:
 - **`client/`** — Node.js daemon that runs locally on the developer's machine. Connects to `web/` via WebSocket. Handles path validation, file watching, and git operations.
 - **`common/`** — Shared TypeScript types only (WebSocket protocol discriminated union). Zero runtime code.
 
-Subdirectory CLAUDE.mds codify patterns at the point of use (auto-loaded when Claude works in that subtree):
+Subdirectory `CLAUDE.md` files codify patterns at the point of use (auto-loaded when an agent works in that subtree):
 - `web/CLAUDE.md`, `client/CLAUDE.md`, `common/CLAUDE.md` — package overviews
 - `web/src/server/db/CLAUDE.md` — Drizzle schema & migration rules
 - `web/src/server/trpc/routers/CLAUDE.md` — router authoring, compensating actions, broadcasts
@@ -25,7 +25,7 @@ Subdirectory CLAUDE.mds codify patterns at the point of use (auto-loaded when Cl
 - `client/src/container/CLAUDE.md` — devcontainer + coder lifecycle, config generation
 - `client/src/runner/CLAUDE.md` — agent process spawning across host/container/coder/remote modes
 
-**If you spot drift between any CLAUDE.md and the actual code — wrong file path, renamed helper, stale claim, missing rule — raise it to the user instead of silently working around it.** These files are the project's authoritative onboarding contract; correcting them is higher leverage than completing one task with a workaround.
+**If you spot drift between this file or any nested `CLAUDE.md` and the actual code — wrong file path, renamed helper, stale claim, missing rule — raise it to the user instead of silently working around it.** These files are the project's authoritative onboarding contract; correcting them is higher leverage than completing one task with a workaround.
 
 ## Commands
 
