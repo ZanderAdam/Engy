@@ -861,6 +861,27 @@ describe('usage router', () => {
       expect(detail.subagents).toHaveLength(1);
       expect(detail.subagents[0]).toMatchObject({ sessionId: 'child', costCents: 15 });
     });
+
+    it('[FR-USAGE-310] should merge the daily rows of a session that spans several days', async () => {
+      seedSession(ctx, { sessionId: 's1' });
+      for (const date of ['2024-01-10', '2024-01-11']) {
+        seedTool(ctx, { date, toolName: 'Bash', calls: 2, attributedCostMicroCents: 1_000_000 });
+        seedFile(ctx, { date, reads: 1, attributedCostMicroCents: 1_000_000 });
+        seedField(ctx, { date, calls: 1, tokens: 5, attributedCostMicroCents: 1_000_000 });
+      }
+
+      const detail = await caller.usage.session({ sessionId: 's1' });
+
+      expect(detail.tools).toEqual([
+        expect.objectContaining({ tool: 'Bash', calls: 4, costCents: 2 }),
+      ]);
+      expect(detail.files).toEqual([
+        expect.objectContaining({ key: 'src/index.ts', reads: 2, costCents: 2 }),
+      ]);
+      expect(detail.fields).toEqual([
+        expect.objectContaining({ field: 'prompt', calls: 2, tokens: 10 }),
+      ]);
+    });
   });
 
   describe('refresh', () => {

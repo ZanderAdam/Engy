@@ -165,6 +165,153 @@ function queryFileRows(db: Db, from: string, to: string, sessionIds: Set<string>
   return db.select().from(usageFile).where(where).all();
 }
 
+function summarizeTools(rows: Array<typeof usageTool.$inferSelect>) {
+  const byTool = new Map<
+    string,
+    {
+      calls: number;
+      costMicroCents: number;
+      resultTokens: number;
+      maxResultChars: number;
+      // p50/p95 are call-weighted across a tool's (date, session) rows —
+      // an approximation, since a true cross-row percentile would need
+      // every row's raw sample, which the reducer never stores.
+      p50Weighted: number;
+      p95Max: number;
+      images: number;
+      errors: number;
+    }
+  >();
+  for (const row of rows) {
+    const agg = byTool.get(row.toolName) ?? {
+      calls: 0,
+      costMicroCents: 0,
+      resultTokens: 0,
+      maxResultChars: 0,
+      p50Weighted: 0,
+      p95Max: 0,
+      images: 0,
+      errors: 0,
+    };
+    agg.calls += row.calls;
+    agg.costMicroCents += row.attributedCostMicroCents;
+    agg.resultTokens += row.resultTokensEst;
+    agg.maxResultChars = Math.max(agg.maxResultChars, row.maxResultChars);
+    agg.p50Weighted += row.p50ResultChars * row.calls;
+    agg.p95Max = Math.max(agg.p95Max, row.p95ResultChars);
+    agg.images += row.images;
+    agg.errors += row.errorCount;
+    byTool.set(row.toolName, agg);
+  }
+
+  return [...byTool.entries()]
+    .map(([tool, agg]) => {
+      const costCents = microCentsToCents(agg.costMicroCents);
+      return {
+        tool,
+        calls: agg.calls,
+        costCents,
+        costPerCallCents: agg.calls > 0 ? Math.round(costCents / agg.calls) : 0,
+        resultTokens: agg.resultTokens,
+        maxResultChars: agg.maxResultChars,
+        p50ResultChars: agg.calls > 0 ? Math.round(agg.p50Weighted / agg.calls) : 0,
+        p95ResultChars: agg.p95Max,
+        images: agg.images,
+        errors: agg.errors,
+      };
+    })
+    .sort((a, b) => b.costCents - a.costCents);
+}
+
+function summarizeFields(rows: Array<typeof usageField.$inferSelect>) {
+  const byField = new Map<
+    string,
+    { tool: string; field: string; calls: number; tokens: number; costMicroCents: number }
+  >();
+  for (const row of rows) {
+    const key = `${row.tool}\u0000${row.field}`;
+    const agg = byField.get(key) ?? {
+      tool: row.tool,
+      field: row.field,
+      calls: 0,
+      tokens: 0,
+      costMicroCents: 0,
+    };
+    agg.calls += row.calls;
+    agg.tokens += row.tokens;
+    agg.costMicroCents += row.attributedCostMicroCents;
+    byField.set(key, agg);
+  }
+
+  return [...byField.values()]
+    .map(({ tool, field, calls, tokens, costMicroCents }) => ({
+      tool,
+      field,
+      calls,
+      tokens,
+      costCents: microCentsToCents(costMicroCents),
+    }))
+    .sort((a, b) => b.costCents - a.costCents);
+}
+
+function summarizeFiles(
+  rows: Array<typeof usageFile.$inferSelect>,
+  groupBy: 'path' | 'ext' | 'dir',
+) {
+  const keyFor = (filePath: string, ext: string): string => {
+    switch (groupBy) {
+      case 'ext':
+        return ext || '(none)';
+      case 'dir':
+        return path.dirname(filePath);
+      default:
+        return filePath;
+    }
+  };
+
+  const byKey = new Map<
+    string,
+    {
+      reads: number;
+      edits: number;
+      writes: number;
+      totalChars: number;
+      tokens: number;
+      costMicroCents: number;
+    }
+  >();
+  for (const row of rows) {
+    const key = keyFor(row.filePath, row.ext);
+    const agg = byKey.get(key) ?? {
+      reads: 0,
+      edits: 0,
+      writes: 0,
+      totalChars: 0,
+      tokens: 0,
+      costMicroCents: 0,
+    };
+    agg.reads += row.reads;
+    agg.edits += row.edits;
+    agg.writes += row.writes;
+    agg.totalChars += row.totalChars;
+    agg.tokens += row.tokensEst;
+    agg.costMicroCents += row.attributedCostMicroCents;
+    byKey.set(key, agg);
+  }
+
+  return [...byKey.entries()]
+    .map(([key, agg]) => ({
+      key,
+      reads: agg.reads,
+      edits: agg.edits,
+      writes: agg.writes,
+      totalChars: agg.totalChars,
+      tokens: agg.tokens,
+      costCents: microCentsToCents(agg.costMicroCents),
+    }))
+    .sort((a, b) => b.costCents - a.costCents);
+}
+
 function queryCauseRows(db: Db, from: string, to: string, sessionIds: Set<string> | null) {
   if (isEmptyScope(sessionIds)) return [];
   const where = and(...rangeConditions(usageCause, from, to, sessionIds));
@@ -460,62 +607,7 @@ export const usageRouter = router({
       const sessionIds = resolveScopedSessionIds(db, input);
       const rows = queryToolRows(db, input.from, input.to, sessionIds);
 
-      const byTool = new Map<
-        string,
-        {
-          calls: number;
-          costMicroCents: number;
-          resultTokens: number;
-          maxResultChars: number;
-          // p50/p95 are call-weighted across a tool's (date, session) rows —
-          // an approximation, since a true cross-row percentile would need
-          // every row's raw sample, which the reducer never stores.
-          p50Weighted: number;
-          p95Max: number;
-          images: number;
-          errors: number;
-        }
-      >();
-      for (const row of rows) {
-        const agg = byTool.get(row.toolName) ?? {
-          calls: 0,
-          costMicroCents: 0,
-          resultTokens: 0,
-          maxResultChars: 0,
-          p50Weighted: 0,
-          p95Max: 0,
-          images: 0,
-          errors: 0,
-        };
-        agg.calls += row.calls;
-        agg.costMicroCents += row.attributedCostMicroCents;
-        agg.resultTokens += row.resultTokensEst;
-        agg.maxResultChars = Math.max(agg.maxResultChars, row.maxResultChars);
-        agg.p50Weighted += row.p50ResultChars * row.calls;
-        agg.p95Max = Math.max(agg.p95Max, row.p95ResultChars);
-        agg.images += row.images;
-        agg.errors += row.errorCount;
-        byTool.set(row.toolName, agg);
-      }
-
-      return [...byTool.entries()]
-        .map(([tool, agg]) => {
-          const costCents = microCentsToCents(agg.costMicroCents);
-          return {
-            tool,
-            calls: agg.calls,
-            costCents,
-            costPerCallCents: agg.calls > 0 ? Math.round(costCents / agg.calls) : 0,
-            resultTokens: agg.resultTokens,
-            maxResultChars: agg.maxResultChars,
-            p50ResultChars: agg.calls > 0 ? Math.round(agg.p50Weighted / agg.calls) : 0,
-            p95ResultChars: agg.p95Max,
-            images: agg.images,
-            errors: agg.errors,
-          };
-        })
-        .sort((a, b) => b.costCents - a.costCents)
-        .slice(0, input.limit);
+      return summarizeTools(rows).slice(0, input.limit);
     }),
 
   fields: publicProcedure
@@ -525,29 +617,7 @@ export const usageRouter = router({
       const sessionIds = resolveScopedSessionIds(db, input);
       const rows = queryFieldRows(db, input.from, input.to, sessionIds);
 
-      const byField = new Map<
-        string,
-        { tool: string; field: string; calls: number; tokens: number; costMicroCents: number }
-      >();
-      for (const row of rows) {
-        const key = `${row.tool}\u0000${row.field}`;
-        const agg = byField.get(key) ?? { tool: row.tool, field: row.field, calls: 0, tokens: 0, costMicroCents: 0 };
-        agg.calls += row.calls;
-        agg.tokens += row.tokens;
-        agg.costMicroCents += row.attributedCostMicroCents;
-        byField.set(key, agg);
-      }
-
-      return [...byField.values()]
-        .map(({ tool, field, calls, tokens, costMicroCents }) => ({
-          tool,
-          field,
-          calls,
-          tokens,
-          costCents: microCentsToCents(costMicroCents),
-        }))
-        .sort((a, b) => b.costCents - a.costCents)
-        .slice(0, input.limit);
+      return summarizeFields(rows).slice(0, input.limit);
     }),
 
   files: publicProcedure
@@ -564,52 +634,7 @@ export const usageRouter = router({
       const sessionIds = resolveScopedSessionIds(db, input);
       const rows = queryFileRows(db, input.from, input.to, sessionIds);
 
-      const keyFor = (filePath: string, ext: string): string => {
-        switch (input.groupBy) {
-          case 'ext':
-            return ext || '(none)';
-          case 'dir':
-            return path.dirname(filePath);
-          default:
-            return filePath;
-        }
-      };
-
-      const byKey = new Map<
-        string,
-        { reads: number; edits: number; writes: number; totalChars: number; tokens: number; costMicroCents: number }
-      >();
-      for (const row of rows) {
-        const key = keyFor(row.filePath, row.ext);
-        const agg = byKey.get(key) ?? {
-          reads: 0,
-          edits: 0,
-          writes: 0,
-          totalChars: 0,
-          tokens: 0,
-          costMicroCents: 0,
-        };
-        agg.reads += row.reads;
-        agg.edits += row.edits;
-        agg.writes += row.writes;
-        agg.totalChars += row.totalChars;
-        agg.tokens += row.tokensEst;
-        agg.costMicroCents += row.attributedCostMicroCents;
-        byKey.set(key, agg);
-      }
-
-      return [...byKey.entries()]
-        .map(([key, agg]) => ({
-          key,
-          reads: agg.reads,
-          edits: agg.edits,
-          writes: agg.writes,
-          totalChars: agg.totalChars,
-          tokens: agg.tokens,
-          costCents: microCentsToCents(agg.costMicroCents),
-        }))
-        .sort((a, b) => b.costCents - a.costCents)
-        .slice(0, input.limit);
+      return summarizeFiles(rows, input.groupBy).slice(0, input.limit);
     }),
 
   expensiveCalls: publicProcedure
@@ -727,42 +752,16 @@ export const usageRouter = router({
       costCents: child.estCostCents,
     }));
 
-    const toolRows = db.select().from(usageTool).where(eq(usageTool.sessionId, input.sessionId)).all();
-    const tools = toolRows.map((tool) => {
-      const costCents = microCentsToCents(tool.attributedCostMicroCents);
-      return {
-        tool: tool.toolName,
-        calls: tool.calls,
-        costCents,
-        costPerCallCents: tool.calls > 0 ? Math.round(costCents / tool.calls) : 0,
-        resultTokens: tool.resultTokensEst,
-        maxResultChars: tool.maxResultChars,
-        p50ResultChars: tool.p50ResultChars,
-        p95ResultChars: tool.p95ResultChars,
-        images: tool.images,
-        errors: tool.errorCount,
-      };
-    });
-
-    const fileRows = db.select().from(usageFile).where(eq(usageFile.sessionId, input.sessionId)).all();
-    const files = fileRows.map((file) => ({
-      key: file.filePath,
-      reads: file.reads,
-      edits: file.edits,
-      writes: file.writes,
-      totalChars: file.totalChars,
-      tokens: file.tokensEst,
-      costCents: microCentsToCents(file.attributedCostMicroCents),
-    }));
-
-    const fieldRows = db.select().from(usageField).where(eq(usageField.sessionId, input.sessionId)).all();
-    const fields = fieldRows.map((field) => ({
-      tool: field.tool,
-      field: field.field,
-      calls: field.calls,
-      costCents: microCentsToCents(field.attributedCostMicroCents),
-      tokens: field.tokens,
-    }));
+    const tools = summarizeTools(
+      db.select().from(usageTool).where(eq(usageTool.sessionId, input.sessionId)).all(),
+    );
+    const files = summarizeFiles(
+      db.select().from(usageFile).where(eq(usageFile.sessionId, input.sessionId)).all(),
+      'path',
+    );
+    const fields = summarizeFields(
+      db.select().from(usageField).where(eq(usageField.sessionId, input.sessionId)).all(),
+    );
 
     const callRows = db
       .select()
