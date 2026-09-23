@@ -30,7 +30,6 @@ import { broadcastUsageChange } from '../../ws/broadcast';
 type UsageSessionDailyRow = typeof usageSessionDaily.$inferSelect;
 type UsageSessionRow = typeof usageSession.$inferSelect;
 
-const CACHE_EFFICIENCY_BREAK_EVEN = 2.2;
 const LABEL_MAX_LENGTH = 80;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -594,7 +593,6 @@ export const usageRouter = router({
         causes,
         cacheEfficiency: {
           readsPerWrite: readsPerWrite(totals.cacheReadTokens, totals.cacheWrite1hTokens + totals.cacheWrite5mTokens),
-          breakEven: CACHE_EFFICIENCY_BREAK_EVEN,
         },
         unpricedModels: [...unpricedModels],
       };

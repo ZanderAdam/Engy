@@ -52,7 +52,7 @@ export function SessionDetail({ detail, onBack }: SessionDetailProps) {
         <StatTile
           label="API calls"
           value={formatCount(session.apiCalls)}
-          detail={`${session.readsPerWrite.toFixed(2)}× cache reads per write`}
+          detail={`${session.readsPerWrite.toFixed(2)}× tokens read from cache for each token written`}
         />
         <StatTile
           label="Lines changed"

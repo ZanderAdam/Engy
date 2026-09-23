@@ -18,15 +18,13 @@ import {
 import { EstimateNotice, Panel } from './panel';
 import { ProjectBarChart } from './project-bar-chart';
 import { StatTile } from './stat-tile';
-import type { GroupAxis, UsageOverview, UsageSessionRow } from './types';
+import type { GroupAxis, UsageOverview } from './types';
 
 interface OverviewScreenProps {
   overview: UsageOverview;
-  sessions: UsageSessionRow[];
   groupAxis: GroupAxis;
   onGroupAxisChange: (axis: GroupAxis) => void;
   previousLabel: string;
-  onSelectSession: (sessionId: string) => void;
 }
 
 function UnpricedWarning({ models }: { models: string[] }) {
@@ -75,11 +73,9 @@ function AxisToggle({ axis, onChange }: { axis: GroupAxis; onChange: (axis: Grou
 
 export function OverviewScreen({
   overview,
-  sessions,
   groupAxis,
   onGroupAxisChange,
   previousLabel,
-  onSelectSession,
 }: OverviewScreenProps) {
   const { cost, totals, previous, causes, cacheEfficiency, series, groups } = overview;
   const cacheWriteTokens = totals.cacheWrite1hTokens + totals.cacheWrite5mTokens;
@@ -145,12 +141,8 @@ export function OverviewScreen({
         </Panel>
 
         <div className="flex flex-col gap-4">
-          <Panel title="Cache reads per write">
-            <CacheTtlPanel
-              efficiency={cacheEfficiency}
-              sessions={sessions}
-              onSelectSession={onSelectSession}
-            />
+          <Panel title="Cache reuse">
+            <CacheTtlPanel efficiency={cacheEfficiency} />
           </Panel>
 
           <Panel title="Cost causes">

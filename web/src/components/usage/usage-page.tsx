@@ -130,7 +130,7 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
 
   const sessionsQuery = trpc.usage.sessions.useQuery(
     { ...rangeInput, limit: SESSION_LIMIT, sort: 'cost', includeSubagents },
-    { enabled: scopeReady && (view === 'overview' || view === 'sessions') },
+    { enabled: scopeReady && view === 'sessions' },
   );
 
   const toolsQuery = trpc.usage.tools.useQuery(
@@ -243,11 +243,9 @@ export function UsagePage({ workspaceSlug, projectSlug }: UsagePageProps) {
     return (
       <OverviewScreen
         overview={overview}
-        sessions={sessionsQuery.data ?? []}
         groupAxis={groupAxis}
         onGroupAxisChange={setGroupAxis}
         previousLabel={previousLabel}
-        onSelectSession={selectSession}
       />
     );
   }

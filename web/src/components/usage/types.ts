@@ -51,7 +51,6 @@ export interface UsageCauses {
 
 export interface UsageCacheEfficiency {
   readsPerWrite: number;
-  breakEven: number;
 }
 
 export interface UsageOverview {

@@ -305,6 +305,14 @@ describe('usage router', () => {
   });
 
   describe('overview', () => {
+    it('[FR-USAGE-340] should report cache reuse as cache-read tokens over cache-write tokens', async () => {
+      seedDaily(ctx, { cacheReadTokens: 3000, cacheWrite1hTokens: 800, cacheWrite5mTokens: 200 });
+
+      const overview = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
+
+      expect(overview.cacheEfficiency).toEqual({ readsPerWrite: 3 });
+    });
+
     it('[FR-USAGE-170] should split a session crossing midnight across its two dates', async () => {
       seedDaily(ctx, { date: '2024-01-10', inputTokens: 1000 });
       seedDaily(ctx, { date: '2024-01-11', inputTokens: 2000 });
