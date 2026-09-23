@@ -6,9 +6,10 @@ import {
   seedUsagePricing,
   normaliseModelId,
   listModelRates,
-  findUnpricedModels,
   microCentsForTokens,
   microCentsToCents,
+  getRatesMap,
+  rateFor,
   SEED_MODEL_RATES,
 } from './pricing';
 
@@ -48,6 +49,13 @@ describe('usage pricing', () => {
       expect(fable51.cacheReadMicroCentsPerToken).toBe(25);
       const fable5 = rateOf(ctx, 'claude-fable-5');
       expect(fable5.cacheReadMicroCentsPerToken).toBe(100);
+
+      const opus55 = rateOf(ctx, 'claude-opus-5-5');
+      expect(opus55.inputMicroCentsPerToken).toBe(400);
+      expect(opus55.outputMicroCentsPerToken).toBe(2000);
+      expect(opus55.cacheWrite1hMicroCentsPerToken).toBe(800);
+      expect(opus55.cacheWrite5mMicroCentsPerToken).toBe(500);
+      expect(opus55.cacheReadMicroCentsPerToken).toBe(20);
     });
 
     it('[FR-USAGE-160] should never overwrite an already-edited rate on reseed', () => {
@@ -76,23 +84,12 @@ describe('usage pricing', () => {
     });
   });
 
-  describe('findUnpricedModels', () => {
-    it('[FR-USAGE-140] should list only models absent from usagePricing, never guessing a rate', () => {
+  describe('rateFor', () => {
+    it('[FR-USAGE-150] should price a dated snapshot of a priced model at the base rate', () => {
       seedUsagePricing(ctx.db);
-      const unpriced = findUnpricedModels(ctx.db, ['claude-sonnet-5', 'claude-unknown-9', 'claude-another-1']);
-      expect(unpriced.sort()).toEqual(['claude-another-1', 'claude-unknown-9']);
-    });
-
-    it('[FR-USAGE-140] should return an empty list when every model is priced', () => {
-      seedUsagePricing(ctx.db);
-      expect(findUnpricedModels(ctx.db, ['claude-sonnet-5', 'claude-opus-5'])).toEqual([]);
-    });
-
-    it('[FR-USAGE-150] should treat a dated snapshot of a priced model as priced', () => {
-      seedUsagePricing(ctx.db);
-      expect(findUnpricedModels(ctx.db, ['claude-haiku-4-5-20251001', '<synthetic>'])).toEqual([
-        '<synthetic>',
-      ]);
+      const rates = getRatesMap(ctx.db);
+      expect(rateFor(rates, 'claude-haiku-4-5-20251001')?.model).toBe('claude-haiku-4-5');
+      expect(rateFor(rates, '<synthetic>')).toBeUndefined();
     });
   });
 

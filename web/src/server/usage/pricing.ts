@@ -9,6 +9,14 @@ const DOLLARS_PER_MTOK_TO_MICRO_CENTS_PER_TOKEN = 100;
 
 export const SEED_MODEL_RATES: UsageModelRate[] = [
   {
+    model: 'claude-opus-5-5',
+    inputPerMTok: 4.0,
+    outputPerMTok: 20.0,
+    cacheWrite1hPerMTok: 8.0,
+    cacheWrite5mPerMTok: 5.0,
+    cacheReadPerMTok: 0.2,
+  },
+  {
     model: 'claude-opus-5',
     inputPerMTok: 5.0,
     outputPerMTok: 25.0,
@@ -112,10 +120,6 @@ export function rateFor(rates: Map<string, ModelRateRow>, model: string): ModelR
 
 // Unknown models must render as unpriced with tokens still counted — never
 // silently priced at zero, never priced with a guessed rate.
-export function findUnpricedModels(db: Db, models: Iterable<string>): string[] {
-  const priced = new Set(listModelRates(db).map((rate) => rate.model));
-  return [...new Set(models)].filter((model) => !priced.has(normaliseModelId(model)));
-}
 
 // Returns micro-cents, not cents — callers sum across buckets/rows and round
 // to cents once at the API boundary so per-row rounding never compounds.

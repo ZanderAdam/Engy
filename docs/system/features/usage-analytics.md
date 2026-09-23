@@ -130,13 +130,14 @@ Rates in dollars per MTok:
 
 | Model | Input | Output | Cache write 1h | Cache write 5m | Cache read |
 |---|---|---|---|---|---|
+| `claude-opus-5-5` | 4.00 | 20.00 | 8.00 | 5.00 | 0.20 |
 | `claude-opus-5` | 5.00 | 25.00 | 10.00 | 6.25 | 0.50 |
 | `claude-fable-5-1` | 10.00 | 50.00 | 20.00 | 12.50 | 0.25 |
 | `claude-fable-5` | 10.00 | 50.00 | 20.00 | 12.50 | 1.00 |
 | `claude-sonnet-5` | 2.00 | 10.00 | 4.00 | 2.50 | 0.20 |
 | `claude-haiku-4-5` | 1.00 | 5.00 | 2.00 | 1.25 | 0.10 |
 
-The usual rule is: cache write 5m is 1.25 times input, cache write 1h is 2 times input, cache read is 0.1 times input. `claude-fable-5-1` is the exception, at 0.025 times input. A hardcoded 0.1 rule would overstate its cache-read cost four times.
+The usual rule is: cache write 5m is 1.25 times input, cache write 1h is 2 times input, cache read is 0.1 times input. There are two exceptions: `claude-fable-5-1` at 0.025 times input, and `claude-opus-5-5` at 0.05 times input. A hardcoded 0.1 rule would make the cache-read cost of `claude-fable-5-1` four times too high, and the cache-read cost of `claude-opus-5-5` two times too high.
 
 Transcripts stamp a dated snapshot id, such as `claude-haiku-4-5-20251001`, for a model the table lists undated. `normaliseModelId` removes a trailing eight-digit date before the lookup. A model with no row keeps its tokens and is listed in `unpricedModels`. It is never priced at zero and never priced with a guessed rate.
 
@@ -183,10 +184,11 @@ No per-token invoice: the figures are estimates at list rates. No poller. No ret
 | FR-USAGE-080 | WHEN the reducer measures an image block, the system SHALL read the width and height from the PNG IHDR header, scale the long edge down to 1568 px, and estimate the tokens as the resulting pixel count divided by 750; the system SHALL NOT estimate an image from its payload length. IF the dimensions cannot be read, THEN the system SHALL use a fixed estimate of 1500 tokens. |
 | FR-USAGE-090 | The system SHALL charge each content block its token count once for every API call that follows it in the session, and SHALL charge nothing to content added after the last call. |
 | FR-USAGE-100 | WHEN the context of an API call is below 0.6 of the previous call's context AND the previous context was above 60,000 tokens, the system SHALL count one compaction and SHALL stop charging every open block at that call index; a block added after the boundary SHALL be charged only against the calls that follow it. |
-| FR-USAGE-110 | The system SHALL cost each attributed cause from its own token-turns at its session's cache-read rate, SHALL NOT scale the attributed causes up to fill the measured total, and SHALL report the remaining measured cache-read cost as the separate `baseline` cause. |
+| FR-USAGE-110 | The system SHALL cost each attributed cause from its own token-turns at its session's cache-read rate (the rate of the model with the most calls that bill tokens), SHALL NOT scale the attributed causes up to fill the measured total, and SHALL report the remaining measured cache-read cost as the separate `baseline` cause. |
 | FR-USAGE-120 | The system SHALL make the six causes `toolResult`, `toolInput`, `text`, `image`, `thinking` and `baseline` sum exactly to the reported cache-read cost; IF the attributed causes exceed the measured cost, THEN `baseline` SHALL be 0 and SHALL NOT go negative. |
 | FR-USAGE-130 | The system SHALL store each row's attributed cost as integer micro-cents, SHALL sum micro-cents before it rounds, and SHALL round once to an integer cent at the API boundary; every money value returned by the `usage` router SHALL be an integer number of cents. |
-| FR-USAGE-140 | IF a model id has no row in `usagePricing`, THEN the system SHALL keep that model's token counts in the totals, SHALL report the id in `unpricedModels`, and SHALL NOT price it at zero or with a guessed rate. |
+| FR-USAGE-135 | WHEN the server stores a scanned session, the system SHALL price each day of the session at the rate of the model that ran that day, so a session that changes model is not priced at one model's rate. |
+| FR-USAGE-140 | IF a model id has no row in `usagePricing` and has billed tokens, THEN the system SHALL keep that model's token counts in the totals, SHALL report the id in `unpricedModels`, and SHALL NOT price it at zero or with a guessed rate. A model with no billed tokens, such as `<synthetic>`, SHALL NOT be reported. |
 | FR-USAGE-150 | WHEN the system looks up a model rate, it SHALL first remove a trailing eight-digit date suffix from the model id, so a dated snapshot of a priced model is priced at the base model's rate. |
 | FR-USAGE-160 | WHEN the pricing seed runs, the system SHALL write each seed rate to `usagePricing` as integer micro-cents per token, and SHALL NOT overwrite a rate that is already stored. |
 | FR-USAGE-170 | The system SHALL date every rollup row by the local date of the transcript line that produced it, so a session that crosses local midnight produces one row per date and a range query includes only the rows inside the range. |

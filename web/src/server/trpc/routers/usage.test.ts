@@ -305,6 +305,14 @@ describe('usage router', () => {
   });
 
   describe('overview', () => {
+    it('[FR-USAGE-140] should not list a model with no billed tokens as unpriced', async () => {
+      seedDaily(ctx, { model: '<synthetic>', apiCalls: 3 });
+
+      const overview = await caller.usage.overview({ from: '2024-01-10', to: '2024-01-10' });
+
+      expect(overview.unpricedModels).toEqual([]);
+    });
+
     it('[FR-USAGE-340] should report cache reuse as cache-read tokens over cache-write tokens', async () => {
       seedDaily(ctx, { cacheReadTokens: 3000, cacheWrite1hTokens: 800, cacheWrite5mTokens: 200 });
 
@@ -899,6 +907,33 @@ describe('usage router', () => {
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
     });
 
+    it('[FR-USAGE-135] should price each day of a session at the rate of the model that ran it', async () => {
+      const result = makeScanResult({ model: 'claude-sonnet-5' });
+      const oneMillionInputTokens = {
+        ...result.scan.days[0],
+        inputTokens: 1_000_000,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWrite1hTokens: 0,
+      };
+      result.scan.days = [
+        { ...oneMillionInputTokens, model: 'claude-sonnet-5' },
+        { ...oneMillionInputTokens, model: 'claude-opus-5-5' },
+        { ...oneMillionInputTokens, model: 'claude-unknown-9' },
+      ];
+      installFakeUsageDaemon(ctx, () => ({
+        sessions: [result],
+        files: {},
+        newlySealedDates: [],
+        staleSealSkips: 0,
+      }));
+
+      await caller.usage.refresh();
+
+      const sessions = await caller.usage.sessions({ from: '2024-01-10', to: '2024-01-10' });
+      expect(sessions[0].costCents, 'Sonnet 5 at $2 plus Opus 5.5 at $4, unknown model unpriced').toBe(600);
+    });
+
     it('[FR-USAGE-250] [FR-WS-210] should upsert a scanned session from the daemon and broadcast the change', async () => {
       installFakeUsageDaemon(ctx, () => ({
         sessions: [makeScanResult()],
@@ -1190,11 +1225,13 @@ describe('usage router', () => {
     it('[FR-USAGE-360] should leave pricing untouched so the next scan can still price sessions', async () => {
       await caller.usage.rebuild();
 
+      // makeScanResult()'s default token counts round to 0 cents — scale
+      // input up so a wiped pricing table would be visible as 0, not as a
+      // coincidental sub-cent rounding to 0.
+      const result = makeScanResult();
+      result.scan.days[0].inputTokens = 5_000_000;
       installFakeUsageDaemon(ctx, () => ({
-        // makeScanResult()'s default token counts round to 0 cents — scale
-        // input up so a wiped pricing table would be visible as 0, not as a
-        // coincidental sub-cent rounding to 0.
-        sessions: [makeScanResult({ inputTokens: 5_000_000 })],
+        sessions: [result],
         files: {},
         newlySealedDates: [],
         staleSealSkips: 0,

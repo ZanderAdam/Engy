@@ -412,6 +412,16 @@ function causesWithBaseline(
   return { ...cents, baseline };
 }
 
+function hasBilledTokens(row: UsageSessionDailyRow): boolean {
+  const billedTokens =
+    row.inputTokens +
+    row.outputTokens +
+    row.cacheReadTokens +
+    row.cacheWrite1hTokens +
+    row.cacheWrite5mTokens;
+  return billedTokens > 0;
+}
+
 function readsPerWrite(cacheReadTokens: number, cacheCreationTokens: number): number {
   return cacheCreationTokens > 0 ? cacheReadTokens / cacheCreationTokens : 0;
 }
@@ -505,7 +515,7 @@ export const usageRouter = router({
         group.cacheReadTokens += row.cacheReadTokens;
 
         if (!rate) {
-          unpricedModels.add(row.model);
+          if (hasBilledTokens(row)) unpricedModels.add(row.model);
           groupAgg.set(groupKey, group);
           continue;
         }

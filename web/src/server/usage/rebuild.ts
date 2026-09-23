@@ -21,7 +21,7 @@ type Db = ReturnType<typeof getDb>;
  * scan means the stored rollup was computed by logic since replaced and can
  * no longer be trusted.
  */
-export const USAGE_REDUCER_VERSION = 1;
+export const USAGE_REDUCER_VERSION = 2;
 
 /** Leaves `usagePricing` untouched: it is configuration, not history. */
 export function rebuildUsageHistory(db: Db = getDb()): void {

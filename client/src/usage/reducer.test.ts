@@ -112,6 +112,20 @@ describe('usage reducer', () => {
       expect(scan.session.model).toBe('claude-opus-5');
     });
 
+    it('should not pick a model whose calls bill no tokens as the dominant model', () => {
+      const synthetic = JSON.stringify({
+        type: 'assistant',
+        timestamp: '2026-09-01T10:00:00.000Z',
+        message: {
+          model: '<synthetic>',
+          content: [],
+          usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        },
+      });
+      const scan = reduce([synthetic, synthetic, usageLine({ model: 'claude-opus-5' })]);
+      expect(scan.session.model).toBe('claude-opus-5');
+    });
+
     it('[FR-USAGE-170] should bucket usage by date and model', () => {
       const scan = reduce([
         usageLine({ timestamp: '2026-09-01T10:00:00.000Z', cacheRead: 100 }),

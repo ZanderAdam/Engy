@@ -34,6 +34,12 @@ const COMPACTION_DROP_RATIO = 0.6;
 const COMPACTION_MIN_CONTEXT = 60_000;
 
 const UNKNOWN_DATE = 'unknown';
+const BILLED_USAGE_KEYS = [
+  'input_tokens',
+  'output_tokens',
+  'cache_read_input_tokens',
+  'cache_creation_input_tokens',
+] as const;
 const KEY_SEP = '\u0000';
 
 /**
@@ -331,7 +337,7 @@ export class SessionReducer {
     if (usage && typeof usage === 'object') {
       this.callsSoFar += 1;
       addUsageTo(this.totals, usage);
-      this.modelCalls.set(model, (this.modelCalls.get(model) ?? 0) + 1);
+      if (hasBilledTokens(usage)) this.modelCalls.set(model, (this.modelCalls.get(model) ?? 0) + 1);
 
       const date = this.currentDate;
       const dayKey = `${date}${KEY_SEP}${model}`;
@@ -703,6 +709,10 @@ export class SessionReducer {
       linesSkipped: this.linesSkipped,
     };
   }
+}
+
+function hasBilledTokens(usage: Record<string, unknown>): boolean {
+  return BILLED_USAGE_KEYS.some((key) => Number(usage[key] ?? 0) > 0);
 }
 
 function asString(value: unknown): string {

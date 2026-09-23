@@ -1,8 +1,17 @@
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, mkdir, writeFile, appendFile, stat, utimes } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { scanUsage } from './scan.js';
+
+// Without a collection first, heapUsed also counts lines already read and
+// dropped, so it grows with the file even when nothing is kept.
+function forceGc(): void {
+  setFlagsFromString('--expose-gc');
+  (runInNewContext('gc') as () => void)();
+}
 
 // One transcript on this machine is 54 MB and a prior OOM (task #229) is why
 // the scan must stream. Recording every whole-file read lets a test prove no
@@ -207,18 +216,20 @@ describe('scanUsage', () => {
       homeDir = await makeHome();
       const filePath = mainTranscriptPath(homeDir, '-repo', 'sess-big');
       const lines: string[] = [];
-      for (let i = 0; i < 4000; i += 1) {
+      for (let i = 0; i < 40_000; i += 1) {
         lines.push(usageLine({ timestamp: '2026-01-05T10:00:00.000Z', cacheRead: 10 }));
       }
       await writeTranscript(filePath, lines);
 
+      forceGc();
       const before = process.memoryUsage().heapUsed;
       const result = await scanUsage({ homeDir, knownFiles: {}, sealedDates: new Set() });
+      forceGc();
       const growth = process.memoryUsage().heapUsed - before;
 
-      expect(result.sessions[0].scan.session.apiCalls).toBe(4000);
+      expect(result.sessions[0].scan.session.apiCalls).toBe(40_000);
       const fileSize = (await stat(filePath)).size;
-      expect(growth).toBeLessThan(fileSize * 2);
+      expect(growth).toBeLessThan(fileSize / 10);
     });
   });
 

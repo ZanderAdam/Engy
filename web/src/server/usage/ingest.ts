@@ -218,14 +218,12 @@ function upsertUsageScan(db: Db, response: UsageScanDispatchResult): { newSessio
       const priorCalls = isFullParse ? 0 : (existing?.apiCalls ?? 0);
 
       const rate = rateFor(rates, session.model);
-      const tokenBuckets = {
-        inputTokens: session.inputTokens,
-        outputTokens: session.outputTokens,
-        cacheWrite1hTokens: session.cacheWrite1hTokens,
-        cacheWrite5mTokens: session.cacheWrite5mTokens,
-        cacheReadTokens: session.cacheReadTokens,
-      };
-      const estCostCents = rate ? microCentsToCents(microCentsForTokens(tokenBuckets, rate)) : 0;
+      const estCostCents = microCentsToCents(
+        days.reduce((sum, day) => {
+          const dayRate = rateFor(rates, day.model);
+          return dayRate ? sum + microCentsForTokens(day, dayRate) : sum;
+        }, 0),
+      );
 
       const { workspaceId, projectId } = resolveEngyIds(repoRoot);
 
