@@ -15,6 +15,7 @@ The MCP surface and tRPC surface expose the same domain operations (workspace/ta
   - `diff_review_*` tools (`diff-review-tools.ts`) — the browser writes the same `commentThreads` rows through `comment.createThread`, building the `diff://<repoDir>#<branch>/<filePath>` path from the same helper (`@/lib/diff-doc-path`). These tools exist so an agent does not reconstruct that path and metadata shape by hand, so they carry a diff-shaped input rather than mirroring the comment router. Behaviour that belongs to comment threads generally still goes in both surfaces.
 - Shared helpers live outside both layers and **must be imported**, not copied:
   - `validateDependencies`, `attachBlockedBy` from `../tasks/validation`
+  - `bulkUpdateTasks`, `bulkDeleteTasks` from `../tasks/bulk`
   - `getWorkspaceDir`, `resolveProjectDir` from `../engy-dir/init`
   - `broadcastTaskChange`, `broadcastQuestionChange`, `broadcastMemoryChange` from `../ws/broadcast`
   - `taskStatusSchema` from `@/lib/task-status`
@@ -80,7 +81,7 @@ When both query and filters are present, the filter is the anchor — every fron
 Tools are registered by domain in separate `register*Tools(mcp)` functions:
 
 - `registerWorkspaceTools` — `listWorkspaces`, `getWorkspaceDetails`, `listProjects`, `getProjectDetails`, `startProjectCompletion`, `archiveProject`, `setWorkspaceEarsBdd` (toggles EARS-BDD mode; updates DB + workspace.yaml)
-- `registerTaskTools` — `createTask`, `updateTask` (with `memories[]` passthrough to fleeting memories), `listTasks`, `getTask`, `deleteTask`
+- `registerTaskTools` — `createTask`, `updateTask` (with `memories[]` passthrough to fleeting memories), `listTasks`, `getTask`, `deleteTask`, `bulkUpdateTasks`, `bulkDeleteTasks`
 - `registerTaskGroupTools` — `createTaskGroup`, `listTaskGroups`, `getTaskGroup`, `updateTaskGroup`, `deleteTaskGroup`
 - `registerMemoryTools` — `createFleetingMemory`, `dismissFleetingMemory`, `deleteFleetingMemory`, `listMemories`, `createPermanentMemory`, `updatePermanentMemory`, `promoteMemory`, `writeSourceSnapshot`, `listReviewClusters`, `getMemoryGraph`
 - `registerQuestionTools` — `askQuestion`
