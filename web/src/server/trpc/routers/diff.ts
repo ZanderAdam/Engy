@@ -123,7 +123,15 @@ export const diffRouter = router({
    */
   getBranch: publicProcedure.input(worktreeInput).query(async ({ input, ctx }) => {
     const dir = input.worktreePath ?? input.repoDir;
-    return dispatchGitBranch(dir, ctx.state, input.coderWorkspace);
+    try {
+      return await dispatchGitBranch(dir, ctx.state, input.coderWorkspace);
+    } catch {
+      // A daemon older than GIT_BRANCH_REQUEST never answers it, and the diff
+      // surface keys its comment threads on the branch — losing it hides every
+      // comment. Status carries the same branch at the cost of a tree walk.
+      const status = await dispatchGitStatus(dir, ctx.state, input.coderWorkspace);
+      return { branch: status.branch };
+    }
   }),
 
   getDefaultBase: publicProcedure.input(worktreeInput).query(async ({ input, ctx }) => {

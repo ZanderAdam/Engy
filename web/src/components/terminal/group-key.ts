@@ -12,6 +12,18 @@ export function projectGroupKey(
   return worktreeBranch ? `${base}:wt:${worktreeBranch}` : base;
 }
 
+/**
+ * The worktree a session was opened against, read back out of its group key.
+ * `scope.worktreeBranch` cannot answer this: it is overwritten by the branch
+ * the session's tracked directory resolves to, and a project terminal runs in
+ * the project's docs directory, whose `HEAD` belongs to another repo entirely.
+ */
+export function worktreeBranchFromGroupKey(groupKey: string): string | undefined {
+  const marker = groupKey.indexOf(':wt:');
+  if (marker < 0) return undefined;
+  return groupKey.slice(marker + ':wt:'.length) || undefined;
+}
+
 export function workspaceGroupKey(workspaceSlug: string): string {
   return `workspace:${workspaceSlug}`;
 }

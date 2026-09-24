@@ -172,6 +172,37 @@ describe('diff router', () => {
       expect(sent).toEqual(['GIT_BRANCH_REQUEST']);
     });
 
+    // A daemon older than GIT_BRANCH_REQUEST leaves it unanswered. The diff
+    // surface keys its comment threads on the branch, so losing it hides every
+    // comment and silently drops new ones — status carries the same branch.
+    it('[FR-GIT-510] falls back to status when the daemon cannot answer a branch request', async () => {
+      ctx = setupTestDb();
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const asked: string[] = [];
+      ctx.state.daemon = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          asked.push(msg.type);
+          if (msg.type === 'GIT_BRANCH_REQUEST') {
+            ctx.state.pendingGitBranch
+              .get(msg.payload.requestId)
+              ?.reject(new Error('unknown message type'));
+            return;
+          }
+          ctx.state.pendingGitStatus
+            .get(msg.payload.requestId)
+            ?.resolve({ files: [], branch: 'feature/login' });
+        },
+      } as unknown as WebSocket;
+
+      await expect(caller.diff.getBranch({ repoDir: '/tmp/repo' })).resolves.toEqual({
+        branch: 'feature/login',
+      });
+      expect(asked).toEqual(['GIT_BRANCH_REQUEST', 'GIT_STATUS_REQUEST']);
+    });
+
     it('[FR-GIT-010] accepts a worktreePath as the effective dir', async () => {
       ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });

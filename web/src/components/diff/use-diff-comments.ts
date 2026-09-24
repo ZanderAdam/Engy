@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useMemo } from 'react';
+import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { randomId } from '@/lib/random-id';
 import { useOnServerEvent } from '@/contexts/events-context';
@@ -106,7 +107,14 @@ export function useDiffComments(repoDir: string | null, branch: string | null) {
     text: string,
     side: 'modified' | 'original' = 'modified',
   ) => {
-    if (!repoDir || !branch) return;
+    // A comment is keyed on the branch under review, so without it there is
+    // nowhere to put one. Saying so beats swallowing what the reviewer typed.
+    if (!repoDir || !branch) {
+      toast.error('Cannot tell which branch this diff is on — comment not saved', {
+        description: 'The Engy daemon has to answer before comments can be filed.',
+      });
+      return;
+    }
     const threadId = randomId();
     const commentId = randomId();
     await createThread.mutateAsync({

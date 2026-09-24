@@ -5,12 +5,13 @@ import { trpc } from '@/lib/trpc';
 import { VLink } from '@/components/tabs/virtual-link';
 import { TerminalTaskActions } from './terminal-task-actions';
 import { branchDiffHref, resolveDiffTarget } from './terminal-diff-target';
+import { worktreeBranchFromGroupKey } from './group-key';
 import type { TerminalScope } from './types';
 
 function useBranchDiffHref(scope: TerminalScope): string | null {
   const { projectSlug, workspaceSlug } = scope;
-  // Follows the agent: a session spawned in the main checkout that entered a
-  // worktree must link to that worktree's review, not its spawn directory's.
+  // Follows the agent: a session that entered a worktree must link to that
+  // worktree's review, not to the directory it was opened in.
   const workingDir = scope.agentCwd ?? scope.workingDir;
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
@@ -31,7 +32,7 @@ function useBranchDiffHref(scope: TerminalScope): string | null {
 
   if (!projectSlug) return null;
   const target = resolveDiffTarget(
-    workingDir,
+    { workingDir, worktreeBranch: worktreeBranchFromGroupKey(scope.groupKey) },
     worktrees?.groups ?? [],
     (workspace?.repos as string[] | null) ?? [],
   );

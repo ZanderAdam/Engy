@@ -10,33 +10,53 @@ interface WorktreeBranchGroup {
 
 interface DiffTarget {
   repoDir: string;
-  /** Set only for a materialized project worktree, which `?wt` selects by branch. */
+  /** Branch the Diffs page should switch to, via `?wt`. */
   worktreeBranch: string | null;
 }
 
+interface DiffSession {
+  /** Where the terminal runs — for a project scope this is the project's docs
+   *  directory, not the repo, so it can only narrow the repo, never name it. */
+  workingDir: string;
+  /** The worktree the session targets. Set by the scope, kept current as the
+   *  agent moves; this is what names the worktree, not the path. */
+  worktreeBranch?: string;
+}
+
+function containingRepo(workingDir: string, repos: string[]): string | null {
+  return (
+    repos
+      .filter((repo) => workingDir === repo || workingDir.startsWith(`${repo}/`))
+      .sort((a, b) => b.length - a.length)[0] ?? null
+  );
+}
+
 /**
- * Which repo the Diffs page should open for a terminal's working directory.
+ * Which repo the Diffs page should open for a terminal session, and which
+ * worktree to put it on.
  *
- * A worktree terminal runs in the worktree, not the repo the Diffs page selects
- * from, so the worktree list is checked first and maps back to its repo. Any
- * other directory belongs to the repo that contains it — an agent that `cd`ed
- * into a subdirectory still reviews the whole repo.
+ * The branch decides the worktree: a project terminal runs in the project's
+ * docs directory whichever branch it targets, so the path cannot tell the two
+ * apart. The path only picks the repo, and only when the workspace has several.
  */
 export function resolveDiffTarget(
-  workingDir: string,
+  session: DiffSession,
   worktreeGroups: WorktreeBranchGroup[],
   repos: string[],
 ): DiffTarget | null {
-  for (const group of worktreeGroups) {
-    const entry = group.repos.find((repo) => repo.worktreePath === workingDir);
-    if (entry) return { repoDir: entry.repoPath, worktreeBranch: group.branch };
+  const branch = session.worktreeBranch ?? null;
+  const group = branch ? worktreeGroups.find((g) => g.branch === branch) : undefined;
+
+  if (group) {
+    const byPath = group.repos.find((r) => r.worktreePath === session.workingDir);
+    const withinRepo = group.repos.find((r) => containingRepo(session.workingDir, [r.repoPath]));
+    const repoDir = (byPath ?? withinRepo ?? group.repos[0])?.repoPath;
+    if (repoDir) return { repoDir, worktreeBranch: branch };
   }
 
-  const containing = repos
-    .filter((repo) => workingDir === repo || workingDir.startsWith(`${repo}/`))
-    .sort((a, b) => b.length - a.length)[0];
-
-  return containing ? { repoDir: containing, worktreeBranch: null } : null;
+  const repoDir = containingRepo(session.workingDir, repos) ?? (repos.length === 1 ? repos[0] : null);
+  if (!repoDir) return null;
+  return { repoDir, worktreeBranch: branch };
 }
 
 export function branchDiffHref(args: {
