@@ -89,6 +89,11 @@ export interface TerminalScope {
   // Worktree branch this terminal targets (undefined = default branch). Used to
   // group terminals by worktree in combined mode; does not affect groupKey.
   worktreeBranch?: string;
+  // Where the agent reports it is, once it has moved — entering a worktree, or
+  // a plain `cd`. Kept beside `workingDir` rather than replacing it: that one
+  // is the spawn identity a respawn must land on, while surfaces that follow
+  // the agent (the branch subheader, the diff link) read this one first.
+  agentCwd?: string;
   // Manual rename, kept separate from scopeLabel so the original scope survives
   // to the tooltip and a later agent title can still take the main line.
   renamedLabel?: string;

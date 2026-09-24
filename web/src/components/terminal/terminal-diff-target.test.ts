@@ -45,6 +45,26 @@ describe('terminal diff target', () => {
     it('[FR-GIT-490] should return null when no repo contains the working directory', () => {
       expect(resolveDiffTarget('/tmp/scratch', GROUPS, [REPO])).toBeNull();
     });
+
+    // An Engy worktree lives under the workspace dir, not under the repo, so
+    // the containment fallback can never reach it — only the worktree map can.
+    describe('a worktree outside its repo', () => {
+      const OUTSIDE = '/home/dev/.engy/ws/worktrees/proj/feature-login/proj';
+      const outsideGroups = [
+        { branch: 'feature/login', repos: [{ repoPath: REPO, worktreePath: OUTSIDE }] },
+      ];
+
+      it('[FR-GIT-490] should map it back through the worktree list', () => {
+        expect(resolveDiffTarget(OUTSIDE, outsideGroups, [REPO])).toEqual({
+          repoDir: REPO,
+          worktreeBranch: 'feature/login',
+        });
+      });
+
+      it('[FR-GIT-490] should find nothing when the worktree list is missing', () => {
+        expect(resolveDiffTarget(OUTSIDE, [], [REPO])).toBeNull();
+      });
+    });
   });
 
   describe('branchDiffHref', () => {

@@ -2888,6 +2888,37 @@ describe('WORKTREE_BRANCH_CHANGED_EVENT', () => {
     expect(ctx.state.terminalSessionMeta.get('sess-moved')?.worktreeBranch).toBe('feat');
   });
 
+  it('[FR-TERMINAL-870] should broadcast the directory the branch was read from', async () => {
+    const sent: string[] = [];
+    ctx.state.terminalSessionMeta.set('sess-moved', {
+      ...baseMeta('/repo/main', 'main'),
+      agentCwd: '/wt/feat',
+    });
+    ctx.state.fileChangeListeners.add({
+      readyState: WebSocket.OPEN,
+      send: (data: string) => sent.push(data),
+    } as unknown as WebSocket);
+
+    const ws = await connectClient(port);
+    ws.send(
+      JSON.stringify({
+        type: 'WORKTREE_BRANCH_CHANGED_EVENT',
+        payload: { workingDir: '/wt/feat', branch: 'feat' },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const event = sent
+        .map((raw) => JSON.parse(raw))
+        .find((m) => m.type === 'TERMINAL_BRANCH_CHANGE');
+      expect(event?.payload).toMatchObject({
+        sessionId: 'sess-moved',
+        worktreeBranch: 'feat',
+        trackedDir: '/wt/feat',
+      });
+    });
+  });
+
   it('should update every session sharing the same workingDir', async () => {
     ctx.state.terminalSessionMeta.set('sess-a', baseMeta('/repo/shared'));
     ctx.state.terminalSessionMeta.set('sess-b', baseMeta('/repo/shared'));

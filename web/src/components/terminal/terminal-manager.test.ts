@@ -267,6 +267,17 @@ describe('TERMINAL_BRANCH_CHANGE consumer (FR-TERMINAL-690)', () => {
     const events = readFileSync(join(__dirname, '../../contexts/events-context.tsx'), 'utf8');
     expect(events).toContain('TERMINAL_BRANCH_CHANGE:');
   });
+
+  // The event is the only live signal that an agent entered a worktree, so it
+  // carries the directory the branch was read from. Dropping it on the floor
+  // leaves every surface that follows the agent pinned to the spawn directory.
+  it('[FR-TERMINAL-870] should record the tracked directory the event carries', () => {
+    const manager = readFileSync(join(__dirname, 'terminal-manager.tsx'), 'utf8');
+    expect(manager).toContain('agentCwd: payload.trackedDir');
+
+    const events = readFileSync(join(__dirname, '../../contexts/events-context.tsx'), 'utf8');
+    expect(events).toContain('trackedDir: string;');
+  });
 });
 
 describe('reduceServerActivity (FR-TERMINAL-800)', () => {

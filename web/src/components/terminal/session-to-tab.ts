@@ -7,6 +7,7 @@ export interface SessionListItem {
   scopeType: TerminalScope['scopeType'];
   scopeLabel: string;
   workingDir: string;
+  agentCwd?: string;
   command?: string;
   agentType?: string;
   groupKey?: string;
@@ -35,6 +36,7 @@ export function sessionToTab(s: SessionListItem, fallbackGroupKey: string): Term
       scopeType: s.scopeType,
       scopeLabel: s.scopeLabel,
       workingDir: s.workingDir,
+      agentCwd: s.agentCwd,
       command: s.command,
       agentType: isAgentTypeId(s.agentType ?? '') ? (s.agentType as AgentTypeId) : undefined,
       groupKey: s.groupKey ?? fallbackGroupKey,

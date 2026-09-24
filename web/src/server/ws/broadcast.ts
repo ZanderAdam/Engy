@@ -73,6 +73,8 @@ interface TerminalBranchChangeEvent {
   payload: {
     sessionId: string;
     worktreeBranch: string;
+    /** Directory the branch was read from — a worktree once the agent enters one. */
+    trackedDir: string;
   };
 }
 
@@ -214,8 +216,15 @@ export function broadcastTerminalActivityChange(
   broadcastEvent({ type: 'TERMINAL_ACTIVITY_CHANGE', payload });
 }
 
-export function broadcastTerminalBranchChange(sessionId: string, worktreeBranch: string): void {
-  broadcastEvent({ type: 'TERMINAL_BRANCH_CHANGE', payload: { sessionId, worktreeBranch } });
+export function broadcastTerminalBranchChange(
+  sessionId: string,
+  worktreeBranch: string,
+  trackedDir: string,
+): void {
+  broadcastEvent({
+    type: 'TERMINAL_BRANCH_CHANGE',
+    payload: { sessionId, worktreeBranch, trackedDir },
+  });
 }
 
 export function broadcastPrChange(workspaceId: number, repo: string): void {

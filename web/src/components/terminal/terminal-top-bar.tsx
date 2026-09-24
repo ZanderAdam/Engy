@@ -8,13 +8,26 @@ import { branchDiffHref, resolveDiffTarget } from './terminal-diff-target';
 import type { TerminalScope } from './types';
 
 function useBranchDiffHref(scope: TerminalScope): string | null {
-  const { projectId, projectSlug, workspaceSlug, workingDir } = scope;
+  const { projectSlug, workspaceSlug } = scope;
+  // Follows the agent: a session spawned in the main checkout that entered a
+  // worktree must link to that worktree's review, not its spawn directory's.
+  const workingDir = scope.agentCwd ?? scope.workingDir;
+
+  const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
+
+  // A session restored from the session list carries `projectSlug` but no
+  // `projectId`, so the id is resolved here rather than read off the scope —
+  // without it a worktree session gets no worktree map, and a worktree lives
+  // outside its repo, so nothing would map it back.
+  const { data: project } = trpc.project.getBySlug.useQuery(
+    { workspaceId: workspace?.id ?? 0, slug: projectSlug ?? '' },
+    { enabled: !!workspace && !!projectSlug },
+  );
 
   const { data: worktrees } = trpc.worktree.listGrouped.useQuery(
-    { projectId: projectId ?? 0 },
-    { enabled: !!projectId },
+    { projectId: project?.id ?? 0 },
+    { enabled: !!project },
   );
-  const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
 
   if (!projectSlug) return null;
   const target = resolveDiffTarget(

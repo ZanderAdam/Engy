@@ -90,6 +90,7 @@ interface CommentChangePayload {
 interface TerminalBranchChangePayload {
   sessionId: string;
   worktreeBranch: string;
+  trackedDir: string;
 }
 
 interface ServerEventMap {

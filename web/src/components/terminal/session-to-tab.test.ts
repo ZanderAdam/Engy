@@ -44,6 +44,18 @@ describe('terminal session list', () => {
       expect(tab.activityState).toBe('waiting');
     });
 
+    it('[FR-TERMINAL-870] should carry agentCwd so a restored tab follows the agent', () => {
+      const tab = sessionToTab(
+        listItem({ workingDir: '/repo/main', agentCwd: '/wt/feature' }),
+        'fallback-key',
+      );
+
+      expect(tab.scope.agentCwd).toBe('/wt/feature');
+      // The spawn directory stays put: a respawn must land where the terminal
+      // was opened, not wherever the agent wandered.
+      expect(tab.scope.workingDir).toBe('/repo/main');
+    });
+
     it('[FR-TERMINAL-680] should surface renamedLabel alongside the immutable scopeLabel', () => {
       const tab = sessionToTab(listItem({ renamedLabel: 'my rename' }), 'fallback-key');
 

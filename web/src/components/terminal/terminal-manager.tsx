@@ -650,10 +650,19 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
 
   useOnServerEvent('TERMINAL_BRANCH_CHANGE', useCallback((payload) => {
     const existing = tabsRef.current.get(payload.sessionId);
-    if (!existing || existing.scope.worktreeBranch === payload.worktreeBranch) return;
+    if (
+      !existing ||
+      (existing.scope.worktreeBranch === payload.worktreeBranch &&
+        existing.scope.agentCwd === payload.trackedDir)
+    )
+      return;
     commitTab(payload.sessionId, {
       ...existing,
-      scope: { ...existing.scope, worktreeBranch: payload.worktreeBranch },
+      scope: {
+        ...existing.scope,
+        worktreeBranch: payload.worktreeBranch,
+        agentCwd: payload.trackedDir,
+      },
     });
   }, [commitTab]));
 

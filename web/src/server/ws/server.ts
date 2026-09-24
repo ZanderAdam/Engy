@@ -395,7 +395,7 @@ function handleWorktreeBranchChanged(
     if (resolveTrackedDir(meta) !== workingDir || meta.worktreeBranch === branch) continue;
     meta.worktreeBranch = branch;
     persistTerminalSession(sessionId, meta);
-    broadcastTerminalBranchChange(sessionId, branch);
+    broadcastTerminalBranchChange(sessionId, branch, workingDir);
   }
 }
 
