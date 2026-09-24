@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-ROOT=$(cd "$(dirname "$0")/../.." && pwd) || exit 1
+# Gate the tree being committed, not the tree this script lives in. A
+# worktree runs the main checkout's copy of this hook, so deriving the root
+# from $0 builds and tests the main checkout instead of the worktree.
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=$(cd "$(dirname "$0")/../.." && pwd) || exit 1
 cd "$ROOT" || exit 1
 
 CMD=$(node -e '
@@ -23,5 +26,5 @@ echo "Running pnpm blt before commit..." >&2
 if pnpm blt; then
   exit 0
 fi
-echo "blt failed — commit blocked. Fix the issues above and retry." >&2
+echo "blt failed in $ROOT — commit blocked. Fix the issues above and retry." >&2
 exit 2
