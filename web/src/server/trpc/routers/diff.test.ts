@@ -162,12 +162,13 @@ describe('diff router', () => {
           sent.push(msg.type);
           ctx.state.pendingGitBranch
             .get(msg.payload.requestId)
-            ?.resolve({ branch: 'feature/login' });
+            ?.resolve({ branch: 'feature/login', repoRoot: '/tmp/repo' });
         },
       } as unknown as WebSocket;
 
       await expect(caller.diff.getBranch({ repoDir: '/tmp/repo' })).resolves.toEqual({
         branch: 'feature/login',
+        repoRoot: '/tmp/repo',
       });
       expect(sent).toEqual(['GIT_BRANCH_REQUEST']);
     });
@@ -199,6 +200,7 @@ describe('diff router', () => {
 
       await expect(caller.diff.getBranch({ repoDir: '/tmp/repo' })).resolves.toEqual({
         branch: 'feature/login',
+        repoRoot: null,
       });
       expect(asked).toEqual(['GIT_BRANCH_REQUEST', 'GIT_STATUS_REQUEST']);
     });
@@ -213,7 +215,7 @@ describe('diff router', () => {
         send: (data: string) => {
           const msg = JSON.parse(data);
           askedFor = msg.payload.repoDir;
-          ctx.state.pendingGitBranch.get(msg.payload.requestId)?.resolve({ branch: 'wt' });
+          ctx.state.pendingGitBranch.get(msg.payload.requestId)?.resolve({ branch: 'wt', repoRoot: '/tmp/repo' });
         },
       } as unknown as WebSocket;
 

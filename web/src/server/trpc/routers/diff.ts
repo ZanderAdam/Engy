@@ -130,7 +130,7 @@ export const diffRouter = router({
       // surface keys its comment threads on the branch — losing it hides every
       // comment. Status carries the same branch at the cost of a tree walk.
       const status = await dispatchGitStatus(dir, ctx.state, input.coderWorkspace);
-      return { branch: status.branch };
+      return { branch: status.branch, repoRoot: null };
     }
   }),
 

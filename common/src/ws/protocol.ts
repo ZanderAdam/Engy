@@ -296,6 +296,9 @@ export interface GitBranchResponseMessage {
     | {
         requestId: string;
         branch: string;
+        /** Main repo directory, so a worktree resolves back to the repo it
+         *  belongs to. Null when git cannot name one. */
+        repoRoot: string | null;
       }
     | {
         requestId: string;

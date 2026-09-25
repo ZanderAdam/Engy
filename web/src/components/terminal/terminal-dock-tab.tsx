@@ -15,6 +15,7 @@ import {
   type TerminalTab,
 } from './types';
 import { resolveTerminalLabel } from './terminal-label';
+import { useSessionBranch } from './use-session-branch';
 import { AttentionBadge } from './attention-badge';
 
 function collapseLabel(label: string): string {
@@ -42,7 +43,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   const scopeLabel = tab.scope.scopeLabel;
   const mainLabel = resolveTerminalLabel(tab.scope, tab.oscTitle);
   const renameSeed = tab.scope.renamedLabel ?? scopeLabel;
-  const branch = tab.scope.worktreeBranch;
+  const { branch } = useSessionBranch(tab.scope);
   const isDir = tab.scope.scopeType === 'dir';
   const displayLabel = isDir ? collapseLabel(mainLabel) : mainLabel;
 

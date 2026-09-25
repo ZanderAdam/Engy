@@ -60,6 +60,7 @@ import {
   getShow,
   getBranchFiles,
   getCurrentBranch,
+  getRepoRoot,
   resolveDefaultBase,
   remoteForBase,
   fetchRemote,
@@ -872,8 +873,10 @@ export class WsClient {
   private async handleGitBranchRequest(message: GitBranchRequestMessage): Promise<void> {
     const { requestId, repoDir, coderWorkspace } = message.payload;
     try {
-      const branch = await getCurrentBranch(repoDir, this.gitRunnerFor(coderWorkspace));
-      this.send({ type: 'GIT_BRANCH_RESPONSE', payload: { requestId, branch } });
+      const runGit = this.gitRunnerFor(coderWorkspace);
+      const branch = await getCurrentBranch(repoDir, runGit);
+      const repoRoot = await getRepoRoot(repoDir, runGit);
+      this.send({ type: 'GIT_BRANCH_RESPONSE', payload: { requestId, branch, repoRoot } });
     } catch (err) {
       this.send({
         type: 'GIT_BRANCH_RESPONSE',

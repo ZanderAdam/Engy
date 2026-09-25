@@ -30,8 +30,14 @@ import { useFilePatch } from './use-file-patch';
 import { refreshDiff } from './diff-refresh';
 import { useViewedFiles } from './use-viewed-files';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
-import { useVirtualSearchParams } from '@/components/tabs/tab-context';
+import {
+  useVirtualNavigate,
+  useVirtualPathname,
+  useVirtualSearchParams,
+} from '@/components/tabs/tab-context';
 import { diffUrlParams } from './diff-url-params';
+import { worktreeForBranch } from './link-target';
+import { repoDirByName } from '@/lib/repo-name';
 import { RiGitBranchLine, RiDownloadLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -83,7 +89,21 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   // the current `files`.
   const tabs = useEditorTabs();
 
-  const { repo: repoParam, view: viewParam } = diffUrlParams(useVirtualSearchParams());
+  const search = useVirtualSearchParams();
+  const pathname = useVirtualPathname();
+  const navigate = useVirtualNavigate();
+  const { repo: repoParam, branch: branchParam, view: viewParam } = diffUrlParams(search);
+
+  // Steering by hand drops the link's params, so clicking the same Diff link
+  // again is a change the page can see and act on.
+  const forgetLinkParams = () => {
+    if (!repoParam && !branchParam) return;
+    const next = new URLSearchParams(search.toString());
+    next.delete('diffRepo');
+    next.delete('diffBranch');
+    const query = next.toString();
+    navigate.push(query ? `${pathname}?${query}` : pathname);
+  };
 
   const [viewMode, setViewMode] = useState<ViewMode>('unified');
   const [diffViewMode, setDiffViewMode] = useState<DiffViewMode>(viewParam ?? 'latest');
@@ -91,7 +111,12 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   // null = follow the repo's detected default branch; a string is an explicit override.
   const [userBaseBranch, setUserBaseBranch] = useState<string | null>(null);
   const [branchTarget, setBranchTarget] = useState<BranchDiffTarget>('worktree');
-  const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(repoParam);
+  const [userSelectedRepo, setUserSelectedRepo] = useState<string | null>(null);
+  // What the incoming link asked for, by the names the two dropdowns use. Held
+  // until the reader picks something themselves: the repo list and the worktree
+  // list both arrive after the first render, so neither can be resolved here.
+  const [linkRepoName, setLinkRepoName] = useState<string | null>(repoParam);
+  const [linkBranch, setLinkBranch] = useState<string | null>(branchParam);
   // null follows the file count; a choice overrides it until the view changes.
   const [userReviewMode, setUserReviewMode] = useState<ReviewMode | null>(null);
   // What the stack reports as it scrolls, so the file list can follow along
@@ -105,6 +130,8 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   const { path: selectedFile, side: selectedSide } = decodeSelection(tabs.active, sided);
 
   const handleUserWorktreeChange = (worktree: WorktreeSelection) => {
+    forgetLinkParams();
+    setLinkBranch(null);
     setUserSelectedWorktree(worktree);
     tabs.reset();
     setSelectedCommit(null);
@@ -112,11 +139,12 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
   // The link can retarget a tab that already shows this page, which stays
   // mounted, so the params are synced during render rather than only read once.
-  const paramKey = `${repoParam ?? ''}|${viewParam ?? ''}`;
+  const paramKey = `${repoParam ?? ''}|${branchParam ?? ''}|${viewParam ?? ''}`;
   const [prevParamKey, setPrevParamKey] = useState(paramKey);
   if (paramKey !== prevParamKey) {
     setPrevParamKey(paramKey);
-    if (repoParam) setUserSelectedRepo(repoParam);
+    if (repoParam) setLinkRepoName(repoParam);
+    if (branchParam) setLinkBranch(branchParam);
     if (viewParam) setDiffViewMode(viewParam);
     tabs.reset();
     setSelectedCommit(null);
@@ -165,20 +193,36 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     return [...repoSet];
   }, [workspace, taskGroups, project]);
 
-  const selectedRepo = userSelectedRepo ?? (allRepos.length > 0 ? allRepos[0] : null);
+  const linkRepo = linkRepoName ? repoDirByName(allRepos, linkRepoName) : null;
+  const selectedRepo = linkRepo ?? userSelectedRepo ?? (allRepos.length > 0 ? allRepos[0] : null);
+
+  // The same list the worktree dropdown offers, so a link naming a branch
+  // lands on exactly the entry the reader would have picked by hand.
+  const { data: repoWorktrees } = trpc.diff.getWorktrees.useQuery(
+    { workspaceSlug, repoDir: selectedRepo! },
+    { enabled: !!selectedRepo && !!linkBranch },
+  );
+  const linkWorktree = useMemo(
+    () => worktreeForBranch(repoWorktrees, linkBranch),
+    [repoWorktrees, linkBranch],
+  );
 
   // When a project-level worktree is active, derive selectedWorktree from the
   // per-repo map (overrides the user's local WorktreeSelector choice).
   const selectedWorktree: WorktreeSelection = useMemo(() => {
+    if (linkWorktree !== undefined) return linkWorktree;
     if (projectWorktreeBranch && selectedRepo) {
       const worktreePath = projectRepoMap.get(selectedRepo);
       if (worktreePath) return { worktreePath };
       return null;
     }
     return userSelectedWorktree;
-  }, [projectWorktreeBranch, projectRepoMap, selectedRepo, userSelectedWorktree]);
+  }, [linkWorktree, projectWorktreeBranch, projectRepoMap, selectedRepo, userSelectedWorktree]);
 
   const handleRepoChange = (repo: string) => {
+    forgetLinkParams();
+    setLinkRepoName(null);
+    setLinkBranch(null);
     setUserSelectedRepo(repo);
     tabs.reset();
     setSelectedCommit(null);
@@ -610,7 +654,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
               <WorktreeSelector
                 workspaceSlug={workspaceSlug}
                 repoDir={selectedRepo}
-                value={userSelectedWorktree}
+                value={selectedWorktree}
                 onChange={handleUserWorktreeChange}
               />
             )}

@@ -209,6 +209,7 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'GIT_BRANCH_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGitBranch, (p) => ({
         branch: p.branch,
+        repoRoot: p.repoRoot,
       }));
       break;
     case 'GIT_DEFAULT_BASE_RESPONSE':

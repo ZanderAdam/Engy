@@ -3,9 +3,10 @@
 import { RiGitPullRequestLine } from '@remixicon/react';
 import { trpc } from '@/lib/trpc';
 import { VLink } from '@/components/tabs/virtual-link';
+import { useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { TerminalTaskActions } from './terminal-task-actions';
 import { branchDiffHref, resolveDiffTarget } from './terminal-diff-target';
-import { worktreeBranchFromGroupKey } from './group-key';
+import { useSessionBranch } from './use-session-branch';
 import type { TerminalScope } from './types';
 
 function useBranchDiffHref(scope: TerminalScope): string | null {
@@ -14,30 +15,22 @@ function useBranchDiffHref(scope: TerminalScope): string | null {
   // worktree's review, not to the directory it was opened in.
   const workingDir = scope.agentCwd ?? scope.workingDir;
 
+  const worktreeParam = useVirtualSearchParams().get('wt');
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
 
-  // A session restored from the session list carries `projectSlug` but no
-  // `projectId`, so the id is resolved here rather than read off the scope —
-  // without it a worktree session gets no worktree map, and a worktree lives
-  // outside its repo, so nothing would map it back.
-  const { data: project } = trpc.project.getBySlug.useQuery(
-    { workspaceId: workspace?.id ?? 0, slug: projectSlug ?? '' },
-    { enabled: !!workspace && !!projectSlug },
-  );
-
-  const { data: worktrees } = trpc.worktree.listGrouped.useQuery(
-    { projectId: project?.id ?? 0 },
-    { enabled: !!project },
-  );
+  // A worktree lives outside its repo, so only git can say which repo it
+  // belongs to and which branch it is on.
+  const { branch, repoRoot } = useSessionBranch(scope);
 
   if (!projectSlug) return null;
-  const target = resolveDiffTarget(
-    { workingDir, worktreeBranch: worktreeBranchFromGroupKey(scope.groupKey) },
-    worktrees?.groups ?? [],
-    (workspace?.repos as string[] | null) ?? [],
-  );
+  const target = resolveDiffTarget({
+    gitRepoRoot: repoRoot,
+    gitBranch: branch,
+    workingDir,
+    repos: (workspace?.repos as string[] | null) ?? [],
+  });
   if (!target) return null;
-  return branchDiffHref({ workspaceSlug, projectSlug, target });
+  return branchDiffHref({ workspaceSlug, projectSlug, target, worktreeParam });
 }
 
 /**

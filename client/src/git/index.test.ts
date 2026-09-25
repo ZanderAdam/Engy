@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir, symlink } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, symlink, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { simpleGit } from 'simple-git';
@@ -11,6 +11,7 @@ import {
   getShow,
   getBranchFiles,
   getCurrentBranch,
+  getRepoRoot,
   resolveDefaultBase,
   remoteForBase,
   fetchRemote,
@@ -345,6 +346,35 @@ describe('git integration', () => {
       repoDir = await createTempRepo();
 
       await expect(getCurrentBranch(repoDir)).resolves.toMatch(/^(main|master)$/);
+    });
+  });
+
+  describe('getRepoRoot', () => {
+    it('[FR-GIT-520] names the repo directory for a path inside it', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+
+      await expect(getRepoRoot(repoDir)).resolves.toBe(await realpath(repoDir));
+    });
+
+    it('[FR-GIT-520] names the main repo, not itself, from inside a worktree', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'init.txt', 'hello');
+      const worktreePath = join(repoDir, '..', `wt-${Date.now()}`);
+      await simpleGit(repoDir).raw(['worktree', 'add', '-b', 'feature/login', worktreePath]);
+
+      await expect(getRepoRoot(worktreePath)).resolves.toBe(await realpath(repoDir));
+
+      await simpleGit(repoDir).raw(['worktree', 'remove', '--force', worktreePath]);
+    });
+
+    it('[FR-GIT-520] reports nothing for a directory outside any repo', async () => {
+      const plainDir = await mkdtemp(join(tmpdir(), 'engy-no-repo-'));
+      try {
+        await expect(getRepoRoot(plainDir)).resolves.toBeNull();
+      } finally {
+        await rm(plainDir, { recursive: true, force: true });
+      }
     });
   });
 

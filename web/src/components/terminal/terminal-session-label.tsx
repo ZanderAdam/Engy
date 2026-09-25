@@ -10,6 +10,7 @@ import {
   type TerminalTab,
 } from './types';
 import { resolveTerminalLabel } from './terminal-label';
+import { useSessionBranch } from './use-session-branch';
 import { AttentionBadge } from './attention-badge';
 
 interface TerminalSessionLabelProps {
@@ -35,7 +36,7 @@ interface TerminalSessionLabelProps {
 export function TerminalSessionLabel({ tab, className, iconBox }: TerminalSessionLabelProps) {
   const terminalNumber = useTerminalNumber(tab.sessionId);
   const mainLabel = resolveTerminalLabel(tab.scope, tab.oscTitle);
-  const branch = tab.scope.worktreeBranch;
+  const { branch } = useSessionBranch(tab.scope);
   return (
     <span
       className={cn(

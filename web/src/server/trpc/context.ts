@@ -103,6 +103,7 @@ export interface GitBranchFilesResult {
 
 export interface GitBranchResult {
   branch: string;
+  repoRoot: string | null;
 }
 
 export interface GitDefaultBaseResult {

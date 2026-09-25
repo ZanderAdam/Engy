@@ -2,6 +2,8 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { trpc, getTrpcClientOptions } from '@/lib/trpc';
 import { TerminalSessionLabel } from './terminal-session-label';
 import { resolveTerminalLabel } from './terminal-label';
 import type { TerminalTab } from './types';
@@ -21,8 +23,22 @@ function tab(overrides: Partial<TerminalTab> = {}): TerminalTab {
   };
 }
 
+// The label reads the session's current branch over tRPC, so it needs the
+// provider. Nothing is fetched during a static render, so the assertions see
+// the scope's own branch.
 function render(t: TerminalTab): string {
-  return renderToStaticMarkup(createElement(TerminalSessionLabel, { tab: t }));
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return renderToStaticMarkup(
+    createElement(
+      trpc.Provider,
+      { client: trpc.createClient(getTrpcClientOptions()), queryClient },
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(TerminalSessionLabel, { tab: t }),
+      ),
+    ),
+  );
 }
 
 describe('resolveTerminalLabel', () => {
@@ -103,7 +119,7 @@ describe('TerminalSessionLabel', () => {
     expect(t.scope.scopeLabel).toBe('claude: web');
   });
 
-  it('[FR-TERMINAL-670] should render the branch as the sub line when set', () => {
+  it('[FR-TERMINAL-670][FR-GIT-530] should show the recorded branch until git answers', () => {
     const html = render(tab({ scope: { ...tab().scope, worktreeBranch: 'aadamovic/m14-hooks' } }));
     expect(html).toContain('aadamovic/m14-hooks');
   });

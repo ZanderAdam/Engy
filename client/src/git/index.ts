@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { join, isAbsolute, resolve } from 'node:path';
+import { join, isAbsolute, resolve, dirname } from 'node:path';
 import { readFile, writeFile, readdir, stat, lstat } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { simpleGit } from 'simple-git';
@@ -366,6 +366,31 @@ export async function getCurrentBranch(
 
   const { stdout } = await runGit(['-C', dir, 'symbolic-ref', '--short', 'HEAD']);
   return stdout.trim() || 'HEAD';
+}
+
+/**
+ * Directory of the repo a path belongs to. Resolved through the *common* git
+ * dir, so a worktree answers with the repo it was created from rather than
+ * with itself.
+ */
+export async function getRepoRoot(
+  dir: string,
+  runGit: GitRunner = localGitRunner,
+): Promise<string | null> {
+  try {
+    const { stdout } = await runGit([
+      '-C',
+      dir,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+    ]);
+    const gitDir = stdout.trim();
+    if (!gitDir) return null;
+    return dirname(gitDir);
+  } catch {
+    return null;
+  }
 }
 
 export async function resolveDefaultBase(
