@@ -6,11 +6,11 @@ import {
   type CommentData,
   type CommentBody,
 } from '@blocknote/core/comments';
-import { createTRPCClient, httpBatchLink } from '@trpc/client';
-import superjson from 'superjson';
+import { createTRPCClient } from '@trpc/client';
 import { toast } from 'sonner';
 import type { AppRouter } from '@/server/trpc/root';
 import { randomId } from '@/lib/random-id';
+import { getTrpcClientOptions } from '@/lib/trpc';
 
 export { DefaultThreadStoreAuth };
 
@@ -251,7 +251,7 @@ export class EngyThreadStore extends ThreadStore implements CommentStore {
     trpcClients.set(
       this,
       createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: '/api/trpc', transformer: superjson })],
+        ...getTrpcClientOptions(),
       }),
     );
     this.ready = this.loadFromDb();

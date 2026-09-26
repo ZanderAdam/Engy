@@ -58,14 +58,14 @@ function readAsDiffsTabWould(repoDir: string, branch = BRANCH) {
  * The tools read the branch under review from the daemon, so every call needs
  * one answering GIT_BRANCH_REQUEST.
  */
-function connectDaemonOnBranch(ctx: TestContext, branch = BRANCH): void {
+function connectDaemonOnBranch(ctx: TestContext, branch = BRANCH, repoRoot = REPO): void {
   ctx.state.daemon = {
     readyState: WebSocket.OPEN,
     OPEN: WebSocket.OPEN,
     send: (data: string) => {
       const msg = JSON.parse(data);
       if (msg.type !== 'GIT_BRANCH_REQUEST') return;
-      ctx.state.pendingGitBranch.get(msg.payload.requestId)?.resolve({ branch });
+      ctx.state.pendingGitBranch.get(msg.payload.requestId)?.resolve({ branch, repoRoot });
     },
   } as unknown as WebSocket;
 }
@@ -80,6 +80,27 @@ describe('diff review MCP tools', () => {
 
   afterEach(() => {
     ctx.cleanup();
+  });
+
+  describe('an agent reviewing from inside a worktree', () => {
+    it('[FR-MCP-220] files against the repo, where the diffs surface reads', async () => {
+      const worktree = '/home/dev/worktrees/feature-tokens';
+      connectDaemonOnBranch(ctx, BRANCH, REPO);
+      const mcp = makeMcp();
+
+      await callTool(mcp, 'diff_review_comment')({
+        repoDir: worktree,
+        filePath: 'src/auth.ts',
+        lineNumber: 3,
+        body: 'filed from a worktree',
+      });
+
+      const threads = await readAsDiffsTabWould(REPO);
+      expect(threads.map((t) => t.documentPath)).toEqual([
+        `${diffScopePrefix(REPO, BRANCH)}src/auth.ts`,
+      ]);
+      expect(await readAsDiffsTabWould(worktree)).toEqual([]);
+    });
   });
 
   describe('diff_review_comment', () => {

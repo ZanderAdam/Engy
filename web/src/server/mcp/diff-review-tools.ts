@@ -78,12 +78,15 @@ const diffReviewListInput = {
  * A review is keyed by the branch the repo is on, so findings stay with the
  * branch they were written against. The caller passes only `repoDir`, so the
  * branch is read from the daemon rather than taken on trust from an agent that
- * may have moved on since it last looked.
+ * may have moved on since it last looked. The repo half is the repo git names,
+ * not the path passed in: an agent reviewing from inside a worktree would
+ * otherwise file against the worktree's path and the diffs surface, which keys
+ * on the repo, would never show what it wrote.
  */
 async function scopePrefix(repoDir: string): Promise<string> {
   try {
-    const { branch } = await dispatchGitBranch(repoDir, getAppState());
-    return diffScopePrefix(repoDir, branch);
+    const { branch, repoRoot } = await dispatchGitBranch(repoDir, getAppState());
+    return diffScopePrefix(repoRoot ?? repoDir, branch);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     throw new Error(
