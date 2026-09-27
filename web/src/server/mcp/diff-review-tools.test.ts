@@ -103,6 +103,49 @@ describe('diff review MCP tools', () => {
     });
   });
 
+  describe('a call that names no repo', () => {
+    it('[FR-MCP-260] reviews where the calling session is working', async () => {
+      const worktree = '/home/dev/worktrees/feature-tokens';
+      getAppState().terminalSessionMeta.set('sess-wt', {
+        scopeType: 'project',
+        scopeLabel: 'initial',
+        workingDir: REPO,
+        agentCwd: worktree,
+        agentType: 'claude',
+        cols: 80,
+        rows: 24,
+      });
+      connectDaemonOnBranch(ctx, BRANCH, REPO);
+
+      await callTool(makeMcp('sess-wt'), 'diff_review_comment')({
+        filePath: 'src/auth.ts',
+        lineNumber: 3,
+        codeLine: 'x',
+        severity: 'high',
+        finding: 'f',
+        failureScenario: 's',
+      });
+
+      const threads = await readAsDiffsTabWould(REPO);
+      expect(threads.map((t) => t.documentPath)).toEqual([
+        `${diffScopePrefix(REPO, BRANCH)}src/auth.ts`,
+      ]);
+    });
+
+    it('[FR-MCP-260] says to pass a path when the call carries no session', async () => {
+      await expect(
+        callTool(makeMcp(), 'diff_review_comment')({
+          filePath: 'src/auth.ts',
+          lineNumber: 3,
+          codeLine: 'x',
+          severity: 'high',
+          finding: 'f',
+          failureScenario: 's',
+        }),
+      ).rejects.toThrow(/pass repoDir/);
+    });
+  });
+
   describe('diff_review_comment', () => {
     it('[FR-MCP-220] anchors a finding where the diff viewer reads it', async () => {
       const mcp = makeMcp();

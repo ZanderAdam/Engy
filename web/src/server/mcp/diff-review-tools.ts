@@ -29,8 +29,21 @@ const severityField = z
     'critical: breaks correctness, security, data loss. high: architectural violation, missing error handling for a likely failure. medium: pattern, naming, readability',
   );
 
+/**
+ * Optional because the `/mcp/<terminal session id>` the call arrives on already
+ * says where the agent is. Passing a path is the exception — a review of a repo
+ * the session is not sitting in.
+ */
+const repoDirField = z
+  .string()
+  .min(1)
+  .optional()
+  .describe(
+    'Absolute path inside the repo under review. Omit it to review where this session is working',
+  );
+
 const diffReviewCommentInput = {
-  repoDir: z.string().min(1).describe('Absolute path of the repo or worktree under review'),
+  repoDir: repoDirField,
   filePath: z.string().min(1).describe('Path of the file, relative to the repo root'),
   lineNumber: z.number().int().positive().describe("Line number in its own side's numbering"),
   codeLine: z.string().describe('Text of the line, so the finding survives being read out of context'),
@@ -60,7 +73,7 @@ const diffReviewResolveInput = {
 };
 
 const diffReviewSummaryInput = {
-  repoDir: z.string().min(1).describe('Absolute path of the repo or worktree under review'),
+  repoDir: repoDirField,
   summary: z
     .string()
     .min(1)
@@ -70,7 +83,7 @@ const diffReviewSummaryInput = {
 };
 
 const diffReviewListInput = {
-  repoDir: z.string().min(1).describe('Absolute path of the repo or worktree under review'),
+  repoDir: repoDirField,
   filePath: z.string().optional().describe('Restrict to one file, relative to the repo root'),
 };
 
@@ -83,16 +96,28 @@ const diffReviewListInput = {
  * otherwise file against the worktree's path and the diffs surface, which keys
  * on the repo, would never show what it wrote.
  */
-async function scopePrefix(repoDir: string): Promise<string> {
+async function scopePrefix(repoDir: string | undefined, sessionId?: string): Promise<string> {
+  const dir = reviewDir(repoDir, sessionId);
   try {
-    const { branch, repoRoot } = await dispatchGitBranch(repoDir, getAppState());
-    return diffScopePrefix(repoRoot ?? repoDir, branch);
+    const { branch, repoRoot } = await dispatchGitBranch(dir, getAppState());
+    return diffScopePrefix(repoRoot ?? dir, branch);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `Cannot read the branch of "${repoDir}", which the review is filed against: ${reason}. Check that the path is a git repo the Engy daemon can reach.`,
+      `Cannot read the branch of "${dir}", which the review is filed against: ${reason}. Check that the path is a git repo the Engy daemon can reach.`,
     );
   }
+}
+
+/** Where the agent is, which it does not have to repeat back to us. */
+function reviewDir(repoDir: string | undefined, sessionId?: string): string {
+  if (repoDir) return repoDir;
+  const meta = sessionId ? getAppState().terminalSessionMeta.get(sessionId) : undefined;
+  const dir = meta?.agentCwd ?? meta?.workingDir;
+  if (dir) return dir;
+  throw new Error(
+    'Cannot tell which repo this review belongs to: this call carries no terminal session, so pass repoDir.',
+  );
 }
 
 /** Author fields the caller cannot set, so `source: 'agent'` stays trustworthy. */
@@ -165,7 +190,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
     'Anchor one review finding to a line of the diff under review, where it appears inline in the Diffs tab. Anchor only what a reader must act on; everything else belongs in diff_review_summary.',
     diffReviewCommentInput,
     async (args) => {
-      const path = `${await scopePrefix(args.repoDir)}${args.filePath}`;
+      const path = `${await scopePrefix(args.repoDir, callerTerminalSessionId)}${args.filePath}`;
       const threadId = insertThread(
         path,
         {
@@ -190,7 +215,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
     diffReviewSummaryInput,
     async (args) => {
       const db = getDb();
-      const path = await scopePrefix(args.repoDir);
+      const path = await scopePrefix(args.repoDir, callerTerminalSessionId);
       db.delete(commentThreads)
         .where(and(eq(commentThreads.documentPath, path), isNull(commentThreads.workspaceId)))
         .run();
@@ -237,7 +262,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
     'Read the review already on this diff — your own findings and the human comments left on it. Call before filing, so a re-review answers open comments instead of repeating findings that already stand.',
     diffReviewListInput,
     async (args) => {
-      const repoPrefix = await scopePrefix(args.repoDir);
+      const repoPrefix = await scopePrefix(args.repoDir, callerTerminalSessionId);
 
       // A prefix match would pair every `Foo.ts` with `Foo.tsx`, so one file is
       // read by exact path and only the repo-wide case scans by prefix.
