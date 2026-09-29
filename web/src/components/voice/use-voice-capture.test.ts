@@ -7,7 +7,7 @@ import {
   isPttKeyEvent,
   buildVoiceWsUrl,
   getVoicePttController,
-  VOICE_PTT_CODE,
+  VOICE_PTT_CODES,
   WAKE_PREFIXES as MIRRORED_WAKE_PREFIXES,
   type VoicePttControllerOpts,
   type VoiceCaptureObserver,
@@ -95,7 +95,7 @@ function fireKey(type: 'keydown' | 'keyup', init: KeyboardEventInit) {
 /** Fires the PTT chord key itself (Right Ctrl) by `code`, as a real keydown
  * would — `key` is along for the ride, never what gating checks. */
 function firePtt(type: 'keydown' | 'keyup', extra: Partial<KeyboardEventInit> = {}) {
-  fireKey(type, { code: VOICE_PTT_CODE, key: 'Control', ...extra });
+  fireKey(type, { code: 'ControlRight', key: 'Control', ...extra });
 }
 
 function makeOpts(overrides: Partial<VoicePttControllerOpts> = {}): VoicePttControllerOpts {
@@ -145,19 +145,31 @@ function lastPhase(onStateChange: ReturnType<typeof vi.fn>): VoicePhase | undefi
 }
 
 describe('isPttKeyEvent', () => {
-  it('is true for a non-repeat press of Right Ctrl', () => {
-    const e = new KeyboardEvent('keydown', { code: VOICE_PTT_CODE });
+  it.each(VOICE_PTT_CODES)('is true for a non-repeat press of %s', (code) => {
+    const e = new KeyboardEvent('keydown', { code });
     expect(isPttKeyEvent(e)).toBe(true);
   });
 
   it('is false for OS auto-repeat', () => {
-    const e = new KeyboardEvent('keydown', { code: VOICE_PTT_CODE, repeat: true });
+    const e = new KeyboardEvent('keydown', { code: 'ControlRight', repeat: true });
     expect(isPttKeyEvent(e)).toBe(false);
   });
 
-  it('is false for Left Ctrl — e.key cannot tell sides apart, e.code can', () => {
-    const e = new KeyboardEvent('keydown', { code: 'ControlLeft' });
-    expect(isPttKeyEvent(e)).toBe(false);
+  it.each(['ControlLeft', 'MetaLeft', 'AltLeft'])(
+    'is false for %s — e.key cannot tell sides apart, e.code can',
+    (code) => {
+      const e = new KeyboardEvent('keydown', { code });
+      expect(isPttKeyEvent(e)).toBe(false);
+    },
+  );
+
+  it('is false for AltGr, which shares the AltRight key on many layouts', () => {
+    expect(isPttKeyEvent(new KeyboardEvent('keydown', { code: 'AltRight', key: 'AltGraph' }))).toBe(
+      false,
+    );
+    expect(
+      isPttKeyEvent(new KeyboardEvent('keydown', { code: 'AltRight', modifierAltGraph: true })),
+    ).toBe(false);
   });
 
   it('is false for any other key', () => {

@@ -10,9 +10,10 @@ import type { VoiceAction } from '@/lib/voice/registry';
 import { MicCapture, type MicCaptureOpts } from './mic-capture';
 import { routeVoiceSegment } from './route-voice-segment';
 
-/** Physical Right Ctrl, held to talk. Matched on `e.code`, not `e.key`,
- * since `e.key` reports `'Control'` for both sides. */
-export const VOICE_PTT_CODE = 'ControlRight';
+/** Physical right-side modifiers, held to talk. Right Cmd and Right Option
+ * cover Mac keyboards, which have no Right Ctrl. Matched on `e.code`, not
+ * `e.key`, since `e.key` reports the same value for both sides. */
+export const VOICE_PTT_CODES: readonly string[] = ['ControlRight', 'MetaRight', 'AltRight'];
 
 // Silence after dictation that means "I am done talking". Long enough to
 // pause for thought mid-sentence, short enough not to feel stuck.
@@ -27,8 +28,14 @@ export const WAKE_PREFIXES = ['ANGIE', 'OK ANGIE', 'OKAY ANGIE', 'HEY ANGIE', 'H
 
 const DEFAULT_WORKLET_URL = '/audio-worklet.js';
 
+/** AltGr sits on the AltRight key on many layouts and types characters, so
+ * it must not count. */
+function isAltGraph(e: KeyboardEvent): boolean {
+  return e.key === 'AltGraph' || e.getModifierState?.('AltGraph') === true;
+}
+
 export function isPttKeyEvent(e: KeyboardEvent): boolean {
-  return e.code === VOICE_PTT_CODE && !e.repeat;
+  return VOICE_PTT_CODES.includes(e.code) && !e.repeat && !isAltGraph(e);
 }
 
 export function buildVoiceWsUrl(
@@ -193,7 +200,7 @@ export class VoicePttController {
     if (this.subscribers.size === 0) this.detach();
   }
 
-  /** Tap to start, tap again to stop. A phone has no Right Ctrl, and holding
+  /** Tap to start, tap again to stop. A phone has no push-to-talk key, and holding
    * a button down while speaking is awkward on a touch screen. */
   toggle(): void {
     if (this.holding) {
@@ -300,7 +307,7 @@ export class VoicePttController {
     if (this.turnToken) this.endTurn(this.turnToken, { kind: 'discard' });
   }
 
-  // A held Right Ctrl plus another key down is a chord (e.g. Ctrl+C), not
+  // A held push-to-talk key plus another key down is a chord (e.g. Ctrl+C), not
   // dictation — abort rather than transcribe. No preventDefault, so the
   // chord still reaches the terminal.
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -317,7 +324,7 @@ export class VoicePttController {
         }
         return;
       }
-      if (e.code !== VOICE_PTT_CODE) this.abort();
+      if (!VOICE_PTT_CODES.includes(e.code)) this.abort();
       return;
     }
     if (!isPttKeyEvent(e)) return;
@@ -392,9 +399,7 @@ export class VoicePttController {
 
           const route = routeVoiceSegment(msg.transcript, msg.wake, WAKE_PREFIXES);
           if (route.kind === 'dictation') {
-            const insertText = this.isFirstDictationSegmentOfTurn
-              ? route.text
-              : ` ${route.text}`;
+            const insertText = this.isFirstDictationSegmentOfTurn ? route.text : ` ${route.text}`;
             this.isFirstDictationSegmentOfTurn = false;
             this.emitSegment(insertText);
             if (this.conversationMode) {
@@ -595,11 +600,11 @@ export function getVoicePttController(): VoicePttController {
   return sharedController;
 }
 
-/** Hold Right Ctrl, speak, release — a dictation segment (no wake word) is
- * inserted into the focused terminal, unsent; a segment carrying the wake
- * word resolves against the live action registry and runs the match
- * instead (FR-TG2.16). Only mounted for a voice-enabled workspace; the
- * server rejects the upgrade otherwise. */
+/** Hold Right Ctrl (or Right Cmd / Right Option), speak, release — a
+ * dictation segment (no wake word) is inserted into the focused terminal,
+ * unsent; a segment carrying the wake word resolves against the live
+ * action registry and runs the match instead (FR-TG2.16). Only mounted for
+ * a voice-enabled workspace; the server rejects the upgrade otherwise. */
 export function useVoiceCapture(
   workspaceSlug: string,
   actions: VoiceAction[],

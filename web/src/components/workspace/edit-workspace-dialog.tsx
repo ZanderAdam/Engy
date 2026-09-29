@@ -192,9 +192,10 @@ export function EditWorkspaceDialog({
   const nameValidationError = /[/\\]/.test(name)
     ? 'Name must not contain path separators (/ or \\)'
     : null;
-  const slugValidationError = slug && !/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug)
-    ? 'Slug must contain only lowercase letters, numbers, and hyphens'
-    : null;
+  const slugValidationError =
+    slug && !/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug)
+      ? 'Slug must contain only lowercase letters, numbers, and hyphens'
+      : null;
   const hasValidationError = !!nameValidationError || !!slugValidationError;
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -370,9 +371,9 @@ export function EditWorkspaceDialog({
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Off (default): nothing is downloaded or loaded. On: hold Right Ctrl to dictate
-                    into the focused terminal. Turning it on downloads a ~630MB speech model once,
-                    shared by every workspace.
+                    Off (default): nothing is downloaded or loaded. On: hold Right Ctrl, Right Cmd
+                    or Right Option to dictate into the focused terminal. Turning it on downloads a
+                    ~630MB speech model once, shared by every workspace.
                   </p>
                 </div>
                 <div className="flex flex-col gap-1.5">
