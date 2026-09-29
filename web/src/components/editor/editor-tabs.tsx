@@ -2,6 +2,7 @@
 
 import { RiArrowLeftSLine, RiArrowRightSLine, RiCloseLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
+import { TabCloseMenu } from '@/components/tabs/tab-close-menu';
 import type { EditorTabsController } from './use-editor-tabs';
 
 interface EditorTabsProps {
@@ -11,6 +12,9 @@ interface EditorTabsProps {
   canGoForward: boolean;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
+  onCloseOthers: (path: string) => void;
+  onCloseToRight: (path: string) => void;
+  onCloseAll: () => void;
   onBack: () => void;
   onForward: () => void;
 }
@@ -26,6 +30,9 @@ function EditorTabs({
   canGoForward,
   onSelect,
   onClose,
+  onCloseOthers,
+  onCloseToRight,
+  onCloseAll,
   onBack,
   onForward,
 }: EditorTabsProps) {
@@ -53,33 +60,42 @@ function EditorTabs({
       </div>
 
       <div className="flex flex-1 items-stretch overflow-x-auto">
-        {tabs.map((path) => {
+        {tabs.map((path, index) => {
           const isActive = path === active;
           return (
-            <div
+            <TabCloseMenu
               key={path}
-              onClick={() => onSelect(path)}
-              title={path}
-              className={cn(
-                'group flex shrink-0 cursor-pointer items-center gap-1.5 border-r border-border px-3 text-xs',
-                isActive
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-              )}
+              tabCount={tabs.length}
+              isLast={index === tabs.length - 1}
+              onClose={() => onClose(path)}
+              onCloseOthers={() => onCloseOthers(path)}
+              onCloseToRight={() => onCloseToRight(path)}
+              onCloseAll={onCloseAll}
             >
-              <span className="font-mono">{basename(path)}</span>
-              <button
-                type="button"
-                aria-label={`Close ${basename(path)}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClose(path);
-                }}
-                className="flex size-4 items-center justify-center rounded-sm text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100"
+              <div
+                onClick={() => onSelect(path)}
+                title={path}
+                className={cn(
+                  'group flex shrink-0 cursor-pointer items-center gap-1.5 border-r border-border px-3 text-xs',
+                  isActive
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                )}
               >
-                <RiCloseLine className="size-3.5" />
-              </button>
-            </div>
+                <span className="font-mono">{basename(path)}</span>
+                <button
+                  type="button"
+                  aria-label={`Close ${basename(path)}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose(path);
+                  }}
+                  className="flex size-4 items-center justify-center rounded-sm text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100"
+                >
+                  <RiCloseLine className="size-3.5" />
+                </button>
+              </div>
+            </TabCloseMenu>
           );
         })}
       </div>
@@ -102,6 +118,9 @@ export function EditorTabsBar({ tabs }: { tabs: EditorTabsController }) {
       canGoForward={tabs.canForward}
       onSelect={tabs.open}
       onClose={tabs.close}
+      onCloseOthers={tabs.closeOthers}
+      onCloseToRight={tabs.closeToRight}
+      onCloseAll={tabs.reset}
       onBack={tabs.back}
       onForward={tabs.forward}
     />

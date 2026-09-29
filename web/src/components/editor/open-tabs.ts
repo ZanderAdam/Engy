@@ -49,12 +49,29 @@ export function closeTab(state: TabsState, path: string): TabsState {
   if (idx === -1) return state;
 
   const tabs = state.tabs.filter((t) => t !== path);
-  const history = state.history.filter((h) => h !== path);
-
   let active = state.active;
   if (state.active === path) {
     active = tabs[idx] ?? tabs[idx - 1] ?? null;
   }
+  return retainTabs(state, tabs, active);
+}
+
+export function closeOtherTabs(state: TabsState, keep: string): TabsState {
+  if (!state.tabs.includes(keep)) return state;
+  if (state.tabs.length === 1) return state;
+  return retainTabs(state, [keep], keep);
+}
+
+export function closeTabsToRight(state: TabsState, keep: string): TabsState {
+  const idx = state.tabs.indexOf(keep);
+  if (idx === -1 || idx === state.tabs.length - 1) return state;
+  const tabs = state.tabs.slice(0, idx + 1);
+  const active = state.active && tabs.includes(state.active) ? state.active : keep;
+  return retainTabs(state, tabs, active);
+}
+
+function retainTabs(state: TabsState, tabs: string[], active: string | null): TabsState {
+  const history = state.history.filter((h) => tabs.includes(h));
 
   // Keep historyIndex pointing at the active tab. If the new active path somehow
   // isn't in the pruned history, append it so the index and `active` never desync

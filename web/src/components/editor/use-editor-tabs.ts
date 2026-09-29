@@ -4,7 +4,9 @@ import { useCallback, useState } from 'react';
 import {
   canGoBack,
   canGoForward,
+  closeOtherTabs,
   closeTab,
+  closeTabsToRight,
   emptyTabsState,
   navigateBack,
   navigateForward,
@@ -26,6 +28,8 @@ export interface EditorTabsController {
   canForward: boolean;
   open: (path: string) => void;
   close: (path: string) => void;
+  closeOthers: (path: string) => void;
+  closeToRight: (path: string) => void;
   back: () => void;
   forward: () => void;
   reset: () => void;
@@ -38,6 +42,11 @@ export function useEditorTabs(initial: TabsState = emptyTabsState): EditorTabsCo
     if (path) setState((s) => openTab(s, path));
   }, []);
   const close = useCallback((path: string) => setState((s) => closeTab(s, path)), []);
+  const closeOthers = useCallback((path: string) => setState((s) => closeOtherTabs(s, path)), []);
+  const closeToRight = useCallback(
+    (path: string) => setState((s) => closeTabsToRight(s, path)),
+    [],
+  );
   const back = useCallback(() => setState(navigateBack), []);
   const forward = useCallback(() => setState(navigateForward), []);
   const reset = useCallback(() => setState(emptyTabsState), []);
@@ -49,6 +58,8 @@ export function useEditorTabs(initial: TabsState = emptyTabsState): EditorTabsCo
     canForward: canGoForward(state),
     open,
     close,
+    closeOthers,
+    closeToRight,
     back,
     forward,
     reset,
