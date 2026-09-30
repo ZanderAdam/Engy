@@ -20,6 +20,7 @@ import {
 } from '../db/schema';
 import { validateDependencies, attachBlockedBy } from '../tasks/validation';
 import { nextNumInMilestone } from '../tasks/task-group-numbering';
+import { bulkUpdateTasks, bulkDeleteTasks } from '../tasks/bulk';
 import { getWorkspaceDir, resolveProjectDir, writeWorkspaceYaml } from '../engy-dir/init';
 import { readTaskPlan } from '../plan/service';
 import { broadcastTaskChange, broadcastQuestionChange, broadcastMemoryChange } from '../ws/broadcast';
@@ -222,6 +223,17 @@ const listTasksInput = {
 
 const taskIdInput = {
   id: z.number().describe('Task ID'),
+};
+
+const bulkUpdateTasksInput = {
+  ids: z.array(z.number()).describe('IDs of tasks to update; unknown IDs are skipped'),
+  status: taskStatusSchema.optional().describe('New status'),
+  milestoneRef: z.string().nullable().optional().describe('New milestone ref (e.g. "m1")'),
+  taskGroupId: z.number().nullable().optional().describe('New task group ID'),
+};
+
+const bulkDeleteTasksInput = {
+  ids: z.array(z.number()).describe('IDs of tasks to delete; unknown IDs are skipped'),
 };
 
 const createTaskGroupInput = {
@@ -998,6 +1010,20 @@ function registerTaskTools(mcp: McpServer): void {
       broadcastTaskChange('deleted', id, deleted.projectId ?? undefined);
       return mcpResult({ success: true });
     },
+  );
+
+  mcp.tool(
+    'bulkUpdateTasks',
+    'Set the same status, milestone ref, or task group on many tasks in one call. Returns the count of updated tasks.',
+    bulkUpdateTasksInput,
+    async ({ ids, ...updates }) => mcpResult(bulkUpdateTasks(ids, updates)),
+  );
+
+  mcp.tool(
+    'bulkDeleteTasks',
+    'Delete many tasks in one call. Returns the count of deleted tasks.',
+    bulkDeleteTasksInput,
+    async ({ ids }) => mcpResult(bulkDeleteTasks(ids)),
   );
 }
 

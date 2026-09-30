@@ -2,7 +2,7 @@
 
 Next.js 16 (App Router) + custom Node.js HTTP server. Frontend UI and all backend services (tRPC API, WebSocket server, MCP server) served on a single port.
 
-See root `CLAUDE.md` for monorepo commands and the nested CLAUDE.md index.
+See root `AGENTS.md` for monorepo commands and the nested CLAUDE.md index.
 
 ## Orientation
 

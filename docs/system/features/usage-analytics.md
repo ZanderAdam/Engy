@@ -175,7 +175,7 @@ Money is integer cents at the API boundary. Each row stores micro-cents and the 
 
 ## Rebuild
 
-Migration `0033_usage_analytics.sql` is additive: eleven `CREATE TABLE` statements and no `DROP` or `ALTER`. It cannot remove rows an earlier schema wrote. Migration `0034_usage_context_items.sql` is also additive: it creates `usage_context_item` and adds `base_context_tokens` to `usage_session` with a default of 0. Migration `0035_usage_drop_bytes_scanned.sql` removes `bytes_scanned` from `usage_scan_file`, because the scan no longer resumes at a byte offset.
+Migration `0034_usage_analytics.sql` is additive: twelve `CREATE TABLE` statements and no `DROP` or `ALTER`. It cannot remove rows an earlier schema wrote.
 
 A rebuild derives the rows again from the transcripts that are still on disk. Claude Code deletes transcripts older than 30 days by default (`cleanupPeriodDays`). A rebuild therefore never deletes rollup rows. `rebuildUsageHistory` in `web/src/server/usage/rebuild.ts` clears only `usageScanFile` and `usageSealedDate`. The next scan then reads every file on disk in full, and each of those sessions replaces its own rows. The rows of a session whose file is gone stay as they are. A rebuild leaves `usagePricing` alone: it is configuration, not history.
 

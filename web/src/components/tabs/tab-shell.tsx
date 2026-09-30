@@ -6,14 +6,7 @@ import { RiAddLine, RiArrowDownSLine, RiCloseLine, RiGitBranchLine } from '@remi
 import { cn } from '@/lib/utils';
 import { isSelfActivation, isTypingTarget } from '@/lib/keyboard';
 import { HeaderActions } from '@/components/header-actions';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuShortcut,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu';
+import { TabCloseMenu } from './tab-close-menu';
 import { OpenTabsPicker } from './open-tabs-picker';
 import {
   TabContext,
@@ -443,118 +436,107 @@ function TabStrip({
           }
           const isLast = tab.id === tabs[tabs.length - 1].id;
           return (
-            <ContextMenu key={tab.id}>
-              <ContextMenuTrigger asChild>
-                <div
-                  role="tab"
-                  aria-selected={isActive}
-                  tabIndex={0}
-                  onClick={(e) => {
-                    if ((e.target as HTMLElement).closest('[data-tab-close]')) return;
-                    onActivate(tab.id);
-                  }}
-                  onAuxClick={(e) => {
-                    if (e.button === 1) {
-                      e.preventDefault();
-                      onClose(tab.id);
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (!isSelfActivation(e)) return;
+            <TabCloseMenu
+              key={tab.id}
+              tabCount={tabs.length}
+              isLast={isLast}
+              closeShortcut={isActive ? '⌥⌘W' : undefined}
+              onClose={() => onClose(tab.id)}
+              onCloseOthers={() => onCloseOthers(tab.id)}
+              onCloseToRight={() => onCloseToRight(tab.id)}
+              onCloseAll={onCloseAll}
+            >
+              <div
+                role="tab"
+                aria-selected={isActive}
+                tabIndex={0}
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest('[data-tab-close]')) return;
+                  onActivate(tab.id);
+                }}
+                onAuxClick={(e) => {
+                  if (e.button === 1) {
                     e.preventDefault();
-                    onActivate(tab.id);
-                  }}
-                  title={tab.virtualPath}
-                  className={cn(
-                    'group flex min-w-0 shrink-0 cursor-pointer items-center gap-1.5 border-r border-border px-3 text-xs transition-all',
-                    isActive
-                      ? 'bg-secondary text-foreground shadow-[inset_0_-1px_0_0_var(--foreground)]'
-                      : 'text-muted-foreground/50 opacity-60 hover:bg-muted/40 hover:text-foreground hover:opacity-100',
-                  )}
-                >
-                  <span className="flex min-w-0 max-w-[22rem] flex-col justify-center gap-0.5 py-1">
-                    <span className="flex items-center gap-1 truncate leading-tight">
-                      {segments.map((seg, i) => (
-                        <span key={i} className="flex items-center gap-1">
-                          {i > 0 && (
-                            <span className={isActive ? 'text-muted-foreground/60' : 'opacity-60'}>
-                              ›
+                    onClose(tab.id);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (!isSelfActivation(e)) return;
+                  e.preventDefault();
+                  onActivate(tab.id);
+                }}
+                title={tab.virtualPath}
+                className={cn(
+                  'group flex min-w-0 shrink-0 cursor-pointer items-center gap-1.5 border-r border-border px-3 text-xs transition-all',
+                  isActive
+                    ? 'bg-secondary text-foreground shadow-[inset_0_-1px_0_0_var(--foreground)]'
+                    : 'text-muted-foreground/50 opacity-60 hover:bg-muted/40 hover:text-foreground hover:opacity-100',
+                )}
+              >
+                <span className="flex min-w-0 max-w-[22rem] flex-col justify-center gap-0.5 py-1">
+                  <span className="flex items-center gap-1 truncate leading-tight">
+                    {segments.map((seg, i) => (
+                      <span key={i} className="flex items-center gap-1">
+                        {i > 0 && (
+                          <span className={isActive ? 'text-muted-foreground/60' : 'opacity-60'}>
+                            ›
+                          </span>
+                        )}
+                        <span
+                          className={cn(
+                            'truncate',
+                            i === segments.length - 1
+                              ? isActive
+                                ? 'font-semibold text-foreground'
+                                : 'font-semibold'
+                              : isActive
+                                ? 'text-muted-foreground'
+                                : '',
+                          )}
+                        >
+                          {seg}
+                          {i === segments.length - 1 && ordinalSuffix && (
+                            <span className="font-normal text-muted-foreground">
+                              {ordinalSuffix}
                             </span>
                           )}
-                          <span
-                            className={cn(
-                              'truncate',
-                              i === segments.length - 1
-                                ? isActive
-                                  ? 'font-semibold text-foreground'
-                                  : 'font-semibold'
-                                : isActive
-                                  ? 'text-muted-foreground'
-                                  : '',
-                            )}
-                          >
-                            {seg}
-                            {i === segments.length - 1 && ordinalSuffix && (
-                              <span className="font-normal text-muted-foreground">
-                                {ordinalSuffix}
-                              </span>
-                            )}
-                          </span>
                         </span>
-                      ))}
-                    </span>
-                    {worktree ? (
-                      <span
-                        className={cn(
-                          'flex items-center gap-0.5 font-mono text-[9px] leading-none',
-                          isActive ? 'text-muted-foreground' : 'text-muted-foreground/70',
-                        )}
-                        title={`Worktree: ${worktree}`}
-                      >
-                        <RiGitBranchLine className="size-2.5" />
-                        <span className="max-w-[10rem] truncate">{worktree}</span>
                       </span>
-                    ) : (
-                      <span aria-hidden className="h-2.5" />
-                    )}
+                    ))}
                   </span>
-                  <ProjectActivityBadge projectSlug={projectSlug} className="shrink-0" />
-                  <button
-                    type="button"
-                    aria-label={`Close ${tab.title}`}
-                    data-tab-close
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onClose(tab.id);
-                    }}
-                    className={cn(
-                      'flex size-4 shrink-0 items-center justify-center rounded transition-opacity hover:bg-background',
-                      isActive
-                        ? 'opacity-60 hover:opacity-100'
-                        : 'opacity-0 group-hover:opacity-60',
-                    )}
-                  >
-                    <RiCloseLine className="size-3" />
-                  </button>
-                </div>
-              </ContextMenuTrigger>
-              <ContextMenuContent className="min-w-48">
-                <ContextMenuItem onSelect={() => onClose(tab.id)}>
-                  Close
-                  {isActive && <ContextMenuShortcut>⌥⌘W</ContextMenuShortcut>}
-                </ContextMenuItem>
-                <ContextMenuItem disabled={tabs.length <= 1} onSelect={() => onCloseOthers(tab.id)}>
-                  Close others
-                </ContextMenuItem>
-                <ContextMenuItem disabled={isLast} onSelect={() => onCloseToRight(tab.id)}>
-                  Close tabs to the right
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem disabled={tabs.length <= 1} onSelect={onCloseAll}>
-                  Close all tabs
-                </ContextMenuItem>
-              </ContextMenuContent>
-            </ContextMenu>
+                  {worktree ? (
+                    <span
+                      className={cn(
+                        'flex items-center gap-0.5 font-mono text-[9px] leading-none',
+                        isActive ? 'text-muted-foreground' : 'text-muted-foreground/70',
+                      )}
+                      title={`Worktree: ${worktree}`}
+                    >
+                      <RiGitBranchLine className="size-2.5" />
+                      <span className="max-w-[10rem] truncate">{worktree}</span>
+                    </span>
+                  ) : (
+                    <span aria-hidden className="h-2.5" />
+                  )}
+                </span>
+                <ProjectActivityBadge projectSlug={projectSlug} className="shrink-0" />
+                <button
+                  type="button"
+                  aria-label={`Close ${tab.title}`}
+                  data-tab-close
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose(tab.id);
+                  }}
+                  className={cn(
+                    'flex size-4 shrink-0 items-center justify-center rounded transition-opacity hover:bg-background',
+                    isActive ? 'opacity-60 hover:opacity-100' : 'opacity-0 group-hover:opacity-60',
+                  )}
+                >
+                  <RiCloseLine className="size-3" />
+                </button>
+              </div>
+            </TabCloseMenu>
           );
         })}
         <button

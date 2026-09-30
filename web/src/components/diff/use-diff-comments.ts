@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useMemo } from 'react';
+import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { randomId } from '@/lib/random-id';
 import { useOnServerEvent } from '@/contexts/events-context';
+import { diffDocPath, diffScopePrefix } from '@/lib/diff-doc-path';
 import {
   findingSeverity,
   threadSource,
@@ -31,21 +33,13 @@ export interface DiffComment {
   }>;
 }
 
-function makeDiffDocPath(repoDir: string, filePath: string): string {
-  return `diff://${repoDir}/${filePath}`;
-}
-
-export function extractFilePathFromDocPath(documentPath: string, repoDir: string): string | null {
-  const prefix = `diff://${repoDir}/`;
-  return documentPath.startsWith(prefix) ? documentPath.slice(prefix.length) : null;
-}
-
-export function useDiffComments(repoDir: string | null) {
-  const prefix = repoDir ? `diff://${repoDir}/` : '';
+export function useDiffComments(repoDir: string | null, branch: string | null) {
+  const scoped = !!repoDir && !!branch;
+  const prefix = scoped ? diffScopePrefix(repoDir, branch) : '';
 
   const { data: threads, refetch } = trpc.comment.listThreadsByPrefix.useQuery(
     { documentPathPrefix: prefix },
-    { enabled: !!repoDir },
+    { enabled: scoped },
   );
 
   // An agent replying over MCP writes straight to the DB, so a mutation-local
@@ -90,21 +84,20 @@ export function useDiffComments(repoDir: string | null) {
     });
   }, [threads]);
 
-  // The summary sits at the repo root path, so the same prefix query returns it
-  // but it never matches a file's exact path.
+  // The summary sits at the scope prefix itself, so the same prefix query
+  // returns it but it never matches a file's exact path.
   const reviewSummary = useMemo<DiffComment | null>(() => {
-    if (!repoDir) return null;
-    const rootPath = `diff://${repoDir}/`;
-    return diffComments.find((c) => c.documentPath === rootPath) ?? null;
-  }, [repoDir, diffComments]);
+    if (!prefix) return null;
+    return diffComments.find((c) => c.documentPath === prefix) ?? null;
+  }, [prefix, diffComments]);
 
   const commentsForFile = useCallback(
     (filePath: string): DiffComment[] => {
-      if (!repoDir) return [];
-      const docPath = makeDiffDocPath(repoDir, filePath);
+      if (!prefix) return [];
+      const docPath = `${prefix}${filePath}`;
       return diffComments.filter((c) => c.documentPath === docPath);
     },
-    [repoDir, diffComments],
+    [prefix, diffComments],
   );
 
   const addLineComment = async (
@@ -114,11 +107,18 @@ export function useDiffComments(repoDir: string | null) {
     text: string,
     side: 'modified' | 'original' = 'modified',
   ) => {
-    if (!repoDir) return;
+    // A comment is keyed on the branch under review, so without it there is
+    // nowhere to put one. Saying so beats swallowing what the reviewer typed.
+    if (!repoDir || !branch) {
+      toast.error('Cannot tell which branch this diff is on — comment not saved', {
+        description: 'The Engy daemon has to answer before comments can be filed.',
+      });
+      return;
+    }
     const threadId = randomId();
     const commentId = randomId();
     await createThread.mutateAsync({
-      documentPath: makeDiffDocPath(repoDir, filePath),
+      documentPath: diffDocPath(repoDir, branch, filePath),
       threadId,
       initialComment: { id: commentId, body: text },
       metadata: { type: 'diff', source: 'local', lineNumber, codeLine, side },

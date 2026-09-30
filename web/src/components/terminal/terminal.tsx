@@ -10,9 +10,8 @@ import type { TerminalPingCmd, TerminalTitleMsg } from "@engy/common";
 import type { DockviewPanelApi } from "dockview";
 import { DARK_XTERM_THEME } from "@/hooks/use-xterm-theme";
 import { RiArrowDownSLine, RiPencilLine } from "@remixicon/react";
-import type { ActivityEvent, TerminalTab } from "./types";
+import type { TerminalTab } from "./types";
 import { createTerminalActivityParser } from "./parse-terminal-activity";
-import { createActivityTracker } from "./activity-tracker";
 import { ReconnectingSocket } from "./reconnecting-socket";
 import { MobileTerminalControls } from "./mobile-terminal-controls";
 import { MobileComposer } from "./mobile-composer";
@@ -32,17 +31,9 @@ interface TerminalProps {
   xtermTheme?: ITheme;
   onStatusChange: (sessionId: string, status: TerminalTab['status']) => void;
   onReady?: (sessionId: string, actions: TerminalActions | null) => void;
-  onActivity?: (sessionId: string, event: ActivityEvent) => void;
   onOscTitle?: (sessionId: string, title: string) => void;
   panelApi?: DockviewPanelApi;
 }
-
-const ACTIVITY_DEBOUNCE_MS = 3000;
-const TITLE_SUPPRESS_MS = 3000;
-// Short window to ignore the redraw a PTY emits in response to a resize
-// (dock collapse/expand animation, tab reselect, drag-resize) — long enough to
-// cover the redraw, short enough not to mask genuine activity.
-const RESIZE_SUPPRESS_MS = 1000;
 
 function getWsBase(): string {
   if (typeof window === 'undefined') return '';
@@ -74,14 +65,13 @@ function buildWsUrl(tab: TerminalTab): string {
   return `${base}/ws/terminal?${params.toString()}`;
 }
 
-export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onActivity, onOscTitle, panelApi }: TerminalProps) {
+export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onOscTitle, panelApi }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const socketRef = useRef<ReconnectingSocket | null>(null);
   const lastSentColsRef = useRef(0);
   const lastSentRowsRef = useRef(0);
-  const activityTrackerRef = useRef<ReturnType<typeof createActivityTracker> | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [composing, setComposing] = useState(false);
   const sessionId = tab.sessionId;
@@ -136,11 +126,6 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     lastSentColsRef.current = term.cols;
     lastSentRowsRef.current = term.rows;
     socket.send(JSON.stringify({ t: 'resize', sessionId, cols: term.cols, rows: term.rows }));
-    // A resize makes the program redraw (e.g. while the dock collapse/expand
-    // animation steps through widths, or on tab reselect). That redraw is not
-    // agent activity, so ignore the burst briefly — without disturbing the
-    // current dot or a pending settle — to avoid flipping done/idle to active.
-    activityTrackerRef.current?.suppressOutput(RESIZE_SUPPRESS_MS);
   }, [sessionId]);
 
   // The PTY has one size but any number of attached browsers, so a resize from
@@ -193,24 +178,16 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     fitAddonRef.current = fitAddon;
     setShowScrollButton(false);
 
-    // Activity detection via OSC title changes and PTY output bytes parsed from
-    // raw WebSocket data. This works even when the terminal tab is hidden
-    // (display:none), unlike xterm's onTitleChange which defers processing.
-    // One stateful parser instance per session so OSC sequences split across
-    // WS chunks are reassembled before title/bell detection.
+    // OSC titles are parsed from raw WebSocket data, which works even when the
+    // terminal tab is hidden (display:none), unlike xterm's onTitleChange which
+    // defers processing. One stateful parser instance per session so OSC
+    // sequences split across WS chunks are reassembled.
     const activityParser = createTerminalActivityParser();
     let lastTitle = '';
-    const activityTracker = createActivityTracker({
-      debounceMs: ACTIVITY_DEBOUNCE_MS,
-      suppressMs: TITLE_SUPPRESS_MS,
-      onActivity: (event: ActivityEvent) => onActivity?.(sessionId, event),
-    });
-    activityTrackerRef.current = activityTracker;
 
     const handleTitleChange = (title: string) => {
       if (title === lastTitle) return;
       lastTitle = title;
-      activityTracker.bumpActivity();
       onOscTitle?.(sessionId, title);
       // Server keeps the last title as the session's resume summary; the
       // message terminates there (never relayed to the daemon).
@@ -255,12 +232,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     });
     // focusin bubbles from xterm's textarea (unlike focus), so any click/keyboard
     // focus re-syncs PTY size when the viewport changed while the panel was hidden,
-    // and acknowledges the session so a done/waiting indicator clears once viewed.
-    // The ack is also relayed so the server meta and daemon tracker clear too —
-    // otherwise the per-project badge keeps counting this session as done/waiting.
+    // and acks the session so the server clears a done/waiting indicator.
     const handleFocusIn = () => {
       reassertSize();
-      activityTracker.acknowledge();
       socketRef.current?.send(JSON.stringify({ t: 'ack', sessionId }));
     };
     container.addEventListener('focusin', handleFocusIn);
@@ -305,19 +279,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
           }
 
           if (msg.t === 'o' && msg.d) {
-            // Parse activity from raw data before writing to xterm — this works
-            // even when the terminal tab is hidden (xterm defers processing).
-            const activity = activityParser.parse(msg.d);
-            for (const title of activity.titles) handleTitleChange(title);
-            if (activity.hasBell) {
-              activityTracker.handleBell();
-            } else if (msg.d.length > 0) {
-              // Any non-bell PTY output is an activity signal. Bell is handled
-              // separately because it transitions directly to 'waiting'. A
-              // detected input-prompt biases the eventual settle to 'waiting'
-              // (blocked) rather than 'done' (finished).
-              activityTracker.bumpActivity(activity.hasPrompt);
-            }
+            for (const title of activityParser.parse(msg.d).titles) handleTitleChange(title);
 
             // xterm natively preserves the viewport while the user is scrolled
             // up (its BufferService.isUserScrolling flag, set whenever we or the
@@ -328,7 +290,6 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
             console.log(
               `[terminal-ui] Reconnected session ${sessionId}, snapshot: ${msg.snapshot.length} chars`,
             );
-            activityTracker.suppress();
             // The snapshot re-establishes screen state from scratch, so reset
             // (not clear) — it also drops modes a torn-down program left set.
             term.reset();
@@ -341,7 +302,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
           } else if (msg.t === 'title' && msg.title) {
             // Server-pushed after a resync: snapshots carry no OSC title. Track
             // it as lastTitle (not via handleTitleChange) — echoing it back to
-            // the server or bumping activity would be wrong here.
+            // the server would be wrong here.
             lastTitle = msg.title;
             onOscTitle?.(sessionId, msg.title);
           } else if (msg.t === 'exit') {
@@ -388,7 +349,6 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
 
     term.onData((data) => {
       socket.send(JSON.stringify({ t: 'i', sessionId, d: data }));
-      activityTracker.resetOnUserInput();
     });
 
     const resizeObserver = new ResizeObserver(fitAndSyncResize);
@@ -397,8 +357,6 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onA
     return () => {
       isCleanedUp = true;
       clearTimeout(fitTimer);
-      activityTracker.dispose();
-      activityTrackerRef.current = null;
       scrollSub.dispose();
       container.removeEventListener('wheel', handleWheel);
       detachTouchScroll();

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { join, isAbsolute, resolve } from 'node:path';
+import { join, isAbsolute, resolve, dirname } from 'node:path';
 import { readFile, writeFile, readdir, stat, lstat } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { simpleGit } from 'simple-git';
@@ -345,6 +345,51 @@ async function refExists(dir: string, ref: string, runGit: GitRunner): Promise<b
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * A repo with no commits yet has no `HEAD` to resolve, so the symbolic ref is
+ * read instead; a detached `HEAD` reports `HEAD`, matching porcelain status.
+ */
+export async function getCurrentBranch(
+  dir: string,
+  runGit: GitRunner = localGitRunner,
+): Promise<string> {
+  try {
+    const { stdout } = await runGit(['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD']);
+    const branch = stdout.trim();
+    if (branch) return branch;
+  } catch {
+    // Fall through to the symbolic ref.
+  }
+
+  const { stdout } = await runGit(['-C', dir, 'symbolic-ref', '--short', 'HEAD']);
+  return stdout.trim() || 'HEAD';
+}
+
+/**
+ * Directory of the repo a path belongs to. Resolved through the *common* git
+ * dir, so a worktree answers with the repo it was created from rather than
+ * with itself.
+ */
+export async function getRepoRoot(
+  dir: string,
+  runGit: GitRunner = localGitRunner,
+): Promise<string | null> {
+  try {
+    const { stdout } = await runGit([
+      '-C',
+      dir,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+    ]);
+    const gitDir = stdout.trim();
+    if (!gitDir) return null;
+    return dirname(gitDir);
+  } catch {
+    return null;
   }
 }
 

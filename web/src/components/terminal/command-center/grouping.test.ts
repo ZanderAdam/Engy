@@ -52,5 +52,19 @@ describe('command center', () => {
     it('[FR-TERMINAL-180] returns no groups for an empty session list', () => {
       expect(groupTabsByProject([])).toEqual([]);
     });
+
+    it('[FR-TERMINAL-910] keeps project groups but drops worktree groups when grouping is off', () => {
+      const tabs = [
+        tab('a', { workspaceSlug: 'ws', projectSlug: 'alpha' }),
+        tab('b', { workspaceSlug: 'ws', projectSlug: 'alpha', worktreeBranch: 'feature-x' }),
+        tab('c', { workspaceSlug: 'ws', projectSlug: 'beta' }),
+      ];
+
+      const groups = groupTabsByProject(tabs, false);
+
+      expect(groups.map((g) => g.label)).toEqual(['alpha', 'beta']);
+      expect(groups[0].worktreeGroups).toHaveLength(1);
+      expect(groups[0].worktreeGroups[0].tabs.map((t) => t.sessionId)).toEqual(['a', 'b']);
+    });
   });
 });

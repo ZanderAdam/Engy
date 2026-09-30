@@ -1,10 +1,11 @@
 import { z } from 'zod';
-import { and, eq, inArray, type SQL } from 'drizzle-orm';
+import { and, eq, type SQL } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { tasks, taskDependencies } from '../../db/schema';
 import { validateDependencies, attachBlockedBy } from '../../tasks/validation';
+import { bulkUpdateTasks, bulkDeleteTasks } from '../../tasks/bulk';
 import { broadcastTaskChange } from '../../ws/broadcast';
 import { taskStatusSchema } from '@/lib/task-status';
 import { triggerAutoStart } from './execution';
@@ -197,53 +198,17 @@ export const taskRouter = router({
     .input(
       z.object({
         ids: z.array(z.number()),
+        status: taskStatusSchema.optional(),
         milestoneRef: z.string().nullable().optional(),
         taskGroupId: z.number().nullable().optional(),
       }),
     )
     .mutation(({ input }) => {
       const { ids, ...updates } = input;
-      if (ids.length === 0) return { updated: 0 };
-
-      const db = getDb();
-      return db.transaction((tx) => {
-        const result = tx
-          .update(tasks)
-          .set({ ...updates, updatedAt: new Date().toISOString() })
-          .where(inArray(tasks.id, ids))
-          .returning()
-          .all();
-
-        for (const task of result) {
-          broadcastTaskChange('updated', task.id, task.projectId ?? undefined);
-        }
-
-        return { updated: result.length };
-      });
+      return bulkUpdateTasks(ids, updates);
     }),
 
   bulkDelete: publicProcedure
     .input(z.object({ ids: z.array(z.number()) }))
-    .mutation(({ input }) => {
-      if (input.ids.length === 0) return { deleted: 0 };
-
-      const db = getDb();
-      return db.transaction((tx) => {
-        const toDelete = tx
-          .select()
-          .from(tasks)
-          .where(inArray(tasks.id, input.ids))
-          .all();
-
-        if (toDelete.length > 0) {
-          tx.delete(tasks).where(inArray(tasks.id, input.ids)).run();
-        }
-
-        for (const task of toDelete) {
-          broadcastTaskChange('deleted', task.id, task.projectId ?? undefined);
-        }
-
-        return { deleted: toDelete.length };
-      });
-    }),
+    .mutation(({ input }) => bulkDeleteTasks(input.ids)),
 });

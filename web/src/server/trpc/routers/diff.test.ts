@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { WebSocket } from 'ws';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
 import { workspaces } from '../../db/schema';
@@ -145,6 +146,91 @@ describe('diff router', () => {
           worktreePath: '/tmp/worktree',
         }),
       ).rejects.toThrow('No daemon connected');
+    });
+  });
+
+  describe('getBranch', () => {
+    it('[FR-GIT-510] asks the daemon for the branch alone, without a status listing', async () => {
+      ctx = setupTestDb();
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const sent: string[] = [];
+      ctx.state.daemon = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          sent.push(msg.type);
+          ctx.state.pendingGitBranch
+            .get(msg.payload.requestId)
+            ?.resolve({ branch: 'feature/login', repoRoot: '/tmp/repo' });
+        },
+      } as unknown as WebSocket;
+
+      await expect(caller.diff.getBranch({ repoDir: '/tmp/repo' })).resolves.toEqual({
+        branch: 'feature/login',
+        repoRoot: '/tmp/repo',
+      });
+      expect(sent).toEqual(['GIT_BRANCH_REQUEST']);
+    });
+
+    // A daemon older than GIT_BRANCH_REQUEST leaves it unanswered. The diff
+    // surface keys its comment threads on the branch, so losing it hides every
+    // comment and silently drops new ones — status carries the same branch.
+    it('[FR-GIT-510] falls back to status when the daemon cannot answer a branch request', async () => {
+      ctx = setupTestDb();
+      const caller = appRouter.createCaller({ state: ctx.state });
+      const asked: string[] = [];
+      ctx.state.daemon = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          asked.push(msg.type);
+          if (msg.type === 'GIT_BRANCH_REQUEST') {
+            ctx.state.pendingGitBranch
+              .get(msg.payload.requestId)
+              ?.reject(new Error('unknown message type'));
+            return;
+          }
+          ctx.state.pendingGitStatus
+            .get(msg.payload.requestId)
+            ?.resolve({ files: [], branch: 'feature/login' });
+        },
+      } as unknown as WebSocket;
+
+      await expect(caller.diff.getBranch({ repoDir: '/tmp/repo' })).resolves.toEqual({
+        branch: 'feature/login',
+        repoRoot: null,
+      });
+      expect(asked).toEqual(['GIT_BRANCH_REQUEST', 'GIT_STATUS_REQUEST']);
+    });
+
+    it('[FR-GIT-010] accepts a worktreePath as the effective dir', async () => {
+      ctx = setupTestDb();
+      const caller = appRouter.createCaller({ state: ctx.state });
+      let askedFor: string | null = null;
+      ctx.state.daemon = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          askedFor = msg.payload.repoDir;
+          ctx.state.pendingGitBranch.get(msg.payload.requestId)?.resolve({ branch: 'wt', repoRoot: '/tmp/repo' });
+        },
+      } as unknown as WebSocket;
+
+      await caller.diff.getBranch({ repoDir: '/tmp/repo', worktreePath: '/tmp/worktree' });
+
+      expect(askedFor).toBe('/tmp/worktree');
+    });
+
+    it('[FR-GIT-020] throws when no daemon is connected', async () => {
+      ctx = setupTestDb();
+      const caller = appRouter.createCaller({ state: ctx.state });
+
+      await expect(caller.diff.getBranch({ repoDir: '/tmp/repo' })).rejects.toThrow(
+        'No daemon connected',
+      );
     });
   });
 

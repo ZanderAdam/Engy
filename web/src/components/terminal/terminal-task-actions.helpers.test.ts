@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { terminalTaskSlug, taskOpenDetail } from './terminal-task-bar.helpers';
+import { terminalTaskSlug, taskOpenDetail } from './terminal-task-actions.helpers';
 
 describe('terminal task bar helpers', () => {
   describe('terminalTaskSlug', () => {

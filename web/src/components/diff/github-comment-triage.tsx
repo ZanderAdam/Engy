@@ -14,11 +14,10 @@ import {
   getSelectedThreads,
   allGithubThreadIds,
 } from './github-triage-helpers';
-import { extractFilePathFromDocPath } from './use-diff-comments';
+import { diffDocFilePath } from '@/lib/diff-doc-path';
 import type { DiffComment } from './use-diff-comments';
 
 interface GithubCommentTriageProps {
-  repoDir: string;
   diffComments: DiffComment[];
   sessionId?: string | null;
   onResolve: (threadId: string) => Promise<void>;
@@ -26,7 +25,6 @@ interface GithubCommentTriageProps {
 
 
 export function GithubCommentTriage({
-  repoDir,
   diffComments,
   sessionId,
   onResolve,
@@ -65,7 +63,6 @@ export function GithubCommentTriage({
           createdAt: c.createdAt,
         })),
       })),
-      repoDir,
     );
     if (!feedback) return;
 
@@ -74,7 +71,7 @@ export function GithubCommentTriage({
     } else {
       sendToTerminal(feedback);
     }
-  }, [selectedThreadsList, repoDir, sessionId, sendFeedbackMutation, sendToTerminal]);
+  }, [selectedThreadsList, sessionId, sendFeedbackMutation, sendToTerminal]);
 
   if (githubThreads.length === 0) return null;
 
@@ -208,7 +205,7 @@ export function GithubCommentTriage({
             </div>
             {githubThreads.map((thread) => {
               const firstComment = thread.comments[0];
-              const filePath = extractFilePathFromDocPath(thread.documentPath, repoDir);
+              const filePath = diffDocFilePath(thread.documentPath);
               return (
                 <div
                   key={thread.threadId}

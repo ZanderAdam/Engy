@@ -2,7 +2,7 @@
 
 Local Node.js daemon. Connects to the web server via WebSocket and handles everything the server can't (or shouldn't) do directly: path validation, file watching, git operations, terminal PTYs, devcontainer/coder management, agent process spawning.
 
-See root `CLAUDE.md` for monorepo commands.
+See root `AGENTS.md` for monorepo commands.
 
 ## Orientation
 

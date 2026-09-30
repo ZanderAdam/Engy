@@ -69,7 +69,7 @@ describe('[FR-PRMON-160] syncReviewComments', () => {
         .where(eq(commentThreads.id, 'gh-thread-1001'))
         .get();
       expect(thread).toBeTruthy();
-      expect(thread!.documentPath).toBe('diff:///home/user/repo/src/foo.ts');
+      expect(thread!.documentPath).toBe('diff:///home/user/repo#feat%2Fthing/src/foo.ts');
       const meta = thread!.metadata as Record<string, unknown>;
       expect(meta.source).toBe('github');
       expect(meta.githubId).toBe(1001);
@@ -187,8 +187,8 @@ describe('[FR-PRMON-160] syncReviewComments', () => {
       expect(threads).toHaveLength(2);
       const paths = threads.map((t) => t.documentPath).sort();
       expect(paths).toEqual([
-        'diff:///home/user/repo/src/a.ts',
-        'diff:///home/user/repo/src/b.ts',
+        'diff:///home/user/repo#feat%2Fthing/src/a.ts',
+        'diff:///home/user/repo#feat%2Fthing/src/b.ts',
       ]);
     });
   });
@@ -264,8 +264,8 @@ describe('[FR-PRMON-160] syncReviewComments', () => {
   });
 
   describe('documentPath format', () => {
-    it('should produce diff:// URI matching the diff viewer expectation', () => {
-      const prRow = makePrRow({ repo: '/Users/dev/my-project' });
+    it('should key the thread on the pull request head branch, as the diff viewer reads it', () => {
+      const prRow = makePrRow({ repo: '/Users/dev/my-project', headBranch: 'fix/index' });
       const comment = makeComment({ githubId: 12001, path: 'packages/core/src/index.ts' });
 
       syncReviewComments(ctx.db, prRow, [comment]);
@@ -276,7 +276,7 @@ describe('[FR-PRMON-160] syncReviewComments', () => {
         .where(eq(commentThreads.id, 'gh-thread-12001'))
         .get();
       expect(thread!.documentPath).toBe(
-        'diff:///Users/dev/my-project/packages/core/src/index.ts',
+        'diff:///Users/dev/my-project#fix%2Findex/packages/core/src/index.ts',
       );
     });
   });

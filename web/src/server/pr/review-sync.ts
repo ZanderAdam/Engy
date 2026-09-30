@@ -2,13 +2,10 @@ import { eq } from 'drizzle-orm';
 import { commentThreads, threadComments, prs } from '../db/schema';
 import type { GhReviewComment } from '@engy/common';
 import type { getDb } from '../db/client';
+import { diffDocPath } from '@/lib/diff-doc-path';
 
 type Db = ReturnType<typeof getDb>;
 type PrRow = typeof prs.$inferSelect;
-
-function makeDocPath(repo: string, filePath: string): string {
-  return `diff://${repo}/${filePath}`;
-}
 
 function threadIdFor(githubId: number): string {
   return `gh-thread-${githubId}`;
@@ -50,7 +47,9 @@ export function syncReviewComments(
   for (const comment of topLevel) {
     const threadId = threadIdFor(comment.githubId);
     const commentId = commentIdFor(comment.githubId);
-    const docPath = makeDocPath(prRow.repo, comment.path);
+    // The pull request's head branch, not whatever is checked out now: the
+    // thread belongs to the branch the comment was written against.
+    const docPath = diffDocPath(prRow.repo, prRow.headBranch, comment.path);
 
     const existingThread = db
       .select()

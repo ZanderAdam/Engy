@@ -1,9 +1,6 @@
-// Daemon copy of the bell/prompt detection from
-// web/src/components/terminal/parse-terminal-activity.ts. The logic is
-// duplicated rather than shared because @engy/common is types-only. Daemon-side
-// we only need bell + input-prompt detection (not OSC titles), but we still
-// scan OSC sequences so a BEL that terminates an OSC isn't counted as a
-// standalone bell.
+// The OSC scan mirrors web/src/components/terminal/parse-terminal-activity.ts
+// because @engy/common is types-only. It runs here only so a BEL that
+// terminates an OSC isn't counted as a standalone bell.
 
 interface TerminalActivityParsed {
   hasBell: boolean;

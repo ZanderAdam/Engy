@@ -32,7 +32,7 @@ export function DirDiffPanel({ dirPath }: DirDiffPanelProps) {
   const utils = trpc.useUtils();
   const handleRefresh = useCallback(() => refreshDiff(utils), [utils]);
 
-  const { diffComments } = useDiffComments(dirPath);
+  const { diffComments } = useDiffComments(dirPath, statusData?.branch ?? null);
 
   const files: ChangedFile[] = useMemo(() => statusData?.files ?? [], [statusData]);
 

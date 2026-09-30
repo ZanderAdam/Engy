@@ -15,6 +15,20 @@ CREATE TABLE `usage_cause` (
 --> statement-breakpoint
 CREATE INDEX `idx_usage_cause_date` ON `usage_cause` (`date`);--> statement-breakpoint
 CREATE INDEX `idx_usage_cause_session` ON `usage_cause` (`session_id`);--> statement-breakpoint
+CREATE TABLE `usage_context_item` (
+	`date` text NOT NULL,
+	`session_id` text NOT NULL,
+	`kind` text NOT NULL,
+	`label` text DEFAULT '' NOT NULL,
+	`count` integer DEFAULT 0 NOT NULL,
+	`tokens` integer DEFAULT 0 NOT NULL,
+	`token_turns` integer DEFAULT 0 NOT NULL,
+	`attributed_cost_micro_cents` integer DEFAULT 0 NOT NULL,
+	PRIMARY KEY(`date`, `session_id`, `kind`, `label`)
+);
+--> statement-breakpoint
+CREATE INDEX `idx_usage_context_item_date` ON `usage_context_item` (`date`);--> statement-breakpoint
+CREATE INDEX `idx_usage_context_item_session` ON `usage_context_item` (`session_id`);--> statement-breakpoint
 CREATE TABLE `usage_expensive_call` (
 	`date` text NOT NULL,
 	`session_id` text NOT NULL,
@@ -76,7 +90,6 @@ CREATE TABLE `usage_scan_file` (
 	`path` text PRIMARY KEY NOT NULL,
 	`size_bytes` integer NOT NULL,
 	`mtime_ms` integer NOT NULL,
-	`bytes_scanned` integer DEFAULT 0 NOT NULL,
 	`first_line_date` text,
 	`last_line_date` text,
 	`last_scan_at` text NOT NULL
@@ -122,6 +135,7 @@ CREATE TABLE `usage_session` (
 	`git_commits` integer,
 	`tool_errors` integer,
 	`compactions` integer DEFAULT 0 NOT NULL,
+	`base_context_tokens` integer DEFAULT 0 NOT NULL,
 	FOREIGN KEY (`engy_workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (`engy_project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE set null
 );

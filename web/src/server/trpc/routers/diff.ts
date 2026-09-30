@@ -9,6 +9,7 @@ import {
   dispatchGitShow,
   dispatchGitPatch,
   dispatchGitBranchFiles,
+  dispatchGitBranch,
   dispatchGitDefaultBase,
   dispatchGitFetch,
   dispatchGitWorktreeList,
@@ -115,6 +116,23 @@ export const diffRouter = router({
       const dir = input.worktreePath ?? input.repoDir;
       return dispatchGitFetch(dir, input.base, ctx.state, input.coderWorkspace);
     }),
+
+  /**
+   * Branch alone, so a caller that keys on it — the diff surface's comment
+   * threads — does not pay for the working-tree walk `getStatus` performs.
+   */
+  getBranch: publicProcedure.input(worktreeInput).query(async ({ input, ctx }) => {
+    const dir = input.worktreePath ?? input.repoDir;
+    try {
+      return await dispatchGitBranch(dir, ctx.state, input.coderWorkspace);
+    } catch {
+      // A daemon older than GIT_BRANCH_REQUEST never answers it, and the diff
+      // surface keys its comment threads on the branch — losing it hides every
+      // comment. Status carries the same branch at the cost of a tree walk.
+      const status = await dispatchGitStatus(dir, ctx.state, input.coderWorkspace);
+      return { branch: status.branch, repoRoot: null };
+    }
+  }),
 
   getDefaultBase: publicProcedure.input(worktreeInput).query(async ({ input, ctx }) => {
     const dir = input.worktreePath ?? input.repoDir;

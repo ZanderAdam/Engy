@@ -236,22 +236,15 @@
     {
       "idx": 33,
       "version": "6",
-      "when": 1789871576653,
-      "tag": "0033_usage_analytics",
+      "when": 1790104963189,
+      "tag": "0033_drop_unscoped_diff_comments",
       "breakpoints": true
     },
     {
       "idx": 34,
       "version": "6",
-      "when": 1790129793008,
-      "tag": "0034_usage_context_items",
-      "breakpoints": true
-    },
-    {
-      "idx": 35,
-      "version": "6",
-      "when": 1790131988500,
-      "tag": "0035_usage_drop_bytes_scanned",
+      "when": 1790810680819,
+      "tag": "0034_usage_analytics",
       "breakpoints": true
     }
   ]

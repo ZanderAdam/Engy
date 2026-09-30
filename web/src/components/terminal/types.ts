@@ -15,8 +15,6 @@ export type TerminalStatus = 'connecting' | 'active' | 'exited' | 'error' | 'dor
 
 export type TerminalActivityState = 'idle' | 'active' | 'waiting' | 'done';
 
-export type ActivityEvent = 'start' | 'idle' | 'waiting' | 'done';
-
 export type ContainerMode = 'host' | 'container';
 
 // Four-state activity model (after agent-deck / herdr): active = working,
@@ -91,6 +89,11 @@ export interface TerminalScope {
   // Worktree branch this terminal targets (undefined = default branch). Used to
   // group terminals by worktree in combined mode; does not affect groupKey.
   worktreeBranch?: string;
+  // Where the agent reports it is, once it has moved — entering a worktree, or
+  // a plain `cd`. Kept beside `workingDir` rather than replacing it: that one
+  // is the spawn identity a respawn must land on, while surfaces that follow
+  // the agent (the branch subheader, the diff link) read this one first.
+  agentCwd?: string;
   // Manual rename, kept separate from scopeLabel so the original scope survives
   // to the tooltip and a later agent title can still take the main line.
   renamedLabel?: string;
@@ -113,10 +116,6 @@ export interface TerminalTab {
   // UserPromptSubmit, or focus ack yet. Distinct from activityState so a
   // dismissed prompt doesn't masquerade as still-running activity.
   needsAttention?: boolean;
-  // Set once a TERMINAL_ACTIVITY_CHANGE broadcast reports this session as
-  // hook-driven. While true, activityState is server-owned — the local PTY
-  // heuristic is suppressed rather than raced against the broadcast.
-  hookDriven?: boolean;
 }
 
 export interface TerminalPanelParams {

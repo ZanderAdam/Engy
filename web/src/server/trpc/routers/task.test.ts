@@ -382,6 +382,17 @@ describe('task router', () => {
       expect(fetched).toHaveLength(2);
     });
 
+    it('[FR-TASK-090] should update status for multiple tasks', async () => {
+      const t1 = await caller.task.create({ projectId, title: 'T1' });
+      const t2 = await caller.task.create({ projectId, title: 'T2' });
+
+      const result = await caller.task.bulkUpdate({ ids: [t1.id, t2.id], status: 'done' });
+
+      expect(result.updated).toBe(2);
+      const fetched = await caller.task.list({ projectId, status: 'done' });
+      expect(fetched).toHaveLength(2);
+    });
+
     it('[FR-TASK-090] should handle empty ids array', async () => {
       const result = await caller.task.bulkUpdate({
         ids: [],

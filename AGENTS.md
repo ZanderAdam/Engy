@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents — Claude Code, Codex and the rest — when working with code in this repository. Claude Code reads it only while no root `CLAUDE.md` exists; the nested `CLAUDE.md` files below keep loading as they are.
 
 ## Project Overview
 
@@ -14,7 +14,7 @@ pnpm monorepo with Turborepo orchestration. Three packages:
 - **`client/`** — Node.js daemon that runs locally on the developer's machine. Connects to `web/` via WebSocket. Handles path validation, file watching, and git operations.
 - **`common/`** — Shared TypeScript types only (WebSocket protocol discriminated union). Zero runtime code.
 
-Subdirectory CLAUDE.mds codify patterns at the point of use (auto-loaded when Claude works in that subtree):
+Subdirectory `CLAUDE.md` files codify patterns at the point of use (auto-loaded when an agent works in that subtree):
 - `web/CLAUDE.md`, `client/CLAUDE.md`, `common/CLAUDE.md` — package overviews
 - `web/src/server/db/CLAUDE.md` — Drizzle schema & migration rules
 - `web/src/server/trpc/routers/CLAUDE.md` — router authoring, compensating actions, broadcasts
@@ -25,7 +25,7 @@ Subdirectory CLAUDE.mds codify patterns at the point of use (auto-loaded when Cl
 - `client/src/container/CLAUDE.md` — devcontainer + coder lifecycle, config generation
 - `client/src/runner/CLAUDE.md` — agent process spawning across host/container/coder/remote modes
 
-**If you spot drift between any CLAUDE.md and the actual code — wrong file path, renamed helper, stale claim, missing rule — raise it to the user instead of silently working around it.** These files are the project's authoritative onboarding contract; correcting them is higher leverage than completing one task with a workaround.
+**If you spot drift between this file or any nested `CLAUDE.md` and the actual code — wrong file path, renamed helper, stale claim, missing rule — raise it to the user instead of silently working around it.** These files are the project's authoritative onboarding contract; correcting them is higher leverage than completing one task with a workaround.
 
 ## Commands
 
@@ -70,7 +70,11 @@ Typed discriminated union in `@engy/common` (~40 message types spanning registra
 
 Dev overrides are in `.dev.env` (gitignored), which sets `ENGY_DIR=.dev-engy/` for project-local data. `pnpm dev` always picks a free port — no need to edit `.dev.env` for worktrees. Read the running URL from the startup log line: `[dev] web + client running on http://localhost:<port>`.
 
-**To run the app, always use `pnpm dev` and read its port from that log line.** Do NOT start `web`/`client` manually with inline `PORT=...`/`ENGY_DIR=...` prefixes, and do NOT spin up a second instance from a worktree that already has one running — both `web/.next/dev/lock` and the daemon singleton lock are shared, so the second instance fails. If a dev server is already running for this worktree, reuse it (find its port via its `[dev]` log line or the connected daemon's `ENGY_SERVER_URL`); Next hot-reloads code edits into it. Never run a dev server against the prod `~/.engy` (a port-3000 instance with no `ENGY_DIR` override is prod — leave it alone).
+**To run the app, always use `pnpm dev` and read its port from that log line.** Do NOT start `web`/`client` manually with inline `PORT=...`/`ENGY_DIR=...` prefixes.
+
+**One dev instance per checkout, and every checkout can have its own.** Each worktree is a separate checkout, so a `pnpm dev` there takes its own free port, its own `.dev-engy/` (its own SQLite DB), its own `web/.next/dev/lock`, and its own daemon pidfile (`$ENGY_DIR/daemon.pid`, see `client/src/index.ts`) — it never collides with the main checkout's dev instance or with prod. What does collide is a **second** instance for the **same** checkout: the `.next` dev lock and the daemon pidfile are already held, so it fails. If a dev server is already running for this checkout, reuse it (find its port via its `[dev]` log line or the connected daemon's `ENGY_SERVER_URL`); Next hot-reloads code edits into it.
+
+A worktree's `.dev-engy/` starts empty, so its app has no workspaces. Seed it by copying the main checkout's `.dev-engy/` before starting, or create one in the fresh instance (`workspace.create` over tRPC is quicker than clicking through the UI). Never run a dev server against the prod `~/.engy` (a port-3000 instance with no `ENGY_DIR` override is prod — leave it alone).
 
 
 ## Subagents

@@ -6,6 +6,8 @@ interface TerminalSessionListItem {
   scopeType: string;
   scopeLabel: string;
   workingDir: string;
+  /** Where the agent says it is now; absent while it stays in `workingDir`. */
+  agentCwd?: string;
   command?: string;
   agentType?: string;
   groupKey?: string;
@@ -74,6 +76,7 @@ export function listTerminalSessions(
         scopeType: m.scopeType,
         scopeLabel: m.scopeLabel,
         workingDir: m.workingDir,
+        agentCwd: m.agentCwd,
         command: m.command,
         agentType: m.agentType,
         groupKey: m.groupKey,

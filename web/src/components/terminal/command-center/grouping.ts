@@ -33,7 +33,10 @@ function projectLabel(scope: TerminalScope): string {
  * with no project) always sorts last. Worktree grouping within each project
  * reuses the rail's convention (default branch first).
  */
-export function groupTabsByProject(tabs: TerminalTab[]): CommandCenterProjectGroup[] {
+export function groupTabsByProject(
+  tabs: TerminalTab[],
+  byWorktree = true,
+): CommandCenterProjectGroup[] {
   const byProject = new Map<string, TerminalTab[]>();
 
   for (const tab of tabs) {
@@ -52,7 +55,7 @@ export function groupTabsByProject(tabs: TerminalTab[]): CommandCenterProjectGro
     label: projectLabel(bucket[0].scope),
     isProject: key !== OTHER_KEY,
     workspaceSlug: bucket[0].scope.projectSlug ? bucket[0].scope.workspaceSlug : undefined,
-    worktreeGroups: groupTabsByWorktree(bucket),
+    worktreeGroups: groupTabsByWorktree(bucket, byWorktree),
     count: bucket.length,
   } satisfies CommandCenterProjectGroup));
 

@@ -1,4 +1,5 @@
 import { REPLY_HINT, threadIdLine } from '@/lib/comment-feedback';
+import { diffDocFilePath } from '@/lib/diff-doc-path';
 
 interface DiffThread {
   id: string;
@@ -24,14 +25,8 @@ export interface GithubDiffThread {
   }>;
 }
 
-function extractFilePath(documentPath: string, repoDir: string): string {
-  // documentPath format: diff://{repoDir}/{filePath}
-  const prefix = `diff://${repoDir}/`;
-  if (documentPath.startsWith(prefix)) {
-    return documentPath.slice(prefix.length);
-  }
-  // Fallback: strip diff:// prefix
-  return documentPath.replace(/^diff:\/\//, '');
+function extractFilePath(documentPath: string): string {
+  return diffDocFilePath(documentPath) ?? documentPath.replace(/^diff:\/\//, '');
 }
 
 export function getCommentText(body: unknown): string {
@@ -85,7 +80,7 @@ function renderFeedbackDocument(
   return lines.join('\n').trim();
 }
 
-export function generateDiffFeedback(threads: DiffThread[], repoDir: string): string {
+export function generateDiffFeedback(threads: DiffThread[]): string {
   const byFile = new Map<string, FileEntry[]>();
 
   for (const thread of threads.filter((t) => !t.resolved)) {
@@ -104,7 +99,7 @@ export function generateDiffFeedback(threads: DiffThread[], repoDir: string): st
     if (codeLine) body.push('```', codeLine, '```');
     body.push(commentTexts.join('\n'));
 
-    const filePath = extractFilePath(thread.documentPath, repoDir);
+    const filePath = extractFilePath(thread.documentPath);
     if (!byFile.has(filePath)) byFile.set(filePath, []);
     byFile.get(filePath)!.push({ lineNumber, body });
   }
@@ -116,7 +111,7 @@ export function generateDiffFeedback(threads: DiffThread[], repoDir: string): st
  * Generates markdown feedback from selected GitHub review threads.
  * Includes author attribution, file:line context, body, and reply context.
  */
-export function generateGithubFeedback(threads: GithubDiffThread[], repoDir: string): string {
+export function generateGithubFeedback(threads: GithubDiffThread[]): string {
   const byFile = new Map<string, FileEntry[]>();
 
   for (const thread of threads) {
@@ -141,7 +136,7 @@ export function generateGithubFeedback(threads: GithubDiffThread[], repoDir: str
     if (location.length > 0) body.push(location.join(' — '));
     body.push(commentLines.join('\n'));
 
-    const filePath = extractFilePath(thread.documentPath, repoDir);
+    const filePath = extractFilePath(thread.documentPath);
     if (!byFile.has(filePath)) byFile.set(filePath, []);
     byFile.get(filePath)!.push({ lineNumber, body });
   }

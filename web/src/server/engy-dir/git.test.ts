@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { simpleGit } from 'simple-git';
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { isInsideGitRepo, ensureGitRepo } from './git';
 
 describe('git helpers', () => {
@@ -30,20 +30,37 @@ describe('git helpers', () => {
   });
 
   describe('isInsideGitRepo', () => {
-    it('should return false for a plain directory', () => {
-      expect(isInsideGitRepo(tmpDir)).toBe(false);
+    // The walk climbs to the filesystem root, so whatever sits above the temp
+    // directory decides the cases that hinge on a missing `.git` — a stray
+    // `/tmp/.git` made every temp dir look like a repo. Those cases declare
+    // the tree instead; the one that needs a real repo still uses the disk.
+    function declareGitDirs(...gitDirs: string[]): void {
+      const present = new Set(gitDirs);
+      vi.spyOn(fs, 'existsSync').mockImplementation((p) => present.has(String(p)));
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
     });
 
-    it('should return true for a git-initialized directory', async () => {
+    it('should return false when no directory up to the root holds a .git', () => {
+      declareGitDirs();
+      expect(isInsideGitRepo('/a/b/c')).toBe(false);
+    });
+
+    it('should return true for a directory that holds a .git', () => {
+      declareGitDirs('/a/b/c/.git');
+      expect(isInsideGitRepo('/a/b/c')).toBe(true);
+    });
+
+    it('should return true for a subdirectory below the one holding a .git', () => {
+      declareGitDirs('/a/.git');
+      expect(isInsideGitRepo('/a/b/c')).toBe(true);
+    });
+
+    it('should return true for a real repo on disk', async () => {
       await simpleGit(tmpDir).init();
       expect(isInsideGitRepo(tmpDir)).toBe(true);
-    });
-
-    it('should return true for a subdirectory inside a git repo', async () => {
-      await simpleGit(tmpDir).init();
-      const subDir = path.join(tmpDir, 'child');
-      fs.mkdirSync(subDir);
-      expect(isInsideGitRepo(subDir)).toBe(true);
     });
   });
 

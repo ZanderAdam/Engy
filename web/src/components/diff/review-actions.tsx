@@ -63,7 +63,7 @@ export function ReviewActions({
         createdAt: cm.createdAt ?? undefined,
       })),
     }));
-    return generateDiffFeedback(threads, repoDir);
+    return generateDiffFeedback(threads);
   }, [repoDir, unresolvedThreads]);
 
   const handleSendFeedback = useCallback(() => {

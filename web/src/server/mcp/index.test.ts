@@ -583,6 +583,49 @@ describe('MCP Server', () => {
         expect(data.error).toContain('Task not found');
       });
     });
+    describe('bulkUpdateTasks', () => {
+      it('[FR-TASK-090] should set status on all given tasks and skip unknown ids', async () => {
+        const db = getDb();
+        const t1 = db.insert(tasks).values({ title: 'T1', projectId }).returning().get();
+        const t2 = db.insert(tasks).values({ title: 'T2', projectId }).returning().get();
+        const untouched = db.insert(tasks).values({ title: 'T3', projectId }).returning().get();
+
+        const call = callTool(getMcpServer(), 'bulkUpdateTasks');
+        const { data } = await call({ ids: [t1.id, t2.id, 9999], status: 'done' });
+
+        expect(data).toEqual({ updated: 2 });
+        const statuses = db.select().from(tasks).all().map((t) => [t.id, t.status]);
+        expect(statuses).toEqual(
+          expect.arrayContaining([
+            [t1.id, 'done'],
+            [t2.id, 'done'],
+            [untouched.id, 'todo'],
+          ]),
+        );
+      });
+
+      it('[FR-TASK-090] should return zero for an empty ids array', async () => {
+        const call = callTool(getMcpServer(), 'bulkUpdateTasks');
+        const { data } = await call({ ids: [], status: 'done' });
+
+        expect(data).toEqual({ updated: 0 });
+      });
+    });
+
+    describe('bulkDeleteTasks', () => {
+      it('[FR-TASK-100] should delete all given tasks and skip unknown ids', async () => {
+        const db = getDb();
+        const t1 = db.insert(tasks).values({ title: 'T1', projectId }).returning().get();
+        const t2 = db.insert(tasks).values({ title: 'T2', projectId }).returning().get();
+        const kept = db.insert(tasks).values({ title: 'Keep', projectId }).returning().get();
+
+        const call = callTool(getMcpServer(), 'bulkDeleteTasks');
+        const { data } = await call({ ids: [t1.id, t2.id, 9999] });
+
+        expect(data).toEqual({ deleted: 2 });
+        expect(db.select().from(tasks).all().map((t) => t.id)).toEqual([kept.id]);
+      });
+    });
   });
 
   describe('task group tools', () => {

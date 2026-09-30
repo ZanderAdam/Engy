@@ -1,14 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 import { RiFileTextLine, RiCloseLine } from '@remixicon/react';
 import type { IDockviewPanelHeaderProps } from 'dockview';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TabCloseMenu } from '@/components/tabs/tab-close-menu';
+import { activeLast, panelsToClose, type TabCloseScope } from './doc-tab-close';
 import type { DocPanelParams, DocTab } from './types';
 
 function basename(filePath: string): string {
@@ -16,8 +13,22 @@ function basename(filePath: string): string {
   return parts[parts.length - 1] ?? filePath;
 }
 
-export function DocDockTab({ api, params }: IDockviewPanelHeaderProps<DocPanelParams>) {
+export function DocDockTab({
+  api,
+  containerApi,
+  params,
+}: IDockviewPanelHeaderProps<DocPanelParams>) {
   const [tab, setTab] = useState<DocTab>(params.tab);
+  const [, refreshGroupPanels] = useReducer((n: number) => n + 1, 0);
+
+  useEffect(() => {
+    const disposables = [
+      containerApi.onDidAddPanel(refreshGroupPanels),
+      containerApi.onDidRemovePanel(refreshGroupPanels),
+      containerApi.onDidMovePanel(refreshGroupPanels),
+    ];
+    return () => disposables.forEach((d) => d.dispose());
+  }, [containerApi]);
 
   useEffect(() => {
     const disposable = api.onDidParametersChange(() => {
@@ -35,32 +46,54 @@ export function DocDockTab({ api, params }: IDockviewPanelHeaderProps<DocPanelPa
     }
   }
 
+  const groupPanels = api.group.panels;
+  const index = groupPanels.findIndex((p) => p.id === api.id);
+
+  function closePanels(scope: TabCloseScope) {
+    const panels = panelsToClose(groupPanels, api.id, scope);
+    if (panels.some((p) => p.id === api.group.activePanel?.id)) api.setActive();
+    for (const panel of panels) panel.api.close();
+  }
+
   return (
-    <div
-      className="group flex h-full max-w-[180px] items-center gap-1.5 px-2.5 text-xs"
-      onMouseDown={handleMouseDown}
+    <TabCloseMenu
+      tabCount={groupPanels.length}
+      isLast={index === groupPanels.length - 1}
+      onClose={() => api.close()}
+      onCloseOthers={() => closePanels('others')}
+      onCloseToRight={() => closePanels('right')}
+      onCloseAll={() => {
+        for (const panel of activeLast(groupPanels, api.group.activePanel?.id)) {
+          panel.api.close();
+        }
+      }}
     >
-      <RiFileTextLine className="size-[11px] shrink-0" />
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="min-w-0 truncate">{basename(tab.filePath)}</span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            <p className="font-mono">{tab.filePath}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          api.close();
-        }}
-        className="ml-auto shrink-0 rounded-sm p-0.5 opacity-0 hover:bg-muted group-hover:opacity-100"
-        aria-label="Close document"
+      <div
+        className="group flex h-full max-w-[180px] items-center gap-1.5 px-2.5 text-xs"
+        onMouseDown={handleMouseDown}
       >
-        <RiCloseLine className="size-[10px]" />
-      </button>
-    </div>
+        <RiFileTextLine className="size-[11px] shrink-0" />
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="min-w-0 truncate">{basename(tab.filePath)}</span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p className="font-mono">{tab.filePath}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            api.close();
+          }}
+          className="ml-auto shrink-0 rounded-sm p-0.5 opacity-0 hover:bg-muted group-hover:opacity-100"
+          aria-label="Close document"
+        >
+          <RiCloseLine className="size-[10px]" />
+        </button>
+      </div>
+    </TabCloseMenu>
   );
 }

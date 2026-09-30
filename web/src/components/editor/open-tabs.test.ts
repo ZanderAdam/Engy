@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   canGoBack,
   canGoForward,
+  closeOtherTabs,
   closeTab,
+  closeTabsToRight,
   emptyTabsState,
   navigateBack,
   navigateForward,
@@ -118,6 +120,47 @@ describe('open-tabs', () => {
       const state = open(['a.ts']);
       expect(navigateBack(state)).toBe(state);
       expect(navigateForward(state)).toBe(state);
+    });
+  });
+
+  describe('closeOtherTabs', () => {
+    it('[FR-EDITOR-180] should keep only the anchor tab and make it active', () => {
+      const state = closeOtherTabs(open(['a.ts', 'b.ts', 'c.ts']), 'b.ts');
+      expect(state.tabs).toEqual(['b.ts']);
+      expect(state.active).toBe('b.ts');
+      expect(state.history).toEqual(['b.ts']);
+      expect(state.historyIndex).toBe(0);
+    });
+
+    it('[FR-EDITOR-180] should return the same state when the anchor is the only tab', () => {
+      const state = open(['a.ts']);
+      expect(closeOtherTabs(state, 'a.ts')).toBe(state);
+    });
+
+    it('[FR-EDITOR-180] should return the same state for an unknown anchor', () => {
+      const state = open(['a.ts', 'b.ts']);
+      expect(closeOtherTabs(state, 'x.ts')).toBe(state);
+    });
+  });
+
+  describe('closeTabsToRight', () => {
+    it('[FR-EDITOR-180] should drop tabs after the anchor and keep a surviving active tab', () => {
+      const state = closeTabsToRight(openTab(open(['a.ts', 'b.ts', 'c.ts']), 'a.ts'), 'b.ts');
+      expect(state.tabs).toEqual(['a.ts', 'b.ts']);
+      expect(state.active).toBe('a.ts');
+      expect(state.history).not.toContain('c.ts');
+      expect(state.history[state.historyIndex]).toBe('a.ts');
+    });
+
+    it('[FR-EDITOR-180] should move focus to the anchor when the active tab is closed', () => {
+      const state = closeTabsToRight(open(['a.ts', 'b.ts', 'c.ts']), 'a.ts');
+      expect(state.tabs).toEqual(['a.ts']);
+      expect(state.active).toBe('a.ts');
+    });
+
+    it('[FR-EDITOR-180] should return the same state when the anchor is the last tab', () => {
+      const state = open(['a.ts', 'b.ts']);
+      expect(closeTabsToRight(state, 'b.ts')).toBe(state);
     });
   });
 });

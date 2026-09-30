@@ -44,6 +44,18 @@ describe('terminal session list', () => {
       expect(tab.activityState).toBe('waiting');
     });
 
+    it('[FR-TERMINAL-870] should carry agentCwd so a restored tab follows the agent', () => {
+      const tab = sessionToTab(
+        listItem({ workingDir: '/repo/main', agentCwd: '/wt/feature' }),
+        'fallback-key',
+      );
+
+      expect(tab.scope.agentCwd).toBe('/wt/feature');
+      // The spawn directory stays put: a respawn must land where the terminal
+      // was opened, not wherever the agent wandered.
+      expect(tab.scope.workingDir).toBe('/repo/main');
+    });
+
     it('[FR-TERMINAL-680] should surface renamedLabel alongside the immutable scopeLabel', () => {
       const tab = sessionToTab(listItem({ renamedLabel: 'my rename' }), 'fallback-key');
 
@@ -81,16 +93,16 @@ describe('terminal session list', () => {
       expect(tab.needsAttention).toBeUndefined();
     });
 
-    it('[FR-TERMINAL-800] should seed hookDriven from the list item at initial load', () => {
-      const tab = sessionToTab(listItem({ hookDriven: true }), 'fallback-key');
+    it('[FR-TERMINAL-800] should seed activityState from the server list at initial load', () => {
+      const tab = sessionToTab(listItem({ activityState: 'done' }), 'fallback-key');
 
-      expect(tab.hookDriven).toBe(true);
+      expect(tab.activityState).toBe('done');
     });
 
-    it('[FR-TERMINAL-800] should leave hookDriven falsy when the list item says the session is not hook-driven', () => {
-      const tab = sessionToTab(listItem({ hookDriven: false }), 'fallback-key');
+    it('[FR-TERMINAL-800] should default activityState to idle when the list item omits it', () => {
+      const tab = sessionToTab(listItem(), 'fallback-key');
 
-      expect(tab.hookDriven).toBe(false);
+      expect(tab.activityState).toBe('idle');
     });
   });
 });

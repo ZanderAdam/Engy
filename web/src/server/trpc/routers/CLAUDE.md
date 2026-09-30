@@ -41,7 +41,7 @@ One router per domain (`<domain>.ts` + colocated `<domain>.test.ts`), exported a
 
 ## MCP Parity
 
-The MCP server in `../../mcp/index.ts` exposes the same domain operations to AI agents and **shares no code with this layer by design** (root CLAUDE.md calls this "intentional duplication"). Implications:
+The MCP server in `../../mcp/index.ts` exposes the same domain operations to AI agents and **shares no code with this layer by design** (root `AGENTS.md` calls this "intentional duplication"). Implications:
 
 - Adding or changing a tRPC procedure with the same domain semantics → update the matching MCP tool in `../../mcp/index.ts`. Procedure name, input shape, and error semantics should stay aligned.
 - Pure helpers (`validateDependencies`, `attachBlockedBy`, `generateSlug`, `getWorkspaceDir`, broadcasts) live outside both layers and **are** shared — import, don't copy.

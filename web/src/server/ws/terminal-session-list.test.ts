@@ -67,6 +67,23 @@ describe('terminal relay', () => {
       expect(s2.activityState).toBe('idle');
     });
 
+    it('[FR-TERMINAL-870] surfaces agentCwd, so a reloaded tab knows where the agent moved to', () => {
+      const state = makeState([
+        ['s1', meta({ agentCwd: '/wt/feature' })],
+        ['s2', meta()],
+      ]);
+
+      const result = listTerminalSessions(state, {
+        all: true,
+        groupKey: null,
+        scopeType: '',
+        scopeLabel: '',
+      });
+
+      expect(result.find((r) => r.sessionId === 's1')!.agentCwd).toBe('/wt/feature');
+      expect(result.find((r) => r.sessionId === 's2')!.agentCwd).toBeUndefined();
+    });
+
     it('[FR-TERMINAL-740] surfaces needsAttention, defaulting to false when unset', () => {
       const state = makeState([
         ['s1', meta({ needsAttention: true })],

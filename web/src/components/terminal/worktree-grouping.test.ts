@@ -40,4 +40,14 @@ describe('groupTabsByWorktree', () => {
   it('should return an empty array for no tabs', () => {
     expect(groupTabsByWorktree([])).toEqual([]);
   });
+
+  it('[FR-TERMINAL-910] should collapse every branch into one group when grouping is off', () => {
+    const groups = groupTabsByWorktree([tab('a', 'feat-x'), tab('b'), tab('c', 'feat-y')], false);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].tabs.map((t) => t.sessionId)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('should stay empty when grouping is off and there are no tabs', () => {
+    expect(groupTabsByWorktree([], false)).toEqual([]);
+  });
 });

@@ -15,6 +15,7 @@ import type {
   GitLogRequestMessage,
   GitShowRequestMessage,
   GitBranchFilesRequestMessage,
+  GitBranchRequestMessage,
   GitDefaultBaseRequestMessage,
   GitFetchRequestMessage,
   GitWorktreeListRequestMessage,
@@ -59,6 +60,8 @@ import {
   getLog,
   getShow,
   getBranchFiles,
+  getCurrentBranch,
+  getRepoRoot,
   resolveDefaultBase,
   remoteForBase,
   fetchRemote,
@@ -591,6 +594,9 @@ export class WsClient {
       case 'GIT_FETCH_REQUEST':
         this.handleGitFetchRequest(message as GitFetchRequestMessage);
         break;
+      case 'GIT_BRANCH_REQUEST':
+        this.handleGitBranchRequest(message as GitBranchRequestMessage);
+        break;
       case 'GIT_DEFAULT_BASE_REQUEST':
         this.handleGitDefaultBaseRequest(message as GitDefaultBaseRequestMessage);
         break;
@@ -864,6 +870,21 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'GIT_FETCH_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleGitBranchRequest(message: GitBranchRequestMessage): Promise<void> {
+    const { requestId, repoDir, coderWorkspace } = message.payload;
+    try {
+      const runGit = this.gitRunnerFor(coderWorkspace);
+      const branch = await getCurrentBranch(repoDir, runGit);
+      const repoRoot = await getRepoRoot(repoDir, runGit);
+      this.send({ type: 'GIT_BRANCH_RESPONSE', payload: { requestId, branch, repoRoot } });
+    } catch (err) {
+      this.send({
+        type: 'GIT_BRANCH_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }

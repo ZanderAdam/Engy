@@ -13,7 +13,7 @@ Tasks are the atomic unit of work in Engy. Each task belongs to an optional proj
 - `web/src/server/trpc/routers/task-group.ts` — tRPC procedures: `create`, `list`, `get`, `update`, `delete`
 - `web/src/server/tasks/validation.ts` — `validateDependencies()` (dedup, existence check, iterative-DFS cycle detection) and `attachBlockedBy()` (hydrates the `blockedBy` array from the `task_dependencies` join table)
 - `web/src/server/tasks/task-group-numbering.ts` — `nextNumInMilestone()` (sequential counter per `(projectId, milestoneRef)` bucket)
-- `web/src/server/mcp/index.ts` (lines 646–908) — MCP tools: `createTask`, `updateTask`, `listTasks`, `getTask`, `deleteTask`, `createTaskGroup`, `listTaskGroups`, `getTaskGroup`, `updateTaskGroup`, `deleteTaskGroup`
+- `web/src/server/mcp/index.ts` — MCP tools: `createTask`, `updateTask`, `listTasks`, `getTask`, `deleteTask`, `bulkUpdateTasks`, `bulkDeleteTasks`, `createTaskGroup`, `listTaskGroups`, `getTaskGroup`, `updateTaskGroup`, `deleteTaskGroup`
 - `web/src/server/db/schema.ts` — `tasks`, `taskGroups`, `taskDependencies` tables
 - `web/src/server/plan/service.ts` — `readTaskPlan()` used by `getTask` MCP tool to attach `.plan.md` content
 
@@ -23,7 +23,7 @@ A task row (`tasks` table) carries: `title`, `description`, `status` (`backlog`/
 
 On creation, defaults are: `status='todo'`, `type='human'`, `needsPlan=true`, `importance='not_important'`, `urgency='not_urgent'`. The `blockedBy` relationship is stored in the separate `task_dependencies` join table (cascade-deleted when either task is deleted) and hydrated onto query results by `attachBlockedBy()`.
 
-Both the tRPC and MCP surfaces share `validateDependencies` and `attachBlockedBy` from `web/src/server/tasks/validation.ts`. `task.create`, `task.update`, `task.bulkUpdate`, and `task.bulkDelete` all run inside a `db.transaction()`; single `task.delete` does not — it issues a bare `db.delete` followed by a broadcast. Every state-changing mutation fires `broadcastTaskChange` from `web/src/server/ws/broadcast.ts` so connected browsers receive real-time updates.
+Both the tRPC and MCP surfaces share `validateDependencies` and `attachBlockedBy` from `web/src/server/tasks/validation.ts`, and `bulkUpdateTasks` and `bulkDeleteTasks` from `web/src/server/tasks/bulk.ts`. `task.create`, `task.update`, `task.bulkUpdate`, and `task.bulkDelete` all run inside a `db.transaction()`; single `task.delete` does not — it issues a bare `db.delete` followed by a broadcast. Every state-changing mutation fires `broadcastTaskChange` from `web/src/server/ws/broadcast.ts` so connected browsers receive real-time updates.
 
 ## Task groups
 
@@ -55,8 +55,8 @@ When `task.create` is called with `type:'ai'` and `status:'todo'` and neither `t
 | FR-TASK-060 | WHEN a blocker task is deleted, the system SHALL remove its corresponding `task_dependencies` rows via `onDelete: cascade`, so the formerly-blocked task resolves to an empty `blockedBy` array. |
 | FR-TASK-070 | WHEN `task.create` or `task.update` is called with `importance` or `urgency` values, the system SHALL persist them verbatim (`important`/`not_important` and `urgent`/`not_urgent`) without computing any derived field. |
 | FR-TASK-080 | WHEN `task.create` or `task.update` is called with `subStatus`, `sessionId`, or `feedback`, the system SHALL persist the supplied values; each field is independently nullable and can be cleared by passing `null`. |
-| FR-TASK-090 | WHEN `task.bulkUpdate` is called with an `ids` array and a `milestoneRef` or `taskGroupId` value, the system SHALL update all matched tasks atomically in a single transaction, skip any ids that do not exist, and return `{updated: 0}` for an empty `ids` input. |
-| FR-TASK-100 | WHEN `task.bulkDelete` is called with an `ids` array, the system SHALL delete all found tasks atomically, fire a `deleted` broadcast per task, skip ids that do not exist, and return `{deleted: 0}` for an empty `ids` input. |
+| FR-TASK-090 | WHEN `task.bulkUpdate` or the MCP `bulkUpdateTasks` tool is called with an `ids` array and a `status`, `milestoneRef`, or `taskGroupId` value, the system SHALL update all matched tasks atomically in a single transaction, fire an `updated` broadcast per task, skip any ids that do not exist, and return `{updated: 0}` for an empty `ids` input. |
+| FR-TASK-100 | WHEN `task.bulkDelete` or the MCP `bulkDeleteTasks` tool is called with an `ids` array, the system SHALL delete all found tasks atomically, fire a `deleted` broadcast per task, skip ids that do not exist, and return `{deleted: 0}` for an empty `ids` input. |
 | FR-TASK-110 | WHEN `task.list` or the MCP `listTasks` tool is called with any combination of `projectId`, `milestoneRef`, `taskGroupId`, and `status` filters, the system SHALL apply them with AND logic, hydrating each result's `blockedBy` array from `task_dependencies`. |
 | FR-TASK-120 | WHEN the MCP `listTasks` tool is called with `compact` omitted or `true`, the system SHALL omit `description` from each result; passing `compact: false` SHALL include it. |
 | FR-TASK-130 | WHEN the MCP `getTask` tool is called, the system SHALL return the full task row, its `blockedBy` array, and a `planContent` field containing the task's `.plan.md` file content if it exists, or `null` otherwise. |

@@ -8,15 +8,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { repoName } from '@/lib/repo-name';
 
 interface RepoSelectorProps {
   repos: string[];
   selectedRepo: string;
   onSelectRepo: (repo: string) => void;
-}
-
-function basename(repoPath: string): string {
-  return repoPath.split('/').filter(Boolean).pop() ?? repoPath;
 }
 
 export function RepoSelector({ repos, selectedRepo, onSelectRepo }: RepoSelectorProps) {
@@ -33,7 +30,7 @@ export function RepoSelector({ repos, selectedRepo, onSelectRepo }: RepoSelector
             {repos.map((repo) => (
               <Tooltip key={repo}>
                 <TooltipTrigger asChild>
-                  <SelectItem value={repo}>{basename(repo)}</SelectItem>
+                  <SelectItem value={repo}>{repoName(repo)}</SelectItem>
                 </TooltipTrigger>
                 <TooltipContent side="right">{repo}</TooltipContent>
               </Tooltip>

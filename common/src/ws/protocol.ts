@@ -277,6 +277,37 @@ export interface GitFetchResponseMessage {
       };
 }
 
+/**
+ * The checked-out branch alone. Separate from `GIT_STATUS_REQUEST`, which also
+ * walks the working tree: a caller that only needs the branch — the diff
+ * surface keying its comment threads, the agent review tools — must not pay for
+ * a status listing on every call.
+ */
+export interface GitBranchRequestMessage {
+  type: 'GIT_BRANCH_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    coderWorkspace?: string;
+  };
+}
+
+export interface GitBranchResponseMessage {
+  type: 'GIT_BRANCH_RESPONSE';
+  payload:
+    | {
+        requestId: string;
+        branch: string;
+        /** Main repo directory, so a worktree resolves back to the repo it
+         *  belongs to. Null when git cannot name one. */
+        repoRoot: string | null;
+      }
+    | {
+        requestId: string;
+        error: string;
+      };
+}
+
 export interface GitDefaultBaseRequestMessage {
   type: 'GIT_DEFAULT_BASE_REQUEST';
   payload: {
@@ -875,6 +906,8 @@ export type WsMessage =
   | GitShowResponseMessage
   | GitBranchFilesRequestMessage
   | GitBranchFilesResponseMessage
+  | GitBranchRequestMessage
+  | GitBranchResponseMessage
   | GitDefaultBaseRequestMessage
   | GitDefaultBaseResponseMessage
   | GitFetchRequestMessage
@@ -942,6 +975,7 @@ export type ClientToServerMessage =
   | GitLogResponseMessage
   | GitShowResponseMessage
   | GitBranchFilesResponseMessage
+  | GitBranchResponseMessage
   | GitDefaultBaseResponseMessage
   | GitFetchResponseMessage
   | GitWorktreeListResponseMessage
@@ -983,6 +1017,7 @@ export type ServerToClientMessage =
   | GitLogRequestMessage
   | GitShowRequestMessage
   | GitBranchFilesRequestMessage
+  | GitBranchRequestMessage
   | GitDefaultBaseRequestMessage
   | GitFetchRequestMessage
   | GitWorktreeListRequestMessage
