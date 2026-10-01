@@ -82,6 +82,8 @@ export function summarizeEvent(event: SummarizableEvent | null): string {
   return `${event.actor} ${verb}`;
 }
 
-export function hasAvatar(event: Pick<SummarizableEvent, 'kind' | 'actor'>): boolean {
+export function hasAvatar<T extends Pick<SummarizableEvent, 'kind' | 'actor'>>(
+  event: T,
+): event is T & { actor: string } {
   return event.actor !== null && !EVENT_META[event.kind].system;
 }

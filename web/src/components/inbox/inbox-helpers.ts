@@ -57,6 +57,6 @@ export function nextSelectionAfterRemoval(ids: number[], removedId: number): num
   return remaining[Math.min(index, remaining.length - 1)];
 }
 
-export function prKey(repoFullName: string, prNumber: number): string {
+export function prKey(repoFullName: string | null, prNumber: number): string {
   return `${repoFullName}#${prNumber}`;
 }

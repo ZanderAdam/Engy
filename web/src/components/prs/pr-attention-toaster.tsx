@@ -3,7 +3,7 @@
 import { toast } from 'sonner';
 import { useOnServerEvent } from '@/contexts/events-context';
 import { trpc } from '@/lib/trpc';
-import { getAttentionInfo } from './pr-attention';
+import { getAttentionInfo } from '@/lib/pr-attention';
 
 export function PrAttentionToaster() {
   const utils = trpc.useUtils();

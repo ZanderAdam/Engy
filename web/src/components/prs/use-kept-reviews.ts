@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
-import { prInboxKey } from './use-pr-inbox';
+import { prKey } from '@/components/inbox/inbox-helpers';
 
 export type KeptReason = 'local_changes' | 'session_open';
 
@@ -19,7 +19,7 @@ export function useKeptReviews(workspaceId: number, enabled: boolean) {
   const utils = trpc.useUtils();
   const { data: worktrees } = trpc.review.list.useQuery({ workspaceId }, { enabled });
 
-  const { mutate: removeKept, isPending: isRemoving } = trpc.review.remove.useMutation({
+  const { mutate: removeKept } = trpc.review.remove.useMutation({
     onSuccess: () => utils.review.list.invalidate({ workspaceId }),
     onError: (err) => toast.error(err.message),
   });
@@ -28,7 +28,7 @@ export function useKeptReviews(workspaceId: number, enabled: boolean) {
     const kept = new Map<string, KeptReview>();
     for (const worktree of worktrees ?? []) {
       if (worktree.kept) {
-        kept.set(prInboxKey(worktree.repoFullName, worktree.prNumber), {
+        kept.set(prKey(worktree.repoFullName, worktree.prNumber), {
           id: worktree.id,
           reason: worktree.kept,
         });
@@ -37,5 +37,5 @@ export function useKeptReviews(workspaceId: number, enabled: boolean) {
     return kept;
   }, [worktrees]);
 
-  return { keptByPr, removeKept, isRemoving };
+  return { keptByPr, removeKept };
 }

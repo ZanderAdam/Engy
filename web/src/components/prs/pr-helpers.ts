@@ -5,7 +5,11 @@ export function deriveCheckState(
   conclusion: string | null,
 ): 'passing' | 'failing' | 'pending' {
   const lowerConclusion = conclusion?.toLowerCase();
-  if (lowerConclusion === 'success' || lowerConclusion === 'skipped' || lowerConclusion === 'neutral') {
+  if (
+    lowerConclusion === 'success' ||
+    lowerConclusion === 'skipped' ||
+    lowerConclusion === 'neutral'
+  ) {
     return 'passing';
   }
   if (

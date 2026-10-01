@@ -191,7 +191,6 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
 
   return (
     <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-      {/* Header */}
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2 shrink-0">
         <div className="flex items-center gap-2">
           <RiGitPullRequestLine className="size-4 text-muted-foreground" />
@@ -227,7 +226,6 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
         <GlobalErrorBanner error={{ title: 'Refresh failed', message: mutationError }} />
       )}
 
-      {/* Body */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {/* Per-repo failures render inline; healthy repos keep listing below */}
         {!githubUnavailable &&

@@ -2,11 +2,11 @@
 
 import { useEffect, useRef } from 'react';
 import { RiTimeLine } from '@remixicon/react';
-import { ciStatusClassName, ciStatusLabel, formatRelativeTime } from '@/components/prs/pr-helpers';
+import { formatRelativeTime } from '@/components/prs/pr-helpers';
 import { ReviewAvatar } from '@/components/review/review-avatar';
 import { cn } from '@/lib/utils';
 import type { GhPrCiStatus } from '@engy/common';
-import { InboxRiskBadge } from './inbox-risk-badge';
+import { InboxCiBadge, InboxRiskBadge } from './inbox-badges';
 import { EVENT_META, hasAvatar, summarizeEvent } from './inbox-event-meta';
 import { formatSnoozeUntil, githubAvatarUrl, prKey, type InboxItem } from './inbox-helpers';
 
@@ -54,7 +54,7 @@ function InboxRow({ item, selected, ci, onSelect }: InboxRowProps) {
           )}
         />
         <Icon className={cn('size-4 shrink-0', iconClassName)} />
-        {event && hasAvatar(event) && event.actor && (
+        {event && hasAvatar(event) && (
           <ReviewAvatar login={event.actor} avatarUrl={githubAvatarUrl(event.actor)} />
         )}
         <span
@@ -81,16 +81,7 @@ function InboxRow({ item, selected, ci, onSelect }: InboxRowProps) {
           </span>
         )}
         <InboxRiskBadge risk={item.risk} />
-        {ci && (
-          <span
-            className={cn(
-              'shrink-0 border px-1.5 py-px text-[10px] font-medium',
-              ciStatusClassName(ci),
-            )}
-          >
-            CI {ciStatusLabel(ci).toLowerCase()}
-          </span>
-        )}
+        <InboxCiBadge ci={ci} />
       </div>
     </div>
   );

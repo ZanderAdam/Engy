@@ -1,7 +1,7 @@
 'use client';
 
 import { RiArrowLeftLine, RiExternalLinkLine, RiLoader4Line } from '@remixicon/react';
-import { ciStatusClassName, ciStatusLabel, formatRelativeTime } from '@/components/prs/pr-helpers';
+import { formatRelativeTime } from '@/components/prs/pr-helpers';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ReviewAvatar } from '@/components/review/review-avatar';
@@ -9,7 +9,7 @@ import { ReviewOverview } from '@/components/review/review-overview';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import type { GhPrCiStatus } from '@engy/common';
-import { InboxRiskBadge } from './inbox-risk-badge';
+import { InboxCiBadge, InboxRiskBadge } from './inbox-badges';
 import { EVENT_META, hasAvatar, summarizeEvent } from './inbox-event-meta';
 import { githubAvatarUrl, type InboxItem } from './inbox-helpers';
 
@@ -55,7 +55,7 @@ function ActivityRow({ event }: { event: InboxItem['events'][number] }) {
   return (
     <li className="flex items-center gap-2 px-4 py-2">
       <Icon className={cn('size-4 shrink-0', className)} />
-      {hasAvatar(event) && event.actor && (
+      {hasAvatar(event) && (
         <ReviewAvatar login={event.actor} avatarUrl={githubAvatarUrl(event.actor)} />
       )}
       <p className="min-w-0 flex-1 text-sm text-foreground">{summarizeEvent(event)}</p>
@@ -111,13 +111,7 @@ export function InboxPreview({ item, ci, canReview, onOpenReview, onBack }: Inbo
             {item.repoFullName}#{item.prNumber}
           </span>
           <InboxRiskBadge risk={item.risk} />
-          {ci && (
-            <span
-              className={cn('border px-1.5 py-px text-[10px] font-medium', ciStatusClassName(ci))}
-            >
-              CI {ciStatusLabel(ci).toLowerCase()}
-            </span>
-          )}
+          <InboxCiBadge ci={ci} />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <OpenReviewButton canReview={canReview} onOpenReview={onOpenReview} />

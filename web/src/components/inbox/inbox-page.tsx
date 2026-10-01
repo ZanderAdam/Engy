@@ -67,8 +67,7 @@ export function InboxPage() {
   });
 
   function refresh() {
-    void utils.inbox.list.invalidate();
-    void utils.inbox.counts.invalidate();
+    void utils.inbox.invalidate();
   }
 
   const { mutate: markRead } = trpc.inbox.markRead.useMutation({ onSuccess: refresh });

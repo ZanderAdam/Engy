@@ -1,9 +1,6 @@
 import { useMemo } from 'react';
 import { trpc } from '@/lib/trpc';
-
-export function prInboxKey(repoFullName: string | null, prNumber: number): string {
-  return `${repoFullName}#${prNumber}`;
-}
+import { prKey } from '@/components/inbox/inbox-helpers';
 
 export function usePrInbox(workspaceId: number, enabled: boolean) {
   const utils = trpc.useUtils();
@@ -11,15 +8,14 @@ export function usePrInbox(workspaceId: number, enabled: boolean) {
 
   const { mutate: markRead } = trpc.inbox.markRead.useMutation({
     onSuccess: () => {
-      void utils.inbox.list.invalidate();
-      void utils.inbox.counts.invalidate();
+      void utils.inbox.invalidate();
     },
   });
 
   const unreadItemIds = useMemo(() => {
     const ids = new Map<string, number>();
     for (const item of items ?? []) {
-      if (item.unread) ids.set(prInboxKey(item.repoFullName, item.prNumber), item.id);
+      if (item.unread) ids.set(prKey(item.repoFullName, item.prNumber), item.id);
     }
     return ids;
   }, [items]);

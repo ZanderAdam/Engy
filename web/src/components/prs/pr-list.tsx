@@ -15,8 +15,8 @@ import { VLink } from '@/components/tabs/virtual-link';
 import { buildReviewPath } from '@/lib/review-path';
 import { formatRelativeTime } from './pr-helpers';
 import { CiPill, ChecksPopover, ReviewDecisionBadge } from './pr-badges';
-import { getAttentionInfo } from './pr-attention';
-import { prInboxKey } from './use-pr-inbox';
+import { getAttentionInfo } from '@/lib/pr-attention';
+import { prKey } from '@/components/inbox/inbox-helpers';
 import { KeptBadge } from './kept-badge';
 import type { KeptReview } from './use-kept-reviews';
 import type { GhPrCheck, GhPrCiStatus } from '@engy/common';
@@ -89,8 +89,8 @@ export function PrList({
             showRepo={showRepo}
             workspaceSlug={workspaceSlug}
             projectSlug={projectSlug}
-            unreadItemId={unreadItemIds.get(prInboxKey(pr.repoFullName, pr.number))}
-            kept={keptByPr.get(prInboxKey(pr.repoFullName, pr.number))}
+            unreadItemId={unreadItemIds.get(prKey(pr.repoFullName, pr.number))}
+            kept={keptByPr.get(prKey(pr.repoFullName, pr.number))}
             onOpen={onOpen}
             onRemoveKept={onRemoveKept}
           />
@@ -131,7 +131,6 @@ function PrRow({
 
   return (
     <div className="flex flex-col gap-1.5 px-4 py-3 hover:bg-muted/30 transition-colors">
-      {/* Row 1: title + badges + time */}
       <div className="flex items-start gap-2 min-w-0">
         <div className="flex min-w-0 flex-1 items-center gap-2 flex-wrap">
           {unreadItemId !== undefined && (
@@ -198,7 +197,6 @@ function PrRow({
         </span>
       </div>
 
-      {/* Row 2: meta — repo, number, author, branch */}
       <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
         {showRepo && (
           <span className="font-mono text-foreground/70 truncate max-w-[160px]">
@@ -216,7 +214,6 @@ function PrRow({
         </span>
       </div>
 
-      {/* Row 3: CI status, review decision, checks, session link */}
       <div className="flex items-center gap-2 flex-wrap">
         <CiPill status={pr.ciStatus} />
 
