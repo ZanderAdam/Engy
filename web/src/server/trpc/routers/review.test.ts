@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
 import { commentThreads, inboxItems, threadComments, workspaces } from '../../db/schema';
@@ -142,6 +142,14 @@ describe('review router', () => {
       expect(detail).toMatchObject({ title: 'Add feature', isDraft: true, ciStatus: 'unknown' });
     });
 
+    it('[FR-PRREVIEW-120] should map a GitHub failure to a matching tRPC error', async () => {
+      stub.reply(() => ({ status: 404, body: { message: 'Not Found' } }));
+
+      await expect(
+        caller.review.detail({ workspaceId, repoFullName: 'org/app', prNumber: 7 }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
     it('[FR-PRREVIEW-120] should reject an unknown workspace', async () => {
       await expect(
         caller.review.detail({ workspaceId: 999, repoFullName: 'org/app', prNumber: 7 }),
@@ -252,6 +260,18 @@ describe('review router', () => {
 
     const reviewPosts = () =>
       stub.requests.filter((r) => r.method === 'POST' && r.url.endsWith('/reviews'));
+
+    it('[FR-PRREVIEW-130] should refuse a workspace that does not hold the repo', async () => {
+      const otherId = ctx.db
+        .insert(workspaces)
+        .values({ name: 'Other', slug: 'other', repos: ['/repos/other'] })
+        .returning()
+        .get().id;
+
+      await expect(
+        caller.review.syncThreads({ workspaceId: otherId, repoFullName: 'org/app', prNumber: 7 }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
 
     describe('createDraft', () => {
       it('[FR-PRMON-240] should store a local thread flagged as a GitHub draft', async () => {
@@ -481,6 +501,27 @@ describe('review router', () => {
           code: 'BAD_REQUEST',
         });
         expect(reviewPosts()).toHaveLength(0);
+      });
+
+      it('[FR-INBOX-370] should mark the GitHub notification thread done with the item', async () => {
+        upsertItem({
+          repoFullName: 'org/app',
+          prNumber: 7,
+          title: 'PR',
+          url: 'https://github.com/org/app/pull/7',
+          githubThreadId: '4242',
+        });
+        await caller.review.createDraft(draftInput('x', 12));
+
+        await caller.review.submit(submitInput('COMMENT'));
+
+        await vi.waitFor(() =>
+          expect(
+            stub.requests.some(
+              (r) => r.method === 'DELETE' && r.url === '/notifications/threads/4242',
+            ),
+          ).toBe(true),
+        );
       });
 
       it('[FR-PRMON-260] should delete a draft once its GitHub copy is imported and mark the item done', async () => {

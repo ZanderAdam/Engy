@@ -15,7 +15,8 @@ import {
   setReviewThreadResolved,
   submitReview,
 } from '../../github/reviews';
-import { findItemByPr, markDone } from '../../inbox/store';
+import { markItemDone } from '../../inbox/mark-done';
+import { findItemByPr } from '../../inbox/store';
 import { syncReviewThreadsNow } from '../../pr/poller';
 import { startManualReview } from '../../review/auto-review';
 import { requireGithubThread, setResolvedLocally } from '../../review/github-threads';
@@ -34,13 +35,10 @@ const prInput = z.object({
   prNumber: z.number().int().positive(),
 });
 
-function assertWorkspaceExists(workspaceId: number): void {
-  const workspace = getDb()
-    .select({ id: workspaces.id })
-    .from(workspaces)
-    .where(eq(workspaces.id, workspaceId))
-    .get();
+function findWorkspace(workspaceId: number) {
+  const workspace = getDb().select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
   if (!workspace) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
+  return workspace;
 }
 
 function requireReviewRow(input: z.infer<typeof prInput>, action: string): ReviewWorktreeRow {
@@ -54,7 +52,8 @@ function requireReviewRow(input: z.infer<typeof prInput>, action: string): Revie
       ),
     )
     .get();
-  if (!row) {
+  const workspace = findWorkspace(input.workspaceId);
+  if (!row || !(workspace.repos ?? []).includes(row.repoPath)) {
     throw new TRPCError({
       code: 'NOT_FOUND',
       message: `Open ${input.repoFullName}#${input.prNumber} for review before ${action}`,
@@ -101,8 +100,8 @@ export const reviewRouter = router({
     .mutation(({ input, ctx }) => openReviewWorktree(ctx.state, input)),
 
   detail: publicProcedure.input(prInput).query(({ input, ctx }) => {
-    assertWorkspaceExists(input.workspaceId);
-    return fetchPrDetail(ctx.state, input.repoFullName, input.prNumber);
+    findWorkspace(input.workspaceId);
+    return rethrowGithubError(fetchPrDetail(ctx.state, input.repoFullName, input.prNumber));
   }),
 
   startAgentReview: publicProcedure
@@ -179,7 +178,7 @@ export const reviewRouter = router({
       }
 
       const item = findItemByPr(input.repoFullName, input.prNumber);
-      if (item) markDone(item.id);
+      if (item) markItemDone(ctx.state, item);
       return { submitted: comments.length, remainingDrafts };
     }),
 

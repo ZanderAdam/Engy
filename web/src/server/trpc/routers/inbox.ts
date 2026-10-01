@@ -8,7 +8,6 @@ import {
   listItems,
   listRecentEvents,
   markAllRead,
-  markDone,
   markRead,
   markUnread,
   snooze,
@@ -19,7 +18,8 @@ import { commentThreads, prs, reviewWorktrees } from '../../db/schema';
 import { diffScopePrefix } from '../../../lib/diff-doc-path';
 import { parseRisk, type ReviewRisk } from '../../../components/diff/review-summary-meta';
 import { findCorrelatedSession } from './pr';
-import { markThreadDoneOnGithub, markThreadReadOnGithub } from '../../github/notifications';
+import { markThreadReadOnGithub } from '../../github/notifications';
+import { markItemDone } from '../../inbox/mark-done';
 
 const RECENT_EVENT_LIMIT = 20;
 
@@ -131,9 +131,7 @@ export const inboxRouter = router({
   }),
 
   markDone: publicProcedure.input(itemIdSchema).mutation(({ input, ctx }) => {
-    const item = requireItem(input.id);
-    markDone(item.id);
-    if (item.githubThreadId) void markThreadDoneOnGithub(ctx.state, item.githubThreadId);
+    markItemDone(ctx.state, requireItem(input.id));
   }),
 
   snooze: publicProcedure
