@@ -90,6 +90,23 @@ export function filterPrsByScope<T extends { authoredByViewer: boolean }>(
   return prs.filter((pr) => pr.authoredByViewer === wantAuthored);
 }
 
+function shippingRank(pr: { reviewDecision: string | null; ciStatus: GhPrCiStatus }): number {
+  const approved = pr.reviewDecision === 'APPROVED';
+  const passing = pr.ciStatus === 'passing';
+  if (approved && passing) return 0;
+  if (approved) return 1;
+  if (passing) return 2;
+  return 3;
+}
+
+export function sortByClosestToShipping<
+  T extends { reviewDecision: string | null; ciStatus: GhPrCiStatus; updatedAt: string },
+>(prs: T[]): T[] {
+  return [...prs].sort(
+    (a, b) => shippingRank(a) - shippingRank(b) || b.updatedAt.localeCompare(a.updatedAt),
+  );
+}
+
 interface CheckSummary {
   passing: number;
   failing: number;

@@ -13,8 +13,14 @@ import {
 } from '@remixicon/react';
 import { cn } from '@/lib/utils';
 import { isPrOutstanding } from '@/lib/pr-outstanding';
-import { coercePrScope, filterPrsByScope, type PrScope } from './pr-helpers';
+import {
+  coercePrScope,
+  filterPrsByScope,
+  sortByClosestToShipping,
+  type PrScope,
+} from './pr-helpers';
 import { usePrInbox } from './use-pr-inbox';
+import { useKeptReviews } from './use-kept-reviews';
 import {
   classifyPrRepoErrors,
   repoDisplayName,
@@ -153,7 +159,7 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
     isLoading,
   } = trpc.pr.list.useQuery({ workspaceId }, { enabled: !!workspace });
   const allPrs = prData?.prs;
-  const prs = allPrs && filterPrsByScope(allPrs, scope);
+  const prs = allPrs && sortByClosestToShipping(filterPrsByScope(allPrs, scope));
   const viewerLogin = githubStatus?.available ? githubStatus.login : null;
   const scopeCounts = (scopeToCount: PrScope): ScopeCount => {
     const scoped = allPrs ? filterPrsByScope(allPrs, scopeToCount) : [];
@@ -163,6 +169,7 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
     };
   };
   const { unreadItemIds, markRead } = usePrInbox(workspaceId, !!workspace);
+  const { keptByPr, removeKept } = useKeptReviews(workspaceId, !!workspace);
   const { global: globalError, perRepo: repoErrors } = classifyPrRepoErrors(
     prData?.repoErrors ?? {},
   );
@@ -277,6 +284,8 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
             workspaceSlug={workspaceSlug}
             projectSlug={projectSlug}
             unreadItemIds={unreadItemIds}
+            keptByPr={keptByPr}
+            onRemoveKept={(id) => removeKept({ id })}
             onOpen={(inboxItemId) => markRead({ id: inboxItemId })}
           />
         )}

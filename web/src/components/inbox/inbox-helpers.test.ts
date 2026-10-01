@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildReviewPath,
   filterInboxItems,
   moveSelection,
   nextSelectionAfterRemoval,
@@ -98,13 +97,9 @@ describe('inbox-helpers', () => {
     });
   });
 
-  describe('prKey and buildReviewPath', () => {
+  describe('prKey', () => {
     it('should build the CI lookup key', () => {
       expect(prKey('acme/web', 7)).toBe('acme/web#7');
-    });
-
-    it('should build an encoded review path', () => {
-      expect(buildReviewPath('my-ws', 'acme/web', 7)).toBe('/w/my-ws/review?repo=acme%2Fweb&pr=7');
     });
   });
 });

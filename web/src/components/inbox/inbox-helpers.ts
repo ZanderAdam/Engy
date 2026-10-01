@@ -72,12 +72,3 @@ export function nextSelectionAfterRemoval(ids: number[], removedId: number): num
 export function prKey(repoFullName: string, prNumber: number): string {
   return `${repoFullName}#${prNumber}`;
 }
-
-export function buildReviewPath(
-  workspaceSlug: string,
-  repoFullName: string,
-  prNumber: number,
-): string {
-  const params = new URLSearchParams({ repo: repoFullName, pr: String(prNumber) });
-  return `/w/${workspaceSlug}/review?${params.toString()}`;
-}

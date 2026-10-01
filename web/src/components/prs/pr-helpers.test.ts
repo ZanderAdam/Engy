@@ -8,6 +8,7 @@ import {
   deriveCheckState,
   coercePrScope,
   filterPrsByScope,
+  sortByClosestToShipping,
 } from './pr-helpers';
 import type { GhPrCheck } from '@engy/common';
 
@@ -231,5 +232,41 @@ describe('[FR-PRMON-190] PR scope filtering', () => {
 
   it('should honour a configured "review" workspace scope', () => {
     expect(coercePrScope('review')).toBe('review');
+  });
+});
+
+describe('sortByClosestToShipping', () => {
+  const pr = (
+    id: string,
+    reviewDecision: string | null,
+    ciStatus: 'passing' | 'failing' | 'pending' | 'unknown',
+    updatedAt: string,
+  ) => ({ id, reviewDecision, ciStatus, updatedAt });
+
+  it('[FR-PRMON-230] should order approved+passing, approved, passing, then the rest', () => {
+    const sorted = sortByClosestToShipping([
+      pr('rest', 'REVIEW_REQUIRED', 'failing', '2026-01-05'),
+      pr('passing', null, 'passing', '2026-01-04'),
+      pr('approved', 'APPROVED', 'failing', '2026-01-03'),
+      pr('ready', 'APPROVED', 'passing', '2026-01-01'),
+    ]);
+    expect(sorted.map((p) => p.id)).toEqual(['ready', 'approved', 'passing', 'rest']);
+  });
+
+  it('[FR-PRMON-230] should break ties by updatedAt descending', () => {
+    const sorted = sortByClosestToShipping([
+      pr('old', null, 'pending', '2026-01-01'),
+      pr('new', null, 'failing', '2026-01-02'),
+    ]);
+    expect(sorted.map((p) => p.id)).toEqual(['new', 'old']);
+  });
+
+  it('should not mutate the input', () => {
+    const input = [
+      pr('a', null, 'failing', '2026-01-01'),
+      pr('b', 'APPROVED', 'passing', '2026-01-01'),
+    ];
+    sortByClosestToShipping(input);
+    expect(input.map((p) => p.id)).toEqual(['a', 'b']);
   });
 });

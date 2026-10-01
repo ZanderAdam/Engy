@@ -17,9 +17,9 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { trpc } from '@/lib/trpc';
+import { buildReviewPath } from '@/lib/review-path';
 import type { GhPrCiStatus } from '@engy/common';
 import {
-  buildReviewPath,
   filterInboxItems,
   moveSelection,
   nextSelectionAfterRemoval,

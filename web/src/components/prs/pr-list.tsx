@@ -8,14 +8,17 @@ import {
   RiTerminalLine,
   RiAlarmWarningLine,
   RiChat1Line,
+  RiDeleteBinLine,
 } from '@remixicon/react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { VLink } from '@/components/tabs/virtual-link';
+import { buildReviewPath } from '@/lib/review-path';
 import { formatRelativeTime } from './pr-helpers';
 import { CiPill, ChecksPopover, ReviewDecisionBadge } from './pr-badges';
 import { getAttentionInfo } from './pr-attention';
 import { prInboxKey } from './use-pr-inbox';
+import { KEPT_LABELS, type KeptReview } from './use-kept-reviews';
 import type { GhPrCheck, GhPrCiStatus } from '@engy/common';
 
 interface PrItem {
@@ -45,7 +48,9 @@ interface PrListProps {
   workspaceSlug: string;
   projectSlug: string;
   unreadItemIds: ReadonlyMap<string, number>;
+  keptByPr: ReadonlyMap<string, KeptReview>;
   onOpen: (inboxItemId: number) => void;
+  onRemoveKept: (worktreeId: number) => void;
 }
 
 function AttentionBadge({ reason }: { reason: string | null }) {
@@ -72,7 +77,9 @@ export function PrList({
   workspaceSlug,
   projectSlug,
   unreadItemIds,
+  keptByPr,
   onOpen,
+  onRemoveKept,
 }: PrListProps) {
   return (
     <TooltipProvider>
@@ -85,7 +92,9 @@ export function PrList({
             workspaceSlug={workspaceSlug}
             projectSlug={projectSlug}
             unreadItemId={unreadItemIds.get(prInboxKey(pr.repoFullName, pr.number))}
+            kept={keptByPr.get(prInboxKey(pr.repoFullName, pr.number))}
             onOpen={onOpen}
+            onRemoveKept={onRemoveKept}
           />
         ))}
       </div>
@@ -99,10 +108,24 @@ interface PrRowProps {
   workspaceSlug: string;
   projectSlug: string;
   unreadItemId: number | undefined;
+  kept: KeptReview | undefined;
   onOpen: (inboxItemId: number) => void;
+  onRemoveKept: (worktreeId: number) => void;
 }
 
-function PrRow({ pr, showRepo, workspaceSlug, projectSlug, unreadItemId, onOpen }: PrRowProps) {
+function PrRow({
+  pr,
+  showRepo,
+  workspaceSlug,
+  projectSlug,
+  unreadItemId,
+  kept,
+  onOpen,
+  onRemoveKept,
+}: PrRowProps) {
+  const reviewHref = pr.repoFullName
+    ? buildReviewPath(workspaceSlug, pr.repoFullName, pr.number, projectSlug)
+    : null;
   const diffsHref = `/w/${workspaceSlug}/projects/${projectSlug}/diffs`;
   const handleOpen = () => {
     if (unreadItemId !== undefined) onOpen(unreadItemId);
@@ -116,16 +139,32 @@ function PrRow({ pr, showRepo, workspaceSlug, projectSlug, unreadItemId, onOpen 
           {unreadItemId !== undefined && (
             <span aria-label="Unread inbox item" className="size-2 shrink-0 rounded-full bg-sky-400" />
           )}
-          <a
-            href={pr.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={handleOpen}
-            className="text-sm font-medium text-foreground hover:underline flex items-center gap-1 min-w-0"
-          >
-            <span className="truncate">{pr.title}</span>
-            <RiExternalLinkLine className="size-3 shrink-0 text-muted-foreground" />
-          </a>
+          {reviewHref ? (
+            <VLink
+              href={reviewHref}
+              onClick={handleOpen}
+              className="min-w-0 text-sm font-medium text-foreground hover:underline"
+            >
+              <span className="block truncate">{pr.title}</span>
+            </VLink>
+          ) : (
+            <span className="min-w-0 truncate text-sm font-medium text-foreground">{pr.title}</span>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a
+                href={pr.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open on GitHub"
+                onClick={handleOpen}
+                className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <RiExternalLinkLine className="size-3" />
+              </a>
+            </TooltipTrigger>
+            <TooltipContent>Open on GitHub</TooltipContent>
+          </Tooltip>
           {pr.isDraft && (
             <Badge variant="outline" className="text-[10px] h-4 px-1.5 text-muted-foreground">
               <RiDraftLine className="size-2.5" />
@@ -198,6 +237,20 @@ function PrRow({ pr, showRepo, workspaceSlug, projectSlug, unreadItemId, onOpen 
         )}
 
         <AttentionBadge reason={pr.attentionReason} />
+
+        {kept && (
+          <span className="inline-flex items-center gap-1 border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {KEPT_LABELS[kept.reason]}
+            <button
+              type="button"
+              aria-label="Remove review worktree"
+              onClick={() => onRemoveKept(kept.id)}
+              className="cursor-pointer hover:text-foreground transition-colors"
+            >
+              <RiDeleteBinLine className="size-3" />
+            </button>
+          </span>
+        )}
       </div>
     </div>
   );
