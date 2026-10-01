@@ -13,6 +13,7 @@ import WorkspaceDocsPage from '@/app/w/[workspace]/docs/page';
 import WorkspaceMemoryPage from '@/app/w/[workspace]/memory/page';
 import WorkspaceSpecsPage from '@/app/w/[workspace]/specs/page';
 import WorkspaceUsagePage from '@/app/w/[workspace]/usage/page';
+import WorkspaceReviewPage from '@/app/w/[workspace]/review/page';
 import ProjectLayout from '@/app/w/[workspace]/projects/[project]/layout';
 import ProjectPage from '@/app/w/[workspace]/projects/[project]/page';
 import ProjectTasksPage from '@/app/w/[workspace]/projects/[project]/tasks/page';
@@ -74,6 +75,8 @@ function dispatchWorkspace(section: string | undefined): React.ReactNode {
       return <WorkspaceSpecsPage />;
     case 'usage':
       return <WorkspaceUsagePage />;
+    case 'review':
+      return <WorkspaceReviewPage />;
     default:
       return <NotFound path={`workspace/${section}`} />;
   }

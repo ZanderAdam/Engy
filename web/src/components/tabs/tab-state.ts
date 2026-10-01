@@ -77,8 +77,13 @@ function deriveTitleSegments(virtualPath: string): string[] {
   }
   const parts: string[] = [workspace];
   if (project) parts.push(project);
-  if (section) parts.push(section);
+  if (section) parts.push(sectionLabel(virtualPath, section));
   return parts;
+}
+
+function sectionLabel(virtualPath: string, section: string): string {
+  const pr = section === 'review' ? searchParam(virtualPath, 'pr') : null;
+  return pr ? `review #${pr}` : section;
 }
 
 interface TabTitle {
@@ -279,4 +284,3 @@ export function savePersisted(state: PersistedTabsV1): void {
     // localStorage may be full or unavailable
   }
 }
-

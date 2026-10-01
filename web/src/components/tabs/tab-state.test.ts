@@ -5,6 +5,7 @@ import {
   collapseToFreshTab,
   computeInitialTabs,
   dedupeProjectTabs,
+  deriveDefaultTitle,
   findReusableProjectTab,
   navigateOrReuseTab,
   projectTabKey,
@@ -23,9 +24,7 @@ function tab(partial: Partial<Tab> & { virtualPath: string }): Tab {
 describe('tab-state dedup', () => {
   describe('projectTabKey', () => {
     it('should key project routes by workspace, project, and worktree', () => {
-      expect(projectTabKey('/w/eng/projects/initial/code?wt=feature')).toBe(
-        'eng/initial@feature',
-      );
+      expect(projectTabKey('/w/eng/projects/initial/code?wt=feature')).toBe('eng/initial@feature');
     });
 
     it('should ignore the section so different sections share a key', () => {
@@ -202,7 +201,10 @@ describe('tab-state dedup', () => {
     });
 
     it('should activate an exact-path match without adding a tab', () => {
-      const persisted = [tab({ id: 'home', virtualPath: '/' }), tab({ id: 'exact', virtualPath: PATH })];
+      const persisted = [
+        tab({ id: 'home', virtualPath: '/' }),
+        tab({ id: 'exact', virtualPath: PATH }),
+      ];
       const { tabs, activeTabId } = computeInitialTabs(PATH, persisted);
       expect(tabs).toHaveLength(2);
       expect(activeTabId).toBe('exact');
@@ -303,6 +305,16 @@ describe('tab-state dedup', () => {
 
     it('should mint a distinct tab on every call', () => {
       expect(collapseToFreshTab().tabs[0].id).not.toBe(collapseToFreshTab().tabs[0].id);
+    });
+  });
+
+  describe('deriveDefaultTitle', () => {
+    it('should title a review tab with the PR number', () => {
+      expect(deriveDefaultTitle('/w/acme/review?repo=org/app&pr=42')).toBe('acme › review #42');
+    });
+
+    it('should fall back to the section name when the PR number is missing', () => {
+      expect(deriveDefaultTitle('/w/acme/review')).toBe('acme › review');
     });
   });
 });
