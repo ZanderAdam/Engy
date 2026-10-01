@@ -3,10 +3,12 @@
 import { useEffect, useRef } from 'react';
 import { RiTimeLine } from '@remixicon/react';
 import { ciStatusClassName, ciStatusLabel, formatRelativeTime } from '@/components/prs/pr-helpers';
+import { ReviewAvatar } from '@/components/review/review-avatar';
 import { cn } from '@/lib/utils';
 import type { GhPrCiStatus } from '@engy/common';
 import { InboxRiskBadge } from './inbox-risk-badge';
-import { prKey, summarizeLatestEvent, type InboxItem } from './inbox-helpers';
+import { EVENT_META, hasAvatar, summarizeEvent } from './inbox-event-meta';
+import { formatSnoozeUntil, githubAvatarUrl, prKey, type InboxItem } from './inbox-helpers';
 
 interface InboxListProps {
   items: InboxItem[];
@@ -29,6 +31,9 @@ function InboxRow({ item, selected, ci, onSelect }: InboxRowProps) {
     if (selected) ref.current?.scrollIntoView({ block: 'nearest' });
   }, [selected]);
 
+  const event = item.latestEvent;
+  const { icon: Icon, className: iconClassName } = EVENT_META[event?.kind ?? 'commented'];
+
   return (
     <div
       ref={ref}
@@ -48,6 +53,10 @@ function InboxRow({ item, selected, ci, onSelect }: InboxRowProps) {
             item.unread ? 'bg-sky-400' : 'bg-transparent',
           )}
         />
+        <Icon className={cn('size-4 shrink-0', iconClassName)} />
+        {event && hasAvatar(event) && event.actor && (
+          <ReviewAvatar login={event.actor} avatarUrl={githubAvatarUrl(event.actor)} />
+        )}
         <span
           className={cn(
             'min-w-0 flex-1 truncate text-sm',
@@ -60,15 +69,15 @@ function InboxRow({ item, selected, ci, onSelect }: InboxRowProps) {
           {formatRelativeTime(item.lastEventAt)}
         </span>
       </div>
-      <div className="flex items-center gap-2 pl-4 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-4 text-xs text-muted-foreground">
         <span className="shrink-0 font-mono">
           {item.repoFullName}#{item.prNumber}
         </span>
-        <span className="min-w-0 flex-1 truncate">{summarizeLatestEvent(item.latestEvent)}</span>
+        <span className="min-w-0 flex-1 truncate">{summarizeEvent(event)}</span>
         {item.snoozedUntil && (
-          <span className="flex shrink-0 items-center gap-0.5" title="Snoozed">
+          <span className="flex shrink-0 items-center gap-0.5">
             <RiTimeLine className="size-3" />
-            Snoozed
+            {formatSnoozeUntil(item.snoozedUntil)}
           </span>
         )}
         <InboxRiskBadge risk={item.risk} />

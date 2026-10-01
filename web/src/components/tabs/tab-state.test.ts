@@ -313,6 +313,10 @@ describe('tab-state dedup', () => {
       expect(deriveDefaultTitle('/w/acme/review?repo=org/app&pr=42')).toBe('acme › review #42');
     });
 
+    it('should capitalise the inbox tab title', () => {
+      expect(deriveDefaultTitle('/inbox')).toBe('Inbox');
+    });
+
     it('should fall back to the section name when the PR number is missing', () => {
       expect(deriveDefaultTitle('/w/acme/review')).toBe('acme › review');
     });

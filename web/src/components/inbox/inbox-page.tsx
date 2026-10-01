@@ -21,15 +21,18 @@ import { buildReviewPath } from '@/lib/review-path';
 import type { GhPrCiStatus } from '@engy/common';
 import {
   filterInboxItems,
+  itemProjectSlug,
   moveSelection,
   nextSelectionAfterRemoval,
   prKey,
   sortInboxItems,
 } from './inbox-helpers';
+import { InboxDisplayOptionsMenu } from './inbox-display-options';
 import { InboxKeyHelp } from './inbox-key-help';
 import { InboxList } from './inbox-list';
 import { InboxPreview } from './inbox-preview';
 import { SnoozeMenu } from './snooze-menu';
+import { useInboxDisplayOptions } from './use-inbox-display-options';
 import { useInboxKeys } from './use-inbox-keys';
 
 type InboxTab = 'priority' | 'all';
@@ -52,12 +55,18 @@ export function InboxPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
 
+  const { options: displayOptions, update: updateDisplayOptions } = useInboxDisplayOptions();
+
   const workspaceId = workspaceFilter === ALL_WORKSPACES ? undefined : Number(workspaceFilter);
 
   const { data: githubStatus } = trpc.github.status.useQuery();
   const { data: workspaces = [] } = trpc.workspace.list.useQuery();
   const { data: counts } = trpc.inbox.counts.useQuery();
-  const { data: items = [], isLoading } = trpc.inbox.list.useQuery({ tab, workspaceId });
+  const { data: items = [], isLoading } = trpc.inbox.list.useQuery({
+    tab,
+    workspaceId,
+    includeSnoozed: displayOptions.showSnoozed,
+  });
 
   function refresh() {
     void utils.inbox.list.invalidate();
@@ -78,8 +87,8 @@ export function InboxPage() {
   });
 
   const visibleItems = useMemo(
-    () => sortInboxItems(filterInboxItems(items, query)),
-    [items, query],
+    () => sortInboxItems(filterInboxItems(items, query), displayOptions.unreadFirst),
+    [items, query, displayOptions.unreadFirst],
   );
   const selected =
     visibleItems.find((item) => item.id === selectedId) ??
@@ -129,7 +138,14 @@ export function InboxPage() {
 
   function openReview() {
     if (!selected || !reviewSlug) return;
-    navigate.push(buildReviewPath(reviewSlug, selected.repoFullName, selected.prNumber));
+    navigate.push(
+      buildReviewPath(
+        reviewSlug,
+        selected.repoFullName,
+        selected.prNumber,
+        itemProjectSlug(selected),
+      ),
+    );
   }
 
   function removeSelected(remove: (id: number) => void) {
@@ -204,6 +220,7 @@ export function InboxPage() {
           >
             <RiKeyboardLine className="size-4" />
           </Button>
+          <InboxDisplayOptionsMenu options={displayOptions} onChange={updateDisplayOptions} />
           <Select value={workspaceFilter} onValueChange={setWorkspaceFilter}>
             <SelectTrigger size="sm" className="min-w-0 max-w-40">
               <SelectValue />

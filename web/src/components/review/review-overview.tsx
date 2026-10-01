@@ -92,6 +92,7 @@ interface ReviewOverviewProps {
   workspaceId: number;
   repoFullName: string;
   prNumber: number;
+  compact?: boolean;
 }
 
 export function ReviewOverview({
@@ -99,10 +100,11 @@ export function ReviewOverview({
   workspaceId,
   repoFullName,
   prNumber,
+  compact = false,
 }: ReviewOverviewProps) {
   const hasBody = detail.body.trim().length > 0;
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-4">
+    <div className={cn('flex w-full flex-col gap-6 px-4 py-4', !compact && 'mx-auto max-w-3xl')}>
       <section aria-label="Description" className="border border-border px-3 py-2">
         {hasBody ? (
           <MarkdownView markdown={detail.body} />

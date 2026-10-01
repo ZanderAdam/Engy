@@ -1,13 +1,17 @@
 'use client';
 
-import { RiArrowLeftLine, RiExternalLinkLine } from '@remixicon/react';
+import { RiArrowLeftLine, RiExternalLinkLine, RiLoader4Line } from '@remixicon/react';
 import { ciStatusClassName, ciStatusLabel, formatRelativeTime } from '@/components/prs/pr-helpers';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { ReviewAvatar } from '@/components/review/review-avatar';
+import { ReviewOverview } from '@/components/review/review-overview';
+import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import type { GhPrCiStatus } from '@engy/common';
 import { InboxRiskBadge } from './inbox-risk-badge';
-import { summarizeLatestEvent, type InboxItem } from './inbox-helpers';
+import { EVENT_META, hasAvatar, summarizeEvent } from './inbox-event-meta';
+import { githubAvatarUrl, type InboxItem } from './inbox-helpers';
 
 interface InboxPreviewProps {
   item: InboxItem;
@@ -46,6 +50,51 @@ function OpenReviewButton({
   );
 }
 
+function ActivityRow({ event }: { event: InboxItem['events'][number] }) {
+  const { icon: Icon, className } = EVENT_META[event.kind];
+  return (
+    <li className="flex items-center gap-2 px-4 py-2">
+      <Icon className={cn('size-4 shrink-0', className)} />
+      {hasAvatar(event) && event.actor && (
+        <ReviewAvatar login={event.actor} avatarUrl={githubAvatarUrl(event.actor)} />
+      )}
+      <p className="min-w-0 flex-1 text-sm text-foreground">{summarizeEvent(event)}</p>
+      <span className="shrink-0 text-xs text-muted-foreground">{formatRelativeTime(event.at)}</span>
+      {event.url && (
+        <a
+          href={event.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Open event on GitHub"
+          className="shrink-0 text-muted-foreground hover:text-foreground"
+        >
+          <RiExternalLinkLine className="size-3.5" />
+        </a>
+      )}
+    </li>
+  );
+}
+
+function PrOverview(props: { workspaceId: number; repoFullName: string; prNumber: number }) {
+  const { data, error, isLoading } = trpc.review.detail.useQuery(props);
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
+        <RiLoader4Line className="size-4 animate-spin" />
+        Loading pull request...
+      </div>
+    );
+  }
+  if (error || !data) {
+    return (
+      <p className="px-4 py-3 text-xs text-destructive">
+        {error?.message ?? 'Could not load the pull request'}
+      </p>
+    );
+  }
+  return <ReviewOverview detail={data} compact {...props} />;
+}
+
 export function InboxPreview({ item, ci, canReview, onOpenReview, onBack }: InboxPreviewProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -79,36 +128,30 @@ export function InboxPreview({ item, ci, canReview, onOpenReview, onBack }: Inbo
             </a>
           </Button>
         </div>
-      </div>
-      <ul className="flex flex-col">
-        {item.events.map((event) => (
-          <li key={event.id} className="flex items-start gap-3 border-b border-border px-4 py-2">
-            <div className="min-w-0 flex-1">
-              <p className="text-sm text-foreground">{summarizeLatestEvent(event)}</p>
-              {event.actor && event.summary !== summarizeLatestEvent(event) && (
-                <p className="text-xs text-muted-foreground">{event.summary}</p>
-              )}
-            </div>
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {formatRelativeTime(event.at)}
-            </span>
-            {event.url && (
-              <a
-                href={event.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Open event on GitHub"
-                className="shrink-0 text-muted-foreground hover:text-foreground"
-              >
-                <RiExternalLinkLine className="size-3.5" />
-              </a>
-            )}
-          </li>
-        ))}
-        {item.events.length === 0 && (
-          <li className="px-4 py-3 text-xs text-muted-foreground">No events yet</li>
+        {item.workspaceId === null && (
+          <p className="text-xs text-muted-foreground">{NO_WORKSPACE_HINT}</p>
         )}
-      </ul>
+      </div>
+      <section aria-label="Activity" className="flex flex-col border-b border-border">
+        <h3 className="px-4 pt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Activity
+        </h3>
+        <ul className="flex flex-col">
+          {item.events.map((event) => (
+            <ActivityRow key={event.id} event={event} />
+          ))}
+          {item.events.length === 0 && (
+            <li className="px-4 py-3 text-xs text-muted-foreground">No events yet</li>
+          )}
+        </ul>
+      </section>
+      {item.workspaceId !== null && (
+        <PrOverview
+          workspaceId={item.workspaceId}
+          repoFullName={item.repoFullName}
+          prNumber={item.prNumber}
+        />
+      )}
     </div>
   );
 }

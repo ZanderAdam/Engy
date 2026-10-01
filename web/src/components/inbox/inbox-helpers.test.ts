@@ -5,28 +5,12 @@ import {
   nextSelectionAfterRemoval,
   prKey,
   sortInboxItems,
-  summarizeLatestEvent,
+  formatSnoozeUntil,
+  githubAvatarUrl,
+  itemProjectSlug,
 } from './inbox-helpers';
 
 describe('inbox-helpers', () => {
-  describe('summarizeLatestEvent', () => {
-    it('should join actor and verb', () => {
-      expect(summarizeLatestEvent({ kind: 'review_requested', actor: 'alice', summary: 'x' })).toBe(
-        'alice requested your review',
-      );
-    });
-
-    it('should fall back to the stored summary when there is no actor', () => {
-      expect(summarizeLatestEvent({ kind: 'ci_failed', actor: null, summary: 'CI failing' })).toBe(
-        'CI failing',
-      );
-    });
-
-    it('should handle an item without events', () => {
-      expect(summarizeLatestEvent(null)).toBe('No activity');
-    });
-  });
-
   describe('sortInboxItems', () => {
     it('should put unread first, then newest first', () => {
       const items = [
@@ -35,7 +19,16 @@ describe('inbox-helpers', () => {
         { id: 3, unread: true, lastEventAt: '2026-09-30T09:00:00Z' },
         { id: 4, unread: false, lastEventAt: '2026-09-30T11:00:00Z' },
       ];
-      expect(sortInboxItems(items).map((i) => i.id)).toEqual([3, 2, 4, 1]);
+      expect(sortInboxItems(items, true).map((i) => i.id)).toEqual([3, 2, 4, 1]);
+    });
+
+    it('should sort by time only when unread first is off', () => {
+      const items = [
+        { id: 1, unread: false, lastEventAt: '2026-09-30T10:00:00Z' },
+        { id: 2, unread: true, lastEventAt: '2026-09-30T08:00:00Z' },
+        { id: 4, unread: false, lastEventAt: '2026-09-30T11:00:00Z' },
+      ];
+      expect(sortInboxItems(items, false).map((i) => i.id)).toEqual([4, 1, 2]);
     });
 
     it('should not mutate the input', () => {
@@ -43,7 +36,7 @@ describe('inbox-helpers', () => {
         { unread: false, lastEventAt: '2026-09-30T10:00:00Z' },
         { unread: true, lastEventAt: '2026-09-30T08:00:00Z' },
       ];
-      sortInboxItems(items);
+      sortInboxItems(items, true);
       expect(items[0].unread).toBe(false);
     });
   });
@@ -100,6 +93,29 @@ describe('inbox-helpers', () => {
   describe('prKey', () => {
     it('should build the CI lookup key', () => {
       expect(prKey('acme/web', 7)).toBe('acme/web#7');
+    });
+  });
+
+  describe('itemProjectSlug', () => {
+    it('should read an optional project slug', () => {
+      const base = {} as Parameters<typeof itemProjectSlug>[0];
+      expect(itemProjectSlug({ ...base, projectSlug: 'alpha' } as typeof base)).toBe('alpha');
+      expect(itemProjectSlug({ ...base, projectSlug: null } as typeof base)).toBeUndefined();
+      expect(itemProjectSlug(base)).toBeUndefined();
+    });
+  });
+
+  describe('githubAvatarUrl', () => {
+    it('should build the avatar url', () => {
+      expect(githubAvatarUrl('alice')).toBe('https://github.com/alice.png?size=40');
+    });
+  });
+
+  describe('formatSnoozeUntil', () => {
+    it('should show weekday and 24h time', () => {
+      expect(formatSnoozeUntil(new Date(2026, 9, 5, 9, 0).toISOString())).toBe(
+        'Snoozed until Mon 09:00',
+      );
     });
   });
 });

@@ -1,39 +1,31 @@
 import type { RouterOutputs } from '@/lib/trpc';
 
 export type InboxItem = RouterOutputs['inbox']['list'][number];
-type InboxEventKind = InboxItem['events'][number]['kind'];
-type LatestEvent = NonNullable<InboxItem['latestEvent']>;
 
-const EVENT_VERBS: Record<InboxEventKind, string> = {
-  review_requested: 'requested your review',
-  mentioned: 'mentioned you',
-  commented: 'commented',
-  approved: 'approved',
-  changes_requested: 'requested changes',
-  reviewed: 'reviewed',
-  ci_failed: 'CI failed',
-  ci_passed: 'CI passed',
-  auto_fix_attention: 'auto-fix needs attention',
-  merged: 'merged',
-  closed: 'closed',
-  reopened: 'reopened',
-  pushed: 'pushed',
-  assigned: 'assigned you',
-};
+export function itemProjectSlug(item: InboxItem): string | undefined {
+  return (item as { projectSlug?: string | null }).projectSlug ?? undefined;
+}
 
-export function summarizeLatestEvent(
-  event: Pick<LatestEvent, 'kind' | 'summary' | 'actor'> | null,
-): string {
-  if (!event) return 'No activity';
-  if (!event.actor) return event.summary;
-  return `${event.actor} ${EVENT_VERBS[event.kind]}`;
+export function githubAvatarUrl(login: string): string {
+  return `https://github.com/${login}.png?size=40`;
+}
+
+const SNOOZE_FORMAT = new Intl.DateTimeFormat('en-GB', {
+  weekday: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+export function formatSnoozeUntil(until: string): string {
+  return `Snoozed until ${SNOOZE_FORMAT.format(new Date(until)).replace(',', '')}`;
 }
 
 export function sortInboxItems<T extends Pick<InboxItem, 'unread' | 'lastEventAt'>>(
   items: T[],
+  unreadFirst: boolean,
 ): T[] {
   return [...items].sort((a, b) => {
-    if (a.unread !== b.unread) return a.unread ? -1 : 1;
+    if (unreadFirst && a.unread !== b.unread) return a.unread ? -1 : 1;
     return b.lastEventAt.localeCompare(a.lastEventAt);
   });
 }
