@@ -407,7 +407,27 @@ async function cleanupOtherReviewWorktrees(state: AppState, currentId: number): 
   }
 }
 
-export async function openReviewWorktree(
+const openQueues = new Map<string, Promise<unknown>>();
+
+export function openReviewWorktree(
+  state: AppState,
+  input: { workspaceId: number; repoFullName: string; prNumber: number },
+): Promise<ReviewWorktreeState> {
+  const key = `${input.repoFullName}#${input.prNumber}`;
+  const previous = openQueues.get(key) ?? Promise.resolve();
+  const run = previous.then(() => openReviewWorktreeUnqueued(state, input));
+  const settled = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  openQueues.set(key, settled);
+  void settled.then(() => {
+    if (openQueues.get(key) === settled) openQueues.delete(key);
+  });
+  return run;
+}
+
+async function openReviewWorktreeUnqueued(
   state: AppState,
   input: { workspaceId: number; repoFullName: string; prNumber: number },
 ): Promise<ReviewWorktreeState> {

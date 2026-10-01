@@ -184,6 +184,14 @@ describe('review worktrees', () => {
       }
     });
 
+    it('should create one worktree when the same PR is opened concurrently', async () => {
+      const [first, second] = await Promise.all([open(7), open(7)]);
+
+      expect(second.id).toBe(first.id);
+      expect(rows()).toHaveLength(1);
+      expect(daemon.calls.filter((call) => call === 'WORKTREE_ADD_REQUEST')).toHaveLength(1);
+    });
+
     it('should reject a repo that is not in the workspace', async () => {
       await expect(
         openReviewWorktree(ctx.state, { workspaceId, repoFullName: 'org/other', prNumber: 1 }),
