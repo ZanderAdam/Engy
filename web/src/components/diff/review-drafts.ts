@@ -17,3 +17,10 @@ export function isCommentableLine(
     }),
   );
 }
+
+type CommentOrigin = 'engy' | 'github' | 'github-draft';
+
+export function commentOrigin(comment: { source: string; githubDraft: boolean }): CommentOrigin {
+  if (comment.githubDraft) return 'github-draft';
+  return comment.source === 'github' ? 'github' : 'engy';
+}

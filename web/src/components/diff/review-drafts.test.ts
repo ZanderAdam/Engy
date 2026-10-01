@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseDiff } from 'react-diff-view';
-import { isCommentableLine } from './review-drafts';
+import { commentOrigin, isCommentableLine } from './review-drafts';
 
 const PATCH = `diff --git a/src/a.ts b/src/a.ts
 index 1111111..2222222 100644
@@ -50,5 +50,14 @@ describe('isCommentableLine', () => {
 
   it('[FR-PRMON-240] should refuse everything when the patch has no hunks', () => {
     expect(isCommentableLine([], 1, 'modified')).toBe(false);
+  });
+});
+
+describe('commentOrigin', () => {
+  it('[FR-PRMON-290] should tell Engy notes and agent findings apart from GitHub comments', () => {
+    expect(commentOrigin({ source: 'local', githubDraft: false })).toBe('engy');
+    expect(commentOrigin({ source: 'agent', githubDraft: false })).toBe('engy');
+    expect(commentOrigin({ source: 'github', githubDraft: false })).toBe('github');
+    expect(commentOrigin({ source: 'local', githubDraft: true })).toBe('github-draft');
   });
 });

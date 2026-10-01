@@ -12,6 +12,7 @@ import { AGENT_USER_ID } from '@/lib/comment-feedback';
 import { commentBodyText, SEVERITY_PRESENTATION } from './agent-findings';
 import { buildProvePrompt } from './prove-prompt';
 import { diffDocFilePath } from '@/lib/diff-doc-path';
+import { commentOrigin } from './review-drafts';
 import { useReviewWrite } from './review-write-context';
 import type { DiffComment } from './use-diff-comments';
 
@@ -40,6 +41,14 @@ interface CommentWidgetProps {
   draftBlockedReason?: string | null;
 }
 
+function LocalOnlyBadge() {
+  return (
+    <span className="border border-border px-1.5 text-[10px] font-medium text-muted-foreground">
+      Local only
+    </span>
+  );
+}
+
 export function CommentWidget({
   comment,
   repoDir,
@@ -62,6 +71,7 @@ export function CommentWidget({
   const isDraft = comment?.githubDraft === true;
   const isAgent = comment?.source === 'agent';
   const githubWrite = isGithub ? reviewWrite : null;
+  const isLocalOnly = !!reviewWrite && !!comment && commentOrigin(comment) === 'engy';
   const resolved = resolvedOverride ?? comment?.resolved ?? false;
   const severity = comment?.severity ? SEVERITY_PRESENTATION[comment.severity] : undefined;
 
@@ -186,10 +196,17 @@ export function CommentWidget({
                 )}
               </div>
             )}
+            {isLocalOnly && !isAgent && (
+              <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="font-medium">Note</span>
+                <LocalOnlyBadge />
+              </div>
+            )}
             {isAgent && (
               <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <RiRobot2Line className="size-3.5 shrink-0" />
                 <span className="font-medium">{comment.agentType ?? 'Agent'}</span>
+                {isLocalOnly && <LocalOnlyBadge />}
                 {severity && (
                   <span
                     className={cn(
