@@ -30,6 +30,7 @@ function makeRow(overrides: Partial<ReviewWorktreeRow>): ReviewWorktreeRow {
     headRefName: 'feat/x',
     headSha: 'sha',
     createdByReview: true,
+    autoReviewedSha: null,
     createdAt: '',
     updatedAt: '',
     ...overrides,

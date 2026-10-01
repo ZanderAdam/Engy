@@ -26,6 +26,7 @@ export interface ContainerSettingsData {
   maxConcurrency: number;
   autoStart: boolean;
   autoCiFix: boolean;
+  autoReviewOnRequest: boolean;
   autoAgentCompletion: AutoAgentCompletion;
   prScope: PrScope;
 }
@@ -76,6 +77,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
   const [remoteEnabled, setRemoteEnabled] = useState(initialData.remoteEnabled);
   const [autoStart, setAutoStart] = useState(initialData.autoStart);
   const [autoCiFix, setAutoCiFix] = useState(initialData.autoCiFix);
+  const [autoReviewOnRequest, setAutoReviewOnRequest] = useState(initialData.autoReviewOnRequest);
   const [autoAgentCompletion, setAutoAgentCompletion] = useState<AutoAgentCompletion>(
     initialData.autoAgentCompletion ?? 'pr',
   );
@@ -90,27 +92,31 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
     initialData.coderConfig?.repoBasePath ?? '~/dev',
   );
 
-  function emit(overrides: Partial<{
-    containerEnabled: boolean;
-    executionBackend: ExecutionBackend;
-    remoteEnabled: boolean;
-    autoStart: boolean;
-    autoCiFix: boolean;
-    autoAgentCompletion: AutoAgentCompletion;
-    prScope: PrScope;
-    maxConcurrency: number;
-    idleTimeout: number;
-    domains: string;
-    packages: string;
-    envVars: string;
-    coderWorkspace: string;
-    coderRepoBasePath: string;
-  }>) {
+  function emit(
+    overrides: Partial<{
+      containerEnabled: boolean;
+      executionBackend: ExecutionBackend;
+      remoteEnabled: boolean;
+      autoStart: boolean;
+      autoCiFix: boolean;
+      autoReviewOnRequest: boolean;
+      autoAgentCompletion: AutoAgentCompletion;
+      prScope: PrScope;
+      maxConcurrency: number;
+      idleTimeout: number;
+      domains: string;
+      packages: string;
+      envVars: string;
+      coderWorkspace: string;
+      coderRepoBasePath: string;
+    }>,
+  ) {
     const enabled = overrides.containerEnabled ?? containerEnabled;
     const backend = overrides.executionBackend ?? executionBackend;
     const remote = overrides.remoteEnabled ?? remoteEnabled;
     const start = overrides.autoStart ?? autoStart;
     const ciFix = overrides.autoCiFix ?? autoCiFix;
+    const reviewOnRequest = overrides.autoReviewOnRequest ?? autoReviewOnRequest;
     const completion = overrides.autoAgentCompletion ?? autoAgentCompletion;
     const scope = overrides.prScope ?? prScope;
     const concurrency = overrides.maxConcurrency ?? maxConcurrency;
@@ -127,6 +133,7 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
       remoteEnabled: remote,
       autoStart: start,
       autoCiFix: ciFix,
+      autoReviewOnRequest: reviewOnRequest,
       autoAgentCompletion: completion,
       prScope: scope,
       maxConcurrency: concurrency,
@@ -136,7 +143,9 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
         envVars: linesToEnvVars(vars),
         idleTimeout: timeout,
       },
-      coderConfig: cdrWorkspace ? { workspace: cdrWorkspace, repoBasePath: cdrBasePath } : undefined,
+      coderConfig: cdrWorkspace
+        ? { workspace: cdrWorkspace, repoBasePath: cdrBasePath }
+        : undefined,
     });
   }
 
@@ -187,7 +196,9 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
               }}
               placeholder="my-workspace"
             />
-            <p className="text-xs text-muted-foreground">Name from <code>coder list</code></p>
+            <p className="text-xs text-muted-foreground">
+              Name from <code>coder list</code>
+            </p>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="coder-repo-base-path">Repo base path</Label>
@@ -233,6 +244,23 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
           onCheckedChange={(checked) => {
             setAutoCiFix(checked);
             emit({ autoCiFix: checked });
+          }}
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-0.5">
+          <Label htmlFor="auto-review-on-request">Auto-review requested PRs</Label>
+          <p className="text-xs text-muted-foreground">
+            Start an agent review when your review is requested. Findings stay local.
+          </p>
+        </div>
+        <Switch
+          id="auto-review-on-request"
+          checked={autoReviewOnRequest}
+          onCheckedChange={(checked) => {
+            setAutoReviewOnRequest(checked);
+            emit({ autoReviewOnRequest: checked });
           }}
         />
       </div>

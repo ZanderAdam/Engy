@@ -267,6 +267,13 @@
       "when": 1790825727821,
       "tag": "0037_burly_proteus",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1790827952494,
+      "tag": "0038_hesitant_supreme_intelligence",
+      "breakpoints": true
     }
   ]
 }

@@ -87,6 +87,7 @@ interface EditWorkspaceDialogProps {
     maxConcurrency: number | null;
     autoStart: boolean | null;
     autoCiFix: boolean | null;
+    autoReviewOnRequest: boolean | null;
     autoAgentCompletion: 'pr' | 'merge' | null;
     prScope: 'mine' | 'review' | null;
   };
@@ -135,6 +136,7 @@ export function EditWorkspaceDialog({
     maxConcurrency: workspace.maxConcurrency ?? 1,
     autoStart: workspace.autoStart ?? false,
     autoCiFix: workspace.autoCiFix ?? false,
+    autoReviewOnRequest: workspace.autoReviewOnRequest ?? false,
     autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
     prScope: workspace.prScope ?? 'mine',
   });
@@ -183,6 +185,7 @@ export function EditWorkspaceDialog({
       maxConcurrency: container.maxConcurrency,
       autoStart: container.autoStart,
       autoCiFix: container.autoCiFix,
+      autoReviewOnRequest: container.autoReviewOnRequest,
       autoAgentCompletion: container.autoAgentCompletion,
       prScope: container.prScope,
       ...(createMissingDirs ? { createMissingDirs: true } : {}),
@@ -272,6 +275,7 @@ export function EditWorkspaceDialog({
         maxConcurrency: workspace.maxConcurrency ?? 1,
         autoStart: workspace.autoStart ?? false,
         autoCiFix: workspace.autoCiFix ?? false,
+        autoReviewOnRequest: workspace.autoReviewOnRequest ?? false,
         autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
         prScope: workspace.prScope ?? 'mine',
       };
@@ -470,6 +474,7 @@ export function EditWorkspaceDialog({
                   maxConcurrency: workspace.maxConcurrency ?? 1,
                   autoStart: workspace.autoStart ?? false,
                   autoCiFix: workspace.autoCiFix ?? false,
+                  autoReviewOnRequest: workspace.autoReviewOnRequest ?? false,
                   autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
                   prScope: workspace.prScope ?? 'mine',
                 }}

@@ -1,4 +1,12 @@
-import { sqliteTable, text, integer, real, uniqueIndex, index, primaryKey } from 'drizzle-orm/sqlite-core';
+import {
+  sqliteTable,
+  text,
+  integer,
+  real,
+  uniqueIndex,
+  index,
+  primaryKey,
+} from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
 import type { GhPrCheck } from '@engy/common';
 // Type-only, relative (not `@/`) so drizzle-kit can load this file standalone.
@@ -43,7 +51,9 @@ export const workspaces = sqliteTable('workspaces', {
   agentWorktrees: integer('agent_worktrees', { mode: 'boolean' }).default(false),
   containerEnabled: integer('container_enabled', { mode: 'boolean' }).default(false),
   containerConfig: text('container_config', { mode: 'json' }).$type<ContainerConfig>(),
-  executionBackend: text('execution_backend', { enum: ['devcontainer', 'coder'] }).default('devcontainer'),
+  executionBackend: text('execution_backend', { enum: ['devcontainer', 'coder'] }).default(
+    'devcontainer',
+  ),
   coderConfig: text('coder_config', { mode: 'json' }).$type<CoderConfig>(),
   maxConcurrency: integer('max_concurrency').default(1),
   autoAgentCompletion: text('auto_agent_completion', { enum: ['pr', 'merge'] }).default('pr'),
@@ -54,6 +64,7 @@ export const workspaces = sqliteTable('workspaces', {
   ttsEnabled: integer('tts_enabled', { mode: 'boolean' }).default(false),
   autoStart: integer('auto_start', { mode: 'boolean' }).default(false),
   autoCiFix: integer('auto_ci_fix', { mode: 'boolean' }).default(false),
+  autoReviewOnRequest: integer('auto_review_on_request', { mode: 'boolean' }).default(false),
   prScope: text('pr_scope', { enum: ['mine', 'review'] }).default('mine'),
   createdAt: text('created_at')
     .notNull()
@@ -213,17 +224,19 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
 
 // ── Task Dependencies (join table) ──────────────────────────────────
 
-export const taskDependencies = sqliteTable('task_dependencies', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  taskId: integer('task_id')
-    .notNull()
-    .references(() => tasks.id, { onDelete: 'cascade' }),
-  blockerTaskId: integer('blocker_task_id')
-    .notNull()
-    .references(() => tasks.id, { onDelete: 'cascade' }),
-}, (table) => [
-  uniqueIndex('task_dep_unique').on(table.taskId, table.blockerTaskId),
-]);
+export const taskDependencies = sqliteTable(
+  'task_dependencies',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    taskId: integer('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    blockerTaskId: integer('blocker_task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+  },
+  (table) => [uniqueIndex('task_dep_unique').on(table.taskId, table.blockerTaskId)],
+);
 
 export const taskDependenciesRelations = relations(taskDependencies, ({ one }) => ({
   task: one(tasks, {
@@ -498,7 +511,10 @@ export const prs = sqliteTable(
     baseRef: text('base_ref'),
     additions: integer('additions').notNull().default(0),
     deletions: integer('deletions').notNull().default(0),
-    reviewRequests: text('review_requests', { mode: 'json' }).$type<string[]>().notNull().default([]),
+    reviewRequests: text('review_requests', { mode: 'json' })
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     lastFailedHeadSha: text('last_failed_head_sha'),
     autoFixAttempts: integer('auto_fix_attempts').notNull().default(0),
     autoFixTotalAttempts: integer('auto_fix_total_attempts').notNull().default(0),
@@ -527,6 +543,7 @@ export const reviewWorktrees = sqliteTable(
     headRefName: text('head_ref_name').notNull(),
     headSha: text('head_sha').notNull(),
     createdByReview: integer('created_by_review', { mode: 'boolean' }).notNull(),
+    autoReviewedSha: text('auto_reviewed_sha'),
     createdAt: text('created_at')
       .notNull()
       .$defaultFn(() => new Date().toISOString()),

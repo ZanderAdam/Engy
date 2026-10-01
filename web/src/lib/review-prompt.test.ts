@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildReviewPrompt, describePatchSpec } from './review-dispatch';
+import { buildReviewPrompt, describePatchSpec } from './review-prompt';
 
 const REPO = '/home/dev/proj';
 
-describe('review dispatch', () => {
+describe('review prompt', () => {
   describe('describePatchSpec', () => {
     it('should name the git invocation for staged changes', () => {
       expect(describePatchSpec({ kind: 'staged' })).toContain('--cached');
@@ -70,6 +70,11 @@ describe('review dispatch', () => {
         reviewGuide: '/engy/projects/p/review-guide.md',
       });
       expect(prompt).toContain('reviewGuide: /engy/projects/p/review-guide.md');
+    });
+
+    it('should forbid writing findings to GitHub', () => {
+      const prompt = buildReviewPrompt({ repoDir: REPO, spec: { kind: 'unstaged' } });
+      expect(prompt).toContain('Never use `gh` or the GitHub API');
     });
 
     it('should leave the guide line out without a project guide', () => {

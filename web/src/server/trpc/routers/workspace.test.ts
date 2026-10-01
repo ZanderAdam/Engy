@@ -341,6 +341,17 @@ describe('workspace router', () => {
       expect(untouched.prScope).toBe('review');
     });
 
+    it('[FR-PRMON-300] should default autoReviewOnRequest to off and persist an update', async () => {
+      const ws = await caller.workspace.create({ name: 'Auto Review' });
+      expect(ws.autoReviewOnRequest).toBe(false);
+
+      const enabled = await caller.workspace.update({ id: ws.id, autoReviewOnRequest: true });
+      expect(enabled.autoReviewOnRequest).toBe(true);
+
+      const untouched = await caller.workspace.update({ id: ws.id, name: 'Auto Review Renamed' });
+      expect(untouched.autoReviewOnRequest).toBe(true);
+    });
+
     it('[FR-WORKSPACE-020] should fail when repos provided but no daemon connected', async () => {
       const ws = await caller.workspace.create({ name: 'Repo Update' });
       await expect(caller.workspace.update({ id: ws.id, repos: ['/some/path'] })).rejects.toThrow(
@@ -390,9 +401,7 @@ describe('workspace router', () => {
 
     it('[FR-WORKSPACE-070] should reject invalid slug format', async () => {
       const ws = await caller.workspace.create({ name: 'Bad Slug' });
-      await expect(
-        caller.workspace.update({ id: ws.id, slug: 'Invalid Slug!' }),
-      ).rejects.toThrow();
+      await expect(caller.workspace.update({ id: ws.id, slug: 'Invalid Slug!' })).rejects.toThrow();
     });
 
     it('[FR-WORKSPACE-070] should reject duplicate slug', async () => {
@@ -738,9 +747,9 @@ describe('workspace router', () => {
 
       it('should reject a name update with path separator', async () => {
         const ws = await caller.workspace.create({ name: 'Name Test' });
-        await expect(
-          caller.workspace.update({ id: ws.id, name: 'bad/name' }),
-        ).rejects.toThrow('path separators');
+        await expect(caller.workspace.update({ id: ws.id, name: 'bad/name' })).rejects.toThrow(
+          'path separators',
+        );
       });
 
       it('should accept a valid slug update', async () => {

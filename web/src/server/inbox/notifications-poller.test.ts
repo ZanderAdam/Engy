@@ -9,12 +9,15 @@ import {
   type StubRequest,
 } from '../github/stub-server';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
+import { maybeStartAutoReview } from '../review/auto-review';
 import * as broadcast from '../ws/broadcast';
 import {
   MIN_POLL_INTERVAL_MS,
   createNotificationsSession,
   runNotificationsCycle,
 } from './notifications-poller';
+
+vi.mock('../review/auto-review', () => ({ maybeStartAutoReview: vi.fn() }));
 
 const TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
 const NOW = new Date('2026-03-01T12:00:00.000Z');
@@ -74,6 +77,7 @@ describe('notifications poller', () => {
 
   beforeEach(async () => {
     ctx = setupTestDb();
+    vi.mocked(maybeStartAutoReview).mockResolvedValue({ started: false, reason: 'setting-off' });
     vi.spyOn(broadcast, 'broadcastInboxChange').mockImplementation(() => undefined);
     stub = await startStubGithub();
     process.env.ENGY_GITHUB_API_URL = stub.url;
@@ -97,6 +101,7 @@ describe('notifications poller', () => {
     await stub.close();
     ctx.cleanup();
     vi.restoreAllMocks();
+    vi.mocked(maybeStartAutoReview).mockReset();
   });
 
   function items() {
@@ -295,5 +300,69 @@ describe('notifications poller', () => {
     await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
 
     expect(stub.requests).toEqual([]);
+  });
+
+  describe('auto review', () => {
+    function mapWorkspace(): number {
+      ctx.state.repoFullNames.set('/repos/api', 'acme/api');
+      return ctx.db
+        .insert(workspaces)
+        .values({ name: 'w', slug: 'w', repos: ['/repos/api'] })
+        .returning()
+        .get().id;
+    }
+
+    it('[FR-PRMON-301] should start an auto review for a new review request in a workspace repo', async () => {
+      const workspaceId = mapWorkspace();
+      notifications = [notification()];
+
+      await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+      expect(maybeStartAutoReview).toHaveBeenCalledTimes(1);
+      expect(maybeStartAutoReview).toHaveBeenCalledWith(ctx.state, {
+        workspaceId,
+        repoFullName: 'acme/api',
+        prNumber: 7,
+      });
+    });
+
+    it('[FR-PRMON-301] should not start an auto review for a repo outside every workspace', async () => {
+      notifications = [notification()];
+
+      await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+      expect(maybeStartAutoReview).not.toHaveBeenCalled();
+    });
+
+    it('[FR-PRMON-301] should not start an auto review for other event kinds', async () => {
+      mapWorkspace();
+      timeline = () => timelineReply([]);
+      notifications = [notification({ reason: 'mention' })];
+
+      await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+      expect(maybeStartAutoReview).not.toHaveBeenCalled();
+    });
+
+    it('[FR-PRMON-301] should not start a second auto review for an event already stored', async () => {
+      mapWorkspace();
+      notifications = [notification()];
+      await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+      await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+      expect(maybeStartAutoReview).toHaveBeenCalledTimes(1);
+    });
+
+    it('[FR-PRMON-301] should keep syncing when the auto review fails', async () => {
+      mapWorkspace();
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      vi.mocked(maybeStartAutoReview).mockRejectedValue(new Error('boom'));
+      notifications = [notification()];
+
+      await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+      expect(items()).toHaveLength(1);
+    });
   });
 });

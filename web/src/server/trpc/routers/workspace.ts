@@ -54,9 +54,7 @@ const prScopeSchema = z.enum(['mine', 'review']).optional();
 
 // Validated against the agent-types registry rather than a fixed enum, so a new
 // agent CLI needs only a registry entry — no schema/router change here.
-const defaultAgentTypeSchema = z
-  .string()
-  .refine(isAgentTypeId, { message: 'Unknown agent type' });
+const defaultAgentTypeSchema = z.string().refine(isAgentTypeId, { message: 'Unknown agent type' });
 
 const agentSettingsSchema = z.record(
   z.string().refine(isAgentTypeId, { message: 'Unknown agent type' }),
@@ -144,8 +142,7 @@ function isDocsDirInsideRepo(docsDir: string | null, repos: string[]): boolean {
   return repos.some((repoPath) => {
     const normalizedRepo = path.resolve(repoPath);
     return (
-      normalizedDocs === normalizedRepo ||
-      normalizedDocs.startsWith(normalizedRepo + path.sep)
+      normalizedDocs === normalizedRepo || normalizedDocs.startsWith(normalizedRepo + path.sep)
     );
   });
 }
@@ -301,6 +298,7 @@ export const workspaceRouter = router({
         ttsEnabled: z.boolean().nullable().optional(),
         autoStart: z.boolean().nullable().optional(),
         autoCiFix: z.boolean().nullable().optional(),
+        autoReviewOnRequest: z.boolean().nullable().optional(),
         prScope: prScopeSchema,
         createMissingDirs: z.boolean().optional(),
       }),
@@ -329,7 +327,10 @@ export const workspaceRouter = router({
       if (input.agentSettings) {
         assertValidAgentModes(input.agentSettings);
       }
-      if (newAgentSettings && (input.agentSettings !== undefined || input.defaultAgentType !== undefined)) {
+      if (
+        newAgentSettings &&
+        (input.agentSettings !== undefined || input.defaultAgentType !== undefined)
+      ) {
         assertDefaultAgentActive(newAgentSettings, newDefaultAgentType);
       }
       const newEarsBdd = input.earsBdd !== undefined ? input.earsBdd : existing.earsBdd;
@@ -354,6 +355,10 @@ export const workspaceRouter = router({
       const newTtsEnabled = input.ttsEnabled !== undefined ? input.ttsEnabled : existing.ttsEnabled;
       const newAutoStart = input.autoStart !== undefined ? input.autoStart : existing.autoStart;
       const newAutoCiFix = input.autoCiFix !== undefined ? input.autoCiFix : existing.autoCiFix;
+      const newAutoReviewOnRequest =
+        input.autoReviewOnRequest !== undefined
+          ? input.autoReviewOnRequest
+          : existing.autoReviewOnRequest;
       const newPrScope = input.prScope !== undefined ? input.prScope : existing.prScope;
       const newExecutionBackend =
         input.executionBackend !== undefined ? input.executionBackend : existing.executionBackend;
@@ -411,6 +416,7 @@ export const workspaceRouter = router({
           ttsEnabled: newTtsEnabled,
           autoStart: newAutoStart,
           autoCiFix: newAutoCiFix,
+          autoReviewOnRequest: newAutoReviewOnRequest,
           prScope: newPrScope,
         })
         .where(eq(workspaces.id, input.id))
@@ -447,6 +453,7 @@ export const workspaceRouter = router({
               ttsEnabled: existing.ttsEnabled,
               autoStart: existing.autoStart,
               autoCiFix: existing.autoCiFix,
+              autoReviewOnRequest: existing.autoReviewOnRequest,
               prScope: existing.prScope,
             })
             .where(eq(workspaces.id, input.id))

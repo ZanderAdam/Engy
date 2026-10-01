@@ -3,6 +3,7 @@ import { getDb } from '../db/client';
 import { prs, workspaces } from '../db/schema';
 import type { GithubNotification } from '../github/notifications';
 import { resolveRepoFullName } from '../github/repo-identity';
+import { maybeStartAutoReview } from '../review/auto-review';
 import {
   fetchPrTimeline,
   sameLogin,
@@ -119,6 +120,18 @@ async function loadTimeline(
   }
 }
 
+function startAutoReview(
+  state: AppState,
+  workspaceId: number,
+  repoFullName: string,
+  prNumber: number,
+): void {
+  maybeStartAutoReview(state, { workspaceId, repoFullName, prNumber }).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[inbox] auto review failed for ${repoFullName}#${prNumber}: ${message}`);
+  });
+}
+
 export async function syncThread(
   ctx: ThreadSyncContext,
   thread: GithubNotification,
@@ -147,7 +160,10 @@ export async function syncThread(
     : undefined;
 
   for (const event of events) {
-    addEvent({ itemId: item.id, ...event, facts });
+    const isNew = addEvent({ itemId: item.id, ...event, facts });
+    if (isNew && event.kind === 'review_requested' && location) {
+      startAutoReview(ctx.state, location.workspaceId, repoFullName, prNumber);
+    }
   }
   if (facts) upsertItem({ ...base, facts });
 
