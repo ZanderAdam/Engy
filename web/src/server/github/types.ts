@@ -24,10 +24,11 @@ export interface GithubState {
   viewer: { login: string; scopes: string[] | null } | null;
   /** null until the first `GET /user` settles. */
   status: GithubStatus | null;
-  rateLimit: GithubRateLimit | null;
+  /** Keyed by GitHub rate limit resource: `core`, `graphql`, `search`. */
+  rateLimits: Map<string, GithubRateLimit>;
   viewerCheck: Promise<GithubStatus> | null;
 }
 
 export function createGithubState(): GithubState {
-  return { viewer: null, status: null, rateLimit: null, viewerCheck: null };
+  return { viewer: null, status: null, rateLimits: new Map(), viewerCheck: null };
 }

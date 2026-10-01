@@ -35,15 +35,23 @@ function resolveUrl(path: string): string {
   return path;
 }
 
-function recordRateLimit(state: AppState, headers: Headers): void {
+function rateLimitResource(path: string): string {
+  return /^(https?:\/\/[^/]+)?\/graphql(\?|$)/.test(path) ? 'graphql' : 'core';
+}
+
+function recordRateLimit(state: AppState, headers: Headers, fallbackResource: string): void {
   const remaining = headers.get('x-ratelimit-remaining');
   const reset = headers.get('x-ratelimit-reset');
   if (remaining === null || reset === null) return;
-  state.github.rateLimit = { remaining: Number(remaining), resetAt: Number(reset) * 1000 };
+  const resource = headers.get('x-ratelimit-resource') ?? fallbackResource;
+  state.github.rateLimits.set(resource, {
+    remaining: Number(remaining),
+    resetAt: Number(reset) * 1000,
+  });
 }
 
-function assertWithinRateLimit(state: AppState): void {
-  const limit = state.github.rateLimit;
+function assertWithinRateLimit(state: AppState, resource: string): void {
+  const limit = state.github.rateLimits.get(resource);
   if (!limit || limit.remaining >= RATE_LIMIT_FLOOR || limit.resetAt <= Date.now()) return;
   throw new GithubError(
     'rate_limited',
@@ -108,7 +116,8 @@ export async function githubTransport(
 ): Promise<GithubResponse> {
   const token = process.env.ENGY_GITHUB_TOKEN;
   if (!token) throw new GithubError('unauthorized', MISSING_TOKEN_MESSAGE);
-  assertWithinRateLimit(state);
+  const resource = rateLimitResource(request.path);
+  assertWithinRateLimit(state, resource);
 
   const url = resolveUrl(request.path);
   const hasBody = request.body !== undefined;
@@ -131,12 +140,16 @@ export async function githubTransport(
     throw new GithubError('network', `GitHub request failed: ${redactSecrets(reason)}`);
   }
 
-  recordRateLimit(state, res.headers);
+  recordRateLimit(state, res.headers, resource);
   const response: GithubResponse = {
     status: res.status,
     headers: res.headers,
     body: res.status === 304 ? null : await readBody(res),
   };
   if (res.status === 304 || res.ok) return response;
-  throw toGithubError(response);
+  const error = toGithubError(response);
+  if (error.kind === 'rate_limited' && error.resetAt !== null) {
+    state.github.rateLimits.set(resource, { remaining: 0, resetAt: error.resetAt });
+  }
+  throw error;
 }

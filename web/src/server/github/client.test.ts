@@ -168,21 +168,63 @@ describe('github client', () => {
 
       await githubRest(state, '/x');
 
-      expect(state.github.rateLimit).toEqual({ remaining: 4321, resetAt: 4102444800 * 1000 });
+      expect(state.github.rateLimits.get('core')).toEqual({
+        remaining: 4321,
+        resetAt: 4102444800 * 1000,
+      });
     });
 
     it('should back off without calling GitHub while below the floor', async () => {
-      state.github.rateLimit = { remaining: RATE_LIMIT_FLOOR - 1, resetAt: Date.now() + 60_000 };
+      state.github.rateLimits.set('core', {
+        remaining: RATE_LIMIT_FLOOR - 1,
+        resetAt: Date.now() + 60_000,
+      });
 
       const error = await caught(githubRest(state, '/x'));
 
       expect(error.kind).toBe('rate_limited');
-      expect(error.resetAt).toBe(state.github.rateLimit.resetAt);
+      expect(error.resetAt).toBe(state.github.rateLimits.get('core')?.resetAt);
+      expect(stub.requests).toHaveLength(0);
+    });
+
+    it('should track REST and GraphQL budgets separately', async () => {
+      stub.reply((req) => ({
+        body: req.url === '/graphql' ? { data: {} } : {},
+        headers: {
+          'x-ratelimit-remaining': req.url === '/graphql' ? '4000' : '2',
+          'x-ratelimit-reset': '4102444800',
+          'x-ratelimit-resource': req.url === '/graphql' ? 'graphql' : 'core',
+        },
+      }));
+
+      await githubRest(state, '/x');
+      await githubGraphql(state, '{ viewer { login } }');
+
+      expect(state.github.rateLimits.get('core')?.remaining).toBe(2);
+      expect(state.github.rateLimits.get('graphql')?.remaining).toBe(4000);
+      const error = await caught(githubRest(state, '/y'));
+      expect(error.kind).toBe('rate_limited');
+      await expect(githubGraphql(state, '{ viewer { login } }')).resolves.toEqual({});
+    });
+
+    it('should back off after a secondary rate limit error', async () => {
+      stub.reply(() => ({
+        status: 403,
+        body: { message: 'You have exceeded a secondary rate limit' },
+        headers: { 'retry-after': '120' },
+      }));
+      await caught(githubRest(state, '/x'));
+      stub.requests.length = 0;
+
+      const error = await caught(githubRest(state, '/x'));
+
+      expect(error.kind).toBe('rate_limited');
+      expect(error.resetAt).toBeGreaterThan(Date.now() + 100_000);
       expect(stub.requests).toHaveLength(0);
     });
 
     it('should resume once the reset time has passed', async () => {
-      state.github.rateLimit = { remaining: 0, resetAt: Date.now() - 1 };
+      state.github.rateLimits.set('core', { remaining: 0, resetAt: Date.now() - 1 });
 
       const result = await githubRest(state, '/x');
 

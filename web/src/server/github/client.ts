@@ -101,7 +101,7 @@ export async function githubGraphql<T = unknown>(
         throw new GithubError('forbidden', message);
       case 'RATE_LIMITED':
         throw new GithubError('rate_limited', message, {
-          resetAt: state.github.rateLimit?.resetAt,
+          resetAt: state.github.rateLimits.get('graphql')?.resetAt,
         });
       default:
         throw new GithubError('validation', message);
