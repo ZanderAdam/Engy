@@ -116,6 +116,7 @@ interface FetchTimelineInput {
   number: number;
   since: string | null;
   viewerLogin: string;
+  viewerTeamRequested?: boolean;
 }
 
 export function sameLogin(a: string | null | undefined, b: string): boolean {
@@ -175,18 +176,28 @@ function mapReview(node: TimelineNode, actor: string, viewerLogin: string): Time
   }
 }
 
+function isViewerRequested(
+  reviewer: Reviewer | null | undefined,
+  viewerLogin: string,
+  viewerTeamRequested: boolean,
+): boolean {
+  if (reviewer?.__typename === 'Team') return viewerTeamRequested;
+  return sameLogin(reviewer?.login, viewerLogin);
+}
+
 function mapReviewRequest(
   node: TimelineNode,
   actor: string,
   viewerLogin: string,
+  viewerTeamRequested: boolean,
 ): TimelineEvent | null {
-  if (!node.id || !node.createdAt || !sameLogin(node.requestedReviewer?.login, viewerLogin)) {
-    return null;
-  }
+  if (!node.id || !node.createdAt) return null;
+  if (!isViewerRequested(node.requestedReviewer, viewerLogin, viewerTeamRequested)) return null;
+  const isTeam = node.requestedReviewer?.__typename === 'Team';
   return {
     kind: 'review_requested',
     actor,
-    summary: `${actor} requested your review`,
+    summary: `${actor} requested ${isTeam ? "your team's" : 'your'} review`,
     url: null,
     at: node.createdAt,
     sourceKey: `gh:${node.id}`,
@@ -260,7 +271,11 @@ function mapCommitPushes(nodes: TimelineNode[], viewerLogin: string): TimelineEv
   return events.filter((event) => event.at !== '');
 }
 
-function mapNode(node: TimelineNode, viewerLogin: string): TimelineEvent | null {
+function mapNode(
+  node: TimelineNode,
+  viewerLogin: string,
+  viewerTeamRequested: boolean,
+): TimelineEvent | null {
   const actor = node.author?.login ?? node.actor?.login ?? null;
   if (actor !== null && sameLogin(actor, viewerLogin)) return null;
   const name = actor ?? 'Someone';
@@ -271,7 +286,7 @@ function mapNode(node: TimelineNode, viewerLogin: string): TimelineEvent | null 
     case 'PullRequestReview':
       return mapReview(node, name, viewerLogin);
     case 'ReviewRequestedEvent':
-      return mapReviewRequest(node, name, viewerLogin);
+      return mapReviewRequest(node, name, viewerLogin, viewerTeamRequested);
     case 'AssignedEvent':
       return mapAssignment(node, name, viewerLogin);
     case 'MergedEvent':
@@ -290,12 +305,13 @@ function mapNode(node: TimelineNode, viewerLogin: string): TimelineEvent | null 
 export function mapTimelineNodes(
   nodes: Array<TimelineNode | null>,
   viewerLogin: string,
+  viewerTeamRequested = false,
 ): TimelineEvent[] {
   const present = nodes.filter((node): node is TimelineNode => node !== null);
   const commits = present.filter((node) => node.__typename === 'PullRequestCommit');
   const events = present
     .filter((node) => node.__typename !== 'PullRequestCommit')
-    .map((node) => mapNode(node, viewerLogin))
+    .map((node) => mapNode(node, viewerLogin, viewerTeamRequested))
     .filter((event): event is TimelineEvent => event !== null);
   return [...events, ...mapCommitPushes(commits, viewerLogin)].sort((a, b) =>
     a.at.localeCompare(b.at),
@@ -313,6 +329,7 @@ export async function fetchPrTimeline(
   );
   const pr = data.repository?.pullRequest;
   if (!pr) return null;
+  const viewerTeamRequested = input.viewerTeamRequested ?? false;
 
   return {
     title: pr.title,
@@ -321,8 +338,8 @@ export async function fetchPrTimeline(
     reviewDecision: pr.reviewDecision,
     authorLogin: pr.author?.login ?? null,
     viewerReviewRequested: pr.reviewRequests.nodes.some((node) =>
-      sameLogin(node.requestedReviewer?.login, input.viewerLogin),
+      isViewerRequested(node.requestedReviewer, input.viewerLogin, viewerTeamRequested),
     ),
-    events: mapTimelineNodes(pr.timelineItems.nodes, input.viewerLogin),
+    events: mapTimelineNodes(pr.timelineItems.nodes, input.viewerLogin, viewerTeamRequested),
   };
 }

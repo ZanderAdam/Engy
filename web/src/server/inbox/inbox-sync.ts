@@ -110,6 +110,7 @@ async function loadTimeline(
       number: prNumber,
       since: ctx.lastSyncedAt ?? thread.last_read_at,
       viewerLogin: ctx.viewerLogin,
+      viewerTeamRequested: thread.reason === 'review_requested',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
