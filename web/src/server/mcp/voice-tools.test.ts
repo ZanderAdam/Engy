@@ -84,11 +84,14 @@ describe('MCP voice tools', () => {
   });
 
   describe('speak', () => {
-    it('[FR-TG2.24] should broadcast the utterance to the browser', async () => {
+    it('should broadcast the utterance to the browser', async () => {
       addSession(state, 'sess-1', 'ws');
       const sent = captureBroadcasts(state);
 
-      const { data, isError } = await callTool(makeMcp('sess-1'), 'speak')({
+      const { data, isError } = await callTool(
+        makeMcp('sess-1'),
+        'speak',
+      )({
         text: 'Tests are green.',
       });
 
@@ -110,7 +113,7 @@ describe('MCP voice tools', () => {
 
     // Speaking is opt-in per workspace. An agent that cannot be heard must be
     // told so, or it will believe the user got an answer they never heard.
-    it('[FR-TG2.24] should refuse and say so when spoken replies are off', async () => {
+    it('should refuse and say so when spoken replies are off', async () => {
       ctx.db.update(workspaces).set({ ttsEnabled: false }).run();
       addSession(state, 'sess-1', 'ws');
       const sent = captureBroadcasts(state);
@@ -121,7 +124,7 @@ describe('MCP voice tools', () => {
       expect(sent).toEqual([]);
     });
 
-    it('[FR-TG2.24] should refuse when voice input is off, even with TTS on', async () => {
+    it('should refuse when voice input is off, even with TTS on', async () => {
       ctx.db.update(workspaces).set({ voiceEnabled: false }).run();
       addSession(state, 'sess-1', 'ws');
 

@@ -185,7 +185,7 @@ describe('voice recognizer', () => {
     );
 
     it(
-      '[FR-TG2.12] should decode a segment and report wake:false when the wake word never fires',
+      'should decode a segment and report wake:false when the wake word never fires',
       async () => {
         wakeOnChunk = () => false;
         const pcm = readWavPcm16(FIXTURE_PATH);
@@ -216,7 +216,7 @@ describe('voice recognizer', () => {
     // trailing silence to give it that chance — measured to recover 3 of 10
     // real misses.
     it(
-      '[FR-TG2.11] should report a wake word that only emits once the turn closes',
+      'should report a wake word that only emits once the turn closes',
       async () => {
         wakeOnChunk = () => false;
         wakeOnFlush = true;
@@ -240,7 +240,7 @@ describe('voice recognizer', () => {
     );
 
     it(
-      '[FR-TG2.12] should report wake:true on a segment whose span contains a wake-word hit',
+      'should report wake:true on a segment whose span contains a wake-word hit',
       async () => {
         // The wake hit lands after the segment has already been speaking for
         // a while — still counts, because the whole span between VAD open
@@ -274,7 +274,7 @@ describe('voice recognizer', () => {
     );
 
     it(
-      '[FR-TG2.15] should call onWake the moment the wake word fires, independently of decode',
+      'should call onWake the moment the wake word fires, independently of decode',
       async () => {
         wakeOnChunk = () => true;
         const wakeCalls: number[] = [];

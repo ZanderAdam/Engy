@@ -19,7 +19,7 @@ describe('parseGithubRemote', () => {
     ['https://github.com/octo/repo/', 'octo/repo'],
     ['https://user:token@github.com/octo/repo.git', 'octo/repo'],
     ['  https://github.com/octo/my.repo.git\n', 'octo/my.repo'],
-  ])('[FR-TG1.5] should parse %s as %s', (url, expected) => {
+  ])('should parse %s as %s', (url, expected) => {
     expect(parseGithubRemote(url)).toBe(expected);
   });
 
@@ -32,7 +32,7 @@ describe('parseGithubRemote', () => {
     'https://github.com/octo/repo/extra',
     '/local/path/repo.git',
     '',
-  ])('[FR-TG1.5] should return null for %s', (url) => {
+  ])('should return null for %s', (url) => {
     expect(parseGithubRemote(url)).toBeNull();
   });
 });
@@ -45,14 +45,14 @@ describe('resolveRepoFullName', () => {
     dispatchSpy.mockReset();
   });
 
-  it('[FR-TG1.5] should resolve owner/name from the daemon-reported origin', async () => {
+  it('should resolve owner/name from the daemon-reported origin', async () => {
     dispatchSpy.mockResolvedValue({ url: 'git@github.com:octo/repo.git' });
 
     await expect(resolveRepoFullName(state, '/repo')).resolves.toBe('octo/repo');
     expect(dispatchSpy).toHaveBeenCalledWith('/repo', state);
   });
 
-  it('[FR-TG1.5] should cache per repo path', async () => {
+  it('should cache per repo path', async () => {
     dispatchSpy.mockResolvedValue({ url: 'https://github.com/octo/repo' });
 
     await resolveRepoFullName(state, '/repo');
@@ -62,7 +62,7 @@ describe('resolveRepoFullName', () => {
     expect(dispatchSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('[FR-TG1.5] should cache a non-github remote as null', async () => {
+  it('should cache a non-github remote as null', async () => {
     dispatchSpy.mockResolvedValue({ url: 'https://gitlab.com/octo/repo.git' });
 
     await expect(resolveRepoFullName(state, '/repo')).resolves.toBeNull();
@@ -70,7 +70,7 @@ describe('resolveRepoFullName', () => {
     expect(dispatchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('[FR-TG1.5] should not cache when the repo has no origin', async () => {
+  it('should not cache when the repo has no origin', async () => {
     dispatchSpy.mockResolvedValue({ url: null });
 
     await expect(resolveRepoFullName(state, '/repo')).resolves.toBeNull();
@@ -78,7 +78,7 @@ describe('resolveRepoFullName', () => {
     expect(dispatchSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('[FR-TG1.5] should not cache a daemon failure', async () => {
+  it('should not cache a daemon failure', async () => {
     dispatchSpy.mockRejectedValueOnce(new Error('No daemon connected'));
     dispatchSpy.mockResolvedValueOnce({ url: 'git@github.com:octo/repo.git' });
 

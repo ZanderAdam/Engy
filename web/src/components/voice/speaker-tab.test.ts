@@ -14,7 +14,7 @@ const focused = () => true;
 const unfocused = () => false;
 
 describe('speaker tab', () => {
-  it('[FR-TG2.30] should let only the last focused tab speak', () => {
+  it('should let only the last focused tab speak', () => {
     const storage = memoryStorage();
     const first = createSpeakerTab('ws', storage, 'first', focused);
     const second = createSpeakerTab('ws', storage, 'second', focused);
@@ -29,7 +29,7 @@ describe('speaker tab', () => {
     expect(second.isSpeaker()).toBe(false);
   });
 
-  it('[FR-TG2.30] should give each workspace its own speaker', () => {
+  it('should give each workspace its own speaker', () => {
     const storage = memoryStorage();
     const one = createSpeakerTab('one', storage, 'a', focused);
     const two = createSpeakerTab('two', storage, 'b', focused);
@@ -54,7 +54,7 @@ describe('speaker tab', () => {
     expect(background.isSpeaker()).toBe(false);
   });
 
-  it('[FR-TG2.30] should let only the focused tab speak when none owns playback', () => {
+  it('should let only the focused tab speak when none owns playback', () => {
     const storage = memoryStorage();
     const left = createSpeakerTab('ws', storage, 'left', focused);
     const right = createSpeakerTab('ws', storage, 'right', unfocused);

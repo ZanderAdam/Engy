@@ -50,7 +50,7 @@ describe('terminal actions', () => {
     // The numbers the rail shows while voice is on. Digits, number words, and
     // the recognizer's homophones for them all name the same terminal.
     it.each(['focus terminal 2', 'focus terminal two', 'focus terminal to'])(
-      '[FR-TG2.5] should focus by number via "%s"',
+      'should focus by number via "%s"',
       (phrase) => {
         runPhrase(TWO, phrase);
         expect(dispatched).toHaveLength(1);
@@ -66,7 +66,7 @@ describe('terminal actions', () => {
       'open terminal 2',
       'switch to terminal 2',
       'go to terminal 2',
-    ])('[FR-TG2.5] should focus via "%s"', (phrase) => {
+    ])('should focus via "%s"', (phrase) => {
       runPhrase(TWO, phrase);
       expect(dispatched).toHaveLength(1);
       expect(dispatched[0].detail).toEqual({ sessionId: 'sess-2' });
@@ -76,14 +76,17 @@ describe('terminal actions', () => {
     // phrases were compared joined, clearing the threshold and running the
     // wrong action — the shared word "terminal" hid the only word that
     // differs. Scoring by the worst word drops it to 0.25.
-    it('[FR-TG2.5] should not resolve a focus verb to the status action', () => {
-      const resolved = resolveAction('select terminal 2', createTerminalActions({ sessions: TWO, submit, ask }));
+    it('should not resolve a focus verb to the status action', () => {
+      const resolved = resolveAction(
+        'select terminal 2',
+        createTerminalActions({ sessions: TWO, submit, ask }),
+      );
       expect(resolved.matched).toBe(true);
       if (!resolved.matched) return;
       expect(resolved.result.action.id).toBe('voice.terminal.focus');
     });
 
-    it('[FR-TG2.5] should focus by label', () => {
+    it('should focus by label', () => {
       runPhrase(TWO, 'focus terminal build');
       expect(dispatched).toHaveLength(1);
       expect(dispatched[0].detail).toEqual({ sessionId: 'sess-1' });
@@ -112,7 +115,7 @@ describe('terminal actions', () => {
     // Dictation never auto-submits into a live agent terminal, so submitting
     // is its own spoken step.
     it.each(['send', 'send it', 'send message', 'submit', 'press enter'])(
-      '[FR-TG2.20] should press Enter via "%s"',
+      'should press Enter via "%s"',
       (phrase) => {
         let pressed = 0;
         submit = () => {
@@ -124,7 +127,7 @@ describe('terminal actions', () => {
       },
     );
 
-    it('[FR-TG2.20] should report when no terminal took the Enter', () => {
+    it('should report when no terminal took the Enter', () => {
       submit = () => false;
       expect(runPhrase(TWO, 'send')).toBe('No terminal took it.');
     });
@@ -135,7 +138,7 @@ describe('terminal actions', () => {
       ['send', 'voice.terminal.send'],
       ['submit', 'voice.terminal.send'],
       ['status', 'voice.terminal.status.all'],
-    ])('[FR-TG2.20] should resolve the one-word phrase "%s" to its own action', (phrase, id) => {
+    ])('should resolve the one-word phrase "%s" to its own action', (phrase, id) => {
       const resolved = resolveAction(phrase, createTerminalActions({ sessions: TWO, submit, ask }));
       expect(resolved.matched).toBe(true);
       if (!resolved.matched) return;
@@ -150,7 +153,7 @@ describe('terminal actions', () => {
       entry({ sessionId: 's3', label: 'docs', activity: 'active', detail: 'pnpm dev' }),
     ];
 
-    it('[FR-TG2.18] should report every terminal with its number', () => {
+    it('should report every terminal with its number', () => {
       const answer = runPhrase(MIXED, 'terminal status') ?? '';
       expect(answer).toContain('1. build');
       expect(answer).toContain('2. test');
@@ -158,7 +161,7 @@ describe('terminal actions', () => {
     });
 
     // A status readout is only useful if what needs the user is at the top.
-    it('[FR-TG2.18] should list a waiting terminal before idle ones', () => {
+    it('should list a waiting terminal before idle ones', () => {
       const lines = (runPhrase(MIXED, 'terminal status') ?? '').split('\n');
       expect(lines[0]).toContain('test');
       expect(lines[0]).toContain('waiting for you');
@@ -171,7 +174,7 @@ describe('terminal actions', () => {
 
     // Asking about a terminal is the start of talking to it, so the next
     // dictated words have to land there.
-    it('[FR-TG2.21] should focus the terminal it was asked about', () => {
+    it('should focus the terminal it was asked about', () => {
       runPhrase(MIXED, 'status of terminal 2');
       expect(dispatched).toHaveLength(1);
       expect(dispatched[0].detail).toEqual({ sessionId: 's2' });
@@ -179,7 +182,7 @@ describe('terminal actions', () => {
 
     // Only an agent can say what it is actually doing; a plain shell can only
     // be described from the outside.
-    it('[FR-TG2.21] should ask an agent terminal to answer out loud', () => {
+    it('should ask an agent terminal to answer out loud', () => {
       const sessions = [entry({ sessionId: 'a1', label: 'build', agentType: 'claude' })];
       const answer = runPhrase(sessions, 'status of terminal 1');
 
@@ -189,14 +192,14 @@ describe('terminal actions', () => {
       expect(answer).toBe('Asking build.');
     });
 
-    it('[FR-TG2.21] should describe a plain shell rather than prompting it', () => {
+    it('should describe a plain shell rather than prompting it', () => {
       const answer = runPhrase(MIXED, 'status of terminal 2');
       expect(asked).toEqual([]);
       expect(answer).toBe('2. test — waiting for you');
     });
 
     // A dead agent cannot answer, so asking it would hang silently.
-    it('[FR-TG2.21] should describe a stopped agent rather than asking it', () => {
+    it('should describe a stopped agent rather than asking it', () => {
       const sessions = [
         entry({ sessionId: 'a1', label: 'build', agentType: 'claude', stopped: true }),
       ];
@@ -204,12 +207,12 @@ describe('terminal actions', () => {
       expect(asked).toEqual([]);
     });
 
-    it('[FR-TG2.18] should report one terminal by number', () => {
+    it('should report one terminal by number', () => {
       const answer = runPhrase(MIXED, 'status of terminal 2');
       expect(answer).toBe('2. test — waiting for you');
     });
 
-    it('[FR-TG2.18] should report one terminal by label', () => {
+    it('should report one terminal by label', () => {
       expect(runPhrase(MIXED, 'status of terminal docs')).toContain('3. docs — running');
     });
 

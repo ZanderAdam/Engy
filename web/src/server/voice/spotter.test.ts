@@ -83,7 +83,7 @@ describe('wake-word spotter', () => {
     // full threshold/boost sweep: 0/70 false accepts at every operating
     // point tried, including the shipped one.
     it(
-      '[FR-TG2.11] should not fire on real recordings that never say the wake word',
+      'should not fire on real recordings that never say the wake word',
       async () => {
         const fixturePath = path.join(__dirname, 'fixture.wav');
         const negativePaths = [fixturePath, ...listDumps(WAKE_WORD_DUMP_CUTOFF, 10)];
@@ -102,7 +102,7 @@ describe('wake-word spotter', () => {
     // wake word, of which 16 are accepted — so this asserts one known-good
     // recording still fires, not a rate.
     it(
-      '[FR-TG2.11] should fire on a real recording of the wake word',
+      'should fire on a real recording of the wake word',
       async () => {
         const fired = await feedAll(
           chunkPcm(readWavPcm16(path.join(__dirname, 'wake-fixture.wav'))),

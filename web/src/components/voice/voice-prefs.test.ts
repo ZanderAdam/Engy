@@ -9,11 +9,11 @@ describe('voice prefs', () => {
     localStorage.clear();
   });
 
-  it('[FR-TG2.33] should default to normal speed', () => {
+  it('should default to normal speed', () => {
     expect(readPlaybackRate()).toBe(1);
   });
 
-  it('[FR-TG2.33] should remember a chosen speed', () => {
+  it('should remember a chosen speed', () => {
     writePlaybackRate(1.5);
 
     expect(readPlaybackRate()).toBe(1.5);
@@ -36,7 +36,7 @@ describe('voice prefs', () => {
     }
   });
 
-  it('[FR-TG2.33] should play replies at the chosen speed', () => {
+  it('should play replies at the chosen speed', () => {
     const created: { playbackRate: number }[] = [];
     class FakeAudio {
       playbackRate = 1;
@@ -61,11 +61,11 @@ describe('voice prefs', () => {
     }
   });
 
-  it('[FR-TG2.34] should default to the default voice', () => {
+  it('should default to the default voice', () => {
     expect(readVoiceId()).toBe(DEFAULT_VOICE_ID);
   });
 
-  it('[FR-TG2.34] should remember a chosen voice', () => {
+  it('should remember a chosen voice', () => {
     writeVoiceId('alan');
 
     expect(readVoiceId()).toBe('alan');

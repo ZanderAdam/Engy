@@ -229,7 +229,7 @@ describe('voice WebSocket server', () => {
     await closeServer(server);
   });
 
-  it('[FR-TG1.9] refuses a turn for a workspace whose voice was switched off', async () => {
+  it('refuses a turn for a workspace whose voice was switched off', async () => {
     const ws = await connectVoice(port, DISABLED_SLUG);
     const events = collectEvents(ws);
 
@@ -361,7 +361,7 @@ describe('voice WebSocket server', () => {
   });
 
   it(
-    '[FR-TG2.16] decodes and reports every segment even when the wake word never fires, but reports no voice_wake',
+    'decodes and reports every segment even when the wake word never fires, but reports no voice_wake',
     async () => {
       wakeOnChunk = () => false;
       const pcm = readWavPcm16(FIXTURE_PATH);
@@ -384,7 +384,7 @@ describe('voice WebSocket server', () => {
   );
 
   it(
-    '[FR-TG2.12] reports voice_segment.wake true for a segment whose span saw the wake word fire',
+    'reports voice_segment.wake true for a segment whose span saw the wake word fire',
     async () => {
       // wakeOnChunk fires on every chunk in the default beforeEach setup.
       const pcm = readWavPcm16(FIXTURE_PATH);
@@ -405,7 +405,7 @@ describe('voice WebSocket server', () => {
   );
 
   it(
-    '[FR-TG2.15] reports voice_wake distinctly from, and ahead of, the decoded voice_segment',
+    'reports voice_wake distinctly from, and ahead of, the decoded voice_segment',
     async () => {
       // wakeOnChunk fires on every chunk in the default beforeEach setup —
       // exactly what's needed here: assert voice_wake precedes voice_segment

@@ -46,7 +46,7 @@ describe('resolve', () => {
       ['Engie select project web', 'phonetic variant'],
       ['NG select project web', 'collapsed to two letters'],
       ['N G select project web', 'spelled out'],
-    ])('[FR-TG2.13] should strip the wake word from "%s" (%s)', (transcript) => {
+    ])('should strip the wake word from "%s" (%s)', (transcript) => {
       expect(stripWakeWord(transcript, 'ANGIE')).toBe('select project web');
     });
 
@@ -74,16 +74,13 @@ describe('resolve', () => {
       'and open the tasks page',
       'end the session now',
       'okay let us begin',
-    ])(
-      '[FR-TG2.13] should not mistake the leading word in "%s" for the wake word',
-      (transcript) => {
-        expect(stripWakeWord(transcript, 'ANGIE')).toBe(transcript);
-      },
-    );
+    ])('should not mistake the leading word in "%s" for the wake word', (transcript) => {
+      expect(stripWakeWord(transcript, 'ANGIE')).toBe(transcript);
+    });
   });
 
   describe('resolveAction', () => {
-    it('[FR-TG2.1] should resolve a registered action by its exact declared phrase', () => {
+    it('should resolve a registered action by its exact declared phrase', () => {
       expectResolved(resolveAction('help', actions), {
         action: helpAction,
         phrase: 'help',
@@ -93,7 +90,7 @@ describe('resolve', () => {
       });
     });
 
-    it('[FR-TG2.1] should extract a parameter value from a templated phrase', () => {
+    it('should extract a parameter value from a templated phrase', () => {
       expectResolved(resolveAction('select project web', actions), {
         action: selectProjectAction,
         params: { name: 'web' },
@@ -101,7 +98,7 @@ describe('resolve', () => {
       });
     });
 
-    it('[FR-TG2.3] should fall back to a phonetic match when no phrase matches exactly', () => {
+    it('should fall back to a phonetic match when no phrase matches exactly', () => {
       const result = resolveAction('show voice hell', actions);
       expectResolved(result, { action: helpAction, tier: 'phonetic' });
       if (result.matched) {
@@ -120,15 +117,15 @@ describe('resolve', () => {
       expect(withDefault).toEqual(withExplicitDefault);
     });
 
-    it('[FR-TG2.3] should reject an unrelated transcript rather than guessing', () => {
+    it('should reject an unrelated transcript rather than guessing', () => {
       expectRejected(resolveAction('completely unrelated request', actions), 'no_match');
     });
 
-    it('[FR-TG2.3] should reject an empty transcript', () => {
+    it('should reject an empty transcript', () => {
       expectRejected(resolveAction('   ', actions), 'empty');
     });
 
-    it('[FR-TG2.3] should reject when no actions are registered', () => {
+    it('should reject when no actions are registered', () => {
       expectRejected(resolveAction('help', []), 'no_actions');
     });
 
@@ -137,7 +134,7 @@ describe('resolve', () => {
       ['select project n g web', 'n g web'],
       ['select project energy web', 'energy web'],
     ])(
-      '[FR-TG2.3] should resolve "%s", a mangled transcription of the "engy-web" slug',
+      'should resolve "%s", a mangled transcription of the "engy-web" slug',
       (transcript, expectedParam) => {
         const result = resolveAction(transcript, actions);
         expect(result.matched).toBe(true);
@@ -148,7 +145,7 @@ describe('resolve', () => {
       },
     );
 
-    it('[FR-TG2.3] should prefer a literal phrase over a competing templated capture, regardless of registration order', () => {
+    it('should prefer a literal phrase over a competing templated capture, regardless of registration order', () => {
       const projectSettingsAction: VoiceAction = {
         id: 'nav.project-settings',
         title: 'Project settings',
@@ -186,7 +183,7 @@ describe('resolve', () => {
   });
 
   describe('VoiceActionRegistry', () => {
-    it('[FR-TG2.1] should register and list an action', () => {
+    it('should register and list an action', () => {
       const registry = new VoiceActionRegistry();
       registry.register(helpAction);
       expect(registry.list()).toEqual([helpAction]);

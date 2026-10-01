@@ -35,7 +35,7 @@ function readWavHeader(wav: Buffer) {
 describe('voice tts', () => {
   describe('synthesize', () => {
     it(
-      '[FR-TG2.23] should render text as a playable mono 16-bit WAV',
+      'should render text as a playable mono 16-bit WAV',
       async () => {
         const wav = await synthesize('Focused build.');
         const header = readWavHeader(wav);
@@ -54,7 +54,7 @@ describe('voice tts', () => {
     );
 
     it(
-      '[FR-TG2.23] should return byte-identical audio for repeated text',
+      'should return byte-identical audio for repeated text',
       async () => {
         // Acknowledgements repeat constantly, so they are cached.
         const a = await synthesize('Sent.');
@@ -85,7 +85,7 @@ describe('voice tts', () => {
     );
 
     it(
-      '[FR-TG2.23] should cap an over-long input rather than speaking all of it',
+      'should cap an over-long input rather than speaking all of it',
       async () => {
         const long = `${'word '.repeat(400)}`;
         expect(long.length).toBeGreaterThan(MAX_SPEAK_CHARS);

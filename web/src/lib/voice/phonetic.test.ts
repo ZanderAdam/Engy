@@ -63,7 +63,7 @@ describe('phonetic', () => {
       ['n g web', 0.75],
       ['energy web', 0.75],
     ])(
-      '[FR-TG2.3] should score the STT mangle "%s" of "engy-web" above the match threshold',
+      'should score the STT mangle "%s" of "engy-web" above the match threshold',
       (mangled, minScore) => {
         expect(phoneticSimilarity('engy-web', mangled)).toBeGreaterThanOrEqual(minScore);
       },

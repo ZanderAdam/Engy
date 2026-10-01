@@ -60,7 +60,7 @@ describe('terminal-session-store', () => {
 
     // Voice numbers terminals by this list, so a scope the user has open in a
     // second dock must not restart the numbering at 1.
-    it('[FR-TG2.5] should flatten every published scope into one numbered list', () => {
+    it('should flatten every published scope into one numbered list', () => {
       publishTerminalSessions(A, { tabs: [makeTab('a1'), makeTab('a2')], activeId: 'a1' });
       publishTerminalSessions(B, { tabs: [makeTab('b1')], activeId: null });
 

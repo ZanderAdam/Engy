@@ -15,7 +15,7 @@ describe('SpeechQueue', () => {
   // The whole reason this class exists: an action acknowledgement and an
   // agent's speak call can land in the same instant, and two voices at once
   // are unintelligible.
-  it('[FR-TG2.22] should play one utterance at a time, in order', async () => {
+  it('should play one utterance at a time, in order', async () => {
     const playing: string[] = [];
     const gates = [deferred(), deferred()];
     let index = 0;
@@ -39,7 +39,7 @@ describe('SpeechQueue', () => {
 
   // Without this the items of a status readout run together: the voice's own
   // longest pause is ~0.15s regardless of punctuation.
-  it('[FR-TG2.26] should wait between utterances, but not after the last', async () => {
+  it('should wait between utterances, but not after the last', async () => {
     const events: string[] = [];
     const queue = new SpeechQueue({
       gapMs: 200,
@@ -85,7 +85,7 @@ describe('SpeechQueue', () => {
     expect(wait).toHaveBeenCalledWith(200);
   });
 
-  it('[FR-TG2.22] should ignore an empty url', () => {
+  it('should ignore an empty url', () => {
     const play = vi.fn(async () => {});
     const queue = new SpeechQueue({ play });
     queue.enqueue('');
@@ -93,7 +93,7 @@ describe('SpeechQueue', () => {
   });
 
   // One failure must not strand everything queued behind it.
-  it('[FR-TG2.22] should keep draining after an utterance fails', async () => {
+  it('should keep draining after an utterance fails', async () => {
     const played: string[] = [];
     const errors: string[] = [];
     const queue = new SpeechQueue({
@@ -145,7 +145,7 @@ describe('speakUrl', () => {
     expect(params.get('text')).toBe('Focused build & test?');
   });
 
-  it('[FR-TG2.34] should carry the chosen voice', () => {
+  it('should carry the chosen voice', () => {
     const url = speakUrl('ws', 'Hello.', 'alan');
     const params = new URLSearchParams(url.split('?')[1]);
     expect(params.get('voice')).toBe('alan');
