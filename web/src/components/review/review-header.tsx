@@ -84,7 +84,7 @@ export function ReviewHeader({
           <span className="text-green-500">+{detail.additions}</span>{' '}
           <span className="text-red-500">−{detail.deletions}</span>
         </span>
-        <span className="ml-auto flex items-center gap-2">
+        <span className="ml-auto flex flex-wrap items-center gap-2">
           <Button variant="outline" size="xs" asChild>
             <a href={detail.url} target="_blank" rel="noopener noreferrer">
               <RiExternalLinkLine className="size-3" />
