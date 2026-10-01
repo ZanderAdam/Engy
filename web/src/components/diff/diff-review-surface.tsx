@@ -310,6 +310,12 @@ export function DiffReviewSurface({
   // The stack scrolls to whatever the list last selected; the list highlights
   // whatever the stack last scrolled past. Keeping the two in separate state is
   // what stops them driving each other in a loop.
+  const selectFileByPath = (path: string) => {
+    const file = files.find((f) => f.path === path);
+    if (!file) return;
+    tabs.open(encodeSelection(path, sided ? (file.staged ? 'staged' : 'unstaged') : null));
+  };
+
   const scrollToRowId = selectedFileData ? rowId(selectedFileData) : null;
   const listSelection = reviewMode === 'stack' ? (visibleRowId ?? tabs.active) : tabs.active;
 
@@ -401,6 +407,7 @@ export function DiffReviewSurface({
                   currentFileComments.filter((c) => c.source === 'agent' && !c.resolved).length
                 }
                 onDelete={remove}
+                onSelectFile={selectFileByPath}
               />
               {reviewMode === 'single' && <EditorTabsBar tabs={tabs} />}
               {!repoDir ? (

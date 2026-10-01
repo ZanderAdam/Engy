@@ -22,7 +22,6 @@ import { diffScopePrefix } from '@/lib/diff-doc-path';
 // comment.listThreadsByPrefix with no workspaceSlug, which filters on
 // `workspaceId IS NULL` — a workspace-scoped thread would be invisible to it.
 
-
 const severityField = z
   .enum(['critical', 'high', 'medium'])
   .describe(
@@ -46,7 +45,9 @@ const diffReviewCommentInput = {
   repoDir: repoDirField,
   filePath: z.string().min(1).describe('Path of the file, relative to the repo root'),
   lineNumber: z.number().int().positive().describe("Line number in its own side's numbering"),
-  codeLine: z.string().describe('Text of the line, so the finding survives being read out of context'),
+  codeLine: z
+    .string()
+    .describe('Text of the line, so the finding survives being read out of context'),
   side: z
     .enum(['modified', 'original'])
     .default('modified')
@@ -72,6 +73,35 @@ const diffReviewResolveInput = {
   threadId: z.string().min(1).describe('Thread id from diff_review_list'),
 };
 
+const riskField = z
+  .object({
+    level: z
+      .enum(['low', 'typical', 'high', 'very_high'])
+      .describe('How likely the change breaks something, weighed by how much depends on it'),
+    reason: z
+      .string()
+      .min(1)
+      .max(300)
+      .describe('One or two sentences naming what drives the level'),
+  })
+  .optional();
+
+const readingOrderField = z
+  .array(
+    z.object({
+      title: z.string().min(1).max(120).describe('Chapter name, e.g. "Core change"'),
+      files: z
+        .array(z.string().min(1))
+        .min(1)
+        .max(50)
+        .describe('Repo-relative paths in this chapter'),
+      note: z.string().min(1).max(300).describe('One line on what to look for'),
+    }),
+  )
+  .max(20)
+  .optional()
+  .describe('Ordered chapters: core change first, then supporting code, then tests and glue');
+
 const diffReviewSummaryInput = {
   repoDir: repoDirField,
   summary: z
@@ -80,6 +110,8 @@ const diffReviewSummaryInput = {
     .describe(
       'Markdown read before any file: a three-sentence overview, the order to read the changed files in and what to check in each, architectural decisions and why, breaking-change risk, then anything not worth anchoring inline',
     ),
+  risk: riskField,
+  readingOrder: readingOrderField,
 };
 
 const diffReviewListInput = {
@@ -132,13 +164,24 @@ function authorMetadata(callerTerminalSessionId?: string) {
   };
 }
 
-function insertThread(documentPath: string, metadata: Record<string, unknown>, body: string): string {
+function insertThread(
+  documentPath: string,
+  metadata: Record<string, unknown>,
+  body: string,
+): string {
   const db = getDb();
   const threadId = randomId();
   const now = new Date().toISOString();
 
   db.insert(commentThreads)
-    .values({ id: threadId, workspaceId: null, documentPath, metadata, createdAt: now, updatedAt: now })
+    .values({
+      id: threadId,
+      workspaceId: null,
+      documentPath,
+      metadata,
+      createdAt: now,
+      updatedAt: now,
+    })
     .run();
   db.insert(threadComments)
     .values({
@@ -222,7 +265,12 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
 
       const threadId = insertThread(
         path,
-        { type: 'review-summary', ...authorMetadata(callerTerminalSessionId) },
+        {
+          type: 'review-summary',
+          ...authorMetadata(callerTerminalSessionId),
+          ...(args.risk ? { risk: args.risk } : {}),
+          ...(args.readingOrder ? { readingOrder: args.readingOrder } : {}),
+        },
         args.summary,
       );
       broadcastCommentChange(path, threadId);
@@ -286,10 +334,15 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
         };
       });
 
-      const summary = threads.find((t) => t.type === 'review-summary');
+      const summaryRow = rows.find(
+        (row) => (row.metadata as Record<string, unknown>)?.type === 'review-summary',
+      );
+      const summaryMeta = (summaryRow?.metadata ?? {}) as Record<string, unknown>;
       return mcpResult({
         threads,
-        summary: summary ? summary.body : null,
+        summary: summaryRow ? firstCommentBody(summaryRow.id) : null,
+        risk: summaryMeta.risk ?? null,
+        readingOrder: summaryMeta.readingOrder ?? null,
       });
     },
   );

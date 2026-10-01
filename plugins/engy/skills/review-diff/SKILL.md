@@ -32,7 +32,7 @@ If either input is missing, ask for it — do not guess a scope.
   failureScenario, suggestedFix? })` — one anchored finding. `side` is `'modified'` (default) or
   `'original'`; only use `'original'` for a deleted line, which has no line on the new side to
   anchor to. `lineNumber` is in that side's own numbering.
-- `diff_review_summary({ repoDir, summary })` — the single unanchored summary shown above the first
+- `diff_review_summary({ repoDir, summary, risk?, readingOrder? })` — the single unanchored summary shown above the first
   file. Replaces any previous summary; anchored findings are untouched.
 
 ## Process
@@ -110,6 +110,14 @@ Every anchored finding needs:
 4. Impact / breaking-change assessment.
 5. Observations not worth anchoring — style, minor naming, test-coverage nags, speculative refactor
    ideas, anything Medium-or-below that didn't earn a line above.
+
+Also pass two structured fields on the same call:
+- `risk: { level, reason }` — `level` is `low`, `typical`, `high` or `very_high`: how likely the
+  change breaks something, and how much depends on what it touches. `reason` is one or two
+  sentences (max 300 characters) naming what drives the level.
+- `readingOrder: [{ title, files, note }]` — max 20 chapters. Core change first, then supporting
+  code, then tests and glue. Group related files into one chapter, one-line `note` each on what to
+  check. `files` are repo-relative paths from the diff.
 
 Call `diff_review_summary` once with the full text — it replaces whatever summary is already there.
 
