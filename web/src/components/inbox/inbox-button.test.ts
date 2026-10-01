@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { formatInboxBadge } from './inbox-button';
 
-describe('formatInboxBadge', () => {
+describe('[FR-INBOX-410] formatInboxBadge', () => {
   it('should hide the badge at zero', () => {
     expect(formatInboxBadge(0)).toBeNull();
   });

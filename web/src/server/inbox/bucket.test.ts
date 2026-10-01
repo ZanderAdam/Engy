@@ -10,7 +10,7 @@ import {
 } from './bucket';
 
 describe('bucket rules', () => {
-  describe('computeBucket', () => {
+  describe('[FR-INBOX-010] computeBucket', () => {
     const cases: [keyof BucketFacts | null, InboxBucket][] = [
       [null, 'other'],
       ['reviewRequestedNotGiven', 'priority'],
@@ -33,7 +33,7 @@ describe('bucket rules', () => {
     });
   });
 
-  describe('wakesSnooze', () => {
+  describe('[FR-INBOX-020] wakesSnooze', () => {
     const cases: [InboxEventKind, InboxBucket, boolean][] = [
       ['review_requested', 'priority', true],
       ['mentioned', 'priority', true],
@@ -56,7 +56,7 @@ describe('bucket rules', () => {
     });
   });
 
-  describe('isSnoozeDue', () => {
+  describe('[FR-INBOX-030] isSnoozeDue', () => {
     const now = new Date('2026-01-10T12:00:00.000Z');
     const cases: [string | null, boolean][] = [
       [null, false],

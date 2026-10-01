@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseGuideSource, parseReadingOrder, parseRisk } from './review-summary-meta';
 
 describe('review-summary-meta', () => {
-  describe('parseRisk', () => {
+  describe('[FR-PRREVIEW-200] parseRisk', () => {
     it('should keep a known level with its reason', () => {
       expect(parseRisk({ level: 'very_high', reason: 'Schema change' })).toEqual({
         level: 'very_high',
@@ -21,7 +21,7 @@ describe('review-summary-meta', () => {
     });
   });
 
-  describe('parseReadingOrder', () => {
+  describe('[FR-PRREVIEW-200] parseReadingOrder', () => {
     it('should keep well-formed chapters in order', () => {
       const chapters = [
         { title: 'Core', files: ['a.ts'], note: 'start here' },
@@ -42,7 +42,7 @@ describe('review-summary-meta', () => {
     });
   });
 
-  describe('parseGuideSource', () => {
+  describe('[FR-PRREVIEW-210] parseGuideSource', () => {
     it('should accept the two known sources', () => {
       expect(parseGuideSource('default')).toBe('default');
       expect(parseGuideSource('project')).toBe('project');

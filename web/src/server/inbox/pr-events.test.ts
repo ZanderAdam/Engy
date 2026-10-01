@@ -48,7 +48,7 @@ function ciChange(previous: string | null, current: string): MaterialChange {
   return { number: 7, repo: '/repo', type: 'ciStatus', previous, current };
 }
 
-describe('bucketFactsForPr', () => {
+describe('[FR-INBOX-040] bucketFactsForPr', () => {
   it('should flag a review request on a PR the viewer did not author', () => {
     const row = makeRow({ authoredByViewer: false, reviewRequests: ['me', 'bob'] });
     expect(bucketFactsForPr(row, 'me').reviewRequestedNotGiven).toBe(true);
@@ -154,7 +154,7 @@ describe('mapPrChange', () => {
   });
 });
 
-describe('mapAttention', () => {
+describe('[FR-INBOX-050] mapAttention', () => {
   it('should emit auto_fix_attention with the shared label', () => {
     expect(mapAttention(makeRow(), 'non-mechanical')).toEqual([
       {
@@ -171,7 +171,7 @@ describe('mapAttention', () => {
   });
 });
 
-describe('inbox recording', () => {
+describe('[FR-INBOX-060] inbox recording', () => {
   let ctx: TestContext;
   let workspaceId: number;
 

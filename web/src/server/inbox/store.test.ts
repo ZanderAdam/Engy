@@ -63,7 +63,7 @@ describe('inbox store', () => {
   }
 
   describe('upsertItem', () => {
-    it('should create an unread item in the other bucket by default', () => {
+    it('[FR-INBOX-070] should create an unread item in the other bucket by default', () => {
       const item = upsertItem(itemInput(), NOW);
 
       expect(item).toMatchObject({
@@ -77,7 +77,7 @@ describe('inbox store', () => {
       });
     });
 
-    it('should return the same row for the same repo and PR number', () => {
+    it('[FR-INBOX-070] should return the same row for the same repo and PR number', () => {
       const first = upsertItem(itemInput(), NOW);
       const second = upsertItem(itemInput({ title: 'New title', githubThreadId: '42' }), NOW);
 
@@ -87,7 +87,7 @@ describe('inbox store', () => {
       expect(ctx.db.select().from(inboxItems).all()).toHaveLength(1);
     });
 
-    it('should keep existing optional fields when the update omits them', () => {
+    it('[FR-INBOX-070] should keep existing optional fields when the update omits them', () => {
       const wsId = seedWorkspace('a');
       upsertItem(itemInput({ githubThreadId: '42', workspaceId: wsId, repoPath: '/repo' }), NOW);
 
@@ -96,7 +96,7 @@ describe('inbox store', () => {
       expect(updated).toMatchObject({ githubThreadId: '42', workspaceId: wsId, repoPath: '/repo' });
     });
 
-    it('should recompute the bucket from facts', () => {
+    it('[FR-INBOX-080] should recompute the bucket from facts', () => {
       const item = upsertItem(itemInput({ facts: PRIORITY_FACTS }), NOW);
       expect(item.bucket).toBe('priority');
 
@@ -104,7 +104,7 @@ describe('inbox store', () => {
       expect(cleared.bucket).toBe('other');
     });
 
-    it('should keep priority while a mention event is unread', () => {
+    it('[FR-INBOX-080] should keep priority while a mention event is unread', () => {
       const item = upsertItem(itemInput(), NOW);
       addEvent(event(item.id, 'mentioned', '2026-03-01T11:00:00.000Z'), NOW);
 
@@ -114,12 +114,12 @@ describe('inbox store', () => {
       expect(upsertItem(itemInput({ facts: NO_BUCKET_FACTS }), NOW).bucket).toBe('other');
     });
 
-    it('should keep the bucket when no facts are given', () => {
+    it('[FR-INBOX-080] should keep the bucket when no facts are given', () => {
       upsertItem(itemInput({ facts: PRIORITY_FACTS }), NOW);
       expect(upsertItem(itemInput(), NOW).bucket).toBe('priority');
     });
 
-    it('should broadcast on create and on bucket change only', () => {
+    it('[FR-INBOX-070] should broadcast on create and on bucket change only', () => {
       upsertItem(itemInput(), NOW);
       expect(broadcastSpy).toHaveBeenCalledTimes(1);
 
@@ -132,7 +132,7 @@ describe('inbox store', () => {
   });
 
   describe('addEvent', () => {
-    it('should store the event and mark the item unread with the latest reason', () => {
+    it('[FR-INBOX-090] should store the event and mark the item unread with the latest reason', () => {
       const item = upsertItem(itemInput(), NOW);
       markRead(item.id, NOW);
 
@@ -147,7 +147,7 @@ describe('inbox store', () => {
       expect(ctx.db.select().from(inboxEvents).all()).toHaveLength(1);
     });
 
-    it('should ignore an event with a known sourceKey', () => {
+    it('[FR-INBOX-090] should ignore an event with a known sourceKey', () => {
       const item = upsertItem(itemInput(), NOW);
       addEvent(event(item.id, 'commented', '2026-03-02T00:00:00.000Z', 'same'), NOW);
       markRead(item.id, NOW);
@@ -161,7 +161,7 @@ describe('inbox store', () => {
       expect(broadcastSpy).not.toHaveBeenCalled();
     });
 
-    it('should not move lastEventAt backwards for an older event', () => {
+    it('[FR-INBOX-090] should not move lastEventAt backwards for an older event', () => {
       const item = upsertItem(itemInput(), NOW);
       addEvent(event(item.id, 'commented', '2026-03-05T00:00:00.000Z'), NOW);
 
@@ -170,7 +170,7 @@ describe('inbox store', () => {
       expect(getItem(item.id).lastEventAt).toBe('2026-03-05T00:00:00.000Z');
     });
 
-    it('should bring back a done item', () => {
+    it('[FR-INBOX-090] should bring back a done item', () => {
       const item = upsertItem(itemInput(), NOW);
       markDone(item.id, NOW);
 
@@ -179,7 +179,7 @@ describe('inbox store', () => {
       expect(getItem(item.id)).toMatchObject({ doneAt: null, unread: true });
     });
 
-    it('should recompute the bucket when facts are given', () => {
+    it('[FR-INBOX-080] should recompute the bucket when facts are given', () => {
       const item = upsertItem(itemInput(), NOW);
 
       addEvent({ ...event(item.id, 'mentioned', NOW.toISOString()), facts: PRIORITY_FACTS }, NOW);
@@ -187,13 +187,13 @@ describe('inbox store', () => {
       expect(getItem(item.id).bucket).toBe('priority');
     });
 
-    it('should throw a clear error for an unknown item', () => {
+    it('[FR-INBOX-090] should throw a clear error for an unknown item', () => {
       expect(() => addEvent(event(999, 'commented', NOW.toISOString()), NOW)).toThrow(
         'Inbox item 999 does not exist',
       );
     });
 
-    describe('with a snoozed item', () => {
+    describe('[FR-INBOX-100] with a snoozed item', () => {
       const until = new Date(NOW.getTime() + HOUR_MS);
       const cases: [InboxEventKind, boolean, boolean][] = [
         ['mentioned', true, true],
@@ -223,7 +223,7 @@ describe('inbox store', () => {
       );
     });
 
-    it('should broadcast the item id and the new unread priority count', () => {
+    it('[FR-INBOX-110] should broadcast the item id and the new unread priority count', () => {
       const item = upsertItem(itemInput(), NOW);
       broadcastSpy.mockClear();
 
@@ -233,7 +233,7 @@ describe('inbox store', () => {
     });
   });
 
-  describe('read state', () => {
+  describe('[FR-INBOX-120] read state', () => {
     it('should mark an item read and unread', () => {
       const item = upsertItem(itemInput(), NOW);
 
@@ -285,7 +285,7 @@ describe('inbox store', () => {
     });
   });
 
-  describe('markDone and snooze', () => {
+  describe('[FR-INBOX-130] markDone and snooze', () => {
     it('should mark an item done, read and unsnoozed', () => {
       const item = upsertItem(itemInput(), NOW);
       snooze(item.id, new Date(NOW.getTime() + HOUR_MS), NOW);
@@ -308,7 +308,7 @@ describe('inbox store', () => {
     });
   });
 
-  describe('wakeDueSnoozes', () => {
+  describe('[FR-INBOX-140] wakeDueSnoozes', () => {
     it('should wake only items whose snooze has passed and mark them unread', () => {
       const due = upsertItem(itemInput({ prNumber: 1 }), NOW);
       const later = upsertItem(itemInput({ prNumber: 2 }), NOW);
@@ -339,7 +339,7 @@ describe('inbox store', () => {
     });
   });
 
-  describe('pruneDone', () => {
+  describe('[FR-INBOX-150] pruneDone', () => {
     it('should delete items done for more than 30 days with their events', () => {
       const old = upsertItem(itemInput({ prNumber: 1 }), NOW);
       const recent = upsertItem(itemInput({ prNumber: 2 }), NOW);
@@ -357,7 +357,7 @@ describe('inbox store', () => {
     });
   });
 
-  describe('listItems', () => {
+  describe('[FR-INBOX-160] listItems', () => {
     it('should sort unread first, then newest event first', () => {
       const readNew = upsertItem(itemInput({ prNumber: 1 }), NOW);
       const unreadOld = upsertItem(itemInput({ prNumber: 2 }), NOW);
@@ -394,7 +394,7 @@ describe('inbox store', () => {
     });
   });
 
-  describe('getInboxCounts', () => {
+  describe('[FR-INBOX-170] getInboxCounts', () => {
     it('should count unread priority items in total and per workspace', () => {
       const wsA = seedWorkspace('a');
       const wsB = seedWorkspace('b');

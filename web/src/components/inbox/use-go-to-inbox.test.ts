@@ -5,7 +5,7 @@ function key(k: string, extra: Partial<ChordKey> = {}): ChordKey {
   return { key: k, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...extra };
 }
 
-describe('advanceChord', () => {
+describe('[FR-INBOX-400] advanceChord', () => {
   it('should arm on g', () => {
     expect(advanceChord(IDLE_CHORD, key('g'), 100)).toEqual({
       state: { armedAt: 100 },

@@ -192,7 +192,7 @@ describe('inbox router', () => {
           .run();
       }
 
-      it('[FR-PRMON-040] should return the project slug of the session that worked on the PR branch', async () => {
+      it('[FR-INBOX-390] [FR-PRMON-040] should return the project slug of the session that worked on the PR branch', async () => {
         const item = createRepoItem();
         trackBranch(item.prNumber, 'feat/a');
         seedSession('feat/a', `${REPO_PATH}/.worktrees/engy-session-1`);
@@ -202,7 +202,7 @@ describe('inbox router', () => {
         expect(listed.projectSlug).toBe('auth');
       });
 
-      it('should be null when no session worked on the PR branch', async () => {
+      it('[FR-INBOX-390] should be null when no session worked on the PR branch', async () => {
         const item = createRepoItem();
         trackBranch(item.prNumber, 'feat/a');
 
@@ -211,7 +211,7 @@ describe('inbox router', () => {
         expect(listed.projectSlug).toBeNull();
       });
 
-      it('should be null for an item outside every workspace repo', async () => {
+      it('[FR-INBOX-390] should be null for an item outside every workspace repo', async () => {
         createItem();
 
         const [listed] = await caller.inbox.list({ tab: 'all' });
@@ -220,7 +220,7 @@ describe('inbox router', () => {
       });
     });
 
-    it('should return the latest event and recent events newest first', async () => {
+    it('[FR-INBOX-340] should return the latest event and recent events newest first', async () => {
       const item = createItem();
       addEvent({
         itemId: item.id,
@@ -242,7 +242,7 @@ describe('inbox router', () => {
       expect(row.events.map((e) => e.summary)).toEqual(['approved it', `comment on ${prSeq}`]);
     });
 
-    it('should cap recent events at 20', async () => {
+    it('[FR-INBOX-340] should cap recent events at 20', async () => {
       const item = createItem();
       for (let i = 0; i < 25; i += 1) {
         addEvent({
@@ -259,7 +259,7 @@ describe('inbox router', () => {
       expect(row.events).toHaveLength(20);
     });
 
-    it('should only return priority items on the priority tab', async () => {
+    it('[FR-INBOX-340] should only return priority items on the priority tab', async () => {
       createItem();
       const priority = createItem({ priority: true });
 
@@ -268,7 +268,7 @@ describe('inbox router', () => {
       expect(rows.map((r) => r.id)).toEqual([priority.id]);
     });
 
-    it('should wake due snoozes before listing', async () => {
+    it('[FR-INBOX-345] should wake due snoozes before listing', async () => {
       const item = createItem();
       await caller.inbox.markRead({ id: item.id });
       await caller.inbox.snooze({ id: item.id, until: new Date(Date.now() - 1000).toISOString() });
@@ -281,7 +281,7 @@ describe('inbox router', () => {
   });
 
   describe('counts', () => {
-    it('should wake due snoozes before counting', async () => {
+    it('[FR-INBOX-345] should wake due snoozes before counting', async () => {
       const item = createItem({ priority: true });
       await caller.inbox.markRead({ id: item.id });
       await caller.inbox.snooze({ id: item.id, until: new Date(Date.now() - 1000).toISOString() });
@@ -292,7 +292,7 @@ describe('inbox router', () => {
     });
   });
 
-  describe('markRead / markUnread', () => {
+  describe('[FR-INBOX-350] markRead / markUnread', () => {
     it('should toggle unread state locally', async () => {
       const item = createItem();
 
@@ -339,7 +339,7 @@ describe('inbox router', () => {
     });
   });
 
-  describe('markAllRead', () => {
+  describe('[FR-INBOX-360] markAllRead', () => {
     it('should mark visible items read and write back only unread items with threads', async () => {
       createItem({ githubThreadId: '1' });
       createItem();
@@ -358,7 +358,7 @@ describe('inbox router', () => {
     });
   });
 
-  describe('markDone', () => {
+  describe('[FR-INBOX-370] markDone', () => {
     it('should hide the item and DELETE the GitHub thread', async () => {
       const item = createItem({ githubThreadId: '42' });
 
@@ -373,7 +373,7 @@ describe('inbox router', () => {
     });
   });
 
-  describe('snooze', () => {
+  describe('[FR-INBOX-380] snooze', () => {
     it('should hide the item until it is included explicitly', async () => {
       const item = createItem();
 

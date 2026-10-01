@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseDisplayOptions } from './use-inbox-display-options';
 
-describe('parseDisplayOptions', () => {
+describe('[FR-INBOX-440] parseDisplayOptions', () => {
   it('should default to unread first without snoozed items', () => {
     expect(parseDisplayOptions(null)).toEqual({ showSnoozed: false, unreadFirst: true });
   });

@@ -3,7 +3,7 @@ import { EVENT_META, hasAvatar, summarizeEvent, type InboxEventKind } from './in
 
 const KINDS = Object.keys(EVENT_META) as InboxEventKind[];
 
-describe('inbox-event-meta', () => {
+describe('[FR-INBOX-460] inbox-event-meta', () => {
   describe('EVENT_META', () => {
     it.each(KINDS)('should give %s an icon, colour and plain verb', (kind) => {
       const meta = EVENT_META[kind];

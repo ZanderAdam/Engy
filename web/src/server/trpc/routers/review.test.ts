@@ -99,7 +99,7 @@ describe('review router', () => {
       await stub.close();
     });
 
-    it('should return the PR detail from GitHub', async () => {
+    it('[FR-PRREVIEW-120] should return the PR detail from GitHub', async () => {
       stub.reply(() => ({
         body: {
           data: {
@@ -142,7 +142,7 @@ describe('review router', () => {
       expect(detail).toMatchObject({ title: 'Add feature', isDraft: true, ciStatus: 'unknown' });
     });
 
-    it('should reject an unknown workspace', async () => {
+    it('[FR-PRREVIEW-120] should reject an unknown workspace', async () => {
       await expect(
         caller.review.detail({ workspaceId: 999, repoFullName: 'org/app', prNumber: 7 }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
@@ -150,7 +150,7 @@ describe('review router', () => {
   });
 
   describe('syncThreads', () => {
-    it('should require an open review worktree', async () => {
+    it('[FR-PRREVIEW-130] should require an open review worktree', async () => {
       await expect(
         caller.review.syncThreads({ workspaceId, repoFullName: 'org/app', prNumber: 7 }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
@@ -272,7 +272,7 @@ describe('review router', () => {
         expect(ctx.db.select().from(threadComments).get()?.body).toBe('Rename this');
       });
 
-      it('should require an open review worktree', async () => {
+      it('[FR-PRREVIEW-130] should require an open review worktree', async () => {
         await expect(
           caller.review.createDraft({ ...draftInput('x'), prNumber: 99 }),
         ).rejects.toMatchObject({ code: 'NOT_FOUND' });
@@ -472,7 +472,7 @@ describe('review router', () => {
         expect(reviewPosts()).toHaveLength(0);
       });
 
-      it('should reject an empty review and a bare request for changes', async () => {
+      it('[FR-PRREVIEW-140] should reject an empty review and a bare request for changes', async () => {
         await expect(caller.review.submit(submitInput('COMMENT'))).rejects.toMatchObject({
           code: 'BAD_REQUEST',
         });

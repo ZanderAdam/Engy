@@ -7,7 +7,7 @@ function optionUntil(now: Date, id: string): Date {
   return option.until;
 }
 
-describe('snooze-times', () => {
+describe('[FR-INBOX-430] snooze-times', () => {
   describe('getSnoozeOptions', () => {
     const wednesday = new Date(2026, 8, 30, 14, 25, 10);
 

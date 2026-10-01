@@ -15,7 +15,7 @@ function press(
   });
 }
 
-describe('reviewKeyAction', () => {
+describe('[FR-PRREVIEW-260] reviewKeyAction', () => {
   it.each([
     [']', 'nextFile'],
     ['[', 'prevFile'],

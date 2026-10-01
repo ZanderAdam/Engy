@@ -116,7 +116,7 @@ describe('notifications poller', () => {
     return stub.requests.filter((req) => req.url === '/graphql').length;
   }
 
-  it('should import pull request threads with timeline events and bucket', async () => {
+  it('[FR-INBOX-260] should import pull request threads with timeline events and bucket', async () => {
     const workspaceId = ctx.db
       .insert(workspaces)
       .values({ name: 'w', slug: 'w', repos: ['/repos/api'] })
@@ -150,7 +150,7 @@ describe('notifications poller', () => {
     ]);
   });
 
-  it('should drop non pull request threads and ci_activity', async () => {
+  it('[FR-INBOX-260] should drop non pull request threads and ci_activity', async () => {
     notifications = [
       notification({
         id: '1',
@@ -165,7 +165,7 @@ describe('notifications poller', () => {
     expect(graphqlCalls()).toBe(0);
   });
 
-  it('should do no work on 304 and skip unchanged threads', async () => {
+  it('[FR-INBOX-270] should do no work on 304 and skip unchanged threads', async () => {
     notifications = [notification()];
     const session = createNotificationsSession();
     await runNotificationsCycle(ctx.state, session, NOW);
@@ -182,7 +182,7 @@ describe('notifications poller', () => {
     expect(polls[1].url).toContain('all=true&per_page=50&since=2026-03-01T12%3A00%3A00.000Z');
   });
 
-  it('should honor X-Poll-Interval but never go below 60 seconds', async () => {
+  it('[FR-INBOX-280] should honor X-Poll-Interval but never go below 60 seconds', async () => {
     const session = createNotificationsSession();
 
     notificationsReply = () => ({ headers: { 'x-poll-interval': '300' }, body: [] });
@@ -192,7 +192,7 @@ describe('notifications poller', () => {
     expect(await runNotificationsCycle(ctx.state, session, NOW)).toBe(MIN_POLL_INTERVAL_MS);
   });
 
-  it('should keep the previous interval on 304', async () => {
+  it('[FR-INBOX-280] should keep the previous interval on 304', async () => {
     const session = createNotificationsSession();
     notificationsReply = () => ({ headers: { 'x-poll-interval': '180' }, body: [] });
     await runNotificationsCycle(ctx.state, session, NOW);
@@ -202,7 +202,7 @@ describe('notifications poller', () => {
     expect(await runNotificationsCycle(ctx.state, session, NOW)).toBe(180_000);
   });
 
-  it('should not duplicate events after a restart', async () => {
+  it('[FR-INBOX-270] should not duplicate events after a restart', async () => {
     notifications = [notification()];
     await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
 
@@ -212,7 +212,7 @@ describe('notifications poller', () => {
     expect(items()).toHaveLength(1);
   });
 
-  it('should fall back to a reason event when the timeline has nothing', async () => {
+  it('[FR-INBOX-290] should fall back to a reason event when the timeline has nothing', async () => {
     timeline = () => timelineReply([]);
     notifications = [notification({ reason: 'mention' })];
 
@@ -227,7 +227,7 @@ describe('notifications poller', () => {
     expect(items()[0].bucket).toBe('priority');
   });
 
-  it('should skip events authored by the viewer', async () => {
+  it('[FR-INBOX-240] should skip events authored by the viewer', async () => {
     timeline = () =>
       timelineReply([
         {
@@ -245,7 +245,7 @@ describe('notifications poller', () => {
     expect(events().map((event) => event.sourceKey)).toEqual(['ghn:100:2026-03-01T11:00:00Z']);
   });
 
-  it('should mark an item read when GitHub read it after the last event', async () => {
+  it('[FR-INBOX-310] should mark an item read when GitHub read it after the last event', async () => {
     notifications = [notification()];
     await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
     const itemId = items()[0].id;
@@ -268,7 +268,7 @@ describe('notifications poller', () => {
     expect(items()[0].unread).toBe(false);
   });
 
-  it('should compute viewer-authored PR facts', async () => {
+  it('[FR-INBOX-300] should compute viewer-authored PR facts', async () => {
     timeline = () =>
       timelineReply(
         [
@@ -294,7 +294,7 @@ describe('notifications poller', () => {
     expect(items()[0].latestReason).toBe('changes_requested');
   });
 
-  it('should skip the cycle when GitHub is unavailable', async () => {
+  it('[FR-INBOX-320] should skip the cycle when GitHub is unavailable', async () => {
     delete process.env.ENGY_GITHUB_TOKEN;
 
     await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);

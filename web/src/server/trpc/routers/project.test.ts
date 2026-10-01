@@ -514,7 +514,7 @@ describe('project router', () => {
     });
   });
 
-  describe('reviewGuide', () => {
+  describe('[FR-PRREVIEW-220] reviewGuide', () => {
     it('should return the default text and no path while the project has no guide', async () => {
       const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Guide' });
       const result = await caller.project.reviewGuide({ projectId: proj.id });
@@ -537,7 +537,7 @@ describe('project router', () => {
     });
   });
 
-  describe('createReviewGuide', () => {
+  describe('[FR-PRREVIEW-220] createReviewGuide', () => {
     it('should write the default guide into the project directory', async () => {
       const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Guide' });
       const { path: created } = await caller.project.createReviewGuide({ projectId: proj.id });

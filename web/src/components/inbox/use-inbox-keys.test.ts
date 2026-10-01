@@ -12,7 +12,7 @@ function press(key: string, extra: Partial<Parameters<typeof getInboxKeyAction>[
   });
 }
 
-describe('getInboxKeyAction', () => {
+describe('[FR-INBOX-420] getInboxKeyAction', () => {
   it('should map movement keys', () => {
     expect(press('j')).toBe('next');
     expect(press('ArrowDown')).toBe('next');

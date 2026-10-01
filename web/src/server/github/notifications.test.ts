@@ -9,7 +9,7 @@ import { startStubGithub, type StubGithub } from './stub-server';
 
 const TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
 
-describe('github notifications', () => {
+describe('[FR-INBOX-190] github notifications', () => {
   let stub: StubGithub;
 
   beforeEach(async () => {
@@ -52,7 +52,7 @@ describe('github notifications', () => {
   });
 });
 
-describe('fetchNotifications', () => {
+describe('[FR-INBOX-180] fetchNotifications', () => {
   let stub: StubGithub;
 
   beforeEach(async () => {

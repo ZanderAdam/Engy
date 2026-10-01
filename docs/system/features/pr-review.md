@@ -1,0 +1,82 @@
+---
+description: In-app PR review — review worktrees, the review page, file classes, review guide, and the split between Engy comments and GitHub drafts.
+order: 19
+---
+
+# PR Review
+
+The review page lets the user read and review a GitHub pull request inside Engy. The user opens it from the Inbox or the PRs tab. The page route is `web/src/app/w/[workspace]/review/page.tsx` with the query parameters `repo`, `pr` and an optional `project`. The page has three tabs: Overview (key `1`), Files (key `2`) and Checks (key `3`). The components are in `web/src/components/review/`. The diff surface is shared with the diff viewer in `web/src/components/diff/`.
+
+## Review worktrees
+
+A review needs the PR code on disk. `openReviewWorktree` (`web/src/server/review/worktrees.ts`) gives the review one worktree per PR and stores it in the `review_worktrees` table. The server never touches the repo itself. Every git step runs on the daemon.
+
+- **New worktree.** The server fetches `refs/pull/{n}/head` into `refs/engy/pr/{n}`, then adds a worktree on the branch `engy/review/pr-{n}` under `<workspace>/worktrees/_review/<repo>/pr-{n}`. The PR facts (head branch, head SHA, base branch) come from the `prs` table, or from `GET /repos/{o}/{r}/pulls/{n}` when the table has no row.
+- **Reuse.** If an agent session already has a non-main worktree on the PR head branch, the review uses it and sets `createdByReview` to false. Review never updates, resets or removes such a worktree. It only records its head SHA.
+- **Open again.** A clean review-created worktree is reset to the new head. A worktree with local changes is kept. The result then sets `dirty`, and sets `stale` when GitHub has a newer head. `review.update` with `discard` re-creates the worktree.
+- **Cleanup.** Opening a PR removes the other review-created worktrees, with their branch, ref and row. It keeps a worktree with local changes, a worktree that is the cwd of a live terminal session, and a worktree whose status cannot be read. `review.list` reports these as `kept` with the reason `local_changes` or `session_open`.
+
+`review_worktrees.headSha` is the SHA the user loaded. `review.submit` compares it with the PR head on GitHub (FR-PRMON-250). The review page shows a banner when GitHub is ahead of the worktree (`isBehindGithub`).
+
+## Review page data
+
+`review.detail` returns the PR detail from GitHub (`fetchPrDetail`, `web/src/server/github/pr-detail.ts`). It holds the title, state, draft flag, CI status, reviewers, labels, conversation and commits. The review sidebar shows the latest verdict of each reviewer (`latestReviewVerdicts`). The Files tab uses the diff surface with file classes. The summary panel (`review-summary-panel.tsx`) shows the risk badge and the reading order.
+
+## File classes
+
+`classifyPath` (`web/src/components/diff/file-classes.ts`) puts each changed path in one class: `implementation`, `test`, `docs`, `generated` or `lockfile`. The file list shows the classes in that order. `generated` and `lockfile` start collapsed. Per-class line counts come from `countPatchLines`. `.gitattributes` rules `linguist-generated` and `linguist-documentation` override the path rules.
+
+## Review summary, risk and reading order
+
+An agent review writes one summary thread for the PR head branch with `diff_review_summary` (see FR-MCP-270). The summary metadata holds `risk` (`low`, `typical`, `high`, `very_high`, with a reason), `readingOrder` (chapters of files with a note), and the review guide source. The UI reads them with `parseRisk`, `parseReadingOrder` and `parseGuideSource` (`review-summary-meta.ts`). A bad value is dropped instead of failing the page. The Inbox shows the risk badge (FR-PRMON-302).
+
+## Review guide
+
+The review guide tells the agent what to put in the summary and which findings to file. The default guide is `plugins/engy/skills/review-diff/references/review-guide.md`, read by `readDefaultReviewGuide` (`web/src/server/project/review-guide.ts`). A project can have its own copy at `<project>/review-guide.md`. `project.reviewGuide` returns the default text and the project guide path (or no path). `project.createReviewGuide` copies the default into the project and keeps an existing guide. An agent review uses the guide of the chosen project, or of the project of the correlated agent session. The selection rules are in FR-PRMON-310.
+
+## Engy comments and GitHub comments
+
+The review page holds two kinds of comment. Engy comments (local notes and agent findings) stay in Engy. GitHub comments are drafts (`metadata.githubDraft`) and threads imported from GitHub (`source: 'github'`). The rules for drafts, submit, replies, resolve and the local-only split are FR-PRMON-240 to FR-PRMON-290. Code in `web/src/server/review/drafts.ts` and `github-threads.ts` implements them. `resolveReviewScope` (`web/src/server/review/review-scope.ts`) maps a directory inside a review worktree to the main checkout and the PR head branch, so agent findings and drafts attach to the same diff key as the diff viewer reads (see FR-MCP-275).
+
+## Agent review
+
+Auto review and manual "Review with agent" start a claude terminal session in the review worktree. The contracts are FR-PRMON-300 and FR-PRMON-301 (auto review on a review request) and FR-PRMON-310 (manual review). The controls are in `review-agent-controls.tsx`.
+
+## Out of scope
+
+- Merging, closing or editing a PR.
+- Review of a PR in a repo that is not in the workspace.
+
+## Requirements
+
+| ID | Requirement (EARS) |
+|----|--------------------|
+| FR-PRREVIEW-010 | WHEN `openReviewWorktree` runs for a PR with no stored worktree, the system SHALL fetch the PR head into `refs/engy/pr/{n}`, add a worktree on the branch `engy/review/pr-{n}` under the workspace `worktrees/_review` directory, and store one `review_worktrees` row with the head branch, the head SHA and `createdByReview` true; the system SHALL NOT change any `prs` row. |
+| FR-PRREVIEW-020 | WHEN a non-main worktree already has the PR head branch, the system SHALL use that worktree without a fetch or a worktree add and SHALL store the row with `createdByReview` false; WHEN the PR is opened again, the system SHALL only record the current head SHA of that worktree and SHALL NOT reset it. |
+| FR-PRREVIEW-030 | WHEN the `prs` table has no row for the PR, the system SHALL read the head branch, head SHA and base branch from `GET /repos/{o}/{r}/pulls/{n}`. |
+| FR-PRREVIEW-040 | IF the repo is not a repo of the workspace, THEN `openReviewWorktree` SHALL fail with an error that says the repo is not a repo of this workspace. |
+| FR-PRREVIEW-050 | IF recording the worktree fails, THEN the system SHALL remove the worktree and the PR ref again and store no row; IF the worktree add fails, THEN the system SHALL store no row. |
+| FR-PRREVIEW-060 | WHEN a PR is opened again, the system SHALL move a clean review-created worktree to the new head; IF the worktree has local changes, THEN the system SHALL keep it and its head, set `dirty`, and set `stale` when the PR head on GitHub differs. |
+| FR-PRREVIEW-070 | WHEN a PR is opened, the system SHALL remove every other review-created worktree with its branch, ref and row, except the current one, one with local changes, one with a live terminal session in it, one whose status cannot be read, and one reused from an agent session; IF a removal fails, THEN the system SHALL log it and still open the PR. |
+| FR-PRREVIEW-080 | WHEN `review.update` runs, the system SHALL discard local changes and move to the new head when `discard` is set, and SHALL report a dirty worktree when it is not set; IF the worktree cannot be added again, THEN the system SHALL delete the row; IF the worktree belongs to an agent session, THEN the system SHALL refuse the call. |
+| FR-PRREVIEW-090 | WHEN `review.remove` runs, the system SHALL remove the worktree, the review refs and the row, also when the worktree is already gone; IF the worktree has local changes and `force` is not set, THEN the system SHALL refuse; IF the worktree belongs to an agent session, THEN the system SHALL refuse; IF the id is unknown, THEN the system SHALL fail with `NOT_FOUND`. |
+| FR-PRREVIEW-100 | WHEN `review.list` runs, the system SHALL report for each review-created worktree why it is kept (`local_changes` when it has local changes, otherwise `session_open` when a terminal session works in it, otherwise none) and SHALL report no kept reason for agent worktrees and worktrees of other workspaces. |
+| FR-PRREVIEW-120 | WHEN `review.detail` runs for a workspace, the system SHALL return the PR detail from GitHub, including the title, draft flag and CI status; IF the workspace does not exist, THEN the system SHALL fail with `NOT_FOUND`. |
+| FR-PRREVIEW-130 | IF no review worktree is open for the PR, THEN `review.syncThreads` and `review.createDraft` SHALL fail with `NOT_FOUND` and a message that says to open the PR for review first. |
+| FR-PRREVIEW-140 | IF a review is submitted with no draft and no summary, THEN `review.submit` SHALL fail with `BAD_REQUEST`; IF the event is `REQUEST_CHANGES` and the summary is empty, THEN it SHALL fail with `BAD_REQUEST` because GitHub needs a summary. |
+| FR-PRREVIEW-150 | WHEN `resolveReviewScope` is given a directory, the system SHALL return the main checkout path and the PR head branch if the directory is the review worktree root or inside it, and null otherwise (a sibling path that shares the prefix is outside). |
+| FR-PRREVIEW-160 | WHEN `classifyPath` classifies a path, the system SHALL return `lockfile` for lock files (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `Cargo.lock`, `go.sum`, any `*.lock`), `generated` for `dist/`, `generated/`, `.snap`, `.min.*` and Drizzle `meta/*_snapshot.json` paths, `test` for `.test.` and `.spec.` files and `__tests__`, `test` and `tests` directories, `docs` for `.md` files and `docs/` paths, and `implementation` otherwise. |
+| FR-PRREVIEW-170 | WHERE the repo has a `.gitattributes` file, WHEN a rule sets `linguist-generated` or `linguist-documentation`, the system SHALL classify matching paths as `generated` or `docs`; a later rule SHALL override an earlier one, a false value SHALL turn off the path rule, and comments and unrelated attributes SHALL be ignored. |
+| FR-PRREVIEW-180 | WHEN `orderByClass` orders files, the system SHALL list `implementation` first, then `test`, `docs`, `generated` and `lockfile`, and SHALL keep the original order inside a class. |
+| FR-PRREVIEW-190 | WHEN `countPatchLines` counts a patch, the system SHALL count only added and removed lines inside hunks; the implementation line count SHALL be the total minus the other classes and SHALL never be below zero. |
+| FR-PRREVIEW-200 | WHEN the review UI reads summary metadata, the system SHALL keep a risk only when its level is `low`, `typical`, `high` or `very_high` (an empty reason when the reason is missing), SHALL keep the well-formed reading-order chapters in order and skip malformed ones and non-string files, and SHALL return an empty reading order for a value that is not an array. |
+| FR-PRREVIEW-210 | WHEN the review UI reads the guide source, the system SHALL accept `default` and `project` and drop any other value. |
+| FR-PRREVIEW-220 | WHEN `project.reviewGuide` runs for a project with no guide, the system SHALL return the default guide text and no path, and the absolute path once the project has a guide; WHEN `project.createReviewGuide` runs, the system SHALL write the default guide into the project directory and SHALL keep an existing guide unchanged; IF the project is unknown, THEN the system SHALL fail. |
+| FR-PRREVIEW-230 | WHEN the review route reads its query, the system SHALL accept `repo`, `project` and a `pr` that is a positive integer; IF `pr` is empty, not a number, zero, negative or not an integer, THEN the system SHALL treat it as missing; absent values SHALL be null. |
+| FR-PRREVIEW-240 | WHEN the review sidebar shows reviewers, the system SHALL keep the newest verdict of each reviewer, SHALL NOT let a later plain comment hide an earlier verdict, SHALL ignore comments and commits, and SHALL label `APPROVED`, `CHANGES_REQUESTED` and `COMMENTED` as `Approved`, `Requested changes` and `Commented`. |
+| FR-PRREVIEW-250 | WHEN the PR head on GitHub differs from the SHA of the loaded worktree, the review page SHALL treat the worktree as behind GitHub; IF the GitHub SHA is missing or empty, THEN it SHALL NOT. |
+| FR-PRREVIEW-260 | WHILE the review page is active and no text field has focus, the system SHALL map `]` and `[` to the next and previous file, `n` and `p` to the next and previous thread, `v` to toggle viewed, and `Cmd+B` or `Ctrl+B` to toggle the split view; the system SHALL ignore plain keys that have a modifier and other keys. |
+
+## Sources
+
+No prior knowledge found.

@@ -23,5 +23,7 @@ One doc per major feature area, ordered for top-to-bottom reading. Each doc carr
 - [mcp-server-session.md](mcp-server-session.md) — MCP HTTP session lifecycle, transport management, idle reaper, response envelope, and trace tool.
 - [pr-monitoring.md](pr-monitoring.md) — PR listing with live CI status, polling via the gh CLI, CI failure auto-fix dispatch, and reviewer comment triage in the diff viewer.
 - [usage-analytics.md](usage-analytics.md) — Claude transcript scanning on the daemon, residual-cost attribution, sealed days, list-rate pricing, and the usage dashboard.
+- [inbox.md](inbox.md) — Global PR inbox — GitHub notification sync, PR timeline events, priority bucketing, read/done/snooze state, unread badge, and keyboard-driven triage.
+- [pr-review.md](pr-review.md) — In-app PR review — review worktrees, the review page, file classes, review guide, and the split between Engy comments and GitHub drafts.
 
 <!-- INDEX END -->

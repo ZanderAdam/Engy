@@ -6,7 +6,7 @@ import { resolveReviewScope } from './review-scope';
 
 const WORKTREE = '/home/dev/.engy/ws/worktrees/_review/proj/pr-7';
 
-describe('resolveReviewScope', () => {
+describe('[FR-PRREVIEW-150] resolveReviewScope', () => {
   let ctx: TestContext;
 
   beforeEach(() => {

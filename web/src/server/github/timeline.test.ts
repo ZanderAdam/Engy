@@ -9,7 +9,7 @@ function summaries(nodes: TimelineNode[]): string[] {
   return mapTimelineNodes(nodes, VIEWER).map((event) => `${event.kind}: ${event.summary}`);
 }
 
-describe('mentionsViewer', () => {
+describe('[FR-INBOX-200] mentionsViewer', () => {
   it.each([
     ['hey @me please look', true],
     ['@ME shouting', true],
@@ -31,7 +31,7 @@ describe('mentionsViewer', () => {
 });
 
 describe('mapTimelineNodes', () => {
-  it('should map reviews by state', () => {
+  it('[FR-INBOX-210] should map reviews by state', () => {
     const nodes: TimelineNode[] = [
       {
         __typename: 'PullRequestReview',
@@ -87,7 +87,7 @@ describe('mapTimelineNodes', () => {
     });
   });
 
-  it('should map comments and turn viewer mentions into mentioned events', () => {
+  it('[FR-INBOX-210] should map comments and turn viewer mentions into mentioned events', () => {
     const nodes: TimelineNode[] = [
       {
         __typename: 'IssueComment',
@@ -120,7 +120,7 @@ describe('mapTimelineNodes', () => {
     ]);
   });
 
-  it('should keep review requests only for the viewer', () => {
+  it('[FR-INBOX-220] should keep review requests only for the viewer', () => {
     const nodes: TimelineNode[] = [
       {
         __typename: 'ReviewRequestedEvent',
@@ -148,7 +148,7 @@ describe('mapTimelineNodes', () => {
     expect(summaries(nodes)).toEqual(['review_requested: alice requested your review']);
   });
 
-  it('should map state changes, force pushes and assignments', () => {
+  it('[FR-INBOX-220] should map state changes, force pushes and assignments', () => {
     const nodes: TimelineNode[] = [
       {
         __typename: 'MergedEvent',
@@ -194,7 +194,7 @@ describe('mapTimelineNodes', () => {
     ]);
   });
 
-  it('should group commits per author into one pushed event', () => {
+  it('[FR-INBOX-230] should group commits per author into one pushed event', () => {
     const commit = (id: string, login: string, committedDate: string): TimelineNode => ({
       __typename: 'PullRequestCommit',
       id,
@@ -218,7 +218,7 @@ describe('mapTimelineNodes', () => {
     expect(events[0]).toMatchObject({ sourceKey: 'gh:k2', at: '2026-01-01T00:00:02Z' });
   });
 
-  it('should skip events authored by the viewer and null nodes', () => {
+  it('[FR-INBOX-240] should skip events authored by the viewer and null nodes', () => {
     const nodes: Array<TimelineNode | null> = [
       null,
       {
@@ -235,7 +235,7 @@ describe('mapTimelineNodes', () => {
   });
 });
 
-describe('fetchPrTimeline', () => {
+describe('[FR-INBOX-250] fetchPrTimeline', () => {
   let stub: StubGithub;
 
   beforeEach(async () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { reviewUrlParams } from './review-url-params';
 
-describe('reviewUrlParams', () => {
+describe('[FR-PRREVIEW-230] reviewUrlParams', () => {
   it('should read repo, pr and project', () => {
     const params = reviewUrlParams(new URLSearchParams('repo=org/app&pr=42&project=m15'));
 

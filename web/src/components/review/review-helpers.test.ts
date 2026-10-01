@@ -14,7 +14,7 @@ function review(login: string, state: string, createdAt: string): ConversationIt
   };
 }
 
-describe('latestReviewVerdicts', () => {
+describe('[FR-PRREVIEW-240] latestReviewVerdicts', () => {
   it('should keep the newest verdict per reviewer', () => {
     const verdicts = latestReviewVerdicts([
       review('bob', 'CHANGES_REQUESTED', '2024-01-01'),
@@ -47,7 +47,7 @@ describe('latestReviewVerdicts', () => {
   });
 });
 
-describe('reviewStateLabel', () => {
+describe('[FR-PRREVIEW-240] reviewStateLabel', () => {
   it.each([
     ['APPROVED', 'Approved'],
     ['CHANGES_REQUESTED', 'Requested changes'],
@@ -58,7 +58,7 @@ describe('reviewStateLabel', () => {
   });
 });
 
-describe('isBehindGithub', () => {
+describe('[FR-PRREVIEW-250] isBehindGithub', () => {
   it.each([
     ['aaa', 'bbb', true],
     ['aaa', 'aaa', false],
