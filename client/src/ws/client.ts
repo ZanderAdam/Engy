@@ -18,6 +18,7 @@ import type {
   GitBranchRequestMessage,
   GitDefaultBaseRequestMessage,
   GitFetchRequestMessage,
+  GitDeleteRefsRequestMessage,
   GitResetHardRequestMessage,
   GitRemoteUrlRequestMessage,
   GitWorktreeListRequestMessage,
@@ -57,6 +58,7 @@ import {
   remoteForBase,
   fetchRemote,
   resetHard,
+  deleteRefs,
   getOriginUrl,
   DirtyWorktreeError,
   getFileContent,
@@ -588,6 +590,9 @@ export class WsClient {
       case 'GIT_FETCH_REQUEST':
         this.handleGitFetchRequest(message as GitFetchRequestMessage);
         break;
+      case 'GIT_DELETE_REFS_REQUEST':
+        this.handleGitDeleteRefsRequest(message as GitDeleteRefsRequestMessage);
+        break;
       case 'GIT_RESET_HARD_REQUEST':
         this.handleGitResetHardRequest(message as GitResetHardRequestMessage);
         break;
@@ -849,6 +854,19 @@ export class WsClient {
     } catch (err) {
       this.send({
         type: 'GIT_FETCH_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleGitDeleteRefsRequest(message: GitDeleteRefsRequestMessage): Promise<void> {
+    const { requestId, repoDir, refs, coderWorkspace } = message.payload;
+    try {
+      await deleteRefs(repoDir, refs, this.gitRunnerFor(coderWorkspace));
+      this.send({ type: 'GIT_DELETE_REFS_RESPONSE', payload: { requestId } });
+    } catch (err) {
+      this.send({
+        type: 'GIT_DELETE_REFS_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }

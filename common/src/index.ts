@@ -29,6 +29,8 @@ export type {
   GitDefaultBaseResponseMessage,
   GitFetchRequestMessage,
   GitFetchResponseMessage,
+  GitDeleteRefsRequestMessage,
+  GitDeleteRefsResponseMessage,
   GitResetHardErrorCode,
   GitResetHardRequestMessage,
   GitResetHardResponseMessage,

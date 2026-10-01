@@ -1793,6 +1793,44 @@ describe('WsClient git reset and remote url handlers', () => {
     });
   });
 
+  describe('GIT_DELETE_REFS_REQUEST', () => {
+    it('deletes review refs and branches and acknowledges', async () => {
+      const repoDir = await createTempRepo();
+      const repo = simpleGit(repoDir);
+      await repo.raw(['update-ref', 'refs/engy/pr/7', 'HEAD']);
+      await repo.raw(['branch', 'engy/review/pr-7']);
+
+      const response = await setupAndSend({
+        type: 'GIT_DELETE_REFS_REQUEST',
+        payload: {
+          requestId: 'del-1',
+          repoDir,
+          refs: ['refs/engy/pr/7', 'refs/heads/engy/review/pr-7'],
+        },
+      });
+
+      expect(JSON.parse(response)).toEqual({
+        type: 'GIT_DELETE_REFS_RESPONSE',
+        payload: { requestId: 'del-1' },
+      });
+      expect(await repo.raw(['for-each-ref', 'refs/engy', 'refs/heads/engy'])).toBe('');
+    });
+
+    it('refuses refs outside the review namespaces', async () => {
+      const repoDir = await createTempRepo();
+      const repo = simpleGit(repoDir);
+      const branch = (await repo.branch()).current;
+
+      const response = await setupAndSend({
+        type: 'GIT_DELETE_REFS_REQUEST',
+        payload: { requestId: 'del-2', repoDir, refs: [`refs/heads/${branch}`] },
+      });
+
+      expect(JSON.parse(response).payload.error).toContain('Refusing to delete ref');
+      expect((await repo.branch()).current).toBe(branch);
+    });
+  });
+
   describe('GIT_REMOTE_URL_REQUEST', () => {
     it('returns the origin url', async () => {
       const repoDir = await createTempRepo();

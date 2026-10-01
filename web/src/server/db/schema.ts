@@ -516,6 +516,27 @@ export const prs = sqliteTable(
   ],
 );
 
+export const reviewWorktrees = sqliteTable(
+  'review_worktrees',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    repoPath: text('repo_path').notNull(),
+    repoFullName: text('repo_full_name').notNull(),
+    prNumber: integer('pr_number').notNull(),
+    worktreePath: text('worktree_path').notNull(),
+    headRefName: text('head_ref_name').notNull(),
+    headSha: text('head_sha').notNull(),
+    createdByReview: integer('created_by_review', { mode: 'boolean' }).notNull(),
+    createdAt: text('created_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+    updatedAt: text('updated_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [uniqueIndex('review_worktrees_pr_unique').on(table.repoFullName, table.prNumber)],
+);
+
 // ── Terminal Sessions ───────────────────────────────────────────────
 
 // Mirror of the in-memory terminalSessionMeta map (web/src/server/trpc/context.ts)

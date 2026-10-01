@@ -316,6 +316,13 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
+  pendingGitDeleteRefs: Map<
+    string,
+    {
+      resolve: (result: void) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
   pendingGitRemoteUrl: Map<
     string,
     {
@@ -556,6 +563,7 @@ export function createAppState(): AppState {
     pendingGitDefaultBase: new Map(),
     pendingGitFetch: new Map(),
     pendingGitResetHard: new Map(),
+    pendingGitDeleteRefs: new Map(),
     pendingGitRemoteUrl: new Map(),
     pendingContainerUp: new Map(),
     pendingContainerDown: new Map(),

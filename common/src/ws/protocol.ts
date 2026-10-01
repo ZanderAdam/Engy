@@ -299,6 +299,22 @@ export interface GitResetHardResponseMessage {
     | { requestId: string; error: string; code: GitResetHardErrorCode };
 }
 
+export interface GitDeleteRefsRequestMessage {
+  type: 'GIT_DELETE_REFS_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    /** Full ref names. Only `refs/engy/*` and `refs/heads/engy/review/*` are accepted. */
+    refs: string[];
+    coderWorkspace?: string;
+  };
+}
+
+export interface GitDeleteRefsResponseMessage {
+  type: 'GIT_DELETE_REFS_RESPONSE';
+  payload: { requestId: string } | { requestId: string; error: string };
+}
+
 export interface GitRemoteUrlRequestMessage {
   type: 'GIT_REMOTE_URL_REQUEST';
   payload: {
@@ -882,6 +898,8 @@ export type WsMessage =
   | GitFetchResponseMessage
   | GitResetHardRequestMessage
   | GitResetHardResponseMessage
+  | GitDeleteRefsRequestMessage
+  | GitDeleteRefsResponseMessage
   | GitRemoteUrlRequestMessage
   | GitRemoteUrlResponseMessage
   | GitWorktreeListRequestMessage
@@ -945,6 +963,7 @@ export type ClientToServerMessage =
   | GitDefaultBaseResponseMessage
   | GitFetchResponseMessage
   | GitResetHardResponseMessage
+  | GitDeleteRefsResponseMessage
   | GitRemoteUrlResponseMessage
   | GitWorktreeListResponseMessage
   | WorktreeBranchChangedMessage
@@ -986,6 +1005,7 @@ export type ServerToClientMessage =
   | GitDefaultBaseRequestMessage
   | GitFetchRequestMessage
   | GitResetHardRequestMessage
+  | GitDeleteRefsRequestMessage
   | GitRemoteUrlRequestMessage
   | GitWorktreeListRequestMessage
   | DirListRequestMessage

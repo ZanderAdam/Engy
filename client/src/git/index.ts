@@ -631,6 +631,23 @@ export async function resetHard(
   await runGit(['-C', dir, 'reset', '--hard', ref, '--']);
 }
 
+const DELETABLE_REF_PREFIXES = ['refs/engy/', 'refs/heads/engy/review/'];
+
+export async function deleteRefs(
+  dir: string,
+  refs: string[],
+  runGit: GitRunner = localGitRunner,
+): Promise<void> {
+  for (const ref of refs) {
+    if (!DELETABLE_REF_PREFIXES.some((prefix) => ref.startsWith(prefix))) {
+      throw new Error(`Refusing to delete ref "${ref}"`);
+    }
+  }
+  for (const ref of refs) {
+    await runGit(['-C', dir, 'update-ref', '-d', ref]);
+  }
+}
+
 export async function getOriginUrl(
   dir: string,
   runGit: GitRunner = localGitRunner,

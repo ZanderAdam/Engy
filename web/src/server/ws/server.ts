@@ -127,6 +127,7 @@ function rejectAllPending(state: AppState): void {
     state.pendingGitDefaultBase,
     state.pendingGitFetch,
     state.pendingGitResetHard,
+    state.pendingGitDeleteRefs,
     state.pendingGitRemoteUrl,
     state.pendingContainerUp,
     state.pendingContainerDown,
@@ -208,6 +209,9 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       resolvePendingResponse(msg.payload, state.pendingGitFetch, (p) => ({
         remote: p.remote,
       }));
+      break;
+    case 'GIT_DELETE_REFS_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGitDeleteRefs, () => undefined);
       break;
     case 'GIT_RESET_HARD_RESPONSE':
       handleGitResetHardResult(msg.payload, state);
@@ -1127,6 +1131,19 @@ export function dispatchGitResetHard(
   return dispatchDaemonOp(state, state.pendingGitResetHard, 'GIT_RESET_HARD_REQUEST', {
     repoDir,
     ref,
+    coderWorkspace,
+  });
+}
+
+export function dispatchGitDeleteRefs(
+  repoDir: string,
+  refs: string[],
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<void> {
+  return dispatchDaemonOp(state, state.pendingGitDeleteRefs, 'GIT_DELETE_REFS_REQUEST', {
+    repoDir,
+    refs,
     coderWorkspace,
   });
 }

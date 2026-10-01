@@ -11,6 +11,7 @@ import {
   dispatchGitWorktreeList,
   dispatchGitFetch,
   dispatchGitResetHard,
+  dispatchGitDeleteRefs,
   dispatchGitRemoteUrl,
   dispatchGitPatch,
   dispatchWorktreeAdd,
@@ -300,6 +301,47 @@ describe('WebSocket Server', () => {
       await expect(dispatchGitResetHard('/wt', 'HEAD', state)).rejects.toThrow(
         'No daemon connected',
       );
+    });
+  });
+
+  describe('GIT_DELETE_REFS_RESPONSE', () => {
+    it('should send the refs and resolve on success', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(state.daemon).not.toBeNull(), { timeout: 5000 });
+      const messagePromise = waitForMessage(ws);
+      const deletePromise = dispatchGitDeleteRefs('/repo', ['refs/engy/pr/7'], state);
+      const request = (await messagePromise) as {
+        type: string;
+        payload: { requestId: string; repoDir: string; refs: string[] };
+      };
+      expect(request.type).toBe('GIT_DELETE_REFS_REQUEST');
+      expect(request.payload).toMatchObject({ repoDir: '/repo', refs: ['refs/engy/pr/7'] });
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_DELETE_REFS_RESPONSE',
+          payload: { requestId: request.payload.requestId },
+        }),
+      );
+      await expect(deletePromise).resolves.toBeUndefined();
+    });
+
+    it('should reject with the daemon error', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(state.daemon).not.toBeNull(), { timeout: 5000 });
+      const messagePromise = waitForMessage(ws);
+      const deletePromise = dispatchGitDeleteRefs('/repo', ['refs/engy/pr/7'], state);
+      const request = (await messagePromise) as { payload: { requestId: string } };
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_DELETE_REFS_RESPONSE',
+          payload: { requestId: request.payload.requestId, error: 'nope' },
+        }),
+      );
+      await expect(deletePromise).rejects.toThrow('nope');
     });
   });
 
