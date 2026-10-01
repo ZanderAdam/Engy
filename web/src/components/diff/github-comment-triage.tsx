@@ -18,6 +18,7 @@ import {
   filterUnresolvedGithubThreads,
   getSelectedThreads,
   allGithubThreadIds,
+  triageResolveLabel,
 } from './github-triage-helpers';
 import { diffDocFilePath } from '@/lib/diff-doc-path';
 import { useReviewWrite } from './review-write-context';
@@ -38,7 +39,7 @@ export function GithubCommentTriage({
   const onResolve = reviewWrite
     ? (threadId: string) => reviewWrite.setThreadResolved(threadId, true)
     : onLocalResolve;
-  const resolveLabel = reviewWrite ? 'Resolve' : 'Dismiss';
+  const resolveLabel = triageResolveLabel(!!reviewWrite);
   const resolveTooltip = reviewWrite
     ? 'Resolve on GitHub'
     : 'Locally dismiss (no GitHub write-back)';

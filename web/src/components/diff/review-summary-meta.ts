@@ -21,7 +21,7 @@ export const RISK_PRESENTATION: Record<RiskLevel, { label: string; className: st
 };
 
 function isRiskLevel(value: unknown): value is RiskLevel {
-  return typeof value === 'string' && value in RISK_PRESENTATION;
+  return typeof value === 'string' && Object.hasOwn(RISK_PRESENTATION, value);
 }
 
 export function parseRisk(value: unknown): ReviewRisk | undefined {

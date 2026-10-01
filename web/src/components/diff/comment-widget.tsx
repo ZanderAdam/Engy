@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { RiGithubLine, RiRobot2Line } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import { AGENT_USER_ID } from '@/lib/comment-feedback';
 import { commentBodyText, SEVERITY_PRESENTATION } from './agent-findings';
 import { buildProvePrompt } from './prove-prompt';
 import { diffDocFilePath } from '@/lib/diff-doc-path';
-import { commentOrigin } from './review-drafts';
+import { threadControls } from './comment-controls';
 import { useReviewWrite } from './review-write-context';
 import type { DiffComment } from './use-diff-comments';
 
@@ -27,6 +27,11 @@ function formatRelativeTime(dateStr: string): string {
   return `${days}d ago`;
 }
 
+interface PendingReply {
+  id: number;
+  body: string;
+}
+
 interface CommentWidgetProps {
   comment?: DiffComment;
   /** Recovers the finding's file path from `comment.documentPath` for "Prove it". Required, not optional: an omitted prop silently disables the button. */
@@ -36,7 +41,7 @@ interface CommentWidgetProps {
   onResolve?: (threadId: string) => void;
   onDelete?: (threadId: string) => void;
   onDeleteComment?: (threadId: string, commentId: string) => void;
-  onCancel: () => void;
+  onCancel?: () => void;
   onAddDraft?: (text: string) => void;
   draftBlockedReason?: string | null;
 }
@@ -62,7 +67,8 @@ export function CommentWidget({
   draftBlockedReason = null,
 }: CommentWidgetProps) {
   const [text, setText] = useState('');
-  const [pendingReplies, setPendingReplies] = useState<string[]>([]);
+  const [pendingReplies, setPendingReplies] = useState<PendingReply[]>([]);
+  const nextPendingId = useRef(0);
   const [resolvedOverride, setResolvedOverride] = useState<boolean | null>(null);
   const { sendToTerminal, terminalActive } = useSendToTerminal();
   const reviewWrite = useReviewWrite();
@@ -71,20 +77,28 @@ export function CommentWidget({
   const isDraft = comment?.githubDraft === true;
   const isAgent = comment?.source === 'agent';
   const githubWrite = isGithub ? reviewWrite : null;
-  const isLocalOnly = !!reviewWrite && !!comment && commentOrigin(comment) === 'engy';
   const resolved = resolvedOverride ?? comment?.resolved ?? false;
   const severity = comment?.severity ? SEVERITY_PRESENTATION[comment.severity] : undefined;
+  const controls = comment
+    ? threadControls({
+        comment: { ...comment, resolved },
+        onReviewPage: !!reviewWrite,
+        canResolveLocally: !!onResolve,
+      })
+    : null;
+  const isLocalOnly = controls?.localOnlyBadge ?? false;
 
   const replyOnGithub = async (threadId: string, body: string) => {
     if (!githubWrite) return;
-    setPendingReplies((pending) => [...pending, body]);
+    const id = nextPendingId.current++;
+    setPendingReplies((pending) => [...pending, { id, body }]);
     try {
       await githubWrite.replyToThread(threadId, body);
     } catch (error) {
-      setText(body);
+      setText((current) => (current === '' ? body : current));
       toast.error(error instanceof Error ? error.message : 'Could not post the reply');
     } finally {
-      setPendingReplies((pending) => pending.filter((reply) => reply !== body));
+      setPendingReplies((pending) => pending.filter((reply) => reply.id !== id));
     }
   };
 
@@ -123,7 +137,7 @@ export function CommentWidget({
     }
     if (e.key === 'Escape') {
       e.preventDefault();
-      onCancel();
+      onCancel?.();
     }
   };
 
@@ -263,11 +277,8 @@ export function CommentWidget({
                 </span>
               </div>
             ))}
-            {pendingReplies.map((body, i) => (
-              <div
-                key={`pending-${i}`}
-                className="ml-3 border-t border-border/50 py-1.5 text-xs opacity-60"
-              >
+            {pendingReplies.map(({ id, body }) => (
+              <div key={id} className="ml-3 border-t border-border/50 py-1.5 text-xs opacity-60">
                 <div className="mb-0.5 flex items-center gap-1.5 font-medium text-muted-foreground">
                   You
                   <span className="text-[10px] font-normal">Sending…</span>
@@ -295,18 +306,18 @@ export function CommentWidget({
                   </TooltipContent>
                 </Tooltip>
               )}
-              {githubWrite && (
+              {controls?.githubResolveLabel && (
                 <Button
                   variant="ghost"
                   size="xs"
                   onClick={() => void changeResolved(comment.threadId, !resolved)}
                 >
-                  {resolved ? 'Unresolve' : 'Resolve'}
+                  {controls.githubResolveLabel}
                 </Button>
               )}
-              {!githubWrite && onResolve && !resolved && !isDraft && (
+              {controls?.localResolveLabel && onResolve && (
                 <Button variant="ghost" size="xs" onClick={() => onResolve(comment.threadId)}>
-                  {isGithub ? 'Dismiss' : 'Resolve'}
+                  {controls.localResolveLabel}
                 </Button>
               )}
               {onDelete && !isGithub && (
@@ -323,7 +334,7 @@ export function CommentWidget({
           </div>
         )}
 
-        {((!isGithub && !isDraft) || githubWrite) && (
+        {(!controls || controls.composer) && (
           <>
             <Textarea
               value={text}
@@ -335,9 +346,11 @@ export function CommentWidget({
             />
             <div className="mt-1.5 flex items-center justify-end">
               <div className="flex gap-1">
-                <Button variant="ghost" size="xs" onClick={onCancel}>
-                  Cancel
-                </Button>
+                {onCancel && (
+                  <Button variant="ghost" size="xs" onClick={onCancel}>
+                    Cancel
+                  </Button>
+                )}
                 {onAddDraft && !comment && (
                   <Tooltip>
                     <TooltipTrigger asChild>

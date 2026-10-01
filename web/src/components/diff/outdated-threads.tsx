@@ -58,7 +58,6 @@ export function OutdatedThreads({
                 onResolve={onResolve}
                 onDelete={onDelete}
                 onDeleteComment={onDeleteComment}
-                onCancel={() => {}}
               />
             </div>
           ))}

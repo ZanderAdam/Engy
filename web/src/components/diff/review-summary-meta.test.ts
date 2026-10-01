@@ -12,6 +12,7 @@ describe('review-summary-meta', () => {
 
     it('should drop an unknown level or a non-object', () => {
       expect(parseRisk({ level: 'severe', reason: 'x' })).toBeUndefined();
+      expect(parseRisk({ level: 'toString', reason: 'x' })).toBeUndefined();
       expect(parseRisk(null)).toBeUndefined();
       expect(parseRisk('high')).toBeUndefined();
     });
