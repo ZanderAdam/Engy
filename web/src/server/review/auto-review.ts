@@ -3,7 +3,7 @@ import path from 'node:path';
 import { TRPCError } from '@trpc/server';
 import { and, eq, gt, isNotNull, sql } from 'drizzle-orm';
 import { getDb } from '../db/client';
-import { agentSessions, projects, reviewWorktrees, tasks, workspaces } from '../db/schema';
+import { agentSessions, projects, tasks, workspaces } from '../db/schema';
 import { resolveProjectDir } from '../engy-dir/init';
 import { REVIEW_GUIDE_FILE } from '../project/review-guide';
 import { spawnAgentTerminal } from '../terminal-dispatch';
@@ -72,7 +72,19 @@ function countActiveSessions(state: AppState, workspace: Workspace): number {
       autoReviews++;
     }
   }
-  return taskSessions + autoReviews;
+  return taskSessions + autoReviews + (state.pendingReviewSlots.get(workspace.id) ?? 0);
+}
+
+function reserveSlot(state: AppState, workspace: Workspace): boolean {
+  if (countActiveSessions(state, workspace) >= (workspace.maxConcurrency ?? 1)) return false;
+  state.pendingReviewSlots.set(workspace.id, (state.pendingReviewSlots.get(workspace.id) ?? 0) + 1);
+  return true;
+}
+
+function releaseSlot(state: AppState, workspace: Workspace): void {
+  const remaining = (state.pendingReviewSlots.get(workspace.id) ?? 1) - 1;
+  if (remaining > 0) state.pendingReviewSlots.set(workspace.id, remaining);
+  else state.pendingReviewSlots.delete(workspace.id);
 }
 
 function projectGuidePath(
@@ -148,29 +160,30 @@ async function spawnReviewSession(
   });
 }
 
-function recordReviewedSha(rowId: number, sha: string | null): void {
-  getDb()
-    .update(reviewWorktrees)
-    .set({ autoReviewedSha: sha })
-    .where(eq(reviewWorktrees.id, rowId))
-    .run();
-}
-
 export async function maybeStartAutoReview(
   state: AppState,
   input: AutoReviewInput,
 ): Promise<AutoReviewResult> {
   const { workspaceId, repoFullName, prNumber } = input;
-  const db = getDb();
-  const workspace = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+  const workspace = getDb().select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
   if (!workspace?.autoReviewOnRequest) return skip('setting-off');
 
   if (!isOpen(state.daemon) || !isOpen(state.terminalDaemon)) return skip('no-daemon');
 
-  if (countActiveSessions(state, workspace) >= (workspace.maxConcurrency ?? 1)) {
-    return skip('concurrency-full');
+  if (!reserveSlot(state, workspace)) return skip('concurrency-full');
+  try {
+    return await startReservedAutoReview(state, workspace, input);
+  } finally {
+    releaseSlot(state, workspace);
   }
+}
 
+async function startReservedAutoReview(
+  state: AppState,
+  workspace: Workspace,
+  input: AutoReviewInput,
+): Promise<AutoReviewResult> {
+  const { workspaceId, repoFullName, prNumber } = input;
   let worktree;
   try {
     worktree = await openReviewWorktree(state, { workspaceId, repoFullName, prNumber });
@@ -179,9 +192,9 @@ export async function maybeStartAutoReview(
     return skip('open-failed');
   }
 
-  const row = db.select().from(reviewWorktrees).where(eq(reviewWorktrees.id, worktree.id)).get();
-  if (!row || row.autoReviewedSha === worktree.headSha) return skip('already-reviewed');
-  recordReviewedSha(row.id, worktree.headSha);
+  const reviewedKey = `${repoFullName}#${prNumber}`;
+  if (state.autoReviewedShas.get(reviewedKey) === worktree.headSha) return skip('already-reviewed');
+  state.autoReviewedShas.set(reviewedKey, worktree.headSha);
 
   try {
     const spawned = await spawnReviewSession(
@@ -192,12 +205,12 @@ export async function maybeStartAutoReview(
       findCorrelatedGuide(workspace, worktree.repoPath, worktree.headRefName),
     );
     if (!spawned) {
-      recordReviewedSha(row.id, null);
+      state.autoReviewedShas.delete(reviewedKey);
       return skip('no-daemon');
     }
     return { started: true, sessionId: spawned.sessionId };
   } catch (err) {
-    recordReviewedSha(row.id, null);
+    state.autoReviewedShas.delete(reviewedKey);
     console.error(`[auto-review] start failed for ${repoFullName}#${prNumber}:`, errorText(err));
     return skip('open-failed');
   }
@@ -217,13 +230,25 @@ export async function startManualReview(
       message: 'The Engy daemon is not connected. Start it, then try again.',
     });
   }
-  if (countActiveSessions(state, workspace) >= (workspace.maxConcurrency ?? 1)) {
+  if (!reserveSlot(state, workspace)) {
     throw new TRPCError({
       code: 'TOO_MANY_REQUESTS',
       message: 'Too many agent sessions are running. Finish one, then try again.',
     });
   }
+  try {
+    return await startReservedManualReview(state, workspace, input);
+  } finally {
+    releaseSlot(state, workspace);
+  }
+}
 
+async function startReservedManualReview(
+  state: AppState,
+  workspace: Workspace,
+  input: AutoReviewInput & { projectSlug?: string },
+): Promise<{ sessionId: string }> {
+  const { workspaceId, repoFullName, prNumber, projectSlug } = input;
   const worktree = await openReviewWorktree(state, { workspaceId, repoFullName, prNumber });
   const reviewGuide = projectSlug
     ? findGuideBySlug(workspace, projectSlug)

@@ -201,16 +201,19 @@ function fetchPrHead(
   );
 }
 
+async function isWorktreeRegistered(state: AppState, row: ReviewWorktreeRow): Promise<boolean> {
+  const { worktrees } = await dispatchGitWorktreeList(row.repoPath, state);
+  return worktrees.some(
+    (worktree) => path.resolve(worktree.path) === path.resolve(row.worktreePath),
+  );
+}
+
 async function removeWorktreeIfPresent(
   state: AppState,
   row: ReviewWorktreeRow,
   force: boolean,
 ): Promise<void> {
-  const { worktrees } = await dispatchGitWorktreeList(row.repoPath, state);
-  const isPresent = worktrees.some(
-    (worktree) => path.resolve(worktree.path) === path.resolve(row.worktreePath),
-  );
-  if (!isPresent) return;
+  if (!(await isWorktreeRegistered(state, row))) return;
   await dispatchWorktreeRemove(state, {
     repoDir: row.repoPath,
     worktreePath: row.worktreePath,
@@ -403,23 +406,17 @@ async function cleanupOtherReviewWorktrees(state: AppState, currentId: number): 
   }
 }
 
-const openQueues = new Map<string, Promise<unknown>>();
+let openQueue: Promise<unknown> = Promise.resolve();
 
 export function openReviewWorktree(
   state: AppState,
   input: { workspaceId: number; repoFullName: string; prNumber: number },
 ): Promise<ReviewWorktreeState> {
-  const key = `${input.repoFullName}#${input.prNumber}`;
-  const previous = openQueues.get(key) ?? Promise.resolve();
-  const run = previous.then(() => openReviewWorktreeUnqueued(state, input));
-  const settled = run.then(
+  const run = openQueue.then(() => openReviewWorktreeUnqueued(state, input));
+  openQueue = run.then(
     () => undefined,
     () => undefined,
   );
-  openQueues.set(key, settled);
-  void settled.then(() => {
-    if (openQueues.get(key) === settled) openQueues.delete(key);
-  });
   return run;
 }
 
@@ -440,8 +437,14 @@ async function openReviewWorktreeUnqueued(
     )
     .get();
 
-  const result = existing
-    ? await refreshReviewWorktree(state, existing, pr, false)
+  let current = existing;
+  if (current?.createdByReview && !(await isWorktreeRegistered(state, current))) {
+    await deleteReviewWorktree(state, current, true);
+    current = undefined;
+  }
+
+  const result = current
+    ? await refreshReviewWorktree(state, current, pr, false)
     : await createReviewWorktree(state, { workspace, repoPath, repoFullName, prNumber, pr });
 
   try {

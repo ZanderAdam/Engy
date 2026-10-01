@@ -192,6 +192,24 @@ describe('review worktrees', () => {
       expect(daemon.calls.filter((call) => call === 'WORKTREE_ADD_REQUEST')).toHaveLength(1);
     });
 
+    it('[FR-PRREVIEW-070] should keep the last opened worktree when two PRs open concurrently', async () => {
+      const [, second] = await Promise.all([open(7), open(8)]);
+
+      expect(daemon.worktrees.has(second.worktreePath)).toBe(true);
+      expect(rows().map((row) => row.prNumber)).toEqual([8]);
+      expect(daemon.worktrees.size).toBe(1);
+    });
+
+    it('[FR-PRREVIEW-020] should recreate a review worktree whose directory is gone', async () => {
+      const first = await open(7);
+      daemon.worktrees.delete(first.worktreePath);
+
+      const result = await open(7);
+
+      expect(daemon.worktrees.has(result.worktreePath)).toBe(true);
+      expect(rows()).toHaveLength(1);
+    });
+
     it('[FR-PRREVIEW-040] should reject a repo that is not in the workspace', async () => {
       await expect(
         openReviewWorktree(ctx.state, { workspaceId, repoFullName: 'org/other', prNumber: 1 }),

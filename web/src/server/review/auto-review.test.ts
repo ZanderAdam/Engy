@@ -199,7 +199,7 @@ describe('auto review', () => {
       await start();
       const second = await start();
 
-      expect(ctx.db.select().from(reviewWorktrees).get()?.autoReviewedSha).toBe('sha-7a');
+      expect(ctx.state.autoReviewedShas.get('org/app#7')).toBe('sha-7a');
       expect(second).toEqual({ started: false, reason: 'already-reviewed' });
       expect(spawnAgentTerminal).toHaveBeenCalledTimes(1);
     });
@@ -260,7 +260,7 @@ describe('auto review', () => {
 
       expect(result).toEqual({ sessionId: 'term-1' });
       expect(spawnAgentTerminal).toHaveBeenCalledTimes(2);
-      expect(ctx.db.select().from(reviewWorktrees).get()?.autoReviewedSha).toBeNull();
+      expect(ctx.state.autoReviewedShas.size).toBe(0);
     });
 
     it('[FR-PRMON-310] should pass the guide of the chosen project', async () => {

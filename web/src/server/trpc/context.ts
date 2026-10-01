@@ -527,6 +527,8 @@ export interface AppState {
   prPollerTimer: ReturnType<typeof setTimeout> | null;
   /** Latest PR sync error per repo; cleared on next success */
   prRepoErrors: Map<string, string>;
+  pendingReviewSlots: Map<number, number>;
+  autoReviewedShas: Map<string, string>;
   /** Maps `repo#prNumber` → GitHub PR updatedAt from the last successful review-comment sync */
   prReviewCommentLastSyncedAt: Map<string, string>;
   /** GitHub viewer, availability status and rate-limit budget; never holds the token */
@@ -601,6 +603,8 @@ export function createAppState(): AppState {
     containerProgressListeners: new Map(),
     prPollerTimer: null,
     prRepoErrors: new Map(),
+    pendingReviewSlots: new Map(),
+    autoReviewedShas: new Map(),
     prReviewCommentLastSyncedAt: new Map(),
     github: createGithubState(),
     repoFullNames: new Map(),
