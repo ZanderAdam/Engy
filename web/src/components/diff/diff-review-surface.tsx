@@ -140,6 +140,13 @@ export function DiffReviewSurface({
     refetch: refetchComments,
   } = useDiffComments(repoDir, commentBranchKey);
 
+  const { data: project } = trpc.project.getBySlug.useQuery(
+    { workspaceId: workspaceId ?? 0, slug: projectSlug ?? '' },
+    { enabled: !!workspaceId && !!projectSlug },
+  );
+  const guideProject =
+    project && projectSlug ? { id: project.id, workspaceSlug, slug: projectSlug } : undefined;
+
   // Invalidate comment threads when the server signals a PR change so that
   // GitHub review comments imported by the poller appear without a page reload.
   useOnServerEvent('PR_CHANGE', (payload) => {
@@ -374,6 +381,7 @@ export function DiffReviewSurface({
               reviewSpec={reviewSpec}
               worktreePath={worktreePath}
               coderWorkspace={coderWorkspace}
+              projectId={guideProject?.id}
             />
           </div>
         </div>
@@ -408,6 +416,7 @@ export function DiffReviewSurface({
                 }
                 onDelete={remove}
                 onSelectFile={selectFileByPath}
+                guideProject={guideProject}
               />
               {reviewMode === 'single' && <EditorTabsBar tabs={tabs} />}
               {!repoDir ? (

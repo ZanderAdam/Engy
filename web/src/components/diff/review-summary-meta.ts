@@ -1,5 +1,7 @@
 export type RiskLevel = 'low' | 'typical' | 'high' | 'very_high';
 
+export type ReviewGuideSource = 'default' | 'project';
+
 export interface ReviewRisk {
   level: RiskLevel;
   reason: string;
@@ -43,4 +45,8 @@ function parseChapter(value: unknown): ReadingChapter | undefined {
 export function parseReadingOrder(value: unknown): ReadingChapter[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => parseChapter(item) ?? []);
+}
+
+export function parseGuideSource(value: unknown): ReviewGuideSource | undefined {
+  return value === 'default' || value === 'project' ? value : undefined;
 }

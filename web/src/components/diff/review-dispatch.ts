@@ -21,14 +21,21 @@ interface ReviewPromptInput {
   /** Where the files on screen live, when that is a worktree rather than the repo itself. */
   worktreePath?: string;
   spec: GitPatchSpec;
+  reviewGuide?: string;
 }
 
-export function buildReviewPrompt({ repoDir, worktreePath, spec }: ReviewPromptInput): string {
+export function buildReviewPrompt({
+  repoDir,
+  worktreePath,
+  spec,
+  reviewGuide,
+}: ReviewPromptInput): string {
   return [
     '/engy:review-diff',
     '',
     `repoDir: ${repoDir}`,
     ...(worktreePath ? [`worktreePath: ${worktreePath}`] : []),
+    ...(reviewGuide ? [`reviewGuide: ${reviewGuide}`] : []),
     `scope: ${describePatchSpec(spec)}`,
     '',
     `Run git in ${worktreePath ?? repoDir}.`,

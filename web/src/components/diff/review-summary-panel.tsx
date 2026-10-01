@@ -3,9 +3,12 @@
 import { useState } from 'react';
 import { RiArrowDownSLine, RiArrowRightSLine, RiRobot2Line } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
+import { useVirtualNavigate } from '@/components/tabs/tab-context';
+import { trpc } from '@/lib/trpc';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { commentBodyText } from './agent-findings';
-import { RISK_PRESENTATION } from './review-guide';
+import { RISK_PRESENTATION, type ReviewGuideSource } from './review-summary-meta';
 import type { DiffComment } from './use-diff-comments';
 
 interface ReviewSummaryPanelProps {
@@ -13,6 +16,64 @@ interface ReviewSummaryPanelProps {
   findingCount: number;
   onDelete?: (threadId: string) => void;
   onSelectFile?: (path: string) => void;
+  guideProject?: GuideProject;
+}
+
+interface GuideProject {
+  id: number;
+  workspaceSlug: string;
+  slug: string;
+}
+
+function ReviewGuideControl({
+  source,
+  project,
+}: {
+  source?: ReviewGuideSource;
+  project: GuideProject;
+}) {
+  const navigate = useVirtualNavigate();
+  const utils = trpc.useUtils();
+  const { data: guide } = trpc.project.reviewGuide.useQuery({ projectId: project.id });
+
+  function openGuide() {
+    navigate.push(`/w/${project.workspaceSlug}/projects/${project.slug}/docs?file=review-guide.md`);
+  }
+
+  const createGuide = trpc.project.createReviewGuide.useMutation({
+    onSuccess: () => {
+      void utils.project.reviewGuide.invalidate({ projectId: project.id });
+      openGuide();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  if (!guide) return null;
+
+  return (
+    <>
+      {source && (
+        <span className="text-[10px] text-muted-foreground/60">
+          Guide: {source === 'project' ? 'review-guide.md' : 'default'}
+        </span>
+      )}
+      {guide.path ? (
+        <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={openGuide}>
+          Edit guide
+        </Button>
+      ) : (
+        <Button
+          variant="ghost"
+          size="xs"
+          className="text-muted-foreground"
+          disabled={createGuide.isPending}
+          onClick={() => createGuide.mutate({ projectId: project.id })}
+        >
+          Customize for this project
+        </Button>
+      )}
+    </>
+  );
 }
 
 /**
@@ -24,6 +85,7 @@ export function ReviewSummaryPanel({
   findingCount,
   onDelete,
   onSelectFile,
+  guideProject,
 }: ReviewSummaryPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -60,11 +122,13 @@ export function ReviewSummaryPanel({
             {riskPresentation.label}
           </span>
         )}
+        <span className="ml-auto" />
+        {guideProject && <ReviewGuideControl source={summary.guide} project={guideProject} />}
         {onDelete && (
           <Button
             variant="ghost"
             size="xs"
-            className="ml-auto text-muted-foreground"
+            className="text-muted-foreground"
             onClick={() => onDelete(summary.threadId)}
           >
             Delete

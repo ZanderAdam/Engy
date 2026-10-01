@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseReadingOrder, parseRisk } from './review-guide';
+import { parseGuideSource, parseReadingOrder, parseRisk } from './review-summary-meta';
 
-describe('review-guide', () => {
+describe('review-summary-meta', () => {
   describe('parseRisk', () => {
     it('should keep a known level with its reason', () => {
       expect(parseRisk({ level: 'very_high', reason: 'Schema change' })).toEqual({
@@ -39,6 +39,18 @@ describe('review-guide', () => {
     it('should return an empty list for anything but an array', () => {
       expect(parseReadingOrder(undefined)).toEqual([]);
       expect(parseReadingOrder({})).toEqual([]);
+    });
+  });
+
+  describe('parseGuideSource', () => {
+    it('should accept the two known sources', () => {
+      expect(parseGuideSource('default')).toBe('default');
+      expect(parseGuideSource('project')).toBe('project');
+    });
+
+    it('should drop anything else', () => {
+      expect(parseGuideSource('custom')).toBeUndefined();
+      expect(parseGuideSource(null)).toBeUndefined();
     });
   });
 });

@@ -12,7 +12,14 @@ import {
   type DiffThreadSource,
   type FindingSeverity,
 } from './agent-findings';
-import { parseReadingOrder, parseRisk, type ReadingChapter, type ReviewRisk } from './review-guide';
+import {
+  parseGuideSource,
+  parseReadingOrder,
+  parseRisk,
+  type ReadingChapter,
+  type ReviewGuideSource,
+  type ReviewRisk,
+} from './review-summary-meta';
 
 export interface DiffComment {
   threadId: string;
@@ -26,6 +33,7 @@ export interface DiffComment {
   agentType?: string;
   risk?: ReviewRisk;
   readingOrder?: ReadingChapter[];
+  guide?: ReviewGuideSource;
   githubAuthor?: string;
   githubUrl?: string;
   comments: Array<{
@@ -75,6 +83,7 @@ export function useDiffComments(repoDir: string | null, branch: string | null) {
         agentType: source === 'agent' ? (meta.agentType as string | undefined) : undefined,
         risk: parseRisk(meta.risk),
         readingOrder: parseReadingOrder(meta.readingOrder),
+        guide: parseGuideSource(meta.guide),
         githubAuthor: isGithub ? (meta.author as string | undefined) : undefined,
         githubUrl: isGithub ? (meta.url as string | undefined) : undefined,
         comments: thread.comments

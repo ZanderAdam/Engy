@@ -25,6 +25,7 @@ interface ReviewActionsProps {
   reviewSpec?: GitPatchSpec | null;
   worktreePath?: string;
   coderWorkspace?: string;
+  projectId?: number;
 }
 
 export function ReviewActions({
@@ -34,6 +35,7 @@ export function ReviewActions({
   reviewSpec,
   worktreePath,
   coderWorkspace,
+  projectId,
 }: ReviewActionsProps) {
   const { sendToTerminal, terminalActive } = useSendToTerminal();
   const { status: sessionStatus, sessionId } = useExecutionStatus(
@@ -47,6 +49,11 @@ export function ReviewActions({
     onSuccess: () => toast.success('Feedback sent to agent'),
     onError: (err) => toast.error(err.message),
   });
+
+  const { data: reviewGuide } = trpc.project.reviewGuide.useQuery(
+    { projectId: projectId ?? 0 },
+    { enabled: projectId != null },
+  );
 
   const unresolvedThreads = diffComments.filter((c) => !c.resolved);
 
@@ -88,8 +95,15 @@ export function ReviewActions({
 
   const handleReviewDiff = useCallback(() => {
     if (!repoDir || !reviewSpec) return;
-    sendToTerminal(buildReviewPrompt({ repoDir, worktreePath, spec: reviewSpec }));
-  }, [repoDir, worktreePath, reviewSpec, sendToTerminal]);
+    sendToTerminal(
+      buildReviewPrompt({
+        repoDir,
+        worktreePath,
+        spec: reviewSpec,
+        reviewGuide: reviewGuide?.path ?? undefined,
+      }),
+    );
+  }, [repoDir, worktreePath, reviewSpec, reviewGuide, sendToTerminal]);
 
   function getReviewTooltip() {
     if (coderWorkspace) return 'Review is not available for Coder workspaces';

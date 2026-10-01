@@ -44,7 +44,10 @@ describe('review dispatch', () => {
     });
 
     it('should pass the scope so the agent reviews what is on screen', () => {
-      const prompt = buildReviewPrompt({ repoDir: REPO, spec: { kind: 'commit', hash: 'deadbee' } });
+      const prompt = buildReviewPrompt({
+        repoDir: REPO,
+        spec: { kind: 'commit', hash: 'deadbee' },
+      });
       expect(prompt).toContain('deadbee');
     });
 
@@ -58,6 +61,21 @@ describe('review dispatch', () => {
 
       expect(prompt).toContain(`Run git in ${worktreePath}.`);
       expect(prompt).toContain(`against repoDir ${REPO}`);
+    });
+
+    it('should pass the project review guide path when there is one', () => {
+      const prompt = buildReviewPrompt({
+        repoDir: REPO,
+        spec: { kind: 'unstaged' },
+        reviewGuide: '/engy/projects/p/review-guide.md',
+      });
+      expect(prompt).toContain('reviewGuide: /engy/projects/p/review-guide.md');
+    });
+
+    it('should leave the guide line out without a project guide', () => {
+      expect(buildReviewPrompt({ repoDir: REPO, spec: { kind: 'unstaged' } })).not.toContain(
+        'reviewGuide:',
+      );
     });
   });
 });
