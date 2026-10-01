@@ -520,6 +520,19 @@ describe('diff review MCP tools', () => {
       expect(plain.data).toMatchObject({ summary: 'plain', risk: null, readingOrder: null });
     });
 
+    it('[FR-MCP-270] stores the guide in the summary metadata and returns it, null when absent', async () => {
+      const mcp = makeMcp();
+      await callTool(mcp, 'diff_review_summary')({ repoDir: REPO, summary: 's', guide: 'project' });
+      const [thread] = await readAsDiffsTabWould(REPO);
+      expect(thread.metadata).toMatchObject({ guide: 'project' });
+      const listed = await callTool(mcp, 'diff_review_list')({ repoDir: REPO });
+      expect(listed.data).toMatchObject({ guide: 'project' });
+
+      await callTool(mcp, 'diff_review_summary')({ repoDir: REPO, summary: 'plain' });
+      const plain = await callTool(mcp, 'diff_review_list')({ repoDir: REPO });
+      expect(plain.data).toMatchObject({ guide: null });
+    });
+
     it('[FR-MCP-270] rejects an unknown level, an overlong reason and too many chapters', () => {
       const tools = (
         makeMcp() as unknown as {
@@ -533,6 +546,8 @@ describe('diff review MCP tools', () => {
         tools.diff_review_summary.inputSchema.safeParse({ summary: 's', ...extra }).success;
 
       expect(accepts({ risk })).toBe(true);
+      expect(accepts({ guide: 'default' })).toBe(true);
+      expect(accepts({ guide: 'custom' })).toBe(false);
       expect(accepts({ risk: { level: 'severe', reason: 'x' } })).toBe(false);
       expect(accepts({ risk: { level: 'low', reason: 'x'.repeat(301) } })).toBe(false);
       expect(accepts({ readingOrder: Array(21).fill(readingOrder[0]) })).toBe(false);

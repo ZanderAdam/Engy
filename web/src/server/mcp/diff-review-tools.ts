@@ -113,6 +113,12 @@ const diffReviewSummaryInput = {
     ),
   risk: riskField,
   readingOrder: readingOrderField,
+  guide: z
+    .enum(['default', 'project'])
+    .optional()
+    .describe(
+      'Which review guide the review followed: the built-in default or the project review-guide.md',
+    ),
 };
 
 const diffReviewListInput = {
@@ -273,6 +279,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
           ...authorMetadata(callerTerminalSessionId),
           ...(args.risk ? { risk: args.risk } : {}),
           ...(args.readingOrder ? { readingOrder: args.readingOrder } : {}),
+          ...(args.guide ? { guide: args.guide } : {}),
         },
         args.summary,
       );
@@ -346,6 +353,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
         summary: summaryRow ? firstCommentBody(summaryRow.id) : null,
         risk: summaryMeta.risk ?? null,
         readingOrder: summaryMeta.readingOrder ?? null,
+        guide: summaryMeta.guide ?? null,
       });
     },
   );
