@@ -243,6 +243,8 @@ describe('github client', () => {
 
     it.each([
       ['NOT_FOUND', 'not_found'],
+      ['FORBIDDEN', 'forbidden'],
+      ['INSUFFICIENT_SCOPES', 'forbidden'],
       ['RATE_LIMITED', 'rate_limited'],
       ['SOMETHING_ELSE', 'validation'],
     ])('should map GraphQL error type %s to %s', async (type, kind) => {

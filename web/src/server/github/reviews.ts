@@ -1,7 +1,7 @@
 import type { AppState } from '../trpc/context';
 import { diffDocFilePath } from '@/lib/diff-doc-path';
 import { isGithubDraft, toGithubSide } from '@/lib/github-draft';
-import { githubRest } from './client';
+import { githubGraphql, githubRest } from './client';
 
 type ReviewEvent = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
 
@@ -67,4 +67,45 @@ export async function fetchPullHeadSha(
     throw new Error(`GitHub returned no data for ${repoFullName}#${prNumber}`);
   }
   return result.data.head.sha;
+}
+
+export async function replyToReviewComment(
+  state: AppState,
+  input: { repoFullName: string; prNumber: number; commentId: number; body: string },
+): Promise<void> {
+  await githubRest(
+    state,
+    `/repos/${input.repoFullName}/pulls/${input.prNumber}/comments/${input.commentId}/replies`,
+    { method: 'POST', body: { body: input.body } },
+  );
+}
+
+export async function addIssueComment(
+  state: AppState,
+  input: { repoFullName: string; prNumber: number; body: string },
+): Promise<void> {
+  await githubRest(state, `/repos/${input.repoFullName}/issues/${input.prNumber}/comments`, {
+    method: 'POST',
+    body: { body: input.body },
+  });
+}
+
+const RESOLVE_THREAD_MUTATION = `
+mutation ResolveThread($threadId: ID!) {
+  resolveReviewThread(input: { threadId: $threadId }) { thread { id isResolved } }
+}`;
+
+const UNRESOLVE_THREAD_MUTATION = `
+mutation UnresolveThread($threadId: ID!) {
+  unresolveReviewThread(input: { threadId: $threadId }) { thread { id isResolved } }
+}`;
+
+export async function setReviewThreadResolved(
+  state: AppState,
+  threadNodeId: string,
+  resolved: boolean,
+): Promise<void> {
+  await githubGraphql(state, resolved ? RESOLVE_THREAD_MUTATION : UNRESOLVE_THREAD_MUTATION, {
+    threadId: threadNodeId,
+  });
 }

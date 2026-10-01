@@ -96,6 +96,9 @@ export async function githubGraphql<T = unknown>(
     switch (payload.errors[0].type) {
       case 'NOT_FOUND':
         throw new GithubError('not_found', message);
+      case 'FORBIDDEN':
+      case 'INSUFFICIENT_SCOPES':
+        throw new GithubError('forbidden', message);
       case 'RATE_LIMITED':
         throw new GithubError('rate_limited', message, {
           resetAt: state.github.rateLimit?.resetAt,

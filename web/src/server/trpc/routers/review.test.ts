@@ -161,6 +161,7 @@ describe('review router', () => {
     let stub: StubGithub;
     let githubHead: string;
     let importedThreads: unknown[];
+    let mutationReply: { body: unknown } | null;
     const docPath = () => diffDocPath(REPO_PATH, 'feat/seven', 'src/a.ts');
 
     const draftInput = (text: string, line = 12) => ({
@@ -214,9 +215,13 @@ describe('review router', () => {
       stub = await startStubGithub();
       githubHead = 'sha-7a';
       importedThreads = [];
+      mutationReply = null;
       process.env.ENGY_GITHUB_API_URL = stub.url;
       process.env.ENGY_GITHUB_TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
       stub.reply((req) => {
+        if (req.url === '/graphql' && req.body.includes('mutation') && mutationReply) {
+          return mutationReply;
+        }
         if (req.url === '/graphql') {
           return {
             body: {
@@ -271,6 +276,131 @@ describe('review router', () => {
         await expect(
           caller.review.createDraft({ ...draftInput('x'), prNumber: 99 }),
         ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      });
+    });
+
+    describe('GitHub thread writes', () => {
+      const THREAD_ID = 'gh-thread-500';
+      let target: { workspaceId: number; repoFullName: string; prNumber: number };
+      const graphqlMutations = () =>
+        stub.requests.filter((r) => r.url === '/graphql' && r.body.includes('mutation'));
+
+      beforeEach(async () => {
+        target = { workspaceId, repoFullName: 'org/app', prNumber: 7 };
+        importedThreads = [githubThread(500, 12, 'please rename')];
+        await caller.review.syncThreads(target);
+      });
+
+      it('[FR-PRMON-270] should post a reply to the thread root and import it', async () => {
+        const thread = githubThread(500, 12, 'please rename');
+        thread.comments.nodes.push({
+          ...thread.comments.nodes[0],
+          id: 'PRRC_501',
+          databaseId: 501,
+          body: 'done',
+        });
+        importedThreads = [thread];
+
+        await caller.review.reply({ ...target, threadId: THREAD_ID, body: 'done' });
+
+        const post = stub.requests.find((r) => r.url.endsWith('/comments/500/replies'));
+        expect(post?.method).toBe('POST');
+        expect(JSON.parse(post!.body)).toEqual({ body: 'done' });
+        const bodies = ctx.db
+          .select()
+          .from(threadComments)
+          .all()
+          .map((c) => c.body);
+        expect(bodies).toContain('done');
+      });
+
+      it('[FR-PRMON-270] should refuse to reply to a thread that did not come from GitHub', async () => {
+        insertThread('note', { type: 'diff', source: 'local', lineNumber: 1 }, 'my note');
+
+        await expect(
+          caller.review.reply({ ...target, threadId: 'note', body: 'x' }),
+        ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+        expect(stub.requests.some((r) => r.url.includes('/replies'))).toBe(false);
+      });
+
+      it('[FR-PRMON-270] should post a top-level comment on the issue', async () => {
+        await caller.review.comment({ ...target, body: 'Thanks all' });
+
+        const post = stub.requests.find((r) => r.url === '/repos/org/app/issues/7/comments');
+        expect(post?.method).toBe('POST');
+        expect(JSON.parse(post!.body)).toEqual({ body: 'Thanks all' });
+      });
+
+      it('[FR-PRMON-280] should resolve the thread on GitHub and mirror it locally', async () => {
+        importedThreads = [{ ...githubThread(500, 12, 'please rename'), isResolved: true }];
+        const result = await caller.review.resolveThread({
+          ...target,
+          threadId: THREAD_ID,
+          resolved: true,
+        });
+
+        expect(result).toEqual({ localOnly: false });
+        const [mutation] = graphqlMutations();
+        expect(JSON.parse(mutation.body)).toMatchObject({
+          variables: { threadId: 'PRRT_500' },
+        });
+        expect(mutation.body).toContain('resolveReviewThread');
+        const row = ctx.db
+          .select()
+          .from(commentThreads)
+          .all()
+          .find((t) => t.id === THREAD_ID);
+        expect(row?.resolved).toBe(true);
+      });
+
+      it('[FR-PRMON-280] should unresolve a locally dismissed thread on GitHub and clear the dismissal', async () => {
+        mutationReply = null;
+        mutationReply = {
+          body: { errors: [{ type: 'FORBIDDEN', message: 'Resource not accessible' }] },
+        };
+        await caller.review.resolveThread({ ...target, threadId: THREAD_ID, resolved: true });
+        mutationReply = null;
+
+        await caller.review.resolveThread({ ...target, threadId: THREAD_ID, resolved: false });
+
+        expect(graphqlMutations()[1].body).toContain('unresolveReviewThread');
+        const row = ctx.db
+          .select()
+          .from(commentThreads)
+          .all()
+          .find((t) => t.id === THREAD_ID);
+        expect(row?.resolved).toBe(false);
+        expect(row?.metadata?.localDismissed).toBeUndefined();
+      });
+
+      it('[FR-PRMON-280] should resolve in Engy only when GitHub answers forbidden', async () => {
+        mutationReply = {
+          body: { errors: [{ type: 'FORBIDDEN', message: 'Resource not accessible' }] },
+        };
+
+        const result = await caller.review.resolveThread({
+          ...target,
+          threadId: THREAD_ID,
+          resolved: true,
+        });
+
+        expect(result).toEqual({ localOnly: true });
+        const row = ctx.db
+          .select()
+          .from(commentThreads)
+          .all()
+          .find((t) => t.id === THREAD_ID);
+        expect(row?.resolved).toBe(true);
+        expect(row?.metadata?.localDismissed).toBe(true);
+      });
+
+      it('[FR-PRMON-290] should not resolve an Engy thread on GitHub', async () => {
+        insertThread('finding', { type: 'diff', source: 'agent', lineNumber: 2 }, 'finding');
+
+        await expect(
+          caller.review.resolveThread({ ...target, threadId: 'finding', resolved: true }),
+        ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+        expect(graphqlMutations()).toHaveLength(0);
       });
     });
 

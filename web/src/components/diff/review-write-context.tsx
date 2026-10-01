@@ -10,6 +10,8 @@ export interface ReviewWriteActions {
     text: string,
     codeLine: string,
   ) => Promise<void>;
+  replyToThread: (threadId: string, text: string) => Promise<void>;
+  setThreadResolved: (threadId: string, resolved: boolean) => Promise<void>;
 }
 
 const ReviewWriteContext = createContext<ReviewWriteActions | null>(null);

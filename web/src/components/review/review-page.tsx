@@ -238,7 +238,12 @@ export function ReviewPage({
             ))}
           </TabsList>
           <TabsContent value="overview" className="min-h-0 overflow-y-auto">
-            <ReviewOverview detail={detail} />
+            <ReviewOverview
+              detail={detail}
+              workspaceId={workspaceId}
+              repoFullName={repoFullName}
+              prNumber={prNumber}
+            />
           </TabsContent>
           <TabsContent value="files" className="flex min-h-0 flex-col">
             <ReviewFiles

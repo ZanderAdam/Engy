@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
+import { toast } from 'sonner';
 import { RiGithubLine, RiRobot2Line } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -11,6 +12,7 @@ import { AGENT_USER_ID } from '@/lib/comment-feedback';
 import { commentBodyText, SEVERITY_PRESENTATION } from './agent-findings';
 import { buildProvePrompt } from './prove-prompt';
 import { diffDocFilePath } from '@/lib/diff-doc-path';
+import { useReviewWrite } from './review-write-context';
 import type { DiffComment } from './use-diff-comments';
 
 function formatRelativeTime(dateStr: string): string {
@@ -51,36 +53,68 @@ export function CommentWidget({
   draftBlockedReason = null,
 }: CommentWidgetProps) {
   const [text, setText] = useState('');
+  const [pendingReplies, setPendingReplies] = useState<string[]>([]);
+  const [resolvedOverride, setResolvedOverride] = useState<boolean | null>(null);
   const { sendToTerminal, terminalActive } = useSendToTerminal();
+  const reviewWrite = useReviewWrite();
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        if (!text.trim()) return;
-        if (comment && onReply) {
-          onReply(comment.threadId, text.trim());
-        } else {
-          onSave(text.trim());
-        }
-        setText('');
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onCancel();
-      }
-    },
-    [text, comment, onReply, onSave, onCancel],
-  );
+  const isGithub = comment?.source === 'github';
+  const isDraft = comment?.githubDraft === true;
+  const isAgent = comment?.source === 'agent';
+  const githubWrite = isGithub ? reviewWrite : null;
+  const resolved = resolvedOverride ?? comment?.resolved ?? false;
+  const severity = comment?.severity ? SEVERITY_PRESENTATION[comment.severity] : undefined;
 
-  const handleSubmit = () => {
-    if (!text.trim()) return;
+  const replyOnGithub = async (threadId: string, body: string) => {
+    if (!githubWrite) return;
+    setPendingReplies((pending) => [...pending, body]);
+    try {
+      await githubWrite.replyToThread(threadId, body);
+    } catch (error) {
+      setText(body);
+      toast.error(error instanceof Error ? error.message : 'Could not post the reply');
+    } finally {
+      setPendingReplies((pending) => pending.filter((reply) => reply !== body));
+    }
+  };
+
+  const changeResolved = async (threadId: string, next: boolean) => {
+    if (!githubWrite) return;
+    setResolvedOverride(next);
+    try {
+      await githubWrite.setThreadResolved(threadId, next);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not update the thread');
+    } finally {
+      setResolvedOverride(null);
+    }
+  };
+
+  const submitText = () => {
+    const body = text.trim();
+    if (!body) return;
+    if (comment && githubWrite) {
+      setText('');
+      void replyOnGithub(comment.threadId, body);
+      return;
+    }
     if (comment && onReply) {
-      onReply(comment.threadId, text.trim());
+      onReply(comment.threadId, body);
     } else {
-      onSave(text.trim());
+      onSave(body);
     }
     setText('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      submitText();
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onCancel();
+    }
   };
 
   const handleAddDraft = () => {
@@ -88,11 +122,6 @@ export function CommentWidget({
     onAddDraft(text.trim());
     setText('');
   };
-
-  const isGithub = comment?.source === 'github';
-  const isDraft = comment?.githubDraft === true;
-  const isAgent = comment?.source === 'agent';
-  const severity = comment?.severity ? SEVERITY_PRESENTATION[comment.severity] : undefined;
 
   const handleProveIt = () => {
     if (!comment || !repoDir) return;
@@ -179,7 +208,7 @@ export function CommentWidget({
                 className={cn(
                   'group/comment py-1.5 text-xs',
                   i > 0 && 'border-t border-border/50 ml-3',
-                  comment.resolved && 'opacity-50',
+                  resolved && 'opacity-50',
                 )}
               >
                 <div className="flex items-center gap-1.5 mb-0.5">
@@ -200,13 +229,25 @@ export function CommentWidget({
                     </Button>
                   )}
                 </div>
-                <span className={cn('whitespace-pre-wrap', comment.resolved && 'line-through')}>
+                <span className={cn('whitespace-pre-wrap', resolved && 'line-through')}>
                   {commentBodyText(c.body)}
                 </span>
               </div>
             ))}
+            {pendingReplies.map((body, i) => (
+              <div
+                key={`pending-${i}`}
+                className="ml-3 border-t border-border/50 py-1.5 text-xs opacity-60"
+              >
+                <div className="mb-0.5 flex items-center gap-1.5 font-medium text-muted-foreground">
+                  You
+                  <span className="text-[10px] font-normal">Sending…</span>
+                </div>
+                <span className="whitespace-pre-wrap">{body}</span>
+              </div>
+            ))}
             <div className="flex items-center gap-1.5 pt-1">
-              {isAgent && !comment.resolved && (
+              {isAgent && !resolved && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -225,7 +266,16 @@ export function CommentWidget({
                   </TooltipContent>
                 </Tooltip>
               )}
-              {onResolve && !comment.resolved && !isDraft && (
+              {githubWrite && (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => void changeResolved(comment.threadId, !resolved)}
+                >
+                  {resolved ? 'Unresolve' : 'Resolve'}
+                </Button>
+              )}
+              {!githubWrite && onResolve && !resolved && !isDraft && (
                 <Button variant="ghost" size="xs" onClick={() => onResolve(comment.threadId)}>
                   {isGithub ? 'Dismiss' : 'Resolve'}
                 </Button>
@@ -244,13 +294,15 @@ export function CommentWidget({
           </div>
         )}
 
-        {!isGithub && !isDraft && (
+        {((!isGithub && !isDraft) || githubWrite) && (
           <>
             <Textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={comment ? 'Reply...' : 'Add a comment...'}
+              placeholder={
+                githubWrite ? 'Reply on GitHub...' : comment ? 'Reply...' : 'Add a comment...'
+              }
               className="min-h-[60px] resize-none text-xs"
               autoFocus
             />
@@ -280,7 +332,7 @@ export function CommentWidget({
                     </TooltipContent>
                   </Tooltip>
                 )}
-                <Button size="xs" onClick={handleSubmit} disabled={!text.trim()}>
+                <Button size="xs" onClick={submitText} disabled={!text.trim()}>
                   {comment ? 'Reply' : onAddDraft ? 'Add note' : 'Comment'}
                 </Button>
               </div>

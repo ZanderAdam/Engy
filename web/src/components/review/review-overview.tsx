@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { MarkdownView } from './markdown-view';
 import { ReviewAvatar } from './review-avatar';
 import { reviewStateLabel } from './review-helpers';
+import { ReviewCommentBox } from './review-comment-box';
 
 const VERDICT_CLASSES: Record<string, string> = {
   APPROVED: 'border-green-400/30 bg-green-400/10 text-green-400',
@@ -86,7 +87,19 @@ function CommentCard({ item }: { item: Exclude<ConversationItem, { kind: 'commit
   );
 }
 
-export function ReviewOverview({ detail }: { detail: PrDetail }) {
+interface ReviewOverviewProps {
+  detail: PrDetail;
+  workspaceId: number;
+  repoFullName: string;
+  prNumber: number;
+}
+
+export function ReviewOverview({
+  detail,
+  workspaceId,
+  repoFullName,
+  prNumber,
+}: ReviewOverviewProps) {
   const hasBody = detail.body.trim().length > 0;
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-4">
@@ -115,6 +128,11 @@ export function ReviewOverview({ detail }: { detail: PrDetail }) {
             )}
           </ol>
         )}
+        <ReviewCommentBox
+          workspaceId={workspaceId}
+          repoFullName={repoFullName}
+          prNumber={prNumber}
+        />
       </section>
     </div>
   );

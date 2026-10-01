@@ -17,8 +17,22 @@ export function useReviewWriteActions({
   prNumber,
 }: ReviewTarget): ReviewWriteActions {
   const utils = trpc.useUtils();
+  const refreshThreads = () => utils.comment.listThreadsByPrefix.invalidate();
   const { mutateAsync: createDraft } = trpc.review.createDraft.useMutation({
-    onSuccess: () => utils.comment.listThreadsByPrefix.invalidate(),
+    onSuccess: refreshThreads,
+  });
+  const { mutateAsync: reply } = trpc.review.reply.useMutation({ onSuccess: refreshThreads });
+  const { mutateAsync: resolveThread } = trpc.review.resolveThread.useMutation({
+    onSuccess: (result, variables) => {
+      if (result.localOnly) {
+        toast.warning(
+          variables.resolved
+            ? 'No permission to resolve on GitHub. Resolved in Engy only.'
+            : 'No permission to unresolve on GitHub. Reopened in Engy only.',
+        );
+      }
+      return refreshThreads();
+    },
   });
 
   return useMemo(
@@ -39,7 +53,13 @@ export function useReviewWriteActions({
           toast.error(error instanceof Error ? error.message : 'Could not save the draft');
         }
       },
+      replyToThread: async (threadId, body) => {
+        await reply({ workspaceId, repoFullName, prNumber, threadId, body });
+      },
+      setThreadResolved: async (threadId, resolved) => {
+        await resolveThread({ workspaceId, repoFullName, prNumber, threadId, resolved });
+      },
     }),
-    [createDraft, workspaceId, repoFullName, prNumber],
+    [createDraft, reply, resolveThread, workspaceId, repoFullName, prNumber],
   );
 }

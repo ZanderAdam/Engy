@@ -2,13 +2,22 @@ import { z } from 'zod';
 import { and, eq } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
+import type { AppState } from '../context';
 import { getDb } from '../../db/client';
 import { reviewWorktrees, workspaces } from '../../db/schema';
 import { fetchPrDetail } from '../../github/pr-detail';
 import { GithubError } from '../../github/errors';
-import { draftsToReviewComments, fetchPullHeadSha, submitReview } from '../../github/reviews';
+import {
+  addIssueComment,
+  draftsToReviewComments,
+  fetchPullHeadSha,
+  replyToReviewComment,
+  setReviewThreadResolved,
+  submitReview,
+} from '../../github/reviews';
 import { findItemByPr, markDone } from '../../inbox/store';
 import { syncReviewThreadsNow } from '../../pr/poller';
+import { requireGithubThread, setResolvedLocally } from '../../review/github-threads';
 import { createDraftThread, deleteImportedDrafts, listDraftThreads } from '../../review/drafts';
 import {
   listReviewWorktrees,
@@ -53,25 +62,33 @@ function requireReviewRow(input: z.infer<typeof prInput>, action: string): Revie
   return row;
 }
 
+function toTrpcError(error: unknown): unknown {
+  if (!(error instanceof GithubError)) return error;
+  switch (error.kind) {
+    case 'forbidden':
+      return new TRPCError({ code: 'FORBIDDEN', message: error.message, cause: error });
+    case 'not_found':
+      return new TRPCError({ code: 'NOT_FOUND', message: error.message, cause: error });
+    case 'validation':
+      return new TRPCError({ code: 'BAD_REQUEST', message: error.message, cause: error });
+    default:
+      return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: error.message, cause: error });
+  }
+}
+
 async function rethrowGithubError<T>(call: Promise<T>): Promise<T> {
   try {
     return await call;
   } catch (error) {
-    if (!(error instanceof GithubError)) throw error;
-    switch (error.kind) {
-      case 'forbidden':
-        throw new TRPCError({ code: 'FORBIDDEN', message: error.message, cause: error });
-      case 'not_found':
-        throw new TRPCError({ code: 'NOT_FOUND', message: error.message, cause: error });
-      case 'validation':
-        throw new TRPCError({ code: 'BAD_REQUEST', message: error.message, cause: error });
-      default:
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message,
-          cause: error,
-        });
-    }
+    throw toTrpcError(error);
+  }
+}
+
+async function syncAfterWrite(state: AppState, row: ReviewWorktreeRow): Promise<void> {
+  try {
+    await syncReviewThreadsNow(state, row.repoPath, row.prNumber);
+  } catch (error) {
+    console.error('[review] thread sync after write failed:', error);
   }
 }
 
@@ -159,6 +176,56 @@ export const reviewRouter = router({
       const item = findItemByPr(input.repoFullName, input.prNumber);
       if (item) markDone(item.id);
       return { submitted: comments.length, remainingDrafts };
+    }),
+
+  reply: publicProcedure
+    .input(prInput.extend({ threadId: z.string(), body: z.string().trim().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const row = requireReviewRow(input, 'replying');
+      const thread = requireGithubThread(input.threadId, input.prNumber);
+      await rethrowGithubError(
+        replyToReviewComment(ctx.state, {
+          repoFullName: input.repoFullName,
+          prNumber: input.prNumber,
+          commentId: thread.rootCommentId,
+          body: input.body,
+        }),
+      );
+      await syncAfterWrite(ctx.state, row);
+      return { success: true as const };
+    }),
+
+  comment: publicProcedure
+    .input(prInput.extend({ body: z.string().trim().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      requireReviewRow(input, 'commenting');
+      await rethrowGithubError(
+        addIssueComment(ctx.state, {
+          repoFullName: input.repoFullName,
+          prNumber: input.prNumber,
+          body: input.body,
+        }),
+      );
+      return { success: true as const };
+    }),
+
+  resolveThread: publicProcedure
+    .input(prInput.extend({ threadId: z.string(), resolved: z.boolean() }))
+    .mutation(async ({ input, ctx }) => {
+      const row = requireReviewRow(input, 'resolving threads');
+      const thread = requireGithubThread(input.threadId, input.prNumber);
+      try {
+        await setReviewThreadResolved(ctx.state, thread.nodeId, input.resolved);
+      } catch (error) {
+        if (error instanceof GithubError && error.kind === 'forbidden') {
+          setResolvedLocally(thread.row, input.resolved, { localOnly: true });
+          return { localOnly: true as const };
+        }
+        throw toTrpcError(error);
+      }
+      setResolvedLocally(thread.row, input.resolved, { localOnly: false });
+      await syncAfterWrite(ctx.state, row);
+      return { localOnly: false as const };
     }),
 
   update: publicProcedure

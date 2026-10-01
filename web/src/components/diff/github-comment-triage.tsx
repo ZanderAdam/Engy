@@ -1,7 +1,12 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { RiGithubLine, RiSendPlaneLine, RiArrowDownSLine, RiArrowRightSLine } from '@remixicon/react';
+import {
+  RiGithubLine,
+  RiSendPlaneLine,
+  RiArrowDownSLine,
+  RiArrowRightSLine,
+} from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
@@ -15,6 +20,7 @@ import {
   allGithubThreadIds,
 } from './github-triage-helpers';
 import { diffDocFilePath } from '@/lib/diff-doc-path';
+import { useReviewWrite } from './review-write-context';
 import type { DiffComment } from './use-diff-comments';
 
 interface GithubCommentTriageProps {
@@ -23,12 +29,19 @@ interface GithubCommentTriageProps {
   onResolve: (threadId: string) => Promise<void>;
 }
 
-
 export function GithubCommentTriage({
   diffComments,
   sessionId,
-  onResolve,
+  onResolve: onLocalResolve,
 }: GithubCommentTriageProps) {
+  const reviewWrite = useReviewWrite();
+  const onResolve = reviewWrite
+    ? (threadId: string) => reviewWrite.setThreadResolved(threadId, true)
+    : onLocalResolve;
+  const resolveLabel = reviewWrite ? 'Resolve' : 'Dismiss';
+  const resolveTooltip = reviewWrite
+    ? 'Resolve on GitHub'
+    : 'Locally dismiss (no GitHub write-back)';
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState(false);
 
@@ -39,10 +52,7 @@ export function GithubCommentTriage({
     onError: (err) => toast.error(err.message),
   });
 
-  const githubThreads = useMemo(
-    () => filterUnresolvedGithubThreads(diffComments),
-    [diffComments],
-  );
+  const githubThreads = useMemo(() => filterUnresolvedGithubThreads(diffComments), [diffComments]);
 
   const selectedThreadsList = useMemo(
     () => getSelectedThreads(diffComments, selectedIds),
@@ -91,7 +101,7 @@ export function GithubCommentTriage({
   const handleSelectAll = () => setSelectedIds(allGithubThreadIds(diffComments));
   const handleClearAll = () => setSelectedIds(new Set());
 
-  const handleDismiss = async (threadId: string) => {
+  const handleResolve = async (threadId: string) => {
     try {
       await onResolve(threadId);
       setSelectedIds((prev) => {
@@ -100,11 +110,13 @@ export function GithubCommentTriage({
         return next;
       });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to dismiss comment');
+      toast.error(
+        err instanceof Error ? err.message : `Failed to ${resolveLabel.toLowerCase()} comment`,
+      );
     }
   };
 
-  const handleDismissSelected = async () => {
+  const handleResolveSelected = async () => {
     const results = await Promise.allSettled(
       selectedThreadsList.map((thread) => onResolve(thread.threadId)),
     );
@@ -120,7 +132,9 @@ export function GithubCommentTriage({
     });
     const failCount = results.filter((r) => r.status === 'rejected').length;
     if (failCount > 0) {
-      toast.error(`Failed to dismiss ${failCount} comment${failCount === 1 ? '' : 's'}`);
+      toast.error(
+        `Failed to ${resolveLabel.toLowerCase()} ${failCount} comment${failCount === 1 ? '' : 's'}`,
+      );
     }
   };
 
@@ -180,14 +194,18 @@ export function GithubCommentTriage({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={handleDismissSelected}
+                  onClick={handleResolveSelected}
                   disabled={selectedCount === 0}
                   className="h-7 px-2 text-xs text-muted-foreground"
                 >
-                  Dismiss ({selectedCount})
+                  {resolveLabel} ({selectedCount})
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Locally dismiss selected comments (no GitHub write-back)</TooltipContent>
+              <TooltipContent>
+                {reviewWrite
+                  ? 'Resolve selected comments on GitHub'
+                  : 'Locally dismiss selected comments (no GitHub write-back)'}
+              </TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -263,13 +281,13 @@ export function GithubCommentTriage({
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleDismiss(thread.threadId)}
+                        onClick={() => handleResolve(thread.threadId)}
                         className="h-6 shrink-0 px-2 text-[10px] text-muted-foreground hover:text-foreground"
                       >
-                        Dismiss
+                        {resolveLabel}
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Locally dismiss (no GitHub write-back)</TooltipContent>
+                    <TooltipContent>{resolveTooltip}</TooltipContent>
                   </Tooltip>
                 </div>
               );
