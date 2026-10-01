@@ -59,14 +59,18 @@ describe('review router', () => {
       repoFullName: 'org/app',
       prNumber: 7,
     });
-    expect(opened).toMatchObject({ headRefName: 'feat/seven', headSha: 'sha-7a' });
+    expect(opened).toMatchObject({
+      repoPath: REPO_PATH,
+      headRefName: 'feat/seven',
+      headSha: 'sha-7a',
+    });
 
     const listed = await caller.review.list({ workspaceId });
     expect(listed).toEqual([expect.objectContaining({ id: opened.id, prNumber: 7, kept: null })]);
 
     daemon.remoteHeads.set(7, 'sha-7b');
     const updated = await caller.review.update({ id: opened.id });
-    expect(updated).toMatchObject({ headSha: 'sha-7b', dirty: false });
+    expect(updated).toMatchObject({ repoPath: REPO_PATH, headSha: 'sha-7b', dirty: false });
 
     await expect(caller.review.remove({ id: opened.id })).resolves.toEqual({ success: true });
     expect(await caller.review.list({ workspaceId })).toEqual([]);

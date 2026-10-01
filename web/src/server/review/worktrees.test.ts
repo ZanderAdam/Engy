@@ -138,6 +138,7 @@ describe('review worktrees', () => {
 
       const worktreePath = path.join(workspaceDir, 'worktrees', '_review', 'app', 'pr-7');
       expect(result).toMatchObject({
+        repoPath: REPO_PATH,
         worktreePath,
         headRefName: 'feat/seven',
         headSha: 'sha-7a',

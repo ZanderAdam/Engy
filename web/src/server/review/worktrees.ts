@@ -22,6 +22,7 @@ type KeptReason = 'local_changes' | 'session_open';
 
 interface ReviewWorktreeState {
   id: number;
+  repoPath: string;
   worktreePath: string;
   headRefName: string;
   headSha: string;
@@ -247,6 +248,7 @@ async function findAgentWorktree(
 function toState(row: ReviewWorktreeRow, pr: PrInfo, flags: Partial<ReviewWorktreeState>) {
   return {
     id: row.id,
+    repoPath: row.repoPath,
     worktreePath: row.worktreePath,
     headRefName: row.headRefName,
     headSha: row.headSha,
