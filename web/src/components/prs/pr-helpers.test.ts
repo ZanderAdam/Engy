@@ -6,8 +6,6 @@ import {
   formatRelativeTime,
   summarizeChecks,
   deriveCheckState,
-  coercePrScope,
-  filterPrsByScope,
   sortByClosestToShipping,
   buildAttentionToast,
 } from './pr-helpers';
@@ -210,29 +208,6 @@ describe('summarizeChecks', () => {
       { name: 'ci/travis', status: 'ERROR', conclusion: null, detailsUrl: null },
     ];
     expect(summarizeChecks(checks)).toEqual({ passing: 0, failing: 1, pending: 0, total: 1 });
-  });
-});
-
-describe('[FR-PRMON-190] PR scope filtering', () => {
-  const mine = { number: 1, authoredByViewer: true };
-  const theirs = { number: 2, authoredByViewer: false };
-
-  it('should keep only viewer-authored PRs in "mine" scope', () => {
-    expect(filterPrsByScope([mine, theirs], 'mine')).toEqual([mine]);
-  });
-
-  it('should keep only PRs awaiting the viewer review in "review" scope', () => {
-    expect(filterPrsByScope([mine, theirs], 'review')).toEqual([theirs]);
-  });
-
-  it('should default an unset or unknown workspace scope to "mine"', () => {
-    expect(coercePrScope(null)).toBe('mine');
-    expect(coercePrScope(undefined)).toBe('mine');
-    expect(coercePrScope('bogus')).toBe('mine');
-  });
-
-  it('should honour a configured "review" workspace scope', () => {
-    expect(coercePrScope('review')).toBe('review');
   });
 });
 

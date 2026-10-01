@@ -65,7 +65,6 @@ export const workspaces = sqliteTable('workspaces', {
   autoStart: integer('auto_start', { mode: 'boolean' }).default(false),
   autoCiFix: integer('auto_ci_fix', { mode: 'boolean' }).default(false),
   autoReviewOnRequest: integer('auto_review_on_request', { mode: 'boolean' }).default(false),
-  prScope: text('pr_scope', { enum: ['mine', 'review'] }).default('mine'),
   createdAt: text('created_at')
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

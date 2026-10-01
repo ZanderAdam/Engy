@@ -330,17 +330,6 @@ describe('workspace router', () => {
       );
     });
 
-    it('[FR-PRMON-190] should default prScope to mine and persist an update to review', async () => {
-      const ws = await caller.workspace.create({ name: 'Pr Scope' });
-      expect(ws.prScope).toBe('mine');
-
-      const updated = await caller.workspace.update({ id: ws.id, prScope: 'review' });
-      expect(updated.prScope).toBe('review');
-
-      const untouched = await caller.workspace.update({ id: ws.id, name: 'Pr Scope Renamed' });
-      expect(untouched.prScope).toBe('review');
-    });
-
     it('[FR-PRMON-300] should default autoReviewOnRequest to off and persist an update', async () => {
       const ws = await caller.workspace.create({ name: 'Auto Review' });
       expect(ws.autoReviewOnRequest).toBe(false);

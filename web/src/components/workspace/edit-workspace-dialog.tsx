@@ -89,7 +89,6 @@ interface EditWorkspaceDialogProps {
     autoCiFix: boolean | null;
     autoReviewOnRequest: boolean | null;
     autoAgentCompletion: 'pr' | 'merge' | null;
-    prScope: 'mine' | 'review' | null;
   };
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -138,7 +137,6 @@ export function EditWorkspaceDialog({
     autoCiFix: workspace.autoCiFix ?? false,
     autoReviewOnRequest: workspace.autoReviewOnRequest ?? false,
     autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
-    prScope: workspace.prScope ?? 'mine',
   });
 
   const utils = trpc.useUtils();
@@ -187,7 +185,6 @@ export function EditWorkspaceDialog({
       autoCiFix: container.autoCiFix,
       autoReviewOnRequest: container.autoReviewOnRequest,
       autoAgentCompletion: container.autoAgentCompletion,
-      prScope: container.prScope,
       ...(createMissingDirs ? { createMissingDirs: true } : {}),
     });
   }
@@ -277,7 +274,6 @@ export function EditWorkspaceDialog({
         autoCiFix: workspace.autoCiFix ?? false,
         autoReviewOnRequest: workspace.autoReviewOnRequest ?? false,
         autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
-        prScope: workspace.prScope ?? 'mine',
       };
     }
     onOpenChange(val);
@@ -476,7 +472,6 @@ export function EditWorkspaceDialog({
                   autoCiFix: workspace.autoCiFix ?? false,
                   autoReviewOnRequest: workspace.autoReviewOnRequest ?? false,
                   autoAgentCompletion: workspace.autoAgentCompletion ?? 'pr',
-                  prScope: workspace.prScope ?? 'mine',
                 }}
                 onChange={(data) => {
                   containerDataRef.current = data;

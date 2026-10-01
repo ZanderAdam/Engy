@@ -50,8 +50,6 @@ const coderConfigSchema = z
 
 const autoAgentCompletionSchema = z.enum(['pr', 'merge']).optional();
 
-const prScopeSchema = z.enum(['mine', 'review']).optional();
-
 // Validated against the agent-types registry rather than a fixed enum, so a new
 // agent CLI needs only a registry entry — no schema/router change here.
 const defaultAgentTypeSchema = z.string().refine(isAgentTypeId, { message: 'Unknown agent type' });
@@ -191,7 +189,6 @@ export const workspaceRouter = router({
         autoAgentCompletion: autoAgentCompletionSchema,
         autoStart: z.boolean().optional(),
         autoCiFix: z.boolean().optional(),
-        prScope: prScopeSchema,
         createMissingDirs: z.boolean().optional(),
       }),
     )
@@ -223,7 +220,6 @@ export const workspaceRouter = router({
           autoAgentCompletion: input.autoAgentCompletion,
           autoStart: input.autoStart,
           autoCiFix: input.autoCiFix,
-          prScope: input.prScope,
         })
         .returning()
         .get();
@@ -299,7 +295,6 @@ export const workspaceRouter = router({
         autoStart: z.boolean().nullable().optional(),
         autoCiFix: z.boolean().nullable().optional(),
         autoReviewOnRequest: z.boolean().nullable().optional(),
-        prScope: prScopeSchema,
         createMissingDirs: z.boolean().optional(),
       }),
     )
@@ -359,7 +354,6 @@ export const workspaceRouter = router({
         input.autoReviewOnRequest !== undefined
           ? input.autoReviewOnRequest
           : existing.autoReviewOnRequest;
-      const newPrScope = input.prScope !== undefined ? input.prScope : existing.prScope;
       const newExecutionBackend =
         input.executionBackend !== undefined ? input.executionBackend : existing.executionBackend;
       const newCoderConfig =
@@ -417,7 +411,6 @@ export const workspaceRouter = router({
           autoStart: newAutoStart,
           autoCiFix: newAutoCiFix,
           autoReviewOnRequest: newAutoReviewOnRequest,
-          prScope: newPrScope,
         })
         .where(eq(workspaces.id, input.id))
         .returning()
@@ -454,7 +447,6 @@ export const workspaceRouter = router({
               autoStart: existing.autoStart,
               autoCiFix: existing.autoCiFix,
               autoReviewOnRequest: existing.autoReviewOnRequest,
-              prScope: existing.prScope,
             })
             .where(eq(workspaces.id, input.id))
             .run();

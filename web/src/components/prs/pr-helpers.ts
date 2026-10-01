@@ -81,20 +81,6 @@ export function formatRelativeTime(isoDate: string): string {
   return `${days}d ago`;
 }
 
-export type PrScope = 'mine' | 'review';
-
-export function coercePrScope(value: string | null | undefined): PrScope {
-  return value === 'review' ? 'review' : 'mine';
-}
-
-export function filterPrsByScope<T extends { authoredByViewer: boolean }>(
-  prs: T[],
-  scope: PrScope,
-): T[] {
-  const wantAuthored = scope === 'mine';
-  return prs.filter((pr) => pr.authoredByViewer === wantAuthored);
-}
-
 function shippingRank(pr: { reviewDecision: string | null; ciStatus: GhPrCiStatus }): number {
   const approved = pr.reviewDecision === 'APPROVED';
   const passing = pr.ciStatus === 'passing';
