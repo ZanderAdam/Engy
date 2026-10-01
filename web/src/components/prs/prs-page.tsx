@@ -5,12 +5,7 @@ import { trpc } from '@/lib/trpc';
 import { useOnServerEvent } from '@/contexts/events-context';
 import { Button } from '@/components/ui/button';
 import { PrList } from './pr-list';
-import {
-  RiRefreshLine,
-  RiGitPullRequestLine,
-  RiAlertLine,
-  RiTerminalLine,
-} from '@remixicon/react';
+import { RiRefreshLine, RiGitPullRequestLine, RiAlertLine, RiTerminalLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
 import { isPrOutstanding } from '@/lib/pr-outstanding';
 import {
@@ -154,10 +149,10 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
   const scope = scopeOverride ?? coercePrScope(workspace?.prScope);
   const otherScope: PrScope = scope === 'mine' ? 'review' : 'mine';
 
-  const {
-    data: prData,
-    isLoading,
-  } = trpc.pr.list.useQuery({ workspaceId }, { enabled: !!workspace });
+  const { data: prData, isLoading } = trpc.pr.list.useQuery(
+    { workspaceId },
+    { enabled: !!workspace },
+  );
   const allPrs = prData?.prs;
   const prs = allPrs && sortByClosestToShipping(filterPrsByScope(allPrs, scope));
   const viewerLogin = githubStatus?.available ? githubStatus.login : null;
@@ -235,7 +230,9 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
       {/* Body */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {/* Per-repo failures render inline; healthy repos keep listing below */}
-        {!githubUnavailable && !globalError && repoErrors.map((error) => <RepoErrorRow key={error.repo} error={error} />)}
+        {!githubUnavailable &&
+          !globalError &&
+          repoErrors.map((error) => <RepoErrorRow key={error.repo} error={error} />)}
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <p className="text-sm text-muted-foreground">Loading…</p>
@@ -285,7 +282,7 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
             projectSlug={projectSlug}
             unreadItemIds={unreadItemIds}
             keptByPr={keptByPr}
-            onRemoveKept={(id) => removeKept({ id })}
+            onRemoveKept={(id, force) => removeKept({ id, force })}
             onOpen={(inboxItemId) => markRead({ id: inboxItemId })}
           />
         )}

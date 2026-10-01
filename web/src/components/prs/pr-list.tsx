@@ -8,7 +8,6 @@ import {
   RiTerminalLine,
   RiAlarmWarningLine,
   RiChat1Line,
-  RiDeleteBinLine,
 } from '@remixicon/react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -18,7 +17,8 @@ import { formatRelativeTime } from './pr-helpers';
 import { CiPill, ChecksPopover, ReviewDecisionBadge } from './pr-badges';
 import { getAttentionInfo } from './pr-attention';
 import { prInboxKey } from './use-pr-inbox';
-import { KEPT_LABELS, type KeptReview } from './use-kept-reviews';
+import { KeptBadge } from './kept-badge';
+import type { KeptReview } from './use-kept-reviews';
 import type { GhPrCheck, GhPrCiStatus } from '@engy/common';
 
 interface PrItem {
@@ -50,7 +50,7 @@ interface PrListProps {
   unreadItemIds: ReadonlyMap<string, number>;
   keptByPr: ReadonlyMap<string, KeptReview>;
   onOpen: (inboxItemId: number) => void;
-  onRemoveKept: (worktreeId: number) => void;
+  onRemoveKept: (worktreeId: number, force: boolean) => void;
 }
 
 function AttentionBadge({ reason }: { reason: string | null }) {
@@ -64,9 +64,7 @@ function AttentionBadge({ reason }: { reason: string | null }) {
           {attention.label}
         </span>
       </TooltipTrigger>
-      <TooltipContent className="max-w-xs">
-        {attention.description}
-      </TooltipContent>
+      <TooltipContent className="max-w-xs">{attention.description}</TooltipContent>
     </Tooltip>
   );
 }
@@ -110,7 +108,7 @@ interface PrRowProps {
   unreadItemId: number | undefined;
   kept: KeptReview | undefined;
   onOpen: (inboxItemId: number) => void;
-  onRemoveKept: (worktreeId: number) => void;
+  onRemoveKept: (worktreeId: number, force: boolean) => void;
 }
 
 function PrRow({
@@ -137,7 +135,10 @@ function PrRow({
       <div className="flex items-start gap-2 min-w-0">
         <div className="flex min-w-0 flex-1 items-center gap-2 flex-wrap">
           {unreadItemId !== undefined && (
-            <span aria-label="Unread inbox item" className="size-2 shrink-0 rounded-full bg-sky-400" />
+            <span
+              aria-label="Unread inbox item"
+              className="size-2 shrink-0 rounded-full bg-sky-400"
+            />
           )}
           {reviewHref ? (
             <VLink
@@ -192,13 +193,17 @@ function PrRow({
             </TooltipContent>
           </Tooltip>
         )}
-        <span className="shrink-0 text-xs text-muted-foreground">{formatRelativeTime(pr.updatedAt)}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {formatRelativeTime(pr.updatedAt)}
+        </span>
       </div>
 
       {/* Row 2: meta — repo, number, author, branch */}
       <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
         {showRepo && (
-          <span className="font-mono text-foreground/70 truncate max-w-[160px]">{pr.repo.split('/').pop()}</span>
+          <span className="font-mono text-foreground/70 truncate max-w-[160px]">
+            {pr.repo.split('/').pop()}
+          </span>
         )}
         <span className="font-mono">#{pr.number}</span>
         <span className="flex items-center gap-1">
@@ -230,27 +235,13 @@ function PrRow({
                 <span>View diffs</span>
               </VLink>
             </TooltipTrigger>
-            <TooltipContent>
-              Open in Diffs tab — worktree at {pr.worktreePath}
-            </TooltipContent>
+            <TooltipContent>Open in Diffs tab — worktree at {pr.worktreePath}</TooltipContent>
           </Tooltip>
         )}
 
         <AttentionBadge reason={pr.attentionReason} />
 
-        {kept && (
-          <span className="inline-flex items-center gap-1 border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            {KEPT_LABELS[kept.reason]}
-            <button
-              type="button"
-              aria-label="Remove review worktree"
-              onClick={() => onRemoveKept(kept.id)}
-              className="cursor-pointer hover:text-foreground transition-colors"
-            >
-              <RiDeleteBinLine className="size-3" />
-            </button>
-          </span>
-        )}
+        {kept && <KeptBadge kept={kept} onRemove={onRemoveKept} />}
       </div>
     </div>
   );
