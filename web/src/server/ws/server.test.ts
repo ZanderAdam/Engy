@@ -282,7 +282,7 @@ describe('WebSocket Server', () => {
       await expect(resetPromise).resolves.toBeUndefined();
     });
 
-    it('should reject with the DIRTY code from the daemon', async () => {
+    it('should reject with the daemon error', async () => {
       const ws = await registeredClient();
       const messagePromise = waitForMessage(ws);
       const resetPromise = dispatchGitResetHard('/wt', 'refs/engy/pr/7', state);
@@ -291,10 +291,10 @@ describe('WebSocket Server', () => {
       ws.send(
         JSON.stringify({
           type: 'GIT_RESET_HARD_RESPONSE',
-          payload: { requestId: request.payload.requestId, error: 'dirty', code: 'DIRTY' },
+          payload: { requestId: request.payload.requestId, error: 'dirty' },
         }),
       );
-      await expect(resetPromise).rejects.toMatchObject({ message: 'dirty', code: 'DIRTY' });
+      await expect(resetPromise).rejects.toThrow('dirty');
     });
 
     it('should reject if no daemon is connected', async () => {

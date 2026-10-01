@@ -279,13 +279,11 @@ export interface GitFetchResponseMessage {
       };
 }
 
-export type GitResetHardErrorCode = 'DIRTY' | 'OTHER';
-
 export interface GitResetHardRequestMessage {
   type: 'GIT_RESET_HARD_REQUEST';
   payload: {
     requestId: string;
-    /** Worktree to reset. Refused with `DIRTY` when it has uncommitted changes. */
+    /** Worktree to reset. Refused when it has uncommitted changes. */
     repoDir: string;
     ref: string;
     coderWorkspace?: string;
@@ -294,9 +292,7 @@ export interface GitResetHardRequestMessage {
 
 export interface GitResetHardResponseMessage {
   type: 'GIT_RESET_HARD_RESPONSE';
-  payload:
-    | { requestId: string }
-    | { requestId: string; error: string; code: GitResetHardErrorCode };
+  payload: { requestId: string } | { requestId: string; error: string };
 }
 
 export interface GitDeleteRefsRequestMessage {

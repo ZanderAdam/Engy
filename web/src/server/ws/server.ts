@@ -10,7 +10,6 @@ import type {
   ContainerUpRequestMessage,
   ExecutionStartConfig,
   WorktreeAddErrorCode,
-  GitResetHardErrorCode,
   WorktreeRemoveErrorCode,
   FleetingMemoryType,
   BranchDiffTarget,
@@ -214,7 +213,7 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       resolvePendingResponse(msg.payload, state.pendingGitDeleteRefs, () => undefined);
       break;
     case 'GIT_RESET_HARD_RESPONSE':
-      handleGitResetHardResult(msg.payload, state);
+      resolvePendingResponse(msg.payload, state.pendingGitResetHard, () => undefined);
       break;
     case 'GIT_REMOTE_URL_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGitRemoteUrl, (p) => ({ url: p.url }));
@@ -935,24 +934,6 @@ function resolvePendingResponse<T>(
     pending.reject(new Error(payload.error));
   } else {
     pending.resolve(extract(payload));
-  }
-}
-
-function handleGitResetHardResult(
-  payload:
-    | { requestId: string }
-    | { requestId: string; error: string; code: GitResetHardErrorCode },
-  state: AppState,
-): void {
-  const pending = state.pendingGitResetHard.get(payload.requestId);
-  if (!pending) return;
-  state.pendingGitResetHard.delete(payload.requestId);
-  if ('error' in payload) {
-    const err = new Error(payload.error) as Error & { code: GitResetHardErrorCode };
-    err.code = payload.code;
-    pending.reject(err);
-  } else {
-    pending.resolve();
   }
 }
 
