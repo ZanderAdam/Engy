@@ -30,12 +30,6 @@ export function getAttentionInfo(reason: string | null | undefined): AttentionIn
         description:
           'Auto-fix has reached the total attempt limit for this PR — manual intervention required.',
       };
-    case 'no-worktree':
-      return {
-        label: 'Agent session has no worktree to resume',
-        description:
-          'The correlated agent session has no worktree path — re-run the session with a worktree to enable auto-fix.',
-      };
     default:
       return { label: 'CI failure needs attention', description: reason };
   }

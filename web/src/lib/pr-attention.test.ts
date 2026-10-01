@@ -18,7 +18,7 @@ describe('getAttentionInfo', () => {
     const info = getAttentionInfo('non-mechanical');
     expect(info).not.toBeNull();
     expect(info!.label).toBe('CI failure needs manual attention');
-    expect(info!.description).toContain("mechanically fixable");
+    expect(info!.description).toContain('mechanically fixable');
   });
 
   it('should map uncorrelated to no-session label', () => {
@@ -40,13 +40,6 @@ describe('getAttentionInfo', () => {
     expect(info).not.toBeNull();
     expect(info!.label).toBe('Auto-fix permanently exhausted');
     expect(info!.description).toContain('total attempt limit');
-  });
-
-  it('should map no-worktree to a worktree-resume label', () => {
-    const info = getAttentionInfo('no-worktree');
-    expect(info).not.toBeNull();
-    expect(info!.label).toBe('Agent session has no worktree to resume');
-    expect(info!.description).toContain('worktree');
   });
 
   it('should return a fallback for unknown reasons', () => {

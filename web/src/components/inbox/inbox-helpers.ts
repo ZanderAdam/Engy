@@ -2,10 +2,6 @@ import type { RouterOutputs } from '@/lib/trpc';
 
 export type InboxItem = RouterOutputs['inbox']['list'][number];
 
-export function itemProjectSlug(item: InboxItem): string | undefined {
-  return (item as { projectSlug?: string | null }).projectSlug ?? undefined;
-}
-
 export function githubAvatarUrl(login: string): string {
   return `https://github.com/${login}.png?size=40`;
 }

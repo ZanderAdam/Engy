@@ -7,7 +7,6 @@ import {
   sortInboxItems,
   formatSnoozeUntil,
   githubAvatarUrl,
-  itemProjectSlug,
 } from './inbox-helpers';
 
 describe('inbox-helpers', () => {
@@ -93,15 +92,6 @@ describe('inbox-helpers', () => {
   describe('prKey', () => {
     it('should build the CI lookup key', () => {
       expect(prKey('acme/web', 7)).toBe('acme/web#7');
-    });
-  });
-
-  describe('itemProjectSlug', () => {
-    it('should read an optional project slug', () => {
-      const base = {} as Parameters<typeof itemProjectSlug>[0];
-      expect(itemProjectSlug({ ...base, projectSlug: 'alpha' } as typeof base)).toBe('alpha');
-      expect(itemProjectSlug({ ...base, projectSlug: null } as typeof base)).toBeUndefined();
-      expect(itemProjectSlug(base)).toBeUndefined();
     });
   });
 

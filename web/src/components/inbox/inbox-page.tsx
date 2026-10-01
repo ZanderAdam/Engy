@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { RiErrorWarningLine, RiInbox2Line, RiKeyboardLine, RiSearchLine } from '@remixicon/react';
 import { toast } from 'sonner';
-import { useOnServerEvent } from '@/contexts/events-context';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useVirtualNavigate } from '@/components/tabs/tab-context';
 import { Button } from '@/components/ui/button';
@@ -21,7 +20,6 @@ import { buildReviewPath } from '@/lib/review-path';
 import type { GhPrCiStatus } from '@engy/common';
 import {
   filterInboxItems,
-  itemProjectSlug,
   moveSelection,
   nextSelectionAfterRemoval,
   prKey,
@@ -72,8 +70,6 @@ export function InboxPage() {
     void utils.inbox.list.invalidate();
     void utils.inbox.counts.invalidate();
   }
-
-  useOnServerEvent('INBOX_CHANGE', refresh);
 
   const { mutate: markRead } = trpc.inbox.markRead.useMutation({ onSuccess: refresh });
   const { mutate: markUnread } = trpc.inbox.markUnread.useMutation({ onSuccess: refresh });
@@ -143,7 +139,7 @@ export function InboxPage() {
         reviewSlug,
         selected.repoFullName,
         selected.prNumber,
-        itemProjectSlug(selected),
+        selected.projectSlug ?? undefined,
       ),
     );
   }

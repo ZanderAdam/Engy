@@ -138,13 +138,12 @@ const EventsContext = createContext<EventsContextValue | null>(null);
 // ── Provider ────────────────────────────────────────────────────────
 
 interface EventsProviderProps {
-  workspaceSlug: string;
   children: ReactNode;
 }
 
 const WATCH_FLUSH_DEBOUNCE_MS = 200;
 
-export function EventsProvider({ workspaceSlug, children }: EventsProviderProps) {
+export function EventsProvider({ children }: EventsProviderProps) {
   const subscribersRef = useRef(new Map<string, Set<EventCallback<ServerEventType>>>());
   const connectSubscribersRef = useRef(new Set<() => void>());
   const wsRef = useRef<WebSocket | null>(null);
@@ -212,8 +211,6 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
 
         if (!msg.type || !msg.payload) return;
 
-        if (!isEventForWorkspace(msg.payload, workspaceSlug)) return;
-
         const callbacks = subscribersRef.current.get(msg.type);
         if (!callbacks) return;
         for (const cb of callbacks) {
@@ -247,7 +244,7 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
         wsRef.current = null;
       }
     };
-  }, [workspaceSlug, flushWatchPaths]);
+  }, [flushWatchPaths]);
 
   const contextValue = useMemo<EventsContextValue>(
     () => ({
@@ -283,6 +280,22 @@ export function EventsProvider({ workspaceSlug, children }: EventsProviderProps)
   return <EventsContext.Provider value={contextValue}>{children}</EventsContext.Provider>;
 }
 
+const WorkspaceScopeContext = createContext('');
+
+export function EventsWorkspaceScope({
+  workspaceSlug,
+  children,
+}: {
+  workspaceSlug: string;
+  children: ReactNode;
+}) {
+  return (
+    <WorkspaceScopeContext.Provider value={workspaceSlug}>
+      {children}
+    </WorkspaceScopeContext.Provider>
+  );
+}
+
 // ── Hooks ───────────────────────────────────────────────────────────
 
 export function useOnServerEvent<T extends ServerEventType>(
@@ -290,6 +303,7 @@ export function useOnServerEvent<T extends ServerEventType>(
   callback: EventCallback<T>,
 ): void {
   const ctx = useContext(EventsContext);
+  const workspaceSlug = useContext(WorkspaceScopeContext);
   const callbackRef = useRef(callback);
   useEffect(() => {
     callbackRef.current = callback;
@@ -299,11 +313,12 @@ export function useOnServerEvent<T extends ServerEventType>(
     if (!ctx) return;
 
     const stable: EventCallback<T> = (payload) => {
+      if (!isEventForWorkspace(payload, workspaceSlug)) return;
       callbackRef.current(payload);
     };
 
     return ctx.subscribe(type, stable);
-  }, [ctx, type]);
+  }, [ctx, type, workspaceSlug]);
 }
 
 /** Fires whenever the events WebSocket (re)connects — the signal to re-seed

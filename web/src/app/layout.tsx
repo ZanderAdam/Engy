@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { TabShell } from "@/components/tabs/tab-shell";
+import { InboxLiveSync } from "@/components/inbox/inbox-live-sync";
 import { EventsProvider } from "@/contexts/events-context";
 import { Toaster } from "@/components/ui/sonner";
 import { PrAttentionToaster } from "@/components/prs/pr-attention-toaster";
@@ -30,11 +31,12 @@ export default function RootLayout() {
       <body className="font-sans antialiased">
         <Providers>
           <div className="flex h-dvh flex-col overflow-hidden">
-            <EventsProvider workspaceSlug="">
+            <EventsProvider>
               <Suspense>
                 <TabShell />
               </Suspense>
               <PrAttentionToaster />
+              <InboxLiveSync />
             </EventsProvider>
           </div>
           <Toaster />

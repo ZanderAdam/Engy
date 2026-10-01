@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { useOnServerEvent } from '@/contexts/events-context';
 import { trpc } from '@/lib/trpc';
 
 export function prInboxKey(repoFullName: string | null, prNumber: number): string {
@@ -9,10 +8,6 @@ export function prInboxKey(repoFullName: string | null, prNumber: number): strin
 export function usePrInbox(workspaceId: number, enabled: boolean) {
   const utils = trpc.useUtils();
   const { data: items } = trpc.inbox.list.useQuery({ tab: 'all', workspaceId }, { enabled });
-
-  useOnServerEvent('INBOX_CHANGE', () => {
-    void utils.inbox.list.invalidate();
-  });
 
   const { mutate: markRead } = trpc.inbox.markRead.useMutation({
     onSuccess: () => {

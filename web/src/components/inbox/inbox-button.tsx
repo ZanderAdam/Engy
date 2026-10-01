@@ -1,7 +1,6 @@
 'use client';
 
 import { RiInbox2Line } from '@remixicon/react';
-import { useOnServerEvent } from '@/contexts/events-context';
 import { trpc } from '@/lib/trpc';
 import { useOpenInbox } from './use-go-to-inbox';
 
@@ -14,14 +13,7 @@ export function formatInboxBadge(count: number): string | null {
 
 export function InboxButton() {
   const openInbox = useOpenInbox();
-  const utils = trpc.useUtils();
   const { data } = trpc.inbox.counts.useQuery();
-
-  useOnServerEvent('INBOX_CHANGE', (payload) => {
-    utils.inbox.counts.setData(undefined, (prev) =>
-      prev ? { ...prev, unreadPriority: payload.unreadPriorityCount } : prev,
-    );
-  });
 
   const badge = formatInboxBadge(data?.unreadPriority ?? 0);
 
