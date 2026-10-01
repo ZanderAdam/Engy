@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { prKey } from '@/components/inbox/inbox-helpers';
 
@@ -10,6 +11,7 @@ export function usePrInbox(workspaceId: number, enabled: boolean) {
     onSuccess: () => {
       void utils.inbox.invalidate();
     },
+    onError: (err) => toast.error(err.message),
   });
 
   const unreadItemIds = useMemo(() => {

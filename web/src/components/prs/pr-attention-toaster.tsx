@@ -3,16 +3,14 @@
 import { toast } from 'sonner';
 import { useOnServerEvent } from '@/contexts/events-context';
 import { trpc } from '@/lib/trpc';
-import { getAttentionInfo } from '@/lib/pr-attention';
+import { buildAttentionToast } from './pr-helpers';
 
 export function PrAttentionToaster() {
   const utils = trpc.useUtils();
 
   useOnServerEvent('PR_ATTENTION', (payload) => {
-    const info = getAttentionInfo(payload.reason);
-    toast.error(`PR #${payload.prNumber}: ${info?.label ?? 'CI failure needs attention'}`, {
-      description: info?.description,
-    });
+    const { title, description } = buildAttentionToast(payload.prNumber, payload.reason);
+    toast.error(title, { description });
     void utils.pr.list.invalidate({ workspaceId: payload.workspaceId });
   });
 

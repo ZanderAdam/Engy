@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { toast } from 'sonner';
+import { useOnServerEvent } from '@/contexts/events-context';
 import { trpc } from '@/lib/trpc';
 import { prKey } from '@/components/inbox/inbox-helpers';
 
@@ -18,6 +19,10 @@ export const KEPT_LABELS: Record<KeptReason, string> = {
 export function useKeptReviews(workspaceId: number, enabled: boolean) {
   const utils = trpc.useUtils();
   const { data: worktrees } = trpc.review.list.useQuery({ workspaceId }, { enabled });
+
+  useOnServerEvent('PR_CHANGE', () => {
+    void utils.review.list.invalidate({ workspaceId });
+  });
 
   const { mutate: removeKept } = trpc.review.remove.useMutation({
     onSuccess: () => utils.review.list.invalidate({ workspaceId }),

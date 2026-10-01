@@ -9,6 +9,7 @@ import {
   coercePrScope,
   filterPrsByScope,
   sortByClosestToShipping,
+  buildAttentionToast,
 } from './pr-helpers';
 import type { GhPrCheck } from '@engy/common';
 
@@ -268,5 +269,20 @@ describe('sortByClosestToShipping', () => {
     ];
     sortByClosestToShipping(input);
     expect(input.map((p) => p.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('[FR-PRMON-200] buildAttentionToast', () => {
+  it('should use the attention label and description', () => {
+    const toast = buildAttentionToast(7, 'non-mechanical');
+    expect(toast.title).toBe('PR #7: CI failure needs manual attention');
+    expect(toast.description).toContain('mechanically fixable');
+  });
+
+  it('should fall back to a generic title without a reason', () => {
+    expect(buildAttentionToast(7, null)).toEqual({
+      title: 'PR #7: CI failure needs attention',
+      description: undefined,
+    });
   });
 });

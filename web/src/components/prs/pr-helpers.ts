@@ -1,4 +1,5 @@
 import type { GhPrCheck, GhPrCiStatus } from '@engy/common';
+import { getAttentionInfo } from '@/lib/pr-attention';
 
 export function deriveCheckState(
   status: string,
@@ -131,4 +132,15 @@ export function summarizeChecks(checks: GhPrCheck[]): CheckSummary {
   }
 
   return { passing, failing, pending, total: checks.length };
+}
+
+export function buildAttentionToast(
+  prNumber: number,
+  reason: string | null | undefined,
+): { title: string; description: string | undefined } {
+  const info = getAttentionInfo(reason);
+  return {
+    title: `PR #${prNumber}: ${info?.label ?? 'CI failure needs attention'}`,
+    description: info?.description,
+  };
 }
