@@ -49,6 +49,7 @@ function installFakeGithub(
 ): void {
   ctx.state.daemon = { readyState: WebSocket.OPEN, OPEN: WebSocket.OPEN } as unknown as WebSocket;
   ctx.state.github.status = { available: true, login: 'me' };
+  ctx.state.github.teams = { keys: new Set(), fetchedAt: Date.now() };
 
   const open: GithubPr[] = [];
   for (const [repo, result] of prsByRepo) {

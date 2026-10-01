@@ -2,6 +2,7 @@ import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { workspaces, prs, reviewWorktrees } from '../db/schema';
 import type { AppState } from '../trpc/context';
+import { getViewerTeams } from '../github/teams';
 import { getGithubStatus } from '../github/viewer';
 import { listOpenPrs, resolveRepoPrs, type GithubPr } from '../github/prs';
 import { fetchReviewThreads } from '../github/review-threads';
@@ -75,7 +76,7 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
           }
         }
 
-        recordInboxActivity(db, state, ws.id, repo, ghPrs, result.changes);
+        await recordInboxActivity(db, state, ws.id, repo, ghPrs, result.changes);
 
         const failingTransitions = detectFailureTransitions(result.changes);
         for (const { number } of failingTransitions) {
@@ -105,15 +106,16 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
   }
 }
 
-function recordInboxActivity(
+async function recordInboxActivity(
   db: Db,
   state: AppState,
   workspaceId: number,
   repo: string,
   ghPrs: GithubPr[],
   changes: MaterialChange[],
-): void {
+): Promise<void> {
   const viewerLogin = state.github.viewer?.login ?? null;
+  const viewerTeams = await getViewerTeams(state);
   const rows = db.select().from(prs).where(eq(prs.repo, repo)).all();
   const rowByNumber = new Map(rows.map((row) => [row.number, row]));
 
@@ -121,12 +123,12 @@ function recordInboxActivity(
     const prRow = rowByNumber.get(change.number);
     if (!prRow) continue;
     const events = mapPrChange(change, prRow);
-    recordPrInboxEvents({ prRow, workspaceId, viewerLogin, events });
+    recordPrInboxEvents({ prRow, workspaceId, viewerLogin, viewerTeams, events });
   }
 
   for (const ghPr of ghPrs) {
     const prRow = rowByNumber.get(ghPr.number);
-    if (prRow) refreshPrFacts(prRow, viewerLogin);
+    if (prRow) refreshPrFacts(prRow, viewerLogin, viewerTeams);
   }
 }
 

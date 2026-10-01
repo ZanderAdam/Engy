@@ -27,8 +27,10 @@ export interface GithubState {
   /** Keyed by GitHub rate limit resource: `core`, `graphql`, `search`. */
   rateLimits: Map<string, GithubRateLimit>;
   viewerCheck: Promise<GithubStatus> | null;
+  /** `org/slug` keys, lowercased; empty when the fetch failed. */
+  teams: { keys: ReadonlySet<string>; fetchedAt: number } | null;
 }
 
 export function createGithubState(): GithubState {
-  return { viewer: null, status: null, rateLimits: new Map(), viewerCheck: null };
+  return { viewer: null, status: null, rateLimits: new Map(), viewerCheck: null, teams: null };
 }

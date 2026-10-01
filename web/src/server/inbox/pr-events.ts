@@ -13,13 +13,22 @@ interface PrInboxEvent {
   sourceKey: string;
 }
 
-export function bucketFactsForPr(prRow: PrRow, viewerLogin: string | null): BucketFacts {
+export function bucketFactsForPr(
+  prRow: PrRow,
+  viewerLogin: string | null,
+  viewerTeams: ReadonlySet<string> = new Set(),
+): BucketFacts {
   const authored = prRow.authoredByViewer;
   const login = viewerLogin?.toLowerCase();
   return {
     ...NO_BUCKET_FACTS,
     reviewRequestedNotGiven:
-      !!login && !authored && prRow.reviewRequests.some((r) => r.toLowerCase() === login),
+      !!login &&
+      !authored &&
+      prRow.reviewRequests.some((r) => {
+        const name = r.toLowerCase();
+        return name === login || viewerTeams.has(name);
+      }),
     myPrChangesRequested: authored && prRow.reviewDecision === 'CHANGES_REQUESTED',
     myPrCiFailing: authored && prRow.ciStatus === 'failing',
     myPrAutoFixAttention: authored && prRow.attentionReason !== null,
@@ -62,6 +71,7 @@ interface RecordInput {
   prRow: PrRow;
   workspaceId: number;
   viewerLogin: string | null;
+  viewerTeams?: ReadonlySet<string>;
   events: PrInboxEvent[];
   now?: Date;
 }
@@ -70,11 +80,12 @@ export function recordPrInboxEvents({
   prRow,
   workspaceId,
   viewerLogin,
+  viewerTeams,
   events,
   now = new Date(),
 }: RecordInput): void {
   if (events.length === 0 || !prRow.repoFullName) return;
-  const facts = bucketFactsForPr(prRow, viewerLogin);
+  const facts = bucketFactsForPr(prRow, viewerLogin, viewerTeams);
   const item = upsertItem(
     {
       repoFullName: prRow.repoFullName,
@@ -92,7 +103,12 @@ export function recordPrInboxEvents({
   }
 }
 
-export function refreshPrFacts(prRow: PrRow, viewerLogin: string | null, now?: Date): void {
+export function refreshPrFacts(
+  prRow: PrRow,
+  viewerLogin: string | null,
+  viewerTeams?: ReadonlySet<string>,
+  now?: Date,
+): void {
   if (!prRow.repoFullName) return;
   const item = findItemByPr(prRow.repoFullName, prRow.number);
   if (!item) return;
@@ -102,7 +118,7 @@ export function refreshPrFacts(prRow: PrRow, viewerLogin: string | null, now?: D
       prNumber: item.prNumber,
       title: prRow.title,
       url: prRow.url,
-      facts: bucketFactsForPr(prRow, viewerLogin),
+      facts: bucketFactsForPr(prRow, viewerLogin, viewerTeams),
     },
     now,
   );

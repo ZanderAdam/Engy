@@ -59,6 +59,15 @@ describe('[FR-INBOX-040] bucketFactsForPr', () => {
     expect(bucketFactsForPr(row, 'me').reviewRequestedNotGiven).toBe(true);
   });
 
+  it('should flag a team request only when the viewer is in that team', () => {
+    const row = makeRow({ authoredByViewer: false, reviewRequests: ['Acme/core'] });
+    expect(bucketFactsForPr(row, 'me', new Set(['acme/core'])).reviewRequestedNotGiven).toBe(true);
+    expect(bucketFactsForPr(row, 'me', new Set(['acme/other'])).reviewRequestedNotGiven).toBe(
+      false,
+    );
+    expect(bucketFactsForPr(row, 'me').reviewRequestedNotGiven).toBe(false);
+  });
+
   it('should not flag a review request for another login or an unknown viewer', () => {
     const row = makeRow({ authoredByViewer: false, reviewRequests: ['bob'] });
     expect(bucketFactsForPr(row, 'me').reviewRequestedNotGiven).toBe(false);

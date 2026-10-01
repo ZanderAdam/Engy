@@ -1,6 +1,7 @@
 import type { InboxEventKind } from '../inbox/bucket';
 import type { AppState } from '../trpc/context';
 import { githubGraphql } from './client';
+import { reviewerName, type RawReviewer } from './prs';
 
 const TIMELINE_QUERY = `
 query PrTimeline($owner: String!, $name: String!, $number: Int!, $since: DateTime) {
@@ -12,7 +13,7 @@ query PrTimeline($owner: String!, $name: String!, $number: Int!, $since: DateTim
       reviewDecision
       author { login }
       reviewRequests(first: 20) {
-        nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } }
+        nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug organization { login } } } }
       }
       timelineItems(
         since: $since
@@ -38,7 +39,7 @@ query PrTimeline($owner: String!, $name: String!, $number: Int!, $since: DateTim
           }
           ... on ReviewRequestedEvent {
             id createdAt actor { login }
-            requestedReviewer { __typename ... on User { login } ... on Team { slug } }
+            requestedReviewer { __typename ... on User { login } ... on Team { slug organization { login } } }
           }
           ... on MergedEvent { id createdAt actor { login } url }
           ... on ClosedEvent { id createdAt actor { login } url }
@@ -59,11 +60,7 @@ interface Login {
   login: string;
 }
 
-interface Reviewer {
-  __typename?: string;
-  login?: string;
-  slug?: string;
-}
+type Reviewer = RawReviewer;
 
 export interface TimelineNode {
   __typename: string;
@@ -116,7 +113,7 @@ interface FetchTimelineInput {
   number: number;
   since: string | null;
   viewerLogin: string;
-  viewerTeamRequested?: boolean;
+  viewerTeams: ReadonlySet<string>;
 }
 
 export function sameLogin(a: string | null | undefined, b: string): boolean {
@@ -179,20 +176,24 @@ function mapReview(node: TimelineNode, actor: string, viewerLogin: string): Time
 function isViewerRequested(
   reviewer: Reviewer | null | undefined,
   viewerLogin: string,
-  viewerTeamRequested: boolean,
+  viewerTeams: ReadonlySet<string>,
 ): boolean {
-  if (reviewer?.__typename === 'Team') return viewerTeamRequested;
-  return sameLogin(reviewer?.login, viewerLogin);
+  if (!reviewer) return false;
+  if (reviewer.__typename === 'Team') {
+    const name = reviewerName(reviewer);
+    return name !== null && viewerTeams.has(name.toLowerCase());
+  }
+  return sameLogin(reviewer.login, viewerLogin);
 }
 
 function mapReviewRequest(
   node: TimelineNode,
   actor: string,
   viewerLogin: string,
-  viewerTeamRequested: boolean,
+  viewerTeams: ReadonlySet<string>,
 ): TimelineEvent | null {
   if (!node.id || !node.createdAt) return null;
-  if (!isViewerRequested(node.requestedReviewer, viewerLogin, viewerTeamRequested)) return null;
+  if (!isViewerRequested(node.requestedReviewer, viewerLogin, viewerTeams)) return null;
   const isTeam = node.requestedReviewer?.__typename === 'Team';
   return {
     kind: 'review_requested',
@@ -274,7 +275,7 @@ function mapCommitPushes(nodes: TimelineNode[], viewerLogin: string): TimelineEv
 function mapNode(
   node: TimelineNode,
   viewerLogin: string,
-  viewerTeamRequested: boolean,
+  viewerTeams: ReadonlySet<string>,
 ): TimelineEvent | null {
   const actor = node.author?.login ?? node.actor?.login ?? null;
   if (actor !== null && sameLogin(actor, viewerLogin)) return null;
@@ -286,7 +287,7 @@ function mapNode(
     case 'PullRequestReview':
       return mapReview(node, name, viewerLogin);
     case 'ReviewRequestedEvent':
-      return mapReviewRequest(node, name, viewerLogin, viewerTeamRequested);
+      return mapReviewRequest(node, name, viewerLogin, viewerTeams);
     case 'AssignedEvent':
       return mapAssignment(node, name, viewerLogin);
     case 'MergedEvent':
@@ -305,13 +306,13 @@ function mapNode(
 export function mapTimelineNodes(
   nodes: Array<TimelineNode | null>,
   viewerLogin: string,
-  viewerTeamRequested = false,
+  viewerTeams: ReadonlySet<string> = new Set(),
 ): TimelineEvent[] {
   const present = nodes.filter((node): node is TimelineNode => node !== null);
   const commits = present.filter((node) => node.__typename === 'PullRequestCommit');
   const events = present
     .filter((node) => node.__typename !== 'PullRequestCommit')
-    .map((node) => mapNode(node, viewerLogin, viewerTeamRequested))
+    .map((node) => mapNode(node, viewerLogin, viewerTeams))
     .filter((event): event is TimelineEvent => event !== null);
   return [...events, ...mapCommitPushes(commits, viewerLogin)].sort((a, b) =>
     a.at.localeCompare(b.at),
@@ -329,7 +330,6 @@ export async function fetchPrTimeline(
   );
   const pr = data.repository?.pullRequest;
   if (!pr) return null;
-  const viewerTeamRequested = input.viewerTeamRequested ?? false;
 
   return {
     title: pr.title,
@@ -338,8 +338,8 @@ export async function fetchPrTimeline(
     reviewDecision: pr.reviewDecision,
     authorLogin: pr.author?.login ?? null,
     viewerReviewRequested: pr.reviewRequests.nodes.some((node) =>
-      isViewerRequested(node.requestedReviewer, input.viewerLogin, viewerTeamRequested),
+      isViewerRequested(node.requestedReviewer, input.viewerLogin, input.viewerTeams),
     ),
-    events: mapTimelineNodes(pr.timelineItems.nodes, input.viewerLogin, viewerTeamRequested),
+    events: mapTimelineNodes(pr.timelineItems.nodes, input.viewerLogin, input.viewerTeams),
   };
 }

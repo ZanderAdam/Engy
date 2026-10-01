@@ -141,11 +141,43 @@ describe('mapTimelineNodes', () => {
         id: 'q3',
         createdAt: '2026-01-01T00:00:03Z',
         actor: { login: 'alice' },
-        requestedReviewer: { __typename: 'Team', slug: 'core' },
+        requestedReviewer: { __typename: 'Team', slug: 'core', organization: { login: 'acme' } },
       },
     ];
 
     expect(summaries(nodes)).toEqual(['review_requested: alice requested your review']);
+  });
+
+  describe('team review requests', () => {
+    const teamRequest = (id: string, slug: string): TimelineNode => ({
+      __typename: 'ReviewRequestedEvent',
+      id,
+      createdAt: '2026-01-01T00:00:01Z',
+      actor: { login: 'alice' },
+      requestedReviewer: { __typename: 'Team', slug, organization: { login: 'Acme' } },
+    });
+
+    it('[FR-INBOX-220] should keep a request for a team the viewer belongs to', () => {
+      const events = mapTimelineNodes([teamRequest('t1', 'Core')], VIEWER, new Set(['acme/core']));
+
+      expect(events.map((e) => e.summary)).toEqual(["alice requested your team's review"]);
+    });
+
+    it('[FR-INBOX-220] should drop a request for a team the viewer is not in', () => {
+      expect(
+        mapTimelineNodes([teamRequest('t1', 'core')], VIEWER, new Set(['acme/other'])),
+      ).toEqual([]);
+    });
+
+    it('[FR-INBOX-220] should emit one event when two teams are requested and one is the viewer', () => {
+      const events = mapTimelineNodes(
+        [teamRequest('t1', 'core'), teamRequest('t2', 'infra')],
+        VIEWER,
+        new Set(['acme/infra']),
+      );
+
+      expect(events.map((e) => e.sourceKey)).toEqual(['gh:t2']);
+    });
   });
 
   it('[FR-INBOX-220] should map state changes, force pushes and assignments', () => {
@@ -256,6 +288,7 @@ describe('[FR-INBOX-250] fetchPrTimeline', () => {
     number: 7,
     since: '2026-01-01T00:00:00Z',
     viewerLogin: VIEWER,
+    viewerTeams: new Set<string>(),
   };
 
   it('should send one query and map the pull request', async () => {

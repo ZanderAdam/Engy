@@ -3,6 +3,7 @@ import { getDb } from '../db/client';
 import { prs, workspaces } from '../db/schema';
 import type { GithubNotification } from '../github/notifications';
 import { resolveRepoFullName } from '../github/repo-identity';
+import { getViewerTeams } from '../github/teams';
 import { maybeStartAutoReview } from '../review/auto-review';
 import {
   fetchPrTimeline,
@@ -66,6 +67,7 @@ function parsePrNumber(subjectUrl: string | null): number | null {
 function buildFacts(
   pr: PrTimeline,
   viewerLogin: string,
+  viewerTeams: ReadonlySet<string>,
   repoFullName: string,
   prNumber: number,
 ): BucketFacts {
@@ -74,7 +76,7 @@ function buildFacts(
     .from(prs)
     .where(and(eq(prs.repoFullName, repoFullName), eq(prs.number, prNumber)))
     .get();
-  if (row) return bucketFactsForPr(row, viewerLogin);
+  if (row) return bucketFactsForPr(row, viewerLogin, viewerTeams);
 
   if (pr.state !== 'OPEN') return NO_BUCKET_FACTS;
   if (!sameLogin(pr.authorLogin, viewerLogin)) {
@@ -101,6 +103,7 @@ async function loadTimeline(
   ctx: ThreadSyncContext,
   thread: GithubNotification,
   prNumber: number,
+  viewerTeams: ReadonlySet<string>,
 ): Promise<PrTimeline | null> {
   const [owner, name] = thread.repository.full_name.split('/');
   try {
@@ -110,7 +113,7 @@ async function loadTimeline(
       number: prNumber,
       since: ctx.lastSyncedAt ?? thread.last_read_at,
       viewerLogin: ctx.viewerLogin,
-      viewerTeamRequested: thread.reason === 'review_requested',
+      viewerTeams,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -142,7 +145,8 @@ export async function syncThread(
 
   const repoFullName = thread.repository.full_name;
   const location = ctx.repoIndex.get(repoFullName);
-  const timeline = await loadTimeline(ctx, thread, prNumber);
+  const viewerTeams = await getViewerTeams(ctx.state);
+  const timeline = await loadTimeline(ctx, thread, prNumber, viewerTeams);
 
   const events = timeline && timeline.events.length > 0 ? timeline.events : [reasonEvent(thread)];
   const firstEventAt = events.reduce(
@@ -162,7 +166,7 @@ export async function syncThread(
   const item = upsertItem({ ...base, firstEventAt });
 
   const facts = timeline
-    ? buildFacts(timeline, ctx.viewerLogin, repoFullName, prNumber)
+    ? buildFacts(timeline, ctx.viewerLogin, viewerTeams, repoFullName, prNumber)
     : undefined;
 
   for (const event of events) {
