@@ -44,7 +44,7 @@ function InboxRow({ item, selected, ci, onSelect }: InboxRowProps) {
           aria-label={item.unread ? 'Unread' : 'Read'}
           className={cn(
             'size-2 shrink-0 rounded-full',
-            item.unread ? 'bg-primary' : 'bg-transparent',
+            item.unread ? 'bg-sky-400' : 'bg-transparent',
           )}
         />
         <span

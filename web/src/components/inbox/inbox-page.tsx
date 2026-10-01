@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { RiErrorWarningLine, RiInbox2Line, RiSearchLine } from '@remixicon/react';
+import { RiErrorWarningLine, RiInbox2Line, RiKeyboardLine, RiSearchLine } from '@remixicon/react';
+import { toast } from 'sonner';
 import { useOnServerEvent } from '@/contexts/events-context';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useVirtualNavigate } from '@/components/tabs/tab-context';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -16,9 +18,19 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { trpc } from '@/lib/trpc';
 import type { GhPrCiStatus } from '@engy/common';
-import { buildReviewPath, filterInboxItems, prKey, sortInboxItems } from './inbox-helpers';
+import {
+  buildReviewPath,
+  filterInboxItems,
+  moveSelection,
+  nextSelectionAfterRemoval,
+  prKey,
+  sortInboxItems,
+} from './inbox-helpers';
+import { InboxKeyHelp } from './inbox-key-help';
 import { InboxList } from './inbox-list';
 import { InboxPreview } from './inbox-preview';
+import { SnoozeMenu } from './snooze-menu';
+import { useInboxKeys } from './use-inbox-keys';
 
 type InboxTab = 'priority' | 'all';
 
@@ -35,6 +47,9 @@ export function InboxPage() {
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
 
   const workspaceId = workspaceFilter === ALL_WORKSPACES ? undefined : Number(workspaceFilter);
@@ -44,15 +59,21 @@ export function InboxPage() {
   const { data: counts } = trpc.inbox.counts.useQuery();
   const { data: items = [], isLoading } = trpc.inbox.list.useQuery({ tab, workspaceId });
 
-  useOnServerEvent('INBOX_CHANGE', () => {
+  function refresh() {
     void utils.inbox.list.invalidate();
     void utils.inbox.counts.invalidate();
-  });
+  }
 
-  const { mutate: markRead } = trpc.inbox.markRead.useMutation({
-    onSuccess: () => {
-      void utils.inbox.list.invalidate();
-      void utils.inbox.counts.invalidate();
+  useOnServerEvent('INBOX_CHANGE', refresh);
+
+  const { mutate: markRead } = trpc.inbox.markRead.useMutation({ onSuccess: refresh });
+  const { mutate: markUnread } = trpc.inbox.markUnread.useMutation({ onSuccess: refresh });
+  const { mutate: markDone } = trpc.inbox.markDone.useMutation({ onSuccess: refresh });
+  const { mutate: snooze } = trpc.inbox.snooze.useMutation({ onSuccess: refresh });
+  const { mutate: markAllRead } = trpc.inbox.markAllRead.useMutation({
+    onSuccess: ({ count }) => {
+      refresh();
+      toast.success(count === 1 ? 'Marked 1 item read' : `Marked ${count} items read`);
     },
   });
 
@@ -111,6 +132,45 @@ export function InboxPage() {
     navigate.push(buildReviewPath(reviewSlug, selected.repoFullName, selected.prNumber));
   }
 
+  function removeSelected(remove: (id: number) => void) {
+    if (!selected) return;
+    const ids = visibleItems.map((item) => item.id);
+    remove(selected.id);
+    setSelectedId(nextSelectionAfterRemoval(ids, selected.id));
+  }
+
+  function moveBy(delta: 1 | -1) {
+    const ids = visibleItems.map((item) => item.id);
+    const next = moveSelection(ids, selected?.id ?? null, delta);
+    if (next !== null) setSelectedId(next);
+  }
+
+  useInboxKeys(containerRef, !snoozeOpen && !helpOpen, {
+    next: () => moveBy(1),
+    previous: () => moveBy(-1),
+    open: openReview,
+    toggleRead: () => {
+      if (!selected) return;
+      if (selected.unread) markRead({ id: selected.id });
+      else markUnread({ id: selected.id });
+    },
+    markAllRead: () => markAllRead({ tab, workspaceId }),
+    done: () => removeSelected((id) => markDone({ id })),
+    snooze: () => {
+      if (selected) setSnoozeOpen(true);
+    },
+    github: () => {
+      if (selected) window.open(selected.url, '_blank', 'noopener,noreferrer');
+    },
+    focusFilter: () => filterInputRef.current?.focus(),
+    help: () => setHelpOpen(true),
+  });
+
+  function snoozeSelected(until: Date) {
+    setSnoozeOpen(false);
+    removeSelected((id) => snooze({ id, until: until.toISOString() }));
+  }
+
   function selectItem(id: number) {
     setSelectedId(id);
     setPreviewOpen(true);
@@ -135,8 +195,17 @@ export function InboxPage() {
               <TabsTrigger value="all">All</TabsTrigger>
             </TabsList>
           </Tabs>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="ml-auto"
+            aria-label="Show inbox keys"
+            onClick={() => setHelpOpen(true)}
+          >
+            <RiKeyboardLine className="size-4" />
+          </Button>
           <Select value={workspaceFilter} onValueChange={setWorkspaceFilter}>
-            <SelectTrigger size="sm" className="ml-auto min-w-0 max-w-40">
+            <SelectTrigger size="sm" className="min-w-0 max-w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -200,7 +269,7 @@ export function InboxPage() {
   else if (isMobile) panes = listPane;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={containerRef} className="flex min-h-0 flex-1 flex-col">
       {githubUnavailable && (
         <div className="flex items-start gap-2 border-b border-border bg-amber-400/10 px-4 py-2 text-xs text-amber-400">
           <RiErrorWarningLine className="mt-0.5 size-4 shrink-0" />
@@ -208,6 +277,8 @@ export function InboxPage() {
         </div>
       )}
       <div className="flex min-h-0 flex-1">{panes}</div>
+      <SnoozeMenu open={snoozeOpen} onOpenChange={setSnoozeOpen} onSnooze={snoozeSelected} />
+      <InboxKeyHelp open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   );
 }
