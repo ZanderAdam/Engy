@@ -1,8 +1,7 @@
-export type GlobalPrError = 'gh-not-installed' | 'no-daemon';
+export type GlobalPrError = 'no-daemon';
 
 export interface RepoPrError {
   repo: string;
-  kind: 'gh-not-authenticated' | 'generic';
   message: string;
 }
 
@@ -12,18 +11,14 @@ interface ClassifiedPrErrors {
 }
 
 /**
- * Splits per-repo gh errors into a single global state vs inline per-repo rows.
- * gh-not-installed and no-daemon can't differ per repo (one binary, one daemon),
- * so they collapse to a global banner; auth and other errors stay per-repo
- * (auth is per-host — a GitHub Enterprise remote can fail while github.com works).
+ * Splits per-repo errors into a single global state vs inline per-repo rows.
+ * A missing daemon can't differ per repo, so it collapses to a global banner.
+ * Other errors, such as a repo without a GitHub remote, stay per-repo.
  */
 export function classifyPrRepoErrors(repoErrors: Record<string, string>): ClassifiedPrErrors {
   const entries = Object.entries(repoErrors);
   if (entries.length === 0) return { global: null, perRepo: [] };
 
-  if (entries.some(([, error]) => error === 'gh-not-installed')) {
-    return { global: 'gh-not-installed', perRepo: [] };
-  }
   // The daemon is global too — any daemon error means all repos are unreachable,
   // even when stale per-repo errors from before the disconnect are still recorded.
   if (entries.some(([, error]) => error.toLowerCase().includes('daemon'))) {
@@ -32,11 +27,7 @@ export function classifyPrRepoErrors(repoErrors: Record<string, string>): Classi
 
   return {
     global: null,
-    perRepo: entries.map(([repo, error]) => ({
-      repo,
-      kind: error === 'gh-not-authenticated' ? 'gh-not-authenticated' : 'generic',
-      message: error,
-    })),
+    perRepo: entries.map(([repo, error]) => ({ repo, message: error })),
   };
 }
 

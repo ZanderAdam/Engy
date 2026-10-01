@@ -4,8 +4,8 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { workspaces, prs, agentSessions, taskGroups, tasks, projects } from '../../db/schema';
-import { dispatchGhPrList } from '../../ws/server';
-import type { GhPr } from '@engy/common';
+import { getGithubStatus } from '../../github/viewer';
+import { listOpenPrs, resolveRepoPrs, type GithubPr } from '../../github/prs';
 import type { AppState } from '../context';
 
 type Db = ReturnType<typeof getDb>;
@@ -94,12 +94,12 @@ interface UpsertResult {
 }
 
 /**
- * Upserts PRs for a single repo. `gh pr list` returns only open PRs, so rows
+ * Upserts PRs for a single repo. The GitHub search returns only open PRs, so rows
  * absent from the fresh list are no longer open and are deleted outright.
  * Returns material changes so callers can decide whether to broadcast.
  * All writes are wrapped in a single transaction for atomicity.
  */
-export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
+export function upsertPrs(db: Db, repo: string, ghPrs: GithubPr[]): UpsertResult {
   return db.transaction((tx) => {
     const now = new Date().toISOString();
     const existing = tx.select().from(prs).where(eq(prs.repo, repo)).all();
@@ -130,6 +130,11 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
             commentCount: ghPr.commentCount,
             authoredByViewer: ghPr.authoredByViewer,
             reviewDecision: ghPr.reviewDecision,
+            repoFullName: ghPr.repoFullName,
+            baseRef: ghPr.baseBranch,
+            additions: ghPr.additions,
+            deletions: ghPr.deletions,
+            reviewRequests: ghPr.reviewRequests,
             updatedAt: now,
           })
           .run();
@@ -179,6 +184,11 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
             commentCount: ghPr.commentCount,
             authoredByViewer: ghPr.authoredByViewer,
             reviewDecision: ghPr.reviewDecision,
+            repoFullName: ghPr.repoFullName,
+            baseRef: ghPr.baseBranch,
+            additions: ghPr.additions,
+            deletions: ghPr.deletions,
+            reviewRequests: ghPr.reviewRequests,
             updatedAt: now,
           })
           .where(and(eq(prs.repo, repo), eq(prs.number, ghPr.number)))
@@ -204,7 +214,7 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
   });
 }
 
-/** Records a repo's latest gh outcome in the in-memory error map (cleared on success). */
+/** Records a repo's latest PR sync outcome in the in-memory error map (cleared on success). */
 export function recordRepoOutcome(state: AppState, repo: string, error: string | null): void {
   if (error === null) {
     state.prRepoErrors.delete(repo);
@@ -320,23 +330,36 @@ export const prRouter = router({
     }),
 
   /**
-   * Refreshes PRs for all workspace repos via dispatchGhPrList per repo.
-   * Each repo refreshes independently; failures carry the daemon's typed
-   * error ('gh-not-installed' / 'gh-not-authenticated' / raw message) and
-   * are recorded in the in-memory per-repo error map that `list` returns.
+   * Refreshes PRs for all workspace repos from one GitHub search. Each repo
+   * upserts independently; failures are recorded in the in-memory per-repo
+   * error map that `list` returns. Throws when GitHub is unavailable.
    */
   refresh: publicProcedure
     .input(z.object({ workspaceId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      const { workspace, repos } = getWorkspaceRepos(input.workspaceId);
-      const coderCfg = workspace.coderConfig as { workspace?: string } | null | undefined;
-      const coderWorkspace = coderCfg?.workspace;
+      const { repos } = getWorkspaceRepos(input.workspaceId);
+
+      const status = await getGithubStatus(ctx.state);
+      if (!status.available) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: status.message });
+      }
+
+      let openPrs: GithubPr[];
+      try {
+        openPrs = await listOpenPrs(ctx.state);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        return repos.map((repo) => {
+          recordRepoOutcome(ctx.state, repo, error);
+          return { repo, success: false as const, error };
+        });
+      }
 
       return Promise.all(
         repos.map(async (repo) => {
           try {
-            const { prs: ghPrs } = await dispatchGhPrList(repo, ctx.state, coderWorkspace);
+            const ghPrs = await resolveRepoPrs(ctx.state, repo, openPrs);
             const upsertResult = upsertPrs(db, repo, ghPrs);
             recordRepoOutcome(ctx.state, repo, null);
             return { repo, success: true as const, ...upsertResult };

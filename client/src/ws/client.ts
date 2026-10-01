@@ -42,21 +42,10 @@ import type {
   GlobFilesRequestMessage,
   FsDeleteRequestMessage,
   FsRenameRequestMessage,
-  GhPrListRequestMessage,
-  GhPrFailedLogsRequestMessage,
-  GhPrReviewCommentsRequestMessage,
   UsageScanRequestMessage,
   TerminalRelayCommand,
   TerminalSyncEvent,
 } from '@engy/common';
-import {
-  listOpenPrs,
-  fetchFailedLogs,
-  fetchReviewComments,
-  classifyGhError,
-  localGhRunner,
-  type GhRunner,
-} from '../gh/index.js';
 import {
   getStatusDetailed,
   getLog,
@@ -81,7 +70,7 @@ import {
 import { getPatch } from '../git/patch.js';
 import { scanUsage } from '../usage/scan.js';
 import { ContainerManager } from '../container/manager.js';
-import { CoderManager, shellQuote } from '../container/coder-manager.js';
+import { CoderManager } from '../container/coder-manager.js';
 import { generateDevcontainerConfig } from '../container/config-generator.js';
 import type { TerminalManager } from '../terminal/manager.js';
 import { Runner } from '../runner/index.js';
@@ -671,15 +660,6 @@ export class WsClient {
       case 'FS_RENAME_REQUEST':
         this.handleFsRenameRequest(message as FsRenameRequestMessage);
         break;
-      case 'GH_PR_LIST_REQUEST':
-        this.handleGhPrListRequest(message as GhPrListRequestMessage);
-        break;
-      case 'GH_PR_FAILED_LOGS_REQUEST':
-        this.handleGhPrFailedLogsRequest(message as GhPrFailedLogsRequestMessage);
-        break;
-      case 'GH_PR_REVIEW_COMMENTS_REQUEST':
-        this.handleGhPrReviewCommentsRequest(message as GhPrReviewCommentsRequestMessage);
-        break;
       case 'USAGE_SCAN_REQUEST':
         this.handleUsageScanRequest(message as UsageScanRequestMessage);
         break;
@@ -757,18 +737,6 @@ export class WsClient {
   private gitRunnerFor(coderWorkspace?: string): GitRunner {
     if (!coderWorkspace) return localGitRunner;
     return (args) => this.coderManager.execCapture(coderWorkspace, 'git', args);
-  }
-
-  private ghRunnerFor(coderWorkspace?: string): GhRunner {
-    if (!coderWorkspace) return localGhRunner;
-    return async (args: string[], cwd?: string) => {
-      if (cwd) {
-        // gh has no -C flag; run via sh so we can cd first
-        const script = `cd ${shellQuote(cwd)} && gh ${args.map(shellQuote).join(' ')}`;
-        return this.coderManager.execCapture(coderWorkspace, 'sh', ['-c', script]);
-      }
-      return this.coderManager.execCapture(coderWorkspace, 'gh', args);
-    };
   }
 
   private async handleGitStatusRequest(message: GitStatusRequestMessage): Promise<void> {
@@ -1564,60 +1532,6 @@ export class WsClient {
       this.send({
         type: 'EXECUTION_STOP_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
-      });
-    }
-  }
-
-  private async handleGhPrListRequest(message: GhPrListRequestMessage): Promise<void> {
-    const { requestId, repoDir, coderWorkspace } = message.payload;
-    try {
-      const prs = await listOpenPrs(repoDir, this.ghRunnerFor(coderWorkspace));
-      this.send({
-        type: 'GH_PR_LIST_RESPONSE',
-        payload: { requestId, prs },
-      });
-    } catch (err) {
-      this.send({
-        type: 'GH_PR_LIST_RESPONSE',
-        payload: { requestId, error: classifyGhError(err) },
-      });
-    }
-  }
-
-  private async handleGhPrFailedLogsRequest(message: GhPrFailedLogsRequestMessage): Promise<void> {
-    const { requestId, repoDir, prNumber, coderWorkspace } = message.payload;
-    try {
-      const logs = await fetchFailedLogs(repoDir, prNumber, this.ghRunnerFor(coderWorkspace));
-      this.send({
-        type: 'GH_PR_FAILED_LOGS_RESPONSE',
-        payload: { requestId, logs },
-      });
-    } catch (err) {
-      this.send({
-        type: 'GH_PR_FAILED_LOGS_RESPONSE',
-        payload: { requestId, error: classifyGhError(err) },
-      });
-    }
-  }
-
-  private async handleGhPrReviewCommentsRequest(
-    message: GhPrReviewCommentsRequestMessage,
-  ): Promise<void> {
-    const { requestId, repoDir, prNumber, coderWorkspace } = message.payload;
-    try {
-      const comments = await fetchReviewComments(
-        repoDir,
-        prNumber,
-        this.ghRunnerFor(coderWorkspace),
-      );
-      this.send({
-        type: 'GH_PR_REVIEW_COMMENTS_RESPONSE',
-        payload: { requestId, comments },
-      });
-    } catch (err) {
-      this.send({
-        type: 'GH_PR_REVIEW_COMMENTS_RESPONSE',
-        payload: { requestId, error: classifyGhError(err) },
       });
     }
   }

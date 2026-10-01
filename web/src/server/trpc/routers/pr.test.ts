@@ -1,69 +1,49 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import WebSocket from 'ws';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
 import { workspaces, prs, agentSessions, taskGroups, tasks, projects } from '../../db/schema';
 import { upsertPrs, findCorrelatedSession } from './pr';
-import type { GhPr } from '@engy/common';
+import type { GithubPr } from '../../github/prs';
+import { startStubGithub, type StubGithub } from '../../github/stub-server';
+import { rawPr, searchReply, searchQuery, type RawPrFixture } from '../../github/pr-fixtures';
 import { eq } from 'drizzle-orm';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
-function makePr(overrides: Partial<GhPr> = {}): GhPr {
+function makePr(overrides: Partial<GithubPr> = {}): GithubPr {
   return {
+    repoFullName: 'org/repo',
     number: 1,
     title: 'My PR',
     url: 'https://github.com/org/repo/pull/1',
     headBranch: 'feat/my-feature',
     headSha: null,
+    baseBranch: 'main',
     author: 'alice',
     isDraft: false,
-    state: 'open',
     reviewDecision: null,
     ciStatus: 'passing',
     checks: [],
     commentCount: 0,
     authoredByViewer: false,
+    additions: 0,
+    deletions: 0,
+    reviewRequests: [],
+    updatedAt: '2024-01-01T00:00:00Z',
     ...overrides,
   };
 }
 
-// ── Daemon stub ───────────────────────────────────────────────────────
+// ── GitHub stub ───────────────────────────────────────────────────────
 
-interface DaemonScripts {
-  prsByRepo?: Map<string, GhPr[] | Error>;
+function replyWithOpenPrs(stub: StubGithub, nodes: RawPrFixture[]): void {
+  stub.reply((request) =>
+    searchReply(searchQuery(request).includes('author:@me') ? nodes : []),
+  );
 }
 
-interface DaemonMessage {
-  type: string;
-  payload: { requestId: string } & Record<string, unknown>;
-}
-
-function installFakeDaemon(ctx: TestContext, scripts: DaemonScripts) {
-  const mock = {
-    readyState: WebSocket.OPEN,
-    OPEN: WebSocket.OPEN,
-    send: (raw: string) => {
-      const msg = JSON.parse(raw) as DaemonMessage;
-      const requestId = msg.payload.requestId;
-
-      queueMicrotask(() => {
-        if (msg.type === 'GH_PR_LIST_REQUEST') {
-          const pending = ctx.state.pendingGhPrList.get(requestId);
-          if (!pending) return;
-          ctx.state.pendingGhPrList.delete(requestId);
-
-          const result = scripts.prsByRepo?.get(msg.payload.repoDir as string);
-          if (result instanceof Error) {
-            pending.reject(result);
-          } else {
-            pending.resolve({ prs: result ?? [] });
-          }
-        }
-      });
-    },
-  };
-  ctx.state.daemon = mock as unknown as WebSocket;
+function linkRepo(ctx: TestContext, repoPath: string, fullName: string | null): void {
+  ctx.state.repoFullNames.set(repoPath, fullName);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -78,13 +58,21 @@ function seedWorkspace(ctx: TestContext, repos: string[]) {
 describe('pr router', () => {
   let ctx: TestContext;
   let caller: ReturnType<typeof appRouter.createCaller>;
+  let stub: StubGithub;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     ctx = setupTestDb();
     caller = appRouter.createCaller({ state: ctx.state });
+    stub = await startStubGithub();
+    process.env.ENGY_GITHUB_API_URL = stub.url;
+    process.env.ENGY_GITHUB_TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+    ctx.state.github.status = { available: true, login: 'me' };
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    delete process.env.ENGY_GITHUB_API_URL;
+    delete process.env.ENGY_GITHUB_TOKEN;
+    await stub.close();
     ctx?.cleanup();
   });
 
@@ -360,11 +348,11 @@ describe('pr router', () => {
 
     it('[FR-PRMON-130] should return per-repo gh errors from the in-memory map', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b']);
-      ctx.state.prRepoErrors.set('/repo-a', 'gh-not-authenticated');
+      ctx.state.prRepoErrors.set('/repo-a', 'Bad gateway');
       ctx.state.prRepoErrors.set('/unrelated-repo', 'ignored');
 
       const result = await caller.pr.list({ workspaceId: ws.id });
-      expect(result.repoErrors).toEqual({ '/repo-a': 'gh-not-authenticated' });
+      expect(result.repoErrors).toEqual({ '/repo-a': 'Bad gateway' });
     });
 
     it('should correlate PRs with most recent agent session matching headBranch', async () => {
@@ -518,67 +506,81 @@ describe('pr router', () => {
   });
 
   describe('refresh', () => {
-    it('should fetch PRs for each repo and upsert them', async () => {
+    it('should list PRs once and upsert them into each matching repo', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b']);
-
-      installFakeDaemon(ctx, {
-        prsByRepo: new Map([
-          ['/repo-a', [makePr({ number: 1 })]],
-          ['/repo-b', [makePr({ number: 2, headBranch: 'feat/b' })]],
-        ]),
-      });
+      linkRepo(ctx, '/repo-a', 'org/repo-a');
+      linkRepo(ctx, '/repo-b', 'org/repo-b');
+      replyWithOpenPrs(stub, [
+        rawPr({ number: 1, repository: { nameWithOwner: 'org/repo-a' } }),
+        rawPr({ number: 2, headRefName: 'feat/b', repository: { nameWithOwner: 'org/repo-b' } }),
+        rawPr({ number: 3, repository: { nameWithOwner: 'org/other' } }),
+      ]);
 
       const results = await caller.pr.refresh({ workspaceId: ws.id });
 
       expect(results).toHaveLength(2);
       expect(results.every((r) => r.success)).toBe(true);
-
+      expect(stub.requests).toHaveLength(2);
       const stored = ctx.db.select().from(prs).all();
-      expect(stored).toHaveLength(2);
+      expect(stored.map((row) => [row.repo, row.number, row.repoFullName]).sort()).toEqual([
+        ['/repo-a', 1, 'org/repo-a'],
+        ['/repo-b', 2, 'org/repo-b'],
+      ]);
     });
 
-    it('[FR-PRMON-020] should isolate a failing repo and record its typed error while others succeed', async () => {
+    it('[FR-PRMON-020] should isolate a repo without a GitHub remote while others succeed', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b']);
-
-      installFakeDaemon(ctx, {
-        prsByRepo: new Map<string, GhPr[] | Error>([
-          ['/repo-a', new Error('gh-not-authenticated')],
-          ['/repo-b', [makePr({ number: 2, headBranch: 'feat/b' })]],
-        ]),
-      });
+      linkRepo(ctx, '/repo-a', null);
+      linkRepo(ctx, '/repo-b', 'org/repo-b');
+      replyWithOpenPrs(stub, [
+        rawPr({ number: 2, headRefName: 'feat/b', repository: { nameWithOwner: 'org/repo-b' } }),
+      ]);
 
       const results = await caller.pr.refresh({ workspaceId: ws.id });
 
       const failed = results.find((r) => r.repo === '/repo-a');
       const succeeded = results.find((r) => r.repo === '/repo-b');
-      expect(failed).toMatchObject({ success: false, error: 'gh-not-authenticated' });
+      expect(failed).toMatchObject({
+        success: false,
+        error: 'No GitHub remote found for /repo-a',
+      });
       expect(succeeded?.success).toBe(true);
-      expect(ctx.state.prRepoErrors.get('/repo-a')).toBe('gh-not-authenticated');
+      expect(ctx.state.prRepoErrors.get('/repo-a')).toBe('No GitHub remote found for /repo-a');
       expect(ctx.state.prRepoErrors.has('/repo-b')).toBe(false);
     });
 
-    it('[FR-PRMON-020] should surface gh-not-installed per repo from the list call itself', async () => {
-      const ws = seedWorkspace(ctx, ['/repo-a']);
-
-      installFakeDaemon(ctx, {
-        prsByRepo: new Map<string, GhPr[] | Error>([
-          ['/repo-a', new Error('gh-not-installed')],
-        ]),
-      });
+    it('[FR-PRMON-020] should record the GitHub error on every repo when the search fails', async () => {
+      const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b']);
+      stub.reply(() => ({ status: 502, body: { message: 'Bad gateway' } }));
 
       const results = await caller.pr.refresh({ workspaceId: ws.id });
 
-      expect(results).toHaveLength(1);
-      expect(results[0]).toMatchObject({ success: false, error: 'gh-not-installed' });
+      expect(results).toEqual([
+        { repo: '/repo-a', success: false, error: 'Bad gateway' },
+        { repo: '/repo-b', success: false, error: 'Bad gateway' },
+      ]);
+      expect(ctx.state.prRepoErrors.get('/repo-b')).toBe('Bad gateway');
+    });
+
+    it('should reject with the setup message when GitHub is unavailable', async () => {
+      const ws = seedWorkspace(ctx, ['/repo-a']);
+      ctx.state.github.status = {
+        available: false,
+        reason: 'missing_token',
+        message: 'Set ENGY_GITHUB_TOKEN in .env',
+      };
+
+      await expect(caller.pr.refresh({ workspaceId: ws.id })).rejects.toThrow(
+        'Set ENGY_GITHUB_TOKEN in .env',
+      );
+      expect(stub.requests).toHaveLength(0);
     });
 
     it('should clear a repo error on the next successful refresh', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
-      ctx.state.prRepoErrors.set('/repo-a', 'gh-not-authenticated');
-
-      installFakeDaemon(ctx, {
-        prsByRepo: new Map([['/repo-a', [makePr({ number: 1 })]]]),
-      });
+      linkRepo(ctx, '/repo-a', 'org/repo-a');
+      ctx.state.prRepoErrors.set('/repo-a', 'Bad gateway');
+      replyWithOpenPrs(stub, [rawPr({ repository: { nameWithOwner: 'org/repo-a' } })]);
 
       await caller.pr.refresh({ workspaceId: ws.id });
 

@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { prs as prsTable, commentThreads, threadComments } from '../db/schema';
 import { syncReviewComments } from './review-sync';
-import type { GhReviewComment } from '@engy/common';
+import type { GithubReviewComment } from '../github/review-comments';
 
 function makePrRow(overrides: Partial<typeof prsTable.$inferSelect> = {}): typeof prsTable.$inferSelect {
   return {
@@ -21,6 +21,11 @@ function makePrRow(overrides: Partial<typeof prsTable.$inferSelect> = {}): typeo
     commentCount: 0,
     authoredByViewer: false,
     reviewDecision: null,
+    repoFullName: 'org/repo',
+    baseRef: 'main',
+    additions: 0,
+    deletions: 0,
+    reviewRequests: [],
     lastFailedHeadSha: null,
     autoFixAttempts: 0,
     autoFixTotalAttempts: 0,
@@ -31,7 +36,7 @@ function makePrRow(overrides: Partial<typeof prsTable.$inferSelect> = {}): typeo
   };
 }
 
-function makeComment(overrides: Partial<GhReviewComment> = {}): GhReviewComment {
+function makeComment(overrides: Partial<GithubReviewComment> = {}): GithubReviewComment {
   return {
     githubId: 1001,
     path: 'src/foo.ts',

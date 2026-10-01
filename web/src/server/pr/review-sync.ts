@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { commentThreads, threadComments, prs } from '../db/schema';
-import type { GhReviewComment } from '@engy/common';
+import type { GithubReviewComment } from '../github/review-comments';
 import type { getDb } from '../db/client';
 import { diffDocPath } from '@/lib/diff-doc-path';
 
@@ -36,7 +36,7 @@ interface ReviewCommentSyncSummary {
 export function syncReviewComments(
   db: Db,
   prRow: PrRow,
-  comments: GhReviewComment[],
+  comments: GithubReviewComment[],
 ): ReviewCommentSyncSummary {
   const now = new Date().toISOString();
   const topLevel = comments.filter((c) => c.inReplyToId === null);

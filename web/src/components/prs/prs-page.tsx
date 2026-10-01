@@ -27,30 +27,17 @@ interface PrsPageProps {
   projectSlug: string;
 }
 
-function GlobalErrorBanner({ error }: { error: GlobalPrError | { message: string } }) {
+function GlobalErrorBanner({
+  error,
+}: {
+  error: GlobalPrError | { title: string; message: string };
+}) {
   let content: React.ReactNode;
   if (typeof error === 'object') {
     content = (
       <>
-        <p className="font-medium text-foreground">Refresh failed</p>
+        <p className="font-medium text-foreground">{error.title}</p>
         <p className="text-muted-foreground font-mono">{error.message}</p>
-      </>
-    );
-  } else if (error === 'gh-not-installed') {
-    content = (
-      <>
-        <p className="font-medium text-foreground">GitHub CLI not installed</p>
-        <p className="text-muted-foreground">
-          Install <code className="font-mono">gh</code> to fetch pull requests.{' '}
-          <a
-            href="https://cli.github.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-foreground underline"
-          >
-            cli.github.com
-          </a>
-        </p>
       </>
     );
   } else {
@@ -80,15 +67,7 @@ function RepoErrorRow({ error }: { error: RepoPrError }) {
         <p className="font-medium text-foreground font-mono truncate">
           {repoDisplayName(error.repo)}
         </p>
-        {error.kind === 'gh-not-authenticated' ? (
-          <p className="text-muted-foreground">
-            Not authenticated for this repo&apos;s host — run{' '}
-            <code className="font-mono bg-muted px-1 py-0.5">gh auth login</code> for it, then
-            refresh. Other repos keep updating.
-          </p>
-        ) : (
-          <p className="text-muted-foreground font-mono break-all">{error.message}</p>
-        )}
+        <p className="text-muted-foreground font-mono break-all">{error.message}</p>
       </div>
     </div>
   );
@@ -156,6 +135,8 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
   const utils = trpc.useUtils();
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
+  const { data: githubStatus } = trpc.github.status.useQuery();
+  const githubUnavailable = githubStatus && !githubStatus.available ? githubStatus : null;
 
   const workspaceId = workspace?.id ?? 0;
   const workspaceRepos = (workspace?.repos as string[] | null) ?? [];
@@ -223,7 +204,7 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
           variant="outline"
           size="xs"
           onClick={handleRefresh}
-          disabled={isRefreshing || !workspace}
+          disabled={isRefreshing || !workspace || !!githubUnavailable}
           className={cn(isRefreshing && 'opacity-60')}
         >
           <RiRefreshLine className={cn('size-3', isRefreshing && 'animate-spin')} />
@@ -231,14 +212,21 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
         </Button>
       </div>
 
-      {/* Global error states: gh missing / daemon down can't differ per repo */}
-      {globalError && <GlobalErrorBanner error={globalError} />}
-      {mutationError && <GlobalErrorBanner error={{ message: mutationError }} />}
+      {/* Global error states: GitHub token problems / daemon down can't differ per repo */}
+      {githubUnavailable && (
+        <GlobalErrorBanner
+          error={{ title: 'GitHub unavailable', message: githubUnavailable.message }}
+        />
+      )}
+      {!githubUnavailable && globalError && <GlobalErrorBanner error={globalError} />}
+      {!githubUnavailable && mutationError && (
+        <GlobalErrorBanner error={{ title: 'Refresh failed', message: mutationError }} />
+      )}
 
       {/* Body */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {/* Per-repo failures render inline; healthy repos keep listing below */}
-        {!globalError && repoErrors.map((error) => <RepoErrorRow key={error.repo} error={error} />)}
+        {!githubUnavailable && !globalError && repoErrors.map((error) => <RepoErrorRow key={error.repo} error={error} />)}
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <p className="text-sm text-muted-foreground">Loading…</p>

@@ -2,7 +2,8 @@ import { eq, and, isNotNull, gt, sql } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { prs, agentSessions, tasks, projects, workspaces } from '../db/schema';
 import type { AppState } from '../trpc/context';
-import { dispatchExecutionStart, dispatchGhPrFailedLogs } from '../ws/server';
+import { dispatchExecutionStart } from '../ws/server';
+import { fetchFailedLogs } from '../github/checks';
 import { buildResumeFlags, buildResumeConfig } from '../trpc/routers/execution';
 import { findCorrelatedSession } from '../trpc/routers/pr';
 import { buildCiFixPrompt } from '../../lib/shell';
@@ -34,7 +35,6 @@ interface MaybeDispatchCiFixInput {
   prRow: typeof prs.$inferSelect;
   classification: CiFailureClassification;
   workspace: typeof workspaces.$inferSelect;
-  coderWorkspace?: string;
 }
 
 function clearAttentionReason(db: Db, repo: string, prNumber: number): void {
@@ -63,7 +63,6 @@ export async function maybeDispatchCiFix({
   prRow,
   classification,
   workspace,
-  coderWorkspace,
 }: MaybeDispatchCiFixInput): Promise<CiFixResult> {
   if (classification !== 'mechanical') {
     setAttentionReason(db, workspace, prRow, 'non-mechanical');
@@ -125,8 +124,9 @@ export async function maybeDispatchCiFix({
   // the agent can reproduce the failure locally.
   let logs: FailedLog[] = [];
   try {
-    const result = await dispatchGhPrFailedLogs(prRow.repo, prRow.number, state, coderWorkspace);
-    logs = result.logs;
+    if (prRow.repoFullName && prRow.headSha) {
+      logs = await fetchFailedLogs(state, prRow.repoFullName, prRow.headSha);
+    }
   } catch (err) {
     console.error(
       `[auto-fix] failed to fetch logs for ${prRow.repo}#${prRow.number}:`,

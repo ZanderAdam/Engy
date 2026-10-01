@@ -2,7 +2,9 @@ import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { workspaces, prs } from '../db/schema';
 import type { AppState } from '../trpc/context';
-import { dispatchGhPrList, dispatchGhPrReviewComments } from '../ws/server';
+import { getGithubStatus } from '../github/viewer';
+import { listOpenPrs, resolveRepoPrs, type GithubPr } from '../github/prs';
+import { fetchReviewComments } from '../github/review-comments';
 import { upsertPrs, findCorrelatedSession, recordRepoOutcome } from '../trpc/routers/pr';
 import { broadcastPrChange } from '../ws/broadcast';
 import { detectFailureTransitions, classifyFailure, isFailingCheck } from './ci-triage';
@@ -16,16 +18,33 @@ type Db = ReturnType<typeof getDb>;
 export async function runPollCycle(state: AppState, db: Db): Promise<void> {
   if (!state.daemon || state.daemon.readyState !== state.daemon.OPEN) return;
 
+  const status = await getGithubStatus(state);
+  if (!status.available) return;
+
   const allWorkspaces = db.select().from(workspaces).all();
+
+  let openPrs: GithubPr[];
+  try {
+    openPrs = await listOpenPrs(state);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    for (const ws of allWorkspaces) {
+      for (const repo of (ws.repos as string[] | null | undefined) ?? []) {
+        if (state.prRepoErrors.get(repo) !== message) {
+          console.error(`[pr-poller] poll failed for ${repo}:`, message);
+        }
+        recordRepoOutcome(state, repo, message);
+      }
+    }
+    return;
+  }
 
   for (const ws of allWorkspaces) {
     const repos = (ws.repos as string[] | null | undefined) ?? [];
-    const coderCfg = ws.coderConfig as { workspace?: string } | null | undefined;
-    const coderWorkspace = coderCfg?.workspace;
 
     for (const repo of repos) {
       try {
-        const { prs: ghPrs } = await dispatchGhPrList(repo, state, coderWorkspace);
+        const ghPrs = await resolveRepoPrs(state, repo, openPrs);
         recordRepoOutcome(state, repo, null);
 
         const result = upsertPrs(db, repo, ghPrs);
@@ -51,12 +70,12 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
 
         const failingTransitions = detectFailureTransitions(result.changes);
         for (const { number } of failingTransitions) {
-          void handleFailingPr(db, state, ws, repo, number, ghPrs, coderWorkspace);
+          void handleFailingPr(db, state, ws, repo, number, ghPrs);
         }
 
         // Sync review comments for all open correlated PRs every cycle.
         // Skip when GitHub's updatedAt is unchanged from the last successful sync
-        // to avoid an unnecessary gh api call on every tick.
+        // to avoid an unnecessary GitHub call on every tick.
         for (const ghPr of ghPrs) {
           const prUpdatedAt = ghPr.updatedAt ?? null;
           const syncKey = `${repo}#${ghPr.number}`;
@@ -66,7 +85,7 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
           }
           const session = findCorrelatedSession(db, ghPr.headBranch, repo);
           if (!session) continue;
-          void syncPrReviewComments(db, state, ws.id, repo, ghPr.number, prUpdatedAt, coderWorkspace);
+          void syncPrReviewComments(db, state, ws.id, repo, ghPr, prUpdatedAt);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -85,12 +104,12 @@ async function syncPrReviewComments(
   state: AppState,
   workspaceId: number,
   repo: string,
-  prNumber: number,
+  ghPr: GithubPr,
   prUpdatedAt: string | null,
-  coderWorkspace: string | undefined,
 ): Promise<void> {
+  const prNumber = ghPr.number;
   try {
-    const { comments } = await dispatchGhPrReviewComments(repo, prNumber, state, coderWorkspace);
+    const comments = await fetchReviewComments(state, ghPr.repoFullName, prNumber);
     const prRow = db
       .select()
       .from(prs)
@@ -119,8 +138,7 @@ async function handleFailingPr(
   workspace: typeof workspaces.$inferSelect,
   repo: string,
   prNumber: number,
-  ghPrs: Awaited<ReturnType<typeof dispatchGhPrList>>['prs'],
-  coderWorkspace: string | undefined,
+  ghPrs: GithubPr[],
 ): Promise<void> {
   const dbRow = db
     .select()
@@ -149,7 +167,7 @@ async function handleFailingPr(
 
   const failingChecks = (ghPr?.checks ?? []).filter(isFailingCheck);
   const classification = classifyFailure(failingChecks);
-  maybeDispatchCiFix({ state, db, prRow: updatedPrRow, classification, workspace, coderWorkspace }).catch(
+  maybeDispatchCiFix({ state, db, prRow: updatedPrRow, classification, workspace }).catch(
     (err: unknown) => {
       console.error(
         `[pr-poller] auto-fix dispatch failed for ${repo}#${prNumber}:`,

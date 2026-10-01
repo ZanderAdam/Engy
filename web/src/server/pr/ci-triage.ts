@@ -1,5 +1,6 @@
 import type { GhPrCheck } from '@engy/common';
 import type { MaterialChange } from '../trpc/routers/pr';
+import { FAILING_CONCLUSIONS } from '../github/prs';
 
 export type CiFailureClassification = 'mechanical' | 'non-mechanical';
 
@@ -7,15 +8,6 @@ export interface FailedLog {
   checkName: string;
   excerpt: string;
 }
-
-// Conclusions that indicate a check has actually failed (mirrors FAILING_CONCLUSIONS in client gh layer).
-const FAILING_CONCLUSIONS = new Set([
-  'failure',
-  'timed_out',
-  'action_required',
-  'cancelled',
-  'startup_failure',
-]);
 
 /**
  * Returns true for GhPrCheck entries that represent an actual failure.

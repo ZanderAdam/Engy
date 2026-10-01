@@ -777,7 +777,7 @@ export interface CreateMemoriesEventMessage {
   };
 }
 
-// ── GitHub PR operations (server ↔ daemon) ──────────────────────────────────
+// ── GitHub PR types ──────────────────────────────────
 
 export type GhPrCiStatus = 'pending' | 'passing' | 'failing' | 'unknown';
 
@@ -786,83 +786,6 @@ export interface GhPrCheck {
   status: string;
   conclusion: string | null;
   detailsUrl: string | null;
-}
-
-export interface GhPr {
-  number: number;
-  title: string;
-  url: string;
-  headBranch: string;
-  headSha: string | null;
-  author: string;
-  isDraft: boolean;
-  state: string;
-  reviewDecision: string | null;
-  ciStatus: GhPrCiStatus;
-  checks: GhPrCheck[];
-  /** Conversation comments plus review submissions that carry a body. */
-  commentCount: number;
-  authoredByViewer: boolean;
-  updatedAt?: string;
-}
-
-export interface GhPrListRequestMessage {
-  type: 'GH_PR_LIST_REQUEST';
-  payload: {
-    requestId: string;
-    repoDir: string;
-    coderWorkspace?: string;
-  };
-}
-
-export interface GhPrListResponseMessage {
-  type: 'GH_PR_LIST_RESPONSE';
-  payload: { requestId: string; prs: GhPr[] } | { requestId: string; error: string };
-}
-
-export interface GhPrFailedLogsRequestMessage {
-  type: 'GH_PR_FAILED_LOGS_REQUEST';
-  payload: {
-    requestId: string;
-    repoDir: string;
-    coderWorkspace?: string;
-    prNumber: number;
-  };
-}
-
-export interface GhPrFailedLogsResponseMessage {
-  type: 'GH_PR_FAILED_LOGS_RESPONSE';
-  payload:
-    | { requestId: string; logs: Array<{ checkName: string; excerpt: string }> }
-    | { requestId: string; error: string };
-}
-
-export interface GhReviewComment {
-  githubId: number;
-  path: string;
-  line: number | null;
-  body: string;
-  author: string;
-  createdAt: string;
-  inReplyToId: number | null;
-  url: string;
-}
-
-export interface GhPrReviewCommentsRequestMessage {
-  type: 'GH_PR_REVIEW_COMMENTS_REQUEST';
-  payload: {
-    requestId: string;
-    repoDir: string;
-    coderWorkspace?: string;
-    prNumber: number;
-  };
-}
-
-export interface GhPrReviewCommentsResponseMessage {
-  type: 'GH_PR_REVIEW_COMMENTS_RESPONSE';
-  payload:
-    | { requestId: string; comments: GhReviewComment[] }
-    | { requestId: string; error: string };
 }
 
 // ── Usage analytics scan (server ↔ daemon) ──────────────────────────────────
@@ -1004,12 +927,6 @@ export type WsMessage =
   | ExecutionStatusEventMessage
   | ExecutionCompleteEventMessage
   | CreateMemoriesEventMessage
-  | GhPrListRequestMessage
-  | GhPrListResponseMessage
-  | GhPrFailedLogsRequestMessage
-  | GhPrFailedLogsResponseMessage
-  | GhPrReviewCommentsRequestMessage
-  | GhPrReviewCommentsResponseMessage
   | UsageScanRequestMessage
   | UsageScanResponseMessage;
 
@@ -1053,9 +970,6 @@ export type ClientToServerMessage =
   | ExecutionStatusEventMessage
   | ExecutionCompleteEventMessage
   | CreateMemoriesEventMessage
-  | GhPrListResponseMessage
-  | GhPrFailedLogsResponseMessage
-  | GhPrReviewCommentsResponseMessage
   | UsageScanResponseMessage;
 
 export type ServerToClientMessage =
@@ -1092,9 +1006,6 @@ export type ServerToClientMessage =
   | DevcontainerConfigGenerateRequestMessage
   | ExecutionStartRequestMessage
   | ExecutionStopRequestMessage
-  | GhPrListRequestMessage
-  | GhPrFailedLogsRequestMessage
-  | GhPrReviewCommentsRequestMessage
   | UsageScanRequestMessage;
 
 // ── Compact terminal relay types (server ↔ daemon) ──────────────────────────

@@ -253,6 +253,13 @@
       "when": 1790823851958,
       "tag": "0035_volatile_moonstone",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1790824719440,
+      "tag": "0036_keen_black_bird",
+      "breakpoints": true
     }
   ]
 }

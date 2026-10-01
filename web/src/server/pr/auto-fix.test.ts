@@ -5,6 +5,7 @@ import { workspaces, prs as prsTable, agentSessions, tasks, projects, taskGroups
 import { maybeDispatchCiFix, MAX_AUTO_FIX_ATTEMPTS, MAX_TOTAL_AUTO_FIX_ATTEMPTS } from './auto-fix';
 import * as wsServer from '../ws/server';
 import * as broadcast from '../ws/broadcast';
+import { fetchFailedLogs } from '../github/checks';
 
 // Mock dispatchExecutionStart only — buildResumeFlags/buildResumeConfig run for real
 // against the test DB so we get integration-level coverage without a live WebSocket.
@@ -13,9 +14,10 @@ vi.mock('../ws/server', async (importOriginal) => {
   return {
     ...actual,
     dispatchExecutionStart: vi.fn().mockResolvedValue(undefined),
-    dispatchGhPrFailedLogs: vi.fn().mockResolvedValue({ logs: [] }),
   };
 });
+
+vi.mock('../github/checks', () => ({ fetchFailedLogs: vi.fn(async () => []) }));
 
 vi.mock('../ws/broadcast', async (importOriginal) => {
   const actual = await importOriginal<typeof broadcast>();
@@ -23,7 +25,7 @@ vi.mock('../ws/broadcast', async (importOriginal) => {
 });
 
 const dispatchSpy = vi.mocked(wsServer.dispatchExecutionStart);
-const failedLogsSpy = vi.mocked(wsServer.dispatchGhPrFailedLogs);
+const failedLogsSpy = vi.mocked(fetchFailedLogs);
 const broadcastAttentionSpy = vi.mocked(broadcast.broadcastPrAttention);
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
@@ -118,6 +120,7 @@ function seedPr(
       url: 'https://github.com/org/repo/pull/42',
       headBranch: BRANCH,
       headSha: 'sha1',
+      repoFullName: 'org/repo',
       author: 'alice',
       isDraft: false,
       ciStatus: 'failing',
@@ -445,7 +448,7 @@ describe('maybeDispatchCiFix', () => {
       const prRow = seedPr(ctx, { autoFixAttempts: MAX_AUTO_FIX_ATTEMPTS - 1, attentionReason: 'prior-reason' });
       const workspace = getWorkspace(ctx, workspaceId);
       ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
-      failedLogsSpy.mockResolvedValueOnce({ logs: [{ checkName: 'lint', excerpt: 'Error: unexpected token' }] });
+      failedLogsSpy.mockResolvedValueOnce([{ checkName: 'lint', excerpt: 'Error: unexpected token' }]);
 
       const result = await maybeDispatchCiFix({
         state: ctx.state,
@@ -475,7 +478,7 @@ describe('maybeDispatchCiFix', () => {
       expect(flags).toContain('--resume');
       expect(flags).toContain(SESSION_ID);
       expect(prompt).toContain('unexpected token');
-      expect(failedLogsSpy).toHaveBeenCalledWith(prRow.repo, prRow.number, ctx.state, undefined);
+      expect(failedLogsSpy).toHaveBeenCalledWith(ctx.state, 'org/repo', 'sha1');
       expect(broadcastAttentionSpy).not.toHaveBeenCalled();
     });
 
@@ -504,6 +507,24 @@ describe('maybeDispatchCiFix', () => {
         expect.stringContaining('log fetch failed'),
       );
       errorSpy.mockRestore();
+    });
+
+    it('should dispatch with empty logs when the PR has no repo full name yet', async () => {
+      const { workspaceId } = seedAll(ctx);
+      const prRow = { ...seedPr(ctx), repoFullName: null };
+      const workspace = getWorkspace(ctx, workspaceId);
+      ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
+
+      const result = await maybeDispatchCiFix({
+        state: ctx.state,
+        db: ctx.db,
+        prRow,
+        classification: 'mechanical',
+        workspace,
+      });
+
+      expect(result).toEqual({ dispatched: true });
+      expect(failedLogsSpy).not.toHaveBeenCalled();
     });
 
     it('should not fetch logs when a gate blocks the dispatch', async () => {

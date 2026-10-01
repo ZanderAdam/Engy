@@ -3,8 +3,6 @@ import type {
   DirListEntry,
   GitFileStatus,
   GitWorktreeEntry,
-  GhPr,
-  GhReviewComment,
   TerminalActivityState,
   WorktreeAddErrorCode,
   WorktreeRemoveErrorCode,
@@ -200,18 +198,6 @@ export interface WorktreeRemoveError extends Error {
 
 export interface GitWorktreeListResult {
   worktrees: GitWorktreeEntry[];
-}
-
-export interface GhPrListResult {
-  prs: GhPr[];
-}
-
-export interface GhPrFailedLogsResult {
-  logs: Array<{ checkName: string; excerpt: string }>;
-}
-
-export interface GhPrReviewCommentsResult {
-  comments: GhReviewComment[];
 }
 
 export interface UsageScanDispatchResult {
@@ -477,27 +463,6 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
-  pendingGhPrList: Map<
-    string,
-    {
-      resolve: (result: GhPrListResult) => void;
-      reject: (reason: Error) => void;
-    }
-  >;
-  pendingGhPrFailedLogs: Map<
-    string,
-    {
-      resolve: (result: GhPrFailedLogsResult) => void;
-      reject: (reason: Error) => void;
-    }
-  >;
-  pendingGhPrReviewComments: Map<
-    string,
-    {
-      resolve: (result: GhPrReviewCommentsResult) => void;
-      reject: (reason: Error) => void;
-    }
-  >;
   pendingUsageScan: Map<
     string,
     {
@@ -553,7 +518,7 @@ export interface AppState {
   containerProgressListeners: Map<string, (line: string) => void>;
   /** Timer handle for the PR polling self-scheduling chain; null until startPrPoller is called */
   prPollerTimer: ReturnType<typeof setTimeout> | null;
-  /** Latest gh error per repo (typed strings like 'gh-not-installed'); cleared on next success */
+  /** Latest PR sync error per repo; cleared on next success */
   prRepoErrors: Map<string, string>;
   /** Maps `repo#prNumber` → GitHub PR updatedAt from the last successful review-comment sync */
   prReviewCommentLastSyncedAt: Map<string, string>;
@@ -612,9 +577,6 @@ export function createAppState(): AppState {
     pendingCreateDirs: new Map(),
     pendingFsDelete: new Map(),
     pendingFsRename: new Map(),
-    pendingGhPrList: new Map(),
-    pendingGhPrFailedLogs: new Map(),
-    pendingGhPrReviewComments: new Map(),
     pendingUsageScan: new Map(),
     daemonHomeDir: null,
     watchSubscriptions: new Map(),
