@@ -41,9 +41,9 @@ interface RawStatusContext {
   targetUrl: string | null;
 }
 
-type RawStatusCheckEntry = RawCheckRun | RawStatusContext;
+export type RawStatusCheckEntry = RawCheckRun | RawStatusContext;
 
-interface RawReviewer {
+export interface RawReviewer {
   __typename: string;
   login?: string;
   slug?: string;
@@ -172,7 +172,7 @@ export function deriveCiStatus(rollup: RawStatusCheckEntry[] | null): GhPrCiStat
   return hasPending ? 'pending' : 'passing';
 }
 
-function normalizeCheck(entry: RawStatusCheckEntry): GhPrCheck {
+export function normalizeCheck(entry: RawStatusCheckEntry): GhPrCheck {
   if (entry.__typename === 'CheckRun') {
     return {
       name: entry.name,
@@ -194,7 +194,7 @@ function countComments(pr: RawPr): number {
   return pr.comments.totalCount + bodiedReviews;
 }
 
-function reviewerName(reviewer: RawReviewer | null): string | null {
+export function reviewerName(reviewer: RawReviewer | null): string | null {
   if (!reviewer) return null;
   if (reviewer.__typename === 'Team' && reviewer.slug) {
     return reviewer.organization

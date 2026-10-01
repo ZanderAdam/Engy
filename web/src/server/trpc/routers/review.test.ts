@@ -4,6 +4,7 @@ import { setupTestDb, type TestContext } from '../test-helpers';
 import { workspaces } from '../../db/schema';
 import { upsertPrs } from './pr';
 import { installFakeDaemon, type FakeDaemon } from '../../review/fake-daemon';
+import { startStubGithub, type StubGithub } from '../../github/stub-server';
 
 const REPO_PATH = '/repos/app';
 
@@ -75,5 +76,78 @@ describe('review router', () => {
     await expect(
       caller.review.open({ workspaceId: 999, repoFullName: 'org/app', prNumber: 7 }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  describe('detail', () => {
+    let stub: StubGithub;
+
+    beforeEach(async () => {
+      stub = await startStubGithub();
+      process.env.ENGY_GITHUB_API_URL = stub.url;
+      process.env.ENGY_GITHUB_TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+    });
+
+    afterEach(async () => {
+      delete process.env.ENGY_GITHUB_API_URL;
+      delete process.env.ENGY_GITHUB_TOKEN;
+      await stub.close();
+    });
+
+    it('should return the PR detail from GitHub', async () => {
+      stub.reply(() => ({
+        body: {
+          data: {
+            repository: {
+              pullRequest: {
+                title: 'Add feature',
+                body: 'Body',
+                state: 'OPEN',
+                isDraft: true,
+                url: 'https://github.com/org/app/pull/7',
+                createdAt: '2024-01-01T00:00:00Z',
+                author: { login: 'alice', avatarUrl: null },
+                baseRefName: 'main',
+                headRefName: 'feat/seven',
+                headRefOid: 'sha-7a',
+                additions: 1,
+                deletions: 0,
+                changedFiles: 1,
+                reviewDecision: null,
+                mergeable: 'UNKNOWN',
+                reviewRequests: { nodes: [] },
+                assignees: { nodes: [] },
+                labels: { nodes: [] },
+                comments: { nodes: [] },
+                reviews: { nodes: [] },
+                commits: { nodes: [] },
+                lastCommit: { nodes: [] },
+              },
+            },
+          },
+        },
+      }));
+
+      const detail = await caller.review.detail({
+        workspaceId,
+        repoFullName: 'org/app',
+        prNumber: 7,
+      });
+
+      expect(detail).toMatchObject({ title: 'Add feature', isDraft: true, ciStatus: 'unknown' });
+    });
+
+    it('should reject an unknown workspace', async () => {
+      await expect(
+        caller.review.detail({ workspaceId: 999, repoFullName: 'org/app', prNumber: 7 }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+  });
+
+  describe('syncThreads', () => {
+    it('should require an open review worktree', async () => {
+      await expect(
+        caller.review.syncThreads({ workspaceId, repoFullName: 'org/app', prNumber: 7 }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
   });
 });
