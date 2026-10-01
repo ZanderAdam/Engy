@@ -210,6 +210,17 @@ describe('review worktrees', () => {
       expect(rows()).toHaveLength(1);
     });
 
+    it('[FR-PRREVIEW-040] should skip a workspace repo whose remote cannot be read', async () => {
+      ctx.db
+        .update(workspaces)
+        .set({ repos: ['/repos/broken', REPO_PATH] })
+        .run();
+
+      const result = await open(7);
+
+      expect(result.repoPath).toBe(REPO_PATH);
+    });
+
     it('[FR-PRREVIEW-040] should reject a repo that is not in the workspace', async () => {
       await expect(
         openReviewWorktree(ctx.state, { workspaceId, repoFullName: 'org/other', prNumber: 1 }),

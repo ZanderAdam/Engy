@@ -60,7 +60,6 @@ import {
   resetHard,
   deleteRefs,
   getOriginUrl,
-  DirtyWorktreeError,
   getFileContent,
   getFileBytes,
   writeFileContent,
@@ -883,7 +882,6 @@ export class WsClient {
         payload: {
           requestId,
           error: err instanceof Error ? err.message : String(err),
-          code: err instanceof DirtyWorktreeError ? 'DIRTY' : 'OTHER',
         },
       });
     }

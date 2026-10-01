@@ -1573,7 +1573,7 @@ describe('WsClient worktree add/remove handlers', () => {
         },
       });
 
-      expect(JSON.parse(response).payload.code).toBe('OTHER');
+      expect(JSON.parse(response).payload.error).toBeTruthy();
     });
 
     it('passes baseRef as final positional argument when createBranch is true', async () => {
@@ -1677,7 +1677,7 @@ describe('WsClient worktree add/remove handlers', () => {
         },
       });
 
-      expect(JSON.parse(response).payload.code).toBe('OTHER');
+      expect(JSON.parse(response).payload.error).toBeTruthy();
     });
   });
 });
@@ -1766,7 +1766,7 @@ describe('WsClient git reset and remote url handlers', () => {
       expect((await repo.log()).latest!.hash).toBe(first);
     });
 
-    it('answers DIRTY and leaves the worktree untouched when it has changes', async () => {
+    it('answers an error and leaves the worktree untouched when it has changes', async () => {
       const repoDir = await createTempRepo();
       nodeFs.writeFileSync(nodePath.join(repoDir, 'init.txt'), 'edited');
 
@@ -1777,11 +1777,12 @@ describe('WsClient git reset and remote url handlers', () => {
 
       const parsed = JSON.parse(response);
       expect(parsed.type).toBe('GIT_RESET_HARD_RESPONSE');
-      expect(parsed.payload.code).toBe('DIRTY');
+      expect(parsed.payload.error).toContain('uncommitted');
+      expect(parsed.payload.code).toBeUndefined();
       expect(nodeFs.readFileSync(nodePath.join(repoDir, 'init.txt'), 'utf8')).toBe('edited');
     });
 
-    it('answers OTHER for an unknown ref', async () => {
+    it('answers an error for an unknown ref', async () => {
       const repoDir = await createTempRepo();
 
       const response = await setupAndSend({
@@ -1789,7 +1790,33 @@ describe('WsClient git reset and remote url handlers', () => {
         payload: { requestId: 'reset-3', repoDir, ref: 'no-such-ref' },
       });
 
-      expect(JSON.parse(response).payload.code).toBe('OTHER');
+      expect(JSON.parse(response).payload.error).toBeTruthy();
+    });
+  });
+
+  describe('GIT_REMOTE_URL_REQUEST', () => {
+    it('answers an error when the repository is missing', async () => {
+      const repoDir = await createTempRepo();
+
+      const response = await setupAndSend({
+        type: 'GIT_REMOTE_URL_REQUEST',
+        payload: { requestId: 'url-1', repoDir: nodePath.join(repoDir, 'missing') },
+      });
+
+      const parsed = JSON.parse(response);
+      expect(parsed.payload.error).toBeTruthy();
+      expect(parsed.payload.url).toBeUndefined();
+    });
+
+    it('answers a null url when there is no origin', async () => {
+      const repoDir = await createTempRepo();
+
+      const response = await setupAndSend({
+        type: 'GIT_REMOTE_URL_REQUEST',
+        payload: { requestId: 'url-2', repoDir },
+      });
+
+      expect(JSON.parse(response).payload).toEqual({ requestId: 'url-2', url: null });
     });
   });
 

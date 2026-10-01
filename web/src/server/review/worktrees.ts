@@ -140,7 +140,7 @@ async function findRepoPath(
   repoFullName: string,
 ): Promise<string> {
   for (const repoPath of repos) {
-    const fullName = await resolveRepoFullName(state, repoPath);
+    const fullName = await resolveRepoFullName(state, repoPath).catch(() => null);
     if (fullName?.toLowerCase() === repoFullName.toLowerCase()) return repoPath;
   }
   throw new TRPCError({

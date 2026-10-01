@@ -876,6 +876,12 @@ describe('git integration', () => {
 
       await expect(getOriginUrl(repoDir)).resolves.toBeNull();
     });
+
+    it('throws when the directory is not a repository', async () => {
+      repoDir = await createTempRepo();
+
+      await expect(getOriginUrl(`${repoDir}/missing`)).rejects.toThrow();
+    });
   });
 
   describe('getShow', () => {

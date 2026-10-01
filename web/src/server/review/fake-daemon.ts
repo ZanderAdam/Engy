@@ -60,6 +60,11 @@ export function installFakeDaemon(state: AppState): FakeDaemon {
     const { payload } = msg;
     daemon.calls.push(msg.type);
     switch (msg.type) {
+      case 'GIT_REMOTE_URL_REQUEST':
+        answer(state.pendingGitRemoteUrl as never, msg, () => {
+          throw new Error(`${String(payload.repoDir)} is not a git repository`);
+        });
+        break;
       case 'GIT_FETCH_REQUEST':
         answer(state.pendingGitFetch as never, msg, () => {
           const number = Number(/refs\/pull\/(\d+)\/head/.exec(payload.refspec as string)?.[1]);

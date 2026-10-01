@@ -655,8 +655,9 @@ export async function getOriginUrl(
   try {
     const { stdout } = await runGit(['-C', dir, 'remote', 'get-url', 'origin']);
     return stdout.trim() || null;
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof Error && /no such remote/i.test(err.message)) return null;
+    throw err;
   }
 }
 
