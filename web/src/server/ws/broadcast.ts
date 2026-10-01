@@ -96,6 +96,14 @@ interface PrAttentionEvent {
   };
 }
 
+interface InboxChangeEvent {
+  type: 'INBOX_CHANGE';
+  payload: {
+    itemId: number | null;
+    unreadPriorityCount: number;
+  };
+}
+
 interface CommentChangeEvent {
   type: 'COMMENT_CHANGE';
   payload: {
@@ -145,6 +153,7 @@ type ServerEvent =
   | TerminalBranchChangeEvent
   | PrChangeEvent
   | PrAttentionEvent
+  | InboxChangeEvent
   | TerminalWorkersChangeEvent
   | VoiceSpeakEvent
   | CommentChangeEvent
@@ -247,6 +256,10 @@ export function broadcastPrAttention(
   reason: string,
 ): void {
   broadcastEvent({ type: 'PR_ATTENTION', payload: { workspaceId, repo, prNumber, reason } });
+}
+
+export function broadcastInboxChange(itemId: number | null, unreadPriorityCount: number): void {
+  broadcastEvent({ type: 'INBOX_CHANGE', payload: { itemId, unreadPriorityCount } });
 }
 
 export function broadcastTerminalWorkersChange(sessionId: string, connected: boolean): void {

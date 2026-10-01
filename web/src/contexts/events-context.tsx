@@ -63,6 +63,11 @@ interface PrChangePayload {
   repo: string;
 }
 
+interface InboxChangePayload {
+  itemId: number | null;
+  unreadPriorityCount: number;
+}
+
 interface PrAttentionPayload {
   workspaceId: number;
   repo: string;
@@ -107,6 +112,7 @@ interface ServerEventMap {
   TERMINAL_ACTIVITY_CHANGE: TerminalActivityChangePayload;
   PR_CHANGE: PrChangePayload;
   PR_ATTENTION: PrAttentionPayload;
+  INBOX_CHANGE: InboxChangePayload;
   TERMINAL_WORKERS_CHANGE: TerminalWorkersChangePayload;
   VOICE_SPEAK: VoiceSpeakPayload;
   TERMINAL_BRANCH_CHANGE: TerminalBranchChangePayload;
