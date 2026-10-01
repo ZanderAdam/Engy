@@ -10,14 +10,16 @@ async function writeBack(
   action: string,
   threadId: string,
   request: Promise<unknown>,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await request;
+    return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(
       `[inbox] GitHub ${action} write-back failed for thread ${threadId}: ${redactSecrets(message)}`,
     );
+    return false;
   }
 }
 
@@ -77,7 +79,7 @@ export async function fetchNotifications(
   };
 }
 
-export function markThreadReadOnGithub(state: AppState, threadId: string): Promise<void> {
+export function markThreadReadOnGithub(state: AppState, threadId: string): Promise<boolean> {
   return writeBack(
     'mark-read',
     threadId,
@@ -85,7 +87,7 @@ export function markThreadReadOnGithub(state: AppState, threadId: string): Promi
   );
 }
 
-export function markThreadDoneOnGithub(state: AppState, threadId: string): Promise<void> {
+export function markThreadDoneOnGithub(state: AppState, threadId: string): Promise<boolean> {
   return writeBack(
     'mark-done',
     threadId,

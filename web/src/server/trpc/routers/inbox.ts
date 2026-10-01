@@ -10,6 +10,7 @@ import {
   markAllRead,
   markRead,
   markUnread,
+  notifyInboxChange,
   snooze,
   wakeDueSnoozes,
 } from '../../inbox/store';
@@ -28,6 +29,8 @@ const filterSchema = z.object({
   workspaceId: z.number().optional(),
   includeSnoozed: z.boolean().optional(),
 });
+
+const markAllDoneSchema = filterSchema.extend({ onlyRead: z.boolean().optional() });
 
 const itemIdSchema = z.object({ id: z.number() });
 
@@ -130,8 +133,17 @@ export const inboxRouter = router({
     return { count };
   }),
 
+  markAllDone: publicProcedure.input(markAllDoneSchema).mutation(async ({ input, ctx }) => {
+    const { onlyRead, ...filter } = input;
+    const items = listItems(filter).filter((item) => !onlyRead || !item.unread);
+    const results = items.map((item) => markItemDone(ctx.state, item, { broadcast: false }));
+    if (items.length > 0) notifyInboxChange();
+    const githubFailures = (await Promise.all(results)).filter((ok) => !ok).length;
+    return { count: items.length, githubFailures };
+  }),
+
   markDone: publicProcedure.input(itemIdSchema).mutation(({ input, ctx }) => {
-    markItemDone(ctx.state, requireItem(input.id));
+    void markItemDone(ctx.state, requireItem(input.id));
   }),
 
   snooze: publicProcedure

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as broadcast from '../../ws/broadcast';
 import { setupTestDb, type TestContext } from '../test-helpers';
 import { appRouter } from '../root';
 import { addEvent, upsertItem } from '../../inbox/store';
@@ -370,6 +371,70 @@ describe('inbox router', () => {
         method: 'DELETE',
         url: '/notifications/threads/42',
       });
+    });
+  });
+
+  describe('markAllDone', () => {
+    it('[FR-INBOX-510] should mark done every item of the filter and DELETE their threads', async () => {
+      createItem({ githubThreadId: '1', priority: true });
+      createItem({ githubThreadId: '2' });
+
+      const result = await caller.inbox.markAllDone({ tab: 'priority' });
+
+      expect(result).toEqual({ count: 1, githubFailures: 0 });
+      expect(await caller.inbox.list({ tab: 'all' })).toHaveLength(1);
+      expect(stub.requests).toHaveLength(1);
+      expect(stub.requests[0]).toMatchObject({
+        method: 'DELETE',
+        url: '/notifications/threads/1',
+      });
+    });
+
+    it('[FR-INBOX-510] should keep unread items when onlyRead is set', async () => {
+      const read = createItem();
+      createItem();
+      await caller.inbox.markRead({ id: read.id });
+
+      const result = await caller.inbox.markAllDone({ tab: 'all', onlyRead: true });
+
+      expect(result.count).toBe(1);
+      const rest = await caller.inbox.list({ tab: 'all' });
+      expect(rest).toHaveLength(1);
+      expect(rest[0].unread).toBe(true);
+    });
+
+    it('[FR-INBOX-510] should limit the change to the workspace filter', async () => {
+      createItem();
+
+      const result = await caller.inbox.markAllDone({ tab: 'all', workspaceId: 99 });
+
+      expect(result.count).toBe(0);
+      expect(await caller.inbox.list({ tab: 'all' })).toHaveLength(1);
+    });
+
+    it('[FR-INBOX-520] should finish the local change, count GitHub failures and broadcast once', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const spy = vi.spyOn(broadcast, 'broadcastInboxChange').mockImplementation(() => undefined);
+      stub.reply(() => ({ status: 500, body: { message: 'boom' } }));
+      createItem({ githubThreadId: '1' });
+      createItem({ githubThreadId: '2' });
+      createItem();
+      spy.mockClear();
+
+      const result = await caller.inbox.markAllDone({ tab: 'all' });
+
+      expect(result).toEqual({ count: 3, githubFailures: 2 });
+      expect(await caller.inbox.list({ tab: 'all' })).toHaveLength(0);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('[FR-INBOX-520] should not broadcast when nothing matches', async () => {
+      const spy = vi.spyOn(broadcast, 'broadcastInboxChange').mockImplementation(() => undefined);
+
+      const result = await caller.inbox.markAllDone({ tab: 'all' });
+
+      expect(result).toEqual({ count: 0, githubFailures: 0 });
+      expect(spy).not.toHaveBeenCalled();
     });
   });
 

@@ -210,7 +210,11 @@ export function markAllRead(filter: InboxFilter, now: Date = new Date()): number
   return result.changes;
 }
 
-export function markDone(itemId: number, now: Date = new Date()): void {
+export function notifyInboxChange(): void {
+  notify(null);
+}
+
+export function markDone(itemId: number, now: Date = new Date(), broadcast = true): void {
   getDb()
     .update(inboxItems)
     .set({
@@ -222,7 +226,7 @@ export function markDone(itemId: number, now: Date = new Date()): void {
     })
     .where(eq(inboxItems.id, itemId))
     .run();
-  notify(itemId);
+  if (broadcast) notify(itemId);
 }
 
 export function snooze(itemId: number, until: Date, now: Date = new Date()): void {

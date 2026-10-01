@@ -45,7 +45,7 @@ describe('[FR-INBOX-190] github notifications', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     stub.reply(() => ({ status: 403, body: { message: `denied ${TOKEN}` } }));
 
-    await expect(markThreadDoneOnGithub(createAppState(), '7')).resolves.toBeUndefined();
+    await expect(markThreadDoneOnGithub(createAppState(), '7')).resolves.toBe(false);
 
     expect(error).toHaveBeenCalledTimes(1);
     expect(String(error.mock.calls[0][0])).not.toContain(TOKEN);

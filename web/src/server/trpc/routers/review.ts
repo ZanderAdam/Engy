@@ -178,7 +178,7 @@ export const reviewRouter = router({
       }
 
       const item = findItemByPr(input.repoFullName, input.prNumber);
-      if (item) markItemDone(ctx.state, item);
+      if (item) void markItemDone(ctx.state, item);
       return { submitted: comments.length, remainingDrafts };
     }),
 
