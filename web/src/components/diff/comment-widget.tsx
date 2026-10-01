@@ -107,6 +107,7 @@ export function CommentWidget({
   return (
     <TooltipProvider>
       <div
+        data-thread-id={comment?.threadId}
         className={cn(
           'border border-border bg-background p-3',
           isGithub && 'border-l-2 border-l-muted-foreground/30',

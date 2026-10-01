@@ -14,27 +14,15 @@ import { ReviewSidebar } from './review-sidebar';
 import { ReviewWorktreeBanner } from './review-worktree-banner';
 import { isBehindGithub, REVIEW_TABS, type ReviewTab } from './review-helpers';
 import { useReviewTabKeys } from './use-review-tab-keys';
+import { ReviewFiles } from './review-files';
 
 type OpenedWorktree = RouterOutputs['review']['open'];
-
-interface ReviewFilesContext {
-  workspaceSlug: string;
-  workspaceId: number;
-  projectSlug: string | null;
-  repoFullName: string;
-  prNumber: number;
-  worktreePath: string;
-  headRefName: string;
-  baseRef: string | null;
-  headSha: string;
-}
 
 interface ReviewPageProps {
   workspaceSlug: string;
   repoFullName: string;
   prNumber: number;
   projectSlug: string | null;
-  renderFiles?: (context: ReviewFilesContext) => ReactNode;
 }
 
 function StatusMessage({
@@ -55,16 +43,11 @@ function StatusMessage({
   );
 }
 
-function FilesPlaceholder() {
-  return <p className="px-4 py-6 text-xs text-muted-foreground">Files</p>;
-}
-
 export function ReviewPage({
   workspaceSlug,
   repoFullName,
   prNumber,
   projectSlug,
-  renderFiles,
 }: ReviewPageProps) {
   const [tab, setTab] = useState<ReviewTab>('overview');
   const [worktree, setWorktree] = useState<OpenedWorktree | null>(null);
@@ -247,21 +230,16 @@ export function ReviewPage({
             <ReviewOverview detail={detail} />
           </TabsContent>
           <TabsContent value="files" className="flex min-h-0 flex-col">
-            {renderFiles ? (
-              renderFiles({
-                workspaceSlug,
-                workspaceId,
-                projectSlug,
-                repoFullName,
-                prNumber,
-                worktreePath: worktree.worktreePath,
-                headRefName: worktree.headRefName,
-                baseRef: worktree.baseRef,
-                headSha: worktree.headSha,
-              })
-            ) : (
-              <FilesPlaceholder />
-            )}
+            <ReviewFiles
+              workspaceSlug={workspaceSlug}
+              workspaceId={workspaceId}
+              projectSlug={projectSlug}
+              repoPath={worktree.repoPath}
+              worktreePath={worktree.worktreePath}
+              headRefName={worktree.headRefName}
+              baseRef={worktree.baseRef}
+              totalLines={{ added: detail.additions, removed: detail.deletions }}
+            />
           </TabsContent>
           <TabsContent value="checks" className="min-h-0 overflow-y-auto">
             <ReviewChecks checks={detail.checks} />

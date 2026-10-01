@@ -25,6 +25,14 @@ describe('scopeCommentsToFiles', () => {
     expect(inScope.map((c) => c.documentPath)).toEqual([thread('a.ts').documentPath]);
   });
 
+  it('should return threads on files outside the diff separately', () => {
+    const { outOfScope } = scopeCommentsToFiles(
+      [thread('a.ts'), thread('other.ts')],
+      [{ path: 'a.ts' }],
+    );
+    expect(outOfScope.map((c) => c.documentPath)).toEqual([thread('other.ts').documentPath]);
+  });
+
   it('should count unresolved threads per file', () => {
     const { unresolvedByFile } = scopeCommentsToFiles(
       [thread('a.ts'), thread('a.ts'), thread('a.ts', true), thread('b.ts', true)],

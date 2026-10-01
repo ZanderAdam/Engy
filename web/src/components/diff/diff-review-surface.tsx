@@ -15,6 +15,11 @@ import { ReviewSummaryPanel } from './review-summary-panel';
 import { GithubCommentTriage } from './github-comment-triage';
 import { useDiffComments } from './use-diff-comments';
 import { scopeCommentsToFiles } from './comment-scope';
+import { OutdatedThreads } from './outdated-threads';
+import { stepInList, unresolvedThreadOrder } from './review-nav';
+import type { FileClass } from './file-classes';
+import { useReviewKeys, type ReviewKeyAction } from '@/components/review/use-review-keys';
+import { diffDocFilePath } from '@/lib/diff-doc-path';
 import { decodeSelection, encodeSelection, findSelectedFile, rowId } from './diff-selection';
 import { refsFor } from './diff-refs';
 import {
@@ -44,6 +49,16 @@ const SIDEBAR_CONFIG = {
   storageKey: 'engy-diffs-sidebar-width',
 } as const;
 
+const NO_PROJECT_VIEWED_SCOPE = '_review';
+
+const THREAD_SCROLL_DELAY_MS = 150;
+
+function scrollToThread(threadId: string): void {
+  document
+    .querySelector(`[data-thread-id="${CSS.escape(threadId)}"]`)
+    ?.scrollIntoView({ block: 'center' });
+}
+
 export type DiffSource = Omit<PatchSpecInputs, 'selectedSide'>;
 
 interface DiffReviewSurfaceProps {
@@ -63,6 +78,9 @@ interface DiffReviewSurfaceProps {
   toolbarLeading?: ReactNode;
   subToolbar?: ReactNode;
   wrapFileList?: (fileList: ReactNode) => ReactNode;
+  fileClasses?: Map<string, FileClass>;
+  showOutdatedThreads?: boolean;
+  reviewKeys?: boolean;
 }
 
 export function DiffReviewSurface({
@@ -82,6 +100,9 @@ export function DiffReviewSurface({
   toolbarLeading,
   subToolbar,
   wrapFileList,
+  fileClasses,
+  showOutdatedThreads = false,
+  reviewKeys = false,
 }: DiffReviewSurfaceProps) {
   const isMobile = useIsMobile();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -210,7 +231,7 @@ export function DiffReviewSurface({
   const { viewedPaths, toggleViewed, setViewed } = useViewedFiles(
     {
       workspaceSlug,
-      projectSlug,
+      projectSlug: projectSlug ?? NO_PROJECT_VIEWED_SCOPE,
       dir: worktreePath ?? repoDir,
       base: viewedBase,
     },
@@ -298,10 +319,11 @@ export function DiffReviewSurface({
     enabled: isTextLike,
   });
 
-  const { inScope: currentFileComments, unresolvedByFile: fileCommentCounts } = useMemo(
-    () => scopeCommentsToFiles(diffComments, files),
-    [diffComments, files],
-  );
+  const {
+    inScope: currentFileComments,
+    outOfScope: outdatedComments,
+    unresolvedByFile: fileCommentCounts,
+  } = useMemo(() => scopeCommentsToFiles(diffComments, files), [diffComments, files]);
 
   const selectedFileName = selectedFile ? (selectedFile.split('/').pop() ?? selectedFile) : '';
 
@@ -326,6 +348,47 @@ export function DiffReviewSurface({
   const scrollToRowId = selectedFileData ? rowId(selectedFileData) : null;
   const listSelection = reviewMode === 'stack' ? (visibleRowId ?? tabs.active) : tabs.active;
 
+  const fileOrder = useMemo(() => [...new Set(files.map((f) => f.path))], [files]);
+  const threadOrder = useMemo(
+    () => unresolvedThreadOrder(currentFileComments, fileOrder),
+    [currentFileComments, fileOrder],
+  );
+  const [threadCursor, setThreadCursor] = useState<string | null>(null);
+  const currentPath =
+    reviewMode === 'stack' && visibleRowId
+      ? decodeSelection(visibleRowId, true).path
+      : selectedFile;
+
+  const handleReviewKey = (action: ReviewKeyAction) => {
+    const delta = action === 'nextFile' || action === 'nextThread' ? 1 : -1;
+    switch (action) {
+      case 'nextFile':
+      case 'prevFile': {
+        const path = stepInList(fileOrder, currentPath, delta);
+        if (path) selectFileByPath(path);
+        return;
+      }
+      case 'nextThread':
+      case 'prevThread': {
+        const current = threadOrder.find((t) => t.threadId === threadCursor) ?? null;
+        const thread = stepInList(threadOrder, current, delta);
+        const path = thread ? diffDocFilePath(thread.documentPath) : null;
+        if (!thread || !path) return;
+        setThreadCursor(thread.threadId);
+        selectFileByPath(path);
+        window.setTimeout(() => scrollToThread(thread.threadId), THREAD_SCROLL_DELAY_MS);
+        return;
+      }
+      case 'toggleViewed':
+        if (currentPath) toggleViewed(currentPath);
+        return;
+      case 'toggleSplit':
+        setViewMode((mode) => (mode === 'split' ? 'unified' : 'split'));
+        return;
+    }
+  };
+  useReviewKeys(reviewKeys, handleReviewKey);
+
   const fileList = (
     <FileListPanel
       files={files}
@@ -338,6 +401,7 @@ export function DiffReviewSurface({
       viewedPaths={viewedPaths}
       onToggleViewed={toggleViewed}
       onSetViewed={setViewed}
+      fileClasses={fileClasses}
     />
   );
 
@@ -398,6 +462,17 @@ export function DiffReviewSurface({
         )}
 
         {subToolbar}
+
+        {showOutdatedThreads && (
+          <OutdatedThreads
+            threads={outdatedComments}
+            repoDir={repoDir}
+            onReply={replyToThread}
+            onResolve={resolve}
+            onDelete={remove}
+            onDeleteComment={removeComment}
+          />
+        )}
 
         {/* Main content: file list + diff viewer */}
         <ThreePanelLayout
