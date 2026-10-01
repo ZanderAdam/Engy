@@ -10,7 +10,8 @@ import {
   type InboxEventKind,
 } from './bucket';
 
-export type InboxItem = typeof inboxItems.$inferSelect;
+type InboxItem = typeof inboxItems.$inferSelect;
+type InboxEvent = typeof inboxEvents.$inferSelect;
 
 export interface UpsertItemInput {
   repoFullName: string;
@@ -23,7 +24,7 @@ export interface UpsertItemInput {
   facts?: BucketFacts;
 }
 
-export interface AddEventInput {
+interface AddEventInput {
   itemId: number;
   kind: InboxEventKind;
   summary: string;
@@ -34,13 +35,13 @@ export interface AddEventInput {
   facts?: BucketFacts;
 }
 
-export interface InboxFilter {
+interface InboxFilter {
   tab: 'priority' | 'all';
   workspaceId?: number;
   includeSnoozed?: boolean;
 }
 
-export interface InboxCounts {
+interface InboxCounts {
   unreadPriority: number;
   byWorkspace: Record<number, number>;
 }
@@ -235,6 +236,20 @@ export function pruneDone(now: Date): number {
     .run();
   if (result.changes > 0) notify(null);
   return result.changes;
+}
+
+export function getItem(itemId: number): InboxItem | undefined {
+  return getDb().select().from(inboxItems).where(eq(inboxItems.id, itemId)).get();
+}
+
+export function listRecentEvents(itemId: number, limit: number): InboxEvent[] {
+  return getDb()
+    .select()
+    .from(inboxEvents)
+    .where(eq(inboxEvents.itemId, itemId))
+    .orderBy(desc(inboxEvents.at), desc(inboxEvents.id))
+    .limit(limit)
+    .all();
 }
 
 export function listItems(filter: InboxFilter): InboxItem[] {
