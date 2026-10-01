@@ -11,6 +11,7 @@ import type {
   UsageSessionScanResult,
   UsageScanFileState,
 } from '@engy/common';
+import { createGithubState, type GithubState } from '../github/types';
 
 export interface CreateDirResult {
   results: Array<{ path: string; success: boolean; error?: string }>;
@@ -538,6 +539,8 @@ export interface AppState {
   prRepoErrors: Map<string, string>;
   /** Maps `repo#prNumber` → GitHub PR updatedAt from the last successful review-comment sync */
   prReviewCommentLastSyncedAt: Map<string, string>;
+  /** GitHub viewer, availability status and rate-limit budget; never holds the token */
+  github: GithubState;
   /** Terminal sessions connected as dispatch workers (sessionId → description) */
   dispatchWorkers: Map<string, DispatchWorker>;
   /** Cross-terminal dispatches by correlationId (in-memory; lost on restart) */
@@ -607,6 +610,7 @@ export function createAppState(): AppState {
     prPollerTimer: null,
     prRepoErrors: new Map(),
     prReviewCommentLastSyncedAt: new Map(),
+    github: createGithubState(),
     dispatchWorkers: new Map(),
     dispatches: new Map(),
     dispatchWaiters: new Map(),
