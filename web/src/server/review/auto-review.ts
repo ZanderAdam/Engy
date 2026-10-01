@@ -164,8 +164,11 @@ export async function maybeStartAutoReview(
   state: AppState,
   input: AutoReviewInput,
 ): Promise<AutoReviewResult> {
-  const { workspaceId, repoFullName, prNumber } = input;
-  const workspace = getDb().select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+  const workspace = getDb()
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, input.workspaceId))
+    .get();
   if (!workspace?.autoReviewOnRequest) return skip('setting-off');
 
   if (!isOpen(state.daemon) || !isOpen(state.terminalDaemon)) return skip('no-daemon');
@@ -224,8 +227,11 @@ export async function startManualReview(
   state: AppState,
   input: AutoReviewInput & { projectSlug?: string },
 ): Promise<{ sessionId: string }> {
-  const { workspaceId, repoFullName, prNumber, projectSlug } = input;
-  const workspace = getDb().select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+  const workspace = getDb()
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, input.workspaceId))
+    .get();
   if (!workspace) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
 
   if (!isOpen(state.daemon) || !isOpen(state.terminalDaemon)) {
