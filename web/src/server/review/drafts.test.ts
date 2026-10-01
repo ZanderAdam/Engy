@@ -13,7 +13,6 @@ function makeRow(repoPath: string, headRefName: string): ReviewWorktreeRow {
     headRefName,
     headSha: 'sha',
     createdByReview: true,
-    autoReviewedSha: null,
     createdAt: '',
     updatedAt: '',
   };

@@ -30,7 +30,6 @@ function makeRow(overrides: Partial<ReviewWorktreeRow>): ReviewWorktreeRow {
     headRefName: 'feat/x',
     headSha: 'sha',
     createdByReview: true,
-    autoReviewedSha: null,
     createdAt: '',
     updatedAt: '',
     ...overrides,
@@ -109,6 +108,14 @@ describe('review worktrees', () => {
 
   function open(prNumber: number) {
     return openReviewWorktree(ctx.state, { workspaceId, repoFullName: REPO_FULL_NAME, prNumber });
+  }
+
+  function openWithoutCleanup(prNumber: number) {
+    return openReviewWorktree(
+      ctx.state,
+      { workspaceId, repoFullName: REPO_FULL_NAME, prNumber },
+      { cleanup: false },
+    );
   }
 
   beforeEach(() => {
@@ -192,12 +199,20 @@ describe('review worktrees', () => {
       expect(daemon.calls.filter((call) => call === 'WORKTREE_ADD_REQUEST')).toHaveLength(1);
     });
 
-    it('[FR-PRREVIEW-070] should keep the last opened worktree when two PRs open concurrently', async () => {
-      const [, second] = await Promise.all([open(7), open(8)]);
+    it('[FR-PRREVIEW-070] should keep both worktrees when two PRs open concurrently without cleanup', async () => {
+      await Promise.all([openWithoutCleanup(7), openWithoutCleanup(8)]);
 
-      expect(daemon.worktrees.has(second.worktreePath)).toBe(true);
-      expect(rows().map((row) => row.prNumber)).toEqual([8]);
-      expect(daemon.worktrees.size).toBe(1);
+      expect(rows().map((row) => row.prNumber)).toEqual([7, 8]);
+      expect(daemon.worktrees.size).toBe(2);
+    });
+
+    it('[FR-PRREVIEW-070] should keep the worktree a user is viewing when a background open runs', async () => {
+      const viewed = await open(7);
+
+      await openWithoutCleanup(8);
+
+      expect(daemon.worktrees.has(viewed.worktreePath)).toBe(true);
+      expect(rows().map((row) => row.prNumber)).toEqual([7, 8]);
     });
 
     it('[FR-PRREVIEW-020] should recreate a review worktree whose directory is gone', async () => {

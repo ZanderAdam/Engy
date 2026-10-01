@@ -543,7 +543,6 @@ export const reviewWorktrees = sqliteTable(
     headRefName: text('head_ref_name').notNull(),
     headSha: text('head_sha').notNull(),
     createdByReview: integer('created_by_review', { mode: 'boolean' }).notNull(),
-    autoReviewedSha: text('auto_reviewed_sha'),
     createdAt: text('created_at')
       .notNull()
       .$defaultFn(() => new Date().toISOString()),

@@ -1,0 +1,1 @@
+ALTER TABLE `review_worktrees` DROP COLUMN `auto_reviewed_sha`;

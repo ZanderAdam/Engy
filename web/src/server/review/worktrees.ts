@@ -411,8 +411,9 @@ let openQueue: Promise<unknown> = Promise.resolve();
 export function openReviewWorktree(
   state: AppState,
   input: { workspaceId: number; repoFullName: string; prNumber: number },
+  options: { cleanup: boolean } = { cleanup: true },
 ): Promise<ReviewWorktreeState> {
-  const run = openQueue.then(() => openReviewWorktreeUnqueued(state, input));
+  const run = openQueue.then(() => openReviewWorktreeUnqueued(state, input, options));
   openQueue = run.then(
     () => undefined,
     () => undefined,
@@ -423,6 +424,7 @@ export function openReviewWorktree(
 async function openReviewWorktreeUnqueued(
   state: AppState,
   input: { workspaceId: number; repoFullName: string; prNumber: number },
+  options: { cleanup: boolean },
 ): Promise<ReviewWorktreeState> {
   const { repoFullName, prNumber } = input;
   const workspace = getWorkspace(input.workspaceId);
@@ -447,10 +449,12 @@ async function openReviewWorktreeUnqueued(
     ? await refreshReviewWorktree(state, current, pr, false)
     : await createReviewWorktree(state, { workspace, repoPath, repoFullName, prNumber, pr });
 
-  try {
-    await cleanupOtherReviewWorktrees(state, result.id);
-  } catch (err) {
-    console.warn('[review] cleanup failed:', err);
+  if (options.cleanup) {
+    try {
+      await cleanupOtherReviewWorktrees(state, result.id);
+    } catch (err) {
+      console.warn('[review] cleanup failed:', err);
+    }
   }
   return result;
 }

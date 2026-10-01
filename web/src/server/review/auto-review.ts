@@ -186,7 +186,11 @@ async function startReservedAutoReview(
   const { workspaceId, repoFullName, prNumber } = input;
   let worktree;
   try {
-    worktree = await openReviewWorktree(state, { workspaceId, repoFullName, prNumber });
+    worktree = await openReviewWorktree(
+      state,
+      { workspaceId, repoFullName, prNumber },
+      { cleanup: false },
+    );
   } catch (err) {
     console.error(`[auto-review] open failed for ${repoFullName}#${prNumber}:`, errorText(err));
     return skip('open-failed');
@@ -249,7 +253,11 @@ async function startReservedManualReview(
   input: AutoReviewInput & { projectSlug?: string },
 ): Promise<{ sessionId: string }> {
   const { workspaceId, repoFullName, prNumber, projectSlug } = input;
-  const worktree = await openReviewWorktree(state, { workspaceId, repoFullName, prNumber });
+  const worktree = await openReviewWorktree(
+    state,
+    { workspaceId, repoFullName, prNumber },
+    { cleanup: false },
+  );
   const reviewGuide = projectSlug
     ? findGuideBySlug(workspace, projectSlug)
     : findCorrelatedGuide(workspace, worktree.repoPath, worktree.headRefName);
