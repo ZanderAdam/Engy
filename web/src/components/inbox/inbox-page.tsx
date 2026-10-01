@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { RiErrorWarningLine, RiInbox2Line, RiKeyboardLine, RiSearchLine } from '@remixicon/react';
 import { toast } from 'sonner';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useVirtualNavigate } from '@/components/tabs/tab-context';
+import { MobileIdentityBar } from '@/components/layout/mobile-identity-bar';
+import { useOptionalTab, useVirtualNavigate } from '@/components/tabs/tab-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -23,6 +24,7 @@ import {
   moveSelection,
   nextSelectionAfterRemoval,
   prKey,
+  shouldStartReadDwell,
   sortInboxItems,
 } from './inbox-helpers';
 import { InboxDisplayOptionsMenu } from './inbox-display-options';
@@ -41,6 +43,7 @@ const ALL_WORKSPACES = 'all';
 export function InboxPage() {
   const isMobile = useIsMobile();
   const navigate = useVirtualNavigate();
+  const isTabActive = useOptionalTab()?.isActive ?? true;
   const utils = trpc.useUtils();
 
   const [tab, setTab] = useState<InboxTab>('priority');
@@ -70,11 +73,16 @@ export function InboxPage() {
     void utils.inbox.invalidate();
   }
 
-  const { mutate: markRead } = trpc.inbox.markRead.useMutation({ onSuccess: refresh });
-  const { mutate: markUnread } = trpc.inbox.markUnread.useMutation({ onSuccess: refresh });
-  const { mutate: markDone } = trpc.inbox.markDone.useMutation({ onSuccess: refresh });
-  const { mutate: snooze } = trpc.inbox.snooze.useMutation({ onSuccess: refresh });
+  const mutationOptions = {
+    onSuccess: refresh,
+    onError: (err: { message: string }) => toast.error(err.message),
+  };
+  const { mutate: markRead } = trpc.inbox.markRead.useMutation(mutationOptions);
+  const { mutate: markUnread } = trpc.inbox.markUnread.useMutation(mutationOptions);
+  const { mutate: markDone } = trpc.inbox.markDone.useMutation(mutationOptions);
+  const { mutate: snooze } = trpc.inbox.snooze.useMutation(mutationOptions);
   const { mutate: markAllRead } = trpc.inbox.markAllRead.useMutation({
+    ...mutationOptions,
     onSuccess: ({ count }) => {
       refresh();
       toast.success(count === 1 ? 'Marked 1 item read' : `Marked ${count} items read`);
@@ -95,16 +103,18 @@ export function InboxPage() {
     selectedRef.current = selected;
   });
 
-  const selectedKey = selected?.id ?? null;
+  const dwellKey = shouldStartReadDwell(selectedId, selected?.id ?? null, isTabActive)
+    ? selectedId
+    : null;
   useEffect(() => {
-    if (selectedKey === null) return;
+    if (dwellKey === null) return;
     const timer = setTimeout(() => {
-      if (selectedRef.current?.id === selectedKey && selectedRef.current.unread) {
-        markRead({ id: selectedKey });
+      if (selectedRef.current?.id === dwellKey && selectedRef.current.unread) {
+        markRead({ id: dwellKey });
       }
     }, READ_DWELL_MS);
     return () => clearTimeout(timer);
-  }, [selectedKey, markRead]);
+  }, [dwellKey, markRead]);
 
   const workspaceIds = useMemo(
     () => [
@@ -115,13 +125,10 @@ export function InboxPage() {
   const prQueries = trpc.useQueries((t) =>
     workspaceIds.map((id) => t.pr.list({ workspaceId: id })),
   );
-  const ciByPr = useMemo(() => {
-    const map = new Map<string, GhPrCiStatus>();
-    for (const result of prQueries) {
-      for (const pr of result.data?.prs ?? []) map.set(prKey(pr.repo, pr.number), pr.ciStatus);
-    }
-    return map;
-  }, [prQueries]);
+  const ciByPr = new Map<string, GhPrCiStatus>();
+  for (const result of prQueries) {
+    for (const pr of result.data?.prs ?? []) ciByPr.set(prKey(pr.repo, pr.number), pr.ciStatus);
+  }
 
   const workspaceSlugById = useMemo(
     () => new Map(workspaces.map((workspace) => [workspace.id, workspace.slug])),
@@ -195,9 +202,9 @@ export function InboxPage() {
   else if (query) emptyMessage = 'No matching items';
 
   const listPane = (
-    <div className="flex min-h-0 flex-1 flex-col border-border md:w-[26rem] md:flex-none md:border-r">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col border-border md:w-[26rem] md:flex-none md:border-r">
       <div className="flex flex-col gap-2 border-b border-border p-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Tabs value={tab} onValueChange={(value) => setTab(value as InboxTab)}>
             <TabsList>
               <TabsTrigger value="priority">
@@ -282,6 +289,7 @@ export function InboxPage() {
 
   return (
     <div ref={containerRef} className="flex min-h-0 flex-1 flex-col">
+      {isMobile && <MobileIdentityBar />}
       {githubUnavailable && (
         <div className="flex items-start gap-2 border-b border-border bg-amber-400/10 px-4 py-2 text-xs text-amber-400">
           <RiErrorWarningLine className="mt-0.5 size-4 shrink-0" />

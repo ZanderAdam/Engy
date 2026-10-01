@@ -4,6 +4,7 @@ import {
   moveSelection,
   nextSelectionAfterRemoval,
   prKey,
+  shouldStartReadDwell,
   sortInboxItems,
   formatSnoozeUntil,
   githubAvatarUrl,
@@ -86,6 +87,24 @@ describe('inbox-helpers', () => {
     it('should return null when no row is left or the id is unknown', () => {
       expect(nextSelectionAfterRemoval([1], 1)).toBeNull();
       expect(nextSelectionAfterRemoval([1, 2], 9)).toBeNull();
+    });
+  });
+
+  describe('[FR-INBOX-470] shouldStartReadDwell', () => {
+    it('should start for an explicit selection in the active tab', () => {
+      expect(shouldStartReadDwell(3, 3, true)).toBe(true);
+    });
+
+    it('should not start for the fallback selection', () => {
+      expect(shouldStartReadDwell(null, 3, true)).toBe(false);
+    });
+
+    it('should not start when the explicit row is no longer visible', () => {
+      expect(shouldStartReadDwell(9, 3, true)).toBe(false);
+    });
+
+    it('should not start in a hidden tab', () => {
+      expect(shouldStartReadDwell(3, 3, false)).toBe(false);
     });
   });
 

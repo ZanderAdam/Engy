@@ -6,6 +6,7 @@ import { RiAddLine, RiArrowDownSLine, RiCloseLine, RiGitBranchLine } from '@remi
 import { cn } from '@/lib/utils';
 import { isSelfActivation, isTypingTarget } from '@/lib/keyboard';
 import { HeaderActions } from '@/components/header-actions';
+import { useGoToInbox } from '@/components/inbox/use-go-to-inbox';
 import { TabCloseMenu } from './tab-close-menu';
 import { OpenTabsPicker } from './open-tabs-picker';
 import {
@@ -79,6 +80,11 @@ interface HistoryState {
   engy: true;
   tabId: string;
   virtualPath: string;
+}
+
+function GoToInboxChord() {
+  useGoToInbox();
+  return null;
 }
 
 function TabShellClient({ initialUrlPath }: TabShellClientProps) {
@@ -306,6 +312,7 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
 
   return (
     <TabsListContext.Provider value={tabsListValue}>
+      <GoToInboxChord />
       {!isMobile && (
         <TabStrip
           tabs={tabs}

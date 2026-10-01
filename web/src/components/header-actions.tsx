@@ -7,12 +7,10 @@ import { QuestionList } from '@/components/questions/question-list';
 import { QuestionDialog } from '@/components/questions/question-dialog';
 import { GlobalSearch } from '@/components/search/global-search';
 import { InboxButton } from '@/components/inbox/inbox-button';
-import { useGoToInbox } from '@/components/inbox/use-go-to-inbox';
 import { trpc } from '@/lib/trpc';
 import { RiQuestionLine, RiSearchLine } from '@remixicon/react';
 
 export function HeaderActions() {
-  useGoToInbox();
   const { data: unansweredData } = trpc.question.unansweredCount.useQuery({});
   const unansweredCount = unansweredData?.count ?? 0;
   const [popoverOpen, setPopoverOpen] = useState(false);

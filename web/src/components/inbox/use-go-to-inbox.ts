@@ -17,6 +17,14 @@ export interface ChordKey {
   shiftKey: boolean;
 }
 
+const OVERLAY_SELECTOR = '[role="dialog"], [role="menu"]';
+
+export function isInsideOverlay(
+  target: { closest?: (selector: string) => unknown } | null,
+): boolean {
+  return !!target?.closest?.(OVERLAY_SELECTOR);
+}
+
 export const IDLE_CHORD: ChordState = { armedAt: null };
 
 export function advanceChord(
@@ -50,7 +58,7 @@ export function useGoToInbox(): void {
     let state = IDLE_CHORD;
 
     function onKeyDown(e: KeyboardEvent) {
-      if (isTypingTarget()) {
+      if (isTypingTarget() || isInsideOverlay(e.target as Element | null)) {
         state = IDLE_CHORD;
         return;
       }

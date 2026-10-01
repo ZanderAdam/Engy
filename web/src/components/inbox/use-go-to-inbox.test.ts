@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { advanceChord, CHORD_TIMEOUT_MS, IDLE_CHORD, type ChordKey } from './use-go-to-inbox';
+import {
+  advanceChord,
+  CHORD_TIMEOUT_MS,
+  IDLE_CHORD,
+  isInsideOverlay,
+  type ChordKey,
+} from './use-go-to-inbox';
 
 function key(k: string, extra: Partial<ChordKey> = {}): ChordKey {
   return { key: k, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...extra };
@@ -47,5 +53,18 @@ describe('[FR-INBOX-400] advanceChord', () => {
     });
     expect(advanceChord(armed, key('Shift'), 200)).toEqual({ state: armed, fire: false });
     expect(advanceChord(armed, key('I', { shiftKey: true }), 200).fire).toBe(false);
+  });
+});
+
+describe('[FR-INBOX-400] isInsideOverlay', () => {
+  it('should be true when the target sits inside a dialog or menu', () => {
+    const inside = { closest: (selector: string) => (selector.includes('dialog') ? {} : null) };
+    expect(isInsideOverlay(inside)).toBe(true);
+  });
+
+  it('should be false for other targets', () => {
+    expect(isInsideOverlay({ closest: () => null })).toBe(false);
+    expect(isInsideOverlay(null)).toBe(false);
+    expect(isInsideOverlay({})).toBe(false);
   });
 });

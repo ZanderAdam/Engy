@@ -37,6 +37,8 @@ function InboxRow({ item, selected, ci, onSelect }: InboxRowProps) {
   return (
     <div
       ref={ref}
+      role="option"
+      aria-selected={selected}
       data-testid="inbox-row"
       data-selected={selected}
       onClick={() => onSelect(item.id)}
@@ -89,7 +91,7 @@ function InboxRow({ item, selected, ci, onSelect }: InboxRowProps) {
 
 export function InboxList({ items, selectedId, ciByPr, onSelect }: InboxListProps) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <div role="listbox" aria-label="Inbox" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {items.map((item) => (
         <InboxRow
           key={item.id}

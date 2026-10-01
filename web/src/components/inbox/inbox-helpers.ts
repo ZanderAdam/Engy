@@ -57,6 +57,14 @@ export function nextSelectionAfterRemoval(ids: number[], removedId: number): num
   return remaining[Math.min(index, remaining.length - 1)];
 }
 
+export function shouldStartReadDwell(
+  explicitId: number | null,
+  resolvedId: number | null,
+  isTabActive: boolean,
+): boolean {
+  return isTabActive && explicitId !== null && explicitId === resolvedId;
+}
+
 export function prKey(repoFullName: string | null, prNumber: number): string {
   return `${repoFullName}#${prNumber}`;
 }
