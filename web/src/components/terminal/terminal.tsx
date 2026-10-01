@@ -25,6 +25,7 @@ import { useOptionalVoice } from "@/components/voice/voice-context";
 export interface TerminalActions {
   write: (data: string) => void;
   kill: () => void;
+  focus: () => boolean;
 }
 
 interface TerminalProps {
@@ -252,6 +253,10 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onO
     const actions: TerminalActions = {
       write: (data) => socketRef.current?.send(JSON.stringify({ t: 'i', sessionId, d: data })),
       kill: () => socketRef.current?.send(JSON.stringify({ t: 'kill', sessionId })),
+      focus: () => {
+        term.focus();
+        return term.textarea === document.activeElement;
+      },
     };
 
     const socket = new ReconnectingSocket({

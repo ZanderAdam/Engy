@@ -147,6 +147,18 @@ function seedActivityStore(sessions: SessionListItem[]): void {
   for (const s of sessions) applyServerActivity(s.sessionId, s.activityState ?? 'idle');
 }
 
+const FOCUS_RETRY_FRAMES = 180;
+
+function focusWhenFocusable(
+  getActions: () => TerminalActions | undefined,
+  framesLeft = FOCUS_RETRY_FRAMES,
+): void {
+  requestAnimationFrame(() => {
+    if (getActions()?.focus()) return;
+    if (framesLeft > 0) focusWhenFocusable(getActions, framesLeft - 1);
+  });
+}
+
 export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled, disableExternalEvents = false, publishKey, global = false }: TerminalManagerProps) {
   const tabCtx = useOptionalTab();
   const myTabId = tabCtx?.tabId ?? null;
@@ -367,6 +379,10 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     [],
   );
 
+  const focusTerminalInput = useCallback((sessionId: string) => {
+    focusWhenFocusable(() => tabWsRefs.current.get(sessionId));
+  }, []);
+
   const updateTabLabel = useCallback((sessionId: string, newLabel: string) => {
     const existing = tabsRef.current.get(sessionId);
     if (!existing) return;
@@ -481,11 +497,12 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       } else {
         pendingFocusRef.current = sessionId;
       }
+      focusTerminalInput(sessionId);
     }
 
     window.addEventListener('terminal:focus', onFocus);
     return () => window.removeEventListener('terminal:focus', onFocus);
-  }, [broadcastActive, myTabId]);
+  }, [broadcastActive, focusTerminalInput, myTabId]);
 
   // terminal:rename — intentional user action from the rail's expanded list
   // (double-click to edit), mirroring the dock tab's rename. Reuses
