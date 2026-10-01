@@ -3,7 +3,6 @@
 import { useState, useCallback } from 'react';
 import { trpc } from '@/lib/trpc';
 import { useOnServerEvent } from '@/contexts/events-context';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { PrList } from './pr-list';
 import {
@@ -13,8 +12,9 @@ import {
   RiTerminalLine,
 } from '@remixicon/react';
 import { cn } from '@/lib/utils';
-import { getAttentionInfo } from './pr-attention';
+import { isPrOutstanding } from '@/lib/pr-outstanding';
 import { coercePrScope, filterPrsByScope, type PrScope } from './pr-helpers';
+import { usePrInbox } from './use-pr-inbox';
 import {
   classifyPrRepoErrors,
   repoDisplayName,
@@ -89,20 +89,23 @@ const SCOPE_TEXT: Record<
   },
 };
 
+interface ScopeCount {
+  outstanding: number;
+  total: number;
+}
+
 function ScopeToggle({
   scope,
   onChange,
-  mineCount,
-  reviewCount,
+  counts,
 }: {
   scope: PrScope;
   onChange: (scope: PrScope) => void;
-  mineCount: number;
-  reviewCount: number;
+  counts: Record<PrScope, ScopeCount>;
 }) {
-  const options: Array<{ value: PrScope; label: string; count: number }> = [
-    { value: 'mine', label: 'Mine', count: mineCount },
-    { value: 'review', label: 'Review', count: reviewCount },
+  const options: Array<{ value: PrScope; label: string }> = [
+    { value: 'mine', label: 'Mine' },
+    { value: 'review', label: 'Review' },
   ];
 
   return (
@@ -120,7 +123,9 @@ function ScopeToggle({
           )}
         >
           {option.label}
-          <span className="ml-1 text-muted-foreground">{option.count}</span>
+          <span className="ml-1 text-muted-foreground">
+            {counts[option.value].outstanding} / {counts[option.value].total}
+          </span>
         </button>
       ))}
     </div>
@@ -149,8 +154,15 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
   } = trpc.pr.list.useQuery({ workspaceId }, { enabled: !!workspace });
   const allPrs = prData?.prs;
   const prs = allPrs && filterPrsByScope(allPrs, scope);
-  const mineCount = allPrs ? filterPrsByScope(allPrs, 'mine').length : 0;
-  const reviewCount = allPrs ? allPrs.length - mineCount : 0;
+  const viewerLogin = githubStatus?.available ? githubStatus.login : null;
+  const scopeCounts = (scopeToCount: PrScope): ScopeCount => {
+    const scoped = allPrs ? filterPrsByScope(allPrs, scopeToCount) : [];
+    return {
+      outstanding: scoped.filter((pr) => isPrOutstanding(pr, viewerLogin)).length,
+      total: scoped.length,
+    };
+  };
+  const { unreadItemIds, markRead } = usePrInbox(workspaceId, !!workspace);
   const { global: globalError, perRepo: repoErrors } = classifyPrRepoErrors(
     prData?.repoErrors ?? {},
   );
@@ -160,15 +172,6 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
   }, [utils, workspaceId]);
 
   useOnServerEvent('PR_CHANGE', refetchPrs);
-
-  useOnServerEvent('PR_ATTENTION', (payload) => {
-    if (payload.workspaceId !== workspaceId) return;
-    const info = getAttentionInfo(payload.reason);
-    toast.error(`PR #${payload.prNumber}: ${info?.label ?? 'CI failure needs attention'}`, {
-      description: info?.description,
-    });
-    refetchPrs();
-  });
 
   const refreshMutation = trpc.pr.refresh.useMutation({
     // Success or partial failure: list re-fetch picks up rows AND repoErrors.
@@ -195,8 +198,7 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
             <ScopeToggle
               scope={scope}
               onChange={setScopeOverride}
-              mineCount={mineCount}
-              reviewCount={reviewCount}
+              counts={{ mine: scopeCounts('mine'), review: scopeCounts('review') }}
             />
           )}
         </div>
@@ -274,6 +276,8 @@ export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
             showRepo={workspaceRepos.length > 1}
             workspaceSlug={workspaceSlug}
             projectSlug={projectSlug}
+            unreadItemIds={unreadItemIds}
+            onOpen={(inboxItemId) => markRead({ id: inboxItemId })}
           />
         )}
       </div>

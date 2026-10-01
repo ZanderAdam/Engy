@@ -17,6 +17,7 @@ interface SectionDef {
   icon: RemixiconComponentType;
   disabled?: boolean;
   hint?: string;
+  badge?: 'inbox';
 }
 
 export const sections: readonly SectionDef[] = [
@@ -27,7 +28,7 @@ export const sections: readonly SectionDef[] = [
   { label: 'Diffs', segment: 'diffs', icon: RiGitMergeLine },
   { label: 'Code', segment: 'code', icon: RiCodeLine },
   { label: 'Memory', segment: 'memory', icon: RiBrain2Line },
-  { label: 'PRs', segment: 'prs', icon: RiGitPullRequestLine },
+  { label: 'PRs', segment: 'prs', icon: RiGitPullRequestLine, badge: 'inbox' },
   { label: 'Usage', segment: 'usage', icon: RiBarChartBoxLine },
 ] as const;
 

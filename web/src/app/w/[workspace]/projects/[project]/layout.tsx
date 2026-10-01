@@ -11,6 +11,7 @@ import { WorktreeDropdown } from "@/components/projects/worktree-dropdown";
 import { ManageWorktreesDialog } from "@/components/projects/manage-worktrees-dialog";
 import { sections as tabs } from "@/components/layout/header/sections";
 import { MobileHeader } from "@/components/layout/mobile-header";
+import { SectionBadge } from "@/components/layout/header/section-badge";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
@@ -150,6 +151,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                 )}
               >
                 {tab.label}
+                {tab.badge === "inbox" && <SectionBadge workspaceId={workspace.id} />}
               </VLink>
             ),
           )}

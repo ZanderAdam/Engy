@@ -28,6 +28,7 @@ import {
   deriveCheckState,
 } from './pr-helpers';
 import { getAttentionInfo } from './pr-attention';
+import { prInboxKey } from './use-pr-inbox';
 import type { GhPrCheck, GhPrCiStatus } from '@engy/common';
 
 interface PrItem {
@@ -48,6 +49,7 @@ interface PrItem {
   taskGroupId: number | null;
   worktreePath: string | null;
   attentionReason: string | null;
+  repoFullName: string | null;
 }
 
 interface PrListProps {
@@ -55,6 +57,8 @@ interface PrListProps {
   showRepo: boolean;
   workspaceSlug: string;
   projectSlug: string;
+  unreadItemIds: ReadonlyMap<string, number>;
+  onOpen: (inboxItemId: number) => void;
 }
 
 function CheckIcon({ status, conclusion }: { status: string; conclusion: string | null }) {
@@ -156,7 +160,14 @@ function ReviewDecisionBadge({ decision }: { decision: string | null }) {
   );
 }
 
-export function PrList({ prs, showRepo, workspaceSlug, projectSlug }: PrListProps) {
+export function PrList({
+  prs,
+  showRepo,
+  workspaceSlug,
+  projectSlug,
+  unreadItemIds,
+  onOpen,
+}: PrListProps) {
   return (
     <TooltipProvider>
       <div className="divide-y divide-border">
@@ -167,6 +178,8 @@ export function PrList({ prs, showRepo, workspaceSlug, projectSlug }: PrListProp
             showRepo={showRepo}
             workspaceSlug={workspaceSlug}
             projectSlug={projectSlug}
+            unreadItemId={unreadItemIds.get(prInboxKey(pr.repoFullName, pr.number))}
+            onOpen={onOpen}
           />
         ))}
       </div>
@@ -179,20 +192,29 @@ interface PrRowProps {
   showRepo: boolean;
   workspaceSlug: string;
   projectSlug: string;
+  unreadItemId: number | undefined;
+  onOpen: (inboxItemId: number) => void;
 }
 
-function PrRow({ pr, showRepo, workspaceSlug, projectSlug }: PrRowProps) {
+function PrRow({ pr, showRepo, workspaceSlug, projectSlug, unreadItemId, onOpen }: PrRowProps) {
   const diffsHref = `/w/${workspaceSlug}/projects/${projectSlug}/diffs`;
+  const handleOpen = () => {
+    if (unreadItemId !== undefined) onOpen(unreadItemId);
+  };
 
   return (
     <div className="flex flex-col gap-1.5 px-4 py-3 hover:bg-muted/30 transition-colors">
       {/* Row 1: title + badges + time */}
       <div className="flex items-start gap-2 min-w-0">
         <div className="flex min-w-0 flex-1 items-center gap-2 flex-wrap">
+          {unreadItemId !== undefined && (
+            <span aria-label="Unread inbox item" className="size-2 shrink-0 rounded-full bg-sky-400" />
+          )}
           <a
             href={pr.url}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={handleOpen}
             className="text-sm font-medium text-foreground hover:underline flex items-center gap-1 min-w-0"
           >
             <span className="truncate">{pr.title}</span>
@@ -212,6 +234,7 @@ function PrRow({ pr, showRepo, workspaceSlug, projectSlug }: PrRowProps) {
                 href={pr.url}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={handleOpen}
                 className="shrink-0 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 <RiChat1Line className="size-3" />

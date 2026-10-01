@@ -5,6 +5,7 @@ import { Providers } from "@/components/providers";
 import { TabShell } from "@/components/tabs/tab-shell";
 import { EventsProvider } from "@/contexts/events-context";
 import { Toaster } from "@/components/ui/sonner";
+import { PrAttentionToaster } from "@/components/prs/pr-attention-toaster";
 import "./globals.css";
 
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-sans" });
@@ -33,6 +34,7 @@ export default function RootLayout() {
               <Suspense>
                 <TabShell />
               </Suspense>
+              <PrAttentionToaster />
             </EventsProvider>
           </div>
           <Toaster />
