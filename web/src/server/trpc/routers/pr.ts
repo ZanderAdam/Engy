@@ -1,4 +1,4 @@
-import path from 'node:path';
+import { isPathInside } from '../../lib/path-inside';
 import { z } from 'zod';
 import { eq, and, inArray, desc, isNotNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
@@ -19,11 +19,6 @@ interface CorrelatedSession {
   branch: string | null;
   status: typeof agentSessions.$inferSelect.status;
   projectSlug: string | null;
-}
-
-function isInsideRepo(repo: string, candidate: string): boolean {
-  const relative = path.relative(path.resolve(repo), path.resolve(candidate));
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 function listSessionsOnBranches(db: Db, branches: string[]): CorrelatedSession[] {
@@ -76,12 +71,9 @@ function listSessionsOnBranches(db: Db, branches: string[]): CorrelatedSession[]
 }
 
 function matchesPr(session: CorrelatedSession, headBranch: string, repo: string): boolean {
-  return session.branch === headBranch && isInsideRepo(repo, session.worktreePath);
+  return session.branch === headBranch && isPathInside(repo, session.worktreePath);
 }
 
-/**
- * Finds the most recent agent session on a PR branch whose worktree lives inside the repo.
- */
 export function findCorrelatedSession(
   db: Db,
   headBranch: string,
@@ -230,7 +222,6 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GithubPr[]): UpsertResult
   });
 }
 
-/** Records a repo's latest PR sync outcome in the in-memory error map (cleared on success). */
 export function recordRepoOutcome(state: AppState, repo: string, error: string | null): void {
   if (error === null) {
     state.prRepoErrors.delete(repo);
@@ -246,15 +237,10 @@ function getWorkspaceRepos(workspaceId: number): {
   const db = getDb();
   const workspace = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
   if (!workspace) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
-  return { workspace, repos: (workspace.repos as string[] | null | undefined) ?? [] };
+  return { workspace, repos: workspace.repos ?? [] };
 }
 
 export const prRouter = router({
-  /**
-   * Returns open PRs for all workspace repos, ordered by updatedAt desc.
-   * Each PR is correlated with the most recent agent session on the same branch
-   * whose worktree lives inside the PR's repo.
-   */
   list: publicProcedure.input(z.object({ workspaceId: z.number() })).query(({ input, ctx }) => {
     const db = getDb();
     const { repos } = getWorkspaceRepos(input.workspaceId);
@@ -293,11 +279,6 @@ export const prRouter = router({
     };
   }),
 
-  /**
-   * Refreshes PRs for all workspace repos from one GitHub search. Each repo
-   * upserts independently; failures are recorded in the in-memory per-repo
-   * error map that `list` returns. Throws when GitHub is unavailable.
-   */
   refresh: publicProcedure
     .input(z.object({ workspaceId: z.number() }))
     .mutation(async ({ input, ctx }) => {

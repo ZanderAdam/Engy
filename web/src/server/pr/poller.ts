@@ -36,7 +36,7 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     for (const ws of allWorkspaces) {
-      for (const repo of (ws.repos as string[] | null | undefined) ?? []) {
+      for (const repo of ws.repos ?? []) {
         if (state.prRepoErrors.get(repo) !== message) {
           console.error(`[pr-poller] poll failed for ${repo}:`, message);
         }
@@ -47,7 +47,7 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
   }
 
   for (const ws of allWorkspaces) {
-    const repos = (ws.repos as string[] | null | undefined) ?? [];
+    const repos = ws.repos ?? [];
 
     for (const repo of repos) {
       try {

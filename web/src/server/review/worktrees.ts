@@ -6,6 +6,7 @@ import { prs, reviewWorktrees, workspaces } from '../db/schema';
 import { getReviewWorktreeDir } from '../engy-dir/init';
 import { githubRest } from '../github/client';
 import { resolveRepoFullName } from '../github/repo-identity';
+import { isPathInside } from '../lib/path-inside';
 import {
   dispatchGitDeleteRefs,
   dispatchGitFetch,
@@ -42,7 +43,7 @@ interface GithubPullResponse {
   base: { ref: string };
 }
 
-const DEFAULT_BASE_REF = 'main';
+export const DEFAULT_BASE_REF = 'main';
 
 function reviewBranch(prNumber: number): string {
   return `engy/review/pr-${prNumber}`;
@@ -78,14 +79,9 @@ export function chooseWorktreesToRemove(
   );
 }
 
-function isInside(dir: string, candidate: string): boolean {
-  const relative = path.relative(path.resolve(dir), path.resolve(candidate));
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
-
 function hasLiveSession(state: AppState, worktreePath: string): boolean {
   for (const meta of state.terminalSessionMeta.values()) {
-    if (isInside(worktreePath, meta.workingDir)) return true;
+    if (isPathInside(worktreePath, meta.workingDir)) return true;
   }
   return false;
 }
@@ -110,7 +106,7 @@ export async function listReviewWorktrees(
   workspaceId: number,
 ): Promise<Array<ReviewWorktreeRow & { kept: KeptReason | null }>> {
   const workspace = getWorkspace(workspaceId);
-  const repos = (workspace.repos as string[] | null) ?? [];
+  const repos = workspace.repos ?? [];
   const rows = getDb()
     .select()
     .from(reviewWorktrees)
@@ -433,11 +429,7 @@ async function openReviewWorktreeUnqueued(
 ): Promise<ReviewWorktreeState> {
   const { repoFullName, prNumber } = input;
   const workspace = getWorkspace(input.workspaceId);
-  const repoPath = await findRepoPath(
-    state,
-    (workspace.repos as string[] | null) ?? [],
-    repoFullName,
-  );
+  const repoPath = await findRepoPath(state, workspace.repos ?? [], repoFullName);
   const pr = await resolvePr(state, repoPath, repoFullName, prNumber);
 
   const existing = getDb()

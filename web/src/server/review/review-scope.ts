@@ -1,15 +1,10 @@
-import path from 'node:path';
 import type { Db } from '../db/client';
 import { reviewWorktrees } from '../db/schema';
+import { isPathInside } from '../lib/path-inside';
 
 interface ReviewScope {
   repoDir: string;
   branch: string;
-}
-
-function isInside(dir: string, candidate: string): boolean {
-  const relative = path.relative(path.resolve(dir), path.resolve(candidate));
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 export function resolveReviewScope(db: Db, dir: string): ReviewScope | null {
@@ -17,6 +12,6 @@ export function resolveReviewScope(db: Db, dir: string): ReviewScope | null {
     .select()
     .from(reviewWorktrees)
     .all()
-    .find((candidate) => isInside(candidate.worktreePath, dir));
+    .find((candidate) => isPathInside(candidate.worktreePath, dir));
   return row ? { repoDir: row.repoPath, branch: row.headRefName } : null;
 }

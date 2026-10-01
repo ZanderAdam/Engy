@@ -90,13 +90,7 @@ export function findItemByPr(repoFullName: string, prNumber: number): InboxItem 
 export function upsertItem(input: UpsertItemInput, now: Date = new Date()): InboxItem {
   const db = getDb();
   const timestamp = now.toISOString();
-  const existing = db
-    .select()
-    .from(inboxItems)
-    .where(
-      and(eq(inboxItems.repoFullName, input.repoFullName), eq(inboxItems.prNumber, input.prNumber)),
-    )
-    .get();
+  const existing = findItemByPr(input.repoFullName, input.prNumber);
 
   if (!existing) {
     const created = db

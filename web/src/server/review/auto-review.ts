@@ -11,10 +11,9 @@ import type { AppState } from '../trpc/context';
 import { findCorrelatedSession } from '../trpc/routers/pr';
 import { dispatchGitBranchFiles } from '../ws/server';
 import { buildReviewPrompt } from '../../lib/review-prompt';
-import { openReviewWorktree } from './worktrees';
+import { DEFAULT_BASE_REF, openReviewWorktree } from './worktrees';
 
 const AUTO_REVIEW_SPAWNER = 'auto-review';
-const DEFAULT_BASE_REF = 'main';
 const STALE_SESSION_MS = 24 * 60 * 60 * 1000;
 
 type AutoReviewSkipReason =

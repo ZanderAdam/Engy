@@ -59,7 +59,6 @@ async function checkViewer(state: AppState): Promise<GithubStatus> {
   }
 }
 
-/** Runs `GET /user` and caches viewer + status on AppState. Concurrent callers share one request. */
 export function refreshGithubStatus(state: AppState): Promise<GithubStatus> {
   if (state.github.viewerCheck) return state.github.viewerCheck;
   const check = checkViewer(state)
@@ -74,7 +73,6 @@ export function refreshGithubStatus(state: AppState): Promise<GithubStatus> {
   return check;
 }
 
-/** Returns the cached status; re-checks on first call and after a transient failure. */
 export async function getGithubStatus(state: AppState): Promise<GithubStatus> {
   const cached = state.github.status;
   if (cached && (cached.available || cached.reason !== 'unreachable')) return cached;

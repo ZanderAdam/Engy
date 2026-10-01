@@ -136,12 +136,8 @@ function syncComment(
 }
 
 /**
- * Idempotently imports GitHub review threads into the comment thread system.
- *
- * Each thread becomes one commentThreads row keyed by its first comment's database id;
- * every comment in it becomes a threadComments row, in GitHub order. Re-running never
- * duplicates rows. Resolved state mirrors GitHub both ways unless metadata.localDismissed
- * is set. Comments deleted on GitHub are left as-is in the local DB.
+ * Resolved state follows GitHub unless metadata.localDismissed is set. Comments deleted on
+ * GitHub stay in the local DB.
  */
 export function syncReviewThreads(
   db: Db,

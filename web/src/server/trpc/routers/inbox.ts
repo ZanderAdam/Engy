@@ -57,20 +57,13 @@ function findHeadBranch(repoFullName: string, prNumber: number): string | null {
   return worktree?.headRefName ?? null;
 }
 
-function readReviewRisk(item: {
-  repoFullName: string;
-  prNumber: number;
-  repoPath: string | null;
-}): ReviewRisk | null {
-  if (!item.repoPath) return null;
-  const headBranch = findHeadBranch(item.repoFullName, item.prNumber);
-  if (!headBranch) return null;
+function readReviewRisk(repoPath: string, headBranch: string): ReviewRisk | null {
   const summary = getDb()
     .select({ metadata: commentThreads.metadata })
     .from(commentThreads)
     .where(
       and(
-        eq(commentThreads.documentPath, diffScopePrefix(item.repoPath, headBranch)),
+        eq(commentThreads.documentPath, diffScopePrefix(repoPath, headBranch)),
         isNull(commentThreads.workspaceId),
       ),
     )
@@ -78,15 +71,19 @@ function readReviewRisk(item: {
   return parseRisk(summary?.metadata?.risk) ?? null;
 }
 
-function readProjectSlug(item: {
+function readReviewContext(item: {
   repoFullName: string;
   prNumber: number;
   repoPath: string | null;
-}): string | null {
-  if (!item.repoPath) return null;
+}): { risk: ReviewRisk | null; projectSlug: string | null } {
+  const noContext = { risk: null, projectSlug: null };
+  if (!item.repoPath) return noContext;
   const headBranch = findHeadBranch(item.repoFullName, item.prNumber);
-  if (!headBranch) return null;
-  return findCorrelatedSession(getDb(), headBranch, item.repoPath)?.projectSlug ?? null;
+  if (!headBranch) return noContext;
+  return {
+    risk: readReviewRisk(item.repoPath, headBranch),
+    projectSlug: findCorrelatedSession(getDb(), headBranch, item.repoPath)?.projectSlug ?? null,
+  };
 }
 
 export const inboxRouter = router({
@@ -104,8 +101,7 @@ export const inboxRouter = router({
           at: latest.at,
         },
         events,
-        risk: readReviewRisk(item),
-        projectSlug: readProjectSlug(item),
+        ...readReviewContext(item),
       };
     });
   }),
