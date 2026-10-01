@@ -41,6 +41,11 @@ function resolveContainedDirPath(rootDir: string, relPath: string): string {
   return resolved;
 }
 
+function isNotFoundError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes('ENOENT') || message.toLowerCase().includes('not found');
+}
+
 export const fileRouter = router({
   validatePaths: publicProcedure
     .input(
@@ -83,8 +88,7 @@ export const fileRouter = router({
       try {
         return await dispatchDirList(input.dirPath, ctx.state);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (message.includes('ENOENT') || message.toLowerCase().includes('not found')) {
+        if (isNotFoundError(err)) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: `Directory not found: ${input.dirPath}`,
@@ -103,11 +107,23 @@ export const fileRouter = router({
         worktreePath: z.string().optional(),
         coderWorkspace: z.string().optional(),
         contentId: contentIdInput,
+        allowMissing: z.boolean().optional(),
       }),
     )
     .query(async ({ input, ctx }) => {
       const dir = input.worktreePath ?? input.repoDir;
-      return dispatchFileRead(dir, input.filePath, ctx.state, input.ref, input.coderWorkspace);
+      try {
+        return await dispatchFileRead(
+          dir,
+          input.filePath,
+          ctx.state,
+          input.ref,
+          input.coderWorkspace,
+        );
+      } catch (err) {
+        if (input.allowMissing && isNotFoundError(err)) return null;
+        throw err;
+      }
     }),
 
   // Mirrors `read` but returns image bytes (from the working tree or a git ref,

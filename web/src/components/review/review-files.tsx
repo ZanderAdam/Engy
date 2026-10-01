@@ -138,7 +138,7 @@ export function ReviewFiles({
   );
 
   const { data: gitattributes } = trpc.file.read.useQuery(
-    { repoDir: repoPath, worktreePath, filePath: '.gitattributes' },
+    { repoDir: repoPath, worktreePath, filePath: '.gitattributes', allowMissing: true },
     { retry: false },
   );
 

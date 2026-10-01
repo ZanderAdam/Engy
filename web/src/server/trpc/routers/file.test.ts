@@ -106,9 +106,9 @@ describe('file router', () => {
       };
       ctx.state.daemon = fakeSocket as unknown as WebSocket;
 
-      await expect(
-        caller.file.listDir({ dirPath: '/nonexistent/path' }),
-      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(caller.file.listDir({ dirPath: '/nonexistent/path' })).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
     });
 
     it('[FR-FILES-050] returns NOT_FOUND when daemon reports "not found" for missing path', async () => {
@@ -129,9 +129,9 @@ describe('file router', () => {
       };
       ctx.state.daemon = fakeSocket as unknown as WebSocket;
 
-      await expect(
-        caller.file.listDir({ dirPath: '/nonexistent/path' }),
-      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(caller.file.listDir({ dirPath: '/nonexistent/path' })).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
     });
   });
 
@@ -166,6 +166,48 @@ describe('file router', () => {
           coderWorkspace: 'my-coder-ws',
         }),
       ).rejects.toThrow('No daemon connected');
+    });
+  });
+
+  describe('read with allowMissing', () => {
+    function daemonRejectingReadWith(message: string) {
+      ctx.state.daemon = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type === 'FILE_READ_REQUEST') {
+            ctx.state.pendingFileRead.get(msg.payload.requestId)?.reject(new Error(message));
+          }
+        },
+      } as unknown as WebSocket;
+    }
+
+    it('[FR-FILES-240] should return null when the file does not exist and allowMissing is set', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+      daemonRejectingReadWith("ENOENT: no such file or directory, open '/tmp/repo/.gitattributes'");
+
+      await expect(
+        caller.file.read({ repoDir: '/tmp/repo', filePath: '.gitattributes', allowMissing: true }),
+      ).resolves.toBeNull();
+    });
+
+    it('[FR-FILES-240] should still throw a missing file error when allowMissing is not set', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+      daemonRejectingReadWith('ENOENT: no such file or directory');
+
+      await expect(
+        caller.file.read({ repoDir: '/tmp/repo', filePath: '.gitattributes' }),
+      ).rejects.toThrow('ENOENT');
+    });
+
+    it('should still throw other errors when allowMissing is set', async () => {
+      const caller = appRouter.createCaller({ state: ctx.state });
+      daemonRejectingReadWith('EACCES: permission denied');
+
+      await expect(
+        caller.file.read({ repoDir: '/tmp/repo', filePath: '.gitattributes', allowMissing: true }),
+      ).rejects.toThrow('EACCES');
     });
   });
 
@@ -248,9 +290,9 @@ describe('file router', () => {
     it('[FR-FILES-010] should throw when no daemon is connected', async () => {
       const caller = appRouter.createCaller({ state: ctx.state });
 
-      await expect(caller.file.createDir({ rootDir: '/tmp/repo', relPath: 'newdir' })).rejects.toThrow(
-        'No daemon connected',
-      );
+      await expect(
+        caller.file.createDir({ rootDir: '/tmp/repo', relPath: 'newdir' }),
+      ).rejects.toThrow('No daemon connected');
     });
 
     it('should return success when daemon creates the directory', async () => {
@@ -297,9 +339,9 @@ describe('file router', () => {
       };
       ctx.state.daemon = fakeSocket as unknown as WebSocket;
 
-      await expect(caller.file.createDir({ rootDir: '/tmp/repo', relPath: 'newdir' })).rejects.toThrow(
-        'Permission denied',
-      );
+      await expect(
+        caller.file.createDir({ rootDir: '/tmp/repo', relPath: 'newdir' }),
+      ).rejects.toThrow('Permission denied');
     });
 
     it('[FR-FILES-070] should reject traversal in relPath without contacting the daemon', async () => {
