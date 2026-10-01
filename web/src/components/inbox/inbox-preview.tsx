@@ -1,24 +1,41 @@
 'use client';
 
-import { RiArrowLeftLine, RiExternalLinkLine, RiLoader4Line } from '@remixicon/react';
+import {
+  RiArrowLeftLine,
+  RiCheckLine,
+  RiChat1Line,
+  RiExternalLinkLine,
+  RiLoader4Line,
+  RiTerminalLine,
+  RiZzzLine,
+} from '@remixicon/react';
 import { formatRelativeTime } from '@/components/prs/pr-helpers';
+import { AttentionBadge, ChecksPopover, ReviewDecisionBadge } from '@/components/prs/pr-badges';
+import { KeptBadge } from '@/components/prs/kept-badge';
+import type { KeptReview } from '@/components/prs/use-kept-reviews';
+import { VLink } from '@/components/tabs/virtual-link';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ReviewAvatar } from '@/components/review/review-avatar';
 import { ReviewOverview } from '@/components/review/review-overview';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import type { GhPrCiStatus } from '@engy/common';
 import { InboxCiBadge, InboxRiskBadge } from './inbox-badges';
 import { EVENT_META, hasAvatar, summarizeEvent } from './inbox-event-meta';
 import { githubAvatarUrl, type InboxItem } from './inbox-helpers';
+import type { InboxRowModel } from './inbox-rows';
 
 interface InboxPreviewProps {
-  item: InboxItem;
-  ci: GhPrCiStatus | undefined;
+  row: InboxRowModel;
   canReview: boolean;
   onOpenReview: () => void;
   onBack: (() => void) | null;
+  diffsHref: string | null;
+  kept: KeptReview | undefined;
+  onRemoveKept: (worktreeId: number, force: boolean) => void;
+  onDone: () => void;
+  onSnooze: () => void;
+  onToggleRead: () => void;
 }
 
 const NO_WORKSPACE_HINT = 'Add this repo to a workspace to review it in Engy';
@@ -95,34 +112,112 @@ function PrOverview(props: { workspaceId: number; repoFullName: string; prNumber
   return <ReviewOverview detail={data} compact {...props} />;
 }
 
-export function InboxPreview({ item, ci, canReview, onOpenReview, onBack }: InboxPreviewProps) {
+function PrStatusStrip({
+  pr,
+  diffsHref,
+  kept,
+  onRemoveKept,
+}: Pick<InboxPreviewProps, 'diffsHref' | 'kept' | 'onRemoveKept'> & {
+  pr: NonNullable<InboxRowModel['pr']>;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {pr.isDraft && <span className="text-xs text-muted-foreground">Draft</span>}
+      <ReviewDecisionBadge decision={pr.reviewDecision} />
+      <ChecksPopover checks={pr.checks} />
+      {pr.commentCount > 0 && (
+        <a
+          href={pr.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Conversation and reviews"
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <RiChat1Line className="size-3" />
+          {pr.commentCount}
+        </a>
+      )}
+      {pr.worktreePath && diffsHref && (
+        <VLink
+          href={diffsHref}
+          title={`Worktree at ${pr.worktreePath}`}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <RiTerminalLine className="size-3" />
+          View diffs
+        </VLink>
+      )}
+      <AttentionBadge reason={pr.attentionReason} />
+      {kept && <KeptBadge kept={kept} onRemove={onRemoveKept} />}
+    </div>
+  );
+}
+
+export function InboxPreview({
+  row,
+  canReview,
+  onOpenReview,
+  onBack,
+  diffsHref,
+  kept,
+  onRemoveKept,
+  onDone,
+  onSnooze,
+  onToggleRead,
+}: InboxPreviewProps) {
+  const events = row.item?.events ?? [];
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="flex flex-col gap-2 border-b border-border px-4 py-3">
         {onBack && (
           <Button variant="ghost" size="sm" className="-ml-2 w-fit" onClick={onBack}>
             <RiArrowLeftLine className="size-4" />
-            Inbox
+            Back
           </Button>
         )}
-        <h2 className="text-base font-semibold text-foreground">{item.title}</h2>
+        <h2 className="text-base font-semibold text-foreground">{row.title}</h2>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span className="font-mono">
-            {item.repoFullName}#{item.prNumber}
+            {row.repoFullName}#{row.prNumber}
           </span>
-          <InboxRiskBadge risk={item.risk} />
-          <InboxCiBadge ci={ci} />
+          <InboxRiskBadge risk={row.risk} />
+          <InboxCiBadge ci={row.ci} />
         </div>
+        {row.pr && (
+          <TooltipProvider>
+            <PrStatusStrip
+              pr={row.pr}
+              diffsHref={diffsHref}
+              kept={kept}
+              onRemoveKept={onRemoveKept}
+            />
+          </TooltipProvider>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <OpenReviewButton canReview={canReview} onOpenReview={onOpenReview} />
           <Button variant="outline" size="sm" asChild>
-            <a href={item.url} target="_blank" rel="noopener noreferrer">
+            <a href={row.url} target="_blank" rel="noopener noreferrer">
               <RiExternalLinkLine className="size-4" />
               Open on GitHub
             </a>
           </Button>
+          {row.item && (
+            <>
+              <Button variant="outline" size="sm" onClick={onDone}>
+                <RiCheckLine className="size-4" />
+                Done
+              </Button>
+              <Button variant="outline" size="sm" onClick={onSnooze}>
+                <RiZzzLine className="size-4" />
+                Snooze
+              </Button>
+              <Button variant="outline" size="sm" onClick={onToggleRead}>
+                {row.item.unread ? 'Mark read' : 'Mark unread'}
+              </Button>
+            </>
+          )}
         </div>
-        {item.workspaceId === null && (
+        {row.workspaceId === null && (
           <p className="text-xs text-muted-foreground">{NO_WORKSPACE_HINT}</p>
         )}
       </div>
@@ -131,19 +226,19 @@ export function InboxPreview({ item, ci, canReview, onOpenReview, onBack }: Inbo
           Activity
         </h3>
         <ul className="flex flex-col">
-          {item.events.map((event) => (
+          {events.map((event) => (
             <ActivityRow key={event.id} event={event} />
           ))}
-          {item.events.length === 0 && (
+          {events.length === 0 && (
             <li className="px-4 py-3 text-xs text-muted-foreground">No events yet</li>
           )}
         </ul>
       </section>
-      {item.workspaceId !== null && (
+      {row.workspaceId !== null && (
         <PrOverview
-          workspaceId={item.workspaceId}
-          repoFullName={item.repoFullName}
-          prNumber={item.prNumber}
+          workspaceId={row.workspaceId}
+          repoFullName={row.repoFullName}
+          prNumber={row.prNumber}
         />
       )}
     </div>

@@ -1,38 +1,67 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { RiTimeLine } from '@remixicon/react';
+import { RiCheckLine, RiTimeLine, RiZzzLine } from '@remixicon/react';
 import { formatRelativeTime } from '@/components/prs/pr-helpers';
+import { AttentionBadge } from '@/components/prs/pr-badges';
 import { ReviewAvatar } from '@/components/review/review-avatar';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import type { GhPrCiStatus } from '@engy/common';
 import { InboxCiBadge, InboxRiskBadge } from './inbox-badges';
-import { EVENT_META, hasAvatar, summarizeEvent } from './inbox-event-meta';
-import { formatSnoozeUntil, githubAvatarUrl, prKey, type InboxItem } from './inbox-helpers';
+import { formatSnoozeUntil, githubAvatarUrl } from './inbox-helpers';
+import type { InboxRowModel } from './inbox-rows';
 
 interface InboxListProps {
-  items: InboxItem[];
-  selectedId: number | null;
-  ciByPr: Map<string, GhPrCiStatus>;
-  onSelect: (id: number) => void;
+  rows: InboxRowModel[];
+  selectedKey: string | null;
+  onSelect: (key: string) => void;
+  onDone: (row: InboxRowModel) => void;
+  onSnooze: (row: InboxRowModel) => void;
 }
 
-interface InboxRowProps {
-  item: InboxItem;
+interface InboxRowProps extends Omit<InboxListProps, 'rows' | 'selectedKey'> {
+  row: InboxRowModel;
   selected: boolean;
-  ci: GhPrCiStatus | undefined;
-  onSelect: (id: number) => void;
 }
 
-function InboxRow({ item, selected, ci, onSelect }: InboxRowProps) {
+function RowAction({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={label}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function InboxRow({ row, selected, onSelect, onDone, onSnooze }: InboxRowProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView({ block: 'nearest' });
   }, [selected]);
 
-  const event = item.latestEvent;
-  const { icon: Icon, className: iconClassName } = EVENT_META[event?.kind ?? 'commented'];
+  const Icon = row.icon;
 
   return (
     <div
@@ -41,66 +70,96 @@ function InboxRow({ item, selected, ci, onSelect }: InboxRowProps) {
       aria-selected={selected}
       data-testid="inbox-row"
       data-selected={selected}
-      onClick={() => onSelect(item.id)}
+      onClick={() => onSelect(row.key)}
       className={cn(
-        'flex cursor-pointer flex-col gap-0.5 border-b border-border px-3 py-2 transition-colors hover:bg-muted/40',
+        'group flex cursor-pointer flex-col gap-0.5 border-b border-border px-3 py-2 transition-colors hover:bg-muted/40',
         selected && 'bg-muted',
       )}
     >
       <div className="flex items-center gap-2">
         <span
-          aria-label={item.unread ? 'Unread' : 'Read'}
+          aria-label={row.unread ? 'Unread' : 'Read'}
           className={cn(
             'size-2 shrink-0 rounded-full',
-            item.unread ? 'bg-sky-400' : 'bg-transparent',
+            row.unread ? 'bg-sky-400' : 'bg-transparent',
           )}
         />
-        <Icon className={cn('size-4 shrink-0', iconClassName)} />
-        {event && hasAvatar(event) && (
-          <ReviewAvatar login={event.actor} avatarUrl={githubAvatarUrl(event.actor)} />
+        <Icon className={cn('size-4 shrink-0', row.iconClassName)} />
+        {row.avatarLogin && (
+          <ReviewAvatar login={row.avatarLogin} avatarUrl={githubAvatarUrl(row.avatarLogin)} />
         )}
         <span
           className={cn(
             'min-w-0 flex-1 truncate text-sm',
-            item.unread ? 'font-semibold text-foreground' : 'text-muted-foreground',
+            row.unread ? 'font-semibold text-foreground' : 'text-muted-foreground',
           )}
         >
-          {item.title}
+          {row.title}
         </span>
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {formatRelativeTime(item.lastEventAt)}
+        <span
+          className={cn(
+            'shrink-0 text-xs text-muted-foreground',
+            row.item &&
+              'group-hover:hidden group-has-[button:focus-visible]:hidden pointer-coarse:hidden',
+            row.item && selected && 'hidden',
+          )}
+        >
+          {formatRelativeTime(row.at)}
         </span>
+        {row.item && (
+          <span
+            className={cn(
+              'hidden shrink-0 items-center group-hover:flex group-has-[button:focus-visible]:flex pointer-coarse:flex',
+              selected && 'flex',
+            )}
+          >
+            <RowAction label="Snooze (H)" onClick={() => onSnooze(row)}>
+              <RiZzzLine />
+            </RowAction>
+            <RowAction label="Done (E)" onClick={() => onDone(row)}>
+              <RiCheckLine />
+            </RowAction>
+          </span>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-4 text-xs text-muted-foreground">
         <span className="shrink-0 font-mono">
-          {item.repoFullName}#{item.prNumber}
+          {row.repoFullName}#{row.prNumber}
         </span>
-        <span className="min-w-0 flex-1 truncate">{summarizeEvent(event)}</span>
-        {item.snoozedUntil && (
+        <span className="min-w-0 flex-1 truncate">{row.summary}</span>
+        {row.snoozedUntil && (
           <span className="flex shrink-0 items-center gap-0.5">
             <RiTimeLine className="size-3" />
-            {formatSnoozeUntil(item.snoozedUntil)}
+            {formatSnoozeUntil(row.snoozedUntil)}
           </span>
         )}
-        <InboxRiskBadge risk={item.risk} />
-        <InboxCiBadge ci={ci} />
+        <AttentionBadge reason={row.pr?.attentionReason ?? null} compact />
+        <InboxRiskBadge risk={row.risk} />
+        <InboxCiBadge ci={row.ci} />
       </div>
     </div>
   );
 }
 
-export function InboxList({ items, selectedId, ciByPr, onSelect }: InboxListProps) {
+export function InboxList({ rows, selectedKey, onSelect, onDone, onSnooze }: InboxListProps) {
   return (
-    <div role="listbox" aria-label="Inbox" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      {items.map((item) => (
-        <InboxRow
-          key={item.id}
-          item={item}
-          selected={item.id === selectedId}
-          ci={ciByPr.get(prKey(item.repoFullName, item.prNumber))}
-          onSelect={onSelect}
-        />
-      ))}
-    </div>
+    <TooltipProvider>
+      <div
+        role="listbox"
+        aria-label="Inbox"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+      >
+        {rows.map((row) => (
+          <InboxRow
+            key={row.key}
+            row={row}
+            selected={row.key === selectedKey}
+            onSelect={onSelect}
+            onDone={onDone}
+            onSnooze={onSnooze}
+          />
+        ))}
+      </div>
+    </TooltipProvider>
   );
 }

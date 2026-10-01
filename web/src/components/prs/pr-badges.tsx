@@ -4,16 +4,19 @@ import {
   RiExternalLinkLine,
   RiCheckLine,
   RiCloseLine,
-  RiTimeLine,
   RiLoader4Line,
+  RiTimeLine,
   RiQuestionLine,
+  RiAlarmWarningLine,
 } from '@remixicon/react';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { getAttentionInfo } from '@/lib/pr-attention';
 import {
-  ciStatusLabel,
   ciStatusClassName,
+  ciStatusLabel,
   reviewDecisionLabel,
   summarizeChecks,
   deriveCheckState,
@@ -96,6 +99,31 @@ export function ReviewDecisionBadge({ decision }: { decision: string | null }) {
     >
       {label}
     </Badge>
+  );
+}
+
+export function AttentionBadge({
+  reason,
+  compact = false,
+}: {
+  reason: string | null;
+  compact?: boolean;
+}) {
+  const attention = getAttentionInfo(reason);
+  if (!attention) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          aria-label={attention.label}
+          className="inline-flex shrink-0 cursor-default items-center gap-1 rounded-none border border-red-400/30 bg-red-400/10 px-1.5 py-0.5 text-[10px] font-medium text-red-400"
+        >
+          <RiAlarmWarningLine className="size-3 shrink-0" />
+          {!compact && attention.label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">{attention.description}</TooltipContent>
+    </Tooltip>
   );
 }
 

@@ -1,6 +1,6 @@
-export type GlobalPrError = 'no-daemon';
+type GlobalPrError = 'no-daemon';
 
-export interface RepoPrError {
+interface RepoPrError {
   repo: string;
   message: string;
 }

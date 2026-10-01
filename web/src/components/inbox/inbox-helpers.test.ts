@@ -8,9 +8,35 @@ import {
   sortInboxItems,
   formatSnoozeUntil,
   githubAvatarUrl,
+  unreadPriorityCount,
+  describeCleared,
 } from './inbox-helpers';
 
 describe('inbox-helpers', () => {
+  describe('[FR-INBOX-530] describeCleared', () => {
+    it('should report the cleared items', () => {
+      expect(describeCleared(1, 0)).toBe('Cleared 1 item');
+      expect(describeCleared(4, 0)).toBe('Cleared 4 items');
+    });
+
+    it('should report the GitHub write-back failures', () => {
+      expect(describeCleared(4, 2)).toBe('Cleared 4 items, 2 could not be marked done on GitHub');
+    });
+  });
+
+  describe('[FR-INBOX-480] unreadPriorityCount', () => {
+    const counts = { unreadPriority: 5, byWorkspace: { 1: 3, 2: 2 } };
+
+    it('should return the total without a workspace', () => {
+      expect(unreadPriorityCount(counts, undefined)).toBe(5);
+    });
+
+    it('should return only the workspace count when locked', () => {
+      expect(unreadPriorityCount(counts, 1)).toBe(3);
+      expect(unreadPriorityCount(counts, 9)).toBe(0);
+    });
+  });
+
   describe('[FR-INBOX-450] sortInboxItems', () => {
     it('should put unread first, then newest first', () => {
       const items = [

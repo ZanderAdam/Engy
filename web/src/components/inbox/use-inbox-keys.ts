@@ -1,5 +1,4 @@
 import { useEffect, useRef, type RefObject } from 'react';
-import { isTypingTarget } from '@/lib/keyboard';
 
 type InboxKeyAction =
   | 'next'
@@ -57,6 +56,12 @@ export function getInboxKeyAction(e: KeyLike): InboxKeyAction | null {
   return PLAIN_KEY_ACTIONS[e.key] ?? null;
 }
 
+const FOCUS_OWNS_KEYS = 'input, textarea, select, [contenteditable="true"], .xterm';
+
+export function focusOwnsKeys(focused: Element | null): boolean {
+  return focused?.closest(FOCUS_OWNS_KEYS) != null;
+}
+
 const OWNS_ENTER = 'button, a, [role="tab"], [role="combobox"]';
 const OWNS_KEYS = '[role="dialog"], [role="menu"], [role="listbox"]';
 
@@ -82,7 +87,7 @@ export function useInboxKeys(
     function onKeyDown(e: KeyboardEvent) {
       const container = containerRef.current;
       if (!container || container.offsetWidth === 0) return;
-      if (isTypingTarget()) return;
+      if (focusOwnsKeys(document.activeElement)) return;
 
       const action = getInboxKeyAction(e);
       if (!action || targetOwnsKey(e.target, action)) return;

@@ -38,18 +38,14 @@ export function filterInboxItems<T extends Pick<InboxItem, 'title' | 'repoFullNa
   );
 }
 
-export function moveSelection(
-  ids: number[],
-  currentId: number | null,
-  delta: 1 | -1,
-): number | null {
+export function moveSelection<K>(ids: K[], currentId: K | null, delta: 1 | -1): K | null {
   if (ids.length === 0) return null;
   const index = currentId === null ? -1 : ids.indexOf(currentId);
   if (index === -1) return delta === 1 ? ids[0] : ids[ids.length - 1];
   return ids[Math.min(Math.max(index + delta, 0), ids.length - 1)];
 }
 
-export function nextSelectionAfterRemoval(ids: number[], removedId: number): number | null {
+export function nextSelectionAfterRemoval<K>(ids: K[], removedId: K): K | null {
   const index = ids.indexOf(removedId);
   if (index === -1) return null;
   const remaining = ids.filter((id) => id !== removedId);
@@ -57,9 +53,9 @@ export function nextSelectionAfterRemoval(ids: number[], removedId: number): num
   return remaining[Math.min(index, remaining.length - 1)];
 }
 
-export function shouldStartReadDwell(
-  explicitId: number | null,
-  resolvedId: number | null,
+export function shouldStartReadDwell<K>(
+  explicitId: K | null,
+  resolvedId: K | null,
   isTabActive: boolean,
 ): boolean {
   return isTabActive && explicitId !== null && explicitId === resolvedId;
@@ -67,4 +63,18 @@ export function shouldStartReadDwell(
 
 export function prKey(repoFullName: string | null, prNumber: number): string {
   return `${repoFullName}#${prNumber}`;
+}
+
+export function unreadPriorityCount(
+  counts: { unreadPriority: number; byWorkspace: Record<number, number> },
+  workspaceId: number | undefined,
+): number {
+  if (workspaceId === undefined) return counts.unreadPriority;
+  return counts.byWorkspace[workspaceId] ?? 0;
+}
+
+export function describeCleared(count: number, githubFailures: number): string {
+  const cleared = `Cleared ${count} ${count === 1 ? 'item' : 'items'}`;
+  if (githubFailures === 0) return cleared;
+  return `${cleared}, ${githubFailures} could not be marked done on GitHub`;
 }
