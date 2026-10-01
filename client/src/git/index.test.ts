@@ -15,6 +15,9 @@ import {
   resolveDefaultBase,
   remoteForBase,
   fetchRemote,
+  resetHard,
+  getOriginUrl,
+  DirtyWorktreeError,
   localGitRunner,
   parsePorcelainStatus,
   expandStatusEntry,
@@ -793,6 +796,85 @@ describe('git integration', () => {
       await expect(fetchRemote(repoDir, 'origin', '--exec=evil')).rejects.toThrow(
         'Invalid branch name',
       );
+    });
+  });
+
+  describe('fetchRemote refspec', () => {
+    it('passes a PR refspec through to git fetch', async () => {
+      const calls: string[][] = [];
+      const runner = async (args: string[]) => {
+        calls.push(args);
+        return { stdout: '', stderr: '' };
+      };
+
+      await fetchRemote('/wt', 'origin', '+refs/pull/7/head:refs/engy/pr/7', runner);
+
+      expect(calls).toEqual([
+        ['-C', '/wt', 'fetch', '--', 'origin', '+refs/pull/7/head:refs/engy/pr/7'],
+      ]);
+    });
+  });
+
+  describe('resetHard', () => {
+    it('resets a clean worktree to the given ref', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'a.txt', 'one');
+      const git = simpleGit(repoDir);
+      const first = (await git.log()).latest!.hash;
+      await commitFile(repoDir, 'b.txt', 'two');
+
+      await resetHard(repoDir, first);
+
+      expect((await git.log()).latest!.hash).toBe(first);
+    });
+
+    it('throws DirtyWorktreeError when a tracked file is modified', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'a.txt', 'one');
+      await writeFile(join(repoDir, 'a.txt'), 'changed');
+
+      await expect(resetHard(repoDir, 'HEAD')).rejects.toBeInstanceOf(DirtyWorktreeError);
+      const git = simpleGit(repoDir);
+      expect((await git.status()).modified).toEqual(['a.txt']);
+    });
+
+    it('throws DirtyWorktreeError when an untracked file exists', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'a.txt', 'one');
+      await writeFile(join(repoDir, 'new.txt'), 'x');
+
+      await expect(resetHard(repoDir, 'HEAD')).rejects.toBeInstanceOf(DirtyWorktreeError);
+    });
+
+    it('rejects a ref that could be read as an option', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'a.txt', 'one');
+
+      await expect(resetHard(repoDir, '--hard')).rejects.toThrow('Invalid ref');
+    });
+
+    it('surfaces a git failure for an unknown ref', async () => {
+      repoDir = await createTempRepo();
+      await commitFile(repoDir, 'a.txt', 'one');
+
+      await expect(resetHard(repoDir, 'does-not-exist')).rejects.not.toBeInstanceOf(
+        DirtyWorktreeError,
+      );
+    });
+  });
+
+  describe('getOriginUrl', () => {
+    it('returns the origin remote url', async () => {
+      repoDir = await createTempRepo();
+      await simpleGit(repoDir).addRemote('origin', 'git@github.com:octo/repo.git');
+
+      await expect(getOriginUrl(repoDir)).resolves.toBe('git@github.com:octo/repo.git');
+    });
+
+    it('returns null when there is no origin', async () => {
+      repoDir = await createTempRepo();
+
+      await expect(getOriginUrl(repoDir)).resolves.toBeNull();
     });
   });
 

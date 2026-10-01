@@ -10,6 +10,7 @@ import type {
   ContainerUpRequestMessage,
   ExecutionStartConfig,
   WorktreeAddErrorCode,
+  GitResetHardErrorCode,
   WorktreeRemoveErrorCode,
   FleetingMemoryType,
   BranchDiffTarget,
@@ -26,6 +27,7 @@ import type {
   GitBranchResult,
   GitDefaultBaseResult,
   GitFetchResult,
+  GitRemoteUrlResult,
   GitWorktreeListResult,
   ContainerUpResult,
   ExecutionStartResult,
@@ -128,6 +130,8 @@ function rejectAllPending(state: AppState): void {
     state.pendingGitBranch,
     state.pendingGitDefaultBase,
     state.pendingGitFetch,
+    state.pendingGitResetHard,
+    state.pendingGitRemoteUrl,
     state.pendingContainerUp,
     state.pendingContainerDown,
     state.pendingContainerStatus,
@@ -211,6 +215,12 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       resolvePendingResponse(msg.payload, state.pendingGitFetch, (p) => ({
         remote: p.remote,
       }));
+      break;
+    case 'GIT_RESET_HARD_RESPONSE':
+      handleGitResetHardResult(msg.payload, state);
+      break;
+    case 'GIT_REMOTE_URL_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGitRemoteUrl, (p) => ({ url: p.url }));
       break;
     case 'GIT_BRANCH_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGitBranch, (p) => ({
@@ -946,6 +956,24 @@ function resolvePendingResponse<T>(
   }
 }
 
+function handleGitResetHardResult(
+  payload:
+    | { requestId: string }
+    | { requestId: string; error: string; code: GitResetHardErrorCode },
+  state: AppState,
+): void {
+  const pending = state.pendingGitResetHard.get(payload.requestId);
+  if (!pending) return;
+  state.pendingGitResetHard.delete(payload.requestId);
+  if ('error' in payload) {
+    const err = new Error(payload.error) as Error & { code: GitResetHardErrorCode };
+    err.code = payload.code;
+    pending.reject(err);
+  } else {
+    pending.resolve();
+  }
+}
+
 function handleWorktreeAddResult(
   payload:
     | { requestId: string; success: true; worktreePath: string; branch: string }
@@ -1101,14 +1129,39 @@ export function dispatchGitFetch(
   base: string,
   state: AppState,
   coderWorkspace?: string,
+  refspec?: string,
 ): Promise<GitFetchResult> {
   return dispatchDaemonOp(
     state,
     state.pendingGitFetch,
     'GIT_FETCH_REQUEST',
-    { repoDir, base, coderWorkspace },
+    { repoDir, base, refspec, coderWorkspace },
     WORKTREE_MERGE_TIMEOUT_MS,
   );
+}
+
+export function dispatchGitResetHard(
+  repoDir: string,
+  ref: string,
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<void> {
+  return dispatchDaemonOp(state, state.pendingGitResetHard, 'GIT_RESET_HARD_REQUEST', {
+    repoDir,
+    ref,
+    coderWorkspace,
+  });
+}
+
+export function dispatchGitRemoteUrl(
+  repoDir: string,
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<GitRemoteUrlResult> {
+  return dispatchDaemonOp(state, state.pendingGitRemoteUrl, 'GIT_REMOTE_URL_REQUEST', {
+    repoDir,
+    coderWorkspace,
+  });
 }
 
 export function dispatchGitBranch(

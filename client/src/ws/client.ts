@@ -18,6 +18,8 @@ import type {
   GitBranchRequestMessage,
   GitDefaultBaseRequestMessage,
   GitFetchRequestMessage,
+  GitResetHardRequestMessage,
+  GitRemoteUrlRequestMessage,
   GitWorktreeListRequestMessage,
   DirListEntry,
   DirListRequestMessage,
@@ -65,6 +67,9 @@ import {
   resolveDefaultBase,
   remoteForBase,
   fetchRemote,
+  resetHard,
+  getOriginUrl,
+  DirtyWorktreeError,
   getFileContent,
   getFileBytes,
   writeFileContent,
@@ -594,6 +599,12 @@ export class WsClient {
       case 'GIT_FETCH_REQUEST':
         this.handleGitFetchRequest(message as GitFetchRequestMessage);
         break;
+      case 'GIT_RESET_HARD_REQUEST':
+        this.handleGitResetHardRequest(message as GitResetHardRequestMessage);
+        break;
+      case 'GIT_REMOTE_URL_REQUEST':
+        this.handleGitRemoteUrlRequest(message as GitRemoteUrlRequestMessage);
+        break;
       case 'GIT_BRANCH_REQUEST':
         this.handleGitBranchRequest(message as GitBranchRequestMessage);
         break;
@@ -861,15 +872,45 @@ export class WsClient {
   }
 
   private async handleGitFetchRequest(message: GitFetchRequestMessage): Promise<void> {
-    const { requestId, repoDir, base, coderWorkspace } = message.payload;
+    const { requestId, repoDir, base, refspec, coderWorkspace } = message.payload;
     try {
       const runner = this.gitRunnerFor(coderWorkspace);
       const target = await remoteForBase(repoDir, base, runner);
-      if (target) await fetchRemote(repoDir, target.remote, target.branch, runner);
+      if (target) await fetchRemote(repoDir, target.remote, refspec ?? target.branch, runner);
       this.send({ type: 'GIT_FETCH_RESPONSE', payload: { requestId, remote: target?.remote } });
     } catch (err) {
       this.send({
         type: 'GIT_FETCH_RESPONSE',
+        payload: { requestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  private async handleGitResetHardRequest(message: GitResetHardRequestMessage): Promise<void> {
+    const { requestId, repoDir, ref, coderWorkspace } = message.payload;
+    try {
+      await resetHard(repoDir, ref, this.gitRunnerFor(coderWorkspace));
+      this.send({ type: 'GIT_RESET_HARD_RESPONSE', payload: { requestId } });
+    } catch (err) {
+      this.send({
+        type: 'GIT_RESET_HARD_RESPONSE',
+        payload: {
+          requestId,
+          error: err instanceof Error ? err.message : String(err),
+          code: err instanceof DirtyWorktreeError ? 'DIRTY' : 'OTHER',
+        },
+      });
+    }
+  }
+
+  private async handleGitRemoteUrlRequest(message: GitRemoteUrlRequestMessage): Promise<void> {
+    const { requestId, repoDir, coderWorkspace } = message.payload;
+    try {
+      const url = await getOriginUrl(repoDir, this.gitRunnerFor(coderWorkspace));
+      this.send({ type: 'GIT_REMOTE_URL_RESPONSE', payload: { requestId, url } });
+    } catch (err) {
+      this.send({
+        type: 'GIT_REMOTE_URL_RESPONSE',
         payload: { requestId, error: err instanceof Error ? err.message : String(err) },
       });
     }

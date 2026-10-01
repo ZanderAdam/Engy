@@ -1682,6 +1682,171 @@ describe('WsClient worktree add/remove handlers', () => {
   });
 });
 
+describe('WsClient git reset and remote url handlers', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+  let tmpDir: string;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => wss.once('connection', resolve));
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => ws.once('message', (data) => resolve(data.toString())));
+  }
+
+  beforeEach(async () => {
+    server = testWsServer();
+    await new Promise<void>((resolve) => {
+      if (server.address()) resolve();
+      else server.on('listening', () => resolve());
+    });
+    port = (server.address() as { port: number }).port;
+    tmpDir = mkdtempSync(nodePath.join(os.tmpdir(), 'engy-ws-reset-test-'));
+
+    const realChildProcess =
+      await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    const realExecFileAsync = promisify(realChildProcess.execFile);
+    mockedExecFile[promisify.custom].mockImplementation(
+      (...args: Parameters<typeof realExecFileAsync>) => realExecFileAsync(...args),
+    );
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  async function createTempRepo(): Promise<string> {
+    const repoDir = mkdtempSync(nodePath.join(tmpDir, 'repo-'));
+    const repo = simpleGit(repoDir);
+    await repo.init();
+    await repo.addConfig('user.email', 'test@test.com');
+    await repo.addConfig('user.name', 'Test');
+    await repo.addConfig('commit.gpgsign', 'false');
+    nodeFs.writeFileSync(nodePath.join(repoDir, 'init.txt'), 'hello');
+    await repo.add('init.txt');
+    await repo.commit('initial commit');
+    return repoDir;
+  }
+
+  async function setupAndSend(req: object): Promise<string> {
+    const connPromise = waitForConnection(server);
+    client = new WsClient({
+      serverUrl: `http://127.0.0.1:${port}`,
+      onWatchPathsSync: vi.fn(),
+    });
+    client.connect();
+    const ws = await connPromise;
+    await waitForMessage(ws);
+    ws.send(JSON.stringify(req));
+    return waitForMessage(ws);
+  }
+
+  describe('GIT_RESET_HARD_REQUEST', () => {
+    it('resets a clean worktree and acknowledges', async () => {
+      const repoDir = await createTempRepo();
+      const repo = simpleGit(repoDir);
+      const first = (await repo.log()).latest!.hash;
+      nodeFs.writeFileSync(nodePath.join(repoDir, 'two.txt'), 'two');
+      await repo.add('two.txt');
+      await repo.commit('second');
+
+      const response = await setupAndSend({
+        type: 'GIT_RESET_HARD_REQUEST',
+        payload: { requestId: 'reset-1', repoDir, ref: first },
+      });
+
+      expect(JSON.parse(response)).toEqual({
+        type: 'GIT_RESET_HARD_RESPONSE',
+        payload: { requestId: 'reset-1' },
+      });
+      expect((await repo.log()).latest!.hash).toBe(first);
+    });
+
+    it('answers DIRTY and leaves the worktree untouched when it has changes', async () => {
+      const repoDir = await createTempRepo();
+      nodeFs.writeFileSync(nodePath.join(repoDir, 'init.txt'), 'edited');
+
+      const response = await setupAndSend({
+        type: 'GIT_RESET_HARD_REQUEST',
+        payload: { requestId: 'reset-2', repoDir, ref: 'HEAD' },
+      });
+
+      const parsed = JSON.parse(response);
+      expect(parsed.type).toBe('GIT_RESET_HARD_RESPONSE');
+      expect(parsed.payload.code).toBe('DIRTY');
+      expect(nodeFs.readFileSync(nodePath.join(repoDir, 'init.txt'), 'utf8')).toBe('edited');
+    });
+
+    it('answers OTHER for an unknown ref', async () => {
+      const repoDir = await createTempRepo();
+
+      const response = await setupAndSend({
+        type: 'GIT_RESET_HARD_REQUEST',
+        payload: { requestId: 'reset-3', repoDir, ref: 'no-such-ref' },
+      });
+
+      expect(JSON.parse(response).payload.code).toBe('OTHER');
+    });
+  });
+
+  describe('GIT_REMOTE_URL_REQUEST', () => {
+    it('returns the origin url', async () => {
+      const repoDir = await createTempRepo();
+      await simpleGit(repoDir).addRemote('origin', 'https://github.com/octo/repo.git');
+
+      const response = await setupAndSend({
+        type: 'GIT_REMOTE_URL_REQUEST',
+        payload: { requestId: 'url-1', repoDir },
+      });
+
+      expect(JSON.parse(response)).toEqual({
+        type: 'GIT_REMOTE_URL_RESPONSE',
+        payload: { requestId: 'url-1', url: 'https://github.com/octo/repo.git' },
+      });
+    });
+
+    it('returns a null url when there is no origin', async () => {
+      const repoDir = await createTempRepo();
+
+      const response = await setupAndSend({
+        type: 'GIT_REMOTE_URL_REQUEST',
+        payload: { requestId: 'url-2', repoDir },
+      });
+
+      expect(JSON.parse(response).payload).toEqual({ requestId: 'url-2', url: null });
+    });
+  });
+
+  describe('GIT_FETCH_REQUEST with refspec', () => {
+    it('fetches a pull ref into the engy namespace', async () => {
+      const originDir = await createTempRepo();
+      const origin = simpleGit(originDir);
+      await origin.raw(['update-ref', 'refs/pull/7/head', 'HEAD']);
+      const cloneDir = nodePath.join(tmpDir, 'clone');
+      await simpleGit().clone(originDir, cloneDir);
+
+      const response = await setupAndSend({
+        type: 'GIT_FETCH_REQUEST',
+        payload: {
+          requestId: 'fetch-1',
+          repoDir: cloneDir,
+          base: 'origin/main',
+          refspec: '+refs/pull/7/head:refs/engy/pr/7',
+        },
+      });
+
+      expect(JSON.parse(response).payload).toEqual({ requestId: 'fetch-1', remote: 'origin' });
+      const expected = (await origin.revparse(['HEAD'])).trim();
+      const fetched = (await simpleGit(cloneDir).revparse(['refs/engy/pr/7'])).trim();
+      expect(fetched).toBe(expected);
+    });
+  });
+});
+
 describe('WsClient devcontainer config generate handler', () => {
   const mockedGenerate = vi.mocked(generateDevcontainerConfig);
   let server: WebSocketServer;
@@ -2394,9 +2559,9 @@ describe('WsClient FS_RENAME_REQUEST handler', () => {
         type: 'FS_RENAME_RESPONSE',
         payload: { requestId: 'ren-2', success: true },
       });
-      expect(
-        nodeFs.readFileSync(nodePath.join(tmpDir, 'deep', 'nested', 'file.txt'), 'utf8'),
-      ).toBe('content');
+      expect(nodeFs.readFileSync(nodePath.join(tmpDir, 'deep', 'nested', 'file.txt'), 'utf8')).toBe(
+        'content',
+      );
     });
 
     it('should error when target already exists', async () => {

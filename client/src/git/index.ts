@@ -611,6 +611,38 @@ export async function fetchRemote(
   await runGit(['-C', dir, 'fetch', '--', remote, branch], { timeoutMs: FETCH_TIMEOUT_MS });
 }
 
+export class DirtyWorktreeError extends Error {
+  constructor(dir: string) {
+    super(`Worktree "${dir}" has uncommitted changes`);
+    this.name = 'DirtyWorktreeError';
+  }
+}
+
+export async function resetHard(
+  dir: string,
+  ref: string,
+  runGit: GitRunner = localGitRunner,
+): Promise<void> {
+  if (!ref || ref.startsWith('-')) {
+    throw new Error(`Invalid ref "${ref}"`);
+  }
+  const { stdout } = await runGit(['-C', dir, 'status', '--porcelain']);
+  if (stdout.trim()) throw new DirtyWorktreeError(dir);
+  await runGit(['-C', dir, 'reset', '--hard', ref, '--']);
+}
+
+export async function getOriginUrl(
+  dir: string,
+  runGit: GitRunner = localGitRunner,
+): Promise<string | null> {
+  try {
+    const { stdout } = await runGit(['-C', dir, 'remote', 'get-url', 'origin']);
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export function parseWorktreeList(output: string): GitWorktreeEntry[] {
   // `git worktree list --porcelain` emits blocks separated by blank lines.
   // Each block has lines like:

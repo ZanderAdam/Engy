@@ -117,6 +117,10 @@ export interface GitFetchResult {
   remote?: string;
 }
 
+export interface GitRemoteUrlResult {
+  url: string | null;
+}
+
 export interface ContainerUpResult {
   containerId: string;
 }
@@ -316,6 +320,20 @@ export interface AppState {
     string,
     {
       resolve: (result: GitFetchResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingGitResetHard: Map<
+    string,
+    {
+      resolve: (result: void) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingGitRemoteUrl: Map<
+    string,
+    {
+      resolve: (result: GitRemoteUrlResult) => void;
       reject: (reason: Error) => void;
     }
   >;
@@ -541,6 +559,8 @@ export interface AppState {
   prReviewCommentLastSyncedAt: Map<string, string>;
   /** GitHub viewer, availability status and rate-limit budget; never holds the token */
   github: GithubState;
+  /** `owner/name` per repo path from the `origin` remote; null for a non-GitHub remote */
+  repoFullNames: Map<string, string | null>;
   /** Terminal sessions connected as dispatch workers (sessionId → description) */
   dispatchWorkers: Map<string, DispatchWorker>;
   /** Cross-terminal dispatches by correlationId (in-memory; lost on restart) */
@@ -570,6 +590,8 @@ export function createAppState(): AppState {
     pendingGitBranch: new Map(),
     pendingGitDefaultBase: new Map(),
     pendingGitFetch: new Map(),
+    pendingGitResetHard: new Map(),
+    pendingGitRemoteUrl: new Map(),
     pendingContainerUp: new Map(),
     pendingContainerDown: new Map(),
     pendingContainerStatus: new Map(),
@@ -611,6 +633,7 @@ export function createAppState(): AppState {
     prRepoErrors: new Map(),
     prReviewCommentLastSyncedAt: new Map(),
     github: createGithubState(),
+    repoFullNames: new Map(),
     dispatchWorkers: new Map(),
     dispatches: new Map(),
     dispatchWaiters: new Map(),

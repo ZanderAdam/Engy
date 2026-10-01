@@ -259,6 +259,8 @@ export interface GitFetchRequestMessage {
     repoDir: string;
     /** Base ref the remote is derived from, e.g. `origin/main`. */
     base: string;
+    /** Fetched in place of `base`'s branch, e.g. `+refs/pull/7/head:refs/engy/pr/7`. */
+    refspec?: string;
     coderWorkspace?: string;
   };
 }
@@ -270,6 +272,49 @@ export interface GitFetchResponseMessage {
         requestId: string;
         /** Remote actually fetched; absent when the base implied none. */
         remote?: string;
+      }
+    | {
+        requestId: string;
+        error: string;
+      };
+}
+
+export type GitResetHardErrorCode = 'DIRTY' | 'OTHER';
+
+export interface GitResetHardRequestMessage {
+  type: 'GIT_RESET_HARD_REQUEST';
+  payload: {
+    requestId: string;
+    /** Worktree to reset. Refused with `DIRTY` when it has uncommitted changes. */
+    repoDir: string;
+    ref: string;
+    coderWorkspace?: string;
+  };
+}
+
+export interface GitResetHardResponseMessage {
+  type: 'GIT_RESET_HARD_RESPONSE';
+  payload:
+    | { requestId: string }
+    | { requestId: string; error: string; code: GitResetHardErrorCode };
+}
+
+export interface GitRemoteUrlRequestMessage {
+  type: 'GIT_REMOTE_URL_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    coderWorkspace?: string;
+  };
+}
+
+export interface GitRemoteUrlResponseMessage {
+  type: 'GIT_REMOTE_URL_RESPONSE';
+  payload:
+    | {
+        requestId: string;
+        /** URL of the `origin` remote; null when the repo has none. */
+        url: string | null;
       }
     | {
         requestId: string;
@@ -912,6 +957,10 @@ export type WsMessage =
   | GitDefaultBaseResponseMessage
   | GitFetchRequestMessage
   | GitFetchResponseMessage
+  | GitResetHardRequestMessage
+  | GitResetHardResponseMessage
+  | GitRemoteUrlRequestMessage
+  | GitRemoteUrlResponseMessage
   | GitWorktreeListRequestMessage
   | GitWorktreeListResponseMessage
   | WorktreeBranchChangedMessage
@@ -978,6 +1027,8 @@ export type ClientToServerMessage =
   | GitBranchResponseMessage
   | GitDefaultBaseResponseMessage
   | GitFetchResponseMessage
+  | GitResetHardResponseMessage
+  | GitRemoteUrlResponseMessage
   | GitWorktreeListResponseMessage
   | WorktreeBranchChangedMessage
   | DirListResponseMessage
@@ -1020,6 +1071,8 @@ export type ServerToClientMessage =
   | GitBranchRequestMessage
   | GitDefaultBaseRequestMessage
   | GitFetchRequestMessage
+  | GitResetHardRequestMessage
+  | GitRemoteUrlRequestMessage
   | GitWorktreeListRequestMessage
   | DirListRequestMessage
   | FileReadRequestMessage

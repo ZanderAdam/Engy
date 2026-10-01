@@ -10,6 +10,8 @@ import {
   dispatchGlobFiles,
   dispatchGitWorktreeList,
   dispatchGitFetch,
+  dispatchGitResetHard,
+  dispatchGitRemoteUrl,
   dispatchGitPatch,
   dispatchWorktreeAdd,
   dispatchWorktreeRemove,
@@ -217,6 +219,130 @@ describe('WebSocket Server', () => {
       await expect(dispatchGitFetch('/repo', 'origin/main', state)).rejects.toThrow(
         'No daemon connected',
       );
+    });
+  });
+
+  describe('GIT_FETCH_REQUEST refspec', () => {
+    it('should forward the refspec to the daemon', async () => {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(state.daemon).not.toBeNull(), { timeout: 5000 });
+
+      const messagePromise = waitForMessage(ws);
+      const fetchPromise = dispatchGitFetch(
+        '/repo',
+        'origin/main',
+        state,
+        'my-coder-ws',
+        '+refs/pull/7/head:refs/engy/pr/7',
+      );
+      const request = (await messagePromise) as {
+        payload: { requestId: string; refspec: string; coderWorkspace: string };
+      };
+      expect(request.payload.refspec).toBe('+refs/pull/7/head:refs/engy/pr/7');
+      expect(request.payload.coderWorkspace).toBe('my-coder-ws');
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_FETCH_RESPONSE',
+          payload: { requestId: request.payload.requestId, remote: 'origin' },
+        }),
+      );
+      await expect(fetchPromise).resolves.toEqual({ remote: 'origin' });
+    });
+  });
+
+  describe('GIT_RESET_HARD_RESPONSE', () => {
+    async function registeredClient() {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(state.daemon).not.toBeNull(), { timeout: 5000 });
+      return ws;
+    }
+
+    it('should send the worktree and ref and resolve on success', async () => {
+      const ws = await registeredClient();
+      const messagePromise = waitForMessage(ws);
+      const resetPromise = dispatchGitResetHard('/wt', 'refs/engy/pr/7', state, 'my-coder-ws');
+      const request = (await messagePromise) as {
+        type: string;
+        payload: { requestId: string; repoDir: string; ref: string; coderWorkspace: string };
+      };
+      expect(request.type).toBe('GIT_RESET_HARD_REQUEST');
+      expect(request.payload).toMatchObject({
+        repoDir: '/wt',
+        ref: 'refs/engy/pr/7',
+        coderWorkspace: 'my-coder-ws',
+      });
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_RESET_HARD_RESPONSE',
+          payload: { requestId: request.payload.requestId },
+        }),
+      );
+      await expect(resetPromise).resolves.toBeUndefined();
+    });
+
+    it('should reject with the DIRTY code from the daemon', async () => {
+      const ws = await registeredClient();
+      const messagePromise = waitForMessage(ws);
+      const resetPromise = dispatchGitResetHard('/wt', 'refs/engy/pr/7', state);
+      const request = (await messagePromise) as { payload: { requestId: string } };
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_RESET_HARD_RESPONSE',
+          payload: { requestId: request.payload.requestId, error: 'dirty', code: 'DIRTY' },
+        }),
+      );
+      await expect(resetPromise).rejects.toMatchObject({ message: 'dirty', code: 'DIRTY' });
+    });
+
+    it('should reject if no daemon is connected', async () => {
+      await expect(dispatchGitResetHard('/wt', 'HEAD', state)).rejects.toThrow(
+        'No daemon connected',
+      );
+    });
+  });
+
+  describe('GIT_REMOTE_URL_RESPONSE', () => {
+    async function registeredClient() {
+      const ws = await connectClient(port);
+      ws.send(JSON.stringify({ type: 'REGISTER', payload: {} }));
+      await vi.waitFor(() => expect(state.daemon).not.toBeNull(), { timeout: 5000 });
+      return ws;
+    }
+
+    it('should resolve with the origin url', async () => {
+      const ws = await registeredClient();
+      const messagePromise = waitForMessage(ws);
+      const urlPromise = dispatchGitRemoteUrl('/repo', state);
+      const request = (await messagePromise) as { type: string; payload: { requestId: string } };
+      expect(request.type).toBe('GIT_REMOTE_URL_REQUEST');
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_REMOTE_URL_RESPONSE',
+          payload: { requestId: request.payload.requestId, url: 'git@github.com:o/r.git' },
+        }),
+      );
+      await expect(urlPromise).resolves.toEqual({ url: 'git@github.com:o/r.git' });
+    });
+
+    it('should resolve a null url when the repo has no origin', async () => {
+      const ws = await registeredClient();
+      const messagePromise = waitForMessage(ws);
+      const urlPromise = dispatchGitRemoteUrl('/repo', state);
+      const request = (await messagePromise) as { payload: { requestId: string } };
+
+      ws.send(
+        JSON.stringify({
+          type: 'GIT_REMOTE_URL_RESPONSE',
+          payload: { requestId: request.payload.requestId, url: null },
+        }),
+      );
+      await expect(urlPromise).resolves.toEqual({ url: null });
     });
   });
 
@@ -1337,12 +1463,7 @@ describe('Execution event handling', () => {
         }),
       );
 
-      const localPath = path.join(
-        getWorkspaceDir(ws0),
-        'projects',
-        'coder-proj-2',
-        remoteName,
-      );
+      const localPath = path.join(getWorkspaceDir(ws0), 'projects', 'coder-proj-2', remoteName);
       await vi.waitFor(() => expect(fs.existsSync(localPath)).toBe(true));
       expect(fs.readFileSync(localPath, 'utf-8')).toBe('# Plan');
     });
