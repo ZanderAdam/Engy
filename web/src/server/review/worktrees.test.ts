@@ -61,7 +61,7 @@ function makePr(overrides: Partial<GithubPr>): GithubPr {
   };
 }
 
-describe('chooseWorktreesToRemove', () => {
+describe('[FR-PRREVIEW-070] chooseWorktreesToRemove', () => {
   const never = () => false;
 
   it.each([
@@ -79,7 +79,7 @@ describe('chooseWorktreesToRemove', () => {
   });
 });
 
-describe('keptReason', () => {
+describe('[FR-PRREVIEW-100] keptReason', () => {
   it.each([
     [true, true, 'local_changes'],
     [true, false, 'local_changes'],
@@ -134,7 +134,7 @@ describe('review worktrees', () => {
   });
 
   describe('openReviewWorktree', () => {
-    it('should fetch the PR head and add a worktree on a review branch', async () => {
+    it('[FR-PRREVIEW-010] should fetch the PR head and add a worktree on a review branch', async () => {
       const result = await open(7);
 
       const worktreePath = path.join(workspaceDir, 'worktrees', '_review', 'app', 'pr-7');
@@ -153,7 +153,7 @@ describe('review worktrees', () => {
       ]);
     });
 
-    it('should reuse a worktree already on the PR head branch', async () => {
+    it('[FR-PRREVIEW-020] should reuse a worktree already on the PR head branch', async () => {
       daemon.worktrees.set('/agent/wt', { branch: 'feat/seven', dirty: false, head: 'sha-agent' });
 
       const result = await open(7);
@@ -164,7 +164,7 @@ describe('review worktrees', () => {
       expect(rows()[0]).toMatchObject({ worktreePath: '/agent/wt', createdByReview: false });
     });
 
-    it('should read the PR from GitHub when it is not in the prs table', async () => {
+    it('[FR-PRREVIEW-030] should read the PR from GitHub when it is not in the prs table', async () => {
       const stub: StubGithub = await startStubGithub();
       process.env.ENGY_GITHUB_API_URL = stub.url;
       process.env.ENGY_GITHUB_TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
@@ -192,13 +192,13 @@ describe('review worktrees', () => {
       expect(daemon.calls.filter((call) => call === 'WORKTREE_ADD_REQUEST')).toHaveLength(1);
     });
 
-    it('should reject a repo that is not in the workspace', async () => {
+    it('[FR-PRREVIEW-040] should reject a repo that is not in the workspace', async () => {
       await expect(
         openReviewWorktree(ctx.state, { workspaceId, repoFullName: 'org/other', prNumber: 1 }),
       ).rejects.toThrow('not a repo of this workspace');
     });
 
-    it('should remove the worktree again when recording it fails', async () => {
+    it('[FR-PRREVIEW-050] should remove the worktree again when recording it fails', async () => {
       daemon.failures.add('GIT_STATUS_REQUEST');
 
       await expect(open(7)).rejects.toThrow('GIT_STATUS_REQUEST failed');
@@ -208,7 +208,7 @@ describe('review worktrees', () => {
       expect(rows()).toEqual([]);
     });
 
-    it('should leave nothing behind when the worktree add fails', async () => {
+    it('[FR-PRREVIEW-050] should leave nothing behind when the worktree add fails', async () => {
       daemon.failures.add('WORKTREE_ADD_REQUEST');
 
       await expect(open(7)).rejects.toThrow('WORKTREE_ADD_REQUEST failed');
@@ -218,7 +218,7 @@ describe('review worktrees', () => {
   });
 
   describe('opening a PR again', () => {
-    it('should move a clean worktree to the new head', async () => {
+    it('[FR-PRREVIEW-060] should move a clean worktree to the new head', async () => {
       await open(7);
       daemon.remoteHeads.set(7, 'sha-7b');
 
@@ -229,7 +229,7 @@ describe('review worktrees', () => {
       expect(rows()[0].headSha).toBe('sha-7b');
     });
 
-    it('should keep a dirty worktree and flag the new commits', async () => {
+    it('[FR-PRREVIEW-060] should keep a dirty worktree and flag the new commits', async () => {
       const { worktreePath } = await open(7);
       daemon.worktrees.get(worktreePath)!.dirty = true;
       daemon.remoteHeads.set(7, 'sha-7b');
@@ -241,7 +241,7 @@ describe('review worktrees', () => {
       expect(daemon.worktrees.get(worktreePath)!.head).toBe('sha-7a');
     });
 
-    it('should only record the head of a reused agent worktree', async () => {
+    it('[FR-PRREVIEW-020] should only record the head of a reused agent worktree', async () => {
       daemon.worktrees.set('/agent/wt', { branch: 'feat/seven', dirty: false, head: 'sha-agent' });
       await open(7);
       daemon.worktrees.get('/agent/wt')!.head = 'sha-agent-2';
@@ -254,7 +254,7 @@ describe('review worktrees', () => {
   });
 
   describe('cleanup on open', () => {
-    it('should remove the older review worktree with its branch, ref and row', async () => {
+    it('[FR-PRREVIEW-070] should remove the older review worktree with its branch, ref and row', async () => {
       const first = await open(7);
 
       await open(8);
@@ -265,7 +265,7 @@ describe('review worktrees', () => {
       expect(rows().map((row) => row.prNumber)).toEqual([8]);
     });
 
-    it('should keep a worktree with local changes', async () => {
+    it('[FR-PRREVIEW-070] should keep a worktree with local changes', async () => {
       const first = await open(7);
       daemon.worktrees.get(first.worktreePath)!.dirty = true;
 
@@ -275,7 +275,7 @@ describe('review worktrees', () => {
       expect(rows().map((row) => row.prNumber)).toEqual([7, 8]);
     });
 
-    it('should keep a worktree that is the cwd of a live terminal', async () => {
+    it('[FR-PRREVIEW-070] should keep a worktree that is the cwd of a live terminal', async () => {
       const first = await open(7);
       ctx.state.terminalSessionMeta.set('t1', {
         scopeType: 'workspace',
@@ -290,7 +290,7 @@ describe('review worktrees', () => {
       expect(daemon.worktrees.has(first.worktreePath)).toBe(true);
     });
 
-    it('should never remove a reused agent worktree', async () => {
+    it('[FR-PRREVIEW-070] should never remove a reused agent worktree', async () => {
       daemon.worktrees.set('/agent/wt', { branch: 'feat/seven', dirty: false, head: 'sha-agent' });
       await open(7);
 
@@ -300,7 +300,7 @@ describe('review worktrees', () => {
       expect(rows().map((row) => row.prNumber)).toEqual([7, 8]);
     });
 
-    it('should log a failed removal and still open the new PR', async () => {
+    it('[FR-PRREVIEW-070] should log a failed removal and still open the new PR', async () => {
       const first = await open(7);
       daemon.failures.add('WORKTREE_REMOVE_REQUEST');
 
@@ -311,7 +311,7 @@ describe('review worktrees', () => {
       expect(console.warn).toHaveBeenCalled();
     });
 
-    it('should keep a worktree whose status cannot be read', async () => {
+    it('[FR-PRREVIEW-070] should keep a worktree whose status cannot be read', async () => {
       const first = await open(7);
       daemon.worktrees.delete(first.worktreePath);
 
@@ -322,7 +322,7 @@ describe('review worktrees', () => {
   });
 
   describe('updateReviewWorktree', () => {
-    it('should discard local changes and move to the new head', async () => {
+    it('[FR-PRREVIEW-080] should discard local changes and move to the new head', async () => {
       const { id, worktreePath } = await open(7);
       daemon.worktrees.get(worktreePath)!.dirty = true;
       daemon.remoteHeads.set(7, 'sha-7b');
@@ -333,7 +333,7 @@ describe('review worktrees', () => {
       expect(daemon.worktrees.get(worktreePath)).toMatchObject({ dirty: false, head: 'sha-7b' });
     });
 
-    it('should report a dirty worktree without discard', async () => {
+    it('[FR-PRREVIEW-080] should report a dirty worktree without discard', async () => {
       const { id, worktreePath } = await open(7);
       daemon.worktrees.get(worktreePath)!.dirty = true;
 
@@ -343,7 +343,7 @@ describe('review worktrees', () => {
       expect(daemon.worktrees.get(worktreePath)!.dirty).toBe(true);
     });
 
-    it('should drop the row when the worktree cannot be re-added', async () => {
+    it('[FR-PRREVIEW-080] should drop the row when the worktree cannot be re-added', async () => {
       const { id } = await open(7);
       daemon.failures.add('WORKTREE_ADD_REQUEST');
 
@@ -352,7 +352,7 @@ describe('review worktrees', () => {
       expect(rows()).toEqual([]);
     });
 
-    it('should refuse a reused agent worktree', async () => {
+    it('[FR-PRREVIEW-080] should refuse a reused agent worktree', async () => {
       daemon.worktrees.set('/agent/wt', { branch: 'feat/seven', dirty: false, head: 'sha-agent' });
       const { id } = await open(7);
 
@@ -363,7 +363,7 @@ describe('review worktrees', () => {
   });
 
   describe('removeReviewWorktree', () => {
-    it('should remove the worktree, refs and row', async () => {
+    it('[FR-PRREVIEW-090] should remove the worktree, refs and row', async () => {
       const { id, worktreePath } = await open(7);
 
       await removeReviewWorktree(ctx.state, id);
@@ -373,7 +373,7 @@ describe('review worktrees', () => {
       expect(rows()).toEqual([]);
     });
 
-    it('should refuse a dirty worktree unless forced', async () => {
+    it('[FR-PRREVIEW-090] should refuse a dirty worktree unless forced', async () => {
       const { id, worktreePath } = await open(7);
       daemon.worktrees.get(worktreePath)!.dirty = true;
 
@@ -383,7 +383,7 @@ describe('review worktrees', () => {
       expect(rows()).toEqual([]);
     });
 
-    it('should clean up when the worktree is already gone', async () => {
+    it('[FR-PRREVIEW-090] should clean up when the worktree is already gone', async () => {
       const { id, worktreePath } = await open(7);
       daemon.worktrees.delete(worktreePath);
 
@@ -392,7 +392,7 @@ describe('review worktrees', () => {
       expect(rows()).toEqual([]);
     });
 
-    it('should refuse a reused agent worktree', async () => {
+    it('[FR-PRREVIEW-090] should refuse a reused agent worktree', async () => {
       daemon.worktrees.set('/agent/wt', { branch: 'feat/seven', dirty: false, head: 'sha-agent' });
       const { id } = await open(7);
 
@@ -400,13 +400,13 @@ describe('review worktrees', () => {
       expect(rows()).toHaveLength(1);
     });
 
-    it('should reject an unknown id', async () => {
+    it('[FR-PRREVIEW-090] should reject an unknown id', async () => {
       await expect(removeReviewWorktree(ctx.state, 999)).rejects.toThrow('not found');
     });
   });
 
   describe('listReviewWorktrees', () => {
-    it('should report why a worktree is kept', async () => {
+    it('[FR-PRREVIEW-100] should report why a worktree is kept', async () => {
       const dirty = await open(7);
       daemon.worktrees.get(dirty.worktreePath)!.dirty = true;
       const live = await open(8);
@@ -426,7 +426,7 @@ describe('review worktrees', () => {
       ]);
     });
 
-    it('should leave agent worktrees and other workspaces out of the kept state', async () => {
+    it('[FR-PRREVIEW-100] should leave agent worktrees and other workspaces out of the kept state', async () => {
       daemon.worktrees.set('/agent/wt', { branch: 'feat/seven', dirty: true, head: 'sha-agent' });
       await open(7);
       ctx.db

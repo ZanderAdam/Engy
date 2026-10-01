@@ -10,7 +10,7 @@ import {
 } from './inbox-helpers';
 
 describe('inbox-helpers', () => {
-  describe('sortInboxItems', () => {
+  describe('[FR-INBOX-450] sortInboxItems', () => {
     it('should put unread first, then newest first', () => {
       const items = [
         { id: 1, unread: false, lastEventAt: '2026-09-30T10:00:00Z' },
@@ -40,7 +40,7 @@ describe('inbox-helpers', () => {
     });
   });
 
-  describe('filterInboxItems', () => {
+  describe('[FR-INBOX-450] filterInboxItems', () => {
     const items = [
       { title: 'Fix login bug', repoFullName: 'acme/web' },
       { title: 'Add cache', repoFullName: 'acme/api' },
@@ -74,7 +74,7 @@ describe('inbox-helpers', () => {
     });
   });
 
-  describe('nextSelectionAfterRemoval', () => {
+  describe('[FR-INBOX-450] nextSelectionAfterRemoval', () => {
     it('should select the row that takes the removed row place', () => {
       expect(nextSelectionAfterRemoval([1, 2, 3], 2)).toBe(3);
     });

@@ -11,7 +11,7 @@ import {
 } from './file-classes';
 
 describe('file classes', () => {
-  describe('classifyPath by path rules', () => {
+  describe('[FR-PRREVIEW-160] classifyPath by path rules', () => {
     it.each([
       ['web/src/app.ts', 'implementation'],
       ['web/src/app.test.ts', 'test'],
@@ -37,18 +37,18 @@ describe('file classes', () => {
   });
 
   describe('classifyPath with .gitattributes', () => {
-    it('should mark files generated when linguist-generated is set', () => {
+    it('[FR-PRREVIEW-170] should mark files generated when linguist-generated is set', () => {
       const rules = parseGitattributes('*.pb.ts linguist-generated=true\n');
       expect(classifyPath('api/user.pb.ts', rules)).toBe('generated');
     });
 
-    it('should mark files docs when linguist-documentation is set', () => {
+    it('[FR-PRREVIEW-170] should mark files docs when linguist-documentation is set', () => {
       const rules = parseGitattributes('/notes/** linguist-documentation\n');
       expect(classifyPath('notes/a/b.txt', rules)).toBe('docs');
       expect(classifyPath('src/notes/b.txt', rules)).toBe('implementation');
     });
 
-    it('should let a later rule override an earlier one', () => {
+    it('[FR-PRREVIEW-170] should let a later rule override an earlier one', () => {
       const rules = parseGitattributes(
         '*.gen.ts linguist-generated\nkeep.gen.ts -linguist-generated\n',
       );
@@ -56,19 +56,19 @@ describe('file classes', () => {
       expect(classifyPath('a/other.gen.ts', rules)).toBe('generated');
     });
 
-    it('should turn off a path rule when the attribute is false', () => {
+    it('[FR-PRREVIEW-170] should turn off a path rule when the attribute is false', () => {
       const rules = parseGitattributes('dist/** linguist-generated=false\n');
       expect(classifyPath('dist/index.js', rules)).toBe('implementation');
     });
 
-    it('should ignore comments and unrelated attributes', () => {
+    it('[FR-PRREVIEW-170] should ignore comments and unrelated attributes', () => {
       const rules = parseGitattributes('# note\n*.png binary\n* text=auto\n');
       expect(rules).toEqual([]);
     });
   });
 
   describe('orderByClass', () => {
-    it('should list implementation first and keep order inside a class', () => {
+    it('[FR-PRREVIEW-180] should list implementation first and keep order inside a class', () => {
       const files = [
         { path: 'pnpm-lock.yaml' },
         { path: 'a.test.ts' },
@@ -80,7 +80,7 @@ describe('file classes', () => {
     });
   });
 
-  describe('line counts', () => {
+  describe('[FR-PRREVIEW-190] line counts', () => {
     it('should count hunk lines and skip headers', () => {
       const patch = [
         '--- a/x',
