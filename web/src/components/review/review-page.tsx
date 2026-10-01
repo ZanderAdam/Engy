@@ -5,6 +5,7 @@ import { RiAlertLine, RiGitBranchLine, RiLoader4Line, RiTerminalBoxLine } from '
 import { toast } from 'sonner';
 import { trpc, type RouterOutputs } from '@/lib/trpc';
 import { useOnServerEvent } from '@/contexts/events-context';
+import { useContainerNarrow } from '@/hooks/use-container-narrow';
 import { refreshDiff } from '@/components/diff/diff-refresh';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -48,14 +49,25 @@ interface ReviewPageProps {
   onTabChange?: (tab: ReviewTab) => void;
 }
 
-export function ReviewPage({
+export function ReviewPage(props: ReviewPageProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isNarrow = useContainerNarrow(containerRef);
+  return (
+    <div ref={containerRef} className="flex min-h-0 flex-1 flex-col">
+      <ReviewPageBody {...props} isNarrow={isNarrow} />
+    </div>
+  );
+}
+
+function ReviewPageBody({
+  isNarrow,
   workspaceSlug,
   repoFullName,
   prNumber,
   projectSlug,
   onBack,
   onTabChange,
-}: ReviewPageProps) {
+}: ReviewPageProps & { isNarrow: boolean }) {
   const [tab, setTab] = useState<ReviewTab>('overview');
   const [worktree, setWorktree] = useState<OpenedWorktree | null>(null);
   const [keptLocalChanges, setKeptLocalChanges] = useState(false);
@@ -242,12 +254,14 @@ export function ReviewPage({
         }
         worktreeActions={worktreeActions}
       />
-      <details className="border-b border-border lg:hidden">
-        <summary className="cursor-pointer px-4 py-2 text-xs text-muted-foreground">
-          Details
-        </summary>
-        {sidebar}
-      </details>
+      {isNarrow && (
+        <details className="border-b border-border">
+          <summary className="cursor-pointer px-4 py-2 text-xs text-muted-foreground">
+            Details
+          </summary>
+          {sidebar}
+        </details>
+      )}
 
       <div className="flex min-h-0 flex-1">
         <Tabs
@@ -259,7 +273,7 @@ export function ReviewPage({
             {REVIEW_TABS.map(({ value, label, key }) => (
               <TabsTrigger key={value} value={value} className="flex-none">
                 {label}
-                <Kbd className="hidden lg:inline-flex">{key}</Kbd>
+                {!isNarrow && <Kbd>{key}</Kbd>}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -298,9 +312,9 @@ export function ReviewPage({
             <ReviewChecks checks={detail.checks} />
           </TabsContent>
         </Tabs>
-        <aside className="hidden w-72 shrink-0 overflow-y-auto border-l border-border lg:block">
-          {sidebar}
-        </aside>
+        {!isNarrow && (
+          <aside className="w-72 shrink-0 overflow-y-auto border-l border-border">{sidebar}</aside>
+        )}
       </div>
     </div>
   );

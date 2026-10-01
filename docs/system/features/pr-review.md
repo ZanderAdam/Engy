@@ -20,7 +20,7 @@ A review needs the PR code on disk. `openReviewWorktree` (`web/src/server/review
 
 ## Review page data
 
-`review.detail` returns the PR detail from GitHub (`fetchPrDetail`, `web/src/server/github/pr-detail.ts`). It holds the title, state, draft flag, CI status, reviewers, labels, conversation and commits. The review sidebar shows the latest verdict of each reviewer (`latestReviewVerdicts`). The Files tab uses the diff surface with file classes. The summary panel (`review-summary-panel.tsx`) shows the risk badge and the reading order.
+`review.detail` returns the PR detail from GitHub (`fetchPrDetail`, `web/src/server/github/pr-detail.ts`). It holds the title, state, draft flag, CI status, reviewers, labels, conversation and commits. The review sidebar shows the latest verdict of each reviewer (`latestReviewVerdicts`). The review page measures its own width (`useContainerNarrow`). Below 720 px the sidebar moves into a collapsible Details section above the tabs, and the header stats wrap. The Files tab uses the diff surface with file classes. The summary panel (`review-summary-panel.tsx`) shows the risk badge and the reading order.
 
 ## File classes
 

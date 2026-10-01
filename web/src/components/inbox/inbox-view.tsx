@@ -59,7 +59,7 @@ import { InboxMoreMenu } from './inbox-more-menu';
 import { InboxPreview } from './inbox-preview';
 import { SnoozeMenu } from './snooze-menu';
 import { useInboxDisplayOptions } from './use-inbox-display-options';
-import { useContainerNarrow } from './use-container-narrow';
+import { useContainerNarrow } from '@/hooks/use-container-narrow';
 import { useInboxKeys } from './use-inbox-keys';
 
 type InboxTab = 'priority' | 'all' | 'mine';
