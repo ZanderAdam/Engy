@@ -53,6 +53,14 @@ export function nextSelectionAfterRemoval<K>(ids: K[], removedId: K): K | null {
   return remaining[Math.min(index, remaining.length - 1)];
 }
 
+export function selectionAfterMarkRead<K>(
+  explicitId: K | null,
+  rowId: K,
+  wasUnread: boolean,
+): K | null {
+  return wasUnread ? rowId : explicitId;
+}
+
 export function shouldStartReadDwell<K>(
   explicitId: K | null,
   resolvedId: K | null,

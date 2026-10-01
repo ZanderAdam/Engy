@@ -39,6 +39,7 @@ import {
   filterInboxItems,
   moveSelection,
   nextSelectionAfterRemoval,
+  selectionAfterMarkRead,
   pickReviewProject,
   prKey,
   shouldStartReadDwell,
@@ -284,6 +285,12 @@ export function InboxView({ scope }: InboxViewProps) {
     else markUnread({ id: item.id });
   }
 
+  function toggleSelectedRead(row: InboxRowModel) {
+    if (!row.item) return;
+    setSelectedKey(selectionAfterMarkRead(selectedKey, row.key, row.item.unread));
+    toggleRead(row.item);
+  }
+
   function moveBy(delta: 1 | -1) {
     const keys = visibleRows.map((row) => row.key);
     const next = moveSelection(keys, selected?.key ?? null, delta);
@@ -301,7 +308,7 @@ export function InboxView({ scope }: InboxViewProps) {
         if (openKey) closeReview();
       },
       toggleRead: () => {
-        if (selectedItem) toggleRead(selectedItem);
+        if (selected) toggleSelectedRead(selected);
       },
       markAllRead: () => {
         if (tab !== 'mine') markAllRead({ tab, workspaceId });
@@ -454,7 +461,7 @@ export function InboxView({ scope }: InboxViewProps) {
       onRemoveKept={(id, force) => removeKept({ id, force })}
       onDone={() => removeSelected((id) => markDone({ id }))}
       onSnooze={() => openSnoozeFor(selected)}
-      onToggleRead={() => selectedItem && toggleRead(selectedItem)}
+      onToggleRead={() => selected && toggleSelectedRead(selected)}
     />
   ) : (
     <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">

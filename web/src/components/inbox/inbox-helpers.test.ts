@@ -11,6 +11,7 @@ import {
   unreadPriorityCount,
   describeCleared,
   pickReviewProject,
+  selectionAfterMarkRead,
 } from './inbox-helpers';
 
 describe('inbox-helpers', () => {
@@ -132,6 +133,18 @@ describe('inbox-helpers', () => {
 
     it('should not start in a hidden tab', () => {
       expect(shouldStartReadDwell(3, 3, false)).toBe(false);
+    });
+  });
+
+  describe('[FR-INBOX-570] selectionAfterMarkRead', () => {
+    it('should pin the selection to a row that is marked read', () => {
+      expect(selectionAfterMarkRead(null, 'a', true)).toBe('a');
+      expect(selectionAfterMarkRead('b', 'a', true)).toBe('a');
+    });
+
+    it('should keep the selection when the row is marked unread', () => {
+      expect(selectionAfterMarkRead(null, 'a', false)).toBeNull();
+      expect(selectionAfterMarkRead('b', 'a', false)).toBe('b');
     });
   });
 

@@ -108,6 +108,7 @@ The PRs tab shows a global toast for attention events (FR-PRMON-200). The PRs na
 | FR-INBOX-530 | WHEN the Inbox view clears items, the system SHALL show a toast with the number of cleared items, and SHALL add the number of items that could not be marked done on GitHub when it is not zero; the Inbox list header menu SHALL offer Mark all as read, Clear all read and Clear all for the current tab and workspace filter and SHALL ask for confirmation before it clears; each row with an Inbox item and the preview SHALL show Done and Snooze buttons.                                                                                                                                                                   |
 | FR-INBOX-550 | WHILE a review is open in the PRs tab, the system SHALL run only `j` (next), `k` (previous) and `Escape` (close the review) as Inbox key actions and SHALL leave all other keys, including the arrow keys and `Enter`, to the review. |
 | FR-INBOX-560 | WHEN the global Inbox page opens a review, the system SHALL choose the project of the correlated agent session of the item, else the default project of the workspace of the item, else the first project; IF the workspace has no project, THEN the system SHALL NOT offer Open review. |
+| FR-INBOX-570 | WHEN the user marks the previewed item read, the system SHALL keep the preview on that item, also when the item was only selected by default; WHEN the user marks it unread, the selection SHALL stay as it was. |
 
 ## Sources
 
