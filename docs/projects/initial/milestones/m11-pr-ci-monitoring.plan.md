@@ -169,6 +169,8 @@ Shipped 2026-07-02 (commits 42e858f..edb9fac). Both tasks plus review fixes and 
 
 ## Out of Scope
 
+M15 (`m15-pr-inbox-review.plan.md`) reopens two items below: GitHub review writes (no merge) and a PR notification inbox. It also moves GitHub calls from the daemon `gh` CLI to a server client.
+
 - GitHub write operations — posting comment replies, resolving/dismissing reviews on GitHub, merging PRs (post-v1; dismissal in TG3 is local-only)
 - Webhook-based updates (polling only, per FR-11.2)
 - Full notification center with history/read-state (M8 scope; M11 ships toast + attention badge only)
