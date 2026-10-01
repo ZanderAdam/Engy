@@ -342,7 +342,7 @@ export function CommentWidget({
               onKeyDown={handleKeyDown}
               placeholder={composerPlaceholder()}
               className="min-h-[60px] resize-none text-xs"
-              autoFocus
+              autoFocus={!comment}
             />
             <div className="mt-1.5 flex items-center justify-end">
               <div className="flex gap-1">
