@@ -29,6 +29,20 @@ export const FILE_CLASS_LABELS: Record<FileClass, string> = {
 
 export const COLLAPSED_BY_DEFAULT: ReadonlySet<FileClass> = new Set(['generated', 'lockfile']);
 
+export function revealClassOf(
+  collapsed: ReadonlySet<FileClass>,
+  selectedId: string | null,
+  idPrefix: string,
+  classes: ReadonlyMap<string, FileClass>,
+): ReadonlySet<FileClass> {
+  if (selectedId === null || !selectedId.startsWith(idPrefix)) return collapsed;
+  const fileClass = classes.get(selectedId.slice(idPrefix.length)) ?? 'implementation';
+  if (!collapsed.has(fileClass)) return collapsed;
+  const next = new Set(collapsed);
+  next.delete(fileClass);
+  return next;
+}
+
 const LOCKFILE =
   /(?:^|\/)(?:pnpm-lock\.yaml|package-lock\.json|yarn\.lock|Cargo\.lock|go\.sum|[^/]*\.lock)$/;
 const GENERATED =

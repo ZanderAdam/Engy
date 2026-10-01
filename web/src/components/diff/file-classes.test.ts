@@ -6,6 +6,8 @@ import {
   implementationLines,
   orderByClass,
   parseGitattributes,
+  revealClassOf,
+  type FileClass,
 } from './file-classes';
 
 describe('file classes', () => {
@@ -106,5 +108,31 @@ describe('file classes', () => {
         removed: 0,
       });
     });
+  });
+});
+
+describe('revealClassOf', () => {
+  const classes = new Map<string, FileClass>([
+    ['pnpm-lock.yaml', 'lockfile'],
+    ['src/app.ts', 'implementation'],
+  ]);
+  const collapsed = new Set<FileClass>(['lockfile', 'generated']);
+
+  it('should expand the group holding the selected file', () => {
+    const next = revealClassOf(collapsed, 'unstaged:pnpm-lock.yaml', 'unstaged:', classes);
+    expect([...next]).toEqual(['generated']);
+  });
+
+  it('should return the same set when the selected file is already visible', () => {
+    expect(revealClassOf(collapsed, 'unstaged:src/app.ts', 'unstaged:', classes)).toBe(collapsed);
+  });
+
+  it('should return the same set when nothing is selected', () => {
+    expect(revealClassOf(collapsed, null, 'unstaged:', classes)).toBe(collapsed);
+  });
+
+  it('should treat an unclassified file as implementation', () => {
+    const lonely = new Set<FileClass>(['implementation']);
+    expect(revealClassOf(lonely, 'unstaged:x.ts', 'unstaged:', new Map()).size).toBe(0);
   });
 });

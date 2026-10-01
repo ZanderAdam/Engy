@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { trpc } from '@/lib/trpc';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -16,7 +16,7 @@ import { GithubCommentTriage } from './github-comment-triage';
 import { useDiffComments } from './use-diff-comments';
 import { scopeCommentsToFiles } from './comment-scope';
 import { OutdatedThreads } from './outdated-threads';
-import { stepInList, unresolvedThreadOrder } from './review-nav';
+import { stepInList, stepThread, unresolvedThreadOrder } from './review-nav';
 import type { FileClass } from './file-classes';
 import { useReviewKeys, type ReviewKeyAction } from '@/components/review/use-review-keys';
 import { diffDocFilePath } from '@/lib/diff-doc-path';
@@ -353,11 +353,20 @@ export function DiffReviewSurface({
     () => unresolvedThreadOrder(currentFileComments, fileOrder),
     [currentFileComments, fileOrder],
   );
-  const [threadCursor, setThreadCursor] = useState<string | null>(null);
+  const threadCursor = useRef<{ id: string; order: string[] } | null>(null);
   const currentPath =
     reviewMode === 'stack' && visibleRowId
       ? decodeSelection(visibleRowId, true).path
       : selectedFile;
+
+  const goToThread = (threadId: string | null) => {
+    const thread = threadOrder.find((t) => t.threadId === threadId);
+    const path = thread ? diffDocFilePath(thread.documentPath) : null;
+    if (!thread || !path) return;
+    threadCursor.current = { id: thread.threadId, order: threadOrder.map((t) => t.threadId) };
+    selectFileByPath(path);
+    window.setTimeout(() => scrollToThread(thread.threadId), THREAD_SCROLL_DELAY_MS);
+  };
 
   const handleReviewKey = (action: ReviewKeyAction) => {
     const delta = action === 'nextFile' || action === 'nextThread' ? 1 : -1;
@@ -370,13 +379,13 @@ export function DiffReviewSurface({
       }
       case 'nextThread':
       case 'prevThread': {
-        const current = threadOrder.find((t) => t.threadId === threadCursor) ?? null;
-        const thread = stepInList(threadOrder, current, delta);
-        const path = thread ? diffDocFilePath(thread.documentPath) : null;
-        if (!thread || !path) return;
-        setThreadCursor(thread.threadId);
-        selectFileByPath(path);
-        window.setTimeout(() => scrollToThread(thread.threadId), THREAD_SCROLL_DELAY_MS);
+        goToThread(
+          stepThread(
+            threadCursor.current,
+            threadOrder.map((t) => t.threadId),
+            delta,
+          ),
+        );
         return;
       }
       case 'toggleViewed':

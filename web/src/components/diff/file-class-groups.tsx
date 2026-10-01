@@ -9,6 +9,7 @@ import {
   COLLAPSED_BY_DEFAULT,
   FILE_CLASS_LABELS,
   FILE_CLASS_ORDER,
+  revealClassOf,
   type FileClass,
 } from './file-classes';
 
@@ -33,7 +34,13 @@ export function FileClassGroups({
   expandedIds,
   onExpandedChange,
 }: FileClassGroupsProps) {
-  const [collapsed, setCollapsed] = useState<Set<FileClass>>(new Set(COLLAPSED_BY_DEFAULT));
+  const [collapsed, setCollapsed] = useState<ReadonlySet<FileClass>>(COLLAPSED_BY_DEFAULT);
+
+  const [revealedFile, setRevealedFile] = useState<string | null>(null);
+  if (selectedFile !== revealedFile) {
+    setRevealedFile(selectedFile);
+    setCollapsed(revealClassOf(collapsed, selectedFile, idPrefix, classes));
+  }
 
   const groups = useMemo(
     () =>
