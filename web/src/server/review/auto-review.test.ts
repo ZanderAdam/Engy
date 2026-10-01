@@ -271,6 +271,16 @@ describe('auto review', () => {
       expect(ctx.state.autoReviewedShas.size).toBe(0);
     });
 
+    it('[FR-PRMON-310] should group a manual review under the chosen project so that project dock lists it', async () => {
+      ctx.db.insert(projects).values({ workspaceId, name: 'G', slug: 'plain' }).run();
+
+      await startManual('plain');
+
+      const meta = vi.mocked(spawnAgentTerminal).mock.calls[0][1].callerMeta;
+      expect(meta.groupKey).toBe('project:ws:plain');
+      expect(meta.workspaceSlug).toBe('ws');
+    });
+
     it('[FR-PRMON-310] should pass the guide of the chosen project', async () => {
       const guidePath = seedProjectGuide();
 

@@ -10,7 +10,7 @@ import { spawnAgentTerminal } from '../terminal-dispatch';
 import type { AppState } from '../trpc/context';
 import { findCorrelatedSession } from '../trpc/routers/pr';
 import { dispatchGitBranchFiles } from '../ws/server';
-import { workspaceGroupKey } from '@/components/terminal/group-key';
+import { projectGroupKey, workspaceGroupKey } from '@/components/terminal/group-key';
 import { buildReviewPrompt } from '../../lib/review-prompt';
 import { DEFAULT_BASE_REF, openReviewWorktree } from './worktrees';
 
@@ -129,6 +129,7 @@ async function spawnReviewSession(
   worktree: OpenedWorktree,
   prNumber: number,
   reviewGuide: string | undefined,
+  projectSlug?: string,
 ): Promise<{ sessionId: string } | null> {
   const { mergeBase, head } = await dispatchGitBranchFiles(
     worktree.worktreePath,
@@ -151,7 +152,9 @@ async function spawnReviewSession(
       scopeType: 'worktree',
       scopeLabel: `PR #${prNumber}`,
       workingDir: worktree.worktreePath,
-      groupKey: workspaceGroupKey(workspace.slug),
+      groupKey: projectSlug
+        ? projectGroupKey(workspace.slug, projectSlug)
+        : workspaceGroupKey(workspace.slug),
       workspaceSlug: workspace.slug,
       cols: 80,
       rows: 24,
@@ -269,7 +272,14 @@ async function startReservedManualReview(
     ? findGuideBySlug(workspace, projectSlug)
     : findCorrelatedGuide(workspace, worktree.repoPath, worktree.headRefName);
   try {
-    const spawned = await spawnReviewSession(state, workspace, worktree, prNumber, reviewGuide);
+    const spawned = await spawnReviewSession(
+      state,
+      workspace,
+      worktree,
+      prNumber,
+      reviewGuide,
+      projectSlug,
+    );
     if (spawned) return spawned;
   } catch (err) {
     throw new TRPCError({
