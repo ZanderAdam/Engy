@@ -3,7 +3,14 @@ import { setupTestDb, type TestContext } from '../test-helpers';
 import { appRouter } from '../root';
 import { addEvent, upsertItem } from '../../inbox/store';
 import { NO_BUCKET_FACTS } from '../../inbox/bucket';
-import { commentThreads, reviewWorktrees } from '../../db/schema';
+import {
+  agentSessions,
+  commentThreads,
+  projects,
+  reviewWorktrees,
+  taskGroups,
+  workspaces,
+} from '../../db/schema';
 import { diffScopePrefix } from '../../../lib/diff-doc-path';
 import { startStubGithub, type StubGithub } from '../../github/stub-server';
 
@@ -131,6 +138,85 @@ describe('inbox router', () => {
         const [listed] = await caller.inbox.list({ tab: 'all' });
 
         expect(listed.risk).toBeNull();
+      });
+    });
+
+    describe('projectSlug', () => {
+      const REPO_PATH = '/repos/api';
+
+      function createRepoItem() {
+        prSeq += 1;
+        return upsertItem({
+          repoFullName: 'acme/api',
+          prNumber: prSeq,
+          title: `PR ${prSeq}`,
+          url: `https://github.com/acme/api/pull/${prSeq}`,
+          repoPath: REPO_PATH,
+        });
+      }
+
+      function seedSession(branch: string, worktreePath: string) {
+        const ws = ctx.db
+          .insert(workspaces)
+          .values({ name: 'WS', slug: 'ws', repos: [REPO_PATH] })
+          .returning()
+          .get();
+        const project = ctx.db
+          .insert(projects)
+          .values({ workspaceId: ws.id, name: 'Auth', slug: 'auth' })
+          .returning()
+          .get();
+        const group = ctx.db
+          .insert(taskGroups)
+          .values({ projectId: project.id, name: 'TG' })
+          .returning()
+          .get();
+        ctx.db
+          .insert(agentSessions)
+          .values({ sessionId: 'sess-1', taskGroupId: group.id, branch, worktreePath })
+          .run();
+      }
+
+      function trackBranch(prNumber: number, headRefName: string) {
+        ctx.db
+          .insert(reviewWorktrees)
+          .values({
+            repoPath: REPO_PATH,
+            repoFullName: 'acme/api',
+            prNumber,
+            worktreePath: `/wt/pr-${prNumber}`,
+            headRefName,
+            headSha: 'sha',
+            createdByReview: true,
+          })
+          .run();
+      }
+
+      it('[FR-PRMON-040] should return the project slug of the session that worked on the PR branch', async () => {
+        const item = createRepoItem();
+        trackBranch(item.prNumber, 'feat/a');
+        seedSession('feat/a', `${REPO_PATH}/.worktrees/engy-session-1`);
+
+        const [listed] = await caller.inbox.list({ tab: 'all' });
+
+        expect(listed.projectSlug).toBe('auth');
+      });
+
+      it('should be null when no session worked on the PR branch', async () => {
+        const item = createRepoItem();
+        trackBranch(item.prNumber, 'feat/a');
+
+        const [listed] = await caller.inbox.list({ tab: 'all' });
+
+        expect(listed.projectSlug).toBeNull();
+      });
+
+      it('should be null for an item outside every workspace repo', async () => {
+        createItem();
+
+        const [listed] = await caller.inbox.list({ tab: 'all' });
+
+        expect(listed.projectSlug).toBeNull();
       });
     });
 

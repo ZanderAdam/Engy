@@ -18,6 +18,7 @@ import { getDb } from '../../db/client';
 import { commentThreads, prs, reviewWorktrees } from '../../db/schema';
 import { diffScopePrefix } from '../../../lib/diff-doc-path';
 import { parseRisk, type ReviewRisk } from '../../../components/diff/review-summary-meta';
+import { findCorrelatedSession } from './pr';
 import { markThreadDoneOnGithub, markThreadReadOnGithub } from '../../github/notifications';
 
 const RECENT_EVENT_LIMIT = 20;
@@ -77,6 +78,17 @@ function readReviewRisk(item: {
   return parseRisk(summary?.metadata?.risk) ?? null;
 }
 
+function readProjectSlug(item: {
+  repoFullName: string;
+  prNumber: number;
+  repoPath: string | null;
+}): string | null {
+  if (!item.repoPath) return null;
+  const headBranch = findHeadBranch(item.repoFullName, item.prNumber);
+  if (!headBranch) return null;
+  return findCorrelatedSession(getDb(), headBranch, item.repoPath)?.projectSlug ?? null;
+}
+
 export const inboxRouter = router({
   list: publicProcedure.input(filterSchema).query(({ input }) => {
     wakeDueSnoozes(new Date());
@@ -93,6 +105,7 @@ export const inboxRouter = router({
         },
         events,
         risk: readReviewRisk(item),
+        projectSlug: readProjectSlug(item),
       };
     });
   }),

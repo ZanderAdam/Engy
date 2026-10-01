@@ -1,5 +1,6 @@
+import path from 'node:path';
 import { z } from 'zod';
-import { eq, and, inArray, desc, isNotNull, isNull } from 'drizzle-orm';
+import { eq, and, inArray, desc, isNotNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
@@ -14,68 +15,83 @@ interface CorrelatedSession {
   sessionId: string;
   taskGroupId: number | null;
   taskId: number | null;
-  worktreePath: string | null;
+  worktreePath: string;
   branch: string | null;
   status: typeof agentSessions.$inferSelect.status;
+  projectSlug: string | null;
 }
 
-const SESSION_FIELDS = {
-  sessionId: agentSessions.sessionId,
-  taskGroupId: agentSessions.taskGroupId,
-  taskId: agentSessions.taskId,
-  worktreePath: agentSessions.worktreePath,
-  branch: agentSessions.branch,
-  status: agentSessions.status,
-  createdAt: agentSessions.createdAt,
-};
+function isInsideRepo(repo: string, candidate: string): boolean {
+  const relative = path.relative(path.resolve(repo), path.resolve(candidate));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function listSessionsOnBranches(db: Db, branches: string[]): CorrelatedSession[] {
+  if (branches.length === 0) return [];
+  const rows = db
+    .select({
+      sessionId: agentSessions.sessionId,
+      taskGroupId: agentSessions.taskGroupId,
+      taskId: agentSessions.taskId,
+      worktreePath: agentSessions.worktreePath,
+      branch: agentSessions.branch,
+      status: agentSessions.status,
+      groupProjectId: taskGroups.projectId,
+      taskProjectId: tasks.projectId,
+    })
+    .from(agentSessions)
+    .leftJoin(taskGroups, eq(agentSessions.taskGroupId, taskGroups.id))
+    .leftJoin(tasks, eq(agentSessions.taskId, tasks.id))
+    .where(and(isNotNull(agentSessions.worktreePath), inArray(agentSessions.branch, branches)))
+    .orderBy(desc(agentSessions.createdAt), desc(agentSessions.id))
+    .all();
+
+  const projectIds = new Set<number>();
+  for (const row of rows) {
+    const projectId = row.groupProjectId ?? row.taskProjectId;
+    if (projectId !== null) projectIds.add(projectId);
+  }
+  const slugById = new Map(
+    projectIds.size === 0
+      ? []
+      : db
+          .select({ id: projects.id, slug: projects.slug })
+          .from(projects)
+          .where(inArray(projects.id, [...projectIds]))
+          .all()
+          .map((project) => [project.id, project.slug]),
+  );
+
+  return rows.flatMap(({ groupProjectId, taskProjectId, worktreePath, ...session }) =>
+    worktreePath === null
+      ? []
+      : [
+          {
+            ...session,
+            worktreePath,
+            projectSlug: slugById.get(groupProjectId ?? taskProjectId ?? -1) ?? null,
+          },
+        ],
+  );
+}
+
+function matchesPr(session: CorrelatedSession, headBranch: string, repo: string): boolean {
+  return session.branch === headBranch && isInsideRepo(repo, session.worktreePath);
+}
 
 /**
- * Finds the most recent agent session correlated to a PR branch within a repo.
- * Covers both group-mode sessions (correlated via taskGroup → project → projectDir)
- * and task-mode sessions (taskGroupId null, correlated via task → project → projectDir).
+ * Finds the most recent agent session on a PR branch whose worktree lives inside the repo.
  */
 export function findCorrelatedSession(
   db: Db,
   headBranch: string,
   repo: string,
 ): CorrelatedSession | null {
-  const branchAndRepoWhere = and(
-    isNotNull(agentSessions.branch),
-    eq(agentSessions.branch, headBranch),
-    isNotNull(projects.projectDir),
-    eq(projects.projectDir, repo),
+  return (
+    listSessionsOnBranches(db, [headBranch]).find((session) =>
+      matchesPr(session, headBranch, repo),
+    ) ?? null
   );
-
-  const groupSession =
-    db
-      .select(SESSION_FIELDS)
-      .from(agentSessions)
-      .innerJoin(taskGroups, eq(agentSessions.taskGroupId, taskGroups.id))
-      .innerJoin(projects, eq(taskGroups.projectId, projects.id))
-      .where(branchAndRepoWhere)
-      .orderBy(desc(agentSessions.createdAt))
-      .get() ?? null;
-
-  const taskSession =
-    db
-      .select(SESSION_FIELDS)
-      .from(agentSessions)
-      .innerJoin(tasks, eq(agentSessions.taskId, tasks.id))
-      .innerJoin(projects, eq(tasks.projectId, projects.id))
-      .where(and(isNull(agentSessions.taskGroupId), branchAndRepoWhere))
-      .orderBy(desc(agentSessions.createdAt))
-      .get() ?? null;
-
-  if (!groupSession && !taskSession) return null;
-
-  const winner =
-    !groupSession ? taskSession!
-    : !taskSession ? groupSession
-    : groupSession.createdAt >= taskSession.createdAt ? groupSession
-    : taskSession;
-
-  const { createdAt: _createdAt, ...session } = winner;
-  return session;
 }
 
 export interface MaterialChange {
@@ -223,7 +239,10 @@ export function recordRepoOutcome(state: AppState, repo: string, error: string |
   }
 }
 
-function getWorkspaceRepos(workspaceId: number): { workspace: typeof workspaces.$inferSelect; repos: string[] } {
+function getWorkspaceRepos(workspaceId: number): {
+  workspace: typeof workspaces.$inferSelect;
+  repos: string[];
+} {
   const db = getDb();
   const workspace = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
   if (!workspace) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
@@ -234,100 +253,45 @@ export const prRouter = router({
   /**
    * Returns open PRs for all workspace repos, ordered by updatedAt desc.
    * Each PR is correlated with the most recent agent session on the same branch
-   * within the same repo (matched via taskGroup → project → projectDir, or
-   * task → project → projectDir for task-mode sessions without a taskGroupId).
+   * whose worktree lives inside the PR's repo.
    */
-  list: publicProcedure
-    .input(z.object({ workspaceId: z.number() }))
-    .query(({ input, ctx }) => {
-      const db = getDb();
-      const { repos } = getWorkspaceRepos(input.workspaceId);
+  list: publicProcedure.input(z.object({ workspaceId: z.number() })).query(({ input, ctx }) => {
+    const db = getDb();
+    const { repos } = getWorkspaceRepos(input.workspaceId);
 
-      const repoErrors: Record<string, string> = {};
-      for (const repo of repos) {
-        const error = ctx.state.prRepoErrors.get(repo);
-        if (error !== undefined) repoErrors[repo] = error;
-      }
+    const repoErrors: Record<string, string> = {};
+    for (const repo of repos) {
+      const error = ctx.state.prRepoErrors.get(repo);
+      if (error !== undefined) repoErrors[repo] = error;
+    }
 
-      if (repos.length === 0) return { prs: [], repoErrors };
+    if (repos.length === 0) return { prs: [], repoErrors };
 
-      const openPrs = db
-        .select()
-        .from(prs)
-        .where(inArray(prs.repo, repos))
-        .orderBy(desc(prs.updatedAt))
-        .all();
+    const openPrs = db
+      .select()
+      .from(prs)
+      .where(inArray(prs.repo, repos))
+      .orderBy(desc(prs.updatedAt))
+      .all();
 
-      if (openPrs.length === 0) return { prs: [], repoErrors };
+    if (openPrs.length === 0) return { prs: [], repoErrors };
 
-      const branches = [...new Set(openPrs.map((pr) => pr.headBranch))];
+    const sessions = listSessionsOnBranches(db, [...new Set(openPrs.map((pr) => pr.headBranch))]);
 
-      const listSessionFields = {
-        sessionId: agentSessions.sessionId,
-        taskGroupId: agentSessions.taskGroupId,
-        worktreePath: agentSessions.worktreePath,
-        branch: agentSessions.branch,
-        createdAt: agentSessions.createdAt,
-        projectDir: projects.projectDir,
-      };
-
-      const branchAndRepoFilter = and(
-        isNotNull(agentSessions.branch),
-        inArray(agentSessions.branch, branches),
-        isNotNull(projects.projectDir),
-        inArray(projects.projectDir, repos),
-      );
-
-      // Group-mode sessions: taskGroup → project
-      const groupSessions = db
-        .select(listSessionFields)
-        .from(agentSessions)
-        .innerJoin(taskGroups, eq(agentSessions.taskGroupId, taskGroups.id))
-        .innerJoin(projects, eq(taskGroups.projectId, projects.id))
-        .where(branchAndRepoFilter)
-        .orderBy(desc(agentSessions.createdAt))
-        .all();
-
-      // Task-mode sessions (taskGroupId null): task → project
-      const taskSessionsList = db
-        .select(listSessionFields)
-        .from(agentSessions)
-        .innerJoin(tasks, eq(agentSessions.taskId, tasks.id))
-        .innerJoin(projects, eq(tasks.projectId, projects.id))
-        .where(and(isNull(agentSessions.taskGroupId), branchAndRepoFilter))
-        .orderBy(desc(agentSessions.createdAt))
-        .all();
-
-      // Merge both lists; already ordered by createdAt desc — first entry per key wins.
-      const allSessions = [...groupSessions, ...taskSessionsList].sort((a, b) =>
-        b.createdAt.localeCompare(a.createdAt),
-      );
-
-      // (branch, repo) → most recent session
-      const sessionByKey = new Map<string, (typeof allSessions)[0]>();
-      for (const session of allSessions) {
-        if (session.branch && session.projectDir) {
-          const key = `${session.branch}\0${session.projectDir}`;
-          if (!sessionByKey.has(key)) {
-            sessionByKey.set(key, session);
-          }
-        }
-      }
-
-      return {
-        prs: openPrs.map((pr) => {
-          const key = `${pr.headBranch}\0${pr.repo}`;
-          const session = sessionByKey.get(key);
-          return {
-            ...pr,
-            sessionId: session?.sessionId ?? null,
-            taskGroupId: session?.taskGroupId ?? null,
-            worktreePath: session?.worktreePath ?? null,
-          };
-        }),
-        repoErrors,
-      };
-    }),
+    return {
+      prs: openPrs.map((pr) => {
+        const session = sessions.find((candidate) => matchesPr(candidate, pr.headBranch, pr.repo));
+        return {
+          ...pr,
+          sessionId: session?.sessionId ?? null,
+          taskGroupId: session?.taskGroupId ?? null,
+          worktreePath: session?.worktreePath ?? null,
+          projectSlug: session?.projectSlug ?? null,
+        };
+      }),
+      repoErrors,
+    };
+  }),
 
   /**
    * Refreshes PRs for all workspace repos from one GitHub search. Each repo

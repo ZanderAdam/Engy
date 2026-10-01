@@ -1,11 +1,16 @@
 import { eq } from 'drizzle-orm';
-import { commentThreads, threadComments, prs } from '../db/schema';
+import { commentThreads, threadComments } from '../db/schema';
 import type { GithubReviewThread, GithubReviewThreadComment } from '../github/review-threads';
 import type { getDb } from '../db/client';
 import { diffDocPath } from '@/lib/diff-doc-path';
 
 type Db = ReturnType<typeof getDb>;
-type PrRow = typeof prs.$inferSelect;
+
+export interface ReviewSyncTarget {
+  repo: string;
+  number: number;
+  headBranch: string;
+}
 type ThreadRow = typeof commentThreads.$inferSelect;
 
 interface ReviewThreadSyncSummary {
@@ -22,13 +27,13 @@ function commentIdFor(githubId: number): string {
 }
 
 function threadMetadata(
-  prRow: PrRow,
+  target: ReviewSyncTarget,
   thread: GithubReviewThread,
   rootComment: GithubReviewThreadComment,
 ) {
   return {
     source: 'github',
-    prNumber: prRow.number,
+    prNumber: target.number,
     githubId: rootComment.githubId,
     githubThreadNodeId: thread.nodeId,
     path: thread.path,
@@ -45,7 +50,7 @@ function threadMetadata(
 
 function insertThread(
   db: Db,
-  prRow: PrRow,
+  target: ReviewSyncTarget,
   thread: GithubReviewThread,
   rootComment: GithubReviewThreadComment,
   now: string,
@@ -54,11 +59,11 @@ function insertThread(
     .values({
       id: threadIdFor(rootComment.githubId),
       workspaceId: null,
-      documentPath: diffDocPath(prRow.repo, prRow.headBranch, thread.path),
+      documentPath: diffDocPath(target.repo, target.headBranch, thread.path),
       resolved: thread.isResolved,
       resolvedBy: thread.isResolved ? 'github' : null,
       resolvedAt: thread.isResolved ? now : null,
-      metadata: threadMetadata(prRow, thread, rootComment),
+      metadata: threadMetadata(target, thread, rootComment),
       createdAt: rootComment.createdAt,
       updatedAt: now,
     })
@@ -68,13 +73,13 @@ function insertThread(
 function syncExistingThread(
   db: Db,
   existing: ThreadRow,
-  prRow: PrRow,
+  target: ReviewSyncTarget,
   thread: GithubReviewThread,
   rootComment: GithubReviewThreadComment,
   now: string,
 ): boolean {
   const currentMetadata = existing.metadata ?? {};
-  const nextMetadata = { ...currentMetadata, ...threadMetadata(prRow, thread, rootComment) };
+  const nextMetadata = { ...currentMetadata, ...threadMetadata(target, thread, rootComment) };
   const metadataChanged = JSON.stringify(currentMetadata) !== JSON.stringify(nextMetadata);
 
   const locallyDismissed = currentMetadata.localDismissed === true;
@@ -140,7 +145,7 @@ function syncComment(
  */
 export function syncReviewThreads(
   db: Db,
-  prRow: PrRow,
+  target: ReviewSyncTarget,
   threads: GithubReviewThread[],
 ): ReviewThreadSyncSummary {
   const now = new Date().toISOString();
@@ -156,9 +161,9 @@ export function syncReviewThreads(
 
     let threadTouched = false;
     if (!existing) {
-      insertThread(db, prRow, thread, rootComment, now);
+      insertThread(db, target, thread, rootComment, now);
       created++;
-    } else if (syncExistingThread(db, existing, prRow, thread, rootComment, now)) {
+    } else if (syncExistingThread(db, existing, target, thread, rootComment, now)) {
       updated++;
       threadTouched = true;
     }

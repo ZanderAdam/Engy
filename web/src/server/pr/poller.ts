@@ -14,7 +14,7 @@ import {
 import { broadcastPrChange } from '../ws/broadcast';
 import { detectFailureTransitions, classifyFailure, isFailingCheck } from './ci-triage';
 import { maybeDispatchCiFix } from './auto-fix';
-import { syncReviewThreads } from './review-sync';
+import { syncReviewThreads, type ReviewSyncTarget } from './review-sync';
 import { mapPrChange, recordPrInboxEvents, refreshPrFacts } from '../inbox/pr-events';
 
 export const POLL_INTERVAL_MS = 60_000;
@@ -157,13 +157,34 @@ function shouldSyncReviewThreads(db: Db, prRow: PrRow): boolean {
 async function importReviewThreads(
   db: Db,
   state: AppState,
-  prRow: PrRow,
+  target: ReviewSyncTarget & { repoFullName: string | null },
 ): Promise<ReturnType<typeof syncReviewThreads>> {
-  if (!prRow.repoFullName) {
-    throw new Error(`repo ${prRow.repo} has no GitHub identity`);
+  if (!target.repoFullName) {
+    throw new Error(`repo ${target.repo} has no GitHub identity`);
   }
-  const threads = await fetchReviewThreads(state, prRow.repoFullName, prRow.number);
-  return syncReviewThreads(db, prRow, threads);
+  const threads = await fetchReviewThreads(state, target.repoFullName, target.number);
+  return syncReviewThreads(db, target, threads);
+}
+
+function findReviewTarget(
+  db: Db,
+  repoPath: string,
+  prNumber: number,
+): (ReviewSyncTarget & { repoFullName: string | null }) | undefined {
+  const prRow = findPrRow(db, repoPath, prNumber);
+  if (prRow) return prRow;
+  const worktree = db
+    .select()
+    .from(reviewWorktrees)
+    .where(and(eq(reviewWorktrees.repoPath, repoPath), eq(reviewWorktrees.prNumber, prNumber)))
+    .get();
+  if (!worktree) return undefined;
+  return {
+    repo: worktree.repoPath,
+    repoFullName: worktree.repoFullName,
+    number: worktree.prNumber,
+    headBranch: worktree.headRefName,
+  };
 }
 
 export async function syncReviewThreadsNow(
@@ -172,9 +193,11 @@ export async function syncReviewThreadsNow(
   prNumber: number,
 ): Promise<void> {
   const db = getDb();
-  const prRow = findPrRow(db, repoPath, prNumber);
-  if (!prRow) throw new Error(`PR #${prNumber} is not tracked for ${repoPath}`);
-  await importReviewThreads(db, state, prRow);
+  const target = findReviewTarget(db, repoPath, prNumber);
+  if (!target) {
+    throw new Error(`PR #${prNumber} has no tracked PR or review worktree for ${repoPath}`);
+  }
+  await importReviewThreads(db, state, target);
 }
 
 async function syncPrReviewThreads(

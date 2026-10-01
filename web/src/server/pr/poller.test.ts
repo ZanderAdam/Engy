@@ -1,9 +1,26 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { workspaces, prs as prsTable, projects, agentSessions, taskGroups, tasks, reviewWorktrees, inboxItems, inboxEvents, commentThreads } from '../db/schema';
+import {
+  workspaces,
+  prs as prsTable,
+  projects,
+  agentSessions,
+  taskGroups,
+  tasks,
+  reviewWorktrees,
+  inboxItems,
+  inboxEvents,
+  commentThreads,
+} from '../db/schema';
 import { eq, and } from 'drizzle-orm';
-import { runPollCycle, syncReviewThreadsNow, startPrPoller, stopPrPoller, POLL_INTERVAL_MS } from './poller';
+import {
+  runPollCycle,
+  syncReviewThreadsNow,
+  startPrPoller,
+  stopPrPoller,
+  POLL_INTERVAL_MS,
+} from './poller';
 import * as broadcast from '../ws/broadcast';
 import { listOpenPrs, type GithubPr } from '../github/prs';
 import { fetchFailedLogs } from '../github/checks';
@@ -122,11 +139,7 @@ function seedReviewWorktree(ctx: TestContext, repo: string, prNumber: number): v
 }
 
 function seedWorkspace(ctx: TestContext, repos: string[]): number {
-  const ws = ctx.db
-    .insert(workspaces)
-    .values({ name: 'WS', slug: 'ws', repos })
-    .returning()
-    .get();
+  const ws = ctx.db.insert(workspaces).values({ name: 'WS', slug: 'ws', repos }).returning().get();
   return ws.id;
 }
 
@@ -138,7 +151,7 @@ function seedCorrelatedSession(
 ): void {
   const project = ctx.db
     .insert(projects)
-    .values({ workspaceId, name: 'Default', slug: 'default', projectDir: repo })
+    .values({ workspaceId, name: 'Default', slug: 'default' })
     .returning()
     .get();
   const group = ctx.db
@@ -158,7 +171,7 @@ function seedCorrelatedSession(
       executionMode: 'group',
       status: 'stopped',
       branch,
-      worktreePath: '/worktree',
+      worktreePath: `${repo}/.worktrees/engy-session-1`,
       taskGroupId: group.id,
       taskId: task.id,
     })
@@ -195,7 +208,10 @@ describe('PR poller', () => {
 
     it('should skip the cycle when daemon readyState is not OPEN', async () => {
       seedWorkspace(ctx, ['/repo-a']);
-      ctx.state.daemon = { readyState: WebSocket.CLOSING, OPEN: WebSocket.OPEN } as unknown as WebSocket;
+      ctx.state.daemon = {
+        readyState: WebSocket.CLOSING,
+        OPEN: WebSocket.OPEN,
+      } as unknown as WebSocket;
 
       await runPollCycle(ctx.state, ctx.db);
 
@@ -272,8 +288,15 @@ describe('PR poller', () => {
     });
 
     it('should broadcast on material change', async () => {
-      const ws = ctx.db.insert(workspaces).values({ name: 'WS', slug: 'ws', repos: ['/repo-a'] }).returning().get();
-      installFakeGithub(ctx, new Map<string, GithubPr[] | Error>([['/repo-a', [makePr({ number: 1 })]]]));
+      const ws = ctx.db
+        .insert(workspaces)
+        .values({ name: 'WS', slug: 'ws', repos: ['/repo-a'] })
+        .returning()
+        .get();
+      installFakeGithub(
+        ctx,
+        new Map<string, GithubPr[] | Error>([['/repo-a', [makePr({ number: 1 })]]]),
+      );
 
       await runPollCycle(ctx.state, ctx.db);
 
@@ -283,7 +306,10 @@ describe('PR poller', () => {
 
     it('should not broadcast when PRs have not changed', async () => {
       seedWorkspace(ctx, ['/repo-a']);
-      installFakeGithub(ctx, new Map<string, GithubPr[] | Error>([['/repo-a', [makePr({ number: 1 })]]]));
+      installFakeGithub(
+        ctx,
+        new Map<string, GithubPr[] | Error>([['/repo-a', [makePr({ number: 1 })]]]),
+      );
 
       // First cycle inserts — material change → broadcast
       await runPollCycle(ctx.state, ctx.db);
@@ -313,7 +339,10 @@ describe('PR poller', () => {
 
     it('should log an error for a failing repo only once across multiple cycles', async () => {
       seedWorkspace(ctx, ['/repo-err']);
-      installFakeGithub(ctx, new Map<string, GithubPr[] | Error>([['/repo-err', new Error('auth failure')]]));
+      installFakeGithub(
+        ctx,
+        new Map<string, GithubPr[] | Error>([['/repo-err', new Error('auth failure')]]),
+      );
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
       await runPollCycle(ctx.state, ctx.db);
@@ -341,7 +370,10 @@ describe('PR poller', () => {
       expect(errorSpy).not.toHaveBeenCalled();
 
       // Third cycle: error again (flag was cleared → logs again)
-      installFakeGithub(ctx, new Map<string, GithubPr[] | Error>([['/repo-a', new Error('fail again')]]));
+      installFakeGithub(
+        ctx,
+        new Map<string, GithubPr[] | Error>([['/repo-a', new Error('fail again')]]),
+      );
       await runPollCycle(ctx.state, ctx.db);
       expect(errorSpy).toHaveBeenCalledOnce();
 
@@ -364,7 +396,12 @@ describe('PR poller', () => {
     describe('CI failure transition handling', () => {
       it('[FR-PRMON-220] should record one ci_failed inbox event across repeated cycles', async () => {
         seedWorkspace(ctx, ['/repo-a']);
-        const failing = makePr({ number: 1, ciStatus: 'failing', headSha: 'sha2', authoredByViewer: true });
+        const failing = makePr({
+          number: 1,
+          ciStatus: 'failing',
+          headSha: 'sha2',
+          authoredByViewer: true,
+        });
 
         installFakeGithub(
           ctx,
@@ -390,7 +427,11 @@ describe('PR poller', () => {
           prNumber: 1,
           bucket: 'priority',
         });
-        const kinds = ctx.db.select().from(inboxEvents).all().map((event) => event.kind);
+        const kinds = ctx.db
+          .select()
+          .from(inboxEvents)
+          .all()
+          .map((event) => event.kind);
         expect(kinds.filter((kind) => kind === 'ci_failed')).toHaveLength(1);
       });
 
@@ -546,7 +587,6 @@ describe('PR poller', () => {
           .get();
         expect(row?.attentionReason).toBe('non-mechanical');
       });
-
     });
 
     describe('review comment sync', () => {
@@ -598,7 +638,12 @@ describe('PR poller', () => {
         const wsId = seedWorkspace(ctx, ['/repo-a']);
         seedReviewWorktree(ctx, '/repo-a', 1);
         const pr = makePr({ number: 1, headBranch: 'feat/one', updatedAt: 'T1' });
-        installFakeGithub(ctx, new Map([['/repo-a', [pr]]]), undefined, new Map([[1, [makeReviewThread()]]]));
+        installFakeGithub(
+          ctx,
+          new Map([['/repo-a', [pr]]]),
+          undefined,
+          new Map([[1, [makeReviewThread()]]]),
+        );
 
         await runPollCycle(ctx.state, ctx.db);
         await new Promise((r) => setTimeout(r, 0));
@@ -621,7 +666,12 @@ describe('PR poller', () => {
       it('should sync immediately on demand regardless of scope or updatedAt marker', async () => {
         seedWorkspace(ctx, ['/repo-a']);
         const pr = makePr({ number: 1, headBranch: 'feat/one', updatedAt: 'T1' });
-        installFakeGithub(ctx, new Map([['/repo-a', [pr]]]), undefined, new Map([[1, [makeReviewThread()]]]));
+        installFakeGithub(
+          ctx,
+          new Map([['/repo-a', [pr]]]),
+          undefined,
+          new Map([[1, [makeReviewThread()]]]),
+        );
         await runPollCycle(ctx.state, ctx.db);
 
         await syncReviewThreadsNow(ctx.state, '/repo-a', 1);
@@ -629,6 +679,27 @@ describe('PR poller', () => {
         expect(fetchReviewThreads).toHaveBeenCalledWith(ctx.state, 'org/repo-a', 1);
         const threads = ctx.db.select().from(commentThreads).all();
         expect(threads.map((t) => t.id)).toEqual(['gh-thread-1001']);
+      });
+
+      it('[FR-PRMON-160] should sync on demand from the review worktree when the PR has no tracked row', async () => {
+        seedWorkspace(ctx, ['/repo-a']);
+        seedReviewWorktree(ctx, '/repo-a', 7);
+        vi.mocked(fetchReviewThreads).mockResolvedValue([makeReviewThread()]);
+
+        await syncReviewThreadsNow(ctx.state, '/repo-a', 7);
+
+        expect(fetchReviewThreads).toHaveBeenCalledWith(ctx.state, 'org/repo-a', 7);
+        const [thread] = ctx.db.select().from(commentThreads).all();
+        expect(thread.documentPath).toContain('feat%2Fone');
+        expect(thread.metadata).toMatchObject({ prNumber: 7 });
+      });
+
+      it('should reject on-demand sync when there is neither a tracked row nor a review worktree', async () => {
+        seedWorkspace(ctx, ['/repo-a']);
+
+        await expect(syncReviewThreadsNow(ctx.state, '/repo-a', 9)).rejects.toThrow(
+          'no tracked PR or review worktree',
+        );
       });
 
       it('should drop the review-sync marker when a PR vanishes from the open list', async () => {

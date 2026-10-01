@@ -20,12 +20,9 @@ type CiFixSkipReason =
   | 'uncorrelated'
   | 'concurrency-full'
   | 'attempt-cap-sha'
-  | 'attempt-cap-total'
-  | 'no-worktree';
+  | 'attempt-cap-total';
 
-type CiFixResult =
-  | { dispatched: true }
-  | { dispatched: false; reason: CiFixSkipReason };
+type CiFixResult = { dispatched: true } | { dispatched: false; reason: CiFixSkipReason };
 
 export const MAX_AUTO_FIX_ATTEMPTS = 2;
 export const MAX_TOTAL_AUTO_FIX_ATTEMPTS = 5;
@@ -121,11 +118,6 @@ export async function maybeDispatchCiFix({
   if (prRow.autoFixAttempts >= MAX_AUTO_FIX_ATTEMPTS) {
     setAttentionReason(db, state, workspace, prRow, 'attempt-cap-sha');
     return { dispatched: false, reason: 'attempt-cap-sha' };
-  }
-
-  if (!session.worktreePath) {
-    setAttentionReason(db, state, workspace, prRow, 'no-worktree');
-    return { dispatched: false, reason: 'no-worktree' };
   }
 
   // All gates passed — only now is the (expensive) log fetch worth it. Logs
