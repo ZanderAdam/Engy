@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { TabShell } from "@/components/tabs/tab-shell";
+import { EventsProvider } from "@/contexts/events-context";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -28,9 +29,11 @@ export default function RootLayout() {
       <body className="font-sans antialiased">
         <Providers>
           <div className="flex h-dvh flex-col overflow-hidden">
-            <Suspense>
-              <TabShell />
-            </Suspense>
+            <EventsProvider workspaceSlug="">
+              <Suspense>
+                <TabShell />
+              </Suspense>
+            </EventsProvider>
           </div>
           <Toaster />
         </Providers>
