@@ -1,9 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { RiAlertLine, RiLoader4Line } from '@remixicon/react';
 import { trpc, type RouterOutputs } from '@/lib/trpc';
-import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Kbd } from '@/components/ui/kbd';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
@@ -13,6 +12,7 @@ import { ReviewOverview } from './review-overview';
 import { ReviewChecks } from './review-checks';
 import { ReviewSidebar } from './review-sidebar';
 import { ReviewWorktreeBanner } from './review-worktree-banner';
+import { ReviewErrorMessage, ReviewStatusMessage } from './review-status-message';
 import { isBehindGithub, REVIEW_TABS, type ReviewTab } from './review-helpers';
 import { useReviewTabKeys } from './use-review-tab-keys';
 import { ReviewFiles } from './review-files';
@@ -25,24 +25,6 @@ interface ReviewPageProps {
   repoFullName: string;
   prNumber: number;
   projectSlug: string | null;
-}
-
-function StatusMessage({
-  icon,
-  title,
-  children,
-}: {
-  icon: ReactNode;
-  title: string;
-  children?: ReactNode;
-}) {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-20 text-center">
-      {icon}
-      <p className="text-sm font-medium">{title}</p>
-      {children}
-    </div>
-  );
 }
 
 export function ReviewPage({
@@ -103,7 +85,7 @@ export function ReviewPage({
 
   if (!githubStatus || !workspace) {
     return (
-      <StatusMessage
+      <ReviewStatusMessage
         icon={<RiLoader4Line className="size-5 animate-spin text-muted-foreground" />}
         title="Loading…"
       />
@@ -112,63 +94,51 @@ export function ReviewPage({
 
   if (!githubStatus.available) {
     return (
-      <StatusMessage
+      <ReviewStatusMessage
         icon={<RiAlertLine className="size-5 text-amber-400" />}
         title="GitHub unavailable"
       >
         <p className="max-w-md text-xs text-muted-foreground">{githubStatus.message}</p>
-      </StatusMessage>
+      </ReviewStatusMessage>
     );
   }
 
   if (open.error) {
     return (
-      <StatusMessage
-        icon={<RiAlertLine className="size-5 text-red-400" />}
+      <ReviewErrorMessage
         title="Could not open the review"
-      >
-        <p className="max-w-md break-words font-mono text-xs text-muted-foreground">
-          {open.error.message}
-        </p>
-        <Button variant="outline" size="xs" onClick={startOpen}>
-          Retry
-        </Button>
-      </StatusMessage>
+        message={open.error.message}
+        onRetry={startOpen}
+      />
     );
   }
 
   if (!worktree) {
     return (
-      <StatusMessage
+      <ReviewStatusMessage
         icon={<RiLoader4Line className="size-5 animate-spin text-muted-foreground" />}
         title="Preparing review worktree…"
       >
         <p className="text-xs text-muted-foreground">
           {repoFullName}#{prNumber}
         </p>
-      </StatusMessage>
+      </ReviewStatusMessage>
     );
   }
 
   if (detailQuery.error) {
     return (
-      <StatusMessage
-        icon={<RiAlertLine className="size-5 text-red-400" />}
+      <ReviewErrorMessage
         title="Could not load the pull request"
-      >
-        <p className="max-w-md break-words font-mono text-xs text-muted-foreground">
-          {detailQuery.error.message}
-        </p>
-        <Button variant="outline" size="xs" onClick={() => detailQuery.refetch()}>
-          Retry
-        </Button>
-      </StatusMessage>
+        message={detailQuery.error.message}
+        onRetry={() => detailQuery.refetch()}
+      />
     );
   }
 
   if (!detail) {
     return (
-      <StatusMessage
+      <ReviewStatusMessage
         icon={<RiLoader4Line className="size-5 animate-spin text-muted-foreground" />}
         title="Loading pull request…"
       />

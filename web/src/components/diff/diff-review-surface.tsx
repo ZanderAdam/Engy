@@ -175,7 +175,6 @@ export function DiffReviewSurface({
     void refetchComments();
   });
 
-  // Correlated agent session for the PR branch (used by GitHub comment triage)
   const { data: prList } = trpc.pr.list.useQuery(
     { workspaceId: workspaceId ?? 0 },
     {
@@ -243,7 +242,6 @@ export function DiffReviewSurface({
   const isBinary = kind === 'binary';
   const isTextLike = kind === 'text' || kind === 'markdown';
 
-  // Image bytes: original/modified sides (skipped for added/deleted respectively)
   const {
     data: originalImageData,
     isLoading: originalImageLoading,
@@ -339,10 +337,13 @@ export function DiffReviewSurface({
   // The stack scrolls to whatever the list last selected; the list highlights
   // whatever the stack last scrolled past. Keeping the two in separate state is
   // what stops them driving each other in a loop.
+  const openFile = (file: ChangedFile) => {
+    tabs.open(encodeSelection(file.path, sided ? (file.staged ? 'staged' : 'unstaged') : null));
+  };
+
   const selectFileByPath = (path: string) => {
     const file = files.find((f) => f.path === path);
-    if (!file) return;
-    tabs.open(encodeSelection(path, sided ? (file.staged ? 'staged' : 'unstaged') : null));
+    if (file) openFile(file);
   };
 
   const scrollToRowId = selectedFileData ? rowId(selectedFileData) : null;
@@ -419,7 +420,6 @@ export function DiffReviewSurface({
   return (
     <TooltipProvider>
       <div className="flex flex-1 min-h-0 flex-col">
-        {/* Top bar: caller's controls + review mode + review actions */}
         <div className="flex items-center justify-between gap-2 overflow-x-auto border-b border-border [scrollbar-width:thin]">
           <div className="flex shrink-0 items-center">{toolbarLeading}</div>
           <div className="flex shrink-0 items-center gap-2 px-3">
@@ -483,7 +483,6 @@ export function DiffReviewSurface({
           />
         )}
 
-        {/* Main content: file list + diff viewer */}
         <ThreePanelLayout
           className="flex-1 min-h-0"
           left={SIDEBAR_CONFIG}
@@ -522,12 +521,7 @@ export function DiffReviewSurface({
                     onToggleViewed={toggleViewed}
                     onOpenSingle={(file) => {
                       setUserReviewMode('single');
-                      tabs.open(
-                        encodeSelection(
-                          file.path,
-                          sided ? (file.staged ? 'staged' : 'unstaged') : null,
-                        ),
-                      );
+                      openFile(file);
                     }}
                     onAddComment={handleAddCommentTo}
                     onReply={replyToThread}

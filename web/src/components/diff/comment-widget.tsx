@@ -133,6 +133,18 @@ export function CommentWidget({
     setText('');
   };
 
+  const composerPlaceholder = () => {
+    if (githubWrite) return 'Reply on GitHub...';
+    if (comment) return 'Reply...';
+    return 'Add a comment...';
+  };
+
+  const submitLabel = () => {
+    if (comment) return 'Reply';
+    if (onAddDraft) return 'Add note';
+    return 'Comment';
+  };
+
   const handleProveIt = () => {
     if (!comment || !repoDir) return;
     const filePath = diffDocFilePath(comment.documentPath);
@@ -317,9 +329,7 @@ export function CommentWidget({
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={
-                githubWrite ? 'Reply on GitHub...' : comment ? 'Reply...' : 'Add a comment...'
-              }
+              placeholder={composerPlaceholder()}
               className="min-h-[60px] resize-none text-xs"
               autoFocus
             />
@@ -350,7 +360,7 @@ export function CommentWidget({
                   </Tooltip>
                 )}
                 <Button size="xs" onClick={submitText} disabled={!text.trim()}>
-                  {comment ? 'Reply' : onAddDraft ? 'Add note' : 'Comment'}
+                  {submitLabel()}
                 </Button>
               </div>
             </div>

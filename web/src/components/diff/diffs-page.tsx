@@ -219,7 +219,6 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
   );
   const checkedOutBranch = branchData?.branch ?? null;
 
-  // Commit history data
   const { data: logData, isLoading: isLogLoading } = trpc.diff.getLog.useQuery(
     {
       repoDir: selectedRepo!,
@@ -229,7 +228,6 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     { enabled: !!selectedRepo && diffViewMode === 'history' },
   );
 
-  // Commit diff data (for file list)
   const {
     data: commitDiffData,
     isLoading: isCommitDiffLoading,
@@ -273,7 +271,6 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
   const handleRefresh = useCallback(() => refreshDiff(utils), [utils]);
 
-  // Branch diff data (for file list)
   const {
     data: branchDiffData,
     isLoading: isBranchLoading,
@@ -289,7 +286,6 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
     { enabled: !!selectedRepo && diffViewMode === 'branch' && baseBranch.length > 0, retry: false },
   );
 
-  // Resolve files list based on view mode
   const files: ChangedFile[] = useMemo(() => {
     if (diffViewMode === 'latest') return statusData?.files ?? [];
     if (diffViewMode === 'history' && commitDiffData) {
@@ -385,7 +381,6 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
         </TooltipContent>
       </Tooltip>
 
-      {/* Which side the fork point is compared against. */}
       <div className="flex shrink-0">
         {BRANCH_TARGETS.map(({ value, label, hint }) => (
           <Tooltip key={value}>

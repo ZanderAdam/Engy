@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { RiFileCopyLine } from '@remixicon/react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';

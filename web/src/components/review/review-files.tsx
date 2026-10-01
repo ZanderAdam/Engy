@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { RiAlertLine } from '@remixicon/react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -9,6 +8,7 @@ import { useEditorTabs } from '@/components/editor/use-editor-tabs';
 import { DiffReviewSurface, type DiffSource } from '@/components/diff/diff-review-surface';
 import { ReviewWriteProvider } from '@/components/diff/review-write-context';
 import { useReviewWriteActions } from './use-review-write';
+import { ReviewErrorMessage } from './review-status-message';
 import { patchContentId, patchSpecFor } from '@/components/diff/diff-patch-spec';
 import {
   classifyPaths,
@@ -189,16 +189,11 @@ export function ReviewFiles({
 
   if (diffError) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-20 text-center">
-        <RiAlertLine className="size-5 text-red-400" />
-        <p className="text-sm font-medium">Could not load the diff</p>
-        <p className="max-w-md break-words font-mono text-xs text-muted-foreground">
-          {diffError.message}
-        </p>
-        <Button variant="outline" size="xs" onClick={() => refetchDiff()}>
-          Retry
-        </Button>
-      </div>
+      <ReviewErrorMessage
+        title="Could not load the diff"
+        message={diffError.message}
+        onRetry={() => refetchDiff()}
+      />
     );
   }
 

@@ -10,7 +10,7 @@ import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { copyToClipboard } from '@/lib/clipboard';
 import { generateDiffFeedback } from './feedback-markdown';
-import { buildReviewPrompt } from './review-dispatch';
+import { buildReviewPrompt } from '@/lib/review-prompt';
 import type { DiffComment } from './use-diff-comments';
 import type { GitPatchSpec } from '@engy/common';
 
@@ -38,10 +38,7 @@ export function ReviewActions({
   projectId,
 }: ReviewActionsProps) {
   const { sendToTerminal, terminalActive } = useSendToTerminal();
-  const { status: sessionStatus, sessionId } = useExecutionStatus(
-    'task',
-    taskId ?? 0,
-  );
+  const { status: sessionStatus, sessionId } = useExecutionStatus('task', taskId ?? 0);
 
   const runnerActive = taskId != null && (sessionStatus === 'active' || sessionStatus === 'paused');
 
