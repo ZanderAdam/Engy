@@ -1,4 +1,4 @@
-import { asc, inArray, like } from 'drizzle-orm';
+import { asc, inArray, sql } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { commentThreads, threadComments } from '../db/schema';
 import { diffDocPath, diffScopePrefix } from '@/lib/diff-doc-path';
@@ -22,7 +22,10 @@ interface NewDraft {
   text: string;
 }
 
-function commentsByThread(threadIds: string[]): Map<string, CommentRow[]> {
+function commentsByThread(
+  threadIds: string[],
+  { includeDeleted = false }: { includeDeleted?: boolean } = {},
+): Map<string, CommentRow[]> {
   const grouped = new Map<string, CommentRow[]>();
   if (threadIds.length === 0) return grouped;
   const rows = getDb()
@@ -30,9 +33,9 @@ function commentsByThread(threadIds: string[]): Map<string, CommentRow[]> {
     .from(threadComments)
     .where(inArray(threadComments.threadId, threadIds))
     .orderBy(asc(threadComments.createdAt))
-    .all()
-    .filter((comment) => comment.deletedAt == null);
+    .all();
   for (const row of rows) {
+    if (!includeDeleted && row.deletedAt != null) continue;
     const list = grouped.get(row.threadId) ?? [];
     list.push(row);
     grouped.set(row.threadId, list);
@@ -45,7 +48,7 @@ function threadsUnderReview(row: ReviewWorktreeRow): ThreadRow[] {
   return getDb()
     .select()
     .from(commentThreads)
-    .where(like(commentThreads.documentPath, `${prefix}%`))
+    .where(sql`substr(${commentThreads.documentPath}, 1, length(${prefix})) = ${prefix}`)
     .all();
 }
 
@@ -86,7 +89,10 @@ export function createDraftThread(row: ReviewWorktreeRow, draft: NewDraft): stri
 
 export function listDraftThreads(row: ReviewWorktreeRow): DraftThread[] {
   const drafts = threadsUnderReview(row).filter((thread) => isGithubDraft(thread.metadata));
-  const comments = commentsByThread(drafts.map((thread) => thread.id));
+  const comments = commentsByThread(
+    drafts.map((thread) => thread.id),
+    { includeDeleted: true },
+  );
   return drafts.map((thread) => ({ ...thread, comments: comments.get(thread.id) ?? [] }));
 }
 

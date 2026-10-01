@@ -35,9 +35,10 @@ export function draftsToReviewComments(threads: DraftCandidate[]): ReviewComment
     if (!isGithubDraft(thread.metadata)) continue;
     const path = diffDocFilePath(thread.documentPath);
     const line = thread.metadata?.lineNumber;
-    const body = thread.comments.find((c) => c.deletedAt == null)?.body;
-    if (!path || typeof line !== 'number' || line < 1 || typeof body !== 'string') continue;
-    comments.push({ path, line, side: toGithubSide(thread.metadata?.side), body });
+    const root = thread.comments[0];
+    if (!path || typeof line !== 'number' || line < 1) continue;
+    if (!root || root.deletedAt != null || typeof root.body !== 'string') continue;
+    comments.push({ path, line, side: toGithubSide(thread.metadata?.side), body: root.body });
   }
   return comments;
 }

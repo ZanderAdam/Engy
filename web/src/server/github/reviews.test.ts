@@ -84,6 +84,23 @@ describe('github reviews', () => {
   });
 
   describe('draftsToReviewComments', () => {
+    it('[FR-PRMON-250] should skip a draft whose root comment is deleted even when a reply is live', () => {
+      const draft = { source: 'local', githubDraft: true, lineNumber: 4, side: 'modified' };
+
+      const comments = draftsToReviewComments([
+        {
+          documentPath: docPath('src/a.ts'),
+          metadata: draft,
+          comments: [
+            { body: 'root', deletedAt: '2024-01-01T00:00:00Z' },
+            { body: 'reply', deletedAt: null },
+          ],
+        },
+      ]);
+
+      expect(comments).toEqual([]);
+    });
+
     it('[FR-PRMON-250] should map a modified-side draft to RIGHT and an original-side draft to LEFT', () => {
       const comments = draftsToReviewComments([
         thread('src/a.ts', {
