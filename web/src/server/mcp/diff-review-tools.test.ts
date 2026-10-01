@@ -4,7 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerDiffReviewTools } from './diff-review-tools';
 import { getAppState } from '../trpc/context';
 import { getDb } from '../db/client';
-import { commentThreads, threadComments } from '../db/schema';
+import { commentThreads, reviewWorktrees, threadComments } from '../db/schema';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { appRouter } from '../trpc/root';
 import { diffDocPath, diffScopePrefix } from '@/lib/diff-doc-path';
@@ -103,6 +103,46 @@ describe('diff review MCP tools', () => {
         `${diffScopePrefix(REPO, BRANCH)}src/auth.ts`,
       ]);
       expect(await readAsDiffsTabWould(worktree)).toEqual([]);
+    });
+  });
+
+  describe('an agent reviewing from inside a review worktree', () => {
+    it('[FR-MCP-275] files against the main checkout and the PR head branch', async () => {
+      const worktree = '/home/dev/.engy/ws/worktrees/_review/proj/pr-7';
+      getDb()
+        .insert(reviewWorktrees)
+        .values({
+          repoPath: REPO,
+          repoFullName: 'acme/proj',
+          prNumber: 7,
+          worktreePath: worktree,
+          headRefName: BRANCH,
+          headSha: 'abc',
+          createdByReview: true,
+        })
+        .run();
+      connectDaemonOnBranch(ctx, 'engy/review/pr-7', worktree);
+      const mcp = makeMcp();
+
+      await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
+        repoDir: `${worktree}/src`,
+        filePath: 'src/auth.ts',
+        lineNumber: 3,
+        codeLine: 'x',
+        severity: 'high',
+        finding: 'f',
+        failureScenario: 's',
+      });
+
+      const threads = await readAsDiffsTabWould(REPO);
+      expect(threads.map((t) => t.documentPath)).toEqual([
+        `${diffScopePrefix(REPO, BRANCH)}src/auth.ts`,
+      ]);
+      const listed = await callTool(mcp, 'diff_review_list')({ repoDir: worktree });
+      expect(listed.data.threads as unknown[]).toHaveLength(1);
     });
   });
 

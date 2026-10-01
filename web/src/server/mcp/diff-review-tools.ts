@@ -11,6 +11,7 @@ import { randomId } from '@/lib/random-id';
 import { AGENT_USER_ID } from '@/lib/comment-feedback';
 import { mcpError, mcpResult } from './result';
 import { diffScopePrefix } from '@/lib/diff-doc-path';
+import { resolveReviewScope } from '../review/review-scope';
 
 // Diff-review authoring tools. Agent-only (no tRPC counterparts by design —
 // the browser writes the same rows through comment.createThread and builds the
@@ -130,6 +131,8 @@ const diffReviewListInput = {
  */
 async function scopePrefix(repoDir: string | undefined, sessionId?: string): Promise<string> {
   const dir = reviewDir(repoDir, sessionId);
+  const reviewScope = resolveReviewScope(getDb(), dir);
+  if (reviewScope) return diffScopePrefix(reviewScope.repoDir, reviewScope.branch);
   try {
     const { branch, repoRoot } = await dispatchGitBranch(dir, getAppState());
     return diffScopePrefix(repoRoot ?? dir, branch);
