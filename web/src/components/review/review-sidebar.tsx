@@ -16,7 +16,7 @@ interface LinkedWork {
 
 interface ReviewSidebarProps {
   detail: PrDetail;
-  worktreePath: string;
+  worktreePath: string | null;
   linkedWork: LinkedWork | null;
 }
 
@@ -129,21 +129,23 @@ export function ReviewSidebar({ detail, worktreePath, linkedWork }: ReviewSideba
         </Section>
       )}
 
-      <Section title="Worktree">
-        <div className="flex items-start gap-1">
-          <code className="min-w-0 flex-1 break-all text-[11px] text-muted-foreground">
-            {worktreePath}
-          </code>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Copy worktree path"
-            onClick={() => copyWorktreePath(worktreePath)}
-          >
-            <RiFileCopyLine className="size-3" />
-          </Button>
-        </div>
-      </Section>
+      {worktreePath && (
+        <Section title="Worktree">
+          <div className="flex items-start gap-1">
+            <code className="min-w-0 flex-1 break-all text-[11px] text-muted-foreground">
+              {worktreePath}
+            </code>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Copy worktree path"
+              onClick={() => copyWorktreePath(worktreePath)}
+            >
+              <RiFileCopyLine className="size-3" />
+            </Button>
+          </div>
+        </Section>
+      )}
     </div>
   );
 }

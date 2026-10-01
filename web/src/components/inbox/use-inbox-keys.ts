@@ -4,6 +4,7 @@ type InboxKeyAction =
   | 'next'
   | 'previous'
   | 'open'
+  | 'close'
   | 'toggleRead'
   | 'markAllRead'
   | 'done'
@@ -26,6 +27,7 @@ export const INBOX_KEY_HINTS: { keys: string; label: string }[] = [
   { keys: 'j / ArrowDown', label: 'Next item' },
   { keys: 'k / ArrowUp', label: 'Previous item' },
   { keys: 'Enter', label: 'Open review' },
+  { keys: 'Esc', label: 'Close an open review' },
   { keys: 'u', label: 'Toggle read' },
   { keys: 'Alt+u', label: 'Mark all read in this tab' },
   { keys: 'e / Backspace', label: 'Done' },
@@ -50,8 +52,19 @@ const PLAIN_KEY_ACTIONS: Record<string, InboxKeyAction> = {
   '?': 'help',
 };
 
-export function getInboxKeyAction(e: KeyLike): InboxKeyAction | null {
+type InboxKeyScope = 'list' | 'review';
+
+const REVIEW_SCOPE_KEYS = new Set(['j', 'k', 'Escape']);
+
+export function getInboxKeyAction(
+  e: KeyLike,
+  scope: InboxKeyScope = 'list',
+): InboxKeyAction | null {
   if (e.ctrlKey || e.metaKey) return null;
+  if (scope === 'review') {
+    if (e.key === 'Escape') return 'close';
+    if (!REVIEW_SCOPE_KEYS.has(e.key)) return null;
+  }
   if (e.altKey) return e.code === 'KeyU' ? 'markAllRead' : null;
   return PLAIN_KEY_ACTIONS[e.key] ?? null;
 }
@@ -75,6 +88,7 @@ export function useInboxKeys(
   containerRef: RefObject<HTMLElement | null>,
   enabled: boolean,
   handlers: InboxKeyHandlers,
+  scope: InboxKeyScope,
 ) {
   const handlersRef = useRef(handlers);
   useEffect(() => {
@@ -89,7 +103,7 @@ export function useInboxKeys(
       if (!container || container.offsetWidth === 0) return;
       if (focusOwnsKeys(document.activeElement)) return;
 
-      const action = getInboxKeyAction(e);
+      const action = getInboxKeyAction(e, scope);
       if (!action || targetOwnsKey(e.target, action)) return;
 
       e.preventDefault();
@@ -98,5 +112,5 @@ export function useInboxKeys(
 
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [containerRef, enabled]);
+  }, [containerRef, enabled, scope]);
 }

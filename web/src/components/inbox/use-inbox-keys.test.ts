@@ -23,6 +23,7 @@ describe('[FR-INBOX-420] getInboxKeyAction', () => {
 
   it('should map action keys', () => {
     expect(press('Enter')).toBe('open');
+    expect(press('Escape')).toBeNull();
     expect(press('u')).toBe('toggleRead');
     expect(press('e')).toBe('done');
     expect(press('Backspace')).toBe('done');
@@ -47,6 +48,24 @@ describe('[FR-INBOX-420] getInboxKeyAction', () => {
     expect(press('x')).toBeNull();
     expect(press('J')).toBeNull();
   });
+});
+
+describe('[FR-INBOX-550] getInboxKeyAction in review scope', () => {
+  const inReview = (key: string) =>
+    getInboxKeyAction({ key, code: '', altKey: false, ctrlKey: false, metaKey: false }, 'review');
+
+  it('should keep only j, k and Escape', () => {
+    expect(inReview('j')).toBe('next');
+    expect(inReview('k')).toBe('previous');
+    expect(inReview('Escape')).toBe('close');
+  });
+
+  it.each(['ArrowDown', 'ArrowUp', 'Enter', 'u', 'e', 'Backspace', 'h', 'o', '/', '?'])(
+    'should leave %s to the review',
+    (key) => {
+      expect(inReview(key)).toBeNull();
+    },
+  );
 });
 
 describe('[FR-INBOX-500] focusOwnsKeys', () => {

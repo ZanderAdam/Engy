@@ -1,10 +1,22 @@
-export function buildReviewPath(
+interface PrRef {
+  repoFullName: string;
+  prNumber: number;
+}
+
+export function buildPrsPath(
   workspaceSlug: string,
-  repoFullName: string,
-  prNumber: number,
-  projectSlug?: string | null,
+  projectSlug: string,
+  pr: PrRef | null,
+  currentSearch?: URLSearchParams,
 ): string {
-  const params = new URLSearchParams({ repo: repoFullName, pr: String(prNumber) });
-  if (projectSlug) params.set('project', projectSlug);
-  return `/w/${workspaceSlug}/review?${params.toString()}`;
+  const params = new URLSearchParams(currentSearch);
+  params.delete('repo');
+  params.delete('pr');
+  if (pr) {
+    params.set('repo', pr.repoFullName);
+    params.set('pr', String(pr.prNumber));
+  }
+  const query = params.toString();
+  const base = `/w/${workspaceSlug}/projects/${projectSlug}/prs`;
+  return query ? `${base}?${query}` : base;
 }

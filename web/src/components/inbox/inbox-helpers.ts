@@ -78,3 +78,11 @@ export function describeCleared(count: number, githubFailures: number): string {
   if (githubFailures === 0) return cleared;
   return `${cleared}, ${githubFailures} could not be marked done on GitHub`;
 }
+
+export function pickReviewProject(
+  projects: { slug: string; isDefault: boolean }[],
+  correlatedSlug: string | null,
+): string | null {
+  if (correlatedSlug) return correlatedSlug;
+  return (projects.find((project) => project.isDefault) ?? projects[0])?.slug ?? null;
+}

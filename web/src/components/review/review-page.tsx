@@ -1,13 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RiAlertLine, RiLoader4Line } from '@remixicon/react';
+import { RiAlertLine, RiGitBranchLine, RiLoader4Line, RiTerminalBoxLine } from '@remixicon/react';
 import { toast } from 'sonner';
 import { trpc, type RouterOutputs } from '@/lib/trpc';
 import { useOnServerEvent } from '@/contexts/events-context';
 import { refreshDiff } from '@/components/diff/diff-refresh';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
+import { projectGroupKey } from '@/components/terminal/group-key';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { ReviewAgentControls } from './review-agent-controls';
 import { ReviewHeader } from './review-header';
@@ -23,11 +25,27 @@ import { SubmitReviewPanel } from './submit-review-panel';
 
 type OpenedWorktree = RouterOutputs['review']['open'];
 
+function WorktreeLoading({ error, onRetry }: { error: string | null; onRetry: () => void }) {
+  if (error) {
+    return (
+      <ReviewErrorMessage title="Could not open the review" message={error} onRetry={onRetry} />
+    );
+  }
+  return (
+    <ReviewStatusMessage
+      icon={<RiLoader4Line className="size-5 animate-spin text-muted-foreground" />}
+      title="Preparing review worktree…"
+    />
+  );
+}
+
 interface ReviewPageProps {
   workspaceSlug: string;
   repoFullName: string;
   prNumber: number;
-  projectSlug: string | null;
+  projectSlug: string;
+  onBack: () => void;
+  onTabChange?: (tab: ReviewTab) => void;
 }
 
 export function ReviewPage({
@@ -35,6 +53,8 @@ export function ReviewPage({
   repoFullName,
   prNumber,
   projectSlug,
+  onBack,
+  onTabChange,
 }: ReviewPageProps) {
   const [tab, setTab] = useState<ReviewTab>('overview');
   const [worktree, setWorktree] = useState<OpenedWorktree | null>(null);
@@ -44,6 +64,9 @@ export function ReviewPage({
   const { openNewTerminal } = useSendToTerminal();
 
   useReviewTabKeys(setTab);
+  useEffect(() => {
+    onTabChange?.(tab);
+  }, [tab, onTabChange]);
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
   const { data: githubStatus } = trpc.github.status.useQuery();
@@ -59,6 +82,10 @@ export function ReviewPage({
     onSuccess: (opened) => {
       setWorktree(opened);
       syncThreads.mutate(prInput);
+    },
+    onError: (error) => {
+      openStarted.current = false;
+      toast.error(error.message);
     },
   });
   const update = trpc.review.update.useMutation({
@@ -76,11 +103,16 @@ export function ReviewPage({
     openWorktree({ workspaceId, repoFullName, prNumber });
   }, [openWorktree, workspaceId, repoFullName, prNumber]);
 
-  useEffect(() => {
-    if (!workspace || !githubAvailable || openStarted.current) return;
+  const canOpenWorktree = !!workspace && githubAvailable;
+  const requestOpen = useCallback(() => {
+    if (!canOpenWorktree || openStarted.current) return;
     openStarted.current = true;
     startOpen();
-  }, [workspace, githubAvailable, startOpen]);
+  }, [canOpenWorktree, startOpen]);
+
+  useEffect(() => {
+    if (tab === 'files') requestOpen();
+  }, [tab, requestOpen]);
 
   const ready = !!workspace && githubAvailable;
   const detailQuery = trpc.review.detail.useQuery(prInput, { enabled: ready });
@@ -115,29 +147,6 @@ export function ReviewPage({
     );
   }
 
-  if (open.error) {
-    return (
-      <ReviewErrorMessage
-        title="Could not open the review"
-        message={open.error.message}
-        onRetry={startOpen}
-      />
-    );
-  }
-
-  if (!worktree) {
-    return (
-      <ReviewStatusMessage
-        icon={<RiLoader4Line className="size-5 animate-spin text-muted-foreground" />}
-        title="Preparing review worktree…"
-      >
-        <p className="text-xs text-muted-foreground">
-          {repoFullName}#{prNumber}
-        </p>
-      </ReviewStatusMessage>
-    );
-  }
-
   if (detailQuery.error) {
     return (
       <ReviewErrorMessage
@@ -157,28 +166,71 @@ export function ReviewPage({
     );
   }
 
-  const behind = isBehindGithub(worktree.headSha, detail.headRefOid);
-  const showBanner = (worktree.stale || behind) && !(worktree.dirty && keptLocalChanges);
+  const showBanner =
+    worktree !== null &&
+    (worktree.stale || isBehindGithub(worktree.headSha, detail.headRefOid)) &&
+    !(worktree.dirty && keptLocalChanges);
   const sidebar = (
     <ReviewSidebar
       detail={detail}
-      worktreePath={worktree.worktreePath}
+      worktreePath={worktree?.worktreePath ?? null}
       linkedWork={listed ? { sessionId: listed.sessionId, taskGroupId: listed.taskGroupId } : null}
     />
   );
 
+  const worktreeActions = worktree ? (
+    <>
+      <Button
+        variant="outline"
+        size="xs"
+        onClick={() =>
+          openNewTerminal({
+            scopeType: 'worktree',
+            scopeLabel: `PR #${prNumber}`,
+            workingDir: worktree.worktreePath,
+            groupKey: projectGroupKey(workspaceSlug, projectSlug),
+            workspaceSlug,
+          })
+        }
+      >
+        <RiTerminalBoxLine className="size-3" />
+        Open terminal here
+      </Button>
+      <SubmitReviewPanel
+        workspaceId={workspaceId}
+        repoFullName={repoFullName}
+        prNumber={prNumber}
+        repoPath={worktree.repoPath}
+        headRefName={worktree.headRefName}
+        isOwnPr={detail.author?.login === githubStatus.login}
+      />
+    </>
+  ) : (
+    <Button variant="outline" size="xs" disabled={open.isPending} onClick={requestOpen}>
+      {open.isPending ? (
+        <RiLoader4Line className="size-3 animate-spin" />
+      ) : (
+        <RiGitBranchLine className="size-3" />
+      )}
+      Open worktree
+    </Button>
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ReviewWorktreeBanner
-        stale={showBanner}
-        dirty={worktree.dirty}
-        isUpdating={update.isPending}
-        onUpdate={(discard) => update.mutate({ id: worktree.id, discard })}
-        onKeep={() => setKeptLocalChanges(true)}
-      />
+      {worktree && (
+        <ReviewWorktreeBanner
+          stale={showBanner}
+          dirty={worktree.dirty}
+          isUpdating={update.isPending}
+          onUpdate={(discard) => update.mutate({ id: worktree.id, discard })}
+          onKeep={() => setKeptLocalChanges(true)}
+        />
+      )}
       <ReviewHeader
         prNumber={prNumber}
         detail={detail}
+        onBack={onBack}
         agentReview={
           <ReviewAgentControls
             workspaceId={workspaceId}
@@ -188,25 +240,7 @@ export function ReviewPage({
             projectSlug={projectSlug}
           />
         }
-        submitReview={
-          <SubmitReviewPanel
-            workspaceId={workspaceId}
-            repoFullName={repoFullName}
-            prNumber={prNumber}
-            repoPath={worktree.repoPath}
-            headRefName={worktree.headRefName}
-            isOwnPr={detail.author?.login === githubStatus.login}
-          />
-        }
-        onOpenTerminal={() =>
-          openNewTerminal({
-            scopeType: 'worktree',
-            scopeLabel: `PR #${prNumber}`,
-            workingDir: worktree.worktreePath,
-            groupKey: `worktree:${workspaceSlug}`,
-            workspaceSlug,
-          })
-        }
+        worktreeActions={worktreeActions}
       />
       <details className="border-b border-border lg:hidden">
         <summary className="cursor-pointer px-4 py-2 text-xs text-muted-foreground">
@@ -242,19 +276,23 @@ export function ReviewPage({
             forceMount
             className="flex min-h-0 flex-col data-[state=inactive]:hidden"
           >
-            <ReviewFiles
-              workspaceSlug={workspaceSlug}
-              workspaceId={workspaceId}
-              repoFullName={repoFullName}
-              prNumber={prNumber}
-              projectSlug={projectSlug}
-              repoPath={worktree.repoPath}
-              worktreePath={worktree.worktreePath}
-              headRefName={worktree.headRefName}
-              baseRef={worktree.baseRef}
-              active={tab === 'files'}
-              totalLines={{ added: detail.additions, removed: detail.deletions }}
-            />
+            {worktree ? (
+              <ReviewFiles
+                workspaceSlug={workspaceSlug}
+                workspaceId={workspaceId}
+                repoFullName={repoFullName}
+                prNumber={prNumber}
+                projectSlug={projectSlug}
+                repoPath={worktree.repoPath}
+                worktreePath={worktree.worktreePath}
+                headRefName={worktree.headRefName}
+                baseRef={worktree.baseRef}
+                active={tab === 'files'}
+                totalLines={{ added: detail.additions, removed: detail.deletions }}
+              />
+            ) : (
+              <WorktreeLoading error={open.error?.message ?? null} onRetry={startOpen} />
+            )}
           </TabsContent>
           <TabsContent value="checks" className="min-h-0 overflow-y-auto">
             <ReviewChecks checks={detail.checks} />

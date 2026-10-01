@@ -10,6 +10,7 @@ import {
   githubAvatarUrl,
   unreadPriorityCount,
   describeCleared,
+  pickReviewProject,
 } from './inbox-helpers';
 
 describe('inbox-helpers', () => {
@@ -151,6 +152,29 @@ describe('inbox-helpers', () => {
       expect(formatSnoozeUntil(new Date(2026, 9, 5, 9, 0).toISOString())).toBe(
         'Snoozed until Mon 09:00',
       );
+    });
+  });
+
+  describe('[FR-INBOX-560] pickReviewProject', () => {
+    const projects = [
+      { slug: 'alpha', isDefault: false },
+      { slug: 'default', isDefault: true },
+    ];
+
+    it('should prefer the project of the correlated agent session', () => {
+      expect(pickReviewProject(projects, 'alpha')).toBe('alpha');
+    });
+
+    it('should fall back to the default project', () => {
+      expect(pickReviewProject(projects, null)).toBe('default');
+    });
+
+    it('should fall back to the first project when none is the default', () => {
+      expect(pickReviewProject([{ slug: 'alpha', isDefault: false }], null)).toBe('alpha');
+    });
+
+    it('should return null when the workspace has no project', () => {
+      expect(pickReviewProject([], null)).toBeNull();
     });
   });
 });

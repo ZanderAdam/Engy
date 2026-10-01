@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   RiErrorWarningLine,
   RiInbox2Line,
@@ -9,9 +9,17 @@ import {
   RiSearchLine,
 } from '@remixicon/react';
 import { toast } from 'sonner';
-import { useOptionalTab, useVirtualNavigate } from '@/components/tabs/tab-context';
+import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
+import {
+  useOptionalTab,
+  useVirtualNavigate,
+  useVirtualSearchParams,
+} from '@/components/tabs/tab-context';
 import { PrErrorStrip } from '@/components/prs/pr-error-strip';
 import { useKeptReviews } from '@/components/prs/use-kept-reviews';
+import { ReviewPage } from '@/components/review/review-page';
+import { reviewUrlParams } from '@/components/review/review-url-params';
+import type { ReviewTab } from '@/components/review/review-helpers';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -25,12 +33,13 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useOnServerEvent } from '@/contexts/events-context';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/lib/trpc';
-import { buildReviewPath } from '@/lib/review-path';
+import { buildPrsPath } from '@/lib/review-path';
 import {
   describeCleared,
   filterInboxItems,
   moveSelection,
   nextSelectionAfterRemoval,
+  pickReviewProject,
   prKey,
   shouldStartReadDwell,
   sortInboxItems,
@@ -57,11 +66,20 @@ type InboxTab = 'priority' | 'all' | 'mine';
 const READ_DWELL_MS = 1500;
 const ALL_WORKSPACES = 'all';
 
+const LIST_SIDEBAR_CONFIG = {
+  defaultWidth: 360,
+  minWidth: 260,
+  maxWidth: 640,
+  storageKey: 'engy-prs-list-sidebar-width',
+} as const;
+const LIST_SIDEBAR_SHORTCUT: ShortcutDef = { mod: true, shift: true, key: ';' };
+
 interface InboxViewProps {
-  workspaceId?: number;
+  scope?: { workspaceId: number; projectSlug: string };
 }
 
-export function InboxView({ workspaceId: lockedWorkspaceId }: InboxViewProps) {
+export function InboxView({ scope }: InboxViewProps) {
+  const lockedWorkspaceId = scope?.workspaceId;
   const navigate = useVirtualNavigate();
   const isTabActive = useOptionalTab()?.isActive ?? true;
   const utils = trpc.useUtils();
@@ -74,6 +92,8 @@ export function InboxView({ workspaceId: lockedWorkspaceId }: InboxViewProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [listCollapsed, setListCollapsed] = useState(false);
+  const search = useVirtualSearchParams();
   const containerRef = useRef<HTMLDivElement>(null);
   const isNarrow = useContainerNarrow(containerRef);
   const filterInputRef = useRef<HTMLInputElement>(null);
@@ -160,9 +180,14 @@ export function InboxView({ workspaceId: lockedWorkspaceId }: InboxViewProps) {
           inboxItemToRow(item, prByKey.get(prKey(item.repoFullName, item.prNumber))),
         );
   const visibleRows = filterInboxItems(rows, query);
+  const { repo: openRepo, pr: openNumber } = reviewUrlParams(search);
+  const openPr =
+    scope && openRepo && openNumber ? { repoFullName: openRepo, prNumber: openNumber } : null;
+  const openKey = openPr ? prKey(openPr.repoFullName, openPr.prNumber) : null;
+  const activeKey = openKey ?? selectedKey;
   const selected =
-    visibleRows.find((row) => row.key === selectedKey) ??
-    (isNarrow ? null : visibleRows[0]) ??
+    visibleRows.find((row) => row.key === activeKey) ??
+    (isNarrow || openKey ? null : visibleRows[0]) ??
     null;
   const selectedItem = selected?.item ?? null;
 
@@ -171,8 +196,8 @@ export function InboxView({ workspaceId: lockedWorkspaceId }: InboxViewProps) {
     selectedRef.current = selected;
   });
 
-  const dwellKey = shouldStartReadDwell(selectedKey, selected?.key ?? null, isTabActive)
-    ? selectedKey
+  const dwellKey = shouldStartReadDwell(activeKey, selected?.key ?? null, isTabActive)
+    ? activeKey
     : null;
   useEffect(() => {
     if (dwellKey === null) return;
@@ -190,6 +215,8 @@ export function InboxView({ workspaceId: lockedWorkspaceId }: InboxViewProps) {
   const lockedWorkspaceRepos = workspaces.find((workspace) => workspace.id === lockedWorkspaceId)
     ?.repos as string[] | null | undefined;
 
+  const prsTabSlug =
+    lockedWorkspaceId === undefined ? null : (workspaceSlugById.get(lockedWorkspaceId) ?? null);
   const reviewSlug =
     selected?.workspaceId == null ? null : (workspaceSlugById.get(selected.workspaceId) ?? null);
   const diffsHref =
@@ -197,23 +224,50 @@ export function InboxView({ workspaceId: lockedWorkspaceId }: InboxViewProps) {
       ? `/w/${reviewSlug}/projects/${selected.projectSlug}/diffs`
       : null;
 
+  const globalProjectsWorkspaceId = scope ? undefined : (selected?.workspaceId ?? undefined);
+  const { data: globalProjects = [] } = trpc.project.list.useQuery(
+    { workspaceId: globalProjectsWorkspaceId ?? 0 },
+    { enabled: globalProjectsWorkspaceId !== undefined },
+  );
+  const reviewProjectSlug = scope
+    ? scope.projectSlug
+    : pickReviewProject(globalProjects, selected?.projectSlug ?? null);
+  const canReview = reviewSlug !== null && reviewProjectSlug !== null;
+
+  const pushReview = useCallback(
+    (pr: { repoFullName: string; prNumber: number } | null) => {
+      if (!scope || !prsTabSlug) return;
+      navigate.push(buildPrsPath(prsTabSlug, scope.projectSlug, pr, search));
+    },
+    [navigate, prsTabSlug, scope, search],
+  );
+
   function openReview() {
-    if (!selected || !reviewSlug) return;
-    navigate.push(
-      buildReviewPath(
-        reviewSlug,
-        selected.repoFullName,
-        selected.prNumber,
-        selected.projectSlug ?? undefined,
-      ),
-    );
+    if (!selected || !reviewSlug || !reviewProjectSlug) return;
+    const pr = { repoFullName: selected.repoFullName, prNumber: selected.prNumber };
+    if (scope) pushReview(pr);
+    else navigate.openNewTab(buildPrsPath(reviewSlug, reviewProjectSlug, pr));
   }
+
+  function closeReview() {
+    pushReview(null);
+  }
+
+  function selectKey(key: string | null) {
+    setSelectedKey(key);
+    if (!openKey) return;
+    const row = visibleRows.find((visible) => visible.key === key);
+    if (row) pushReview({ repoFullName: row.repoFullName, prNumber: row.prNumber });
+    else closeReview();
+  }
+
+  const handleReviewTab = useCallback((tab: ReviewTab) => setListCollapsed(tab === 'files'), []);
 
   function removeRow(row: InboxRowModel, remove: (id: number) => void) {
     if (!row.item) return;
     const keys = visibleRows.map((visible) => visible.key);
     remove(row.item.id);
-    if (row.key === selected?.key) setSelectedKey(nextSelectionAfterRemoval(keys, row.key));
+    if (row.key === selected?.key) selectKey(nextSelectionAfterRemoval(keys, row.key));
   }
 
   function removeSelected(remove: (id: number) => void) {
@@ -233,29 +287,37 @@ export function InboxView({ workspaceId: lockedWorkspaceId }: InboxViewProps) {
   function moveBy(delta: 1 | -1) {
     const keys = visibleRows.map((row) => row.key);
     const next = moveSelection(keys, selected?.key ?? null, delta);
-    if (next !== null) setSelectedKey(next);
+    if (next !== null) selectKey(next);
   }
 
-  useInboxKeys(containerRef, isTabActive && !snoozeOpen && !helpOpen, {
-    next: () => moveBy(1),
-    previous: () => moveBy(-1),
-    open: openReview,
-    toggleRead: () => {
-      if (selectedItem) toggleRead(selectedItem);
+  useInboxKeys(
+    containerRef,
+    isTabActive && !snoozeOpen && !helpOpen,
+    {
+      next: () => moveBy(1),
+      previous: () => moveBy(-1),
+      open: openReview,
+      close: () => {
+        if (openKey) closeReview();
+      },
+      toggleRead: () => {
+        if (selectedItem) toggleRead(selectedItem);
+      },
+      markAllRead: () => {
+        if (tab !== 'mine') markAllRead({ tab, workspaceId });
+      },
+      done: () => removeSelected((id) => markDone({ id })),
+      snooze: () => {
+        if (selectedItem) setSnoozeOpen(true);
+      },
+      github: () => {
+        if (selected) window.open(selected.url, '_blank', 'noopener,noreferrer');
+      },
+      focusFilter: () => filterInputRef.current?.focus(),
+      help: () => setHelpOpen(true),
     },
-    markAllRead: () => {
-      if (tab !== 'mine') markAllRead({ tab, workspaceId });
-    },
-    done: () => removeSelected((id) => markDone({ id })),
-    snooze: () => {
-      if (selectedItem) setSnoozeOpen(true);
-    },
-    github: () => {
-      if (selected) window.open(selected.url, '_blank', 'noopener,noreferrer');
-    },
-    focusFilter: () => filterInputRef.current?.focus(),
-    help: () => setHelpOpen(true),
-  });
+    openKey ? 'review' : 'list',
+  );
 
   function snoozeSelected(until: Date) {
     setSnoozeOpen(false);
@@ -263,8 +325,8 @@ export function InboxView({ workspaceId: lockedWorkspaceId }: InboxViewProps) {
   }
 
   function selectRow(key: string) {
-    setSelectedKey(key);
     setPreviewOpen(true);
+    selectKey(key);
   }
 
   const showPreviewOnly = isNarrow && previewOpen && selected !== null;
@@ -284,7 +346,7 @@ export function InboxView({ workspaceId: lockedWorkspaceId }: InboxViewProps) {
     <div
       className={cn(
         'flex min-h-0 min-w-0 flex-1 flex-col border-border',
-        !isNarrow && 'w-[26rem] flex-none border-r',
+        !isNarrow && !openKey && 'w-[26rem] flex-none border-r',
       )}
     >
       <div className="flex flex-col gap-2 border-b border-border p-2">
@@ -384,7 +446,7 @@ export function InboxView({ workspaceId: lockedWorkspaceId }: InboxViewProps) {
   const previewPane = selected ? (
     <InboxPreview
       row={selected}
-      canReview={reviewSlug !== null}
+      canReview={canReview}
       onOpenReview={openReview}
       onBack={isNarrow ? () => setPreviewOpen(false) : null}
       diffsHref={diffsHref}
@@ -400,13 +462,40 @@ export function InboxView({ workspaceId: lockedWorkspaceId }: InboxViewProps) {
     </div>
   );
 
+  const reviewPane =
+    openPr && scope && prsTabSlug ? (
+      <ReviewPage
+        key={openKey}
+        workspaceSlug={prsTabSlug}
+        repoFullName={openPr.repoFullName}
+        prNumber={openPr.prNumber}
+        projectSlug={scope.projectSlug}
+        onBack={closeReview}
+        onTabChange={handleReviewTab}
+      />
+    ) : null;
+
   let panes = (
     <>
       {listPane}
       {previewPane}
     </>
   );
-  if (showPreviewOnly) panes = previewPane;
+  if (reviewPane && isNarrow) {
+    panes = reviewPane;
+  } else if (reviewPane) {
+    panes = (
+      <ThreePanelLayout
+        className="min-w-0 flex-1"
+        left={LIST_SIDEBAR_CONFIG}
+        leftShortcut={LIST_SIDEBAR_SHORTCUT}
+        leftCollapsed={listCollapsed}
+        onLeftCollapsedChange={setListCollapsed}
+        leftContent={<div className="flex h-full min-h-0 flex-col">{listPane}</div>}
+        centerContent={reviewPane}
+      />
+    );
+  } else if (showPreviewOnly) panes = previewPane;
   else if (isNarrow) panes = listPane;
 
   return (

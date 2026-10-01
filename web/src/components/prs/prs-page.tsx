@@ -5,14 +5,15 @@ import { InboxView } from '@/components/inbox/inbox-view';
 
 interface PrsPageProps {
   workspaceSlug: string;
+  projectSlug: string;
 }
 
-export function PrsPage({ workspaceSlug }: PrsPageProps) {
+export function PrsPage({ workspaceSlug, projectSlug }: PrsPageProps) {
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {workspace && <InboxView workspaceId={workspace.id} />}
+      {workspace && <InboxView scope={{ workspaceId: workspace.id, projectSlug }} />}
     </div>
   );
 }

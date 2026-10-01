@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { RiDraftLine, RiExternalLinkLine, RiTerminalBoxLine } from '@remixicon/react';
+import { RiArrowLeftLine, RiDraftLine, RiExternalLinkLine } from '@remixicon/react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CiPill, ChecksPopover, ReviewDecisionBadge } from '@/components/prs/pr-badges';
@@ -11,9 +11,9 @@ import { ReviewAvatar } from './review-avatar';
 interface ReviewHeaderProps {
   prNumber: number;
   detail: PrDetail;
-  onOpenTerminal: () => void;
+  onBack: () => void;
   agentReview: ReactNode;
-  submitReview: ReactNode;
+  worktreeActions: ReactNode;
 }
 
 function StateBadge({ state }: { state: string }) {
@@ -28,13 +28,16 @@ function StateBadge({ state }: { state: string }) {
 export function ReviewHeader({
   prNumber,
   detail,
-  onOpenTerminal,
+  onBack,
   agentReview,
-  submitReview,
+  worktreeActions,
 }: ReviewHeaderProps) {
   return (
     <header className="flex flex-col gap-2 border-b border-border px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
+        <Button variant="ghost" size="icon-xs" aria-label="Back to list" onClick={onBack}>
+          <RiArrowLeftLine className="size-4" />
+        </Button>
         <h1 className="min-w-0 text-base font-semibold text-foreground">{detail.title}</h1>
         <span className="font-mono text-sm text-muted-foreground">#{prNumber}</span>
         {detail.isDraft && (
@@ -91,12 +94,8 @@ export function ReviewHeader({
               Open on GitHub
             </a>
           </Button>
-          <Button variant="outline" size="xs" onClick={onOpenTerminal}>
-            <RiTerminalBoxLine className="size-3" />
-            Open terminal here
-          </Button>
           {agentReview}
-          {submitReview}
+          {worktreeActions}
         </span>
       </div>
     </header>
