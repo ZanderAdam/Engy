@@ -22,6 +22,7 @@ export interface UpsertItemInput {
   workspaceId?: number | null;
   repoPath?: string | null;
   facts?: BucketFacts;
+  firstEventAt?: string;
 }
 
 interface AddEventInput {
@@ -104,7 +105,7 @@ export function upsertItem(input: UpsertItemInput, now: Date = new Date()): Inbo
         workspaceId: input.workspaceId ?? null,
         repoPath: input.repoPath ?? null,
         bucket: input.facts ? computeBucket(input.facts) : 'other',
-        lastEventAt: timestamp,
+        lastEventAt: input.firstEventAt ?? timestamp,
         createdAt: timestamp,
         updatedAt: timestamp,
       })

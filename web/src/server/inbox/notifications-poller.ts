@@ -5,6 +5,7 @@ import { buildRepoIndex, syncThread } from './inbox-sync';
 import { pruneDone, wakeDueSnoozes } from './store';
 
 export const MIN_POLL_INTERVAL_MS = 60_000;
+export const MAX_SYNCED_THREADS = 1000;
 
 const IGNORED_REASONS: ReadonlySet<string> = new Set(['ci_activity']);
 
@@ -45,6 +46,8 @@ export async function runNotificationsCycle(
   wakeDueSnoozes(now);
   pruneDone(now);
 
+  if (!state.daemon || state.daemon.readyState !== state.daemon.OPEN) return session.pollIntervalMs;
+
   const status = await getGithubStatus(state);
   const viewer = state.github.viewer;
   if (!status.available || !viewer) return session.pollIntervalMs;
@@ -78,11 +81,17 @@ export async function runNotificationsCycle(
         },
         thread,
       );
+      session.syncedThreads.delete(thread.id);
       session.syncedThreads.set(thread.id, thread.updated_at);
     } catch (error) {
       allSynced = false;
       logFailure(`inbox sync failed for thread ${thread.id}`, error);
     }
+  }
+
+  for (const threadId of session.syncedThreads.keys()) {
+    if (session.syncedThreads.size <= MAX_SYNCED_THREADS) break;
+    session.syncedThreads.delete(threadId);
   }
 
   if (allSynced) {

@@ -11,7 +11,9 @@ import {
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { maybeStartAutoReview } from '../review/auto-review';
 import * as broadcast from '../ws/broadcast';
+import type WebSocket from 'ws';
 import {
+  MAX_SYNCED_THREADS,
   MIN_POLL_INTERVAL_MS,
   createNotificationsSession,
   runNotificationsCycle,
@@ -77,6 +79,7 @@ describe('notifications poller', () => {
 
   beforeEach(async () => {
     ctx = setupTestDb();
+    ctx.state.daemon = { readyState: 1, OPEN: 1, send: vi.fn() } as unknown as WebSocket;
     vi.mocked(maybeStartAutoReview).mockResolvedValue({ started: false, reason: 'setting-off' });
     vi.spyOn(broadcast, 'broadcastInboxChange').mockImplementation(() => undefined);
     stub = await startStubGithub();
@@ -300,6 +303,39 @@ describe('notifications poller', () => {
     await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
 
     expect(stub.requests).toEqual([]);
+  });
+
+  it('[FR-PRMON-301] should skip the cycle and keep the cursor while no daemon is connected', async () => {
+    ctx.state.daemon = null;
+    notifications = [notification()];
+    const session = createNotificationsSession();
+
+    const delay = await runNotificationsCycle(ctx.state, session, NOW);
+
+    expect(delay).toBe(MIN_POLL_INTERVAL_MS);
+    expect(stub.requests).toEqual([]);
+    expect(session.since).toBeNull();
+    expect(items()).toEqual([]);
+  });
+
+  it('[FR-INBOX-310] should mark a new item read when GitHub read it after its last event', async () => {
+    notifications = [notification({ unread: false, last_read_at: '2026-03-01T11:45:00Z' })];
+
+    await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+    expect(items()[0]).toMatchObject({ unread: false, lastEventAt: '2026-03-01T10:59:00Z' });
+  });
+
+  it('[FR-INBOX-270] should cap the synced thread memory', async () => {
+    const session = createNotificationsSession();
+    for (let i = 0; i < MAX_SYNCED_THREADS; i++) session.syncedThreads.set(`old-${i}`, 'x');
+    notifications = [notification()];
+
+    await runNotificationsCycle(ctx.state, session, NOW);
+
+    expect(session.syncedThreads.size).toBe(MAX_SYNCED_THREADS);
+    expect(session.syncedThreads.has('old-0')).toBe(false);
+    expect(session.syncedThreads.has('100')).toBe(true);
   });
 
   describe('auto review', () => {

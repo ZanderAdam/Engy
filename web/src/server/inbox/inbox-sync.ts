@@ -143,6 +143,12 @@ export async function syncThread(
   const location = ctx.repoIndex.get(repoFullName);
   const timeline = await loadTimeline(ctx, thread, prNumber);
 
+  const events = timeline && timeline.events.length > 0 ? timeline.events : [reasonEvent(thread)];
+  const firstEventAt = events.reduce(
+    (earliest, event) => (event.at < earliest ? event.at : earliest),
+    events[0].at,
+  );
+
   const base = {
     repoFullName,
     prNumber,
@@ -152,9 +158,8 @@ export async function syncThread(
     workspaceId: location?.workspaceId,
     repoPath: location?.repoPath,
   };
-  const item = upsertItem(base);
+  const item = upsertItem({ ...base, firstEventAt });
 
-  const events = timeline && timeline.events.length > 0 ? timeline.events : [reasonEvent(thread)];
   const facts = timeline
     ? buildFacts(timeline, ctx.viewerLogin, repoFullName, prNumber)
     : undefined;
