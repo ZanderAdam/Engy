@@ -16,7 +16,7 @@ import {
 import { getDb } from '../../db/client';
 import { commentThreads, prs, reviewWorktrees } from '../../db/schema';
 import { diffScopePrefix } from '../../../lib/diff-doc-path';
-import { parseRisk, type ReviewRisk } from '../../../components/diff/review-summary-meta';
+import { parseRisk, type ReviewRisk } from '../../../lib/review-summary-meta';
 import { findCorrelatedSession } from './pr';
 import { markThreadReadOnGithub } from '../../github/notifications';
 import { markItemDone } from '../../inbox/mark-done';

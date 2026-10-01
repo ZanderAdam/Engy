@@ -1,4 +1,4 @@
-import { RISK_PRESENTATION } from '@/components/diff/review-summary-meta';
+import { RISK_PRESENTATION } from '@/lib/review-summary-meta';
 import { ciStatusClassName, ciStatusLabel } from '@/components/prs/pr-helpers';
 import { cn } from '@/lib/utils';
 import type { GhPrCiStatus } from '@engy/common';

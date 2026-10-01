@@ -20,7 +20,7 @@ import {
   type ReadingChapter,
   type ReviewGuideSource,
   type ReviewRisk,
-} from './review-summary-meta';
+} from '@/lib/review-summary-meta';
 
 export interface DiffComment {
   threadId: string;

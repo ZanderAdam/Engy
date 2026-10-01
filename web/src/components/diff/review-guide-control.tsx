@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useVirtualNavigate } from '@/components/tabs/tab-context';
 import { trpc } from '@/lib/trpc';
-import type { ReviewGuideSource } from './review-summary-meta';
+import type { ReviewGuideSource } from '@/lib/review-summary-meta';
 
 export interface GuideProject {
   id: number;

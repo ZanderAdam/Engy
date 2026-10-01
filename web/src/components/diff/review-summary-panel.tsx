@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { commentBodyText } from './agent-findings';
 import { ReviewGuideControl, type GuideProject } from './review-guide-control';
-import { RISK_PRESENTATION } from './review-summary-meta';
+import { RISK_PRESENTATION } from '@/lib/review-summary-meta';
 import type { DiffComment } from './use-diff-comments';
 
 interface ReviewSummaryPanelProps {
