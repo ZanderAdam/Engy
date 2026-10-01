@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import fs from 'node:fs';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import type WebSocket from 'ws';
@@ -9,7 +10,7 @@ import type { GithubPr } from '../github/prs';
 import { spawnAgentTerminal } from '../terminal-dispatch';
 import { dispatchGitBranchFiles } from '../ws/server';
 import { installFakeDaemon, type FakeDaemon } from './fake-daemon';
-import { maybeStartAutoReview } from './auto-review';
+import { maybeStartAutoReview, startManualReview } from './auto-review';
 
 vi.mock('../terminal-dispatch', () => ({ spawnAgentTerminal: vi.fn() }));
 vi.mock('../ws/server', async (importOriginal) => ({
@@ -229,6 +230,72 @@ describe('auto review', () => {
 
       expect(failed).toEqual({ started: false, reason: 'open-failed' });
       expect(retried).toEqual({ started: true, sessionId: 'term-1' });
+    });
+  });
+
+  describe('manual start', () => {
+    function startManual(projectSlug?: string) {
+      return startManualReview(ctx.state, {
+        workspaceId,
+        repoFullName: REPO_FULL_NAME,
+        prNumber: 7,
+        projectSlug,
+      });
+    }
+
+    function seedProjectGuide(): string {
+      ctx.db.insert(projects).values({ workspaceId, name: 'G', slug: 'guided' }).run();
+      const dir = path.join(process.env.ENGY_DIR!, 'ws', 'projects', 'guided');
+      fs.mkdirSync(dir, { recursive: true });
+      const guidePath = path.join(dir, 'review-guide.md');
+      fs.writeFileSync(guidePath, '# guide');
+      return guidePath;
+    }
+
+    it('[FR-PRMON-310] should start even when auto review is off and the SHA was reviewed', async () => {
+      setWorkspace({ autoReviewOnRequest: false });
+      await startManual();
+
+      const result = await startManual();
+
+      expect(result).toEqual({ sessionId: 'term-1' });
+      expect(spawnAgentTerminal).toHaveBeenCalledTimes(2);
+      expect(ctx.db.select().from(reviewWorktrees).get()?.autoReviewedSha).toBeNull();
+    });
+
+    it('[FR-PRMON-310] should pass the guide of the chosen project', async () => {
+      const guidePath = seedProjectGuide();
+
+      await startManual('guided');
+
+      const prompt = vi.mocked(spawnAgentTerminal).mock.calls[0][1].prompt;
+      expect(prompt).toContain(`reviewGuide: ${guidePath}`);
+      expect(prompt).toContain('merge-base-sha');
+    });
+
+    it('[FR-PRMON-310] should use the default guide when the project has none', async () => {
+      ctx.db.insert(projects).values({ workspaceId, name: 'G', slug: 'plain' }).run();
+
+      await startManual('plain');
+
+      expect(vi.mocked(spawnAgentTerminal).mock.calls[0][1].prompt).not.toContain('reviewGuide:');
+    });
+
+    it.each([
+      ['no daemon', () => (ctx.state.daemon = null), 'daemon is not connected'],
+      ['no terminal daemon', () => (ctx.state.terminalDaemon = null), 'daemon is not connected'],
+      ['concurrency full', () => seedActiveSession(), 'Too many agent sessions'],
+    ])('[FR-PRMON-310] should refuse with a clear message: %s', async (_name, arrange, message) => {
+      arrange();
+
+      await expect(startManual()).rejects.toThrow(message);
+      expect(spawnAgentTerminal).not.toHaveBeenCalled();
+    });
+
+    it('[FR-PRMON-310] should report a failed start', async () => {
+      vi.mocked(dispatchGitBranchFiles).mockRejectedValueOnce(new Error('no base'));
+
+      await expect(startManual()).rejects.toThrow('Could not start the review: no base');
     });
   });
 });

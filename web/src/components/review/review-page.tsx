@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Kbd } from '@/components/ui/kbd';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
+import { ReviewAgentControls } from './review-agent-controls';
 import { ReviewHeader } from './review-header';
 import { ReviewOverview } from './review-overview';
 import { ReviewChecks } from './review-checks';
@@ -196,6 +197,15 @@ export function ReviewPage({
       <ReviewHeader
         prNumber={prNumber}
         detail={detail}
+        agentReview={
+          <ReviewAgentControls
+            workspaceId={workspaceId}
+            workspaceSlug={workspaceSlug}
+            repoFullName={repoFullName}
+            prNumber={prNumber}
+            projectSlug={projectSlug}
+          />
+        }
         submitReview={
           <SubmitReviewPanel
             workspaceId={workspaceId}

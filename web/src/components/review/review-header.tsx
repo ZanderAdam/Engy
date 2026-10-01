@@ -12,6 +12,7 @@ interface ReviewHeaderProps {
   prNumber: number;
   detail: PrDetail;
   onOpenTerminal: () => void;
+  agentReview: ReactNode;
   submitReview: ReactNode;
 }
 
@@ -28,6 +29,7 @@ export function ReviewHeader({
   prNumber,
   detail,
   onOpenTerminal,
+  agentReview,
   submitReview,
 }: ReviewHeaderProps) {
   return (
@@ -93,6 +95,7 @@ export function ReviewHeader({
             <RiTerminalBoxLine className="size-3" />
             Open terminal here
           </Button>
+          {agentReview}
           {submitReview}
         </span>
       </div>

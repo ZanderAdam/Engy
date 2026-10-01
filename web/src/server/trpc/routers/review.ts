@@ -17,6 +17,7 @@ import {
 } from '../../github/reviews';
 import { findItemByPr, markDone } from '../../inbox/store';
 import { syncReviewThreadsNow } from '../../pr/poller';
+import { startManualReview } from '../../review/auto-review';
 import { requireGithubThread, setResolvedLocally } from '../../review/github-threads';
 import { createDraftThread, deleteImportedDrafts, listDraftThreads } from '../../review/drafts';
 import {
@@ -103,6 +104,10 @@ export const reviewRouter = router({
     assertWorkspaceExists(input.workspaceId);
     return fetchPrDetail(ctx.state, input.repoFullName, input.prNumber);
   }),
+
+  startAgentReview: publicProcedure
+    .input(prInput.extend({ projectSlug: z.string().min(1).optional() }))
+    .mutation(({ input, ctx }) => startManualReview(ctx.state, input)),
 
   syncThreads: publicProcedure.input(prInput).mutation(async ({ input, ctx }) => {
     const row = requireReviewRow(input, 'syncing threads');
