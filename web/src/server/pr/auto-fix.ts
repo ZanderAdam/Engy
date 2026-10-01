@@ -8,6 +8,7 @@ import { buildResumeFlags, buildResumeConfig } from '../trpc/routers/execution';
 import { findCorrelatedSession } from '../trpc/routers/pr';
 import { buildCiFixPrompt } from '../../lib/shell';
 import { broadcastPrAttention } from '../ws/broadcast';
+import { mapAttention, recordPrInboxEvents } from '../inbox/pr-events';
 import type { CiFailureClassification, FailedLog } from './ci-triage';
 
 type Db = ReturnType<typeof getDb>;
@@ -46,6 +47,7 @@ function clearAttentionReason(db: Db, repo: string, prNumber: number): void {
 
 function setAttentionReason(
   db: Db,
+  state: AppState,
   workspace: typeof workspaces.$inferSelect,
   prRow: typeof prs.$inferSelect,
   reason: string,
@@ -55,6 +57,13 @@ function setAttentionReason(
     .where(and(eq(prs.repo, prRow.repo), eq(prs.number, prRow.number)))
     .run();
   broadcastPrAttention(workspace.id, prRow.repo, prRow.number, reason);
+  const updatedRow = { ...prRow, attentionReason: reason };
+  recordPrInboxEvents({
+    prRow: updatedRow,
+    workspaceId: workspace.id,
+    viewerLogin: state.github.viewer?.login ?? null,
+    events: mapAttention(updatedRow, reason),
+  });
 }
 
 export async function maybeDispatchCiFix({
@@ -65,7 +74,7 @@ export async function maybeDispatchCiFix({
   workspace,
 }: MaybeDispatchCiFixInput): Promise<CiFixResult> {
   if (classification !== 'mechanical') {
-    setAttentionReason(db, workspace, prRow, 'non-mechanical');
+    setAttentionReason(db, state, workspace, prRow, 'non-mechanical');
     return { dispatched: false, reason: 'non-mechanical' };
   }
 
@@ -79,7 +88,7 @@ export async function maybeDispatchCiFix({
 
   const session = findCorrelatedSession(db, prRow.headBranch, prRow.repo);
   if (!session) {
-    setAttentionReason(db, workspace, prRow, 'uncorrelated');
+    setAttentionReason(db, state, workspace, prRow, 'uncorrelated');
     return { dispatched: false, reason: 'uncorrelated' };
   }
 
@@ -105,17 +114,17 @@ export async function maybeDispatchCiFix({
   }
 
   if (prRow.autoFixTotalAttempts >= MAX_TOTAL_AUTO_FIX_ATTEMPTS) {
-    setAttentionReason(db, workspace, prRow, 'attempt-cap-total');
+    setAttentionReason(db, state, workspace, prRow, 'attempt-cap-total');
     return { dispatched: false, reason: 'attempt-cap-total' };
   }
 
   if (prRow.autoFixAttempts >= MAX_AUTO_FIX_ATTEMPTS) {
-    setAttentionReason(db, workspace, prRow, 'attempt-cap-sha');
+    setAttentionReason(db, state, workspace, prRow, 'attempt-cap-sha');
     return { dispatched: false, reason: 'attempt-cap-sha' };
   }
 
   if (!session.worktreePath) {
-    setAttentionReason(db, workspace, prRow, 'no-worktree');
+    setAttentionReason(db, state, workspace, prRow, 'no-worktree');
     return { dispatched: false, reason: 'no-worktree' };
   }
 

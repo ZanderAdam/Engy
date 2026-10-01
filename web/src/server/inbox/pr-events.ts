@@ -1,0 +1,109 @@
+import type { prs } from '../db/schema';
+import type { MaterialChange } from '../trpc/routers/pr';
+import { getAttentionInfo } from '../../lib/pr-attention';
+import { NO_BUCKET_FACTS, type BucketFacts, type InboxEventKind } from './bucket';
+import { addEvent, findItemByPr, upsertItem } from './store';
+
+type PrRow = typeof prs.$inferSelect;
+
+interface PrInboxEvent {
+  kind: InboxEventKind;
+  summary: string;
+  actor: string | null;
+  sourceKey: string;
+}
+
+export function bucketFactsForPr(prRow: PrRow, viewerLogin: string | null): BucketFacts {
+  const authored = prRow.authoredByViewer;
+  const login = viewerLogin?.toLowerCase();
+  return {
+    ...NO_BUCKET_FACTS,
+    reviewRequestedNotGiven:
+      !!login && !authored && prRow.reviewRequests.some((r) => r.toLowerCase() === login),
+    myPrChangesRequested: authored && prRow.reviewDecision === 'CHANGES_REQUESTED',
+    myPrCiFailing: authored && prRow.ciStatus === 'failing',
+    myPrAutoFixAttention: authored && prRow.attentionReason !== null,
+    myPrApprovedCiPassing:
+      authored && prRow.reviewDecision === 'APPROVED' && prRow.ciStatus === 'passing',
+  };
+}
+
+function prKey(prRow: PrRow): string {
+  return `${prRow.repoFullName}#${prRow.number}:${prRow.headSha ?? 'unknown'}`;
+}
+
+export function mapPrChange(change: MaterialChange, prRow: PrRow): PrInboxEvent[] {
+  if (change.type !== 'ciStatus') return [];
+  const sourceKey = `ci:${prKey(prRow)}:${change.current}`;
+  if (change.current === 'failing') {
+    return [{ kind: 'ci_failed', summary: 'CI failed', actor: 'CI', sourceKey }];
+  }
+  const recovered = change.previous === 'failing' || change.previous === 'pending';
+  if (change.current === 'passing' && recovered && prRow.authoredByViewer) {
+    return [{ kind: 'ci_passed', summary: 'CI passed', actor: 'CI', sourceKey }];
+  }
+  return [];
+}
+
+export function mapAttention(prRow: PrRow, reason: string): PrInboxEvent[] {
+  const info = getAttentionInfo(reason);
+  if (!info) return [];
+  return [
+    {
+      kind: 'auto_fix_attention',
+      summary: info.label,
+      actor: null,
+      sourceKey: `attention:${prKey(prRow)}:${reason}`,
+    },
+  ];
+}
+
+interface RecordInput {
+  prRow: PrRow;
+  workspaceId: number;
+  viewerLogin: string | null;
+  events: PrInboxEvent[];
+  now?: Date;
+}
+
+export function recordPrInboxEvents({
+  prRow,
+  workspaceId,
+  viewerLogin,
+  events,
+  now = new Date(),
+}: RecordInput): void {
+  if (events.length === 0 || !prRow.repoFullName) return;
+  const facts = bucketFactsForPr(prRow, viewerLogin);
+  const item = upsertItem(
+    {
+      repoFullName: prRow.repoFullName,
+      prNumber: prRow.number,
+      title: prRow.title,
+      url: prRow.url,
+      workspaceId,
+      repoPath: prRow.repo,
+      facts,
+    },
+    now,
+  );
+  for (const event of events) {
+    addEvent({ itemId: item.id, ...event, at: now.toISOString(), facts }, now);
+  }
+}
+
+export function refreshPrFacts(prRow: PrRow, viewerLogin: string | null, now?: Date): void {
+  if (!prRow.repoFullName) return;
+  const item = findItemByPr(prRow.repoFullName, prRow.number);
+  if (!item) return;
+  upsertItem(
+    {
+      repoFullName: item.repoFullName,
+      prNumber: item.prNumber,
+      title: prRow.title,
+      url: prRow.url,
+      facts: bucketFactsForPr(prRow, viewerLogin),
+    },
+    now,
+  );
+}

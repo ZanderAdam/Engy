@@ -104,6 +104,16 @@ describe('inbox store', () => {
       expect(cleared.bucket).toBe('other');
     });
 
+    it('should keep priority while a mention event is unread', () => {
+      const item = upsertItem(itemInput(), NOW);
+      addEvent(event(item.id, 'mentioned', '2026-03-01T11:00:00.000Z'), NOW);
+
+      expect(upsertItem(itemInput({ facts: NO_BUCKET_FACTS }), NOW).bucket).toBe('priority');
+
+      markRead(item.id, NOW);
+      expect(upsertItem(itemInput({ facts: NO_BUCKET_FACTS }), NOW).bucket).toBe('other');
+    });
+
     it('should keep the bucket when no facts are given', () => {
       upsertItem(itemInput({ facts: PRIORITY_FACTS }), NOW);
       expect(upsertItem(itemInput(), NOW).bucket).toBe('priority');

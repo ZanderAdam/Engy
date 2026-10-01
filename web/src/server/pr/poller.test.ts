@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { workspaces, prs as prsTable, projects, agentSessions, taskGroups, tasks } from '../db/schema';
+import { workspaces, prs as prsTable, projects, agentSessions, taskGroups, tasks, inboxItems, inboxEvents } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
 import { runPollCycle, startPrPoller, stopPrPoller, POLL_INTERVAL_MS } from './poller';
 import * as broadcast from '../ws/broadcast';
@@ -336,6 +336,38 @@ describe('PR poller', () => {
     });
 
     describe('CI failure transition handling', () => {
+      it('[FR-PRMON-220] should record one ci_failed inbox event across repeated cycles', async () => {
+        seedWorkspace(ctx, ['/repo-a']);
+        const failing = makePr({ number: 1, ciStatus: 'failing', headSha: 'sha2', authoredByViewer: true });
+
+        installFakeGithub(
+          ctx,
+          new Map<string, GithubPr[] | Error>([
+            ['/repo-a', [makePr({ number: 1, ciStatus: 'passing', authoredByViewer: true })]],
+          ]),
+        );
+        await runPollCycle(ctx.state, ctx.db);
+        expect(ctx.db.select().from(inboxItems).all()).toHaveLength(0);
+
+        installFakeGithub(
+          ctx,
+          new Map<string, GithubPr[] | Error>([['/repo-a', [failing]]]),
+          new Map([['/repo-a', []]]),
+        );
+        await runPollCycle(ctx.state, ctx.db);
+        await runPollCycle(ctx.state, ctx.db);
+
+        const items = ctx.db.select().from(inboxItems).all();
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({
+          repoFullName: 'org/repo-a',
+          prNumber: 1,
+          bucket: 'priority',
+        });
+        const kinds = ctx.db.select().from(inboxEvents).all().map((event) => event.kind);
+        expect(kinds.filter((kind) => kind === 'ci_failed')).toHaveLength(1);
+      });
+
       it('should set lastFailedHeadSha when a PR transitions to failing', async () => {
         seedWorkspace(ctx, ['/repo-a']);
 

@@ -5,11 +5,17 @@ import type { AppState } from '../trpc/context';
 import { getGithubStatus } from '../github/viewer';
 import { listOpenPrs, resolveRepoPrs, type GithubPr } from '../github/prs';
 import { fetchReviewComments } from '../github/review-comments';
-import { upsertPrs, findCorrelatedSession, recordRepoOutcome } from '../trpc/routers/pr';
+import {
+  upsertPrs,
+  findCorrelatedSession,
+  recordRepoOutcome,
+  type MaterialChange,
+} from '../trpc/routers/pr';
 import { broadcastPrChange } from '../ws/broadcast';
 import { detectFailureTransitions, classifyFailure, isFailingCheck } from './ci-triage';
 import { maybeDispatchCiFix } from './auto-fix';
 import { syncReviewComments } from './review-sync';
+import { mapPrChange, recordPrInboxEvents, refreshPrFacts } from '../inbox/pr-events';
 
 export const POLL_INTERVAL_MS = 60_000;
 
@@ -68,6 +74,8 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
           }
         }
 
+        recordInboxActivity(db, state, ws.id, repo, ghPrs, result.changes);
+
         const failingTransitions = detectFailureTransitions(result.changes);
         for (const { number } of failingTransitions) {
           void handleFailingPr(db, state, ws, repo, number, ghPrs);
@@ -96,6 +104,31 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
         recordRepoOutcome(state, repo, message);
       }
     }
+  }
+}
+
+function recordInboxActivity(
+  db: Db,
+  state: AppState,
+  workspaceId: number,
+  repo: string,
+  ghPrs: GithubPr[],
+  changes: MaterialChange[],
+): void {
+  const viewerLogin = state.github.viewer?.login ?? null;
+  const rows = db.select().from(prs).where(eq(prs.repo, repo)).all();
+  const rowByNumber = new Map(rows.map((row) => [row.number, row]));
+
+  for (const change of changes) {
+    const prRow = rowByNumber.get(change.number);
+    if (!prRow) continue;
+    const events = mapPrChange(change, prRow);
+    recordPrInboxEvents({ prRow, workspaceId, viewerLogin, events });
+  }
+
+  for (const ghPr of ghPrs) {
+    const prRow = rowByNumber.get(ghPr.number);
+    if (prRow) refreshPrFacts(prRow, viewerLogin);
   }
 }
 

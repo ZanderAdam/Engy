@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull, lte, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { inboxEvents, inboxItems } from '../db/schema';
 import { broadcastInboxChange } from '../ws/broadcast';
@@ -62,6 +62,31 @@ function visibleWhere(filter: InboxFilter): SQL | undefined {
   return and(...conditions);
 }
 
+function withUnreadMention(
+  facts: BucketFacts,
+  item: InboxItem,
+  db: Pick<ReturnType<typeof getDb>, 'select'>,
+): BucketFacts {
+  if (facts.mentioned) return facts;
+  const conditions: SQL[] = [eq(inboxEvents.itemId, item.id), eq(inboxEvents.kind, 'mentioned')];
+  if (item.lastReadAt) conditions.push(gt(inboxEvents.at, item.lastReadAt));
+  const mention = db
+    .select({ id: inboxEvents.id })
+    .from(inboxEvents)
+    .where(and(...conditions))
+    .limit(1)
+    .get();
+  return mention ? { ...facts, mentioned: true } : facts;
+}
+
+export function findItemByPr(repoFullName: string, prNumber: number): InboxItem | undefined {
+  return getDb()
+    .select()
+    .from(inboxItems)
+    .where(and(eq(inboxItems.repoFullName, repoFullName), eq(inboxItems.prNumber, prNumber)))
+    .get();
+}
+
 export function upsertItem(input: UpsertItemInput, now: Date = new Date()): InboxItem {
   const db = getDb();
   const timestamp = now.toISOString();
@@ -103,7 +128,9 @@ export function upsertItem(input: UpsertItemInput, now: Date = new Date()): Inbo
       githubThreadId: input.githubThreadId ?? existing.githubThreadId,
       workspaceId: input.workspaceId ?? existing.workspaceId,
       repoPath: input.repoPath ?? existing.repoPath,
-      bucket: input.facts ? computeBucket(input.facts) : existing.bucket,
+      bucket: input.facts
+        ? computeBucket(withUnreadMention(input.facts, existing, db))
+        : existing.bucket,
       updatedAt: timestamp,
     })
     .where(eq(inboxItems.id, existing.id))
@@ -118,6 +145,10 @@ export function addEvent(input: AddEventInput, now: Date = new Date()): boolean 
   const inserted = db.transaction((tx) => {
     const item = tx.select().from(inboxItems).where(eq(inboxItems.id, input.itemId)).get();
     if (!item) throw new Error(`Inbox item ${input.itemId} does not exist`);
+
+    const bucket = input.facts
+      ? computeBucket(withUnreadMention(input.facts, item, tx))
+      : item.bucket;
 
     const event = tx
       .insert(inboxEvents)
@@ -135,7 +166,6 @@ export function addEvent(input: AddEventInput, now: Date = new Date()): boolean 
       .get();
     if (!event) return false;
 
-    const bucket = input.facts ? computeBucket(input.facts) : item.bucket;
     const stillSnoozed = item.snoozedUntil !== null && !wakesSnooze(input.kind, bucket);
     tx.update(inboxItems)
       .set({
