@@ -12,8 +12,7 @@ import { ReviewErrorMessage } from './review-status-message';
 import { patchContentId, patchSpecFor } from '@/components/diff/diff-patch-spec';
 import {
   classifyPaths,
-  countPatchLines,
-  implementationLines,
+  implementationLinesFromPatches,
   orderByClass,
   parseGitattributes,
   type LineCount,
@@ -30,6 +29,7 @@ interface ReviewFilesProps {
   headRefName: string;
   baseRef: string | null;
   totalLines: LineCount;
+  active: boolean;
 }
 
 type LineMode = 'implementation' | 'total';
@@ -109,6 +109,7 @@ export function ReviewFiles({
   headRefName,
   baseRef,
   totalLines,
+  active,
 }: ReviewFilesProps) {
   const tabs = useEditorTabs();
   const reviewWrite = useReviewWriteActions({ workspaceId, repoFullName, prNumber });
@@ -182,9 +183,8 @@ export function ReviewFiles({
 
   const lines = useMemo(() => {
     if (lineMode === 'total') return totalLines;
-    if (!patchSpec || patchQueries.some((query) => query.isLoading)) return null;
-    const others = patchQueries.map((query) => countPatchLines(query.data?.patch ?? ''));
-    return implementationLines(totalLines, others);
+    if (!patchSpec) return null;
+    return implementationLinesFromPatches(totalLines, patchQueries);
   }, [lineMode, totalLines, patchSpec, patchQueries]);
 
   if (diffError) {
@@ -215,7 +215,8 @@ export function ReviewFiles({
         subToolbar={<LineCountBar lines={lines} mode={lineMode} onModeChange={setLineMode} />}
         fileClasses={classes}
         showOutdatedThreads
-        reviewKeys
+        reviewKeys={active}
+        hideAgentReview
       />
     </ReviewWriteProvider>
   );

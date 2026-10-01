@@ -81,6 +81,7 @@ interface DiffReviewSurfaceProps {
   fileClasses?: Map<string, FileClass>;
   showOutdatedThreads?: boolean;
   reviewKeys?: boolean;
+  hideAgentReview?: boolean;
 }
 
 export function DiffReviewSurface({
@@ -103,6 +104,7 @@ export function DiffReviewSurface({
   fileClasses,
   showOutdatedThreads = false,
   reviewKeys = false,
+  hideAgentReview = false,
 }: DiffReviewSurfaceProps) {
   const isMobile = useIsMobile();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -451,7 +453,7 @@ export function DiffReviewSurface({
             <ReviewActions
               repoDir={repoDir}
               diffComments={currentFileComments}
-              reviewSpec={reviewSpec}
+              reviewSpec={hideAgentReview ? undefined : reviewSpec}
               worktreePath={worktreePath}
               coderWorkspace={coderWorkspace}
               projectId={guideProject?.id}
@@ -499,7 +501,7 @@ export function DiffReviewSurface({
                 }
                 onDelete={remove}
                 onSelectFile={selectFileByPath}
-                guideProject={guideProject}
+                guideProject={hideAgentReview ? undefined : guideProject}
               />
               {reviewMode === 'single' && <EditorTabsBar tabs={tabs} />}
               {!repoDir ? (

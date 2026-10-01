@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reviewKeyAction } from './use-review-keys';
+import { isInsideOverlay, reviewKeyAction } from './use-review-keys';
 
 function press(
   key: string,
@@ -41,5 +41,25 @@ describe('[FR-PRREVIEW-260] reviewKeyAction', () => {
     expect(press('v', { metaKey: true })).toBeNull();
     expect(press('p', { altKey: true })).toBeNull();
     expect(press('n', { shiftKey: true })).toBeNull();
+  });
+});
+
+describe('[FR-PRREVIEW-260] isInsideOverlay', () => {
+  const within = (selector: string) => ({
+    closest: (query: string) => (query.includes(selector) ? {} : null),
+  });
+
+  it.each([
+    '[role="dialog"]',
+    '[role="menu"]',
+    '[role="listbox"]',
+    '[data-radix-popper-content-wrapper]',
+  ])('should be true inside %s', (selector) => {
+    expect(isInsideOverlay(within(selector) as unknown as Element)).toBe(true);
+  });
+
+  it('should be false outside an overlay or with no focus', () => {
+    expect(isInsideOverlay({ closest: () => null })).toBe(false);
+    expect(isInsideOverlay(null)).toBe(false);
   });
 });

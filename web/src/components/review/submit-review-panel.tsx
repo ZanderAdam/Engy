@@ -97,7 +97,7 @@ export function SubmitReviewPanel({
           Submit review ({draftCount})
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-96 gap-3 p-3">
+      <PopoverContent align="end" className="w-[min(24rem,calc(100vw-2rem))] gap-3 p-3">
         <Textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}

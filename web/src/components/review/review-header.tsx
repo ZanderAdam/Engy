@@ -47,7 +47,7 @@ export function ReviewHeader({
         {detail.mergeable === 'CONFLICTING' && (
           <Badge
             variant="outline"
-            className="h-4 border-red-400/30 bg-red-400/10 px-1.5 text-[10px] text-red-400"
+            className="h-4 border-destructive/30 bg-destructive/10 px-1.5 text-[10px] text-destructive"
           >
             Conflicts
           </Badge>
@@ -81,8 +81,8 @@ export function ReviewHeader({
           </span>
         )}
         <span className="font-mono">
-          <span className="text-green-400">+{detail.additions}</span>{' '}
-          <span className="text-red-400">−{detail.deletions}</span>
+          <span className="text-green-500">+{detail.additions}</span>{' '}
+          <span className="text-red-500">−{detail.deletions}</span>
         </span>
         <span className="ml-auto flex items-center gap-2">
           <Button variant="outline" size="xs" asChild>

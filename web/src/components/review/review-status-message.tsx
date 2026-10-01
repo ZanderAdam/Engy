@@ -30,7 +30,7 @@ export function ReviewErrorMessage({
   onRetry: () => void;
 }) {
   return (
-    <ReviewStatusMessage icon={<RiAlertLine className="size-5 text-red-400" />} title={title}>
+    <ReviewStatusMessage icon={<RiAlertLine className="size-5 text-destructive" />} title={title}>
       <p className="max-w-md break-words font-mono text-xs text-muted-foreground">{message}</p>
       <Button variant="outline" size="xs" onClick={onRetry}>
         Retry

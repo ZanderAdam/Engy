@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RiAlertLine, RiLoader4Line } from '@remixicon/react';
+import { toast } from 'sonner';
 import { trpc, type RouterOutputs } from '@/lib/trpc';
+import { useOnServerEvent } from '@/contexts/events-context';
+import { refreshDiff } from '@/components/diff/diff-refresh';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Kbd } from '@/components/ui/kbd';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
@@ -50,6 +53,7 @@ export function ReviewPage({
 
   const syncThreads = trpc.review.syncThreads.useMutation({
     onSuccess: () => utils.comment.listThreadsByPrefix.invalidate(),
+    onError: (error) => toast.error(error.message),
   });
   const open = trpc.review.open.useMutation({
     onSuccess: (opened) => {
@@ -61,7 +65,10 @@ export function ReviewPage({
     onSuccess: (updated) => {
       setWorktree(updated);
       setKeptLocalChanges(false);
+      refreshDiff(utils);
+      syncThreads.mutate(prInput);
     },
+    onError: (error) => toast.error(error.message),
   });
 
   const { mutate: openWorktree } = open;
@@ -82,6 +89,11 @@ export function ReviewPage({
     (pr) => pr.repoFullName === repoFullName && pr.number === prNumber,
   );
   const detail = detailQuery.data;
+
+  useOnServerEvent('PR_CHANGE', (payload) => {
+    if (payload.workspaceId !== workspaceId || payload.repo !== repoFullName) return;
+    void utils.review.detail.invalidate();
+  });
 
   if (!githubStatus || !workspace) {
     return (
@@ -225,7 +237,11 @@ export function ReviewPage({
               prNumber={prNumber}
             />
           </TabsContent>
-          <TabsContent value="files" className="flex min-h-0 flex-col">
+          <TabsContent
+            value="files"
+            forceMount
+            className="flex min-h-0 flex-col data-[state=inactive]:hidden"
+          >
             <ReviewFiles
               workspaceSlug={workspaceSlug}
               workspaceId={workspaceId}
@@ -236,6 +252,7 @@ export function ReviewPage({
               worktreePath={worktree.worktreePath}
               headRefName={worktree.headRefName}
               baseRef={worktree.baseRef}
+              active={tab === 'files'}
               totalLines={{ added: detail.additions, removed: detail.deletions }}
             />
           </TabsContent>

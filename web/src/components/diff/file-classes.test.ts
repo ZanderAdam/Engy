@@ -4,6 +4,7 @@ import {
   classifyPaths,
   countPatchLines,
   implementationLines,
+  implementationLinesFromPatches,
   orderByClass,
   parseGitattributes,
   revealClassOf,
@@ -108,6 +109,26 @@ describe('file classes', () => {
         removed: 0,
       });
     });
+  });
+});
+
+describe('[FR-PRREVIEW-190] implementationLinesFromPatches', () => {
+  const total = { added: 100, removed: 20 };
+  const patch = '@@ -1 +1,2 @@\n-a\n+b\n+c';
+  const loaded = { isLoading: false, isError: false, data: { patch, truncated: false } };
+
+  it('should subtract the counted patches from the total', () => {
+    expect(implementationLinesFromPatches(total, [loaded])).toEqual({ added: 98, removed: 19 });
+  });
+
+  it('should return null when a patch is truncated', () => {
+    const truncated = { ...loaded, data: { patch, truncated: true } };
+    expect(implementationLinesFromPatches(total, [loaded, truncated])).toBeNull();
+  });
+
+  it('should return null when a patch failed or is still loading', () => {
+    expect(implementationLinesFromPatches(total, [{ isLoading: false, isError: true }])).toBeNull();
+    expect(implementationLinesFromPatches(total, [{ isLoading: true, isError: false }])).toBeNull();
   });
 });
 

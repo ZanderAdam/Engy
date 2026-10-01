@@ -22,6 +22,13 @@ const PLAIN_KEYS: Record<string, ReviewKeyAction> = {
   v: 'toggleViewed',
 };
 
+const OVERLAY_SELECTOR =
+  '[role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]';
+
+export function isInsideOverlay(el: Pick<Element, 'closest'> | null): boolean {
+  return el?.closest(OVERLAY_SELECTOR) != null;
+}
+
 export function reviewKeyAction(e: KeyInput): ReviewKeyAction | null {
   if (e.altKey) return null;
   if (e.metaKey || e.ctrlKey) {
@@ -42,7 +49,7 @@ export function useReviewKeys(enabled: boolean, onAction: (action: ReviewKeyActi
     if (!isActive || !enabled) return;
 
     function handleKeyDown(e: KeyboardEvent) {
-      if (isTypingTarget()) return;
+      if (isTypingTarget() || isInsideOverlay(document.activeElement)) return;
       const action = reviewKeyAction(e);
       if (!action) return;
       e.preventDefault();

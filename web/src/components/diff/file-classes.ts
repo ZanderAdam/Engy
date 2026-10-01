@@ -164,3 +164,21 @@ export function implementationLines(total: LineCount, others: LineCount[]): Line
     removed: Math.max(0, total.removed - sum('removed')),
   };
 }
+
+interface PatchResult {
+  isLoading: boolean;
+  isError: boolean;
+  data?: { patch?: string | null; truncated?: boolean };
+}
+
+export function implementationLinesFromPatches(
+  total: LineCount,
+  patches: PatchResult[],
+): LineCount | null {
+  const counts: LineCount[] = [];
+  for (const { isLoading, isError, data } of patches) {
+    if (isLoading || isError || !data || data.truncated) return null;
+    counts.push(countPatchLines(data.patch ?? ''));
+  }
+  return implementationLines(total, counts);
+}
