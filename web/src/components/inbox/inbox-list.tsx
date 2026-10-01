@@ -5,6 +5,7 @@ import { RiTimeLine } from '@remixicon/react';
 import { ciStatusClassName, ciStatusLabel, formatRelativeTime } from '@/components/prs/pr-helpers';
 import { cn } from '@/lib/utils';
 import type { GhPrCiStatus } from '@engy/common';
+import { InboxRiskBadge } from './inbox-risk-badge';
 import { prKey, summarizeLatestEvent, type InboxItem } from './inbox-helpers';
 
 interface InboxListProps {
@@ -70,6 +71,7 @@ function InboxRow({ item, selected, ci, onSelect }: InboxRowProps) {
             Snoozed
           </span>
         )}
+        <InboxRiskBadge risk={item.risk} />
         {ci && (
           <span
             className={cn(

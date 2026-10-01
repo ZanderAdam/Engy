@@ -1,3 +1,4 @@
+import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
@@ -13,6 +14,10 @@ import {
   snooze,
   wakeDueSnoozes,
 } from '../../inbox/store';
+import { getDb } from '../../db/client';
+import { commentThreads, prs, reviewWorktrees } from '../../db/schema';
+import { diffScopePrefix } from '../../../lib/diff-doc-path';
+import { parseRisk, type ReviewRisk } from '../../../components/diff/review-summary-meta';
 import { markThreadDoneOnGithub, markThreadReadOnGithub } from '../../github/notifications';
 
 const RECENT_EVENT_LIMIT = 20;
@@ -33,6 +38,45 @@ function requireItem(id: number) {
   return item;
 }
 
+function findHeadBranch(repoFullName: string, prNumber: number): string | null {
+  const db = getDb();
+  const pr = db
+    .select({ headBranch: prs.headBranch })
+    .from(prs)
+    .where(and(eq(prs.repoFullName, repoFullName), eq(prs.number, prNumber)))
+    .get();
+  if (pr) return pr.headBranch;
+  const worktree = db
+    .select({ headRefName: reviewWorktrees.headRefName })
+    .from(reviewWorktrees)
+    .where(
+      and(eq(reviewWorktrees.repoFullName, repoFullName), eq(reviewWorktrees.prNumber, prNumber)),
+    )
+    .get();
+  return worktree?.headRefName ?? null;
+}
+
+function readReviewRisk(item: {
+  repoFullName: string;
+  prNumber: number;
+  repoPath: string | null;
+}): ReviewRisk | null {
+  if (!item.repoPath) return null;
+  const headBranch = findHeadBranch(item.repoFullName, item.prNumber);
+  if (!headBranch) return null;
+  const summary = getDb()
+    .select({ metadata: commentThreads.metadata })
+    .from(commentThreads)
+    .where(
+      and(
+        eq(commentThreads.documentPath, diffScopePrefix(item.repoPath, headBranch)),
+        isNull(commentThreads.workspaceId),
+      ),
+    )
+    .get();
+  return parseRisk(summary?.metadata?.risk) ?? null;
+}
+
 export const inboxRouter = router({
   list: publicProcedure.input(filterSchema).query(({ input }) => {
     wakeDueSnoozes(new Date());
@@ -48,6 +92,7 @@ export const inboxRouter = router({
           at: latest.at,
         },
         events,
+        risk: readReviewRisk(item),
       };
     });
   }),

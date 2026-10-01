@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { GhPrCiStatus } from '@engy/common';
+import { InboxRiskBadge } from './inbox-risk-badge';
 import { summarizeLatestEvent, type InboxItem } from './inbox-helpers';
 
 interface InboxPreviewProps {
@@ -60,6 +61,7 @@ export function InboxPreview({ item, ci, canReview, onOpenReview, onBack }: Inbo
           <span className="font-mono">
             {item.repoFullName}#{item.prNumber}
           </span>
+          <InboxRiskBadge risk={item.risk} />
           {ci && (
             <span
               className={cn('border px-1.5 py-px text-[10px] font-medium', ciStatusClassName(ci))}

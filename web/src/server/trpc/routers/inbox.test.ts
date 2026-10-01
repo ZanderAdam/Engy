@@ -3,6 +3,8 @@ import { setupTestDb, type TestContext } from '../test-helpers';
 import { appRouter } from '../root';
 import { addEvent, upsertItem } from '../../inbox/store';
 import { NO_BUCKET_FACTS } from '../../inbox/bucket';
+import { commentThreads, reviewWorktrees } from '../../db/schema';
+import { diffScopePrefix } from '../../../lib/diff-doc-path';
 import { startStubGithub, type StubGithub } from '../../github/stub-server';
 
 const TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
@@ -53,6 +55,85 @@ describe('inbox router', () => {
   });
 
   describe('list', () => {
+    describe('risk', () => {
+      const REPO_PATH = '/repos/api';
+
+      function createRepoItem() {
+        prSeq += 1;
+        return upsertItem({
+          repoFullName: 'acme/api',
+          prNumber: prSeq,
+          title: `PR ${prSeq}`,
+          url: `https://github.com/acme/api/pull/${prSeq}`,
+          repoPath: REPO_PATH,
+        });
+      }
+
+      function trackBranch(prNumber: number, headRefName: string) {
+        ctx.db
+          .insert(reviewWorktrees)
+          .values({
+            repoPath: REPO_PATH,
+            repoFullName: 'acme/api',
+            prNumber,
+            worktreePath: `/wt/pr-${prNumber}`,
+            headRefName,
+            headSha: 'sha',
+            createdByReview: true,
+          })
+          .run();
+      }
+
+      function writeSummary(branch: string, metadata: Record<string, unknown>) {
+        ctx.db
+          .insert(commentThreads)
+          .values({
+            id: `t-${branch}`,
+            workspaceId: null,
+            documentPath: diffScopePrefix(REPO_PATH, branch),
+            metadata: { type: 'review-summary', ...metadata },
+          })
+          .run();
+      }
+
+      it('[FR-PRMON-302] should be null before the agent wrote a summary', async () => {
+        const item = createRepoItem();
+        trackBranch(item.prNumber, 'feat/a');
+
+        const [listed] = await caller.inbox.list({ tab: 'all' });
+
+        expect(listed.risk).toBeNull();
+      });
+
+      it('[FR-PRMON-302] should read the risk from the summary of the PR head branch', async () => {
+        const item = createRepoItem();
+        trackBranch(item.prNumber, 'feat/a');
+        writeSummary('feat/a', { risk: { level: 'high', reason: 'touches auth' } });
+
+        const [listed] = await caller.inbox.list({ tab: 'all' });
+
+        expect(listed.risk).toEqual({ level: 'high', reason: 'touches auth' });
+      });
+
+      it('[FR-PRMON-302] should ignore a summary without a valid risk level', async () => {
+        const item = createRepoItem();
+        trackBranch(item.prNumber, 'feat/a');
+        writeSummary('feat/a', { risk: { level: 'scary', reason: 'x' } });
+
+        const [listed] = await caller.inbox.list({ tab: 'all' });
+
+        expect(listed.risk).toBeNull();
+      });
+
+      it('[FR-PRMON-302] should be null for an item outside every workspace repo', async () => {
+        createItem();
+
+        const [listed] = await caller.inbox.list({ tab: 'all' });
+
+        expect(listed.risk).toBeNull();
+      });
+    });
+
     it('should return the latest event and recent events newest first', async () => {
       const item = createItem();
       addEvent({
