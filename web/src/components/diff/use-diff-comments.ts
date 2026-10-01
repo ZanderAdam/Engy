@@ -6,6 +6,7 @@ import { trpc } from '@/lib/trpc';
 import { randomId } from '@/lib/random-id';
 import { useOnServerEvent } from '@/contexts/events-context';
 import { diffDocPath, diffScopePrefix } from '@/lib/diff-doc-path';
+import { isGithubDraft } from '@/lib/github-draft';
 import {
   findingSeverity,
   threadSource,
@@ -29,6 +30,7 @@ export interface DiffComment {
   side: 'modified' | 'original';
   resolved: boolean;
   source: DiffThreadSource;
+  githubDraft: boolean;
   severity?: FindingSeverity;
   agentType?: string;
   risk?: ReviewRisk;
@@ -79,6 +81,7 @@ export function useDiffComments(repoDir: string | null, branch: string | null) {
         side: (meta.side as 'modified' | 'original') ?? 'modified',
         resolved: thread.resolved ?? false,
         source,
+        githubDraft: isGithubDraft(meta),
         severity: findingSeverity(meta.severity),
         agentType: source === 'agent' ? (meta.agentType as string | undefined) : undefined,
         risk: parseRisk(meta.risk),

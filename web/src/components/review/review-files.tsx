@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useEditorTabs } from '@/components/editor/use-editor-tabs';
 import { DiffReviewSurface, type DiffSource } from '@/components/diff/diff-review-surface';
+import { ReviewWriteProvider } from '@/components/diff/review-write-context';
+import { useReviewWriteActions } from './use-review-write';
 import { patchContentId, patchSpecFor } from '@/components/diff/diff-patch-spec';
 import {
   classifyPaths,
@@ -20,6 +22,8 @@ import {
 interface ReviewFilesProps {
   workspaceSlug: string;
   workspaceId: number;
+  repoFullName: string;
+  prNumber: number;
   projectSlug: string | null;
   repoPath: string;
   worktreePath: string;
@@ -97,6 +101,8 @@ function LineCountBar({
 export function ReviewFiles({
   workspaceSlug,
   workspaceId,
+  repoFullName,
+  prNumber,
   projectSlug,
   repoPath,
   worktreePath,
@@ -105,6 +111,7 @@ export function ReviewFiles({
   totalLines,
 }: ReviewFilesProps) {
   const tabs = useEditorTabs();
+  const reviewWrite = useReviewWriteActions({ workspaceId, repoFullName, prNumber });
   const [lineMode, setLineMode] = useLineMode();
   const base = `origin/${baseRef ?? DEFAULT_BASE_REF}`;
 
@@ -196,23 +203,25 @@ export function ReviewFiles({
   }
 
   return (
-    <DiffReviewSurface
-      workspaceSlug={workspaceSlug}
-      projectSlug={projectSlug}
-      workspaceId={workspaceId}
-      repoDir={repoPath}
-      worktreePath={worktreePath}
-      source={source}
-      files={files}
-      isFilesLoading={!baseFetched || isDiffLoading}
-      commentBranchKey={headRefName}
-      correlatedBranch={headRefName}
-      viewedBase={base}
-      tabs={tabs}
-      subToolbar={<LineCountBar lines={lines} mode={lineMode} onModeChange={setLineMode} />}
-      fileClasses={classes}
-      showOutdatedThreads
-      reviewKeys
-    />
+    <ReviewWriteProvider value={reviewWrite}>
+      <DiffReviewSurface
+        workspaceSlug={workspaceSlug}
+        projectSlug={projectSlug}
+        workspaceId={workspaceId}
+        repoDir={repoPath}
+        worktreePath={worktreePath}
+        source={source}
+        files={files}
+        isFilesLoading={!baseFetched || isDiffLoading}
+        commentBranchKey={headRefName}
+        correlatedBranch={headRefName}
+        viewedBase={base}
+        tabs={tabs}
+        subToolbar={<LineCountBar lines={lines} mode={lineMode} onModeChange={setLineMode} />}
+        fileClasses={classes}
+        showOutdatedThreads
+        reviewKeys
+      />
+    </ReviewWriteProvider>
   );
 }

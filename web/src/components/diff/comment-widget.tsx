@@ -34,6 +34,8 @@ interface CommentWidgetProps {
   onDelete?: (threadId: string) => void;
   onDeleteComment?: (threadId: string, commentId: string) => void;
   onCancel: () => void;
+  onAddDraft?: (text: string) => void;
+  draftBlockedReason?: string | null;
 }
 
 export function CommentWidget({
@@ -45,6 +47,8 @@ export function CommentWidget({
   onDeleteComment,
   onCancel,
   onResolve,
+  onAddDraft,
+  draftBlockedReason = null,
 }: CommentWidgetProps) {
   const [text, setText] = useState('');
   const { sendToTerminal, terminalActive } = useSendToTerminal();
@@ -79,7 +83,14 @@ export function CommentWidget({
     setText('');
   };
 
+  const handleAddDraft = () => {
+    if (!text.trim() || !onAddDraft) return;
+    onAddDraft(text.trim());
+    setText('');
+  };
+
   const isGithub = comment?.source === 'github';
+  const isDraft = comment?.githubDraft === true;
   const isAgent = comment?.source === 'agent';
   const severity = comment?.severity ? SEVERITY_PRESENTATION[comment.severity] : undefined;
 
@@ -116,6 +127,15 @@ export function CommentWidget({
       >
         {comment && comment.comments.length > 0 && (
           <div className="mb-2">
+            {isDraft && (
+              <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <RiGithubLine className="size-3.5 shrink-0" />
+                <span className="font-medium">GitHub review comment</span>
+                <span className="border border-amber-400/30 bg-amber-400/10 px-1.5 text-[10px] font-medium text-amber-400">
+                  Pending
+                </span>
+              </div>
+            )}
             {isGithub && (
               <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <RiGithubLine className="size-3.5 shrink-0" />
@@ -205,7 +225,7 @@ export function CommentWidget({
                   </TooltipContent>
                 </Tooltip>
               )}
-              {onResolve && !comment.resolved && (
+              {onResolve && !comment.resolved && !isDraft && (
                 <Button variant="ghost" size="xs" onClick={() => onResolve(comment.threadId)}>
                   {isGithub ? 'Dismiss' : 'Resolve'}
                 </Button>
@@ -224,7 +244,7 @@ export function CommentWidget({
           </div>
         )}
 
-        {!isGithub && (
+        {!isGithub && !isDraft && (
           <>
             <Textarea
               value={text}
@@ -239,8 +259,29 @@ export function CommentWidget({
                 <Button variant="ghost" size="xs" onClick={onCancel}>
                   Cancel
                 </Button>
+                {onAddDraft && !comment && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span tabIndex={draftBlockedReason ? 0 : undefined}>
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          onClick={handleAddDraft}
+                          disabled={!text.trim() || draftBlockedReason !== null}
+                        >
+                          <RiGithubLine className="size-3" />
+                          Add to GitHub review
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {draftBlockedReason ??
+                        'Saved as a pending comment. Sent when you submit the review.'}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 <Button size="xs" onClick={handleSubmit} disabled={!text.trim()}>
-                  {comment ? 'Reply' : 'Comment'}
+                  {comment ? 'Reply' : onAddDraft ? 'Add note' : 'Comment'}
                 </Button>
               </div>
             </div>

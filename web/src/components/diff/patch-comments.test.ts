@@ -41,6 +41,7 @@ function comment(over: Partial<DiffComment>): DiffComment {
     side: 'modified',
     resolved: false,
     source: 'local',
+    githubDraft: false,
     comments: [],
     ...over,
   };

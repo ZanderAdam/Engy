@@ -15,6 +15,7 @@ import { ReviewWorktreeBanner } from './review-worktree-banner';
 import { isBehindGithub, REVIEW_TABS, type ReviewTab } from './review-helpers';
 import { useReviewTabKeys } from './use-review-tab-keys';
 import { ReviewFiles } from './review-files';
+import { SubmitReviewPanel } from './submit-review-panel';
 
 type OpenedWorktree = RouterOutputs['review']['open'];
 
@@ -195,6 +196,16 @@ export function ReviewPage({
       <ReviewHeader
         prNumber={prNumber}
         detail={detail}
+        submitReview={
+          <SubmitReviewPanel
+            workspaceId={workspaceId}
+            repoFullName={repoFullName}
+            prNumber={prNumber}
+            repoPath={worktree.repoPath}
+            headRefName={worktree.headRefName}
+            isOwnPr={detail.author?.login === githubStatus.login}
+          />
+        }
         onOpenTerminal={() =>
           openNewTerminal({
             scopeType: 'worktree',
@@ -233,6 +244,8 @@ export function ReviewPage({
             <ReviewFiles
               workspaceSlug={workspaceSlug}
               workspaceId={workspaceId}
+              repoFullName={repoFullName}
+              prNumber={prNumber}
               projectSlug={projectSlug}
               repoPath={worktree.repoPath}
               worktreePath={worktree.worktreePath}

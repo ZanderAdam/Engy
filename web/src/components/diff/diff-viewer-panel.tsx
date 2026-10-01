@@ -1,6 +1,14 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Diff,
   Hunk,
@@ -15,6 +23,8 @@ import type { ChangeData, DiffType, HunkData } from 'react-diff-view';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { CommentWidget } from './comment-widget';
+import { isCommentableLine } from './review-drafts';
+import { useReviewWrite } from './review-write-context';
 import { DiffExpandRow } from './diff-expand-row';
 import { diffLanguage } from './diff-language';
 import { highlighter } from './refractor-highlighter';
@@ -112,6 +122,7 @@ export function DiffViewerPanel({
   onDelete,
   onDeleteComment,
 }: DiffViewerPanelProps) {
+  const reviewWrite = useReviewWrite();
   const [newCommentChange, setNewCommentChange] = useState<ChangeData | null>(null);
   const [renderLarge, setRenderLarge] = useState(false);
 
@@ -221,20 +232,36 @@ export function DiffViewerPanel({
 
     if (newCommentChange) {
       const key = getChangeKey(newCommentChange);
+      const lineNumber = lineForChange(newCommentChange);
+      const side = sideForChange(newCommentChange);
       rendered[key] = (
         <div className="space-y-1 p-1">
           {rendered[key]}
           <CommentWidget
             repoDir={repoDir}
             onSave={(text) => {
-              onAddComment?.(
-                lineForChange(newCommentChange),
-                sideForChange(newCommentChange),
-                text,
-                newCommentChange.content,
-              );
+              onAddComment?.(lineNumber, side, text, newCommentChange.content);
               setNewCommentChange(null);
             }}
+            onAddDraft={
+              reviewWrite && filePath
+                ? (text) => {
+                    void reviewWrite.addDraft(
+                      filePath,
+                      lineNumber,
+                      side,
+                      text,
+                      newCommentChange.content,
+                    );
+                    setNewCommentChange(null);
+                  }
+                : undefined
+            }
+            draftBlockedReason={
+              isCommentableLine(rawHunks, lineNumber, side)
+                ? null
+                : 'GitHub only accepts comments on changed hunks'
+            }
             onCancel={cancelNewComment}
           />
         </div>
@@ -247,6 +274,9 @@ export function DiffViewerPanel({
     anchors,
     newCommentChange,
     repoDir,
+    filePath,
+    rawHunks,
+    reviewWrite,
     onReply,
     onResolve,
     onDelete,

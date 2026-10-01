@@ -12,6 +12,7 @@ function thread(filePath: string, resolved = false): DiffComment {
     side: 'modified',
     resolved,
     source: 'local',
+    githubDraft: false,
     comments: [],
   };
 }

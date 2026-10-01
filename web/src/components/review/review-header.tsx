@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { RiDraftLine, RiExternalLinkLine, RiTerminalBoxLine } from '@remixicon/react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ interface ReviewHeaderProps {
   prNumber: number;
   detail: PrDetail;
   onOpenTerminal: () => void;
+  submitReview: ReactNode;
 }
 
 function StateBadge({ state }: { state: string }) {
@@ -22,7 +24,12 @@ function StateBadge({ state }: { state: string }) {
   );
 }
 
-export function ReviewHeader({ prNumber, detail, onOpenTerminal }: ReviewHeaderProps) {
+export function ReviewHeader({
+  prNumber,
+  detail,
+  onOpenTerminal,
+  submitReview,
+}: ReviewHeaderProps) {
   return (
     <header className="flex flex-col gap-2 border-b border-border px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -86,6 +93,7 @@ export function ReviewHeader({ prNumber, detail, onOpenTerminal }: ReviewHeaderP
             <RiTerminalBoxLine className="size-3" />
             Open terminal here
           </Button>
+          {submitReview}
         </span>
       </div>
     </header>
