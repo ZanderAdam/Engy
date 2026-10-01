@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ReviewGuideControl } from '@/components/diff/review-guide-control';
+import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { useVirtualNavigate } from '@/components/tabs/tab-context';
 import { buildReviewPath } from '@/lib/review-path';
 import { trpc } from '@/lib/trpc';
@@ -31,11 +32,17 @@ export function ReviewAgentControls({
   projectSlug,
 }: ReviewAgentControlsProps) {
   const navigate = useVirtualNavigate();
+  const { focusTerminal } = useSendToTerminal();
   const { data: projects = [] } = trpc.project.list.useQuery({ workspaceId });
   const project = projects.find((candidate) => candidate.slug === projectSlug);
 
   const startReview = trpc.review.startAgentReview.useMutation({
-    onSuccess: () => toast.success(`Agent review of #${prNumber} started in a new terminal`),
+    onSuccess: ({ sessionId }) => {
+      focusTerminal(sessionId);
+      toast.success(`Agent review of #${prNumber} started in a new terminal`, {
+        action: { label: 'Show', onClick: () => focusTerminal(sessionId) },
+      });
+    },
     onError: (err) => toast.error(err.message),
   });
 

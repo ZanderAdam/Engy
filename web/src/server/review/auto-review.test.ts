@@ -176,6 +176,14 @@ describe('auto review', () => {
       expect(path.isAbsolute(options.workingDir)).toBe(true);
     });
 
+    it('[FR-PRMON-310] should group the session under the workspace so its terminal dock lists it', async () => {
+      await start();
+
+      const meta = vi.mocked(spawnAgentTerminal).mock.calls[0][1].callerMeta;
+      expect(meta.groupKey).toBe('workspace:ws');
+      expect(meta.workspaceSlug).toBe('ws');
+    });
+
     it('[FR-PRMON-300] should diff against the origin base branch of the PR', async () => {
       await start();
 

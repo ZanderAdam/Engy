@@ -10,6 +10,7 @@ import { spawnAgentTerminal } from '../terminal-dispatch';
 import type { AppState } from '../trpc/context';
 import { findCorrelatedSession } from '../trpc/routers/pr';
 import { dispatchGitBranchFiles } from '../ws/server';
+import { workspaceGroupKey } from '@/components/terminal/group-key';
 import { buildReviewPrompt } from '../../lib/review-prompt';
 import { DEFAULT_BASE_REF, openReviewWorktree } from './worktrees';
 
@@ -150,7 +151,7 @@ async function spawnReviewSession(
       scopeType: 'worktree',
       scopeLabel: `PR #${prNumber}`,
       workingDir: worktree.worktreePath,
-      groupKey: `worktree:${workspace.slug}`,
+      groupKey: workspaceGroupKey(workspace.slug),
       workspaceSlug: workspace.slug,
       cols: 80,
       rows: 24,
