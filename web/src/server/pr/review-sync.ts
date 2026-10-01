@@ -1,11 +1,17 @@
 import { eq } from 'drizzle-orm';
 import { commentThreads, threadComments, prs } from '../db/schema';
-import type { GithubReviewComment } from '../github/review-comments';
+import type { GithubReviewThread, GithubReviewThreadComment } from '../github/review-threads';
 import type { getDb } from '../db/client';
 import { diffDocPath } from '@/lib/diff-doc-path';
 
 type Db = ReturnType<typeof getDb>;
 type PrRow = typeof prs.$inferSelect;
+type ThreadRow = typeof commentThreads.$inferSelect;
+
+interface ReviewThreadSyncSummary {
+  created: number;
+  updated: number;
+}
 
 function threadIdFor(githubId: number): string {
   return `gh-thread-${githubId}`;
@@ -15,149 +21,160 @@ function commentIdFor(githubId: number): string {
   return `gh-comment-${githubId}`;
 }
 
-/**
- * Idempotently imports GitHub PR review comments into the comment thread system.
- *
- * Top-level comments (inReplyToId null) create one commentThreads row + one
- * threadComments row each. Replies add threadComments rows to the parent thread.
- * Re-running never duplicates rows; edited bodies are updated in place.
- * Locally-resolved threads are never auto-unresolved.
- * Comments deleted on GitHub are left as-is in the local DB.
- *
- * Known gap: force-pushes that move a comment's line do NOT update the existing
- * thread's documentPath or lineNumber. The thread keeps the position from when
- * it was first imported.
- */
-interface ReviewCommentSyncSummary {
-  created: number;
-  updated: number;
+function threadMetadata(
+  prRow: PrRow,
+  thread: GithubReviewThread,
+  rootComment: GithubReviewThreadComment,
+) {
+  return {
+    source: 'github',
+    prNumber: prRow.number,
+    githubId: rootComment.githubId,
+    githubThreadNodeId: thread.nodeId,
+    path: thread.path,
+    line: thread.line,
+    originalLine: thread.originalLine,
+    startLine: thread.startLine,
+    lineNumber: thread.line ?? thread.originalLine ?? 0,
+    diffSide: thread.diffSide,
+    isOutdated: thread.isOutdated,
+    author: rootComment.author,
+    url: rootComment.url,
+  };
 }
 
-export function syncReviewComments(
+function insertThread(
   db: Db,
   prRow: PrRow,
-  comments: GithubReviewComment[],
-): ReviewCommentSyncSummary {
+  thread: GithubReviewThread,
+  rootComment: GithubReviewThreadComment,
+  now: string,
+): void {
+  db.insert(commentThreads)
+    .values({
+      id: threadIdFor(rootComment.githubId),
+      workspaceId: null,
+      documentPath: diffDocPath(prRow.repo, prRow.headBranch, thread.path),
+      resolved: thread.isResolved,
+      resolvedBy: thread.isResolved ? 'github' : null,
+      resolvedAt: thread.isResolved ? now : null,
+      metadata: threadMetadata(prRow, thread, rootComment),
+      createdAt: rootComment.createdAt,
+      updatedAt: now,
+    })
+    .run();
+}
+
+function syncExistingThread(
+  db: Db,
+  existing: ThreadRow,
+  prRow: PrRow,
+  thread: GithubReviewThread,
+  rootComment: GithubReviewThreadComment,
+  now: string,
+): boolean {
+  const currentMetadata = existing.metadata ?? {};
+  const nextMetadata = { ...currentMetadata, ...threadMetadata(prRow, thread, rootComment) };
+  const metadataChanged = JSON.stringify(currentMetadata) !== JSON.stringify(nextMetadata);
+
+  const locallyDismissed = currentMetadata.localDismissed === true;
+  const nextResolved = locallyDismissed ? existing.resolved : thread.isResolved;
+  const resolvedChanged = nextResolved !== existing.resolved;
+
+  if (!metadataChanged && !resolvedChanged) return false;
+
+  db.update(commentThreads)
+    .set({
+      metadata: nextMetadata,
+      ...(resolvedChanged && {
+        resolved: nextResolved,
+        resolvedBy: nextResolved ? 'github' : null,
+        resolvedAt: nextResolved ? now : null,
+      }),
+      updatedAt: now,
+    })
+    .where(eq(commentThreads.id, existing.id))
+    .run();
+  return true;
+}
+
+function syncComment(
+  db: Db,
+  threadId: string,
+  comment: GithubReviewThreadComment,
+  now: string,
+): 'created' | 'updated' | 'unchanged' {
+  const commentId = commentIdFor(comment.githubId);
+  const existing = db.select().from(threadComments).where(eq(threadComments.id, commentId)).get();
+
+  if (!existing) {
+    db.insert(threadComments)
+      .values({
+        id: commentId,
+        threadId,
+        userId: comment.author,
+        body: comment.body,
+        metadata: { githubId: comment.githubId },
+        createdAt: comment.createdAt,
+        updatedAt: now,
+      })
+      .run();
+    return 'created';
+  }
+
+  if (existing.body === comment.body) return 'unchanged';
+  db.update(threadComments)
+    .set({ body: comment.body, updatedAt: now })
+    .where(eq(threadComments.id, commentId))
+    .run();
+  return 'updated';
+}
+
+/**
+ * Idempotently imports GitHub review threads into the comment thread system.
+ *
+ * Each thread becomes one commentThreads row keyed by its first comment's database id;
+ * every comment in it becomes a threadComments row, in GitHub order. Re-running never
+ * duplicates rows. Resolved state mirrors GitHub both ways unless metadata.localDismissed
+ * is set. Comments deleted on GitHub are left as-is in the local DB.
+ */
+export function syncReviewThreads(
+  db: Db,
+  prRow: PrRow,
+  threads: GithubReviewThread[],
+): ReviewThreadSyncSummary {
   const now = new Date().toISOString();
-  const topLevel = comments.filter((c) => c.inReplyToId === null);
-  const replies = comments.filter((c) => c.inReplyToId !== null);
   let created = 0;
   let updated = 0;
 
-  for (const comment of topLevel) {
-    const threadId = threadIdFor(comment.githubId);
-    const commentId = commentIdFor(comment.githubId);
-    // The pull request's head branch, not whatever is checked out now: the
-    // thread belongs to the branch the comment was written against.
-    const docPath = diffDocPath(prRow.repo, prRow.headBranch, comment.path);
+  for (const thread of threads) {
+    const [rootComment] = thread.comments;
+    if (!rootComment) continue;
 
-    const existingThread = db
-      .select()
-      .from(commentThreads)
-      .where(eq(commentThreads.id, threadId))
-      .get();
+    const threadId = threadIdFor(rootComment.githubId);
+    const existing = db.select().from(commentThreads).where(eq(commentThreads.id, threadId)).get();
 
-    if (!existingThread) {
-      db.insert(commentThreads)
-        .values({
-          id: threadId,
-          workspaceId: null,
-          documentPath: docPath,
-          metadata: {
-            source: 'github',
-            prNumber: prRow.number,
-            githubId: comment.githubId,
-            path: comment.path,
-            // line: raw nullable value from GitHub, preserved for fidelity
-            // lineNumber: coerced to 0 when null, used by the diff viewer for rendering
-            line: comment.line,
-            lineNumber: comment.line ?? 0,
-            author: comment.author,
-            url: comment.url,
-          },
-          createdAt: comment.createdAt,
-          updatedAt: now,
-        })
-        .run();
-
-      db.insert(threadComments)
-        .values({
-          id: commentId,
-          threadId,
-          userId: comment.author,
-          body: comment.body,
-          metadata: { githubId: comment.githubId },
-          createdAt: comment.createdAt,
-          updatedAt: now,
-        })
-        .run();
+    let threadTouched = false;
+    if (!existing) {
+      insertThread(db, prRow, thread, rootComment, now);
       created++;
-    } else {
-      const existingComment = db
-        .select()
-        .from(threadComments)
-        .where(eq(threadComments.id, commentId))
-        .get();
+    } else if (syncExistingThread(db, existing, prRow, thread, rootComment, now)) {
+      updated++;
+      threadTouched = true;
+    }
 
-      if (existingComment && existingComment.body !== comment.body) {
-        db.update(threadComments)
-          .set({ body: comment.body, updatedAt: now })
-          .where(eq(threadComments.id, commentId))
-          .run();
+    for (const comment of thread.comments) {
+      const outcome = syncComment(db, threadId, comment, now);
+      if (outcome === 'unchanged') continue;
+      if (existing && outcome === 'created') created++;
+      if (outcome === 'updated') updated++;
+      if (existing && !threadTouched) {
         db.update(commentThreads)
           .set({ updatedAt: now })
           .where(eq(commentThreads.id, threadId))
           .run();
-        updated++;
+        threadTouched = true;
       }
-    }
-  }
-
-  for (const comment of replies) {
-    const commentId = commentIdFor(comment.githubId);
-    const parentThreadId = threadIdFor(comment.inReplyToId!);
-
-    const parentThread = db
-      .select()
-      .from(commentThreads)
-      .where(eq(commentThreads.id, parentThreadId))
-      .get();
-
-    if (!parentThread) continue;
-
-    const existingComment = db
-      .select()
-      .from(threadComments)
-      .where(eq(threadComments.id, commentId))
-      .get();
-
-    if (!existingComment) {
-      db.insert(threadComments)
-        .values({
-          id: commentId,
-          threadId: parentThreadId,
-          userId: comment.author,
-          body: comment.body,
-          metadata: { githubId: comment.githubId },
-          createdAt: comment.createdAt,
-          updatedAt: now,
-        })
-        .run();
-      db.update(commentThreads)
-        .set({ updatedAt: now })
-        .where(eq(commentThreads.id, parentThreadId))
-        .run();
-      created++;
-    } else if (existingComment.body !== comment.body) {
-      db.update(threadComments)
-        .set({ body: comment.body, updatedAt: now })
-        .where(eq(threadComments.id, commentId))
-        .run();
-      db.update(commentThreads)
-        .set({ updatedAt: now })
-        .where(eq(commentThreads.id, parentThreadId))
-        .run();
-      updated++;
     }
   }
 

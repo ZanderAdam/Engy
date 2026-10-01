@@ -1,20 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { workspaces, prs as prsTable, projects, agentSessions, taskGroups, tasks, inboxItems, inboxEvents } from '../db/schema';
+import { workspaces, prs as prsTable, projects, agentSessions, taskGroups, tasks, reviewWorktrees, inboxItems, inboxEvents, commentThreads } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
-import { runPollCycle, startPrPoller, stopPrPoller, POLL_INTERVAL_MS } from './poller';
+import { runPollCycle, syncReviewThreadsNow, startPrPoller, stopPrPoller, POLL_INTERVAL_MS } from './poller';
 import * as broadcast from '../ws/broadcast';
 import { listOpenPrs, type GithubPr } from '../github/prs';
 import { fetchFailedLogs } from '../github/checks';
-import { fetchReviewComments, type GithubReviewComment } from '../github/review-comments';
+import { fetchReviewThreads, type GithubReviewThread } from '../github/review-threads';
 
 vi.mock('../github/prs', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../github/prs')>()),
   listOpenPrs: vi.fn(),
 }));
 vi.mock('../github/checks', () => ({ fetchFailedLogs: vi.fn() }));
-vi.mock('../github/review-comments', () => ({ fetchReviewComments: vi.fn() }));
+vi.mock('../github/review-threads', () => ({ fetchReviewThreads: vi.fn() }));
 
 // ── Fake GitHub ────────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ function installFakeGithub(
   ctx: TestContext,
   prsByRepo: Map<string, GithubPr[] | Error>,
   failedLogsByRepo?: Map<string, FailedLogsResponse>,
-  reviewCommentsByPrNumber?: Map<number, GithubReviewComment[]>,
+  reviewThreadsByPrNumber?: Map<number, GithubReviewThread[]>,
 ): void {
   ctx.state.daemon = { readyState: WebSocket.OPEN, OPEN: WebSocket.OPEN } as unknown as WebSocket;
   ctx.state.github.status = { available: true, login: 'me' };
@@ -50,8 +50,8 @@ function installFakeGithub(
     if (result instanceof Error) throw result;
     return result ?? [];
   });
-  vi.mocked(fetchReviewComments).mockImplementation(
-    async (_state, _repoFullName, prNumber) => reviewCommentsByPrNumber?.get(prNumber) ?? [],
+  vi.mocked(fetchReviewThreads).mockImplementation(
+    async (_state, _repoFullName, prNumber) => reviewThreadsByPrNumber?.get(prNumber) ?? [],
   );
 }
 
@@ -81,18 +81,44 @@ function makePr(overrides: Partial<GithubPr> = {}): GithubPr {
   };
 }
 
-function makeReviewComment(overrides: Partial<GithubReviewComment> = {}): GithubReviewComment {
+function makeReviewThread(overrides: Partial<GithubReviewThread> = {}): GithubReviewThread {
   return {
-    githubId: 1001,
+    nodeId: 'PRRT_1',
+    isResolved: false,
+    isOutdated: false,
     path: 'src/foo.ts',
     line: 10,
-    body: 'LGTM',
-    author: 'reviewer',
-    createdAt: '2024-01-02T00:00:00Z',
-    inReplyToId: null,
-    url: 'https://github.com/org/repo/pull/1#discussion_r1001',
+    originalLine: 10,
+    startLine: null,
+    diffSide: 'RIGHT',
+    comments: [
+      {
+        githubId: 1001,
+        body: 'LGTM',
+        author: 'reviewer',
+        createdAt: '2024-01-02T00:00:00Z',
+        updatedAt: '2024-01-02T00:00:00Z',
+        url: 'https://github.com/org/repo/pull/1#discussion_r1001',
+        replyToId: null,
+      },
+    ],
     ...overrides,
   };
+}
+
+function seedReviewWorktree(ctx: TestContext, repo: string, prNumber: number): void {
+  ctx.db
+    .insert(reviewWorktrees)
+    .values({
+      repoPath: repo,
+      repoFullName: fullNameFor(repo),
+      prNumber,
+      worktreePath: '/review-wt',
+      headRefName: 'feat/one',
+      headSha: 'abc',
+      createdByReview: true,
+    })
+    .run();
 }
 
 function seedWorkspace(ctx: TestContext, repos: string[]): number {
@@ -543,7 +569,7 @@ describe('PR poller', () => {
           ctx,
           new Map([['/repo-a', [updatedPr]]]),
           undefined,
-          new Map([[1, [makeReviewComment()]]]),
+          new Map([[1, [makeReviewThread()]]]),
         );
         await runPollCycle(ctx.state, ctx.db);
         await new Promise((r) => queueMicrotask(r as () => void));
@@ -565,7 +591,44 @@ describe('PR poller', () => {
         await runPollCycle(ctx.state, ctx.db);
         await new Promise((r) => queueMicrotask(r as () => void));
 
-        expect(fetchReviewComments).not.toHaveBeenCalled();
+        expect(fetchReviewThreads).not.toHaveBeenCalled();
+      });
+
+      it('should sync review threads for a PR with a review worktree but no session', async () => {
+        const wsId = seedWorkspace(ctx, ['/repo-a']);
+        seedReviewWorktree(ctx, '/repo-a', 1);
+        const pr = makePr({ number: 1, headBranch: 'feat/one', updatedAt: 'T1' });
+        installFakeGithub(ctx, new Map([['/repo-a', [pr]]]), undefined, new Map([[1, [makeReviewThread()]]]));
+
+        await runPollCycle(ctx.state, ctx.db);
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(fetchReviewThreads).toHaveBeenCalledWith(ctx.state, 'org/repo-a', 1);
+        expect(broadcastSpy).toHaveBeenCalledWith(wsId, '/repo-a');
+      });
+
+      it('should not sync review threads for a PR with neither session nor review worktree', async () => {
+        seedWorkspace(ctx, ['/repo-a']);
+        const pr = makePr({ number: 1, headBranch: 'feat/one', updatedAt: 'T1' });
+        installFakeGithub(ctx, new Map([['/repo-a', [pr]]]));
+
+        await runPollCycle(ctx.state, ctx.db);
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(fetchReviewThreads).not.toHaveBeenCalled();
+      });
+
+      it('should sync immediately on demand regardless of scope or updatedAt marker', async () => {
+        seedWorkspace(ctx, ['/repo-a']);
+        const pr = makePr({ number: 1, headBranch: 'feat/one', updatedAt: 'T1' });
+        installFakeGithub(ctx, new Map([['/repo-a', [pr]]]), undefined, new Map([[1, [makeReviewThread()]]]));
+        await runPollCycle(ctx.state, ctx.db);
+
+        await syncReviewThreadsNow(ctx.state, '/repo-a', 1);
+
+        expect(fetchReviewThreads).toHaveBeenCalledWith(ctx.state, 'org/repo-a', 1);
+        const threads = ctx.db.select().from(commentThreads).all();
+        expect(threads.map((t) => t.id)).toEqual(['gh-thread-1001']);
       });
 
       it('should drop the review-sync marker when a PR vanishes from the open list', async () => {

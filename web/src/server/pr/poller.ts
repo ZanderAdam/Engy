@@ -1,10 +1,10 @@
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/client';
-import { workspaces, prs } from '../db/schema';
+import { workspaces, prs, reviewWorktrees } from '../db/schema';
 import type { AppState } from '../trpc/context';
 import { getGithubStatus } from '../github/viewer';
 import { listOpenPrs, resolveRepoPrs, type GithubPr } from '../github/prs';
-import { fetchReviewComments } from '../github/review-comments';
+import { fetchReviewThreads } from '../github/review-threads';
 import {
   upsertPrs,
   findCorrelatedSession,
@@ -14,12 +14,13 @@ import {
 import { broadcastPrChange } from '../ws/broadcast';
 import { detectFailureTransitions, classifyFailure, isFailingCheck } from './ci-triage';
 import { maybeDispatchCiFix } from './auto-fix';
-import { syncReviewComments } from './review-sync';
+import { syncReviewThreads } from './review-sync';
 import { mapPrChange, recordPrInboxEvents, refreshPrFacts } from '../inbox/pr-events';
 
 export const POLL_INTERVAL_MS = 60_000;
 
 type Db = ReturnType<typeof getDb>;
+type PrRow = typeof prs.$inferSelect;
 
 export async function runPollCycle(state: AppState, db: Db): Promise<void> {
   if (!state.daemon || state.daemon.readyState !== state.daemon.OPEN) return;
@@ -81,9 +82,6 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
           void handleFailingPr(db, state, ws, repo, number, ghPrs);
         }
 
-        // Sync review comments for all open correlated PRs every cycle.
-        // Skip when GitHub's updatedAt is unchanged from the last successful sync
-        // to avoid an unnecessary GitHub call on every tick.
         for (const ghPr of ghPrs) {
           const prUpdatedAt = ghPr.updatedAt ?? null;
           const syncKey = `${repo}#${ghPr.number}`;
@@ -91,9 +89,9 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
           if (lastSyncedAt !== undefined && prUpdatedAt !== null && lastSyncedAt === prUpdatedAt) {
             continue;
           }
-          const session = findCorrelatedSession(db, ghPr.headBranch, repo);
-          if (!session) continue;
-          void syncPrReviewComments(db, state, ws.id, repo, ghPr, prUpdatedAt);
+          const prRow = findPrRow(db, repo, ghPr.number);
+          if (!prRow || !shouldSyncReviewThreads(db, prRow)) continue;
+          void syncPrReviewThreads(db, state, ws.id, prRow, prUpdatedAt);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -132,34 +130,71 @@ function recordInboxActivity(
   }
 }
 
-async function syncPrReviewComments(
+function findPrRow(db: Db, repo: string, prNumber: number): PrRow | undefined {
+  return db
+    .select()
+    .from(prs)
+    .where(and(eq(prs.repo, repo), eq(prs.number, prNumber)))
+    .get();
+}
+
+function shouldSyncReviewThreads(db: Db, prRow: PrRow): boolean {
+  if (findCorrelatedSession(db, prRow.headBranch, prRow.repo)) return true;
+  if (!prRow.repoFullName) return false;
+  const reviewWorktree = db
+    .select({ id: reviewWorktrees.id })
+    .from(reviewWorktrees)
+    .where(
+      and(
+        eq(reviewWorktrees.repoFullName, prRow.repoFullName),
+        eq(reviewWorktrees.prNumber, prRow.number),
+      ),
+    )
+    .get();
+  return reviewWorktree !== undefined;
+}
+
+async function importReviewThreads(
+  db: Db,
+  state: AppState,
+  prRow: PrRow,
+): Promise<ReturnType<typeof syncReviewThreads>> {
+  if (!prRow.repoFullName) {
+    throw new Error(`repo ${prRow.repo} has no GitHub identity`);
+  }
+  const threads = await fetchReviewThreads(state, prRow.repoFullName, prRow.number);
+  return syncReviewThreads(db, prRow, threads);
+}
+
+export async function syncReviewThreadsNow(
+  state: AppState,
+  repoPath: string,
+  prNumber: number,
+): Promise<void> {
+  const db = getDb();
+  const prRow = findPrRow(db, repoPath, prNumber);
+  if (!prRow) throw new Error(`PR #${prNumber} is not tracked for ${repoPath}`);
+  await importReviewThreads(db, state, prRow);
+}
+
+async function syncPrReviewThreads(
   db: Db,
   state: AppState,
   workspaceId: number,
-  repo: string,
-  ghPr: GithubPr,
+  prRow: PrRow,
   prUpdatedAt: string | null,
 ): Promise<void> {
-  const prNumber = ghPr.number;
   try {
-    const comments = await fetchReviewComments(state, ghPr.repoFullName, prNumber);
-    const prRow = db
-      .select()
-      .from(prs)
-      .where(and(eq(prs.repo, repo), eq(prs.number, prNumber)))
-      .get();
-    if (prRow) {
-      const summary = syncReviewComments(db, prRow, comments);
-      if (summary.created + summary.updated > 0) {
-        broadcastPrChange(workspaceId, repo);
-      }
+    const summary = await importReviewThreads(db, state, prRow);
+    if (summary.created + summary.updated > 0) {
+      broadcastPrChange(workspaceId, prRow.repo);
     }
     if (prUpdatedAt) {
-      state.prReviewCommentLastSyncedAt.set(`${repo}#${prNumber}`, prUpdatedAt);
+      state.prReviewCommentLastSyncedAt.set(`${prRow.repo}#${prRow.number}`, prUpdatedAt);
     }
   } catch (err) {
     console.error(
-      `[pr-poller] review comment sync failed for ${repo}#${prNumber}:`,
+      `[pr-poller] review thread sync failed for ${prRow.repo}#${prRow.number}:`,
       err instanceof Error ? err.message : String(err),
     );
   }
@@ -186,7 +221,8 @@ async function handleFailingPr(
   const now = new Date().toISOString();
 
   const headShaChanged = headSha !== null && headSha !== dbRow.lastFailedHeadSha;
-  const updatedPrRow = db.update(prs)
+  const updatedPrRow = db
+    .update(prs)
     .set({
       lastFailedHeadSha: headSha,
       ...(headShaChanged ? { autoFixAttempts: 0 } : {}),
