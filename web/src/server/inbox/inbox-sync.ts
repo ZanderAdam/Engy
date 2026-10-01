@@ -1,0 +1,170 @@
+import { and, eq } from 'drizzle-orm';
+import { getDb } from '../db/client';
+import { prs, workspaces } from '../db/schema';
+import type { GithubNotification } from '../github/notifications';
+import { resolveRepoFullName } from '../github/repo-identity';
+import {
+  fetchPrTimeline,
+  sameLogin,
+  type PrTimeline,
+  type TimelineEvent,
+} from '../github/timeline';
+import type { AppState } from '../trpc/context';
+import { NO_BUCKET_FACTS, type BucketFacts, type InboxEventKind } from './bucket';
+import { addEvent, getItem, markRead, upsertItem } from './store';
+
+interface RepoLocation {
+  workspaceId: number;
+  repoPath: string;
+}
+
+type RepoIndex = Map<string, RepoLocation>;
+
+interface ThreadSyncContext {
+  state: AppState;
+  viewerLogin: string;
+  repoIndex: RepoIndex;
+  lastSyncedAt: string | null;
+}
+
+const PR_NUMBER_PATTERN = /\/pulls\/(\d+)$/;
+
+const REASON_EVENTS: Record<string, { kind: InboxEventKind; summary: string }> = {
+  review_requested: { kind: 'review_requested', summary: 'Review requested' },
+  mention: { kind: 'mentioned', summary: 'You were mentioned' },
+  team_mention: { kind: 'mentioned', summary: 'Your team was mentioned' },
+  assign: { kind: 'assigned', summary: 'You were assigned' },
+};
+
+const DEFAULT_REASON_EVENT = { kind: 'commented' as const, summary: 'New activity' };
+
+export async function buildRepoIndex(state: AppState): Promise<RepoIndex> {
+  const index: RepoIndex = new Map();
+  const allWorkspaces = getDb().select().from(workspaces).all();
+  for (const workspace of allWorkspaces) {
+    for (const repoPath of workspace.repos ?? []) {
+      try {
+        const fullName = await resolveRepoFullName(state, repoPath);
+        if (fullName && !index.has(fullName)) {
+          index.set(fullName, { workspaceId: workspace.id, repoPath });
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+  return index;
+}
+
+function parsePrNumber(subjectUrl: string | null): number | null {
+  const match = subjectUrl ? PR_NUMBER_PATTERN.exec(subjectUrl) : null;
+  return match ? Number(match[1]) : null;
+}
+
+function buildFacts(
+  pr: PrTimeline,
+  viewerLogin: string,
+  mentioned: boolean,
+  repoFullName: string,
+  prNumber: number,
+): BucketFacts {
+  const facts = { ...NO_BUCKET_FACTS, mentioned };
+  if (pr.state !== 'OPEN') return facts;
+
+  if (!sameLogin(pr.authorLogin, viewerLogin)) {
+    return { ...facts, reviewRequestedNotGiven: pr.viewerReviewRequested };
+  }
+
+  const row = getDb()
+    .select()
+    .from(prs)
+    .where(and(eq(prs.repoFullName, repoFullName), eq(prs.number, prNumber)))
+    .get();
+  return {
+    ...facts,
+    myPrChangesRequested: pr.reviewDecision === 'CHANGES_REQUESTED',
+    myPrApprovedCiPassing: pr.reviewDecision === 'APPROVED' && row?.ciStatus === 'passing',
+    myPrCiFailing: row?.ciStatus === 'failing',
+    myPrAutoFixAttention: Boolean(row?.attentionReason),
+  };
+}
+
+function reasonEvent(thread: GithubNotification): TimelineEvent {
+  const mapped = REASON_EVENTS[thread.reason] ?? DEFAULT_REASON_EVENT;
+  return {
+    ...mapped,
+    actor: null,
+    url: null,
+    at: thread.updated_at,
+    sourceKey: `ghn:${thread.id}:${thread.updated_at}`,
+  };
+}
+
+async function loadTimeline(
+  ctx: ThreadSyncContext,
+  thread: GithubNotification,
+  prNumber: number,
+): Promise<PrTimeline | null> {
+  const [owner, name] = thread.repository.full_name.split('/');
+  try {
+    return await fetchPrTimeline(ctx.state, {
+      owner,
+      name,
+      number: prNumber,
+      since: ctx.lastSyncedAt ?? thread.last_read_at,
+      viewerLogin: ctx.viewerLogin,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(
+      `[inbox] timeline fetch failed for ${thread.repository.full_name}#${prNumber}: ${message}`,
+    );
+    return null;
+  }
+}
+
+export async function syncThread(
+  ctx: ThreadSyncContext,
+  thread: GithubNotification,
+): Promise<void> {
+  const prNumber = parsePrNumber(thread.subject.url);
+  if (prNumber === null) return;
+
+  const repoFullName = thread.repository.full_name;
+  const location = ctx.repoIndex.get(repoFullName);
+  const timeline = await loadTimeline(ctx, thread, prNumber);
+
+  const base = {
+    repoFullName,
+    prNumber,
+    title: timeline?.title ?? thread.subject.title,
+    url: `https://github.com/${repoFullName}/pull/${prNumber}`,
+    githubThreadId: thread.id,
+    workspaceId: location?.workspaceId,
+    repoPath: location?.repoPath,
+  };
+  const item = upsertItem(base);
+
+  const events = timeline && timeline.events.length > 0 ? timeline.events : [reasonEvent(thread)];
+  const mentioned =
+    events.some((event) => event.kind === 'mentioned') ||
+    (item.unread && item.latestReason === 'mentioned');
+  const facts = timeline
+    ? buildFacts(timeline, ctx.viewerLogin, mentioned, repoFullName, prNumber)
+    : undefined;
+
+  for (const event of events) {
+    addEvent({ itemId: item.id, ...event, facts });
+  }
+  if (facts) upsertItem({ ...base, facts });
+
+  const current = getItem(item.id);
+  if (
+    current?.unread &&
+    !thread.unread &&
+    thread.last_read_at &&
+    thread.last_read_at > current.lastEventAt
+  ) {
+    markRead(item.id);
+  }
+}

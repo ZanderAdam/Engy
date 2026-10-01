@@ -10,6 +10,7 @@ type GithubResult<T> =
       etag: string | null;
       lastModified: string | null;
       nextUrl: string | null;
+      headers: Headers;
     }
   | { status: 'not_modified' };
 
@@ -62,6 +63,7 @@ export async function githubRest<T = unknown>(
     etag: res.headers.get('etag'),
     lastModified: res.headers.get('last-modified'),
     nextUrl: parseNextLink(res.headers.get('link')),
+    headers: res.headers,
   };
 }
 

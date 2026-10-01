@@ -51,6 +51,10 @@ export async function startStubGithub(): Promise<StubGithub> {
     reply: (next) => {
       handler = next;
     },
-    close: () => new Promise((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      }),
   };
 }
