@@ -11,6 +11,7 @@ import {
 } from '../github/timeline';
 import type { AppState } from '../trpc/context';
 import { NO_BUCKET_FACTS, type BucketFacts, type InboxEventKind } from './bucket';
+import { bucketFactsForPr } from './pr-events';
 import { addEvent, getItem, markRead, upsertItem } from './store';
 
 interface RepoLocation {
@@ -64,28 +65,23 @@ function parsePrNumber(subjectUrl: string | null): number | null {
 function buildFacts(
   pr: PrTimeline,
   viewerLogin: string,
-  mentioned: boolean,
   repoFullName: string,
   prNumber: number,
 ): BucketFacts {
-  const facts = { ...NO_BUCKET_FACTS, mentioned };
-  if (pr.state !== 'OPEN') return facts;
-
-  if (!sameLogin(pr.authorLogin, viewerLogin)) {
-    return { ...facts, reviewRequestedNotGiven: pr.viewerReviewRequested };
-  }
-
   const row = getDb()
     .select()
     .from(prs)
     .where(and(eq(prs.repoFullName, repoFullName), eq(prs.number, prNumber)))
     .get();
+  if (row) return bucketFactsForPr(row, viewerLogin);
+
+  if (pr.state !== 'OPEN') return NO_BUCKET_FACTS;
+  if (!sameLogin(pr.authorLogin, viewerLogin)) {
+    return { ...NO_BUCKET_FACTS, reviewRequestedNotGiven: pr.viewerReviewRequested };
+  }
   return {
-    ...facts,
+    ...NO_BUCKET_FACTS,
     myPrChangesRequested: pr.reviewDecision === 'CHANGES_REQUESTED',
-    myPrApprovedCiPassing: pr.reviewDecision === 'APPROVED' && row?.ciStatus === 'passing',
-    myPrCiFailing: row?.ciStatus === 'failing',
-    myPrAutoFixAttention: Boolean(row?.attentionReason),
   };
 }
 
@@ -146,11 +142,8 @@ export async function syncThread(
   const item = upsertItem(base);
 
   const events = timeline && timeline.events.length > 0 ? timeline.events : [reasonEvent(thread)];
-  const mentioned =
-    events.some((event) => event.kind === 'mentioned') ||
-    (item.unread && item.latestReason === 'mentioned');
   const facts = timeline
-    ? buildFacts(timeline, ctx.viewerLogin, mentioned, repoFullName, prNumber)
+    ? buildFacts(timeline, ctx.viewerLogin, repoFullName, prNumber)
     : undefined;
 
   for (const event of events) {
