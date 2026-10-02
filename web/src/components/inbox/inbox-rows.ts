@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
-import { RiDraftLine, RiGitPullRequestLine } from '@remixicon/react';
 import type { GhPrCiStatus } from '@engy/common';
 import { prActivityAt } from '@/components/prs/pr-helpers';
+import { prStateVisual } from '@/components/prs/pr-state';
 import type { RouterOutputs } from '@/lib/trpc';
 import { EVENT_META, hasAvatar, summarizeEvent } from './inbox-event-meta';
 import { prKey, type InboxItem } from './inbox-helpers';
@@ -22,6 +22,7 @@ export interface InboxRowModel {
   summary: string;
   icon: ComponentType<{ className?: string }>;
   iconClassName: string;
+  iconLabel: string;
   avatarLogin: string | null;
   risk: InboxItem['risk'];
   ci: GhPrCiStatus | undefined;
@@ -38,7 +39,8 @@ function prReviewSummary(pr: Pick<WorkspacePr, 'isDraft' | 'reviewDecision'>): s
 
 export function inboxItemToRow(item: InboxItem, pr: WorkspacePr | undefined): InboxRowModel {
   const event = item.latestEvent;
-  const { icon, className } = EVENT_META[event?.kind ?? 'commented'];
+  const eventMeta = EVENT_META[event?.kind ?? 'commented'];
+  const state = pr ? prStateVisual(pr) : null;
   return {
     key: prKey(item.repoFullName, item.prNumber),
     title: item.title,
@@ -51,14 +53,20 @@ export function inboxItemToRow(item: InboxItem, pr: WorkspacePr | undefined): In
     unread: item.unread,
     snoozedUntil: item.snoozedUntil,
     summary: summarizeEvent(event),
-    icon,
-    iconClassName: className,
+    icon: state?.icon ?? eventMeta.icon,
+    iconClassName: state?.className ?? eventMeta.className,
+    iconLabel: state?.label ?? summarizeEvent(event),
     avatarLogin: event && hasAvatar(event) ? event.actor : null,
     risk: item.risk,
     ci: pr?.ciStatus,
     item,
     pr: pr ?? null,
   };
+}
+
+function prStateIcon(pr: WorkspacePr) {
+  const { icon, className, label } = prStateVisual(pr);
+  return { icon, iconClassName: className, iconLabel: label };
 }
 
 function prToRow(
@@ -79,8 +87,7 @@ function prToRow(
     unread: item?.unread ?? false,
     snoozedUntil: item?.snoozedUntil ?? null,
     summary: prReviewSummary(pr),
-    icon: pr.isDraft ? RiDraftLine : RiGitPullRequestLine,
-    iconClassName: 'text-muted-foreground',
+    ...prStateIcon(pr),
     avatarLogin: pr.author,
     risk: item?.risk ?? null,
     ci: pr.ciStatus,
@@ -95,16 +102,18 @@ export function myPullRequestRows(
   workspaceId: number,
 ): InboxRowModel[] {
   const itemByPr = new Map(items.map((item) => [prKey(item.repoFullName, item.prNumber), item]));
-  return prs.filter((pr) => pr.authoredByViewer).flatMap((pr) =>
-    pr.repoFullName === null
-      ? []
-      : [
-          prToRow(
-            pr,
-            pr.repoFullName,
-            workspaceId,
-            itemByPr.get(prKey(pr.repoFullName, pr.number)),
-          ),
-        ],
-  );
+  return prs
+    .filter((pr) => pr.authoredByViewer)
+    .flatMap((pr) =>
+      pr.repoFullName === null
+        ? []
+        : [
+            prToRow(
+              pr,
+              pr.repoFullName,
+              workspaceId,
+              itemByPr.get(prKey(pr.repoFullName, pr.number)),
+            ),
+          ],
+    );
 }

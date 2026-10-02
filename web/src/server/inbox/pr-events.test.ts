@@ -39,6 +39,7 @@ function makeRow(overrides: Partial<PrRow> = {}): PrRow {
     autoFixTotalAttempts: 0,
     attentionReason: null,
     githubUpdatedAt: null,
+    hasConflicts: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,

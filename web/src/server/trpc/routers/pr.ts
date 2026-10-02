@@ -144,6 +144,7 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GithubPr[]): UpsertResult
             deletions: ghPr.deletions,
             reviewRequests: ghPr.reviewRequests,
             githubUpdatedAt: ghPr.updatedAt,
+            hasConflicts: ghPr.hasConflicts,
             updatedAt: now,
           })
           .run();
@@ -199,6 +200,7 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GithubPr[]): UpsertResult
             deletions: ghPr.deletions,
             reviewRequests: ghPr.reviewRequests,
             githubUpdatedAt: ghPr.updatedAt,
+            hasConflicts: ghPr.hasConflicts,
             updatedAt: now,
           })
           .where(and(eq(prs.repo, repo), eq(prs.number, ghPr.number)))

@@ -30,6 +30,7 @@ function makePr(overrides: Partial<GithubPr> = {}): GithubPr {
     deletions: 0,
     reviewRequests: [],
     updatedAt: '2024-01-01T00:00:00Z',
+    hasConflicts: false,
     ...overrides,
   };
 }
@@ -93,6 +94,15 @@ describe('pr router', () => {
 
       const rows = ctx.db.select().from(prs).where(eq(prs.repo, '/repo-a')).all();
       expect(rows).toHaveLength(2);
+    });
+
+    it('[FR-PRMON-320] should store merge conflicts on insert and clear them on update', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 6, hasConflicts: true })]);
+      expect(ctx.db.select().from(prs).where(eq(prs.number, 6)).get()?.hasConflicts).toBe(true);
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 6, hasConflicts: false })]);
+      expect(ctx.db.select().from(prs).where(eq(prs.number, 6)).get()?.hasConflicts).toBe(false);
     });
 
     it('[FR-PRMON-230] should store when the PR last changed on GitHub on insert and on update', () => {

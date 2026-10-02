@@ -64,7 +64,7 @@ describe('github prs', () => {
       expect(prs.map((pr) => pr.repoFullName)).toEqual(['org/a', 'org/b']);
     });
 
-    it('[FR-PRMON-180] should map PR fields, review requests and discussion volume', async () => {
+    it('[FR-PRMON-180] [FR-PRMON-320] should map PR fields, review requests and discussion volume', async () => {
       stub.reply((request) =>
         searchQuery(request) === AUTHORED
           ? searchReply([
@@ -75,6 +75,7 @@ describe('github prs', () => {
                 headRefOid: 'deadbeef',
                 baseRefName: 'develop',
                 isDraft: true,
+                mergeable: 'CONFLICTING',
                 reviewDecision: 'REVIEW_REQUIRED',
                 additions: 40,
                 deletions: 9,
@@ -119,6 +120,7 @@ describe('github prs', () => {
         deletions: 9,
         reviewRequests: ['octo', 'org/core'],
         updatedAt: '2024-01-01T00:00:00Z',
+        hasConflicts: true,
       });
     });
 

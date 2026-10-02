@@ -24,6 +24,7 @@ export interface GithubPr {
   /** User logins and `org/team` slugs with a pending review request. */
   reviewRequests: string[];
   updatedAt: string;
+  hasConflicts: boolean;
 }
 
 interface RawCheckRun {
@@ -60,6 +61,7 @@ interface RawPr {
   author: { login: string } | null;
   isDraft: boolean;
   state: string;
+  mergeable: string;
   reviewDecision: string | null;
   additions: number;
   deletions: number;
@@ -109,6 +111,7 @@ query OpenPrs($q: String!, $first: Int!, $after: String) {
         author { login }
         isDraft
         state
+        mergeable
         reviewDecision
         additions
         deletions
@@ -227,6 +230,7 @@ function toGithubPr(raw: RawPr, authoredByViewer: boolean): GithubPr {
       .map((node) => reviewerName(node.requestedReviewer))
       .filter((name): name is string => name !== null),
     updatedAt: raw.updatedAt,
+    hasConflicts: raw.mergeable === 'CONFLICTING',
   };
 }
 

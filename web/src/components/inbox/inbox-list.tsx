@@ -84,7 +84,9 @@ function InboxRow({ row, selected, onSelect, onDone, onSnooze }: InboxRowProps) 
             row.unread ? 'bg-sky-400' : 'bg-transparent',
           )}
         />
-        <Icon className={cn('size-4 shrink-0', row.iconClassName)} />
+        <span role="img" aria-label={row.iconLabel} title={row.iconLabel} className="shrink-0">
+          <Icon className={cn('size-4', row.iconClassName)} />
+        </span>
         {row.avatarLogin && (
           <ReviewAvatar login={row.avatarLogin} avatarUrl={githubAvatarUrl(row.avatarLogin)} />
         )}

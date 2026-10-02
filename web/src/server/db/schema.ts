@@ -519,6 +519,7 @@ export const prs = sqliteTable(
     autoFixTotalAttempts: integer('auto_fix_total_attempts').notNull().default(0),
     attentionReason: text('attention_reason'),
     githubUpdatedAt: text('github_updated_at'),
+    hasConflicts: integer('has_conflicts', { mode: 'boolean' }).notNull().default(false),
     createdAt: text('created_at')
       .notNull()
       .$defaultFn(() => new Date().toISOString()),

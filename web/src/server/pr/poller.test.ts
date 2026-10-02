@@ -95,6 +95,7 @@ function makePr(overrides: Partial<GithubPr> = {}): GithubPr {
     deletions: 1,
     reviewRequests: [],
     updatedAt: '2024-01-01T00:00:00Z',
+    hasConflicts: false,
     ...overrides,
   };
 }

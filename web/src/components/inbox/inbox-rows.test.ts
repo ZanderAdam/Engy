@@ -11,6 +11,8 @@ function pr(overrides: Partial<WorkspacePr>): WorkspacePr {
     isDraft: false,
     ciStatus: 'pending',
     reviewDecision: null,
+    hasConflicts: false,
+    githubUpdatedAt: null,
     updatedAt: '2026-01-01T00:00:00.000Z',
     authoredByViewer: true,
     repoFullName: 'acme/web',
@@ -106,5 +108,21 @@ describe('[FR-INBOX-490] inboxItemToRow', () => {
 
   it('should take CI from the PR when known', () => {
     expect(inboxItemToRow(item({}), pr({ ciStatus: 'failing' })).ci).toBe('failing');
+  });
+});
+
+describe('[FR-INBOX-580] row state icon', () => {
+  it('should show the PR state on a My PRs row', () => {
+    const [row] = myPullRequestRows([pr({ hasConflicts: true })], [], 1);
+
+    expect(row.iconLabel).toBe('Merge conflicts');
+  });
+
+  it('should show the PR state on an Inbox row when the PR is known', () => {
+    expect(inboxItemToRow(item({}), pr({ reviewDecision: 'APPROVED' })).iconLabel).toBe('Approved');
+  });
+
+  it('should fall back to the event icon when the PR is not known', () => {
+    expect(inboxItemToRow(item({}), undefined).iconLabel).not.toBe('Waiting for review');
   });
 });

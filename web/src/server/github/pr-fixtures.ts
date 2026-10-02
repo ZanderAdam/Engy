@@ -10,6 +10,7 @@ export interface RawPrFixture {
   author: { login: string } | null;
   isDraft: boolean;
   state: string;
+  mergeable: string;
   reviewDecision: string | null;
   additions: number;
   deletions: number;
@@ -32,6 +33,7 @@ export function rawPr(overrides: Partial<RawPrFixture> = {}): RawPrFixture {
     author: { login: 'alice' },
     isDraft: false,
     state: 'OPEN',
+    mergeable: 'MERGEABLE',
     reviewDecision: null,
     additions: 3,
     deletions: 1,

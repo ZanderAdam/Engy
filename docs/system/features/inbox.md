@@ -109,6 +109,7 @@ The PRs tab shows a global toast for attention events (FR-PRMON-200). The PRs na
 | FR-INBOX-550 | WHILE a review is open in the PRs tab, the system SHALL run only `j` (next), `k` (previous) and `Escape` (close the review) as Inbox key actions and SHALL leave all other keys, including the arrow keys and `Enter`, to the review. |
 | FR-INBOX-560 | WHEN the global Inbox page opens a review, the system SHALL choose the project of the correlated agent session of the item, else the default project of the workspace of the item, else the first project; IF the workspace has no project, THEN the system SHALL NOT offer Open review. |
 | FR-INBOX-570 | WHEN the user marks the previewed item read, the system SHALL keep the preview on that item, also when the item was only selected by default; WHEN the user marks it unread, the selection SHALL stay as it was. |
+| FR-INBOX-580 | WHEN a row shows a PR whose facts are known (a My PRs row, or an Inbox row of a listed PR), the system SHALL show the PR state as the leftmost icon, with its own icon, color and label, picking the first that applies: Draft, Merge conflicts, CI failing, Changes requested, Ready to merge (approved with passing CI), Approved, Waiting for review; an Inbox row of a PR that is not listed SHALL show the icon of its latest event. |
 
 ## Sources
 
