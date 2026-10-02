@@ -171,7 +171,7 @@ describe('auto review', () => {
       expect(options.workingDir).toBe(worktreePath);
       expect(options.prompt).toContain('/engy:review-diff');
       expect(options.prompt).toContain('merge-base-sha');
-      expect(options.prompt).toContain(`worktreePath: ${worktreePath}`);
+      expect(options.prompt).toContain(`repoDir: ${worktreePath}`);
       expect(options.prompt).not.toContain('reviewGuide:');
       expect(path.isAbsolute(options.workingDir)).toBe(true);
     });

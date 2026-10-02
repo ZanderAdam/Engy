@@ -137,8 +137,7 @@ async function spawnReviewSession(
     state,
   );
   const prompt = buildReviewPrompt({
-    repoDir: worktree.repoPath,
-    worktreePath: worktree.worktreePath,
+    repoDir: worktree.worktreePath,
     spec: { kind: 'range', from: mergeBase, to: head },
     reviewGuide,
   });
