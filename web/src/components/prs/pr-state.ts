@@ -17,7 +17,7 @@ interface PrStateFacts {
   reviewDecision: string | null;
 }
 
-export interface PrStateVisual {
+interface PrStateVisual {
   icon: ComponentType<{ className?: string }>;
   className: string;
   label: string;
