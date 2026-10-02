@@ -75,7 +75,7 @@ describe('comment service', () => {
 
     it('[FR-EDITOR-160] should store a BlockNote block array on a doc thread', async () => {
       await makeDocThread();
-      replyToThread({ threadId: 'doc-thread', text: 'First line\nSecond line' });
+      replyToThread({ threadId: 'doc-thread', text: 'First line\n\nSecond line' });
 
       const threads = await caller.comment.listThreads({
         workspaceSlug: 'test-ws',
@@ -144,13 +144,134 @@ describe('comment service', () => {
     it('[FR-EDITOR-160] should treat metadata.type "diff" as a diff thread', () => {
       expect(isDiffThread({ documentPath: 'docs/a.md', metadata: { type: 'diff' } })).toBe(true);
     });
+  });
 
-    it('[FR-EDITOR-160] should keep blank lines as empty paragraphs in a doc body', () => {
-      const body = textToBody({ documentPath: 'docs/a.md', metadata: null }, 'a\n\nb');
-      expect(body).toEqual([
-        { type: 'paragraph', content: [{ type: 'text', text: 'a', styles: {} }] },
-        { type: 'paragraph', content: [] },
-        { type: 'paragraph', content: [{ type: 'text', text: 'b', styles: {} }] },
+  describe('[FR-EDITOR-160] markdown doc bodies', () => {
+    const docThread = { documentPath: 'docs/a.md', metadata: null };
+
+    it('[FR-EDITOR-160] should split blank-line separated text into paragraphs and keep line breaks', () => {
+      expect(textToBody(docThread, 'a\nb\n\nc')).toEqual([
+        { type: 'paragraph', content: [{ type: 'text', text: 'a\nb', styles: {} }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'c', styles: {} }] },
+      ]);
+    });
+
+    it('[FR-EDITOR-160] should turn inline markdown into styled text and links', () => {
+      expect(textToBody(docThread, '**bold** *it* `code` ~~gone~~ [docs](https://x.dev)')).toEqual([
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'bold', styles: { bold: true } },
+            { type: 'text', text: ' ', styles: {} },
+            { type: 'text', text: 'it', styles: { italic: true } },
+            { type: 'text', text: ' ', styles: {} },
+            { type: 'text', text: 'code', styles: { code: true } },
+            { type: 'text', text: ' ', styles: {} },
+            { type: 'text', text: 'gone', styles: { strike: true } },
+            { type: 'text', text: ' ', styles: {} },
+            {
+              type: 'link',
+              href: 'https://x.dev',
+              content: [{ type: 'text', text: 'docs', styles: {} }],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it('[FR-EDITOR-160] should turn lists into nested list item blocks', () => {
+      expect(textToBody(docThread, '- one\n  - inner\n1. first\n\n- [x] done')).toEqual([
+        {
+          type: 'bulletListItem',
+          content: [{ type: 'text', text: 'one', styles: {} }],
+          children: [
+            {
+              type: 'bulletListItem',
+              content: [{ type: 'text', text: 'inner', styles: {} }],
+              children: [],
+            },
+          ],
+        },
+        {
+          type: 'numberedListItem',
+          content: [{ type: 'text', text: 'first', styles: {} }],
+          children: [],
+        },
+        {
+          type: 'checkListItem',
+          props: { checked: true },
+          content: [{ type: 'text', text: 'done', styles: {} }],
+          children: [],
+        },
+      ]);
+    });
+
+    it('[FR-EDITOR-160] should never return an empty block array', () => {
+      expect(textToBody(docThread, '   ')).toEqual([{ type: 'paragraph', content: [] }]);
+      expect(textToBody(docThread, '---')).toEqual([
+        { type: 'paragraph', content: [{ type: 'text', text: '---', styles: {} }] },
+      ]);
+    });
+
+    it('[FR-EDITOR-160] should keep separators when flattening tables and lists in quotes', () => {
+      expect(textToBody(docThread, '| a | b |\n| - | - |\n| 1 | 2 |\n\n> - x\n> - y')).toEqual([
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'a', styles: {} },
+            { type: 'text', text: ' | ', styles: {} },
+            { type: 'text', text: 'b', styles: {} },
+            { type: 'text', text: '\n', styles: {} },
+            { type: 'text', text: '1', styles: {} },
+            { type: 'text', text: ' | ', styles: {} },
+            { type: 'text', text: '2', styles: {} },
+          ],
+        },
+        {
+          type: 'quote',
+          content: [
+            { type: 'text', text: 'x', styles: {} },
+            { type: 'text', text: '\n', styles: {} },
+            { type: 'text', text: 'y', styles: {} },
+          ],
+        },
+      ]);
+    });
+
+    it('[FR-EDITOR-160] should keep image alt text as a link', () => {
+      expect(textToBody(docThread, '![shot](https://x.dev/a.png)')).toEqual([
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'link',
+              href: 'https://x.dev/a.png',
+              content: [{ type: 'text', text: 'shot', styles: {} }],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it('[FR-EDITOR-160] should turn headings, code fences and quotes into their blocks', () => {
+      expect(
+        textToBody(
+          docThread,
+          '#### Title\n\n```ts\nconst a = 1;\n```\n\n```\nplain\n```\n\n> quoted',
+        ),
+      ).toEqual([
+        {
+          type: 'heading',
+          props: { level: 4 },
+          content: [{ type: 'text', text: 'Title', styles: {} }],
+        },
+        {
+          type: 'codeBlock',
+          props: { language: 'ts' },
+          content: [{ type: 'text', text: 'const a = 1;', styles: {} }],
+        },
+        { type: 'codeBlock', props: {}, content: [{ type: 'text', text: 'plain', styles: {} }] },
+        { type: 'quote', content: [{ type: 'text', text: 'quoted', styles: {} }] },
       ]);
     });
   });

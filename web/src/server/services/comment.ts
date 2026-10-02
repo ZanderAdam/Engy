@@ -4,6 +4,7 @@ import { getDb } from '../db/client';
 import { commentThreads, threadComments } from '../db/schema';
 import { randomId } from '@/lib/random-id';
 import { LOCAL_USER_ID, AGENT_USER_ID } from '@/lib/comment-feedback';
+import { markdownToBlocks } from './markdown-blocks';
 
 type CommentThread = typeof commentThreads.$inferSelect;
 type ThreadShape = Pick<CommentThread, 'documentPath' | 'metadata'>;
@@ -31,10 +32,7 @@ export function isDiffThread(thread: ThreadShape): boolean {
  */
 export function textToBody(thread: ThreadShape, text: string): unknown {
   if (isDiffThread(thread)) return text;
-  return text.split('\n').map((line) => ({
-    type: 'paragraph',
-    content: line ? [{ type: 'text', text: line, styles: {} }] : [],
-  }));
+  return markdownToBlocks(text);
 }
 
 interface AddCommentInput {

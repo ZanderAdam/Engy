@@ -58,4 +58,23 @@ describe('formatCommentsForExport', () => {
     expect(result).toContain('# Comments on specs/auth/spec.md');
     expect(result).toContain('replyToComment');
   });
+
+  it('[FR-EDITOR-170] keeps link text and nested list items in a comment', () => {
+    const body = [
+      {
+        type: 'bulletListItem',
+        content: [
+          { type: 'text', text: 'see ' },
+          { type: 'link', href: 'https://x.dev', content: [{ type: 'text', text: 'docs' }] },
+        ],
+        children: [{ type: 'numberedListItem', content: [{ type: 'text', text: 'step' }] }],
+      },
+    ];
+    const threads = new Map([
+      ['t1', { resolved: false, deletedAt: null, metadata: {}, comments: [{ deletedAt: null, body }] }],
+    ]);
+    const result = formatCommentsForExport({ threads, markdown: MARKDOWN });
+
+    expect(result).toContain('- see docs\n  1. step');
+  });
 });

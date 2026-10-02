@@ -12,7 +12,7 @@ import {
 } from "@blocknote/react";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
-import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
+import { BlockNoteSchema, defaultBlockSpecs, defaultStyleSpecs } from "@blocknote/core";
 import { CommentsExtension } from "@blocknote/core/comments";
 import type { User } from "@blocknote/core/comments";
 import "@blocknote/shadcn/style.css";
@@ -53,6 +53,25 @@ const schema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
     mermaid: mermaidBlockSpec(),
+  },
+});
+
+const commentEditorSchema = BlockNoteSchema.create({
+  blockSpecs: {
+    paragraph: defaultBlockSpecs.paragraph,
+    heading: defaultBlockSpecs.heading,
+    bulletListItem: defaultBlockSpecs.bulletListItem,
+    numberedListItem: defaultBlockSpecs.numberedListItem,
+    checkListItem: defaultBlockSpecs.checkListItem,
+    codeBlock: defaultBlockSpecs.codeBlock,
+    quote: defaultBlockSpecs.quote,
+  },
+  styleSpecs: {
+    bold: defaultStyleSpecs.bold,
+    italic: defaultStyleSpecs.italic,
+    underline: defaultStyleSpecs.underline,
+    strike: defaultStyleSpecs.strike,
+    code: defaultStyleSpecs.code,
   },
 });
 
@@ -165,7 +184,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   const editor = useCreateBlockNote(
     {
       schema,
-      extensions: comments ? [CommentsExtension({ threadStore, resolveUsers })] : undefined,
+      extensions: comments ? [CommentsExtension({ threadStore, resolveUsers, schema: commentEditorSchema })] : undefined,
     },
     [threadStore],
   );

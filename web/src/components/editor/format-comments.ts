@@ -69,16 +69,48 @@ function findLineNumber(markdown: string, exact: string): number | null {
   return null;
 }
 
+interface InlineItem {
+  type: string;
+  text?: string;
+  content?: InlineItem[];
+}
+
+interface CommentBlock {
+  type: string;
+  props?: { checked?: boolean };
+  content?: InlineItem[];
+  children?: CommentBlock[];
+}
+
+function inlineText(content: InlineItem[] = []): string {
+  return content
+    .map((item) => (item.type === 'link' ? inlineText(item.content) : (item.text ?? '')))
+    .join('');
+}
+
+function blockPrefix(block: CommentBlock): string {
+  switch (block.type) {
+    case 'bulletListItem':
+      return '- ';
+    case 'numberedListItem':
+      return '1. ';
+    case 'checkListItem':
+      return block.props?.checked ? '- [x] ' : '- [ ] ';
+    default:
+      return '';
+  }
+}
+
+function blockLines(block: CommentBlock, depth: number): string[] {
+  const text = Array.isArray(block.content) ? inlineText(block.content) : '';
+  const line = '  '.repeat(depth) + blockPrefix(block) + text;
+  return [line, ...(block.children ?? []).flatMap((child) => blockLines(child, depth + 1))];
+}
+
 function extractCommentText(body: unknown): string {
   if (!body || !Array.isArray(body)) return '';
-  return body
-    .map((block: { content?: Array<{ type: string; text?: string }> }) => {
-      if (!block.content || !Array.isArray(block.content)) return '';
-      return block.content
-        .filter((item) => item.type === 'text')
-        .map((item) => item.text ?? '')
-        .join('');
-    })
+  return (body as CommentBlock[])
+    .flatMap((block) => blockLines(block, 0))
     .join('\n')
     .trim();
 }
