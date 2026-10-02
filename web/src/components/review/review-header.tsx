@@ -14,6 +14,8 @@ interface ReviewHeaderProps {
   onBack: () => void;
   agentReview: ReactNode;
   worktreeActions: ReactNode;
+  compact?: boolean;
+  tabs?: ReactNode;
 }
 
 function StateBadge({ state }: { state: string }) {
@@ -25,36 +27,102 @@ function StateBadge({ state }: { state: string }) {
   );
 }
 
+function LineTotals({ detail }: { detail: PrDetail }) {
+  return (
+    <span className="font-mono">
+      <span className="text-green-500">+{detail.additions}</span>{' '}
+      <span className="text-red-500">−{detail.deletions}</span>
+    </span>
+  );
+}
+
+function GithubLink({ url, iconOnly }: { url: string; iconOnly: boolean }) {
+  return (
+    <Button
+      variant="outline"
+      size={iconOnly ? 'icon-xs' : 'xs'}
+      aria-label="Open on GitHub"
+      title="Open on GitHub"
+      asChild
+    >
+      <a href={url} target="_blank" rel="noopener noreferrer">
+        <RiExternalLinkLine className="size-3" />
+        {!iconOnly && 'Open on GitHub'}
+      </a>
+    </Button>
+  );
+}
+
+function TitleBadges({ detail }: { detail: PrDetail }) {
+  return (
+    <>
+      {detail.isDraft && (
+        <Badge variant="outline" className="h-4 px-1.5 text-[10px] text-muted-foreground">
+          <RiDraftLine className="size-2.5" />
+          Draft
+        </Badge>
+      )}
+      <StateBadge state={detail.state} />
+      {detail.mergeable === 'CONFLICTING' && (
+        <Badge
+          variant="outline"
+          className="h-4 border-destructive/30 bg-destructive/10 px-1.5 text-[10px] text-destructive"
+        >
+          Conflicts
+        </Badge>
+      )}
+    </>
+  );
+}
+
+function BackButton({ onBack }: { onBack: () => void }) {
+  return (
+    <Button variant="ghost" size="icon-xs" aria-label="Back to list" onClick={onBack}>
+      <RiArrowLeftLine className="size-4" />
+    </Button>
+  );
+}
+
 export function ReviewHeader({
   prNumber,
   detail,
   onBack,
   agentReview,
   worktreeActions,
+  compact = false,
+  tabs,
 }: ReviewHeaderProps) {
+  if (compact) {
+    return (
+      <header className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border px-2 py-1 text-xs">
+        <BackButton onBack={onBack} />
+        <h1
+          className="min-w-0 max-w-[40ch] truncate text-sm font-semibold text-foreground"
+          title={detail.title}
+        >
+          {detail.title}
+        </h1>
+        <span className="font-mono text-muted-foreground">#{prNumber}</span>
+        <TitleBadges detail={detail} />
+        <CiPill status={detail.ciStatus} />
+        <LineTotals detail={detail} />
+        {tabs}
+        <span className="ml-auto flex flex-wrap items-center gap-2">
+          <GithubLink url={detail.url} iconOnly />
+          {agentReview}
+          {worktreeActions}
+        </span>
+      </header>
+    );
+  }
+
   return (
     <header className="flex flex-col gap-2 border-b border-border px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="ghost" size="icon-xs" aria-label="Back to list" onClick={onBack}>
-          <RiArrowLeftLine className="size-4" />
-        </Button>
+        <BackButton onBack={onBack} />
         <h1 className="min-w-0 text-base font-semibold text-foreground">{detail.title}</h1>
         <span className="font-mono text-sm text-muted-foreground">#{prNumber}</span>
-        {detail.isDraft && (
-          <Badge variant="outline" className="h-4 px-1.5 text-[10px] text-muted-foreground">
-            <RiDraftLine className="size-2.5" />
-            Draft
-          </Badge>
-        )}
-        <StateBadge state={detail.state} />
-        {detail.mergeable === 'CONFLICTING' && (
-          <Badge
-            variant="outline"
-            className="h-4 border-destructive/30 bg-destructive/10 px-1.5 text-[10px] text-destructive"
-          >
-            Conflicts
-          </Badge>
-        )}
+        <TitleBadges detail={detail} />
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
@@ -83,17 +151,9 @@ export function ReviewHeader({
             ))}
           </span>
         )}
-        <span className="font-mono">
-          <span className="text-green-500">+{detail.additions}</span>{' '}
-          <span className="text-red-500">−{detail.deletions}</span>
-        </span>
+        <LineTotals detail={detail} />
         <span className="ml-auto flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="xs" asChild>
-            <a href={detail.url} target="_blank" rel="noopener noreferrer">
-              <RiExternalLinkLine className="size-3" />
-              Open on GitHub
-            </a>
-          </Button>
+          <GithubLink url={detail.url} iconOnly={false} />
           {agentReview}
           {worktreeActions}
         </span>

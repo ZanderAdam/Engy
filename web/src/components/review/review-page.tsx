@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RiAlertLine, RiGitBranchLine, RiLoader4Line, RiTerminalBoxLine } from '@remixicon/react';
 import { toast } from 'sonner';
 import { trpc, type RouterOutputs } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
 import { useOnServerEvent } from '@/contexts/events-context';
 import { useContainerNarrow } from '@/hooks/use-container-narrow';
 import { refreshDiff } from '@/components/diff/diff-refresh';
@@ -182,6 +183,20 @@ function ReviewPageBody({
     worktree !== null &&
     (worktree.stale || isBehindGithub(worktree.headSha, detail.headRefOid)) &&
     !(worktree.dirty && keptLocalChanges);
+  const isFilesTab = tab === 'files';
+  const tabsList = (
+    <TabsList
+      variant="line"
+      className={cn('justify-start px-2', !isFilesTab && 'w-full border-b border-border')}
+    >
+      {REVIEW_TABS.map(({ value, label, key }) => (
+        <TabsTrigger key={value} value={value} className="flex-none">
+          {label}
+          {!isNarrow && <Kbd>{key}</Kbd>}
+        </TabsTrigger>
+      ))}
+    </TabsList>
+  );
   const sidebar = (
     <ReviewSidebar
       detail={detail}
@@ -194,7 +209,9 @@ function ReviewPageBody({
     <>
       <Button
         variant="outline"
-        size="xs"
+        size={isFilesTab ? 'icon-xs' : 'xs'}
+        aria-label="Open terminal here"
+        title="Open terminal here"
         onClick={() =>
           openNewTerminal({
             scopeType: 'worktree',
@@ -206,7 +223,7 @@ function ReviewPageBody({
         }
       >
         <RiTerminalBoxLine className="size-3" />
-        Open terminal here
+        {!isFilesTab && 'Open terminal here'}
       </Button>
       <SubmitReviewPanel
         workspaceId={workspaceId}
@@ -239,83 +256,83 @@ function ReviewPageBody({
           onKeep={() => setKeptLocalChanges(true)}
         />
       )}
-      <ReviewHeader
-        prNumber={prNumber}
-        detail={detail}
-        onBack={onBack}
-        agentReview={
-          <ReviewAgentControls
-            workspaceId={workspaceId}
-            workspaceSlug={workspaceSlug}
-            repoFullName={repoFullName}
-            prNumber={prNumber}
-            projectSlug={projectSlug}
-          />
-        }
-        worktreeActions={worktreeActions}
-      />
-      {isNarrow && (
-        <details className="border-b border-border">
-          <summary className="cursor-pointer px-4 py-2 text-xs text-muted-foreground">
-            Details
-          </summary>
-          {sidebar}
-        </details>
-      )}
-
-      <div className="flex min-h-0 flex-1">
-        <Tabs
-          value={tab}
-          onValueChange={(value) => setTab(value as ReviewTab)}
-          className="min-w-0 flex-1 gap-0"
-        >
-          <TabsList variant="line" className="w-full justify-start border-b border-border px-2">
-            {REVIEW_TABS.map(({ value, label, key }) => (
-              <TabsTrigger key={value} value={value} className="flex-none">
-                {label}
-                {!isNarrow && <Kbd>{key}</Kbd>}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          <TabsContent value="overview" className="min-h-0 overflow-y-auto">
-            <ReviewOverview
-              detail={detail}
+      <Tabs
+        value={tab}
+        onValueChange={(value) => setTab(value as ReviewTab)}
+        className="flex min-h-0 flex-1 flex-col gap-0"
+      >
+        <ReviewHeader
+          prNumber={prNumber}
+          detail={detail}
+          onBack={onBack}
+          agentReview={
+            <ReviewAgentControls
               workspaceId={workspaceId}
+              workspaceSlug={workspaceSlug}
               repoFullName={repoFullName}
               prNumber={prNumber}
+              projectSlug={projectSlug}
+              showGuide={!isFilesTab}
             />
-          </TabsContent>
-          <TabsContent
-            value="files"
-            forceMount
-            className="flex min-h-0 flex-col data-[state=inactive]:hidden"
-          >
-            {worktree ? (
-              <ReviewFiles
-                workspaceSlug={workspaceSlug}
+          }
+          worktreeActions={worktreeActions}
+          compact={isFilesTab}
+          tabs={isFilesTab ? tabsList : undefined}
+        />
+        {isNarrow && !isFilesTab && (
+          <details className="border-b border-border">
+            <summary className="cursor-pointer px-4 py-2 text-xs text-muted-foreground">
+              Details
+            </summary>
+            {sidebar}
+          </details>
+        )}
+
+        <div className="flex min-h-0 flex-1">
+          <div className="flex min-w-0 flex-1 flex-col">
+            {!isFilesTab && tabsList}
+            <TabsContent value="overview" className="min-h-0 overflow-y-auto">
+              <ReviewOverview
+                detail={detail}
                 workspaceId={workspaceId}
                 repoFullName={repoFullName}
                 prNumber={prNumber}
-                projectSlug={projectSlug}
-                repoPath={worktree.repoPath}
-                worktreePath={worktree.worktreePath}
-                headRefName={worktree.headRefName}
-                baseRef={worktree.baseRef}
-                active={tab === 'files'}
-                totalLines={{ added: detail.additions, removed: detail.deletions }}
               />
-            ) : (
-              <WorktreeLoading error={open.error?.message ?? null} onRetry={startOpen} />
-            )}
-          </TabsContent>
-          <TabsContent value="checks" className="min-h-0 overflow-y-auto">
-            <ReviewChecks checks={detail.checks} />
-          </TabsContent>
-        </Tabs>
-        {!isNarrow && (
-          <aside className="w-72 shrink-0 overflow-y-auto border-l border-border">{sidebar}</aside>
-        )}
-      </div>
+            </TabsContent>
+            <TabsContent
+              value="files"
+              forceMount
+              className="flex min-h-0 flex-col data-[state=inactive]:hidden"
+            >
+              {worktree ? (
+                <ReviewFiles
+                  workspaceSlug={workspaceSlug}
+                  workspaceId={workspaceId}
+                  repoFullName={repoFullName}
+                  prNumber={prNumber}
+                  projectSlug={projectSlug}
+                  repoPath={worktree.repoPath}
+                  worktreePath={worktree.worktreePath}
+                  headRefName={worktree.headRefName}
+                  baseRef={worktree.baseRef}
+                  active={tab === 'files'}
+                  totalLines={{ added: detail.additions, removed: detail.deletions }}
+                />
+              ) : (
+                <WorktreeLoading error={open.error?.message ?? null} onRetry={startOpen} />
+              )}
+            </TabsContent>
+            <TabsContent value="checks" className="min-h-0 overflow-y-auto">
+              <ReviewChecks checks={detail.checks} />
+            </TabsContent>
+          </div>
+          {!isNarrow && !isFilesTab && (
+            <aside className="w-72 shrink-0 overflow-y-auto border-l border-border">
+              {sidebar}
+            </aside>
+          )}
+        </div>
+      </Tabs>
     </div>
   );
 }

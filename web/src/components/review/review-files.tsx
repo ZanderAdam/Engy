@@ -68,7 +68,7 @@ function LineCountBar({
   onModeChange: (mode: LineMode) => void;
 }) {
   return (
-    <div className="flex items-center gap-2 border-b border-border px-3 py-1 text-xs">
+    <div className="flex items-center gap-2 px-3 text-xs">
       <span className="text-muted-foreground">Lines</span>
       <span className="font-mono tabular-nums">
         {lines ? (
@@ -212,7 +212,7 @@ export function ReviewFiles({
         correlatedBranch={headRefName}
         viewedBase={base}
         tabs={tabs}
-        subToolbar={<LineCountBar lines={lines} mode={lineMode} onModeChange={setLineMode} />}
+        toolbarLeading={<LineCountBar lines={lines} mode={lineMode} onModeChange={setLineMode} />}
         fileClasses={classes}
         showOutdatedThreads
         reviewKeys={active}

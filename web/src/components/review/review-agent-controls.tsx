@@ -13,6 +13,7 @@ interface ReviewAgentControlsProps {
   repoFullName: string;
   prNumber: number;
   projectSlug: string;
+  showGuide?: boolean;
 }
 
 export function ReviewAgentControls({
@@ -21,6 +22,7 @@ export function ReviewAgentControls({
   repoFullName,
   prNumber,
   projectSlug,
+  showGuide = true,
 }: ReviewAgentControlsProps) {
   const { focusTerminal } = useSendToTerminal();
   const { data: projects = [] } = trpc.project.list.useQuery({ workspaceId });
@@ -38,7 +40,7 @@ export function ReviewAgentControls({
 
   return (
     <>
-      {project && (
+      {project && showGuide && (
         <ReviewGuideControl project={{ id: project.id, workspaceSlug, slug: project.slug }} />
       )}
       <Button

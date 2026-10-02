@@ -149,7 +149,7 @@ export function GithubCommentTriage({
   return (
     <TooltipProvider>
       <div className="border-b border-border">
-        <div className="flex items-center gap-2 px-3 py-1.5">
+        <div className="flex items-center gap-2 px-3 py-0.5">
           <button
             type="button"
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
@@ -178,7 +178,7 @@ export function GithubCommentTriage({
                   size="sm"
                   onClick={handleFixSelected}
                   disabled={!canFix}
-                  className="h-7 gap-1.5 px-2 text-xs"
+                  className="h-6 gap-1.5 px-2 text-xs"
                 >
                   <RiSendPlaneLine className="size-3.5" />
                   Fix Selected
@@ -197,7 +197,7 @@ export function GithubCommentTriage({
                   size="sm"
                   onClick={handleResolveSelected}
                   disabled={selectedCount === 0}
-                  className="h-7 px-2 text-xs text-muted-foreground"
+                  className="h-6 px-2 text-xs text-muted-foreground"
                 >
                   {resolveLabel} ({selectedCount})
                 </Button>

@@ -32,7 +32,7 @@ export function OutdatedThreads({
         type="button"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
-        className="flex w-full cursor-pointer items-center gap-1 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+        className="flex w-full cursor-pointer items-center gap-1 px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
       >
         {expanded ? (
           <RiArrowDownSLine className="size-3.5" />
