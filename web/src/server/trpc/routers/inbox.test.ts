@@ -359,6 +359,57 @@ describe('inbox router', () => {
     });
   });
 
+  describe('[FR-INBOX-360] markAllRead with ids', () => {
+    it('should mark only the given items read, within the filter', async () => {
+      const first = createItem();
+      const second = createItem();
+      const third = createItem();
+
+      const result = await caller.inbox.markAllRead({
+        tab: 'all',
+        ids: [first.id, third.id],
+      });
+
+      expect(result).toEqual({ count: 2 });
+      const rows = await caller.inbox.list({ tab: 'all' });
+      expect(rows.find((r) => r.id === second.id)?.unread).toBe(true);
+      expect(rows.filter((r) => !r.unread)).toHaveLength(2);
+    });
+
+    it('should mark a snoozed item read when it is in ids and includeSnoozed is set', async () => {
+      const item = createItem();
+      await caller.inbox.snooze({ id: item.id, until: '2999-01-01T00:00:00.000Z' });
+
+      const result = await caller.inbox.markAllRead({
+        tab: 'all',
+        includeSnoozed: true,
+        ids: [item.id],
+      });
+
+      expect(result).toEqual({ count: 1 });
+    });
+
+    it('should ignore ids outside the workspace filter', async () => {
+      const item = createItem();
+
+      const result = await caller.inbox.markAllRead({
+        tab: 'all',
+        workspaceId: 99,
+        ids: [item.id],
+      });
+
+      expect(result).toEqual({ count: 0 });
+    });
+
+    it('should change nothing for an empty ids list', async () => {
+      createItem();
+
+      const result = await caller.inbox.markAllRead({ tab: 'all', ids: [] });
+
+      expect(result).toEqual({ count: 0 });
+    });
+  });
+
   describe('[FR-INBOX-370] markDone', () => {
     it('should hide the item and DELETE the GitHub thread', async () => {
       const item = createItem({ githubThreadId: '42' });
@@ -407,6 +458,29 @@ describe('inbox router', () => {
       createItem();
 
       const result = await caller.inbox.markAllDone({ tab: 'all', workspaceId: 99 });
+
+      expect(result.count).toBe(0);
+      expect(await caller.inbox.list({ tab: 'all' })).toHaveLength(1);
+    });
+
+    it('[FR-INBOX-510] should clear only the given ids, within the filter', async () => {
+      const shown = createItem({ githubThreadId: '1' });
+      createItem({ githubThreadId: '2' });
+
+      const result = await caller.inbox.markAllDone({ tab: 'all', ids: [shown.id] });
+
+      expect(result).toEqual({ count: 1, githubFailures: 0 });
+      const rest = await caller.inbox.list({ tab: 'all' });
+      expect(rest).toHaveLength(1);
+      expect(rest[0].id).not.toBe(shown.id);
+      expect(stub.requests).toHaveLength(1);
+      expect(stub.requests[0]).toMatchObject({ url: '/notifications/threads/1' });
+    });
+
+    it('[FR-INBOX-510] should ignore ids outside the tab filter', async () => {
+      const other = createItem();
+
+      const result = await caller.inbox.markAllDone({ tab: 'priority', ids: [other.id] });
 
       expect(result.count).toBe(0);
       expect(await caller.inbox.list({ tab: 'all' })).toHaveLength(1);

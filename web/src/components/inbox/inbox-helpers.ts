@@ -38,6 +38,13 @@ export function filterInboxItems<T extends Pick<InboxItem, 'title' | 'repoFullNa
   );
 }
 
+export function visibleItemIds(
+  rows: { item: { id: number; unread: boolean } | null }[],
+  onlyRead = false,
+): number[] {
+  return rows.flatMap(({ item }) => (item && (!onlyRead || !item.unread) ? [item.id] : []));
+}
+
 export function moveSelection<K>(ids: K[], currentId: K | null, delta: 1 | -1): K | null {
   if (ids.length === 0) return null;
   const index = currentId === null ? -1 : ids.indexOf(currentId);

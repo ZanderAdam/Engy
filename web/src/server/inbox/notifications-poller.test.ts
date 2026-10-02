@@ -230,6 +230,58 @@ describe('notifications poller', () => {
     expect(items()[0].bucket).toBe('priority');
   });
 
+  it('[FR-INBOX-290] should fall back to a reason event when the timeline cannot be loaded', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    timeline = () => ({ status: 500, body: { message: 'boom' } });
+    notifications = [notification({ reason: 'mention' })];
+
+    await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+    expect(events().map((event) => event.kind)).toEqual(['mentioned']);
+  });
+
+  it('[FR-INBOX-290] should not invent an event when a loaded timeline has no new events for a known item', async () => {
+    notifications = [notification({ reason: 'mention' })];
+    timeline = () => timelineReply([]);
+    await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+    expect(events()).toHaveLength(1);
+
+    notifications = [notification({ reason: 'mention', updated_at: '2026-03-01T11:30:00Z' })];
+    await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+    expect(events()).toHaveLength(1);
+  });
+
+  it('[FR-INBOX-290] should not bring a done item back or restart auto review when a review request thread updates without new events', async () => {
+    ctx.state.repoFullNames.set('/repos/api', 'acme/api');
+    ctx.db
+      .insert(workspaces)
+      .values({ name: 'w', slug: 'w', repos: ['/repos/api'] })
+      .run();
+    notifications = [notification()];
+    await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+    ctx.db.update(inboxItems).set({ doneAt: NOW.toISOString() }).run();
+    vi.mocked(maybeStartAutoReview).mockClear();
+
+    timeline = () => timelineReply([]);
+    notifications = [notification({ updated_at: '2026-03-01T11:30:00Z' })];
+    await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+    expect(events()).toHaveLength(1);
+    expect(items()[0].doneAt).not.toBeNull();
+    expect(maybeStartAutoReview).not.toHaveBeenCalled();
+  });
+
+  it('[FR-INBOX-290] should trust the reason of a new review request thread whose timeline has no events', async () => {
+    timeline = () => timelineReply([]);
+    notifications = [notification()];
+
+    await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+    expect(items()).toHaveLength(1);
+    expect(events().map((event) => event.kind)).toEqual(['review_requested']);
+  });
+
   it('[FR-INBOX-240] should skip events authored by the viewer', async () => {
     timeline = () =>
       timelineReply([
@@ -355,6 +407,25 @@ describe('notifications poller', () => {
       await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
 
       expect(maybeStartAutoReview).toHaveBeenCalledTimes(1);
+      expect(maybeStartAutoReview).toHaveBeenCalledWith(ctx.state, {
+        workspaceId,
+        repoFullName: 'acme/api',
+        prNumber: 7,
+      });
+    });
+
+    it('[FR-PRMON-301] should match the workspace repo without regard to case', async () => {
+      ctx.state.repoFullNames.set('/repos/api', 'Acme/API');
+      const workspaceId = ctx.db
+        .insert(workspaces)
+        .values({ name: 'w', slug: 'w', repos: ['/repos/api'] })
+        .returning()
+        .get().id;
+      notifications = [notification()];
+
+      await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+      expect(items()[0]).toMatchObject({ workspaceId, repoPath: '/repos/api' });
       expect(maybeStartAutoReview).toHaveBeenCalledWith(ctx.state, {
         workspaceId,
         repoFullName: 'acme/api',

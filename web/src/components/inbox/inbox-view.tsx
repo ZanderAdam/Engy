@@ -45,6 +45,7 @@ import {
   shouldStartReadDwell,
   sortInboxItems,
   unreadPriorityCount,
+  visibleItemIds,
 } from './inbox-helpers';
 import {
   inboxItemToRow,
@@ -112,7 +113,7 @@ export function InboxView({ scope }: InboxViewProps) {
   const { data: items = [], isLoading: isInboxLoading } = trpc.inbox.list.useQuery({
     tab: inboxTab,
     workspaceId,
-    includeSnoozed: displayOptions.showSnoozed,
+    includeSnoozed: tab === 'mine' || displayOptions.showSnoozed,
   });
 
   function refresh() {
@@ -181,6 +182,26 @@ export function InboxView({ scope }: InboxViewProps) {
           inboxItemToRow(item, prByKey.get(prKey(item.repoFullName, item.prNumber))),
         );
   const visibleRows = filterInboxItems(rows, query);
+  function markVisibleRead() {
+    if (tab === 'mine') return;
+    markAllRead({
+      tab,
+      workspaceId,
+      includeSnoozed: displayOptions.showSnoozed,
+      ids: visibleItemIds(visibleRows),
+    });
+  }
+
+  function clearVisible(onlyRead: boolean) {
+    if (tab === 'mine') return;
+    markAllDone({
+      tab,
+      workspaceId,
+      includeSnoozed: displayOptions.showSnoozed,
+      ids: visibleItemIds(visibleRows, onlyRead),
+    });
+  }
+
   const { repo: openRepo, pr: openNumber } = reviewUrlParams(search);
   const openPr =
     scope && openRepo && openNumber ? { repoFullName: openRepo, prNumber: openNumber } : null;
@@ -310,9 +331,7 @@ export function InboxView({ scope }: InboxViewProps) {
       toggleRead: () => {
         if (selected) toggleSelectedRead(selected);
       },
-      markAllRead: () => {
-        if (tab !== 'mine') markAllRead({ tab, workspaceId });
-      },
+      markAllRead: markVisibleRead,
       done: () => removeSelected((id) => markDone({ id })),
       snooze: () => {
         if (selectedItem) setSnoozeOpen(true);
@@ -379,17 +398,10 @@ export function InboxView({ scope }: InboxViewProps) {
           <InboxDisplayOptionsMenu options={displayOptions} onChange={updateDisplayOptions} />
           {tab !== 'mine' && (
             <InboxMoreMenu
-              totalCount={items.length}
-              readCount={items.filter((item) => !item.unread).length}
-              onMarkAllRead={() => markAllRead({ tab, workspaceId })}
-              onClear={(onlyRead) =>
-                markAllDone({
-                  tab,
-                  workspaceId,
-                  includeSnoozed: displayOptions.showSnoozed,
-                  onlyRead,
-                })
-              }
+              totalCount={visibleItemIds(visibleRows).length}
+              readCount={visibleItemIds(visibleRows, true).length}
+              onMarkAllRead={markVisibleRead}
+              onClear={clearVisible}
             />
           )}
           {lockedWorkspaceId !== undefined && (

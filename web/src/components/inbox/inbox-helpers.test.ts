@@ -12,6 +12,7 @@ import {
   describeCleared,
   pickReviewProject,
   selectionAfterMarkRead,
+  visibleItemIds,
 } from './inbox-helpers';
 
 describe('inbox-helpers', () => {
@@ -23,6 +24,22 @@ describe('inbox-helpers', () => {
 
     it('should report the GitHub write-back failures', () => {
       expect(describeCleared(4, 2)).toBe('Cleared 4 items, 2 could not be marked done on GitHub');
+    });
+  });
+
+  describe('[FR-INBOX-530] visibleItemIds', () => {
+    const rows = [
+      { item: { id: 1, unread: true } },
+      { item: { id: 2, unread: false } },
+      { item: null },
+    ];
+
+    it('should list the ids of the rows that have an item', () => {
+      expect(visibleItemIds(rows)).toEqual([1, 2]);
+    });
+
+    it('should list only read items when onlyRead is set', () => {
+      expect(visibleItemIds(rows, true)).toEqual([2]);
     });
   });
 

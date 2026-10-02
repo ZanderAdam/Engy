@@ -6,6 +6,7 @@ import { dispatchExecutionStart } from '../ws/server';
 import { fetchFailedLogs } from '../github/checks';
 import { buildResumeFlags, buildResumeConfig } from '../trpc/routers/execution';
 import { findCorrelatedSession } from '../trpc/routers/pr';
+import { getViewerTeams } from '../github/teams';
 import { buildCiFixPrompt } from '../../lib/shell';
 import { broadcastPrAttention } from '../ws/broadcast';
 import { mapAttention, recordPrInboxEvents } from '../inbox/pr-events';
@@ -14,6 +15,7 @@ import type { CiFailureClassification, FailedLog } from './ci-triage';
 type Db = ReturnType<typeof getDb>;
 
 type CiFixSkipReason =
+  | 'not-authored'
   | 'non-mechanical'
   | 'auto-ci-fix-disabled'
   | 'no-daemon'
@@ -42,13 +44,13 @@ function clearAttentionReason(db: Db, repo: string, prNumber: number): void {
     .run();
 }
 
-function setAttentionReason(
+async function setAttentionReason(
   db: Db,
   state: AppState,
   workspace: typeof workspaces.$inferSelect,
   prRow: typeof prs.$inferSelect,
   reason: string,
-): void {
+): Promise<void> {
   db.update(prs)
     .set({ attentionReason: reason, updatedAt: new Date().toISOString() })
     .where(and(eq(prs.repo, prRow.repo), eq(prs.number, prRow.number)))
@@ -59,6 +61,7 @@ function setAttentionReason(
     prRow: updatedRow,
     workspaceId: workspace.id,
     viewerLogin: state.github.viewer?.login ?? null,
+    viewerTeams: await getViewerTeams(state),
     events: mapAttention(updatedRow, reason),
   });
 }
@@ -70,8 +73,12 @@ export async function maybeDispatchCiFix({
   classification,
   workspace,
 }: MaybeDispatchCiFixInput): Promise<CiFixResult> {
+  if (!prRow.authoredByViewer) {
+    return { dispatched: false, reason: 'not-authored' };
+  }
+
   if (classification !== 'mechanical') {
-    setAttentionReason(db, state, workspace, prRow, 'non-mechanical');
+    await setAttentionReason(db, state, workspace, prRow, 'non-mechanical');
     return { dispatched: false, reason: 'non-mechanical' };
   }
 
@@ -85,7 +92,7 @@ export async function maybeDispatchCiFix({
 
   const session = findCorrelatedSession(db, prRow.headBranch, prRow.repo);
   if (!session) {
-    setAttentionReason(db, state, workspace, prRow, 'uncorrelated');
+    await setAttentionReason(db, state, workspace, prRow, 'uncorrelated');
     return { dispatched: false, reason: 'uncorrelated' };
   }
 
@@ -111,12 +118,12 @@ export async function maybeDispatchCiFix({
   }
 
   if (prRow.autoFixTotalAttempts >= MAX_TOTAL_AUTO_FIX_ATTEMPTS) {
-    setAttentionReason(db, state, workspace, prRow, 'attempt-cap-total');
+    await setAttentionReason(db, state, workspace, prRow, 'attempt-cap-total');
     return { dispatched: false, reason: 'attempt-cap-total' };
   }
 
   if (prRow.autoFixAttempts >= MAX_AUTO_FIX_ATTEMPTS) {
-    setAttentionReason(db, state, workspace, prRow, 'attempt-cap-sha');
+    await setAttentionReason(db, state, workspace, prRow, 'attempt-cap-sha');
     return { dispatched: false, reason: 'attempt-cap-sha' };
   }
 

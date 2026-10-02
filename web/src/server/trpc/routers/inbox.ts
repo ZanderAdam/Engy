@@ -30,7 +30,9 @@ const filterSchema = z.object({
   includeSnoozed: z.boolean().optional(),
 });
 
-const markAllDoneSchema = filterSchema.extend({ onlyRead: z.boolean().optional() });
+const bulkSchema = filterSchema.extend({ ids: z.array(z.number()).optional() });
+
+const markAllDoneSchema = bulkSchema.extend({ onlyRead: z.boolean().optional() });
 
 const itemIdSchema = z.object({ id: z.number() });
 
@@ -124,7 +126,7 @@ export const inboxRouter = router({
     markUnread(requireItem(input.id).id);
   }),
 
-  markAllRead: publicProcedure.input(filterSchema).mutation(({ input, ctx }) => {
+  markAllRead: publicProcedure.input(bulkSchema).mutation(({ input, ctx }) => {
     const threadIds = listItems(input)
       .filter((item) => item.unread && item.githubThreadId)
       .map((item) => item.githubThreadId as string);

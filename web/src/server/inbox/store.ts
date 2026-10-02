@@ -40,6 +40,7 @@ interface InboxFilter {
   tab: 'priority' | 'all';
   workspaceId?: number;
   includeSnoozed?: boolean;
+  ids?: number[];
 }
 
 interface InboxCounts {
@@ -60,6 +61,7 @@ function visibleWhere(filter: InboxFilter): SQL | undefined {
   if (filter.workspaceId !== undefined) {
     conditions.push(eq(inboxItems.workspaceId, filter.workspaceId));
   }
+  if (filter.ids !== undefined) conditions.push(inArray(inboxItems.id, filter.ids));
   return and(...conditions);
 }
 

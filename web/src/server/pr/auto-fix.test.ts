@@ -8,6 +8,7 @@ import {
   tasks,
   projects,
   taskGroups,
+  inboxItems,
 } from '../db/schema';
 import { maybeDispatchCiFix, MAX_AUTO_FIX_ATTEMPTS, MAX_TOTAL_AUTO_FIX_ATTEMPTS } from './auto-fix';
 import * as wsServer from '../ws/server';
@@ -112,7 +113,11 @@ function seedCorrelatedSession(
 
 function seedPr(
   ctx: TestContext,
-  overrides: { autoFixAttempts?: number; attentionReason?: string } = {},
+  overrides: {
+    autoFixAttempts?: number;
+    attentionReason?: string;
+    authoredByViewer?: boolean;
+  } = {},
 ): typeof prsTable.$inferSelect {
   return ctx.db
     .insert(prsTable)
@@ -130,6 +135,7 @@ function seedPr(
       checks: [],
       autoFixAttempts: overrides.autoFixAttempts ?? 0,
       attentionReason: overrides.attentionReason ?? null,
+      authoredByViewer: overrides.authoredByViewer ?? true,
     })
     .returning()
     .get();
@@ -171,6 +177,28 @@ describe('maybeDispatchCiFix', () => {
   afterEach(() => {
     ctx.cleanup();
     vi.restoreAllMocks();
+  });
+
+  describe('bail: not authored by the viewer', () => {
+    it('[FR-PRMON-220] should skip auto-fix, attention, broadcast and inbox events for a PR the viewer did not write', async () => {
+      const { workspaceId } = seedAll(ctx);
+      const prRow = seedPr(ctx, { authoredByViewer: false });
+      const workspace = getWorkspace(ctx, workspaceId);
+
+      const result = await maybeDispatchCiFix({
+        state: ctx.state,
+        db: ctx.db,
+        prRow,
+        classification: 'non-mechanical',
+        workspace,
+      });
+
+      expect(result).toEqual({ dispatched: false, reason: 'not-authored' });
+      expect(getPr(ctx)?.attentionReason).toBeNull();
+      expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(broadcastAttentionSpy).not.toHaveBeenCalled();
+      expect(ctx.db.select().from(inboxItems).all()).toEqual([]);
+    });
   });
 
   describe('bail: non-mechanical classification', () => {
@@ -353,6 +381,7 @@ describe('maybeDispatchCiFix', () => {
           autoFixAttempts: 0,
           autoFixTotalAttempts: MAX_TOTAL_AUTO_FIX_ATTEMPTS,
           attentionReason: null,
+          authoredByViewer: true,
         })
         .returning()
         .get();

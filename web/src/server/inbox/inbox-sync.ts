@@ -14,7 +14,7 @@ import {
 import type { AppState } from '../trpc/context';
 import { NO_BUCKET_FACTS, type BucketFacts, type InboxEventKind } from './bucket';
 import { bucketFactsForPr } from './pr-events';
-import { addEvent, getItem, markRead, upsertItem } from './store';
+import { addEvent, findItemByPr, getItem, markRead, upsertItem } from './store';
 
 interface RepoLocation {
   workspaceId: number;
@@ -47,7 +47,7 @@ export async function buildRepoIndex(state: AppState): Promise<RepoIndex> {
   for (const workspace of allWorkspaces) {
     for (const repoPath of workspace.repos ?? []) {
       try {
-        const fullName = await resolveRepoFullName(state, repoPath);
+        const fullName = (await resolveRepoFullName(state, repoPath))?.toLowerCase();
         if (fullName && !index.has(fullName)) {
           index.set(fullName, { workspaceId: workspace.id, repoPath });
         }
@@ -99,6 +99,17 @@ function reasonEvent(thread: GithubNotification): TimelineEvent {
   };
 }
 
+function eventsForThread(
+  thread: GithubNotification,
+  timeline: PrTimeline | null,
+  repoFullName: string,
+  prNumber: number,
+): TimelineEvent[] {
+  if (timeline === null) return [reasonEvent(thread)];
+  if (timeline.events.length > 0) return timeline.events;
+  return findItemByPr(repoFullName, prNumber) ? [] : [reasonEvent(thread)];
+}
+
 async function loadTimeline(
   ctx: ThreadSyncContext,
   thread: GithubNotification,
@@ -144,14 +155,14 @@ export async function syncThread(
   if (prNumber === null) return;
 
   const repoFullName = thread.repository.full_name;
-  const location = ctx.repoIndex.get(repoFullName);
+  const location = ctx.repoIndex.get(repoFullName.toLowerCase());
   const viewerTeams = await getViewerTeams(ctx.state);
   const timeline = await loadTimeline(ctx, thread, prNumber, viewerTeams);
 
-  const events = timeline && timeline.events.length > 0 ? timeline.events : [reasonEvent(thread)];
-  const firstEventAt = events.reduce(
-    (earliest, event) => (event.at < earliest ? event.at : earliest),
-    events[0].at,
+  const events = eventsForThread(thread, timeline, repoFullName, prNumber);
+  const firstEventAt = events.reduce<string | undefined>(
+    (earliest, event) => (earliest === undefined || event.at < earliest ? event.at : earliest),
+    undefined,
   );
 
   const base = {
