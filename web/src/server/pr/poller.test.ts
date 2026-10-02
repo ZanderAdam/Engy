@@ -542,7 +542,7 @@ describe('PR poller', () => {
         // First cycle: PR inserted as passing
         installFakeGithub(
           ctx,
-          new Map([['/repo-a', [makePr({ number: 1, ciStatus: 'passing', headSha: 'sha1' })]]]),
+          new Map([['/repo-a', [makePr({ number: 1, ciStatus: 'passing', headSha: 'sha1', authoredByViewer: true })]]]),
         );
         await runPollCycle(ctx.state, ctx.db);
 
@@ -570,6 +570,7 @@ describe('PR poller', () => {
                   number: 1,
                   ciStatus: 'failing',
                   headSha: 'sha2',
+                  authoredByViewer: true,
                   checks: [passingTypecheck, failingDeploy],
                 }),
               ],
