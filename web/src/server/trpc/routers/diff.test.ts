@@ -2,7 +2,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { WebSocket } from 'ws';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
-import { workspaces } from '../../db/schema';
+import { getDb } from '../../db/client';
+import { reviewWorktrees, workspaces } from '../../db/schema';
 
 describe('diff router', () => {
   let ctx: TestContext;
@@ -150,6 +151,42 @@ describe('diff router', () => {
   });
 
   describe('getBranch', () => {
+    it('[FR-GIT-510] answers a review worktree with the PR head branch when asked for comments', async () => {
+      ctx = setupTestDb();
+      const worktreePath = '/tmp/engy/_review/repo/pr-7';
+      getDb()
+        .insert(reviewWorktrees)
+        .values({
+          repoPath: '/tmp/repo',
+          repoFullName: 'acme/repo',
+          prNumber: 7,
+          worktreePath,
+          headRefName: 'feature/tokens',
+          headSha: 'abc',
+          createdByReview: true,
+        })
+        .run();
+      const caller = appRouter.createCaller({ state: ctx.state });
+      ctx.state.daemon = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          ctx.state.pendingGitBranch
+            .get(msg.payload.requestId)
+            ?.resolve({ branch: 'engy/review/pr-7', repoRoot: '/tmp/repo' });
+        },
+      } as unknown as WebSocket;
+
+      await expect(
+        caller.diff.getBranch({ repoDir: '/tmp/repo', worktreePath, forComments: true }),
+      ).resolves.toEqual({ branch: 'feature/tokens', repoRoot: '/tmp/repo' });
+      await expect(caller.diff.getBranch({ repoDir: '/tmp/repo', worktreePath })).resolves.toEqual({
+        branch: 'engy/review/pr-7',
+        repoRoot: '/tmp/repo',
+      });
+    });
+
     it('[FR-GIT-510] asks the daemon for the branch alone, without a status listing', async () => {
       ctx = setupTestDb();
       const caller = appRouter.createCaller({ state: ctx.state });
@@ -215,7 +252,9 @@ describe('diff router', () => {
         send: (data: string) => {
           const msg = JSON.parse(data);
           askedFor = msg.payload.repoDir;
-          ctx.state.pendingGitBranch.get(msg.payload.requestId)?.resolve({ branch: 'wt', repoRoot: '/tmp/repo' });
+          ctx.state.pendingGitBranch
+            .get(msg.payload.requestId)
+            ?.resolve({ branch: 'wt', repoRoot: '/tmp/repo' });
         },
       } as unknown as WebSocket;
 

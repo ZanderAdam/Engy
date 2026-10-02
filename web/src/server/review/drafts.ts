@@ -1,7 +1,8 @@
-import { asc, inArray, sql } from 'drizzle-orm';
+import { asc, inArray } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { commentThreads, threadComments } from '../db/schema';
 import { diffDocPath, diffScopePrefix } from '@/lib/diff-doc-path';
+import { startsWithPrefix } from '../lib/path-prefix';
 import { LOCAL_USER_ID } from '@/lib/comment-feedback';
 import { isGithubDraft, toGithubSide } from '@/lib/github-draft';
 import { randomId } from '@/lib/random-id';
@@ -48,8 +49,9 @@ function threadsUnderReview(row: ReviewWorktreeRow): ThreadRow[] {
   return getDb()
     .select()
     .from(commentThreads)
-    .where(sql`substr(${commentThreads.documentPath}, 1, length(${prefix})) = ${prefix}`)
-    .all();
+    .where(startsWithPrefix(commentThreads.documentPath, prefix))
+    .all()
+    .filter((thread) => thread.metadata?.prNumber === row.prNumber);
 }
 
 export function createDraftThread(row: ReviewWorktreeRow, draft: NewDraft): string {

@@ -44,6 +44,24 @@ describe('[FR-PRREVIEW-150] resolveReviewScope', () => {
     expect(resolveReviewScope(getDb(), `${WORKTREE}-other`)).toBeNull();
   });
 
+  it('[FR-PRREVIEW-150] should ignore a reused agent worktree the review did not create', () => {
+    const agentWorktree = '/home/dev/proj-agent-wt';
+    getDb()
+      .insert(reviewWorktrees)
+      .values({
+        repoPath: '/home/dev/proj',
+        repoFullName: 'acme/proj',
+        prNumber: 8,
+        worktreePath: agentWorktree,
+        headRefName: 'feature/other',
+        headSha: 'def',
+        createdByReview: false,
+      })
+      .run();
+
+    expect(resolveReviewScope(getDb(), agentWorktree)).toBeNull();
+  });
+
   it('should return null outside any review worktree', () => {
     expect(resolveReviewScope(getDb(), '/home/dev/proj')).toBeNull();
   });

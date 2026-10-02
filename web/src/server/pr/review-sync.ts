@@ -26,6 +26,16 @@ function commentIdFor(githubId: number): string {
   return `gh-comment-${githubId}`;
 }
 
+function anchorLine(thread: GithubReviewThread): number {
+  if (thread.isOutdated) return 0;
+  return thread.line ?? 0;
+}
+
+function localSide(thread: GithubReviewThread): 'original' | 'modified' {
+  if (thread.diffSide === 'LEFT') return 'original';
+  return 'modified';
+}
+
 function threadMetadata(
   target: ReviewSyncTarget,
   thread: GithubReviewThread,
@@ -40,7 +50,8 @@ function threadMetadata(
     line: thread.line,
     originalLine: thread.originalLine,
     startLine: thread.startLine,
-    lineNumber: thread.line ?? thread.originalLine ?? 0,
+    lineNumber: anchorLine(thread),
+    side: localSide(thread),
     diffSide: thread.diffSide,
     isOutdated: thread.isOutdated,
     author: rootComment.author,

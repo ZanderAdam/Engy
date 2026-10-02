@@ -15,7 +15,8 @@ knows which one is meant.
 - `repoDir` — absolute path of the repo. Every `diff_review_*` call takes this path, so findings land
   on the diff the reader has open.
 - `worktreePath` (optional) — the worktree the reader is looking at. When given, run git here, not in
-  `repoDir`.
+  `repoDir`, and pass it as `repoDir` to every `diff_review_*` call, so findings land on the
+  worktree's branch.
 - `reviewGuide` (optional) — absolute path of a project review guide.
 - A `GitPatchSpec` naming the two snapshots to compare:
   - `{ kind: 'staged', head? }` — last commit against the index (`git diff --cached`)

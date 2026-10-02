@@ -1,10 +1,11 @@
 import { z } from 'zod';
-import { eq, and, asc, isNull, like } from 'drizzle-orm';
+import { eq, and, asc, isNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { commentThreads, threadComments, workspaces } from '../../db/schema';
 import { LOCAL_USER_ID as USER_ID } from '@/lib/comment-feedback';
+import { startsWithPrefix } from '../../lib/path-prefix';
 import { addComment as addCommentToThread, setThreadResolved } from '../../services/comment';
 
 type Reaction = { emoji: string; createdAt: string; userIds: string[] };
@@ -285,7 +286,12 @@ export const commentRouter = router({
       const threads = db
         .select()
         .from(commentThreads)
-        .where(and(workspaceCondition, like(commentThreads.documentPath, `${input.documentPathPrefix}%`)))
+        .where(
+          and(
+            workspaceCondition,
+            startsWithPrefix(commentThreads.documentPath, input.documentPathPrefix),
+          ),
+        )
         .orderBy(asc(commentThreads.createdAt))
         .all();
 

@@ -39,7 +39,7 @@ export function buildReviewPrompt({
     `scope: ${describePatchSpec(spec)}`,
     '',
     `Run git in ${worktreePath ?? repoDir}.`,
-    `Write findings back with the diff_review_* MCP tools against repoDir ${repoDir}, so they appear on the diff I am reading.`,
+    `Write findings back with the diff_review_* MCP tools with repoDir ${worktreePath ?? repoDir}, so they appear on the diff I am reading.`,
     'Write findings only with the diff_review_* tools. Never use `gh` or the GitHub API.',
   ].join('\n');
 }

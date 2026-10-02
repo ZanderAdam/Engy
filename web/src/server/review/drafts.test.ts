@@ -3,12 +3,12 @@ import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { createDraftThread, listDraftThreads } from './drafts';
 import type { ReviewWorktreeRow } from './worktrees';
 
-function makeRow(repoPath: string, headRefName: string): ReviewWorktreeRow {
+function makeRow(repoPath: string, headRefName: string, prNumber = 7): ReviewWorktreeRow {
   return {
     id: 1,
     repoPath,
     repoFullName: 'org/app',
-    prNumber: 7,
+    prNumber,
     worktreePath: '/wt',
     headRefName,
     headSha: 'sha',
@@ -45,5 +45,14 @@ describe('review drafts', () => {
     const listed = listDraftThreads(makeRow('/repos/a_p', 'feat/x'));
 
     expect(listed.map((thread) => thread.comments[0].body)).toEqual(['mine']);
+  });
+
+  it('[FR-PRMON-250] should not list drafts of another PR that shares the head branch name', () => {
+    createDraftThread(makeRow('/repos/a', 'main', 7), draft('for PR 7'));
+    createDraftThread(makeRow('/repos/a', 'main', 8), draft('for PR 8'));
+
+    const listed = listDraftThreads(makeRow('/repos/a', 'main', 8));
+
+    expect(listed.map((thread) => thread.comments[0].body)).toEqual(['for PR 8']);
   });
 });

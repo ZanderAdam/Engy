@@ -214,6 +214,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
       repoDir: selectedRepo!,
       worktreePath: selectedWorktree?.worktreePath,
       coderWorkspace: selectedWorktree?.coderWorkspace,
+      forComments: true,
     },
     { enabled: !!selectedRepo },
   );

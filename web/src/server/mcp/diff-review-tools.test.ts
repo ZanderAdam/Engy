@@ -146,6 +146,69 @@ describe('diff review MCP tools', () => {
     });
   });
 
+  describe('an agent reviewing from a reused agent worktree', () => {
+    it('[FR-MCP-275] files under the branch the daemon reports, not the row branch', async () => {
+      const worktree = '/home/dev/worktrees/agent-wt';
+      getDb()
+        .insert(reviewWorktrees)
+        .values({
+          repoPath: REPO,
+          repoFullName: 'acme/proj',
+          prNumber: 9,
+          worktreePath: worktree,
+          headRefName: 'stale/branch',
+          headSha: 'abc',
+          createdByReview: false,
+        })
+        .run();
+      connectDaemonOnBranch(ctx, 'moved/on', REPO);
+
+      await callTool(
+        makeMcp(),
+        'diff_review_comment',
+      )({
+        repoDir: worktree,
+        filePath: 'src/a.ts',
+        lineNumber: 1,
+        codeLine: 'x',
+        severity: 'high',
+        finding: 'f',
+        failureScenario: 's',
+      });
+
+      expect(await readAsDiffsTabWould(REPO, 'moved/on')).toHaveLength(1);
+      expect(await readAsDiffsTabWould(REPO, 'stale/branch')).toEqual([]);
+    });
+  });
+
+  describe('branches whose names differ only by LIKE wildcards or case', () => {
+    it('[FR-MCP-250] lists only the threads of the exact branch', async () => {
+      const mcp = makeMcp();
+      const file = {
+        filePath: 'src/a.ts',
+        lineNumber: 1,
+        codeLine: 'x',
+        severity: 'high',
+        finding: 'f',
+        failureScenario: 's',
+      };
+      connectDaemonOnBranch(ctx, 'fix_a');
+      await callTool(mcp, 'diff_review_comment')({ repoDir: REPO, ...file, finding: 'underscore' });
+      connectDaemonOnBranch(ctx, 'fix-a');
+      await callTool(mcp, 'diff_review_comment')({ repoDir: REPO, ...file, finding: 'dash' });
+      connectDaemonOnBranch(ctx, 'FIX_A');
+      await callTool(mcp, 'diff_review_comment')({ repoDir: REPO, ...file, finding: 'upper' });
+
+      connectDaemonOnBranch(ctx, 'fix_a');
+      const listed = await callTool(mcp, 'diff_review_list')({ repoDir: REPO });
+
+      const bodies = (listed.data.threads as Array<{ body: string }>).map((t) => t.body);
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0]).toContain('underscore');
+      expect(await readAsDiffsTabWould(REPO, 'fix_a')).toHaveLength(1);
+    });
+  });
+
   describe('a call that names no repo', () => {
     it('[FR-MCP-260] reviews where the calling session is working', async () => {
       const worktree = '/home/dev/worktrees/feature-tokens';
@@ -583,6 +646,19 @@ describe('diff review MCP tools', () => {
       );
       expect(summaries).toHaveLength(1);
       expect(summaries[0].comments[0].body).toBe('second');
+    });
+
+    it('[FR-MCP-240] broadcasts an inbox change so the risk badge refreshes', async () => {
+      const sent: string[] = [];
+      ctx.state.fileChangeListeners.add({
+        readyState: WebSocket.OPEN,
+        send: (data: string) => sent.push(data),
+      } as unknown as WebSocket);
+
+      await callTool(makeMcp(), 'diff_review_summary')({ repoDir: REPO, summary: 's' });
+
+      const types = sent.map((data) => (JSON.parse(data) as { type: string }).type);
+      expect(types).toContain('INBOX_CHANGE');
     });
 
     it('[FR-MCP-240] leaves anchored findings untouched when the summary is rewritten', async () => {

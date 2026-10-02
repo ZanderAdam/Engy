@@ -16,6 +16,7 @@ import {
 } from '../../ws/server';
 import { getDb } from '../../db/client';
 import { workspaces } from '../../db/schema';
+import { resolveReviewScope } from '../../review/review-scope';
 import type { GitWorktreeEntry } from '@engy/common';
 
 type WorktreeLocation = 'local' | { coderWorkspace: string };
@@ -121,18 +122,22 @@ export const diffRouter = router({
    * Branch alone, so a caller that keys on it — the diff surface's comment
    * threads — does not pay for the working-tree walk `getStatus` performs.
    */
-  getBranch: publicProcedure.input(worktreeInput).query(async ({ input, ctx }) => {
-    const dir = input.worktreePath ?? input.repoDir;
-    try {
-      return await dispatchGitBranch(dir, ctx.state, input.coderWorkspace);
-    } catch {
-      // A daemon older than GIT_BRANCH_REQUEST never answers it, and the diff
-      // surface keys its comment threads on the branch — losing it hides every
-      // comment. Status carries the same branch at the cost of a tree walk.
-      const status = await dispatchGitStatus(dir, ctx.state, input.coderWorkspace);
-      return { branch: status.branch, repoRoot: null };
-    }
-  }),
+  getBranch: publicProcedure
+    .input(worktreeInput.extend({ forComments: z.boolean().optional() }))
+    .query(async ({ input, ctx }) => {
+      const dir = input.worktreePath ?? input.repoDir;
+      const reviewScope = input.forComments ? resolveReviewScope(getDb(), dir) : null;
+      if (reviewScope) return { branch: reviewScope.branch, repoRoot: reviewScope.repoDir };
+      try {
+        return await dispatchGitBranch(dir, ctx.state, input.coderWorkspace);
+      } catch {
+        // A daemon older than GIT_BRANCH_REQUEST never answers it, and the diff
+        // surface keys its comment threads on the branch — losing it hides every
+        // comment. Status carries the same branch at the cost of a tree walk.
+        const status = await dispatchGitStatus(dir, ctx.state, input.coderWorkspace);
+        return { branch: status.branch, repoRoot: null };
+      }
+    }),
 
   getDefaultBase: publicProcedure.input(worktreeInput).query(async ({ input, ctx }) => {
     const dir = input.worktreePath ?? input.repoDir;

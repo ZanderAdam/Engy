@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { and, asc, eq, isNull, like, type SQL } from 'drizzle-orm';
+import { and, asc, eq, isNull, type SQL } from 'drizzle-orm';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getDb } from '../db/client';
 import { commentThreads, threadComments } from '../db/schema';
@@ -12,6 +12,8 @@ import { AGENT_USER_ID } from '@/lib/comment-feedback';
 import { mcpError, mcpResult } from './result';
 import { diffScopePrefix } from '@/lib/diff-doc-path';
 import { resolveReviewScope } from '../review/review-scope';
+import { startsWithPrefix } from '../lib/path-prefix';
+import { notifyInboxChange } from '../inbox/store';
 
 // Diff-review authoring tools. Agent-only (no tRPC counterparts by design —
 // the browser writes the same rows through comment.createThread and builds the
@@ -284,6 +286,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
         args.summary,
       );
       broadcastCommentChange(path, threadId);
+      notifyInboxChange();
       return mcpResult({ threadId });
     },
   );
@@ -326,7 +329,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
       // read by exact path and only the repo-wide case scans by prefix.
       const rows = args.filePath
         ? readThreadsWhere(eq(commentThreads.documentPath, `${repoPrefix}${args.filePath}`))
-        : readThreadsWhere(like(commentThreads.documentPath, `${repoPrefix}%`));
+        : readThreadsWhere(startsWithPrefix(commentThreads.documentPath, repoPrefix));
 
       const threads = rows.map((row) => {
         const meta = (row.metadata ?? {}) as Record<string, unknown>;

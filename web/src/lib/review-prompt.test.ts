@@ -51,7 +51,7 @@ describe('review prompt', () => {
       expect(prompt).toContain('deadbee');
     });
 
-    it('[FR-GIT-450] should run git in the worktree on screen but file findings against the repo', () => {
+    it('[FR-GIT-450] should run git in the worktree on screen but file findings under that worktree', () => {
       const worktreePath = '/home/dev/proj-wt';
       const prompt = buildReviewPrompt({
         repoDir: REPO,
@@ -60,7 +60,8 @@ describe('review prompt', () => {
       });
 
       expect(prompt).toContain(`Run git in ${worktreePath}.`);
-      expect(prompt).toContain(`against repoDir ${REPO}`);
+      expect(prompt).toContain(`with repoDir ${worktreePath}`);
+      expect(prompt).not.toContain(`with repoDir ${REPO},`);
     });
 
     it('should pass the project review guide path when there is one', () => {

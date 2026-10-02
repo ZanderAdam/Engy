@@ -106,7 +106,7 @@ describe('[FR-PRMON-160] syncReviewThreads', () => {
         prNumber: 42,
         line: 10,
         originalLine: 8,
-        lineNumber: 10,
+        lineNumber: 0,
         diffSide: 'RIGHT',
         isOutdated: true,
         author: 'bob',
@@ -123,19 +123,63 @@ describe('[FR-PRMON-160] syncReviewThreads', () => {
       });
     });
 
-    it('should fall back to the original line when the line is null', () => {
+    it('should not anchor an outdated thread onto the current diff', () => {
       syncReviewThreads(ctx.db, makePrRow(), [
         makeThread(2001, { line: null, originalLine: 7, isOutdated: true }),
+        makeThread(2003, { line: 12, originalLine: 7, isOutdated: true }),
       ]);
 
       const meta = getThread('gh-thread-2001')!.metadata as Record<string, unknown>;
       expect(meta.line).toBeNull();
-      expect(meta.lineNumber).toBe(7);
+      expect(meta.originalLine).toBe(7);
+      expect(meta.lineNumber).toBe(0);
       expect(meta.isOutdated).toBe(true);
+      expect((getThread('gh-thread-2003')!.metadata as Record<string, unknown>).lineNumber).toBe(0);
+    });
+
+    it('should store the local side so a comment on a deleted line stays on the original side', () => {
+      syncReviewThreads(ctx.db, makePrRow(), [
+        makeThread(2101, { diffSide: 'LEFT', line: 4 }),
+        makeThread(2102, { diffSide: 'RIGHT', line: 5 }),
+      ]);
+
+      expect(getThread('gh-thread-2101')!.metadata).toMatchObject({
+        side: 'original',
+        diffSide: 'LEFT',
+      });
+      expect(getThread('gh-thread-2102')!.metadata).toMatchObject({
+        side: 'modified',
+        diffSide: 'RIGHT',
+      });
+    });
+
+    it('should add the local side to a row imported before the side was stored', () => {
+      ctx.db
+        .insert(commentThreads)
+        .values({
+          id: 'gh-thread-2201',
+          workspaceId: null,
+          documentPath: 'diff:///home/user/repo#feat%2Fthing/src/foo.ts',
+          metadata: {
+            source: 'github',
+            prNumber: 42,
+            githubId: 2201,
+            line: 4,
+            lineNumber: 4,
+            diffSide: 'LEFT',
+          },
+        })
+        .run();
+
+      syncReviewThreads(ctx.db, makePrRow(), [makeThread(2201, { diffSide: 'LEFT', line: 4 })]);
+
+      expect(getThread('gh-thread-2201')!.metadata).toMatchObject({ side: 'original' });
     });
 
     it('should use lineNumber 0 when no line is known', () => {
-      syncReviewThreads(ctx.db, makePrRow(), [makeThread(2002, { line: null, originalLine: null })]);
+      syncReviewThreads(ctx.db, makePrRow(), [
+        makeThread(2002, { line: null, originalLine: null }),
+      ]);
 
       expect((getThread('gh-thread-2002')!.metadata as Record<string, unknown>).lineNumber).toBe(0);
     });
