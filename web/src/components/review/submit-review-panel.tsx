@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { RiSendPlaneLine } from '@remixicon/react';
 import { trpc } from '@/lib/trpc';
 import { diffScopePrefix } from '@/lib/diff-doc-path';
-import { isGithubDraft } from '@/lib/github-draft';
+import { isDraftOfPr } from '@/lib/github-draft';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -48,9 +48,9 @@ export function SubmitReviewPanel({
   const draftCount = useMemo(
     () =>
       (threads ?? []).filter((thread) =>
-        isGithubDraft(thread.metadata as Record<string, unknown> | null),
+        isDraftOfPr(thread.metadata as Record<string, unknown> | null, prNumber),
       ).length,
-    [threads],
+    [threads, prNumber],
   );
 
   const submit = trpc.review.submit.useMutation({

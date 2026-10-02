@@ -7,3 +7,7 @@ export function isGithubDraft(metadata: ThreadMetadata): boolean {
 export function toGithubSide(side: unknown): 'LEFT' | 'RIGHT' {
   return side === 'original' ? 'LEFT' : 'RIGHT';
 }
+
+export function isDraftOfPr(metadata: ThreadMetadata, prNumber: number): boolean {
+  return isGithubDraft(metadata) && metadata?.prNumber === prNumber;
+}

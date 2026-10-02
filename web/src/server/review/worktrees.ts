@@ -194,7 +194,11 @@ async function isHeadInBaseRepo(
     );
     if (result.status !== 'ok') return false;
     return result.data.head.repo?.full_name.toLowerCase() === repoFullName.toLowerCase();
-  } catch {
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[review] could not read the head repo of ${repoFullName}#${prNumber}, so its agent worktree is not reused: ${reason}`,
+    );
     return false;
   }
 }
