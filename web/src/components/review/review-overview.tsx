@@ -1,12 +1,14 @@
 'use client';
 
-import { RiGitCommitLine } from '@remixicon/react';
+import { useState } from 'react';
+import { RiArrowDownSLine, RiArrowUpSLine, RiGitCommitLine } from '@remixicon/react';
+import { Button } from '@/components/ui/button';
 import { formatRelativeTime } from '@/components/prs/pr-helpers';
 import type { ConversationItem, PrDetail } from '@/server/github/pr-detail';
 import { cn } from '@/lib/utils';
 import { MarkdownView } from './markdown-view';
 import { ReviewAvatar } from './review-avatar';
-import { reviewStateLabel } from './review-helpers';
+import { isLongDescription, reviewStateLabel } from './review-helpers';
 import { ReviewCommentBox } from './review-comment-box';
 
 const VERDICT_CLASSES: Record<string, string> = {
@@ -95,6 +97,39 @@ interface ReviewOverviewProps {
   compact?: boolean;
 }
 
+function PrDescription({ body }: { body: string }) {
+  const isLong = isLongDescription(body);
+  const [expanded, setExpanded] = useState(false);
+  const collapsed = isLong && !expanded;
+
+  return (
+    <>
+      <div className={cn('relative', collapsed && 'max-h-48 overflow-hidden')}>
+        <MarkdownView markdown={body} />
+        {collapsed && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-background to-transparent" />
+        )}
+      </div>
+      {isLong && (
+        <Button
+          variant="ghost"
+          size="xs"
+          className="mt-1 text-muted-foreground"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? (
+            <RiArrowUpSLine className="size-3" />
+          ) : (
+            <RiArrowDownSLine className="size-3" />
+          )}
+          {expanded ? 'Collapse description' : 'Show full description'}
+        </Button>
+      )}
+    </>
+  );
+}
+
 export function ReviewOverview({
   detail,
   workspaceId,
@@ -107,7 +142,7 @@ export function ReviewOverview({
     <div className={cn('flex w-full flex-col gap-6 px-4 py-4', !compact && 'mx-auto max-w-3xl')}>
       <section aria-label="Description" className="border border-border px-3 py-2">
         {hasBody ? (
-          <MarkdownView markdown={detail.body} />
+          <PrDescription body={detail.body} />
         ) : (
           <p className="text-xs text-muted-foreground">No description provided.</p>
         )}

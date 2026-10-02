@@ -59,3 +59,10 @@ export function isPrChangeForReview(
   if (payload.workspaceId !== workspaceId) return false;
   return repoPath === null || payload.repo === repoPath;
 }
+
+const LONG_DESCRIPTION_LINES = 12;
+const LONG_DESCRIPTION_CHARS = 1200;
+
+export function isLongDescription(body: string): boolean {
+  return body.length > LONG_DESCRIPTION_CHARS || body.split('\n').length > LONG_DESCRIPTION_LINES;
+}

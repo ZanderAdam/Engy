@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import type { ConversationItem } from '@/server/github/pr-detail';
-import { isBehindGithub, isPrChangeForReview, latestReviewVerdicts, reviewStateLabel } from './review-helpers';
+import {
+  isBehindGithub,
+  isLongDescription,
+  isPrChangeForReview,
+  latestReviewVerdicts,
+  reviewStateLabel,
+} from './review-helpers';
 
 function review(login: string, state: string, createdAt: string): ConversationItem {
   return {
@@ -71,12 +77,33 @@ describe('[FR-PRREVIEW-250] isBehindGithub', () => {
 
 describe('[FR-PRREVIEW-270] isPrChangeForReview', () => {
   it.each([
-    ['the repo path of the open worktree', { workspaceId: 1, repo: '/repos/app' }, '/repos/app', true],
+    [
+      'the repo path of the open worktree',
+      { workspaceId: 1, repo: '/repos/app' },
+      '/repos/app',
+      true,
+    ],
     ['another repo path', { workspaceId: 1, repo: '/repos/other' }, '/repos/app', false],
     ['the repo full name', { workspaceId: 1, repo: 'org/app' }, '/repos/app', false],
     ['another workspace', { workspaceId: 2, repo: '/repos/app' }, '/repos/app', false],
     ['any repo when no worktree is open', { workspaceId: 1, repo: '/repos/other' }, null, true],
   ])('should handle %s', (_name, payload, repoPath, expected) => {
     expect(isPrChangeForReview(payload, 1, repoPath)).toBe(expected);
+  });
+});
+
+describe('[FR-PRREVIEW-290] isLongDescription', () => {
+  it('should collapse a description with many lines', () => {
+    expect(isLongDescription(Array.from({ length: 13 }, (_, i) => `line ${i}`).join('\n'))).toBe(
+      true,
+    );
+  });
+
+  it('should collapse a description with many characters on few lines', () => {
+    expect(isLongDescription('x'.repeat(1201))).toBe(true);
+  });
+
+  it('should show a short description in full', () => {
+    expect(isLongDescription('Fixes the login bug.\n\nSee #12.')).toBe(false);
   });
 });
