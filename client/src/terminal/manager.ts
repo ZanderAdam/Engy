@@ -4,7 +4,7 @@ import pty from 'node-pty';
 import headless from '@xterm/headless';
 import type { ITerminalAddon } from '@xterm/headless';
 import { SerializeAddon } from '@xterm/addon-serialize';
-import type { TerminalActivityState } from '@engy/common';
+import type { TerminalActivityState, TerminalReconnectedEvent } from '@engy/common';
 import type { BranchWatcher } from '../git/branch-watch.js';
 import { SessionManager } from './session-manager.js';
 import { createTerminalActivityParser, type TerminalActivityParser } from './activity-parse.js';
@@ -418,7 +418,15 @@ export class TerminalManager {
       console.log(
         `[terminal] handleReconnect: session ${sessionId} snapshot ${snapshot.length} chars`,
       );
-      this.sendToServer?.(JSON.stringify({ t: 'reconnected', sessionId, snapshot }));
+      this.sendToServer?.(
+        JSON.stringify({
+          t: 'reconnected',
+          sessionId,
+          snapshot,
+          cols: session.screen.cols,
+          rows: session.screen.rows,
+        } satisfies TerminalReconnectedEvent),
+      );
     });
   }
 

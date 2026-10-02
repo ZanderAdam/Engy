@@ -17,6 +17,7 @@ import { MobileTerminalControls } from "./mobile-terminal-controls";
 import { MobileComposer } from "./mobile-composer";
 import { toBracketedPaste } from "./bracketed-paste";
 import { canFitPane, shouldSendResize } from "./terminal-resize";
+import { applyReconnectSnapshot } from "./terminal-snapshot";
 import { attachTouchScroll } from "./touch-scroll";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useOptionalVoice } from "@/components/voice/voice-context";
@@ -271,7 +272,15 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onO
           reassertSize();
         },
         onMessage: (event) => {
-          let msg: { t: string; d?: string; snapshot?: string; title?: string; exitCode?: number };
+          let msg: {
+            t: string;
+            d?: string;
+            snapshot?: string;
+            cols?: number;
+            rows?: number;
+            title?: string;
+            exitCode?: number;
+          };
           try {
             msg = JSON.parse(event.data as string) as typeof msg;
           } catch {
@@ -288,14 +297,13 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onO
             term.write(msg.d);
           } else if (msg.t === 'reconnected' && typeof msg.snapshot === 'string') {
             console.log(
-              `[terminal-ui] Reconnected session ${sessionId}, snapshot: ${msg.snapshot.length} chars`,
+              `[terminal-ui] Reconnected session ${sessionId}, snapshot: ${msg.snapshot.length} chars at ${msg.cols}x${msg.rows}`,
             );
-            // The snapshot re-establishes screen state from scratch, so reset
-            // (not clear) — it also drops modes a torn-down program left set.
-            term.reset();
-            term.write(msg.snapshot, () => {
-              term.scrollToBottom();
-            });
+            applyReconnectSnapshot(
+              term,
+              { snapshot: msg.snapshot, cols: msg.cols, rows: msg.rows },
+              reassertSize,
+            );
             setShowScrollButton(false);
           } else if (msg.t === 'pong') {
             socket.confirmAlive();

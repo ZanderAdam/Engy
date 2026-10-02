@@ -1063,6 +1063,8 @@ describe('Terminal WebSocket Server', () => {
         t: 'reconnected',
         sessionId: 'surviving-sess',
         snapshot: 'line1',
+        cols: 80,
+        rows: 24,
       });
       daemonWs.send(reconnectedMsg);
       expect(await bufferPromise).toBe(reconnectedMsg);
@@ -1331,6 +1333,8 @@ describe('Terminal WebSocket Server', () => {
         t: 'reconnected',
         sessionId: 'sess-conc',
         snapshot: 'line1\r\nline2',
+        cols: 80,
+        rows: 24,
       });
       daemonWs.send(reconnectedMsg);
 
@@ -1545,6 +1549,8 @@ describe('Terminal WebSocket Server', () => {
         t: 'reconnected',
         sessionId: 'sess-replay',
         snapshot: 'line1\r\nline2',
+        cols: 80,
+        rows: 24,
       });
       daemonWs.send(reconnectedMsg);
 
@@ -1578,11 +1584,11 @@ describe('Terminal WebSocket Server', () => {
       const received: string[] = [];
       browser2.on('message', (data) => received.push(data.toString()));
       daemonWs.send(
-        JSON.stringify({ t: 'reconnected', sessionId: 'sess-title', snapshot: 'line1' }),
+        JSON.stringify({ t: 'reconnected', sessionId: 'sess-title', snapshot: 'line1', cols: 80, rows: 24 }),
       );
 
       await vi.waitFor(() => expect(received).toHaveLength(2));
-      expect(JSON.parse(received[0])).toMatchObject({ t: 'reconnected', snapshot: 'line1' });
+      expect(JSON.parse(received[0])).toMatchObject({ t: 'reconnected', snapshot: 'line1', cols: 80, rows: 24 });
       expect(JSON.parse(received[1])).toEqual({
         t: 'title',
         sessionId: 'sess-title',

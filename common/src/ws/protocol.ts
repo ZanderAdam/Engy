@@ -1166,11 +1166,15 @@ export interface TerminalExitEvent {
  * the serialized state of the daemon's headless terminal (screen + scrollback),
  * safe to write into a freshly reset xterm — unlike raw output chunks, whose
  * cursor-relative TUI frames only render correctly against the live screen.
+ * `cols`/`rows` are the mirror's size at serialization: the snapshot only
+ * renders correctly on a grid of exactly that size.
  */
 export interface TerminalReconnectedEvent {
   t: 'reconnected';
   sessionId: string;
   snapshot: string;
+  cols: number;
+  rows: number;
 }
 
 export interface TerminalErrorEvent {

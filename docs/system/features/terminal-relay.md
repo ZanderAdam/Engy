@@ -79,11 +79,13 @@ a live session), the server sends `{ t: 'reconnect', sessionId, cols, rows }`,
 carrying the last known size so the daemon can size the PTY and its screen
 mirror to the geometry the reattaching browser renders at before serializing.
 The daemon flushes the headless terminal's write queue and replies with
-`{ t: 'reconnected', sessionId, snapshot }` — the serialized screen plus
-scrollback; the server delivers this resync exclusively to the browsers tracked
+`{ t: 'reconnected', sessionId, snapshot, cols, rows }` — the serialized screen
+plus scrollback, and the size it was serialized at; the server delivers this resync exclusively to the browsers tracked
 in `pendingReconnects` (followed by the session's stored `lastTitle`, since the
-snapshot carries no OSC title), not to all attached browsers. The browser resets
-its xterm and writes the snapshot in place of whatever it had.
+snapshot carries no OSC title), not to all attached browsers. The browser sizes
+its xterm to the snapshot's `cols`/`rows`, resets it, and writes the snapshot in
+place of whatever it had; it then re-fits the pane, so a size gap reaches the
+PTY as a resize and the program repaints.
 
 **Wake probing.** The browser's `ReconnectingSocket` listens for
 `visibilitychange`/`online`. On wake with an OPEN socket it does not blindly
@@ -489,7 +491,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-020 | WHEN a browser connects to `/ws/terminal` with valid `sessionId` and `workingDir` and no session for that id exists, the system SHALL send `{ t: 'spawn', sessionId, workingDir, cols, rows, scopeType, scopeLabel }` to the daemon relay and persist the session metadata in `terminalSessionMeta`. |
 | FR-TERMINAL-030 | WHEN a new terminal session is successfully spawned, the system SHALL broadcast a `created` terminal-sessions change event. |
 | FR-TERMINAL-040 | WHEN all browser sockets for a session close, the system SHALL set the daemon-side session state to `suspended`, retain `terminalSessionMeta`, and continue writing PTY output into the session's headless terminal mirror (10,000-line scrollback) without forwarding it to any browser. |
-| FR-TERMINAL-050 | WHEN a browser reconnects with a `sessionId` whose metadata is already present, the system SHALL send `{ t: 'reconnect', sessionId, cols, rows }` (the last known size, per FR-TERMINAL-470) to the daemon and deliver the `{ t: 'reconnected', sessionId, snapshot }` reply — the serialized state of the session's headless terminal (scrollback depth per FR-TERMINAL-450), serialized only after its write queue has drained — exclusively to the browsers that issued the reconnect request, not to all attached browsers. |
+| FR-TERMINAL-050 | WHEN a browser reconnects with a `sessionId` whose metadata is already present, the system SHALL send `{ t: 'reconnect', sessionId, cols, rows }` (the last known size, per FR-TERMINAL-470) to the daemon and deliver the `{ t: 'reconnected', sessionId, snapshot, cols, rows }` reply — the serialized state of the session's headless terminal (scrollback depth per FR-TERMINAL-450), serialized only after its write queue has drained, tagged with the headless terminal's size at serialization — exclusively to the browsers that issued the reconnect request, not to all attached browsers. |
 | FR-TERMINAL-060 | WHILE multiple browsers are attached to the same session, the system SHALL broadcast every `{ t: 'o' }` output frame to all attached browser sockets and forward input from any attached browser raw to the daemon. |
 | FR-TERMINAL-070 | WHEN one browser disconnects from a session that still has other attached browsers, the system SHALL retain the session entry and continue delivering output to the remaining browsers; the entry SHALL be removed only when all attached browsers have disconnected. |
 | FR-TERMINAL-080 | WHEN a browser sends `{ t: 'kill', sessionId }`, the system SHALL delete session metadata, send `{ t: 'exit', sessionId, exitCode: 0 }` to every other attached browser and close their sockets with code 1001, remove the session entry, forward the kill message to the daemon (which SHALL send SIGTERM and escalate to SIGKILL after 3 seconds), and broadcast a `destroyed` terminal-sessions change event with `reason: 'killed'` (on which browsers remove the terminal tab). |
@@ -576,6 +578,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-900 | WHILE the user holds Ctrl+Alt, the browser SHALL number the open terminals wherever they are listed, and WHEN a digit 1-9 is pressed with Ctrl+Alt held, it SHALL focus the terminal carrying that number. Ctrl+digit and Alt+digit are reserved by browsers for their own tabs and cannot be used. |
 | FR-TERMINAL-910 | The terminal rail SHALL carry a grouping checkbox, on by default, persisted and shared across in-app tabs and browser tabs. WHILE it is off, the rail SHALL list the terminals flat in dock order instead of splitting them into per-worktree groups; Command Center's project grouping SHALL be unaffected. |
 | FR-TERMINAL-920 | The terminal rail SHALL list terminals in the dock's panel order, so a tab reordered in the dock reorders the rail. WHEN the user drags a rail entry onto another, the system SHALL move that terminal's dock panel into the target's place, which republishes the rail list — the rail SHALL hold no order of its own. |
+| FR-TERMINAL-930 | WHEN a browser receives a `reconnected` snapshot, it SHALL resize its terminal grid to the snapshot's `cols`/`rows` before it resets the terminal and writes the snapshot, and SHALL re-assert its fitted size after the write completes, so a full-screen program's frame is never written into a grid of another size and any size gap reaches the PTY as a resize that makes the program repaint. |
 
 ## Sources
 

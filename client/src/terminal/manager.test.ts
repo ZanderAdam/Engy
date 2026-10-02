@@ -311,6 +311,24 @@ describe('TerminalManager', () => {
     expect(sessions.get('abc')!.screen.rows).toBe(40);
   });
 
+  it('[FR-TERMINAL-050] tags the snapshot with the size it was serialized at', async () => {
+    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
+    sent.length = 0;
+
+    const replayMsg = await reconnectSnapshot('abc', 120, 40);
+
+    expect(replayMsg).toMatchObject({ cols: 120, rows: 40 });
+  });
+
+  it('[FR-TERMINAL-050] tags the snapshot with the mirror size when the reconnect carries none', async () => {
+    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 100, rows: 30 });
+    sent.length = 0;
+
+    const replayMsg = await reconnectSnapshot('abc');
+
+    expect(replayMsg).toMatchObject({ cols: 100, rows: 30 });
+  });
+
   it('[FR-TERMINAL-490] ignores a resize to the size the session already has', () => {
     manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24 });
 
