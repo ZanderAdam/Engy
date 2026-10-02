@@ -188,7 +188,11 @@ describe('review worktrees', () => {
 
       const result = await open(7);
 
-      expect(result).toMatchObject({ worktreePath: '/agent/wt', headSha: 'sha-agent' });
+      expect(result).toMatchObject({
+        worktreePath: '/agent/wt',
+        headSha: 'sha-7a',
+        agentOwned: true,
+      });
       expect(daemon.calls).not.toContain('GIT_FETCH_REQUEST');
       expect(daemon.calls).not.toContain('WORKTREE_ADD_REQUEST');
       expect(rows()[0]).toMatchObject({ worktreePath: '/agent/wt', createdByReview: false });
@@ -342,14 +346,15 @@ describe('review worktrees', () => {
       expect(daemon.worktrees.get(worktreePath)!.head).toBe('sha-7a');
     });
 
-    it('[FR-PRREVIEW-020] should only record the head of a reused agent worktree', async () => {
+    it('[FR-PRREVIEW-020] should record the PR head on GitHub for a reused agent worktree, not its local commits', async () => {
       daemon.worktrees.set('/agent/wt', { branch: 'feat/seven', dirty: false, head: 'sha-agent' });
       await open(7);
       daemon.worktrees.get('/agent/wt')!.head = 'sha-agent-2';
 
       const result = await open(7);
 
-      expect(result.headSha).toBe('sha-agent-2');
+      expect(result.headSha).toBe('sha-7a');
+      expect(rows()[0].headSha).toBe('sha-7a');
       expect(daemon.calls).not.toContain('GIT_RESET_HARD_REQUEST');
     });
   });

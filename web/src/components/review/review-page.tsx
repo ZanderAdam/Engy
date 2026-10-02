@@ -181,6 +181,7 @@ function ReviewPageBody({
 
   const showBanner =
     worktree !== null &&
+    !worktree.agentOwned &&
     (worktree.stale || isBehindGithub(worktree.headSha, detail.headRefOid)) &&
     !(worktree.dirty && keptLocalChanges);
   const isFilesTab = tab === 'files';

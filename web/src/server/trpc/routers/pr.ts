@@ -92,6 +92,7 @@ export interface MaterialChange {
   type: 'new' | 'ciStatus' | 'reviewDecision' | 'commentCount' | 'removed';
   previous?: string | null;
   current: string;
+  repoFullName?: string | null;
 }
 
 interface UpsertResult {
@@ -217,7 +218,13 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GithubPr[]): UpsertResult
         tx.delete(prs)
           .where(and(eq(prs.repo, repo), eq(prs.number, pr.number)))
           .run();
-        changes.push({ number: pr.number, repo, type: 'removed', current: 'removed' });
+        changes.push({
+          number: pr.number,
+          repo,
+          type: 'removed',
+          current: 'removed',
+          repoFullName: pr.repoFullName,
+        });
         removed++;
       }
     }

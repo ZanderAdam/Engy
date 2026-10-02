@@ -437,6 +437,34 @@ describe('PR poller', () => {
         expect(kinds.filter((kind) => kind === 'ci_failed')).toHaveLength(1);
       });
 
+      it('[FR-PRMON-220] should move an item out of Priority when its PR leaves the open list', async () => {
+        seedWorkspace(ctx, ['/repo-a']);
+        installFakeGithub(
+          ctx,
+          new Map<string, GithubPr[] | Error>([
+            ['/repo-a', [makePr({ number: 1, ciStatus: 'passing', authoredByViewer: true })]],
+          ]),
+        );
+        await runPollCycle(ctx.state, ctx.db);
+        installFakeGithub(
+          ctx,
+          new Map<string, GithubPr[] | Error>([
+            [
+              '/repo-a',
+              [makePr({ number: 1, ciStatus: 'failing', headSha: 'sha2', authoredByViewer: true })],
+            ],
+          ]),
+          new Map([['/repo-a', []]]),
+        );
+        await runPollCycle(ctx.state, ctx.db);
+        expect(ctx.db.select().from(inboxItems).get()?.bucket).toBe('priority');
+
+        installFakeGithub(ctx, new Map<string, GithubPr[] | Error>([['/repo-a', []]]));
+        await runPollCycle(ctx.state, ctx.db);
+
+        expect(ctx.db.select().from(inboxItems).get()?.bucket).toBe('other');
+      });
+
       it('should set lastFailedHeadSha when a PR transitions to failing', async () => {
         seedWorkspace(ctx, ['/repo-a']);
 

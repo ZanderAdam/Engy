@@ -30,6 +30,7 @@ interface ReviewWorktreeState {
   baseRef: string | null;
   stale: boolean;
   dirty: boolean;
+  agentOwned: boolean;
 }
 
 interface PrInfo {
@@ -285,6 +286,7 @@ function toState(row: ReviewWorktreeRow, pr: PrInfo, flags: Partial<ReviewWorktr
     baseRef: pr.baseRef,
     stale: false,
     dirty: false,
+    agentOwned: !row.createdByReview,
     ...flags,
   };
 }
@@ -313,7 +315,8 @@ async function createReviewWorktree(
   }
 
   try {
-    const headSha = (await readHeadSha(state, worktreePath)) ?? pr.headSha ?? '';
+    const localHead = createdByReview ? await readHeadSha(state, worktreePath) : null;
+    const headSha = localHead ?? pr.headSha ?? (await readHeadSha(state, worktreePath)) ?? '';
     const row = getDb()
       .insert(reviewWorktrees)
       .values({
@@ -357,8 +360,7 @@ async function refreshReviewWorktree(
   discard: boolean,
 ): Promise<ReviewWorktreeState> {
   if (!row.createdByReview) {
-    const headSha = (await readHeadSha(state, row.worktreePath)) ?? row.headSha;
-    return toState(touchRow(row.id, { headSha }), pr, {});
+    return toState(touchRow(row.id, { headSha: pr.headSha ?? row.headSha }), pr, {});
   }
 
   await fetchPrHead(state, row.repoPath, row.prNumber, pr.baseRef);

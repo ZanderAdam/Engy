@@ -17,6 +17,8 @@ import { detectFailureTransitions, classifyFailure, isFailingCheck } from './ci-
 import { maybeDispatchCiFix } from './auto-fix';
 import { syncReviewThreads, type ReviewSyncTarget } from './review-sync';
 import { mapPrChange, recordPrInboxEvents, refreshPrFacts } from '../inbox/pr-events';
+import { NO_BUCKET_FACTS } from '../inbox/bucket';
+import { findItemByPr, upsertItem } from '../inbox/store';
 
 export const POLL_INTERVAL_MS = 60_000;
 
@@ -106,6 +108,19 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
   }
 }
 
+function clearPrFacts(change: MaterialChange): void {
+  if (!change.repoFullName) return;
+  const item = findItemByPr(change.repoFullName, change.number);
+  if (!item) return;
+  upsertItem({
+    repoFullName: item.repoFullName,
+    prNumber: item.prNumber,
+    title: item.title,
+    url: item.url,
+    facts: NO_BUCKET_FACTS,
+  });
+}
+
 async function recordInboxActivity(
   db: Db,
   state: AppState,
@@ -120,6 +135,10 @@ async function recordInboxActivity(
   const rowByNumber = new Map(rows.map((row) => [row.number, row]));
 
   for (const change of changes) {
+    if (change.type === 'removed') {
+      clearPrFacts(change);
+      continue;
+    }
     const prRow = rowByNumber.get(change.number);
     if (!prRow) continue;
     const events = mapPrChange(change, prRow);
