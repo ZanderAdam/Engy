@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import { RiDraftLine, RiGitPullRequestLine } from '@remixicon/react';
 import type { GhPrCiStatus } from '@engy/common';
-import { sortByClosestToShipping } from '@/components/prs/pr-helpers';
+import { prActivityAt } from '@/components/prs/pr-helpers';
 import type { RouterOutputs } from '@/lib/trpc';
 import { EVENT_META, hasAvatar, summarizeEvent } from './inbox-event-meta';
 import { prKey, type InboxItem } from './inbox-helpers';
@@ -75,7 +75,7 @@ function prToRow(
     url: pr.url,
     workspaceId,
     projectSlug: pr.projectSlug,
-    at: pr.updatedAt,
+    at: prActivityAt(pr),
     unread: item?.unread ?? false,
     snoozedUntil: item?.snoozedUntil ?? null,
     summary: prReviewSummary(pr),
@@ -95,7 +95,7 @@ export function myPullRequestRows(
   workspaceId: number,
 ): InboxRowModel[] {
   const itemByPr = new Map(items.map((item) => [prKey(item.repoFullName, item.prNumber), item]));
-  return sortByClosestToShipping(prs.filter((pr) => pr.authoredByViewer)).flatMap((pr) =>
+  return prs.filter((pr) => pr.authoredByViewer).flatMap((pr) =>
     pr.repoFullName === null
       ? []
       : [

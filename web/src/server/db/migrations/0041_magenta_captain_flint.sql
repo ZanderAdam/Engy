@@ -1,0 +1,1 @@
+ALTER TABLE `prs` ADD `github_updated_at` text;

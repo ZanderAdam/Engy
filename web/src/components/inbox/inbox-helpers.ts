@@ -1,3 +1,5 @@
+import type { GhPrCiStatus } from '@engy/common';
+import { shippingRank } from '@/components/prs/pr-helpers';
 import type { RouterOutputs } from '@/lib/trpc';
 
 export type InboxItem = RouterOutputs['inbox']['list'][number];
@@ -16,13 +18,39 @@ export function formatSnoozeUntil(until: string): string {
   return `Snoozed until ${SNOOZE_FORMAT.format(new Date(until)).replace(',', '')}`;
 }
 
-export function sortInboxItems<T extends Pick<InboxItem, 'unread' | 'lastEventAt'>>(
-  items: T[],
+export type InboxSort = 'activity' | 'number' | 'shipping';
+
+const NO_PR_RANK = 4;
+
+interface SortableRow {
+  unread: boolean;
+  at: string;
+  prNumber: number;
+  repoFullName: string;
+  pr: { reviewDecision: string | null; ciStatus: GhPrCiStatus } | null;
+}
+
+function compareBySort(a: SortableRow, b: SortableRow, sort: InboxSort): number {
+  switch (sort) {
+    case 'number':
+      return b.prNumber - a.prNumber || a.repoFullName.localeCompare(b.repoFullName);
+    case 'shipping': {
+      const rank = (row: SortableRow) => (row.pr ? shippingRank(row.pr) : NO_PR_RANK);
+      return rank(a) - rank(b) || b.at.localeCompare(a.at);
+    }
+    case 'activity':
+      return b.at.localeCompare(a.at);
+  }
+}
+
+export function sortInboxRows<T extends SortableRow>(
+  rows: T[],
+  sort: InboxSort,
   unreadFirst: boolean,
 ): T[] {
-  return [...items].sort((a, b) => {
+  return [...rows].sort((a, b) => {
     if (unreadFirst && a.unread !== b.unread) return a.unread ? -1 : 1;
-    return b.lastEventAt.localeCompare(a.lastEventAt);
+    return compareBySort(a, b, sort);
   });
 }
 

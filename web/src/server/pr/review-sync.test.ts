@@ -32,6 +32,7 @@ function makePrRow(
     autoFixAttempts: 0,
     autoFixTotalAttempts: 0,
     attentionReason: null,
+    githubUpdatedAt: null,
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
     ...overrides,

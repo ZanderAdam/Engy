@@ -95,6 +95,17 @@ describe('pr router', () => {
       expect(rows).toHaveLength(2);
     });
 
+    it('[FR-PRMON-230] should store when the PR last changed on GitHub on insert and on update', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 5, updatedAt: '2026-09-01T10:00:00Z' })]);
+      const inserted = ctx.db.select().from(prs).where(eq(prs.number, 5)).get();
+      expect(inserted?.githubUpdatedAt).toBe('2026-09-01T10:00:00Z');
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 5, updatedAt: '2026-09-03T12:00:00Z' })]);
+      const updated = ctx.db.select().from(prs).where(eq(prs.number, 5)).get();
+      expect(updated?.githubUpdatedAt).toBe('2026-09-03T12:00:00Z');
+    });
+
     it('should update existing PR in-place when ciStatus changes and report material change', () => {
       seedWorkspace(ctx, ['/repo-a']);
 

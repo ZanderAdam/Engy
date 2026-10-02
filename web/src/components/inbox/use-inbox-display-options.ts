@@ -1,12 +1,24 @@
 import { useCallback, useState } from 'react';
+import type { InboxSort } from './inbox-helpers';
 
 export interface InboxDisplayOptions {
   showSnoozed: boolean;
   unreadFirst: boolean;
+  sort: InboxSort;
 }
 
 const STORAGE_KEY = 'engy:inbox:display-options';
-const DEFAULT_OPTIONS: InboxDisplayOptions = { showSnoozed: false, unreadFirst: true };
+const DEFAULT_OPTIONS: InboxDisplayOptions = {
+  showSnoozed: false,
+  unreadFirst: true,
+  sort: 'activity',
+};
+
+const SORTS: readonly InboxSort[] = ['activity', 'number', 'shipping'];
+
+function isInboxSort(value: unknown): value is InboxSort {
+  return SORTS.includes(value as InboxSort);
+}
 
 export function parseDisplayOptions(raw: string | null): InboxDisplayOptions {
   if (!raw) return DEFAULT_OPTIONS;
@@ -17,6 +29,7 @@ export function parseDisplayOptions(raw: string | null): InboxDisplayOptions {
         typeof parsed.showSnoozed === 'boolean' ? parsed.showSnoozed : DEFAULT_OPTIONS.showSnoozed,
       unreadFirst:
         typeof parsed.unreadFirst === 'boolean' ? parsed.unreadFirst : DEFAULT_OPTIONS.unreadFirst,
+      sort: isInboxSort(parsed.sort) ? parsed.sort : DEFAULT_OPTIONS.sort,
     };
   } catch {
     return DEFAULT_OPTIONS;

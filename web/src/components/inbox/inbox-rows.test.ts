@@ -76,17 +76,20 @@ describe('[FR-INBOX-490] myPullRequestRows', () => {
     expect(row.item?.id).toBe(7);
   });
 
-  it('should order by closeness to shipping', () => {
-    const rows = myPullRequestRows(
+  it('[FR-PRMON-230] should show when the PR last changed on GitHub', () => {
+    const [row] = myPullRequestRows(
       [
-        pr({ number: 1, ciStatus: 'failing' }),
-        pr({ number: 2, ciStatus: 'passing', reviewDecision: 'APPROVED' }),
+        pr({
+          number: 1,
+          githubUpdatedAt: '2026-09-01T10:00:00Z',
+          updatedAt: '2026-10-02T21:00:00Z',
+        }),
       ],
       [],
       1,
     );
 
-    expect(rows.map((row) => row.prNumber)).toEqual([2, 1]);
+    expect(row.at).toBe('2026-09-01T10:00:00Z');
   });
 
   it('should skip a PR without a GitHub repository name', () => {

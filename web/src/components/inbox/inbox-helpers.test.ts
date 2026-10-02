@@ -5,7 +5,7 @@ import {
   nextSelectionAfterRemoval,
   prKey,
   shouldStartReadDwell,
-  sortInboxItems,
+  sortInboxRows,
   formatSnoozeUntil,
   githubAvatarUrl,
   unreadPriorityCount,
@@ -67,33 +67,61 @@ describe('inbox-helpers', () => {
     });
   });
 
-  describe('[FR-INBOX-450] sortInboxItems', () => {
-    it('should put unread first, then newest first', () => {
-      const items = [
-        { id: 1, unread: false, lastEventAt: '2026-09-30T10:00:00Z' },
-        { id: 2, unread: true, lastEventAt: '2026-09-30T08:00:00Z' },
-        { id: 3, unread: true, lastEventAt: '2026-09-30T09:00:00Z' },
-        { id: 4, unread: false, lastEventAt: '2026-09-30T11:00:00Z' },
+  describe('[FR-INBOX-450] sortInboxRows', () => {
+    const row = (
+      id: number,
+      at: string,
+      options: {
+        unread?: boolean;
+        repo?: string;
+        pr?: { reviewDecision: string | null; ciStatus: 'passing' | 'failing' | 'pending' } | null;
+      } = {},
+    ) => ({
+      id,
+      prNumber: id,
+      at,
+      unread: options.unread ?? false,
+      repoFullName: options.repo ?? 'acme/web',
+      pr: options.pr ?? null,
+    });
+    const ids = (rows: { id: number }[]) => rows.map((r) => r.id);
+
+    it('should sort by newest activity, unread first', () => {
+      const rows = [
+        row(1, '2026-09-30T10:00:00Z'),
+        row(2, '2026-09-30T08:00:00Z', { unread: true }),
+        row(3, '2026-09-30T09:00:00Z', { unread: true }),
+        row(4, '2026-09-30T11:00:00Z'),
       ];
-      expect(sortInboxItems(items, true).map((i) => i.id)).toEqual([3, 2, 4, 1]);
+      expect(ids(sortInboxRows(rows, 'activity', true))).toEqual([3, 2, 4, 1]);
+      expect(ids(sortInboxRows(rows, 'activity', false))).toEqual([4, 1, 3, 2]);
     });
 
-    it('should sort by time only when unread first is off', () => {
-      const items = [
-        { id: 1, unread: false, lastEventAt: '2026-09-30T10:00:00Z' },
-        { id: 2, unread: true, lastEventAt: '2026-09-30T08:00:00Z' },
-        { id: 4, unread: false, lastEventAt: '2026-09-30T11:00:00Z' },
+    it('should sort by PR number, highest first, then repository', () => {
+      const rows = [
+        row(7, '2026-09-30T10:00:00Z', { repo: 'acme/web' }),
+        row(12, '2026-09-30T08:00:00Z'),
+        { ...row(7, '2026-09-30T09:00:00Z', { repo: 'acme/api' }), id: 70 },
       ];
-      expect(sortInboxItems(items, false).map((i) => i.id)).toEqual([4, 1, 2]);
+      expect(ids(sortInboxRows(rows, 'number', false))).toEqual([12, 70, 7]);
+    });
+
+    it('[FR-PRMON-230] should sort by closeness to shipping, then newest activity, rows without a PR last', () => {
+      const rows = [
+        row(1, '2026-01-05', { pr: { reviewDecision: 'REVIEW_REQUIRED', ciStatus: 'failing' } }),
+        row(2, '2026-01-04', { pr: { reviewDecision: null, ciStatus: 'passing' } }),
+        row(3, '2026-01-03', { pr: { reviewDecision: 'APPROVED', ciStatus: 'failing' } }),
+        row(4, '2026-01-01', { pr: { reviewDecision: 'APPROVED', ciStatus: 'passing' } }),
+        row(5, '2026-01-09'),
+        row(6, '2026-01-06', { pr: { reviewDecision: null, ciStatus: 'pending' } }),
+      ];
+      expect(ids(sortInboxRows(rows, 'shipping', false))).toEqual([4, 3, 2, 6, 1, 5]);
     });
 
     it('should not mutate the input', () => {
-      const items = [
-        { unread: false, lastEventAt: '2026-09-30T10:00:00Z' },
-        { unread: true, lastEventAt: '2026-09-30T08:00:00Z' },
-      ];
-      sortInboxItems(items, true);
-      expect(items[0].unread).toBe(false);
+      const rows = [row(1, '2026-09-30T10:00:00Z'), row(2, '2026-09-30T11:00:00Z')];
+      sortInboxRows(rows, 'activity', true);
+      expect(ids(rows)).toEqual([1, 2]);
     });
   });
 

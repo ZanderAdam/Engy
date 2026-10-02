@@ -81,7 +81,7 @@ export function formatRelativeTime(isoDate: string): string {
   return `${days}d ago`;
 }
 
-function shippingRank(pr: { reviewDecision: string | null; ciStatus: GhPrCiStatus }): number {
+export function shippingRank(pr: { reviewDecision: string | null; ciStatus: GhPrCiStatus }): number {
   const approved = pr.reviewDecision === 'APPROVED';
   const passing = pr.ciStatus === 'passing';
   if (approved && passing) return 0;
@@ -90,12 +90,8 @@ function shippingRank(pr: { reviewDecision: string | null; ciStatus: GhPrCiStatu
   return 3;
 }
 
-export function sortByClosestToShipping<
-  T extends { reviewDecision: string | null; ciStatus: GhPrCiStatus; updatedAt: string },
->(prs: T[]): T[] {
-  return [...prs].sort(
-    (a, b) => shippingRank(a) - shippingRank(b) || b.updatedAt.localeCompare(a.updatedAt),
-  );
+export function prActivityAt(pr: { githubUpdatedAt: string | null; updatedAt: string }): string {
+  return pr.githubUpdatedAt ?? pr.updatedAt;
 }
 
 interface CheckSummary {

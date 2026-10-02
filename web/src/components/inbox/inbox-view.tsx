@@ -44,7 +44,7 @@ import {
   pickReviewProject,
   prKey,
   shouldStartReadDwell,
-  sortInboxItems,
+  sortInboxRows,
   unreadPriorityCount,
   visibleItemIds,
   type InboxTab,
@@ -172,16 +172,13 @@ export function InboxView({ scope }: InboxViewProps) {
   }
   const lockedPrData = isLocked ? prQueries[0]?.data : undefined;
 
-  const sortedItems = useMemo(
-    () => sortInboxItems(items, displayOptions.unreadFirst),
-    [items, displayOptions.unreadFirst],
-  );
-  const rows =
+  const unsortedRows =
     tab === 'mine' && lockedWorkspaceId !== undefined
       ? myPullRequestRows(lockedPrData?.prs ?? [], items, lockedWorkspaceId)
-      : sortedItems.map((item) =>
+      : items.map((item) =>
           inboxItemToRow(item, prByKey.get(prKey(item.repoFullName, item.prNumber))),
         );
+  const rows = sortInboxRows(unsortedRows, displayOptions.sort, displayOptions.unreadFirst);
   const visibleRows = filterInboxItems(rows, query);
   function markVisibleRead() {
     if (tab === 'mine') return;
