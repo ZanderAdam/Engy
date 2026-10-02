@@ -19,7 +19,7 @@ import { ReviewChecks } from './review-checks';
 import { ReviewSidebar } from './review-sidebar';
 import { ReviewWorktreeBanner } from './review-worktree-banner';
 import { ReviewErrorMessage, ReviewStatusMessage } from './review-status-message';
-import { isBehindGithub, REVIEW_TABS, type ReviewTab } from './review-helpers';
+import { isBehindGithub, isPrChangeForReview, REVIEW_TABS, type ReviewTab } from './review-helpers';
 import { useReviewTabKeys } from './use-review-tab-keys';
 import { ReviewFiles } from './review-files';
 import { SubmitReviewPanel } from './submit-review-panel';
@@ -135,7 +135,7 @@ function ReviewPageBody({
   const detail = detailQuery.data;
 
   useOnServerEvent('PR_CHANGE', (payload) => {
-    if (payload.workspaceId !== workspaceId || payload.repo !== repoFullName) return;
+    if (!isPrChangeForReview(payload, workspaceId, worktree?.repoPath ?? null)) return;
     void utils.review.detail.invalidate();
   });
 

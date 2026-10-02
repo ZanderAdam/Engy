@@ -194,11 +194,101 @@ describe('auto review', () => {
       );
     });
 
+    it('[FR-PRMON-300] should fetch the base branch before it computes the range', async () => {
+      let fetchesWhenRangeRead = 0;
+      vi.mocked(dispatchGitBranchFiles).mockImplementation(async () => {
+        fetchesWhenRangeRead = daemon.calls.filter((call) => call === 'GIT_FETCH_REQUEST').length;
+        return { files: [], mergeBase: 'merge-base-sha', head: 'sha-7a' };
+      });
+
+      await start();
+
+      expect(fetchesWhenRangeRead).toBe(2);
+    });
+
+    it('[FR-PRMON-300] should review against the local base when the base fetch fails', async () => {
+      daemon.failures.add('GIT_FETCH_BASE');
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await start();
+
+      expect(result).toEqual({ started: true, sessionId: 'term-1' });
+    });
+
     it('[FR-PRMON-300] should tell the agent never to use GitHub', async () => {
       await start();
 
       const prompt = vi.mocked(spawnAgentTerminal).mock.calls[0][1].prompt;
       expect(prompt).toContain('Never use `gh` or the GitHub API');
+    });
+  });
+
+  describe('concurrency', () => {
+    function seedReviewTerminal(activityState?: 'idle' | 'active' | 'waiting' | 'done'): void {
+      ctx.state.terminalSessionMeta.set('review-term', {
+        scopeType: 'worktree',
+        scopeLabel: 'PR #1',
+        workingDir: '/wt/pr-1',
+        workspaceSlug: 'ws',
+        spawnedBy: 'auto-review',
+        activityState,
+        cols: 80,
+        rows: 24,
+      });
+    }
+
+    it.each(['idle', 'done'] as const)(
+      '[FR-PRMON-300] should not count a review terminal that is %s',
+      async (activityState) => {
+        seedReviewTerminal(activityState);
+
+        const result = await start();
+
+        expect(result).toEqual({ started: true, sessionId: 'term-1' });
+      },
+    );
+
+    it.each(['active', 'waiting', undefined] as const)(
+      '[FR-PRMON-300] should count a review terminal that is %s',
+      async (activityState) => {
+        seedReviewTerminal(activityState);
+
+        const result = await start();
+
+        expect(result).toEqual({ started: false, reason: 'concurrency-full' });
+      },
+    );
+  });
+
+  describe('project of the session', () => {
+    it('[FR-PRMON-300] should group an auto review under the project of the correlated agent session', async () => {
+      const project = ctx.db
+        .insert(projects)
+        .values({ workspaceId, name: 'P', slug: 'proj' })
+        .returning()
+        .get();
+      const task = ctx.db
+        .insert(tasks)
+        .values({ projectId: project.id, title: 'T', status: 'done' })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'sess-old',
+          taskId: task.id,
+          status: 'completed',
+          branch: 'feat/seven',
+          worktreePath: '/repos/app/wt',
+        } as typeof agentSessions.$inferInsert)
+        .run();
+
+      await start();
+
+      const meta = vi.mocked(spawnAgentTerminal).mock.calls[0][1].callerMeta;
+      expect(meta.groupKey).toBe('project:ws:proj');
+      expect(meta.projectSlug).toBe('proj');
+      expect(meta.projectId).toBe(project.id);
     });
   });
 
@@ -279,6 +369,10 @@ describe('auto review', () => {
       const meta = vi.mocked(spawnAgentTerminal).mock.calls[0][1].callerMeta;
       expect(meta.groupKey).toBe('project:ws:plain');
       expect(meta.workspaceSlug).toBe('ws');
+      expect(meta.projectSlug).toBe('plain');
+      expect(meta.projectId).toBe(
+        ctx.db.select().from(projects).where(eq(projects.slug, 'plain')).get()!.id,
+      );
     });
 
     it('[FR-PRMON-310] should pass the guide of the chosen project', async () => {

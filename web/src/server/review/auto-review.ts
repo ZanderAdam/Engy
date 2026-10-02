@@ -9,12 +9,12 @@ import { REVIEW_GUIDE_FILE } from '../project/review-guide';
 import { spawnAgentTerminal } from '../terminal-dispatch';
 import type { AppState } from '../trpc/context';
 import { findCorrelatedSession } from '../trpc/routers/pr';
-import { dispatchGitBranchFiles } from '../ws/server';
+import { dispatchGitBranchFiles, dispatchGitFetch } from '../ws/server';
 import { projectGroupKey, workspaceGroupKey } from '@/components/terminal/group-key';
 import { buildReviewPrompt } from '../../lib/review-prompt';
+import { AUTO_REVIEW_SPAWNER } from './auto-review-spawner';
 import { DEFAULT_BASE_REF, openReviewWorktree } from './worktrees';
 
-const AUTO_REVIEW_SPAWNER = 'auto-review';
 const STALE_SESSION_MS = 24 * 60 * 60 * 1000;
 
 type AutoReviewSkipReason =
@@ -69,7 +69,12 @@ function countActiveSessions(state: AppState, workspace: Workspace): number {
 
   let autoReviews = 0;
   for (const meta of state.terminalSessionMeta.values()) {
-    if (meta.spawnedBy === AUTO_REVIEW_SPAWNER && meta.workspaceSlug === workspace.slug) {
+    const isWorking = meta.activityState !== 'idle' && meta.activityState !== 'done';
+    if (
+      meta.spawnedBy === AUTO_REVIEW_SPAWNER &&
+      meta.workspaceSlug === workspace.slug &&
+      isWorking
+    ) {
       autoReviews++;
     }
   }
@@ -88,39 +93,41 @@ function releaseSlot(state: AppState, workspace: Workspace): void {
   else state.pendingReviewSlots.delete(workspace.id);
 }
 
+type ProjectRef = Pick<typeof projects.$inferSelect, 'id' | 'slug' | 'projectDir'>;
+
+const PROJECT_REF_COLUMNS = {
+  id: projects.id,
+  slug: projects.slug,
+  projectDir: projects.projectDir,
+};
+
 function projectGuidePath(
   workspace: Workspace,
-  project: { projectDir: string | null; slug: string } | undefined,
+  project: ProjectRef | undefined,
 ): string | undefined {
   if (!project) return undefined;
   const guidePath = path.join(resolveProjectDir(workspace, project), REVIEW_GUIDE_FILE);
   return existsSync(guidePath) ? guidePath : undefined;
 }
 
-function findCorrelatedGuide(
-  workspace: Workspace,
-  repoPath: string,
-  headRefName: string,
-): string | undefined {
+function findCorrelatedProject(repoPath: string, headRefName: string): ProjectRef | undefined {
   const db = getDb();
   const session = findCorrelatedSession(db, headRefName, repoPath);
   if (!session?.taskId) return undefined;
-  const project = db
-    .select({ projectDir: projects.projectDir, slug: projects.slug })
+  return db
+    .select(PROJECT_REF_COLUMNS)
     .from(tasks)
     .innerJoin(projects, eq(tasks.projectId, projects.id))
     .where(eq(tasks.id, session.taskId))
     .get();
-  return projectGuidePath(workspace, project);
 }
 
-function findGuideBySlug(workspace: Workspace, slug: string): string | undefined {
-  const project = getDb()
-    .select({ projectDir: projects.projectDir, slug: projects.slug })
+function findProjectBySlug(workspace: Workspace, slug: string): ProjectRef | undefined {
+  return getDb()
+    .select(PROJECT_REF_COLUMNS)
     .from(projects)
     .where(and(eq(projects.workspaceId, workspace.id), eq(projects.slug, slug)))
     .get();
-  return projectGuidePath(workspace, project);
 }
 
 async function spawnReviewSession(
@@ -128,18 +135,19 @@ async function spawnReviewSession(
   workspace: Workspace,
   worktree: OpenedWorktree,
   prNumber: number,
-  reviewGuide: string | undefined,
-  projectSlug?: string,
+  project: ProjectRef | undefined,
 ): Promise<{ sessionId: string } | null> {
-  const { mergeBase, head } = await dispatchGitBranchFiles(
-    worktree.worktreePath,
-    `origin/${worktree.baseRef ?? DEFAULT_BASE_REF}`,
-    state,
-  );
+  const base = `origin/${worktree.baseRef ?? DEFAULT_BASE_REF}`;
+  try {
+    await dispatchGitFetch(worktree.worktreePath, base, state);
+  } catch (err) {
+    console.warn(`[auto-review] could not fetch ${base}, using the local ref:`, errorText(err));
+  }
+  const { mergeBase, head } = await dispatchGitBranchFiles(worktree.worktreePath, base, state);
   const prompt = buildReviewPrompt({
     repoDir: worktree.worktreePath,
     spec: { kind: 'range', from: mergeBase, to: head },
-    reviewGuide,
+    reviewGuide: projectGuidePath(workspace, project),
   });
   return spawnAgentTerminal(state, {
     agentType: 'claude',
@@ -151,10 +159,12 @@ async function spawnReviewSession(
       scopeType: 'worktree',
       scopeLabel: `PR #${prNumber}`,
       workingDir: worktree.worktreePath,
-      groupKey: projectSlug
-        ? projectGroupKey(workspace.slug, projectSlug)
+      groupKey: project
+        ? projectGroupKey(workspace.slug, project.slug)
         : workspaceGroupKey(workspace.slug),
       workspaceSlug: workspace.slug,
+      projectId: project?.id,
+      projectSlug: project?.slug,
       cols: 80,
       rows: 24,
     },
@@ -212,7 +222,7 @@ async function startReservedAutoReview(
       workspace,
       worktree,
       prNumber,
-      findCorrelatedGuide(workspace, worktree.repoPath, worktree.headRefName),
+      findCorrelatedProject(worktree.repoPath, worktree.headRefName),
     );
     if (!spawned) {
       state.autoReviewedShas.delete(reviewedKey);
@@ -267,18 +277,11 @@ async function startReservedManualReview(
     { workspaceId, repoFullName, prNumber },
     { cleanup: false },
   );
-  const reviewGuide = projectSlug
-    ? findGuideBySlug(workspace, projectSlug)
-    : findCorrelatedGuide(workspace, worktree.repoPath, worktree.headRefName);
+  const project = projectSlug
+    ? findProjectBySlug(workspace, projectSlug)
+    : findCorrelatedProject(worktree.repoPath, worktree.headRefName);
   try {
-    const spawned = await spawnReviewSession(
-      state,
-      workspace,
-      worktree,
-      prNumber,
-      reviewGuide,
-      projectSlug,
-    );
+    const spawned = await spawnReviewSession(state, workspace, worktree, prNumber, project);
     if (spawned) return spawned;
   } catch (err) {
     throw new TRPCError({

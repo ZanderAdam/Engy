@@ -94,6 +94,20 @@ describe('review worktrees', () => {
   let daemon: FakeDaemon;
   let workspaceId: number;
   let workspaceDir: string;
+  let stub: StubGithub;
+
+  function replyHeadRepo(headRepoFullName: string | null, base = 'main'): void {
+    stub.reply(() => ({
+      body: {
+        head: {
+          ref: 'feat/seven',
+          sha: 'sha-7a',
+          repo: headRepoFullName ? { full_name: headRepoFullName } : null,
+        },
+        base: { ref: base },
+      },
+    }));
+  }
 
   function seedPr(overrides: Partial<GithubPr> = {}): void {
     upsertPrs(ctx.db, REPO_PATH, [
@@ -118,8 +132,13 @@ describe('review worktrees', () => {
     );
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     ctx = setupTestDb();
+    stub = await startStubGithub();
+    process.env.ENGY_GITHUB_API_URL = stub.url;
+    process.env.ENGY_GITHUB_TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+    ctx.state.github.status = { available: true, login: 'me' };
+    replyHeadRepo(REPO_FULL_NAME);
     daemon = installFakeDaemon(ctx.state);
     ctx.state.repoFullNames.set(REPO_PATH, REPO_FULL_NAME);
     ctx.db
@@ -135,8 +154,11 @@ describe('review worktrees', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    delete process.env.ENGY_GITHUB_API_URL;
+    delete process.env.ENGY_GITHUB_TOKEN;
+    await stub.close();
     ctx.cleanup();
   });
 
@@ -171,24 +193,58 @@ describe('review worktrees', () => {
       expect(rows()[0]).toMatchObject({ worktreePath: '/agent/wt', createdByReview: false });
     });
 
+    it('[FR-PRREVIEW-020] should not reuse a worktree on a same-named branch of a fork PR', async () => {
+      replyHeadRepo('fork/app');
+      daemon.worktrees.set('/other/wt', { branch: 'feat/seven', dirty: false, head: 'sha-other' });
+
+      const result = await open(7);
+
+      expect(result.worktreePath).not.toBe('/other/wt');
+      expect(rows()[0]).toMatchObject({ createdByReview: true });
+    });
+
+    it('[FR-PRREVIEW-020] should not reuse an agent worktree when the PR head repo is unknown', async () => {
+      replyHeadRepo(null);
+      daemon.worktrees.set('/other/wt', { branch: 'feat/seven', dirty: false, head: 'sha-other' });
+
+      const result = await open(7);
+
+      expect(result.worktreePath).not.toBe('/other/wt');
+    });
+
+    it('[FR-PRREVIEW-020] should create a review worktree when the reused agent worktree is removed', async () => {
+      daemon.worktrees.set('/agent/wt', { branch: 'feat/seven', dirty: false, head: 'sha-agent' });
+      await open(7);
+      daemon.worktrees.delete('/agent/wt');
+
+      const result = await open(7);
+
+      expect(result.worktreePath).not.toBe('/agent/wt');
+      expect(rows()).toHaveLength(1);
+      expect(rows()[0]).toMatchObject({ worktreePath: result.worktreePath, createdByReview: true });
+    });
+
+    it('[FR-PRREVIEW-020] should drop the row of an agent worktree that left the PR branch, and keep the worktree', async () => {
+      daemon.worktrees.set('/agent/wt', { branch: 'feat/seven', dirty: false, head: 'sha-agent' });
+      await open(7);
+      daemon.worktrees.get('/agent/wt')!.branch = 'other';
+
+      const result = await open(7);
+
+      expect(result.worktreePath).not.toBe('/agent/wt');
+      expect(daemon.worktrees.has('/agent/wt')).toBe(true);
+      expect(daemon.calls).not.toContain('WORKTREE_REMOVE_REQUEST');
+    });
+
     it('[FR-PRREVIEW-030] should read the PR from GitHub when it is not in the prs table', async () => {
-      const stub: StubGithub = await startStubGithub();
-      process.env.ENGY_GITHUB_API_URL = stub.url;
-      process.env.ENGY_GITHUB_TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
-      ctx.state.github.status = { available: true, login: 'me' };
       stub.reply(() => ({
         body: { head: { ref: 'feat/eight', sha: 'sha-9a' }, base: { ref: 'dev' } },
       }));
-      try {
-        const result = await open(9);
 
-        expect(stub.requests[0].url).toBe('/repos/org/app/pulls/9');
-        expect(result).toMatchObject({ headRefName: 'feat/eight', baseRef: 'dev' });
-      } finally {
-        delete process.env.ENGY_GITHUB_API_URL;
-        delete process.env.ENGY_GITHUB_TOKEN;
-        await stub.close();
-      }
+      const result = await open(9);
+
+      expect(stub.requests[0].url).toBe('/repos/org/app/pulls/9');
+      expect(result).toMatchObject({ headRefName: 'feat/eight', baseRef: 'dev' });
     });
 
     it('should create one worktree when the same PR is opened concurrently', async () => {
@@ -394,6 +450,16 @@ describe('review worktrees', () => {
       await expect(updateReviewWorktree(ctx.state, id, { discard: true })).rejects.toThrow();
 
       expect(rows()).toEqual([]);
+    });
+
+    it('[FR-PRREVIEW-080] should keep the base branch of a PR that is not in the prs table', async () => {
+      replyHeadRepo(REPO_FULL_NAME, 'dev');
+      const opened = await open(9);
+      expect(opened.baseRef).toBe('dev');
+
+      const updated = await updateReviewWorktree(ctx.state, opened.id, { discard: false });
+
+      expect(updated.baseRef).toBe('dev');
     });
 
     it('[FR-PRREVIEW-080] should refuse a reused agent worktree', async () => {

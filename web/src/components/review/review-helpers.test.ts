@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ConversationItem } from '@/server/github/pr-detail';
-import { isBehindGithub, latestReviewVerdicts, reviewStateLabel } from './review-helpers';
+import { isBehindGithub, isPrChangeForReview, latestReviewVerdicts, reviewStateLabel } from './review-helpers';
 
 function review(login: string, state: string, createdAt: string): ConversationItem {
   return {
@@ -66,5 +66,17 @@ describe('[FR-PRREVIEW-250] isBehindGithub', () => {
     ['aaa', '', false],
   ])('should compare %s with %s', (worktree, github, expected) => {
     expect(isBehindGithub(worktree, github)).toBe(expected);
+  });
+});
+
+describe('[FR-PRREVIEW-270] isPrChangeForReview', () => {
+  it.each([
+    ['the repo path of the open worktree', { workspaceId: 1, repo: '/repos/app' }, '/repos/app', true],
+    ['another repo path', { workspaceId: 1, repo: '/repos/other' }, '/repos/app', false],
+    ['the repo full name', { workspaceId: 1, repo: 'org/app' }, '/repos/app', false],
+    ['another workspace', { workspaceId: 2, repo: '/repos/app' }, '/repos/app', false],
+    ['any repo when no worktree is open', { workspaceId: 1, repo: '/repos/other' }, null, true],
+  ])('should handle %s', (_name, payload, repoPath, expected) => {
+    expect(isPrChangeForReview(payload, 1, repoPath)).toBe(expected);
   });
 });

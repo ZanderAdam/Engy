@@ -1,6 +1,10 @@
 "use client";
 
-import { useVirtualParams, useVirtualSearchParams } from "@/components/tabs/tab-context";
+import {
+  useVirtualParams,
+  useVirtualPathname,
+  useVirtualSearchParams,
+} from "@/components/tabs/tab-context";
 import { trpc } from "@/lib/trpc";
 import { buildContextBlock } from '@/lib/shell';
 import {
@@ -20,6 +24,10 @@ import { projectGroupKey, workspaceGroupKey, normalizeWtParam } from './group-ke
 //   - Additional dirs = ALL repos via --add-dir flags
 // This is DIFFERENT from task quick actions which start in the 1st repo.
 // See shell.ts buildQuickActionDirs() for the quick-action logic.
+export function isPrsTabPath(pathname: string): boolean {
+  return /\/projects\/[^/]+\/prs(\/|$)/.test(pathname);
+}
+
 export function deriveScope(
   workspaceSlug: string,
   workspaceDir: string,
@@ -101,6 +109,7 @@ export function useBottomTerminalScope(): TerminalScope {
 export function useTerminalScope(): TerminalScope {
   const params = useVirtualParams();
   const searchParams = useVirtualSearchParams();
+  const pathname = useVirtualPathname();
   const workspaceSlug = params.workspace ?? '';
   const projectSlug = params.project;
 
@@ -115,7 +124,8 @@ export function useTerminalScope(): TerminalScope {
   // repoMap, empty until the worktree exists — so an unmaterialized branch still
   // gets a unique groupKey while `--add-dir` flags fall back to the main repos).
   const combined = workspace?.combinedWorktrees ?? false;
-  const worktreeBranch = combined ? undefined : normalizeWtParam(searchParams.get('wt'));
+  const ignoresWt = combined || isPrsTabPath(pathname);
+  const worktreeBranch = ignoresWt ? undefined : normalizeWtParam(searchParams.get('wt'));
 
   const { data: project } = trpc.project.getBySlug.useQuery(
     { workspaceId: workspace?.id ?? 0, slug: projectSlug ?? '' },

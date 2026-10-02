@@ -16,6 +16,7 @@ import {
   deletePersistedTerminalSession,
 } from './ws/terminal-session-store';
 import { recordSessionStart, markSessionClosed } from './ws/terminal-session-history';
+import { AUTO_REVIEW_SPAWNER } from './review/auto-review-spawner';
 
 // Cross-terminal dispatch: an orchestrator agent sends a prompt to a worker
 // terminal by injecting it into the worker's PTY stdin (same wire path as
@@ -411,7 +412,7 @@ const SPAWNED_TERMINAL_ROWS = 24;
 export function countAgentSpawnedSessions(state: AppState): number {
   let count = 0;
   for (const meta of state.terminalSessionMeta.values()) {
-    if (meta.spawnedBy) count++;
+    if (meta.spawnedBy && meta.spawnedBy !== AUTO_REVIEW_SPAWNER) count++;
   }
   return count;
 }

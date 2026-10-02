@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveScope } from './use-terminal-scope';
+import { deriveScope, isPrsTabPath } from './use-terminal-scope';
 import { shellEscape } from '@/lib/shell';
 
 describe('deriveScope', () => {
@@ -99,5 +99,18 @@ describe('deriveScope', () => {
       const scope = deriveScope('my-ws', '/ws-dir', [], 1);
       expect(scope.workspaceSlug).toBe('my-ws');
     });
+  });
+});
+
+describe('isPrsTabPath', () => {
+  it.each([
+    ['/w/ws/projects/proj/prs', true],
+    ['/w/ws/projects/proj/prs/', true],
+    ['/w/ws/projects/proj/prs/anything', true],
+    ['/w/ws/projects/proj', false],
+    ['/w/ws/projects/proj/tasks', false],
+    ['/w/ws/projects/proj/prsx', false],
+  ])('[FR-TERMINAL-950] should classify %s as %s', (pathname, expected) => {
+    expect(isPrsTabPath(pathname)).toBe(expected);
   });
 });

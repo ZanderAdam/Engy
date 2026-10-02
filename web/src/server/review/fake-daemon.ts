@@ -67,6 +67,9 @@ export function installFakeDaemon(state: AppState): FakeDaemon {
         break;
       case 'GIT_FETCH_REQUEST':
         answer(state.pendingGitFetch as never, msg, () => {
+          if (!payload.refspec && daemon.failures.has('GIT_FETCH_BASE')) {
+            throw new Error('base fetch failed');
+          }
           const number = Number(/refs\/pull\/(\d+)\/head/.exec(payload.refspec as string)?.[1]);
           const sha = daemon.remoteHeads.get(number);
           if (sha) daemon.refs.set(`refs/engy/pr/${number}`, sha);

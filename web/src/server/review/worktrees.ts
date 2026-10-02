@@ -39,7 +39,7 @@ interface PrInfo {
 }
 
 interface GithubPullResponse {
-  head: { ref: string; sha: string };
+  head: { ref: string; sha: string; repo: { full_name: string } | null };
   base: { ref: string };
 }
 
@@ -181,6 +181,23 @@ async function resolvePr(
   return { headRefName: head.ref, headSha: head.sha, baseRef: base.ref };
 }
 
+async function isHeadInBaseRepo(
+  state: AppState,
+  repoFullName: string,
+  prNumber: number,
+): Promise<boolean> {
+  try {
+    const result = await githubRest<GithubPullResponse>(
+      state,
+      `/repos/${repoFullName}/pulls/${prNumber}`,
+    );
+    if (result.status !== 'ok') return false;
+    return result.data.head.repo?.full_name.toLowerCase() === repoFullName.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 async function readHeadSha(state: AppState, worktreePath: string): Promise<string | null> {
   const status = await dispatchGitStatus(worktreePath, state);
   return status.head ?? null;
@@ -201,11 +218,25 @@ function fetchPrHead(
   );
 }
 
-async function isWorktreeRegistered(state: AppState, row: ReviewWorktreeRow): Promise<boolean> {
+async function findRegisteredWorktree(state: AppState, row: ReviewWorktreeRow) {
   const { worktrees } = await dispatchGitWorktreeList(row.repoPath, state);
-  return worktrees.some(
+  return worktrees.find(
     (worktree) => path.resolve(worktree.path) === path.resolve(row.worktreePath),
   );
+}
+
+async function isWorktreeRegistered(state: AppState, row: ReviewWorktreeRow): Promise<boolean> {
+  return (await findRegisteredWorktree(state, row)) !== undefined;
+}
+
+async function isRowWorktreeUsable(
+  state: AppState,
+  row: ReviewWorktreeRow,
+  pr: PrInfo,
+): Promise<boolean> {
+  const entry = await findRegisteredWorktree(state, row);
+  if (!entry) return false;
+  return row.createdByReview || entry.branch === pr.headRefName;
 }
 
 async function removeWorktreeIfPresent(
@@ -270,7 +301,9 @@ async function createReviewWorktree(
 ): Promise<ReviewWorktreeState> {
   const { workspace, repoPath, repoFullName, prNumber, pr } = input;
 
-  const agentWorktreePath = await findAgentWorktree(state, repoPath, pr.headRefName);
+  const candidatePath = await findAgentWorktree(state, repoPath, pr.headRefName);
+  const agentWorktreePath =
+    candidatePath && (await isHeadInBaseRepo(state, repoFullName, prNumber)) ? candidatePath : null;
   const createdByReview = agentWorktreePath === null;
   const worktreePath = agentWorktreePath ?? getReviewWorktreeDir(workspace, repoPath, prNumber);
 
@@ -440,8 +473,12 @@ async function openReviewWorktreeUnqueued(
     .get();
 
   let current = existing;
-  if (current?.createdByReview && !(await isWorktreeRegistered(state, current))) {
-    await deleteReviewWorktree(state, current, true);
+  if (current && !(await isRowWorktreeUsable(state, current, pr))) {
+    if (current.createdByReview) {
+      await deleteReviewWorktree(state, current, true);
+    } else {
+      getDb().delete(reviewWorktrees).where(eq(reviewWorktrees.id, current.id)).run();
+    }
     current = undefined;
   }
 
@@ -471,11 +508,7 @@ export async function updateReviewWorktree(
       message: 'This worktree belongs to an agent session and cannot be updated by review',
     });
   }
-  const pr = findKnownPr(row.repoPath, row.repoFullName, row.prNumber) ?? {
-    headRefName: row.headRefName,
-    headSha: null,
-    baseRef: null,
-  };
+  const pr = await resolvePr(state, row.repoPath, row.repoFullName, row.prNumber);
   return refreshReviewWorktree(state, row, pr, options.discard);
 }
 

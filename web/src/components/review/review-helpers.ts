@@ -50,3 +50,12 @@ export function isBehindGithub(
 ): boolean {
   return githubHeadSha !== undefined && githubHeadSha !== '' && githubHeadSha !== worktreeHeadSha;
 }
+
+export function isPrChangeForReview(
+  payload: { workspaceId: number; repo: string },
+  workspaceId: number,
+  repoPath: string | null,
+): boolean {
+  if (payload.workspaceId !== workspaceId) return false;
+  return repoPath === null || payload.repo === repoPath;
+}
