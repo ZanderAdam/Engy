@@ -1,32 +1,6 @@
 import type { GhPrCheck, GhPrCiStatus } from '@engy/common';
 import { getAttentionInfo } from '@/lib/pr-attention';
-
-export function deriveCheckState(
-  status: string,
-  conclusion: string | null,
-): 'passing' | 'failing' | 'pending' {
-  const lowerConclusion = conclusion?.toLowerCase();
-  if (
-    lowerConclusion === 'success' ||
-    lowerConclusion === 'skipped' ||
-    lowerConclusion === 'neutral'
-  ) {
-    return 'passing';
-  }
-  if (
-    lowerConclusion === 'failure' ||
-    lowerConclusion === 'timed_out' ||
-    lowerConclusion === 'cancelled' ||
-    lowerConclusion === 'action_required'
-  ) {
-    return 'failing';
-  }
-  // conclusion is null or unrecognized — use status (covers StatusContext entries)
-  const lowerStatus = status.toLowerCase();
-  if (lowerStatus === 'success') return 'passing';
-  if (lowerStatus === 'failure' || lowerStatus === 'error') return 'failing';
-  return 'pending';
-}
+import { deriveCheckState } from '@/lib/pr-check-state';
 
 export function ciStatusLabel(status: GhPrCiStatus): string {
   switch (status) {
@@ -81,7 +55,10 @@ export function formatRelativeTime(isoDate: string): string {
   return `${days}d ago`;
 }
 
-export function shippingRank(pr: { reviewDecision: string | null; ciStatus: GhPrCiStatus }): number {
+export function shippingRank(pr: {
+  reviewDecision: string | null;
+  ciStatus: GhPrCiStatus;
+}): number {
   const approved = pr.reviewDecision === 'APPROVED';
   const passing = pr.ciStatus === 'passing';
   if (approved && passing) return 0;

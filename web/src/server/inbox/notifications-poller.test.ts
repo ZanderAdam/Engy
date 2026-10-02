@@ -272,6 +272,37 @@ describe('notifications poller', () => {
     expect(maybeStartAutoReview).not.toHaveBeenCalled();
   });
 
+  it('[FR-INBOX-230] should time a pushed event by the thread update time', async () => {
+    timeline = () =>
+      timelineReply([
+        {
+          __typename: 'PullRequestCommit',
+          id: 'PRC_1',
+          commit: { committedDate: '2026-02-27T10:00:00Z', author: { user: { login: 'alice' } } },
+        },
+      ]);
+    notifications = [notification({ reason: 'comment' })];
+
+    await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+    expect(events()[0]).toMatchObject({ kind: 'pushed', at: '2026-03-01T11:00:00Z' });
+  });
+
+  it('[FR-INBOX-290] should use a generic event when the timeline fails for a known item', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    timeline = () => timelineReply([REVIEW_REQUEST_NODE]);
+    notifications = [notification()];
+    await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+    vi.mocked(maybeStartAutoReview).mockClear();
+
+    timeline = () => ({ status: 500, body: { message: 'boom' } });
+    notifications = [notification({ updated_at: '2026-03-01T11:30:00Z' })];
+    await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+    expect(events().map((event) => event.kind)).toEqual(['review_requested', 'commented']);
+    expect(maybeStartAutoReview).not.toHaveBeenCalled();
+  });
+
   it('[FR-INBOX-290] should trust the reason of a new review request thread whose timeline has no events', async () => {
     timeline = () => timelineReply([]);
     notifications = [notification()];

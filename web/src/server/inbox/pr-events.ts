@@ -1,6 +1,7 @@
 import type { prs } from '../db/schema';
 import type { MaterialChange } from '../trpc/routers/pr';
 import { getAttentionInfo } from '../../lib/pr-attention';
+import { deriveCheckState, type CheckState } from '../../lib/pr-check-state';
 import { NO_BUCKET_FACTS, type BucketFacts, type InboxEventKind } from './bucket';
 import { addEvent, findItemByPr, upsertItem } from './store';
 
@@ -11,6 +12,7 @@ interface PrInboxEvent {
   summary: string;
   actor: string | null;
   sourceKey: string;
+  at?: string;
 }
 
 export function bucketFactsForPr(
@@ -41,15 +43,44 @@ function prKey(prRow: PrRow): string {
   return `${prRow.repoFullName}#${prRow.number}:${prRow.headSha ?? 'unknown'}`;
 }
 
+function latestCheckTime(prRow: PrRow, state?: CheckState): string | undefined {
+  const times = prRow.checks
+    .filter(
+      (check) => state === undefined || deriveCheckState(check.status, check.conclusion) === state,
+    )
+    .map((check) => check.completedAt)
+    .filter((time): time is string => !!time);
+  return times.reduce<string | undefined>(
+    (latest, time) => (latest === undefined || time > latest ? time : latest),
+    undefined,
+  );
+}
+
 export function mapPrChange(change: MaterialChange, prRow: PrRow): PrInboxEvent[] {
   if (change.type !== 'ciStatus') return [];
   const sourceKey = `ci:${prKey(prRow)}:${change.current}`;
   if (change.current === 'failing') {
-    return [{ kind: 'ci_failed', summary: 'CI failed', actor: 'CI', sourceKey }];
+    return [
+      {
+        kind: 'ci_failed',
+        summary: 'CI failed',
+        actor: 'CI',
+        sourceKey,
+        at: latestCheckTime(prRow, 'failing'),
+      },
+    ];
   }
   const recovered = change.previous === 'failing' || change.previous === 'pending';
   if (change.current === 'passing' && recovered && prRow.authoredByViewer) {
-    return [{ kind: 'ci_passed', summary: 'CI passed', actor: 'CI', sourceKey }];
+    return [
+      {
+        kind: 'ci_passed',
+        summary: 'CI passed',
+        actor: 'CI',
+        sourceKey,
+        at: latestCheckTime(prRow),
+      },
+    ];
   }
   return [];
 }
@@ -86,6 +117,11 @@ export function recordPrInboxEvents({
 }: RecordInput): void {
   if (events.length === 0 || !prRow.repoFullName) return;
   const facts = bucketFactsForPr(prRow, viewerLogin, viewerTeams);
+  const timed = events.map((event) => ({ ...event, at: event.at ?? now.toISOString() }));
+  const firstEventAt = timed.reduce(
+    (earliest, event) => (event.at < earliest ? event.at : earliest),
+    timed[0].at,
+  );
   const item = upsertItem(
     {
       repoFullName: prRow.repoFullName,
@@ -95,11 +131,12 @@ export function recordPrInboxEvents({
       workspaceId,
       repoPath: prRow.repo,
       facts,
+      firstEventAt,
     },
     now,
   );
-  for (const event of events) {
-    addEvent({ itemId: item.id, ...event, at: now.toISOString(), facts }, now);
+  for (const event of timed) {
+    addEvent({ itemId: item.id, ...event, facts }, now);
   }
 }
 

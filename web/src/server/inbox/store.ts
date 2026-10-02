@@ -72,7 +72,7 @@ function withUnreadMention(
 ): BucketFacts {
   if (facts.mentioned) return facts;
   const conditions: SQL[] = [eq(inboxEvents.itemId, item.id), eq(inboxEvents.kind, 'mentioned')];
-  if (item.lastReadAt) conditions.push(gt(inboxEvents.at, item.lastReadAt));
+  if (item.lastReadAt) conditions.push(gt(inboxEvents.createdAt, item.lastReadAt));
   const mention = db
     .select({ id: inboxEvents.id })
     .from(inboxEvents)
@@ -157,6 +157,7 @@ export function addEvent(input: AddEventInput, now: Date = new Date()): boolean 
         url: input.url ?? null,
         at: input.at,
         sourceKey: input.sourceKey,
+        createdAt: now.toISOString(),
       })
       .onConflictDoNothing({ target: inboxEvents.sourceKey })
       .returning({ id: inboxEvents.id })

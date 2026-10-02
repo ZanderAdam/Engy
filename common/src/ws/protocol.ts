@@ -798,6 +798,7 @@ export interface GhPrCheck {
   status: string;
   conclusion: string | null;
   detailsUrl: string | null;
+  completedAt?: string | null;
 }
 
 // ── Usage analytics scan (server ↔ daemon) ──────────────────────────────────

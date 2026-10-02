@@ -1,6 +1,6 @@
 import type { GhPrCheck } from '@engy/common';
 import type { MaterialChange } from '../trpc/routers/pr';
-import { FAILING_CONCLUSIONS } from '../github/prs';
+import { FAILING_CONCLUSIONS } from '../../lib/pr-check-state';
 
 export type CiFailureClassification = 'mechanical' | 'non-mechanical';
 

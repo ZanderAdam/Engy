@@ -14,12 +14,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { getAttentionInfo } from '@/lib/pr-attention';
+import { deriveCheckState } from '@/lib/pr-check-state';
 import {
   ciStatusClassName,
   ciStatusLabel,
   reviewDecisionLabel,
   summarizeChecks,
-  deriveCheckState,
 } from './pr-helpers';
 import type { GhPrCheck, GhPrCiStatus } from '@engy/common';
 

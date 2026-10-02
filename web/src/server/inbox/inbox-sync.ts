@@ -88,8 +88,10 @@ function buildFacts(
   };
 }
 
-function reasonEvent(thread: GithubNotification): TimelineEvent {
-  const mapped = REASON_EVENTS[thread.reason] ?? DEFAULT_REASON_EVENT;
+function reasonEvent(thread: GithubNotification, itemExists: boolean): TimelineEvent {
+  const mapped = itemExists
+    ? DEFAULT_REASON_EVENT
+    : (REASON_EVENTS[thread.reason] ?? DEFAULT_REASON_EVENT);
   return {
     ...mapped,
     actor: null,
@@ -105,9 +107,10 @@ function eventsForThread(
   repoFullName: string,
   prNumber: number,
 ): TimelineEvent[] {
-  if (timeline === null) return [reasonEvent(thread)];
+  const itemExists = findItemByPr(repoFullName, prNumber) !== undefined;
+  if (timeline === null) return [reasonEvent(thread, itemExists)];
   if (timeline.events.length > 0) return timeline.events;
-  return findItemByPr(repoFullName, prNumber) ? [] : [reasonEvent(thread)];
+  return itemExists ? [] : [reasonEvent(thread, false)];
 }
 
 async function loadTimeline(
@@ -125,6 +128,7 @@ async function loadTimeline(
       since: ctx.lastSyncedAt ?? thread.last_read_at,
       viewerLogin: ctx.viewerLogin,
       viewerTeams,
+      pushedAt: thread.updated_at,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

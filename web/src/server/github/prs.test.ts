@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createAppState, type AppState } from '../trpc/context';
-import { listOpenPrs, resolveRepoPrs, deriveCiStatus, type GithubPr } from './prs';
+import { listOpenPrs, resolveRepoPrs, deriveCiStatus, normalizeCheck, type GithubPr } from './prs';
 import { rawPr, searchReply, searchQuery } from './pr-fixtures';
 import { startStubGithub, type StubGithub } from './stub-server';
 
@@ -134,12 +134,14 @@ describe('github prs', () => {
               status: 'COMPLETED',
               conclusion: 'FAILURE',
               detailsUrl: 'https://github.com/org/repo/actions/runs/1/job/2',
+              completedAt: '2026-01-01T02:00:00Z',
             },
             {
               __typename: 'StatusContext',
               context: 'ci/legacy',
               state: 'SUCCESS',
               targetUrl: null,
+              createdAt: '2026-01-01T01:00:00Z',
             },
           ],
         },
@@ -161,8 +163,15 @@ describe('github prs', () => {
           status: 'COMPLETED',
           conclusion: 'FAILURE',
           detailsUrl: 'https://github.com/org/repo/actions/runs/1/job/2',
+          completedAt: '2026-01-01T02:00:00Z',
         },
-        { name: 'ci/legacy', status: 'SUCCESS', conclusion: null, detailsUrl: null },
+        {
+          name: 'ci/legacy',
+          status: 'SUCCESS',
+          conclusion: null,
+          detailsUrl: null,
+          completedAt: '2026-01-01T01:00:00Z',
+        },
       ]);
     });
 
@@ -217,6 +226,13 @@ describe('github prs', () => {
       );
     });
 
+    it.each(['WAITING', 'REQUESTED'])(
+      '[FR-PRMON-010] should return pending for a check run with status %s',
+      (status) => {
+        expect(deriveCiStatus([run('COMPLETED', 'SUCCESS'), run(status, null)])).toBe('pending');
+      },
+    );
+
     it('[FR-PRMON-010] should return failing for a failing conclusion even when others pend', () => {
       expect(deriveCiStatus([run('QUEUED', null), run('COMPLETED', 'TIMED_OUT')])).toBe('failing');
     });
@@ -235,6 +251,31 @@ describe('github prs', () => {
       expect(deriveCiStatus([run('COMPLETED', 'SUCCESS'), run('COMPLETED', 'SKIPPED')])).toBe(
         'passing',
       );
+    });
+  });
+
+  describe('normalizeCheck', () => {
+    it('[FR-PRMON-010] should keep the completion time of a check run', () => {
+      const check = normalizeCheck({
+        __typename: 'CheckRun',
+        name: 'job',
+        status: 'COMPLETED',
+        conclusion: 'FAILURE',
+        detailsUrl: null,
+        completedAt: '2026-01-01T02:00:00Z',
+      });
+      expect(check.completedAt).toBe('2026-01-01T02:00:00Z');
+    });
+
+    it('[FR-PRMON-010] should use the creation time of a status context', () => {
+      const check = normalizeCheck({
+        __typename: 'StatusContext',
+        context: 'ci',
+        state: 'FAILURE',
+        targetUrl: null,
+        createdAt: '2026-01-01T03:00:00Z',
+      });
+      expect(check.completedAt).toBe('2026-01-01T03:00:00Z');
     });
   });
 

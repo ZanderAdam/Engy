@@ -250,6 +250,23 @@ describe('mapTimelineNodes', () => {
     expect(events[0]).toMatchObject({ sourceKey: 'gh:k2', at: '2026-01-01T00:00:02Z' });
   });
 
+  it('[FR-INBOX-230] should time a pushed event by the push time, not the commit time', () => {
+    const events = mapTimelineNodes(
+      [
+        {
+          __typename: 'PullRequestCommit',
+          id: 'k1',
+          commit: { committedDate: '2026-01-01T00:00:00Z', author: { user: { login: 'carol' } } },
+        },
+      ],
+      VIEWER,
+      new Set(),
+      '2026-01-03T00:00:00Z',
+    );
+
+    expect(events[0].at).toBe('2026-01-03T00:00:00Z');
+  });
+
   it('[FR-INBOX-240] should skip events authored by the viewer and null nodes', () => {
     const nodes: Array<TimelineNode | null> = [
       null,

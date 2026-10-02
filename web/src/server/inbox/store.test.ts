@@ -114,6 +114,18 @@ describe('inbox store', () => {
       expect(upsertItem(itemInput({ facts: NO_BUCKET_FACTS }), NOW).bucket).toBe('other');
     });
 
+    it('[FR-INBOX-080] should keep priority for a mention stored after the item was read', () => {
+      const item = upsertItem(itemInput(), NOW);
+      markRead(item.id, new Date('2026-03-01T12:00:30.000Z'));
+
+      addEvent(
+        event(item.id, 'mentioned', '2026-03-01T12:00:00.000Z'),
+        new Date('2026-03-01T12:00:50.000Z'),
+      );
+
+      expect(upsertItem(itemInput({ facts: NO_BUCKET_FACTS }), NOW).bucket).toBe('priority');
+    });
+
     it('[FR-INBOX-080] should keep the bucket when no facts are given', () => {
       upsertItem(itemInput({ facts: PRIORITY_FACTS }), NOW);
       expect(upsertItem(itemInput(), NOW).bucket).toBe('priority');

@@ -1,5 +1,6 @@
 import type { GhPrCheck, GhPrCiStatus } from '@engy/common';
 import type { AppState } from '../trpc/context';
+import { deriveCheckState } from '../../lib/pr-check-state';
 import { githubGraphql } from './client';
 import { resolveRepoFullName } from './repo-identity';
 
@@ -33,6 +34,7 @@ interface RawCheckRun {
   status: string;
   conclusion: string | null;
   detailsUrl: string | null;
+  completedAt?: string | null;
 }
 
 interface RawStatusContext {
@@ -40,6 +42,7 @@ interface RawStatusContext {
   context: string;
   state: string;
   targetUrl: string | null;
+  createdAt?: string | null;
 }
 
 export type RawStatusCheckEntry = RawCheckRun | RawStatusContext;
@@ -84,14 +87,6 @@ interface SearchResponse {
   };
 }
 
-export const FAILING_CONCLUSIONS = new Set([
-  'failure',
-  'timed_out',
-  'action_required',
-  'cancelled',
-  'startup_failure',
-]);
-
 const PAGE_SIZE = 50;
 const MAX_PRS_PER_QUERY = 100;
 const MAX_PAGES = MAX_PRS_PER_QUERY / PAGE_SIZE;
@@ -135,8 +130,8 @@ query OpenPrs($q: String!, $first: Int!, $after: String) {
                 contexts(first: 100) {
                   nodes {
                     __typename
-                    ... on CheckRun { name status conclusion detailsUrl }
-                    ... on StatusContext { context state targetUrl }
+                    ... on CheckRun { name status conclusion detailsUrl completedAt }
+                    ... on StatusContext { context state targetUrl createdAt }
                   }
                 }
               }
@@ -154,25 +149,12 @@ const REVIEW_REQUESTED_SEARCH = 'is:pr is:open review-requested:@me';
 export function deriveCiStatus(rollup: RawStatusCheckEntry[] | null): GhPrCiStatus {
   if (!rollup || rollup.length === 0) return 'unknown';
 
-  let hasPending = false;
-
-  for (const entry of rollup) {
-    if (entry.__typename === 'CheckRun') {
-      const conclusion = entry.conclusion?.toLowerCase() ?? null;
-      const status = entry.status.toLowerCase();
-
-      if (conclusion && FAILING_CONCLUSIONS.has(conclusion)) return 'failing';
-      if (status === 'in_progress' || status === 'queued' || status === 'pending') {
-        hasPending = true;
-      }
-    } else {
-      const state = entry.state.toUpperCase();
-      if (state === 'FAILURE' || state === 'ERROR') return 'failing';
-      if (state === 'PENDING') hasPending = true;
-    }
-  }
-
-  return hasPending ? 'pending' : 'passing';
+  const states = rollup.map((entry) => {
+    const { status, conclusion } = normalizeCheck(entry);
+    return deriveCheckState(status, conclusion);
+  });
+  if (states.includes('failing')) return 'failing';
+  return states.includes('pending') ? 'pending' : 'passing';
 }
 
 export function normalizeCheck(entry: RawStatusCheckEntry): GhPrCheck {
@@ -182,6 +164,7 @@ export function normalizeCheck(entry: RawStatusCheckEntry): GhPrCheck {
       status: entry.status,
       conclusion: entry.conclusion ?? null,
       detailsUrl: entry.detailsUrl ?? null,
+      completedAt: entry.completedAt ?? null,
     };
   }
   return {
@@ -189,6 +172,7 @@ export function normalizeCheck(entry: RawStatusCheckEntry): GhPrCheck {
     status: entry.state,
     conclusion: null,
     detailsUrl: entry.targetUrl ?? null,
+    completedAt: entry.createdAt ?? null,
   };
 }
 

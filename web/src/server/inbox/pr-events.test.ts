@@ -218,6 +218,86 @@ describe('[FR-INBOX-060] inbox recording', () => {
     expect(ctx.db.select().from(inboxEvents).all()).toHaveLength(1);
   });
 
+  it('[FR-PRMON-220] should stamp a CI event with the time the failing check completed', () => {
+    const row = makeRow({
+      ciStatus: 'failing',
+      checks: [
+        {
+          name: 'a',
+          status: 'COMPLETED',
+          conclusion: 'FAILURE',
+          detailsUrl: null,
+          completedAt: '2026-02-01T02:00:00Z',
+        },
+        {
+          name: 'b',
+          status: 'COMPLETED',
+          conclusion: 'SUCCESS',
+          detailsUrl: null,
+          completedAt: '2026-02-01T05:00:00Z',
+        },
+      ],
+    });
+    const now = new Date('2026-02-01T09:00:00Z');
+
+    recordPrInboxEvents({
+      prRow: row,
+      workspaceId,
+      viewerLogin: 'me',
+      events: mapPrChange(ciChange('passing', 'failing'), row),
+      now,
+    });
+
+    expect(ctx.db.select().from(inboxEvents).get()?.at).toBe('2026-02-01T02:00:00Z');
+    expect(ctx.db.select().from(inboxItems).get()?.lastEventAt).toBe('2026-02-01T02:00:00Z');
+  });
+
+  it('[FR-PRMON-220] should stamp ci_passed with the newest completion time', () => {
+    const row = makeRow({
+      checks: [
+        {
+          name: 'a',
+          status: 'COMPLETED',
+          conclusion: 'SUCCESS',
+          detailsUrl: null,
+          completedAt: '2026-02-01T02:00:00Z',
+        },
+        {
+          name: 'b',
+          status: 'COMPLETED',
+          conclusion: 'SKIPPED',
+          detailsUrl: null,
+          completedAt: '2026-02-01T05:00:00Z',
+        },
+      ],
+    });
+
+    recordPrInboxEvents({
+      prRow: row,
+      workspaceId,
+      viewerLogin: 'me',
+      events: mapPrChange(ciChange('failing', 'passing'), row),
+      now: new Date('2026-02-01T09:00:00Z'),
+    });
+
+    expect(ctx.db.select().from(inboxEvents).get()?.at).toBe('2026-02-01T05:00:00Z');
+  });
+
+  it('[FR-PRMON-220] should fall back to the poll time when no check time is known', () => {
+    const row = makeRow({ ciStatus: 'failing' });
+    const now = new Date('2026-02-01T09:00:00Z');
+
+    recordPrInboxEvents({
+      prRow: row,
+      workspaceId,
+      viewerLogin: 'me',
+      events: mapPrChange(ciChange('passing', 'failing'), row),
+      now,
+    });
+
+    expect(ctx.db.select().from(inboxEvents).get()?.at).toBe(now.toISOString());
+  });
+
   it('should not create an item when there are no events', () => {
     recordPrInboxEvents({ prRow: makeRow(), workspaceId, viewerLogin: 'me', events: [] });
     expect(ctx.db.select().from(inboxItems).all()).toHaveLength(0);

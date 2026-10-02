@@ -114,6 +114,7 @@ interface FetchTimelineInput {
   since: string | null;
   viewerLogin: string;
   viewerTeams: ReadonlySet<string>;
+  pushedAt?: string;
 }
 
 export function sameLogin(a: string | null | undefined, b: string): boolean {
@@ -249,7 +250,11 @@ function mapForcePush(node: TimelineNode, actor: string): TimelineEvent | null {
   };
 }
 
-function mapCommitPushes(nodes: TimelineNode[], viewerLogin: string): TimelineEvent[] {
+function mapCommitPushes(
+  nodes: TimelineNode[],
+  viewerLogin: string,
+  pushedAt: string | undefined,
+): TimelineEvent[] {
   const byAuthor = new Map<string, TimelineNode[]>();
   for (const node of nodes) {
     const author = node.commit?.author?.user?.login;
@@ -265,7 +270,7 @@ function mapCommitPushes(nodes: TimelineNode[], viewerLogin: string): TimelineEv
       actor: author,
       summary: `${author} pushed ${pluralize(commits.length, 'commit')}`,
       url: latest.url ?? null,
-      at: latest.commit?.committedDate ?? '',
+      at: pushedAt ?? latest.commit?.committedDate ?? '',
       sourceKey: `gh:${latest.id}`,
     });
   }
@@ -307,6 +312,7 @@ export function mapTimelineNodes(
   nodes: Array<TimelineNode | null>,
   viewerLogin: string,
   viewerTeams: ReadonlySet<string> = new Set(),
+  pushedAt?: string,
 ): TimelineEvent[] {
   const present = nodes.filter((node): node is TimelineNode => node !== null);
   const commits = present.filter((node) => node.__typename === 'PullRequestCommit');
@@ -314,7 +320,7 @@ export function mapTimelineNodes(
     .filter((node) => node.__typename !== 'PullRequestCommit')
     .map((node) => mapNode(node, viewerLogin, viewerTeams))
     .filter((event): event is TimelineEvent => event !== null);
-  return [...events, ...mapCommitPushes(commits, viewerLogin)].sort((a, b) =>
+  return [...events, ...mapCommitPushes(commits, viewerLogin, pushedAt)].sort((a, b) =>
     a.at.localeCompare(b.at),
   );
 }
@@ -340,6 +346,11 @@ export async function fetchPrTimeline(
     viewerReviewRequested: pr.reviewRequests.nodes.some((node) =>
       isViewerRequested(node.requestedReviewer, input.viewerLogin, input.viewerTeams),
     ),
-    events: mapTimelineNodes(pr.timelineItems.nodes, input.viewerLogin, input.viewerTeams),
+    events: mapTimelineNodes(
+      pr.timelineItems.nodes,
+      input.viewerLogin,
+      input.viewerTeams,
+      input.pushedAt,
+    ),
   };
 }
