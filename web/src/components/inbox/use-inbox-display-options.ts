@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { InboxSort } from './inbox-helpers';
+import { INBOX_SORTS, type InboxSort } from './inbox-helpers';
 
 export interface InboxDisplayOptions {
   showSnoozed: boolean;
@@ -14,10 +14,8 @@ const DEFAULT_OPTIONS: InboxDisplayOptions = {
   sort: 'activity',
 };
 
-const SORTS: readonly InboxSort[] = ['activity', 'number', 'shipping'];
-
 function isInboxSort(value: unknown): value is InboxSort {
-  return SORTS.includes(value as InboxSort);
+  return INBOX_SORTS.includes(value as InboxSort);
 }
 
 export function parseDisplayOptions(raw: string | null): InboxDisplayOptions {

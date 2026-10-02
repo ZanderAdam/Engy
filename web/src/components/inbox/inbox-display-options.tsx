@@ -4,9 +4,15 @@ import { RiEqualizerLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import type { InboxSort } from './inbox-helpers';
+import { INBOX_SORTS, type InboxSort } from './inbox-helpers';
 import type { InboxDisplayOptions } from './use-inbox-display-options';
 
 const SORT_LABELS: Record<InboxSort, string> = {
@@ -39,7 +45,7 @@ export function InboxDisplayOptionsMenu({ options, onChange }: InboxDisplayOptio
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {(Object.keys(SORT_LABELS) as InboxSort[]).map((sort) => (
+              {INBOX_SORTS.map((sort) => (
                 <SelectItem key={sort} value={sort}>
                   {SORT_LABELS[sort]}
                 </SelectItem>

@@ -315,8 +315,9 @@ async function createReviewWorktree(
   }
 
   try {
-    const localHead = createdByReview ? await readHeadSha(state, worktreePath) : null;
-    const headSha = localHead ?? pr.headSha ?? (await readHeadSha(state, worktreePath)) ?? '';
+    const headSha = createdByReview
+      ? ((await readHeadSha(state, worktreePath)) ?? pr.headSha ?? '')
+      : (pr.headSha ?? (await readHeadSha(state, worktreePath)) ?? '');
     const row = getDb()
       .insert(reviewWorktrees)
       .values({

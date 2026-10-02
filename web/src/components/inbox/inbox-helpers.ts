@@ -18,7 +18,9 @@ export function formatSnoozeUntil(until: string): string {
   return `Snoozed until ${SNOOZE_FORMAT.format(new Date(until)).replace(',', '')}`;
 }
 
-export type InboxSort = 'activity' | 'number' | 'shipping';
+export const INBOX_SORTS = ['activity', 'number', 'shipping'] as const;
+
+export type InboxSort = (typeof INBOX_SORTS)[number];
 
 const NO_PR_RANK = 4;
 

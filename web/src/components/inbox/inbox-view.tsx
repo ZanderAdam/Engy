@@ -65,7 +65,6 @@ import { useInboxDisplayOptions } from './use-inbox-display-options';
 import { useContainerNarrow } from '@/hooks/use-container-narrow';
 import { useInboxKeys } from './use-inbox-keys';
 
-
 const READ_DWELL_MS = 1500;
 const ALL_WORKSPACES = 'all';
 

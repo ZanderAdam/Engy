@@ -39,8 +39,11 @@ function prReviewSummary(pr: Pick<WorkspacePr, 'isDraft' | 'reviewDecision'>): s
 
 export function inboxItemToRow(item: InboxItem, pr: WorkspacePr | undefined): InboxRowModel {
   const event = item.latestEvent;
+  const summary = summarizeEvent(event);
   const eventMeta = EVENT_META[event?.kind ?? 'commented'];
-  const state = pr ? prStateVisual(pr) : null;
+  const stateIcon = pr
+    ? prStateIcon(pr)
+    : { icon: eventMeta.icon, iconClassName: eventMeta.className, iconLabel: summary };
   return {
     key: prKey(item.repoFullName, item.prNumber),
     title: item.title,
@@ -52,10 +55,8 @@ export function inboxItemToRow(item: InboxItem, pr: WorkspacePr | undefined): In
     at: item.lastEventAt,
     unread: item.unread,
     snoozedUntil: item.snoozedUntil,
-    summary: summarizeEvent(event),
-    icon: state?.icon ?? eventMeta.icon,
-    iconClassName: state?.className ?? eventMeta.className,
-    iconLabel: state?.label ?? summarizeEvent(event),
+    summary,
+    ...stateIcon,
     avatarLogin: event && hasAvatar(event) ? event.actor : null,
     risk: item.risk,
     ci: pr?.ciStatus,

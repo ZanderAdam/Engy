@@ -316,7 +316,7 @@ function ReviewPageBody({
                   worktreePath={worktree.worktreePath}
                   headRefName={worktree.headRefName}
                   baseRef={worktree.baseRef}
-                  active={tab === 'files'}
+                  active={isFilesTab}
                   totalLines={{ added: detail.additions, removed: detail.deletions }}
                 />
               ) : (

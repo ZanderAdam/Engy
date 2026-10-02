@@ -88,10 +88,10 @@ function buildFacts(
   };
 }
 
-function reasonEvent(thread: GithubNotification, itemExists: boolean): TimelineEvent {
-  const mapped = itemExists
-    ? DEFAULT_REASON_EVENT
-    : (REASON_EVENTS[thread.reason] ?? DEFAULT_REASON_EVENT);
+function reasonEvent(
+  thread: GithubNotification,
+  mapped: { kind: InboxEventKind; summary: string },
+): TimelineEvent {
   return {
     ...mapped,
     actor: null,
@@ -107,10 +107,12 @@ function eventsForThread(
   repoFullName: string,
   prNumber: number,
 ): TimelineEvent[] {
-  const itemExists = findItemByPr(repoFullName, prNumber) !== undefined;
-  if (timeline === null) return [reasonEvent(thread, itemExists)];
-  if (timeline.events.length > 0) return timeline.events;
-  return itemExists ? [] : [reasonEvent(thread, false)];
+  if (timeline !== null && timeline.events.length > 0) return timeline.events;
+  if (findItemByPr(repoFullName, prNumber) === undefined) {
+    return [reasonEvent(thread, REASON_EVENTS[thread.reason] ?? DEFAULT_REASON_EVENT)];
+  }
+  if (timeline === null) return [reasonEvent(thread, DEFAULT_REASON_EVENT)];
+  return [];
 }
 
 async function loadTimeline(
