@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils';
 import { trpc } from '@/lib/trpc';
 import { buildPrsPath } from '@/lib/review-path';
 import {
+  defaultInboxTab,
   describeCleared,
   filterInboxItems,
   moveSelection,
@@ -46,6 +47,7 @@ import {
   sortInboxItems,
   unreadPriorityCount,
   visibleItemIds,
+  type InboxTab,
 } from './inbox-helpers';
 import {
   inboxItemToRow,
@@ -63,7 +65,6 @@ import { useInboxDisplayOptions } from './use-inbox-display-options';
 import { useContainerNarrow } from '@/hooks/use-container-narrow';
 import { useInboxKeys } from './use-inbox-keys';
 
-type InboxTab = 'priority' | 'all' | 'mine';
 
 const READ_DWELL_MS = 1500;
 const ALL_WORKSPACES = 'all';
@@ -87,7 +88,7 @@ export function InboxView({ scope }: InboxViewProps) {
   const utils = trpc.useUtils();
   const isLocked = lockedWorkspaceId !== undefined;
 
-  const [tab, setTab] = useState<InboxTab>('priority');
+  const [tab, setTab] = useState<InboxTab>(() => defaultInboxTab(isLocked));
   const [workspaceFilter, setWorkspaceFilter] = useState(ALL_WORKSPACES);
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -379,11 +380,11 @@ export function InboxView({ scope }: InboxViewProps) {
         <div className="flex flex-wrap items-center gap-2">
           <Tabs value={tab} onValueChange={(value) => setTab(value as InboxTab)}>
             <TabsList>
+              {isLocked && <TabsTrigger value="mine">My PRs</TabsTrigger>}
               <TabsTrigger value="priority">
                 Priority{unreadPriority > 0 ? ` (${unreadPriority})` : ''}
               </TabsTrigger>
               <TabsTrigger value="all">All</TabsTrigger>
-              {isLocked && <TabsTrigger value="mine">My PRs</TabsTrigger>}
             </TabsList>
           </Tabs>
           <Button

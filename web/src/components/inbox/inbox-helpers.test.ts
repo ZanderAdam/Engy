@@ -13,9 +13,20 @@ import {
   pickReviewProject,
   selectionAfterMarkRead,
   visibleItemIds,
+  defaultInboxTab,
 } from './inbox-helpers';
 
 describe('inbox-helpers', () => {
+  describe('defaultInboxTab', () => {
+    it('[FR-INBOX-490] should open the PRs tab on My PRs', () => {
+      expect(defaultInboxTab(true)).toBe('mine');
+    });
+
+    it('[FR-INBOX-490] should open the global Inbox on Priority', () => {
+      expect(defaultInboxTab(false)).toBe('priority');
+    });
+  });
+
   describe('[FR-INBOX-530] describeCleared', () => {
     it('should report the cleared items', () => {
       expect(describeCleared(1, 0)).toBe('Cleared 1 item');

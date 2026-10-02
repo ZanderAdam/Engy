@@ -38,6 +38,12 @@ export function filterInboxItems<T extends Pick<InboxItem, 'title' | 'repoFullNa
   );
 }
 
+export type InboxTab = 'priority' | 'all' | 'mine';
+
+export function defaultInboxTab(lockedToWorkspace: boolean): InboxTab {
+  return lockedToWorkspace ? 'mine' : 'priority';
+}
+
 export function visibleItemIds(
   rows: { item: { id: number; unread: boolean } | null }[],
   onlyRead = false,
