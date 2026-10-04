@@ -1,5 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "cacheMaxAge": "7d",
+  "agentGuidance": false,
   "tasks": {
     "dev": {
       "persistent": true,
@@ -13,7 +15,7 @@
     },
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**", "dist-server/**"]
+      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**", "dist/**", "dist-server/**"]
     },
     "lint:eslint": {
       "dependsOn": ["^build"]
