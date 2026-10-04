@@ -103,10 +103,17 @@ export interface TerminalScope {
   resumedFrom?: string;
 }
 
+export interface TerminalRailGroup {
+  id: string;
+  name: string;
+}
+
 export interface TerminalTab {
   sessionId: string;
   scope: TerminalScope;
   status: TerminalStatus;
+  /** User-made rail group; stored on the server so it is the same on every device. */
+  railGroup?: TerminalRailGroup;
   activityState?: TerminalActivityState;
   // Subtitle under scopeLabel — from OSC 0/2 escapes when a browser is
   // attached, or seeded from the server's hook-derived lastTitle otherwise.

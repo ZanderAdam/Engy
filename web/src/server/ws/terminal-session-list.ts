@@ -1,5 +1,5 @@
 import { WebSocket } from 'ws';
-import type { AppState } from '../trpc/context';
+import type { AppState, TerminalRailGroup } from '../trpc/context';
 
 interface TerminalSessionListItem {
   sessionId: string;
@@ -16,6 +16,7 @@ interface TerminalSessionListItem {
   taskId?: number;
   worktreeBranch?: string;
   renamedLabel?: string;
+  railGroup?: TerminalRailGroup;
   lastTitle?: string;
   needsAttention: boolean;
   activityState: string;
@@ -85,6 +86,7 @@ export function listTerminalSessions(
         taskId: m.taskId,
         worktreeBranch: m.worktreeBranch,
         renamedLabel: m.renamedLabel,
+        railGroup: m.railGroup,
         lastTitle: m.lastTitle,
         needsAttention: m.needsAttention === true,
         activityState: m.activityState ?? 'idle',

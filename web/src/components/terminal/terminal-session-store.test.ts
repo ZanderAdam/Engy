@@ -7,6 +7,7 @@ import {
   terminalRailKey,
 } from './terminal-session-store';
 import type { TerminalTab } from './types';
+import { toggleRailGroupCollapsed } from './use-collapsed-rail-groups';
 
 function makeTab(
   sessionId: string,
@@ -144,6 +145,25 @@ describe('terminal-session-store', () => {
     it('should number nothing while no rail is visible', () => {
       publishTerminalSessions(HIDDEN, snapshot([makeTab('h1')], { visible: false }));
       expect(numbered()).toEqual([]);
+    });
+
+    it('[FR-TERMINAL-900] should renumber when a group collapses or opens', () => {
+      const ops = { id: 'ops', name: 'Ops' };
+      publishTerminalSessions(
+        VISIBLE,
+        snapshot([
+          { ...makeTab('o1'), railGroup: ops },
+          { ...makeTab('o2'), railGroup: ops },
+          makeTab('b'),
+        ]),
+      );
+      expect(numbered()).toEqual(['o1', 'o2', 'b']);
+
+      toggleRailGroupCollapsed('ops');
+      expect(numbered()).toEqual(['b']);
+
+      toggleRailGroupCollapsed('ops');
+      expect(numbered()).toEqual(['o1', 'o2', 'b']);
     });
   });
 });

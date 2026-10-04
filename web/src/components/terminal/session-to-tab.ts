@@ -1,5 +1,5 @@
 import { isAgentTypeId, type AgentTypeId } from '@/lib/agent-types';
-import type { TerminalActivityState, TerminalScope, TerminalTab } from './types';
+import type { TerminalActivityState, TerminalRailGroup, TerminalScope, TerminalTab } from './types';
 
 /** One entry of `GET /api/terminal/sessions` (see terminal-session-list.ts). */
 export interface SessionListItem {
@@ -16,6 +16,7 @@ export interface SessionListItem {
   taskId?: number;
   worktreeBranch?: string;
   renamedLabel?: string;
+  railGroup?: TerminalRailGroup;
   lastTitle?: string;
   needsAttention?: boolean;
   activityState?: TerminalActivityState;
@@ -47,6 +48,7 @@ export function sessionToTab(s: SessionListItem, fallbackGroupKey: string): Term
       renamedLabel: s.renamedLabel,
     },
     status: s.dormant ? 'dormant' : 'connecting',
+    railGroup: s.railGroup,
     activityState: s.activityState ?? 'idle',
     // Seeds the subtitle for a session no browser has ever attached to —
     // otherwise a hook-derived title never reaches a tab built from this list.

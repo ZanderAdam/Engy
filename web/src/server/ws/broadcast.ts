@@ -1,6 +1,6 @@
 import { WebSocket } from 'ws';
 import type { TerminalActivityState } from '@engy/common';
-import { getAppState } from '../trpc/context';
+import { getAppState, type TerminalRailGroup } from '../trpc/context';
 
 // ── Event Types ─────────────────────────────────────────────────────
 
@@ -34,10 +34,11 @@ interface QuestionChangeEvent {
 interface TerminalSessionsChangeEvent {
   type: 'TERMINAL_SESSIONS_CHANGE';
   payload: {
-    action: 'created' | 'destroyed' | 'attached' | 'detached' | 'renamed';
+    action: 'created' | 'destroyed' | 'attached' | 'detached' | 'renamed' | 'regrouped';
     sessionId: string;
     groupKey?: string;
     newLabel?: string;
+    railGroup?: TerminalRailGroup | null;
     // 'killed' = deliberate teardown (user kill / terminal_close) — the UI
     // removes the tab. A natural PTY exit omits it so the tab stays visible
     // with its final output.
@@ -205,6 +206,17 @@ export function broadcastTerminalSessionsChange(
   broadcastEvent({
     type: 'TERMINAL_SESSIONS_CHANGE',
     payload: { action, sessionId, groupKey, newLabel, reason },
+  });
+}
+
+export function broadcastTerminalRailGroupChange(
+  sessionId: string,
+  groupKey: string | undefined,
+  railGroup: TerminalRailGroup | null,
+): void {
+  broadcastEvent({
+    type: 'TERMINAL_SESSIONS_CHANGE',
+    payload: { action: 'regrouped', sessionId, groupKey, railGroup },
   });
 }
 

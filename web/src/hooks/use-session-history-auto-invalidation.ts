@@ -9,7 +9,8 @@ import { trpc } from '@/lib/trpc';
 export function useSessionHistoryAutoInvalidation(): void {
   const utils = trpc.useUtils();
 
-  useOnServerEvent('TERMINAL_SESSIONS_CHANGE', () => {
+  useOnServerEvent('TERMINAL_SESSIONS_CHANGE', (payload) => {
+    if (payload.action === 'regrouped') return;
     utils.terminal.listSessionHistory.invalidate();
   });
 }

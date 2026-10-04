@@ -16,6 +16,11 @@ export interface CreateDirResult {
   results: Array<{ path: string; success: boolean; error?: string }>;
 }
 
+export interface TerminalRailGroup {
+  id: string;
+  name: string;
+}
+
 export interface TerminalSessionMeta {
   scopeType: string;
   scopeLabel: string;
@@ -59,6 +64,9 @@ export interface TerminalSessionMeta {
   // Separate from scopeLabel so a rename stays distinguishable from the default
   // scope name, which the tooltip still shows.
   renamedLabel?: string;
+  // A user-made group in the terminal rail. Kept here, not in the browser, so
+  // the grouping is the same on every device.
+  railGroup?: TerminalRailGroup;
   needsAttention?: boolean;
   lastFailure?: { type: string; message: string; at: number };
   activeSubagents?: number;

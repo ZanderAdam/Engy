@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from 'react';
 import { railOrder, railSections } from './rail-order';
 import type { TerminalTab } from './types';
+import { readCollapsedRailGroups, subscribeCollapsedRailGroups } from './use-collapsed-rail-groups';
 import { readWorktreeGrouping, subscribeWorktreeGrouping } from './use-worktree-grouping';
 
 interface TerminalSessionsSnapshot {
@@ -66,10 +67,12 @@ export function useTerminalSessions(key: string | undefined): TerminalSessionsSn
 let numberedCache: {
   snapshot: TerminalSessionsSnapshot | undefined;
   byWorktree: boolean;
+  collapsed: ReadonlySet<string> | undefined;
   tabs: TerminalTab[];
 } = {
   snapshot: undefined,
   byWorktree: true,
+  collapsed: undefined,
   tabs: [],
 };
 
@@ -91,22 +94,29 @@ export function readNumberedTerminals(): TerminalTab[] {
     }
   }
   const byWorktree = readWorktreeGrouping();
-  if (visible === numberedCache.snapshot && byWorktree === numberedCache.byWorktree) {
+  const collapsed = readCollapsedRailGroups();
+  if (
+    visible === numberedCache.snapshot &&
+    byWorktree === numberedCache.byWorktree &&
+    collapsed === numberedCache.collapsed
+  ) {
     return numberedCache.tabs;
   }
   const tabs = visible
-    ? railOrder(railSections(visible.tabs, visible.commandCenter, byWorktree))
+    ? railOrder(railSections(visible.tabs, visible.commandCenter, byWorktree), collapsed)
     : [];
-  numberedCache = { snapshot: visible, byWorktree, tabs };
+  numberedCache = { snapshot: visible, byWorktree, collapsed, tabs };
   return tabs;
 }
 
 function subscribeNumbered(listener: () => void): () => void {
-  const unsubscribeSessions = subscribe(listener);
-  const unsubscribeGrouping = subscribeWorktreeGrouping(listener);
+  const unsubscribers = [
+    subscribe(listener),
+    subscribeWorktreeGrouping(listener),
+    subscribeCollapsedRailGroups(listener),
+  ];
   return () => {
-    unsubscribeSessions();
-    unsubscribeGrouping();
+    for (const unsubscribe of unsubscribers) unsubscribe();
   };
 }
 
