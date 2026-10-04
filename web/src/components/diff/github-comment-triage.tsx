@@ -8,7 +8,7 @@ import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { cn } from '@/lib/utils';
-import { generateGithubFeedback, getCommentText } from './feedback-markdown';
+import { generateGithubFeedback, getCommentText } from '@/lib/diff-feedback';
 import {
   filterUnresolvedGithubThreads,
   getSelectedThreads,

@@ -30,6 +30,7 @@ export interface DiffComment {
     body: unknown;
     userId: string | null;
     createdAt: string | null;
+    sentAt: string | null;
   }>;
 }
 
@@ -79,6 +80,7 @@ export function useDiffComments(repoDir: string | null, branch: string | null) {
             body: c.body,
             userId: c.userId,
             createdAt: c.createdAt,
+            sentAt: c.sentAt,
           })),
       };
     });
@@ -143,6 +145,7 @@ export function useDiffComments(repoDir: string | null, branch: string | null) {
   };
 
   return {
+    scopePrefix: prefix,
     diffComments,
     reviewSummary,
     commentsForFile,

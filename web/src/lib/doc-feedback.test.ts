@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCommentsForExport } from './format-comments';
+import { formatCommentsForExport } from './doc-feedback';
 
 const MARKDOWN = 'First paragraph.\nSecond paragraph.\nThird paragraph.';
 
@@ -37,7 +37,7 @@ describe('formatCommentsForExport', () => {
     const result = formatCommentsForExport({ threads, markdown: MARKDOWN });
 
     expect(result).toContain('Line 2: "Second paragraph."');
-    expect(result).toContain('> Clarify this');
+    expect(result).toContain('> **user:** Clarify this');
   });
 
   it('[FR-EDITOR-170] names each thread id so an agent can reply to it', () => {
@@ -75,6 +75,17 @@ describe('formatCommentsForExport', () => {
     ]);
     const result = formatCommentsForExport({ threads, markdown: MARKDOWN });
 
-    expect(result).toContain('- see docs\n  1. step');
+    expect(result).toContain('- see docs\n>   1. step');
+  });
+
+  it('returns empty string when a file path is given but no thread has comments', () => {
+    const threads = new Map([['t1', thread('Resolved note', { resolved: true })]]);
+    expect(formatCommentsForExport({ threads, markdown: MARKDOWN, filePath: 'a.md' })).toBe('');
+  });
+
+  it('shows the quote without a line number when no markdown is given', () => {
+    const threads = new Map([['t1', thread('Clarify this', { exact: 'Second paragraph.' })]]);
+    expect(formatCommentsForExport({ threads })).toContain('"Second paragraph."');
+    expect(formatCommentsForExport({ threads })).not.toContain('Line 2');
   });
 });

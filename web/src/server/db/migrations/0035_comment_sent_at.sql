@@ -1,0 +1,1 @@
+ALTER TABLE `thread_comments` ADD `sent_at` text;

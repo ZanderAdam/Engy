@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { generateDiffFeedback, generateGithubFeedback } from './feedback-markdown';
-import type { GithubDiffThread } from './feedback-markdown';
+import { generateDiffFeedback, generateGithubFeedback } from './diff-feedback';
+import type { GithubDiffThread } from './diff-feedback';
 import { diffDocPath } from '@/lib/diff-doc-path';
 
 const REPO = '/Users/me/repo';

@@ -456,6 +456,7 @@ export const threadComments = sqliteTable('thread_comments', {
     .default([]),
   metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
   deletedAt: text('deleted_at'),
+  sentAt: text('sent_at'),
   createdAt: text('created_at')
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

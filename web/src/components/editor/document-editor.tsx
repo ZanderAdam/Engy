@@ -36,8 +36,10 @@ import { InMemoryThreadStore, DefaultThreadStoreAuth } from "./thread-store";
 import type { CommentStore } from "./thread-store";
 import { snapshotAnchors } from "./comments/snapshot";
 import { reconcileAnchors } from "./comments/reconcile";
-import { formatCommentsForExport } from "./format-comments";
+import { formatCommentsForExport } from "@/lib/doc-feedback";
 import { SendToTerminalButton } from "../terminal/send-to-terminal-button";
+import { LiveCommentsToggle } from "../terminal/live-comments-toggle";
+import { useCommentDelivery } from "@/hooks/use-comment-delivery";
 import { trpc } from "@/lib/trpc";
 import { copyToClipboard } from "@/lib/clipboard";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -338,16 +340,31 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     [editor, comments, threadStore],
   );
 
-  const getFormattedComments = useCallback(() => {
-    const threads = threadStore.getThreads();
-    if (threads.size === 0) return '';
-
-    const markdown = normalizeMarkdown(
+  const getCurrentMarkdown = useCallback(() => {
+    return normalizeMarkdown(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       editor.blocksToMarkdownLossy(mermaidToCodeBlock(editor.document as any) as any),
     );
-    return formatCommentsForExport({ threads, markdown, filePath });
-  }, [threadStore, editor, filePath]);
+  }, [editor]);
+
+  const getFormattedComments = useCallback(() => {
+    const threads = threadStore.getThreads();
+    if (threads.size === 0) return '';
+    return formatCommentsForExport({ threads, markdown: getCurrentMarkdown(), filePath });
+  }, [threadStore, getCurrentMarkdown, filePath]);
+
+  const commentScope = useMemo(
+    () =>
+      threadStore.documentPath
+        ? { workspaceSlug: threadStore.workspaceSlug, documentPath: threadStore.documentPath }
+        : null,
+    [threadStore],
+  );
+  const commentDelivery = useCommentDelivery(commentScope);
+
+  const handleSendComments = useCallback(() => {
+    commentDelivery.send({ markdown: getCurrentMarkdown(), filePath });
+  }, [commentDelivery, getCurrentMarkdown, filePath]);
 
   const handleCopyComments = useCallback(() => {
     const formatted = getFormattedComments();
@@ -359,13 +376,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       setTimeout(() => setCopied(false), 2000);
     });
   }, [getFormattedComments]);
-
-  const getCurrentMarkdown = useCallback(() => {
-    return normalizeMarkdown(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      editor.blocksToMarkdownLossy(mermaidToCodeBlock(editor.document as any) as any),
-    );
-  }, [editor]);
 
   const handleCopyMarkdown = useCallback(() => {
     copyToClipboard(getCurrentMarkdown()).then((ok) => {
@@ -548,7 +558,21 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
                     </>
                   )}
                 </Button>
-                <SendToTerminalButton getContent={getFormattedComments} />
+                {commentScope && (
+                  <>
+                    <SendToTerminalButton
+                      onClick={handleSendComments}
+                      disabled={!commentDelivery.terminalActive || commentDelivery.isSending}
+                    />
+                    <LiveCommentsToggle
+                      live={!!commentDelivery.liveSessionId}
+                      liveLabel={commentDelivery.liveLabel}
+                      terminalActive={commentDelivery.terminalActive}
+                      busy={commentDelivery.isTogglingLive}
+                      onToggle={() => commentDelivery.toggleLive(filePath)}
+                    />
+                  </>
+                )}
                 <TooltipProvider delayDuration={300}>
                   <Tooltip>
                     <TooltipTrigger asChild>

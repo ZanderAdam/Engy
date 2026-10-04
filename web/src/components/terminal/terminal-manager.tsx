@@ -53,6 +53,9 @@ interface InjectEvent {
   /** Set by whichever manager writes the text. Read back synchronously after
    * dispatch to tell "delivered" from "silently dropped". */
   handled?: boolean;
+  /** Only report the target: the manager sets `sessionId` and writes nothing. */
+  resolveOnly?: boolean;
+  sessionId?: string;
 }
 
 interface OpenEvent {
@@ -443,7 +446,8 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       });
       if (!targetId) return;
 
-      tabWsRefs.current.get(targetId)!.write(detail.context);
+      if (detail.resolveOnly) detail.sessionId = targetId;
+      else tabWsRefs.current.get(targetId)!.write(detail.context);
       detail.handled = true;
     }
 

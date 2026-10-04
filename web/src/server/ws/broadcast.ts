@@ -104,6 +104,15 @@ interface CommentChangeEvent {
   };
 }
 
+interface CommentLiveChangeEvent {
+  type: 'COMMENT_LIVE_CHANGE';
+  payload: {
+    scopeKey: string;
+    sessionId: string | null;
+    reason?: 'session-ended';
+  };
+}
+
 interface UsageChangeEvent {
   type: 'USAGE_CHANGE';
   payload: {
@@ -148,6 +157,7 @@ type ServerEvent =
   | TerminalWorkersChangeEvent
   | VoiceSpeakEvent
   | CommentChangeEvent
+  | CommentLiveChangeEvent
   | UsageChangeEvent;
 
 // ── Generic Broadcast ───────────────────────────────────────────────
@@ -259,6 +269,14 @@ export function broadcastVoiceSpeak(payload: VoiceSpeakEvent['payload']): void {
 
 export function broadcastCommentChange(documentPath: string, threadId: string): void {
   broadcastEvent({ type: 'COMMENT_CHANGE', payload: { documentPath, threadId } });
+}
+
+export function broadcastCommentLiveChange(
+  scopeKey: string,
+  sessionId: string | null,
+  reason?: 'session-ended',
+): void {
+  broadcastEvent({ type: 'COMMENT_LIVE_CHANGE', payload: { scopeKey, sessionId, reason } });
 }
 
 export function broadcastUsageChange(scannedFiles: number, newSessions: number): void {

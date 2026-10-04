@@ -1,4 +1,9 @@
-import { REPLY_HINT, threadIdLine } from '@/lib/comment-feedback';
+import {
+  REPLY_HINT,
+  renderThreadComments,
+  threadIdLine,
+  type FeedbackComment,
+} from '@/lib/comment-feedback';
 import { diffDocFilePath } from '@/lib/diff-doc-path';
 
 interface DiffThread {
@@ -6,11 +11,7 @@ interface DiffThread {
   documentPath: string;
   metadata?: Record<string, unknown> | null;
   resolved?: boolean;
-  comments: Array<{
-    body: unknown;
-    userId?: string;
-    createdAt?: string;
-  }>;
+  comments: FeedbackComment[];
 }
 
 export interface GithubDiffThread {
@@ -32,7 +33,6 @@ function extractFilePath(documentPath: string): string {
 export function getCommentText(body: unknown): string {
   if (typeof body === 'string') return body;
   if (body && typeof body === 'object' && 'content' in body) {
-    // BlockNote-style body
     return JSON.stringify(body);
   }
   return String(body ?? '');
@@ -88,8 +88,8 @@ export function generateDiffFeedback(threads: DiffThread[]): string {
     const lineNumber = (meta?.lineNumber as number) ?? 0;
     const codeLine = (meta?.codeLine as string) ?? '';
 
-    const commentTexts = thread.comments.map((c) => getCommentText(c.body)).filter(Boolean);
-    if (commentTexts.length === 0) continue;
+    const quoted = renderThreadComments(thread.comments);
+    if (quoted.length === 0) continue;
 
     const body: string[] = [];
     if (lineNumber > 0) body.push(`**Line ${lineNumber}**`);
@@ -97,7 +97,7 @@ export function generateDiffFeedback(threads: DiffThread[]): string {
     // The reviewed line itself, so the agent reads the comment against what the
     // reviewer was looking at rather than re-deriving it from a line number.
     if (codeLine) body.push('```', codeLine, '```');
-    body.push(commentTexts.join('\n'));
+    body.push(...quoted);
 
     const filePath = extractFilePath(thread.documentPath);
     if (!byFile.has(filePath)) byFile.set(filePath, []);

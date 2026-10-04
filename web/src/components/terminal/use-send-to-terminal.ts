@@ -53,6 +53,18 @@ export function useSendToTerminal() {
     [dispatchInject],
   );
 
+  // Asks the terminal managers which session an inject would land in, without
+  // writing anything, so a send can go through the server by session id.
+  const resolveTargetSession = useCallback((): string | null => {
+    const detail: { context: string; resolveOnly: true; tabId?: string; sessionId?: string } = {
+      context: '',
+      resolveOnly: true,
+      ...(tabId ? { tabId } : {}),
+    };
+    window.dispatchEvent(new CustomEvent('terminal:inject', { detail }));
+    return detail.sessionId ?? null;
+  }, [tabId]);
+
   const openNewTerminal = useCallback(
     (scope: TerminalScope) => {
       window.dispatchEvent(
@@ -62,5 +74,12 @@ export function useSendToTerminal() {
     [tabId],
   );
 
-  return { sendToTerminal, insertToTerminal, submitTerminal, openNewTerminal, terminalActive };
+  return {
+    sendToTerminal,
+    insertToTerminal,
+    submitTerminal,
+    resolveTargetSession,
+    openNewTerminal,
+    terminalActive,
+  };
 }

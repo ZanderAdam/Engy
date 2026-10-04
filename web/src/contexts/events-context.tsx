@@ -87,6 +87,12 @@ interface CommentChangePayload {
   threadId: string;
 }
 
+interface CommentLiveChangePayload {
+  scopeKey: string;
+  sessionId: string | null;
+  reason?: 'session-ended';
+}
+
 interface TerminalBranchChangePayload {
   sessionId: string;
   worktreeBranch: string;
@@ -111,6 +117,7 @@ interface ServerEventMap {
   VOICE_SPEAK: VoiceSpeakPayload;
   TERMINAL_BRANCH_CHANGE: TerminalBranchChangePayload;
   COMMENT_CHANGE: CommentChangePayload;
+  COMMENT_LIVE_CHANGE: CommentLiveChangePayload;
   USAGE_CHANGE: UsageChangePayload;
 }
 

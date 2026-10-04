@@ -32,6 +32,7 @@ import {
   sessionIdFlagToResume,
 } from '@/lib/agent-types';
 import { sanitizeOscTitle } from '@/lib/osc-title';
+import { clearLiveTargetsForSession } from '../live-comment-targets';
 import {
   recordSessionStart,
   updateSessionSummary,
@@ -836,6 +837,7 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         state.terminalSessionMeta.delete(sessionId);
         failWorkerDispatches(state, sessionId, 'Worker terminal exited');
         disconnectWorker(state, sessionId);
+        clearLiveTargetsForSession(state, sessionId);
         broadcastTerminalSessionsChange('destroyed', sessionId, exitMeta?.groupKey);
         if (exitMeta?.projectSlug) {
           broadcastTerminalActivityChange({
