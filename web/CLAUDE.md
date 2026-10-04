@@ -74,8 +74,9 @@ src/server/
 │   └── workspace-lock.ts        # Per-workspace async mutex for git operations
 ├── services/
 │   ├── project-completion.ts    # ProjectCompletionService — distillation + archival
-│   └── comment.ts               # Comment thread writes shared by tRPC + MCP; picks the
-│                                #   body shape (string for diff, BlockNote blocks for docs)
+│   ├── comment.ts               # Comment thread writes shared by tRPC + MCP; picks the
+│   │                            #   body shape (string for diff, BlockNote blocks for docs)
+│   └── comment-feedback.ts      # Unsent-comment selection + formatting for agent feedback
 └── tasks/
     └── validation.ts             # Cycle detection (iterative DFS)
 ```

@@ -390,6 +390,14 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
     return new EngyThreadStore(workspaceSlug, `${projectSlug}/${planFilePath}`);
   }, [workspaceSlug, projectSlug, taskSlug, hasPlan, planFilePath]);
 
+  const planCommentScope = useMemo(
+    () =>
+      threadStore
+        ? { workspaceSlug: threadStore.workspaceSlug, documentPath: threadStore.documentPath }
+        : null,
+    [threadStore],
+  );
+
   type PlanThreads = ReturnType<EngyThreadStore['getThreads']>;
   const [planThreads, setPlanThreads] = useState<PlanThreads>(() => new Map());
   const [threadStoreReady, setThreadStoreReady] = useState(false);
@@ -667,6 +675,7 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
                   taskId={taskId}
                   planFilePath={planFilePath}
                   threads={planThreads}
+                  commentScope={planCommentScope}
                   threadsReady={threadStoreReady}
                   getMarkdown={getLatestPlanMarkdown}
                 />

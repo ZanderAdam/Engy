@@ -15,7 +15,7 @@ function makeComment(overrides: Partial<DiffComment> = {}): DiffComment {
     side: 'modified',
     resolved: false,
     source: 'local',
-    comments: [{ id: 'c1', body: 'text', userId: 'user', createdAt: null }],
+    comments: [{ id: 'c1', body: 'text', userId: 'user', createdAt: null, sentAt: null }],
     ...overrides,
   };
 }

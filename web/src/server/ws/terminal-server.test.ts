@@ -310,6 +310,24 @@ describe('Terminal WebSocket Server', () => {
       });
     });
 
+    it('[FR-EDITOR-250] should drop live comment targets pinned to a session that exits', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+      const browserWs = await connectBrowser(port, { sessionId: 'sess-live', workingDir: '/tmp' });
+      await spawnPromise;
+
+      state.liveCommentTargets.set('scope', {
+        scope: { workspaceId: null, documentPath: 'notes.md' },
+        sessionId: 'sess-live',
+      });
+
+      const exitPromise = waitForMessage(browserWs);
+      daemonWs.send(JSON.stringify({ t: 'exit', sessionId: 'sess-live', exitCode: 0 }));
+      await exitPromise;
+
+      await vi.waitFor(() => expect(state.liveCommentTargets.has('scope')).toBe(false));
+    });
+
     it('[FR-TERMINAL-300] should buffer output tails for connected workers only', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);

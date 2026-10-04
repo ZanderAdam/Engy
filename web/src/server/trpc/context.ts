@@ -11,6 +11,7 @@ import type {
   UsageSessionScanResult,
   UsageScanFileState,
 } from '@engy/common';
+import type { CommentScope } from '../services/comment';
 
 export interface CreateDirResult {
   results: Array<{ path: string; success: boolean; error?: string }>;
@@ -215,6 +216,12 @@ export interface UsageScanDispatchResult {
   newlySealedDates: string[];
   // Typed loosely: a daemon that runs older code sends another number or none.
   reducerVersion: number | undefined;
+}
+
+export interface LiveCommentTarget {
+  scope: CommentScope;
+  sessionId: string;
+  filePath?: string;
 }
 
 export interface DispatchEntry {
@@ -550,6 +557,8 @@ export interface AppState {
   dispatchReplyNotices: Map<string, string[]>;
   /** Recent PTY output tail per connected worker (bounded; for terminal_status) */
   terminalOutputTails: Map<string, string>;
+  /** Comment scopes in live mode, keyed by commentScopeKey (in-memory; lost on restart) */
+  liveCommentTargets: Map<string, LiveCommentTarget>;
 }
 
 const GLOBAL_KEY = '__engy_app_state__' as const;
@@ -612,6 +621,7 @@ export function createAppState(): AppState {
     dispatchWaiters: new Map(),
     dispatchInbox: new Map(),
     dispatchReplyNotices: new Map(),
+    liveCommentTargets: new Map(),
     terminalOutputTails: new Map(),
   };
 }

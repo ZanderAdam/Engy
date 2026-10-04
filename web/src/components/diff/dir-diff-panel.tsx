@@ -32,7 +32,7 @@ export function DirDiffPanel({ dirPath }: DirDiffPanelProps) {
   const utils = trpc.useUtils();
   const handleRefresh = useCallback(() => refreshDiff(utils), [utils]);
 
-  const { diffComments } = useDiffComments(dirPath, statusData?.branch ?? null);
+  const { diffComments, scopePrefix } = useDiffComments(dirPath, statusData?.branch ?? null);
 
   const files: ChangedFile[] = useMemo(() => statusData?.files ?? [], [statusData]);
 
@@ -86,7 +86,7 @@ export function DirDiffPanel({ dirPath }: DirDiffPanelProps) {
 
       <div className="flex flex-1 min-w-0 flex-col">
         <div className="flex items-center justify-end border-b border-border px-3 py-1">
-          <ReviewActions repoDir={dirPath} diffComments={diffComments} />
+          <ReviewActions repoDir={dirPath} scopePrefix={scopePrefix} diffComments={diffComments} />
         </div>
 
         {!selectedFile ? (

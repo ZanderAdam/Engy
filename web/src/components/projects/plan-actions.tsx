@@ -4,9 +4,9 @@ import { useCallback, useMemo, useRef } from 'react';
 import { RiCheckLine, RiChat3Line, RiTerminalLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { useExecutionStatus } from '@/hooks/use-execution-status';
-import { formatCommentsForExport } from '@/components/editor/format-comments';
+import { useCommentDelivery } from '@/hooks/use-comment-delivery';
+import type { CommentScopeInput } from '@/lib/comment-feedback';
 import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 
@@ -22,6 +22,8 @@ interface PlanActionsProps {
   /** Project-relative path of the plan file, resolved by useTaskHasPlan. */
   planFilePath: string;
   threads: Map<string, ThreadLike>;
+  /** Where the plan's comment threads live; null until the thread store exists. */
+  commentScope: CommentScopeInput | null;
   /** False until the thread store has finished its initial DB load. */
   threadsReady: boolean;
   /**
@@ -36,16 +38,17 @@ export function PlanActions({
   taskId,
   planFilePath,
   threads,
+  commentScope,
   threadsReady,
   getMarkdown,
 }: PlanActionsProps) {
-  const { sendToTerminal, terminalActive } = useSendToTerminal();
+  const delivery = useCommentDelivery(commentScope);
+  const { terminalActive } = delivery;
   const { status, sessionId, isActive, isStarting, start } = useExecutionStatus('task', taskId);
 
-  const sendFeedbackMutation = trpc.execution.sendFeedback.useMutation({
-    onSuccess: () => toast.success('Feedback sent to planning session'),
-    onError: (err) => toast.error('Failed to send feedback', { description: err.message }),
-  });
+  const utils = trpc.useUtils();
+  const sendFeedbackMutation = trpc.execution.sendFeedback.useMutation();
+  const markSentMutation = trpc.comment.markSent.useMutation();
 
   const pushRemoteFileMutation = trpc.execution.pushRemoteFile.useMutation();
 
@@ -63,8 +66,7 @@ export function PlanActions({
     return false;
   }, [threads]);
 
-  const approveDisabled =
-    planningSessionActive || isStarting || pushRemoteFileMutation.isPending;
+  const approveDisabled = planningSessionActive || isStarting || pushRemoteFileMutation.isPending;
   const sendToSessionDisabled =
     !sessionId ||
     !threadsReady ||
@@ -99,17 +101,28 @@ export function PlanActions({
   }, [pushRemoteFileMutation, taskId, getMarkdown, start]);
 
   const handleSendToSession = useCallback(async () => {
-    if (busyRef.current || !sessionId) return;
-    const markdown = getMarkdown();
-    const feedback = formatCommentsForExport({ threads, markdown, filePath: planFilePath });
-    if (!feedback) return;
-
+    if (busyRef.current || !sessionId || !commentScope) return;
     busyRef.current = true;
     try {
+      const markdown = getMarkdown();
+      const { text, commentIds } = await utils.comment.pendingFeedback.fetch(
+        {
+          scope: commentScope,
+          markdown,
+          filePath: planFilePath,
+        },
+        { staleTime: 0 },
+      );
+      if (!text) {
+        toast.info('No new comments to send');
+        return;
+      }
       await pushRemoteFileMutation.mutateAsync({ taskId, content: markdown });
-      sendFeedbackMutation.mutate({ sessionId, feedback });
+      await sendFeedbackMutation.mutateAsync({ sessionId, feedback: text });
+      await markSentMutation.mutateAsync({ commentIds });
+      toast.success('Feedback sent to planning session');
     } catch (err) {
-      toast.error('Failed to push plan file', {
+      toast.error('Failed to send feedback', {
         description: err instanceof Error ? err.message : String(err),
       });
     } finally {
@@ -117,20 +130,19 @@ export function PlanActions({
     }
   }, [
     sessionId,
-    threads,
-    planFilePath,
+    commentScope,
     getMarkdown,
+    utils,
+    planFilePath,
     pushRemoteFileMutation,
     taskId,
     sendFeedbackMutation,
+    markSentMutation,
   ]);
 
   const handleSendToTerminal = useCallback(() => {
-    const markdown = getMarkdown();
-    const feedback = formatCommentsForExport({ threads, markdown, filePath: planFilePath });
-    if (!feedback) return;
-    sendToTerminal(feedback);
-  }, [getMarkdown, threads, planFilePath, sendToTerminal]);
+    delivery.send({ markdown: getMarkdown(), filePath: planFilePath });
+  }, [delivery, getMarkdown, planFilePath]);
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -177,7 +189,7 @@ export function PlanActions({
               variant="ghost"
               size="sm"
               onClick={handleSendToTerminal}
-              disabled={!terminalActive}
+              disabled={!terminalActive || !commentScope || delivery.isSending}
               className="h-7 gap-1.5 px-2 text-xs"
             >
               <RiTerminalLine className="size-3.5" />

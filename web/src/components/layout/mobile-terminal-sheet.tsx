@@ -143,6 +143,8 @@ function MobileTerminalSheetBase({
         // tab's queue and replay stale whenever that tab is activated.
         if (!isTabActive) return;
         const detail = (e as CustomEvent).detail;
+        // A target lookup writes nothing, so it must not open the sheet or replay later.
+        if ((detail as { resolveOnly?: boolean } | undefined)?.resolveOnly) return;
         // Each open tab mounts its own sheet listening on window, and the Sheet
         // portals to document.body (escaping the hidden tab's display:none) — so
         // only the tab that fired the event may respond. Mirrors TerminalManager.

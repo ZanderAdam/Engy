@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, asc, eq, isNull, like } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { getDb } from '../db/client';
 import { commentThreads, threadComments } from '../db/schema';
@@ -6,9 +6,17 @@ import { randomId } from '@/lib/random-id';
 import { LOCAL_USER_ID, AGENT_USER_ID } from '@/lib/comment-feedback';
 
 type CommentThread = typeof commentThreads.$inferSelect;
+type ThreadComment = typeof threadComments.$inferSelect;
+export type ThreadWithComments = CommentThread & { comments: ThreadComment[] };
+
+export interface CommentScope {
+  workspaceId: number | null;
+  documentPath: string;
+  prefix?: boolean;
+}
 type ThreadShape = Pick<CommentThread, 'documentPath' | 'metadata'>;
 
-function requireThread(threadId: string): CommentThread {
+export function requireThread(threadId: string): CommentThread {
   const db = getDb();
   const thread = db.select().from(commentThreads).where(eq(commentThreads.id, threadId)).get();
   if (!thread) {
@@ -107,4 +115,49 @@ export function replyToThread(input: ReplyInput) {
     kind: isDiffThread(thread) ? ('diff' as const) : ('doc' as const),
     resolved: input.resolve === true,
   };
+}
+
+export function scopeContains(
+  scope: CommentScope,
+  workspaceId: number | null,
+  documentPath: string,
+) {
+  if (scope.workspaceId !== workspaceId) return false;
+  return scope.prefix
+    ? documentPath.startsWith(scope.documentPath)
+    : documentPath === scope.documentPath;
+}
+
+export function listThreadsInScope(scope: CommentScope): ThreadWithComments[] {
+  const db = getDb();
+  const workspaceCondition =
+    scope.workspaceId === null
+      ? isNull(commentThreads.workspaceId)
+      : eq(commentThreads.workspaceId, scope.workspaceId);
+  const pathCondition = scope.prefix
+    ? like(commentThreads.documentPath, `${scope.documentPath}%`)
+    : eq(commentThreads.documentPath, scope.documentPath);
+
+  const threads = db
+    .select()
+    .from(commentThreads)
+    .where(and(workspaceCondition, pathCondition))
+    .orderBy(asc(commentThreads.createdAt))
+    .all();
+
+  return (
+    threads
+      .map((thread) => ({
+        ...thread,
+        comments: db
+          .select()
+          .from(threadComments)
+          .where(eq(threadComments.threadId, thread.id))
+          .orderBy(asc(threadComments.createdAt))
+          .all(),
+      }))
+      .filter((thread) => thread.comments.length > 0)
+      // LIKE ignores case and treats `_` and `%` as wildcards, so it only narrows the rows.
+      .filter((thread) => scopeContains(scope, thread.workspaceId, thread.documentPath))
+  );
 }

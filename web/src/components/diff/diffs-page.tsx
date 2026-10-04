@@ -383,6 +383,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
 
   // Comments
   const {
+    scopePrefix: commentScopePrefix,
     diffComments,
     reviewSummary,
     commentsForFile,
@@ -696,6 +697,7 @@ export function DiffsPage({ workspaceSlug, projectSlug }: DiffsPageProps) {
             )}
             <ReviewActions
               repoDir={selectedRepo}
+              scopePrefix={commentScopePrefix}
               diffComments={currentFileComments}
               reviewSpec={reviewSpec}
               worktreePath={selectedWorktree?.worktreePath}

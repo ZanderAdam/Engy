@@ -16,6 +16,11 @@ The document editor is the primary authoring surface for workspace and project d
 | `web/src/components/editor/remark-normalize.ts` | `normalizeMarkdown` — remark pipeline that makes BlockNote's lossy output idempotent |
 | `web/src/components/editor/thread-store.ts` | `EngyThreadStore` (DB-backed) and `InMemoryThreadStore` (session-scoped); both implement `CommentStore` |
 | `web/src/server/trpc/routers/comment.ts` | `commentRouter` — tRPC procedures for threads and comments (`commentThreads`, `threadComments` tables) |
+| `web/src/lib/doc-feedback.ts` | `formatCommentsForExport` — renders doc threads as agent feedback |
+| `web/src/server/services/comment-feedback.ts` | `buildPendingFeedback` / `markCommentsSent` — selects and formats the comments not yet sent |
+| `web/src/server/live-comment-targets.ts` | `getLiveTarget`, `clearLiveTarget`, `clearLiveTargetsForSession` — the live pin registry in `AppState` |
+| `web/src/server/comment-delivery.ts` | `sendPendingComments`, `setLiveTarget`, `onUserComment`, `flushLiveComments` — pastes feedback into a terminal and runs live mode |
+| `web/src/hooks/use-comment-delivery.ts` | `useCommentDelivery` — browser side of send and live mode for one comment scope |
 | `web/src/components/editor/comments/matcher.ts` | `findTextQuoteMatch` — resolves a `TextQuoteSelector` anchor to a ProseMirror `{ from, to }` range |
 | `web/src/components/editor/comments/snapshot.ts` | `snapshotAnchors` — captures text-quote selectors for open threads before each save |
 | `web/src/components/editor/comments/reconcile.ts` | `reconcileAnchors` — re-resolves stored anchors after a document reload |
@@ -39,6 +44,14 @@ Frontmatter is handled by `stripFrontmatter` at load time: the `---`-fenced YAML
 `listThreads` enforces workspace isolation: a slug-scoped query matches on `workspaceId`; a slug-less query uses `isNull(workspaceId)`. The two predicates are mutually exclusive, so workspace threads and open-dir threads never appear in each other's result sets.
 
 `listThreadsByPrefix` uses a SQL `LIKE` prefix match on `documentPath` and runs the same workspace-isolation condition, enabling comment summaries that span multiple documents under a directory prefix.
+
+## Sending comments to an agent
+
+Each `threadComments` row has a `sentAt` timestamp. A send takes the unresolved threads in a scope (one document, or every thread under a path prefix for a diff branch) and picks the comments that are not deleted and not yet sent. Agent replies are never picked, because the agent wrote them; an agent-authored thread root (a review finding) is picked, so findings can still go to the agent that fixes them. When a thread already had comments sent, its first comment is repeated as context above the new ones. Every comment carries an author label (`user`, `agent`, or a GitHub login).
+
+`comment.sendPending` formats that delta on the server, pastes it into the terminal session the browser names (the focused terminal, found through a `resolveOnly` `terminal:inject` event), and sets `sentAt` on what it sent. Delivery uses the same bracketed paste and per-agent Enter as cross-terminal dispatch. Runner sessions take the text from `comment.pendingFeedback` and confirm it with `comment.markSent` after `execution.sendFeedback` succeeds.
+
+Live mode pins a terminal session to a scope (`comment.setLive`). The pin lives in `AppState.liveCommentTargets`, so a server restart drops it. When the user creates a thread or a reply in a live scope, the server sends the scope's threads that hold an unsent user comment at once if the terminal is idle with nothing queued; otherwise the comments wait in the database and go out on a later idle transition, after any queued dispatch. One idle transition pastes for one live scope only, because a second paste before the first paste's Enter would merge both into one prompt. Threads with no new user comment, such as agent findings or synced GitHub comments, are left for a manual send, so an agent never gets its own findings back. When the pinned session exits or is killed, the pin is removed and `COMMENT_LIVE_CHANGE` is broadcast with reason `session-ended`.
 
 ## Comment anchoring
 
@@ -76,6 +89,13 @@ The visual flowchart editor uses a pragmatic line-based parser (`parseFlowchart`
 | FR-EDITOR-170 | WHEN document comments are exported for an agent, the system SHALL name each thread's id alongside its quoted anchor, and SHALL state how to reply to a thread. |
 | FR-EDITOR-180 | WHEN the user right-clicks a Code or Diffs editor tab, the system SHALL offer Close, Close others, Close tabs to the right, and Close all tabs. Close others SHALL keep only that tab and make it active; Close tabs to the right SHALL drop every later tab and move focus to that tab only if the active tab was closed; both SHALL prune closed files from back/forward history, and SHALL leave state unchanged when nothing would close. |
 | FR-EDITOR-190 | WHEN the user right-clicks a document tab, the system SHALL offer Close, Close others, Close tabs to the right, and Close all tabs, each scoped to that tab's dock group; IF the active document is closed by Close others or Close tabs to the right, THEN the system SHALL activate the clicked tab. |
+| FR-EDITOR-200 | WHEN comments in a scope are sent to an agent, the system SHALL include only comments of unresolved threads that are not deleted, not sent before, and not agent replies (an agent-authored thread root is included), SHALL record each included comment as sent, and SHALL broadcast `COMMENT_CHANGE` for each thread it marked. |
+| FR-EDITOR-210 | WHEN a sent thread gets a new comment and that comment is sent, the system SHALL show the thread's first comment as context, set apart from the new comments, and SHALL label every comment with its author. |
+| FR-EDITOR-220 | IF a send finds no unsent comments in its scope, THEN the system SHALL paste nothing and SHALL report zero comments sent. |
+| FR-EDITOR-230 | WHEN comments are sent to a terminal session, the system SHALL paste them as one bracketed paste followed by the agent's submit keys; IF the session is not running, THEN it SHALL reject the send with `NOT_FOUND`; IF no daemon is connected, THEN it SHALL reject the send with `PRECONDITION_FAILED` and leave the comments unsent. |
+| FR-EDITOR-240 | WHILE a comment scope is live, WHEN the user creates a thread or a reply in that scope, the system SHALL send the unsent comments of every thread in the scope that has an unsent user comment to the pinned terminal at once if it is idle with nothing queued, and otherwise SHALL send them on a later idle transition after any queued dispatch, pasting for at most one live scope per idle transition. Threads with no unsent user comment (agent findings, synced GitHub comments) SHALL wait for a manual send. |
+| FR-EDITOR-250 | WHEN the terminal session pinned to a live scope exits or is killed, the system SHALL turn live mode off for that scope and SHALL broadcast `COMMENT_LIVE_CHANGE` with reason `session-ended`. |
+| FR-EDITOR-260 | WHEN live mode is turned on for a scope, the system SHALL refuse a session that is not running, SHALL broadcast the pinned session, and SHALL send the scope's waiting user comments under the FR-EDITOR-240 rules; WHEN live mode is turned off, the system SHALL stop sending. |
 
 ## Sources
 

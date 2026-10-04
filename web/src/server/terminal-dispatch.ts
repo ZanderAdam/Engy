@@ -16,6 +16,7 @@ import {
   deletePersistedTerminalSession,
 } from './ws/terminal-session-store';
 import { recordSessionStart, markSessionClosed } from './ws/terminal-session-history';
+import { clearLiveTargetsForSession } from './live-comment-targets';
 
 // Cross-terminal dispatch: an orchestrator agent sends a prompt to a worker
 // terminal by injecting it into the worker's PTY stdin (same wire path as
@@ -169,14 +170,20 @@ function hasQueuedDispatch(state: AppState, workerSessionId: string): boolean {
   return (state.dispatchInbox.get(workerSessionId)?.length ?? 0) > 0;
 }
 
+/** True when a prompt pasted now would start a new turn and not overtake queued dispatch traffic. */
+export function canInjectNow(state: AppState, sessionId: string): boolean {
+  const hasPendingNotices = (state.dispatchReplyNotices.get(sessionId)?.length ?? 0) > 0;
+  return isDeliverable(state, sessionId) && !hasQueuedDispatch(state, sessionId) && !hasPendingNotices;
+}
+
 /** Paste text into a terminal and submit it per the agent CLI's paste mechanics. */
-function injectPromptToTerminal(state: AppState, sessionId: string, text: string): boolean {
+export function injectPromptToTerminal(state: AppState, sessionId: string, text: string): boolean {
   const meta = state.terminalSessionMeta.get(sessionId);
   const agentTypeId: AgentTypeId | undefined =
     meta?.agentType && isAgentTypeId(meta.agentType) ? meta.agentType : undefined;
   const paste = getAgentType(agentTypeId).paste;
 
-  const pasted = `${BRACKETED_PASTE_START}${text}${BRACKETED_PASTE_END}`;
+  const pasted = `${BRACKETED_PASTE_START}${text.replace(PASTE_SENTINEL_RE, '')}${BRACKETED_PASTE_END}`;
   if (!injectTerminalInput(state, sessionId, pasted)) return false;
 
   // TUIs swallow an Enter sent in the same instant as the paste — submit after
@@ -196,12 +203,11 @@ function hasSessionEndpoint(state: AppState, sessionId: string): boolean {
 }
 
 function deliverDispatch(state: AppState, entry: DispatchEntry): void {
-  const safeMessage = entry.message.replace(PASTE_SENTINEL_RE, '');
   const contract = replyContract(
     entry.correlationId,
     hasSessionEndpoint(state, entry.workerSessionId),
   );
-  if (!injectPromptToTerminal(state, entry.workerSessionId, `${safeMessage}\n\n${contract}`)) {
+  if (!injectPromptToTerminal(state, entry.workerSessionId, `${entry.message}\n\n${contract}`)) {
     settleDispatch(state, entry, 'failed', undefined, 'No daemon connected');
     return;
   }
@@ -214,9 +220,12 @@ function deliverDispatch(state: AppState, entry: DispatchEntry): void {
   );
 }
 
-/** Deliver queued reply notices and the next queued dispatch for a terminal that just went idle. */
-export function flushDispatchInbox(state: AppState, workerSessionId: string): void {
-  if (!isDeliverable(state, workerSessionId)) return;
+/**
+ * Deliver queued reply notices and the next queued dispatch for a terminal
+ * that just went idle. Returns true when something was pasted.
+ */
+export function flushDispatchInbox(state: AppState, workerSessionId: string): boolean {
+  if (!isDeliverable(state, workerSessionId)) return false;
 
   // Reply notices first — they are informational and cheap; all pending ones
   // are combined into a single paste so one idle transition drains them.
@@ -230,20 +239,20 @@ export function flushDispatchInbox(state: AppState, workerSessionId: string): vo
     }
     // The paste flips the terminal to active; the next act→idle transition
     // flushes the dispatch inbox.
-    return;
+    return true;
   }
 
   const inbox = state.dispatchInbox.get(workerSessionId);
-  if (!inbox || inbox.length === 0) return;
+  if (!inbox || inbox.length === 0) return false;
 
   // One at a time: the delivery flips the worker to active; the next act→idle
   // transition flushes the next entry.
   const correlationId = inbox.shift()!;
   if (inbox.length === 0) state.dispatchInbox.delete(workerSessionId);
   const entry = state.dispatches.get(correlationId);
-  if (entry && entry.status === 'queued') {
-    deliverDispatch(state, entry);
-  }
+  if (!entry || entry.status !== 'queued') return false;
+  deliverDispatch(state, entry);
+  return true;
 }
 
 const NOTICE_RESULT_MAX_CHARS = 2_000;
@@ -268,16 +277,12 @@ function notifyOrigin(state: AppState, entry: DispatchEntry): void {
   const notice =
     `[engy-notice ${entry.correlationId}] Worker "${worker?.description ?? entry.workerSessionId.slice(0, 8)}" ` +
     `${outcome}\n(Informational — your earlier terminal_dispatch settled. Do not reply or re-dispatch because of this notice.)`;
-  const safeNotice = notice.replace(PASTE_SENTINEL_RE, '');
 
   // Direct-inject only when nothing else is queued for the origin — pending
   // notices or dispatches would otherwise be overtaken out of arrival order.
-  const hasPendingNotices = (state.dispatchReplyNotices.get(origin)?.length ?? 0) > 0;
-  if (isDeliverable(state, origin) && !hasQueuedDispatch(state, origin) && !hasPendingNotices) {
-    if (injectPromptToTerminal(state, origin, safeNotice)) return;
-  }
+  if (canInjectNow(state, origin) && injectPromptToTerminal(state, origin, notice)) return;
   const pending = state.dispatchReplyNotices.get(origin) ?? [];
-  pending.push(safeNotice);
+  pending.push(notice);
   state.dispatchReplyNotices.set(origin, pending);
 }
 
@@ -536,6 +541,7 @@ export function destroyTerminalSession(
 
   failWorkerDispatches(state, sessionId, 'Worker terminal killed');
   disconnectWorker(state, sessionId);
+  clearLiveTargetsForSession(state, sessionId);
   // 'killed' tells the UI to remove the tab — every destroyTerminalSession
   // caller is a deliberate teardown, unlike a natural PTY exit whose tab
   // stays visible with its final output.

@@ -3,6 +3,7 @@ import type { AppState, TerminalSessionMeta } from '../trpc/context';
 import { persistTerminalSession } from '../ws/terminal-session-store';
 import { broadcastTerminalActivityChange } from '../ws/broadcast';
 import { flushDispatchInbox } from '../terminal-dispatch';
+import { flushLiveComments } from '../comment-delivery';
 import { ATTENTION_NOTIFICATION_TYPES, isSubagentEvent, resolveNotificationType } from './shared';
 import type { HookHandler } from './types';
 
@@ -51,10 +52,10 @@ export function applyActivityState(
     state: next,
     hookDriven: meta.hookDriven,
   });
-  // Idle-gated dispatch delivery: a worker that just finished its turn
-  // receives the next queued cross-terminal dispatch.
+  // Idle-gated delivery: a terminal that just finished its turn receives the
+  // next queued cross-terminal dispatch, or else its waiting live comments.
   if (next === 'idle' || next === 'done') {
-    flushDispatchInbox(state, sessionId);
+    if (!flushDispatchInbox(state, sessionId)) flushLiveComments(state, sessionId);
   }
 }
 

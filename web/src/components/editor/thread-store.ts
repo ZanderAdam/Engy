@@ -20,6 +20,8 @@ export interface CommentStore extends ThreadStore {
   readonly ready?: Promise<void>;
   /** Document this store is bound to (DB-backed stores only). */
   readonly documentPath?: string;
+  /** Workspace the document's threads belong to (DB-backed stores only). */
+  readonly workspaceSlug?: string;
   getThreads(): Map<string, ThreadData>;
   subscribe(cb: (threads: Map<string, ThreadData>) => void): () => void;
   setThreadMetadata(threadId: string, anchor: Record<string, unknown>): void;
@@ -239,7 +241,7 @@ const trpcClients = new WeakMap<EngyThreadStore, TrpcClient>();
 export class EngyThreadStore extends ThreadStore implements CommentStore {
   private threads: Map<string, ThreadData> = new Map();
   private subscribers: Set<(threads: Map<string, ThreadData>) => void> = new Set();
-  private readonly workspaceSlug: string | undefined;
+  readonly workspaceSlug: string | undefined;
   readonly documentPath: string;
 
   readonly ready: Promise<void>;

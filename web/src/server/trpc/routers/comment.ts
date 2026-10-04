@@ -1,18 +1,28 @@
 import { z } from 'zod';
-import { eq, and, asc, isNull, like } from 'drizzle-orm';
+import { eq, asc } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { commentThreads, threadComments, workspaces } from '../../db/schema';
-import { LOCAL_USER_ID as USER_ID } from '@/lib/comment-feedback';
-import { addComment as addCommentToThread, setThreadResolved } from '../../services/comment';
+import { LOCAL_USER_ID as USER_ID, commentScopeKey } from '@/lib/comment-feedback';
+import {
+  addComment as addCommentToThread,
+  listThreadsInScope,
+  requireThread,
+  setThreadResolved,
+  type CommentScope,
+} from '../../services/comment';
+import { buildPendingFeedback, markCommentsSent } from '../../services/comment-feedback';
+import { onUserComment, sendPendingComments, setLiveTarget } from '../../comment-delivery';
+import { clearLiveTarget, getLiveTarget } from '../../live-comment-targets';
 
 type Reaction = { emoji: string; createdAt: string; userIds: string[] };
 
 function resolveWorkspace(workspaceSlug: string) {
   const db = getDb();
   const ws = db.select().from(workspaces).where(eq(workspaces.slug, workspaceSlug)).get();
-  if (!ws) throw new TRPCError({ code: 'NOT_FOUND', message: `Workspace "${workspaceSlug}" not found` });
+  if (!ws)
+    throw new TRPCError({ code: 'NOT_FOUND', message: `Workspace "${workspaceSlug}" not found` });
   return ws;
 }
 
@@ -29,22 +39,24 @@ function getThreadWithComments(threadId: string) {
   return { ...thread, comments };
 }
 
-function loadThreadsWithComments<T extends { id: string }>(threads: T[]) {
-  const db = getDb();
-  return threads
-    .map((thread) => {
-      const cmts = db
-        .select()
-        .from(threadComments)
-        .where(eq(threadComments.threadId, thread.id))
-        .orderBy(asc(threadComments.createdAt))
-        .all();
-      return { ...thread, comments: cmts };
-    })
-    .filter((thread) => thread.comments.length > 0);
+const workspaceSlugField = z.string().optional();
+
+const scopeSchema = z.object({
+  workspaceSlug: workspaceSlugField,
+  documentPath: z.string().min(1),
+  prefix: z.boolean().optional(),
+});
+
+function resolveScope(scope: z.infer<typeof scopeSchema>): CommentScope {
+  const workspaceId = scope.workspaceSlug ? resolveWorkspace(scope.workspaceSlug).id : null;
+  return { workspaceId, documentPath: scope.documentPath, prefix: scope.prefix };
 }
 
-const workspaceSlugField = z.string().optional();
+const feedbackOptionsSchema = {
+  markdown: z.string().optional(),
+  filePath: z.string().optional(),
+  threadIds: z.array(z.string()).optional(),
+};
 
 export const commentRouter = router({
   createThread: publicProcedure
@@ -61,7 +73,7 @@ export const commentRouter = router({
         metadata: z.any().optional(),
       }),
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const workspaceId = input.workspaceSlug ? resolveWorkspace(input.workspaceSlug).id : null;
       const db = getDb();
       const now = new Date().toISOString();
@@ -89,6 +101,7 @@ export const commentRouter = router({
         })
         .run();
 
+      onUserComment(ctx.state, workspaceId, input.documentPath);
       return getThreadWithComments(input.threadId);
     }),
 
@@ -102,7 +115,13 @@ export const commentRouter = router({
     }),
 
   updateThreadMetadata: publicProcedure
-    .input(z.object({ workspaceSlug: workspaceSlugField, threadId: z.string(), metadata: z.record(z.string(), z.unknown()) }))
+    .input(
+      z.object({
+        workspaceSlug: workspaceSlugField,
+        threadId: z.string(),
+        metadata: z.record(z.string(), z.unknown()),
+      }),
+    )
     .mutation(({ input }) => {
       if (input.workspaceSlug) resolveWorkspace(input.workspaceSlug);
       const db = getDb();
@@ -139,14 +158,17 @@ export const commentRouter = router({
         metadata: z.any().optional(),
       }),
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       if (input.workspaceSlug) resolveWorkspace(input.workspaceSlug);
-      return addCommentToThread({
+      const comment = addCommentToThread({
         threadId: input.threadId,
         commentId: input.commentId,
         body: input.body,
         metadata: input.metadata,
       });
+      const thread = requireThread(input.threadId);
+      onUserComment(ctx.state, thread.workspaceId, thread.documentPath);
+      return comment;
     }),
 
   updateComment: publicProcedure
@@ -205,7 +227,11 @@ export const commentRouter = router({
     .mutation(({ input }) => {
       if (input.workspaceSlug) resolveWorkspace(input.workspaceSlug);
       const db = getDb();
-      const comment = db.select().from(threadComments).where(eq(threadComments.id, input.commentId)).get();
+      const comment = db
+        .select()
+        .from(threadComments)
+        .where(eq(threadComments.id, input.commentId))
+        .get();
       if (!comment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Comment not found' });
 
       const reactions = (comment.reactions ?? []) as Reaction[];
@@ -213,9 +239,16 @@ export const commentRouter = router({
       if (existing) {
         if (!existing.userIds.includes(USER_ID)) existing.userIds.push(USER_ID);
       } else {
-        reactions.push({ emoji: input.emoji, createdAt: new Date().toISOString(), userIds: [USER_ID] });
+        reactions.push({
+          emoji: input.emoji,
+          createdAt: new Date().toISOString(),
+          userIds: [USER_ID],
+        });
       }
-      db.update(threadComments).set({ reactions }).where(eq(threadComments.id, input.commentId)).run();
+      db.update(threadComments)
+        .set({ reactions })
+        .where(eq(threadComments.id, input.commentId))
+        .run();
       return { success: true };
     }),
 
@@ -231,7 +264,11 @@ export const commentRouter = router({
     .mutation(({ input }) => {
       if (input.workspaceSlug) resolveWorkspace(input.workspaceSlug);
       const db = getDb();
-      const comment = db.select().from(threadComments).where(eq(threadComments.id, input.commentId)).get();
+      const comment = db
+        .select()
+        .from(threadComments)
+        .where(eq(threadComments.id, input.commentId))
+        .get();
       if (!comment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Comment not found' });
 
       const reactions = (comment.reactions ?? []) as Reaction[];
@@ -240,55 +277,73 @@ export const commentRouter = router({
           r.emoji === input.emoji ? { ...r, userIds: r.userIds.filter((id) => id !== USER_ID) } : r,
         )
         .filter((r) => r.userIds.length > 0);
-      db.update(threadComments).set({ reactions: filtered }).where(eq(threadComments.id, input.commentId)).run();
+      db.update(threadComments)
+        .set({ reactions: filtered })
+        .where(eq(threadComments.id, input.commentId))
+        .run();
       return { success: true };
     }),
 
   listThreads: publicProcedure
-    .input(
-      z.object({
-        workspaceSlug: workspaceSlugField,
-        documentPath: z.string(),
-      }),
-    )
-    .query(({ input }) => {
-      const db = getDb();
-
-      const workspaceCondition = input.workspaceSlug
-        ? eq(commentThreads.workspaceId, resolveWorkspace(input.workspaceSlug).id)
-        : isNull(commentThreads.workspaceId);
-
-      const threads = db
-        .select()
-        .from(commentThreads)
-        .where(and(workspaceCondition, eq(commentThreads.documentPath, input.documentPath)))
-        .orderBy(asc(commentThreads.createdAt))
-        .all();
-
-      return loadThreadsWithComments(threads);
-    }),
+    .input(z.object({ workspaceSlug: workspaceSlugField, documentPath: z.string() }))
+    .query(({ input }) => listThreadsInScope(resolveScope(input))),
 
   listThreadsByPrefix: publicProcedure
+    .input(z.object({ workspaceSlug: workspaceSlugField, documentPathPrefix: z.string().min(1) }))
+    .query(({ input }) =>
+      listThreadsInScope(
+        resolveScope({
+          workspaceSlug: input.workspaceSlug,
+          documentPath: input.documentPathPrefix,
+          prefix: true,
+        }),
+      ),
+    ),
+
+  pendingFeedback: publicProcedure
+    .input(z.object({ scope: scopeSchema, ...feedbackOptionsSchema }))
+    .query(({ input }) => {
+      const { scope, ...opts } = input;
+      return buildPendingFeedback(resolveScope(scope), opts);
+    }),
+
+  markSent: publicProcedure
+    .input(z.object({ commentIds: z.array(z.string()) }))
+    .mutation(({ input }) => {
+      markCommentsSent(input.commentIds);
+      return { success: true };
+    }),
+
+  sendPending: publicProcedure
+    .input(z.object({ scope: scopeSchema, sessionId: z.string().min(1), ...feedbackOptionsSchema }))
+    .mutation(({ input, ctx }) => {
+      const { scope, sessionId, ...opts } = input;
+      return { sent: sendPendingComments(ctx.state, sessionId, resolveScope(scope), opts) };
+    }),
+
+  liveTarget: publicProcedure
+    .input(scopeSchema)
+    .query(({ input, ctx }) => ({ sessionId: getLiveTarget(ctx.state, commentScopeKey(input)) })),
+
+  setLive: publicProcedure
     .input(
       z.object({
-        workspaceSlug: workspaceSlugField,
-        documentPathPrefix: z.string().min(1),
+        scope: scopeSchema,
+        sessionId: z.string().min(1).nullable(),
+        filePath: z.string().optional(),
       }),
     )
-    .query(({ input }) => {
-      const db = getDb();
-
-      const workspaceCondition = input.workspaceSlug
-        ? eq(commentThreads.workspaceId, resolveWorkspace(input.workspaceSlug).id)
-        : isNull(commentThreads.workspaceId);
-
-      const threads = db
-        .select()
-        .from(commentThreads)
-        .where(and(workspaceCondition, like(commentThreads.documentPath, `${input.documentPathPrefix}%`)))
-        .orderBy(asc(commentThreads.createdAt))
-        .all();
-
-      return loadThreadsWithComments(threads);
+    .mutation(({ input, ctx }) => {
+      const scopeKey = commentScopeKey(input.scope);
+      if (input.sessionId === null) {
+        clearLiveTarget(ctx.state, scopeKey);
+      } else {
+        setLiveTarget(ctx.state, scopeKey, {
+          scope: resolveScope(input.scope),
+          sessionId: input.sessionId,
+          filePath: input.filePath,
+        });
+      }
+      return { sessionId: input.sessionId };
     }),
 });

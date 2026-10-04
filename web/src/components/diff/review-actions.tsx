@@ -1,21 +1,26 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { RiSendPlaneLine, RiFileCopyLine, RiCodeLine, RiRobot2Line } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
+import { LiveCommentsToggle } from '@/components/terminal/live-comments-toggle';
 import { useExecutionStatus } from '@/hooks/use-execution-status';
+import { useCommentDelivery } from '@/hooks/use-comment-delivery';
+import { isPendingComment } from '@/lib/comment-feedback';
 import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { copyToClipboard } from '@/lib/clipboard';
-import { generateDiffFeedback } from './feedback-markdown';
+import { generateDiffFeedback } from '@/lib/diff-feedback';
 import { buildReviewPrompt } from './review-dispatch';
 import type { DiffComment } from './use-diff-comments';
 import type { GitPatchSpec } from '@engy/common';
 
 interface ReviewActionsProps {
   repoDir: string | null;
+  /** Thread path prefix of the branch under review; empty when unknown. */
+  scopePrefix: string;
   diffComments: DiffComment[];
   taskId?: number;
   /**
@@ -29,6 +34,7 @@ interface ReviewActionsProps {
 
 export function ReviewActions({
   repoDir,
+  scopePrefix,
   diffComments,
   taskId,
   reviewSpec,
@@ -36,19 +42,33 @@ export function ReviewActions({
   coderWorkspace,
 }: ReviewActionsProps) {
   const { sendToTerminal, terminalActive } = useSendToTerminal();
-  const { status: sessionStatus, sessionId } = useExecutionStatus(
-    'task',
-    taskId ?? 0,
-  );
+  const { status: sessionStatus, sessionId } = useExecutionStatus('task', taskId ?? 0);
 
   const runnerActive = taskId != null && (sessionStatus === 'active' || sessionStatus === 'paused');
 
-  const sendFeedbackMutation = trpc.execution.sendFeedback.useMutation({
-    onSuccess: () => toast.success('Feedback sent to agent'),
-    onError: (err) => toast.error(err.message),
-  });
+  const utils = trpc.useUtils();
+  const sendFeedbackMutation = trpc.execution.sendFeedback.useMutation();
+  const markSentMutation = trpc.comment.markSent.useMutation();
 
-  const unresolvedThreads = diffComments.filter((c) => !c.resolved);
+  const unresolvedThreads = useMemo(() => diffComments.filter((c) => !c.resolved), [diffComments]);
+
+  const scope = useMemo(
+    () => (scopePrefix ? { documentPath: scopePrefix, prefix: true } : null),
+    [scopePrefix],
+  );
+  const delivery = useCommentDelivery(scope);
+
+  const { pendingThreadIds, pendingCount } = useMemo(() => {
+    const ids: string[] = [];
+    let count = 0;
+    for (const thread of unresolvedThreads) {
+      const pending = thread.comments.filter((c, i) => isPendingComment(c, i === 0)).length;
+      if (pending === 0) continue;
+      ids.push(thread.threadId);
+      count += pending;
+    }
+    return { pendingThreadIds: ids, pendingCount: count };
+  }, [unresolvedThreads]);
 
   const buildFeedback = useCallback(() => {
     if (!repoDir) return '';
@@ -57,25 +77,43 @@ export function ReviewActions({
       documentPath: c.documentPath,
       metadata: { lineNumber: c.lineNumber, codeLine: c.codeLine },
       resolved: c.resolved,
-      comments: c.comments.map((cm) => ({
-        body: cm.body,
-        userId: cm.userId ?? undefined,
-        createdAt: cm.createdAt ?? undefined,
-      })),
+      comments: c.comments,
     }));
     return generateDiffFeedback(threads);
   }, [repoDir, unresolvedThreads]);
 
-  const handleSendFeedback = useCallback(() => {
-    const feedback = buildFeedback();
-    if (!feedback) return;
+  const sendToRunner = useCallback(
+    async (runnerSessionId: string) => {
+      if (!scope) return;
+      try {
+        const { text, commentIds } = await utils.comment.pendingFeedback.fetch(
+          {
+            scope,
+            threadIds: pendingThreadIds,
+          },
+          { staleTime: 0 },
+        );
+        if (!text) {
+          toast.info('No new comments to send');
+          return;
+        }
+        await sendFeedbackMutation.mutateAsync({ sessionId: runnerSessionId, feedback: text });
+        await markSentMutation.mutateAsync({ commentIds });
+        toast.success('Feedback sent to agent');
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [scope, utils, pendingThreadIds, sendFeedbackMutation, markSentMutation],
+  );
 
+  const handleSendFeedback = useCallback(() => {
     if (runnerActive && sessionId) {
-      sendFeedbackMutation.mutate({ sessionId, feedback });
+      void sendToRunner(sessionId);
     } else {
-      sendToTerminal(feedback);
+      delivery.send({ threadIds: pendingThreadIds });
     }
-  }, [buildFeedback, runnerActive, sessionId, sendFeedbackMutation, sendToTerminal]);
+  }, [runnerActive, sessionId, sendToRunner, delivery, pendingThreadIds]);
 
   const handleCopyFeedback = useCallback(async () => {
     const feedback = buildFeedback();
@@ -107,10 +145,10 @@ export function ReviewActions({
   const sendLabel = runnerActive ? 'Send to Agent' : 'Send Feedback';
 
   function getSendTooltip() {
-    if (unresolvedThreads.length === 0) return 'No unresolved comments to send';
-    if (runnerActive) return `Send ${unresolvedThreads.length} comment(s) to runner agent`;
+    if (pendingCount === 0) return 'No new comments to send';
+    if (runnerActive) return `Send ${pendingCount} new comment(s) to runner agent`;
     if (!terminalActive) return 'No active terminal';
-    return `Send ${unresolvedThreads.length} comment(s) to terminal`;
+    return `Send ${pendingCount} new comment(s) to terminal`;
   }
 
   return (
@@ -142,18 +180,27 @@ export function ReviewActions({
               variant="ghost"
               size="sm"
               onClick={handleSendFeedback}
-              disabled={unresolvedThreads.length === 0 || !canSend}
+              disabled={pendingCount === 0 || !canSend || !scope || delivery.isSending}
               className="h-7 gap-1.5 px-2 text-xs"
             >
               <RiSendPlaneLine className="size-3.5" />
               {sendLabel}
-              {unresolvedThreads.length > 0 && (
-                <span className="text-muted-foreground">({unresolvedThreads.length})</span>
-              )}
+              {pendingCount > 0 && <span className="text-muted-foreground">({pendingCount})</span>}
             </Button>
           </TooltipTrigger>
           <TooltipContent>{getSendTooltip()}</TooltipContent>
         </Tooltip>
+
+        {scope && (
+          <LiveCommentsToggle
+            live={!!delivery.liveSessionId}
+            liveLabel={delivery.liveLabel}
+            terminalActive={terminalActive}
+            busy={delivery.isTogglingLive}
+            onToggle={() => delivery.toggleLive()}
+            withText
+          />
+        )}
 
         <Tooltip>
           <TooltipTrigger asChild>
