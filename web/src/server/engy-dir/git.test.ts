@@ -97,6 +97,16 @@ describe('git helpers', () => {
       expect(log.total).toBe(1);
     });
 
+    it('[FR-WORKSPACE-050] should not init a nested repo when nestInParentRepo is false', async () => {
+      await simpleGit(tmpDir).init();
+      const childDir = path.join(tmpDir, 'docs');
+      fs.mkdirSync(childDir);
+
+      const result = await ensureGitRepo(childDir, { nestInParentRepo: false });
+      expect(result).toBe(false);
+      expect(fs.existsSync(path.join(childDir, '.git'))).toBe(false);
+    });
+
     it('[FR-WORKSPACE-050] should add and commit even when parent .gitignore would exclude the workspace path', async () => {
       await simpleGit(tmpDir).init();
       fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'workspace/\n');

@@ -267,7 +267,7 @@ export const workspaceRouter = router({
 
       try {
         const wsDir = getWorkspaceDir(workspace);
-        await ensureGitRepo(wsDir);
+        await ensureGitRepo(wsDir, { nestInParentRepo: !input.docsDir });
       } catch (err) {
         console.warn(`[workspace] Git init failed for ${slug}:`, err);
       }

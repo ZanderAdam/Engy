@@ -3,6 +3,7 @@ import path from 'node:path';
 import yaml from 'js-yaml';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { WebSocket } from 'ws';
+import { simpleGit } from 'simple-git';
 import { eq } from 'drizzle-orm';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
@@ -43,6 +44,39 @@ describe('workspace router', () => {
   afterEach(() => {
     ctx.cleanup();
   });
+
+  interface MockDaemon {
+    readyState: number;
+    OPEN: number;
+    send: ReturnType<typeof vi.fn>;
+  }
+
+  function attachMockDaemon(): MockDaemon {
+    const daemon: MockDaemon = {
+      readyState: WebSocket.OPEN,
+      OPEN: WebSocket.OPEN,
+      send: vi.fn(),
+    };
+    ctx.state.daemon = daemon as unknown as WebSocket;
+    return daemon;
+  }
+
+  function findRequestOfType(daemon: MockDaemon, type: string) {
+    for (const call of daemon.send.mock.calls) {
+      const msg = JSON.parse(call[0] as string);
+      if (msg.type === type) return msg;
+    }
+    return undefined;
+  }
+
+  function resolveValidationRequest(
+    daemon: MockDaemon,
+    results: Array<{ path: string; exists: boolean }>,
+  ): void {
+    const msg = findRequestOfType(daemon, 'VALIDATE_PATHS_REQUEST');
+    if (!msg) throw new Error('no validation request captured');
+    ctx.state.pendingValidations.get(msg.payload.requestId)?.resolve(results);
+  }
 
   describe('create', () => {
     it('[FR-WORKSPACE-010] should create a workspace with slug derived from name', async () => {
@@ -184,6 +218,24 @@ describe('workspace router', () => {
 
       // Default ENGY_DIR path should NOT have been created
       expect(fs.existsSync(path.join(ctx.tmpDir, 'my-project'))).toBe(false);
+    });
+
+    it('[FR-WORKSPACE-050] should not init a nested git repo when docsDir sits inside a repo', async () => {
+      const repoDir = path.join(ctx.tmpDir, 'repo');
+      const docsDir = path.join(repoDir, 'docs');
+      fs.mkdirSync(docsDir, { recursive: true });
+      await simpleGit(repoDir).init();
+      const daemon = attachMockDaemon();
+
+      const createPromise = caller.workspace.create({ name: 'Nested Docs', docsDir });
+      await vi.waitFor(() =>
+        expect(findRequestOfType(daemon, 'VALIDATE_PATHS_REQUEST')).toBeDefined(),
+      );
+      resolveValidationRequest(daemon, [{ path: docsDir, exists: true }]);
+      await createPromise;
+
+      expect(fs.existsSync(path.join(docsDir, 'workspace.yaml'))).toBe(true);
+      expect(fs.existsSync(path.join(docsDir, '.git'))).toBe(false);
     });
 
     it('should include docsDir in workspace.yaml when set', async () => {
@@ -390,9 +442,7 @@ describe('workspace router', () => {
 
     it('[FR-WORKSPACE-070] should reject invalid slug format', async () => {
       const ws = await caller.workspace.create({ name: 'Bad Slug' });
-      await expect(
-        caller.workspace.update({ id: ws.id, slug: 'Invalid Slug!' }),
-      ).rejects.toThrow();
+      await expect(caller.workspace.update({ id: ws.id, slug: 'Invalid Slug!' })).rejects.toThrow();
     });
 
     it('[FR-WORKSPACE-070] should reject duplicate slug', async () => {
@@ -557,22 +607,6 @@ describe('workspace router', () => {
     });
 
     describe('devcontainer config generation', () => {
-      interface MockDaemon {
-        readyState: number;
-        OPEN: number;
-        send: ReturnType<typeof vi.fn>;
-      }
-
-      function attachMockDaemon(): MockDaemon {
-        const daemon: MockDaemon = {
-          readyState: WebSocket.OPEN,
-          OPEN: WebSocket.OPEN,
-          send: vi.fn(),
-        };
-        ctx.state.daemon = daemon as unknown as WebSocket;
-        return daemon;
-      }
-
       interface GenerateCall {
         type: string;
         payload: { requestId: string; workspaceFolder: string };
@@ -738,9 +772,9 @@ describe('workspace router', () => {
 
       it('should reject a name update with path separator', async () => {
         const ws = await caller.workspace.create({ name: 'Name Test' });
-        await expect(
-          caller.workspace.update({ id: ws.id, name: 'bad/name' }),
-        ).rejects.toThrow('path separators');
+        await expect(caller.workspace.update({ id: ws.id, name: 'bad/name' })).rejects.toThrow(
+          'path separators',
+        );
       });
 
       it('should accept a valid slug update', async () => {
@@ -869,39 +903,6 @@ describe('workspace router', () => {
   });
 
   describe('createMissingDirs flag', () => {
-    interface MockDaemon {
-      readyState: number;
-      OPEN: number;
-      send: ReturnType<typeof vi.fn>;
-    }
-
-    function attachMockDaemon(): MockDaemon {
-      const daemon: MockDaemon = {
-        readyState: WebSocket.OPEN,
-        OPEN: WebSocket.OPEN,
-        send: vi.fn(),
-      };
-      ctx.state.daemon = daemon as unknown as WebSocket;
-      return daemon;
-    }
-
-    function findRequestOfType(daemon: MockDaemon, type: string) {
-      for (const call of daemon.send.mock.calls) {
-        const msg = JSON.parse(call[0] as string);
-        if (msg.type === type) return msg;
-      }
-      return undefined;
-    }
-
-    function resolveValidationRequest(
-      daemon: MockDaemon,
-      results: Array<{ path: string; exists: boolean }>,
-    ): void {
-      const msg = findRequestOfType(daemon, 'VALIDATE_PATHS_REQUEST');
-      if (!msg) throw new Error('no validation request captured');
-      ctx.state.pendingValidations.get(msg.payload.requestId)?.resolve(results);
-    }
-
     function resolveCreateDirRequest(
       daemon: MockDaemon,
       results: Array<{ path: string; success: boolean; error?: string }>,

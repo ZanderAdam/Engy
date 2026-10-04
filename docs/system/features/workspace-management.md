@@ -70,9 +70,7 @@ called on the workspace directory. It initialises a git repo, sets `user.name`,
 `user.email`, and `commit.gpgsign=false`, then commits the initial structure
 with `memory(init): initial workspace structure`. If the directory already
 contains a `.git`, the call is a no-op (`return false`). Failure is non-fatal:
-a warning is logged and `workspace.create` succeeds regardless. A nested git
-boundary is intentional — a workspace may sit inside another git tree and still
-initialises its own repo.
+a warning is logged and `workspace.create` succeeds regardless. A workspace under `ENGY_DIR` gets its own repo even inside another git tree, because the parent may gitignore it and reject memory commits. A user-supplied `docsDir` that is already inside a git repo gets no repo of its own: a nested `.git` would capture every git lookup below it (repo root, hook paths), so memory commits go to the containing repo.
 
 ## workspace.yaml
 
@@ -194,7 +192,7 @@ second run creates no additional commit.
 | FR-WORKSPACE-024 | IF `createMissingDirs` is true and a provided path is missing, the system SHALL dispatch a `CREATE_DIR_REQUEST` to the daemon with duplicate paths deduplicated, and SHALL reject with `BAD_REQUEST` if directory creation fails. |
 | FR-WORKSPACE-030 | WHEN `workspace.create` succeeds, the system SHALL scaffold the workspace directory with `workspace.yaml`, `system/overview.md`, `system/features/`, `system/technical/`, `projects/`, `docs/`, and the full `memory/` hierarchy (five subtype dirs plus `sources/` and `references/`), each with a seeded `README.md` containing `<!-- INDEX START -->` / `<!-- INDEX END -->` markers. |
 | FR-WORKSPACE-040 | WHEN `workspace.create` succeeds, the system SHALL insert a Default project (`slug: "default"`, `isDefault: true`) and initialise its project directory; IF directory scaffold or default project initialisation fails, the system SHALL delete any partially created directory and the DB row before throwing. |
-| FR-WORKSPACE-050 | WHEN `workspace.create` succeeds, the system SHALL call `ensureGitRepo` on the workspace directory — initialising a git repo with `user.name`, `user.email`, `commit.gpgsign=false`, and an initial commit — unless a `.git` already exists; failure of `ensureGitRepo` SHALL be non-fatal (logged as a warning). |
+| FR-WORKSPACE-050 | WHEN `workspace.create` succeeds, the system SHALL call `ensureGitRepo` on the workspace directory — initialising a git repo with `user.name`, `user.email`, `commit.gpgsign=false`, and an initial commit — unless a `.git` already exists, or a `docsDir` was provided and it already sits inside a git repo; failure of `ensureGitRepo` SHALL be non-fatal (logged as a warning). |
 | FR-WORKSPACE-060 | WHEN any workspace mutation (create, update, delete) completes, the system SHALL send a `WORKSPACES_SYNC` WebSocket message to the daemon (if connected) containing the full current workspace list with `slug`, `repos`, and `docsDir` for each workspace. |
 | FR-WORKSPACE-070 | WHEN `workspace.update` is called with a new slug, the system SHALL validate the slug format and uniqueness, rename the on-disk directory (when `docsDir` is null), and fully roll back the DB update and re-sync `workspace.yaml` and `WORKSPACES_SYNC` to the pre-update state if the rename fails. |
 | FR-WORKSPACE-080 | WHEN `workspace.update` is called with `containerEnabled` transitioning from false to true while `executionBackend` is `devcontainer` (or unset, which defaults to `devcontainer`) and `docsDir` is set, the system SHALL dispatch `DEVCONTAINER_CONFIG_GENERATE_REQUEST` fire-and-forget; failure of this dispatch SHALL be non-fatal (logged as a warning). |

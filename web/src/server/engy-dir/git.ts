@@ -12,12 +12,16 @@ export function isInsideGitRepo(dir: string): boolean {
   return false;
 }
 
-export async function ensureGitRepo(dir: string): Promise<boolean> {
+export async function ensureGitRepo(
+  dir: string,
+  { nestInParentRepo = true }: { nestInParentRepo?: boolean } = {},
+): Promise<boolean> {
   if (!fs.existsSync(dir)) return false;
-  // The workspace must be its own git repo so memory operations get a self-contained
-  // history and the parent's .gitignore doesn't apply. A nested git repo is a clean
-  // boundary — git stops walking at the inner .git, so this is safe inside another tree.
   if (fs.existsSync(path.join(dir, '.git'))) return false;
+  // A nested repo captures every git lookup below it, so a user's docsDir inside a repo uses
+  // that repo. Engy-owned dirs still nest: a parent that gitignores a dev ENGY_DIR would
+  // reject memory commits.
+  if (!nestInParentRepo && isInsideGitRepo(dir)) return false;
 
   const git = simpleGit(dir);
   await git.init();
