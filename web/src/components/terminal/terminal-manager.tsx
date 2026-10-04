@@ -781,14 +781,17 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   // active panel change. Keyed by tab + scope and cleared on unmount so a scope
   // switch (or another tab on the same scope) doesn't leave a stale list.
   const railKey = publishKey ? terminalRailKey(myTabId, publishKey) : null;
+  const visible = tabCtx?.isActive ?? true;
   useEffect(() => {
     if (!railKey) return;
     const api = dockviewApiRef.current;
     publishTerminalSessions(railKey, {
       tabs: orderTabsByPanelIds(api?.panels.map((p) => p.id) ?? [], tabsRef.current),
       activeId: api?.activePanel?.id ?? null,
+      visible,
+      commandCenter: global,
     });
-  }, [railKey, tabsVersion]);
+  }, [railKey, tabsVersion, visible, global]);
 
   useEffect(() => {
     if (!railKey) return;

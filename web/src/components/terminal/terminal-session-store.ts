@@ -1,11 +1,16 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
+import { railOrder, railSections } from './rail-order';
 import type { TerminalTab } from './types';
+import { readWorktreeGrouping, subscribeWorktreeGrouping } from './use-worktree-grouping';
 
 interface TerminalSessionsSnapshot {
   tabs: TerminalTab[];
   activeId: string | null;
+  /** The publishing dock's app tab is the one on screen. */
+  visible: boolean;
+  commandCenter: boolean;
 }
 
 // The right-dock TerminalManager publishes its live tab list here (keyed by
@@ -13,7 +18,12 @@ interface TerminalSessionsSnapshot {
 // sessions — with the same labels, OSC titles, and activity state — without a
 // second data source. The manager stays mounted even when the dock is
 // collapsed, so the rail's dots remain live.
-const EMPTY: TerminalSessionsSnapshot = { tabs: [], activeId: null };
+const EMPTY: TerminalSessionsSnapshot = {
+  tabs: [],
+  activeId: null,
+  visible: false,
+  commandCenter: false,
+};
 const byKey = new Map<string, TerminalSessionsSnapshot>();
 const listeners = new Set<() => void>();
 
@@ -53,45 +63,58 @@ export function useTerminalSessions(key: string | undefined): TerminalSessionsSn
   );
 }
 
-let openTerminalsCache: TerminalTab[] = [];
+let numberedCache: {
+  snapshot: TerminalSessionsSnapshot | undefined;
+  byWorktree: boolean;
+  tabs: TerminalTab[];
+} = {
+  snapshot: undefined,
+  byWorktree: true,
+  tabs: [],
+};
 
 /**
- * Every open terminal across all scopes, in a stable order — the list voice
- * numbers against ("focus terminal 2"). Deliberately not the server's session
- * registry: focusing works by activating a dockview panel, so a session with
- * no open panel cannot be focused and must not take a number.
+ * The terminals that carry numbers ("focus terminal 2", Ctrl+Alt+2): the ones
+ * the visible rail lists, top to bottom. Inactive app tabs stay mounted and keep
+ * publishing, so only the visible snapshot counts — otherwise their terminals
+ * would offset and gap the numbers the user sees.
  *
- * `useSyncExternalStore` compares snapshots by identity, so the flattened
- * array is cached and only rebuilt when its contents actually change.
+ * `useSyncExternalStore` compares snapshots by identity, so the result is
+ * cached and only rebuilt when its inputs change.
  */
-function readOpenTerminals(): TerminalTab[] {
-  const seen = new Set<string>();
-  const next: TerminalTab[] = [];
+export function readNumberedTerminals(): TerminalTab[] {
+  let visible: TerminalSessionsSnapshot | undefined;
   for (const snapshot of byKey.values()) {
-    for (const tab of snapshot.tabs) {
-      if (seen.has(tab.sessionId)) continue;
-      seen.add(tab.sessionId);
-      next.push(tab);
+    if (snapshot.visible) {
+      visible = snapshot;
+      break;
     }
   }
-
-  const unchanged =
-    next.length === openTerminalsCache.length &&
-    next.every((tab, i) => tab === openTerminalsCache[i]);
-  if (!unchanged) openTerminalsCache = next;
-  return openTerminalsCache;
+  const byWorktree = readWorktreeGrouping();
+  if (visible === numberedCache.snapshot && byWorktree === numberedCache.byWorktree) {
+    return numberedCache.tabs;
+  }
+  const tabs = visible
+    ? railOrder(railSections(visible.tabs, visible.commandCenter, byWorktree))
+    : [];
+  numberedCache = { snapshot: visible, byWorktree, tabs };
+  return tabs;
 }
 
-/** The flattening and its identity caching are what terminal numbering rests
- * on; exported so both can be read outside React — by the Ctrl+Alt+N handler
- * and by tests — without a renderer. */
-export { readOpenTerminals };
-
-export function useOpenTerminals(): TerminalTab[] {
-  return useSyncExternalStore(subscribe, readOpenTerminals, () => openTerminalsCache);
+function subscribeNumbered(listener: () => void): () => void {
+  const unsubscribeSessions = subscribe(listener);
+  const unsubscribeGrouping = subscribeWorktreeGrouping(listener);
+  return () => {
+    unsubscribeSessions();
+    unsubscribeGrouping();
+  };
 }
 
-/** The 1-based number spoken as "focus terminal N", or null when not open. */
+export function useNumberedTerminals(): TerminalTab[] {
+  return useSyncExternalStore(subscribeNumbered, readNumberedTerminals, () => EMPTY.tabs);
+}
+
+/** The 1-based number spoken as "focus terminal N", or null when not numbered. */
 export function terminalOrdinal(tabs: TerminalTab[], sessionId: string): number | null {
   const index = tabs.findIndex((tab) => tab.sessionId === sessionId);
   return index === -1 ? null : index + 1;

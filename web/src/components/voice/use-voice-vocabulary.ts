@@ -3,7 +3,7 @@
 import { useCallback, useMemo } from 'react';
 import { useVirtualParams } from '@/components/tabs/tab-context';
 import type { VirtualParams } from '@/components/tabs/tab-state';
-import { useOpenTerminals } from '@/components/terminal/terminal-session-store';
+import { useNumberedTerminals } from '@/components/terminal/terminal-session-store';
 import { useSendToTerminal } from '@/components/terminal/use-send-to-terminal';
 import { isStoppedTerminal, type TerminalTab } from '@/components/terminal/types';
 import type { VoiceAction } from '@/lib/voice/registry';
@@ -76,8 +76,8 @@ export function useVoiceVocabulary(
   const { submitTerminal, sendToTerminal } = useSendToTerminal();
   const params = useVirtualParams<VirtualParams>();
   const workspaceSlug = params.workspace ?? '';
-  const openTerminals = useOpenTerminals();
-  const sessions = useMemo(() => toTerminalVocab(openTerminals), [openTerminals]);
+  const numberedTerminals = useNumberedTerminals();
+  const sessions = useMemo(() => toTerminalVocab(numberedTerminals), [numberedTerminals]);
 
   const askTerminal = useCallback(
     (sessionId: string, prompt: string) => sendToTerminal(prompt, sessionId),

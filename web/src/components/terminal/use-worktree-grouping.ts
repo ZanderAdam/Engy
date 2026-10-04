@@ -9,6 +9,8 @@ import { createPersistentToggle } from './persistent-toggle';
 const grouping = createPersistentToggle('engy:terminal-worktree-grouping:v1', true);
 
 export const setWorktreeGrouping = grouping.set;
+export const readWorktreeGrouping = grouping.get;
+export const subscribeWorktreeGrouping = grouping.subscribe;
 
 export function useWorktreeGrouping(): boolean {
   return useSyncExternalStore(grouping.subscribe, grouping.get, grouping.getServerSnapshot);

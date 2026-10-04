@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useSyncExternalStore } from 'react';
-import { readOpenTerminals } from './terminal-session-store';
+import { readNumberedTerminals } from './terminal-session-store';
 
 /** Ctrl+Alt, not Ctrl+digit or Alt+digit: browsers reserve both of those for
  * their own tabs and a page cannot override them. AltGr reports itself as
@@ -49,7 +49,7 @@ function onKeyDown(e: KeyboardEvent): void {
   setHintHeld(isNumberHintChord(e));
   const wanted = terminalNumberFromKey(e);
   if (wanted === null) return;
-  const tab = readOpenTerminals()[wanted - 1];
+  const tab = readNumberedTerminals()[wanted - 1];
   if (!tab) return;
   e.preventDefault();
   e.stopPropagation();

@@ -32,7 +32,6 @@ import {
   setCommandCenterMode,
   COMMAND_CENTER_GROUP_KEY,
 } from './command-center/use-command-center-mode';
-import { groupTabsByProject } from './command-center/grouping';
 import { cloneScopeForNewTerminal } from './command-center/new-terminal-scope';
 import {
   getTerminalRailBoxStyle,
@@ -40,7 +39,8 @@ import {
   type TerminalScope,
   type TerminalTab,
 } from './types';
-import { groupTabsByWorktree, type TerminalWorktreeGroup } from './worktree-grouping';
+import type { TerminalWorktreeGroup } from './worktree-grouping';
+import { railSections, type TerminalRailSection } from './rail-order';
 import { setWorktreeGrouping, useWorktreeGrouping } from './use-worktree-grouping';
 
 interface RailDragHandlers {
@@ -125,26 +125,7 @@ export function TerminalRail({
   const ctrlButton =
     'flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground';
 
-  // Command Center mode lists terminals from every project, so group by
-  // project → worktree with a project header. The per-project rail just groups
-  // by worktree (headers only when more than one worktree is in play).
-  const sections = commandCenter
-    ? groupTabsByProject(tabs, byWorktree).map((pg) => ({
-        key: pg.key,
-        projectLabel: pg.label,
-        isProject: pg.isProject,
-        workspaceSlug: pg.workspaceSlug,
-        worktreeGroups: pg.worktreeGroups,
-      }))
-    : [
-        {
-          key: '__all__',
-          projectLabel: undefined,
-          isProject: false,
-          workspaceSlug: undefined,
-          worktreeGroups: groupTabsByWorktree(tabs, byWorktree),
-        },
-      ];
+  const sections = railSections(tabs, commandCenter, byWorktree);
 
   // The rail only asks the dock to move the panel; the reordered list comes
   // back through the session store, so the list and the tab strip cannot drift
@@ -223,7 +204,7 @@ export function TerminalRail({
     );
   }
 
-  function renderSection(section: (typeof sections)[number], dots: boolean) {
+  function renderSection(section: TerminalRailSection, dots: boolean) {
     const showWorktreeHeaders = section.worktreeGroups.length > 1;
     return (
       <div
