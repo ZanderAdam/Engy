@@ -76,6 +76,10 @@ function omitKey<T extends Record<string, unknown>, K extends keyof T>(
   });
 }
 
+function omitNullValues(row: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(row).filter(([, value]) => value !== null));
+}
+
 interface MemoryGraphNode {
   id: string;
   kind: 'permanent' | 'fleeting';
@@ -218,7 +222,10 @@ const listTasksInput = {
   milestoneRef: z.string().optional().describe('Filter by milestone ref (e.g. "m1")'),
   taskGroupId: z.number().optional().describe('Filter by task group ID'),
   status: taskStatusSchema.optional().describe('Filter by status'),
-  compact: z.boolean().default(true).describe('Omit description field (default true)'),
+  compact: z
+    .boolean()
+    .default(true)
+    .describe('Return only id, title, status and blockedBy (default true); false returns full rows'),
 };
 
 const taskIdInput = {
@@ -946,7 +953,7 @@ function registerTaskTools(mcp: McpServer): void {
 
   mcp.tool(
     'listTasks',
-    'List tasks with combined filters (AND logic). Compact mode (default) omits descriptions.',
+    'List tasks with combined filters (AND logic). Compact mode (default) returns only id, title, status and blockedBy; use getTask for full details.',
     listTasksInput,
     async ({ projectId, milestoneRef, taskGroupId, status, compact }) => {
       const db = getDb();
@@ -961,17 +968,19 @@ function registerTaskTools(mcp: McpServer): void {
         ? db.select().from(tasks).where(and(...conditions)).all()
         : db.select().from(tasks).all();
 
-      const enriched = attachSpecPaths(attachBlockedBy(rows));
+      const withBlockers = attachBlockedBy(rows);
       if (compact !== false) {
-        return mcpResult(omitKey(enriched, 'description'));
+        return mcpResult(
+          withBlockers.map(({ id, title, status, blockedBy }) => ({ id, title, status, blockedBy })),
+        );
       }
-      return mcpResult(enriched);
+      return mcpResult(attachSpecPaths(withBlockers));
     },
   );
 
   mcp.tool(
     'getTask',
-    'Get a task by ID',
+    'Get full task details by ID, including planContent. Fields with a null value are omitted.',
     taskIdInput,
     async ({ id }) => {
       const db = getDb();
@@ -995,7 +1004,9 @@ function registerTaskTools(mcp: McpServer): void {
         }
       }
 
-      return mcpResult({ ...enriched, planContent });
+      const details = omitNullValues({ ...enriched, planContent });
+      delete details.sessionId;
+      return mcpResult(details);
     },
   );
 

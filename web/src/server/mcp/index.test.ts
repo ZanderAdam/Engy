@@ -391,28 +391,60 @@ describe('MCP Server', () => {
     });
 
     describe('listTasks', () => {
-      it('[FR-TASK-120] should omit description by default (compact)', async () => {
+      it('[FR-TASK-200] should return only id, title, status and blockedBy by default', async () => {
         const db = getDb();
-        db.insert(tasks).values({ title: 'T1', projectId, description: 'Details here' }).run();
+        const blocker = db.insert(tasks).values({ title: 'Blocker', projectId }).returning().get();
+        const task = db
+          .insert(tasks)
+          .values({
+            title: 'T1',
+            projectId,
+            milestoneRef: 'm1',
+            description: 'Details here',
+            feedback: 'Long feedback',
+          })
+          .returning()
+          .get();
+        db.insert(taskDependencies).values({ taskId: task.id, blockerTaskId: blocker.id }).run();
 
         const mcp = getMcpServer();
         const call = callTool(mcp, 'listTasks');
         const { data } = await call({ projectId });
 
-        expect(data).toHaveLength(1);
-        expect(data[0].title).toBe('T1');
-        expect(data[0]).not.toHaveProperty('description');
+        expect(data).toEqual([
+          { id: blocker.id, title: 'Blocker', status: 'todo', blockedBy: [] },
+          { id: task.id, title: 'T1', status: 'todo', blockedBy: [blocker.id] },
+        ]);
       });
 
-      it('[FR-TASK-120] should include description when compact is false', async () => {
+      it('[FR-TASK-200] should return full rows with description and specPath when compact is false', async () => {
         const db = getDb();
-        db.insert(tasks).values({ title: 'T1', projectId, description: 'Details here' }).run();
+        db.insert(tasks)
+          .values({ title: 'T1', projectId, description: 'Details here', feedback: 'Notes' })
+          .run();
 
         const mcp = getMcpServer();
         const call = callTool(mcp, 'listTasks');
         const { data } = await call({ projectId, compact: false });
 
-        expect(data[0].description).toBe('Details here');
+        expect(data[0]).toMatchObject({
+          title: 'T1',
+          description: 'Details here',
+          feedback: 'Notes',
+          specPath: null,
+          blockedBy: [],
+        });
+      });
+
+      it('[FR-TASK-200] should resolve specPath on full rows for a task with a specId', async () => {
+        const db = getDb();
+        db.insert(tasks).values({ title: 'T1', projectId, specId: 'my-spec' }).run();
+
+        const mcp = getMcpServer();
+        const call = callTool(mcp, 'listTasks');
+        const { data } = await call({ projectId, compact: false });
+
+        expect(data[0].specPath).toMatch(/projects[/\\]my-spec$/);
       });
 
       it('[FR-TASK-110] should filter by projectId', async () => {
@@ -507,7 +539,7 @@ describe('MCP Server', () => {
     });
 
     describe('getTask', () => {
-      it('[FR-TASK-130] should return a task by ID', async () => {
+      it('[FR-TASK-210] should return a task by ID', async () => {
         const db = getDb();
         const task = db.insert(tasks).values({ title: 'T1', projectId }).returning().get();
 
@@ -518,7 +550,7 @@ describe('MCP Server', () => {
         expect(data.title).toBe('T1');
       });
 
-      it('[FR-TASK-130] should return planContent when plan file exists', async () => {
+      it('[FR-TASK-210] should return planContent when plan file exists', async () => {
         const db = getDb();
         const task = db.insert(tasks).values({ title: 'T1', projectId }).returning().get();
 
@@ -534,18 +566,67 @@ describe('MCP Server', () => {
         expect(data.planContent).toBe('# Task Plan');
       });
 
-      it('[FR-TASK-130] should return planContent as null when no plan file exists', async () => {
+      it('[FR-TASK-210] should omit null fields and sessionId', async () => {
         const db = getDb();
-        const task = db.insert(tasks).values({ title: 'T1', projectId }).returning().get();
+        const task = db
+          .insert(tasks)
+          .values({ title: 'T1', projectId, sessionId: 'session-1' })
+          .returning()
+          .get();
 
         const mcp = getMcpServer();
         const call = callTool(mcp, 'getTask');
         const { data } = await call({ id: task.id });
 
-        expect(data.planContent).toBeNull();
+        expect(data).toMatchObject({ id: task.id, title: 'T1', blockedBy: [] });
+        for (const key of [
+          'sessionId',
+          'description',
+          'milestoneRef',
+          'taskGroupId',
+          'specId',
+          'subStatus',
+          'feedback',
+          'specPath',
+          'planContent',
+        ]) {
+          expect(data).not.toHaveProperty(key);
+        }
       });
 
-      it('[FR-TASK-130] should return planContent as null when task has no projectId', async () => {
+      it('[FR-TASK-210] should keep every non-null field', async () => {
+        const db = getDb();
+        const blocker = db.insert(tasks).values({ title: 'Blocker', projectId }).returning().get();
+        const task = db
+          .insert(tasks)
+          .values({
+            title: 'T1',
+            projectId,
+            milestoneRef: 'm1',
+            description: 'Details here',
+            feedback: 'Notes',
+            subStatus: 'implementing',
+          })
+          .returning()
+          .get();
+        db.insert(taskDependencies).values({ taskId: task.id, blockerTaskId: blocker.id }).run();
+
+        const mcp = getMcpServer();
+        const call = callTool(mcp, 'getTask');
+        const { data } = await call({ id: task.id });
+
+        expect(data).toMatchObject({
+          projectId,
+          milestoneRef: 'm1',
+          description: 'Details here',
+          feedback: 'Notes',
+          subStatus: 'implementing',
+          needsPlan: true,
+          blockedBy: [blocker.id],
+        });
+      });
+
+      it('[FR-TASK-210] should omit planContent when task has no projectId', async () => {
         const db = getDb();
         const task = db
           .insert(tasks)
@@ -557,7 +638,7 @@ describe('MCP Server', () => {
         const call = callTool(mcp, 'getTask');
         const { data } = await call({ id: task.id });
 
-        expect(data.planContent).toBeNull();
+        expect(data).not.toHaveProperty('planContent');
       });
     });
 

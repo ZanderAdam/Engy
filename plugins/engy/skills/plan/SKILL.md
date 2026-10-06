@@ -10,7 +10,7 @@ Write a validated implementation plan for a standalone task using a codebase-awa
 ## MCP Tools
 
 - `getProjectDetails(projectId)` — project paths (`specDir`) + workspace context
-- `listTasks(projectId)` — milestone tasks (responses include `specPath`)
+- `listTasks(projectId)` — milestone tasks (`id`, `title`, `status`, `blockedBy`); `getTask(id)` for full details
 - `listTaskGroups(milestoneRef)` — task groups within the target milestone
 
 Use MCP to discover context, then Read/Glob/Grep for codebase exploration and spec reading.

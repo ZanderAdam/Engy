@@ -9,7 +9,7 @@ Implements a single task or plan document end-to-end: context gathering, TDD imp
 
 ## MCP Tools
 
-- `getTask(id)` — task details including title, description, status
+- `getTask(id)` — task details including title, description, status (null fields are omitted)
 - `updateTask(id, status)` — mark tasks `in_progress` / `review` / `done`
 - `getProjectDetails(projectId)` — project paths
 

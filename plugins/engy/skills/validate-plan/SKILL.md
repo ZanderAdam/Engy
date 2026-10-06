@@ -16,7 +16,7 @@ Validate a project document (plan, RFC, design doc) against its parent spec to i
 ## MCP Tools
 
 - `getProjectDetails(projectId)` — project paths (`specDir`, `docsDir`) for locating spec and plan
-- `listTasks(projectId)` — tasks with `specPath` for cross-referencing plan against task structure
+- `listTasks(projectId)` — tasks (`id`, `title`, `status`, `blockedBy`) for cross-referencing plan against task structure
 
 Use MCP to discover paths, then Read/Glob/Grep for content analysis.
 

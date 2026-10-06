@@ -33,7 +33,7 @@ A task group (`task_groups` table) is a named container within a `(projectId, mi
 
 The MCP `updateTask` tool accepts an optional `memories[]` array; each entry is inserted as a `fleetingMemory` row scoped to the task's workspace (resolved via `project.workspaceId`). If the task has no `projectId` the memories passthrough is silently skipped.
 
-`listTasks` defaults to compact mode (`compact: true`), omitting `description`. Passing `compact: false` includes it. `getTask` always returns the full row plus `planContent` — the contents of the task's `.plan.md` file if it exists, read by `readTaskPlan()` from `web/src/server/plan/service.ts`, or `null` otherwise.
+`listTasks` defaults to compact mode (`compact: true`), which returns only `id`, `title`, `status` and `blockedBy` per task, so large lists stay small in agent context. Passing `compact: false` returns the full rows with `description` and `specPath`. `getTask` is the full-detail call: it returns the task row, `blockedBy`, `specPath`, and `planContent` — the contents of the task's `.plan.md` file, read by `readTaskPlan()` from `web/src/server/plan/service.ts`. It omits every field whose value is `null` (including `planContent` when no plan file exists) and always omits `sessionId`. The tRPC `task.list` and `task.get` procedures are not shaped this way, because the UI reads full rows.
 
 ## AI task auto-start
 
@@ -58,14 +58,14 @@ When `task.create` is called with `type:'ai'` and `status:'todo'` and neither `t
 | FR-TASK-090 | WHEN `task.bulkUpdate` or the MCP `bulkUpdateTasks` tool is called with an `ids` array and a `status`, `milestoneRef`, or `taskGroupId` value, the system SHALL update all matched tasks atomically in a single transaction, fire an `updated` broadcast per task, skip any ids that do not exist, and return `{updated: 0}` for an empty `ids` input. |
 | FR-TASK-100 | WHEN `task.bulkDelete` or the MCP `bulkDeleteTasks` tool is called with an `ids` array, the system SHALL delete all found tasks atomically, fire a `deleted` broadcast per task, skip ids that do not exist, and return `{deleted: 0}` for an empty `ids` input. |
 | FR-TASK-110 | WHEN `task.list` or the MCP `listTasks` tool is called with any combination of `projectId`, `milestoneRef`, `taskGroupId`, and `status` filters, the system SHALL apply them with AND logic, hydrating each result's `blockedBy` array from `task_dependencies`. |
-| FR-TASK-120 | WHEN the MCP `listTasks` tool is called with `compact` omitted or `true`, the system SHALL omit `description` from each result; passing `compact: false` SHALL include it. |
-| FR-TASK-130 | WHEN the MCP `getTask` tool is called, the system SHALL return the full task row, its `blockedBy` array, and a `planContent` field containing the task's `.plan.md` file content if it exists, or `null` otherwise. |
 | FR-TASK-140 | WHEN the MCP `updateTask` tool is called with a `memories` array and the task has a `projectId`, the system SHALL insert each entry as a `fleetingMemory` row scoped to the task's workspace, having first dropped entries with empty content; IF the task has no `projectId`, THEN the memories SHALL be silently skipped. |
 | FR-TASK-150 | WHEN `taskGroup.create` or the MCP `createTaskGroup` tool is called, the system SHALL assign `numInMilestone` as `MAX(numInMilestone) + 1` within the `(projectId, milestoneRef)` bucket, starting at 1 for an empty bucket, with gaps left by deletions never refilled. |
 | FR-TASK-160 | WHEN `taskGroup.get` / `getTaskGroup` or `taskGroup.update` / `updateTaskGroup` is called with an id that does not exist, the system SHALL return `NOT_FOUND` / MCP error. |
 | FR-TASK-170 | WHEN `task.create` is called with `type:'ai'` and `status:'todo'` and neither `taskGroupId` nor `milestoneRef` is set, the system SHALL invoke `triggerAutoStart` fire-and-forget after the transaction commits; the same trigger SHALL fire on `task.update` when `type` transitions to `'ai'` under the same conditions. |
 | FR-TASK-180 | WHEN `taskGroup.create` or the MCP `createTaskGroup` tool is called without a `milestoneRef`, the system SHALL create a standalone group with a NULL `milestone_ref`, numbered within the `(projectId, NULL)` bucket by the same `MAX + 1` rule. |
 | FR-TASK-190 | WHEN `taskGroup.list` or the MCP `listTaskGroups` tool is called with `milestoneRef` set to `null`, the system SHALL return only groups whose `milestone_ref` IS NULL; omitting the filter SHALL return groups regardless of milestone. |
+| FR-TASK-200 | WHEN the MCP `listTasks` tool is called with `compact` omitted or `true`, the system SHALL return only `id`, `title`, `status`, and `blockedBy` for each task; passing `compact: false` SHALL return the full task rows with `description` and `specPath`. |
+| FR-TASK-210 | WHEN the MCP `getTask` tool is called, the system SHALL return the task row, its `blockedBy` array, its `specPath`, and a `planContent` field with the task's `.plan.md` file content, omitting every field whose value is `null` and always omitting `sessionId`. |
 
 ## Sources
 

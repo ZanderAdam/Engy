@@ -12,6 +12,7 @@ Orchestrate the implementation of an entire milestone by dispatching one agent p
 - `listTasks(projectId, milestoneRef, taskGroupId)` — find tasks for the milestone
 - `listTaskGroups(milestoneRef)` — task groups within the milestone
 - `updateTask(id, status)` — mark tasks `in_progress` / `done`
+- `getTask(id)` — full task details (description, plan content)
 - `getProjectDetails(projectId)` — project paths (`specDir`, `projectDir`)
 
 Use MCP to discover paths and task relationships, then Read/Glob/Grep for content.
@@ -27,9 +28,9 @@ Use MCP to discover paths and task relationships, then Read/Glob/Grep for conten
 1. `listTaskGroups(milestoneRef)` — get all task groups for the milestone.
    > **TG references in prompts** (e.g. "M1 TG2") use the `numInMilestone` field returned by `listTaskGroups`,
    > NOT the DB `id`. To resolve "TG2", find the group where `numInMilestone === 2` within the milestone's groups.
-2. **Scope task fetching to what you'll dispatch — never fetch the entire milestone when only one task group is requested.** If a specific task group was requested, use `listTasks(milestoneRef, taskGroupId)` to fetch only that group's tasks. Otherwise use `listTasks(milestoneRef)` for all tasks. Use `compact: true` (default) for the initial fetch to keep output small, then fetch full descriptions (`compact: false`) only for the tasks you'll actually dispatch.
-3. Look for the milestone plan doc: `Glob("{specPath}/milestones/m{N}-*.plan.md")`. Read it if found — this is the primary requirements source.
-4. If no plan doc exists, read `{specPath}/spec.md` for overall context.
+2. **Scope task fetching to what you'll dispatch — never fetch the entire milestone when only one task group is requested.** If a specific task group was requested, use `listTasks(milestoneRef, taskGroupId)` to fetch only that group's tasks. Otherwise use `listTasks(milestoneRef)` for all tasks. The default compact rows carry only `id`, `title`, `status` and `blockedBy`. Call `getTask(id)` only for the tasks you'll actually dispatch.
+3. Look for the milestone plan doc: `Glob("{specDir}/milestones/m{N}-*.plan.md")`, with `specDir` from `getProjectDetails`. Read it if found — this is the primary requirements source.
+4. If no plan doc exists, read `{specDir}/spec.md` for overall context.
 
 ### Step 2: Discover Validation Commands
 
