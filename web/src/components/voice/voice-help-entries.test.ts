@@ -33,7 +33,7 @@ describe('voice help entries', () => {
   });
 
   describe('buildVoiceHelpEntries', () => {
-    it('[FR-TG2.8] should derive one entry per registered action with no maintained list', () => {
+    it('should derive one entry per registered action with no maintained list', () => {
       const actions: VoiceAction[] = [
         { id: 'voice.test.one', title: 'Test one', phrases: ['do a thing'], run: () => {} },
       ];
@@ -41,7 +41,7 @@ describe('voice help entries', () => {
       expect(entries.map((e) => e.id)).toEqual(['voice.test.one']);
     });
 
-    it('[FR-TG2.8] should change when an action is added to the registry, with no help-component edit', () => {
+    it('should change when an action is added to the registry, with no help-component edit', () => {
       const before = buildVoiceHelpEntries(
         [{ id: 'voice.test.one', title: 'Test one', phrases: ['do a thing'], run: () => {} }],
         WAKE_WORD,
@@ -57,7 +57,7 @@ describe('voice help entries', () => {
       expect(after.map((e) => e.id)).toEqual(['voice.test.one', 'voice.test.two']);
     });
 
-    it('[FR-TG2.8] should derive category from the action id, grouping actions by module', () => {
+    it('should derive category from the action id, grouping actions by module', () => {
       const actions = [...terminalActions(), ...createHelpActions({ openHelp: () => {} })];
       const entries = buildVoiceHelpEntries(actions, WAKE_WORD);
       const categories = Object.fromEntries(entries.map((e) => [e.id, e.category]));
@@ -65,7 +65,7 @@ describe('voice help entries', () => {
       expect(categories['voice.help.show']).toBe('help');
     });
 
-    it('[FR-TG2.9] should expand a templated phrase into concrete examples from live vocabulary', () => {
+    it('should expand a templated phrase into concrete examples from live vocabulary', () => {
       const entries = buildVoiceHelpEntries(terminalActions(), WAKE_WORD, () => ['1', 'build']);
       const firstPhrase = focusEntry(entries)?.phrases[0];
       expect(firstPhrase?.examples).toEqual([
@@ -75,7 +75,7 @@ describe('voice help entries', () => {
       expect(firstPhrase?.moreCount).toBe(0);
     });
 
-    it('[FR-TG2.9] should cap examples per phrase and report a "+N more" remainder', () => {
+    it('should cap examples per phrase and report a "+N more" remainder', () => {
       const entries = buildVoiceHelpEntries(terminalActions(), WAKE_WORD, () => [
         '1',
         '2',
@@ -87,14 +87,14 @@ describe('voice help entries', () => {
       expect(firstPhrase?.moreCount).toBe(1);
     });
 
-    it('[FR-TG2.9] should degrade to the bare template when a parameter has no live values', () => {
+    it('should degrade to the bare template when a parameter has no live values', () => {
       const entries = buildVoiceHelpEntries(terminalActions(), WAKE_WORD, () => []);
       const firstPhrase = focusEntry(entries)?.phrases[0];
       expect(firstPhrase?.examples).toEqual([]);
       expect(firstPhrase?.template).toBe('ANGIE, select terminal {name}');
     });
 
-    it('[FR-TG2.9] should degrade to the bare template when no lookup is supplied at all', () => {
+    it('should degrade to the bare template when no lookup is supplied at all', () => {
       const actions: VoiceAction[] = [
         {
           id: 'voice.terminal.focus',
@@ -112,7 +112,7 @@ describe('voice help entries', () => {
       });
     });
 
-    it('[FR-TG2.10] should show the current wake word in every rendered template and example', () => {
+    it('should show the current wake word in every rendered template and example', () => {
       const entries = buildVoiceHelpEntries(terminalActions(), WAKE_WORD, () => ['1']);
       for (const phrase of focusEntry(entries)?.phrases ?? []) {
         expect(phrase.template.startsWith(`${WAKE_WORD}, `)).toBe(true);

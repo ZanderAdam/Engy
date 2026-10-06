@@ -2,10 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { prs as prsTable, commentThreads, threadComments } from '../db/schema';
-import { syncReviewComments } from './review-sync';
-import type { GhReviewComment } from '@engy/common';
+import { syncReviewThreads } from './review-sync';
+import type { GithubReviewThread, GithubReviewThreadComment } from '../github/review-threads';
 
-function makePrRow(overrides: Partial<typeof prsTable.$inferSelect> = {}): typeof prsTable.$inferSelect {
+function makePrRow(
+  overrides: Partial<typeof prsTable.$inferSelect> = {},
+): typeof prsTable.$inferSelect {
   return {
     id: 1,
     repo: '/home/user/repo',
@@ -21,31 +23,59 @@ function makePrRow(overrides: Partial<typeof prsTable.$inferSelect> = {}): typeo
     commentCount: 0,
     authoredByViewer: false,
     reviewDecision: null,
+    repoFullName: 'org/repo',
+    baseRef: 'main',
+    additions: 0,
+    deletions: 0,
+    reviewRequests: [],
     lastFailedHeadSha: null,
     autoFixAttempts: 0,
     autoFixTotalAttempts: 0,
     attentionReason: null,
+    githubUpdatedAt: null,
+    hasConflicts: false,
+    isCrossRepository: false,
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
     ...overrides,
   };
 }
 
-function makeComment(overrides: Partial<GhReviewComment> = {}): GhReviewComment {
+function makeComment(
+  githubId: number,
+  overrides: Partial<GithubReviewThreadComment> = {},
+): GithubReviewThreadComment {
   return {
-    githubId: 1001,
-    path: 'src/foo.ts',
-    line: 10,
+    githubId,
     body: 'This looks off',
     author: 'bob',
     createdAt: '2024-01-02T00:00:00.000Z',
-    inReplyToId: null,
-    url: 'https://github.com/org/repo/pull/42#discussion_r1001',
+    updatedAt: '2024-01-02T00:00:00.000Z',
+    url: `https://github.com/org/repo/pull/42#discussion_r${githubId}`,
+    replyToId: null,
     ...overrides,
   };
 }
 
-describe('[FR-PRMON-160] syncReviewComments', () => {
+function makeThread(
+  rootId: number,
+  overrides: Partial<GithubReviewThread> = {},
+): GithubReviewThread {
+  return {
+    nodeId: `PRRT_${rootId}`,
+    isResolved: false,
+    isOutdated: false,
+    path: 'src/foo.ts',
+    line: 10,
+    originalLine: 10,
+    startLine: null,
+    diffSide: 'RIGHT',
+    comments: [makeComment(rootId)],
+    ...overrides,
+  };
+}
+
+describe('[FR-PRMON-160] syncReviewThreads', () => {
   let ctx: TestContext;
 
   beforeEach(() => {
@@ -56,226 +86,361 @@ describe('[FR-PRMON-160] syncReviewComments', () => {
     ctx.cleanup();
   });
 
-  describe('top-level comments', () => {
-    it('should create a thread and comment for a top-level review comment', () => {
-      const prRow = makePrRow();
-      const comment = makeComment({ githubId: 1001, path: 'src/foo.ts', line: 10 });
+  function getThread(id: string) {
+    return ctx.db.select().from(commentThreads).where(eq(commentThreads.id, id)).get();
+  }
 
-      syncReviewComments(ctx.db, prRow, [comment]);
+  function getComments(threadId: string) {
+    return ctx.db.select().from(threadComments).where(eq(threadComments.threadId, threadId)).all();
+  }
 
-      const thread = ctx.db
-        .select()
-        .from(commentThreads)
-        .where(eq(commentThreads.id, 'gh-thread-1001'))
-        .get();
-      expect(thread).toBeTruthy();
+  describe('cross-repo PR', () => {
+    it('[FR-PRMON-160] should import under the pull ref key, not the fork head branch', () => {
+      syncReviewThreads(ctx.db, makePrRow({ headBranch: 'main', isCrossRepository: true }), [
+        makeThread(2001),
+      ]);
+
+      expect(getThread('gh-thread-2001')!.documentPath).toBe(
+        'diff:///home/user/repo#pull%2F42%2Fhead/src/foo.ts',
+      );
+    });
+
+    it('[FR-PRMON-160] should keep a same-repo PR with the same head branch name on the branch key', () => {
+      syncReviewThreads(ctx.db, makePrRow({ headBranch: 'main' }), [makeThread(2002)]);
+
+      expect(getThread('gh-thread-2002')!.documentPath).toBe(
+        'diff:///home/user/repo#main/src/foo.ts',
+      );
+    });
+
+    it('[FR-PRMON-160] should move a thread imported under the old branch key without duplicating it', () => {
+      syncReviewThreads(ctx.db, makePrRow({ headBranch: 'main', isCrossRepository: false }), [
+        makeThread(2003),
+      ]);
+
+      const summary = syncReviewThreads(
+        ctx.db,
+        makePrRow({ headBranch: 'main', isCrossRepository: true }),
+        [makeThread(2003)],
+      );
+
+      expect(summary.created).toBe(0);
+      expect(ctx.db.select().from(commentThreads).all()).toHaveLength(1);
+      expect(getThread('gh-thread-2003')!.documentPath).toBe(
+        'diff:///home/user/repo#pull%2F42%2Fhead/src/foo.ts',
+      );
+    });
+  });
+
+  describe('head branch rename', () => {
+    it('[FR-PRMON-160] should move a thread imported under the old head branch to the new one', () => {
+      syncReviewThreads(ctx.db, makePrRow({ headBranch: 'feat/old' }), [makeThread(2004)]);
+
+      const summary = syncReviewThreads(ctx.db, makePrRow({ headBranch: 'feat/new' }), [
+        makeThread(2004),
+      ]);
+
+      expect(summary.created).toBe(0);
+      expect(ctx.db.select().from(commentThreads).all()).toHaveLength(1);
+      expect(getThread('gh-thread-2004')!.documentPath).toBe(
+        'diff:///home/user/repo#feat%2Fnew/src/foo.ts',
+      );
+    });
+  });
+
+  describe('thread import', () => {
+    it('should create a thread keyed by the first comment id with GitHub metadata', () => {
+      syncReviewThreads(ctx.db, makePrRow(), [
+        makeThread(1001, { isOutdated: true, originalLine: 8 }),
+      ]);
+
+      const thread = getThread('gh-thread-1001');
       expect(thread!.documentPath).toBe('diff:///home/user/repo#feat%2Fthing/src/foo.ts');
-      const meta = thread!.metadata as Record<string, unknown>;
-      expect(meta.source).toBe('github');
-      expect(meta.githubId).toBe(1001);
-      expect(meta.prNumber).toBe(42);
-      expect(meta.lineNumber).toBe(10);
-      expect(meta.author).toBe('bob');
-
-      const cmt = ctx.db
+      expect(thread!.metadata).toMatchObject({
+        source: 'github',
+        githubId: 1001,
+        githubThreadNodeId: 'PRRT_1001',
+        prNumber: 42,
+        line: 10,
+        originalLine: 8,
+        lineNumber: 0,
+        diffSide: 'RIGHT',
+        isOutdated: true,
+        author: 'bob',
+      });
+      const comment = ctx.db
         .select()
         .from(threadComments)
         .where(eq(threadComments.id, 'gh-comment-1001'))
         .get();
-      expect(cmt).toBeTruthy();
-      expect(cmt!.body).toBe('This looks off');
-      expect(cmt!.userId).toBe('bob');
+      expect(comment).toMatchObject({
+        threadId: 'gh-thread-1001',
+        body: 'This looks off',
+        userId: 'bob',
+      });
     });
 
-    it('should use lineNumber 0 when line is null', () => {
-      const prRow = makePrRow();
-      const comment = makeComment({ githubId: 2001, line: null });
+    it('should not anchor an outdated thread onto the current diff', () => {
+      syncReviewThreads(ctx.db, makePrRow(), [
+        makeThread(2001, { line: null, originalLine: 7, isOutdated: true }),
+        makeThread(2003, { line: 12, originalLine: 7, isOutdated: true }),
+      ]);
 
-      syncReviewComments(ctx.db, prRow, [comment]);
-
-      const thread = ctx.db
-        .select()
-        .from(commentThreads)
-        .where(eq(commentThreads.id, 'gh-thread-2001'))
-        .get();
-      const meta = thread!.metadata as Record<string, unknown>;
+      const meta = getThread('gh-thread-2001')!.metadata as Record<string, unknown>;
       expect(meta.line).toBeNull();
+      expect(meta.originalLine).toBe(7);
       expect(meta.lineNumber).toBe(0);
+      expect(meta.isOutdated).toBe(true);
+      expect((getThread('gh-thread-2003')!.metadata as Record<string, unknown>).lineNumber).toBe(0);
     });
 
-    it('should be idempotent — re-import does not duplicate threads or comments', () => {
+    it('should store the local side so a comment on a deleted line stays on the original side', () => {
+      syncReviewThreads(ctx.db, makePrRow(), [
+        makeThread(2101, { diffSide: 'LEFT', line: 4 }),
+        makeThread(2102, { diffSide: 'RIGHT', line: 5 }),
+      ]);
+
+      expect(getThread('gh-thread-2101')!.metadata).toMatchObject({
+        side: 'original',
+        diffSide: 'LEFT',
+      });
+      expect(getThread('gh-thread-2102')!.metadata).toMatchObject({
+        side: 'modified',
+        diffSide: 'RIGHT',
+      });
+    });
+
+    it('should add the local side to a row imported before the side was stored', () => {
+      ctx.db
+        .insert(commentThreads)
+        .values({
+          id: 'gh-thread-2201',
+          workspaceId: null,
+          documentPath: 'diff:///home/user/repo#feat%2Fthing/src/foo.ts',
+          metadata: {
+            source: 'github',
+            prNumber: 42,
+            githubId: 2201,
+            line: 4,
+            lineNumber: 4,
+            diffSide: 'LEFT',
+          },
+        })
+        .run();
+
+      syncReviewThreads(ctx.db, makePrRow(), [makeThread(2201, { diffSide: 'LEFT', line: 4 })]);
+
+      expect(getThread('gh-thread-2201')!.metadata).toMatchObject({ side: 'original' });
+    });
+
+    it('should use lineNumber 0 when no line is known', () => {
+      syncReviewThreads(ctx.db, makePrRow(), [
+        makeThread(2002, { line: null, originalLine: null }),
+      ]);
+
+      expect((getThread('gh-thread-2002')!.metadata as Record<string, unknown>).lineNumber).toBe(0);
+    });
+
+    it('should be idempotent and report no changes on re-import', () => {
       const prRow = makePrRow();
-      const comment = makeComment({ githubId: 3001 });
+      const thread = makeThread(3001, {
+        comments: [makeComment(3001), makeComment(3002, { replyToId: 3001 })],
+      });
 
-      syncReviewComments(ctx.db, prRow, [comment]);
-      syncReviewComments(ctx.db, prRow, [comment]);
+      syncReviewThreads(ctx.db, prRow, [thread]);
+      const second = syncReviewThreads(ctx.db, prRow, [thread]);
 
-      const threads = ctx.db.select().from(commentThreads).all();
-      expect(threads).toHaveLength(1);
-      const comments = ctx.db.select().from(threadComments).all();
-      expect(comments).toHaveLength(1);
+      expect(ctx.db.select().from(commentThreads).all()).toHaveLength(1);
+      expect(ctx.db.select().from(threadComments).all()).toHaveLength(2);
+      expect(second).toEqual({ created: 0, updated: 0 });
+    });
+
+    it('should keep ids compatible with rows imported from review comments', () => {
+      ctx.db
+        .insert(commentThreads)
+        .values({
+          id: 'gh-thread-4001',
+          workspaceId: null,
+          documentPath: 'diff:///home/user/repo#feat%2Fthing/src/foo.ts',
+          metadata: { source: 'github', prNumber: 42, githubId: 4001, line: 10, lineNumber: 10 },
+        })
+        .run();
+      ctx.db
+        .insert(threadComments)
+        .values({
+          id: 'gh-comment-4001',
+          threadId: 'gh-thread-4001',
+          userId: 'bob',
+          body: 'This looks off',
+          metadata: { githubId: 4001 },
+        })
+        .run();
+
+      syncReviewThreads(ctx.db, makePrRow(), [makeThread(4001)]);
+
+      expect(ctx.db.select().from(commentThreads).all()).toHaveLength(1);
+      expect(ctx.db.select().from(threadComments).all()).toHaveLength(1);
+      expect(getThread('gh-thread-4001')!.metadata).toMatchObject({
+        githubThreadNodeId: 'PRRT_4001',
+        diffSide: 'RIGHT',
+      });
+    });
+
+    it('should update the outdated flag on an existing thread', () => {
+      const prRow = makePrRow();
+      syncReviewThreads(ctx.db, prRow, [makeThread(5001)]);
+
+      syncReviewThreads(ctx.db, prRow, [makeThread(5001, { isOutdated: true, line: null })]);
+
+      expect(getThread('gh-thread-5001')!.metadata).toMatchObject({
+        isOutdated: true,
+        line: null,
+      });
     });
 
     it('should update comment body when it changed on GitHub', () => {
       const prRow = makePrRow();
-      const original = makeComment({ githubId: 4001, body: 'Original comment' });
-      syncReviewComments(ctx.db, prRow, [original]);
+      syncReviewThreads(ctx.db, prRow, [makeThread(6001)]);
 
-      const updated = makeComment({ githubId: 4001, body: 'Updated comment' });
-      syncReviewComments(ctx.db, prRow, [updated]);
+      const edited = makeThread(6001, { comments: [makeComment(6001, { body: 'Edited' })] });
+      const summary = syncReviewThreads(ctx.db, prRow, [edited]);
 
-      const cmt = ctx.db
-        .select()
-        .from(threadComments)
-        .where(eq(threadComments.id, 'gh-comment-4001'))
-        .get();
-      expect(cmt!.body).toBe('Updated comment');
+      expect(getComments('gh-thread-6001')[0].body).toBe('Edited');
+      expect(summary.updated).toBe(1);
     });
 
-    it('should NOT auto-unresolve a locally resolved thread on re-import', () => {
+    it('should leave local rows when a thread is missing from re-import', () => {
       const prRow = makePrRow();
-      const comment = makeComment({ githubId: 5001 });
-      syncReviewComments(ctx.db, prRow, [comment]);
+      syncReviewThreads(ctx.db, prRow, [makeThread(7001)]);
 
-      ctx.db
-        .update(commentThreads)
-        .set({ resolved: true, resolvedBy: 'local-user', resolvedAt: new Date().toISOString() })
-        .where(eq(commentThreads.id, 'gh-thread-5001'))
-        .run();
+      syncReviewThreads(ctx.db, prRow, []);
 
-      syncReviewComments(ctx.db, prRow, [comment]);
-
-      const thread = ctx.db
-        .select()
-        .from(commentThreads)
-        .where(eq(commentThreads.id, 'gh-thread-5001'))
-        .get();
-      expect(thread!.resolved).toBe(true);
+      expect(getThread('gh-thread-7001')).toBeTruthy();
+      expect(getComments('gh-thread-7001')).toHaveLength(1);
     });
 
-    it('should leave local rows when comment is missing from re-import (deleted on GitHub)', () => {
-      const prRow = makePrRow();
-      const comment = makeComment({ githubId: 6001 });
-      syncReviewComments(ctx.db, prRow, [comment]);
+    it('should skip a thread with no comments', () => {
+      syncReviewThreads(ctx.db, makePrRow(), [makeThread(8001, { comments: [] })]);
 
-      // Re-import with empty list (comment deleted on GitHub)
-      syncReviewComments(ctx.db, prRow, []);
-
-      const thread = ctx.db
-        .select()
-        .from(commentThreads)
-        .where(eq(commentThreads.id, 'gh-thread-6001'))
-        .get();
-      expect(thread).toBeTruthy();
-
-      const cmt = ctx.db
-        .select()
-        .from(threadComments)
-        .where(eq(threadComments.id, 'gh-comment-6001'))
-        .get();
-      expect(cmt).toBeTruthy();
-    });
-
-    it('should create a thread per unique file path', () => {
-      const prRow = makePrRow();
-      const c1 = makeComment({ githubId: 7001, path: 'src/a.ts' });
-      const c2 = makeComment({ githubId: 7002, path: 'src/b.ts' });
-
-      syncReviewComments(ctx.db, prRow, [c1, c2]);
-
-      const threads = ctx.db.select().from(commentThreads).all();
-      expect(threads).toHaveLength(2);
-      const paths = threads.map((t) => t.documentPath).sort();
-      expect(paths).toEqual([
-        'diff:///home/user/repo#feat%2Fthing/src/a.ts',
-        'diff:///home/user/repo#feat%2Fthing/src/b.ts',
-      ]);
+      expect(ctx.db.select().from(commentThreads).all()).toHaveLength(0);
     });
   });
 
-  describe('reply comments', () => {
-    it('should add a reply as a threadComments row on the parent thread', () => {
-      const prRow = makePrRow();
-      const parent = makeComment({ githubId: 8001, inReplyToId: null });
-      const reply = makeComment({
-        githubId: 8002,
-        inReplyToId: 8001,
-        body: 'Good point!',
-        author: 'carol',
+  describe('replies', () => {
+    it('should attach replies to the thread in GitHub order', () => {
+      const thread = makeThread(9001, {
+        comments: [
+          makeComment(9001),
+          makeComment(9002, {
+            replyToId: 9001,
+            body: 'Good point!',
+            author: 'carol',
+            createdAt: '2024-01-03T00:00:00.000Z',
+          }),
+          makeComment(9003, { replyToId: 9001, createdAt: '2024-01-04T00:00:00.000Z' }),
+        ],
       });
 
-      syncReviewComments(ctx.db, prRow, [parent, reply]);
+      syncReviewThreads(ctx.db, makePrRow(), [thread]);
 
-      const comments = ctx.db
-        .select()
-        .from(threadComments)
-        .where(eq(threadComments.threadId, 'gh-thread-8001'))
-        .all();
-      expect(comments).toHaveLength(2);
-      const reply_ = comments.find((c) => c.id === 'gh-comment-8002');
-      expect(reply_!.body).toBe('Good point!');
-      expect(reply_!.userId).toBe('carol');
+      const comments = getComments('gh-thread-9001').sort((a, b) =>
+        a.createdAt.localeCompare(b.createdAt),
+      );
+      expect(comments.map((c) => c.id)).toEqual([
+        'gh-comment-9001',
+        'gh-comment-9002',
+        'gh-comment-9003',
+      ]);
+      expect(comments[1]).toMatchObject({ body: 'Good point!', userId: 'carol' });
     });
 
-    it('should skip a reply whose parent thread does not exist', () => {
+    it('should add a new reply to an existing thread', () => {
       const prRow = makePrRow();
-      const orphanReply = makeComment({ githubId: 9001, inReplyToId: 9999 });
+      syncReviewThreads(ctx.db, prRow, [makeThread(9101)]);
 
-      syncReviewComments(ctx.db, prRow, [orphanReply]);
+      const summary = syncReviewThreads(ctx.db, prRow, [
+        makeThread(9101, { comments: [makeComment(9101), makeComment(9102, { replyToId: 9101 })] }),
+      ]);
 
-      const threads = ctx.db.select().from(commentThreads).all();
-      expect(threads).toHaveLength(0);
-      const comments = ctx.db.select().from(threadComments).all();
-      expect(comments).toHaveLength(0);
+      expect(getComments('gh-thread-9101')).toHaveLength(2);
+      expect(summary.created).toBe(1);
     });
 
-    it('should be idempotent for replies — no duplicate threadComments', () => {
+    it('should update an edited reply body', () => {
       const prRow = makePrRow();
-      const parent = makeComment({ githubId: 10001 });
-      const reply = makeComment({ githubId: 10002, inReplyToId: 10001, body: 'Reply body' });
+      const withReply = (body: string) =>
+        makeThread(9201, {
+          comments: [makeComment(9201), makeComment(9202, { replyToId: 9201, body })],
+        });
+      syncReviewThreads(ctx.db, prRow, [withReply('Before')]);
 
-      syncReviewComments(ctx.db, prRow, [parent, reply]);
-      syncReviewComments(ctx.db, prRow, [parent, reply]);
+      syncReviewThreads(ctx.db, prRow, [withReply('After')]);
 
-      const comments = ctx.db
-        .select()
-        .from(threadComments)
-        .where(eq(threadComments.threadId, 'gh-thread-10001'))
-        .all();
-      expect(comments).toHaveLength(2);
+      const reply = getComments('gh-thread-9201').find((c) => c.id === 'gh-comment-9202');
+      expect(reply!.body).toBe('After');
+    });
+  });
+
+  describe('resolved state', () => {
+    it('should import a resolved thread as resolved', () => {
+      syncReviewThreads(ctx.db, makePrRow(), [makeThread(10001, { isResolved: true })]);
+
+      const thread = getThread('gh-thread-10001');
+      expect(thread!.resolved).toBe(true);
+      expect(thread!.resolvedBy).toBe('github');
     });
 
-    it('should update reply body when it changed on GitHub', () => {
+    it('should resolve a local thread when GitHub resolves it', () => {
       const prRow = makePrRow();
-      const parent = makeComment({ githubId: 11001 });
-      const reply = makeComment({ githubId: 11002, inReplyToId: 11001, body: 'Before edit' });
-      syncReviewComments(ctx.db, prRow, [parent, reply]);
+      syncReviewThreads(ctx.db, prRow, [makeThread(10101)]);
 
-      const updatedReply = makeComment({ githubId: 11002, inReplyToId: 11001, body: 'After edit' });
-      syncReviewComments(ctx.db, prRow, [parent, updatedReply]);
+      syncReviewThreads(ctx.db, prRow, [makeThread(10101, { isResolved: true })]);
 
-      const cmt = ctx.db
-        .select()
-        .from(threadComments)
-        .where(eq(threadComments.id, 'gh-comment-11002'))
-        .get();
-      expect(cmt!.body).toBe('After edit');
+      expect(getThread('gh-thread-10101')!.resolved).toBe(true);
+    });
+
+    it('should unresolve a local thread when GitHub unresolves it', () => {
+      const prRow = makePrRow();
+      syncReviewThreads(ctx.db, prRow, [makeThread(10201, { isResolved: true })]);
+
+      syncReviewThreads(ctx.db, prRow, [makeThread(10201, { isResolved: false })]);
+
+      const thread = getThread('gh-thread-10201');
+      expect(thread!.resolved).toBe(false);
+      expect(thread!.resolvedBy).toBeNull();
+      expect(thread!.resolvedAt).toBeNull();
+    });
+
+    it('should keep a locally dismissed thread resolved', () => {
+      const prRow = makePrRow();
+      syncReviewThreads(ctx.db, prRow, [makeThread(10301)]);
+      const existing = getThread('gh-thread-10301')!;
+      ctx.db
+        .update(commentThreads)
+        .set({
+          resolved: true,
+          resolvedBy: 'local-user',
+          metadata: { ...existing.metadata, localDismissed: true },
+        })
+        .where(eq(commentThreads.id, 'gh-thread-10301'))
+        .run();
+
+      syncReviewThreads(ctx.db, prRow, [makeThread(10301, { isResolved: false })]);
+
+      const thread = getThread('gh-thread-10301');
+      expect(thread!.resolved).toBe(true);
+      expect(thread!.resolvedBy).toBe('local-user');
+      expect((thread!.metadata as Record<string, unknown>).localDismissed).toBe(true);
     });
   });
 
   describe('documentPath format', () => {
     it('should key the thread on the pull request head branch, as the diff viewer reads it', () => {
       const prRow = makePrRow({ repo: '/Users/dev/my-project', headBranch: 'fix/index' });
-      const comment = makeComment({ githubId: 12001, path: 'packages/core/src/index.ts' });
 
-      syncReviewComments(ctx.db, prRow, [comment]);
+      syncReviewThreads(ctx.db, prRow, [makeThread(12001, { path: 'packages/core/src/index.ts' })]);
 
-      const thread = ctx.db
-        .select()
-        .from(commentThreads)
-        .where(eq(commentThreads.id, 'gh-thread-12001'))
-        .get();
-      expect(thread!.documentPath).toBe(
+      expect(getThread('gh-thread-12001')!.documentPath).toBe(
         'diff:///Users/dev/my-project#fix%2Findex/packages/core/src/index.ts',
       );
     });

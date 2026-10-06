@@ -1,0 +1,1 @@
+ALTER TABLE `prs` ADD `has_conflicts` integer DEFAULT false NOT NULL;

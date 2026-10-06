@@ -18,6 +18,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils';
 import { FileTree } from './file-tree';
 import { FileTreeSection } from './file-tree-section';
+import { FileClassGroups } from './file-class-groups';
+import type { FileClass } from './file-classes';
 import { useSectionSplit } from './use-section-split';
 import { DiffFilterBar } from './diff-filter-bar';
 import { buildFileTree, collectDirIds } from './file-tree-model';
@@ -43,6 +45,7 @@ interface FileListPanelProps {
   viewedPaths?: Set<string>;
   onToggleViewed?: (path: string) => void;
   onSetViewed?: (paths: string[], viewed: boolean) => void;
+  fileClasses?: Map<string, FileClass>;
   /**
    * Whether the list is showing pending work, where one path can be listed
    * twice — once staged, once not — and selection has to say which. Views of a
@@ -72,8 +75,10 @@ const STATUS_LABELS: Record<GitFileStatus, string> = {
  * sides of the index, and anything phrased as a number of files has to say the
  * latter.
  */
-const countPaths = (files: ChangedFile[], match: (f: ChangedFile) => boolean = () => true): number =>
-  new Set(files.filter(match).map((f) => f.path)).size;
+const countPaths = (
+  files: ChangedFile[],
+  match: (f: ChangedFile) => boolean = () => true,
+): number => new Set(files.filter(match).map((f) => f.path)).size;
 
 interface RenderItemContext {
   fileStatusMap: Map<string, GitFileStatus>;
@@ -173,6 +178,7 @@ export function FileListPanel({
   viewedPaths,
   onToggleViewed,
   onSetViewed,
+  fileClasses,
   sided = false,
 }: FileListPanelProps) {
   const [filter, setFilter] = useState<FilterState>(EMPTY_FILTER);
@@ -276,6 +282,7 @@ export function FileListPanel({
   // Bulk marking acts on exactly what the filters leave on screen, so narrowing
   // to a subset and clearing it in one go is the intended workflow.
   const visibleRowIds = useMemo(() => visibleFiles.map(rowId), [visibleFiles]);
+  const visiblePaths = useMemo(() => visibleFiles.map((f) => f.path), [visibleFiles]);
 
   const allVisibleViewed = allViewed(visibleRowIds, viewedPaths ?? new Set());
 
@@ -377,7 +384,20 @@ export function FileListPanel({
           </div>
         )}
 
-        {visibleFiles.length > 0 && !sided && (
+        {visibleFiles.length > 0 && !sided && fileClasses && (
+          <FileClassGroups
+            paths={visiblePaths}
+            classes={fileClasses}
+            idPrefix={selectionPrefix(soleSide)}
+            selectedFile={treeSelection(soleSide)}
+            onSelectFile={handleSelect}
+            renderItem={renderItem}
+            expandedIds={expandedIds}
+            onExpandedChange={setExpandedIds}
+          />
+        )}
+
+        {visibleFiles.length > 0 && !sided && !fileClasses && (
           <div className="flex-1 overflow-auto">
             <FileTree
               items={allItems}

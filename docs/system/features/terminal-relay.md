@@ -579,6 +579,8 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-910 | The terminal rail SHALL carry a grouping checkbox, on by default, persisted and shared across in-app tabs and browser tabs. WHILE it is off, the rail SHALL list the terminals flat in dock order instead of splitting them into per-worktree groups; Command Center's project grouping SHALL be unaffected. |
 | FR-TERMINAL-920 | The terminal rail SHALL list terminals in the dock's panel order, so a tab reordered in the dock reorders the rail. WHEN the user drags a rail entry onto another, the system SHALL move that terminal's dock panel into the target's place, which republishes the rail list — the rail SHALL hold no order of its own. |
 | FR-TERMINAL-930 | WHEN a browser receives a `reconnected` snapshot, it SHALL resize its terminal grid to the snapshot's `cols`/`rows` before it resets the terminal and writes the snapshot, and SHALL re-assert its fitted size after the write completes, so a full-screen program's frame is never written into a grid of another size and any size gap reaches the PTY as a resize that makes the program repaint. |
+| FR-TERMINAL-940 | WHEN `countAgentSpawnedSessions` counts live agent-spawned sessions against `AGENT_SPAWN_LIMIT`, the system SHALL NOT count sessions spawned by an agent review (`spawnedBy` `auto-review`), because an agent cannot close them with `terminal_close`. |
+| FR-TERMINAL-950 | WHILE the PRs tab of a project is open, the default terminal scope SHALL ignore the `wt` search parameter, so the dock group key matches the group key of the review terminals (`projectGroupKey` with no worktree). |
 
 ## Sources
 

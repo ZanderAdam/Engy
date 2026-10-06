@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { and, asc, eq, isNull, like, type SQL } from 'drizzle-orm';
+import { and, asc, eq, isNull, type SQL } from 'drizzle-orm';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getDb } from '../db/client';
-import { commentThreads, threadComments } from '../db/schema';
+import { commentThreads, threadComments, workspaces } from '../db/schema';
 import { getAppState } from '../trpc/context';
 import { dispatchGitBranch } from '../ws/server';
 import { setThreadResolved } from '../services/comment';
@@ -11,6 +11,9 @@ import { randomId } from '@/lib/random-id';
 import { AGENT_USER_ID } from '@/lib/comment-feedback';
 import { mcpError, mcpResult } from './result';
 import { diffScopePrefix } from '@/lib/diff-doc-path';
+import { resolveReviewScope } from '../review/review-scope';
+import { startsWithPrefix } from '../lib/path-prefix';
+import { notifyInboxChange } from '../inbox/store';
 
 // Diff-review authoring tools. Agent-only (no tRPC counterparts by design —
 // the browser writes the same rows through comment.createThread and builds the
@@ -21,7 +24,6 @@ import { diffScopePrefix } from '@/lib/diff-doc-path';
 // Every row written here is workspace-less. The Diffs tab reads through
 // comment.listThreadsByPrefix with no workspaceSlug, which filters on
 // `workspaceId IS NULL` — a workspace-scoped thread would be invisible to it.
-
 
 const severityField = z
   .enum(['critical', 'high', 'medium'])
@@ -46,7 +48,9 @@ const diffReviewCommentInput = {
   repoDir: repoDirField,
   filePath: z.string().min(1).describe('Path of the file, relative to the repo root'),
   lineNumber: z.number().int().positive().describe("Line number in its own side's numbering"),
-  codeLine: z.string().describe('Text of the line, so the finding survives being read out of context'),
+  codeLine: z
+    .string()
+    .describe('Text of the line, so the finding survives being read out of context'),
   side: z
     .enum(['modified', 'original'])
     .default('modified')
@@ -72,6 +76,35 @@ const diffReviewResolveInput = {
   threadId: z.string().min(1).describe('Thread id from diff_review_list'),
 };
 
+const riskField = z
+  .object({
+    level: z
+      .enum(['low', 'typical', 'high', 'very_high'])
+      .describe('How likely the change breaks something, weighed by how much depends on it'),
+    reason: z
+      .string()
+      .min(1)
+      .max(300)
+      .describe('One or two sentences naming what drives the level'),
+  })
+  .optional();
+
+const readingOrderField = z
+  .array(
+    z.object({
+      title: z.string().min(1).max(120).describe('Chapter name, e.g. "Core change"'),
+      files: z
+        .array(z.string().min(1))
+        .min(1)
+        .max(50)
+        .describe('Repo-relative paths in this chapter'),
+      note: z.string().min(1).max(300).describe('One line on what to look for'),
+    }),
+  )
+  .max(20)
+  .optional()
+  .describe('Ordered chapters: core change first, then supporting code, then tests and glue');
+
 const diffReviewSummaryInput = {
   repoDir: repoDirField,
   summary: z
@@ -80,12 +113,37 @@ const diffReviewSummaryInput = {
     .describe(
       'Markdown read before any file: a three-sentence overview, the order to read the changed files in and what to check in each, architectural decisions and why, breaking-change risk, then anything not worth anchoring inline',
     ),
+  risk: riskField,
+  readingOrder: readingOrderField,
+  guide: z
+    .enum(['default', 'project'])
+    .optional()
+    .describe(
+      'Which review guide the review followed: the built-in default or the project review-guide.md',
+    ),
 };
 
 const diffReviewListInput = {
   repoDir: repoDirField,
   filePath: z.string().optional().describe('Restrict to one file, relative to the repo root'),
 };
+
+async function findWorkspaceRepo(repoRoot: string): Promise<string | null> {
+  const state = getAppState();
+  const repos = getDb()
+    .select({ repos: workspaces.repos })
+    .from(workspaces)
+    .all()
+    .flatMap((row) => row.repos ?? []);
+
+  for (const repo of repos) {
+    const root = await dispatchGitBranch(repo, state)
+      .then((result) => result.repoRoot)
+      .catch(() => null);
+    if (root === repoRoot) return repo;
+  }
+  return null;
+}
 
 /**
  * A review is keyed by the branch the repo is on, so findings stay with the
@@ -98,9 +156,12 @@ const diffReviewListInput = {
  */
 async function scopePrefix(repoDir: string | undefined, sessionId?: string): Promise<string> {
   const dir = reviewDir(repoDir, sessionId);
+  const reviewScope = resolveReviewScope(getDb(), dir);
+  if (reviewScope) return diffScopePrefix(reviewScope.repoDir, reviewScope.branch);
   try {
     const { branch, repoRoot } = await dispatchGitBranch(dir, getAppState());
-    return diffScopePrefix(repoRoot ?? dir, branch);
+    const repoDirKey = repoRoot ? ((await findWorkspaceRepo(repoRoot)) ?? repoRoot) : dir;
+    return diffScopePrefix(repoDirKey, branch);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     throw new Error(
@@ -132,13 +193,24 @@ function authorMetadata(callerTerminalSessionId?: string) {
   };
 }
 
-function insertThread(documentPath: string, metadata: Record<string, unknown>, body: string): string {
+function insertThread(
+  documentPath: string,
+  metadata: Record<string, unknown>,
+  body: string,
+): string {
   const db = getDb();
   const threadId = randomId();
   const now = new Date().toISOString();
 
   db.insert(commentThreads)
-    .values({ id: threadId, workspaceId: null, documentPath, metadata, createdAt: now, updatedAt: now })
+    .values({
+      id: threadId,
+      workspaceId: null,
+      documentPath,
+      metadata,
+      createdAt: now,
+      updatedAt: now,
+    })
     .run();
   db.insert(threadComments)
     .values({
@@ -222,10 +294,17 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
 
       const threadId = insertThread(
         path,
-        { type: 'review-summary', ...authorMetadata(callerTerminalSessionId) },
+        {
+          type: 'review-summary',
+          ...authorMetadata(callerTerminalSessionId),
+          ...(args.risk ? { risk: args.risk } : {}),
+          ...(args.readingOrder ? { readingOrder: args.readingOrder } : {}),
+          ...(args.guide ? { guide: args.guide } : {}),
+        },
         args.summary,
       );
       broadcastCommentChange(path, threadId);
+      notifyInboxChange();
       return mcpResult({ threadId });
     },
   );
@@ -268,7 +347,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
       // read by exact path and only the repo-wide case scans by prefix.
       const rows = args.filePath
         ? readThreadsWhere(eq(commentThreads.documentPath, `${repoPrefix}${args.filePath}`))
-        : readThreadsWhere(like(commentThreads.documentPath, `${repoPrefix}%`));
+        : readThreadsWhere(startsWithPrefix(commentThreads.documentPath, repoPrefix));
 
       const threads = rows.map((row) => {
         const meta = (row.metadata ?? {}) as Record<string, unknown>;
@@ -286,10 +365,16 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
         };
       });
 
-      const summary = threads.find((t) => t.type === 'review-summary');
+      const summaryRow = rows.find(
+        (row) => (row.metadata as Record<string, unknown>)?.type === 'review-summary',
+      );
+      const summaryMeta = (summaryRow?.metadata ?? {}) as Record<string, unknown>;
       return mcpResult({
         threads,
-        summary: summary ? summary.body : null,
+        summary: summaryRow ? firstCommentBody(summaryRow.id) : null,
+        risk: summaryMeta.risk ?? null,
+        readingOrder: summaryMeta.readingOrder ?? null,
+        guide: summaryMeta.guide ?? null,
       });
     },
   );

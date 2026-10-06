@@ -836,7 +836,7 @@ describe('VoicePttController', () => {
       unsub1();
     });
 
-    it('[FR-TG1.10] starts a turn on the first toggle and ends it on the second', () => {
+    it('starts a turn on the first toggle and ends it on the second', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -857,7 +857,7 @@ describe('VoicePttController', () => {
       expect(FakeMicCapture.instances[0].stop).toHaveBeenCalled();
     });
 
-    it('[FR-TG1.10] releases a toggled-on mic when the window loses focus', () => {
+    it('releases a toggled-on mic when the window loses focus', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -869,7 +869,7 @@ describe('VoicePttController', () => {
       expect(lastState(onStateChange)?.phase).not.toBe('listening');
     });
 
-    it('[FR-TG1.10] lets a key hold stop a turn that a toggle started', () => {
+    it('lets a key hold stop a turn that a toggle started', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -881,7 +881,7 @@ describe('VoicePttController', () => {
       expect(lastState(onStateChange)?.phase).toBe('transcribing');
     });
 
-    it("[FR-TG1.9] addresses the socket to the active tab's workspace", () => {
+    it("addresses the socket to the active tab's workspace", () => {
       // wsUrlFactory stays unset here — the point is the real slug resolution
       // the server-side gate reads, which every other test bypasses.
       controller = new VoicePttController({ ...makeOpts(), wsUrlFactory: undefined });
@@ -906,7 +906,7 @@ describe('VoicePttController', () => {
       unsub1();
     });
 
-    it('[FR-TG1.9] refuses to open a socket when no subscriber names a workspace', () => {
+    it('refuses to open a socket when no subscriber names a workspace', () => {
       controller = new VoicePttController({ ...makeOpts(), wsUrlFactory: undefined });
       const { observer, onStateChange } = makeObserver();
       unsubscribe = controller.subscribe({ ...observer, workspaceSlug: () => '' });
@@ -1044,8 +1044,8 @@ describe('VoicePttController', () => {
     });
   });
 
-  describe('dual-mode routing (FR-TG2.16)', () => {
-    it('[FR-TG2.16] should insert a transcript with no wake word into the terminal', () => {
+  describe('dual-mode routing', () => {
+    it('should insert a transcript with no wake word into the terminal', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onSegment, onCommand } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1061,7 +1061,7 @@ describe('VoicePttController', () => {
       expect(onCommand).not.toHaveBeenCalled();
     });
 
-    it('[FR-TG2.16] should resolve a wake-word transcript against the action registry instead of the terminal', () => {
+    it('should resolve a wake-word transcript against the action registry instead of the terminal', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onSegment, onCommand } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1077,12 +1077,12 @@ describe('VoicePttController', () => {
         }),
       );
 
-      // [FR-TG2.13] wake prefix stripped before the observer resolves it.
+      // wake prefix stripped before the observer resolves it.
       expect(onCommand).toHaveBeenCalledWith('select project web');
       expect(onSegment).not.toHaveBeenCalled();
     });
 
-    it('[FR-TG2.16] should never fall back to inserting an unresolved wake-word transcript into the terminal', () => {
+    it('should never fall back to inserting an unresolved wake-word transcript into the terminal', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onSegment, onCommand } = makeObserver(() => ({
         matched: false,
@@ -1105,7 +1105,7 @@ describe('VoicePttController', () => {
       expect(onSegment).not.toHaveBeenCalled();
     });
 
-    it('[FR-TG2.16] should surface the resolution outcome in state.command for every subscriber', () => {
+    it('should surface the resolution outcome in state.command for every subscriber', () => {
       controller = new VoicePttController(makeOpts());
       const matched: ResolveResult = {
         matched: true,
@@ -1178,7 +1178,7 @@ describe('VoicePttController', () => {
 
   describe('conversation mode', () => {
     // The whole point of the mode: no key, no spoken "send".
-    it('[FR-TG2.27] should submit after a silence following dictation', async () => {
+    it('should submit after a silence following dictation', async () => {
       controller = new VoicePttController(makeOpts({ autoSubmitMs: 10 }));
       const { observer, onSegment, onAutoSubmit } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1195,7 +1195,7 @@ describe('VoicePttController', () => {
     });
 
     // A pause for thought mid-sentence must not send half a thought.
-    it('[FR-TG2.27] should restart the silence window on each new segment', async () => {
+    it('should restart the silence window on each new segment', async () => {
       controller = new VoicePttController(makeOpts({ autoSubmitMs: 40 }));
       const { observer, onAutoSubmit } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1228,7 +1228,7 @@ describe('VoicePttController', () => {
       expect(onAutoSubmit).not.toHaveBeenCalled();
     });
 
-    it('[FR-TG2.27] should stop submitting once the mode is turned off', async () => {
+    it('should stop submitting once the mode is turned off', async () => {
       controller = new VoicePttController(makeOpts({ autoSubmitMs: 20 }));
       const { observer, onAutoSubmit } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1246,7 +1246,7 @@ describe('VoicePttController', () => {
 
     // The bug that made the mode unusable: releasing the key ended the turn,
     // so there was never a hands-free session to auto-submit into.
-    it('[FR-TG2.29] should keep the mic open when the key is released', () => {
+    it('should keep the mic open when the key is released', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1261,7 +1261,7 @@ describe('VoicePttController', () => {
       expect(FakeWebSocket.instances[0].readyState).toBe(FakeWebSocket.OPEN);
     });
 
-    it('[FR-TG2.29] should keep the conversation open when another key is pressed', () => {
+    it('should keep the conversation open when another key is pressed', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1292,7 +1292,7 @@ describe('VoicePttController', () => {
       expect(onAutoSubmit).not.toHaveBeenCalled();
     });
 
-    it('[FR-TG2.29] should not show the conversation transcript once it ends', () => {
+    it('should not show the conversation transcript once it ends', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1325,7 +1325,7 @@ describe('VoicePttController', () => {
       expect(lastState(onStateChange)?.transcript).toBe('run the tests');
     });
 
-    it('[FR-TG2.31] should start a conversation on a double tap', () => {
+    it('should start a conversation on a double tap', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1377,7 +1377,7 @@ describe('VoicePttController', () => {
       }
     });
 
-    it('[FR-TG2.29] should end the session on a second key press', () => {
+    it('should end the session on a second key press', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1395,7 +1395,7 @@ describe('VoicePttController', () => {
 
     // Stopping the mic by hand must not leave the mode on, or the next press
     // would silently resume a conversation the user thought they ended.
-    it('[FR-TG2.29] should leave the mode when the mic is toggled off', () => {
+    it('should leave the mode when the mic is toggled off', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1410,7 +1410,7 @@ describe('VoicePttController', () => {
       expect(lastState(onStateChange)?.conversation).toBe(false);
     });
 
-    it('[FR-TG2.29] should close the mic when the mode is turned off by voice', () => {
+    it('should close the mic when the mode is turned off by voice', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1444,7 +1444,7 @@ describe('VoicePttController', () => {
     // The phrase that starts a conversation is only transcribed after the key
     // is released, so the mic that heard it has already closed by the time the
     // action runs. Without reopening it, the mode turns on deaf.
-    it('[FR-TG2.29] should reopen the mic when the mode starts with none open', () => {
+    it('should reopen the mic when the mode starts with none open', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1463,7 +1463,7 @@ describe('VoicePttController', () => {
     // A conversation left set on the singleton controller would greet the next
     // subscriber with a mode that has no mic — and a plain key-hold that then
     // never releases, because keyup defers to the mode.
-    it('[FR-TG2.29] should not let the mode outlive the last subscriber', () => {
+    it('should not let the mode outlive the last subscriber', () => {
       controller = new VoicePttController(makeOpts());
       const first = makeObserver();
       const stop = controller.subscribe(first.observer);
@@ -1484,7 +1484,7 @@ describe('VoicePttController', () => {
 
     // Engy talking over a half-finished thought killed the silence window and
     // nothing restarted it, so the dictated text sat in the terminal unsent.
-    it('[FR-TG2.28] should restart the silence window after Engy stops talking', async () => {
+    it('should restart the silence window after Engy stops talking', async () => {
       controller = new VoicePttController(makeOpts({ autoSubmitMs: 20 }));
       const { observer, onAutoSubmit } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1540,7 +1540,7 @@ describe('VoicePttController', () => {
       expect(lastState(onStateChange)?.command).toBeNull();
     });
 
-    it('[FR-TG2.29] should report the mode in its pushed state', () => {
+    it('should report the mode in its pushed state', () => {
       controller = new VoicePttController(makeOpts());
       const { observer, onStateChange } = makeObserver();
       unsubscribe = controller.subscribe(observer);
@@ -1552,7 +1552,7 @@ describe('VoicePttController', () => {
 
     // The mic stays open through a spoken answer, so without this the answer
     // is transcribed and dictated straight back — the loop feeds itself.
-    it('[FR-TG2.28] should send silence in place of mic audio while Engy is speaking', () => {
+    it('should send silence in place of mic audio while Engy is speaking', () => {
       controller = new VoicePttController(makeOpts());
       unsubscribe = controller.subscribe(makeObserver().observer);
       firePtt('keydown');
@@ -1568,7 +1568,7 @@ describe('VoicePttController', () => {
       expect(new Uint8Array(sent).every((b) => b === 0)).toBe(true);
     });
 
-    it('[FR-TG2.28] should stay silent through the echo tail, then pass audio again', async () => {
+    it('should stay silent through the echo tail, then pass audio again', async () => {
       controller = new VoicePttController(makeOpts({ echoTailMs: 20 }));
       unsubscribe = controller.subscribe(makeObserver().observer);
       firePtt('keydown');

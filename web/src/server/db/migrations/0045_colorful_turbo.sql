@@ -1,0 +1,1 @@
+ALTER TABLE `review_worktrees` ADD `is_cross_repository` integer DEFAULT false NOT NULL;

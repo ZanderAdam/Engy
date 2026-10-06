@@ -37,7 +37,7 @@ function seedFromSnapshot(): void {
  * Drives the project-activity store: seed from the snapshot endpoint on mount
  * and on every events-socket (re)connect — deltas broadcast while disconnected
  * are lost, so the snapshot is the only way to heal. Mount exactly once inside
- * the EventsProvider (the workspace layout) — every <ProjectActivityBadge>
+ * the workspace layout — every <ProjectActivityBadge>
  * reads from the shared store.
  */
 export function useProjectActivityFeed(): void {

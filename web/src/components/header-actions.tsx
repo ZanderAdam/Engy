@@ -6,6 +6,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { QuestionList } from '@/components/questions/question-list';
 import { QuestionDialog } from '@/components/questions/question-dialog';
 import { GlobalSearch } from '@/components/search/global-search';
+import { InboxButton } from '@/components/inbox/inbox-button';
 import { trpc } from '@/lib/trpc';
 import { RiQuestionLine, RiSearchLine } from '@remixicon/react';
 
@@ -42,6 +43,7 @@ export function HeaderActions() {
       >
         <RiSearchLine className="size-4 text-muted-foreground" />
       </button>
+      <InboxButton />
       {unansweredCount > 0 && (
         <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
           <PopoverTrigger asChild>

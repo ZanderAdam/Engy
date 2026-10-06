@@ -83,7 +83,13 @@ function ShortcutButton({
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="outline" size="sm" onClick={onClick} className="h-8 w-8 p-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onClick}
+            aria-label={label}
+            className="h-8 w-8 p-0"
+          >
             <Icon className="size-4" />
           </Button>
         </TooltipTrigger>

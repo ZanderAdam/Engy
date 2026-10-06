@@ -13,7 +13,7 @@ import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { copyToClipboard } from '@/lib/clipboard';
 import { generateDiffFeedback } from '@/lib/diff-feedback';
-import { buildReviewPrompt } from './review-dispatch';
+import { buildReviewPrompt } from '@/lib/review-prompt';
 import type { DiffComment } from './use-diff-comments';
 import type { GitPatchSpec } from '@engy/common';
 
@@ -30,6 +30,7 @@ interface ReviewActionsProps {
   reviewSpec?: GitPatchSpec | null;
   worktreePath?: string;
   coderWorkspace?: string;
+  projectId?: number;
 }
 
 export function ReviewActions({
@@ -40,6 +41,7 @@ export function ReviewActions({
   reviewSpec,
   worktreePath,
   coderWorkspace,
+  projectId,
 }: ReviewActionsProps) {
   const { sendToTerminal, terminalActive } = useSendToTerminal();
   const { status: sessionStatus, sessionId } = useExecutionStatus('task', taskId ?? 0);
@@ -49,6 +51,11 @@ export function ReviewActions({
   const utils = trpc.useUtils();
   const sendFeedbackMutation = trpc.execution.sendFeedback.useMutation();
   const markSentMutation = trpc.comment.markSent.useMutation();
+
+  const { data: reviewGuide } = trpc.project.reviewGuide.useQuery(
+    { projectId: projectId ?? 0 },
+    { enabled: projectId != null },
+  );
 
   const unresolvedThreads = useMemo(() => diffComments.filter((c) => !c.resolved), [diffComments]);
 
@@ -126,8 +133,15 @@ export function ReviewActions({
 
   const handleReviewDiff = useCallback(() => {
     if (!repoDir || !reviewSpec) return;
-    sendToTerminal(buildReviewPrompt({ repoDir, worktreePath, spec: reviewSpec }));
-  }, [repoDir, worktreePath, reviewSpec, sendToTerminal]);
+    sendToTerminal(
+      buildReviewPrompt({
+        repoDir,
+        worktreePath,
+        spec: reviewSpec,
+        reviewGuide: reviewGuide?.path ?? undefined,
+      }),
+    );
+  }, [repoDir, worktreePath, reviewSpec, reviewGuide, sendToTerminal]);
 
   function getReviewTooltip() {
     if (coderWorkspace) return 'Review is not available for Coder workspaces';

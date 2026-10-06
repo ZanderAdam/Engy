@@ -6,6 +6,7 @@ import { terminalSessionHistory } from './db/schema';
 import { recordSessionStart } from './ws/terminal-session-history';
 import {
   connectWorker,
+  countAgentSpawnedSessions,
   createDispatch,
   destroyTerminalSession,
   disconnectWorker,
@@ -333,6 +334,18 @@ describe('terminal dispatch', () => {
         alive: true,
       });
       expect(workers.find((w) => w.sessionId === 'gone')!.alive).toBe(false);
+    });
+  });
+
+  describe('countAgentSpawnedSessions', () => {
+    it('[FR-TERMINAL-940] should not count sessions spawned by an agent review', () => {
+      addSession(state, 'review');
+      state.terminalSessionMeta.get('review')!.spawnedBy = 'auto-review';
+      addSession(state, 'worker');
+      state.terminalSessionMeta.get('worker')!.spawnedBy = 'caller-session';
+      addSession(state, 'user-opened');
+
+      expect(countAgentSpawnedSessions(state)).toBe(1);
     });
   });
 

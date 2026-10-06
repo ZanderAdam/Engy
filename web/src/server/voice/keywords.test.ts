@@ -79,7 +79,7 @@ describe('keyword encoding', () => {
 
   describe('against the real KWS model', () => {
     it(
-      '[FR-TG2.11] should encode a known phrase to the exact token sequence sherpa-onnx ships',
+      'should encode a known phrase to the exact token sequence sherpa-onnx ships',
       async () => {
         const kwsModelDir = await resolveKwsModelDir();
         const buffer = fs.readFileSync(path.join(kwsModelDir, 'bpe.model'));
@@ -100,7 +100,7 @@ describe('keyword encoding', () => {
     );
 
     it(
-      `[FR-TG2.11] should encode the default wake word "${DEFAULT_WAKE_WORD}" into a keywords-file line`,
+      `should encode the default wake word "${DEFAULT_WAKE_WORD}" into a keywords-file line`,
       async () => {
         const kwsModelDir = await resolveKwsModelDir();
         const line = await encodeWakeWord(DEFAULT_WAKE_WORD, kwsModelDir);

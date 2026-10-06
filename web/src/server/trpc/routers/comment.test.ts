@@ -150,9 +150,35 @@ describe('comment router', () => {
       expect(openResult).toHaveLength(1);
       expect(openResult[0].id).toBe('t-open');
 
-      const wsResult = await caller.comment.listThreads({ workspaceSlug: 'test-ws', documentPath: docPath });
+      const wsResult = await caller.comment.listThreads({
+        workspaceSlug: 'test-ws',
+        documentPath: docPath,
+      });
       expect(wsResult).toHaveLength(1);
       expect(wsResult[0].id).toBe('t-ws');
+    });
+  });
+
+  describe('[FR-EDITOR-040] listThreadsByPrefix', () => {
+    it('[FR-EDITOR-040] should match the prefix exactly, without wildcards or case folding', async () => {
+      const paths = [
+        'diff:///repo#fix_a/src/a.ts',
+        'diff:///repo#fix-a/src/a.ts',
+        'diff:///repo#FIX_A/src/a.ts',
+      ];
+      for (const [index, documentPath] of paths.entries()) {
+        await caller.comment.createThread({
+          documentPath,
+          threadId: `t-${index}`,
+          initialComment: { id: `c-${index}`, body: 'note' },
+        });
+      }
+
+      const threads = await caller.comment.listThreadsByPrefix({
+        documentPathPrefix: 'diff:///repo#fix_a/',
+      });
+
+      expect(threads.map((thread) => thread.documentPath)).toEqual([paths[0]]);
     });
   });
 

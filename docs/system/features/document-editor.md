@@ -43,7 +43,7 @@ Frontmatter is handled by `stripFrontmatter` at load time: the `---`-fenced YAML
 
 `listThreads` enforces workspace isolation: a slug-scoped query matches on `workspaceId`; a slug-less query uses `isNull(workspaceId)`. The two predicates are mutually exclusive, so workspace threads and open-dir threads never appear in each other's result sets.
 
-`listThreadsByPrefix` uses a SQL `LIKE` prefix match on `documentPath` and runs the same workspace-isolation condition, enabling comment summaries that span multiple documents under a directory prefix.
+`listThreadsByPrefix` matches the `documentPath` prefix exactly (`startsWithPrefix` in `web/src/server/lib/path-prefix.ts`: case-sensitive, no wildcards) and runs the same workspace-isolation condition, enabling comment summaries that span multiple documents under a directory prefix.
 
 ## Sending comments to an agent
 
@@ -74,7 +74,7 @@ The visual flowchart editor uses a pragmatic line-based parser (`parseFlowchart`
 | FR-EDITOR-010 | WHEN `createThread` is called with a valid `workspaceSlug` and `documentPath`, the system SHALL insert a `commentThreads` row and an initial `threadComments` row (with `userId: 'local-user'`) and return the thread with `resolved: false` and `comments` containing the initial comment; IF the workspace slug is unknown, the system SHALL throw `NOT_FOUND`. |
 | FR-EDITOR-020 | WHEN `createThread` is called without a `workspaceSlug`, the system SHALL create the thread with `workspaceId: null`, keyed solely by the absolute `documentPath`. |
 | FR-EDITOR-030 | WHEN `listThreads` is called with a `workspaceSlug`, the system SHALL return only threads whose `workspaceId` matches that workspace and whose `documentPath` matches exactly; WHEN called without a `workspaceSlug`, the system SHALL return only threads where `workspaceId IS NULL` — the two result sets SHALL never overlap; in both cases threads that have no comments SHALL be excluded from the result. |
-| FR-EDITOR-040 | WHEN `listThreadsByPrefix` is called, the system SHALL return all threads (with their comments) whose `documentPath` starts with the given prefix within the same workspace scope, ordered by `createdAt` ascending, excluding threads that have no comments. |
+| FR-EDITOR-040 | WHEN `listThreadsByPrefix` is called, the system SHALL return all threads (with their comments) whose `documentPath` starts with the given prefix, compared exactly and case-sensitively, within the same workspace scope, ordered by `createdAt` ascending, excluding threads that have no comments. |
 | FR-EDITOR-050 | WHEN `deleteComment` is called, the system SHALL set `body: null` and `deletedAt` to the current timestamp on the comment row, leaving the thread and all remaining comments retrievable via `listThreads`. |
 | FR-EDITOR-060 | WHEN `resolveThread` is called, the system SHALL set `resolved: true`, `resolvedBy: 'local-user'`, and `resolvedAt` to the current timestamp; WHEN `unresolveThread` is called, the system SHALL clear those fields back to `false` and `null`. |
 | FR-EDITOR-070 | WHEN `addReaction` is called, the system SHALL add the emoji entry (or push `userId` into an existing entry) without duplicating the user; WHEN `deleteReaction` is called, the system SHALL remove the user from `userIds` and drop the entire entry when `userIds` becomes empty. |

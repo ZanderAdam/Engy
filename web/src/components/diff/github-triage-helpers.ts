@@ -18,3 +18,6 @@ export function allGithubThreadIds(comments: DiffComment[]): Set<string> {
   return new Set(filterUnresolvedGithubThreads(comments).map((c) => c.threadId));
 }
 
+export function triageResolveLabel(onReviewPage: boolean): 'Resolve' | 'Dismiss' {
+  return onReviewPage ? 'Resolve' : 'Dismiss';
+}

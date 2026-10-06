@@ -4,7 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerDiffReviewTools } from './diff-review-tools';
 import { getAppState } from '../trpc/context';
 import { getDb } from '../db/client';
-import { commentThreads, threadComments } from '../db/schema';
+import { commentThreads, reviewWorktrees, threadComments, workspaces } from '../db/schema';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import { appRouter } from '../trpc/root';
 import { diffDocPath, diffScopePrefix } from '@/lib/diff-doc-path';
@@ -88,7 +88,10 @@ describe('diff review MCP tools', () => {
       connectDaemonOnBranch(ctx, BRANCH, REPO);
       const mcp = makeMcp();
 
-      await callTool(mcp, 'diff_review_comment')({
+      await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
         repoDir: worktree,
         filePath: 'src/auth.ts',
         lineNumber: 3,
@@ -100,6 +103,230 @@ describe('diff review MCP tools', () => {
         `${diffScopePrefix(REPO, BRANCH)}src/auth.ts`,
       ]);
       expect(await readAsDiffsTabWould(worktree)).toEqual([]);
+    });
+  });
+
+  describe('an agent reviewing from inside a review worktree', () => {
+    it('[FR-MCP-275] files against the main checkout and the PR head branch', async () => {
+      const worktree = '/home/dev/.engy/ws/worktrees/_review/proj/pr-7';
+      getDb()
+        .insert(reviewWorktrees)
+        .values({
+          repoPath: REPO,
+          repoFullName: 'acme/proj',
+          prNumber: 7,
+          worktreePath: worktree,
+          headRefName: BRANCH,
+          headSha: 'abc',
+          createdByReview: true,
+        })
+        .run();
+      connectDaemonOnBranch(ctx, 'engy/review/pr-7', worktree);
+      const mcp = makeMcp();
+
+      await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
+        repoDir: `${worktree}/src`,
+        filePath: 'src/auth.ts',
+        lineNumber: 3,
+        codeLine: 'x',
+        severity: 'high',
+        finding: 'f',
+        failureScenario: 's',
+      });
+
+      const threads = await readAsDiffsTabWould(REPO);
+      expect(threads.map((t) => t.documentPath)).toEqual([
+        `${diffScopePrefix(REPO, BRANCH)}src/auth.ts`,
+      ]);
+      const listed = await callTool(mcp, 'diff_review_list')({ repoDir: worktree });
+      expect(listed.data.threads as unknown[]).toHaveLength(1);
+    });
+  });
+
+  describe('two PRs whose head branches share a name', () => {
+    it('[FR-MCP-275] keeps the summary of a cross-repo PR apart from a same-repo PR', async () => {
+      const sameRepoWorktree = '/home/dev/.engy/ws/worktrees/_review/proj/pr-7';
+      const forkWorktree = '/home/dev/.engy/ws/worktrees/_review/proj/pr-8';
+      const base = { repoPath: REPO, repoFullName: 'acme/proj', headRefName: 'main' };
+      getDb()
+        .insert(reviewWorktrees)
+        .values([
+          {
+            ...base,
+            prNumber: 7,
+            worktreePath: sameRepoWorktree,
+            headSha: 'a',
+            createdByReview: true,
+          },
+          {
+            ...base,
+            prNumber: 8,
+            worktreePath: forkWorktree,
+            headSha: 'b',
+            createdByReview: true,
+            isCrossRepository: true,
+          },
+        ])
+        .run();
+      const mcp = makeMcp();
+
+      await callTool(mcp, 'diff_review_summary')({ repoDir: sameRepoWorktree, summary: 'PR 7' });
+      await callTool(mcp, 'diff_review_summary')({ repoDir: forkWorktree, summary: 'PR 8' });
+
+      const sameRepoThreads = await readAsDiffsTabWould(REPO, 'main');
+      const forkThreads = await readAsDiffsTabWould(REPO, 'pull/8/head');
+      expect(sameRepoThreads).toHaveLength(1);
+      expect(forkThreads).toHaveLength(1);
+      expect(sameRepoThreads[0].comments[0].body).toContain('PR 7');
+    });
+  });
+
+  describe('an agent reviewing from a reused agent worktree', () => {
+    it('[FR-MCP-275] files under the branch the daemon reports, not the row branch', async () => {
+      const worktree = '/home/dev/worktrees/agent-wt';
+      getDb()
+        .insert(reviewWorktrees)
+        .values({
+          repoPath: REPO,
+          repoFullName: 'acme/proj',
+          prNumber: 9,
+          worktreePath: worktree,
+          headRefName: 'stale/branch',
+          headSha: 'abc',
+          createdByReview: false,
+        })
+        .run();
+      connectDaemonOnBranch(ctx, 'moved/on', REPO);
+
+      await callTool(
+        makeMcp(),
+        'diff_review_comment',
+      )({
+        repoDir: worktree,
+        filePath: 'src/a.ts',
+        lineNumber: 1,
+        codeLine: 'x',
+        severity: 'high',
+        finding: 'f',
+        failureScenario: 's',
+      });
+
+      expect(await readAsDiffsTabWould(REPO, 'moved/on')).toHaveLength(1);
+      expect(await readAsDiffsTabWould(REPO, 'stale/branch')).toEqual([]);
+    });
+  });
+
+  describe('a workspace repo stored under a symlinked path', () => {
+    const LINKED_REPO = '/link/proj/';
+    const REAL_REPO = '/real/proj';
+    const OTHER_REPO = '/real/other';
+
+    function connectDaemonWithRealRoots(): void {
+      const rootOf = (dir: string) => {
+        if (dir.startsWith(OTHER_REPO)) return OTHER_REPO;
+        if (dir.startsWith(REAL_REPO)) return REAL_REPO;
+        return '/elsewhere';
+      };
+      ctx.state.daemon = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type !== 'GIT_BRANCH_REQUEST') return;
+          const repoRoot = rootOf(msg.payload.repoDir.replace('/link/', '/real/'));
+          ctx.state.pendingGitBranch.get(msg.payload.requestId)?.resolve({
+            branch: BRANCH,
+            repoRoot,
+          });
+        },
+      } as unknown as WebSocket;
+    }
+
+    async function fileFinding(repoDir: string): Promise<void> {
+      await callTool(
+        makeMcp(),
+        'diff_review_comment',
+      )({
+        repoDir,
+        filePath: 'src/a.ts',
+        lineNumber: 1,
+        codeLine: 'x',
+        severity: 'high',
+        finding: 'f',
+        failureScenario: 's',
+      });
+    }
+
+    beforeEach(() => {
+      getDb()
+        .insert(workspaces)
+        .values({ name: 'WS', slug: 'ws', repos: [OTHER_REPO, LINKED_REPO] })
+        .run();
+      connectDaemonWithRealRoots();
+    });
+
+    it('[FR-MCP-280] files under the workspace repo path the Diffs tab reads', async () => {
+      await fileFinding('/real/proj/src');
+
+      expect(await readAsDiffsTabWould(LINKED_REPO)).toHaveLength(1);
+      expect(await readAsDiffsTabWould(REAL_REPO)).toEqual([]);
+    });
+
+    it('[FR-MCP-280] files under a workspace repo path that only differs by a trailing slash', async () => {
+      getDb()
+        .update(workspaces)
+        .set({ repos: ['/real/proj/'] })
+        .run();
+
+      await fileFinding('/real/proj/src');
+
+      expect(await readAsDiffsTabWould('/real/proj/')).toHaveLength(1);
+      expect(await readAsDiffsTabWould(REAL_REPO)).toEqual([]);
+    });
+
+    it('[FR-MCP-280] reads back the findings it filed', async () => {
+      await fileFinding('/real/proj/src');
+
+      const { data } = await callTool(makeMcp(), 'diff_review_list')({ repoDir: '/real/proj' });
+
+      expect(data.threads).toHaveLength(1);
+    });
+
+    it('[FR-MCP-280] keeps the daemon repo root when no workspace repo matches', async () => {
+      await fileFinding('/elsewhere/src');
+
+      expect(await readAsDiffsTabWould('/elsewhere')).toHaveLength(1);
+    });
+  });
+
+  describe('branches whose names differ only by LIKE wildcards or case', () => {
+    it('[FR-MCP-250] lists only the threads of the exact branch', async () => {
+      const mcp = makeMcp();
+      const file = {
+        filePath: 'src/a.ts',
+        lineNumber: 1,
+        codeLine: 'x',
+        severity: 'high',
+        finding: 'f',
+        failureScenario: 's',
+      };
+      connectDaemonOnBranch(ctx, 'fix_a');
+      await callTool(mcp, 'diff_review_comment')({ repoDir: REPO, ...file, finding: 'underscore' });
+      connectDaemonOnBranch(ctx, 'fix-a');
+      await callTool(mcp, 'diff_review_comment')({ repoDir: REPO, ...file, finding: 'dash' });
+      connectDaemonOnBranch(ctx, 'FIX_A');
+      await callTool(mcp, 'diff_review_comment')({ repoDir: REPO, ...file, finding: 'upper' });
+
+      connectDaemonOnBranch(ctx, 'fix_a');
+      const listed = await callTool(mcp, 'diff_review_list')({ repoDir: REPO });
+
+      const bodies = (listed.data.threads as Array<{ body: string }>).map((t) => t.body);
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0]).toContain('underscore');
+      expect(await readAsDiffsTabWould(REPO, 'fix_a')).toHaveLength(1);
     });
   });
 
@@ -117,7 +344,10 @@ describe('diff review MCP tools', () => {
       });
       connectDaemonOnBranch(ctx, BRANCH, REPO);
 
-      await callTool(makeMcp('sess-wt'), 'diff_review_comment')({
+      await callTool(
+        makeMcp('sess-wt'),
+        'diff_review_comment',
+      )({
         filePath: 'src/auth.ts',
         lineNumber: 3,
         codeLine: 'x',
@@ -134,7 +364,10 @@ describe('diff review MCP tools', () => {
 
     it('[FR-MCP-260] says to pass a path when the call carries no session', async () => {
       await expect(
-        callTool(makeMcp(), 'diff_review_comment')({
+        callTool(
+          makeMcp(),
+          'diff_review_comment',
+        )({
           filePath: 'src/auth.ts',
           lineNumber: 3,
           codeLine: 'x',
@@ -149,7 +382,10 @@ describe('diff review MCP tools', () => {
   describe('diff_review_comment', () => {
     it('[FR-MCP-220] anchors a finding where the diff viewer reads it', async () => {
       const mcp = makeMcp();
-      const res = await callTool(mcp, 'diff_review_comment')({
+      const res = await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
         repoDir: REPO,
         filePath: 'src/auth.ts',
         lineNumber: 42,
@@ -179,7 +415,10 @@ describe('diff review MCP tools', () => {
 
     it('[FR-MCP-220] writes workspace-less threads so the slug-less viewer query finds them', async () => {
       const mcp = makeMcp();
-      await callTool(mcp, 'diff_review_comment')({
+      await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
         repoDir: REPO,
         filePath: 'src/a.ts',
         lineNumber: 1,
@@ -195,7 +434,10 @@ describe('diff review MCP tools', () => {
 
     it('[FR-MCP-220] composes the finding, failure scenario and fix into the comment body', async () => {
       const mcp = makeMcp();
-      await callTool(mcp, 'diff_review_comment')({
+      await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
         repoDir: REPO,
         filePath: 'src/a.ts',
         lineNumber: 7,
@@ -214,7 +456,10 @@ describe('diff review MCP tools', () => {
 
     it('[FR-MCP-220] carries the evidence rung when the finding earned one', async () => {
       const mcp = makeMcp();
-      await callTool(mcp, 'diff_review_comment')({
+      await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
         repoDir: REPO,
         filePath: 'src/a.ts',
         lineNumber: 1,
@@ -233,7 +478,10 @@ describe('diff review MCP tools', () => {
 
     it('[FR-MCP-220] omits evidence entirely for a finding that only asserts', async () => {
       const mcp = makeMcp();
-      await callTool(mcp, 'diff_review_comment')({
+      await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
         repoDir: REPO,
         filePath: 'src/a.ts',
         lineNumber: 1,
@@ -249,7 +497,10 @@ describe('diff review MCP tools', () => {
 
     it('[FR-MCP-220] records a deleted line against the original side', async () => {
       const mcp = makeMcp();
-      await callTool(mcp, 'diff_review_comment')({
+      await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
         repoDir: REPO,
         filePath: 'src/a.ts',
         lineNumber: 3,
@@ -275,7 +526,10 @@ describe('diff review MCP tools', () => {
       });
 
       const mcp = makeMcp('sess-1');
-      await callTool(mcp, 'diff_review_comment')({
+      await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
         repoDir: REPO,
         filePath: 'src/a.ts',
         lineNumber: 1,
@@ -295,7 +549,10 @@ describe('diff review MCP tools', () => {
 
     it('[FR-MCP-230] still marks an anonymous caller as agent-authored', async () => {
       const mcp = makeMcp();
-      await callTool(mcp, 'diff_review_comment')({
+      await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
         repoDir: REPO,
         filePath: 'src/a.ts',
         lineNumber: 1,
@@ -313,7 +570,10 @@ describe('diff review MCP tools', () => {
 
     it('[FR-MCP-230] ignores a caller-supplied source, keeping the discriminator trustworthy', async () => {
       const mcp = makeMcp();
-      await callTool(mcp, 'diff_review_comment')({
+      await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
         repoDir: REPO,
         filePath: 'src/a.ts',
         lineNumber: 1,
@@ -331,7 +591,10 @@ describe('diff review MCP tools', () => {
 
   describe('diff_review_resolve', () => {
     async function fileFinding(mcp: ReturnType<typeof makeMcp>) {
-      const res = await callTool(mcp, 'diff_review_comment')({
+      const res = await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
         repoDir: REPO,
         filePath: 'src/a.ts',
         lineNumber: 1,
@@ -343,7 +606,7 @@ describe('diff review MCP tools', () => {
       return res.data.threadId as string;
     }
 
-    it('[FR-MCP-260] resolves a finding the agent itself filed', async () => {
+    it('[FR-MCP-265] resolves a finding the agent itself filed', async () => {
       const mcp = makeMcp();
       const threadId = await fileFinding(mcp);
 
@@ -354,7 +617,7 @@ describe('diff review MCP tools', () => {
       expect(threads[0].resolved).toBe(true);
     });
 
-    it("[FR-MCP-260] refuses to close a human's comment", async () => {
+    it("[FR-MCP-265] refuses to close a human's comment", async () => {
       await appRouter.createCaller({ state: getAppState() } as never).comment.createThread({
         documentPath: diffDocPath(REPO, BRANCH, 'src/a.ts'),
         threadId: 'human-thread',
@@ -369,7 +632,7 @@ describe('diff review MCP tools', () => {
       expect(threads[0].resolved).toBe(false);
     });
 
-    it('[FR-MCP-260] reports an unknown thread rather than failing silently', async () => {
+    it('[FR-MCP-265] reports an unknown thread rather than failing silently', async () => {
       const res = await callTool(makeMcp(), 'diff_review_resolve')({ threadId: 'nope' });
       expect(res.isError).toBe(true);
       expect(String(res.data.error)).toContain('nope');
@@ -381,7 +644,10 @@ describe('diff review MCP tools', () => {
       ctx.state.daemon = null;
 
       await expect(
-        callTool(makeMcp(), 'diff_review_comment')({
+        callTool(
+          makeMcp(),
+          'diff_review_comment',
+        )({
           repoDir: REPO,
           filePath: 'src/a.ts',
           lineNumber: 1,
@@ -407,9 +673,77 @@ describe('diff review MCP tools', () => {
   });
 
   describe('diff_review_summary', () => {
+    const risk = { level: 'high', reason: 'Touches the auth path every request uses' };
+    const readingOrder = [
+      { title: 'Core change', files: ['src/auth.ts'], note: 'Token check moved here' },
+      { title: 'Tests', files: ['src/auth.test.ts', 'src/e2e.test.ts'], note: 'Cover expiry' },
+    ];
+
+    it('[FR-MCP-270] stores risk and reading order in the summary metadata', async () => {
+      const mcp = makeMcp();
+      await callTool(
+        mcp,
+        'diff_review_summary',
+      )({ repoDir: REPO, summary: 's', risk, readingOrder });
+
+      const [thread] = await readAsDiffsTabWould(REPO);
+      expect(thread.metadata).toMatchObject({ type: 'review-summary', risk, readingOrder });
+    });
+
+    it('[FR-MCP-270] returns risk and reading order from diff_review_list, null when absent', async () => {
+      const mcp = makeMcp();
+      await callTool(
+        mcp,
+        'diff_review_summary',
+      )({ repoDir: REPO, summary: 's', risk, readingOrder });
+      const withGuide = await callTool(mcp, 'diff_review_list')({ repoDir: REPO });
+      expect(withGuide.data).toMatchObject({ risk, readingOrder });
+
+      await callTool(mcp, 'diff_review_summary')({ repoDir: REPO, summary: 'plain' });
+      const plain = await callTool(mcp, 'diff_review_list')({ repoDir: REPO });
+      expect(plain.data).toMatchObject({ summary: 'plain', risk: null, readingOrder: null });
+    });
+
+    it('[FR-MCP-270] stores the guide in the summary metadata and returns it, null when absent', async () => {
+      const mcp = makeMcp();
+      await callTool(mcp, 'diff_review_summary')({ repoDir: REPO, summary: 's', guide: 'project' });
+      const [thread] = await readAsDiffsTabWould(REPO);
+      expect(thread.metadata).toMatchObject({ guide: 'project' });
+      const listed = await callTool(mcp, 'diff_review_list')({ repoDir: REPO });
+      expect(listed.data).toMatchObject({ guide: 'project' });
+
+      await callTool(mcp, 'diff_review_summary')({ repoDir: REPO, summary: 'plain' });
+      const plain = await callTool(mcp, 'diff_review_list')({ repoDir: REPO });
+      expect(plain.data).toMatchObject({ guide: null });
+    });
+
+    it('[FR-MCP-270] rejects an unknown level, an overlong reason and too many chapters', () => {
+      const tools = (
+        makeMcp() as unknown as {
+          _registeredTools: Record<
+            string,
+            { inputSchema: { safeParse: (p: unknown) => { success: boolean } } }
+          >;
+        }
+      )._registeredTools;
+      const accepts = (extra: Record<string, unknown>) =>
+        tools.diff_review_summary.inputSchema.safeParse({ summary: 's', ...extra }).success;
+
+      expect(accepts({ risk })).toBe(true);
+      expect(accepts({ guide: 'default' })).toBe(true);
+      expect(accepts({ guide: 'custom' })).toBe(false);
+      expect(accepts({ risk: { level: 'severe', reason: 'x' } })).toBe(false);
+      expect(accepts({ risk: { level: 'low', reason: 'x'.repeat(301) } })).toBe(false);
+      expect(accepts({ readingOrder: Array(21).fill(readingOrder[0]) })).toBe(false);
+      expect(accepts({ readingOrder: [{ ...readingOrder[0], files: [] }] })).toBe(false);
+    });
+
     it('[FR-MCP-240] writes one unanchored summary the prefix query returns', async () => {
       const mcp = makeMcp();
-      const res = await callTool(mcp, 'diff_review_summary')({
+      const res = await callTool(
+        mcp,
+        'diff_review_summary',
+      )({
         repoDir: REPO,
         summary: '## Reading order\n\n1. src/auth.ts',
       });
@@ -435,9 +769,25 @@ describe('diff review MCP tools', () => {
       expect(summaries[0].comments[0].body).toBe('second');
     });
 
+    it('[FR-MCP-240] broadcasts an inbox change so the risk badge refreshes', async () => {
+      const sent: string[] = [];
+      ctx.state.fileChangeListeners.add({
+        readyState: WebSocket.OPEN,
+        send: (data: string) => sent.push(data),
+      } as unknown as WebSocket);
+
+      await callTool(makeMcp(), 'diff_review_summary')({ repoDir: REPO, summary: 's' });
+
+      const types = sent.map((data) => (JSON.parse(data) as { type: string }).type);
+      expect(types).toContain('INBOX_CHANGE');
+    });
+
     it('[FR-MCP-240] leaves anchored findings untouched when the summary is rewritten', async () => {
       const mcp = makeMcp();
-      await callTool(mcp, 'diff_review_comment')({
+      await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
         repoDir: REPO,
         filePath: 'src/a.ts',
         lineNumber: 1,
@@ -456,7 +806,10 @@ describe('diff review MCP tools', () => {
   describe('diff_review_list', () => {
     it('[FR-MCP-250] lists existing findings so a re-review does not re-file them', async () => {
       const mcp = makeMcp();
-      await callTool(mcp, 'diff_review_comment')({
+      await callTool(
+        mcp,
+        'diff_review_comment',
+      )({
         repoDir: REPO,
         filePath: 'src/a.ts',
         lineNumber: 10,
@@ -485,7 +838,10 @@ describe('diff review MCP tools', () => {
     it('[FR-MCP-250] scopes to one file when filePath is given', async () => {
       const mcp = makeMcp();
       for (const filePath of ['src/a.ts', 'src/b.ts']) {
-        await callTool(mcp, 'diff_review_comment')({
+        await callTool(
+          mcp,
+          'diff_review_comment',
+        )({
           repoDir: REPO,
           filePath,
           lineNumber: 1,
@@ -505,7 +861,10 @@ describe('diff review MCP tools', () => {
     it('[FR-MCP-250] does not pair a file with one whose name extends it', async () => {
       const mcp = makeMcp();
       for (const file of ['Foo.ts', 'Foo.tsx']) {
-        await callTool(mcp, 'diff_review_comment')({
+        await callTool(
+          mcp,
+          'diff_review_comment',
+        )({
           repoDir: REPO,
           filePath: file,
           lineNumber: 1,
@@ -523,14 +882,12 @@ describe('diff review MCP tools', () => {
     });
 
     it("[FR-MCP-250] reports the user's own threads so the agent can answer them", async () => {
-      await appRouter
-        .createCaller({ state: getAppState() } as never)
-        .comment.createThread({
-          documentPath: diffDocPath(REPO, BRANCH, 'src/a.ts'),
-          threadId: 'user-thread',
-          initialComment: { id: 'c1', body: 'why this way?' },
-          metadata: { type: 'diff', source: 'local', lineNumber: 5, codeLine: 'x', side: 'modified' },
-        });
+      await appRouter.createCaller({ state: getAppState() } as never).comment.createThread({
+        documentPath: diffDocPath(REPO, BRANCH, 'src/a.ts'),
+        threadId: 'user-thread',
+        initialComment: { id: 'c1', body: 'why this way?' },
+        metadata: { type: 'diff', source: 'local', lineNumber: 5, codeLine: 'x', side: 'modified' },
+      });
 
       const res = await callTool(makeMcp(), 'diff_review_list')({ repoDir: REPO });
       const threads = res.data.threads as Array<Record<string, unknown>>;

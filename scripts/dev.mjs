@@ -8,6 +8,10 @@ const port = await getPort(process.env.PORT ? { port: parseInt(process.env.PORT,
 
 console.log(`[dev] web + client running on http://localhost:${port}`);
 
+// The daemon spawns agents, so it must not inherit the GitHub token. The web
+// dev script loads ../.dev.env itself (--env-file-if-exists), which is how web gets it.
+const { ENGY_GITHUB_TOKEN: _githubToken, ...inheritedEnv } = process.env;
+
 // shell:true so Windows resolves the `turbo.cmd` shim — a bare spawn('turbo')
 // can't exec a .cmd by name and throws ENOENT on Windows. The command is passed
 // as a single string (not an args array) to avoid Node's DEP0190 warning under
@@ -16,7 +20,7 @@ const child = spawn('turbo run dev', {
   stdio: 'inherit',
   shell: true,
   env: {
-    ...process.env,
+    ...inheritedEnv,
     PORT: String(port),
     ENGY_SERVER_URL: `http://localhost:${port}`,
   },

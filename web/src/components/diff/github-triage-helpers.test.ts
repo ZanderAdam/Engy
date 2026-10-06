@@ -3,6 +3,7 @@ import {
   filterUnresolvedGithubThreads,
   getSelectedThreads,
   allGithubThreadIds,
+  triageResolveLabel,
 } from './github-triage-helpers';
 import type { DiffComment } from './use-diff-comments';
 
@@ -16,6 +17,7 @@ function makeComment(overrides: Partial<DiffComment> = {}): DiffComment {
     resolved: false,
     source: 'local',
     comments: [{ id: 'c1', body: 'text', userId: 'user', createdAt: null, sentAt: null }],
+    githubDraft: false,
     ...overrides,
   };
 }
@@ -109,5 +111,12 @@ describe('allGithubThreadIds', () => {
   it('should return empty set when no unresolved github threads exist', () => {
     const comments = [makeComment({ threadId: 'local-1' })];
     expect(allGithubThreadIds(comments).size).toBe(0);
+  });
+});
+
+describe('triageResolveLabel', () => {
+  it('[FR-PRMON-170] should resolve on the review page and dismiss elsewhere', () => {
+    expect(triageResolveLabel(true)).toBe('Resolve');
+    expect(triageResolveLabel(false)).toBe('Dismiss');
   });
 });

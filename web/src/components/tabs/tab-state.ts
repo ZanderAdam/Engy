@@ -73,6 +73,7 @@ function deriveTitleSegments(virtualPath: string): string[] {
       const dirName = basenameFromPath(new URLSearchParams(search).get('path'));
       return dirName ? ['open', dirName] : ['open'];
     }
+    if (section === 'inbox') return ['Inbox'];
     return [section ?? 'engy'];
   }
   const parts: string[] = [workspace];
@@ -279,4 +280,3 @@ export function savePersisted(state: PersistedTabsV1): void {
     // localStorage may be full or unavailable
   }
 }
-

@@ -4,29 +4,29 @@ import { routeVoiceSegment } from './route-voice-segment';
 const WAKE_PREFIXES = ['ANGIE', 'OK ANGIE', 'OKAY ANGIE', 'HEY ANGIE', 'HELLO ANGIE'];
 
 describe('routeVoiceSegment', () => {
-  it('[FR-TG2.16] should route a transcript with no wake word to dictation, verbatim', () => {
+  it('should route a transcript with no wake word to dictation, verbatim', () => {
     expect(routeVoiceSegment('open the pod bay doors', false, WAKE_PREFIXES)).toEqual({
       kind: 'dictation',
       text: 'open the pod bay doors',
     });
   });
 
-  it('[FR-TG2.16] should route a transcript carrying the wake word to a command', () => {
+  it('should route a transcript carrying the wake word to a command', () => {
     const route = routeVoiceSegment('Angie select project web', true, WAKE_PREFIXES);
     expect(route.kind).toBe('command');
   });
 
-  it('[FR-TG2.13] should strip the wake prefix from a routed command', () => {
+  it('should strip the wake prefix from a routed command', () => {
     const route = routeVoiceSegment('Angie select project web', true, WAKE_PREFIXES);
     expect(route).toEqual({ kind: 'command', text: 'select project web' });
   });
 
-  it('[FR-TG2.13] should strip a comma-separated wake prefix', () => {
+  it('should strip a comma-separated wake prefix', () => {
     const route = routeVoiceSegment('Angie, select project web', true, WAKE_PREFIXES);
     expect(route).toEqual({ kind: 'command', text: 'select project web' });
   });
 
-  it('[FR-TG2.13] should strip a multi-word wake variant whole, not just its tail', () => {
+  it('should strip a multi-word wake variant whole, not just its tail', () => {
     // "ok angie" must not lose only "angie" and leave "ok" in front of the command.
     expect(routeVoiceSegment('ok angie select project web', true, WAKE_PREFIXES)).toEqual({
       kind: 'command',
@@ -34,14 +34,14 @@ describe('routeVoiceSegment', () => {
     });
   });
 
-  it('[FR-TG2.13] should strip the hey variant whole', () => {
+  it('should strip the hey variant whole', () => {
     expect(routeVoiceSegment('hey angie open tab docs', true, WAKE_PREFIXES)).toEqual({
       kind: 'command',
       text: 'open tab docs',
     });
   });
 
-  it('[FR-TG2.13] should strip a phonetically-mangled wake prefix', () => {
+  it('should strip a phonetically-mangled wake prefix', () => {
     const route = routeVoiceSegment('Engie select project web', true, WAKE_PREFIXES);
     expect(route).toEqual({ kind: 'command', text: 'select project web' });
   });
@@ -50,7 +50,7 @@ describe('routeVoiceSegment', () => {
     expect(routeVoiceSegment('Angie', true, WAKE_PREFIXES)).toEqual({ kind: 'command', text: '' });
   });
 
-  it('[FR-TG2.16] should still route to a command when the wake word is not literally in the text', () => {
+  it('should still route to a command when the wake word is not literally in the text', () => {
     // A real rising-edge wake detection with a transcript the recognizer
     // decoded independently — stripWakeWord finds no matching prefix, so
     // the full text passes through unstripped rather than being dropped.

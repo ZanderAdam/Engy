@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { diffDocPath, diffScopePrefix, diffDocFilePath, parseDiffDocPath } from './diff-doc-path';
+import {
+  diffDocPath,
+  diffScopePrefix,
+  diffDocFilePath,
+  parseDiffDocPath,
+  reviewCommentBranch,
+} from './diff-doc-path';
 
 const REPO = '/home/dev/proj';
 
@@ -42,6 +48,20 @@ describe('diff document paths', () => {
     it('[FR-GIT-480] should return null for a path that is not a diff path', () => {
       expect(parseDiffDocPath('/home/dev/proj/docs/a.md')).toBeNull();
       expect(diffDocFilePath('diff:///home/dev/proj/src/a.ts')).toBeNull();
+    });
+  });
+
+  describe('review comment branch', () => {
+    it('[FR-PRREVIEW-151] should use the head branch for a same-repo PR', () => {
+      expect(
+        reviewCommentBranch({ headRefName: 'main', prNumber: 5, isCrossRepository: false }),
+      ).toBe('main');
+    });
+
+    it('[FR-PRREVIEW-151] should use the pull ref for a cross-repo PR', () => {
+      expect(
+        reviewCommentBranch({ headRefName: 'main', prNumber: 5, isCrossRepository: true }),
+      ).toBe('pull/5/head');
     });
   });
 });

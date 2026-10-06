@@ -25,26 +25,26 @@ describe('voice opt-in gate', () => {
   }
 
   describe('isVoiceEnabledForWorkspace', () => {
-    it('[FR-TG1.7] should deny a workspace that never opted in', () => {
+    it('should deny a workspace that never opted in', () => {
       createWorkspace('quiet');
       expect(isVoiceEnabledForWorkspace('quiet')).toBe(false);
     });
 
-    it('[FR-TG1.9] should deny a workspace that opted out', () => {
+    it('should deny a workspace that opted out', () => {
       createWorkspace('quiet', false);
       expect(isVoiceEnabledForWorkspace('quiet')).toBe(false);
     });
 
-    it('[FR-TG1.9] should allow a workspace that opted in', () => {
+    it('should allow a workspace that opted in', () => {
       createWorkspace('loud', true);
       expect(isVoiceEnabledForWorkspace('loud')).toBe(true);
     });
 
-    it('[FR-TG1.9] should deny an unknown slug', () => {
+    it('should deny an unknown slug', () => {
       expect(isVoiceEnabledForWorkspace('no-such-workspace')).toBe(false);
     });
 
-    it('[FR-TG1.9] should deny a missing slug', () => {
+    it('should deny a missing slug', () => {
       expect(isVoiceEnabledForWorkspace(null)).toBe(false);
       expect(isVoiceEnabledForWorkspace(undefined)).toBe(false);
       expect(isVoiceEnabledForWorkspace('')).toBe(false);
@@ -52,7 +52,7 @@ describe('voice opt-in gate', () => {
   });
 
   describe('server construction', () => {
-    it('[FR-TG1.7] should not fetch or write any model asset', () => {
+    it('should not fetch or write any model asset', () => {
       createWorkspace('quiet');
       const wss = createVoiceWebSocketServer();
       expect(fs.existsSync(path.join(ctx.tmpDir, 'models'))).toBe(false);

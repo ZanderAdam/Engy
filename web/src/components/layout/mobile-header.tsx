@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { sections, activeSection } from './header/sections';
+import { SectionBadge } from './header/section-badge';
 import { WorktreeDropdown } from '@/components/projects/worktree-dropdown';
 import { MobileIdentityBar } from './mobile-identity-bar';
 import { useMobileOverlay } from './mobile-overlay-context';
@@ -121,6 +122,7 @@ export function MobileHeader({ workspace, project, onOpenManageWorktrees }: Mobi
                 >
                   <Icon className="size-3" />
                   <span>{s.label}</span>
+                  {s.badge === 'inbox' && <SectionBadge workspaceId={workspace.id} />}
                   {isActive && <RiCheckLine className="ml-auto size-3" />}
                 </DropdownMenuItem>
               );

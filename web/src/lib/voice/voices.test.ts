@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { DEFAULT_VOICE_ID, TTS_VOICES, findVoice } from './voices';
 
 describe('tts voices', () => {
-  it('[FR-TG2.34] should find a listed voice by id', () => {
+  it('should find a listed voice by id', () => {
     expect(findVoice('alan').model).toBe('en_GB-alan-medium');
     expect(findVoice('obadiah').speakerId).toBe(2);
   });
 
-  it('[FR-TG2.34] should fall back to the default voice for an unknown id', () => {
+  it('should fall back to the default voice for an unknown id', () => {
     expect(findVoice('../../models/other').id).toBe(DEFAULT_VOICE_ID);
     expect(findVoice(null).id).toBe(DEFAULT_VOICE_ID);
   });

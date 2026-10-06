@@ -1,4 +1,12 @@
-import { sqliteTable, text, integer, real, uniqueIndex, index, primaryKey } from 'drizzle-orm/sqlite-core';
+import {
+  sqliteTable,
+  text,
+  integer,
+  real,
+  uniqueIndex,
+  index,
+  primaryKey,
+} from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
 import type { GhPrCheck } from '@engy/common';
 // Type-only, relative (not `@/`) so drizzle-kit can load this file standalone.
@@ -43,7 +51,9 @@ export const workspaces = sqliteTable('workspaces', {
   agentWorktrees: integer('agent_worktrees', { mode: 'boolean' }).default(false),
   containerEnabled: integer('container_enabled', { mode: 'boolean' }).default(false),
   containerConfig: text('container_config', { mode: 'json' }).$type<ContainerConfig>(),
-  executionBackend: text('execution_backend', { enum: ['devcontainer', 'coder'] }).default('devcontainer'),
+  executionBackend: text('execution_backend', { enum: ['devcontainer', 'coder'] }).default(
+    'devcontainer',
+  ),
   coderConfig: text('coder_config', { mode: 'json' }).$type<CoderConfig>(),
   maxConcurrency: integer('max_concurrency').default(1),
   autoAgentCompletion: text('auto_agent_completion', { enum: ['pr', 'merge'] }).default('pr'),
@@ -54,7 +64,7 @@ export const workspaces = sqliteTable('workspaces', {
   ttsEnabled: integer('tts_enabled', { mode: 'boolean' }).default(false),
   autoStart: integer('auto_start', { mode: 'boolean' }).default(false),
   autoCiFix: integer('auto_ci_fix', { mode: 'boolean' }).default(false),
-  prScope: text('pr_scope', { enum: ['mine', 'review'] }).default('mine'),
+  autoReviewOnRequest: integer('auto_review_on_request', { mode: 'boolean' }).default(false),
   createdAt: text('created_at')
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -213,17 +223,19 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
 
 // ── Task Dependencies (join table) ──────────────────────────────────
 
-export const taskDependencies = sqliteTable('task_dependencies', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  taskId: integer('task_id')
-    .notNull()
-    .references(() => tasks.id, { onDelete: 'cascade' }),
-  blockerTaskId: integer('blocker_task_id')
-    .notNull()
-    .references(() => tasks.id, { onDelete: 'cascade' }),
-}, (table) => [
-  uniqueIndex('task_dep_unique').on(table.taskId, table.blockerTaskId),
-]);
+export const taskDependencies = sqliteTable(
+  'task_dependencies',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    taskId: integer('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    blockerTaskId: integer('blocker_task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+  },
+  (table) => [uniqueIndex('task_dep_unique').on(table.taskId, table.blockerTaskId)],
+);
 
 export const taskDependenciesRelations = relations(taskDependencies, ({ one }) => ({
   task: one(tasks, {
@@ -495,10 +507,21 @@ export const prs = sqliteTable(
     commentCount: integer('comment_count').notNull().default(0),
     authoredByViewer: integer('authored_by_viewer', { mode: 'boolean' }).notNull().default(false),
     reviewDecision: text('review_decision'),
+    repoFullName: text('repo_full_name'),
+    baseRef: text('base_ref'),
+    additions: integer('additions').notNull().default(0),
+    deletions: integer('deletions').notNull().default(0),
+    reviewRequests: text('review_requests', { mode: 'json' })
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     lastFailedHeadSha: text('last_failed_head_sha'),
     autoFixAttempts: integer('auto_fix_attempts').notNull().default(0),
     autoFixTotalAttempts: integer('auto_fix_total_attempts').notNull().default(0),
     attentionReason: text('attention_reason'),
+    githubUpdatedAt: text('github_updated_at'),
+    hasConflicts: integer('has_conflicts', { mode: 'boolean' }).notNull().default(false),
+    isCrossRepository: integer('is_cross_repository', { mode: 'boolean' }).notNull().default(false),
     createdAt: text('created_at')
       .notNull()
       .$defaultFn(() => new Date().toISOString()),
@@ -510,6 +533,28 @@ export const prs = sqliteTable(
     uniqueIndex('prs_repo_number_unique').on(table.repo, table.number),
     index('idx_prs_repo').on(table.repo),
   ],
+);
+
+export const reviewWorktrees = sqliteTable(
+  'review_worktrees',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    repoPath: text('repo_path').notNull(),
+    repoFullName: text('repo_full_name').notNull(),
+    prNumber: integer('pr_number').notNull(),
+    worktreePath: text('worktree_path').notNull(),
+    headRefName: text('head_ref_name').notNull(),
+    headSha: text('head_sha').notNull(),
+    createdByReview: integer('created_by_review', { mode: 'boolean' }).notNull(),
+    isCrossRepository: integer('is_cross_repository', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+    updatedAt: text('updated_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [uniqueIndex('review_worktrees_pr_unique').on(table.repoFullName, table.prNumber)],
 );
 
 // ── Terminal Sessions ───────────────────────────────────────────────
@@ -849,3 +894,81 @@ export const usagePricing = sqliteTable('usage_pricing', {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+// ── PR Inbox ────────────────────────────────────────────────────────
+
+export const INBOX_EVENT_KINDS = [
+  'review_requested',
+  'mentioned',
+  'commented',
+  'approved',
+  'changes_requested',
+  'reviewed',
+  'ci_failed',
+  'ci_passed',
+  'auto_fix_attention',
+  'merged',
+  'closed',
+  'reopened',
+  'pushed',
+  'assigned',
+] as const;
+
+export const inboxItems = sqliteTable(
+  'inbox_items',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    repoFullName: text('repo_full_name').notNull(),
+    prNumber: integer('pr_number').notNull(),
+    githubThreadId: text('github_thread_id'),
+    workspaceId: integer('workspace_id').references(() => workspaces.id, {
+      onDelete: 'set null',
+    }),
+    repoPath: text('repo_path'),
+    title: text('title').notNull(),
+    url: text('url').notNull(),
+    latestReason: text('latest_reason', { enum: INBOX_EVENT_KINDS }),
+    bucket: text('bucket', { enum: ['priority', 'other'] })
+      .notNull()
+      .default('other'),
+    unread: integer('unread', { mode: 'boolean' }).notNull().default(true),
+    lastEventAt: text('last_event_at').notNull(),
+    lastReadAt: text('last_read_at'),
+    snoozedUntil: text('snoozed_until'),
+    doneAt: text('done_at'),
+    createdAt: text('created_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+    updatedAt: text('updated_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [
+    uniqueIndex('uq_inbox_items_repo_pr').on(table.repoFullName, table.prNumber),
+    index('idx_inbox_items_workspace').on(table.workspaceId),
+    index('idx_inbox_items_done_at').on(table.doneAt),
+  ],
+);
+
+export const inboxEvents = sqliteTable(
+  'inbox_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => inboxItems.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: INBOX_EVENT_KINDS }).notNull(),
+    actor: text('actor'),
+    summary: text('summary').notNull(),
+    url: text('url'),
+    at: text('at').notNull(),
+    sourceKey: text('source_key').notNull(),
+    createdAt: text('created_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [
+    uniqueIndex('uq_inbox_events_source_key').on(table.sourceKey),
+    index('idx_inbox_events_item_at').on(table.itemId, table.at),
+  ],
+);

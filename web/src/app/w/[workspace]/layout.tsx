@@ -38,7 +38,7 @@ import { BottomTerminalSplit } from '@/components/terminal/bottom-terminal-split
 import type { TerminalDropdownGroup, TerminalDropdownEntry } from '@/components/terminal/types';
 import { useWorktreeSessions } from '@/components/terminal/use-worktree-sessions';
 import { buildSessionHistoryGroup } from '@/components/terminal/session-history-entries';
-import { EventsProvider } from '@/contexts/events-context';
+import { EventsWorkspaceScope } from '@/contexts/events-context';
 import { useTaskAutoInvalidation } from '@/hooks/use-task-auto-invalidation';
 import { useQuestionAutoInvalidation } from '@/hooks/use-question-auto-invalidation';
 import { useProjectActivityFeed } from '@/hooks/use-project-activity';
@@ -518,7 +518,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   // project being viewed so its dropdown offers that project's sessions rather
   // than every project in the workspace. Freshness comes from cache
   // invalidation on TERMINAL_SESSIONS_CHANGE broadcasts — the hook lives in
-  // AutoInvalidation (inside EventsProvider), not here.
+  // AutoInvalidation (inside EventsWorkspaceScope), not here.
   const { data: sessionHistory, dataUpdatedAt: sessionHistoryFetchedAt } =
     trpc.terminal.listSessionHistory.useQuery({
       workspaceSlug: params.workspace,
@@ -668,7 +668,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   );
 
   return (
-    <EventsProvider workspaceSlug={params.workspace}>
+    <EventsWorkspaceScope workspaceSlug={params.workspace}>
       <VoiceProvider
         enabled={workspace?.voiceEnabled ?? false}
         ttsEnabled={workspace?.ttsEnabled ?? false}
@@ -692,7 +692,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           content
         )}
       </VoiceProvider>
-    </EventsProvider>
+    </EventsWorkspaceScope>
   );
 }
 

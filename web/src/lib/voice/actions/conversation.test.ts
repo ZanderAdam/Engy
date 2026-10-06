@@ -19,7 +19,7 @@ function run(active: boolean, phrase: string) {
 
 describe('conversation actions', () => {
   it.each(['start conversation', 'start talking', 'conversation mode'])(
-    '[FR-TG2.27] should turn the mode on via "%s"',
+    'should turn the mode on via "%s"',
     (phrase) => {
       const { setActive, id } = run(false, phrase);
       expect(id).toBe('voice.conversation.start');
@@ -28,7 +28,7 @@ describe('conversation actions', () => {
   );
 
   it.each(['stop conversation', 'stop talking', 'end conversation'])(
-    '[FR-TG2.27] should turn the mode off via "%s"',
+    'should turn the mode off via "%s"',
     (phrase) => {
       const { setActive, id } = run(true, phrase);
       expect(id).toBe('voice.conversation.stop');
@@ -38,7 +38,7 @@ describe('conversation actions', () => {
 
   // Entering the mode has no visible effect, so the spoken answer is the only
   // signal that it took.
-  it('[FR-TG2.27] should say what the mode does when it starts', () => {
+  it('should say what the mode does when it starts', () => {
     expect(run(false, 'start conversation').answer).toContain('send');
   });
 
@@ -56,7 +56,7 @@ describe('conversation actions', () => {
 
   // "start talking" and "stop talking" differ by one word, and a fixed-word
   // match is scored by its worst word — so they must not cross over.
-  it('[FR-TG2.27] should keep start and stop apart', () => {
+  it('should keep start and stop apart', () => {
     expect(run(false, 'start talking').id).toBe('voice.conversation.start');
     expect(run(true, 'stop talking').id).toBe('voice.conversation.stop');
   });

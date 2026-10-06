@@ -1,69 +1,49 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import WebSocket from 'ws';
 import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
 import { workspaces, prs, agentSessions, taskGroups, tasks, projects } from '../../db/schema';
 import { upsertPrs, findCorrelatedSession } from './pr';
-import type { GhPr } from '@engy/common';
+import type { GithubPr } from '../../github/prs';
+import { startStubGithub, type StubGithub } from '../../github/stub-server';
+import { rawPr, searchReply, searchQuery, type RawPrFixture } from '../../github/pr-fixtures';
 import { eq } from 'drizzle-orm';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
-function makePr(overrides: Partial<GhPr> = {}): GhPr {
+function makePr(overrides: Partial<GithubPr> = {}): GithubPr {
   return {
+    repoFullName: 'org/repo',
     number: 1,
     title: 'My PR',
     url: 'https://github.com/org/repo/pull/1',
     headBranch: 'feat/my-feature',
     headSha: null,
+    baseBranch: 'main',
     author: 'alice',
     isDraft: false,
-    state: 'open',
     reviewDecision: null,
     ciStatus: 'passing',
     checks: [],
     commentCount: 0,
     authoredByViewer: false,
+    additions: 0,
+    deletions: 0,
+    reviewRequests: [],
+    updatedAt: '2024-01-01T00:00:00Z',
+    hasConflicts: false,
+    isCrossRepository: false,
     ...overrides,
   };
 }
 
-// ── Daemon stub ───────────────────────────────────────────────────────
+// ── GitHub stub ───────────────────────────────────────────────────────
 
-interface DaemonScripts {
-  prsByRepo?: Map<string, GhPr[] | Error>;
+function replyWithOpenPrs(stub: StubGithub, nodes: RawPrFixture[]): void {
+  stub.reply((request) => searchReply(searchQuery(request).includes('author:@me') ? nodes : []));
 }
 
-interface DaemonMessage {
-  type: string;
-  payload: { requestId: string } & Record<string, unknown>;
-}
-
-function installFakeDaemon(ctx: TestContext, scripts: DaemonScripts) {
-  const mock = {
-    readyState: WebSocket.OPEN,
-    OPEN: WebSocket.OPEN,
-    send: (raw: string) => {
-      const msg = JSON.parse(raw) as DaemonMessage;
-      const requestId = msg.payload.requestId;
-
-      queueMicrotask(() => {
-        if (msg.type === 'GH_PR_LIST_REQUEST') {
-          const pending = ctx.state.pendingGhPrList.get(requestId);
-          if (!pending) return;
-          ctx.state.pendingGhPrList.delete(requestId);
-
-          const result = scripts.prsByRepo?.get(msg.payload.repoDir as string);
-          if (result instanceof Error) {
-            pending.reject(result);
-          } else {
-            pending.resolve({ prs: result ?? [] });
-          }
-        }
-      });
-    },
-  };
-  ctx.state.daemon = mock as unknown as WebSocket;
+function linkRepo(ctx: TestContext, repoPath: string, fullName: string | null): void {
+  ctx.state.repoFullNames.set(repoPath, fullName);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -78,13 +58,21 @@ function seedWorkspace(ctx: TestContext, repos: string[]) {
 describe('pr router', () => {
   let ctx: TestContext;
   let caller: ReturnType<typeof appRouter.createCaller>;
+  let stub: StubGithub;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     ctx = setupTestDb();
     caller = appRouter.createCaller({ state: ctx.state });
+    stub = await startStubGithub();
+    process.env.ENGY_GITHUB_API_URL = stub.url;
+    process.env.ENGY_GITHUB_TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+    ctx.state.github.status = { available: true, login: 'me' };
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    delete process.env.ENGY_GITHUB_API_URL;
+    delete process.env.ENGY_GITHUB_TOKEN;
+    await stub.close();
     ctx?.cleanup();
   });
 
@@ -107,6 +95,39 @@ describe('pr router', () => {
 
       const rows = ctx.db.select().from(prs).where(eq(prs.repo, '/repo-a')).all();
       expect(rows).toHaveLength(2);
+    });
+
+    it('[FR-PRMON-320] should store merge conflicts on insert and clear them on update', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 6, hasConflicts: true })]);
+      expect(ctx.db.select().from(prs).where(eq(prs.number, 6)).get()?.hasConflicts).toBe(true);
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 6, hasConflicts: false })]);
+      expect(ctx.db.select().from(prs).where(eq(prs.number, 6)).get()?.hasConflicts).toBe(false);
+    });
+
+    it('[FR-PRMON-320] should store a cross-repository head on insert and on update', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 6, isCrossRepository: true })]);
+      expect(ctx.db.select().from(prs).where(eq(prs.number, 6)).get()?.isCrossRepository).toBe(
+        true,
+      );
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 6, isCrossRepository: false })]);
+      expect(ctx.db.select().from(prs).where(eq(prs.number, 6)).get()?.isCrossRepository).toBe(
+        false,
+      );
+    });
+
+    it('[FR-PRMON-230] should store when the PR last changed on GitHub on insert and on update', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 5, updatedAt: '2026-09-01T10:00:00Z' })]);
+      const inserted = ctx.db.select().from(prs).where(eq(prs.number, 5)).get();
+      expect(inserted?.githubUpdatedAt).toBe('2026-09-01T10:00:00Z');
+
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 5, updatedAt: '2026-09-03T12:00:00Z' })]);
+      const updated = ctx.db.select().from(prs).where(eq(prs.number, 5)).get();
+      expect(updated?.githubUpdatedAt).toBe('2026-09-03T12:00:00Z');
     });
 
     it('should update existing PR in-place when ciStatus changes and report material change', () => {
@@ -133,7 +154,9 @@ describe('pr router', () => {
       seedWorkspace(ctx, ['/repo-a']);
 
       upsertPrs(ctx.db, '/repo-a', [makePr({ number: 3, reviewDecision: null })]);
-      const result = upsertPrs(ctx.db, '/repo-a', [makePr({ number: 3, reviewDecision: 'APPROVED' })]);
+      const result = upsertPrs(ctx.db, '/repo-a', [
+        makePr({ number: 3, reviewDecision: 'APPROVED' }),
+      ]);
 
       expect(result.changes).toHaveLength(1);
       expect(result.changes[0]).toMatchObject({
@@ -147,10 +170,7 @@ describe('pr router', () => {
     it('should delete PRs not present in the fresh list', () => {
       seedWorkspace(ctx, ['/repo-a']);
 
-      upsertPrs(ctx.db, '/repo-a', [
-        makePr({ number: 1 }),
-        makePr({ number: 2 }),
-      ]);
+      upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 }), makePr({ number: 2 })]);
 
       // Second call only includes PR 1 — PR 2 is no longer open and is deleted
       const result = upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 })]);
@@ -207,8 +227,11 @@ describe('pr router', () => {
       seedWorkspace(ctx, ['/repo-a']);
 
       upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 }), makePr({ number: 2 })]);
-      ctx.db.update(prs).set({ attentionReason: 'uncorrelated', lastFailedHeadSha: 'sha1' })
-        .where(eq(prs.number, 2)).run();
+      ctx.db
+        .update(prs)
+        .set({ attentionReason: 'uncorrelated', lastFailedHeadSha: 'sha1' })
+        .where(eq(prs.number, 2))
+        .run();
 
       upsertPrs(ctx.db, '/repo-a', [makePr({ number: 1 })]);
 
@@ -240,7 +263,9 @@ describe('pr router', () => {
       ]);
 
       expect(ctx.db.select().from(prs).where(eq(prs.number, 1)).get()?.authoredByViewer).toBe(true);
-      expect(ctx.db.select().from(prs).where(eq(prs.number, 2)).get()?.authoredByViewer).toBe(false);
+      expect(ctx.db.select().from(prs).where(eq(prs.number, 2)).get()?.authoredByViewer).toBe(
+        false,
+      );
     });
 
     it('should not clear attentionReason for PRs that remain open', () => {
@@ -259,75 +284,235 @@ describe('pr router', () => {
   describe('[FR-PRMON-040] findCorrelatedSession', () => {
     it('should find a group-mode session correlated by branch and repo', () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
-      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p', projectDir: '/repo-a' }).run();
+      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p' }).run();
       const proj = ctx.db.select().from(projects).where(eq(projects.slug, 'p')).get()!;
       ctx.db.insert(taskGroups).values({ projectId: proj.id, name: 'TG' }).run();
       const tg = ctx.db.select().from(taskGroups).where(eq(taskGroups.projectId, proj.id)).get()!;
-      ctx.db.insert(agentSessions).values({
-        sessionId: 'sess-group',
-        taskGroupId: tg.id,
-        branch: 'feat/x',
-        worktreePath: '/wt',
-      }).run();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'sess-group',
+          taskGroupId: tg.id,
+          branch: 'feat/x',
+          worktreePath: '/repo-a/.worktrees/wt',
+        })
+        .run();
 
-      const result = findCorrelatedSession(ctx.db, 'feat/x', '/repo-a');
+      const result = findCorrelatedSession(ctx.db, {
+        headBranch: 'feat/x',
+        repo: '/repo-a',
+        isCrossRepository: false,
+      });
       expect(result?.sessionId).toBe('sess-group');
     });
 
     it('should find a task-mode session (taskGroupId null) correlated via task → project', () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
-      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p', projectDir: '/repo-a' }).run();
+      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p' }).run();
       const proj = ctx.db.select().from(projects).where(eq(projects.slug, 'p')).get()!;
-      ctx.db.insert(tasks).values({ projectId: proj.id, title: 'T', type: 'ai', needsPlan: false }).run();
+      ctx.db
+        .insert(tasks)
+        .values({ projectId: proj.id, title: 'T', type: 'ai', needsPlan: false })
+        .run();
       const task = ctx.db.select().from(tasks).where(eq(tasks.projectId, proj.id)).get()!;
-      ctx.db.insert(agentSessions).values({
-        sessionId: 'sess-task',
-        taskGroupId: null,
-        taskId: task.id,
-        branch: 'feat/x',
-        worktreePath: '/wt',
-      }).run();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'sess-task',
+          taskGroupId: null,
+          taskId: task.id,
+          branch: 'feat/x',
+          worktreePath: '/repo-a/.worktrees/wt',
+        })
+        .run();
 
-      const result = findCorrelatedSession(ctx.db, 'feat/x', '/repo-a');
+      const result = findCorrelatedSession(ctx.db, {
+        headBranch: 'feat/x',
+        repo: '/repo-a',
+        isCrossRepository: false,
+      });
       expect(result?.sessionId).toBe('sess-task');
     });
 
     it('should return the most recent session when both group-mode and task-mode sessions exist', () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
-      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p', projectDir: '/repo-a' }).run();
+      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p' }).run();
       const proj = ctx.db.select().from(projects).where(eq(projects.slug, 'p')).get()!;
       ctx.db.insert(taskGroups).values({ projectId: proj.id, name: 'TG' }).run();
       const tg = ctx.db.select().from(taskGroups).where(eq(taskGroups.projectId, proj.id)).get()!;
-      ctx.db.insert(tasks).values({ projectId: proj.id, title: 'T', type: 'ai', needsPlan: false }).run();
+      ctx.db
+        .insert(tasks)
+        .values({ projectId: proj.id, title: 'T', type: 'ai', needsPlan: false })
+        .run();
       const task = ctx.db.select().from(tasks).where(eq(tasks.projectId, proj.id)).get()!;
 
-      ctx.db.insert(agentSessions).values([
-        {
-          sessionId: 'sess-group-old',
+      ctx.db
+        .insert(agentSessions)
+        .values([
+          {
+            sessionId: 'sess-group-old',
+            taskGroupId: tg.id,
+            branch: 'feat/x',
+            worktreePath: '/repo-a/.worktrees/wt-group',
+            createdAt: '2024-01-01T00:00:00.000Z',
+            updatedAt: '2024-01-01T00:00:00.000Z',
+          },
+          {
+            sessionId: 'sess-task-new',
+            taskGroupId: null,
+            taskId: task.id,
+            branch: 'feat/x',
+            worktreePath: '/repo-a/.worktrees/wt-task',
+            createdAt: '2024-02-01T00:00:00.000Z',
+            updatedAt: '2024-02-01T00:00:00.000Z',
+          },
+        ])
+        .run();
+
+      const result = findCorrelatedSession(ctx.db, {
+        headBranch: 'feat/x',
+        repo: '/repo-a',
+        isCrossRepository: false,
+      });
+      expect(result?.sessionId).toBe('sess-task-new');
+    });
+
+    describe('coder workspace sessions', () => {
+      function seedCoderSession(worktreePath: string, coderRepoBasePath = '~/dev/') {
+        ctx.db
+          .insert(workspaces)
+          .values({
+            name: 'WS',
+            slug: 'ws',
+            repos: ['/home/me/dev/repo-a'],
+            executionBackend: 'coder',
+            coderConfig: { workspace: 'my-ws', repoBasePath: coderRepoBasePath },
+          })
+          .run();
+        const ws = ctx.db.select().from(workspaces).where(eq(workspaces.slug, 'ws')).get()!;
+        ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p' }).run();
+        const proj = ctx.db.select().from(projects).where(eq(projects.slug, 'p')).get()!;
+        ctx.db.insert(taskGroups).values({ projectId: proj.id, name: 'TG' }).run();
+        const tg = ctx.db.select().from(taskGroups).where(eq(taskGroups.projectId, proj.id)).get()!;
+        ctx.db
+          .insert(agentSessions)
+          .values({
+            sessionId: 'sess-coder',
+            taskGroupId: tg.id,
+            branch: 'feat/x',
+            worktreePath,
+          })
+          .run();
+      }
+
+      const target = {
+        headBranch: 'feat/x',
+        repo: '/home/me/dev/repo-a',
+        isCrossRepository: false,
+      };
+
+      it('should correlate a session whose remote worktree sits under the coder base path of the repo', () => {
+        seedCoderSession('~/dev/repo-a/.claude/worktrees/engy-session-abc12345');
+
+        const result = findCorrelatedSession(ctx.db, target);
+
+        expect(result?.sessionId).toBe('sess-coder');
+        expect(result?.projectSlug).toBe('p');
+      });
+
+      it('should not correlate a remote worktree of another repo', () => {
+        seedCoderSession('~/dev/repo-b/.claude/worktrees/engy-session-abc12345');
+
+        expect(findCorrelatedSession(ctx.db, target)).toBeNull();
+      });
+
+      it('should not correlate a remote worktree of a repo that only shares the name prefix', () => {
+        seedCoderSession('~/dev/repo-a-other/.claude/worktrees/engy-session-abc12345');
+
+        expect(findCorrelatedSession(ctx.db, target)).toBeNull();
+      });
+
+      it('should not correlate a remote worktree for a cross-repository PR', () => {
+        seedCoderSession('~/dev/repo-a/.claude/worktrees/engy-session-abc12345');
+
+        expect(findCorrelatedSession(ctx.db, { ...target, isCrossRepository: true })).toBeNull();
+      });
+    });
+
+    it('[FR-PRMON-040] should not correlate a session whose worktree is outside the repo, even in a sibling path with the same prefix', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'sess-sibling',
+          branch: 'feat/x',
+          worktreePath: '/repo-a-other/.worktrees/wt',
+        })
+        .run();
+
+      expect(
+        findCorrelatedSession(ctx.db, {
+          headBranch: 'feat/x',
+          repo: '/repo-a',
+          isCrossRepository: false,
+        }),
+      ).toBeNull();
+    });
+
+    it('[FR-PRMON-040] should return the project slug of the correlated session', () => {
+      const ws = seedWorkspace(ctx, ['/repo-a']);
+      const proj = ctx.db
+        .insert(projects)
+        .values({ workspaceId: ws.id, name: 'P', slug: 'my-proj', projectDir: 'my-proj' })
+        .returning()
+        .get();
+      const tg = ctx.db
+        .insert(taskGroups)
+        .values({ projectId: proj.id, name: 'TG' })
+        .returning()
+        .get();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'sess-slug',
           taskGroupId: tg.id,
           branch: 'feat/x',
-          worktreePath: '/wt-group',
-          createdAt: '2024-01-01T00:00:00.000Z',
-          updatedAt: '2024-01-01T00:00:00.000Z',
-        },
-        {
-          sessionId: 'sess-task-new',
-          taskGroupId: null,
-          taskId: task.id,
-          branch: 'feat/x',
-          worktreePath: '/wt-task',
-          createdAt: '2024-02-01T00:00:00.000Z',
-          updatedAt: '2024-02-01T00:00:00.000Z',
-        },
-      ]).run();
+          worktreePath: '/repo-a',
+        })
+        .run();
 
-      const result = findCorrelatedSession(ctx.db, 'feat/x', '/repo-a');
-      expect(result?.sessionId).toBe('sess-task-new');
+      expect(
+        findCorrelatedSession(ctx.db, {
+          headBranch: 'feat/x',
+          repo: '/repo-a',
+          isCrossRepository: false,
+        })?.projectSlug,
+      ).toBe('my-proj');
+    });
+
+    it('[FR-PRMON-040] should not correlate a session with a cross-repository PR on the same branch name', () => {
+      seedWorkspace(ctx, ['/repo-a']);
+      ctx.db
+        .insert(agentSessions)
+        .values({ sessionId: 'sess-own', branch: 'feat/x', worktreePath: '/repo-a/.worktrees/wt' })
+        .run();
+
+      expect(
+        findCorrelatedSession(ctx.db, {
+          headBranch: 'feat/x',
+          repo: '/repo-a',
+          isCrossRepository: true,
+        }),
+      ).toBeNull();
     });
 
     it('should return null when no session matches the branch and repo', () => {
       seedWorkspace(ctx, ['/repo-a']);
-      const result = findCorrelatedSession(ctx.db, 'feat/no-match', '/repo-a');
+      const result = findCorrelatedSession(ctx.db, {
+        headBranch: 'feat/no-match',
+        repo: '/repo-a',
+        isCrossRepository: false,
+      });
       expect(result).toBeNull();
     });
   });
@@ -347,6 +532,22 @@ describe('pr router', () => {
       expect(branches).toContain('feat/b');
     });
 
+    it('[FR-INBOX-590] should say whether a review was requested from the viewer or a viewer team', async () => {
+      const ws = seedWorkspace(ctx, ['/repo-a']);
+      ctx.state.github.viewer = { login: 'octocat', scopes: null };
+      ctx.state.github.teams = { keys: new Set(['acme/web']), fetchedAt: Date.now() };
+      upsertPrs(ctx.db, '/repo-a', [
+        makePr({ number: 1, reviewRequests: ['octocat'] }),
+        makePr({ number: 2, reviewRequests: ['acme/web', 'acme/other'] }),
+      ]);
+
+      const result = await caller.pr.list({ workspaceId: ws.id });
+      const byNumber = new Map(result.prs.map((pr) => [pr.number, pr.reviewRequestedFrom]));
+
+      expect(byNumber.get(1)).toEqual({ viewer: true, teams: [] });
+      expect(byNumber.get(2)).toEqual({ viewer: false, teams: ['acme/web'] });
+    });
+
     it('should stop returning PRs that vanished from the open list', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
 
@@ -360,26 +561,20 @@ describe('pr router', () => {
 
     it('[FR-PRMON-130] should return per-repo gh errors from the in-memory map', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b']);
-      ctx.state.prRepoErrors.set('/repo-a', 'gh-not-authenticated');
+      ctx.state.prRepoErrors.set('/repo-a', 'Bad gateway');
       ctx.state.prRepoErrors.set('/unrelated-repo', 'ignored');
 
       const result = await caller.pr.list({ workspaceId: ws.id });
-      expect(result.repoErrors).toEqual({ '/repo-a': 'gh-not-authenticated' });
+      expect(result.repoErrors).toEqual({ '/repo-a': 'Bad gateway' });
     });
 
     it('should correlate PRs with most recent agent session matching headBranch', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
 
       // Insert project + task group for the session
-      ctx.db
-        .insert(projects)
-        .values({ workspaceId: ws.id, name: 'P', slug: 'p', projectDir: '/repo-a' })
-        .run();
+      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p' }).run();
       const proj = ctx.db.select().from(projects).where(eq(projects.slug, 'p')).get()!;
-      ctx.db
-        .insert(taskGroups)
-        .values({ projectId: proj.id, name: 'TG', numInMilestone: 0 })
-        .run();
+      ctx.db.insert(taskGroups).values({ projectId: proj.id, name: 'TG', numInMilestone: 0 }).run();
       const tg = ctx.db.select().from(taskGroups).where(eq(taskGroups.projectId, proj.id)).get()!;
 
       // Two sessions on the same branch — the later one should win
@@ -390,7 +585,7 @@ describe('pr router', () => {
             sessionId: 'sess-old',
             taskGroupId: tg.id,
             branch: 'feat/my-feature',
-            worktreePath: '/old-wt',
+            worktreePath: '/repo-a/.worktrees/old-wt',
             createdAt: '2024-01-01T00:00:00.000Z',
             updatedAt: '2024-01-01T00:00:00.000Z',
           },
@@ -398,7 +593,7 @@ describe('pr router', () => {
             sessionId: 'sess-new',
             taskGroupId: tg.id,
             branch: 'feat/my-feature',
-            worktreePath: '/new-wt',
+            worktreePath: '/repo-a/.worktrees/new-wt',
             createdAt: '2024-02-01T00:00:00.000Z',
             updatedAt: '2024-02-01T00:00:00.000Z',
           },
@@ -411,28 +606,51 @@ describe('pr router', () => {
       expect(result.prs).toHaveLength(1);
       expect(result.prs[0].sessionId).toBe('sess-new');
       expect(result.prs[0].taskGroupId).toBe(tg.id);
-      expect(result.prs[0].worktreePath).toBe('/new-wt');
+      expect(result.prs[0].worktreePath).toBe('/repo-a/.worktrees/new-wt');
+      expect(result.prs[0].projectSlug).toBe('p');
+    });
+
+    it('[FR-PRMON-040] should not attach a local session to a cross-repository PR in pr.list', async () => {
+      const ws = seedWorkspace(ctx, ['/repo-a']);
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'sess-own',
+          branch: 'fix-typo',
+          worktreePath: '/repo-a/.worktrees/wt',
+        })
+        .run();
+      upsertPrs(ctx.db, '/repo-a', [
+        makePr({ number: 1, headBranch: 'fix-typo', isCrossRepository: true }),
+        makePr({ number: 2, headBranch: 'fix-typo', isCrossRepository: false }),
+      ]);
+
+      const result = await caller.pr.list({ workspaceId: ws.id });
+
+      const byNumber = new Map(result.prs.map((pr) => [pr.number, pr.sessionId]));
+      expect(byNumber.get(1)).toBeNull();
+      expect(byNumber.get(2)).toBe('sess-own');
     });
 
     it('should scope session correlation by repo so identically-named branches do not cross-correlate', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b']);
 
       // Project for repo-a
-      ctx.db
-        .insert(projects)
-        .values({ workspaceId: ws.id, name: 'PA', slug: 'pa', projectDir: '/repo-a' })
-        .run();
+      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'PA', slug: 'pa' }).run();
       const projA = ctx.db.select().from(projects).where(eq(projects.slug, 'pa')).get()!;
-      ctx.db.insert(taskGroups).values({ projectId: projA.id, name: 'TGA', numInMilestone: 0 }).run();
+      ctx.db
+        .insert(taskGroups)
+        .values({ projectId: projA.id, name: 'TGA', numInMilestone: 0 })
+        .run();
       const tgA = ctx.db.select().from(taskGroups).where(eq(taskGroups.projectId, projA.id)).get()!;
 
       // Project for repo-b
-      ctx.db
-        .insert(projects)
-        .values({ workspaceId: ws.id, name: 'PB', slug: 'pb', projectDir: '/repo-b' })
-        .run();
+      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'PB', slug: 'pb' }).run();
       const projB = ctx.db.select().from(projects).where(eq(projects.slug, 'pb')).get()!;
-      ctx.db.insert(taskGroups).values({ projectId: projB.id, name: 'TGB', numInMilestone: 0 }).run();
+      ctx.db
+        .insert(taskGroups)
+        .values({ projectId: projB.id, name: 'TGB', numInMilestone: 0 })
+        .run();
       const tgB = ctx.db.select().from(taskGroups).where(eq(taskGroups.projectId, projB.id)).get()!;
 
       // Same branch name in two separate repo sessions
@@ -443,7 +661,7 @@ describe('pr router', () => {
             sessionId: 'sess-a',
             taskGroupId: tgA.id,
             branch: 'feat/shared',
-            worktreePath: '/wt-a',
+            worktreePath: '/repo-a/.worktrees/wt-a',
             createdAt: '2024-01-01T00:00:00.000Z',
             updatedAt: '2024-01-01T00:00:00.000Z',
           },
@@ -451,7 +669,7 @@ describe('pr router', () => {
             sessionId: 'sess-b',
             taskGroupId: tgB.id,
             branch: 'feat/shared',
-            worktreePath: '/wt-b',
+            worktreePath: '/repo-b/.worktrees/wt-b',
             createdAt: '2024-01-01T00:00:00.000Z',
             updatedAt: '2024-01-01T00:00:00.000Z',
           },
@@ -469,6 +687,8 @@ describe('pr router', () => {
 
       expect(prA?.sessionId).toBe('sess-a');
       expect(prB?.sessionId).toBe('sess-b');
+      expect(prA?.projectSlug).toBe('pa');
+      expect(prB?.projectSlug).toBe('pb');
     });
 
     it('should return null session fields when no matching agent session exists', async () => {
@@ -480,30 +700,38 @@ describe('pr router', () => {
       expect(result.prs[0].sessionId).toBeNull();
       expect(result.prs[0].taskGroupId).toBeNull();
       expect(result.prs[0].worktreePath).toBeNull();
+      expect(result.prs[0].projectSlug).toBeNull();
     });
 
     it('should correlate PRs with task-mode sessions (taskGroupId null, correlated via task → project)', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
 
-      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p', projectDir: '/repo-a' }).run();
+      ctx.db.insert(projects).values({ workspaceId: ws.id, name: 'P', slug: 'p' }).run();
       const proj = ctx.db.select().from(projects).where(eq(projects.slug, 'p')).get()!;
-      ctx.db.insert(tasks).values({ projectId: proj.id, title: 'T', type: 'ai', needsPlan: false }).run();
+      ctx.db
+        .insert(tasks)
+        .values({ projectId: proj.id, title: 'T', type: 'ai', needsPlan: false })
+        .run();
       const task = ctx.db.select().from(tasks).where(eq(tasks.projectId, proj.id)).get()!;
 
-      ctx.db.insert(agentSessions).values({
-        sessionId: 'sess-task-mode',
-        taskGroupId: null,
-        taskId: task.id,
-        branch: 'feat/task-mode',
-        worktreePath: '/wt-task',
-      }).run();
+      ctx.db
+        .insert(agentSessions)
+        .values({
+          sessionId: 'sess-task-mode',
+          taskGroupId: null,
+          taskId: task.id,
+          branch: 'feat/task-mode',
+          worktreePath: '/repo-a/.worktrees/wt-task',
+        })
+        .run();
 
       upsertPrs(ctx.db, '/repo-a', [makePr({ number: 5, headBranch: 'feat/task-mode' })]);
 
       const result = await caller.pr.list({ workspaceId: ws.id });
       expect(result.prs).toHaveLength(1);
       expect(result.prs[0].sessionId).toBe('sess-task-mode');
-      expect(result.prs[0].worktreePath).toBe('/wt-task');
+      expect(result.prs[0].worktreePath).toBe('/repo-a/.worktrees/wt-task');
+      expect(result.prs[0].projectSlug).toBe('p');
     });
 
     it('should return empty results when workspace has no repos', async () => {
@@ -518,67 +746,81 @@ describe('pr router', () => {
   });
 
   describe('refresh', () => {
-    it('should fetch PRs for each repo and upsert them', async () => {
+    it('should list PRs once and upsert them into each matching repo', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b']);
-
-      installFakeDaemon(ctx, {
-        prsByRepo: new Map([
-          ['/repo-a', [makePr({ number: 1 })]],
-          ['/repo-b', [makePr({ number: 2, headBranch: 'feat/b' })]],
-        ]),
-      });
+      linkRepo(ctx, '/repo-a', 'org/repo-a');
+      linkRepo(ctx, '/repo-b', 'org/repo-b');
+      replyWithOpenPrs(stub, [
+        rawPr({ number: 1, repository: { nameWithOwner: 'org/repo-a' } }),
+        rawPr({ number: 2, headRefName: 'feat/b', repository: { nameWithOwner: 'org/repo-b' } }),
+        rawPr({ number: 3, repository: { nameWithOwner: 'org/other' } }),
+      ]);
 
       const results = await caller.pr.refresh({ workspaceId: ws.id });
 
       expect(results).toHaveLength(2);
       expect(results.every((r) => r.success)).toBe(true);
-
+      expect(stub.requests).toHaveLength(2);
       const stored = ctx.db.select().from(prs).all();
-      expect(stored).toHaveLength(2);
+      expect(stored.map((row) => [row.repo, row.number, row.repoFullName]).sort()).toEqual([
+        ['/repo-a', 1, 'org/repo-a'],
+        ['/repo-b', 2, 'org/repo-b'],
+      ]);
     });
 
-    it('[FR-PRMON-020] should isolate a failing repo and record its typed error while others succeed', async () => {
+    it('[FR-PRMON-020] should isolate a repo without a GitHub remote while others succeed', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b']);
-
-      installFakeDaemon(ctx, {
-        prsByRepo: new Map<string, GhPr[] | Error>([
-          ['/repo-a', new Error('gh-not-authenticated')],
-          ['/repo-b', [makePr({ number: 2, headBranch: 'feat/b' })]],
-        ]),
-      });
+      linkRepo(ctx, '/repo-a', null);
+      linkRepo(ctx, '/repo-b', 'org/repo-b');
+      replyWithOpenPrs(stub, [
+        rawPr({ number: 2, headRefName: 'feat/b', repository: { nameWithOwner: 'org/repo-b' } }),
+      ]);
 
       const results = await caller.pr.refresh({ workspaceId: ws.id });
 
       const failed = results.find((r) => r.repo === '/repo-a');
       const succeeded = results.find((r) => r.repo === '/repo-b');
-      expect(failed).toMatchObject({ success: false, error: 'gh-not-authenticated' });
+      expect(failed).toMatchObject({
+        success: false,
+        error: 'No GitHub remote found for /repo-a',
+      });
       expect(succeeded?.success).toBe(true);
-      expect(ctx.state.prRepoErrors.get('/repo-a')).toBe('gh-not-authenticated');
+      expect(ctx.state.prRepoErrors.get('/repo-a')).toBe('No GitHub remote found for /repo-a');
       expect(ctx.state.prRepoErrors.has('/repo-b')).toBe(false);
     });
 
-    it('[FR-PRMON-020] should surface gh-not-installed per repo from the list call itself', async () => {
-      const ws = seedWorkspace(ctx, ['/repo-a']);
-
-      installFakeDaemon(ctx, {
-        prsByRepo: new Map<string, GhPr[] | Error>([
-          ['/repo-a', new Error('gh-not-installed')],
-        ]),
-      });
+    it('[FR-PRMON-020] should record the GitHub error on every repo when the search fails', async () => {
+      const ws = seedWorkspace(ctx, ['/repo-a', '/repo-b']);
+      stub.reply(() => ({ status: 502, body: { message: 'Bad gateway' } }));
 
       const results = await caller.pr.refresh({ workspaceId: ws.id });
 
-      expect(results).toHaveLength(1);
-      expect(results[0]).toMatchObject({ success: false, error: 'gh-not-installed' });
+      expect(results).toEqual([
+        { repo: '/repo-a', success: false, error: 'Bad gateway' },
+        { repo: '/repo-b', success: false, error: 'Bad gateway' },
+      ]);
+      expect(ctx.state.prRepoErrors.get('/repo-b')).toBe('Bad gateway');
+    });
+
+    it('should reject with the setup message when GitHub is unavailable', async () => {
+      const ws = seedWorkspace(ctx, ['/repo-a']);
+      ctx.state.github.status = {
+        available: false,
+        reason: 'missing_token',
+        message: 'Set ENGY_GITHUB_TOKEN in .env',
+      };
+
+      await expect(caller.pr.refresh({ workspaceId: ws.id })).rejects.toThrow(
+        'Set ENGY_GITHUB_TOKEN in .env',
+      );
+      expect(stub.requests).toHaveLength(0);
     });
 
     it('should clear a repo error on the next successful refresh', async () => {
       const ws = seedWorkspace(ctx, ['/repo-a']);
-      ctx.state.prRepoErrors.set('/repo-a', 'gh-not-authenticated');
-
-      installFakeDaemon(ctx, {
-        prsByRepo: new Map([['/repo-a', [makePr({ number: 1 })]]]),
-      });
+      linkRepo(ctx, '/repo-a', 'org/repo-a');
+      ctx.state.prRepoErrors.set('/repo-a', 'Bad gateway');
+      replyWithOpenPrs(stub, [rawPr({ repository: { nameWithOwner: 'org/repo-a' } })]);
 
       await caller.pr.refresh({ workspaceId: ws.id });
 

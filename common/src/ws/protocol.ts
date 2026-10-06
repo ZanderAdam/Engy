@@ -259,6 +259,8 @@ export interface GitFetchRequestMessage {
     repoDir: string;
     /** Base ref the remote is derived from, e.g. `origin/main`. */
     base: string;
+    /** Fetched in place of `base`'s branch, e.g. `+refs/pull/7/head:refs/engy/pr/7`. */
+    refspec?: string;
     coderWorkspace?: string;
   };
 }
@@ -270,6 +272,61 @@ export interface GitFetchResponseMessage {
         requestId: string;
         /** Remote actually fetched; absent when the base implied none. */
         remote?: string;
+      }
+    | {
+        requestId: string;
+        error: string;
+      };
+}
+
+export interface GitResetHardRequestMessage {
+  type: 'GIT_RESET_HARD_REQUEST';
+  payload: {
+    requestId: string;
+    /** Worktree to reset. Refused when it has uncommitted changes. */
+    repoDir: string;
+    ref: string;
+    coderWorkspace?: string;
+  };
+}
+
+export interface GitResetHardResponseMessage {
+  type: 'GIT_RESET_HARD_RESPONSE';
+  payload: { requestId: string } | { requestId: string; error: string };
+}
+
+export interface GitDeleteRefsRequestMessage {
+  type: 'GIT_DELETE_REFS_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    /** Full ref names. Only `refs/engy/*` and `refs/heads/engy/review/*` are accepted. */
+    refs: string[];
+    coderWorkspace?: string;
+  };
+}
+
+export interface GitDeleteRefsResponseMessage {
+  type: 'GIT_DELETE_REFS_RESPONSE';
+  payload: { requestId: string } | { requestId: string; error: string };
+}
+
+export interface GitRemoteUrlRequestMessage {
+  type: 'GIT_REMOTE_URL_REQUEST';
+  payload: {
+    requestId: string;
+    repoDir: string;
+    coderWorkspace?: string;
+  };
+}
+
+export interface GitRemoteUrlResponseMessage {
+  type: 'GIT_REMOTE_URL_RESPONSE';
+  payload:
+    | {
+        requestId: string;
+        /** URL of the `origin` remote; null when the repo has none. An SSH host alias that resolves to github.com is reported as github.com. */
+        url: string | null;
       }
     | {
         requestId: string;
@@ -342,6 +399,8 @@ export interface GitWorktreeListRequestMessage {
   payload: {
     requestId: string;
     repoDir: string;
+    /** Path to report back in canonical form (`resolvedPath`), so the caller can match it against entry paths, which git prints with symlinks resolved. */
+    resolvePath?: string;
     coderWorkspace?: string;
   };
 }
@@ -349,7 +408,7 @@ export interface GitWorktreeListRequestMessage {
 export interface GitWorktreeListResponseMessage {
   type: 'GIT_WORKTREE_LIST_RESPONSE';
   payload:
-    | { requestId: string; worktrees: GitWorktreeEntry[] }
+    | { requestId: string; worktrees: GitWorktreeEntry[]; resolvedPath?: string }
     | { requestId: string; error: string };
 }
 
@@ -732,7 +791,7 @@ export interface CreateMemoriesEventMessage {
   };
 }
 
-// ── GitHub PR operations (server ↔ daemon) ──────────────────────────────────
+// ── GitHub PR types ──────────────────────────────────
 
 export type GhPrCiStatus = 'pending' | 'passing' | 'failing' | 'unknown';
 
@@ -741,83 +800,7 @@ export interface GhPrCheck {
   status: string;
   conclusion: string | null;
   detailsUrl: string | null;
-}
-
-export interface GhPr {
-  number: number;
-  title: string;
-  url: string;
-  headBranch: string;
-  headSha: string | null;
-  author: string;
-  isDraft: boolean;
-  state: string;
-  reviewDecision: string | null;
-  ciStatus: GhPrCiStatus;
-  checks: GhPrCheck[];
-  /** Conversation comments plus review submissions that carry a body. */
-  commentCount: number;
-  authoredByViewer: boolean;
-  updatedAt?: string;
-}
-
-export interface GhPrListRequestMessage {
-  type: 'GH_PR_LIST_REQUEST';
-  payload: {
-    requestId: string;
-    repoDir: string;
-    coderWorkspace?: string;
-  };
-}
-
-export interface GhPrListResponseMessage {
-  type: 'GH_PR_LIST_RESPONSE';
-  payload: { requestId: string; prs: GhPr[] } | { requestId: string; error: string };
-}
-
-export interface GhPrFailedLogsRequestMessage {
-  type: 'GH_PR_FAILED_LOGS_REQUEST';
-  payload: {
-    requestId: string;
-    repoDir: string;
-    coderWorkspace?: string;
-    prNumber: number;
-  };
-}
-
-export interface GhPrFailedLogsResponseMessage {
-  type: 'GH_PR_FAILED_LOGS_RESPONSE';
-  payload:
-    | { requestId: string; logs: Array<{ checkName: string; excerpt: string }> }
-    | { requestId: string; error: string };
-}
-
-export interface GhReviewComment {
-  githubId: number;
-  path: string;
-  line: number | null;
-  body: string;
-  author: string;
-  createdAt: string;
-  inReplyToId: number | null;
-  url: string;
-}
-
-export interface GhPrReviewCommentsRequestMessage {
-  type: 'GH_PR_REVIEW_COMMENTS_REQUEST';
-  payload: {
-    requestId: string;
-    repoDir: string;
-    coderWorkspace?: string;
-    prNumber: number;
-  };
-}
-
-export interface GhPrReviewCommentsResponseMessage {
-  type: 'GH_PR_REVIEW_COMMENTS_RESPONSE';
-  payload:
-    | { requestId: string; comments: GhReviewComment[] }
-    | { requestId: string; error: string };
+  completedAt?: string | null;
 }
 
 // ── Usage analytics scan (server ↔ daemon) ──────────────────────────────────
@@ -912,6 +895,12 @@ export type WsMessage =
   | GitDefaultBaseResponseMessage
   | GitFetchRequestMessage
   | GitFetchResponseMessage
+  | GitResetHardRequestMessage
+  | GitResetHardResponseMessage
+  | GitDeleteRefsRequestMessage
+  | GitDeleteRefsResponseMessage
+  | GitRemoteUrlRequestMessage
+  | GitRemoteUrlResponseMessage
   | GitWorktreeListRequestMessage
   | GitWorktreeListResponseMessage
   | WorktreeBranchChangedMessage
@@ -955,12 +944,6 @@ export type WsMessage =
   | ExecutionStatusEventMessage
   | ExecutionCompleteEventMessage
   | CreateMemoriesEventMessage
-  | GhPrListRequestMessage
-  | GhPrListResponseMessage
-  | GhPrFailedLogsRequestMessage
-  | GhPrFailedLogsResponseMessage
-  | GhPrReviewCommentsRequestMessage
-  | GhPrReviewCommentsResponseMessage
   | UsageScanRequestMessage
   | UsageScanResponseMessage;
 
@@ -978,6 +961,9 @@ export type ClientToServerMessage =
   | GitBranchResponseMessage
   | GitDefaultBaseResponseMessage
   | GitFetchResponseMessage
+  | GitResetHardResponseMessage
+  | GitDeleteRefsResponseMessage
+  | GitRemoteUrlResponseMessage
   | GitWorktreeListResponseMessage
   | WorktreeBranchChangedMessage
   | DirListResponseMessage
@@ -1002,9 +988,6 @@ export type ClientToServerMessage =
   | ExecutionStatusEventMessage
   | ExecutionCompleteEventMessage
   | CreateMemoriesEventMessage
-  | GhPrListResponseMessage
-  | GhPrFailedLogsResponseMessage
-  | GhPrReviewCommentsResponseMessage
   | UsageScanResponseMessage;
 
 export type ServerToClientMessage =
@@ -1020,6 +1003,9 @@ export type ServerToClientMessage =
   | GitBranchRequestMessage
   | GitDefaultBaseRequestMessage
   | GitFetchRequestMessage
+  | GitResetHardRequestMessage
+  | GitDeleteRefsRequestMessage
+  | GitRemoteUrlRequestMessage
   | GitWorktreeListRequestMessage
   | DirListRequestMessage
   | FileReadRequestMessage
@@ -1039,9 +1025,6 @@ export type ServerToClientMessage =
   | DevcontainerConfigGenerateRequestMessage
   | ExecutionStartRequestMessage
   | ExecutionStopRequestMessage
-  | GhPrListRequestMessage
-  | GhPrFailedLogsRequestMessage
-  | GhPrReviewCommentsRequestMessage
   | UsageScanRequestMessage;
 
 // ── Compact terminal relay types (server ↔ daemon) ──────────────────────────

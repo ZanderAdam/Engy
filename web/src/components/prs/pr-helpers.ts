@@ -1,27 +1,6 @@
 import type { GhPrCheck, GhPrCiStatus } from '@engy/common';
-
-export function deriveCheckState(
-  status: string,
-  conclusion: string | null,
-): 'passing' | 'failing' | 'pending' {
-  const lowerConclusion = conclusion?.toLowerCase();
-  if (lowerConclusion === 'success' || lowerConclusion === 'skipped' || lowerConclusion === 'neutral') {
-    return 'passing';
-  }
-  if (
-    lowerConclusion === 'failure' ||
-    lowerConclusion === 'timed_out' ||
-    lowerConclusion === 'cancelled' ||
-    lowerConclusion === 'action_required'
-  ) {
-    return 'failing';
-  }
-  // conclusion is null or unrecognized — use status (covers StatusContext entries)
-  const lowerStatus = status.toLowerCase();
-  if (lowerStatus === 'success') return 'passing';
-  if (lowerStatus === 'failure' || lowerStatus === 'error') return 'failing';
-  return 'pending';
-}
+import { getAttentionInfo } from '@/lib/pr-attention';
+import { deriveCheckState } from '@/lib/pr-check-state';
 
 export function ciStatusLabel(status: GhPrCiStatus): string {
   switch (status) {
@@ -76,18 +55,20 @@ export function formatRelativeTime(isoDate: string): string {
   return `${days}d ago`;
 }
 
-export type PrScope = 'mine' | 'review';
-
-export function coercePrScope(value: string | null | undefined): PrScope {
-  return value === 'review' ? 'review' : 'mine';
+export function shippingRank(pr: {
+  reviewDecision: string | null;
+  ciStatus: GhPrCiStatus;
+}): number {
+  const approved = pr.reviewDecision === 'APPROVED';
+  const passing = pr.ciStatus === 'passing';
+  if (approved && passing) return 0;
+  if (approved) return 1;
+  if (passing) return 2;
+  return 3;
 }
 
-export function filterPrsByScope<T extends { authoredByViewer: boolean }>(
-  prs: T[],
-  scope: PrScope,
-): T[] {
-  const wantAuthored = scope === 'mine';
-  return prs.filter((pr) => pr.authoredByViewer === wantAuthored);
+export function prActivityAt(pr: { githubUpdatedAt: string | null; updatedAt: string }): string {
+  return pr.githubUpdatedAt ?? pr.updatedAt;
 }
 
 interface CheckSummary {
@@ -110,4 +91,15 @@ export function summarizeChecks(checks: GhPrCheck[]): CheckSummary {
   }
 
   return { passing, failing, pending, total: checks.length };
+}
+
+export function buildAttentionToast(
+  prNumber: number,
+  reason: string | null | undefined,
+): { title: string; description: string | undefined } {
+  const info = getAttentionInfo(reason);
+  return {
+    title: `PR #${prNumber}: ${info?.label ?? 'CI failure needs attention'}`,
+    description: info?.description,
+  };
 }

@@ -16,6 +16,21 @@ export function diffDocPath(repoDir: string, branch: string, filePath: string): 
   return `${diffScopePrefix(repoDir, branch)}${filePath}`;
 }
 
+interface ReviewCommentBranchInput {
+  headRefName: string;
+  prNumber: number;
+  isCrossRepository: boolean;
+}
+
+export function reviewCommentBranch({
+  headRefName,
+  prNumber,
+  isCrossRepository,
+}: ReviewCommentBranchInput): string {
+  if (isCrossRepository) return `pull/${prNumber}/head`;
+  return headRefName;
+}
+
 interface ParsedDiffDocPath {
   repoDir: string;
   branch: string;

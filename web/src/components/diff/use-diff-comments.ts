@@ -6,12 +6,21 @@ import { trpc } from '@/lib/trpc';
 import { randomId } from '@/lib/random-id';
 import { useOnServerEvent } from '@/contexts/events-context';
 import { diffDocPath, diffScopePrefix } from '@/lib/diff-doc-path';
+import { isGithubDraft } from '@/lib/github-draft';
 import {
   findingSeverity,
   threadSource,
   type DiffThreadSource,
   type FindingSeverity,
 } from './agent-findings';
+import {
+  parseGuideSource,
+  parseReadingOrder,
+  parseRisk,
+  type ReadingChapter,
+  type ReviewGuideSource,
+  type ReviewRisk,
+} from '@/lib/review-summary-meta';
 
 export interface DiffComment {
   threadId: string;
@@ -21,8 +30,12 @@ export interface DiffComment {
   side: 'modified' | 'original';
   resolved: boolean;
   source: DiffThreadSource;
+  githubDraft: boolean;
   severity?: FindingSeverity;
   agentType?: string;
+  risk?: ReviewRisk;
+  readingOrder?: ReadingChapter[];
+  guide?: ReviewGuideSource;
   githubAuthor?: string;
   githubUrl?: string;
   comments: Array<{
@@ -69,8 +82,12 @@ export function useDiffComments(repoDir: string | null, branch: string | null) {
         side: (meta.side as 'modified' | 'original') ?? 'modified',
         resolved: thread.resolved ?? false,
         source,
+        githubDraft: isGithubDraft(meta),
         severity: findingSeverity(meta.severity),
         agentType: source === 'agent' ? (meta.agentType as string | undefined) : undefined,
+        risk: parseRisk(meta.risk),
+        readingOrder: parseReadingOrder(meta.readingOrder),
+        guide: parseGuideSource(meta.guide),
         githubAuthor: isGithub ? (meta.author as string | undefined) : undefined,
         githubUrl: isGithub ? (meta.url as string | undefined) : undefined,
         comments: thread.comments

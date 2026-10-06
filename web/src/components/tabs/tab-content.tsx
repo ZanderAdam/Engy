@@ -5,6 +5,7 @@ import { parseVirtualPath } from './tab-state';
 
 import HomePage from '@/app/page';
 import OpenPage from '@/app/open/page';
+import InboxRoute from '@/app/inbox/page';
 import WorkspaceLayout from '@/app/w/[workspace]/layout';
 import WorkspacePage from '@/app/w/[workspace]/page';
 import WorkspaceTasksPage from '@/app/w/[workspace]/tasks/page';
@@ -82,6 +83,7 @@ export const TabContent = memo(function TabContent({ virtualPath }: { virtualPat
   const path = virtualPath.split('?')[0];
 
   if (path.startsWith('/open')) return <OpenPage />;
+  if (path === '/inbox') return <InboxRoute />;
   if (path === '/' || path === '') return <HomePage />;
 
   const { workspace, project, section } = parseVirtualPath(virtualPath);

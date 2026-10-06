@@ -2,28 +2,29 @@ import { eq, and, isNotNull, gt, sql } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { prs, agentSessions, tasks, projects, workspaces } from '../db/schema';
 import type { AppState } from '../trpc/context';
-import { dispatchExecutionStart, dispatchGhPrFailedLogs } from '../ws/server';
+import { dispatchExecutionStart } from '../ws/server';
+import { fetchFailedLogs } from '../github/checks';
 import { buildResumeFlags, buildResumeConfig } from '../trpc/routers/execution';
 import { findCorrelatedSession } from '../trpc/routers/pr';
+import { getViewerTeams } from '../github/teams';
 import { buildCiFixPrompt } from '../../lib/shell';
 import { broadcastPrAttention } from '../ws/broadcast';
+import { mapAttention, recordPrInboxEvents } from '../inbox/pr-events';
 import type { CiFailureClassification, FailedLog } from './ci-triage';
 
 type Db = ReturnType<typeof getDb>;
 
 type CiFixSkipReason =
+  | 'not-authored'
   | 'non-mechanical'
   | 'auto-ci-fix-disabled'
   | 'no-daemon'
   | 'uncorrelated'
   | 'concurrency-full'
   | 'attempt-cap-sha'
-  | 'attempt-cap-total'
-  | 'no-worktree';
+  | 'attempt-cap-total';
 
-type CiFixResult =
-  | { dispatched: true }
-  | { dispatched: false; reason: CiFixSkipReason };
+type CiFixResult = { dispatched: true } | { dispatched: false; reason: CiFixSkipReason };
 
 export const MAX_AUTO_FIX_ATTEMPTS = 2;
 export const MAX_TOTAL_AUTO_FIX_ATTEMPTS = 5;
@@ -34,7 +35,6 @@ interface MaybeDispatchCiFixInput {
   prRow: typeof prs.$inferSelect;
   classification: CiFailureClassification;
   workspace: typeof workspaces.$inferSelect;
-  coderWorkspace?: string;
 }
 
 function clearAttentionReason(db: Db, repo: string, prNumber: number): void {
@@ -44,17 +44,26 @@ function clearAttentionReason(db: Db, repo: string, prNumber: number): void {
     .run();
 }
 
-function setAttentionReason(
+async function setAttentionReason(
   db: Db,
+  state: AppState,
   workspace: typeof workspaces.$inferSelect,
   prRow: typeof prs.$inferSelect,
   reason: string,
-): void {
+): Promise<void> {
   db.update(prs)
     .set({ attentionReason: reason, updatedAt: new Date().toISOString() })
     .where(and(eq(prs.repo, prRow.repo), eq(prs.number, prRow.number)))
     .run();
   broadcastPrAttention(workspace.id, prRow.repo, prRow.number, reason);
+  const updatedRow = { ...prRow, attentionReason: reason };
+  recordPrInboxEvents({
+    prRow: updatedRow,
+    workspaceId: workspace.id,
+    viewerLogin: state.github.viewer?.login ?? null,
+    viewerTeams: await getViewerTeams(state),
+    events: mapAttention(updatedRow, reason),
+  });
 }
 
 export async function maybeDispatchCiFix({
@@ -63,10 +72,13 @@ export async function maybeDispatchCiFix({
   prRow,
   classification,
   workspace,
-  coderWorkspace,
 }: MaybeDispatchCiFixInput): Promise<CiFixResult> {
+  if (!prRow.authoredByViewer) {
+    return { dispatched: false, reason: 'not-authored' };
+  }
+
   if (classification !== 'mechanical') {
-    setAttentionReason(db, workspace, prRow, 'non-mechanical');
+    await setAttentionReason(db, state, workspace, prRow, 'non-mechanical');
     return { dispatched: false, reason: 'non-mechanical' };
   }
 
@@ -78,9 +90,9 @@ export async function maybeDispatchCiFix({
     return { dispatched: false, reason: 'no-daemon' };
   }
 
-  const session = findCorrelatedSession(db, prRow.headBranch, prRow.repo);
+  const session = findCorrelatedSession(db, prRow);
   if (!session) {
-    setAttentionReason(db, workspace, prRow, 'uncorrelated');
+    await setAttentionReason(db, state, workspace, prRow, 'uncorrelated');
     return { dispatched: false, reason: 'uncorrelated' };
   }
 
@@ -106,18 +118,13 @@ export async function maybeDispatchCiFix({
   }
 
   if (prRow.autoFixTotalAttempts >= MAX_TOTAL_AUTO_FIX_ATTEMPTS) {
-    setAttentionReason(db, workspace, prRow, 'attempt-cap-total');
+    await setAttentionReason(db, state, workspace, prRow, 'attempt-cap-total');
     return { dispatched: false, reason: 'attempt-cap-total' };
   }
 
   if (prRow.autoFixAttempts >= MAX_AUTO_FIX_ATTEMPTS) {
-    setAttentionReason(db, workspace, prRow, 'attempt-cap-sha');
+    await setAttentionReason(db, state, workspace, prRow, 'attempt-cap-sha');
     return { dispatched: false, reason: 'attempt-cap-sha' };
-  }
-
-  if (!session.worktreePath) {
-    setAttentionReason(db, workspace, prRow, 'no-worktree');
-    return { dispatched: false, reason: 'no-worktree' };
   }
 
   // All gates passed — only now is the (expensive) log fetch worth it. Logs
@@ -125,8 +132,9 @@ export async function maybeDispatchCiFix({
   // the agent can reproduce the failure locally.
   let logs: FailedLog[] = [];
   try {
-    const result = await dispatchGhPrFailedLogs(prRow.repo, prRow.number, state, coderWorkspace);
-    logs = result.logs;
+    if (prRow.repoFullName && prRow.headSha) {
+      logs = await fetchFailedLogs(state, prRow.repoFullName, prRow.headSha);
+    }
   } catch (err) {
     console.error(
       `[auto-fix] failed to fetch logs for ${prRow.repo}#${prRow.number}:`,

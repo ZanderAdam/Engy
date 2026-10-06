@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   branchToPathSegment,
   getProjectWorktreeDir,
+  getReviewWorktreeDir,
   effectiveDocsDirForBranch,
   validateNoBasenameCollisions,
 } from './init';
@@ -71,6 +72,13 @@ describe('init helpers', () => {
       expect(() => branchToPathSegment('feat$x')).toThrow(/Invalid branch name/);
       expect(() => branchToPathSegment('feat x')).toThrow(/Invalid branch name/);
       expect(() => branchToPathSegment('')).toThrow(/Invalid branch name/);
+    });
+  });
+
+  describe('getReviewWorktreeDir', () => {
+    it('builds a path under <workspaceDir>/worktrees/_review/<repoBasename>/pr-<n>', () => {
+      const p = getReviewWorktreeDir({ slug: 'ws', docsDir: '/tmp/engy-ws' }, '/path/to/myrepo', 7);
+      expect(p).toBe('/tmp/engy-ws/worktrees/_review/myrepo/pr-7');
     });
   });
 

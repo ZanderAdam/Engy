@@ -31,6 +31,7 @@ import {
   initProjectDir,
   removeProjectDir,
 } from '../../project/service';
+import { REVIEW_GUIDE_FILE, readDefaultReviewGuide } from '../../project/review-guide';
 import { isTextPath } from '@/lib/file-types';
 
 function getWorkspace(workspaceSlug: string) {
@@ -63,6 +64,25 @@ function enrichProject(
     projectDir = path.join(getWorkspaceDir(effectiveWorkspace), 'projects', project.projectDir);
   }
   return { ...project, projectDir };
+}
+
+function loadProjectDirById(projectId: number) {
+  const db = getDb();
+  const project = db.select().from(projects).where(eq(projects.id, projectId)).get();
+  if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+  const workspace = db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, project.workspaceId))
+    .get();
+  if (!workspace || !project.projectDir) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Project has no directory' });
+  }
+  return {
+    workspace,
+    projectDir: project.projectDir,
+    absDir: path.join(getWorkspaceDir(workspace), 'projects', project.projectDir),
+  };
 }
 
 const worktreeBranchSchema = z.string().optional();
@@ -165,6 +185,30 @@ export const projectRouter = router({
         workspaceSlug: workspace.slug,
         taskPlans: readTaskPlans(projectAbsDir, workspace.slug),
       };
+    }),
+
+  reviewGuide: publicProcedure.input(z.object({ projectId: z.number() })).query(({ input }) => {
+    const { absDir } = loadProjectDirById(input.projectId);
+    const guidePath = path.join(absDir, REVIEW_GUIDE_FILE);
+    return {
+      path: existsSync(guidePath) ? guidePath : null,
+      defaultText: readDefaultReviewGuide(),
+    };
+  }),
+
+  createReviewGuide: publicProcedure
+    .input(z.object({ projectId: z.number() }))
+    .mutation(({ input }) => {
+      const { workspace, projectDir, absDir } = loadProjectDirById(input.projectId);
+      const guidePath = path.join(absDir, REVIEW_GUIDE_FILE);
+      if (!existsSync(guidePath)) {
+        try {
+          writeProjectFile(workspace, projectDir, REVIEW_GUIDE_FILE, readDefaultReviewGuide());
+        } catch (e) {
+          throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: errorMessage(e) });
+        }
+      }
+      return { path: guidePath, file: REVIEW_GUIDE_FILE };
     }),
 
   getBySlug: publicProcedure

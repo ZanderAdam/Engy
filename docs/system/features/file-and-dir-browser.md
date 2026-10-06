@@ -48,6 +48,7 @@ Engy exposes two distinct surfaces for file operations. They share no implementa
 | FR-FILES-210 | IF `file.readImage` is called with a path whose extension is not a supported image type (as determined by `imageMimeType`), THEN the system SHALL throw `BAD_REQUEST` before contacting the daemon. |
 | FR-FILES-220 | IF `file.readImage` is called for a supported image while no daemon is connected, THEN the system SHALL throw `PRECONDITION_FAILED`. |
 | FR-FILES-230 | WHEN `file.readImage` is called for a supported image with a connected daemon, the system SHALL dispatch a `FILE_READ_IMAGE_REQUEST` (reading from the working tree or a git `ref`, via `worktreePath`/`coderWorkspace` when supplied) and return `{ dataUri }` as a `data:<mime>;base64,<bytes>` URI built from the daemon's base64 payload. |
+| FR-FILES-240 | WHEN `file.read` is called with `allowMissing` and the daemon reports ENOENT or "not found", the system SHALL resolve with `null`; WHEN `allowMissing` is not set, the system SHALL reject with the daemon error. |
 
 ## Sources
 

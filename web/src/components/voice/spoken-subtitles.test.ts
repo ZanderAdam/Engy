@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { dismissSpoken, readSpoken, recordSpoken } from './spoken-subtitles';
 
 describe('spoken subtitles', () => {
-  it('[FR-TG2.32] should keep the last reply each session spoke', () => {
+  it('should keep the last reply each session spoke', () => {
     recordSpoken('build', 'Tests are running.');
     recordSpoken('build', 'Tests are green.');
     recordSpoken('docs', 'The docs are up to date.');
@@ -11,7 +11,7 @@ describe('spoken subtitles', () => {
     expect(readSpoken('docs')).toBe('The docs are up to date.');
   });
 
-  it('[FR-TG2.32] should clear a reply once it is dismissed', () => {
+  it('should clear a reply once it is dismissed', () => {
     recordSpoken('dismissed', 'Done.');
 
     dismissSpoken('dismissed');

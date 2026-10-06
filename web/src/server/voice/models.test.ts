@@ -39,7 +39,7 @@ describe('voice model cache', () => {
   }
 
   describe('resolveModelDir', () => {
-    it('[FR-TG1.3] should reuse an already-downloaded model instead of fetching again', async () => {
+    it('should reuse an already-downloaded model instead of fetching again', async () => {
       seedCachedModels();
 
       // Two resolves stand in for two workspaces enabling voice in turn: the
@@ -62,7 +62,7 @@ describe('voice model cache', () => {
   });
 
   describe('resolveVadModelPath', () => {
-    it('[FR-TG1.3] should reuse an already-downloaded VAD model instead of fetching again', async () => {
+    it('should reuse an already-downloaded VAD model instead of fetching again', async () => {
       seedCachedModels();
 
       const first = await resolveVadModelPath();

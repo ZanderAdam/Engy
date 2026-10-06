@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { PrScope } from '@/components/prs/pr-helpers';
 import type { ContainerConfig, CoderConfig, ExecutionBackend } from '@/server/db/schema';
 
 export type AutoAgentCompletion = 'pr' | 'merge';
@@ -26,8 +25,8 @@ export interface ContainerSettingsData {
   maxConcurrency: number;
   autoStart: boolean;
   autoCiFix: boolean;
+  autoReviewOnRequest: boolean;
   autoAgentCompletion: AutoAgentCompletion;
-  prScope: PrScope;
 }
 
 interface ContainerSettingsProps {
@@ -76,10 +75,10 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
   const [remoteEnabled, setRemoteEnabled] = useState(initialData.remoteEnabled);
   const [autoStart, setAutoStart] = useState(initialData.autoStart);
   const [autoCiFix, setAutoCiFix] = useState(initialData.autoCiFix);
+  const [autoReviewOnRequest, setAutoReviewOnRequest] = useState(initialData.autoReviewOnRequest);
   const [autoAgentCompletion, setAutoAgentCompletion] = useState<AutoAgentCompletion>(
     initialData.autoAgentCompletion ?? 'pr',
   );
-  const [prScope, setPrScope] = useState<PrScope>(initialData.prScope ?? 'mine');
   const [maxConcurrency, setMaxConcurrency] = useState(initialData.maxConcurrency);
   const [idleTimeout, setIdleTimeout] = useState(initialData.containerConfig?.idleTimeout ?? 30);
   const [domains, setDomains] = useState(listToLines(initialData.containerConfig?.allowedDomains));
@@ -90,29 +89,31 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
     initialData.coderConfig?.repoBasePath ?? '~/dev',
   );
 
-  function emit(overrides: Partial<{
-    containerEnabled: boolean;
-    executionBackend: ExecutionBackend;
-    remoteEnabled: boolean;
-    autoStart: boolean;
-    autoCiFix: boolean;
-    autoAgentCompletion: AutoAgentCompletion;
-    prScope: PrScope;
-    maxConcurrency: number;
-    idleTimeout: number;
-    domains: string;
-    packages: string;
-    envVars: string;
-    coderWorkspace: string;
-    coderRepoBasePath: string;
-  }>) {
+  function emit(
+    overrides: Partial<{
+      containerEnabled: boolean;
+      executionBackend: ExecutionBackend;
+      remoteEnabled: boolean;
+      autoStart: boolean;
+      autoCiFix: boolean;
+      autoReviewOnRequest: boolean;
+      autoAgentCompletion: AutoAgentCompletion;
+      maxConcurrency: number;
+      idleTimeout: number;
+      domains: string;
+      packages: string;
+      envVars: string;
+      coderWorkspace: string;
+      coderRepoBasePath: string;
+    }>,
+  ) {
     const enabled = overrides.containerEnabled ?? containerEnabled;
     const backend = overrides.executionBackend ?? executionBackend;
     const remote = overrides.remoteEnabled ?? remoteEnabled;
     const start = overrides.autoStart ?? autoStart;
     const ciFix = overrides.autoCiFix ?? autoCiFix;
+    const reviewOnRequest = overrides.autoReviewOnRequest ?? autoReviewOnRequest;
     const completion = overrides.autoAgentCompletion ?? autoAgentCompletion;
-    const scope = overrides.prScope ?? prScope;
     const concurrency = overrides.maxConcurrency ?? maxConcurrency;
     const timeout = overrides.idleTimeout ?? idleTimeout;
     const doms = overrides.domains ?? domains;
@@ -127,8 +128,8 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
       remoteEnabled: remote,
       autoStart: start,
       autoCiFix: ciFix,
+      autoReviewOnRequest: reviewOnRequest,
       autoAgentCompletion: completion,
-      prScope: scope,
       maxConcurrency: concurrency,
       containerConfig: {
         allowedDomains: linesToList(doms),
@@ -136,7 +137,9 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
         envVars: linesToEnvVars(vars),
         idleTimeout: timeout,
       },
-      coderConfig: cdrWorkspace ? { workspace: cdrWorkspace, repoBasePath: cdrBasePath } : undefined,
+      coderConfig: cdrWorkspace
+        ? { workspace: cdrWorkspace, repoBasePath: cdrBasePath }
+        : undefined,
     });
   }
 
@@ -187,7 +190,9 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
               }}
               placeholder="my-workspace"
             />
-            <p className="text-xs text-muted-foreground">Name from <code>coder list</code></p>
+            <p className="text-xs text-muted-foreground">
+              Name from <code>coder list</code>
+            </p>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="coder-repo-base-path">Repo base path</Label>
@@ -237,26 +242,21 @@ export function ContainerSettings({ initialData, onChange }: ContainerSettingsPr
         />
       </div>
 
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="pr-scope">PRs tab shows</Label>
-        <Select
-          value={prScope}
-          onValueChange={(value: PrScope) => {
-            setPrScope(value);
-            emit({ prScope: value });
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-0.5">
+          <Label htmlFor="auto-review-on-request">Auto-review requested PRs</Label>
+          <p className="text-xs text-muted-foreground">
+            Start an agent review when your review is requested. Findings stay local.
+          </p>
+        </div>
+        <Switch
+          id="auto-review-on-request"
+          checked={autoReviewOnRequest}
+          onCheckedChange={(checked) => {
+            setAutoReviewOnRequest(checked);
+            emit({ autoReviewOnRequest: checked });
           }}
-        >
-          <SelectTrigger id="pr-scope">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="mine">My PRs</SelectItem>
-            <SelectItem value="review">Review requests</SelectItem>
-          </SelectContent>
-        </Select>
-        <p className="text-xs text-muted-foreground">
-          Default filter for this workspace — switchable per visit from the tab.
-        </p>
+        />
       </div>
 
       <div className="flex flex-col gap-2">

@@ -22,6 +22,8 @@ import { attachMCP, isMcpPath } from './src/server/mcp/index';
 import { isHookPath, handleHookRequest } from './src/server/hooks/index';
 import { runMigrations, runPostMigrationBackfills } from './src/server/db/migrate';
 import { startPrPoller, stopPrPoller } from './src/server/pr/poller';
+import { startNotificationsPoller } from './src/server/inbox/notifications-poller';
+import { refreshGithubStatus } from './src/server/github/viewer';
 import { seedUsagePricing } from './src/server/usage/pricing';
 
 const dev = process.env.NODE_ENV !== 'production';
@@ -218,9 +220,17 @@ app.prepare().then(() => {
   });
 
   attachMCP(server);
+  void refreshGithubStatus(state).then((status) => {
+    if (status.available) console.log(`> GitHub: signed in as ${status.login}`);
+    else console.warn(`> GitHub unavailable: ${status.message}`);
+  });
   startPrPoller(state);
+  const stopNotificationsPoller = startNotificationsPoller(state);
 
-  server.on('close', () => stopPrPoller(state));
+  server.on('close', () => {
+    stopPrPoller(state);
+    stopNotificationsPoller();
+  });
 
   server.listen(port, () => {
     console.log(`> Ready on http://localhost:${port}`);

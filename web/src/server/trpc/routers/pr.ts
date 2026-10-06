@@ -1,12 +1,15 @@
+import path from 'node:path';
+import { isPathInside } from '../../lib/path-inside';
 import { z } from 'zod';
-import { eq, and, inArray, desc, isNotNull, isNull } from 'drizzle-orm';
+import { eq, and, inArray, desc, isNotNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
 import { getDb } from '../../db/client';
 import { workspaces, prs, agentSessions, taskGroups, tasks, projects } from '../../db/schema';
-import { dispatchGhPrList } from '../../ws/server';
-import type { GhPr } from '@engy/common';
+import { getGithubStatus } from '../../github/viewer';
+import { listOpenPrs, resolveRepoPrs, type GithubPr } from '../../github/prs';
 import type { AppState } from '../context';
+import { reviewRequestedFrom } from '../../inbox/pr-events';
 
 type Db = ReturnType<typeof getDb>;
 
@@ -14,68 +17,108 @@ interface CorrelatedSession {
   sessionId: string;
   taskGroupId: number | null;
   taskId: number | null;
-  worktreePath: string | null;
+  worktreePath: string;
   branch: string | null;
   status: typeof agentSessions.$inferSelect.status;
+  projectSlug: string | null;
+  coderRepoBasePath: string | null;
 }
 
-const SESSION_FIELDS = {
-  sessionId: agentSessions.sessionId,
-  taskGroupId: agentSessions.taskGroupId,
-  taskId: agentSessions.taskId,
-  worktreePath: agentSessions.worktreePath,
-  branch: agentSessions.branch,
-  status: agentSessions.status,
-  createdAt: agentSessions.createdAt,
-};
+function listSessionsOnBranches(db: Db, branches: string[]): CorrelatedSession[] {
+  if (branches.length === 0) return [];
+  const rows = db
+    .select({
+      sessionId: agentSessions.sessionId,
+      taskGroupId: agentSessions.taskGroupId,
+      taskId: agentSessions.taskId,
+      worktreePath: agentSessions.worktreePath,
+      branch: agentSessions.branch,
+      status: agentSessions.status,
+      groupProjectId: taskGroups.projectId,
+      taskProjectId: tasks.projectId,
+    })
+    .from(agentSessions)
+    .leftJoin(taskGroups, eq(agentSessions.taskGroupId, taskGroups.id))
+    .leftJoin(tasks, eq(agentSessions.taskId, tasks.id))
+    .where(and(isNotNull(agentSessions.worktreePath), inArray(agentSessions.branch, branches)))
+    .orderBy(desc(agentSessions.createdAt), desc(agentSessions.id))
+    .all();
 
-/**
- * Finds the most recent agent session correlated to a PR branch within a repo.
- * Covers both group-mode sessions (correlated via taskGroup → project → projectDir)
- * and task-mode sessions (taskGroupId null, correlated via task → project → projectDir).
- */
-export function findCorrelatedSession(
-  db: Db,
-  headBranch: string,
-  repo: string,
-): CorrelatedSession | null {
-  const branchAndRepoWhere = and(
-    isNotNull(agentSessions.branch),
-    eq(agentSessions.branch, headBranch),
-    isNotNull(projects.projectDir),
-    eq(projects.projectDir, repo),
+  const projectIds = new Set<number>();
+  for (const row of rows) {
+    const projectId = row.groupProjectId ?? row.taskProjectId;
+    if (projectId !== null) projectIds.add(projectId);
+  }
+  const projectById = new Map(
+    projectIds.size === 0
+      ? []
+      : db
+          .select({
+            id: projects.id,
+            slug: projects.slug,
+            executionBackend: workspaces.executionBackend,
+            coderConfig: workspaces.coderConfig,
+          })
+          .from(projects)
+          .leftJoin(workspaces, eq(projects.workspaceId, workspaces.id))
+          .where(inArray(projects.id, [...projectIds]))
+          .all()
+          .map(({ id, slug, executionBackend, coderConfig }) => [
+            id,
+            {
+              slug,
+              coderRepoBasePath:
+                executionBackend === 'coder' && coderConfig ? coderConfig.repoBasePath : null,
+            },
+          ]),
   );
 
-  const groupSession =
-    db
-      .select(SESSION_FIELDS)
-      .from(agentSessions)
-      .innerJoin(taskGroups, eq(agentSessions.taskGroupId, taskGroups.id))
-      .innerJoin(projects, eq(taskGroups.projectId, projects.id))
-      .where(branchAndRepoWhere)
-      .orderBy(desc(agentSessions.createdAt))
-      .get() ?? null;
+  return rows.flatMap(({ groupProjectId, taskProjectId, worktreePath, ...session }) => {
+    if (worktreePath === null) return [];
+    const project = projectById.get(groupProjectId ?? taskProjectId ?? -1);
+    return [
+      {
+        ...session,
+        worktreePath,
+        projectSlug: project?.slug ?? null,
+        coderRepoBasePath: project?.coderRepoBasePath ?? null,
+      },
+    ];
+  });
+}
 
-  const taskSession =
-    db
-      .select(SESSION_FIELDS)
-      .from(agentSessions)
-      .innerJoin(tasks, eq(agentSessions.taskId, tasks.id))
-      .innerJoin(projects, eq(tasks.projectId, projects.id))
-      .where(and(isNull(agentSessions.taskGroupId), branchAndRepoWhere))
-      .orderBy(desc(agentSessions.createdAt))
-      .get() ?? null;
+interface CorrelationTarget {
+  headBranch: string;
+  repo: string;
+  isCrossRepository: boolean;
+}
 
-  if (!groupSession && !taskSession) return null;
+function isPosixPathInside(dir: string, candidate: string): boolean {
+  const normalizedDir = path.posix.normalize(dir).replace(/\/$/, '');
+  const normalizedCandidate = path.posix.normalize(candidate);
+  return (
+    normalizedCandidate === normalizedDir || normalizedCandidate.startsWith(`${normalizedDir}/`)
+  );
+}
 
-  const winner =
-    !groupSession ? taskSession!
-    : !taskSession ? groupSession
-    : groupSession.createdAt >= taskSession.createdAt ? groupSession
-    : taskSession;
+function isSessionInRepo(session: CorrelatedSession, repo: string): boolean {
+  if (isPathInside(repo, session.worktreePath)) return true;
+  if (session.coderRepoBasePath === null) return false;
+  const remoteRepo = path.posix.join(session.coderRepoBasePath, path.basename(repo));
+  return isPosixPathInside(remoteRepo, session.worktreePath);
+}
 
-  const { createdAt: _createdAt, ...session } = winner;
-  return session;
+function matchesPr(session: CorrelatedSession, pr: CorrelationTarget): boolean {
+  return (
+    !pr.isCrossRepository && session.branch === pr.headBranch && isSessionInRepo(session, pr.repo)
+  );
+}
+
+export function findCorrelatedSession(db: Db, pr: CorrelationTarget): CorrelatedSession | null {
+  if (pr.isCrossRepository) return null;
+  return (
+    listSessionsOnBranches(db, [pr.headBranch]).find((session) => matchesPr(session, pr)) ?? null
+  );
 }
 
 export interface MaterialChange {
@@ -84,6 +127,7 @@ export interface MaterialChange {
   type: 'new' | 'ciStatus' | 'reviewDecision' | 'commentCount' | 'removed';
   previous?: string | null;
   current: string;
+  repoFullName?: string | null;
 }
 
 interface UpsertResult {
@@ -94,12 +138,12 @@ interface UpsertResult {
 }
 
 /**
- * Upserts PRs for a single repo. `gh pr list` returns only open PRs, so rows
+ * Upserts PRs for a single repo. The GitHub search returns only open PRs, so rows
  * absent from the fresh list are no longer open and are deleted outright.
  * Returns material changes so callers can decide whether to broadcast.
  * All writes are wrapped in a single transaction for atomicity.
  */
-export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
+export function upsertPrs(db: Db, repo: string, ghPrs: GithubPr[]): UpsertResult {
   return db.transaction((tx) => {
     const now = new Date().toISOString();
     const existing = tx.select().from(prs).where(eq(prs.repo, repo)).all();
@@ -130,6 +174,14 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
             commentCount: ghPr.commentCount,
             authoredByViewer: ghPr.authoredByViewer,
             reviewDecision: ghPr.reviewDecision,
+            repoFullName: ghPr.repoFullName,
+            baseRef: ghPr.baseBranch,
+            additions: ghPr.additions,
+            deletions: ghPr.deletions,
+            reviewRequests: ghPr.reviewRequests,
+            githubUpdatedAt: ghPr.updatedAt,
+            hasConflicts: ghPr.hasConflicts,
+            isCrossRepository: ghPr.isCrossRepository,
             updatedAt: now,
           })
           .run();
@@ -179,6 +231,14 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
             commentCount: ghPr.commentCount,
             authoredByViewer: ghPr.authoredByViewer,
             reviewDecision: ghPr.reviewDecision,
+            repoFullName: ghPr.repoFullName,
+            baseRef: ghPr.baseBranch,
+            additions: ghPr.additions,
+            deletions: ghPr.deletions,
+            reviewRequests: ghPr.reviewRequests,
+            githubUpdatedAt: ghPr.updatedAt,
+            hasConflicts: ghPr.hasConflicts,
+            isCrossRepository: ghPr.isCrossRepository,
             updatedAt: now,
           })
           .where(and(eq(prs.repo, repo), eq(prs.number, ghPr.number)))
@@ -195,7 +255,13 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
         tx.delete(prs)
           .where(and(eq(prs.repo, repo), eq(prs.number, pr.number)))
           .run();
-        changes.push({ number: pr.number, repo, type: 'removed', current: 'removed' });
+        changes.push({
+          number: pr.number,
+          repo,
+          type: 'removed',
+          current: 'removed',
+          repoFullName: pr.repoFullName,
+        });
         removed++;
       }
     }
@@ -204,7 +270,6 @@ export function upsertPrs(db: Db, repo: string, ghPrs: GhPr[]): UpsertResult {
   });
 }
 
-/** Records a repo's latest gh outcome in the in-memory error map (cleared on success). */
 export function recordRepoOutcome(state: AppState, repo: string, error: string | null): void {
   if (error === null) {
     state.prRepoErrors.delete(repo);
@@ -213,130 +278,84 @@ export function recordRepoOutcome(state: AppState, repo: string, error: string |
   }
 }
 
-function getWorkspaceRepos(workspaceId: number): { workspace: typeof workspaces.$inferSelect; repos: string[] } {
+function getWorkspaceRepos(workspaceId: number): {
+  workspace: typeof workspaces.$inferSelect;
+  repos: string[];
+} {
   const db = getDb();
   const workspace = db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
   if (!workspace) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
-  return { workspace, repos: (workspace.repos as string[] | null | undefined) ?? [] };
+  return { workspace, repos: workspace.repos ?? [] };
 }
 
 export const prRouter = router({
-  /**
-   * Returns open PRs for all workspace repos, ordered by updatedAt desc.
-   * Each PR is correlated with the most recent agent session on the same branch
-   * within the same repo (matched via taskGroup → project → projectDir, or
-   * task → project → projectDir for task-mode sessions without a taskGroupId).
-   */
-  list: publicProcedure
-    .input(z.object({ workspaceId: z.number() }))
-    .query(({ input, ctx }) => {
-      const db = getDb();
-      const { repos } = getWorkspaceRepos(input.workspaceId);
+  list: publicProcedure.input(z.object({ workspaceId: z.number() })).query(({ input, ctx }) => {
+    const db = getDb();
+    const { repos } = getWorkspaceRepos(input.workspaceId);
 
-      const repoErrors: Record<string, string> = {};
-      for (const repo of repos) {
-        const error = ctx.state.prRepoErrors.get(repo);
-        if (error !== undefined) repoErrors[repo] = error;
-      }
+    const repoErrors: Record<string, string> = {};
+    for (const repo of repos) {
+      const error = ctx.state.prRepoErrors.get(repo);
+      if (error !== undefined) repoErrors[repo] = error;
+    }
 
-      if (repos.length === 0) return { prs: [], repoErrors };
+    if (repos.length === 0) return { prs: [], repoErrors };
 
-      const openPrs = db
-        .select()
-        .from(prs)
-        .where(inArray(prs.repo, repos))
-        .orderBy(desc(prs.updatedAt))
-        .all();
+    const openPrs = db
+      .select()
+      .from(prs)
+      .where(inArray(prs.repo, repos))
+      .orderBy(desc(prs.updatedAt))
+      .all();
 
-      if (openPrs.length === 0) return { prs: [], repoErrors };
+    if (openPrs.length === 0) return { prs: [], repoErrors };
 
-      const branches = [...new Set(openPrs.map((pr) => pr.headBranch))];
+    const sessions = listSessionsOnBranches(db, [...new Set(openPrs.map((pr) => pr.headBranch))]);
+    const viewerLogin = ctx.state.github.viewer?.login ?? null;
+    const viewerTeams = ctx.state.github.teams?.keys;
 
-      const listSessionFields = {
-        sessionId: agentSessions.sessionId,
-        taskGroupId: agentSessions.taskGroupId,
-        worktreePath: agentSessions.worktreePath,
-        branch: agentSessions.branch,
-        createdAt: agentSessions.createdAt,
-        projectDir: projects.projectDir,
-      };
+    return {
+      prs: openPrs.map((pr) => {
+        const session = sessions.find((candidate) => matchesPr(candidate, pr));
+        return {
+          ...pr,
+          reviewRequestedFrom: reviewRequestedFrom(pr.reviewRequests, viewerLogin, viewerTeams),
+          sessionId: session?.sessionId ?? null,
+          taskGroupId: session?.taskGroupId ?? null,
+          worktreePath: session?.worktreePath ?? null,
+          projectSlug: session?.projectSlug ?? null,
+        };
+      }),
+      repoErrors,
+    };
+  }),
 
-      const branchAndRepoFilter = and(
-        isNotNull(agentSessions.branch),
-        inArray(agentSessions.branch, branches),
-        isNotNull(projects.projectDir),
-        inArray(projects.projectDir, repos),
-      );
-
-      // Group-mode sessions: taskGroup → project
-      const groupSessions = db
-        .select(listSessionFields)
-        .from(agentSessions)
-        .innerJoin(taskGroups, eq(agentSessions.taskGroupId, taskGroups.id))
-        .innerJoin(projects, eq(taskGroups.projectId, projects.id))
-        .where(branchAndRepoFilter)
-        .orderBy(desc(agentSessions.createdAt))
-        .all();
-
-      // Task-mode sessions (taskGroupId null): task → project
-      const taskSessionsList = db
-        .select(listSessionFields)
-        .from(agentSessions)
-        .innerJoin(tasks, eq(agentSessions.taskId, tasks.id))
-        .innerJoin(projects, eq(tasks.projectId, projects.id))
-        .where(and(isNull(agentSessions.taskGroupId), branchAndRepoFilter))
-        .orderBy(desc(agentSessions.createdAt))
-        .all();
-
-      // Merge both lists; already ordered by createdAt desc — first entry per key wins.
-      const allSessions = [...groupSessions, ...taskSessionsList].sort((a, b) =>
-        b.createdAt.localeCompare(a.createdAt),
-      );
-
-      // (branch, repo) → most recent session
-      const sessionByKey = new Map<string, (typeof allSessions)[0]>();
-      for (const session of allSessions) {
-        if (session.branch && session.projectDir) {
-          const key = `${session.branch}\0${session.projectDir}`;
-          if (!sessionByKey.has(key)) {
-            sessionByKey.set(key, session);
-          }
-        }
-      }
-
-      return {
-        prs: openPrs.map((pr) => {
-          const key = `${pr.headBranch}\0${pr.repo}`;
-          const session = sessionByKey.get(key);
-          return {
-            ...pr,
-            sessionId: session?.sessionId ?? null,
-            taskGroupId: session?.taskGroupId ?? null,
-            worktreePath: session?.worktreePath ?? null,
-          };
-        }),
-        repoErrors,
-      };
-    }),
-
-  /**
-   * Refreshes PRs for all workspace repos via dispatchGhPrList per repo.
-   * Each repo refreshes independently; failures carry the daemon's typed
-   * error ('gh-not-installed' / 'gh-not-authenticated' / raw message) and
-   * are recorded in the in-memory per-repo error map that `list` returns.
-   */
   refresh: publicProcedure
     .input(z.object({ workspaceId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      const { workspace, repos } = getWorkspaceRepos(input.workspaceId);
-      const coderCfg = workspace.coderConfig as { workspace?: string } | null | undefined;
-      const coderWorkspace = coderCfg?.workspace;
+      const { repos } = getWorkspaceRepos(input.workspaceId);
+
+      const status = await getGithubStatus(ctx.state);
+      if (!status.available) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: status.message });
+      }
+
+      let openPrs: GithubPr[];
+      try {
+        openPrs = await listOpenPrs(ctx.state);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        return repos.map((repo) => {
+          recordRepoOutcome(ctx.state, repo, error);
+          return { repo, success: false as const, error };
+        });
+      }
 
       return Promise.all(
         repos.map(async (repo) => {
           try {
-            const { prs: ghPrs } = await dispatchGhPrList(repo, ctx.state, coderWorkspace);
+            const ghPrs = await resolveRepoPrs(ctx.state, repo, openPrs);
             const upsertResult = upsertPrs(db, repo, ghPrs);
             recordRepoOutcome(ctx.state, repo, null);
             return { repo, success: true as const, ...upsertResult };

@@ -44,7 +44,7 @@ describe('kws model cache', () => {
   }
 
   describe('resolveKwsModelDir', () => {
-    it('[FR-TG2.11] should reuse an already-downloaded model instead of fetching again', async () => {
+    it('should reuse an already-downloaded model instead of fetching again', async () => {
       seedCachedModel();
 
       // Two resolves stand in for two turns of the wake-word spotter loading:

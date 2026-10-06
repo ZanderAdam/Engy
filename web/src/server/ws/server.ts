@@ -26,6 +26,7 @@ import type {
   GitBranchResult,
   GitDefaultBaseResult,
   GitFetchResult,
+  GitRemoteUrlResult,
   GitWorktreeListResult,
   ContainerUpResult,
   ExecutionStartResult,
@@ -42,9 +43,6 @@ import type {
   CreateDirResult,
   FsDeleteResult,
   FsRenameResult,
-  GhPrListResult,
-  GhPrFailedLogsResult,
-  GhPrReviewCommentsResult,
   UsageScanDispatchResult,
 } from '../trpc/context';
 import { getDb } from '../db/client';
@@ -73,7 +71,6 @@ const FILE_SEARCH_TIMEOUT_MS = 10_000;
 const GIT_TIMEOUT_MS = 15_000;
 // Shared by worktree mutations and base fetching — both reach past a local read.
 const WORKTREE_MERGE_TIMEOUT_MS = 60_000;
-const GH_LOGS_TIMEOUT_MS = 60_000;
 const CONTAINER_TIMEOUT_MS = 300_000;
 // A cold full scan of a large transcript tree is ~3.5s per the measured
 // baseline; this leaves headroom well past that for a first-ever scan.
@@ -128,6 +125,9 @@ function rejectAllPending(state: AppState): void {
     state.pendingGitBranch,
     state.pendingGitDefaultBase,
     state.pendingGitFetch,
+    state.pendingGitResetHard,
+    state.pendingGitDeleteRefs,
+    state.pendingGitRemoteUrl,
     state.pendingContainerUp,
     state.pendingContainerDown,
     state.pendingContainerStatus,
@@ -148,9 +148,6 @@ function rejectAllPending(state: AppState): void {
     state.pendingCreateDirs,
     state.pendingFsDelete,
     state.pendingFsRename,
-    state.pendingGhPrList,
-    state.pendingGhPrFailedLogs,
-    state.pendingGhPrReviewComments,
     state.pendingUsageScan,
   ] as const;
 
@@ -212,6 +209,15 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
         remote: p.remote,
       }));
       break;
+    case 'GIT_DELETE_REFS_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGitDeleteRefs, () => undefined);
+      break;
+    case 'GIT_RESET_HARD_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGitResetHard, () => undefined);
+      break;
+    case 'GIT_REMOTE_URL_RESPONSE':
+      resolvePendingResponse(msg.payload, state.pendingGitRemoteUrl, (p) => ({ url: p.url }));
+      break;
     case 'GIT_BRANCH_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGitBranch, (p) => ({
         branch: p.branch,
@@ -226,6 +232,7 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
     case 'GIT_WORKTREE_LIST_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingGitWorktreeList, (p) => ({
         worktrees: p.worktrees,
+        resolvedPath: p.resolvedPath,
       }));
       break;
     case 'WORKTREE_BRANCH_CHANGED_EVENT':
@@ -337,21 +344,6 @@ function handleMessage(ws: WebSocket, msg: ClientToServerMessage, state: AppStat
       break;
     case 'CREATE_MEMORIES_EVENT':
       handleCreateMemoriesEvent(msg);
-      break;
-    case 'GH_PR_LIST_RESPONSE':
-      resolvePendingResponse(msg.payload, state.pendingGhPrList, (p) => ({
-        prs: p.prs,
-      }));
-      break;
-    case 'GH_PR_FAILED_LOGS_RESPONSE':
-      resolvePendingResponse(msg.payload, state.pendingGhPrFailedLogs, (p) => ({
-        logs: p.logs,
-      }));
-      break;
-    case 'GH_PR_REVIEW_COMMENTS_RESPONSE':
-      resolvePendingResponse(msg.payload, state.pendingGhPrReviewComments, (p) => ({
-        comments: p.comments,
-      }));
       break;
     case 'USAGE_SCAN_RESPONSE':
       resolvePendingResponse(msg.payload, state.pendingUsageScan, (p) => ({
@@ -1101,14 +1093,52 @@ export function dispatchGitFetch(
   base: string,
   state: AppState,
   coderWorkspace?: string,
+  refspec?: string,
 ): Promise<GitFetchResult> {
   return dispatchDaemonOp(
     state,
     state.pendingGitFetch,
     'GIT_FETCH_REQUEST',
-    { repoDir, base, coderWorkspace },
+    { repoDir, base, refspec, coderWorkspace },
     WORKTREE_MERGE_TIMEOUT_MS,
   );
+}
+
+export function dispatchGitResetHard(
+  repoDir: string,
+  ref: string,
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<void> {
+  return dispatchDaemonOp(state, state.pendingGitResetHard, 'GIT_RESET_HARD_REQUEST', {
+    repoDir,
+    ref,
+    coderWorkspace,
+  });
+}
+
+export function dispatchGitDeleteRefs(
+  repoDir: string,
+  refs: string[],
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<void> {
+  return dispatchDaemonOp(state, state.pendingGitDeleteRefs, 'GIT_DELETE_REFS_REQUEST', {
+    repoDir,
+    refs,
+    coderWorkspace,
+  });
+}
+
+export function dispatchGitRemoteUrl(
+  repoDir: string,
+  state: AppState,
+  coderWorkspace?: string,
+): Promise<GitRemoteUrlResult> {
+  return dispatchDaemonOp(state, state.pendingGitRemoteUrl, 'GIT_REMOTE_URL_REQUEST', {
+    repoDir,
+    coderWorkspace,
+  });
 }
 
 export function dispatchGitBranch(
@@ -1137,9 +1167,11 @@ export function dispatchGitWorktreeList(
   repoDir: string,
   state: AppState,
   coderWorkspace?: string,
+  resolvePath?: string,
 ): Promise<GitWorktreeListResult> {
   return dispatchDaemonOp(state, state.pendingGitWorktreeList, 'GIT_WORKTREE_LIST_REQUEST', {
     repoDir,
+    resolvePath,
     coderWorkspace,
   });
 }
@@ -1401,49 +1433,6 @@ export function dispatchWorktreeRemove(
     'WORKTREE_REMOVE_REQUEST',
     args,
     WORKTREE_MERGE_TIMEOUT_MS,
-  );
-}
-
-// ── GitHub PR dispatch functions ─────────────────────────────────────────────
-
-export function dispatchGhPrList(
-  repoDir: string,
-  state: AppState,
-  coderWorkspace?: string,
-): Promise<GhPrListResult> {
-  return dispatchDaemonOp(state, state.pendingGhPrList, 'GH_PR_LIST_REQUEST', {
-    repoDir,
-    coderWorkspace,
-  });
-}
-
-export function dispatchGhPrFailedLogs(
-  repoDir: string,
-  prNumber: number,
-  state: AppState,
-  coderWorkspace?: string,
-): Promise<GhPrFailedLogsResult> {
-  return dispatchDaemonOp(
-    state,
-    state.pendingGhPrFailedLogs,
-    'GH_PR_FAILED_LOGS_REQUEST',
-    { repoDir, prNumber, coderWorkspace },
-    GH_LOGS_TIMEOUT_MS,
-  );
-}
-
-export function dispatchGhPrReviewComments(
-  repoDir: string,
-  prNumber: number,
-  state: AppState,
-  coderWorkspace?: string,
-): Promise<GhPrReviewCommentsResult> {
-  return dispatchDaemonOp(
-    state,
-    state.pendingGhPrReviewComments,
-    'GH_PR_REVIEW_COMMENTS_REQUEST',
-    { repoDir, prNumber, coderWorkspace },
-    GH_LOGS_TIMEOUT_MS,
   );
 }
 

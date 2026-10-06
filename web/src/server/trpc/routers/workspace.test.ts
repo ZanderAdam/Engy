@@ -259,7 +259,7 @@ describe('workspace router', () => {
   });
 
   describe('spoken replies opt-in', () => {
-    it('[FR-TG2.25] should default a new workspace to spoken replies off', async () => {
+    it('should default a new workspace to spoken replies off', async () => {
       const ws = await caller.workspace.create({ name: 'TTS Default' });
       await flushPreload();
       expect(ws.ttsEnabled).toBe(false);
@@ -268,7 +268,7 @@ describe('workspace router', () => {
 
     // Its own opt-in, and its own model: turning voice input on must not
     // fetch the voice that speaks back.
-    it('[FR-TG2.25] should download the voice only when spoken replies are switched on', async () => {
+    it('should download the voice only when spoken replies are switched on', async () => {
       const ws = await caller.workspace.create({ name: 'TTS Toggle' });
 
       await caller.workspace.update({ id: ws.id, voiceEnabled: true });
@@ -280,7 +280,7 @@ describe('workspace router', () => {
       await vi.waitFor(() => expect(preloadTts).toHaveBeenCalledTimes(1));
     });
 
-    it('[FR-TG2.25] should not re-download when an already-enabled workspace is saved again', async () => {
+    it('should not re-download when an already-enabled workspace is saved again', async () => {
       const ws = await caller.workspace.create({ name: 'TTS Resave' });
       await caller.workspace.update({ id: ws.id, ttsEnabled: true });
       await vi.waitFor(() => expect(preloadTts).toHaveBeenCalledTimes(1));
@@ -295,14 +295,14 @@ describe('workspace router', () => {
   });
 
   describe('voice opt-in', () => {
-    it('[FR-TG1.7] should default a new workspace to voice off', async () => {
+    it('should default a new workspace to voice off', async () => {
       const ws = await caller.workspace.create({ name: 'Voice Default' });
       await flushPreload();
       expect(ws.voiceEnabled).toBe(false);
       expect(preloadRecognizer).not.toHaveBeenCalled();
     });
 
-    it('[FR-TG1.8] should download the model only when voice is switched on', async () => {
+    it('should download the model only when voice is switched on', async () => {
       const ws = await caller.workspace.create({ name: 'Voice Toggle' });
 
       await caller.workspace.update({ id: ws.id, name: 'Voice Toggle 2' });
@@ -314,7 +314,7 @@ describe('workspace router', () => {
       await vi.waitFor(() => expect(preloadRecognizer).toHaveBeenCalledTimes(1));
     });
 
-    it('[FR-TG1.3] should not re-download when an already-enabled workspace is saved again', async () => {
+    it('should not re-download when an already-enabled workspace is saved again', async () => {
       const ws = await caller.workspace.create({ name: 'Voice Resave' });
       await caller.workspace.update({ id: ws.id, voiceEnabled: true });
       await vi.waitFor(() => expect(preloadRecognizer).toHaveBeenCalledTimes(1));
@@ -382,15 +382,15 @@ describe('workspace router', () => {
       );
     });
 
-    it('[FR-PRMON-190] should default prScope to mine and persist an update to review', async () => {
-      const ws = await caller.workspace.create({ name: 'Pr Scope' });
-      expect(ws.prScope).toBe('mine');
+    it('[FR-PRMON-300] should default autoReviewOnRequest to off and persist an update', async () => {
+      const ws = await caller.workspace.create({ name: 'Auto Review' });
+      expect(ws.autoReviewOnRequest).toBe(false);
 
-      const updated = await caller.workspace.update({ id: ws.id, prScope: 'review' });
-      expect(updated.prScope).toBe('review');
+      const enabled = await caller.workspace.update({ id: ws.id, autoReviewOnRequest: true });
+      expect(enabled.autoReviewOnRequest).toBe(true);
 
-      const untouched = await caller.workspace.update({ id: ws.id, name: 'Pr Scope Renamed' });
-      expect(untouched.prScope).toBe('review');
+      const untouched = await caller.workspace.update({ id: ws.id, name: 'Auto Review Renamed' });
+      expect(untouched.autoReviewOnRequest).toBe(true);
     });
 
     it('[FR-WORKSPACE-020] should fail when repos provided but no daemon connected', async () => {

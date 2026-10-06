@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { RiGithubLine, RiRobot2Line } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -11,6 +12,8 @@ import { AGENT_USER_ID } from '@/lib/comment-feedback';
 import { commentBodyText, SEVERITY_PRESENTATION } from './agent-findings';
 import { buildProvePrompt } from './prove-prompt';
 import { diffDocFilePath } from '@/lib/diff-doc-path';
+import { threadControls } from './comment-controls';
+import { useReviewWrite } from './review-write-context';
 import type { DiffComment } from './use-diff-comments';
 
 function formatRelativeTime(dateStr: string): string {
@@ -24,6 +27,11 @@ function formatRelativeTime(dateStr: string): string {
   return `${days}d ago`;
 }
 
+interface PendingReply {
+  id: number;
+  body: string;
+}
+
 interface CommentWidgetProps {
   comment?: DiffComment;
   /** Recovers the finding's file path from `comment.documentPath` for "Prove it". Required, not optional: an omitted prop silently disables the button. */
@@ -33,7 +41,17 @@ interface CommentWidgetProps {
   onResolve?: (threadId: string) => void;
   onDelete?: (threadId: string) => void;
   onDeleteComment?: (threadId: string, commentId: string) => void;
-  onCancel: () => void;
+  onCancel?: () => void;
+  onAddDraft?: (text: string) => void;
+  draftBlockedReason?: string | null;
+}
+
+function LocalOnlyBadge() {
+  return (
+    <span className="border border-border px-1.5 text-[10px] font-medium text-muted-foreground">
+      Local only
+    </span>
+  );
 }
 
 export function CommentWidget({
@@ -45,43 +63,101 @@ export function CommentWidget({
   onDeleteComment,
   onCancel,
   onResolve,
+  onAddDraft,
+  draftBlockedReason = null,
 }: CommentWidgetProps) {
   const [text, setText] = useState('');
+  const [pendingReplies, setPendingReplies] = useState<PendingReply[]>([]);
+  const nextPendingId = useRef(0);
+  const [resolvedOverride, setResolvedOverride] = useState<boolean | null>(null);
   const { sendToTerminal, terminalActive } = useSendToTerminal();
+  const reviewWrite = useReviewWrite();
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        if (!text.trim()) return;
-        if (comment && onReply) {
-          onReply(comment.threadId, text.trim());
-        } else {
-          onSave(text.trim());
-        }
-        setText('');
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onCancel();
-      }
-    },
-    [text, comment, onReply, onSave, onCancel],
-  );
+  const isGithub = comment?.source === 'github';
+  const isDraft = comment?.githubDraft === true;
+  const isAgent = comment?.source === 'agent';
+  const githubWrite = isGithub ? reviewWrite : null;
+  const resolved = resolvedOverride ?? comment?.resolved ?? false;
+  const severity = comment?.severity ? SEVERITY_PRESENTATION[comment.severity] : undefined;
+  const controls = comment
+    ? threadControls({
+        comment: { ...comment, resolved },
+        onReviewPage: !!reviewWrite,
+        canResolveLocally: !!onResolve,
+      })
+    : null;
+  const isLocalOnly = controls?.localOnlyBadge ?? false;
 
-  const handleSubmit = () => {
-    if (!text.trim()) return;
+  const replyOnGithub = async (threadId: string, body: string) => {
+    if (!githubWrite) return;
+    const id = nextPendingId.current++;
+    setPendingReplies((pending) => [...pending, { id, body }]);
+    try {
+      await githubWrite.replyToThread(threadId, body);
+    } catch (error) {
+      setText((current) => (current === '' ? body : current));
+      toast.error(error instanceof Error ? error.message : 'Could not post the reply');
+    } finally {
+      setPendingReplies((pending) => pending.filter((reply) => reply.id !== id));
+    }
+  };
+
+  const changeResolved = async (threadId: string, next: boolean) => {
+    if (!githubWrite) return;
+    setResolvedOverride(next);
+    try {
+      await githubWrite.setThreadResolved(threadId, next);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not update the thread');
+    } finally {
+      setResolvedOverride(null);
+    }
+  };
+
+  const submitText = () => {
+    const body = text.trim();
+    if (!body) return;
+    if (comment && githubWrite) {
+      setText('');
+      void replyOnGithub(comment.threadId, body);
+      return;
+    }
     if (comment && onReply) {
-      onReply(comment.threadId, text.trim());
+      onReply(comment.threadId, body);
     } else {
-      onSave(text.trim());
+      onSave(body);
     }
     setText('');
   };
 
-  const isGithub = comment?.source === 'github';
-  const isAgent = comment?.source === 'agent';
-  const severity = comment?.severity ? SEVERITY_PRESENTATION[comment.severity] : undefined;
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      submitText();
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onCancel?.();
+    }
+  };
+
+  const handleAddDraft = () => {
+    if (!text.trim() || !onAddDraft) return;
+    onAddDraft(text.trim());
+    setText('');
+  };
+
+  const composerPlaceholder = () => {
+    if (githubWrite) return 'Reply on GitHub...';
+    if (comment) return 'Reply...';
+    return 'Add a comment...';
+  };
+
+  const submitLabel = () => {
+    if (comment) return 'Reply';
+    if (onAddDraft) return 'Add note';
+    return 'Comment';
+  };
 
   const handleProveIt = () => {
     if (!comment || !repoDir) return;
@@ -107,6 +183,7 @@ export function CommentWidget({
   return (
     <TooltipProvider>
       <div
+        data-thread-id={comment?.threadId}
         className={cn(
           'border border-border bg-background p-3',
           isGithub && 'border-l-2 border-l-muted-foreground/30',
@@ -115,6 +192,15 @@ export function CommentWidget({
       >
         {comment && comment.comments.length > 0 && (
           <div className="mb-2">
+            {isDraft && (
+              <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <RiGithubLine className="size-3.5 shrink-0" />
+                <span className="font-medium">GitHub review comment</span>
+                <span className="border border-amber-400/30 bg-amber-400/10 px-1.5 text-[10px] font-medium text-amber-400">
+                  Pending
+                </span>
+              </div>
+            )}
             {isGithub && (
               <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <RiGithubLine className="size-3.5 shrink-0" />
@@ -136,10 +222,17 @@ export function CommentWidget({
                 )}
               </div>
             )}
+            {isLocalOnly && !isAgent && (
+              <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="font-medium">Note</span>
+                <LocalOnlyBadge />
+              </div>
+            )}
             {isAgent && (
               <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <RiRobot2Line className="size-3.5 shrink-0" />
                 <span className="font-medium">{comment.agentType ?? 'Agent'}</span>
+                {isLocalOnly && <LocalOnlyBadge />}
                 {severity && (
                   <span
                     className={cn(
@@ -158,7 +251,7 @@ export function CommentWidget({
                 className={cn(
                   'group/comment py-1.5 text-xs',
                   i > 0 && 'border-t border-border/50 ml-3',
-                  comment.resolved && 'opacity-50',
+                  resolved && 'opacity-50',
                 )}
               >
                 <div className="flex items-center gap-1.5 mb-0.5">
@@ -179,13 +272,22 @@ export function CommentWidget({
                     </Button>
                   )}
                 </div>
-                <span className={cn('whitespace-pre-wrap', comment.resolved && 'line-through')}>
+                <span className={cn('whitespace-pre-wrap', resolved && 'line-through')}>
                   {commentBodyText(c.body)}
                 </span>
               </div>
             ))}
+            {pendingReplies.map(({ id, body }) => (
+              <div key={id} className="ml-3 border-t border-border/50 py-1.5 text-xs opacity-60">
+                <div className="mb-0.5 flex items-center gap-1.5 font-medium text-muted-foreground">
+                  You
+                  <span className="text-[10px] font-normal">Sending…</span>
+                </div>
+                <span className="whitespace-pre-wrap">{body}</span>
+              </div>
+            ))}
             <div className="flex items-center gap-1.5 pt-1">
-              {isAgent && !comment.resolved && (
+              {isAgent && !resolved && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -204,9 +306,18 @@ export function CommentWidget({
                   </TooltipContent>
                 </Tooltip>
               )}
-              {onResolve && !comment.resolved && (
+              {controls?.githubResolveLabel && (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => void changeResolved(comment.threadId, !resolved)}
+                >
+                  {controls.githubResolveLabel}
+                </Button>
+              )}
+              {controls?.localResolveLabel && onResolve && (
                 <Button variant="ghost" size="xs" onClick={() => onResolve(comment.threadId)}>
-                  {isGithub ? 'Dismiss' : 'Resolve'}
+                  {controls.localResolveLabel}
                 </Button>
               )}
               {onDelete && !isGithub && (
@@ -223,23 +334,46 @@ export function CommentWidget({
           </div>
         )}
 
-        {!isGithub && (
+        {(!controls || controls.composer) && (
           <>
             <Textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={comment ? 'Reply...' : 'Add a comment...'}
+              placeholder={composerPlaceholder()}
               className="min-h-[60px] resize-none text-xs"
-              autoFocus
+              autoFocus={!comment}
             />
             <div className="mt-1.5 flex items-center justify-end">
               <div className="flex gap-1">
-                <Button variant="ghost" size="xs" onClick={onCancel}>
-                  Cancel
-                </Button>
-                <Button size="xs" onClick={handleSubmit} disabled={!text.trim()}>
-                  {comment ? 'Reply' : 'Comment'}
+                {onCancel && (
+                  <Button variant="ghost" size="xs" onClick={onCancel}>
+                    Cancel
+                  </Button>
+                )}
+                {onAddDraft && !comment && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span tabIndex={draftBlockedReason ? 0 : undefined}>
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          onClick={handleAddDraft}
+                          disabled={!text.trim() || draftBlockedReason !== null}
+                        >
+                          <RiGithubLine className="size-3" />
+                          Add to GitHub review
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {draftBlockedReason ??
+                        'Saved as a pending comment. Sent when you submit the review.'}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                <Button size="xs" onClick={submitText} disabled={!text.trim()}>
+                  {submitLabel()}
                 </Button>
               </div>
             </div>

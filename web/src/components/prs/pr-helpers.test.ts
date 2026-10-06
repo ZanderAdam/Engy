@@ -5,9 +5,8 @@ import {
   reviewDecisionLabel,
   formatRelativeTime,
   summarizeChecks,
-  deriveCheckState,
-  coercePrScope,
-  filterPrsByScope,
+  prActivityAt,
+  buildAttentionToast,
 } from './pr-helpers';
 import type { GhPrCheck } from '@engy/common';
 
@@ -99,60 +98,6 @@ describe('formatRelativeTime', () => {
   });
 });
 
-describe('deriveCheckState', () => {
-  it('should return passing for success conclusion', () => {
-    expect(deriveCheckState('completed', 'success')).toBe('passing');
-  });
-
-  it('should return passing for skipped conclusion', () => {
-    expect(deriveCheckState('completed', 'skipped')).toBe('passing');
-  });
-
-  it('should return passing for neutral conclusion', () => {
-    expect(deriveCheckState('completed', 'neutral')).toBe('passing');
-  });
-
-  it('should return failing for failure conclusion', () => {
-    expect(deriveCheckState('completed', 'failure')).toBe('failing');
-  });
-
-  it('should return failing for timed_out conclusion', () => {
-    expect(deriveCheckState('completed', 'timed_out')).toBe('failing');
-  });
-
-  it('should return failing for cancelled conclusion', () => {
-    expect(deriveCheckState('completed', 'cancelled')).toBe('failing');
-  });
-
-  it('should return failing for action_required conclusion', () => {
-    expect(deriveCheckState('completed', 'action_required')).toBe('failing');
-  });
-
-  it('should return pending for in_progress CheckRun with null conclusion', () => {
-    expect(deriveCheckState('in_progress', null)).toBe('pending');
-  });
-
-  it('should return pending for queued CheckRun with null conclusion', () => {
-    expect(deriveCheckState('queued', null)).toBe('pending');
-  });
-
-  it('should return passing for StatusContext SUCCESS status', () => {
-    expect(deriveCheckState('SUCCESS', null)).toBe('passing');
-  });
-
-  it('should return failing for StatusContext FAILURE status', () => {
-    expect(deriveCheckState('FAILURE', null)).toBe('failing');
-  });
-
-  it('should return failing for StatusContext ERROR status', () => {
-    expect(deriveCheckState('ERROR', null)).toBe('failing');
-  });
-
-  it('should return pending for StatusContext PENDING status', () => {
-    expect(deriveCheckState('PENDING', null)).toBe('pending');
-  });
-});
-
 describe('summarizeChecks', () => {
   it('should return zeros for empty checks', () => {
     expect(summarizeChecks([])).toEqual({ passing: 0, failing: 0, pending: 0, total: 0 });
@@ -211,25 +156,31 @@ describe('summarizeChecks', () => {
   });
 });
 
-describe('[FR-PRMON-190] PR scope filtering', () => {
-  const mine = { number: 1, authoredByViewer: true };
-  const theirs = { number: 2, authoredByViewer: false };
-
-  it('should keep only viewer-authored PRs in "mine" scope', () => {
-    expect(filterPrsByScope([mine, theirs], 'mine')).toEqual([mine]);
+describe('prActivityAt', () => {
+  it('[FR-PRMON-230] should use the GitHub update time, not the time Engy polled', () => {
+    expect(
+      prActivityAt({ githubUpdatedAt: '2026-09-01T10:00:00Z', updatedAt: '2026-10-02T21:00:00Z' }),
+    ).toBe('2026-09-01T10:00:00Z');
   });
 
-  it('should keep only PRs awaiting the viewer review in "review" scope', () => {
-    expect(filterPrsByScope([mine, theirs], 'review')).toEqual([theirs]);
+  it('should fall back to the row time before the first poll stores the GitHub time', () => {
+    expect(prActivityAt({ githubUpdatedAt: null, updatedAt: '2026-10-02T21:00:00Z' })).toBe(
+      '2026-10-02T21:00:00Z',
+    );
+  });
+});
+
+describe('[FR-PRMON-200] buildAttentionToast', () => {
+  it('should use the attention label and description', () => {
+    const toast = buildAttentionToast(7, 'non-mechanical');
+    expect(toast.title).toBe('PR #7: CI failure needs manual attention');
+    expect(toast.description).toContain('mechanically fixable');
   });
 
-  it('should default an unset or unknown workspace scope to "mine"', () => {
-    expect(coercePrScope(null)).toBe('mine');
-    expect(coercePrScope(undefined)).toBe('mine');
-    expect(coercePrScope('bogus')).toBe('mine');
-  });
-
-  it('should honour a configured "review" workspace scope', () => {
-    expect(coercePrScope('review')).toBe('review');
+  it('should fall back to a generic title without a reason', () => {
+    expect(buildAttentionToast(7, null)).toEqual({
+      title: 'PR #7: CI failure needs attention',
+      description: undefined,
+    });
   });
 });

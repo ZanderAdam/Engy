@@ -150,6 +150,18 @@ function seedActivityStore(sessions: SessionListItem[]): void {
   for (const s of sessions) applyServerActivity(s.sessionId, s.activityState ?? 'idle');
 }
 
+const FOCUS_RETRY_FRAMES = 180;
+
+function focusWhenFocusable(
+  getActions: () => TerminalActions | undefined,
+  framesLeft = FOCUS_RETRY_FRAMES,
+): void {
+  requestAnimationFrame(() => {
+    if (getActions()?.focus()) return;
+    if (framesLeft > 0) focusWhenFocusable(getActions, framesLeft - 1);
+  });
+}
+
 export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled, disableExternalEvents = false, publishKey, global = false }: TerminalManagerProps) {
   const tabCtx = useOptionalTab();
   const myTabId = tabCtx?.tabId ?? null;
@@ -178,6 +190,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   // Debounces the "sessions created elsewhere" refetch so a burst of creations
   // (e.g. opening several terminals at once) coalesces into one list fetch.
   const sessionsSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingFocusRef = useRef<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const defaultScopeRef = useRef(defaultScope);
   useEffect(() => {
@@ -369,6 +382,10 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     [],
   );
 
+  const focusTerminalInput = useCallback((sessionId: string) => {
+    focusWhenFocusable(() => tabWsRefs.current.get(sessionId));
+  }, []);
+
   const updateTabLabel = useCallback((sessionId: string, newLabel: string) => {
     const existing = tabsRef.current.get(sessionId);
     if (!existing) return;
@@ -481,12 +498,15 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
         panel.api.setActive();
         // Always broadcast so the right panel expands even if the tab was already active
         broadcastActive();
+      } else {
+        pendingFocusRef.current = sessionId;
       }
+      focusTerminalInput(sessionId);
     }
 
     window.addEventListener('terminal:focus', onFocus);
     return () => window.removeEventListener('terminal:focus', onFocus);
-  }, [broadcastActive, myTabId]);
+  }, [broadcastActive, focusTerminalInput, myTabId]);
 
   // terminal:rename — intentional user action from the rail's expanded list
   // (double-click to edit), mirroring the dock tab's rename. Reuses
@@ -585,6 +605,13 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
                 });
               }
             }
+            const pendingId = pendingFocusRef.current;
+            const pendingPanel = pendingId ? liveApi.getPanel(pendingId) : undefined;
+            if (pendingPanel) {
+              pendingFocusRef.current = null;
+              pendingPanel.api.setActive();
+              broadcastActive();
+            }
           })
           .catch((err: unknown) => console.error('Failed to sync terminal sessions:', err));
       }, 150);
@@ -599,7 +626,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     // 'destroyed' without reason (natural PTY exit) keeps the tab so its
     // final output stays readable — the WS exit event marks it exited.
     // 'attached'/'detached' are informational — no action needed
-  }, [updateTabLabel, buildSessionsUrl]));
+  }, [updateTabLabel, buildSessionsUrl, broadcastActive]));
 
   // needsAttention has no broadcast of its own — every hook event that can
   // change it (Notification sets it, Stop/UserPromptSubmit clear it, and the

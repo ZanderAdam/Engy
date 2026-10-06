@@ -3,7 +3,10 @@ import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { TabShell } from "@/components/tabs/tab-shell";
+import { InboxLiveSync } from "@/components/inbox/inbox-live-sync";
+import { EventsProvider } from "@/contexts/events-context";
 import { Toaster } from "@/components/ui/sonner";
+import { PrAttentionToaster } from "@/components/prs/pr-attention-toaster";
 import "./globals.css";
 
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-sans" });
@@ -28,9 +31,13 @@ export default function RootLayout() {
       <body className="font-sans antialiased">
         <Providers>
           <div className="flex h-dvh flex-col overflow-hidden">
-            <Suspense>
-              <TabShell />
-            </Suspense>
+            <EventsProvider>
+              <Suspense>
+                <TabShell />
+              </Suspense>
+              <PrAttentionToaster />
+              <InboxLiveSync />
+            </EventsProvider>
           </div>
           <Toaster />
         </Providers>

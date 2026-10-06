@@ -242,6 +242,18 @@ export function getProjectWorktreeDir(
   );
 }
 
+export function getReviewWorktreeDir(
+  workspace: { slug: string; docsDir: string | null },
+  repoPath: string,
+  prNumber: number,
+): string {
+  const repoBasename = path.basename(path.resolve(repoPath));
+  if (!repoBasename || repoBasename === '/' || repoBasename === '.') {
+    throw new Error(`Invalid repo path: ${repoPath}`);
+  }
+  return path.join(getWorkspaceDir(workspace), 'worktrees', '_review', repoBasename, `pr-${prNumber}`);
+}
+
 /**
  * When `workspace.docsDir` lives inside one of `workspace.repos`, and that repo
  * has a worktree on `branch`, return the docs path rebased into the worktree.

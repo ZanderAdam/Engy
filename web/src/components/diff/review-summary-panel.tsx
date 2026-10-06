@@ -5,24 +5,36 @@ import { RiArrowDownSLine, RiArrowRightSLine, RiRobot2Line } from '@remixicon/re
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { commentBodyText } from './agent-findings';
+import { ReviewGuideControl, type GuideProject } from './review-guide-control';
+import { RISK_PRESENTATION } from '@/lib/review-summary-meta';
 import type { DiffComment } from './use-diff-comments';
 
 interface ReviewSummaryPanelProps {
   summary: DiffComment | null;
   findingCount: number;
   onDelete?: (threadId: string) => void;
+  onSelectFile?: (path: string) => void;
+  guideProject?: GuideProject;
 }
 
 /**
  * The review read before any file. Sits above the stack rather than in a tab so
  * it is on the way to the diff instead of somewhere to navigate to.
  */
-export function ReviewSummaryPanel({ summary, findingCount, onDelete }: ReviewSummaryPanelProps) {
+export function ReviewSummaryPanel({
+  summary,
+  findingCount,
+  onDelete,
+  onSelectFile,
+  guideProject,
+}: ReviewSummaryPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   if (!summary) return null;
 
   const Chevron = collapsed ? RiArrowRightSLine : RiArrowDownSLine;
+  const { risk, readingOrder } = summary;
+  const riskPresentation = risk ? RISK_PRESENTATION[risk.level] : null;
 
   return (
     <div className="border-b border-border bg-muted/20">
@@ -41,11 +53,23 @@ export function ReviewSummaryPanel({ summary, findingCount, onDelete }: ReviewSu
             ? 'no findings anchored'
             : `${findingCount} finding${findingCount === 1 ? '' : 's'} on the diff`}
         </span>
+        {riskPresentation && (
+          <span
+            className={cn(
+              'border px-1.5 py-0.5 text-[10px] font-medium',
+              riskPresentation.className,
+            )}
+          >
+            {riskPresentation.label}
+          </span>
+        )}
+        <span className="ml-auto" />
+        {guideProject && <ReviewGuideControl source={summary.guide} project={guideProject} />}
         {onDelete && (
           <Button
             variant="ghost"
             size="xs"
-            className="ml-auto text-muted-foreground"
+            className="text-muted-foreground"
             onClick={() => onDelete(summary.threadId)}
           >
             Delete
@@ -58,7 +82,31 @@ export function ReviewSummaryPanel({ summary, findingCount, onDelete }: ReviewSu
           collapsed && 'hidden',
         )}
       >
+        {risk?.reason && <p className="mb-2 text-muted-foreground">{risk.reason}</p>}
         {commentBodyText(summary.comments[0]?.body)}
+        {readingOrder && readingOrder.length > 0 && (
+          <ol className="mt-3 list-decimal space-y-2 whitespace-normal pl-4">
+            {readingOrder.map((chapter, index) => (
+              <li key={`${index}-${chapter.title}`}>
+                <span className="font-medium">{chapter.title}</span>
+                {chapter.note && <span className="text-muted-foreground"> — {chapter.note}</span>}
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                  {chapter.files.map((file) => (
+                    <button
+                      key={file}
+                      type="button"
+                      disabled={!onSelectFile}
+                      onClick={() => onSelectFile?.(file)}
+                      className="font-mono text-[11px] text-foreground/80 underline-offset-2 hover:underline"
+                    >
+                      {file}
+                    </button>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
     </div>
   );

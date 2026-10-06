@@ -1,10 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { eq, and } from 'drizzle-orm';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { workspaces, prs as prsTable, agentSessions, tasks, projects, taskGroups } from '../db/schema';
+import {
+  workspaces,
+  prs as prsTable,
+  agentSessions,
+  tasks,
+  projects,
+  taskGroups,
+  inboxItems,
+} from '../db/schema';
 import { maybeDispatchCiFix, MAX_AUTO_FIX_ATTEMPTS, MAX_TOTAL_AUTO_FIX_ATTEMPTS } from './auto-fix';
 import * as wsServer from '../ws/server';
 import * as broadcast from '../ws/broadcast';
+import { fetchFailedLogs } from '../github/checks';
 
 // Mock dispatchExecutionStart only — buildResumeFlags/buildResumeConfig run for real
 // against the test DB so we get integration-level coverage without a live WebSocket.
@@ -13,9 +22,10 @@ vi.mock('../ws/server', async (importOriginal) => {
   return {
     ...actual,
     dispatchExecutionStart: vi.fn().mockResolvedValue(undefined),
-    dispatchGhPrFailedLogs: vi.fn().mockResolvedValue({ logs: [] }),
   };
 });
+
+vi.mock('../github/checks', () => ({ fetchFailedLogs: vi.fn(async () => []) }));
 
 vi.mock('../ws/broadcast', async (importOriginal) => {
   const actual = await importOriginal<typeof broadcast>();
@@ -23,7 +33,7 @@ vi.mock('../ws/broadcast', async (importOriginal) => {
 });
 
 const dispatchSpy = vi.mocked(wsServer.dispatchExecutionStart);
-const failedLogsSpy = vi.mocked(wsServer.dispatchGhPrFailedLogs);
+const failedLogsSpy = vi.mocked(fetchFailedLogs);
 const broadcastAttentionSpy = vi.mocked(broadcast.broadcastPrAttention);
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
@@ -31,7 +41,7 @@ const broadcastAttentionSpy = vi.mocked(broadcast.broadcastPrAttention);
 const REPO = '/repo-a';
 const BRANCH = 'feat/my-pr';
 const PR_NUMBER = 42;
-const WORKTREE = '/path/to/worktree';
+const WORKTREE = '/repo-a/.worktrees/engy-session-1';
 const SESSION_ID = 'session-abc-123';
 
 interface SeedResult {
@@ -62,7 +72,7 @@ function seedWorkspace(
 function seedProject(ctx: TestContext, workspaceId: number): number {
   const project = ctx.db
     .insert(projects)
-    .values({ workspaceId, name: 'Default', slug: 'default', projectDir: REPO })
+    .values({ workspaceId, name: 'Default', slug: 'default' })
     .returning()
     .get();
   return project.id;
@@ -72,11 +82,7 @@ function seedTaskAndGroup(
   ctx: TestContext,
   projectId: number,
 ): { taskId: number; taskGroupId: number } {
-  const group = ctx.db
-    .insert(taskGroups)
-    .values({ projectId, name: 'TG1' })
-    .returning()
-    .get();
+  const group = ctx.db.insert(taskGroups).values({ projectId, name: 'TG1' }).returning().get();
   const task = ctx.db
     .insert(tasks)
     .values({ projectId, title: 'Task 1', type: 'ai', needsPlan: false })
@@ -107,7 +113,12 @@ function seedCorrelatedSession(
 
 function seedPr(
   ctx: TestContext,
-  overrides: { autoFixAttempts?: number; attentionReason?: string } = {},
+  overrides: {
+    autoFixAttempts?: number;
+    attentionReason?: string;
+    authoredByViewer?: boolean;
+    isCrossRepository?: boolean;
+  } = {},
 ): typeof prsTable.$inferSelect {
   return ctx.db
     .insert(prsTable)
@@ -118,12 +129,15 @@ function seedPr(
       url: 'https://github.com/org/repo/pull/42',
       headBranch: BRANCH,
       headSha: 'sha1',
+      repoFullName: 'org/repo',
       author: 'alice',
       isDraft: false,
       ciStatus: 'failing',
       checks: [],
       autoFixAttempts: overrides.autoFixAttempts ?? 0,
       attentionReason: overrides.attentionReason ?? null,
+      authoredByViewer: overrides.authoredByViewer ?? true,
+      isCrossRepository: overrides.isCrossRepository ?? false,
     })
     .returning()
     .get();
@@ -167,6 +181,28 @@ describe('maybeDispatchCiFix', () => {
     vi.restoreAllMocks();
   });
 
+  describe('bail: not authored by the viewer', () => {
+    it('[FR-PRMON-220] should skip auto-fix, attention, broadcast and inbox events for a PR the viewer did not write', async () => {
+      const { workspaceId } = seedAll(ctx);
+      const prRow = seedPr(ctx, { authoredByViewer: false });
+      const workspace = getWorkspace(ctx, workspaceId);
+
+      const result = await maybeDispatchCiFix({
+        state: ctx.state,
+        db: ctx.db,
+        prRow,
+        classification: 'non-mechanical',
+        workspace,
+      });
+
+      expect(result).toEqual({ dispatched: false, reason: 'not-authored' });
+      expect(getPr(ctx)?.attentionReason).toBeNull();
+      expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(broadcastAttentionSpy).not.toHaveBeenCalled();
+      expect(ctx.db.select().from(inboxItems).all()).toEqual([]);
+    });
+  });
+
   describe('bail: non-mechanical classification', () => {
     it('[FR-PRMON-110] should return non-mechanical reason and persist attentionReason', async () => {
       const { workspaceId } = seedAll(ctx);
@@ -184,7 +220,12 @@ describe('maybeDispatchCiFix', () => {
       expect(result).toEqual({ dispatched: false, reason: 'non-mechanical' });
       expect(getPr(ctx)?.attentionReason).toBe('non-mechanical');
       expect(dispatchSpy).not.toHaveBeenCalled();
-      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'non-mechanical');
+      expect(broadcastAttentionSpy).toHaveBeenCalledWith(
+        workspaceId,
+        REPO,
+        PR_NUMBER,
+        'non-mechanical',
+      );
     });
   });
 
@@ -250,7 +291,32 @@ describe('maybeDispatchCiFix', () => {
       expect(result).toEqual({ dispatched: false, reason: 'uncorrelated' });
       expect(getPr(ctx)?.attentionReason).toBe('uncorrelated');
       expect(dispatchSpy).not.toHaveBeenCalled();
-      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'uncorrelated');
+      expect(broadcastAttentionSpy).toHaveBeenCalledWith(
+        workspaceId,
+        REPO,
+        PR_NUMBER,
+        'uncorrelated',
+      );
+    });
+  });
+
+  describe('bail: cross-repository PR', () => {
+    it('[FR-PRMON-040] should return uncorrelated when a session sits on the same-named branch of a fork PR', async () => {
+      const { workspaceId } = seedAll(ctx);
+      const prRow = seedPr(ctx, { isCrossRepository: true });
+      const workspace = getWorkspace(ctx, workspaceId);
+      ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
+
+      const result = await maybeDispatchCiFix({
+        state: ctx.state,
+        db: ctx.db,
+        prRow,
+        classification: 'mechanical',
+        workspace,
+      });
+
+      expect(result).toEqual({ dispatched: false, reason: 'uncorrelated' });
+      expect(dispatchSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -308,34 +374,12 @@ describe('maybeDispatchCiFix', () => {
       expect(result).toEqual({ dispatched: false, reason: 'attempt-cap-sha' });
       expect(getPr(ctx)?.attentionReason).toBe('attempt-cap-sha');
       expect(dispatchSpy).not.toHaveBeenCalled();
-      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'attempt-cap-sha');
-    });
-  });
-
-  describe('bail: no worktree', () => {
-    it('should return no-worktree, persist attentionReason, and broadcast when the correlated session has no worktreePath', async () => {
-      const { workspaceId } = seedAll(ctx);
-      ctx.db
-        .update(agentSessions)
-        .set({ worktreePath: null })
-        .where(eq(agentSessions.sessionId, SESSION_ID))
-        .run();
-      const prRow = seedPr(ctx);
-      const workspace = getWorkspace(ctx, workspaceId);
-      ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
-
-      const result = await maybeDispatchCiFix({
-        state: ctx.state,
-        db: ctx.db,
-        prRow,
-        classification: 'mechanical',
-        workspace,
-      });
-
-      expect(result).toEqual({ dispatched: false, reason: 'no-worktree' });
-      expect(getPr(ctx)?.attentionReason).toBe('no-worktree');
-      expect(dispatchSpy).not.toHaveBeenCalled();
-      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'no-worktree');
+      expect(broadcastAttentionSpy).toHaveBeenCalledWith(
+        workspaceId,
+        REPO,
+        PR_NUMBER,
+        'attempt-cap-sha',
+      );
     });
   });
 
@@ -354,11 +398,12 @@ describe('maybeDispatchCiFix', () => {
           headSha: 'sha-fresh',
           author: 'alice',
           isDraft: false,
-              ciStatus: 'failing',
+          ciStatus: 'failing',
           checks: [],
           autoFixAttempts: 0,
           autoFixTotalAttempts: MAX_TOTAL_AUTO_FIX_ATTEMPTS,
           attentionReason: null,
+          authoredByViewer: true,
         })
         .returning()
         .get();
@@ -376,7 +421,12 @@ describe('maybeDispatchCiFix', () => {
       expect(result).toEqual({ dispatched: false, reason: 'attempt-cap-total' });
       expect(getPr(ctx)?.attentionReason).toBe('attempt-cap-total');
       expect(dispatchSpy).not.toHaveBeenCalled();
-      expect(broadcastAttentionSpy).toHaveBeenCalledWith(workspaceId, REPO, PR_NUMBER, 'attempt-cap-total');
+      expect(broadcastAttentionSpy).toHaveBeenCalledWith(
+        workspaceId,
+        REPO,
+        PR_NUMBER,
+        'attempt-cap-total',
+      );
     });
 
     it('should increment autoFixTotalAttempts (as well as autoFixAttempts) on each successful dispatch', async () => {
@@ -442,10 +492,15 @@ describe('maybeDispatchCiFix', () => {
   describe('successful dispatch', () => {
     it('[FR-PRMON-100] should increment autoFixAttempts, reset session, dispatch with --resume, and clear attentionReason', async () => {
       const { workspaceId } = seedAll(ctx);
-      const prRow = seedPr(ctx, { autoFixAttempts: MAX_AUTO_FIX_ATTEMPTS - 1, attentionReason: 'prior-reason' });
+      const prRow = seedPr(ctx, {
+        autoFixAttempts: MAX_AUTO_FIX_ATTEMPTS - 1,
+        attentionReason: 'prior-reason',
+      });
       const workspace = getWorkspace(ctx, workspaceId);
       ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
-      failedLogsSpy.mockResolvedValueOnce({ logs: [{ checkName: 'lint', excerpt: 'Error: unexpected token' }] });
+      failedLogsSpy.mockResolvedValueOnce([
+        { checkName: 'lint', excerpt: 'Error: unexpected token' },
+      ]);
 
       const result = await maybeDispatchCiFix({
         state: ctx.state,
@@ -475,7 +530,7 @@ describe('maybeDispatchCiFix', () => {
       expect(flags).toContain('--resume');
       expect(flags).toContain(SESSION_ID);
       expect(prompt).toContain('unexpected token');
-      expect(failedLogsSpy).toHaveBeenCalledWith(prRow.repo, prRow.number, ctx.state, undefined);
+      expect(failedLogsSpy).toHaveBeenCalledWith(ctx.state, 'org/repo', 'sha1');
       expect(broadcastAttentionSpy).not.toHaveBeenCalled();
     });
 
@@ -504,6 +559,24 @@ describe('maybeDispatchCiFix', () => {
         expect.stringContaining('log fetch failed'),
       );
       errorSpy.mockRestore();
+    });
+
+    it('should dispatch with empty logs when the PR has no repo full name yet', async () => {
+      const { workspaceId } = seedAll(ctx);
+      const prRow = { ...seedPr(ctx), repoFullName: null };
+      const workspace = getWorkspace(ctx, workspaceId);
+      ctx.state.daemon = { readyState: 1, OPEN: 1 } as never;
+
+      const result = await maybeDispatchCiFix({
+        state: ctx.state,
+        db: ctx.db,
+        prRow,
+        classification: 'mechanical',
+        workspace,
+      });
+
+      expect(result).toEqual({ dispatched: true });
+      expect(failedLogsSpy).not.toHaveBeenCalled();
     });
 
     it('should not fetch logs when a gate blocks the dispatch', async () => {
@@ -575,7 +648,7 @@ describe('maybeDispatchCiFix', () => {
           db: ctx.db,
           prRow,
           classification: 'mechanical',
-            workspace,
+          workspace,
         }),
       ).rejects.toThrow('daemon timeout');
 

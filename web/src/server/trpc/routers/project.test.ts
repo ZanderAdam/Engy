@@ -35,9 +35,9 @@ describe('project router', () => {
     });
 
     it('should reject unknown workspace', async () => {
-      await expect(
-        caller.project.create({ workspaceSlug: 'nope', name: 'X' }),
-      ).rejects.toThrow('not found');
+      await expect(caller.project.create({ workspaceSlug: 'nope', name: 'X' })).rejects.toThrow(
+        'not found',
+      );
     });
   });
 
@@ -80,9 +80,9 @@ describe('project router', () => {
     });
 
     it('should throw NOT_FOUND for non-existent slug', async () => {
-      await expect(
-        caller.project.getBySlug({ workspaceId, slug: 'nope' }),
-      ).rejects.toThrow('not found');
+      await expect(caller.project.getBySlug({ workspaceId, slug: 'nope' })).rejects.toThrow(
+        'not found',
+      );
     });
   });
 
@@ -179,9 +179,9 @@ describe('project router', () => {
     });
 
     it('should throw NOT_FOUND for non-existent project', async () => {
-      await expect(
-        caller.project.updateStatus({ id: 9999, status: 'active' }),
-      ).rejects.toThrow('not found');
+      await expect(caller.project.updateStatus({ id: 9999, status: 'active' })).rejects.toThrow(
+        'not found',
+      );
     });
   });
 
@@ -398,7 +398,8 @@ describe('project router', () => {
       // Pre-create the project directory with a hand-authored spec.md.
       const projDir = path.join(ctx.tmpDir, 'preserve-ws', 'projects', 'hand-authored');
       fs.mkdirSync(projDir, { recursive: true });
-      const originalContent = '---\ntitle: Hand authored\nstatus: active\ntype: vision\n---\n# Custom\n';
+      const originalContent =
+        '---\ntitle: Hand authored\nstatus: active\ntype: vision\n---\n# Custom\n';
       fs.writeFileSync(path.join(projDir, 'spec.md'), originalContent);
 
       await caller.project.create({ workspaceSlug: ws.slug, name: 'Hand authored' });
@@ -510,6 +511,47 @@ describe('project router', () => {
       });
       expect(withBranch.projectDir).toBe(withoutBranch.projectDir);
       expect(proj.slug).toBe('norepo');
+    });
+  });
+
+  describe('[FR-PRREVIEW-220] reviewGuide', () => {
+    it('should return the default text and no path while the project has no guide', async () => {
+      const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Guide' });
+      const result = await caller.project.reviewGuide({ projectId: proj.id });
+      expect(result.path).toBeNull();
+      expect(result.defaultText).toContain('## Overview');
+      expect(result.defaultText).toContain('## Review');
+    });
+
+    it('should return the absolute path once the project has a guide', async () => {
+      const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Guide' });
+      const { path: created } = await caller.project.createReviewGuide({ projectId: proj.id });
+      const result = await caller.project.reviewGuide({ projectId: proj.id });
+      expect(result.path).toBe(created);
+      expect(path.isAbsolute(created)).toBe(true);
+      expect(created.endsWith(path.join('projects', 'guide', 'review-guide.md'))).toBe(true);
+    });
+
+    it('should reject an unknown project', async () => {
+      await expect(caller.project.reviewGuide({ projectId: 9999 })).rejects.toThrow('not found');
+    });
+  });
+
+  describe('[FR-PRREVIEW-220] createReviewGuide', () => {
+    it('should write the default guide into the project directory', async () => {
+      const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Guide' });
+      const { path: created } = await caller.project.createReviewGuide({ projectId: proj.id });
+      const { defaultText } = await caller.project.reviewGuide({ projectId: proj.id });
+      expect(fs.readFileSync(created, 'utf-8')).toBe(defaultText);
+    });
+
+    it('should keep an existing guide untouched', async () => {
+      const proj = await caller.project.create({ workspaceSlug: 'test-ws', name: 'Guide' });
+      const { path: created } = await caller.project.createReviewGuide({ projectId: proj.id });
+      fs.writeFileSync(created, '## Review\n\nOnly check auth.\n');
+
+      await caller.project.createReviewGuide({ projectId: proj.id });
+      expect(fs.readFileSync(created, 'utf-8')).toBe('## Review\n\nOnly check auth.\n');
     });
   });
 });

@@ -1,10 +1,11 @@
-import { and, asc, eq, isNull, like } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { getDb } from '../db/client';
 import { commentThreads, threadComments } from '../db/schema';
 import { randomId } from '@/lib/random-id';
 import { LOCAL_USER_ID, AGENT_USER_ID } from '@/lib/comment-feedback';
 import { markdownToBlocks } from './markdown-blocks';
+import { startsWithPrefix } from '../lib/path-prefix';
 
 type CommentThread = typeof commentThreads.$inferSelect;
 type ThreadComment = typeof threadComments.$inferSelect;
@@ -133,7 +134,7 @@ export function listThreadsInScope(scope: CommentScope): ThreadWithComments[] {
       ? isNull(commentThreads.workspaceId)
       : eq(commentThreads.workspaceId, scope.workspaceId);
   const pathCondition = scope.prefix
-    ? like(commentThreads.documentPath, `${scope.documentPath}%`)
+    ? startsWithPrefix(commentThreads.documentPath, scope.documentPath)
     : eq(commentThreads.documentPath, scope.documentPath);
 
   const threads = db

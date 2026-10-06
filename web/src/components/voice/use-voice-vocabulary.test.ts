@@ -28,7 +28,7 @@ describe('assembleVoiceVocabulary', () => {
   // the dialog, so "what can I say" listed itself in help and then failed to
   // resolve. Resolving against the assembled vocabulary is what catches that
   // — asserting on a hand-built action list cannot.
-  it('[FR-TG2.10] should resolve the help phrases against the assembled vocabulary', () => {
+  it('should resolve the help phrases against the assembled vocabulary', () => {
     const openHelp = vi.fn();
     const actions = build({ openHelp });
 
@@ -54,7 +54,7 @@ describe('assembleVoiceVocabulary', () => {
     ['Angie, terminal status', 'voice.terminal.status.all'],
     ['NG send', 'voice.terminal.send'],
     ['Okay, Angie, what can I do?', 'voice.help.show'],
-  ])('[FR-TG2.16] should route and resolve "%s"', (transcript, expectedId) => {
+  ])('should route and resolve "%s"', (transcript, expectedId) => {
     const actions = build();
     const route = routeVoiceSegment(transcript, true, WAKE_PREFIXES);
     const resolved = resolveAction(route.text, actions);

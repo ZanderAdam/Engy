@@ -1573,7 +1573,7 @@ describe('WsClient worktree add/remove handlers', () => {
         },
       });
 
-      expect(JSON.parse(response).payload.code).toBe('OTHER');
+      expect(JSON.parse(response).payload.error).toBeTruthy();
     });
 
     it('passes baseRef as final positional argument when createBranch is true', async () => {
@@ -1677,7 +1677,265 @@ describe('WsClient worktree add/remove handlers', () => {
         },
       });
 
-      expect(JSON.parse(response).payload.code).toBe('OTHER');
+      expect(JSON.parse(response).payload.error).toBeTruthy();
+    });
+  });
+});
+
+describe('WsClient git reset and remote url handlers', () => {
+  let server: WebSocketServer;
+  let port: number;
+  let client: WsClient;
+  let tmpDir: string;
+
+  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
+    return new Promise((resolve) => wss.once('connection', resolve));
+  }
+
+  function waitForMessage(ws: WsWebSocket): Promise<string> {
+    return new Promise((resolve) => ws.once('message', (data) => resolve(data.toString())));
+  }
+
+  beforeEach(async () => {
+    server = testWsServer();
+    await new Promise<void>((resolve) => {
+      if (server.address()) resolve();
+      else server.on('listening', () => resolve());
+    });
+    port = (server.address() as { port: number }).port;
+    tmpDir = mkdtempSync(nodePath.join(os.tmpdir(), 'engy-ws-reset-test-'));
+
+    const realChildProcess =
+      await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    const realExecFileAsync = promisify(realChildProcess.execFile);
+    mockedExecFile[promisify.custom].mockImplementation(
+      (...args: Parameters<typeof realExecFileAsync>) => realExecFileAsync(...args),
+    );
+  });
+
+  afterEach(async () => {
+    client?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  async function createTempRepo(): Promise<string> {
+    const repoDir = mkdtempSync(nodePath.join(tmpDir, 'repo-'));
+    const repo = simpleGit(repoDir);
+    await repo.init();
+    await repo.addConfig('user.email', 'test@test.com');
+    await repo.addConfig('user.name', 'Test');
+    await repo.addConfig('commit.gpgsign', 'false');
+    nodeFs.writeFileSync(nodePath.join(repoDir, 'init.txt'), 'hello');
+    await repo.add('init.txt');
+    await repo.commit('initial commit');
+    return repoDir;
+  }
+
+  async function setupAndSend(req: object): Promise<string> {
+    const connPromise = waitForConnection(server);
+    client = new WsClient({
+      serverUrl: `http://127.0.0.1:${port}`,
+      onWatchPathsSync: vi.fn(),
+    });
+    client.connect();
+    const ws = await connPromise;
+    await waitForMessage(ws);
+    ws.send(JSON.stringify(req));
+    return waitForMessage(ws);
+  }
+
+  describe('GIT_RESET_HARD_REQUEST', () => {
+    it('resets a clean worktree and acknowledges', async () => {
+      const repoDir = await createTempRepo();
+      const repo = simpleGit(repoDir);
+      const first = (await repo.log()).latest!.hash;
+      nodeFs.writeFileSync(nodePath.join(repoDir, 'two.txt'), 'two');
+      await repo.add('two.txt');
+      await repo.commit('second');
+
+      const response = await setupAndSend({
+        type: 'GIT_RESET_HARD_REQUEST',
+        payload: { requestId: 'reset-1', repoDir, ref: first },
+      });
+
+      expect(JSON.parse(response)).toEqual({
+        type: 'GIT_RESET_HARD_RESPONSE',
+        payload: { requestId: 'reset-1' },
+      });
+      expect((await repo.log()).latest!.hash).toBe(first);
+    });
+
+    it('answers an error and leaves the worktree untouched when it has changes', async () => {
+      const repoDir = await createTempRepo();
+      nodeFs.writeFileSync(nodePath.join(repoDir, 'init.txt'), 'edited');
+
+      const response = await setupAndSend({
+        type: 'GIT_RESET_HARD_REQUEST',
+        payload: { requestId: 'reset-2', repoDir, ref: 'HEAD' },
+      });
+
+      const parsed = JSON.parse(response);
+      expect(parsed.type).toBe('GIT_RESET_HARD_RESPONSE');
+      expect(parsed.payload.error).toContain('uncommitted');
+      expect(parsed.payload.code).toBeUndefined();
+      expect(nodeFs.readFileSync(nodePath.join(repoDir, 'init.txt'), 'utf8')).toBe('edited');
+    });
+
+    it('answers an error for an unknown ref', async () => {
+      const repoDir = await createTempRepo();
+
+      const response = await setupAndSend({
+        type: 'GIT_RESET_HARD_REQUEST',
+        payload: { requestId: 'reset-3', repoDir, ref: 'no-such-ref' },
+      });
+
+      expect(JSON.parse(response).payload.error).toBeTruthy();
+    });
+  });
+
+  describe('GIT_REMOTE_URL_REQUEST', () => {
+    it('answers an error when the repository is missing', async () => {
+      const repoDir = await createTempRepo();
+
+      const response = await setupAndSend({
+        type: 'GIT_REMOTE_URL_REQUEST',
+        payload: { requestId: 'url-1', repoDir: nodePath.join(repoDir, 'missing') },
+      });
+
+      const parsed = JSON.parse(response);
+      expect(parsed.payload.error).toBeTruthy();
+      expect(parsed.payload.url).toBeUndefined();
+    });
+
+    it('answers a null url when there is no origin', async () => {
+      const repoDir = await createTempRepo();
+
+      const response = await setupAndSend({
+        type: 'GIT_REMOTE_URL_REQUEST',
+        payload: { requestId: 'url-2', repoDir },
+      });
+
+      expect(JSON.parse(response).payload).toEqual({ requestId: 'url-2', url: null });
+    });
+  });
+
+  describe('GIT_WORKTREE_LIST_REQUEST', () => {
+    it('[FR-WS-220] reports the real path of a symlinked resolvePath', async () => {
+      const repoDir = await createTempRepo();
+      const linkPath = nodePath.join(tmpDir, 'link-to-repo');
+      nodeFs.symlinkSync(repoDir, linkPath);
+
+      const response = await setupAndSend({
+        type: 'GIT_WORKTREE_LIST_REQUEST',
+        payload: { requestId: 'wl-1', repoDir, resolvePath: linkPath },
+      });
+
+      const { payload } = JSON.parse(response);
+      expect(payload.resolvedPath).toBe(nodeFs.realpathSync(repoDir));
+      expect(payload.worktrees[0].path).toBe(nodeFs.realpathSync(repoDir));
+    });
+
+    it('[FR-WS-220] omits resolvedPath when none was asked for', async () => {
+      const repoDir = await createTempRepo();
+
+      const response = await setupAndSend({
+        type: 'GIT_WORKTREE_LIST_REQUEST',
+        payload: { requestId: 'wl-2', repoDir },
+      });
+
+      expect(JSON.parse(response).payload.resolvedPath).toBeUndefined();
+    });
+  });
+
+  describe('GIT_DELETE_REFS_REQUEST', () => {
+    it('deletes review refs and branches and acknowledges', async () => {
+      const repoDir = await createTempRepo();
+      const repo = simpleGit(repoDir);
+      await repo.raw(['update-ref', 'refs/engy/pr/7', 'HEAD']);
+      await repo.raw(['branch', 'engy/review/pr-7']);
+
+      const response = await setupAndSend({
+        type: 'GIT_DELETE_REFS_REQUEST',
+        payload: {
+          requestId: 'del-1',
+          repoDir,
+          refs: ['refs/engy/pr/7', 'refs/heads/engy/review/pr-7'],
+        },
+      });
+
+      expect(JSON.parse(response)).toEqual({
+        type: 'GIT_DELETE_REFS_RESPONSE',
+        payload: { requestId: 'del-1' },
+      });
+      expect(await repo.raw(['for-each-ref', 'refs/engy', 'refs/heads/engy'])).toBe('');
+    });
+
+    it('refuses refs outside the review namespaces', async () => {
+      const repoDir = await createTempRepo();
+      const repo = simpleGit(repoDir);
+      const branch = (await repo.branch()).current;
+
+      const response = await setupAndSend({
+        type: 'GIT_DELETE_REFS_REQUEST',
+        payload: { requestId: 'del-2', repoDir, refs: [`refs/heads/${branch}`] },
+      });
+
+      expect(JSON.parse(response).payload.error).toContain('Refusing to delete ref');
+      expect((await repo.branch()).current).toBe(branch);
+    });
+  });
+
+  describe('GIT_REMOTE_URL_REQUEST', () => {
+    it('returns the origin url', async () => {
+      const repoDir = await createTempRepo();
+      await simpleGit(repoDir).addRemote('origin', 'https://github.com/octo/repo.git');
+
+      const response = await setupAndSend({
+        type: 'GIT_REMOTE_URL_REQUEST',
+        payload: { requestId: 'url-1', repoDir },
+      });
+
+      expect(JSON.parse(response)).toEqual({
+        type: 'GIT_REMOTE_URL_RESPONSE',
+        payload: { requestId: 'url-1', url: 'https://github.com/octo/repo.git' },
+      });
+    });
+
+    it('returns a null url when there is no origin', async () => {
+      const repoDir = await createTempRepo();
+
+      const response = await setupAndSend({
+        type: 'GIT_REMOTE_URL_REQUEST',
+        payload: { requestId: 'url-2', repoDir },
+      });
+
+      expect(JSON.parse(response).payload).toEqual({ requestId: 'url-2', url: null });
+    });
+  });
+
+  describe('GIT_FETCH_REQUEST with refspec', () => {
+    it('fetches a pull ref into the engy namespace', async () => {
+      const originDir = await createTempRepo();
+      const origin = simpleGit(originDir);
+      await origin.raw(['update-ref', 'refs/pull/7/head', 'HEAD']);
+      const cloneDir = nodePath.join(tmpDir, 'clone');
+      await simpleGit().clone(originDir, cloneDir);
+
+      const response = await setupAndSend({
+        type: 'GIT_FETCH_REQUEST',
+        payload: {
+          requestId: 'fetch-1',
+          repoDir: cloneDir,
+          base: 'origin/main',
+          refspec: '+refs/pull/7/head:refs/engy/pr/7',
+        },
+      });
+
+      expect(JSON.parse(response).payload).toEqual({ requestId: 'fetch-1', remote: 'origin' });
+      const expected = (await origin.revparse(['HEAD'])).trim();
+      const fetched = (await simpleGit(cloneDir).revparse(['refs/engy/pr/7'])).trim();
+      expect(fetched).toBe(expected);
     });
   });
 });
@@ -2394,9 +2652,9 @@ describe('WsClient FS_RENAME_REQUEST handler', () => {
         type: 'FS_RENAME_RESPONSE',
         payload: { requestId: 'ren-2', success: true },
       });
-      expect(
-        nodeFs.readFileSync(nodePath.join(tmpDir, 'deep', 'nested', 'file.txt'), 'utf8'),
-      ).toBe('content');
+      expect(nodeFs.readFileSync(nodePath.join(tmpDir, 'deep', 'nested', 'file.txt'), 'utf8')).toBe(
+        'content',
+      );
     });
 
     it('should error when target already exists', async () => {
@@ -2785,239 +3043,5 @@ describe('[FR-WS-140] WsClient pong deadline', () => {
     // Client's close handler fires and schedules a reconnect.
     await reconnectPromise;
     expect(connCount).toBeGreaterThanOrEqual(2);
-  });
-});
-
-describe('WsClient GH handlers', () => {
-  let server: WebSocketServer;
-  let port: number;
-  let client: WsClient;
-
-  function waitForConnection(wss: WebSocketServer): Promise<WsWebSocket> {
-    return new Promise((resolve) => wss.once('connection', resolve));
-  }
-
-  function waitForMessage(ws: WsWebSocket): Promise<string> {
-    return new Promise((resolve) => ws.once('message', (data) => resolve(data.toString())));
-  }
-
-  beforeEach(async () => {
-    mockedExecFile[promisify.custom].mockReset();
-    server = testWsServer();
-    await new Promise<void>((resolve) => {
-      if (server.address()) resolve();
-      else server.on('listening', () => resolve());
-    });
-    port = (server.address() as { port: number }).port;
-  });
-
-  afterEach(async () => {
-    client?.close();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  });
-
-  async function setupAndSend(req: object): Promise<string> {
-    const connPromise = waitForConnection(server);
-    client = new WsClient({ serverUrl: `http://127.0.0.1:${port}` });
-    client.connect();
-    const ws = await connPromise;
-    await waitForMessage(ws); // consume REGISTER
-    ws.send(JSON.stringify(req));
-    return waitForMessage(ws);
-  }
-
-  it('GH_PR_LIST_REQUEST returns empty PR list via local gh runner', async () => {
-    mockedExecFile[promisify.custom].mockResolvedValue({ stdout: '[]', stderr: '' });
-
-    const response = JSON.parse(
-      await setupAndSend({
-        type: 'GH_PR_LIST_REQUEST',
-        payload: { requestId: 'gh-pr-1', repoDir: '/home/user/repo' },
-      }),
-    );
-
-    expect(response).toEqual({
-      type: 'GH_PR_LIST_RESPONSE',
-      payload: { requestId: 'gh-pr-1', prs: [] },
-    });
-    // Local runner calls 'gh' directly, not 'coder'
-    expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
-      'gh',
-      expect.arrayContaining(['pr', 'list']),
-      expect.objectContaining({ cwd: '/home/user/repo' }),
-    );
-  });
-
-  it('GH_PR_LIST_REQUEST runs gh via coder ssh when coderWorkspace is set', async () => {
-    mockedExecFile[promisify.custom].mockResolvedValue({ stdout: '[]', stderr: '' });
-
-    const response = JSON.parse(
-      await setupAndSend({
-        type: 'GH_PR_LIST_REQUEST',
-        payload: {
-          requestId: 'gh-pr-coder-1',
-          repoDir: '/home/user/repo',
-          coderWorkspace: 'my-workspace',
-        },
-      }),
-    );
-
-    expect(response).toEqual({
-      type: 'GH_PR_LIST_RESPONSE',
-      payload: { requestId: 'gh-pr-coder-1', prs: [] },
-    });
-    // Coder runner calls 'coder ssh' with the workspace name
-    expect(mockedExecFile[promisify.custom]).toHaveBeenCalledWith(
-      'coder',
-      expect.arrayContaining(['ssh', '--no-wait', 'my-workspace']),
-      expect.any(Object),
-    );
-    // The remote command should cd to the repoDir before running gh
-    const callArgs = mockedExecFile[promisify.custom].mock.calls[0]?.[1] as string[];
-    const remoteCmd = callArgs[callArgs.length - 1];
-    expect(remoteCmd).toContain('/home/user/repo');
-    expect(remoteCmd).toContain('gh');
-  });
-
-  it('GH_PR_LIST_REQUEST sends error response on runner failure', async () => {
-    mockedExecFile[promisify.custom].mockRejectedValue(new Error('gh: not a git repository'));
-
-    const response = JSON.parse(
-      await setupAndSend({
-        type: 'GH_PR_LIST_REQUEST',
-        payload: { requestId: 'gh-pr-err', repoDir: '/not-a-repo' },
-      }),
-    );
-
-    expect(response.type).toBe('GH_PR_LIST_RESPONSE');
-    expect(response.payload.error).toMatch('gh: not a git repository');
-  });
-
-  it('GH_PR_LIST_REQUEST maps ENOENT to the gh-not-installed typed error', async () => {
-    const enoent = Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' });
-    mockedExecFile[promisify.custom].mockRejectedValue(enoent);
-
-    const response = JSON.parse(
-      await setupAndSend({
-        type: 'GH_PR_LIST_REQUEST',
-        payload: { requestId: 'gh-pr-enoent', repoDir: '/repo' },
-      }),
-    );
-
-    expect(response).toEqual({
-      type: 'GH_PR_LIST_RESPONSE',
-      payload: { requestId: 'gh-pr-enoent', error: 'gh-not-installed' },
-    });
-  });
-
-  it('GH_PR_LIST_REQUEST maps auth-failure stderr to the gh-not-authenticated typed error', async () => {
-    const authErr = Object.assign(new Error('Command failed'), {
-      stderr: 'You are not logged into any GitHub hosts. Run gh auth login to authenticate.',
-    });
-    mockedExecFile[promisify.custom].mockRejectedValue(authErr);
-
-    const response = JSON.parse(
-      await setupAndSend({
-        type: 'GH_PR_LIST_REQUEST',
-        payload: { requestId: 'gh-pr-noauth', repoDir: '/repo' },
-      }),
-    );
-
-    expect(response).toEqual({
-      type: 'GH_PR_LIST_RESPONSE',
-      payload: { requestId: 'gh-pr-noauth', error: 'gh-not-authenticated' },
-    });
-  });
-
-  it('GH_PR_FAILED_LOGS_REQUEST returns logs for failing checks', async () => {
-    const failingChecks = JSON.stringify([
-      {
-        name: 'Lint',
-        state: 'FAILURE',
-        link: 'https://github.com/owner/repo/actions/runs/777/jobs/1',
-        bucket: 'fail',
-      },
-    ]);
-    const logOutput = 'ESLint: 3 errors\nfoo.ts: Expected semicolon';
-
-    mockedExecFile[promisify.custom]
-      .mockResolvedValueOnce({ stdout: failingChecks, stderr: '' })
-      .mockResolvedValueOnce({ stdout: logOutput, stderr: '' });
-
-    const response = JSON.parse(
-      await setupAndSend({
-        type: 'GH_PR_FAILED_LOGS_REQUEST',
-        payload: { requestId: 'logs-1', repoDir: '/home/user/repo', prNumber: 42 },
-      }),
-    );
-
-    expect(response.type).toBe('GH_PR_FAILED_LOGS_RESPONSE');
-    expect(response.payload.requestId).toBe('logs-1');
-    expect(response.payload.logs).toHaveLength(1);
-    expect(response.payload.logs[0].checkName).toBe('Lint');
-    expect(response.payload.logs[0].excerpt).toContain('ESLint');
-  });
-
-  it('GH_PR_FAILED_LOGS_REQUEST returns error response on failure', async () => {
-    mockedExecFile[promisify.custom].mockRejectedValue(new Error('pr not found'));
-
-    const response = JSON.parse(
-      await setupAndSend({
-        type: 'GH_PR_FAILED_LOGS_REQUEST',
-        payload: { requestId: 'logs-err', repoDir: '/not-a-repo', prNumber: 99 },
-      }),
-    );
-
-    expect(response.type).toBe('GH_PR_FAILED_LOGS_RESPONSE');
-    expect(response.payload.error).toMatch('pr not found');
-  });
-
-  it('GH_PR_REVIEW_COMMENTS_REQUEST returns comments via local gh runner', async () => {
-    const nameWithOwner = JSON.stringify({ nameWithOwner: 'org/repo' });
-    const commentsJson = JSON.stringify([
-      {
-        id: 101,
-        path: 'src/index.ts',
-        line: 15,
-        original_line: 14,
-        body: 'Fix this',
-        user: { login: 'reviewer' },
-        created_at: '2024-01-01T00:00:00Z',
-        html_url: 'https://github.com/org/repo/pull/1#discussion_r101',
-      },
-    ]);
-
-    mockedExecFile[promisify.custom]
-      .mockResolvedValueOnce({ stdout: nameWithOwner, stderr: '' })
-      .mockResolvedValueOnce({ stdout: commentsJson, stderr: '' });
-
-    const response = JSON.parse(
-      await setupAndSend({
-        type: 'GH_PR_REVIEW_COMMENTS_REQUEST',
-        payload: { requestId: 'rc-1', repoDir: '/home/user/repo', prNumber: 1 },
-      }),
-    );
-
-    expect(response.type).toBe('GH_PR_REVIEW_COMMENTS_RESPONSE');
-    expect(response.payload.requestId).toBe('rc-1');
-    expect(response.payload.comments).toHaveLength(1);
-    expect(response.payload.comments[0].githubId).toBe(101);
-    expect(response.payload.comments[0].path).toBe('src/index.ts');
-    expect(response.payload.comments[0].line).toBe(15);
-    expect(response.payload.comments[0].inReplyToId).toBeNull();
-  });
-
-  it('GH_PR_REVIEW_COMMENTS_REQUEST returns error response on failure', async () => {
-    mockedExecFile[promisify.custom].mockRejectedValue(new Error('gh not authenticated'));
-
-    const response = JSON.parse(
-      await setupAndSend({
-        type: 'GH_PR_REVIEW_COMMENTS_REQUEST',
-        payload: { requestId: 'rc-err', repoDir: '/bad-repo', prNumber: 99 },
-      }),
-    );
-
-    expect(response.type).toBe('GH_PR_REVIEW_COMMENTS_RESPONSE');
-    expect(response.payload.error).toMatch('gh not authenticated');
   });
 });

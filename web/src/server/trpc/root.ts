@@ -16,6 +16,9 @@ import { searchRouter } from './routers/search';
 import { prRouter } from './routers/pr';
 import { terminalRouter } from './routers/terminal';
 import { usageRouter } from './routers/usage';
+import { githubRouter } from './routers/github';
+import { inboxRouter } from './routers/inbox';
+import { reviewRouter } from './routers/review';
 
 export const appRouter = router({
   workspace: workspaceRouter,
@@ -35,6 +38,9 @@ export const appRouter = router({
   pr: prRouter,
   terminal: terminalRouter,
   usage: usageRouter,
+  github: githubRouter,
+  inbox: inboxRouter,
+  review: reviewRouter,
 });
 
 /** @public Used by tRPC client setup */

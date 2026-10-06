@@ -3,8 +3,6 @@ import type {
   DirListEntry,
   GitFileStatus,
   GitWorktreeEntry,
-  GhPr,
-  GhReviewComment,
   TerminalActivityState,
   WorktreeAddErrorCode,
   WorktreeRemoveErrorCode,
@@ -12,6 +10,7 @@ import type {
   UsageScanFileState,
 } from '@engy/common';
 import type { CommentScope } from '../services/comment';
+import { createGithubState, type GithubState } from '../github/types';
 
 export interface CreateDirResult {
   results: Array<{ path: string; success: boolean; error?: string }>;
@@ -117,6 +116,10 @@ export interface GitFetchResult {
   remote?: string;
 }
 
+export interface GitRemoteUrlResult {
+  url: string | null;
+}
+
 export interface ContainerUpResult {
   containerId: string;
 }
@@ -196,18 +199,7 @@ export interface WorktreeRemoveError extends Error {
 
 export interface GitWorktreeListResult {
   worktrees: GitWorktreeEntry[];
-}
-
-export interface GhPrListResult {
-  prs: GhPr[];
-}
-
-export interface GhPrFailedLogsResult {
-  logs: Array<{ checkName: string; excerpt: string }>;
-}
-
-export interface GhPrReviewCommentsResult {
-  comments: GhReviewComment[];
+  resolvedPath?: string;
 }
 
 export interface UsageScanDispatchResult {
@@ -322,6 +314,27 @@ export interface AppState {
     string,
     {
       resolve: (result: GitFetchResult) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingGitResetHard: Map<
+    string,
+    {
+      resolve: (result: void) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingGitDeleteRefs: Map<
+    string,
+    {
+      resolve: (result: void) => void;
+      reject: (reason: Error) => void;
+    }
+  >;
+  pendingGitRemoteUrl: Map<
+    string,
+    {
+      resolve: (result: GitRemoteUrlResult) => void;
       reject: (reason: Error) => void;
     }
   >;
@@ -465,27 +478,6 @@ export interface AppState {
       reject: (reason: Error) => void;
     }
   >;
-  pendingGhPrList: Map<
-    string,
-    {
-      resolve: (result: GhPrListResult) => void;
-      reject: (reason: Error) => void;
-    }
-  >;
-  pendingGhPrFailedLogs: Map<
-    string,
-    {
-      resolve: (result: GhPrFailedLogsResult) => void;
-      reject: (reason: Error) => void;
-    }
-  >;
-  pendingGhPrReviewComments: Map<
-    string,
-    {
-      resolve: (result: GhPrReviewCommentsResult) => void;
-      reject: (reason: Error) => void;
-    }
-  >;
   pendingUsageScan: Map<
     string,
     {
@@ -541,10 +533,16 @@ export interface AppState {
   containerProgressListeners: Map<string, (line: string) => void>;
   /** Timer handle for the PR polling self-scheduling chain; null until startPrPoller is called */
   prPollerTimer: ReturnType<typeof setTimeout> | null;
-  /** Latest gh error per repo (typed strings like 'gh-not-installed'); cleared on next success */
+  /** Latest PR sync error per repo; cleared on next success */
   prRepoErrors: Map<string, string>;
+  pendingReviewSlots: Map<number, number>;
+  autoReviewedShas: Map<string, string>;
   /** Maps `repo#prNumber` → GitHub PR updatedAt from the last successful review-comment sync */
   prReviewCommentLastSyncedAt: Map<string, string>;
+  /** GitHub viewer, availability status and rate-limit budget; never holds the token */
+  github: GithubState;
+  /** `owner/name` per repo path from the `origin` remote; null for a non-GitHub remote */
+  repoFullNames: Map<string, string | null>;
   /** Terminal sessions connected as dispatch workers (sessionId → description) */
   dispatchWorkers: Map<string, DispatchWorker>;
   /** Cross-terminal dispatches by correlationId (in-memory; lost on restart) */
@@ -576,6 +574,9 @@ export function createAppState(): AppState {
     pendingGitBranch: new Map(),
     pendingGitDefaultBase: new Map(),
     pendingGitFetch: new Map(),
+    pendingGitResetHard: new Map(),
+    pendingGitDeleteRefs: new Map(),
+    pendingGitRemoteUrl: new Map(),
     pendingContainerUp: new Map(),
     pendingContainerDown: new Map(),
     pendingContainerStatus: new Map(),
@@ -596,9 +597,6 @@ export function createAppState(): AppState {
     pendingCreateDirs: new Map(),
     pendingFsDelete: new Map(),
     pendingFsRename: new Map(),
-    pendingGhPrList: new Map(),
-    pendingGhPrFailedLogs: new Map(),
-    pendingGhPrReviewComments: new Map(),
     pendingUsageScan: new Map(),
     daemonHomeDir: null,
     watchSubscriptions: new Map(),
@@ -615,7 +613,11 @@ export function createAppState(): AppState {
     containerProgressListeners: new Map(),
     prPollerTimer: null,
     prRepoErrors: new Map(),
+    pendingReviewSlots: new Map(),
+    autoReviewedShas: new Map(),
     prReviewCommentLastSyncedAt: new Map(),
+    github: createGithubState(),
+    repoFullNames: new Map(),
     dispatchWorkers: new Map(),
     dispatches: new Map(),
     dispatchWaiters: new Map(),

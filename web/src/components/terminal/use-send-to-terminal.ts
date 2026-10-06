@@ -67,8 +67,15 @@ export function useSendToTerminal() {
 
   const openNewTerminal = useCallback(
     (scope: TerminalScope) => {
+      window.dispatchEvent(new CustomEvent('terminal:open', { detail: { scope, tabId } }));
+    },
+    [tabId],
+  );
+
+  const focusTerminal = useCallback(
+    (sessionId: string) => {
       window.dispatchEvent(
-        new CustomEvent('terminal:open', { detail: { scope, tabId } }),
+        new CustomEvent('terminal:focus', { detail: { sessionId, ...(tabId ? { tabId } : {}) } }),
       );
     },
     [tabId],
@@ -80,6 +87,7 @@ export function useSendToTerminal() {
     submitTerminal,
     resolveTargetSession,
     openNewTerminal,
+    focusTerminal,
     terminalActive,
   };
 }
