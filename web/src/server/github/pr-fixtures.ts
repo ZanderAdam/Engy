@@ -1,3 +1,4 @@
+import type { GithubPr } from './prs';
 import type { StubReply, StubRequest } from './stub-server';
 
 export interface RawPrFixture {
@@ -67,4 +68,30 @@ export function searchReply(
 
 export function searchQuery(request: StubRequest): string {
   return (JSON.parse(request.body) as { variables: { q: string } }).variables.q;
+}
+
+export function makePr(overrides: Partial<GithubPr> = {}): GithubPr {
+  return {
+    repoFullName: 'org/repo',
+    number: 1,
+    title: 'My PR',
+    url: 'https://github.com/org/repo/pull/1',
+    headBranch: 'feat/my-feature',
+    headSha: null,
+    baseBranch: 'main',
+    author: 'alice',
+    isDraft: false,
+    reviewDecision: null,
+    ciStatus: 'passing',
+    checks: [],
+    commentCount: 0,
+    authoredByViewer: false,
+    additions: 0,
+    deletions: 0,
+    reviewRequests: [],
+    updatedAt: '2024-01-01T00:00:00Z',
+    hasConflicts: false,
+    isCrossRepository: false,
+    ...overrides,
+  };
 }

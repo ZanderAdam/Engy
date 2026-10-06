@@ -5,6 +5,7 @@ import { commentThreads, inboxItems, threadComments, workspaces } from '../../db
 import { diffDocPath } from '@/lib/diff-doc-path';
 import { upsertItem } from '../../inbox/store';
 import { upsertPrs } from './pr';
+import { makePr } from '../../github/pr-fixtures';
 import { installFakeDaemon, type FakeDaemon } from '../../review/fake-daemon';
 import { startStubGithub, type StubGithub } from '../../github/stub-server';
 
@@ -28,28 +29,14 @@ describe('review router', () => {
     workspaceId = ctx.db.select().from(workspaces).get()!.id;
     daemon.remoteHeads.set(7, 'sha-7a');
     upsertPrs(ctx.db, REPO_PATH, [
-      {
+      makePr({
         repoFullName: 'org/app',
         number: 7,
         title: 'PR',
         url: 'https://github.com/org/app/pull/7',
         headBranch: 'feat/seven',
         headSha: 'sha-7a',
-        baseBranch: 'main',
-        author: 'alice',
-        isDraft: false,
-        reviewDecision: null,
-        ciStatus: 'passing',
-        checks: [],
-        commentCount: 0,
-        authoredByViewer: false,
-        additions: 0,
-        deletions: 0,
-        reviewRequests: [],
-        updatedAt: '2024-01-01T00:00:00Z',
-        hasConflicts: false,
-        isCrossRepository: false,
-      },
+      }),
     ]);
   });
 

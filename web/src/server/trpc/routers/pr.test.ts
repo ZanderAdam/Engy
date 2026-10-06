@@ -3,38 +3,17 @@ import { appRouter } from '../root';
 import { setupTestDb, type TestContext } from '../test-helpers';
 import { workspaces, prs, agentSessions, taskGroups, tasks, projects } from '../../db/schema';
 import { upsertPrs, findCorrelatedSession } from './pr';
-import type { GithubPr } from '../../github/prs';
 import { startStubGithub, type StubGithub } from '../../github/stub-server';
-import { rawPr, searchReply, searchQuery, type RawPrFixture } from '../../github/pr-fixtures';
+import {
+  makePr,
+  rawPr,
+  searchReply,
+  searchQuery,
+  type RawPrFixture,
+} from '../../github/pr-fixtures';
 import { eq } from 'drizzle-orm';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
-
-function makePr(overrides: Partial<GithubPr> = {}): GithubPr {
-  return {
-    repoFullName: 'org/repo',
-    number: 1,
-    title: 'My PR',
-    url: 'https://github.com/org/repo/pull/1',
-    headBranch: 'feat/my-feature',
-    headSha: null,
-    baseBranch: 'main',
-    author: 'alice',
-    isDraft: false,
-    reviewDecision: null,
-    ciStatus: 'passing',
-    checks: [],
-    commentCount: 0,
-    authoredByViewer: false,
-    additions: 0,
-    deletions: 0,
-    reviewRequests: [],
-    updatedAt: '2024-01-01T00:00:00Z',
-    hasConflicts: false,
-    isCrossRepository: false,
-    ...overrides,
-  };
-}
 
 // ── GitHub stub ───────────────────────────────────────────────────────
 
