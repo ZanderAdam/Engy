@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { TerminalSessionLabel } from './terminal-session-label';
+import { resolveRenameSeed } from './terminal-label';
 import { TerminalNewMenuContent } from './terminal-new-menu';
 import {
   useCommandCenterMode,
@@ -294,18 +295,18 @@ export function TerminalRail({
   }
 
   function renderExpandedRow(tab: TerminalTab) {
+    const renameSeed = resolveRenameSeed(tab.scope);
     return editingId === tab.sessionId ? (
       <input
         key={tab.sessionId}
         className="rounded-sm border border-border bg-transparent px-2 py-1.5 text-xs font-mono outline-none"
-        defaultValue={tab.scope.scopeLabel}
+        defaultValue={renameSeed}
         autoFocus
         onKeyDown={(e) => {
-          if (e.key === 'Enter')
-            commitRename(tab.sessionId, e.currentTarget.value, tab.scope.scopeLabel);
+          if (e.key === 'Enter') commitRename(tab.sessionId, e.currentTarget.value, renameSeed);
           else if (e.key === 'Escape') setEditingId(null);
         }}
-        onBlur={(e) => commitRename(tab.sessionId, e.currentTarget.value, tab.scope.scopeLabel)}
+        onBlur={(e) => commitRename(tab.sessionId, e.currentTarget.value, renameSeed)}
       />
     ) : (
       <div

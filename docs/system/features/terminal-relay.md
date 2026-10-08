@@ -581,6 +581,8 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-930 | WHEN a browser receives a `reconnected` snapshot, it SHALL resize its terminal grid to the snapshot's `cols`/`rows` before it resets the terminal and writes the snapshot, and SHALL re-assert its fitted size after the write completes, so a full-screen program's frame is never written into a grid of another size and any size gap reaches the PTY as a resize that makes the program repaint. |
 | FR-TERMINAL-940 | WHEN `countAgentSpawnedSessions` counts live agent-spawned sessions against `AGENT_SPAWN_LIMIT`, the system SHALL NOT count sessions spawned by an agent review (`spawnedBy` `auto-review`), because an agent cannot close them with `terminal_close`. |
 | FR-TERMINAL-950 | WHILE the PRs tab of a project is open, the default terminal scope SHALL ignore the `wt` search parameter, so the dock group key matches the group key of the review terminals (`projectGroupKey` with no worktree). |
+| FR-TERMINAL-960 | WHEN a `terminal:focus` request is waiting for its terminal to take focus, and the user focuses a different text input outside a terminal before it does, the browser SHALL cancel the request and leave focus on that input; WHEN focus stays where the request came from, or moves to a terminal, the request SHALL still focus its terminal. |
+| FR-TERMINAL-970 | WHEN the user starts a rename from the terminal rail or a dock tab, the rename input SHALL start from the terminal's current manual rename (`renamedLabel`) if set, otherwise the scope label, and SHALL treat a commit equal to that value as no change. |
 
 ## Sources
 

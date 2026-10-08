@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { trpc, getTrpcClientOptions } from '@/lib/trpc';
 import { TerminalSessionLabel } from './terminal-session-label';
-import { resolveTerminalLabel } from './terminal-label';
+import { resolveRenameSeed, resolveTerminalLabel } from './terminal-label';
 import type { TerminalTab } from './types';
 
 function tab(overrides: Partial<TerminalTab> = {}): TerminalTab {
@@ -137,5 +137,17 @@ describe('TerminalSessionLabel', () => {
   it('[FR-TERMINAL-740] should render no attention indicator when needsAttention is unset', () => {
     const html = render(tab());
     expect(html).not.toContain('Needs attention');
+  });
+});
+
+describe('resolveRenameSeed', () => {
+  const scope = tab().scope;
+
+  it('[FR-TERMINAL-970] should seed the rename input with the current manual rename', () => {
+    expect(resolveRenameSeed({ ...scope, renamedLabel: 'my rename' })).toBe('my rename');
+  });
+
+  it('[FR-TERMINAL-970] should seed the rename input with scopeLabel when the terminal was never renamed', () => {
+    expect(resolveRenameSeed(scope)).toBe('claude: web');
   });
 });

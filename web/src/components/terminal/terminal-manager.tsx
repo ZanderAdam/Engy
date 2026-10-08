@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { DockviewReact, type DockviewApi, type SerializedDockview } from "dockview";
 import type { TerminalActions } from "./terminal";
+import { focusWhenFocusable } from "./focus-when-focusable";
 import { isStoppedTerminal, type TerminalActivityState, type TerminalTab, type TerminalScope, type TerminalPanelParams, type SplitPosition, type TerminalDropdownGroup } from "./types";
 import { TerminalDockContext, type TerminalDockContextValue } from "./terminal-dock-context";
 import { TerminalDockPanel } from "./terminal-dock-panel";
@@ -148,18 +149,6 @@ export function reduceServerActivity(
 
 function seedActivityStore(sessions: SessionListItem[]): void {
   for (const s of sessions) applyServerActivity(s.sessionId, s.activityState ?? 'idle');
-}
-
-const FOCUS_RETRY_FRAMES = 180;
-
-function focusWhenFocusable(
-  getActions: () => TerminalActions | undefined,
-  framesLeft = FOCUS_RETRY_FRAMES,
-): void {
-  requestAnimationFrame(() => {
-    if (getActions()?.focus()) return;
-    if (framesLeft > 0) focusWhenFocusable(getActions, framesLeft - 1);
-  });
 }
 
 export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled, disableExternalEvents = false, publishKey, global = false }: TerminalManagerProps) {
