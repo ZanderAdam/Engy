@@ -3,13 +3,10 @@
 - [.claude](.claude/) — README
 - [.devcontainer](.devcontainer/) — README
 - [.qmd](.qmd/) — README
-- [client](client/) — README
-- [common](common/) — README
+- [docs](docs/) — README
 - [memory](memory/) — Workspace knowledge base — permanent notes, source snapshots, and references
-- [node_modules](node_modules/) — README
 - [projects](projects/) — README
 - [screenshots](screenshots/) — README
 - [system](system/) — Workspace system documentation — overview, features, and technical concerns (1 notes)
-- [web](web/) — README
 
 <!-- INDEX END -->

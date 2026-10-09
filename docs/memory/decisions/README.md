@@ -22,5 +22,6 @@ Permanent notes capturing significant decisions — what was chosen, what altern
 - [20260801213612-per-agent-settings-fall-back-to-legacy-skill-columns-instead.md](20260801213612-per-agent-settings-fall-back-to-legacy-skill-columns-instead.md) — **Rule:** Per-agent workspace settings (the `agent_settings` JSON column keyed b
 - [20260801213619-the-terminal-rail-s-dots-mode-is-deliberately-focus-only.md](20260801213619-the-terminal-rail-s-dots-mode-is-deliberately-focus-only.md) — **Rule:** Keep the terminal rail's collapsed "dots" mode focus-only. All managem
 - [20260801213630-the-5-attempt-total-auto-fix-cap-is-load-bearing-not-gold-pl.md](20260801213630-the-5-attempt-total-auto-fix-cap-is-load-bearing-not-gold-pl.md) — **Rule:** Keep the total cap of 5 auto-fix attempts per PR, alongside the 2-per-
+- [20261009072053-github-calls-run-on-the-server-with-engy-github-token-never-.md](20261009072053-github-calls-run-on-the-server-with-engy-github-token-never-.md) — **Rule:** All GitHub I/O (PR list, CI checks, notifications, timelines, review t
 
 <!-- INDEX END -->
