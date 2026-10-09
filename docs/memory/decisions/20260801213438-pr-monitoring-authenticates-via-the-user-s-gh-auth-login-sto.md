@@ -14,6 +14,7 @@ themes:
 tags:
   - architecture
   - daemon
+scenarioIds: []
 sources: []
 linkedMemories:
   - >-
@@ -24,7 +25,8 @@ linkedMemories:
     memory/decisions/20260801213358-specwatcher-polls-the-whole-docsdir-assuming-it-is-a-dedicat.md
   - >-
     memory/conventions/20260801213448-expand-tilde-at-the-server-boundary-the-daemon-is-never-tild.md
-scenarioIds: []
+supersededBy: >-
+  memory/decisions/20261009072053-github-calls-run-on-the-server-with-engy-github-token-never-.md
 ---
 **Rule:** PR/CI monitoring authenticates exclusively through the user's existing `gh auth login` — the token is resolved by `gh` from the macOS Keychain at exec time, daemon-side. Engy stores no GitHub tokens and registers no OAuth app.
 
