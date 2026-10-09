@@ -17,13 +17,14 @@ import { VLink } from '@/components/tabs/virtual-link';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ReviewAvatar } from '@/components/review/review-avatar';
+import { MarkdownView } from '@/components/review/markdown-view';
 import { ReviewOverview } from '@/components/review/review-overview';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { InboxCiBadge, InboxRiskBadge } from './inbox-badges';
 import { EVENT_META, hasAvatar, summarizeEvent } from './inbox-event-meta';
 import { githubAvatarUrl, type InboxItem } from './inbox-helpers';
-import type { InboxRowModel } from './inbox-rows';
+import { replyLocation, type InboxReply, type InboxRowModel } from './inbox-rows';
 
 interface InboxPreviewProps {
   row: InboxRowModel;
@@ -89,6 +90,40 @@ function ActivityRow({ event }: { event: InboxItem['events'][number] }) {
         </a>
       )}
     </li>
+  );
+}
+
+function ReplySection({ reply }: { reply: InboxReply }) {
+  const location = replyLocation(reply);
+  return (
+    <section aria-label="Reply" className="flex flex-col gap-2 border-b border-border px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <ReviewAvatar login={reply.author} avatarUrl={githubAvatarUrl(reply.author)} />
+        <span className="font-medium text-foreground">{reply.author}</span>
+        <span>{location ? 'replied on' : 'commented'}</span>
+        {location && <span className="font-mono">{location}</span>}
+        <span className="ml-auto">{formatRelativeTime(reply.createdAt)}</span>
+      </div>
+      <MarkdownView markdown={reply.body} />
+    </section>
+  );
+}
+
+function ActivitySection({ events }: { events: InboxItem['events'] }) {
+  return (
+    <section aria-label="Activity" className="flex flex-col border-b border-border">
+      <h3 className="px-4 pt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Activity
+      </h3>
+      <ul className="flex flex-col">
+        {events.map((event) => (
+          <ActivityRow key={event.id} event={event} />
+        ))}
+        {events.length === 0 && (
+          <li className="px-4 py-3 text-xs text-muted-foreground">No events yet</li>
+        )}
+      </ul>
+    </section>
   );
 }
 
@@ -165,7 +200,6 @@ export function InboxPreview({
   onSnooze,
   onToggleRead,
 }: InboxPreviewProps) {
-  const events = row.item?.events ?? [];
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="flex flex-col gap-2 border-b border-border px-4 py-3">
@@ -221,19 +255,11 @@ export function InboxPreview({
           <p className="text-xs text-muted-foreground">{NO_WORKSPACE_HINT}</p>
         )}
       </div>
-      <section aria-label="Activity" className="flex flex-col border-b border-border">
-        <h3 className="px-4 pt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Activity
-        </h3>
-        <ul className="flex flex-col">
-          {events.map((event) => (
-            <ActivityRow key={event.id} event={event} />
-          ))}
-          {events.length === 0 && (
-            <li className="px-4 py-3 text-xs text-muted-foreground">No events yet</li>
-          )}
-        </ul>
-      </section>
+      {row.reply ? (
+        <ReplySection reply={row.reply} />
+      ) : (
+        <ActivitySection events={row.item?.events ?? []} />
+      )}
       {row.workspaceId !== null && (
         <PrOverview
           workspaceId={row.workspaceId}

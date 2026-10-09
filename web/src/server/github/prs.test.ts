@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createAppState, type AppState } from '../trpc/context';
-import { listOpenPrs, resolveRepoPrs, deriveCiStatus, normalizeCheck, type GithubPr } from './prs';
+import {
+  fetchPrState,
+  listOpenPrs,
+  resolveRepoPrs,
+  deriveCiStatus,
+  normalizeCheck,
+  type GithubPr,
+} from './prs';
 import { rawPr, searchReply, searchQuery } from './pr-fixtures';
 import { startStubGithub, type StubGithub } from './stub-server';
 
@@ -22,6 +29,22 @@ describe('github prs', () => {
     delete process.env.ENGY_GITHUB_API_URL;
     delete process.env.ENGY_GITHUB_TOKEN;
     await stub.close();
+  });
+
+  describe('[FR-INBOX-610] fetchPrState', () => {
+    it('should return the state of the pull request', async () => {
+      stub.reply(() => ({ body: { data: { repository: { pullRequest: { state: 'MERGED' } } } } }));
+
+      expect(await fetchPrState(state, 'acme/api', 7)).toBe('MERGED');
+      const { variables } = JSON.parse(stub.requests[0].body) as { variables: unknown };
+      expect(variables).toEqual({ owner: 'acme', name: 'api', number: 7 });
+    });
+
+    it('should return null for a missing pull request', async () => {
+      stub.reply(() => ({ body: { data: { repository: null } } }));
+
+      expect(await fetchPrState(state, 'acme/api', 7)).toBeNull();
+    });
   });
 
   describe('listOpenPrs', () => {

@@ -146,6 +146,17 @@ query OpenPrs($q: String!, $first: Int!, $after: String) {
   }
 }`;
 
+const PR_STATE_QUERY = `
+query PrState($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) { state }
+  }
+}`;
+
+interface PrStateResponse {
+  repository: { pullRequest: { state: string } | null } | null;
+}
+
 const AUTHORED_SEARCH = 'is:pr is:open author:@me';
 const REVIEW_REQUESTED_SEARCH = 'is:pr is:open review-requested:@me';
 
@@ -266,4 +277,18 @@ export async function resolveRepoPrs(
   }
   const wanted = fullName.toLowerCase();
   return openPrs.filter((pr) => pr.repoFullName.toLowerCase() === wanted);
+}
+
+export async function fetchPrState(
+  state: AppState,
+  repoFullName: string,
+  prNumber: number,
+): Promise<string | null> {
+  const [owner, name] = repoFullName.split('/');
+  const data = await githubGraphql<PrStateResponse>(state, PR_STATE_QUERY, {
+    owner,
+    name,
+    number: prNumber,
+  });
+  return data.repository?.pullRequest?.state ?? null;
 }

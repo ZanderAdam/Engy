@@ -1,6 +1,19 @@
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  ne,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import { getDb } from '../db/client';
-import { inboxEvents, inboxItems } from '../db/schema';
+import { inboxEvents, inboxItems, type INBOX_PR_STATES } from '../db/schema';
 import { broadcastInboxChange } from '../ws/broadcast';
 import {
   computeBucket,
@@ -12,6 +25,19 @@ import {
 
 type InboxItem = typeof inboxItems.$inferSelect;
 type InboxEvent = typeof inboxEvents.$inferSelect;
+export type InboxPrState = (typeof INBOX_PR_STATES)[number];
+
+const PR_STATE_BY_EVENT: Partial<Record<InboxEventKind, InboxPrState>> = {
+  merged: 'merged',
+  closed: 'closed',
+  reopened: 'open',
+};
+
+export function toInboxPrState(githubState: string): InboxPrState {
+  if (githubState === 'MERGED') return 'merged';
+  if (githubState === 'CLOSED') return 'closed';
+  return 'open';
+}
 
 export interface UpsertItemInput {
   repoFullName: string;
@@ -23,6 +49,7 @@ export interface UpsertItemInput {
   repoPath?: string | null;
   facts?: BucketFacts;
   firstEventAt?: string;
+  prState?: InboxPrState;
 }
 
 interface AddEventInput {
@@ -55,7 +82,7 @@ function notify(itemId: number | null): void {
 }
 
 function visibleWhere(filter: InboxFilter): SQL | undefined {
-  const conditions: SQL[] = [isNull(inboxItems.doneAt)];
+  const conditions: SQL[] = [isNull(inboxItems.doneAt), eq(inboxItems.prState, 'open')];
   if (!filter.includeSnoozed) conditions.push(isNull(inboxItems.snoozedUntil));
   if (filter.tab === 'priority') conditions.push(eq(inboxItems.bucket, 'priority'));
   if (filter.workspaceId !== undefined) {
@@ -106,6 +133,7 @@ export function upsertItem(input: UpsertItemInput, now: Date = new Date()): Inbo
         githubThreadId: input.githubThreadId ?? null,
         workspaceId: input.workspaceId ?? null,
         repoPath: input.repoPath ?? null,
+        prState: input.prState ?? 'open',
         bucket: input.facts ? computeBucket(input.facts) : 'other',
         lastEventAt: input.firstEventAt ?? timestamp,
         createdAt: timestamp,
@@ -125,6 +153,7 @@ export function upsertItem(input: UpsertItemInput, now: Date = new Date()): Inbo
       githubThreadId: input.githubThreadId ?? existing.githubThreadId,
       workspaceId: input.workspaceId ?? existing.workspaceId,
       repoPath: input.repoPath ?? existing.repoPath,
+      prState: input.prState ?? existing.prState,
       bucket: input.facts
         ? computeBucket(withUnreadMention(input.facts, existing, db))
         : existing.bucket,
@@ -133,7 +162,9 @@ export function upsertItem(input: UpsertItemInput, now: Date = new Date()): Inbo
     .where(eq(inboxItems.id, existing.id))
     .returning()
     .get();
-  if (updated.bucket !== existing.bucket) notify(updated.id);
+  if (updated.bucket !== existing.bucket || updated.prState !== existing.prState) {
+    notify(updated.id);
+  }
   return updated;
 }
 
@@ -165,13 +196,15 @@ export function addEvent(input: AddEventInput, now: Date = new Date()): boolean 
     if (!event) return false;
 
     const stillSnoozed = item.snoozedUntil !== null && !wakesSnooze(input.kind, bucket);
+    const prState = PR_STATE_BY_EVENT[input.kind] ?? item.prState;
     tx.update(inboxItems)
       .set({
         unread: true,
         bucket,
         latestReason: input.kind,
         lastEventAt: input.at > item.lastEventAt ? input.at : item.lastEventAt,
-        doneAt: null,
+        prState,
+        doneAt: prState === 'open' ? null : item.doneAt,
         snoozedUntil: stillSnoozed ? item.snoozedUntil : null,
         updatedAt: now.toISOString(),
       })
@@ -264,7 +297,12 @@ export function pruneDone(now: Date): number {
   const cutoff = new Date(now.getTime() - DONE_RETENTION_MS).toISOString();
   const result = getDb()
     .delete(inboxItems)
-    .where(and(isNotNull(inboxItems.doneAt), lte(inboxItems.doneAt, cutoff)))
+    .where(
+      or(
+        and(isNotNull(inboxItems.doneAt), lte(inboxItems.doneAt, cutoff)),
+        and(ne(inboxItems.prState, 'open'), lte(inboxItems.lastEventAt, cutoff)),
+      ),
+    )
     .run();
   if (result.changes > 0) notify(null);
   return result.changes;
@@ -297,14 +335,7 @@ export function getInboxCounts(): InboxCounts {
   const rows = getDb()
     .select({ workspaceId: inboxItems.workspaceId, count: sql<number>`count(*)` })
     .from(inboxItems)
-    .where(
-      and(
-        isNull(inboxItems.doneAt),
-        isNull(inboxItems.snoozedUntil),
-        eq(inboxItems.bucket, 'priority'),
-        eq(inboxItems.unread, true),
-      ),
-    )
+    .where(and(visibleWhere({ tab: 'priority' }), eq(inboxItems.unread, true)))
     .groupBy(inboxItems.workspaceId)
     .all();
 

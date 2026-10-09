@@ -22,13 +22,14 @@ import {
   POLL_INTERVAL_MS,
 } from './poller';
 import * as broadcast from '../ws/broadcast';
-import { listOpenPrs, type GithubPr } from '../github/prs';
+import { fetchPrState, listOpenPrs, type GithubPr } from '../github/prs';
 import { fetchFailedLogs } from '../github/checks';
 import { fetchReviewThreads, type GithubReviewThread } from '../github/review-threads';
 
 vi.mock('../github/prs', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../github/prs')>()),
   listOpenPrs: vi.fn(),
+  fetchPrState: vi.fn(),
 }));
 vi.mock('../github/checks', () => ({ fetchFailedLogs: vi.fn() }));
 vi.mock('../github/review-threads', () => ({ fetchReviewThreads: vi.fn() }));
@@ -464,6 +465,50 @@ describe('PR poller', () => {
         await runPollCycle(ctx.state, ctx.db);
 
         expect(ctx.db.select().from(inboxItems).get()?.bucket).toBe('other');
+      });
+
+      describe('[FR-INBOX-610] PR state when a PR leaves the open list', () => {
+        async function leaveOpenList() {
+          seedWorkspace(ctx, ['/repo-a']);
+          installFakeGithub(
+            ctx,
+            new Map<string, GithubPr[] | Error>([
+              ['/repo-a', [makePr({ number: 1, ciStatus: 'failing', authoredByViewer: true })]],
+            ]),
+          );
+          await runPollCycle(ctx.state, ctx.db);
+          installFakeGithub(
+            ctx,
+            new Map<string, GithubPr[] | Error>([
+              [
+                '/repo-a',
+                [makePr({ number: 1, ciStatus: 'passing', headSha: 's2', authoredByViewer: true })],
+              ],
+            ]),
+          );
+          await runPollCycle(ctx.state, ctx.db);
+          installFakeGithub(ctx, new Map<string, GithubPr[] | Error>([['/repo-a', []]]));
+          await runPollCycle(ctx.state, ctx.db);
+          return ctx.db.select().from(inboxItems).get();
+        }
+
+        it('should store the state GitHub reports for the PR', async () => {
+          vi.mocked(fetchPrState).mockResolvedValueOnce('MERGED');
+
+          const item = await leaveOpenList();
+
+          expect(item?.prState).toBe('merged');
+          expect(fetchPrState).toHaveBeenCalledWith(ctx.state, 'org/repo-a', 1);
+        });
+
+        it('should keep the stored state when the state cannot be read', async () => {
+          vi.mocked(fetchPrState).mockRejectedValueOnce(new Error('boom'));
+          vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+          const item = await leaveOpenList();
+
+          expect(item?.prState).toBe('open');
+        });
       });
 
       it('should set lastFailedHeadSha when a PR transitions to failing', async () => {

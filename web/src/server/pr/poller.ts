@@ -4,7 +4,7 @@ import { workspaces, prs, reviewWorktrees } from '../db/schema';
 import type { AppState } from '../trpc/context';
 import { getViewerTeams } from '../github/teams';
 import { getGithubStatus } from '../github/viewer';
-import { listOpenPrs, resolveRepoPrs, type GithubPr } from '../github/prs';
+import { fetchPrState, listOpenPrs, resolveRepoPrs, type GithubPr } from '../github/prs';
 import { fetchReviewThreads } from '../github/review-threads';
 import {
   upsertPrs,
@@ -18,7 +18,7 @@ import { maybeDispatchCiFix } from './auto-fix';
 import { syncReviewThreads, type ReviewSyncTarget } from './review-sync';
 import { mapPrChange, recordPrInboxEvents, refreshPrFacts } from '../inbox/pr-events';
 import { NO_BUCKET_FACTS } from '../inbox/bucket';
-import { findItemByPr, upsertItem } from '../inbox/store';
+import { findItemByPr, toInboxPrState, upsertItem, type InboxPrState } from '../inbox/store';
 
 export const POLL_INTERVAL_MS = 60_000;
 
@@ -108,7 +108,22 @@ export async function runPollCycle(state: AppState, db: Db): Promise<void> {
   }
 }
 
-function clearPrFacts(change: MaterialChange): void {
+async function readPrState(
+  state: AppState,
+  repoFullName: string,
+  prNumber: number,
+): Promise<InboxPrState | undefined> {
+  try {
+    const githubState = await fetchPrState(state, repoFullName, prNumber);
+    return githubState ? toInboxPrState(githubState) : undefined;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[pr-poller] state fetch failed for ${repoFullName}#${prNumber}:`, message);
+    return undefined;
+  }
+}
+
+async function clearPrFacts(state: AppState, change: MaterialChange): Promise<void> {
   if (!change.repoFullName) return;
   const item = findItemByPr(change.repoFullName, change.number);
   if (!item) return;
@@ -118,6 +133,7 @@ function clearPrFacts(change: MaterialChange): void {
     title: item.title,
     url: item.url,
     facts: NO_BUCKET_FACTS,
+    prState: await readPrState(state, item.repoFullName, item.prNumber),
   });
 }
 
@@ -136,7 +152,7 @@ async function recordInboxActivity(
 
   for (const change of changes) {
     if (change.type === 'removed') {
-      clearPrFacts(change);
+      await clearPrFacts(state, change);
       continue;
     }
     const prRow = rowByNumber.get(change.number);

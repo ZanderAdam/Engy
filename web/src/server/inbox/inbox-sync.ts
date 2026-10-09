@@ -14,7 +14,7 @@ import {
 import type { AppState } from '../trpc/context';
 import { NO_BUCKET_FACTS, type BucketFacts, type InboxEventKind } from './bucket';
 import { bucketFactsForPr } from './pr-events';
-import { addEvent, findItemByPr, getItem, markRead, upsertItem } from './store';
+import { addEvent, findItemByPr, getItem, markRead, toInboxPrState, upsertItem } from './store';
 
 interface RepoLocation {
   workspaceId: number;
@@ -179,6 +179,7 @@ export async function syncThread(
     githubThreadId: thread.id,
     workspaceId: location?.workspaceId,
     repoPath: location?.repoPath,
+    prState: timeline ? toInboxPrState(timeline.state) : undefined,
   };
   const item = upsertItem({ ...base, firstEventAt });
 

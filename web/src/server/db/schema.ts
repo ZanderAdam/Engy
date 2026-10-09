@@ -914,6 +914,8 @@ export const INBOX_EVENT_KINDS = [
   'assigned',
 ] as const;
 
+export const INBOX_PR_STATES = ['open', 'merged', 'closed'] as const;
+
 export const inboxItems = sqliteTable(
   'inbox_items',
   {
@@ -928,6 +930,7 @@ export const inboxItems = sqliteTable(
     title: text('title').notNull(),
     url: text('url').notNull(),
     latestReason: text('latest_reason', { enum: INBOX_EVENT_KINDS }),
+    prState: text('pr_state', { enum: INBOX_PR_STATES }).notNull().default('open'),
     bucket: text('bucket', { enum: ['priority', 'other'] })
       .notNull()
       .default('other'),

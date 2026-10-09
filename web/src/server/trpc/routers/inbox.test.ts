@@ -556,4 +556,81 @@ describe('inbox router', () => {
       await expect(caller.inbox.snooze({ id: item.id, until: 'tomorrow' })).rejects.toThrow();
     });
   });
+
+  describe('[FR-INBOX-630] replies', () => {
+    function replyPr(repo: string, number: number) {
+      return {
+        number,
+        title: `PR ${number}`,
+        url: `https://github.com/${repo}/pull/${number}`,
+        author: { login: 'me' },
+        repository: { nameWithOwner: repo },
+        comments: {
+          nodes: [
+            {
+              databaseId: number * 10,
+              body: 'looks good',
+              url: `https://github.com/${repo}/pull/${number}#c1`,
+              createdAt: '2026-03-01T10:00:00Z',
+              author: { login: 'alice' },
+            },
+          ],
+        },
+        reviewThreads: { nodes: [] },
+      };
+    }
+
+    function stubGithub(scopes = 'repo, notifications') {
+      stub.reply((req) => {
+        if (req.url === '/user') {
+          return { headers: { 'x-oauth-scopes': scopes }, body: { login: 'me' } };
+        }
+        return {
+          body: {
+            data: { search: { nodes: [replyPr('acme/api', 1), replyPr('acme/web', 2)] } },
+          },
+        };
+      });
+    }
+
+    function seedWorkspace(slug: string, repoPath: string, repoFullName: string): number {
+      ctx.state.repoFullNames.set(repoPath, repoFullName);
+      return ctx.db
+        .insert(workspaces)
+        .values({ name: slug, slug, repos: [repoPath] })
+        .returning()
+        .get().id;
+    }
+
+    it('should return the replies with the workspace of their repo', async () => {
+      stubGithub();
+      const workspaceId = seedWorkspace('api', '/repos/api', 'acme/api');
+
+      const replies = await caller.inbox.replies({});
+
+      expect(replies).toEqual([
+        expect.objectContaining({ repoFullName: 'acme/api', prNumber: 1, workspaceId }),
+        expect.objectContaining({ repoFullName: 'acme/web', prNumber: 2, workspaceId: null }),
+      ]);
+    });
+
+    it('should keep only the replies of the given workspace', async () => {
+      stubGithub();
+      seedWorkspace('api', '/repos/api', 'acme/api');
+      const webId = seedWorkspace('web', '/repos/web', 'Acme/Web');
+
+      const replies = await caller.inbox.replies({ workspaceId: webId });
+
+      expect(replies.map((reply) => reply.prNumber)).toEqual([2]);
+    });
+
+    it('should fail with the GitHub status message when GitHub is unavailable', async () => {
+      delete process.env.ENGY_GITHUB_TOKEN;
+
+      await expect(caller.inbox.replies({})).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: expect.stringContaining('ENGY_GITHUB_TOKEN'),
+      });
+    });
+  });
 });

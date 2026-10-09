@@ -41,6 +41,7 @@ import {
   describeCleared,
   filterByRequester,
   filterInboxItems,
+  findSelectedRow,
   moveSelection,
   nextSelectionAfterRemoval,
   selectionAfterMarkRead,
@@ -56,6 +57,7 @@ import {
 import {
   inboxItemToRow,
   myPullRequestRows,
+  replyToRow,
   type InboxRowModel,
   type WorkspacePr,
 } from './inbox-rows';
@@ -71,6 +73,7 @@ import { useContainerNarrow } from '@/hooks/use-container-narrow';
 import { useInboxKeys } from './use-inbox-keys';
 
 const READ_DWELL_MS = 1500;
+const REPLIES_STALE_MS = 60_000;
 const ALL_WORKSPACES = 'all';
 
 const LIST_SIDEBAR_CONFIG = {
@@ -111,7 +114,8 @@ export function InboxView({ scope }: InboxViewProps) {
   const selectedWorkspaceId =
     workspaceFilter === ALL_WORKSPACES ? undefined : Number(workspaceFilter);
   const workspaceId = lockedWorkspaceId ?? selectedWorkspaceId;
-  const inboxTab = tab === 'mine' ? 'all' : tab;
+  const inboxTab = tab === 'priority' ? 'priority' : 'all';
+  const isItemTab = tab === 'priority' || tab === 'all';
 
   const { data: githubStatus } = trpc.github.status.useQuery();
   const { data: workspaces = [] } = trpc.workspace.list.useQuery();
@@ -122,8 +126,18 @@ export function InboxView({ scope }: InboxViewProps) {
     includeSnoozed: tab === 'mine' || displayOptions.showSnoozed,
   });
 
+  const {
+    data: replies = [],
+    error: repliesError,
+    isLoading: isRepliesLoading,
+  } = trpc.inbox.replies.useQuery(
+    { workspaceId },
+    { enabled: tab === 'replies', staleTime: REPLIES_STALE_MS },
+  );
+
   function refresh() {
-    void utils.inbox.invalidate();
+    void utils.inbox.list.invalidate();
+    void utils.inbox.counts.invalidate();
   }
 
   const mutationOptions = {
@@ -162,10 +176,13 @@ export function InboxView({ scope }: InboxViewProps) {
 
   const prWorkspaceIds = useMemo(() => {
     if (lockedWorkspaceId !== undefined) return [lockedWorkspaceId];
+    const sources = tab === 'replies' ? replies : items;
     return [
-      ...new Set(items.flatMap((item) => (item.workspaceId === null ? [] : [item.workspaceId]))),
+      ...new Set(
+        sources.flatMap((source) => (source.workspaceId === null ? [] : [source.workspaceId])),
+      ),
     ];
-  }, [items, lockedWorkspaceId]);
+  }, [items, replies, tab, lockedWorkspaceId]);
   const prQueries = trpc.useQueries((t) =>
     prWorkspaceIds.map((id) => t.pr.list({ workspaceId: id })),
   );
@@ -177,21 +194,29 @@ export function InboxView({ scope }: InboxViewProps) {
   }
   const lockedPrData = isLocked ? prQueries[0]?.data : undefined;
 
-  const unsortedRows =
-    tab === 'mine' && lockedWorkspaceId !== undefined
-      ? myPullRequestRows(lockedPrData?.prs ?? [], items, lockedWorkspaceId)
-      : items.map((item) =>
-          inboxItemToRow(item, prByKey.get(prKey(item.repoFullName, item.prNumber))),
-        );
-  const rows = sortInboxRows(unsortedRows, displayOptions.sort, displayOptions.unreadFirst);
+  function buildRows(): InboxRowModel[] {
+    if (tab === 'mine' && lockedWorkspaceId !== undefined) {
+      return myPullRequestRows(lockedPrData?.prs ?? [], items, lockedWorkspaceId);
+    }
+    if (tab === 'replies') {
+      return replies.map((reply) =>
+        replyToRow(reply, prByKey.get(prKey(reply.repoFullName, reply.prNumber))),
+      );
+    }
+    return items.map((item) =>
+      inboxItemToRow(item, prByKey.get(prKey(item.repoFullName, item.prNumber))),
+    );
+  }
+
+  const rows = sortInboxRows(buildRows(), displayOptions.sort, displayOptions.unreadFirst);
   const teams = requesterTeams(rows);
-  const showRequester = tab !== 'mine';
+  const showRequester = isItemTab;
   const requesterFilter = showRequester ? activeRequester(requester, teams) : ANY_REQUESTER;
   const visibleRows = filterByRequester(filterInboxItems(rows, query), requesterFilter);
   function markVisibleRead() {
-    if (tab === 'mine') return;
+    if (!isItemTab) return;
     markAllRead({
-      tab,
+      tab: inboxTab,
       workspaceId,
       includeSnoozed: displayOptions.showSnoozed,
       ids: visibleItemIds(visibleRows),
@@ -199,9 +224,9 @@ export function InboxView({ scope }: InboxViewProps) {
   }
 
   function clearVisible(onlyRead: boolean) {
-    if (tab === 'mine') return;
+    if (!isItemTab) return;
     markAllDone({
-      tab,
+      tab: inboxTab,
       workspaceId,
       includeSnoozed: displayOptions.showSnoozed,
       ids: visibleItemIds(visibleRows, onlyRead),
@@ -213,10 +238,7 @@ export function InboxView({ scope }: InboxViewProps) {
     scope && openRepo && openNumber ? { repoFullName: openRepo, prNumber: openNumber } : null;
   const openKey = openPr ? prKey(openPr.repoFullName, openPr.prNumber) : null;
   const activeKey = openKey ?? selectedKey;
-  const selected =
-    visibleRows.find((row) => row.key === activeKey) ??
-    (isNarrow || openKey ? null : visibleRows[0]) ??
-    null;
+  const selected = findSelectedRow(visibleRows, selectedKey, openKey, !isNarrow);
   const selectedItem = selected?.item ?? null;
 
   const selectedRef = useRef(selected);
@@ -364,10 +386,14 @@ export function InboxView({ scope }: InboxViewProps) {
   const showPreviewOnly = isNarrow && previewOpen && selected !== null;
   const githubUnavailable = githubStatus && !githubStatus.available ? githubStatus.message : null;
 
-  const isLoading = tab === 'mine' ? (prQueries[0]?.isLoading ?? false) : isInboxLoading;
+  let isLoading = isInboxLoading;
+  if (tab === 'mine') isLoading = prQueries[0]?.isLoading ?? false;
+  else if (tab === 'replies') isLoading = isRepliesLoading;
   let emptyMessage = 'Nothing here';
   if (isLoading) emptyMessage = 'Loading...';
+  else if (tab === 'replies' && repliesError) emptyMessage = repliesError.message;
   else if (query) emptyMessage = 'No matching items';
+  else if (tab === 'replies') emptyMessage = 'No replies on your open pull requests';
   else if (tab === 'mine') {
     emptyMessage = lockedWorkspaceRepos?.length
       ? 'No open pull requests of yours'
@@ -390,6 +416,7 @@ export function InboxView({ scope }: InboxViewProps) {
                 Priority{unreadPriority > 0 ? ` (${unreadPriority})` : ''}
               </TabsTrigger>
               <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="replies">Replies</TabsTrigger>
             </TabsList>
           </Tabs>
           <Button
@@ -402,7 +429,7 @@ export function InboxView({ scope }: InboxViewProps) {
             <RiKeyboardLine className="size-4" />
           </Button>
           <InboxDisplayOptionsMenu options={displayOptions} onChange={updateDisplayOptions} />
-          {tab !== 'mine' && (
+          {isItemTab && (
             <InboxMoreMenu
               totalCount={visibleItemIds(visibleRows).length}
               readCount={visibleItemIds(visibleRows, true).length}

@@ -1,0 +1,1 @@
+ALTER TABLE `inbox_items` ADD `pr_state` text DEFAULT 'open' NOT NULL;

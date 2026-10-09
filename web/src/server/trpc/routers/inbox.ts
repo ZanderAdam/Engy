@@ -21,6 +21,9 @@ import { parseRisk, type ReviewRisk } from '../../../lib/review-summary-meta';
 import { findCorrelatedSession } from './pr';
 import { markThreadReadOnGithub } from '../../github/notifications';
 import { markItemDone } from '../../inbox/mark-done';
+import { buildRepoIndex } from '../../inbox/inbox-sync';
+import { fetchReplies } from '../../github/replies';
+import { getGithubStatus } from '../../github/viewer';
 
 const RECENT_EVENT_LIMIT = 20;
 
@@ -164,6 +167,24 @@ export const inboxRouter = router({
   markDone: publicProcedure.input(itemIdSchema).mutation(({ input, ctx }) => {
     void markItemDone(ctx.state, requireItem(input.id));
   }),
+
+  replies: publicProcedure
+    .input(z.object({ workspaceId: z.number().optional() }))
+    .query(async ({ input, ctx }) => {
+      const status = await getGithubStatus(ctx.state);
+      if (!status.available) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: status.message });
+      }
+      const [replies, repoIndex] = await Promise.all([
+        fetchReplies(ctx.state, status.login),
+        buildRepoIndex(ctx.state),
+      ]);
+      return replies.flatMap((reply) => {
+        const workspaceId = repoIndex.get(reply.repoFullName.toLowerCase())?.workspaceId ?? null;
+        if (input.workspaceId !== undefined && workspaceId !== input.workspaceId) return [];
+        return [{ ...reply, workspaceId }];
+      });
+    }),
 
   snooze: publicProcedure
     .input(z.object({ id: z.number(), until: z.string().datetime() }))

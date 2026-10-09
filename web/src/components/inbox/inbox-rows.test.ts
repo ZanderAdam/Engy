@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { inboxItemToRow, myPullRequestRows, type WorkspacePr } from './inbox-rows';
+import {
+  inboxItemToRow,
+  myPullRequestRows,
+  replyToRow,
+  type InboxReply,
+  type WorkspacePr,
+} from './inbox-rows';
 import type { InboxItem } from './inbox-helpers';
 
 function pr(overrides: Partial<WorkspacePr>): WorkspacePr {
@@ -153,5 +159,51 @@ describe('[FR-INBOX-600] requested teams on a row', () => {
     );
 
     expect(row.requestedTeams).toEqual([]);
+  });
+});
+
+describe('[FR-INBOX-640] replyToRow', () => {
+  function reply(overrides: Partial<InboxReply> = {}): InboxReply {
+    return {
+      id: 42,
+      repoFullName: 'acme/web',
+      prNumber: 1,
+      prTitle: 'Add thing',
+      prUrl: 'https://github.com/acme/web/pull/1',
+      onViewerPr: true,
+      author: 'bob',
+      body: 'Please\n\n  rename   this',
+      url: 'https://github.com/acme/web/pull/1#discussion_r42',
+      createdAt: '2026-01-03T00:00:00.000Z',
+      path: 'src/a.ts',
+      line: 12,
+      workspaceId: 1,
+      ...overrides,
+    };
+  }
+
+  it('should build one row per reply with the location and a one-line excerpt', () => {
+    const row = replyToRow(reply(), pr({ projectSlug: 'web' }));
+
+    expect(row).toMatchObject({
+      key: 'acme/web#1:42',
+      title: 'Add thing',
+      url: 'https://github.com/acme/web/pull/1#discussion_r42',
+      at: '2026-01-03T00:00:00.000Z',
+      summary: 'src/a.ts:12 · Please rename this',
+      avatarLogin: 'bob',
+      projectSlug: 'web',
+      unread: false,
+      item: null,
+      reply: expect.objectContaining({ author: 'bob', path: 'src/a.ts', line: 12 }),
+    });
+  });
+
+  it('should show only the excerpt for a conversation comment', () => {
+    const row = replyToRow(reply({ path: null, line: null, body: 'Thanks' }), undefined);
+
+    expect(row.summary).toBe('Thanks');
+    expect(row.projectSlug).toBeNull();
+    expect(row.pr).toBeNull();
   });
 });

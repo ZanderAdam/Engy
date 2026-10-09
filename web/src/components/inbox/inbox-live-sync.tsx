@@ -7,7 +7,8 @@ export function InboxLiveSync() {
   const utils = trpc.useUtils();
 
   useOnServerEvent('INBOX_CHANGE', () => {
-    void utils.inbox.invalidate();
+    void utils.inbox.list.invalidate();
+    void utils.inbox.counts.invalidate();
   });
 
   return null;

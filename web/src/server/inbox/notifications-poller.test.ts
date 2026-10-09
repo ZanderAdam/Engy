@@ -380,6 +380,46 @@ describe('notifications poller', () => {
     expect(items()[0].latestReason).toBe('changes_requested');
   });
 
+  it('[FR-INBOX-610] should store the PR state from the timeline', async () => {
+    timeline = () =>
+      timelineReply(
+        [
+          {
+            __typename: 'MergedEvent',
+            id: 'ME_1',
+            createdAt: '2026-03-01T10:59:00Z',
+            actor: { login: 'me' },
+          },
+        ],
+        { state: 'MERGED' },
+      );
+    notifications = [notification({ reason: 'state_change' })];
+
+    await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+    expect(items()[0].prState).toBe('merged');
+  });
+
+  it('[FR-INBOX-610] should trust the timeline state over an older close event', async () => {
+    timeline = () =>
+      timelineReply(
+        [
+          {
+            __typename: 'ClosedEvent',
+            id: 'CE_1',
+            createdAt: '2026-03-01T10:00:00Z',
+            actor: { login: 'alice' },
+          },
+        ],
+        { state: 'OPEN' },
+      );
+    notifications = [notification({ reason: 'state_change' })];
+
+    await runNotificationsCycle(ctx.state, createNotificationsSession(), NOW);
+
+    expect(items()[0].prState).toBe('open');
+  });
+
   it('[FR-INBOX-320] should skip the cycle when GitHub is unavailable', async () => {
     delete process.env.ENGY_GITHUB_TOKEN;
 

@@ -245,6 +245,69 @@ describe('inbox store', () => {
     });
   });
 
+  describe('[FR-INBOX-610] PR state', () => {
+    it('should store an open PR state by default and keep it when the update omits it', () => {
+      const item = upsertItem(itemInput(), NOW);
+      expect(item.prState).toBe('open');
+
+      upsertItem(itemInput({ prState: 'merged' }), NOW);
+      upsertItem(itemInput({ title: 'Renamed' }), NOW);
+
+      expect(getItem(item.id).prState).toBe('merged');
+    });
+
+    it.each([
+      ['merged', 'merged'],
+      ['closed', 'closed'],
+    ] as const)(
+      '[FR-INBOX-090] should set the state on a %s event and keep a done item done',
+      (kind, state) => {
+        const item = upsertItem(itemInput(), NOW);
+        markDone(item.id, NOW);
+
+        addEvent(event(item.id, kind, '2026-03-02T00:00:00.000Z'), NOW);
+
+        expect(getItem(item.id)).toMatchObject({ prState: state, doneAt: NOW.toISOString() });
+      },
+    );
+
+    it('should reopen the PR and bring back a done item on a reopened event', () => {
+      const item = upsertItem(itemInput({ prState: 'closed' }), NOW);
+      markDone(item.id, NOW);
+
+      addEvent(event(item.id, 'reopened', '2026-03-02T00:00:00.000Z'), NOW);
+
+      expect(getItem(item.id)).toMatchObject({ prState: 'open', doneAt: null, unread: true });
+    });
+
+    it('[FR-INBOX-160] [FR-INBOX-170] should hide merged and closed PRs from lists and counts', () => {
+      const open = upsertItem(itemInput({ prNumber: 1, facts: PRIORITY_FACTS }), NOW);
+      upsertItem(itemInput({ prNumber: 2, facts: PRIORITY_FACTS, prState: 'merged' }), NOW);
+      upsertItem(itemInput({ prNumber: 3, facts: PRIORITY_FACTS, prState: 'closed' }), NOW);
+
+      expect(listItems({ tab: 'all' }).map((item) => item.id)).toEqual([open.id]);
+      expect(listItems({ tab: 'priority' }).map((item) => item.id)).toEqual([open.id]);
+      expect(getInboxCounts().unreadPriority).toBe(1);
+    });
+
+    it('[FR-INBOX-070] should broadcast when only the PR state changes', () => {
+      upsertItem(itemInput(), NOW);
+      broadcastSpy.mockClear();
+
+      upsertItem(itemInput({ prState: 'merged' }), NOW);
+
+      expect(broadcastSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should leave merged PRs unread when marking all read', () => {
+      upsertItem(itemInput({ prNumber: 1 }), NOW);
+      const merged = upsertItem(itemInput({ prNumber: 2, prState: 'merged' }), NOW);
+
+      expect(markAllRead({ tab: 'all' }, NOW)).toBe(1);
+      expect(getItem(merged.id).unread).toBe(true);
+    });
+  });
+
   describe('[FR-INBOX-120] read state', () => {
     it('should mark an item read and unread', () => {
       const item = upsertItem(itemInput(), NOW);
@@ -366,6 +429,21 @@ describe('inbox store', () => {
       const remaining = ctx.db.select({ id: inboxItems.id }).from(inboxItems).all();
       expect(remaining.map((row) => row.id).sort()).toEqual([recent.id, open.id].sort());
       expect(ctx.db.select().from(inboxEvents).all()).toHaveLength(0);
+    });
+
+    it('should delete merged and closed PRs with no event for more than 30 days', () => {
+      const oldAt = new Date(NOW.getTime() - DONE_RETENTION_MS - HOUR_MS).toISOString();
+      const recentAt = new Date(NOW.getTime() - HOUR_MS).toISOString();
+      upsertItem(itemInput({ prNumber: 1, prState: 'merged', firstEventAt: oldAt }), NOW);
+      const recent = upsertItem(
+        itemInput({ prNumber: 2, prState: 'closed', firstEventAt: recentAt }),
+        NOW,
+      );
+      const open = upsertItem(itemInput({ prNumber: 3, firstEventAt: oldAt }), NOW);
+
+      expect(pruneDone(NOW)).toBe(1);
+      const remaining = ctx.db.select({ id: inboxItems.id }).from(inboxItems).all();
+      expect(remaining.map((row) => row.id).sort()).toEqual([recent.id, open.id].sort());
     });
   });
 

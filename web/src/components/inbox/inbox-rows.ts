@@ -7,6 +7,7 @@ import { EVENT_META, hasAvatar, summarizeEvent } from './inbox-event-meta';
 import { prKey, type InboxItem } from './inbox-helpers';
 
 export type WorkspacePr = RouterOutputs['pr']['list']['prs'][number];
+export type InboxReply = RouterOutputs['inbox']['replies'][number];
 
 export interface InboxRowModel {
   key: string;
@@ -29,6 +30,7 @@ export interface InboxRowModel {
   ci: GhPrCiStatus | undefined;
   item: InboxItem | null;
   pr: WorkspacePr | null;
+  reply: InboxReply | null;
 }
 
 export function inboxItemToRow(item: InboxItem, pr: WorkspacePr | undefined): InboxRowModel {
@@ -57,6 +59,7 @@ export function inboxItemToRow(item: InboxItem, pr: WorkspacePr | undefined): In
     ci: pr?.ciStatus,
     item,
     pr: pr ?? null,
+    reply: null,
   };
 }
 
@@ -91,6 +94,7 @@ function prToRow(
     ci: pr.ciStatus,
     item: item ?? null,
     pr,
+    reply: null,
   };
 }
 
@@ -114,4 +118,38 @@ export function myPullRequestRows(
             ),
           ],
     );
+}
+
+export function replyLocation(reply: InboxReply): string | null {
+  if (!reply.path) return null;
+  return reply.line === null ? reply.path : `${reply.path}:${reply.line}`;
+}
+
+export function replyToRow(reply: InboxReply, pr: WorkspacePr | undefined): InboxRowModel {
+  const location = replyLocation(reply);
+  const excerpt = reply.body.replace(/\s+/g, ' ').trim();
+  const meta = EVENT_META.commented;
+  return {
+    key: `${prKey(reply.repoFullName, reply.prNumber)}:${reply.id}`,
+    title: reply.prTitle,
+    repoFullName: reply.repoFullName,
+    prNumber: reply.prNumber,
+    url: reply.url,
+    workspaceId: reply.workspaceId,
+    projectSlug: pr?.projectSlug ?? null,
+    at: reply.createdAt,
+    unread: false,
+    snoozedUntil: null,
+    summary: location ? `${location} · ${excerpt}` : excerpt,
+    icon: meta.icon,
+    iconClassName: meta.className,
+    iconLabel: location ? 'Review thread reply' : 'Conversation comment',
+    avatarLogin: reply.author,
+    requestedTeams: [],
+    risk: null,
+    ci: pr?.ciStatus,
+    item: null,
+    pr: pr ?? null,
+    reply,
+  };
 }

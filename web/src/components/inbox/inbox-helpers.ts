@@ -95,7 +95,7 @@ export function filterByRequester<T extends RequesterRow>(rows: T[], requester: 
   });
 }
 
-export type InboxTab = 'priority' | 'all' | 'mine';
+export type InboxTab = 'priority' | 'all' | 'mine' | 'replies';
 
 export function defaultInboxTab(lockedToWorkspace: boolean): InboxTab {
   return lockedToWorkspace ? 'mine' : 'priority';
@@ -141,6 +141,27 @@ export function shouldStartReadDwell<K>(
 
 export function prKey(repoFullName: string | null, prNumber: number): string {
   return `${repoFullName}#${prNumber}`;
+}
+
+interface SelectableRow {
+  key: string;
+  repoFullName: string;
+  prNumber: number;
+}
+
+export function findSelectedRow<T extends SelectableRow>(
+  rows: T[],
+  selectedKey: string | null,
+  openKey: string | null,
+  fallbackToFirst: boolean,
+): T | null {
+  if (openKey !== null) {
+    const ofOpenPr = rows.filter((row) => prKey(row.repoFullName, row.prNumber) === openKey);
+    return ofOpenPr.find((row) => row.key === selectedKey) ?? ofOpenPr[0] ?? null;
+  }
+  const selected = rows.find((row) => row.key === selectedKey);
+  if (selected) return selected;
+  return fallbackToFirst ? (rows[0] ?? null) : null;
 }
 
 export function unreadPriorityCount(

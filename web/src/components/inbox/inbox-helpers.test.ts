@@ -17,6 +17,7 @@ import {
   activeRequester,
   filterByRequester,
   requesterTeams,
+  findSelectedRow,
 } from './inbox-helpers';
 
 describe('inbox-helpers', () => {
@@ -281,5 +282,30 @@ describe('[FR-INBOX-600] requester filter', () => {
     expect(activeRequester('acme/gone', ['acme/web'])).toBe('any');
     expect(activeRequester('acme/web', ['acme/web'])).toBe('acme/web');
     expect(activeRequester('me', [])).toBe('me');
+  });
+});
+
+describe('[FR-INBOX-640] findSelectedRow', () => {
+  const rows = [
+    { key: 'acme/api#1:10', repoFullName: 'acme/api', prNumber: 1 },
+    { key: 'acme/api#1:11', repoFullName: 'acme/api', prNumber: 1 },
+    { key: 'acme/api#2:12', repoFullName: 'acme/api', prNumber: 2 },
+  ];
+
+  it('should pick the selected row, else the first row when allowed', () => {
+    expect(findSelectedRow(rows, 'acme/api#1:11', null, true)).toBe(rows[1]);
+    expect(findSelectedRow(rows, null, null, true)).toBe(rows[0]);
+    expect(findSelectedRow(rows, null, null, false)).toBeNull();
+  });
+
+  it('should keep the selected row of the open review, else the first row of that PR', () => {
+    expect(findSelectedRow(rows, 'acme/api#1:11', 'acme/api#1', true)).toBe(rows[1]);
+    expect(findSelectedRow(rows, 'acme/api#2:12', 'acme/api#1', true)).toBe(rows[0]);
+    expect(findSelectedRow(rows, null, 'acme/web#9', true)).toBeNull();
+  });
+
+  it('should match rows keyed by PR for an open review', () => {
+    const prRows = [{ key: 'acme/api#1', repoFullName: 'acme/api', prNumber: 1 }];
+    expect(findSelectedRow(prRows, null, 'acme/api#1', false)).toBe(prRows[0]);
   });
 });
