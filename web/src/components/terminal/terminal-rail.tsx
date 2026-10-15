@@ -43,6 +43,8 @@ import {
 } from './types';
 import { groupTabsByWorktree, type TerminalWorktreeGroup } from './worktree-grouping';
 import { setWorktreeGrouping, useWorktreeGrouping } from './use-worktree-grouping';
+import { setRailGroupCollapsed, useCollapsedRailGroups } from './use-collapsed-rail-groups';
+import { CollapsibleRailGroup } from './collapsible-rail-group';
 
 interface RailDragHandlers {
   draggable: boolean;
@@ -90,6 +92,7 @@ export function TerminalRail({
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const draggingIdRef = useRef<string | null>(null);
   const byWorktree = useWorktreeGrouping();
+  const collapsedGroups = useCollapsedRailGroups();
   const canHover = useCanHover();
 
   function focusSession(sessionId: string) {
@@ -139,7 +142,7 @@ export function TerminalRail({
       }))
     : [
         {
-          key: '__all__',
+          key: scope.groupKey,
           projectLabel: undefined,
           isProject: false,
           workspaceSlug: undefined,
@@ -186,14 +189,17 @@ export function TerminalRail({
     };
   }
 
-  function renderWorktreeGroup(group: TerminalWorktreeGroup, showHeader: boolean, dots: boolean) {
-    return (
-      <div
-        key={group.branch ?? '__default__'}
-        className={cn('flex flex-col gap-0.5', dots && 'items-center gap-1.5')}
-      >
-        {showHeader &&
-          (dots ? (
+  function renderWorktreeGroup(
+    group: TerminalWorktreeGroup,
+    sectionKey: string,
+    showHeader: boolean,
+    dots: boolean,
+  ) {
+    const key = group.branch ?? '__default__';
+    if (dots) {
+      return (
+        <div key={key} className="flex flex-col items-center gap-1.5">
+          {showHeader && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <span
@@ -207,32 +213,52 @@ export function TerminalRail({
                 {group.label}
               </TooltipContent>
             </Tooltip>
-          ) : (
-            <p className="flex items-center gap-1.5 px-2 pt-1 pb-0.5 text-[11px] font-medium text-muted-foreground">
-              <RiGitBranchLine className="size-3 shrink-0" />
-              <span className="truncate font-mono">{group.label}</span>
-            </p>
-          ))}
-        {showHeader && !dots ? (
-          <div className="ml-3 flex flex-col gap-0.5 border-l border-border/60 pl-1">
-            {group.tabs.map(renderExpandedRow)}
-          </div>
-        ) : (
-          group.tabs.map(dots ? renderDot : renderExpandedRow)
-        )}
-      </div>
+          )}
+          {group.tabs.map(renderDot)}
+        </div>
+      );
+    }
+    if (!showHeader) {
+      return (
+        <div key={key} className="flex flex-col gap-0.5">
+          {group.tabs.map(renderExpandedRow)}
+        </div>
+      );
+    }
+    const groupId = `${sectionKey}|${group.branch ?? ''}`;
+    return (
+      <CollapsibleRailGroup
+        key={key}
+        accessibleName={`worktree ${group.label}`}
+        tabs={group.tabs}
+        open={!collapsedGroups.includes(groupId)}
+        onOpenChange={(open) => setRailGroupCollapsed(groupId, !open)}
+        label={
+          <>
+            <RiGitBranchLine className="size-3 shrink-0" />
+            <span className="truncate font-mono">{group.label}</span>
+          </>
+        }
+        headerClassName="gap-1.5 pt-1 pb-0.5 text-[11px] font-medium text-muted-foreground"
+        contentClassName="ml-3 flex flex-col gap-0.5 border-l border-border/60 pl-1"
+      >
+        {group.tabs.map(renderExpandedRow)}
+      </CollapsibleRailGroup>
     );
   }
 
   function renderSection(section: (typeof sections)[number], dots: boolean) {
     const showWorktreeHeaders = section.worktreeGroups.length > 1;
-    return (
-      <div
-        key={section.key}
-        className={cn('flex flex-col gap-0.5', dots ? 'items-center gap-1.5' : 'pb-1')}
-      >
-        {section.projectLabel &&
-          (dots ? (
+    const worktreeGroups = section.worktreeGroups.map((g) =>
+      renderWorktreeGroup(g, section.key, showWorktreeHeaders, dots),
+    );
+    const fullLabel = section.workspaceSlug
+      ? `${section.workspaceSlug} / ${section.projectLabel}`
+      : section.projectLabel;
+    if (dots) {
+      return (
+        <div key={section.key} className="flex flex-col items-center gap-1.5">
+          {section.projectLabel && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="block max-w-8 truncate text-[9px] font-semibold uppercase text-muted-foreground">
@@ -240,57 +266,71 @@ export function TerminalRail({
                 </span>
               </TooltipTrigger>
               <TooltipContent side="left" className="text-xs">
-                {section.workspaceSlug
-                  ? `${section.workspaceSlug} / ${section.projectLabel}`
-                  : section.projectLabel}
+                {fullLabel}
               </TooltipContent>
             </Tooltip>
-          ) : (
-            <div className="group/section flex items-center gap-1 pr-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <p className="flex min-w-0 flex-1 items-baseline gap-1 truncate px-2 pt-1.5 pb-0.5 text-xs font-semibold text-foreground/80">
-                    {section.workspaceSlug && (
-                      <span className="max-w-[45%] shrink-0 truncate font-normal text-muted-foreground">
-                        {section.workspaceSlug} /
-                      </span>
-                    )}
-                    <span className="truncate">{section.projectLabel}</span>
-                  </p>
-                </TooltipTrigger>
-                <TooltipContent side="left">
-                  {section.workspaceSlug
-                    ? `${section.workspaceSlug} / ${section.projectLabel}`
-                    : section.projectLabel}
-                </TooltipContent>
-              </Tooltip>
-              {section.isProject && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const cloned = cloneScopeForNewTerminal(section.worktreeGroups);
-                        if (cloned) openTerminalFromRail(cloned);
-                      }}
-                      aria-label={`New terminal in ${section.projectLabel}`}
-                      className={cn(
-                        'mt-1 shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground',
-                        canHover ? 'opacity-0 group-hover/section:opacity-100' : 'opacity-100',
-                      )}
-                    >
-                      <RiAddLine className="size-3" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="left">
-                    New terminal in {section.projectLabel}
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-          ))}
-        {section.worktreeGroups.map((g) => renderWorktreeGroup(g, showWorktreeHeaders, dots))}
-      </div>
+          )}
+          {worktreeGroups}
+        </div>
+      );
+    }
+    if (!section.projectLabel) {
+      return (
+        <div key={section.key} className="flex flex-col gap-0.5 pb-1">
+          {worktreeGroups}
+        </div>
+      );
+    }
+    return (
+      <CollapsibleRailGroup
+        key={section.key}
+        accessibleName={`project ${section.projectLabel}`}
+        tabs={section.worktreeGroups.flatMap((g) => g.tabs)}
+        open={!collapsedGroups.includes(section.key)}
+        onOpenChange={(open) => setRailGroupCollapsed(section.key, !open)}
+        label={
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="flex min-w-0 items-baseline gap-1 truncate">
+                {section.workspaceSlug && (
+                  <span className="max-w-[45%] shrink-0 truncate font-normal text-muted-foreground">
+                    {section.workspaceSlug} /
+                  </span>
+                )}
+                <span className="truncate">{section.projectLabel}</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="left">{fullLabel}</TooltipContent>
+          </Tooltip>
+        }
+        headerClassName="pt-1.5 pb-0.5 text-xs font-semibold text-foreground/80"
+        contentClassName="flex flex-col gap-0.5 pb-1"
+        actions={
+          section.isProject && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cloned = cloneScopeForNewTerminal(section.worktreeGroups);
+                    if (cloned) openTerminalFromRail(cloned);
+                  }}
+                  aria-label={`New terminal in ${section.projectLabel}`}
+                  className={cn(
+                    'mt-1 shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground',
+                    canHover ? 'opacity-0 group-hover/section:opacity-100' : 'opacity-100',
+                  )}
+                >
+                  <RiAddLine className="size-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left">New terminal in {section.projectLabel}</TooltipContent>
+            </Tooltip>
+          )
+        }
+      >
+        {worktreeGroups}
+      </CollapsibleRailGroup>
     );
   }
 

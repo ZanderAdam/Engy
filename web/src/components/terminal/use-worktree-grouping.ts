@@ -1,7 +1,7 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
-import { createPersistentToggle } from './persistent-toggle';
+import { createPersistentToggle } from './persistent-value';
 
 // Global, cross-tab toggle for the terminal rail's worktree grouping. On (the
 // default) the rail splits each list into per-branch groups; off it renders one

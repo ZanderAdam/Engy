@@ -1,7 +1,7 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
-import { createPersistentToggle } from '../persistent-toggle';
+import { createPersistentToggle } from '../persistent-value';
 
 // Global, cross-tab toggle: when on, every terminal sidebar (right panel) across
 // all in-app project tabs shows the Command Center — the live view of every
