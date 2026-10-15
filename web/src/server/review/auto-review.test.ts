@@ -10,7 +10,7 @@ import type { GithubPr } from '../github/prs';
 import { spawnAgentTerminal } from '../terminal-dispatch';
 import { dispatchGitBranchFiles } from '../ws/server';
 import { installFakeDaemon, type FakeDaemon } from './fake-daemon';
-import { maybeStartAutoReview, startManualReview } from './auto-review';
+import { maybeStartAutoReview, startLocalReview, startManualReview } from './auto-review';
 
 vi.mock('../terminal-dispatch', () => ({ spawnAgentTerminal: vi.fn() }));
 vi.mock('../ws/server', async (importOriginal) => ({
@@ -408,6 +408,84 @@ describe('auto review', () => {
       vi.mocked(dispatchGitBranchFiles).mockRejectedValueOnce(new Error('no base'));
 
       await expect(startManual()).rejects.toThrow('Could not start the review: no base');
+    });
+  });
+
+  describe('local start', () => {
+    const spec = { kind: 'range', from: 'fork-sha', to: 'head-sha' } as const;
+
+    function startLocal(overrides: { worktreePath?: string; projectSlug?: string } = {}) {
+      return startLocalReview(ctx.state, {
+        workspaceId,
+        repoDir: REPO_PATH,
+        spec,
+        ...overrides,
+      });
+    }
+
+    it('[FR-GIT-455] should spawn a claude session in the repo on the diff on screen', async () => {
+      const result = await startLocal();
+
+      expect(result).toEqual({ sessionId: 'term-1' });
+      const options = vi.mocked(spawnAgentTerminal).mock.calls[0][1];
+      expect(options.agentType).toBe('claude');
+      expect(options.workingDir).toBe(REPO_PATH);
+      expect(options.description).toBe('Review app');
+      expect(options.prompt).toContain('/engy:review-diff');
+      expect(options.prompt).toContain('fork-sha..head-sha');
+      expect(options.prompt).toContain(`repoDir: ${REPO_PATH}`);
+      expect(daemon.calls).toEqual([]);
+    });
+
+    it('[FR-GIT-455] should run in the worktree on screen and file findings against it', async () => {
+      await startLocal({ worktreePath: '/repos/app-wt/feat' });
+
+      const options = vi.mocked(spawnAgentTerminal).mock.calls[0][1];
+      expect(options.workingDir).toBe('/repos/app-wt/feat');
+      expect(options.callerMeta.scopeLabel).toBe('feat');
+      expect(options.prompt).toContain('worktreePath: /repos/app-wt/feat');
+      expect(options.prompt).toContain('diff_review_* MCP tools with repoDir /repos/app-wt/feat');
+    });
+
+    it('[FR-GIT-455] should group the session under the chosen project and pass its guide', async () => {
+      ctx.db.insert(projects).values({ workspaceId, name: 'G', slug: 'guided' }).run();
+      const dir = path.join(process.env.ENGY_DIR!, 'ws', 'projects', 'guided');
+      fs.mkdirSync(dir, { recursive: true });
+      const guidePath = path.join(dir, 'review-guide.md');
+      fs.writeFileSync(guidePath, '# guide');
+
+      await startLocal({ projectSlug: 'guided' });
+
+      const options = vi.mocked(spawnAgentTerminal).mock.calls[0][1];
+      expect(options.callerMeta.groupKey).toBe('project:ws:guided');
+      expect(options.callerMeta.projectSlug).toBe('guided');
+      expect(options.callerMeta.projectId).toBe(
+        ctx.db.select().from(projects).where(eq(projects.slug, 'guided')).get()!.id,
+      );
+      expect(options.prompt).toContain(`reviewGuide: ${guidePath}`);
+    });
+
+    it.each([
+      ['no daemon', () => (ctx.state.daemon = null), 'daemon is not connected'],
+      ['no terminal daemon', () => (ctx.state.terminalDaemon = null), 'daemon is not connected'],
+      ['concurrency full', () => seedActiveSession(), 'Too many agent sessions'],
+    ])('[FR-GIT-455] should refuse with a clear message: %s', async (_name, arrange, message) => {
+      arrange();
+
+      await expect(startLocal()).rejects.toThrow(message);
+      expect(spawnAgentTerminal).not.toHaveBeenCalled();
+    });
+
+    it('[FR-GIT-455] should refuse when the terminal daemon cannot spawn', async () => {
+      vi.mocked(spawnAgentTerminal).mockReturnValueOnce(null);
+
+      await expect(startLocal()).rejects.toThrow('terminal daemon is not connected');
+    });
+
+    it('[FR-GIT-455] should reject an unknown workspace', async () => {
+      await expect(
+        startLocalReview(ctx.state, { workspaceId: 999, repoDir: REPO_PATH, spec }),
+      ).rejects.toThrow('Workspace not found');
     });
   });
 });

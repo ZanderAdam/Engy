@@ -18,7 +18,7 @@ import {
 import { markItemDone } from '../../inbox/mark-done';
 import { findItemByPr } from '../../inbox/store';
 import { syncReviewThreadsNow } from '../../pr/poller';
-import { startManualReview } from '../../review/auto-review';
+import { startLocalReview, startManualReview } from '../../review/auto-review';
 import { requireGithubThread, setResolvedLocally } from '../../review/github-threads';
 import { createDraftThread, deleteImportedDrafts, listDraftThreads } from '../../review/drafts';
 import {
@@ -29,6 +29,7 @@ import {
   updateReviewWorktree,
   type ReviewWorktreeRow,
 } from '../../review/worktrees';
+import { patchSpecInput } from './diff';
 
 const prInput = z.object({
   workspaceId: z.number(),
@@ -108,6 +109,18 @@ export const reviewRouter = router({
   startAgentReview: publicProcedure
     .input(prInput.extend({ projectSlug: z.string().min(1).optional() }))
     .mutation(({ input, ctx }) => startManualReview(ctx.state, input)),
+
+  startLocalAgentReview: publicProcedure
+    .input(
+      z.object({
+        workspaceId: z.number(),
+        repoDir: z.string().min(1),
+        worktreePath: z.string().min(1).optional(),
+        spec: patchSpecInput,
+        projectSlug: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(({ input, ctx }) => startLocalReview(ctx.state, input)),
 
   syncThreads: publicProcedure.input(prInput).mutation(async ({ input, ctx }) => {
     const row = requireReviewRow(input, 'syncing threads');

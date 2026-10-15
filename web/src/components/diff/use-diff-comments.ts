@@ -165,6 +165,7 @@ export function useDiffComments(repoDir: string | null, branch: string | null) {
     scopePrefix: prefix,
     diffComments,
     reviewSummary,
+    commentsLoaded: threads !== undefined,
     commentsForFile,
     addLineComment,
     replyToThread,

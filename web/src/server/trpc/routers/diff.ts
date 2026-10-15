@@ -26,7 +26,7 @@ export interface TaggedWorktreeEntry extends GitWorktreeEntry {
 }
 
 /** Mirrors `GitPatchSpec` in `@engy/common` — which two snapshots to compare. */
-const patchSpecInput = z.discriminatedUnion('kind', [
+export const patchSpecInput = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('staged'), head: z.string().optional() }),
   z.object({ kind: z.literal('unstaged') }),
   z.object({ kind: z.literal('commit'), hash: z.string().min(1) }),

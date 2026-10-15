@@ -12,6 +12,8 @@ import { NonTextFileView } from '@/components/editor/non-text-file-view';
 import { fileKind } from '@/lib/file-types';
 import { ReviewActions } from './review-actions';
 import { ReviewSummaryPanel } from './review-summary-panel';
+import { ReviewGuideControl } from './review-guide-control';
+import { LocalAgentReviewButton } from './local-agent-review-button';
 import { GithubCommentTriage } from './github-comment-triage';
 import { useDiffComments } from './use-diff-comments';
 import { scopeCommentsToFiles } from './comment-scope';
@@ -155,6 +157,7 @@ export function DiffReviewSurface({
     scopePrefix: commentScopePrefix,
     diffComments,
     reviewSummary,
+    commentsLoaded,
     commentsForFile,
     addLineComment,
     replyToThread,
@@ -460,6 +463,19 @@ export function DiffReviewSurface({
               coderWorkspace={coderWorkspace}
               projectId={guideProject?.id}
             />
+            {!hideAgentReview && commentsLoaded && !reviewSummary && guideProject && (
+              <ReviewGuideControl project={guideProject} />
+            )}
+            {!hideAgentReview && workspaceId != null && repoDir && (
+              <LocalAgentReviewButton
+                workspaceId={workspaceId}
+                projectSlug={projectSlug}
+                repoDir={repoDir}
+                worktreePath={worktreePath}
+                coderWorkspace={coderWorkspace}
+                reviewSpec={reviewSpec}
+              />
+            )}
           </div>
         </div>
 

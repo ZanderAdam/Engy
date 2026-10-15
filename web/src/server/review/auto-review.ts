@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { TRPCError } from '@trpc/server';
+import type { GitPatchSpec } from '@engy/common';
 import { and, eq, gt, isNotNull, sql } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { agentSessions, projects, tasks, workspaces } from '../db/schema';
@@ -134,6 +135,42 @@ function findProjectBySlug(workspace: Workspace, slug: string): ProjectRef | und
     .get();
 }
 
+interface ReviewTerminal {
+  workingDir: string;
+  label: string;
+  prompt: string;
+}
+
+function spawnReviewTerminal(
+  state: AppState,
+  workspace: Workspace,
+  project: ProjectRef | undefined,
+  { workingDir, label, prompt }: ReviewTerminal,
+): { sessionId: string } | null {
+  return spawnAgentTerminal(state, {
+    agentType: 'claude',
+    workingDir,
+    description: `Review ${label}`,
+    prompt,
+    spawnedBy: AUTO_REVIEW_SPAWNER,
+    callerMeta: {
+      scopeType: 'worktree',
+      scopeLabel: label,
+      workingDir,
+      groupKey: project
+        ? projectGroupKey(workspace.slug, project.slug)
+        : workspaceGroupKey(workspace.slug),
+      workspaceSlug: workspace.slug,
+      projectId: project?.id,
+      projectSlug: project?.slug,
+      cols: 80,
+      rows: 24,
+    },
+    mcpOrigin: `http://localhost:${process.env.PORT ?? '3000'}`,
+    agentSettings: workspace.agentSettings,
+  });
+}
+
 async function spawnReviewSession(
   state: AppState,
   workspace: Workspace,
@@ -148,32 +185,14 @@ async function spawnReviewSession(
     console.warn(`[auto-review] could not fetch ${base}, using the local ref:`, errorText(err));
   }
   const { mergeBase, head } = await dispatchGitBranchFiles(worktree.worktreePath, base, state);
-  const prompt = buildReviewPrompt({
-    repoDir: worktree.worktreePath,
-    spec: { kind: 'range', from: mergeBase, to: head },
-    reviewGuide: projectGuidePath(workspace, project),
-  });
-  return spawnAgentTerminal(state, {
-    agentType: 'claude',
+  return spawnReviewTerminal(state, workspace, project, {
     workingDir: worktree.worktreePath,
-    description: `Review PR #${prNumber}`,
-    prompt,
-    spawnedBy: AUTO_REVIEW_SPAWNER,
-    callerMeta: {
-      scopeType: 'worktree',
-      scopeLabel: `PR #${prNumber}`,
-      workingDir: worktree.worktreePath,
-      groupKey: project
-        ? projectGroupKey(workspace.slug, project.slug)
-        : workspaceGroupKey(workspace.slug),
-      workspaceSlug: workspace.slug,
-      projectId: project?.id,
-      projectSlug: project?.slug,
-      cols: 80,
-      rows: 24,
-    },
-    mcpOrigin: `http://localhost:${process.env.PORT ?? '3000'}`,
-    agentSettings: workspace.agentSettings,
+    label: `PR #${prNumber}`,
+    prompt: buildReviewPrompt({
+      repoDir: worktree.worktreePath,
+      spec: { kind: 'range', from: mergeBase, to: head },
+      reviewGuide: projectGuidePath(workspace, project),
+    }),
   });
 }
 
@@ -240,15 +259,12 @@ async function startReservedAutoReview(
   }
 }
 
-export async function startManualReview(
+async function withManualReviewSlot<T>(
   state: AppState,
-  input: AutoReviewInput & { projectSlug?: string },
-): Promise<{ sessionId: string }> {
-  const workspace = getDb()
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.id, input.workspaceId))
-    .get();
+  workspaceId: number,
+  run: (workspace: Workspace) => Promise<T>,
+): Promise<T> {
+  const workspace = getDb().select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
   if (!workspace) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' });
 
   if (!isOpen(state.daemon) || !isOpen(state.terminalDaemon)) {
@@ -264,29 +280,18 @@ export async function startManualReview(
     });
   }
   try {
-    return await startReservedManualReview(state, workspace, input);
+    return await run(workspace);
   } finally {
     releaseSlot(state, workspace);
   }
 }
 
-async function startReservedManualReview(
-  state: AppState,
-  workspace: Workspace,
-  input: AutoReviewInput & { projectSlug?: string },
+async function requireSpawned(
+  spawn: () => Promise<{ sessionId: string } | null>,
 ): Promise<{ sessionId: string }> {
-  const { workspaceId, repoFullName, prNumber, projectSlug } = input;
-  const worktree = await openReviewWorktree(
-    state,
-    { workspaceId, repoFullName, prNumber },
-    { cleanup: false },
-  );
-  const project = projectSlug
-    ? findProjectBySlug(workspace, projectSlug)
-    : findCorrelatedProject(worktree);
+  let spawned;
   try {
-    const spawned = await spawnReviewSession(state, workspace, worktree, prNumber, project);
-    if (spawned) return spawned;
+    spawned = await spawn();
   } catch (err) {
     throw new TRPCError({
       code: 'INTERNAL_SERVER_ERROR',
@@ -294,8 +299,58 @@ async function startReservedManualReview(
       cause: err,
     });
   }
+  if (spawned) return spawned;
   throw new TRPCError({
     code: 'PRECONDITION_FAILED',
     message: 'The terminal daemon is not connected. Start it, then try again.',
+  });
+}
+
+export function startManualReview(
+  state: AppState,
+  input: AutoReviewInput & { projectSlug?: string },
+): Promise<{ sessionId: string }> {
+  return withManualReviewSlot(state, input.workspaceId, async (workspace) => {
+    const { workspaceId, repoFullName, prNumber, projectSlug } = input;
+    const worktree = await openReviewWorktree(
+      state,
+      { workspaceId, repoFullName, prNumber },
+      { cleanup: false },
+    );
+    const project = projectSlug
+      ? findProjectBySlug(workspace, projectSlug)
+      : findCorrelatedProject(worktree);
+    return requireSpawned(() => spawnReviewSession(state, workspace, worktree, prNumber, project));
+  });
+}
+
+interface LocalReviewInput {
+  workspaceId: number;
+  repoDir: string;
+  worktreePath?: string;
+  spec: GitPatchSpec;
+  projectSlug?: string;
+}
+
+export function startLocalReview(
+  state: AppState,
+  input: LocalReviewInput,
+): Promise<{ sessionId: string }> {
+  return withManualReviewSlot(state, input.workspaceId, async (workspace) => {
+    const { repoDir, worktreePath, spec, projectSlug } = input;
+    const project = projectSlug ? findProjectBySlug(workspace, projectSlug) : undefined;
+    const workingDir = worktreePath ?? repoDir;
+    return requireSpawned(async () =>
+      spawnReviewTerminal(state, workspace, project, {
+        workingDir,
+        label: path.basename(workingDir),
+        prompt: buildReviewPrompt({
+          repoDir,
+          worktreePath,
+          spec,
+          reviewGuide: projectGuidePath(workspace, project),
+        }),
+      }),
+    );
   });
 }

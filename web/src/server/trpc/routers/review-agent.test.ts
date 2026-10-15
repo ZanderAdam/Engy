@@ -75,4 +75,16 @@ describe('review router agent review', () => {
       caller.review.startAgentReview({ workspaceId: 999, repoFullName: 'org/app', prNumber: 7 }),
     ).rejects.toThrow('Workspace not found');
   });
+
+  it('[FR-GIT-455] should start a local review of the diff on screen', async () => {
+    const result = await caller.review.startLocalAgentReview({
+      workspaceId,
+      repoDir: REPO_PATH,
+      spec: { kind: 'range', from: 'fork-sha' },
+    });
+
+    expect(result).toEqual({ sessionId: 'term-1' });
+    const options = vi.mocked(spawnAgentTerminal).mock.calls[0][1];
+    expect(options.prompt).toContain('fork-sha against the working tree');
+  });
 });
