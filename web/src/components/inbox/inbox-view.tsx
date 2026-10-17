@@ -34,6 +34,7 @@ import { useOnServerEvent } from '@/contexts/events-context';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/lib/trpc';
 import { buildPrsPath } from '@/lib/review-path';
+import { parsePrReference } from '@/lib/pr-reference';
 import {
   activeRequester,
   ANY_REQUESTER,
@@ -55,6 +56,7 @@ import {
   type InboxTab,
 } from './inbox-helpers';
 import {
+  foundPrToRow,
   inboxItemToRow,
   myPullRequestRows,
   replyToRow,
@@ -74,6 +76,8 @@ import { useInboxKeys } from './use-inbox-keys';
 
 const READ_DWELL_MS = 1500;
 const REPLIES_STALE_MS = 60_000;
+const SEARCH_STALE_MS = 60_000;
+const SEARCH_MAX_LENGTH = 256;
 const ALL_WORKSPACES = 'all';
 
 const LIST_SIDEBAR_CONFIG = {
@@ -98,6 +102,9 @@ export function InboxView({ scope }: InboxViewProps) {
   const [tab, setTab] = useState<InboxTab>(() => defaultInboxTab(isLocked));
   const [workspaceFilter, setWorkspaceFilter] = useState(ALL_WORKSPACES);
   const [query, setQuery] = useState('');
+  const [searchText, setSearchText] = useState('');
+  const [submittedSearch, setSubmittedSearch] = useState('');
+  const latestSearchRef = useRef('');
   const [requester, setRequester] = useState(ANY_REQUESTER);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -116,6 +123,7 @@ export function InboxView({ scope }: InboxViewProps) {
   const workspaceId = lockedWorkspaceId ?? selectedWorkspaceId;
   const inboxTab = tab === 'priority' ? 'priority' : 'all';
   const isItemTab = tab === 'priority' || tab === 'all';
+  const isSearchTab = tab === 'search';
 
   const { data: githubStatus } = trpc.github.status.useQuery();
   const { data: workspaces = [] } = trpc.workspace.list.useQuery();
@@ -133,6 +141,15 @@ export function InboxView({ scope }: InboxViewProps) {
   } = trpc.inbox.replies.useQuery(
     { workspaceId },
     { enabled: tab === 'replies', staleTime: REPLIES_STALE_MS },
+  );
+
+  const {
+    data: searchPage,
+    error: searchError,
+    isLoading: isSearchLoading,
+  } = trpc.inbox.searchPrs.useQuery(
+    { workspaceId, query: submittedSearch },
+    { enabled: isSearchTab, staleTime: SEARCH_STALE_MS },
   );
 
   function refresh() {
@@ -176,13 +193,15 @@ export function InboxView({ scope }: InboxViewProps) {
 
   const prWorkspaceIds = useMemo(() => {
     if (lockedWorkspaceId !== undefined) return [lockedWorkspaceId];
-    const sources = tab === 'replies' ? replies : items;
+    let sources: { workspaceId: number | null }[] = items;
+    if (tab === 'replies') sources = replies;
+    else if (tab === 'search') sources = searchPage?.prs ?? [];
     return [
       ...new Set(
         sources.flatMap((source) => (source.workspaceId === null ? [] : [source.workspaceId])),
       ),
     ];
-  }, [items, replies, tab, lockedWorkspaceId]);
+  }, [items, replies, searchPage, tab, lockedWorkspaceId]);
   const prQueries = trpc.useQueries((t) =>
     prWorkspaceIds.map((id) => t.pr.list({ workspaceId: id })),
   );
@@ -198,6 +217,11 @@ export function InboxView({ scope }: InboxViewProps) {
     if (tab === 'mine' && lockedWorkspaceId !== undefined) {
       return myPullRequestRows(lockedPrData?.prs ?? [], items, lockedWorkspaceId);
     }
+    if (tab === 'search') {
+      return (searchPage?.prs ?? []).map((found) =>
+        foundPrToRow(found, prByKey.get(prKey(found.repoFullName, found.prNumber))),
+      );
+    }
     if (tab === 'replies') {
       return replies.map((reply) =>
         replyToRow(reply, prByKey.get(prKey(reply.repoFullName, reply.prNumber))),
@@ -208,11 +232,14 @@ export function InboxView({ scope }: InboxViewProps) {
     );
   }
 
-  const rows = sortInboxRows(buildRows(), displayOptions.sort, displayOptions.unreadFirst);
+  const rows = isSearchTab
+    ? buildRows()
+    : sortInboxRows(buildRows(), displayOptions.sort, displayOptions.unreadFirst);
   const teams = requesterTeams(rows);
   const showRequester = isItemTab;
   const requesterFilter = showRequester ? activeRequester(requester, teams) : ANY_REQUESTER;
-  const visibleRows = filterByRequester(filterInboxItems(rows, query), requesterFilter);
+  const textFilteredRows = isSearchTab ? rows : filterInboxItems(rows, query);
+  const visibleRows = filterByRequester(textFilteredRows, requesterFilter);
   function markVisibleRead() {
     if (!isItemTab) return;
     markAllRead({
@@ -303,6 +330,23 @@ export function InboxView({ scope }: InboxViewProps) {
     pushReview(null);
   }
 
+  async function submitSearch() {
+    const text = searchText.trim();
+    const input = { workspaceId, query: text };
+    latestSearchRef.current = text;
+    setSubmittedSearch(text);
+    if (text === submittedSearch) void utils.inbox.searchPrs.invalidate(input);
+    if (!parsePrReference(text)) return;
+    const page = await utils.inbox.searchPrs
+      .fetch(input, { staleTime: SEARCH_STALE_MS })
+      .catch(() => null);
+    if (latestSearchRef.current !== text || page?.prs.length !== 1) return;
+    const [found] = page.prs;
+    setSelectedKey(prKey(found.repoFullName, found.prNumber));
+    setPreviewOpen(true);
+    pushReview({ repoFullName: found.repoFullName, prNumber: found.prNumber });
+  }
+
   function selectKey(key: string | null) {
     setSelectedKey(key);
     if (!openKey) return;
@@ -389,9 +433,12 @@ export function InboxView({ scope }: InboxViewProps) {
   let isLoading = isInboxLoading;
   if (tab === 'mine') isLoading = prQueries[0]?.isLoading ?? false;
   else if (tab === 'replies') isLoading = isRepliesLoading;
+  else if (tab === 'search') isLoading = isSearchLoading;
   let emptyMessage = 'Nothing here';
   if (isLoading) emptyMessage = 'Loading...';
   else if (tab === 'replies' && repliesError) emptyMessage = repliesError.message;
+  else if (tab === 'search' && searchError) emptyMessage = searchError.message;
+  else if (tab === 'search') emptyMessage = 'No pull requests match';
   else if (query) emptyMessage = 'No matching items';
   else if (tab === 'replies') emptyMessage = 'No replies on your open pull requests';
   else if (tab === 'mine') {
@@ -417,6 +464,7 @@ export function InboxView({ scope }: InboxViewProps) {
               </TabsTrigger>
               <TabsTrigger value="all">All</TabsTrigger>
               <TabsTrigger value="replies">Replies</TabsTrigger>
+              <TabsTrigger value="search">Search</TabsTrigger>
             </TabsList>
           </Tabs>
           <Button
@@ -428,7 +476,9 @@ export function InboxView({ scope }: InboxViewProps) {
           >
             <RiKeyboardLine className="size-4" />
           </Button>
-          <InboxDisplayOptionsMenu options={displayOptions} onChange={updateDisplayOptions} />
+          {!isSearchTab && (
+            <InboxDisplayOptionsMenu options={displayOptions} onChange={updateDisplayOptions} />
+          )}
           {isItemTab && (
             <InboxMoreMenu
               totalCount={visibleItemIds(visibleRows).length}
@@ -467,18 +517,38 @@ export function InboxView({ scope }: InboxViewProps) {
         <div className="flex items-center gap-1.5">
           <div className="relative min-w-0 flex-1">
             <RiSearchLine className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              ref={filterInputRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter by title or repo"
-              className="h-7 pl-7 text-xs"
-            />
+            {isSearchTab ? (
+              <Input
+                ref={filterInputRef}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void submitSearch();
+                }}
+                placeholder="Search PRs, Enter to run: author:bob is:closed #123"
+                aria-label="Search pull requests"
+                maxLength={SEARCH_MAX_LENGTH}
+                className="h-7 pl-7 text-xs"
+              />
+            ) : (
+              <Input
+                ref={filterInputRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Filter by title or repo"
+                className="h-7 pl-7 text-xs"
+              />
+            )}
           </div>
           {showRequester && (
             <InboxRequesterSelect value={requesterFilter} teams={teams} onChange={setRequester} />
           )}
         </div>
+        {isSearchTab && searchPage?.hasMore && (
+          <p className="text-xs text-muted-foreground">
+            Showing the first {searchPage.prs.length} matches. Refine the query to see more.
+          </p>
+        )}
       </div>
       {isLocked && !githubUnavailable && (
         <PrErrorStrip repoErrors={lockedPrData?.repoErrors ?? {}} />

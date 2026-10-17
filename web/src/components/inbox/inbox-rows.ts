@@ -1,4 +1,10 @@
 import type { ComponentType } from 'react';
+import {
+  RiDraftLine,
+  RiGitClosePullRequestLine,
+  RiGitMergeLine,
+  RiGitPullRequestLine,
+} from '@remixicon/react';
 import type { GhPrCiStatus } from '@engy/common';
 import { prActivityAt } from '@/components/prs/pr-helpers';
 import { prStateVisual } from '@/components/prs/pr-state';
@@ -8,6 +14,7 @@ import { prKey, type InboxItem } from './inbox-helpers';
 
 export type WorkspacePr = RouterOutputs['pr']['list']['prs'][number];
 export type InboxReply = RouterOutputs['inbox']['replies'][number];
+export type InboxFoundPr = RouterOutputs['inbox']['searchPrs']['prs'][number];
 
 export interface InboxRowModel {
   key: string;
@@ -151,5 +158,48 @@ export function replyToRow(reply: InboxReply, pr: WorkspacePr | undefined): Inbo
     item: null,
     pr: pr ?? null,
     reply,
+  };
+}
+
+function foundPrStateIcon(found: InboxFoundPr) {
+  switch (found.state) {
+    case 'merged':
+      return { icon: RiGitMergeLine, iconClassName: 'text-violet-400', iconLabel: 'Merged' };
+    case 'closed':
+      return {
+        icon: RiGitClosePullRequestLine,
+        iconClassName: 'text-red-400',
+        iconLabel: 'Closed',
+      };
+    case 'open':
+      if (found.isDraft) {
+        return { icon: RiDraftLine, iconClassName: 'text-muted-foreground', iconLabel: 'Draft' };
+      }
+      return { icon: RiGitPullRequestLine, iconClassName: 'text-green-400', iconLabel: 'Open' };
+  }
+}
+
+export function foundPrToRow(found: InboxFoundPr, pr: WorkspacePr | undefined): InboxRowModel {
+  const stateIcon = pr ? prStateIcon(pr) : foundPrStateIcon(found);
+  return {
+    key: prKey(found.repoFullName, found.prNumber),
+    title: found.title,
+    repoFullName: found.repoFullName,
+    prNumber: found.prNumber,
+    url: found.url,
+    workspaceId: found.workspaceId,
+    projectSlug: pr?.projectSlug ?? null,
+    at: found.updatedAt,
+    unread: false,
+    snoozedUntil: null,
+    summary: `${stateIcon.iconLabel} · by ${found.author}`,
+    ...stateIcon,
+    avatarLogin: found.author,
+    requestedTeams: [],
+    risk: null,
+    ci: pr?.ciStatus,
+    item: null,
+    pr: pr ?? null,
+    reply: null,
   };
 }

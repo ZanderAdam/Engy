@@ -95,7 +95,7 @@ export function filterByRequester<T extends RequesterRow>(rows: T[], requester: 
   });
 }
 
-export type InboxTab = 'priority' | 'all' | 'mine' | 'replies';
+export type InboxTab = 'priority' | 'all' | 'mine' | 'replies' | 'search';
 
 export function defaultInboxTab(lockedToWorkspace: boolean): InboxTab {
   return lockedToWorkspace ? 'mine' : 'priority';

@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  foundPrToRow,
   inboxItemToRow,
   myPullRequestRows,
   replyToRow,
+  type InboxFoundPr,
   type InboxReply,
   type WorkspacePr,
 } from './inbox-rows';
@@ -205,5 +207,53 @@ describe('[FR-INBOX-640] replyToRow', () => {
     expect(row.summary).toBe('Thanks');
     expect(row.projectSlug).toBeNull();
     expect(row.pr).toBeNull();
+  });
+});
+
+describe('[FR-INBOX-680] foundPrToRow', () => {
+  function found(overrides: Partial<InboxFoundPr>): InboxFoundPr {
+    return {
+      repoFullName: 'acme/web',
+      prNumber: 9,
+      title: 'Old fix',
+      url: 'https://github.com/acme/web/pull/9',
+      state: 'open',
+      isDraft: false,
+      author: 'bob',
+      updatedAt: '2026-02-01T00:00:00.000Z',
+      workspaceId: 1,
+      ...overrides,
+    };
+  }
+
+  it('should build a row with no Inbox item, keyed by the PR', () => {
+    const row = foundPrToRow(found({}), undefined);
+
+    expect(row).toMatchObject({
+      key: 'acme/web#9',
+      title: 'Old fix',
+      workspaceId: 1,
+      at: '2026-02-01T00:00:00.000Z',
+      unread: false,
+      avatarLogin: 'bob',
+      summary: 'Open · by bob',
+      item: null,
+      pr: null,
+    });
+  });
+
+  it('should label the GitHub state of an untracked PR', () => {
+    expect(foundPrToRow(found({ state: 'merged' }), undefined).iconLabel).toBe('Merged');
+    expect(foundPrToRow(found({ state: 'closed' }), undefined).iconLabel).toBe('Closed');
+    expect(foundPrToRow(found({ isDraft: true }), undefined).iconLabel).toBe('Draft');
+  });
+
+  it('should use the tracked PR for the state icon, CI and project', () => {
+    const tracked = pr({ number: 9, ciStatus: 'failing', projectSlug: 'web' });
+
+    const row = foundPrToRow(found({}), tracked);
+
+    expect(row).toMatchObject({ iconLabel: 'CI failing', ci: 'failing', projectSlug: 'web' });
+    expect(row.pr).toBe(tracked);
   });
 });

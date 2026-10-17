@@ -23,7 +23,9 @@ import { markThreadReadOnGithub } from '../../github/notifications';
 import { markItemDone } from '../../inbox/mark-done';
 import { buildRepoIndex } from '../../inbox/inbox-sync';
 import { fetchReplies } from '../../github/replies';
+import { searchPrs } from '../../github/pr-search';
 import { getGithubStatus } from '../../github/viewer';
+import type { AppState } from '../context';
 
 const RECENT_EVENT_LIMIT = 20;
 
@@ -38,6 +40,14 @@ const bulkSchema = filterSchema.extend({ ids: z.array(z.number()).optional() });
 const markAllDoneSchema = bulkSchema.extend({ onlyRead: z.boolean().optional() });
 
 const itemIdSchema = z.object({ id: z.number() });
+
+async function requireGithubLogin(state: AppState): Promise<string> {
+  const status = await getGithubStatus(state);
+  if (!status.available) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: status.message });
+  }
+  return status.login;
+}
 
 function requireItem(id: number) {
   const item = getItem(id);
@@ -171,12 +181,9 @@ export const inboxRouter = router({
   replies: publicProcedure
     .input(z.object({ workspaceId: z.number().optional() }))
     .query(async ({ input, ctx }) => {
-      const status = await getGithubStatus(ctx.state);
-      if (!status.available) {
-        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: status.message });
-      }
+      const login = await requireGithubLogin(ctx.state);
       const [replies, repoIndex] = await Promise.all([
-        fetchReplies(ctx.state, status.login),
+        fetchReplies(ctx.state, login),
         buildRepoIndex(ctx.state),
       ]);
       return replies.flatMap((reply) => {
@@ -184,6 +191,26 @@ export const inboxRouter = router({
         if (input.workspaceId !== undefined && workspaceId !== input.workspaceId) return [];
         return [{ ...reply, workspaceId }];
       });
+    }),
+
+  searchPrs: publicProcedure
+    .input(z.object({ workspaceId: z.number().optional(), query: z.string().max(256) }))
+    .query(async ({ input, ctx }) => {
+      await requireGithubLogin(ctx.state);
+      const repoIndex = await buildRepoIndex(ctx.state);
+      const repos = [...repoIndex]
+        .filter(
+          ([, repo]) => input.workspaceId === undefined || repo.workspaceId === input.workspaceId,
+        )
+        .map(([fullName]) => fullName);
+      const page = await searchPrs(ctx.state, repos, input.query);
+      return {
+        hasMore: page.hasMore,
+        prs: page.prs.map((pr) => ({
+          ...pr,
+          workspaceId: repoIndex.get(pr.repoFullName.toLowerCase())?.workspaceId ?? null,
+        })),
+      };
     }),
 
   snooze: publicProcedure

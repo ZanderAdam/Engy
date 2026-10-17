@@ -8,6 +8,7 @@ import {
   agentSessions,
   commentThreads,
   projects,
+  prs,
   reviewWorktrees,
   taskGroups,
   workspaces,
@@ -44,6 +45,15 @@ describe('inbox router', () => {
       facts: overrides.priority ? PRIORITY_FACTS : undefined,
     });
     return item;
+  }
+
+  function seedWorkspace(slug: string, repoPath: string, repoFullName: string): number {
+    ctx.state.repoFullNames.set(repoPath, repoFullName);
+    return ctx.db
+      .insert(workspaces)
+      .values({ name: slug, slug, repos: [repoPath] })
+      .returning()
+      .get().id;
   }
 
   beforeEach(async () => {
@@ -593,15 +603,6 @@ describe('inbox router', () => {
       });
     }
 
-    function seedWorkspace(slug: string, repoPath: string, repoFullName: string): number {
-      ctx.state.repoFullNames.set(repoPath, repoFullName);
-      return ctx.db
-        .insert(workspaces)
-        .values({ name: slug, slug, repos: [repoPath] })
-        .returning()
-        .get().id;
-    }
-
     it('should return the replies with the workspace of their repo', async () => {
       stubGithub();
       const workspaceId = seedWorkspace('api', '/repos/api', 'acme/api');
@@ -628,6 +629,93 @@ describe('inbox router', () => {
       delete process.env.ENGY_GITHUB_TOKEN;
 
       await expect(caller.inbox.replies({})).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: expect.stringContaining('ENGY_GITHUB_TOKEN'),
+      });
+    });
+  });
+
+  describe('[FR-INBOX-670] searchPrs', () => {
+    function foundPr(repo: string, number: number) {
+      return {
+        number,
+        title: `PR ${number}`,
+        url: `https://github.com/${repo}/pull/${number}`,
+        state: 'OPEN',
+        isDraft: false,
+        updatedAt: '2026-03-01T10:00:00Z',
+        author: { login: 'alice' },
+        repository: { nameWithOwner: repo },
+      };
+    }
+
+    function stubSearch() {
+      stub.reply((req) => {
+        if (req.url === '/user') {
+          return { headers: { 'x-oauth-scopes': 'repo, notifications' }, body: { login: 'me' } };
+        }
+        return {
+          body: {
+            data: {
+              search: { issueCount: 2, nodes: [foundPr('acme/api', 1), foundPr('acme/web', 2)] },
+            },
+          },
+        };
+      });
+    }
+
+    function searchQueries(): string[] {
+      return stub.requests
+        .filter((req) => req.url === '/graphql')
+        .map((req) => (JSON.parse(req.body) as { variables: { q: string } }).variables.q);
+    }
+
+    it('should search the repos of every workspace and tag each PR with its workspace', async () => {
+      stubSearch();
+      const apiId = seedWorkspace('api', '/repos/api', 'acme/api');
+      const webId = seedWorkspace('web', '/repos/web', 'Acme/Web');
+
+      const result = await caller.inbox.searchPrs({ query: '' });
+
+      expect(searchQueries()).toEqual([
+        'is:pr repo:acme/api repo:acme/web is:open sort:updated-desc',
+      ]);
+      expect(result).toEqual({
+        hasMore: false,
+        prs: [
+          expect.objectContaining({ prNumber: 1, workspaceId: apiId }),
+          expect.objectContaining({ prNumber: 2, workspaceId: webId }),
+        ],
+      });
+    });
+
+    it('should search only the repos of the given workspace', async () => {
+      stubSearch();
+      seedWorkspace('api', '/repos/api', 'acme/api');
+      const webId = seedWorkspace('web', '/repos/web', 'acme/web');
+
+      const result = await caller.inbox.searchPrs({ workspaceId: webId, query: 'author:alice' });
+
+      expect(searchQueries()).toEqual([
+        'is:pr repo:acme/web is:open sort:updated-desc author:alice',
+      ]);
+      expect(result.prs.map((pr) => pr.prNumber)).toEqual([2]);
+    });
+
+    it('should store no Inbox item and no PR row for a search result', async () => {
+      stubSearch();
+      seedWorkspace('api', '/repos/api', 'acme/api');
+
+      await caller.inbox.searchPrs({ query: '' });
+
+      expect(await caller.inbox.list({ tab: 'all' })).toEqual([]);
+      expect(ctx.db.select().from(prs).all()).toEqual([]);
+    });
+
+    it('should fail with the GitHub status message when GitHub is unavailable', async () => {
+      delete process.env.ENGY_GITHUB_TOKEN;
+
+      await expect(caller.inbox.searchPrs({ query: '' })).rejects.toMatchObject({
         code: 'PRECONDITION_FAILED',
         message: expect.stringContaining('ENGY_GITHUB_TOKEN'),
       });
