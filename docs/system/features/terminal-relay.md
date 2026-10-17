@@ -478,6 +478,12 @@ a phone's clipboard — an image especially — cannot be done with a keystroke:
 bytes have to cross the WebSocket and land in a file whose path is then written
 into the prompt, since a PTY carries no image channel.
 
+### Image upload
+
+The `⋯` column has an **Upload image** button that does that bridging for images. It is a `<label>` around a hidden file input, because a programmatic `input.click()` from `pointerdown` gets no user activation on touch and the picker never opens.
+
+`use-terminal-image-upload.ts` checks type (PNG, JPEG, GIF, WebP) and size (5 MB, the agent's own limits, in `lib/terminal-image.ts`) before it reads the file as base64. It then calls `terminal.uploadImage`. The server looks up the session's `workingDir`, writes the image to `<workingDir>/.engy/paste/` through `FILE_WRITE_REQUEST` with `encoding: 'base64'`, and writes a `.gitignore` of `*` next to it so uploads never show as repo changes. The browser pastes the returned absolute path into the prompt as a bracketed paste, with no Enter, so the user can add text first. No path mapping is needed: a devcontainer mounts the repo at its host path, and for a coder session the write runs inside the coder workspace, where the PTY's `cd` also lands.
+
 ## Requirements
 
 Functional requirements in EARS notation. These are the single source of truth
@@ -584,6 +590,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-960 | WHEN a `terminal:focus` request is waiting for its terminal to take focus, and the user focuses a different text input outside a terminal before it does, the browser SHALL cancel the request and leave focus on that input; WHEN focus stays where the request came from, or moves to a terminal, the request SHALL still focus its terminal. |
 | FR-TERMINAL-970 | WHEN the user starts a rename from the terminal rail or a dock tab, the rename input SHALL start from the terminal's current manual rename (`renamedLabel`) if set, otherwise the scope label, and SHALL treat a commit equal to that value as no change. |
 | FR-TERMINAL-980 | WHEN the user activates a project header (Command Center) or a worktree header in the terminal rail's expanded list, the system SHALL collapse or expand that group; WHILE a group is collapsed, its header SHALL show the number of hidden terminals and an attention indicator if any hidden terminal's `needsAttention` is set. Collapsed state SHALL persist per group and be shared across in-app tabs and browser tabs; it SHALL only hide rows, never change dock order or terminal numbering, and the project header's new-terminal control SHALL NOT toggle the group. The narrow dots rail SHALL ignore collapsed state. |
+| FR-TERMINAL-990 | WHEN the user picks a PNG, JPEG, GIF or WebP image of at most 5 MB from the Upload image button in the mobile `⋯` key column, the system SHALL write its bytes unchanged to `<workingDir>/.engy/paste/` of that session — inside the coder workspace for an isolated coder session, on the host otherwise — next to a `.gitignore` that ignores everything there, and SHALL paste the file's absolute path into the terminal as a bracketed paste without sending Enter; IF the image has another type or is larger than 5 MB, THEN the system SHALL show an error and write and paste nothing. |
 
 ## Sources
 

@@ -530,6 +530,7 @@ export interface FileWriteRequestMessage {
     repoDir: string;
     filePath: string;
     content: string;
+    encoding?: 'utf8' | 'base64';
     coderWorkspace?: string;
   };
 }

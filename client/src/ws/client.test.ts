@@ -2240,7 +2240,7 @@ describe('WsClient search files handler', () => {
   });
 });
 
-describe('WsClient CREATE_DIR_REQUEST handler', () => {
+describe('WsClient CREATE_DIR and FILE_WRITE handlers', () => {
   let server: WebSocketServer;
   let port: number;
   let client: WsClient;
@@ -2344,6 +2344,43 @@ describe('WsClient CREATE_DIR_REQUEST handler', () => {
       const results = response.payload.results as Array<{ path: string; success: boolean }>;
       expect(results.every((r) => r.success)).toBe(true);
       expect(nodeFs.existsSync(docsDir)).toBe(true);
+    });
+  });
+
+  describe('FILE_WRITE_REQUEST', () => {
+    it('[FR-TERMINAL-990] should write base64 content as raw bytes into a new directory', async () => {
+      const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff]);
+
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FILE_WRITE_REQUEST',
+          payload: {
+            requestId: 'fw-1',
+            repoDir: tmpDir,
+            filePath: '.engy/paste/shot.png',
+            content: bytes.toString('base64'),
+            encoding: 'base64',
+          },
+        }),
+      );
+
+      expect(response).toEqual({
+        type: 'FILE_WRITE_RESPONSE',
+        payload: { requestId: 'fw-1', success: true },
+      });
+      expect(nodeFs.readFileSync(nodePath.join(tmpDir, '.engy/paste/shot.png'))).toEqual(bytes);
+    });
+
+    it('should write text content as utf-8 when no encoding is given', async () => {
+      const response = JSON.parse(
+        await setupAndSend({
+          type: 'FILE_WRITE_REQUEST',
+          payload: { requestId: 'fw-2', repoDir: tmpDir, filePath: 'note.txt', content: 'héllo' },
+        }),
+      );
+
+      expect(response.payload).toEqual({ requestId: 'fw-2', success: true });
+      expect(nodeFs.readFileSync(nodePath.join(tmpDir, 'note.txt'), 'utf-8')).toBe('héllo');
     });
   });
 

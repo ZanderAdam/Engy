@@ -1247,11 +1247,13 @@ export function dispatchFileWrite(
   content: string,
   state: AppState,
   coderWorkspace?: string,
+  encoding?: 'utf8' | 'base64',
 ): Promise<FileWriteResult> {
   return dispatchDaemonOp(state, state.pendingFileWrite, 'FILE_WRITE_REQUEST', {
     repoDir,
     filePath,
     content,
+    encoding,
     coderWorkspace,
   });
 }

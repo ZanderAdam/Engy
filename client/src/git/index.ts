@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { join, isAbsolute, resolve, dirname } from 'node:path';
-import { readFile, writeFile, readdir, stat, lstat } from 'node:fs/promises';
+import { readFile, writeFile, readdir, stat, lstat, mkdir } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { simpleGit } from 'simple-git';
 import type { BranchDiffTarget, GitFileStatus, GitWorktreeEntry } from '@engy/common';
@@ -767,10 +767,11 @@ export async function getFileBytes(
 export async function writeFileContent(
   dir: string,
   filePath: string,
-  content: string,
+  content: string | Buffer,
 ): Promise<void> {
   const fullPath = resolveAndValidatePath(dir, filePath);
-  await writeFile(fullPath, content, 'utf-8');
+  await mkdir(dirname(fullPath), { recursive: true });
+  await writeFile(fullPath, content);
 }
 
 const GLOB_SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '__pycache__']);

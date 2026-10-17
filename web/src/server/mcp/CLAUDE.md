@@ -21,6 +21,7 @@ The MCP surface and tRPC surface expose the same domain operations (workspace/ta
   - `github.status` — the browser shows the token state; agents never call GitHub.
   - `review.open`, `review.update`, `review.remove`, `review.list`, `review.detail`, `review.syncThreads`, `review.startAgentReview` — they manage the review worktree and load PR data for the review page. The agent already runs inside its worktree and reads findings with `diff_review_list`.
   - `project.reviewGuide`, `project.createReviewGuide` — the review page shows and copies the guide file. The agent receives the guide path in its prompt.
+  - `terminal.uploadImage` — the mobile terminal's Upload image button sends a phone image to the session. An agent already reads files on the machine it runs on.
   - the `autoReviewOnRequest` workspace setting (`workspace.update`) — only the user turns on automatic agent reviews.
 - Shared helpers live outside both layers and **must be imported**, not copied:
   - `validateDependencies`, `attachBlockedBy` from `../tasks/validation`

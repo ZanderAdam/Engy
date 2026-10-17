@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { PointerEvent } from 'react';
+import type { ChangeEvent, PointerEvent } from 'react';
 import {
   RiArrowUpSLine,
   RiArrowDownSLine,
@@ -10,8 +10,11 @@ import {
   RiMoreLine,
   RiMicLine,
   RiStopFill,
+  RiImageAddLine,
+  RiLoader4Line,
 } from '@remixicon/react';
 import { cn } from '@/lib/utils';
+import { TERMINAL_IMAGE_ACCEPT } from '@/lib/terminal-image';
 
 interface MobileTerminalControlsProps {
   onKey: (data: string) => void;
@@ -21,6 +24,8 @@ interface MobileTerminalControlsProps {
    * which is what keeps the key out of the column entirely. */
   onMic?: () => void;
   micListening?: boolean;
+  onImagePicked?: (file: File) => void;
+  imageUploading?: boolean;
 }
 
 /**
@@ -78,6 +83,42 @@ const KEY_BUTTON_CLASS = cn(
   'select-none touch-manipulation',
 );
 
+function ImageUploadButton({
+  onImagePicked,
+  uploading,
+}: {
+  onImagePicked: (file: File) => void;
+  uploading: boolean;
+}) {
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) onImagePicked(file);
+  };
+  const Icon = uploading ? RiLoader4Line : RiImageAddLine;
+  return (
+    // A label opens the picker natively. A programmatic input.click() from
+    // pointerdown is blocked on touch, which grants no user activation there.
+    <label
+      className={cn(
+        KEY_BUTTON_CLASS,
+        'bg-zinc-800/80 active:bg-zinc-700',
+        uploading ? 'opacity-60' : 'cursor-pointer',
+      )}
+    >
+      <Icon className={cn('size-4', uploading && 'animate-spin')} aria-hidden />
+      <input
+        type="file"
+        accept={TERMINAL_IMAGE_ACCEPT}
+        aria-label="Upload image"
+        disabled={uploading}
+        onChange={handleChange}
+        className="sr-only"
+      />
+    </label>
+  );
+}
+
 function KeyButton({ btn, onKey }: { btn: ControlButton; onKey: (data: string) => void }) {
   const handlePointerDown = (e: PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -101,6 +142,8 @@ export function MobileTerminalControls({
   composing = false,
   onMic,
   micListening = false,
+  onImagePicked,
+  imageUploading = false,
 }: MobileTerminalControlsProps) {
   const [expanded, setExpanded] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -164,6 +207,9 @@ export function MobileTerminalControls({
                 <RiMicLine className="size-4" aria-hidden />
               )}
             </button>
+          )}
+          {onImagePicked && (
+            <ImageUploadButton onImagePicked={onImagePicked} uploading={imageUploading} />
           )}
           {MOBILE_TERMINAL_EXTRA_BUTTONS.map((btn) => (
             <KeyButton key={btn.id} btn={btn} onKey={onKey} />

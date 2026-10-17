@@ -16,6 +16,7 @@ import { ReconnectingSocket } from "./reconnecting-socket";
 import { MobileTerminalControls } from "./mobile-terminal-controls";
 import { MobileComposer } from "./mobile-composer";
 import { toBracketedPaste } from "./bracketed-paste";
+import { useTerminalImageUpload } from "./use-terminal-image-upload";
 import { canFitPane, shouldSendResize } from "./terminal-resize";
 import { applyReconnectSnapshot } from "./terminal-snapshot";
 import { attachTouchScroll } from "./touch-scroll";
@@ -97,6 +98,12 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onO
     },
     [sendKey],
   );
+
+  const pasteUploadedPath = useCallback(
+    (path: string) => sendKey(toBracketedPaste(path)),
+    [sendKey],
+  );
+  const imageUpload = useTerminalImageUpload(sessionId, pasteUploadedPath);
 
   const handleScrollToBottom = useCallback(() => {
     xtermRef.current?.scrollToBottom();
@@ -450,6 +457,8 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onO
           composing={composing}
           onMic={voice ? voice.toggle : undefined}
           micListening={voice?.phase === 'listening'}
+          onImagePicked={imageUpload.upload}
+          imageUploading={imageUpload.uploading}
         />
       )}
     </div>

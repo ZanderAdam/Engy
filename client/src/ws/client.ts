@@ -1184,7 +1184,8 @@ export class WsClient {
   }
 
   private async handleFileWriteRequest(message: FileWriteRequestMessage): Promise<void> {
-    const { requestId, repoDir, filePath, content, coderWorkspace } = message.payload;
+    const { requestId, repoDir, filePath, content, encoding, coderWorkspace } = message.payload;
+    const data = encoding === 'base64' ? Buffer.from(content, 'base64') : content;
     try {
       if (coderWorkspace) {
         const posixPath = filePath.startsWith('/') ? filePath : `${repoDir}/${filePath}`;
@@ -1204,7 +1205,7 @@ export class WsClient {
           stderrBuf += chunk.toString('utf8');
         });
         child.stdin?.on('error', () => {});
-        child.stdin?.write(content);
+        child.stdin?.write(data);
         child.stdin?.end();
         await new Promise<void>((resolve, reject) => {
           child.on('close', (code) => {
@@ -1219,7 +1220,7 @@ export class WsClient {
           child.on('error', reject);
         });
       } else {
-        await writeFileContent(repoDir, filePath, content);
+        await writeFileContent(repoDir, filePath, data);
       }
       this.send({
         type: 'FILE_WRITE_RESPONSE',

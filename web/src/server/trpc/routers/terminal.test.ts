@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { WebSocket } from 'ws';
+import type { FileWriteRequestMessage } from '@engy/common';
 import { appRouter } from '../root';
 import { type AppState } from '../context';
 import { setupTestDb, type TestContext } from '../test-helpers';
-import { terminalSessionHistory } from '../../db/schema';
+import { terminalSessionHistory, workspaces } from '../../db/schema';
 import { recordSessionStart } from '../../ws/terminal-session-history';
+import { TERMINAL_IMAGE_MAX_BYTES } from '@/lib/terminal-image';
 
 function addSession(state: AppState, sessionId: string, resumedFrom?: string): void {
   state.terminalSessionMeta.set(sessionId, {
@@ -162,6 +165,158 @@ describe('terminal router', () => {
       const rows = await caller.terminal.listSessionHistory({ workspaceSlug: 'ws1' });
 
       expect(rows).toEqual([]);
+    });
+  });
+
+  describe('[FR-TERMINAL-990] uploadImage', () => {
+    const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    let writes: FileWriteRequestMessage['payload'][];
+
+    function connectFakeDaemon(): void {
+      writes = [];
+      state.daemon = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          if (msg.type !== 'FILE_WRITE_REQUEST') return;
+          writes.push(msg.payload);
+          state.pendingFileWrite.get(msg.payload.requestId)?.resolve({ success: true });
+        },
+      } as unknown as WebSocket;
+    }
+
+    function addUploadSession(containerMode?: string): void {
+      state.terminalSessionMeta.set('sess-up', {
+        scopeType: 'project',
+        scopeLabel: 'label',
+        workingDir: '/home/me/repo',
+        workspaceSlug: 'ws',
+        containerMode,
+        cols: 80,
+        rows: 24,
+      });
+    }
+
+    function insertCoderWorkspace(): void {
+      ctx.db
+        .insert(workspaces)
+        .values({
+          name: 'WS',
+          slug: 'ws',
+          docsDir: '/home/me/docs',
+          containerEnabled: true,
+          executionBackend: 'coder',
+          coderConfig: { workspace: 'my-coder-ws', repoBasePath: '/home/me' },
+        })
+        .run();
+    }
+
+    beforeEach(() => {
+      connectFakeDaemon();
+    });
+
+    it('should write the image and a catch-all .gitignore into the paste dir and return its absolute path', async () => {
+      addUploadSession();
+
+      const { path } = await caller.terminal.uploadImage({
+        sessionId: 'sess-up',
+        mimeType: 'image/png',
+        base64: PNG_BYTES.toString('base64'),
+      });
+
+      expect(path).toMatch(/^\/home\/me\/repo\/\.engy\/paste\/[\w-]+\.png$/);
+      expect(writes).toEqual([
+        expect.objectContaining({
+          repoDir: '/home/me/repo',
+          filePath: '.engy/paste/.gitignore',
+          content: '*\n',
+        }),
+        expect.objectContaining({
+          repoDir: '/home/me/repo',
+          filePath: path.slice('/home/me/repo/'.length),
+          content: PNG_BYTES.toString('base64'),
+          encoding: 'base64',
+        }),
+      ]);
+      expect(writes.every((w) => w.coderWorkspace === undefined)).toBe(true);
+    });
+
+    it('should give two uploads different file names', async () => {
+      addUploadSession();
+      const input = {
+        sessionId: 'sess-up',
+        mimeType: 'image/png',
+        base64: PNG_BYTES.toString('base64'),
+      };
+
+      const first = await caller.terminal.uploadImage(input);
+      const second = await caller.terminal.uploadImage(input);
+
+      expect(first.path).not.toBe(second.path);
+    });
+
+    it('should write inside the coder workspace for an isolated coder session', async () => {
+      insertCoderWorkspace();
+      addUploadSession('container');
+
+      await caller.terminal.uploadImage({
+        sessionId: 'sess-up',
+        mimeType: 'image/jpeg',
+        base64: PNG_BYTES.toString('base64'),
+      });
+
+      expect(writes.map((w) => w.coderWorkspace)).toEqual(['my-coder-ws', 'my-coder-ws']);
+    });
+
+    it('should write on the host for a host-mode session in a coder workspace', async () => {
+      insertCoderWorkspace();
+      addUploadSession('host');
+
+      await caller.terminal.uploadImage({
+        sessionId: 'sess-up',
+        mimeType: 'image/png',
+        base64: PNG_BYTES.toString('base64'),
+      });
+
+      expect(writes.map((w) => w.coderWorkspace)).toEqual([undefined, undefined]);
+    });
+
+    it('should reject an unknown session', async () => {
+      await expect(
+        caller.terminal.uploadImage({
+          sessionId: 'ghost',
+          mimeType: 'image/png',
+          base64: PNG_BYTES.toString('base64'),
+        }),
+      ).rejects.toThrow('Terminal session not found');
+      expect(writes).toEqual([]);
+    });
+
+    it('should reject an unsupported type without writing anything', async () => {
+      addUploadSession();
+
+      await expect(
+        caller.terminal.uploadImage({
+          sessionId: 'sess-up',
+          mimeType: 'image/heic',
+          base64: PNG_BYTES.toString('base64'),
+        }),
+      ).rejects.toThrow(/PNG, JPEG, GIF or WebP/);
+      expect(writes).toEqual([]);
+    });
+
+    it('should reject an image over the size limit without writing anything', async () => {
+      addUploadSession();
+
+      await expect(
+        caller.terminal.uploadImage({
+          sessionId: 'sess-up',
+          mimeType: 'image/png',
+          base64: Buffer.alloc(TERMINAL_IMAGE_MAX_BYTES + 1).toString('base64'),
+        }),
+      ).rejects.toThrow(/5 MB/);
+      expect(writes).toEqual([]);
     });
   });
 });

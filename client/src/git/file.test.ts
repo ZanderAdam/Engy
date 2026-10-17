@@ -146,12 +146,30 @@ describe('file operations', () => {
       expect(result).toBe('absolute write');
     });
 
-    it('throws when writing to a non-existent directory', async () => {
+    it('creates missing parent directories', async () => {
       repoDir = await createTempRepo();
 
-      await expect(
-        writeFileContent(repoDir, 'no/such/dir/file.txt', 'content'),
-      ).rejects.toThrow();
+      await writeFileContent(repoDir, 'no/such/dir/file.txt', 'content');
+
+      const result = await readFile(join(repoDir, 'no/such/dir/file.txt'), 'utf-8');
+      expect(result).toBe('content');
+    });
+
+    it('writes a Buffer as raw bytes', async () => {
+      repoDir = await createTempRepo();
+      const bytes = Buffer.from([0x00, 0xff, 0x10, 0x80]);
+
+      await writeFileContent(repoDir, 'image.bin', bytes);
+
+      expect(await readFile(join(repoDir, 'image.bin'))).toEqual(bytes);
+    });
+
+    it('rejects a path outside the directory', async () => {
+      repoDir = await createTempRepo();
+
+      await expect(writeFileContent(repoDir, '../escape.txt', 'content')).rejects.toThrow(
+        /Path traversal/,
+      );
     });
   });
 });
