@@ -18,7 +18,7 @@ interface CommandCenterProjectGroup {
 
 const OTHER_KEY = '__other__';
 
-function projectKey(scope: TerminalScope): string {
+export function projectKey(scope: TerminalScope): string {
   return scope.projectSlug ? `p:${scope.workspaceSlug}/${scope.projectSlug}` : OTHER_KEY;
 }
 

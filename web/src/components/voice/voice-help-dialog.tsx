@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { isTypingTarget } from '@/lib/keyboard';
-import { useOpenTerminals } from '@/components/terminal/terminal-session-store';
+import { useNumberedTerminals } from '@/components/terminal/terminal-session-store';
 import { useOptionalVoice, type VoiceControl } from './voice-context';
 import {
   buildVoiceHelpEntries,
@@ -40,7 +40,7 @@ function buildValueLookup(terminalLabels: string[]): VoiceHelpValueLookup {
 function ActiveVoiceHelpDialog({ voice }: { voice: VoiceControl }) {
   const { actions, helpOpen: open, setHelpOpen: setOpen } = voice;
 
-  const terminals = useOpenTerminals();
+  const terminals = useNumberedTerminals();
 
   const lookupValues = useMemo(
     () =>

@@ -6,6 +6,7 @@ import {
   RiArrowLeftSLine,
   RiArrowRightSLine,
   RiCloseLine,
+  RiFolderLine,
   RiGitBranchLine,
   RiLayoutGridLine,
   RiListUnordered,
@@ -33,26 +34,61 @@ import {
   setCommandCenterMode,
   COMMAND_CENTER_GROUP_KEY,
 } from './command-center/use-command-center-mode';
-import { groupTabsByProject } from './command-center/grouping';
 import { cloneScopeForNewTerminal } from './command-center/new-terminal-scope';
 import {
   getTerminalRailBoxStyle,
   type TerminalDropdownGroup,
   type TerminalScope,
+  type TerminalRailGroup,
   type TerminalTab,
 } from './types';
-import { groupTabsByWorktree, type TerminalWorktreeGroup } from './worktree-grouping';
+import type { TerminalWorktreeGroup } from './worktree-grouping';
+import {
+  railItems,
+  railSections,
+  type TerminalRailGroupItem,
+  type TerminalRailSection,
+} from './rail-order';
+import {
+  planGroupHeaderDrop,
+  planTerminalDrop,
+  railDropZone,
+  type RailDropPlan,
+  type RailDropZone,
+} from './rail-drop';
+import {
+  RailDropLine,
+  TerminalRailGroupHeader,
+  type RailDropHandlers,
+} from './terminal-rail-group-header';
 import { setWorktreeGrouping, useWorktreeGrouping } from './use-worktree-grouping';
 import { setRailGroupCollapsed, useCollapsedRailGroups } from './use-collapsed-rail-groups';
 import { CollapsibleRailGroup } from './collapsible-rail-group';
+import { randomId } from '@/lib/random-id';
 
-interface RailDragHandlers {
+interface RailDragHandlers extends RailDropHandlers {
   draggable: boolean;
   onDragStart: (e: DragEvent<HTMLElement>) => void;
-  onDragOver: (e: DragEvent<HTMLElement>) => void;
-  onDragLeave: () => void;
-  onDrop: (e: DragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
+}
+
+interface RailDropTarget {
+  id: string;
+  zone: RailDropZone;
+}
+
+const NEW_GROUP_NAME = 'Group';
+
+function groupDropId(groupId: string): string {
+  return `group:${groupId}`;
+}
+
+// Dots mode stays focus-and-sort only: grouping happens in the expanded list.
+function dropZoneAt(e: DragEvent<HTMLElement>, groupable: boolean): RailDropZone {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const offsetY = e.clientY - rect.top;
+  if (!groupable) return offsetY < rect.height / 2 ? 'before' : 'after';
+  return railDropZone(offsetY, rect.height);
 }
 
 interface TerminalRailProps {
@@ -89,7 +125,8 @@ export function TerminalRail({
   const [listExpanded, setListExpanded] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [closingTab, setClosingTab] = useState<TerminalTab | null>(null);
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<RailDropTarget | null>(null);
   const draggingIdRef = useRef<string | null>(null);
   const byWorktree = useWorktreeGrouping();
   const collapsedGroups = useCollapsedRailGroups();
@@ -129,41 +166,72 @@ export function TerminalRail({
   const ctrlButton =
     'flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground';
 
-  // Command Center mode lists terminals from every project, so group by
-  // project → worktree with a project header. The per-project rail just groups
-  // by worktree (headers only when more than one worktree is in play).
-  const sections = commandCenter
-    ? groupTabsByProject(tabs, byWorktree).map((pg) => ({
-        key: pg.key,
-        projectLabel: pg.label,
-        isProject: pg.isProject,
-        workspaceSlug: pg.workspaceSlug,
-        worktreeGroups: pg.worktreeGroups,
-      }))
-    : [
-        {
-          key: scope.groupKey,
-          projectLabel: undefined,
-          isProject: false,
-          workspaceSlug: undefined,
-          worktreeGroups: groupTabsByWorktree(tabs, byWorktree),
-        },
-      ];
+  const sections = railSections(tabs, commandCenter, byWorktree, scope.groupKey);
+
+  function setRailGroup(sessionIds: string[], group: TerminalRailGroup | null) {
+    window.dispatchEvent(
+      new CustomEvent('terminal:group', { detail: { sessionIds, group, tabId } }),
+    );
+  }
+
+  function commitGroupRename(item: TerminalRailGroupItem, value: string | null) {
+    setEditingGroupId(null);
+    const name = value?.trim();
+    if (!name || name === item.group.name) return;
+    const members = tabs.filter((t) => t.railGroup?.id === item.group.id);
+    setRailGroup(
+      members.map((t) => t.sessionId),
+      { id: item.group.id, name },
+    );
+  }
 
   // The rail only asks the dock to move the panel; the reordered list comes
   // back through the session store, so the list and the tab strip cannot drift
   // apart (see terminal:reorder in TerminalManager).
-  function reorderBefore(targetSessionId: string) {
-    const sessionId = draggingIdRef.current;
-    draggingIdRef.current = null;
-    setDragOverId(null);
-    if (!sessionId || sessionId === targetSessionId) return;
-    window.dispatchEvent(
-      new CustomEvent('terminal:reorder', { detail: { sessionId, targetSessionId, tabId } }),
-    );
+  function applyDropPlan(sessionId: string, plan: RailDropPlan) {
+    if (plan.regroup) setRailGroup(plan.regroup.sessionIds, plan.regroup.group);
+    if (plan.reorder) {
+      window.dispatchEvent(
+        new CustomEvent('terminal:reorder', { detail: { sessionId, ...plan.reorder, tabId } }),
+      );
+    }
   }
 
-  function dragProps(tab: TerminalTab): RailDragHandlers {
+  function endDrag() {
+    draggingIdRef.current = null;
+    setDropTarget(null);
+  }
+
+  function dropHandlers(
+    id: string,
+    groupable: boolean,
+    plan: (dragged: TerminalTab, zone: RailDropZone) => RailDropPlan,
+  ): RailDropHandlers {
+    return {
+      onDragOver: (e) => {
+        if (!draggingIdRef.current || draggingIdRef.current === id) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const zone = dropZoneAt(e, groupable);
+        setDropTarget((current) =>
+          current?.id === id && current.zone === zone ? current : { id, zone },
+        );
+      },
+      onDragLeave: (e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setDropTarget((current) => (current?.id === id ? null : current));
+      },
+      onDrop: (e) => {
+        e.preventDefault();
+        const dragged = tabs.find((t) => t.sessionId === draggingIdRef.current);
+        const zone = dropZoneAt(e, groupable);
+        endDrag();
+        if (dragged) applyDropPlan(dragged.sessionId, plan(dragged, zone));
+      },
+    };
+  }
+
+  function dragProps(tab: TerminalTab, groupable: boolean): RailDragHandlers {
     return {
       draggable: true,
       onDragStart: (e: DragEvent<HTMLElement>) => {
@@ -171,22 +239,73 @@ export function TerminalRail({
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', tab.sessionId);
       },
-      onDragOver: (e: DragEvent<HTMLElement>) => {
-        if (!draggingIdRef.current || draggingIdRef.current === tab.sessionId) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        setDragOverId(tab.sessionId);
-      },
-      onDragLeave: () => setDragOverId((current) => (current === tab.sessionId ? null : current)),
-      onDrop: (e: DragEvent<HTMLElement>) => {
-        e.preventDefault();
-        reorderBefore(tab.sessionId);
-      },
-      onDragEnd: () => {
-        draggingIdRef.current = null;
-        setDragOverId(null);
-      },
+      onDragEnd: endDrag,
+      ...dropHandlers(tab.sessionId, groupable, (dragged, zone) =>
+        planTerminalDrop(dragged, tab, zone, {
+          byWorktree,
+          newGroup: () => ({ id: randomId(), name: NEW_GROUP_NAME }),
+        }),
+      ),
     };
+  }
+
+  function dropZoneFor(id: string): RailDropZone | undefined {
+    return dropTarget?.id === id ? dropTarget.zone : undefined;
+  }
+
+  function renderGroup(item: TerminalRailGroupItem) {
+    const collapsedGroup = collapsedGroups.includes(item.group.id);
+    const dropId = groupDropId(item.group.id);
+    return (
+      <div key={dropId} className="flex flex-col gap-0.5">
+        <TerminalRailGroupHeader
+          group={item.group}
+          count={item.tabs.length}
+          collapsed={collapsedGroup}
+          editing={editingGroupId === item.group.id}
+          dropZone={dropZoneFor(dropId)}
+          dropHandlers={dropHandlers(dropId, true, (dragged, zone) =>
+            planGroupHeaderDrop(dragged, item, zone, { byWorktree }),
+          )}
+          onToggle={() => setRailGroupCollapsed(item.group.id, !collapsedGroup)}
+          onStartRename={() => setEditingGroupId(item.group.id)}
+          onRename={(name) => commitGroupRename(item, name)}
+        />
+        {!collapsedGroup && (
+          <div className="ml-3 flex flex-col gap-0.5 border-l border-border/60 pl-1">
+            {item.tabs.map(renderExpandedRow)}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderExpandedItems(groupTabs: TerminalTab[]) {
+    return railItems(groupTabs).map((item) =>
+      item.kind === 'group' ? renderGroup(item) : renderExpandedRow(item.tab),
+    );
+  }
+
+  function renderDotItems(groupTabs: TerminalTab[]) {
+    return railItems(groupTabs).flatMap((item) => {
+      if (item.kind === 'terminal') return [renderDot(item.tab)];
+      return [
+        <Tooltip key={groupDropId(item.group.id)}>
+          <TooltipTrigger asChild>
+            <span
+              className="flex size-5 items-center justify-center text-muted-foreground"
+              aria-label={`Group ${item.group.name}`}
+            >
+              <RiFolderLine className="size-3" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="left" className="text-xs">
+            {item.group.name}
+          </TooltipContent>
+        </Tooltip>,
+        ...(collapsedGroups.includes(item.group.id) ? [] : item.tabs.map(renderDot)),
+      ];
+    });
   }
 
   function renderWorktreeGroup(
@@ -214,14 +333,14 @@ export function TerminalRail({
               </TooltipContent>
             </Tooltip>
           )}
-          {group.tabs.map(renderDot)}
+          {renderDotItems(group.tabs)}
         </div>
       );
     }
     if (!showHeader) {
       return (
         <div key={key} className="flex flex-col gap-0.5">
-          {group.tabs.map(renderExpandedRow)}
+          {renderExpandedItems(group.tabs)}
         </div>
       );
     }
@@ -242,12 +361,12 @@ export function TerminalRail({
         headerClassName="gap-1.5 pt-1 pb-0.5 text-[11px] font-medium text-muted-foreground"
         contentClassName="ml-3 flex flex-col gap-0.5 border-l border-border/60 pl-1"
       >
-        {group.tabs.map(renderExpandedRow)}
+        {renderExpandedItems(group.tabs)}
       </CollapsibleRailGroup>
     );
   }
 
-  function renderSection(section: (typeof sections)[number], dots: boolean) {
+  function renderSection(section: TerminalRailSection, dots: boolean) {
     const showWorktreeHeaders = section.worktreeGroups.length > 1;
     const worktreeGroups = section.worktreeGroups.map((g) =>
       renderWorktreeGroup(g, section.key, showWorktreeHeaders, dots),
@@ -351,13 +470,14 @@ export function TerminalRail({
     ) : (
       <div
         key={tab.sessionId}
-        {...dragProps(tab)}
+        {...dragProps(tab, true)}
         className={cn(
-          'group flex items-start rounded-sm hover:bg-muted',
+          'group relative flex items-start rounded-sm hover:bg-muted',
           tab.sessionId === activeId && 'bg-muted',
-          dragOverId === tab.sessionId && 'ring-1 ring-inset ring-primary',
+          dropZoneFor(tab.sessionId) === 'into' && 'ring-1 ring-inset ring-primary',
         )}
       >
+        <RailDropLine zone={dropZoneFor(tab.sessionId)} />
         <button
           type="button"
           onClick={() => focusSession(tab.sessionId)}
@@ -389,8 +509,8 @@ export function TerminalRail({
         key={tab.sessionId}
         tab={tab}
         active={tab.sessionId === activeId}
-        dropTarget={dragOverId === tab.sessionId}
-        dragProps={dragProps(tab)}
+        dropZone={dropZoneFor(tab.sessionId)}
+        dragProps={dragProps(tab, false)}
         onFocus={() => focusSession(tab.sessionId)}
       />
     );
@@ -569,13 +689,13 @@ export function TerminalRail({
 function TerminalRailDot({
   tab,
   active,
-  dropTarget,
+  dropZone,
   dragProps,
   onFocus,
 }: {
   tab: TerminalTab;
   active: boolean;
-  dropTarget: boolean;
+  dropZone: RailDropZone | undefined;
   dragProps: RailDragHandlers;
   onFocus: () => void;
 }) {
@@ -591,12 +711,12 @@ function TerminalRailDot({
           aria-label={`Focus terminal ${spoken}${tab.scope.scopeLabel}${tab.oscTitle ? `: ${tab.oscTitle}` : ''}`}
           aria-current={active || undefined}
           className={cn(
-            'flex size-6 items-center justify-center rounded-[5px] transition-colors',
+            'relative flex size-6 items-center justify-center rounded-[5px] transition-colors',
             getTerminalRailBoxStyle(tab),
             active && 'ring-1 ring-inset ring-foreground/60',
-            dropTarget && 'ring-1 ring-inset ring-primary',
           )}
         >
+          <RailDropLine zone={dropZone} />
           {terminalNumber === null ? (
             <RiTerminalLine className="size-3" />
           ) : (

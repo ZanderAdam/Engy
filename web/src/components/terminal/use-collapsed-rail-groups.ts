@@ -19,6 +19,9 @@ const collapsedGroups = createPersistentValue<readonly string[]>(
   },
 );
 
+export const subscribeCollapsedRailGroups = collapsedGroups.subscribe;
+export const readCollapsedRailGroups = collapsedGroups.get;
+
 export function setRailGroupCollapsed(groupId: string, collapsed: boolean): void {
   const current = collapsedGroups.get();
   if (current.includes(groupId) === collapsed) return;

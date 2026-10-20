@@ -35,10 +35,11 @@ interface QuestionChangePayload {
 }
 
 interface TerminalSessionsChangePayload {
-  action: 'created' | 'destroyed' | 'attached' | 'detached' | 'renamed';
+  action: 'created' | 'destroyed' | 'attached' | 'detached' | 'renamed' | 'regrouped';
   sessionId: string;
   groupKey?: string;
   newLabel?: string;
+  railGroup?: { id: string; name: string } | null;
   // 'killed' = deliberate teardown (user kill / agent terminal_close) — remove
   // the tab. Absent on natural PTY exit, where the tab stays readable.
   reason?: 'killed';

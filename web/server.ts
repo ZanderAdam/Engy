@@ -14,6 +14,7 @@ import {
 } from './src/server/ws/voice-server';
 import { broadcastTerminalSessionsChange } from './src/server/ws/broadcast';
 import { listTerminalSessions } from './src/server/ws/terminal-session-list';
+import { handleTerminalRailGroupRequest } from './src/server/ws/terminal-rail-group';
 import {
   loadPersistedTerminalSessions,
   persistTerminalSession,
@@ -159,6 +160,27 @@ app.prepare().then(() => {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Invalid request body' }));
         }
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/terminal/sessions/group') {
+      let body = '';
+      req.on('data', (chunk: Buffer) => {
+        body += chunk.toString();
+      });
+      req.on('end', () => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(body);
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid request body' }));
+          return;
+        }
+        const result = handleTerminalRailGroupRequest(state, parsed);
+        res.writeHead(result.status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result.body));
       });
       return;
     }

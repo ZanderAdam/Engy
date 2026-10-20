@@ -25,3 +25,18 @@ export function orderTabsByPanelIds(
 
   return ordered;
 }
+
+/**
+ * Where to insert a moving panel so it lands before or after the target. The
+ * index is counted without the moving panel, because dockview removes the panel
+ * before it re-inserts it.
+ */
+export function reorderIndex(
+  panelIds: string[],
+  movingId: string,
+  targetId: string,
+  position: 'before' | 'after',
+): number {
+  const others = panelIds.filter((id) => id !== movingId);
+  return others.indexOf(targetId) + (position === 'after' ? 1 : 0);
+}

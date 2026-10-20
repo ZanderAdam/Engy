@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { DockviewReact, type DockviewApi, type SerializedDockview } from "dockview";
 import type { TerminalActions } from "./terminal";
 import { focusWhenFocusable } from "./focus-when-focusable";
-import { isStoppedTerminal, type TerminalActivityState, type TerminalTab, type TerminalScope, type TerminalPanelParams, type SplitPosition, type TerminalDropdownGroup } from "./types";
+import { isStoppedTerminal, type TerminalActivityState, type TerminalTab, type TerminalScope, type TerminalPanelParams, type SplitPosition, type TerminalDropdownGroup, type TerminalRailGroup } from "./types";
 import { TerminalDockContext, type TerminalDockContextValue } from "./terminal-dock-context";
 import { TerminalDockPanel } from "./terminal-dock-panel";
 import { TerminalDockTab } from "./terminal-dock-tab";
@@ -18,7 +18,7 @@ import { randomId } from "@/lib/random-id";
 import { trpc } from "@/lib/trpc";
 import { sessionToTab, type SessionListItem } from "./session-to-tab";
 import { publishTerminalSessions, clearTerminalSessions, terminalRailKey } from "./terminal-session-store";
-import { orderTabsByPanelIds } from "./tab-order";
+import { orderTabsByPanelIds, reorderIndex } from "./tab-order";
 import { registerPrimaryInjectTarget, isPrimaryReadyFor } from "./terminal-inject-priority";
 
 /** Pure decision for the `terminal:inject` race: which session id (if any)
@@ -83,6 +83,13 @@ interface TerminalCloseEvent {
 interface TerminalReorderEvent {
   sessionId: string;
   targetSessionId: string;
+  position: 'before' | 'after';
+  tabId?: string;
+}
+
+interface TerminalGroupEvent {
+  sessionIds: string[];
+  group: TerminalRailGroup | null;
   tabId?: string;
 }
 
@@ -390,6 +397,13 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     if (updated) commitTab(sessionId, updated);
   }, [commitTab]);
 
+  const applyRailGroup = useCallback((sessionId: string, group: TerminalRailGroup | null) => {
+    const existing = tabsRef.current.get(sessionId);
+    if (!existing) return;
+
+    commitTab(sessionId, { ...existing, railGroup: group ?? undefined });
+  }, [commitTab]);
+
   const renameTerminal = useCallback((sessionId: string, newLabel: string) => {
     updateTabLabel(sessionId, newLabel);
 
@@ -531,13 +545,10 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
 
   // terminal:reorder — the rail's drag-and-drop. Moving the dockview panel is
   // the only write: the rail's own order is republished from the dock's panel
-  // order, so the list and the tab strip cannot drift apart. Inserting at the
-  // target's current index lands the panel in the target's place whichever
-  // direction it came from, because dockview removes the panel before it
-  // re-inserts it.
+  // order, so the list and the tab strip cannot drift apart.
   useEffect(() => {
     function onReorder(e: Event) {
-      const { sessionId, targetSessionId, tabId } = (e as CustomEvent<TerminalReorderEvent>).detail;
+      const { sessionId, targetSessionId, position, tabId } = (e as CustomEvent<TerminalReorderEvent>).detail;
       if (tabId !== undefined && tabId !== myTabId) return;
       const api = dockviewApiRef.current;
       if (!api) return;
@@ -545,12 +556,36 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       const target = api.getPanel(targetSessionId);
       if (!panel || !target || panel === target) return;
       const group = target.api.group;
-      panel.api.moveTo({ group, index: group.panels.indexOf(target) });
+      const panelIds = group.panels.map((p) => p.id);
+      panel.api.moveTo({ group, index: reorderIndex(panelIds, sessionId, targetSessionId, position) });
     }
 
     window.addEventListener('terminal:reorder', onReorder);
     return () => window.removeEventListener('terminal:reorder', onReorder);
   }, [myTabId]);
+
+  // terminal:group — the rail puts terminals into a group, takes them out, or
+  // renames a group. Applied locally first; the server stores it and
+  // broadcasts it to every other browser.
+  useEffect(() => {
+    function onGroup(e: Event) {
+      const { sessionIds, group, tabId } = (e as CustomEvent<TerminalGroupEvent>).detail;
+      if (tabId !== undefined && tabId !== myTabId) return;
+      for (const sessionId of sessionIds) applyRailGroup(sessionId, group);
+      fetch('/api/terminal/sessions/group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionIds, group }),
+      })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+        })
+        .catch((err: unknown) => console.error('Failed to save terminal group:', err));
+    }
+
+    window.addEventListener('terminal:group', onGroup);
+    return () => window.removeEventListener('terminal:group', onGroup);
+  }, [myTabId, applyRailGroup]);
 
   // Cross-browser session sync: when another browser creates a session for this groupKey,
   // fetch updated session list and add any new sessions as tabs
@@ -606,6 +641,8 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       }, 150);
     } else if (payload.action === 'renamed' && payload.newLabel) {
       updateTabLabel(payload.sessionId, payload.newLabel);
+    } else if (payload.action === 'regrouped') {
+      applyRailGroup(payload.sessionId, payload.railGroup ?? null);
     } else if (payload.action === 'destroyed' && payload.reason === 'killed') {
       // Deliberate teardown (user kill in another browser / agent
       // terminal_close) — remove the tab instead of leaving it as 'exited'.
@@ -615,7 +652,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     // 'destroyed' without reason (natural PTY exit) keeps the tab so its
     // final output stays readable — the WS exit event marks it exited.
     // 'attached'/'detached' are informational — no action needed
-  }, [updateTabLabel, buildSessionsUrl, broadcastActive]));
+  }, [updateTabLabel, applyRailGroup, buildSessionsUrl, broadcastActive]));
 
   // needsAttention has no broadcast of its own — every hook event that can
   // change it (Notification sets it, Stop/UserPromptSubmit clear it, and the
@@ -801,14 +838,17 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   // active panel change. Keyed by tab + scope and cleared on unmount so a scope
   // switch (or another tab on the same scope) doesn't leave a stale list.
   const railKey = publishKey ? terminalRailKey(myTabId, publishKey) : null;
+  const visible = tabCtx?.isActive ?? true;
   useEffect(() => {
     if (!railKey) return;
     const api = dockviewApiRef.current;
     publishTerminalSessions(railKey, {
       tabs: orderTabsByPanelIds(api?.panels.map((p) => p.id) ?? [], tabsRef.current),
       activeId: api?.activePanel?.id ?? null,
+      visible,
+      commandCenter: global,
     });
-  }, [railKey, tabsVersion]);
+  }, [railKey, tabsVersion, visible, global]);
 
   useEffect(() => {
     if (!railKey) return;

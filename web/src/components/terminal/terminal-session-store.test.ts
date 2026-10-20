@@ -2,13 +2,18 @@ import { describe, it, expect, afterEach } from 'vitest';
 import {
   publishTerminalSessions,
   clearTerminalSessions,
+  readNumberedTerminals,
   readOpenTerminals,
   terminalOrdinal,
   terminalRailKey,
 } from './terminal-session-store';
 import type { TerminalTab } from './types';
+import { setRailGroupCollapsed } from './use-collapsed-rail-groups';
 
-function makeTab(sessionId: string): TerminalTab {
+function makeTab(
+  sessionId: string,
+  scope: { worktreeBranch?: string; projectSlug?: string } = {},
+): TerminalTab {
   return {
     sessionId,
     scope: {
@@ -17,9 +22,26 @@ function makeTab(sessionId: string): TerminalTab {
       workingDir: '/tmp',
       groupKey: `gk-${sessionId}`,
       workspaceSlug: 'ws',
+      ...scope,
     },
     status: 'active',
   };
+}
+
+function snapshot(
+  tabs: TerminalTab[],
+  options: { visible?: boolean; commandCenter?: boolean } = {},
+) {
+  return {
+    tabs,
+    activeId: null,
+    visible: options.visible ?? true,
+    commandCenter: options.commandCenter ?? false,
+  };
+}
+
+function numbered(): string[] {
+  return readNumberedTerminals().map((t) => t.sessionId);
 }
 
 describe('terminal-session-store', () => {
@@ -41,11 +63,120 @@ describe('terminal-session-store', () => {
     it('should publish and clear a key without throwing', () => {
       const key = terminalRailKey('t', 'gk');
       expect(() => {
-        publishTerminalSessions(key, { tabs: [makeTab('a')], activeId: 'a' });
+        publishTerminalSessions(key, snapshot([makeTab('a')]));
         clearTerminalSessions(key);
         // Clearing a missing key is a no-op (early-out), must not throw.
         clearTerminalSessions(key);
       }).not.toThrow();
+    });
+  });
+
+  describe('numbered terminals', () => {
+    const VISIBLE = terminalRailKey('shown', 'gk-a');
+    const HIDDEN = terminalRailKey('hidden', 'gk-b');
+
+    afterEach(() => {
+      clearTerminalSessions(VISIBLE);
+      clearTerminalSessions(HIDDEN);
+    });
+
+    // Inactive app tabs stay mounted and keep publishing; their terminals
+    // must not offset or gap the numbers on screen.
+    it('[FR-TERMINAL-900] should number only the terminals of the visible rail from 1', () => {
+      publishTerminalSessions(HIDDEN, snapshot([makeTab('h1'), makeTab('h2')], { visible: false }));
+      publishTerminalSessions(VISIBLE, snapshot([makeTab('a1'), makeTab('a2')]));
+
+      expect(numbered()).toEqual(['a1', 'a2']);
+      expect(terminalOrdinal(readNumberedTerminals(), 'a1')).toBe(1);
+      expect(terminalOrdinal(readNumberedTerminals(), 'h1')).toBeNull();
+    });
+
+    it('[FR-TERMINAL-900] should follow the worktree-grouped order the rail lists', () => {
+      publishTerminalSessions(
+        VISIBLE,
+        snapshot([makeTab('wt1', { worktreeBranch: 'feat' }), makeTab('main1'), makeTab('main2')]),
+      );
+
+      expect(numbered()).toEqual(['main1', 'main2', 'wt1']);
+    });
+
+    it('[FR-TERMINAL-900] should follow the project-grouped order in Command Center mode', () => {
+      publishTerminalSessions(
+        VISIBLE,
+        snapshot(
+          [
+            makeTab('other'),
+            makeTab('alpha1', { projectSlug: 'alpha' }),
+            makeTab('alpha2', { projectSlug: 'alpha' }),
+          ],
+          { commandCenter: true },
+        ),
+      );
+
+      expect(numbered()).toEqual(['alpha1', 'alpha2', 'other']);
+    });
+
+    it('[FR-TERMINAL-900] should renumber when the rail order changes', () => {
+      const a = makeTab('a');
+      const b = makeTab('b');
+      publishTerminalSessions(VISIBLE, snapshot([a, b]));
+      expect(numbered()).toEqual(['a', 'b']);
+
+      publishTerminalSessions(VISIBLE, snapshot([b, a]));
+      expect(numbered()).toEqual(['b', 'a']);
+    });
+
+    it('[FR-TERMINAL-900] should switch numbers to the newly visible app tab', () => {
+      publishTerminalSessions(VISIBLE, snapshot([makeTab('a1')]));
+      publishTerminalSessions(HIDDEN, snapshot([makeTab('h1')], { visible: false }));
+
+      publishTerminalSessions(VISIBLE, snapshot([makeTab('a1')], { visible: false }));
+      publishTerminalSessions(HIDDEN, snapshot([makeTab('h1')]));
+
+      expect(numbered()).toEqual(['h1']);
+    });
+
+    // useSyncExternalStore compares by identity and loops forever on a fresh
+    // array each read, so an unchanged list must return the same reference.
+    it('should return a stable reference while the snapshot is unchanged', () => {
+      publishTerminalSessions(VISIBLE, snapshot([makeTab('a1')]));
+      expect(readNumberedTerminals()).toBe(readNumberedTerminals());
+    });
+
+    it('should number nothing while no rail is visible', () => {
+      publishTerminalSessions(HIDDEN, snapshot([makeTab('h1')], { visible: false }));
+      expect(numbered()).toEqual([]);
+    });
+
+    it('[FR-TERMINAL-900] should renumber when a group collapses or opens', () => {
+      const ops = { id: 'ops', name: 'Ops' };
+      publishTerminalSessions(
+        VISIBLE,
+        snapshot([
+          { ...makeTab('o1'), railGroup: ops },
+          { ...makeTab('o2'), railGroup: ops },
+          makeTab('b'),
+        ]),
+      );
+      expect(numbered()).toEqual(['o1', 'o2', 'b']);
+
+      setRailGroupCollapsed('ops', true);
+      expect(numbered()).toEqual(['b']);
+
+      setRailGroupCollapsed('ops', false);
+      expect(numbered()).toEqual(['o1', 'o2', 'b']);
+    });
+
+    it('[FR-TERMINAL-980] should keep the numbers when a worktree group collapses', () => {
+      publishTerminalSessions(
+        VISIBLE,
+        snapshot([makeTab('main1'), makeTab('wt1', { worktreeBranch: 'feat' })]),
+      );
+      const before = numbered();
+
+      setRailGroupCollapsed('__all__|feat', true);
+      expect(numbered()).toEqual(before);
+      setRailGroupCollapsed('__all__|feat', false);
     });
   });
 
@@ -58,41 +189,30 @@ describe('terminal-session-store', () => {
       clearTerminalSessions(B);
     });
 
-    // Voice numbers terminals by this list, so a scope the user has open in a
-    // second dock must not restart the numbering at 1.
-    it('should flatten every published scope into one numbered list', () => {
-      publishTerminalSessions(A, { tabs: [makeTab('a1'), makeTab('a2')], activeId: 'a1' });
-      publishTerminalSessions(B, { tabs: [makeTab('b1')], activeId: null });
+    it('should list every published scope, including hidden app tabs', () => {
+      publishTerminalSessions(A, snapshot([makeTab('a1'), makeTab('a2')]));
+      publishTerminalSessions(B, snapshot([makeTab('b1')], { visible: false }));
 
-      const open = readOpenTerminals();
-      expect(open.map((t) => t.sessionId)).toEqual(['a1', 'a2', 'b1']);
-      expect(terminalOrdinal(open, 'b1')).toBe(3);
+      expect(readOpenTerminals().map((t) => t.sessionId)).toEqual(['a1', 'a2', 'b1']);
     });
 
-    // Two managers can publish the same session; it must take one number.
     it('should count a session published under two keys once', () => {
-      publishTerminalSessions(A, { tabs: [makeTab('same')], activeId: null });
-      publishTerminalSessions(B, { tabs: [makeTab('same')], activeId: null });
+      publishTerminalSessions(A, snapshot([makeTab('same')]));
+      publishTerminalSessions(B, snapshot([makeTab('same')]));
 
       expect(readOpenTerminals().map((t) => t.sessionId)).toEqual(['same']);
     });
 
-    // useSyncExternalStore compares by identity and loops forever on a fresh
-    // array each read, so an unchanged list must return the same reference.
     it('should return a stable reference while the tabs are unchanged', () => {
-      publishTerminalSessions(A, { tabs: [makeTab('a1')], activeId: null });
+      publishTerminalSessions(A, snapshot([makeTab('a1')]));
       expect(readOpenTerminals()).toBe(readOpenTerminals());
     });
 
     it('should return a new reference once the tabs change', () => {
-      publishTerminalSessions(A, { tabs: [makeTab('a1')], activeId: null });
+      publishTerminalSessions(A, snapshot([makeTab('a1')]));
       const before = readOpenTerminals();
-      publishTerminalSessions(A, { tabs: [makeTab('a1'), makeTab('a2')], activeId: null });
+      publishTerminalSessions(A, snapshot([makeTab('a1'), makeTab('a2')]));
       expect(readOpenTerminals()).not.toBe(before);
-    });
-
-    it('should report no ordinal for a session that is not open', () => {
-      expect(terminalOrdinal(readOpenTerminals(), 'nope')).toBeNull();
     });
   });
 });
