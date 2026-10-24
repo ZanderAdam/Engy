@@ -94,8 +94,27 @@ export class SpeechQueue {
   }
 }
 
+export const CHIME_URL = '/sounds/speak-chime.wav';
+
 export function speakUrl(workspaceSlug: string, text: string, voiceId?: string): string {
   const params = new URLSearchParams({ workspace: workspaceSlug, text });
   if (voiceId) params.set('voice', voiceId);
   return `/api/voice/speak?${params.toString()}`;
+}
+
+/** One utterance per line, not one for the whole answer: a status readout is
+ * a list, and the voice does not pause on punctuation, so the gap between
+ * items has to come from the queue playing them separately. */
+export function speechUrls(
+  workspaceSlug: string,
+  text: string,
+  opts: { voiceId?: string; chime?: boolean } = {},
+): string[] {
+  const urls = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => speakUrl(workspaceSlug, line, opts.voiceId));
+  if (urls.length === 0 || !opts.chime) return urls;
+  return [CHIME_URL, ...urls];
 }

@@ -19,7 +19,7 @@ import {
   type VoiceCaptureState,
 } from './use-voice-capture';
 import { useVoiceVocabulary } from './use-voice-vocabulary';
-import { SpeechQueue, speakUrl } from './speech-queue';
+import { SpeechQueue, speechUrls } from './speech-queue';
 import { createSpeakerTab } from './speaker-tab';
 import { recordSpoken } from './spoken-subtitles';
 import { readVoiceId } from './voice-prefs';
@@ -80,16 +80,11 @@ function ActiveVoiceProvider({
         onSpeakingChange: (speaking) => getVoicePttController().setSpeaking(speaking),
       }),
   );
-  // One utterance per line, not one for the whole answer: a status readout is
-  // a list, and the voice does not pause on punctuation, so the gap between
-  // items has to come from the queue playing them separately.
   const speak = useCallback(
-    (text: string) => {
+    (text: string, opts: { chime?: boolean } = {}) => {
       if (!ttsEnabled) return;
-      for (const line of text.split('\n')) {
-        const trimmed = line.trim();
-        if (trimmed) queue.enqueue(speakUrl(workspaceSlug, trimmed, readVoiceId()));
-      }
+      const urls = speechUrls(workspaceSlug, text, { voiceId: readVoiceId(), chime: opts.chime });
+      for (const url of urls) queue.enqueue(url);
     },
     [ttsEnabled, queue, workspaceSlug],
   );
@@ -117,7 +112,9 @@ function ActiveVoiceProvider({
 
   useOnServerEvent('VOICE_SPEAK', (payload) => {
     if (payload.sessionId) recordSpoken(payload.sessionId, payload.text);
-    if (speakerTab.isSpeaker()) speak(payload.text);
+    // Outside a conversation the user is not waiting for an answer, so the
+    // first words would be lost without a cue that Engy is about to talk.
+    if (speakerTab.isSpeaker()) speak(payload.text, { chime: !isConversation() });
   });
 
   const value = useMemo(

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { SpeechQueue, speakUrl } from './speech-queue';
+import { CHIME_URL, SpeechQueue, speakUrl, speechUrls } from './speech-queue';
 
 function deferred() {
   let resolve!: () => void;
@@ -149,5 +149,26 @@ describe('speakUrl', () => {
     const url = speakUrl('ws', 'Hello.', 'alan');
     const params = new URLSearchParams(url.split('?')[1]);
     expect(params.get('voice')).toBe('alan');
+  });
+});
+
+describe('speechUrls', () => {
+  it('should give one utterance per non-empty line', () => {
+    const urls = speechUrls('ws', 'Build passed.\n\n  Tests passed.  ');
+    expect(urls).toEqual([speakUrl('ws', 'Build passed.'), speakUrl('ws', 'Tests passed.')]);
+  });
+
+  it('should lead with one chime when asked, however many lines follow', () => {
+    const urls = speechUrls('ws', 'One.\nTwo.', { chime: true });
+    expect(urls).toEqual([CHIME_URL, speakUrl('ws', 'One.'), speakUrl('ws', 'Two.')]);
+  });
+
+  it('should not chime when there is nothing to say', () => {
+    expect(speechUrls('ws', ' \n ', { chime: true })).toEqual([]);
+  });
+
+  it('should carry the chosen voice on every utterance', () => {
+    const urls = speechUrls('ws', 'One.\nTwo.', { voiceId: 'alan' });
+    expect(urls).toEqual([speakUrl('ws', 'One.', 'alan'), speakUrl('ws', 'Two.', 'alan')]);
   });
 });
