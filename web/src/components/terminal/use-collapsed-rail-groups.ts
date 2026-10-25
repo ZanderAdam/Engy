@@ -1,7 +1,7 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
-import { createPersistentValue } from './persistent-value';
+import { createPersistentValue } from '@/lib/persistent-value';
 
 const collapsedGroups = createPersistentValue<readonly string[]>(
   'engy:terminal-rail-collapsed-groups:v1',
