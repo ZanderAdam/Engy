@@ -8,7 +8,8 @@ import { ReviewAvatar } from '@/components/review/review-avatar';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { InboxCiBadge, InboxRiskBadge } from './inbox-badges';
+import { RiskBadge } from '@/components/review/risk-badge';
+import { InboxCiBadge } from './inbox-badges';
 import { formatSnoozeUntil, githubAvatarUrl } from './inbox-helpers';
 import type { InboxRowModel } from './inbox-rows';
 
@@ -149,7 +150,7 @@ function InboxRow({ row, selected, onSelect, onDone, onSnooze }: InboxRowProps) 
           </span>
         )}
         <AttentionBadge reason={row.pr?.attentionReason ?? null} compact />
-        <InboxRiskBadge risk={row.risk} />
+        <RiskBadge risk={row.risk} />
         <InboxCiBadge ci={row.ci} />
       </div>
     </div>

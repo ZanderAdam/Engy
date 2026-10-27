@@ -717,7 +717,7 @@ describe('diff review MCP tools', () => {
       expect(plain.data).toMatchObject({ guide: null });
     });
 
-    it('[FR-MCP-270] rejects an unknown level, an overlong reason and too many chapters', () => {
+    const summaryInputAccepts = () => {
       const tools = (
         makeMcp() as unknown as {
           _registeredTools: Record<
@@ -726,8 +726,68 @@ describe('diff review MCP tools', () => {
           >;
         }
       )._registeredTools;
-      const accepts = (extra: Record<string, unknown>) =>
+      return (extra: Record<string, unknown>) =>
         tools.diff_review_summary.inputSchema.safeParse({ summary: 's', ...extra }).success;
+    };
+
+    const guidedChapter = {
+      title: 'Core change',
+      files: ['src/auth.ts'],
+      note: 'Check the expiry guard',
+      role: 'core',
+      explanation: 'Moves the token check into `auth.ts`.',
+      systemContext: 'Every request handler calls `requireAuth` before it reads the body.',
+      risk: { level: 'high', reason: 'Every request passes here' },
+    };
+
+    it('[FR-MCP-285] stores the overview and guided chapter fields and returns them from diff_review_list', async () => {
+      const mcp = makeMcp();
+      await callTool(
+        mcp,
+        'diff_review_summary',
+      )({
+        repoDir: REPO,
+        summary: 's',
+        overview: 'Moves auth into one guard.',
+        readingOrder: [guidedChapter],
+      });
+
+      const [thread] = await readAsDiffsTabWould(REPO);
+      expect(thread.metadata).toMatchObject({
+        overview: 'Moves auth into one guard.',
+        readingOrder: [guidedChapter],
+      });
+      const listed = await callTool(mcp, 'diff_review_list')({ repoDir: REPO });
+      expect(listed.data).toMatchObject({
+        overview: 'Moves auth into one guard.',
+        readingOrder: [guidedChapter],
+      });
+
+      await callTool(mcp, 'diff_review_summary')({ repoDir: REPO, summary: 'plain' });
+      const plain = await callTool(mcp, 'diff_review_list')({ repoDir: REPO });
+      expect(plain.data).toMatchObject({ overview: null });
+    });
+
+    it('[FR-MCP-285] rejects an unknown role and over-long guided texts', () => {
+      const accepts = summaryInputAccepts();
+
+      expect(accepts({ overview: 'x'.repeat(600), readingOrder: [guidedChapter] })).toBe(true);
+      expect(accepts({ readingOrder: [readingOrder[0]] })).toBe(true);
+      expect(accepts({ overview: 'x'.repeat(601) })).toBe(false);
+      expect(accepts({ readingOrder: [{ ...guidedChapter, role: 'main' }] })).toBe(false);
+      expect(accepts({ readingOrder: [{ ...guidedChapter, explanation: 'x'.repeat(1501) }] })).toBe(
+        false,
+      );
+      expect(accepts({ readingOrder: [{ ...guidedChapter, systemContext: 'x'.repeat(801) }] })).toBe(
+        false,
+      );
+      expect(
+        accepts({ readingOrder: [{ ...guidedChapter, risk: { level: 'severe', reason: 'x' } }] }),
+      ).toBe(false);
+    });
+
+    it('[FR-MCP-270] rejects an unknown level, an overlong reason and too many chapters', () => {
+      const accepts = summaryInputAccepts();
 
       expect(accepts({ risk })).toBe(true);
       expect(accepts({ guide: 'default' })).toBe(true);

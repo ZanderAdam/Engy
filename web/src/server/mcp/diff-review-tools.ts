@@ -11,6 +11,7 @@ import { randomId } from '@/lib/random-id';
 import { AGENT_USER_ID } from '@/lib/comment-feedback';
 import { mcpError, mcpResult } from './result';
 import { diffScopePrefix } from '@/lib/diff-doc-path';
+import { CHAPTER_ROLES } from '@/lib/review-summary-meta';
 import { resolveReviewScope } from '../review/review-scope';
 import { startsWithPrefix } from '../lib/path-prefix';
 import { notifyInboxChange } from '../inbox/store';
@@ -76,34 +77,61 @@ const diffReviewResolveInput = {
   threadId: z.string().min(1).describe('Thread id from diff_review_list'),
 };
 
-const riskField = z
-  .object({
-    level: z
-      .enum(['low', 'typical', 'high', 'very_high'])
-      .describe('How likely the change breaks something, weighed by how much depends on it'),
-    reason: z
-      .string()
-      .min(1)
-      .max(300)
-      .describe('One or two sentences naming what drives the level'),
-  })
-  .optional();
+const riskSchema = z.object({
+  level: z
+    .enum(['low', 'typical', 'high', 'very_high'])
+    .describe('How likely the change breaks something, weighed by how much depends on it'),
+  reason: z
+    .string()
+    .min(1)
+    .max(300)
+    .describe('One or two sentences naming what drives the level'),
+});
 
 const readingOrderField = z
   .array(
     z.object({
-      title: z.string().min(1).max(120).describe('Chapter name, e.g. "Core change"'),
+      title: z
+        .string()
+        .min(1)
+        .max(120)
+        .describe('Group name stating the change, e.g. "Token check moves into one guard"'),
       files: z
         .array(z.string().min(1))
         .min(1)
         .max(50)
-        .describe('Repo-relative paths in this chapter'),
-      note: z.string().min(1).max(300).describe('One line on what to look for'),
+        .describe('Repo-relative paths from the diff in this group'),
+      note: z.string().min(1).max(300).describe('One line on what the reader must check'),
+      role: z
+        .enum(CHAPTER_ROLES)
+        .optional()
+        .describe(
+          'core: the change itself; supporting: code that follows from it; glue: wiring, renames, config; tests: tests and fixtures',
+        ),
+      explanation: z
+        .string()
+        .min(1)
+        .max(1500)
+        .optional()
+        .describe(
+          'Plain text: what this group changes and why, then its consequences. Wrap identifiers in backticks',
+        ),
+      systemContext: z
+        .string()
+        .min(1)
+        .max(800)
+        .optional()
+        .describe(
+          'Plain text: how this group fits the existing system — the callers, flows and feature areas it touches, from reading code outside the diff',
+        ),
+      risk: riskSchema.optional().describe('Risk of this group alone'),
     }),
   )
   .max(20)
   .optional()
-  .describe('Ordered chapters: core change first, then supporting code, then tests and glue');
+  .describe(
+    'The guided review: ordered change groups, core change first, then supporting code, then glue and tests. Every changed file belongs to one group',
+  );
 
 const diffReviewSummaryInput = {
   repoDir: repoDirField,
@@ -111,9 +139,15 @@ const diffReviewSummaryInput = {
     .string()
     .min(1)
     .describe(
-      'Markdown read before any file: a three-sentence overview, the order to read the changed files in and what to check in each, architectural decisions and why, breaking-change risk, then anything not worth anchoring inline',
+      'Markdown notes behind a disclosure: architectural decisions and why, breaking-change impact, answers to open human comments, then anything not worth anchoring inline',
     ),
-  risk: riskField,
+  overview: z
+    .string()
+    .min(1)
+    .max(600)
+    .optional()
+    .describe('Plain text, up to three sentences: what the change does and why'),
+  risk: riskSchema.optional().describe('Risk of the whole change'),
   readingOrder: readingOrderField,
   guide: z
     .enum(['default', 'project'])
@@ -297,6 +331,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
         {
           type: 'review-summary',
           ...authorMetadata(callerTerminalSessionId),
+          ...(args.overview ? { overview: args.overview } : {}),
           ...(args.risk ? { risk: args.risk } : {}),
           ...(args.readingOrder ? { readingOrder: args.readingOrder } : {}),
           ...(args.guide ? { guide: args.guide } : {}),
@@ -372,6 +407,7 @@ export function registerDiffReviewTools(mcp: McpServer, callerTerminalSessionId?
       return mcpResult({
         threads,
         summary: summaryRow ? firstCommentBody(summaryRow.id) : null,
+        overview: summaryMeta.overview ?? null,
         risk: summaryMeta.risk ?? null,
         readingOrder: summaryMeta.readingOrder ?? null,
         guide: summaryMeta.guide ?? null,

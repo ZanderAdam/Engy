@@ -57,6 +57,7 @@ type TreeProps = React.HTMLAttributes<HTMLDivElement> & {
     defaultLeafIcon?: React.ComponentType<{ className?: string }>
     onDocumentDrag?: (sourceItem: TreeDataItem, targetItem: TreeDataItem) => void
     renderItem?: (params: TreeRenderItemParams) => React.ReactNode
+    dropZone?: boolean
 }
 
 const TreeView = React.forwardRef<HTMLDivElement, TreeProps>(
@@ -73,6 +74,7 @@ const TreeView = React.forwardRef<HTMLDivElement, TreeProps>(
             className,
             onDocumentDrag,
             renderItem,
+            dropZone = true,
             ...props
         },
         ref
@@ -176,10 +178,12 @@ const TreeView = React.forwardRef<HTMLDivElement, TreeProps>(
                     level={0}
                     {...props}
                 />
-                <div
-                    className='w-full h-[48px]'
-                    onDrop={() => { handleDrop({id: '', name: 'parent_div'})}}>
-                </div>
+                {dropZone && (
+                    <div
+                        className='w-full h-[48px]'
+                        onDrop={() => { handleDrop({id: '', name: 'parent_div'})}}>
+                    </div>
+                )}
             </div>
         )
     }

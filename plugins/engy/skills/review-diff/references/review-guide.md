@@ -2,24 +2,18 @@
 
 ## Overview
 
-What the summary passed to `diff_review_summary` must contain, in this order:
+What to emphasise in the guided review. Its shape (groups, system context, risk) is fixed by the
+skill and applies with any guide.
 
-1. Three-sentence structural overview of the change.
-2. Reading order: which files to read in what sequence, and what to check in each. This is the
-   highest-value part of the summary for a large diff.
-3. Architectural decisions in the diff and their rationale.
-4. Impact and breaking-change assessment.
-5. Observations not worth anchoring: style, minor naming, test-coverage nags, speculative refactor
-   ideas, anything Medium or below that did not earn a line above.
-
-Structured fields on the same call:
-
-- `risk: { level, reason }`. `level` is `low`, `typical`, `high` or `very_high`: how likely the
-  change breaks something, and how much depends on what it touches. `reason` is one or two
-  sentences (max 300 characters) naming what drives the level.
-- `readingOrder: [{ title, files, note }]`, max 20 chapters. Core change first, then supporting
-  code, then tests and glue. Group related files into one chapter, one-line `note` each on what to
-  check. `files` are repo-relative paths from the diff.
+- `overview`: what the change does and why, for a reader who has not seen the work.
+- Group explanations: lead with the change in behaviour, then the consequences a caller sees.
+  Name the risk drivers a reviewer can verify: shared code paths, persisted data, public contracts.
+- `summary` notes, in this order:
+  1. Architectural decisions in the diff and their rationale.
+  2. Impact and breaking-change assessment.
+  3. Answers to open human comments.
+  4. Observations not worth anchoring: style, minor naming, test-coverage nags, speculative
+     refactor ideas, anything Medium or below that did not earn a line above.
 
 ## Review
 

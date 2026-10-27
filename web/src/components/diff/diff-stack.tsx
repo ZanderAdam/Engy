@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { DiffFileSection, rendersTextDiff, type DiffSectionContext } from './diff-file-section';
 import { rowId } from './diff-selection';
 import { admitSections, keepSections, MAX_MOUNTED_SECTIONS } from './review-mode';
@@ -19,6 +19,8 @@ interface DiffStackProps {
   viewedPaths: Set<string>;
   onToggleViewed: (path: string) => void;
   onOpenSingle: (file: ChangedFile) => void;
+  /** Shown above a file inside its row, so scrolling to the file also shows it. */
+  leadFor?: (file: ChangedFile) => ReactNode;
   onAddComment?: (
     filePath: string,
     lineNumber: number,
@@ -42,6 +44,7 @@ export function DiffStack({
   viewedPaths,
   onToggleViewed,
   onOpenSingle,
+  leadFor,
   onAddComment,
   onReply,
   onResolve,
@@ -159,6 +162,7 @@ export function DiffStack({
         const id = rowId(file);
         return (
           <div key={id} data-row-id={id} ref={(node) => registerSection(id, node)}>
+            {leadFor?.(file)}
             <DiffFileSection
               file={file}
               context={context}

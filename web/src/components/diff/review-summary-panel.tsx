@@ -1,14 +1,14 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { RiArrowDownSLine, RiArrowRightSLine, RiRobot2Line } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { MarkdownView } from '@/components/review/markdown-view';
+import { InlineCodeText } from '@/components/review/inline-code-text';
+import { RiskBadge } from '@/components/review/risk-badge';
 import { createPersistentToggle } from '@/lib/persistent-value';
-import { cn } from '@/lib/utils';
 import { commentBodyText } from './agent-findings';
 import { ReviewGuideControl, type GuideProject } from './review-guide-control';
-import { RISK_PRESENTATION } from '@/lib/review-summary-meta';
 import type { DiffComment } from './use-diff-comments';
 
 const summaryCollapsed = createPersistentToggle('engy:review-summary-collapsed:v1', false);
@@ -16,9 +16,13 @@ const summaryCollapsed = createPersistentToggle('engy:review-summary-collapsed:v
 interface ReviewSummaryPanelProps {
   summary: DiffComment | null;
   findingCount: number;
+  groupCount: number;
   onDelete?: (threadId: string) => void;
-  onSelectFile?: (path: string) => void;
   guideProject?: GuideProject;
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
 /**
@@ -28,8 +32,8 @@ interface ReviewSummaryPanelProps {
 export function ReviewSummaryPanel({
   summary,
   findingCount,
+  groupCount,
   onDelete,
-  onSelectFile,
   guideProject,
 }: ReviewSummaryPanelProps) {
   const collapsed = useSyncExternalStore(
@@ -37,40 +41,39 @@ export function ReviewSummaryPanel({
     summaryCollapsed.get,
     summaryCollapsed.getServerSnapshot,
   );
+  const [notesOpen, setNotesOpen] = useState(false);
 
   if (!summary) return null;
 
   const Chevron = collapsed ? RiArrowRightSLine : RiArrowDownSLine;
-  const { risk, readingOrder } = summary;
-  const riskPresentation = risk ? RISK_PRESENTATION[risk.level] : null;
+  const NotesChevron = notesOpen ? RiArrowDownSLine : RiArrowRightSLine;
+  const { risk, overview } = summary;
+  const notes = (
+    <MarkdownView
+      markdown={commentBodyText(summary.comments[0]?.body)}
+      className="[&_.bn-block-content]:!text-xs [&_h1]:!text-sm [&_h2]:!text-xs [&_h3]:!text-xs"
+    />
+  );
 
   return (
     <div className="shrink-0 border-b border-border bg-muted/20">
-      <div className="flex items-center gap-1.5 px-3 py-1.5">
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 px-3 py-1.5">
         <button
           type="button"
           onClick={() => summaryCollapsed.set(!collapsed)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground hover:text-foreground"
         >
           <Chevron className="size-3.5 shrink-0" />
           <RiRobot2Line className="size-3.5 shrink-0" />
-          <span className="font-medium">Review summary</span>
+          <span className="font-medium">{groupCount > 0 ? 'Guided review' : 'Review summary'}</span>
         </button>
-        <span className="text-[10px] text-muted-foreground/60">
+        <span className="whitespace-nowrap text-[10px] text-muted-foreground/60">
+          {groupCount > 0 && `${plural(groupCount, 'group')} · `}
           {findingCount === 0
             ? 'no findings anchored'
-            : `${findingCount} finding${findingCount === 1 ? '' : 's'} on the diff`}
+            : `${plural(findingCount, 'finding')} on the diff`}
         </span>
-        {riskPresentation && (
-          <span
-            className={cn(
-              'border px-1.5 py-0.5 text-[10px] font-medium',
-              riskPresentation.className,
-            )}
-          >
-            {riskPresentation.label}
-          </span>
-        )}
+        <RiskBadge risk={risk} className="py-0.5" />
         <span className="ml-auto" />
         {guideProject && <ReviewGuideControl source={summary.guide} project={guideProject} />}
         {onDelete && (
@@ -86,35 +89,31 @@ export function ReviewSummaryPanel({
       </div>
       {!collapsed && (
         <div className="max-h-[40dvh] overflow-y-auto px-3 pb-3 pl-9 text-xs text-foreground/90">
-          {risk?.reason && (
-            <p className="mb-2 whitespace-pre-wrap text-muted-foreground">{risk.reason}</p>
+          {overview && (
+            <p className="mb-1.5 whitespace-pre-wrap text-sm">
+              <InlineCodeText text={overview} />
+            </p>
           )}
-          <MarkdownView
-            markdown={commentBodyText(summary.comments[0]?.body)}
-            className="[&_.bn-block-content]:!text-xs [&_h1]:!text-sm [&_h2]:!text-xs [&_h3]:!text-xs"
-          />
-          {readingOrder && readingOrder.length > 0 && (
-            <ol className="mt-3 list-decimal space-y-2 pl-4">
-              {readingOrder.map((chapter, index) => (
-                <li key={`${index}-${chapter.title}`}>
-                  <span className="font-medium">{chapter.title}</span>
-                  {chapter.note && <span className="text-muted-foreground"> — {chapter.note}</span>}
-                  <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-                    {chapter.files.map((file) => (
-                      <button
-                        key={file}
-                        type="button"
-                        disabled={!onSelectFile}
-                        onClick={() => onSelectFile?.(file)}
-                        className="font-mono text-[11px] text-foreground/80 underline-offset-2 hover:underline"
-                      >
-                        {file}
-                      </button>
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ol>
+          {risk?.reason && (
+            <p className="mb-2 whitespace-pre-wrap text-muted-foreground">
+              <InlineCodeText text={risk.reason} />
+            </p>
+          )}
+          {overview ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setNotesOpen((open) => !open)}
+                aria-expanded={notesOpen}
+                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+              >
+                <NotesChevron className="size-3.5 shrink-0" />
+                Review notes
+              </button>
+              {notesOpen && notes}
+            </>
+          ) : (
+            notes
           )}
         </div>
       )}

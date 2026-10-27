@@ -1,11 +1,7 @@
 'use client';
 
 import { RiFolderLine } from '@remixicon/react';
-import {
-  TreeView,
-  type TreeDataItem,
-  type TreeRenderItemParams,
-} from '@/components/tree-view';
+import { TreeView, type TreeDataItem, type TreeRenderItemParams } from '@/components/tree-view';
 
 interface FileTreeProps {
   items: TreeDataItem[];
@@ -49,6 +45,7 @@ export function FileTree({
         expandedIds={expandedIds}
         onExpandedChange={onExpandedChange}
         renderItem={renderItem ?? DefaultRenderItem}
+        dropZone={false}
       />
     </div>
   );

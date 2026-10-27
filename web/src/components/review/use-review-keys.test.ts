@@ -44,6 +44,19 @@ describe('[FR-PRREVIEW-260] reviewKeyAction', () => {
   });
 });
 
+describe('[FR-PRREVIEW-340] reviewKeyAction for change groups', () => {
+  it('should map } and { to the next and previous group, with or without Shift', () => {
+    expect(press('}', { shiftKey: true })).toBe('nextGroup');
+    expect(press('{', { shiftKey: true })).toBe('prevGroup');
+    expect(press('}')).toBe('nextGroup');
+  });
+
+  it('should ignore } and { with another modifier', () => {
+    expect(press('}', { shiftKey: true, ctrlKey: true })).toBeNull();
+    expect(press('{', { altKey: true })).toBeNull();
+  });
+});
+
 describe('[FR-PRREVIEW-260] isInsideOverlay', () => {
   const within = (selector: string) => ({
     closest: (query: string) => (query.includes(selector) ? {} : null),

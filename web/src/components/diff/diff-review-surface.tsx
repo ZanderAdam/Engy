@@ -19,6 +19,9 @@ import { useDiffComments } from './use-diff-comments';
 import { scopeCommentsToFiles } from './comment-scope';
 import { OutdatedThreads } from './outdated-threads';
 import { stepInList, stepThread, unresolvedThreadOrder } from './review-nav';
+import { groupByChapters, stepGroup } from './guide-groups';
+import { GuideGroupCard } from './guide-group-card';
+import type { ReadingChapter } from '@/lib/review-summary-meta';
 import type { FileClass } from './file-classes';
 import { useReviewKeys, type ReviewKeyAction } from '@/components/review/use-review-keys';
 import { diffDocFilePath } from '@/lib/diff-doc-path';
@@ -166,6 +169,22 @@ export function DiffReviewSurface({
     removeComment,
     refetch: refetchComments,
   } = useDiffComments(repoDir, commentBranchKey);
+
+  // Every comment refetch rebuilds the summary object, so the groups key on its
+  // content; otherwise each comment would reopen folders and reset the stack.
+  const readingOrderKey = JSON.stringify(reviewSummary?.readingOrder ?? []);
+  const guideGroups = useMemo(
+    () => groupByChapters(files, JSON.parse(readingOrderKey) as ReadingChapter[]),
+    [files, readingOrderKey],
+  );
+  const orderedFiles = useMemo(
+    () => (guideGroups.length > 0 ? guideGroups.flatMap((group) => group.files) : files),
+    [guideGroups, files],
+  );
+  const groupByFirstRow = useMemo(
+    () => new Map(guideGroups.map((group) => [rowId(group.files[0]), group])),
+    [guideGroups],
+  );
 
   const { data: project } = trpc.project.getBySlug.useQuery(
     { workspaceId: workspaceId ?? 0, slug: projectSlug ?? '' },
@@ -355,7 +374,7 @@ export function DiffReviewSurface({
   const scrollToRowId = selectedFileData ? rowId(selectedFileData) : null;
   const listSelection = reviewMode === 'stack' ? (visibleRowId ?? tabs.active) : tabs.active;
 
-  const fileOrder = useMemo(() => [...new Set(files.map((f) => f.path))], [files]);
+  const fileOrder = useMemo(() => [...new Set(orderedFiles.map((f) => f.path))], [orderedFiles]);
   const threadOrder = useMemo(
     () => unresolvedThreadOrder(currentFileComments, fileOrder),
     [currentFileComments, fileOrder],
@@ -375,9 +394,25 @@ export function DiffReviewSurface({
     window.setTimeout(() => scrollToThread(thread.threadId), THREAD_SCROLL_DELAY_MS);
   };
 
+  const selectedGroup = guideGroups.find((group) =>
+    group.files.some((f) => f.path === selectedFile),
+  );
+
+  const groupLead = (file: ChangedFile) => {
+    const group = groupByFirstRow.get(rowId(file));
+    return group ? <GuideGroupCard group={group} total={guideGroups.length} /> : null;
+  };
+
   const handleReviewKey = (action: ReviewKeyAction) => {
-    const delta = action === 'nextFile' || action === 'nextThread' ? 1 : -1;
+    const delta =
+      action === 'nextFile' || action === 'nextThread' || action === 'nextGroup' ? 1 : -1;
     switch (action) {
+      case 'nextGroup':
+      case 'prevGroup': {
+        const path = stepGroup(guideGroups, currentPath, delta);
+        if (path) selectFileByPath(path);
+        return;
+      }
       case 'nextFile':
       case 'prevFile': {
         const path = stepInList(fileOrder, currentPath, delta);
@@ -418,6 +453,7 @@ export function DiffReviewSurface({
       onToggleViewed={toggleViewed}
       onSetViewed={setViewed}
       fileClasses={fileClasses}
+      guideGroups={guideGroups}
     />
   );
 
@@ -517,8 +553,8 @@ export function DiffReviewSurface({
                 findingCount={
                   currentFileComments.filter((c) => c.source === 'agent' && !c.resolved).length
                 }
+                groupCount={guideGroups.length}
                 onDelete={remove}
-                onSelectFile={selectFileByPath}
                 guideProject={hideAgentReview ? undefined : guideProject}
               />
               {reviewMode === 'single' && <EditorTabsBar tabs={tabs} />}
@@ -531,7 +567,7 @@ export function DiffReviewSurface({
               ) : reviewMode === 'stack' ? (
                 <div className="flex flex-1 min-h-0 flex-col">
                   <DiffStack
-                    files={files}
+                    files={orderedFiles}
                     context={sectionContext}
                     viewMode={isMobile ? 'unified' : viewMode}
                     scrollToRowId={scrollToRowId}
@@ -543,6 +579,7 @@ export function DiffReviewSurface({
                       setUserReviewMode('single');
                       openFile(file);
                     }}
+                    leadFor={groupLead}
                     onAddComment={handleAddCommentTo}
                     onReply={replyToThread}
                     onResolve={resolve}
@@ -560,6 +597,13 @@ export function DiffReviewSurface({
                 </div>
               ) : (
                 <div className="flex flex-1 flex-col min-h-0">
+                  {selectedGroup && (
+                    <GuideGroupCard
+                      group={selectedGroup}
+                      total={guideGroups.length}
+                      className="max-h-[30dvh] shrink-0 overflow-y-auto"
+                    />
+                  )}
                   {selectedFileData && (
                     <DiffHeader
                       filePath={selectedFile}

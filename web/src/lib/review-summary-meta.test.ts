@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parseGuideSource, parseReadingOrder, parseRisk } from './review-summary-meta';
+import {
+  parseGuideSource,
+  parseOverview,
+  parseReadingOrder,
+  parseRisk,
+} from './review-summary-meta';
 
 describe('review-summary-meta', () => {
   describe('[FR-PRREVIEW-200] parseRisk', () => {
@@ -40,6 +45,43 @@ describe('review-summary-meta', () => {
     it('should return an empty list for anything but an array', () => {
       expect(parseReadingOrder(undefined)).toEqual([]);
       expect(parseReadingOrder({})).toEqual([]);
+    });
+  });
+
+  describe('[FR-PRREVIEW-320] guided chapter fields', () => {
+    it('should keep role, explanation, system context and risk on a chapter', () => {
+      const chapter = {
+        title: 'Core',
+        files: ['a.ts'],
+        note: 'check the guard',
+        role: 'core',
+        explanation: 'Moves the token check into `auth`.',
+        systemContext: 'Every request passes through `auth`.',
+        risk: { level: 'high', reason: 'Hot path' },
+      };
+      expect(parseReadingOrder([chapter])).toEqual([chapter]);
+    });
+
+    it('should drop an unknown role, a bad risk and empty texts but keep the chapter', () => {
+      expect(
+        parseReadingOrder([
+          {
+            title: 'Core',
+            files: ['a.ts'],
+            note: 'n',
+            role: 'main',
+            explanation: '  ',
+            systemContext: 4,
+            risk: { level: 'severe' },
+          },
+        ]),
+      ).toEqual([{ title: 'Core', files: ['a.ts'], note: 'n' }]);
+    });
+
+    it('should keep a non-empty overview and drop anything else', () => {
+      expect(parseOverview('Adds guided review.')).toBe('Adds guided review.');
+      expect(parseOverview('')).toBeUndefined();
+      expect(parseOverview(3)).toBeUndefined();
     });
   });
 

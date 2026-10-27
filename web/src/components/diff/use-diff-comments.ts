@@ -15,6 +15,7 @@ import {
 } from './agent-findings';
 import {
   parseGuideSource,
+  parseOverview,
   parseReadingOrder,
   parseRisk,
   type ReadingChapter,
@@ -33,6 +34,7 @@ export interface DiffComment {
   githubDraft: boolean;
   severity?: FindingSeverity;
   agentType?: string;
+  overview?: string;
   risk?: ReviewRisk;
   readingOrder?: ReadingChapter[];
   guide?: ReviewGuideSource;
@@ -85,6 +87,7 @@ export function useDiffComments(repoDir: string | null, branch: string | null) {
         githubDraft: isGithubDraft(meta),
         severity: findingSeverity(meta.severity),
         agentType: source === 'agent' ? (meta.agentType as string | undefined) : undefined,
+        overview: parseOverview(meta.overview),
         risk: parseRisk(meta.risk),
         readingOrder: parseReadingOrder(meta.readingOrder),
         guide: parseGuideSource(meta.guide),

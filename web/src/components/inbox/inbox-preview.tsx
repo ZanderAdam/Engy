@@ -21,7 +21,8 @@ import { MarkdownView } from '@/components/review/markdown-view';
 import { ReviewOverview } from '@/components/review/review-overview';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import { InboxCiBadge, InboxRiskBadge } from './inbox-badges';
+import { RiskBadge } from '@/components/review/risk-badge';
+import { InboxCiBadge } from './inbox-badges';
 import { EVENT_META, hasAvatar, summarizeEvent } from './inbox-event-meta';
 import { githubAvatarUrl, type InboxItem } from './inbox-helpers';
 import { replyLocation, type InboxReply, type InboxRowModel } from './inbox-rows';
@@ -214,7 +215,7 @@ export function InboxPreview({
           <span className="font-mono">
             {row.repoFullName}#{row.prNumber}
           </span>
-          <InboxRiskBadge risk={row.risk} />
+          <RiskBadge risk={row.risk} />
           <InboxCiBadge ci={row.ci} />
         </div>
         {row.pr && (

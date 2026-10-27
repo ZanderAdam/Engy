@@ -9,6 +9,8 @@ export type ReviewKeyAction =
   | 'prevFile'
   | 'nextThread'
   | 'prevThread'
+  | 'nextGroup'
+  | 'prevGroup'
   | 'toggleViewed'
   | 'toggleSplit';
 
@@ -20,6 +22,12 @@ const PLAIN_KEYS: Record<string, ReviewKeyAction> = {
   n: 'nextThread',
   p: 'prevThread',
   v: 'toggleViewed',
+};
+
+// Shift is how most layouts type braces, so it must not cancel them.
+const BRACE_KEYS: Record<string, ReviewKeyAction> = {
+  '}': 'nextGroup',
+  '{': 'prevGroup',
 };
 
 const OVERLAY_SELECTOR =
@@ -34,6 +42,7 @@ export function reviewKeyAction(e: KeyInput): ReviewKeyAction | null {
   if (e.metaKey || e.ctrlKey) {
     return !e.shiftKey && e.key.toLowerCase() === 'b' ? 'toggleSplit' : null;
   }
+  if (Object.hasOwn(BRACE_KEYS, e.key)) return BRACE_KEYS[e.key];
   if (e.shiftKey) return null;
   return PLAIN_KEYS[e.key] ?? null;
 }

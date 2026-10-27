@@ -18,8 +18,15 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils';
 import { FileTree } from './file-tree';
 import { FileTreeSection } from './file-tree-section';
-import { FileClassGroups } from './file-class-groups';
-import type { FileClass } from './file-classes';
+import { FileGroups, type FileGroup } from './file-groups';
+import {
+  COLLAPSED_BY_DEFAULT,
+  FILE_CLASS_LABELS,
+  FILE_CLASS_ORDER,
+  type FileClass,
+} from './file-classes';
+import type { GuideGroup } from './guide-groups';
+import { GuideGroupLabel } from './guide-group-card';
 import { useSectionSplit } from './use-section-split';
 import { DiffFilterBar } from './diff-filter-bar';
 import { buildFileTree, collectDirIds } from './file-tree-model';
@@ -46,6 +53,7 @@ interface FileListPanelProps {
   onToggleViewed?: (path: string) => void;
   onSetViewed?: (paths: string[], viewed: boolean) => void;
   fileClasses?: Map<string, FileClass>;
+  guideGroups?: GuideGroup<ChangedFile>[];
   /**
    * Whether the list is showing pending work, where one path can be listed
    * twice — once staged, once not — and selection has to say which. Views of a
@@ -62,6 +70,48 @@ const STATUS_COLORS: Record<GitFileStatus, string> = {
 };
 
 const SECTION_SPLIT_STORAGE_KEY = 'engy-diffs-section-split';
+
+const NONE_COLLAPSED: ReadonlySet<string> = new Set();
+
+function guideFileGroups(
+  groups: GuideGroup<ChangedFile>[],
+  visiblePaths: Set<string>,
+  idPrefix: string,
+): FileGroup[] {
+  return groups.flatMap((group) => {
+    const paths = [...new Set(group.files.map((f) => f.path))].filter((p) => visiblePaths.has(p));
+    if (paths.length === 0) return [];
+    return [
+      {
+        id: group.id,
+        label: <GuideGroupLabel group={group} />,
+        paths,
+        items: buildFileTree(paths, idPrefix),
+      },
+    ];
+  });
+}
+
+function classFileGroups(
+  paths: string[],
+  classes: Map<string, FileClass>,
+  idPrefix: string,
+): FileGroup[] {
+  return FILE_CLASS_ORDER.flatMap((fileClass) => {
+    const classPaths = paths.filter(
+      (path) => (classes.get(path) ?? 'implementation') === fileClass,
+    );
+    if (classPaths.length === 0) return [];
+    return [
+      {
+        id: fileClass,
+        label: <span className="uppercase tracking-wider">{FILE_CLASS_LABELS[fileClass]}</span>,
+        paths: classPaths,
+        items: buildFileTree(classPaths, idPrefix),
+      },
+    ];
+  });
+}
 
 const STATUS_LABELS: Record<GitFileStatus, string> = {
   added: 'A',
@@ -179,6 +229,7 @@ export function FileListPanel({
   onToggleViewed,
   onSetViewed,
   fileClasses,
+  guideGroups,
   sided = false,
 }: FileListPanelProps) {
   const [filter, setFilter] = useState<FilterState>(EMPTY_FILTER);
@@ -265,24 +316,42 @@ export function FileListPanel({
     return sided ? selectedFile : encodeSelection(selectedFile, side);
   };
 
-  const allDirIds = useMemo(
-    () =>
-      sided
-        ? [...collectDirIds(stagedItems), ...collectDirIds(unstagedItems)]
-        : collectDirIds(allItems),
-    [sided, stagedItems, unstagedItems, allItems],
-  );
+  // Bulk marking acts on exactly what the filters leave on screen, so narrowing
+  // to a subset and clearing it in one go is the intended workflow.
+  const visibleRowIds = useMemo(() => visibleFiles.map(rowId), [visibleFiles]);
+  const visiblePaths = useMemo(() => visibleFiles.map((f) => f.path), [visibleFiles]);
+
+  const activeGuideGroups = !sided && guideGroups && guideGroups.length > 0 ? guideGroups : null;
+  const guided = activeGuideGroups !== null;
+  const fileGroups = useMemo(() => {
+    const idPrefix = selectionPrefix(soleSide);
+    if (activeGuideGroups) {
+      return guideFileGroups(activeGuideGroups, new Set(visiblePaths), idPrefix);
+    }
+    if (!sided && fileClasses) return classFileGroups(visiblePaths, fileClasses, idPrefix);
+    return null;
+  }, [activeGuideGroups, sided, fileClasses, visiblePaths, soleSide]);
+
+  const allDirIds = useMemo(() => {
+    if (fileGroups) return fileGroups.flatMap((group) => collectDirIds(group.items));
+    return sided
+      ? [...collectDirIds(stagedItems), ...collectDirIds(unstagedItems)]
+      : collectDirIds(allItems);
+  }, [fileGroups, sided, stagedItems, unstagedItems, allItems]);
+
+  // A change group holds a handful of files, so its folders open with it
+  // instead of hiding the files a group was made to show.
+  const [expandedForGroups, setExpandedForGroups] = useState<typeof guideGroups>(undefined);
+  if (guided && guideGroups !== expandedForGroups) {
+    setExpandedForGroups(guideGroups);
+    setExpandedIds((previous) => new Set([...previous, ...allDirIds]));
+  }
 
   const allExpanded = allDirIds.length > 0 && allDirIds.every((id) => expandedIds.has(id));
 
   const toggleExpandAll = () => setExpandedIds(allExpanded ? new Set() : new Set(allDirIds));
 
   const filtering = isFilterActive(filter);
-
-  // Bulk marking acts on exactly what the filters leave on screen, so narrowing
-  // to a subset and clearing it in one go is the intended workflow.
-  const visibleRowIds = useMemo(() => visibleFiles.map(rowId), [visibleFiles]);
-  const visiblePaths = useMemo(() => visibleFiles.map((f) => f.path), [visibleFiles]);
 
   const allVisibleViewed = allViewed(visibleRowIds, viewedPaths ?? new Set());
 
@@ -384,10 +453,11 @@ export function FileListPanel({
           </div>
         )}
 
-        {visibleFiles.length > 0 && !sided && fileClasses && (
-          <FileClassGroups
-            paths={visiblePaths}
-            classes={fileClasses}
+        {visibleFiles.length > 0 && fileGroups && (
+          <FileGroups
+            key={guided ? 'guide' : 'class'}
+            groups={fileGroups}
+            defaultCollapsed={guided ? NONE_COLLAPSED : COLLAPSED_BY_DEFAULT}
             idPrefix={selectionPrefix(soleSide)}
             selectedFile={treeSelection(soleSide)}
             onSelectFile={handleSelect}
@@ -397,7 +467,7 @@ export function FileListPanel({
           />
         )}
 
-        {visibleFiles.length > 0 && !sided && !fileClasses && (
+        {visibleFiles.length > 0 && !sided && !fileGroups && (
           <div className="flex-1 overflow-auto">
             <FileTree
               items={allItems}

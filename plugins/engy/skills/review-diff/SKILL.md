@@ -34,8 +34,10 @@ If either input is missing, ask for it — do not guess a scope.
   failureScenario, suggestedFix? })` — one anchored finding. `side` is `'modified'` (default) or
   `'original'`; only use `'original'` for a deleted line, which has no line on the new side to
   anchor to. `lineNumber` is in that side's own numbering.
-- `diff_review_summary({ repoDir, summary, risk?, readingOrder?, guide? })` — the single unanchored summary shown above the first
-  file. Replaces any previous summary; anchored findings are untouched.
+- `diff_review_summary({ repoDir, summary, overview?, risk?, readingOrder?, guide? })` — the
+  guided review: an overview and risk above the diff, change groups that order and explain the
+  files, and markdown notes behind a disclosure. Replaces any previous summary; anchored findings
+  are untouched.
 
 ## Process
 
@@ -46,6 +48,11 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/review-diff/references/review-guide.md`. It h
 present in that file replaces the default's same section; a section it lacks keeps the default.
 Follow the merged guide for the rest of the run. Remember `guide: 'project'` when the file was used,
 else `guide: 'default'`.
+
+The guide sets what to emphasise and which findings to file. It does not set the shape of the
+output: the guided-review contract in Step 4 applies with every guide, including a project guide
+that replaces both sections. Where a guide asks for extra content in the groups, add it inside the
+contract's fields.
 
 ### Step 2: Read existing state
 
@@ -98,12 +105,46 @@ Because this reviews code the dispatching session does not own, exclude `Write` 
 agent's tool access for this call — it should not be able to edit the branch under review, even by
 accident, per the `mode: review-only` note in `agents/reviewer.md`.
 
-### Step 4: Write results back
+### Step 4: Build the guided review
 
-Take the agent's Phase 3 output and split it across the two tools, following the merged guide. Its
-`## Review` section decides what is anchored with `diff_review_comment`. Its `## Overview` section
-decides what goes in `diff_review_summary` and in the `risk` and `readingOrder` fields. Pass `guide`
-on the same call. Call `diff_review_summary` once with the full text — it replaces whatever summary
+This contract is fixed. A review guide cannot remove or replace it.
+
+1. **Group every changed file.** Put each file in exactly one group. Order the groups the way the
+   change was reasoned through: the core change first, then the code that follows from it, then
+   glue (wiring, renames, config) and tests. Keep groups small enough to read in one sitting; at
+   most 20.
+2. **Read outside the diff for system fit.** For each core and supporting group, find the callers
+   and dependents of the changed symbols (grep in the repo), and the feature-area docs and FRs that
+   cover the behaviour (`trace` / `search` when the Engy MCP tools are available, else
+   `docs/system/features/`). Write how the group plugs into that code: what calls it, what it now
+   calls, which flows change for them.
+3. **Rate risk per group and overall.** `level` is `low`, `typical`, `high` or `very_high`: how
+   likely the change breaks something, weighed by how much depends on what it touches. `reason`
+   names what drives the level, max 300 characters. The overall risk is at least the highest group
+   risk that a caller can reach.
+
+Fields of each `readingOrder` group:
+
+| Field | Content |
+|---|---|
+| `title` | The change in a few words, e.g. "Token check moves into one guard" (max 120) |
+| `files` | Repo-relative paths from the diff |
+| `role` | `core`, `supporting`, `glue` or `tests` |
+| `explanation` | Plain text: what the group changes and why, then its consequences (max 1500) |
+| `systemContext` | Plain text: how it fits the existing system, from step 2 (max 800) |
+| `note` | One line on what the reader must check (max 300) |
+| `risk` | `{ level, reason }` for this group |
+
+Top-level fields: `overview` (plain text, at most three sentences: what the change does and why;
+max 600), `risk` for the whole change, and `summary` (markdown notes, shown collapsed). Wrap
+identifiers in backticks in plain-text fields; they render as code.
+
+### Step 5: Write results back
+
+Take the agent's Phase 3 output and split it across the two tools. The merged guide's `## Review`
+section decides what is anchored with `diff_review_comment`. Its `## Overview` section decides what
+to emphasise in the guided review and what goes in the `summary` notes. Call `diff_review_summary`
+once with `summary`, `overview`, `risk`, `readingOrder` and `guide` — it replaces whatever summary
 is already there.
 
 ## Key Principles
