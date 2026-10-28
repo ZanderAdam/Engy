@@ -1,6 +1,6 @@
 ---
 title: Stabilization — Bug Fixes
-status: draft
+status: complete
 ---
 
 # Plan: M8 Stabilization — Bug Fixes

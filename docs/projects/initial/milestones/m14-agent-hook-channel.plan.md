@@ -1,6 +1,6 @@
 ---
 title: Agent Hook Channel
-status: planned
+status: complete
 ---
 
 # Plan: M14 Agent Hook Channel

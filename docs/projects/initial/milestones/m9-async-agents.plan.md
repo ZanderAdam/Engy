@@ -1,6 +1,6 @@
 ---
 title: Async Agents
-status: active
+status: complete
 ---
 
 # Plan: M9 Async Agents
