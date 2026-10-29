@@ -1,3 +1,5 @@
+import { isClosedTaskStatus } from '@/lib/task-status';
+
 export interface FilterOption {
   value: string;
   label: string;
@@ -10,7 +12,7 @@ interface FilterableTask {
 }
 
 function openKeys<K>(tasks: FilterableTask[], keyOf: (task: FilterableTask) => K): Set<K> {
-  return new Set(tasks.filter((task) => task.status !== 'done').map(keyOf));
+  return new Set(tasks.filter((task) => !isClosedTaskStatus(task.status)).map(keyOf));
 }
 
 export function milestoneFilterOptions<M extends { ref: string }>(

@@ -327,6 +327,13 @@ describe('spec service', () => {
       expect(checkSpecReadiness('test-spec')).toBe(true);
     });
 
+    it("[FR-TASK-240] should return true when remaining tasks are done or won't do", () => {
+      const db = getDb();
+      db.insert(tasks).values({ title: 'T1', specId: 'test-spec', status: 'done' }).run();
+      db.insert(tasks).values({ title: 'T2', specId: 'test-spec', status: 'wont_do' }).run();
+      expect(checkSpecReadiness('test-spec')).toBe(true);
+    });
+
     it('should return false when some tasks are not done', () => {
       const db = getDb();
       db.insert(tasks).values({ title: 'T1', specId: 'test-spec', status: 'done' }).run();

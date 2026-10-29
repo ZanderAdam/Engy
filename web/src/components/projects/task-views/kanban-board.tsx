@@ -18,16 +18,18 @@ import { DroppableZone } from '@/components/projects/task-views/droppable-zone';
 import { CollapsedLaneStrip } from '@/components/projects/task-views/collapsed-lane-strip';
 import { CollapsedLaneRail } from '@/components/projects/task-views/collapsed-lane-rail';
 import { laneCollapsed } from '@/components/projects/task-views/kanban-collapse';
-import {
-  taskStatusOptions,
-  taskStatusLabels,
-} from '@/components/projects/task-status-badge';
+import { taskStatusLabels } from '@/components/projects/task-status-badge';
 import { DEFAULT_DONE_LIMIT } from '@/components/projects/task-filter';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 import type { Task } from '@/components/projects/types';
-import type { TaskStatus } from '@/lib/task-status';
+import {
+  KANBAN_LANES,
+  kanbanLaneOf,
+  statusAfterLaneDrop,
+  type KanbanLane,
+} from '@/lib/task-status';
 
 const statusDotColors: Record<string, string> = {
   backlog: 'bg-zinc-500',
@@ -54,19 +56,17 @@ export function KanbanBoard({
 }) {
   const isMobile = useIsMobile();
   const [activeTask, setActiveTask] = useState<Task | null>(null);
-  const [pendingMoves, setPendingMoves] = useState<Record<number, TaskStatus>>({});
-  const [collapseOverrides, setCollapseOverrides] = useState<
-    Partial<Record<TaskStatus, boolean>>
-  >({});
+  const [pendingMoves, setPendingMoves] = useState<Record<number, KanbanLane>>({});
+  const [collapseOverrides, setCollapseOverrides] = useState<Partial<Record<KanbanLane, boolean>>>(
+    {},
+  );
 
-  const [expandedStatus, setExpandedStatus] = useState<TaskStatus>(() => {
-    const priority: TaskStatus[] = ['in_progress', 'todo', 'review', 'done', 'backlog'];
-    return priority.find((s) => tasks.some((t) => t.status === s)) ?? 'todo';
+  const [expandedStatus, setExpandedStatus] = useState<KanbanLane>(() => {
+    const priority: KanbanLane[] = ['in_progress', 'todo', 'review', 'done', 'backlog'];
+    return priority.find((s) => tasks.some((t) => kanbanLaneOf(t.status) === s)) ?? 'todo';
   });
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-  );
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   const utils = trpc.useUtils();
   const updateTask = trpc.task.update.useMutation({
@@ -93,7 +93,7 @@ export function KanbanBoard({
   );
 
   const sortedDoneTasks = useMemo(() => {
-    const doneTasks = effectiveTasks.filter((t) => t.status === 'done');
+    const doneTasks = effectiveTasks.filter((t) => kanbanLaneOf(t.status) === 'done');
     return doneTasks.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
   }, [effectiveTasks]);
 
@@ -108,26 +108,26 @@ export function KanbanBoard({
 
     const task = (active.data.current as { task: Task })?.task;
     if (!task) return;
-    const newStatus = over.id as TaskStatus;
-    const currentStatus = pendingMoves[task.id] ?? task.status;
-    if (currentStatus === newStatus) return;
+    const newStatus = statusAfterLaneDrop(
+      pendingMoves[task.id] ?? task.status,
+      over.id as KanbanLane,
+    );
+    if (!newStatus) return;
 
     setPendingMoves((prev) => ({ ...prev, [task.id]: newStatus }));
     updateTask.mutate({ id: task.id, status: newStatus });
   }
 
   const hasAnyTasks = effectiveTasks.length > 0;
-  const laneCount = (status: TaskStatus) =>
-    effectiveTasks.filter((t) => t.status === status).length;
-  const isCollapsed = (status: TaskStatus) =>
+  const laneCount = (status: KanbanLane) =>
+    effectiveTasks.filter((t) => kanbanLaneOf(t.status) === status).length;
+  const isCollapsed = (status: KanbanLane) =>
     laneCollapsed(status, laneCount(status), collapseOverrides[status], hasAnyTasks);
-  const toggleLane = (status: TaskStatus) =>
+  const toggleLane = (status: KanbanLane) =>
     setCollapseOverrides((prev) => ({
       ...prev,
       [status]: !laneCollapsed(status, laneCount(status), prev[status], hasAnyTasks),
     }));
-
-  const mobileStatusOrder: TaskStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
 
   return (
     <DndContext
@@ -138,8 +138,8 @@ export function KanbanBoard({
     >
       {isMobile ? (
         <div className="flex min-h-0 flex-1 flex-col gap-px bg-border">
-          {mobileStatusOrder.map((status) => {
-            const count = effectiveTasks.filter((t) => t.status === status).length;
+          {KANBAN_LANES.map((status) => {
+            const count = laneCount(status);
             if (expandedStatus === status) {
               return (
                 <KanbanColumn
@@ -172,12 +172,12 @@ export function KanbanBoard({
         <div
           className="grid min-h-0 flex-1 gap-px bg-border"
           style={{
-            gridTemplateColumns: taskStatusOptions
-              .map((status) => (isCollapsed(status) ? 'auto' : 'minmax(0, 1fr)'))
-              .join(' '),
+            gridTemplateColumns: KANBAN_LANES.map((status) =>
+              isCollapsed(status) ? 'auto' : 'minmax(0, 1fr)',
+            ).join(' '),
           }}
         >
-          {taskStatusOptions.map((status) =>
+          {KANBAN_LANES.map((status) =>
             isCollapsed(status) ? (
               <CollapsedLaneRail
                 key={status}
@@ -289,10 +289,7 @@ function KanbanColumn({
         {headerAction}
       </div>
       <div className="relative flex min-h-0 flex-1 flex-col">
-        <div
-          ref={scrollRef}
-          className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
-        >
+        <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
           {items.map((task) => (
             <DraggableTaskCard
               key={task.id}

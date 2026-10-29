@@ -19,7 +19,9 @@ Tasks are the atomic unit of work in Engy. Each task belongs to an optional proj
 
 ## Tasks
 
-A task row (`tasks` table) carries: `title`, `description`, `status` (`backlog`/`todo`/`in_progress`/`review`/`done`), `type` (`ai`/`human`), `importance` (`important`/`not_important`), `urgency` (`urgent`/`not_urgent`), `needsPlan`, `specId`, `subStatus` (`planning`/`implementing`/`blocked`/`failed`/`plan_review`), `sessionId`, `feedback`, and foreign keys to project and task group.
+A task row (`tasks` table) carries: `title`, `description`, `status` (`backlog`/`todo`/`in_progress`/`review`/`done`/`wont_do`), `type` (`ai`/`human`), `importance` (`important`/`not_important`), `urgency` (`urgent`/`not_urgent`), `needsPlan`, `specId`, `subStatus` (`planning`/`implementing`/`blocked`/`failed`/`plan_review`), `sessionId`, `feedback`, and foreign keys to project and task group.
+
+`done` and `wont_do` are both closed statuses; `isClosedTaskStatus()` in `web/src/lib/task-status.ts` is the single check used for project, spec and milestone completion, progress counts, and hiding closed tasks. The kanban board has no separate Won't Do lane: `kanbanLaneOf()` puts `wont_do` tasks in the Done lane, where they keep a red X icon instead of the green check.
 
 On creation, defaults are: `status='todo'`, `type='human'`, `needsPlan=true`, `importance='not_important'`, `urgency='not_urgent'`. The `blockedBy` relationship is stored in the separate `task_dependencies` join table (cascade-deleted when either task is deleted) and hydrated onto query results by `attachBlockedBy()`.
 
@@ -66,6 +68,8 @@ When `task.create` is called with `type:'ai'` and `status:'todo'` and neither `t
 | FR-TASK-190 | WHEN `taskGroup.list` or the MCP `listTaskGroups` tool is called with `milestoneRef` set to `null`, the system SHALL return only groups whose `milestone_ref` IS NULL; omitting the filter SHALL return groups regardless of milestone. |
 | FR-TASK-200 | WHEN the MCP `listTasks` tool is called with `compact` omitted or `true`, the system SHALL return only `id`, `title`, `status`, and `blockedBy` for each task; passing `compact: false` SHALL return the full task rows with `description` and `specPath`. |
 | FR-TASK-210 | WHEN the MCP `getTask` tool is called, the system SHALL return the task row, its `blockedBy` array, its `specPath`, and a `planContent` field with the task's `.plan.md` file content, omitting every field whose value is `null` and always omitting `sessionId`. |
+| FR-TASK-240 | The system SHALL treat tasks with status `done` or `wont_do` as closed when it checks project and spec readiness and when it builds milestone and task-group filter options. |
+| FR-TASK-250 | The system SHALL show tasks with status `wont_do` in the Done kanban lane and SHALL NOT render a separate Won't Do lane; dropping a card on the Done lane SHALL set `done`, except that a `wont_do` card dropped inside the Done lane SHALL keep `wont_do`. |
 
 ## Sources
 

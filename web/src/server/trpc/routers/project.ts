@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { isClosedTaskStatus } from '@/lib/task-status';
 import { eq, and } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc';
@@ -280,7 +281,7 @@ export const projectRouter = router({
         return {
           ...project,
           taskCount: projectTasks.length,
-          completedTasks: projectTasks.filter((t) => t.status === 'done').length,
+          completedTasks: projectTasks.filter((t) => isClosedTaskStatus(t.status)).length,
         };
       });
     }),

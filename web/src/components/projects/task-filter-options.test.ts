@@ -27,6 +27,13 @@ describe('task filter options', () => {
       expect(milestoneFilterOptions(milestones, tasks, [])).toEqual([]);
     });
 
+    it("[FR-TASK-240] should drop milestones whose tasks are all won't do", () => {
+      const milestones = [{ ref: 'm1', title: 'One' }];
+      const tasks = [task({ status: 'wont_do', milestoneRef: 'm1' })];
+
+      expect(milestoneFilterOptions(milestones, tasks, [])).toEqual([]);
+    });
+
     it('should keep a selected milestone whose tasks are all done', () => {
       const milestones = [{ ref: 'm1', title: 'One' }];
       const tasks = [task({ status: 'done', milestoneRef: 'm1' })];
@@ -53,6 +60,13 @@ describe('task filter options', () => {
     it('should drop groups whose tasks are all done', () => {
       const groups = [{ id: 7, name: 'TG7' }];
       const tasks = [task({ status: 'done', taskGroupId: 7 })];
+
+      expect(groupFilterOptions(groups, tasks, [])).toEqual([]);
+    });
+
+    it("[FR-TASK-240] should drop groups whose tasks are all won't do", () => {
+      const groups = [{ id: 7, name: 'TG7' }];
+      const tasks = [task({ status: 'wont_do', taskGroupId: 7 })];
 
       expect(groupFilterOptions(groups, tasks, [])).toEqual([]);
     });

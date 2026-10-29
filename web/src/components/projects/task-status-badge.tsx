@@ -21,6 +21,7 @@ import {
   RiEyeLine,
   RiCheckboxCircleLine,
   RiInboxLine,
+  RiCloseCircleLine,
 } from '@remixicon/react';
 import { TASK_STATUSES, type TaskStatus } from '@/lib/task-status';
 
@@ -32,6 +33,7 @@ export const taskStatusColors: Record<string, string> = {
   in_progress: 'text-blue-500',
   review: 'text-yellow-500',
   done: 'text-green-500',
+  wont_do: 'text-red-500',
 };
 
 export const taskStatusIcons: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -40,6 +42,7 @@ export const taskStatusIcons: Record<string, React.ComponentType<{ className?: s
   in_progress: RiLoader4Line,
   review: RiEyeLine,
   done: RiCheckboxCircleLine,
+  wont_do: RiCloseCircleLine,
 };
 
 export const taskStatusLabels: Record<string, string> = {
@@ -48,6 +51,7 @@ export const taskStatusLabels: Record<string, string> = {
   in_progress: 'In Progress',
   review: 'Review',
   done: 'Done',
+  wont_do: "Won't Do",
 };
 
 export function TaskStatusBadge({

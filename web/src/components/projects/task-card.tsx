@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { isClosedTaskStatus } from '@/lib/task-status';
 import { useVirtualParams, useTabId } from '@/components/tabs/tab-context';
 import { Button } from '@/components/ui/button';
 import { TaskStatusBadge } from '@/components/projects/task-status-badge';
@@ -124,14 +125,14 @@ export function TaskCard({
   const sessionIds = useMemo(() => terminalSessions.map((s) => s.sessionId), [terminalSessions]);
   const terminalActivity = useTerminalActivity(sessionIds);
 
-  const isDone = task.status === 'done';
+  const isClosed = isClosedTaskStatus(task.status);
   const { status: sessionStatus } = useExecutionStatus('task', task.id);
   const { hasPlan } = useTaskHasPlan(task.id, task.projectId);
 
   const baseStatus = sessionStatus === 'active' ? sessionStatus : (task.subStatus ?? sessionStatus);
   // Surface a hand-authored plan file as 'plan_review' only when no agent ever
   // set a sub-status; live session signals always win.
-  const execStatus = baseStatus ?? (hasPlan && !isDone ? 'plan_review' : null);
+  const execStatus = baseStatus ?? (hasPlan && !isClosed ? 'plan_review' : null);
   const typeInfo = typeIcons[task.type] ?? typeIcons.human;
   const TypeIcon = typeInfo.icon;
   const nextType = task.type === 'human' ? 'ai' : 'human';
@@ -170,7 +171,7 @@ export function TaskCard({
         borderClass && `border-l-2 ${borderClass}`,
         needsAttention && 'ring-1 ring-inset ring-amber-400/50',
         selectable && selected && 'ring-1 ring-inset ring-primary',
-        showCheckbox && isDone && 'opacity-50',
+        showCheckbox && isClosed && 'opacity-50',
         handleClick && 'cursor-pointer',
         dragHandleProps ? 'flex' : 'space-y-0.5 p-2',
         className,
@@ -204,10 +205,10 @@ export function TaskCard({
             className="h-6 w-6 shrink-0"
             onClick={(e) => {
               e.stopPropagation();
-              onCheckboxChange?.(!isDone);
+              onCheckboxChange?.(!isClosed);
             }}
           >
-            {isDone ? (
+            {isClosed ? (
               <RiCheckboxLine className="size-4" />
             ) : (
               <RiCheckboxBlankLine className="size-4" />
@@ -276,7 +277,7 @@ export function TaskCard({
           </div>
         )}
       </div>
-      <div className={cn(showCheckbox && isDone && 'line-through')}>
+      <div className={cn(showCheckbox && isClosed && 'line-through')}>
         {task.title}
       </div>
       </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { isClosedTaskStatus } from '@/lib/task-status';
 import { trpc } from '@/lib/trpc';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
@@ -37,7 +38,7 @@ export function ProjectOverview({
   const utils = trpc.useUtils();
 
   const totalTasks = tasks?.length ?? 0;
-  const doneTasks = tasks?.filter((t) => t.status === 'done').length ?? 0;
+  const doneTasks = tasks?.filter((t) => isClosedTaskStatus(t.status)).length ?? 0;
   const pct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
 
   return (

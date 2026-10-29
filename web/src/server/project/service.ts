@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { eq, and } from 'drizzle-orm';
+import { isClosedTaskStatus } from '@/lib/task-status';
 import { readImageAsDataUri } from '../files/image';
 import { getWorkspaceDir } from '../engy-dir/init';
 import { getDb } from '../db/client';
@@ -450,7 +451,7 @@ export function renameProjectSubDir(
 export function checkProjectReadiness(projectId: number): boolean {
   const db = getDb();
   const projectTasks = db.select().from(tasks).where(eq(tasks.projectId, projectId)).all();
-  return projectTasks.length === 0 || projectTasks.every((t) => t.status === 'done');
+  return projectTasks.length === 0 || projectTasks.every((t) => isClosedTaskStatus(t.status));
 }
 
 // ── Internal helpers ─────────────────────────────────────────────

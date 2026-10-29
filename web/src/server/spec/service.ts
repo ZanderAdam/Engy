@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
+import { isClosedTaskStatus } from '@/lib/task-status';
 import { getWorkspaceDir } from '../engy-dir/init';
 import { getDb } from '../db/client';
 import { tasks } from '../db/schema';
@@ -272,7 +273,7 @@ export function checkSpecReadiness(specId: string): boolean {
   const db = getDb();
   const specTasks = db.select().from(tasks).where(eq(tasks.specId, specId)).all();
   // No tasks means ready — specs without tasks can still advance
-  return specTasks.length === 0 || specTasks.every((t) => t.status === 'done');
+  return specTasks.length === 0 || specTasks.every((t) => isClosedTaskStatus(t.status));
 }
 
 // ── Internal helpers ─────────────────────────────────────────────

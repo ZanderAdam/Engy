@@ -11,6 +11,7 @@ const statusNodeColors: Record<string, string> = {
   in_progress: "border-blue-500",
   review: "border-yellow-500",
   done: "border-green-500",
+  wont_do: "border-red-500",
 };
 
 const groupColors = [

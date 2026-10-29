@@ -22,7 +22,7 @@ Then run these in parallel:
 listTasks({ projectId, status: 'done', compact: false })
 ```
 
-Also fetch tasks with status `'review'` or `'in_progress'` for in-progress context. (The `tasks` status enum is `backlog | todo | in_progress | review | done` — there is no `active` status.)
+Also fetch tasks with status `'review'` or `'in_progress'` for in-progress context. (The `tasks` status enum is `backlog | todo | in_progress | review | done | wont_do` — there is no `active` status.)
 
 **Permanent memories:**
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { isClosedTaskStatus } from '@/lib/task-status';
 import {
   RiArrowRightSLine,
   RiBox3Line,
@@ -52,7 +53,7 @@ export function sortMilestones(milestones: Milestone[]): Milestone[] {
 }
 
 function isAllDone(tasks: Task[]): boolean {
-  return tasks.length > 0 && tasks.every((t) => t.status === 'done');
+  return tasks.length > 0 && tasks.every((t) => isClosedTaskStatus(t.status));
 }
 
 export function sortTaskGroups(
@@ -187,7 +188,7 @@ function MilestoneRow({
   });
 
   const total = tasks?.length ?? 0;
-  const done = tasks?.filter((t) => t.status === 'done').length ?? 0;
+  const done = tasks?.filter((t) => isClosedTaskStatus(t.status)).length ?? 0;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
   const tasksByGroup = groupTasksByTg(tasks ?? []);
@@ -195,7 +196,7 @@ function MilestoneRow({
   const ungroupedTasks = tasks?.filter((t) => !t.taskGroupId) ?? [];
   const visibleUngrouped = showDone
     ? ungroupedTasks
-    : ungroupedTasks.filter((t) => t.status !== 'done');
+    : ungroupedTasks.filter((t) => !isClosedTaskStatus(t.status));
 
   const sortedGroups = taskGroups ? sortTaskGroups(taskGroups, tasksByGroup) : [];
   const tgsDone = sortedGroups.filter((tg) => isAllDone(tasksByGroup.get(tg.id) ?? [])).length;
@@ -355,8 +356,8 @@ function TaskGroupRow({
   const { status: tgExecStatus } = useExecutionStatus('taskGroup', taskGroup.id);
 
   const total = tasks.length;
-  const done = tasks.filter((t) => t.status === 'done').length;
-  const visibleTasks = showDone ? tasks : tasks.filter((t) => t.status !== 'done');
+  const done = tasks.filter((t) => isClosedTaskStatus(t.status)).length;
+  const visibleTasks = showDone ? tasks : tasks.filter((t) => !isClosedTaskStatus(t.status));
   const allDone = isAllDone(tasks);
   // Expandable whenever there are tasks — even all-done groups should be
   // openable so users can inspect them without enabling "Show done" globally.
