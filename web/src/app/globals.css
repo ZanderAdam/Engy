@@ -192,7 +192,8 @@
 /* BlockNote: constrain all block content to container width */
 .bn-editor .bn-block-content {
   max-width: 100%;
-  overflow-x: hidden;
+  /* hidden would force overflow-y to auto and give each block its own scroll */
+  overflow-x: clip;
   overflow-wrap: break-word;
   word-break: break-word;
 }
