@@ -23,10 +23,30 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
   const [manageOpen, setManageOpen] = useState(false);
 
   const { data: workspace } = trpc.workspace.get.useQuery({ slug: params.workspace });
-  const { data: project } = trpc.project.getBySlug.useQuery(
+  const { data: project, error: projectError } = trpc.project.getBySlug.useQuery(
     { workspaceId: workspace?.id ?? 0, slug: params.project },
-    { enabled: !!workspace },
+    {
+      enabled: !!workspace,
+      retry: (count, err) => err.data?.code !== "NOT_FOUND" && count < 1,
+    },
   );
+
+  if (projectError) {
+    const notFound = projectError.data?.code === "NOT_FOUND";
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-20">
+        <p className="text-sm font-medium">{notFound ? "Project not found" : "Could not load project"}</p>
+        <p className="text-xs text-muted-foreground">
+          {notFound
+            ? <>The project &ldquo;{params.project}&rdquo; does not exist in this workspace.</>
+            : projectError.message}
+        </p>
+        <VLink href={`/w/${params.workspace}`} className="mt-2 text-xs text-primary underline">
+          Back to workspace
+        </VLink>
+      </div>
+    );
+  }
 
   if (!workspace || !project) {
     return (
