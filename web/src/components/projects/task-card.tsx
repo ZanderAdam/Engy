@@ -91,6 +91,7 @@ function TaskGroupBadge({ task }: { task: Task }) {
   const num = group.numInMilestone;
   return (
     <span
+      title={group.name}
       className={cn(
         'rounded px-1 py-0.5 text-[10px] font-medium leading-none',
         colorByIndex(num, groupColors),

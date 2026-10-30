@@ -180,6 +180,18 @@ describe('MCP Server', () => {
     });
 
     describe('createTask', () => {
+      it('[FR-TASK-260] input schema should reject a whitespace-only title', () => {
+        const tools = (getMcpServer() as any)._registeredTools;
+        expect(tools.createTask.inputSchema.safeParse({ title: '  ' }).success).toBe(false);
+      });
+
+      it('[FR-TASK-260] should store the title trimmed', async () => {
+        const call = callTool(getMcpServer(), 'createTask');
+        const { data } = await call({ title: '  Padded  ', projectId });
+        const row = getDb().select().from(tasks).where(eq(tasks.id, data.id)).get();
+        expect(row?.title).toBe('Padded');
+      });
+
       it('should return only the id', async () => {
         const mcp = getMcpServer();
         const call = callTool(mcp, 'createTask');
@@ -234,6 +246,19 @@ describe('MCP Server', () => {
     });
 
     describe('updateTask', () => {
+      it('[FR-TASK-260] input schema should reject a whitespace-only title', () => {
+        const tools = (getMcpServer() as any)._registeredTools;
+        expect(tools.updateTask.inputSchema.safeParse({ id: 1, title: '  ' }).success).toBe(false);
+      });
+
+      it('[FR-TASK-260] should store an updated title trimmed', async () => {
+        const task = getDb().insert(tasks).values({ title: 'Before', projectId }).returning().get();
+        const call = callTool(getMcpServer(), 'updateTask');
+        await call({ id: task.id, title: '  After  ' });
+        const row = getDb().select().from(tasks).where(eq(tasks.id, task.id)).get();
+        expect(row?.title).toBe('After');
+      });
+
       it('should return success true', async () => {
         const db = getDb();
         const task = db.insert(tasks).values({ title: 'T1', projectId }).returning().get();

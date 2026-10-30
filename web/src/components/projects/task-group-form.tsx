@@ -25,11 +25,13 @@ type Milestone = { ref: string; title: string };
 const NO_MILESTONE = '__none__';
 
 export function TaskGroupForm({
+  projectId,
   milestones,
   open,
   onOpenChange,
   onCreated,
 }: {
+  projectId: number;
   milestones: Milestone[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -50,6 +52,7 @@ export function TaskGroupForm({
     e.preventDefault();
     if (!name.trim()) return;
     createGroup.mutate({
+      projectId,
       milestoneRef: milestoneRef === NO_MILESTONE ? undefined : milestoneRef,
       name: name.trim(),
     });

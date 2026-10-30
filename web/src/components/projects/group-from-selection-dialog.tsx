@@ -26,12 +26,14 @@ type Milestone = { ref: string; title: string };
 const NO_MILESTONE = '__none__';
 
 export function GroupFromSelectionDialog({
+  projectId,
   milestones,
   selectedIds,
   open,
   onOpenChange,
   onComplete,
 }: {
+  projectId: number;
   milestones: Milestone[];
   selectedIds: Set<number>;
   open: boolean;
@@ -62,7 +64,7 @@ export function GroupFromSelectionDialog({
     if (!name.trim() || selectedIds.size === 0) return;
     const ref = milestoneRef === NO_MILESTONE ? undefined : milestoneRef;
     createGroup.mutate(
-      { milestoneRef: ref, name: name.trim() },
+      { projectId, milestoneRef: ref, name: name.trim() },
       {
         onSuccess: (group) => {
           bulkUpdate.mutate({

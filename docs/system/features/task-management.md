@@ -72,6 +72,8 @@ When `task.create` is called with `type:'ai'` and `status:'todo'` and neither `t
 | FR-TASK-230 | The system SHALL label milestones and task groups in the task dialog and the task filter with their ids (`M3 Search`, `M3 TG2 Indexer`, `TG1 Chores` for a standalone group) so a search by id or name finds them. |
 | FR-TASK-240 | The system SHALL treat tasks with status `done` or `wont_do` as closed when it checks project and spec readiness and when it builds milestone and task-group filter options. |
 | FR-TASK-250 | The system SHALL show tasks with status `wont_do` in the Done kanban lane and SHALL NOT render a separate Won't Do lane; dropping a card on the Done lane SHALL set `done`, except that a `wont_do` card dropped inside the Done lane SHALL keep `wont_do`. |
+| FR-TASK-260 | IF a task is created or updated (tRPC `task.create`/`task.update`, MCP `createTask`/`updateTask`) with a title that is empty or only whitespace, THEN the system SHALL reject the request; accepted titles SHALL be stored trimmed. |
+| FR-TASK-270 | WHILE the project tasks page's "unassigned only" filter hides one or more tasks that the other active filters would show, the browser SHALL show a notice with the number of hidden tasks and a "Show all" action that turns that filter off. |
 
 ## Sources
 

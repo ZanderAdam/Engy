@@ -314,6 +314,7 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
     task ? placementOf(task) : UNPLACED,
   );
   const [dirty, setDirty] = useState(false);
+  const [titleEmpty, setTitleEmpty] = useState(() => !!task && !task.title.trim());
   const [initialized, setInitialized] = useState(!!task);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('description');
@@ -448,6 +449,7 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
       utils.task.list.invalidate();
       utils.task.listBySpecId.invalidate();
     },
+    onError: (err) => toast.error(`Failed to save task: ${err.message}`),
   });
 
   const deleteTask = trpc.task.delete.useMutation({
@@ -552,7 +554,12 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
           <Input
             ref={titleRef}
             defaultValue={task.title}
-            onChange={() => setDirty(true)}
+            aria-label="Task title"
+            aria-invalid={titleEmpty}
+            onChange={(e) => {
+              setDirty(true);
+              setTitleEmpty(!e.target.value.trim());
+            }}
             className="mt-6 text-lg font-semibold"
           />
         </DialogHeader>
@@ -684,7 +691,11 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
             <RiDeleteBinLine className="mr-1 size-3" />
             Delete
           </Button>
-          <Button size="sm" disabled={!dirty || updateTask.isPending} onClick={handleSave}>
+          <Button
+            size="sm"
+            disabled={!dirty || titleEmpty || updateTask.isPending}
+            onClick={handleSave}
+          >
             {updateTask.isPending ? 'Saving...' : 'Save'}
           </Button>
         </DialogFooter>

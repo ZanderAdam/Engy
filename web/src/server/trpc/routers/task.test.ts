@@ -23,6 +23,14 @@ describe('task router', () => {
   });
 
   describe('create', () => {
+    it('[FR-TASK-260] should reject a whitespace-only title and store titles trimmed', async () => {
+      await expect(caller.task.create({ projectId, title: '   ' })).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      });
+      const task = await caller.task.create({ projectId, title: '  Padded  ' });
+      expect(task.title).toBe('Padded');
+    });
+
     it('[FR-TASK-010] should create a task with defaults', async () => {
       const task = await caller.task.create({
         projectId,
@@ -161,6 +169,20 @@ describe('task router', () => {
   });
 
   describe('update', () => {
+    it('[FR-TASK-260] should reject an empty or whitespace-only title', async () => {
+      const task = await caller.task.create({ projectId, title: 'Keep me' });
+      await expect(caller.task.update({ id: task.id, title: '   ' })).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      });
+      expect((await caller.task.get({ id: task.id })).title).toBe('Keep me');
+    });
+
+    it('[FR-TASK-260] should store an updated title trimmed', async () => {
+      const task = await caller.task.create({ projectId, title: 'Before' });
+      const updated = await caller.task.update({ id: task.id, title: '  After  ' });
+      expect(updated.title).toBe('After');
+    });
+
     it('should update task status', async () => {
       const task = await caller.task.create({
         projectId,

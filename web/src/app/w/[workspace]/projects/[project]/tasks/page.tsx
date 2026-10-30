@@ -12,6 +12,10 @@ import { ViewToggle, type TaskView } from "@/components/projects/task-views/view
 import { DependencyGraph } from "@/components/projects/task-views/dependency-graph";
 import { KanbanBoard } from "@/components/projects/task-views/kanban-board";
 import { EisenhowerMatrix } from "@/components/projects/task-views/eisenhower-matrix";
+import {
+  UnassignedFilterNotice,
+  countHiddenByUnassignedOnly,
+} from "@/components/projects/unassigned-filter-notice";
 import { TaskGroupForm } from "@/components/projects/task-group-form";
 import {
   TaskPageDialogs,
@@ -146,6 +150,10 @@ export default function ProjectTasksPage() {
   }
 
   const visibleTaskIds = useMemo(() => filteredTasks.map((t) => t.id), [filteredTasks]);
+  const hiddenByUnassigned = useMemo(
+    () => countHiddenByUnassignedOnly(tasks ?? [], filters),
+    [tasks, filters],
+  );
 
   if (!workspace || !project) return null;
 
@@ -185,6 +193,11 @@ export default function ProjectTasksPage() {
 
       <TaskSelectionBar controller={controller} visibleTaskIds={visibleTaskIds} />
 
+      <UnassignedFilterNotice
+        hiddenCount={hiddenByUnassigned}
+        onShowAll={() => handleFilterChange({ ...filters, unassignedOnly: false })}
+      />
+
       {currentView === "graph" && (
         <DependencyGraph tasks={filteredTasks} onTaskClick={controller.setSelectedTaskId} />
       )}
@@ -211,6 +224,7 @@ export default function ProjectTasksPage() {
       )}
 
       <TaskGroupForm
+        projectId={project.id}
         milestones={milestones ?? []}
         open={showNewGroup}
         onOpenChange={setShowNewGroup}

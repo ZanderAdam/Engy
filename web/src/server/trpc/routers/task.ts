@@ -8,6 +8,7 @@ import { validateDependencies, attachBlockedBy } from '../../tasks/validation';
 import { bulkUpdateTasks, bulkDeleteTasks } from '../../tasks/bulk';
 import { broadcastTaskChange } from '../../ws/broadcast';
 import { taskStatusSchema } from '@/lib/task-status';
+import { taskTitleSchema } from '@/lib/task-title';
 import { triggerAutoStart } from './execution';
 import { appRouter } from '../root';
 
@@ -28,7 +29,7 @@ export const taskRouter = router({
         projectId: z.number().optional(),
         milestoneRef: z.string().optional(),
         taskGroupId: z.number().optional(),
-        title: z.string().min(1),
+        title: taskTitleSchema,
         description: z.string().optional(),
         type: z.enum(['ai', 'human']).default('human'),
         importance: z.enum(['important', 'not_important']).default('not_important'),
@@ -110,7 +111,7 @@ export const taskRouter = router({
     .input(
       z.object({
         id: z.number(),
-        title: z.string().optional(),
+        title: taskTitleSchema.optional(),
         description: z.string().optional(),
         status: taskStatusSchema.optional(),
         type: z.enum(['ai', 'human']).optional(),

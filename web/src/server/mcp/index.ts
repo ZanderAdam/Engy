@@ -37,6 +37,7 @@ import {
   resolveDisplayMeta,
 } from '../search/frontmatter-filter';
 import { taskStatusSchema } from '@/lib/task-status';
+import { taskTitleSchema } from '@/lib/task-title';
 import { writePermanentMemory, rewritePermanentMemory, writeSourceSnapshot } from '../lib/memory-files';
 import {
   update as indexerUpdate,
@@ -204,7 +205,7 @@ const createTaskInput = {
   projectId: z.number().optional().describe('Project ID'),
   milestoneRef: z.string().optional().describe('Milestone ref (e.g. "m1")'),
   taskGroupId: z.number().optional().describe('Task group ID'),
-  title: z.string().describe('Task title'),
+  title: taskTitleSchema.describe('Task title'),
   description: z.string().optional().describe('Task description'),
   type: z.enum(['ai', 'human']).default('human').describe('Task type'),
   importance: z
@@ -865,7 +866,7 @@ function registerTaskTools(mcp: McpServer): void {
     'Update an existing task. Optionally pass memories[] to capture learnings from the task implementation as fleeting memories scoped to the task\'s workspace.',
     {
       id: z.number().describe('Task ID'),
-      title: z.string().optional().describe('New title'),
+      title: taskTitleSchema.optional().describe('New title'),
       description: z.string().optional().describe('New description'),
       status: taskStatusSchema.optional().describe('New status'),
       type: z.enum(['ai', 'human']).optional().describe('New type'),

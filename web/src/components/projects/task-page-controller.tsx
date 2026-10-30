@@ -262,6 +262,7 @@ export function TaskPageDialogs({ controller, milestones, createProjectId }: Tas
       />
 
       <GroupFromSelectionDialog
+        projectId={createProjectId}
         milestones={milestones}
         selectedIds={selection.selectedIds}
         open={controller.showGroupDialog}
