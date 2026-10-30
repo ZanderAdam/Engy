@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { TreeView, type TreeDataItem } from '@/components/tree-view';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -98,8 +99,11 @@ function useDocsSectionQuery(sectionDir: string, sectionPrefix: string) {
   const createFile = useCallback(
     (fileName: string, onCreated: (relPath: string) => void) => {
       writeMutation.mutate(
-        { dirPath: sectionDir, filePath: fileName, content: '' },
-        { onSuccess: () => onCreated(`${sectionPrefix}/${fileName}`) },
+        { dirPath: sectionDir, filePath: fileName, content: '', createOnly: true },
+        {
+          onSuccess: () => onCreated(`${sectionPrefix}/${fileName}`),
+          onError: (err) => toast.error(err.message),
+        },
       );
     },
     [writeMutation, sectionDir, sectionPrefix],

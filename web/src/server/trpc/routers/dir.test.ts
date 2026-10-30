@@ -220,6 +220,20 @@ describe('dir router', () => {
       expect(fs.readFileSync(path.join(testDir, 'notes.txt'), 'utf-8')).toBe('plain text');
     });
 
+    describe('createOnly', () => {
+      it('[FR-FILES-250] should throw CONFLICT and keep the existing file', async () => {
+        await expect(
+          caller.dir.write({ dirPath: testDir, filePath: 'notes.md', content: '', createOnly: true }),
+        ).rejects.toMatchObject({ code: 'CONFLICT' });
+        expect(fs.readFileSync(path.join(testDir, 'notes.md'), 'utf-8')).toBe('# Notes\nSome notes');
+      });
+
+      it('[FR-FILES-250] should create a file that does not exist yet', async () => {
+        await caller.dir.write({ dirPath: testDir, filePath: 'fresh.md', content: '', createOnly: true });
+        expect(fs.existsSync(path.join(testDir, 'fresh.md'))).toBe(true);
+      });
+    });
+
     it('[FR-FILES-110] should reject binary file extensions', async () => {
       await expect(
         caller.dir.write({ dirPath: testDir, filePath: 'archive.zip', content: 'bad' }),

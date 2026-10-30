@@ -212,6 +212,7 @@ export const dirRouter = router({
         filePath: z.string().min(1),
         content: z.string(),
         workspaceSlug: z.string().optional(),
+        createOnly: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -220,7 +221,20 @@ export const dirRouter = router({
       }
       const resolved = validatePath(input.dirPath, input.filePath);
       fs.mkdirSync(path.dirname(resolved), { recursive: true });
-      fs.writeFileSync(resolved, input.content, 'utf-8');
+      try {
+        fs.writeFileSync(resolved, input.content, {
+          encoding: 'utf-8',
+          flag: input.createOnly ? 'wx' : 'w',
+        });
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'EEXIST') {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: `"${input.filePath}" already exists. Pick another name or open the existing file.`,
+          });
+        }
+        throw e;
+      }
 
       if (input.workspaceSlug) {
         await reindexCollection(input.workspaceSlug, input.dirPath);

@@ -2,6 +2,7 @@
 
 import path from 'path';
 import { useCallback, useMemo } from 'react';
+import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { DynamicDocumentEditor } from '@/components/editor/dynamic-document-editor';
 import { EngyThreadStore } from '@/components/editor/document-editor';
@@ -62,8 +63,8 @@ export function DirFileTree({
     (relDir: string, fileName: string) => {
       const filePath = relDir ? `${relDir}/${fileName}` : fileName;
       writeMutation.mutate(
-        { dirPath, filePath, content: '' },
-        { onSuccess: () => onSelectFile(filePath) },
+        { dirPath, filePath, content: '', createOnly: true },
+        { onSuccess: () => onSelectFile(filePath), onError: (err) => toast.error(err.message) },
       );
     },
     [writeMutation, dirPath, onSelectFile],
