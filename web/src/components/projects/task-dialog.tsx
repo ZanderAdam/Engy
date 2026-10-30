@@ -55,6 +55,14 @@ import { toast } from 'sonner';
 import { useExecutionStatus } from '@/hooks/use-execution-status';
 import { useTaskHasPlan } from '@/hooks/use-task-has-plan';
 import { ExecutionTab } from './execution-tab';
+import { TaskPlacementFields } from './task-placement-fields';
+import type { TaskPlacement } from './task-placement';
+
+const UNPLACED: TaskPlacement = { milestoneRef: null, taskGroupId: null };
+
+function placementOf(task: TaskPlacement): TaskPlacement {
+  return { milestoneRef: task.milestoneRef, taskGroupId: task.taskGroupId };
+}
 
 // ── Create mode ──────────────────────────────────────────────────────
 
@@ -128,17 +136,12 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
   const [urgency, setUrgency] = useState<'urgent' | 'not_urgent'>('not_urgent');
   const [needsPlan, setNeedsPlan] = useState(true);
   const [blockedBy, setBlockedBy] = useState<number[]>([]);
-  const [taskGroupId, setTaskGroupId] = useState<number | undefined>(undefined);
+  const [placement, setPlacement] = useState<TaskPlacement>(UNPLACED);
 
   const { data: projectTasks } = trpc.task.list.useQuery(
     { projectId: projectId! },
     { enabled: !!projectId && open },
   );
-  const { data: groups } = trpc.taskGroup.list.useQuery(
-    { projectId },
-    { enabled: open && !!projectId },
-  );
-
   const createTask = trpc.task.create.useMutation({
     onSuccess: () => {
       if (titleRef.current) titleRef.current.value = '';
@@ -149,7 +152,7 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
       setUrgency('not_urgent');
       setNeedsPlan(true);
       setBlockedBy([]);
-      setTaskGroupId(undefined);
+      setPlacement(UNPLACED);
       onCreated?.();
     },
   });
@@ -168,7 +171,8 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
       urgency,
       needsPlan,
       blockedBy,
-      taskGroupId,
+      milestoneRef: placement.milestoneRef ?? undefined,
+      taskGroupId: placement.taskGroupId ?? undefined,
     });
   }
 
@@ -232,26 +236,12 @@ function CreateTask({ open, onOpenChange, projectId, specId, onCreated }: Create
                 onNeedsPlanChange={setNeedsPlan}
               />
 
-              {groups && groups.length > 0 && (
-                <div className="flex flex-col gap-1.5">
-                  <Label>Task Group</Label>
-                  <Select
-                    value={taskGroupId?.toString() ?? 'none'}
-                    onValueChange={(v) => setTaskGroupId(v === 'none' ? undefined : Number(v))}
-                  >
-                    <SelectTrigger className="h-7 text-xs">
-                      <SelectValue placeholder="None" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      {groups.map((g) => (
-                        <SelectItem key={g.id} value={g.id.toString()}>
-                          {g.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              {projectId && (
+                <TaskPlacementFields
+                  projectId={projectId}
+                  value={placement}
+                  onChange={setPlacement}
+                />
               )}
             </div>
 
@@ -320,8 +310,8 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
   const [initialDescription, setInitialDescription] = useState(task?.description ?? '');
   const descriptionRef = useRef(task?.description ?? '');
   const [blockedBy, setBlockedBy] = useState<number[]>(task?.blockedBy ?? []);
-  const [taskGroupIdLocal, setTaskGroupIdLocal] = useState<number | null>(
-    task?.taskGroupId ?? null,
+  const [placement, setPlacement] = useState<TaskPlacement>(
+    task ? placementOf(task) : UNPLACED,
   );
   const [dirty, setDirty] = useState(false);
   const [initialized, setInitialized] = useState(!!task);
@@ -340,7 +330,7 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
     setNeedsPlan(task.needsPlan ?? true);
     setInitialDescription(task.description || '');
     setBlockedBy(task.blockedBy ?? []);
-    setTaskGroupIdLocal(task.taskGroupId ?? null);
+    setPlacement(placementOf(task));
   }
 
   // Pick initial active tab. An explicit `initialTab` prop wins — e.g. the
@@ -434,10 +424,6 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
     { projectId: task?.projectId ?? 0 },
     { enabled: !!task?.projectId },
   );
-  const { data: groups } = trpc.taskGroup.list.useQuery(
-    { projectId: task?.projectId ?? undefined },
-    { enabled: open && !!task?.projectId },
-  );
 
   const utils = trpc.useUtils();
   const writePlan = trpc.project.writeFile.useMutation({
@@ -484,7 +470,8 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
       needsPlan,
       description: descriptionRef.current,
       blockedBy,
-      taskGroupId: taskGroupIdLocal,
+      milestoneRef: placement.milestoneRef,
+      taskGroupId: placement.taskGroupId,
     });
   }
 
@@ -502,6 +489,10 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
   }, []);
   const handleNeedsPlanChange = useCallback((v: boolean) => {
     setNeedsPlan(v);
+    setDirty(true);
+  }, []);
+  const handlePlacementChange = useCallback((next: TaskPlacement) => {
+    setPlacement(next);
     setDirty(true);
   }, []);
   const handleBlockedByAdd = useCallback((id: number) => {
@@ -618,29 +609,12 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
                   onNeedsPlanChange={handleNeedsPlanChange}
                 />
 
-                {groups && groups.length > 0 && (
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium">Task Group</label>
-                    <Select
-                      value={taskGroupIdLocal?.toString() ?? 'none'}
-                      onValueChange={(v) => {
-                        setTaskGroupIdLocal(v === 'none' ? null : Number(v));
-                        setDirty(true);
-                      }}
-                    >
-                      <SelectTrigger className="h-7 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        {groups.map((g) => (
-                          <SelectItem key={g.id} value={g.id.toString()}>
-                            {g.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                {task.projectId && (
+                  <TaskPlacementFields
+                    projectId={task.projectId}
+                    value={placement}
+                    onChange={handlePlacementChange}
+                  />
                 )}
               </div>
 

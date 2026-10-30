@@ -40,3 +40,18 @@ export function withOrphanOptions(options: FilterOption[], selected: string[]): 
   const orphans = selected.filter((v) => !known.has(v)).map((v) => ({ value: v, label: v }));
   return [...options, ...orphans];
 }
+
+export function milestoneOption(milestone: { ref: string; title: string }): FilterOption {
+  return { value: milestone.ref, label: `${milestone.ref.toUpperCase()} ${milestone.title}` };
+}
+
+export function groupOption(group: {
+  id: number;
+  name: string;
+  milestoneRef: string | null;
+  numInMilestone: number;
+}): FilterOption {
+  const groupId = `TG${group.numInMilestone}`;
+  const fullId = group.milestoneRef ? `${group.milestoneRef.toUpperCase()} ${groupId}` : groupId;
+  return { value: String(group.id), label: `${fullId} ${group.name}` };
+}

@@ -1,24 +1,15 @@
 'use client';
 
-import { useState } from 'react';
 import {
   RiFilterLine,
   RiDraftLine,
   RiHammerLine,
-  RiArrowDownSLine,
   RiRobotLine,
   RiUserLine,
 } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import {
-  Command,
-  CommandEmpty,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
 import { Switch } from '@/components/ui/switch';
 import {
   taskStatusOptions,
@@ -26,7 +17,8 @@ import {
   taskStatusIcons,
   taskStatusLabels,
 } from '@/components/projects/task-status-badge';
-import { withOrphanOptions, type FilterOption } from '@/components/projects/task-filter-options';
+import { groupOption, milestoneOption } from '@/components/projects/task-filter-options';
+import { OptionCombobox } from '@/components/projects/option-combobox';
 import { cn } from '@/lib/utils';
 
 export interface TaskFilters {
@@ -134,52 +126,8 @@ function FilterChip({
 
 const SECTION_LABEL = 'mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground';
 
-interface MultiSelectComboboxProps {
-  label: string;
-  options: FilterOption[];
-  selected: string[];
-  onChange: (selected: string[]) => void;
-}
-
-function MultiSelectCombobox({ label, options, selected, onChange }: MultiSelectComboboxProps) {
-  const [open, setOpen] = useState(false);
-  const items = withOrphanOptions(options, selected);
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex w-full items-center justify-between rounded-none border border-input/30 bg-input/30 px-2 py-1.5 text-xs hover:bg-muted"
-        >
-          <span className="truncate text-muted-foreground">
-            {selected.length > 0
-              ? `${selected.length} selected`
-              : `Select ${label.toLowerCase()}...`}
-          </span>
-          <RiArrowDownSLine className="size-3.5 shrink-0 text-muted-foreground" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-52 p-0" align="start">
-        <Command>
-          <CommandInput placeholder={`Search ${label.toLowerCase()}...`} />
-          <CommandList>
-            <CommandEmpty>No {label.toLowerCase()} found.</CommandEmpty>
-            {items.map((opt) => (
-              <CommandItem
-                key={opt.value}
-                value={opt.label}
-                data-checked={selected.includes(opt.value)}
-                onSelect={() => onChange(toggle(selected, opt.value))}
-              >
-                {opt.label}
-              </CommandItem>
-            ))}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  );
+function selectionText(label: string, selected: string[]): string {
+  return selected.length > 0 ? `${selected.length} selected` : `Select ${label.toLowerCase()}...`;
 }
 
 const DONE_LIMIT_OPTIONS = [5, 10, 25, 0] as const;
@@ -201,7 +149,7 @@ const planStatusConfig = [
 interface TaskFilterProps {
   value: TaskFilters;
   onChange: (filters: TaskFilters) => void;
-  groups: { id: number; name: string }[];
+  groups: { id: number; name: string; milestoneRef: string | null; numInMilestone: number }[];
   milestones: { ref: string; title: string }[];
 }
 
@@ -342,22 +290,26 @@ export function TaskFilter({ value, onChange, groups, milestones }: TaskFilterPr
               {showMilestones && (
                 <div className="flex-1">
                   <div className={SECTION_LABEL}>Milestone</div>
-                  <MultiSelectCombobox
+                  <OptionCombobox
                     label="Milestones"
-                    options={milestones.map((m) => ({ value: m.ref, label: m.title }))}
+                    options={milestones.map(milestoneOption)}
                     selected={value.milestoneRef}
-                    onChange={handleMilestoneChange}
+                    onSelect={(ref) => handleMilestoneChange(toggle(value.milestoneRef, ref))}
+                    triggerText={selectionText('Milestones', value.milestoneRef)}
+                    className="text-muted-foreground"
                   />
                 </div>
               )}
               {showGroups && (
                 <div className="flex-1">
                   <div className={SECTION_LABEL}>Group</div>
-                  <MultiSelectCombobox
+                  <OptionCombobox
                     label="Groups"
-                    options={groups.map((g) => ({ value: String(g.id), label: g.name }))}
+                    options={groups.map(groupOption)}
                     selected={value.groupId.map(String)}
-                    onChange={(selected) => handleGroupChange(selected.map(Number))}
+                    onSelect={(id) => handleGroupChange(toggle(value.groupId, Number(id)))}
+                    triggerText={selectionText('Groups', value.groupId.map(String))}
+                    className="text-muted-foreground"
                   />
                 </div>
               )}

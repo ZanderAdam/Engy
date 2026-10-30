@@ -3,6 +3,8 @@ import {
   milestoneFilterOptions,
   groupFilterOptions,
   withOrphanOptions,
+  milestoneOption,
+  groupOption,
 } from './task-filter-options';
 
 function task(
@@ -97,6 +99,29 @@ describe('task filter options', () => {
 
     it('should append nothing when there is no selection', () => {
       expect(withOrphanOptions([{ value: 'm1', label: 'One' }], [])).toHaveLength(1);
+    });
+  });
+
+  describe('milestoneOption', () => {
+    it('[FR-TASK-230] should prefix the title with the milestone id', () => {
+      expect(milestoneOption({ ref: 'm3', title: 'Search' })).toEqual({
+        value: 'm3',
+        label: 'M3 Search',
+      });
+    });
+  });
+
+  describe('groupOption', () => {
+    it('[FR-TASK-230] should prefix the name with the milestone and group ids', () => {
+      const group = { id: 42, name: 'Indexer', milestoneRef: 'm3', numInMilestone: 2 };
+
+      expect(groupOption(group)).toEqual({ value: '42', label: 'M3 TG2 Indexer' });
+    });
+
+    it('[FR-TASK-230] should prefix a standalone group with its group id only', () => {
+      const group = { id: 42, name: 'Chores', milestoneRef: null, numInMilestone: 1 };
+
+      expect(groupOption(group)).toEqual({ value: '42', label: 'TG1 Chores' });
     });
   });
 });
