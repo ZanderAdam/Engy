@@ -3,6 +3,8 @@
 import { useEffect, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { isTypingTarget } from '@/lib/keyboard';
+import { useTabId } from '@/components/tabs/tab-context';
+import type { TerminalRevealEvent } from '@/components/terminal/terminal-link';
 import { matchShortcut, type ShortcutDef } from '@/components/layout/three-panel-layout';
 import { BottomTerminalProvider } from '@/components/layout/workspace-terminal-context';
 import {
@@ -105,6 +107,18 @@ export function BottomTerminalSplit({
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [collapsed, setCollapsed]);
+
+  const tabId = useTabId();
+  useEffect(() => {
+    function onReveal(e: Event) {
+      const detail = (e as CustomEvent<TerminalRevealEvent>).detail;
+      if (detail.dock !== 'shell') return;
+      if (detail.tabId !== undefined && detail.tabId !== tabId) return;
+      setCollapsed(false);
+    }
+    window.addEventListener('terminal:reveal', onReveal);
+    return () => window.removeEventListener('terminal:reveal', onReveal);
+  }, [tabId, setCollapsed]);
 
   const handleCollapse = useCallback(() => {
     setCollapsed(true);

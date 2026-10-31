@@ -36,6 +36,8 @@ import { TerminalRail } from '@/components/terminal/terminal-rail';
 import { useTerminalNumberShortcut } from '@/components/terminal/terminal-number-shortcut';
 import { BottomTerminalSplit } from '@/components/terminal/bottom-terminal-split';
 import type { TerminalDropdownGroup, TerminalDropdownEntry } from '@/components/terminal/types';
+import { useTerminalLinkFocus } from '@/components/terminal/use-terminal-link-focus';
+import type { TerminalDock } from '@/components/terminal/terminal-link';
 import { useWorktreeSessions } from '@/components/terminal/use-worktree-sessions';
 import { buildSessionHistoryGroup } from '@/components/terminal/session-history-entries';
 import { EventsWorkspaceScope } from '@/contexts/events-context';
@@ -519,7 +521,11 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   // than every project in the workspace. Freshness comes from cache
   // invalidation on TERMINAL_SESSIONS_CHANGE broadcasts — the hook lives in
   // AutoInvalidation (inside EventsWorkspaceScope), not here.
-  const { data: sessionHistory, dataUpdatedAt: sessionHistoryFetchedAt } =
+  const {
+    data: sessionHistory,
+    dataUpdatedAt: sessionHistoryFetchedAt,
+    isFetched: sessionHistoryFetched,
+  } =
     trpc.terminal.listSessionHistory.useQuery({
       workspaceSlug: params.workspace,
       projectSlug: isProjectRoute ? params.project : undefined,
@@ -542,6 +548,16 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       now: sessionHistoryFetchedAt,
     });
   }, [workspace, sessionHistory, sessionHistoryFetchedAt, params.workspace, params.project]);
+
+  const revealTerminalDock = useCallback((dock: TerminalDock) => {
+    if (dock === 'terminal') setTerminalCollapsed(false);
+  }, []);
+  useTerminalLinkFocus({
+    ready: !!workspace,
+    resumeGroup,
+    resumeGroupReady: sessionHistoryFetched,
+    onReveal: revealTerminalDock,
+  });
 
   const allDropdownGroups = useMemo<TerminalDropdownGroup[] | undefined>(() => {
     const groups: TerminalDropdownGroup[] = [];

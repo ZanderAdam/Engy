@@ -9,6 +9,7 @@ export interface TabContextValue {
   virtualPath: string;
   isActive: boolean;
   pushVirtual: (path: string) => void;
+  replaceVirtual: (path: string) => void;
   openNewTab: (path: string, activate?: boolean) => string;
 }
 
@@ -76,6 +77,7 @@ export function useVirtualParams<T = VirtualParams>(): T {
 
 export function useVirtualNavigate(): {
   push: (path: string) => void;
+  replace: (path: string) => void;
   openNewTab: (path: string, activate?: boolean) => void;
 } {
   const ctx = useContext(TabContext);
@@ -83,6 +85,7 @@ export function useVirtualNavigate(): {
     if (ctx) {
       return {
         push: ctx.pushVirtual,
+        replace: ctx.replaceVirtual,
         openNewTab: (path, activate) => {
           ctx.openNewTab(path, activate);
         },
@@ -91,6 +94,9 @@ export function useVirtualNavigate(): {
     return {
       push: (path: string) => {
         if (typeof window !== 'undefined') window.location.assign(path);
+      },
+      replace: (path: string) => {
+        if (typeof window !== 'undefined') window.location.replace(path);
       },
       openNewTab: (path: string) => {
         if (typeof window !== 'undefined') window.open(path, '_blank', 'noopener');

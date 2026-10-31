@@ -14,7 +14,7 @@ See root `AGENTS.md` for monorepo commands and the nested CLAUDE.md index.
   - `ws/` — daemon control channel, terminal relay, browser broadcast
   - `search/` — BM25/vector search, indexer, auto-linker, integrity validation. `qmd-search.ts` exports `isReadme` — import it in both tRPC and MCP filter modes to exclude README rows from all search surfaces.
   - `engy-dir/`, `project/`, `spec/`, `plan/`, `tasks/` — server-owned `{ENGY_DIR}` operations and pure helpers
-- `src/app/` — Next.js routes (`/`, `/open`, `/w/[workspace]/...`). All pages are `"use client"`.
+- `src/app/` — Next.js routes (`/`, `/open`, `/t/[sessionId]`, `/w/[workspace]/...`). All pages are `"use client"`. Tabs render through `components/tabs/tab-content.tsx`, so a new route also needs a case there.
 - `src/components/` — feature components + shadcn primitives in `components/ui/`. See `components/CLAUDE.md`.
 
 ## Directory Structure
@@ -89,6 +89,7 @@ src/app/
 ├── page.tsx                      # Home — workspace list + create
 ├── open/page.tsx                 # Open directory flow
 ├── api/trpc/[...trpc]/route.ts   # tRPC fetch adapter
+├── t/[sessionId]/page.tsx        # Terminal link — resolves a session and redirects to its project/worktree with ?terminal=<id>
 └── w/[workspace]/                # Workspace-scoped pages
     ├── layout.tsx                # Three-panel layout + terminal dock
     ├── page.tsx                  # Workspace overview

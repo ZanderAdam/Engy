@@ -31,6 +31,7 @@ import {
   navigateTab,
   normalizeVirtualPath,
   parseVirtualPath,
+  redirectTab,
   savePersisted,
   type Tab,
   type TabsState,
@@ -170,6 +171,14 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
   const updateTabPath = useCallback((tabId: string, rawPath: string) => {
     const path = normalizeVirtualPath(rawPath);
     setState((s) => navigateOrReuseTab(s, tabId, path));
+  }, []);
+
+  const redirectTabPath = useCallback((tabId: string, rawPath: string) => {
+    const path = normalizeVirtualPath(rawPath);
+    setState((s) => {
+      if (tabId === s.activeTabId) replaceNextRef.current = true;
+      return redirectTab(s, tabId, path);
+    });
   }, []);
 
   const openNewTab = useCallback((rawPath: string, activate = true): string => {
@@ -332,6 +341,7 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
             tab={tab}
             isActive={tab.id === activeTabId}
             onPushVirtual={(path) => updateTabPath(tab.id, path)}
+            onReplaceVirtual={(path) => redirectTabPath(tab.id, path)}
             onOpenNewTab={openNewTab}
           />
         ))}
@@ -344,19 +354,21 @@ interface TabPanelProps {
   tab: Tab;
   isActive: boolean;
   onPushVirtual: (path: string) => void;
+  onReplaceVirtual: (path: string) => void;
   onOpenNewTab: (path: string, activate?: boolean) => string;
 }
 
-function TabPanel({ tab, isActive, onPushVirtual, onOpenNewTab }: TabPanelProps) {
+function TabPanel({ tab, isActive, onPushVirtual, onReplaceVirtual, onOpenNewTab }: TabPanelProps) {
   const ctxValue = useMemo<TabContextValue>(
     () => ({
       tabId: tab.id,
       virtualPath: tab.virtualPath,
       isActive,
       pushVirtual: onPushVirtual,
+      replaceVirtual: onReplaceVirtual,
       openNewTab: onOpenNewTab,
     }),
-    [tab.id, tab.virtualPath, isActive, onPushVirtual, onOpenNewTab],
+    [tab.id, tab.virtualPath, isActive, onPushVirtual, onReplaceVirtual, onOpenNewTab],
   );
 
   return (

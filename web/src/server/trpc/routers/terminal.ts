@@ -20,6 +20,7 @@ import {
   listWorkers,
 } from '../../terminal-dispatch';
 import { listSessionHistory } from '../../ws/terminal-session-history';
+import { resolveTerminalLinkTarget } from '../../ws/terminal-link-target';
 import { broadcastTerminalWorkersChange } from '../../ws/broadcast';
 
 const PASTE_DIR = '.engy/paste';
@@ -45,6 +46,10 @@ function coderWorkspaceForSession(meta: TerminalSessionMeta): string | undefined
 
 export const terminalRouter = router({
   listWorkers: publicProcedure.query(() => listWorkers(getAppState())),
+
+  resolveLink: publicProcedure
+    .input(z.object({ sessionId: z.string() }))
+    .query(({ input }) => resolveTerminalLinkTarget(getAppState(), input.sessionId)),
 
   // Recent agent sessions available for `--resume`, narrowed to one project
   // when the caller is on a project route. Live sessions are excluded by their

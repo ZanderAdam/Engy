@@ -98,16 +98,20 @@ export function markSessionClosed(key: string): void {
  * terminal session id, so this resolves first-run sessions only.
  */
 export function getHistoryWorkspaceSlug(sessionId: string): string | null {
+  return getHistoryRow(sessionId)?.workspaceSlug ?? null;
+}
+
+export function getHistoryRow(sessionId: string): SessionHistoryRow | null {
   try {
-    const db = getDb();
-    const row = db
-      .select({ workspaceSlug: terminalSessionHistory.workspaceSlug })
-      .from(terminalSessionHistory)
-      .where(eq(terminalSessionHistory.sessionId, sessionId))
-      .get();
-    return row?.workspaceSlug ?? null;
+    return (
+      getDb()
+        .select()
+        .from(terminalSessionHistory)
+        .where(eq(terminalSessionHistory.sessionId, sessionId))
+        .get() ?? null
+    );
   } catch (err) {
-    console.warn(`[terminal-history] Failed to resolve workspace for session ${sessionId}:`, err);
+    console.warn(`[terminal-history] Failed to read history for session ${sessionId}:`, err);
     return null;
   }
 }

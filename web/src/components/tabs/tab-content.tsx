@@ -6,6 +6,8 @@ import { parseVirtualPath } from './tab-state';
 import HomePage from '@/app/page';
 import OpenPage from '@/app/open/page';
 import InboxRoute from '@/app/inbox/page';
+import { TerminalLinkPage } from '@/components/terminal/terminal-link-page';
+import { decodeSessionId } from '@/components/terminal/terminal-link';
 import WorkspaceLayout from '@/app/w/[workspace]/layout';
 import WorkspacePage from '@/app/w/[workspace]/page';
 import WorkspaceTasksPage from '@/app/w/[workspace]/tasks/page';
@@ -85,6 +87,9 @@ export const TabContent = memo(function TabContent({ virtualPath }: { virtualPat
   if (path.startsWith('/open')) return <OpenPage />;
   if (path === '/inbox') return <InboxRoute />;
   if (path === '/' || path === '') return <HomePage />;
+  if (path.startsWith('/t/')) {
+    return <TerminalLinkPage sessionId={decodeSessionId(path.slice('/t/'.length))} />;
+  }
 
   const { workspace, project, section } = parseVirtualPath(virtualPath);
   if (!workspace) return <HomePage />;

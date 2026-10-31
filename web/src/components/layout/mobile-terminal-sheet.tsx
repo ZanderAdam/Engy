@@ -10,6 +10,7 @@ import {
 } from '@/components/terminal/use-terminal-scope';
 import { useOptionalTab } from '@/components/tabs/tab-context';
 import { TerminalManager } from '@/components/terminal/terminal-manager';
+import type { TerminalRevealEvent } from '@/components/terminal/terminal-link';
 import {
   useCommandCenterMode,
   setCommandCenterMode,
@@ -167,6 +168,24 @@ function MobileTerminalSheetBase({
   const contentRef = useRef<HTMLDivElement>(null);
   const settled = useSettledWhenOpen(open, contentRef);
   const managerMounted = open && settled;
+
+  // A terminal link names the dock holding its session. A closed sheet has no
+  // TerminalManager, so open it and replay the focus once the manager mounted.
+  useEffect(() => {
+    function onReveal(e: Event) {
+      if (managerMounted || !isTabActive) return;
+      const detail = (e as CustomEvent<TerminalRevealEvent>).detail;
+      if (detail.dock !== overlayKind) return;
+      if (detail.tabId !== undefined && detail.tabId !== myTabId) return;
+      pendingRef.current.push({
+        name: 'terminal:focus',
+        detail: { sessionId: detail.sessionId, tabId: detail.tabId },
+      });
+      openOverlay(overlayKind);
+    }
+    window.addEventListener('terminal:reveal', onReveal);
+    return () => window.removeEventListener('terminal:reveal', onReveal);
+  }, [managerMounted, openOverlay, overlayKind, myTabId, isTabActive]);
 
   useEffect(() => {
     if (!managerMounted || pendingRef.current.length === 0) return;

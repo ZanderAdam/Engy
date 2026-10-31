@@ -89,6 +89,19 @@ describe('MCP terminal tools', () => {
       });
     });
 
+    it('[FR-MCP-150] should return a link to the caller terminal on its MCP origin', async () => {
+      state.terminalSessionMeta.set('sess-me', {
+        scopeType: 'project',
+        scopeLabel: 'project: default',
+        workingDir: '/repo',
+        command: `claude --mcp-config '{"url":"https://engy.example.com/mcp/sess-me"}'`,
+        cols: 80,
+        rows: 24,
+      });
+      const { data } = await callTool(makeMcp('sess-me'), 'terminal_whoami')();
+      expect(data.link).toBe('https://engy.example.com/t/sess-me');
+    });
+
     it('[FR-MCP-150] should report unidentified for anonymous (plain /mcp) callers', async () => {
       const { data } = await callTool(makeMcp(undefined), 'terminal_whoami')();
       expect(data.identified).toBe(false);
@@ -125,6 +138,21 @@ describe('MCP terminal tools', () => {
         agentType: 'codex',
         activityState: 'idle',
       });
+    });
+
+    it('[FR-MCP-130] should give each worker a link on the caller MCP origin', async () => {
+      state.terminalSessionMeta.set('sess-me', {
+        scopeType: 'project',
+        scopeLabel: 'project: default',
+        workingDir: '/repo',
+        command: `claude --mcp-config '{"url":"https://engy.example.com/mcp/sess-me"}'`,
+        cols: 80,
+        rows: 24,
+      });
+      addWorkerSession(state, 'w1', 'codex on frontend');
+      const { data } = await callTool(makeMcp('sess-me'), 'terminal_list_workers')();
+      const workers = data.workers as Array<Record<string, unknown>>;
+      expect(workers[0].link).toBe('https://engy.example.com/t/w1');
     });
   });
 
@@ -734,6 +762,14 @@ describe('MCP terminal tools', () => {
         description: 'worker',
         outputTail: 'red output',
       });
+    });
+
+    it('[FR-MCP-140] should return the worker link, falling back to the local port for anonymous callers', async () => {
+      vi.stubEnv('PORT', '4123');
+      addWorkerSession(state, 'w1', 'worker');
+      const { data } = await callTool(makeMcp(), 'terminal_status')({ workerSessionId: 'w1' });
+      vi.unstubAllEnvs();
+      expect(data.link).toBe('http://localhost:4123/t/w1');
     });
 
     it('should refuse unknown workers', async () => {

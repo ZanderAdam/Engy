@@ -232,6 +232,35 @@ export function navigateOrReuseTab(state: TabsState, tabId: string, path: string
   return { ...state, tabs: navigateTab(state.tabs, tabId, path) };
 }
 
+function withSearchParam(virtualPath: string, name: string, value: string): string {
+  const idx = virtualPath.indexOf('?');
+  const pathname = idx < 0 ? virtualPath : virtualPath.slice(0, idx);
+  const params = new URLSearchParams(idx < 0 ? '' : virtualPath.slice(idx + 1));
+  params.set(name, value);
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+export function redirectTab(state: TabsState, tabId: string, path: string): TabsState {
+  const terminal = searchParam(path, 'terminal');
+  const current = state.tabs.find((t) => t.id === tabId);
+  const existing = findReusableProjectTab(state.tabs, path);
+  const staysInPlace =
+    !existing ||
+    existing.id === tabId ||
+    terminal === null ||
+    (current !== undefined && projectTabKey(current.virtualPath) === projectTabKey(path));
+  if (staysInPlace) {
+    return { ...state, tabs: navigateTab(state.tabs, tabId, path) };
+  }
+  const target = withSearchParam(existing.virtualPath, 'terminal', terminal);
+  const remaining = state.tabs.filter((t) => t.id !== tabId);
+  return {
+    tabs: navigateTab(remaining, existing.id, target),
+    activeTabId: state.activeTabId === tabId ? existing.id : state.activeTabId,
+  };
+}
+
 /**
  * Resolve the tab set to start from on load. Collapses project-tab duplicates
  * persisted before dedup existed, then reuses an existing project tab matching

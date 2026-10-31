@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { DockviewReact, type DockviewApi, type SerializedDockview } from "dockview";
 import type { TerminalActions } from "./terminal";
 import { focusWhenFocusable } from "./focus-when-focusable";
+import { createPendingFocus } from "./pending-focus";
 import { isStoppedTerminal, type TerminalActivityState, type TerminalTab, type TerminalScope, type TerminalPanelParams, type SplitPosition, type TerminalDropdownGroup, type TerminalRailGroup } from "./types";
 import { TerminalDockContext, type TerminalDockContextValue } from "./terminal-dock-context";
 import { TerminalDockPanel } from "./terminal-dock-panel";
@@ -186,7 +187,6 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   // Debounces the "sessions created elsewhere" refetch so a burst of creations
   // (e.g. opening several terminals at once) coalesces into one list fetch.
   const sessionsSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingFocusRef = useRef<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const defaultScopeRef = useRef(defaultScope);
   useEffect(() => {
@@ -378,9 +378,27 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     [],
   );
 
+  const broadcastActiveRef = useRef(broadcastActive);
+  useEffect(() => {
+    broadcastActiveRef.current = broadcastActive;
+  }, [broadcastActive]);
+
   const focusTerminalInput = useCallback((sessionId: string) => {
     focusWhenFocusable(() => tabWsRefs.current.get(sessionId));
   }, []);
+
+  const [pendingFocus] = useState(() =>
+    createPendingFocus((sessionId) => {
+      // Always broadcast so the right panel expands even if the tab was already active
+      broadcastActiveRef.current();
+      focusTerminalInput(sessionId);
+      window.dispatchEvent(
+        new CustomEvent('terminal:focused', {
+          detail: { sessionId, tabId: myTabIdRef.current ?? undefined },
+        }),
+      );
+    }),
+  );
 
   const updateTabLabel = useCallback((sessionId: string, newLabel: string) => {
     const existing = tabsRef.current.get(sessionId);
@@ -494,22 +512,12 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     function onFocus(e: Event) {
       const { sessionId, tabId } = (e as CustomEvent<TerminalFocusEvent>).detail;
       if (tabId !== undefined && tabId !== myTabId) return;
-      const api = dockviewApiRef.current;
-      if (!api) return;
-      const panel = api.getPanel(sessionId);
-      if (panel) {
-        panel.api.setActive();
-        // Always broadcast so the right panel expands even if the tab was already active
-        broadcastActive();
-      } else {
-        pendingFocusRef.current = sessionId;
-      }
-      focusTerminalInput(sessionId);
+      pendingFocus.request(sessionId, dockviewApiRef.current);
     }
 
     window.addEventListener('terminal:focus', onFocus);
     return () => window.removeEventListener('terminal:focus', onFocus);
-  }, [broadcastActive, focusTerminalInput, myTabId]);
+  }, [pendingFocus, myTabId]);
 
   // terminal:rename — intentional user action from the rail's expanded list
   // (double-click to edit), mirroring the dock tab's rename. Reuses
@@ -629,13 +637,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
                 });
               }
             }
-            const pendingId = pendingFocusRef.current;
-            const pendingPanel = pendingId ? liveApi.getPanel(pendingId) : undefined;
-            if (pendingPanel) {
-              pendingFocusRef.current = null;
-              pendingPanel.api.setActive();
-              broadcastActive();
-            }
+            pendingFocus.flush(liveApi);
           })
           .catch((err: unknown) => console.error('Failed to sync terminal sessions:', err));
       }, 150);
@@ -652,7 +654,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     // 'destroyed' without reason (natural PTY exit) keeps the tab so its
     // final output stays readable — the WS exit event marks it exited.
     // 'attached'/'detached' are informational — no action needed
-  }, [updateTabLabel, applyRailGroup, buildSessionsUrl, broadcastActive]));
+  }, [updateTabLabel, applyRailGroup, buildSessionsUrl, pendingFocus]));
 
   // needsAttention has no broadcast of its own — every hook event that can
   // change it (Notification sets it, Stop/UserPromptSubmit clear it, and the
@@ -805,6 +807,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
                 }
 
                 scheduleLayoutSave();
+                pendingFocus.flush(api);
                 return;
               } catch (err) {
                 restoringRef.current = false;
@@ -828,10 +831,19 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
               renderer: 'always',
             });
           }
+          pendingFocus.flush(api);
         })
         .catch((err: unknown) => console.error('Failed to restore terminal sessions:', err));
     },
-    [broadcastActive, cleanupTerminal, scheduleLayoutSave, bumpTabs, buildSessionsUrl, getLayoutKey],
+    [
+      pendingFocus,
+      broadcastActive,
+      cleanupTerminal,
+      scheduleLayoutSave,
+      bumpTabs,
+      buildSessionsUrl,
+      getLayoutKey,
+    ],
   );
 
   // Publish the live tab snapshot for the terminal rail whenever tabs or the

@@ -9,6 +9,7 @@ import {
   findReusableProjectTab,
   navigateOrReuseTab,
   projectTabKey,
+  redirectTab,
   type Tab,
 } from './tab-state';
 
@@ -292,6 +293,72 @@ describe('tab-state dedup', () => {
 
     it('should leave state untouched for an unknown id', () => {
       expect(closeTabsToRight(state, 'gone')).toBe(state);
+    });
+  });
+
+  describe('redirectTab', () => {
+    it('[FR-TERMINAL-1030] should move the tab to the target when no other tab shows that project', () => {
+      const state = {
+        tabs: [tab({ id: 'a', virtualPath: '/t/s1' })],
+        activeTabId: 'a',
+      };
+      const next = redirectTab(state, 'a', '/w/eng/projects/p?terminal=s1');
+      expect(next.tabs.map((t) => t.virtualPath)).toEqual(['/w/eng/projects/p?terminal=s1']);
+      expect(next.activeTabId).toBe('a');
+    });
+
+    it('[FR-TERMINAL-1030] should drop the redirecting tab and keep the open tab section', () => {
+      const state = {
+        tabs: [
+          tab({ id: 'proj', virtualPath: '/w/eng/projects/p/tasks?wt=b' }),
+          tab({ id: 'link', virtualPath: '/t/s1' }),
+        ],
+        activeTabId: 'link',
+      };
+      const next = redirectTab(state, 'link', '/w/eng/projects/p?terminal=s1&wt=b');
+      expect(next.tabs.map((t) => [t.id, t.virtualPath])).toEqual([
+        ['proj', '/w/eng/projects/p/tasks?wt=b&terminal=s1'],
+      ]);
+      expect(next.activeTabId).toBe('proj');
+    });
+
+    it('[FR-TERMINAL-1030] should not steal focus when the redirecting tab is in the background', () => {
+      const state = {
+        tabs: [
+          tab({ id: 'proj', virtualPath: '/w/eng/projects/p?wt=b' }),
+          tab({ id: 'other', virtualPath: '/inbox' }),
+          tab({ id: 'link', virtualPath: '/t/s1' }),
+        ],
+        activeTabId: 'other',
+      };
+      expect(redirectTab(state, 'link', '/w/eng/projects/p?terminal=s1&wt=b').activeTabId).toBe(
+        'other',
+      );
+    });
+
+    it('[FR-TERMINAL-1030] should strip the param in place when an earlier tab shows the same project', () => {
+      const state = {
+        tabs: [
+          tab({ id: 'b', virtualPath: '/w/eng/projects/p?wt=b' }),
+          tab({ id: 'a', virtualPath: '/w/eng/projects/p/tasks?terminal=s1&wt=b' }),
+        ],
+        activeTabId: 'a',
+      };
+      const next = redirectTab(state, 'a', '/w/eng/projects/p/tasks?wt=b');
+      expect(next.tabs.map((t) => [t.id, t.virtualPath])).toEqual([
+        ['b', '/w/eng/projects/p?wt=b'],
+        ['a', '/w/eng/projects/p/tasks?wt=b'],
+      ]);
+      expect(next.activeTabId).toBe('a');
+    });
+
+    it('[FR-TERMINAL-1030] should strip the param on the same tab without touching other tabs', () => {
+      const state = {
+        tabs: [tab({ id: 'proj', virtualPath: '/w/eng/projects/p/tasks?terminal=s1&wt=b' })],
+        activeTabId: 'proj',
+      };
+      const next = redirectTab(state, 'proj', '/w/eng/projects/p/tasks?wt=b');
+      expect(next.tabs[0].virtualPath).toBe('/w/eng/projects/p/tasks?wt=b');
     });
   });
 

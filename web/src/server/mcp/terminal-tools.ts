@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getAppState } from '../trpc/context';
+import { getAppState, type AppState } from '../trpc/context';
 import {
   AGENT_SPAWN_LIMIT,
   closeAgentTerminal,
@@ -19,6 +19,7 @@ import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { isAgentTypeId, isAgentActive, listAgentTypes } from '@/lib/agent-types';
 import { eq } from 'drizzle-orm';
+import { deriveMcpOrigin, terminalLink } from '../terminal-link';
 import { mcpResult, mcpError } from './result';
 
 // Cross-terminal dispatch tools. These are agent-only (no tRPC counterparts by
@@ -91,18 +92,6 @@ const terminalSpawnInput = {
     .describe('Optional initial prompt the spawned agent starts working on immediately'),
 };
 
-/**
- * The spawned agent must reach the same server the caller reaches. The caller's
- * spawn command carries its own resolved MCP URL — reuse that origin. Fallback
- * (caller command without an MCP URL) is this server's local port.
- */
-const MCP_URL_ORIGIN_RE = /(https?:\/\/[^/\s'"]+)\/mcp\//;
-
-function deriveMcpOrigin(callerCommand: string | undefined): string {
-  const match = callerCommand ? MCP_URL_ORIGIN_RE.exec(callerCommand) : null;
-  return match ? match[1] : `http://localhost:${process.env.PORT ?? '3000'}`;
-}
-
 function listAllWorkspaceRepos(): string[] {
   const rows = getDb().select({ repos: workspaces.repos }).from(workspaces).all();
   return rows.flatMap((row) => (Array.isArray(row.repos) ? row.repos : []));
@@ -147,6 +136,13 @@ function dispatchSummary(entry: {
 // endpoint (undefined for anonymous plain-/mcp callers). It identifies which
 // terminal — and therefore which agent type — is making the call.
 export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: string): void {
+  function callerOrigin(state: AppState): string {
+    const command = callerTerminalSessionId
+      ? state.terminalSessionMeta.get(callerTerminalSessionId)?.command
+      : undefined;
+    return deriveMcpOrigin(command);
+  }
+
   mcp.tool(
     'terminal_whoami',
     "Identify the calling agent: its Engy terminal session id and agent type (claude/codex/…). Purely informational — every terminal tool already knows the caller from its per-session MCP endpoint. Returns identified:false for agents Engy didn't register.",
@@ -168,6 +164,7 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
         agentType: meta?.agentType ?? null,
         scopeLabel: meta?.scopeLabel ?? null,
         workingDir: meta?.workingDir ?? null,
+        link: terminalLink(callerOrigin(getAppState()), callerTerminalSessionId),
       });
     },
   );
@@ -286,7 +283,12 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
     'List terminal sessions connected as dispatch workers — other live agent sessions that accept dispatched prompts',
     {},
     async () => {
-      const workers = listWorkers(getAppState());
+      const state = getAppState();
+      const origin = callerOrigin(state);
+      const workers = listWorkers(state).map((worker) => ({
+        ...worker,
+        link: terminalLink(origin, worker.sessionId),
+      }));
       if (workers.length === 0) {
         return mcpResult({
           workers: [],
@@ -405,6 +407,7 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
       const tail = getWorkerOutputTail(state, workerSessionId);
       return mcpResult({
         ...worker,
+        link: terminalLink(callerOrigin(state), workerSessionId),
         activeSubagents: meta?.activeSubagents ?? 0,
         lastFailure: meta?.lastFailure,
         outputTail: tail.slice(-OUTPUT_TAIL_RESPONSE_CHARS),

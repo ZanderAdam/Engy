@@ -36,6 +36,29 @@ describe('terminal router', () => {
     ctx.cleanup();
   });
 
+  describe('resolveLink', () => {
+    it('[FR-TERMINAL-1030] should resolve a live session to its workspace and project', async () => {
+      state.terminalSessionMeta.set('s1', {
+        scopeType: 'project',
+        scopeLabel: 'project: alpha',
+        workingDir: '/tmp',
+        workspaceSlug: 'ws',
+        projectSlug: 'alpha',
+        cols: 80,
+        rows: 24,
+      });
+      expect(await caller.terminal.resolveLink({ sessionId: 's1' })).toEqual({
+        status: 'live',
+        workspaceSlug: 'ws',
+        projectSlug: 'alpha',
+      });
+    });
+
+    it('[FR-TERMINAL-1040] should return null for an unknown session', async () => {
+      expect(await caller.terminal.resolveLink({ sessionId: 'nope' })).toBeNull();
+    });
+  });
+
   describe('connectWorker', () => {
     it('should connect a live session as a dispatch worker', async () => {
       addSession(state, 'sess-1');
