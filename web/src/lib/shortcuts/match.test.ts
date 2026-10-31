@@ -162,6 +162,8 @@ describe('shortcut labels', () => {
     expect(shortcutLimit('toggleBottomTerminal', false)).toBe('Not in text fields');
     expect(shortcutLimit('search', false)).toBe('Not in terminals');
     expect(shortcutLimit('search', true)).toBeNull();
+    expect(shortcutLimit('goTasks', false)).toBe('Not in text fields');
+    expect(shortcutLimit('focusTerminalNumber', false)).toBeNull();
   });
 });
 

@@ -1,5 +1,12 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect } from 'react';
 import { isTypingTarget } from '@/lib/keyboard';
+import {
+  CHORD_LEADER,
+  runShortcut,
+  SHORTCUTS,
+  useShortcut,
+  type ShortcutId,
+} from '@/lib/shortcuts';
 import { useTabsList } from './tab-context';
 import { parseVirtualPath } from './tab-state';
 
@@ -28,33 +35,41 @@ export function isInsideOverlay(
 
 export const IDLE_CHORD: ChordState = { armedAt: null };
 
-const CHORD_KEYS = new Set(['i', 't', 'd', 'c', 'm']);
+const CHORD_TARGETS = new Map(
+  SHORTCUTS.flatMap((s): [string, ShortcutId][] => (s.sequence ? [[s.sequence[1], s.id]] : [])),
+);
 
 export function advanceChord(
   state: ChordState,
   e: ChordKey,
   now: number,
-): { state: ChordState; fire: string | null } {
+): { state: ChordState; fire: ShortcutId | null } {
   if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.key.length !== 1) {
     return { state, fire: null };
   }
   const armed = state.armedAt !== null && now - state.armedAt <= CHORD_TIMEOUT_MS;
-  if (armed && CHORD_KEYS.has(e.key)) return { state: IDLE_CHORD, fire: e.key };
-  if (e.key === 'g') return { state: { armedAt: now }, fire: null };
+  const target = armed ? CHORD_TARGETS.get(e.key) : undefined;
+  if (target) return { state: IDLE_CHORD, fire: target };
+  if (e.key === CHORD_LEADER) return { state: { armedAt: now }, fire: null };
   return { state: IDLE_CHORD, fire: null };
 }
 
-const SECTIONS: Record<string, string> = { t: 'tasks', d: 'docs', m: 'memory' };
+type SectionShortcut = 'goTasks' | 'goDocs' | 'goMemory' | 'goCode';
+
+const SECTIONS: Record<Exclude<SectionShortcut, 'goCode'>, string> = {
+  goTasks: 'tasks',
+  goDocs: 'docs',
+  goMemory: 'memory',
+};
 
 /** The section of the workspace or project the tab shows. Code exists only on
  * projects, and null means the chord has no target here. */
-export function chordPath(key: string, virtualPath: string): string | null {
+export function chordPath(id: SectionShortcut, virtualPath: string): string | null {
   const { workspace, project } = parseVirtualPath(virtualPath);
   if (!workspace) return null;
   const projectBase = project ? `/w/${workspace}/projects/${project}` : null;
-  if (key === 'c') return projectBase && `${projectBase}/code`;
-  const section = SECTIONS[key];
-  return section ? `${projectBase ?? `/w/${workspace}`}/${section}` : null;
+  if (id === 'goCode') return projectBase && `${projectBase}/code`;
+  return `${projectBase ?? `/w/${workspace}`}/${SECTIONS[id]}`;
 }
 
 export function useOpenInbox(): () => void {
@@ -70,10 +85,18 @@ export function useOpenInbox(): () => void {
 export function useGoToChords(navigate: (path: string) => void): void {
   const openInbox = useOpenInbox();
   const tabsList = useTabsList();
-  const latest = useRef({ openInbox, navigate, tabsList });
-  useEffect(() => {
-    latest.current = { openInbox, navigate, tabsList };
-  });
+
+  const goTo = (id: SectionShortcut) => {
+    const active = tabsList?.tabs.find((t) => t.id === tabsList.activeTabId);
+    const path = active ? chordPath(id, active.virtualPath) : null;
+    if (path) navigate(path);
+  };
+
+  useShortcut('goInbox', openInbox);
+  useShortcut('goTasks', () => goTo('goTasks'));
+  useShortcut('goDocs', () => goTo('goDocs'));
+  useShortcut('goCode', () => goTo('goCode'));
+  useShortcut('goMemory', () => goTo('goMemory'));
 
   useEffect(() => {
     let state = IDLE_CHORD;
@@ -85,16 +108,7 @@ export function useGoToChords(navigate: (path: string) => void): void {
       }
       const next = advanceChord(state, e, Date.now());
       state = next.state;
-      if (!next.fire) return;
-      e.preventDefault();
-      if (next.fire === 'i') {
-        latest.current.openInbox();
-        return;
-      }
-      const list = latest.current.tabsList;
-      const active = list?.tabs.find((t) => t.id === list.activeTabId);
-      const path = active ? chordPath(next.fire, active.virtualPath) : null;
-      if (path) latest.current.navigate(path);
+      if (next.fire && runShortcut(next.fire)) e.preventDefault();
     }
 
     window.addEventListener('keydown', onKeyDown);

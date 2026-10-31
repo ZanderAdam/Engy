@@ -6,7 +6,7 @@ type Handler = () => void;
 
 const handlers = new Map<ShortcutId, Set<Handler>>();
 
-function runShortcut(id: ShortcutId): boolean {
+export function runShortcut(id: ShortcutId): boolean {
   const registered = handlers.get(id);
   if (!registered?.size) return false;
   for (const handler of registered) handler();

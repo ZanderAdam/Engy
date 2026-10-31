@@ -97,7 +97,7 @@ export function bindingKeys(binding: Binding, mac: boolean): string[] {
 export function shortcutKeys(id: ShortcutId, mac = isMacPlatform()): string[] {
   const def = getShortcut(id);
   const first = def.bindings[0];
-  if (!first) return def.keys ?? [];
+  if (!first) return def.sequence ?? def.keys ?? [];
   return bindingKeys(first, mac);
 }
 
@@ -108,7 +108,7 @@ export function shortcutText(id: ShortcutId, mac = isMacPlatform()): string {
 /** Why a shortcut can stay silent, for the help view. */
 export function shortcutLimit(id: ShortcutId, mac = isMacPlatform()): string | null {
   const def = getShortcut(id);
-  if (def.bindings.length === 0) return null;
   if (!def.whileTyping) return 'Not in text fields';
-  return belongsToShell(def.bindings[0], mac) ? 'Not in terminals' : null;
+  const first = def.bindings[0];
+  return first && belongsToShell(first, mac) ? 'Not in terminals' : null;
 }

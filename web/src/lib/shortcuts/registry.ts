@@ -39,19 +39,24 @@ interface ShortcutDef {
   id: ShortcutId;
   label: string;
   group: string;
-  /** Empty for keys a dedicated handler reads; `keys` then gives the display. */
   bindings: Binding[];
+  /** Keys pressed one after the other. */
+  sequence?: string[];
+  /** Display only: Ctrl+Alt+1-9 also reveals the rail numbers while held, so it
+   * keeps its own listener. */
   keys?: string[];
   /** Still fires with focus in a text field or terminal. */
   whileTyping?: boolean;
 }
+
+export const CHORD_LEADER = 'g';
 
 const chord = (id: ShortcutId, label: string, second: string): ShortcutDef => ({
   id,
   label,
   group: 'Navigate',
   bindings: [],
-  keys: ['g', second],
+  sequence: [CHORD_LEADER, second],
 });
 
 export const SHORTCUTS: ShortcutDef[] = [

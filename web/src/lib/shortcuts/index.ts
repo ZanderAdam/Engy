@@ -1,3 +1,4 @@
 export { useShortcut } from './use-shortcut';
+export { runShortcut } from './dispatcher';
 export { shortcutKeys, shortcutLimit, shortcutText } from './match';
-export { SHORTCUTS, type ShortcutId } from './registry';
+export { CHORD_LEADER, SHORTCUTS, type ShortcutId } from './registry';

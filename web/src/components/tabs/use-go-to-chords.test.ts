@@ -23,7 +23,7 @@ describe('[FR-INBOX-400] advanceChord', () => {
   it('should fire on i within the timeout', () => {
     expect(advanceChord({ armedAt: 100 }, key('i'), 100 + CHORD_TIMEOUT_MS)).toEqual({
       state: IDLE_CHORD,
-      fire: 'i',
+      fire: 'goInbox',
     });
   });
 
@@ -71,24 +71,29 @@ describe('[FR-INBOX-400] isInsideOverlay', () => {
 });
 
 describe('advanceChord targets', () => {
-  it.each(['t', 'd', 'c', 'm'])('should fire g then %s', (second) => {
-    expect(advanceChord({ armedAt: 100 }, key(second), 200).fire).toBe(second);
+  it.each([
+    ['t', 'goTasks'],
+    ['d', 'goDocs'],
+    ['c', 'goCode'],
+    ['m', 'goMemory'],
+  ])('should fire g then %s', (second, id) => {
+    expect(advanceChord({ armedAt: 100 }, key(second), 200).fire).toBe(id);
   });
 });
 
 describe('chordPath', () => {
   it('should stay in the project a tab shows', () => {
-    expect(chordPath('t', '/w/engy/projects/initial/docs')).toBe('/w/engy/projects/initial/tasks');
-    expect(chordPath('c', '/w/engy/projects/initial')).toBe('/w/engy/projects/initial/code');
+    expect(chordPath('goTasks', '/w/engy/projects/initial/docs')).toBe('/w/engy/projects/initial/tasks');
+    expect(chordPath('goCode', '/w/engy/projects/initial')).toBe('/w/engy/projects/initial/code');
   });
 
   it('should use workspace sections outside a project', () => {
-    expect(chordPath('d', '/w/engy/tasks')).toBe('/w/engy/docs');
-    expect(chordPath('m', '/w/engy')).toBe('/w/engy/memory');
+    expect(chordPath('goDocs', '/w/engy/tasks')).toBe('/w/engy/docs');
+    expect(chordPath('goMemory', '/w/engy')).toBe('/w/engy/memory');
   });
 
   it('should have no target where the section does not exist', () => {
-    expect(chordPath('c', '/w/engy/tasks')).toBeNull();
-    expect(chordPath('t', '/')).toBeNull();
+    expect(chordPath('goCode', '/w/engy/tasks')).toBeNull();
+    expect(chordPath('goTasks', '/')).toBeNull();
   });
 });
