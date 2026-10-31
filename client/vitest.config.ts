@@ -1,8 +1,14 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
     globals: true,
+    // The module graph cannot see these: `@engy/common` is mostly type imports.
+    forceRerunTriggers: [
+      ...configDefaults.forceRerunTriggers,
+      '**/common/src/**',
+      '**/pnpm-lock.yaml',
+    ],
     include: ['src/**/*.test.ts'],
     coverage: {
       provider: 'v8',

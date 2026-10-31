@@ -22,9 +22,9 @@ if ! grep -qE '\bgit\s+commit\b' <<<"$CMD"; then
   exit 0
 fi
 
-echo "Running pnpm blt before commit..." >&2
-if pnpm blt; then
+echo "Running impacted tests before commit..." >&2
+if pnpm test:changed >&2; then
   exit 0
 fi
-echo "blt failed in $ROOT — commit blocked. Fix the issues above and retry." >&2
+echo "Impacted tests failed in $ROOT — commit blocked. Fix the issues above and retry." >&2
 exit 2

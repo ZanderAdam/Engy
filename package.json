@@ -10,10 +10,11 @@
     "build": "turbo run build",
     "lint": "turbo run lint:eslint && knip && pnpm jscpd",
     "test": "turbo run test",
-    "blt": "turbo run build lint:eslint test && knip && pnpm jscpd",
+    "blt": "turbo run build lint:eslint && turbo run test && knip && pnpm jscpd",
+    "test:changed": "turbo run test:changed",
     "jscpd": "jscpd --min-lines 30 --exitCode 2",
     "jscpd:report": "jscpd",
-    "postinstall": "chmod +x node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true"
+    "postinstall": "chmod +x node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true; git config core.hooksPath .githooks 2>/dev/null || true"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

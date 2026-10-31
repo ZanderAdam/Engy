@@ -31,7 +31,8 @@ Subdirectory `CLAUDE.md` files codify patterns at the point of use (auto-loaded 
 
 ```bash
 pnpm dev          # Dev: web + client with hot reload (tsx watch)
-pnpm blt          # Pre-commit gate: build + lint + test + knip + jscpd
+pnpm test:changed # Commit gate: only tests that uncommitted changes can reach
+pnpm blt          # Push gate: build + lint + test + knip + jscpd
 pnpm jscpd:report # Full clone inventory at 10-line granularity.
                   #   blt and lint fail only on clones of 30 lines or more.
                   #   Run this command to find smaller duplication.
@@ -99,9 +100,9 @@ Trophy testing pattern with BDD style — maximize vertical-slice integration te
 - Verify every path/symbol the doc cites; after editing any `system/features/*.md` run `engy:reindex` (collection `system`). A stale FR is drift — fix it like a stale CLAUDE.md.
 
 ## CRITICAL Quality Gates
-These are non-negotiable and must be verified before committing:
+These are non-negotiable:
 1. Run `/engy:review` when done with changes
-2. Run `pnpm blt` 
+2. A commit by an agent runs `pnpm test:changed` through `.claude/hooks/pre-commit-blt.sh`. A push to main runs `pnpm blt` through `.githooks/pre-push`, and refuses a tree with uncommitted changes outside `docs/`. `pnpm install` sets `core.hooksPath`.
 3. If UI changes, test using `pnpm exec playwright-cli` (a devDependency — the bare name is not on
    PATH). Check `pnpm exec playwright-cli --help` for available commands. It opens the `chrome`
    channel by default; where Chrome is absent, pass `--browser=chromium` after a one-time
