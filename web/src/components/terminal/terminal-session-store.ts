@@ -123,6 +123,13 @@ function subscribeNumbered(listener: () => void): () => void {
   };
 }
 
+export function readActiveTerminalId(): string | null {
+  for (const snapshot of byKey.values()) {
+    if (snapshot.visible) return snapshot.activeId;
+  }
+  return null;
+}
+
 export function useNumberedTerminals(): TerminalTab[] {
   return useSyncExternalStore(subscribeNumbered, readNumberedTerminals, () => EMPTY.tabs);
 }

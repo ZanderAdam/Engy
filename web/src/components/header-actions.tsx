@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { QuestionList } from '@/components/questions/question-list';
@@ -8,7 +8,9 @@ import { QuestionDialog } from '@/components/questions/question-dialog';
 import { GlobalSearch } from '@/components/search/global-search';
 import { InboxButton } from '@/components/inbox/inbox-button';
 import { trpc } from '@/lib/trpc';
-import { RiQuestionLine, RiSearchLine } from '@remixicon/react';
+import { shortcutText, useShortcut } from '@/lib/shortcuts';
+import { ShortcutHelp } from '@/components/shortcut-help';
+import { RiKeyboardLine, RiQuestionLine, RiSearchLine } from '@remixicon/react';
 
 export function HeaderActions() {
   const { data: unansweredData } = trpc.question.unansweredCount.useQuery({});
@@ -17,33 +19,35 @@ export function HeaderActions() {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchSessionKey, setSearchSessionKey] = useState(0);
+  const [helpOpen, setHelpOpen] = useState(false);
 
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setSearchSessionKey((k) => k + 1);
-        setSearchOpen(true);
-      }
-    }
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  const openSearch = () => {
+    setSearchSessionKey((k) => k + 1);
+    setSearchOpen(true);
+  };
+
+  useShortcut('search', openSearch);
+  useShortcut('help', () => setHelpOpen((open) => !open));
 
   return (
     <div className="flex items-center gap-1 px-2">
       <button
         type="button"
-        onClick={() => {
-          setSearchSessionKey((k) => k + 1);
-          setSearchOpen(true);
-        }}
-        aria-label="Search workspace (Cmd+K)"
+        onClick={openSearch}
+        aria-label={`Search workspace (${shortcutText('search')})`}
         className="flex items-center justify-center rounded p-1 transition-colors hover:bg-muted"
       >
         <RiSearchLine className="size-4 text-muted-foreground" />
       </button>
       <InboxButton />
+      <button
+        type="button"
+        onClick={() => setHelpOpen(true)}
+        aria-label={`Keyboard shortcuts (${shortcutText('help')})`}
+        className="flex items-center justify-center rounded p-1 transition-colors hover:bg-muted"
+      >
+        <RiKeyboardLine className="size-4 text-muted-foreground" />
+      </button>
       {unansweredCount > 0 && (
         <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
           <PopoverTrigger asChild>
@@ -80,6 +84,7 @@ export function HeaderActions() {
           taskId={selectedTaskId}
         />
       )}
+      <ShortcutHelp open={helpOpen} onOpenChange={setHelpOpen} />
       <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} sessionKey={searchSessionKey} />
     </div>
   );

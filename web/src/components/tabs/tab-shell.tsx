@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { usePathname, useSearchParams } from 'next/navigation';
 import { RiAddLine, RiArrowDownSLine, RiCloseLine, RiGitBranchLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
-import { isSelfActivation, isTypingTarget } from '@/lib/keyboard';
+import { isSelfActivation } from '@/lib/keyboard';
 import { HeaderActions } from '@/components/header-actions';
-import { useGoToInbox } from '@/components/inbox/use-go-to-inbox';
+import { useShortcut } from '@/lib/shortcuts';
+import { useGoToChords } from './use-go-to-chords';
 import { TabCloseMenu } from './tab-close-menu';
 import { OpenTabsPicker } from './open-tabs-picker';
 import {
@@ -82,8 +83,8 @@ interface HistoryState {
   virtualPath: string;
 }
 
-function GoToInboxChord() {
-  useGoToInbox();
+function GoToChords({ onNavigate }: { onNavigate: (path: string) => void }) {
+  useGoToChords(onNavigate);
   return null;
 }
 
@@ -246,55 +247,22 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
     });
   }, []);
 
-  const latest = useRef({ tabs, activeTabId, openNewTab, activateTab, closeTab });
-  useEffect(() => {
-    latest.current = { tabs, activeTabId, openNewTab, activateTab, closeTab };
+  const switchTab = useCallback(
+    (delta: number) => {
+      if (tabs.length <= 1) return;
+      const idx = tabs.findIndex((t) => t.id === activeTabId);
+      if (idx < 0) return;
+      activateTab(tabs[(idx + delta + tabs.length) % tabs.length].id);
+    },
+    [tabs, activeTabId, activateTab],
+  );
+
+  useShortcut('newTab', () => openNewTab('/'));
+  useShortcut('closeTab', () => {
+    if (activeTabId) closeTab(activeTabId);
   });
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
-
-      // The letter combos collide with readline bindings a focused terminal or
-      // input needs (Ctrl+W deletes a word, Ctrl+T transposes), so they yield
-      // while typing. Arrow switching has no such collision and stays global.
-      const typing = isTypingTarget();
-
-      if (e.key === 't' && !e.altKey && !e.shiftKey) {
-        if (typing) return;
-        e.preventDefault();
-        latest.current.openNewTab('/');
-        return;
-      }
-
-      // Matched on `code` so the Option key's macOS character remapping (W → ∑)
-      // can't hide it: Cmd+W is reserved by the browser in a plain tab and
-      // never reaches us there, but Cmd+Alt+W always does — and it mirrors the
-      // Cmd+Alt+Arrow switching already bound below.
-      if (e.code === 'KeyW' && !e.shiftKey) {
-        const { activeTabId: aid } = latest.current;
-        if (typing || !aid) return;
-        e.preventDefault();
-        latest.current.closeTab(aid);
-        return;
-      }
-
-      if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
-        const { tabs: ts, activeTabId: aid } = latest.current;
-        if (ts.length <= 1) return;
-        e.preventDefault();
-        const idx = ts.findIndex((t) => t.id === aid);
-        if (idx < 0) return;
-        const delta = e.key === 'ArrowRight' ? 1 : -1;
-        const next = ts[(idx + delta + ts.length) % ts.length];
-        latest.current.activateTab(next.id);
-      }
-    }
-
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  useShortcut('nextTab', () => switchTab(1));
+  useShortcut('prevTab', () => switchTab(-1));
 
   const tabsListValue = useMemo<TabsListContextValue>(
     () => ({
@@ -312,7 +280,11 @@ function TabShellClient({ initialUrlPath }: TabShellClientProps) {
 
   return (
     <TabsListContext.Provider value={tabsListValue}>
-      <GoToInboxChord />
+      <GoToChords
+        onNavigate={(path) => {
+          if (activeTabId) updateTabPath(activeTabId, path);
+        }}
+      />
       {!isMobile && (
         <TabStrip
           tabs={tabs}

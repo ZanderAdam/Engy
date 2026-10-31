@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useSyncExternalStore } from 'react';
-import { readNumberedTerminals } from './terminal-session-store';
+import { isTerminalFocused, releaseTerminalFocus } from '@/lib/keyboard';
+import { readActiveTerminalId, readNumberedTerminals } from './terminal-session-store';
 
 /** Ctrl+Alt, not Ctrl+digit or Alt+digit: browsers reserve both of those for
  * their own tabs and a page cannot override them. AltGr reports itself as
@@ -62,6 +63,16 @@ function onKeyUp(e: KeyboardEvent): void {
 
 function onBlur(): void {
   setHintHeld(false);
+}
+
+export function jumpToTerminal(): void {
+  if (isTerminalFocused()) {
+    releaseTerminalFocus();
+    return;
+  }
+  const sessionId = readActiveTerminalId();
+  if (!sessionId) return;
+  window.dispatchEvent(new CustomEvent('terminal:focus', { detail: { sessionId } }));
 }
 
 // Every workspace tab stays mounted, so without counting them one press would

@@ -613,6 +613,8 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-1050 | WHEN the user clicks a terminal board card in the current worktree, the system SHALL focus that terminal. WHEN the card belongs to another worktree of the project, the system SHALL switch the page to that worktree. |
 | FR-TERMINAL-1060 | WHEN a focus request on desktop targets a terminal in a collapsed dock of the on-screen tab, the system SHALL expand that dock, for a live or a dormant terminal. WHILE Command Center mode is on, the system SHALL expand only the right dock. WHEN a focus request on mobile fires while its sheet is closed, the system SHALL open the shell sheet for a shell session, otherwise the Claude sheet, and SHALL focus the terminal after the sheet loads its sessions. |
 | FR-TERMINAL-1070 | WHEN the browser rolls terminal activity up per project, the system SHALL key the counts by workspace slug and project slug, so projects with the same slug in different workspaces each show only their own sessions. |
+| FR-TERMINAL-1100 | WHEN the user presses Ctrl+` with focus anywhere, a terminal included, the browser SHALL toggle the terminal sidebar, on a phone layout the terminal overlay, and SHALL NOT send the key to the PTY; WHEN the sidebar collapses, focus SHALL leave the terminal. |
+| FR-TERMINAL-1110 | WHEN the user presses Ctrl+Alt+`, the browser SHALL focus the active terminal of the visible rail, or SHALL release focus WHILE a terminal has it. WHILE a terminal has focus, a Ctrl+letter shortcut SHALL go to the terminal and not to the app. |
 
 ## Sources
 

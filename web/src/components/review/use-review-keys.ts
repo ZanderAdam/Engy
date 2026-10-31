@@ -16,6 +16,14 @@ export type ReviewKeyAction =
 
 type KeyInput = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>;
 
+export const REVIEW_KEY_HINTS: { keys: string; label: string }[] = [
+  { keys: '1 / 2 / 3', label: 'Switch review tab' },
+  { keys: '] / [', label: 'Next or previous file' },
+  { keys: '} / {', label: 'Next or previous group' },
+  { keys: 'n / p', label: 'Next or previous thread' },
+  { keys: 'v', label: 'Toggle viewed' },
+];
+
 const PLAIN_KEYS: Record<string, ReviewKeyAction> = {
   ']': 'nextFile',
   '[': 'prevFile',
