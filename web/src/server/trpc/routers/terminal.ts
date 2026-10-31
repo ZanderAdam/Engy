@@ -32,6 +32,7 @@ import { isAgentActive, isAgentTypeId } from '@/lib/agent-types';
 import { listSessionHistory, liveHistoryKeys } from '../../ws/terminal-session-history';
 import { resolveTerminalLinkTarget } from '../../ws/terminal-link-target';
 import { broadcastTerminalWorkersChange } from '../../ws/broadcast';
+import { getOrchestratorPin } from '../../orchestrator-pin';
 
 const PASTE_DIR = '.engy/paste';
 const MAX_BASE64_LENGTH = Math.ceil(TERMINAL_IMAGE_MAX_BYTES / 3) * 4;
@@ -62,6 +63,8 @@ const ORCHESTRATOR_PROMPT =
 
 export const terminalRouter = router({
   listWorkers: publicProcedure.query(() => listWorkers(getAppState())),
+
+  orchestratorPin: publicProcedure.query(() => getOrchestratorPin(getAppState())),
 
   setOrchestrator: publicProcedure
     .input(z.object({ sessionId: z.string(), enabled: z.boolean() }))

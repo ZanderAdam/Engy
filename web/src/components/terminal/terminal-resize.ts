@@ -14,3 +14,7 @@ export function shouldSendResize(cols: number, rows: number, lastCols: number, l
 export function canFitPane(offsetWidth: number, offsetHeight: number): boolean {
   return offsetWidth > 0 && offsetHeight > 0;
 }
+
+export function paneBecameFit(wasFit: boolean, isFit: boolean): boolean {
+  return !wasFit && isFit;
+}

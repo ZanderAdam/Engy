@@ -21,6 +21,18 @@ import { sessionToTab, type SessionListItem } from "./session-to-tab";
 import { publishTerminalSessions, clearTerminalSessions, terminalRailKey } from "./terminal-session-store";
 import { orderTabsByPanelIds, reorderIndex } from "./tab-order";
 import { registerPrimaryInjectTarget, isPrimaryReadyFor } from "./terminal-inject-priority";
+import {
+  foreignTab,
+  injectFallbackPanelId,
+  planPinnedOpen,
+  releasePanelSession,
+  shouldHandleSessionChange,
+  staleForeignId,
+  tabsForRail,
+  tabWithPinnedState,
+} from "./foreign-panel";
+import { layoutWithoutPanel } from "./layout-without-panel";
+import { useOrchestratorPin } from "./use-orchestrator-pin";
 
 /** Pure decision for the `terminal:inject` race: which session id (if any)
  * this manager should write `context` to. Exported for unit testing —
@@ -67,6 +79,11 @@ interface OpenEvent {
 
 interface TerminalFocusEvent {
   sessionId: string;
+  tabId?: string;
+}
+
+interface OpenPinnedEvent {
+  session: SessionListItem;
   tabId?: string;
 }
 
@@ -120,10 +137,26 @@ const TAB_COMPONENTS = { 'terminal-tab': TerminalDockTab };
 
 const COMMAND_CENTER_LAYOUT_KEY = 'terminal-layout:__command_center__';
 
-function saveLayout(api: DockviewApi, layoutKey: string): void {
+function addTerminalPanel(api: DockviewApi, tab: TerminalTab, position?: SplitPosition): void {
+  api.addPanel({
+    id: tab.sessionId,
+    component: 'terminal',
+    tabComponent: 'terminal-tab',
+    title: tab.scope.scopeLabel,
+    params: { tab } satisfies TerminalPanelParams,
+    renderer: 'always',
+    ...(position && { position }),
+  });
+}
+
+function saveLayout(api: DockviewApi, layoutKey: string, foreignIds: string[]): void {
   try {
-    const json = api.toJSON();
-    localStorage.setItem(layoutKey, JSON.stringify(json));
+    const json = foreignIds.reduce<SerializedDockview | null>(
+      (layout, id) => (layout ? layoutWithoutPanel(layout, id) : null),
+      api.toJSON(),
+    );
+    if (json) localStorage.setItem(layoutKey, JSON.stringify(json));
+    else localStorage.removeItem(layoutKey);
   } catch {
     // localStorage may be full or unavailable
   }
@@ -255,15 +288,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     };
     tabsRef.current.set(sessionId, newTab);
 
-    api.addPanel({
-      id: sessionId,
-      component: 'terminal',
-      tabComponent: 'terminal-tab',
-      title: label,
-      params: { tab: newTab } satisfies TerminalPanelParams,
-      renderer: 'always',
-      ...(position && { position }),
-    });
+    addTerminalPanel(api, newTab, position);
   }, []);
 
   const discardDormant = trpc.terminal.discardDormantSession.useMutation({
@@ -275,14 +300,11 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   }, [discardDormant.mutate]);
 
   const cleanupTerminal = useCallback((sessionId: string) => {
-    // A dormant tab holds no socket, so there is no kill to send — the server
-    // still has its metadata and would list the session again on the next load.
-    if (tabsRef.current.get(sessionId)?.status === 'dormant') {
-      discardDormantRef.current({ sessionId });
-    }
-    tabWsRefs.current.get(sessionId)?.kill();
-    tabsRef.current.delete(sessionId);
-    tabWsRefs.current.delete(sessionId);
+    releasePanelSession(sessionId, {
+      tabs: tabsRef.current,
+      actions: tabWsRefs.current,
+      discardDormant: (id) => discardDormantRef.current({ sessionId: id }),
+    });
   }, []);
 
   const broadcastActive = useCallback(() => {
@@ -348,7 +370,10 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       if (api.panels.length === 0) {
         clearLayout(getLayoutKey());
       } else {
-        saveLayout(api, getLayoutKey());
+        const foreignIds = [...tabsRef.current.values()]
+          .filter((tab) => tab.foreign)
+          .map((tab) => tab.sessionId);
+        saveLayout(api, getLayoutKey(), foreignIds);
       }
     }, 200);
   }, [getLayoutKey]);
@@ -461,7 +486,10 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   useEffect(() => {
     if (disableExternalEvents) return;
     return registerPrimaryInjectTarget(myTabId, () => {
-      const targetId = dockviewApiRef.current?.activePanel?.id;
+      const targetId = injectFallbackPanelId(
+        dockviewApiRef.current?.activePanel?.id,
+        tabsRef.current,
+      );
       return targetId != null && tabWsRefs.current.has(targetId);
     });
   }, [disableExternalEvents, myTabId]);
@@ -479,7 +507,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
         terminalId: detail.terminalId,
         disableExternalEvents,
         primaryReady: disableExternalEvents && !detail.terminalId && isPrimaryReadyFor(detail.tabId),
-        activePanelId: dockviewApiRef.current?.activePanel?.id,
+        activePanelId: injectFallbackPanelId(dockviewApiRef.current?.activePanel?.id, tabsRef.current),
         hasHandler: (id) => tabWsRefs.current.has(id),
       });
       if (!targetId) return;
@@ -519,6 +547,46 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     return () => window.removeEventListener('terminal:focus', onFocus);
   }, [pendingFocus, myTabId]);
 
+  useEffect(() => {
+    if (disableExternalEvents) return;
+
+    function onOpenPinned(e: Event) {
+      const { session, tabId } = (e as CustomEvent<OpenPinnedEvent>).detail;
+      if (tabId !== undefined && tabId !== myTabId) return;
+      const api = dockviewApiRef.current;
+      if (!api) return;
+      const plan = planPinnedOpen({
+        global: globalRef.current,
+        sessionGroupKey: session.groupKey,
+        dockGroupKey: defaultScopeRef.current?.groupKey,
+        hasPanel: tabsRef.current.has(session.sessionId),
+      });
+      if (plan === 'attach') {
+        const tab = foreignTab(session, defaultScopeRef.current?.groupKey ?? '');
+        tabsRef.current.set(session.sessionId, tab);
+        addTerminalPanel(api, tab);
+      }
+      pendingFocus.request(session.sessionId, api);
+    }
+
+    window.addEventListener('terminal:open-pinned', onOpenPinned);
+    return () => window.removeEventListener('terminal:open-pinned', onOpenPinned);
+  }, [pendingFocus, myTabId, disableExternalEvents]);
+
+  const pin = useOrchestratorPin();
+  const pinnedSessionId = pin?.session.sessionId;
+  useEffect(() => {
+    if (!pin) return;
+    const current = tabsRef.current.get(pin.session.sessionId);
+    if (!current?.foreign) return;
+    const updated = tabWithPinnedState(current, pin.session);
+    if (updated) commitTab(pin.session.sessionId, updated);
+  }, [pin, commitTab]);
+  useEffect(() => {
+    const staleId = staleForeignId(tabsRef.current.values(), pinnedSessionId);
+    if (staleId) dockviewApiRef.current?.getPanel(staleId)?.api.close();
+  }, [pinnedSessionId]);
+
   // terminal:rename — intentional user action from the rail's expanded list
   // (double-click to edit), mirroring the dock tab's rename. Reuses
   // renameTerminal (optimistic local label update + persist via the API).
@@ -536,10 +604,9 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   // terminal:close — intentional user action from the rail's expanded list,
   // mirroring the dock tab's close button (and the ungated terminal:rename
   // handler above). Closing the panel triggers onDidRemovePanel →
-  // cleanupTerminal (kills the session), so this is the identical close path
-  // the tab uses. Not gated by disableExternalEvents: sessionId is globally
-  // unique, so getPanel returns undefined (a no-op) on any manager that does
-  // not own the session.
+  // cleanupTerminal, so this is the identical close path the tab uses. Not
+  // gated by disableExternalEvents: getPanel returns undefined (a no-op) on any
+  // manager that does not hold the session.
   useEffect(() => {
     function onClose(e: Event) {
       const { sessionId, tabId } = (e as CustomEvent<TerminalCloseEvent>).detail;
@@ -600,10 +667,19 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   useOnServerEvent('TERMINAL_SESSIONS_CHANGE', useCallback((payload) => {
     const scope = defaultScopeRef.current;
     if (!scope) return;
-    // Project docks only react to their own groupKey; the global (Command
-    // Center) dock reacts to every session so terminals opened in any project
-    // show up here immediately.
-    if (!globalRef.current && payload.groupKey && payload.groupKey !== scope.groupKey) return;
+    // Project docks only react to their own groupKey and to sessions they hold;
+    // the global (Command Center) dock reacts to every session so terminals
+    // opened in any project show up here immediately.
+    if (
+      !shouldHandleSessionChange({
+        global: globalRef.current,
+        payloadGroupKey: payload.groupKey,
+        dockGroupKey: scope.groupKey,
+        known: tabsRef.current.has(payload.sessionId),
+      })
+    ) {
+      return;
+    }
 
     const api = dockviewApiRef.current;
     if (!api) return;
@@ -627,14 +703,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
               if (!tabsRef.current.has(s.sessionId)) {
                 const tab = sessionToTab(s, scope.groupKey);
                 tabsRef.current.set(s.sessionId, tab);
-                liveApi.addPanel({
-                  id: s.sessionId,
-                  component: 'terminal',
-                  tabComponent: 'terminal-tab',
-                  title: s.scopeLabel,
-                  params: { tab } satisfies TerminalPanelParams,
-                  renderer: 'always',
-                });
+                addTerminalPanel(liveApi, tab);
               }
             }
             pendingFocus.flush(liveApi);
@@ -670,6 +739,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
       if (reduced) commitTab(payload.sessionId, reduced);
     }
 
+    if (existing?.foreign) return;
     if (payload.state !== 'waiting' && !existing?.needsAttention) return;
 
     const url = buildSessionsUrl();
@@ -795,14 +865,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
                   if (!restoredIds.has(s.sessionId)) {
                     const tab = sessionToTab(s, fallbackGroupKey);
                     tabsRef.current.set(s.sessionId, tab);
-                    api.addPanel({
-                      id: s.sessionId,
-                      component: 'terminal',
-                      tabComponent: 'terminal-tab',
-                      title: s.scopeLabel,
-                      params: { tab } satisfies TerminalPanelParams,
-                      renderer: 'always',
-                    });
+                    addTerminalPanel(api, tab);
                   }
                 }
 
@@ -822,14 +885,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
           for (const s of data.sessions) {
             const tab = sessionToTab(s, fallbackGroupKey);
             tabsRef.current.set(s.sessionId, tab);
-            api.addPanel({
-              id: s.sessionId,
-              component: 'terminal',
-              tabComponent: 'terminal-tab',
-              title: s.scopeLabel,
-              params: { tab } satisfies TerminalPanelParams,
-              renderer: 'always',
-            });
+            addTerminalPanel(api, tab);
           }
           pendingFocus.flush(api);
         })
@@ -855,12 +911,15 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     if (!railKey) return;
     const api = dockviewApiRef.current;
     publishTerminalSessions(railKey, {
-      tabs: orderTabsByPanelIds(api?.panels.map((p) => p.id) ?? [], tabsRef.current),
+      tabs: tabsForRail(
+        orderTabsByPanelIds(api?.panels.map((p) => p.id) ?? [], tabsRef.current),
+        global ? pinnedSessionId : undefined,
+      ),
       activeId: api?.activePanel?.id ?? null,
       visible,
       commandCenter: global,
     });
-  }, [railKey, tabsVersion, visible, global]);
+  }, [railKey, tabsVersion, visible, global, pinnedSessionId]);
 
   useEffect(() => {
     if (!railKey) return;

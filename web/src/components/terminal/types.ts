@@ -123,6 +123,8 @@ export interface TerminalTab {
   // UserPromptSubmit, or focus ack yet. Distinct from activityState so a
   // dismissed prompt doesn't masquerade as still-running activity.
   needsAttention?: boolean;
+  /** The session belongs to another dock; this dock only attaches to it. */
+  foreign?: boolean;
 }
 
 export interface TerminalPanelParams {

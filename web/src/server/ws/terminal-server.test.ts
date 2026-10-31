@@ -419,6 +419,29 @@ describe('Terminal WebSocket Server', () => {
       });
     });
 
+    it('[FR-TERMINAL-730] should broadcast when an ack clears attention on an already idle session', async () => {
+      const daemonWs = await connectDaemonRelay(port);
+      const spawnPromise = waitForMessage(daemonWs);
+      const browserWs = await connectBrowser(port, { sessionId: 'sess-attn', workingDir: '/tmp' });
+      await spawnPromise;
+      state.terminalSessionMeta.get('sess-attn')!.needsAttention = true;
+      const events: string[] = [];
+      state.fileChangeListeners.add({
+        readyState: 1,
+        OPEN: 1,
+        send: (d: string) => events.push(d),
+      } as unknown as import('ws').WebSocket);
+
+      browserWs.send(JSON.stringify({ t: 'ack', sessionId: 'sess-attn' }));
+
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.get('sess-attn')?.needsAttention).toBe(false);
+        expect(
+          events.some((e) => e.includes('TERMINAL_ACTIVITY_CHANGE') && e.includes('sess-attn')),
+        ).toBe(true);
+      });
+    });
+
     it('[FR-TERMINAL-090] should forward exit to browser and clean up both session maps', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
@@ -718,6 +741,31 @@ describe('Terminal WebSocket Server', () => {
       expect(state.terminalSessionMeta.get('stale-sess')?.activityState).toBe('idle');
       const row = ctx.db.select().from(terminalSessionsTable).all()[0];
       expect((row?.meta as { dormant?: boolean }).dormant).toBe(true);
+    });
+
+    it('[FR-TERMINAL-500] should broadcast a dormant session that has no project', async () => {
+      state.terminalSessionMeta.set('stale-ws', {
+        scopeType: 'workspace',
+        scopeLabel: 'test',
+        workingDir: '/tmp',
+        cols: 80,
+        rows: 24,
+      });
+      const events: string[] = [];
+      state.fileChangeListeners.add({
+        readyState: 1,
+        OPEN: 1,
+        send: (d: string) => events.push(d),
+      } as unknown as import('ws').WebSocket);
+
+      const daemonWs = await connectDaemonRelay(port, false);
+      daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: [] }));
+
+      await vi.waitFor(() => {
+        expect(
+          events.some((e) => e.includes('TERMINAL_ACTIVITY_CHANGE') && e.includes('stale-ws')),
+        ).toBe(true);
+      });
     });
 
     it('[FR-TERMINAL-280] should fail unsettled dispatches and drop the output tail when a stale agent session goes dormant', async () => {
