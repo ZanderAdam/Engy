@@ -87,7 +87,7 @@ Trophy testing pattern with BDD style — maximize vertical-slice integration te
 
 ## Feature Requirements (EARS FR baseline)
 
-`docs/system/features/<area>.md` holds one doc per feature area. Each carries a `## Requirements` table of EARS functional requirements (`FR-<AREA>-<NNN>`) that is the **single source of truth** for that area's contracted behaviour; each FR id is tagged into its verifying test's title — `it('[FR-AREA-NNN] …')` — so `trace` / `engy:validate` report coverage. Conventions: `.claude/skills/implement/references/ears-bdd.md`. Authoring/maintaining these docs is owned by the feature-writing skills — `/engy:feature-docs` (bootstraps or extends an area's baseline; sole owner of `system/features/*.md`) delegating to the `engy:feature-author` agent — never hand-author a new area doc.
+`docs/system/features/<area>.md` holds one doc per feature area. Each carries a `## Requirements` table of EARS functional requirements (`FR-<AREA>-<NNN>`) that is the **single source of truth** for that area's contracted behaviour; each FR id is tagged into its verifying test's title — `it('[FR-AREA-NNN] …')` — so `trace` / `engy:validate` report coverage. Conventions: `plugins/engy/skills/implement/references/ears-bdd.md`. Authoring/maintaining these docs is owned by the feature-writing skills — `/engy:feature-docs` (bootstraps or extends an area's baseline; sole owner of `system/features/*.md`) delegating to the `engy:feature-author` agent — never hand-author a new area doc.
 
 **FRs ↔ tests are the fast index from feature to code.** Each FR id is a greppable literal living in both the requirements table and its verifying test's title, so you can jump between "what a feature guarantees" and "the code that implements it" without reading a whole area. To locate a feature: find its FRs (`trace({ workspaceId, sessionId })` coverage summary, or `search`), then `trace({ workspaceId, fr, sessionId })` for that FR's tagged tests + colocated source — the precise blast radius to start from. The reverse holds too: `trace({ workspaceId, file, sessionId })` lists the FRs a file already carries. Prefer this over blind grep whenever you need to find where a behaviour lives.
 
@@ -103,10 +103,7 @@ Trophy testing pattern with BDD style — maximize vertical-slice integration te
 These are non-negotiable:
 1. Run `/engy:review` when done with changes
 2. A commit by an agent runs `pnpm test:changed` through `.claude/hooks/pre-commit-blt.sh`. A push to main runs `pnpm blt` through `.githooks/pre-push`, and refuses a tree with uncommitted changes outside `docs/`. `pnpm install` sets `core.hooksPath`.
-3. If UI changes, test using `pnpm exec playwright-cli` (a devDependency — the bare name is not on
-   PATH). Check `pnpm exec playwright-cli --help` for available commands. It opens the `chrome`
-   channel by default; where Chrome is absent, pass `--browser=chromium` after a one-time
-   `pnpm exec playwright-cli install-browser chromium`.
+3. If UI changes, run `/ui-test` (`.claude/skills/ui-test`). It tests the change with `pnpm exec playwright-cli` on a fresh dev instance and checks UX and DX.
 4. If you changed behaviour in a feature area, update its `docs/system/features/<area>.md` FRs and the `[FR-AREA-NNN]` test tags to match (see Feature Requirements above).
 
 ### Validation Setup
