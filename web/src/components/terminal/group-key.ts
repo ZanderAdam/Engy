@@ -3,13 +3,23 @@
  * encoded in one place prevents per-tab terminal isolation from silently
  * breaking when one call site drifts from another.
  */
+const WORKTREE_SEPARATOR = ':wt:';
+
 export function projectGroupKey(
   workspaceSlug: string,
   projectSlug: string,
   worktreeBranch?: string,
 ): string {
   const base = `project:${workspaceSlug}:${projectSlug}`;
-  return worktreeBranch ? `${base}:wt:${worktreeBranch}` : base;
+  return worktreeBranch ? `${base}${WORKTREE_SEPARATOR}${worktreeBranch}` : base;
+}
+
+/**
+ * The `?wt` value of the page that hosts a session. A session's `worktreeBranch`
+ * cannot answer this: a main-checkout session reports its live branch there.
+ */
+export function worktreeFromGroupKey(groupKey: string | undefined): string | undefined {
+  return groupKey?.split(WORKTREE_SEPARATOR)[1];
 }
 
 export function workspaceGroupKey(workspaceSlug: string): string {

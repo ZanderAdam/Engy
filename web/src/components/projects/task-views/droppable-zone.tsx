@@ -27,3 +27,20 @@ export function DroppableZone({
     </div>
   );
 }
+
+export function OptionalDroppableZone({
+  id,
+  children,
+  className,
+}: {
+  id?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  if (id === undefined) return <div className={className}>{children}</div>;
+  return (
+    <DroppableZone id={id} className={className}>
+      {children}
+    </DroppableZone>
+  );
+}

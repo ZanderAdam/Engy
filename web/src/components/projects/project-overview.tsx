@@ -9,6 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useVirtualParams } from '@/components/tabs/tab-context';
+import { TerminalBoard } from '@/components/terminal/terminal-board';
 import { useWatchPaths } from '@/contexts/events-context';
 import { planFilePathFromStem } from '@/lib/plan-naming';
 import {
@@ -80,6 +81,8 @@ export function ProjectOverview({
       className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block"
     >
       <div className="flex flex-col gap-6 py-6">
+        <TerminalBoard workspaceSlug={params.workspace} projectSlug={project.slug} />
+
         <div className="flex items-center gap-3">
           <Progress value={pct} className="flex-1" />
           <span className="text-xs text-muted-foreground">

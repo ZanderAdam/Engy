@@ -1,8 +1,7 @@
 'use client';
 
 import { RiArrowRightSLine } from '@remixicon/react';
-import { DroppableZone } from '@/components/projects/task-views/droppable-zone';
-import type { TaskStatus } from '@/lib/task-status';
+import { OptionalDroppableZone } from '@/components/projects/task-views/droppable-zone';
 
 export function CollapsedLaneRail({
   droppableId,
@@ -10,13 +9,13 @@ export function CollapsedLaneRail({
   count,
   onExpand,
 }: {
-  droppableId: TaskStatus;
+  droppableId?: string;
   label: string;
   count: number;
   onExpand: () => void;
 }) {
   return (
-    <DroppableZone
+    <OptionalDroppableZone
       id={droppableId}
       className="flex min-h-0 flex-col items-center bg-background py-3"
     >
@@ -31,6 +30,6 @@ export function CollapsedLaneRail({
           {label}
         </span>
       </button>
-    </DroppableZone>
+    </OptionalDroppableZone>
   );
 }

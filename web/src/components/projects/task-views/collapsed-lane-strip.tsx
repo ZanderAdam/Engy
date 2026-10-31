@@ -1,7 +1,7 @@
 'use client';
 
 import { RiArrowRightSLine } from '@remixicon/react';
-import { DroppableZone } from '@/components/projects/task-views/droppable-zone';
+import { OptionalDroppableZone } from '@/components/projects/task-views/droppable-zone';
 
 export function CollapsedLaneStrip({
   droppableId,
@@ -10,14 +10,14 @@ export function CollapsedLaneStrip({
   dotColorClass,
   onExpand,
 }: {
-  droppableId: string;
+  droppableId?: string;
   label: string;
   count: number;
   dotColorClass?: string;
   onExpand: () => void;
 }) {
   return (
-    <DroppableZone id={droppableId} className="shrink-0 bg-background">
+    <OptionalDroppableZone id={droppableId} className="shrink-0 bg-background">
       <button
         type="button"
         onClick={onExpand}
@@ -32,6 +32,6 @@ export function CollapsedLaneStrip({
         </span>
         <RiArrowRightSLine className="size-4 rotate-90" />
       </button>
-    </DroppableZone>
+    </OptionalDroppableZone>
   );
 }
