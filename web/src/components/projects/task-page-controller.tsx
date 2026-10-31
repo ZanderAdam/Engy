@@ -13,6 +13,8 @@ import { parseTaskId } from '@/components/search/task-id';
 import { planStemFromWatchedPath, taskSlugFromStem } from '@/lib/plan-naming';
 import { useOnFileChange } from '@/contexts/events-context';
 import { useTaskSelection } from '@/hooks/use-task-selection';
+import { useBulkTaskActions, type BulkActionTask } from '@/hooks/use-bulk-task-actions';
+import { selectedVisibleTasks } from '@/lib/bulk-tasks';
 import { TaskDialog } from '@/components/projects/task-dialog';
 import { BulkActionBar } from '@/components/projects/bulk-action-bar';
 import { GroupFromSelectionDialog } from '@/components/projects/group-from-selection-dialog';
@@ -143,6 +145,7 @@ export function useTaskPageController({ planReviewUrl, onPlanChange }: TaskPageC
           planStem,
           setTimeout(() => {
             debounceTimers.current.delete(planStem);
+            utils.project.getTaskPlans.invalidate();
             onPlanChange();
 
             if (eventType !== 'unlink') {
@@ -158,7 +161,7 @@ export function useTaskPageController({ planReviewUrl, onPlanChange }: TaskPageC
           }, DEBOUNCE_MS),
         );
       },
-      [nav, planReviewUrl, onPlanChange],
+      [nav, planReviewUrl, onPlanChange, utils],
     ),
   );
 
@@ -186,16 +189,36 @@ type TaskPageController = ReturnType<typeof useTaskPageController>;
 
 interface TaskSelectionBarProps {
   controller: TaskPageController;
-  visibleTaskIds: number[];
+  visibleTasks: BulkActionTask[];
+  projectId: number;
+  projectSlug: string;
 }
 
 /** Bulk-action bar shown while task selection mode is active. */
-export function TaskSelectionBar({ controller, visibleTaskIds }: TaskSelectionBarProps) {
+export function TaskSelectionBar(props: TaskSelectionBarProps) {
+  if (!props.controller.selection.isSelecting) return null;
+  return <ActiveTaskSelectionBar {...props} />;
+}
+
+function ActiveTaskSelectionBar({
+  controller,
+  visibleTasks,
+  projectId,
+  projectSlug,
+}: TaskSelectionBarProps) {
   const { selection, startBatch } = controller;
-  if (!selection.isSelecting) return null;
+  const visibleTaskIds = visibleTasks.map((task) => task.id);
+  const actionableTasks = selectedVisibleTasks(visibleTasks, selection.selectedIds);
+  const bulkActions = useBulkTaskActions({
+    projectId,
+    projectSlug,
+    tasks: actionableTasks,
+    onDone: selection.exitSelectMode,
+  });
+  const allVisibleSelected = actionableTasks.length === visibleTasks.length;
 
   function handleSelectAll() {
-    if (selection.selectedCount === visibleTaskIds.length) {
+    if (allVisibleSelected) {
       selection.clear();
     } else {
       selection.selectAll(visibleTaskIds);
@@ -205,7 +228,11 @@ export function TaskSelectionBar({ controller, visibleTaskIds }: TaskSelectionBa
   return (
     <BulkActionBar
       selectedCount={selection.selectedCount}
-      totalCount={visibleTaskIds.length}
+      allVisibleSelected={allVisibleSelected}
+      canCopy={bulkActions.canCopy}
+      canChangeStatus={bulkActions.canChangeStatus}
+      canImplement={bulkActions.canImplement}
+      missingPlanSlugs={bulkActions.missingPlanSlugs}
       onSelectAll={handleSelectAll}
       onGroup={() => controller.setShowGroupDialog(true)}
       onMilestone={() => controller.setShowMilestoneDialog(true)}
@@ -215,6 +242,9 @@ export function TaskSelectionBar({ controller, visibleTaskIds }: TaskSelectionBa
           startBatch.mutate({ taskIds: Array.from(selection.selectedIds) });
         }
       }}
+      onCopyIds={bulkActions.copyIds}
+      onChangeStatus={bulkActions.changeStatus}
+      onImplement={bulkActions.implementInTerminal}
       onCancel={selection.exitSelectMode}
     />
   );

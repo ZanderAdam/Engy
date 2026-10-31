@@ -149,7 +149,6 @@ export default function ProjectTasksPage() {
     });
   }
 
-  const visibleTaskIds = useMemo(() => filteredTasks.map((t) => t.id), [filteredTasks]);
   const hiddenByUnassigned = useMemo(
     () => countHiddenByUnassignedOnly(tasks ?? [], filters),
     [tasks, filters],
@@ -191,7 +190,12 @@ export default function ProjectTasksPage() {
         </div>
       </div>
 
-      <TaskSelectionBar controller={controller} visibleTaskIds={visibleTaskIds} />
+      <TaskSelectionBar
+        controller={controller}
+        visibleTasks={filteredTasks}
+        projectId={project.id}
+        projectSlug={project.slug}
+      />
 
       <UnassignedFilterNotice
         hiddenCount={hiddenByUnassigned}

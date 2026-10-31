@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sortMilestones, sortTaskGroups } from './milestone-list';
+import { overviewVisibleTasks, sortMilestones, sortTaskGroups } from './milestone-list';
 import type { Task } from './types';
 import type { TaskStatus } from '@/lib/task-status';
 
@@ -9,6 +9,45 @@ const ms = (num: number, status: string) => ({
   title: `Milestone ${num}`,
   status,
   filename: `m${num}.md`,
+});
+
+describe('overviewVisibleTasks', () => {
+  const milestones = [ms(1, 'active'), ms(2, 'complete')];
+  const task = (id: number, overrides: Partial<Task>): Task =>
+    ({ id, status: 'todo', milestoneRef: null, taskGroupId: null, ...overrides }) as Task;
+  const groups = [
+    { id: 7, milestoneRef: null },
+    { id: 8, milestoneRef: 'm1' },
+  ];
+  const tasks = [
+    task(1, { milestoneRef: 'm1' }),
+    task(2, { milestoneRef: 'm2' }),
+    task(3, { taskGroupId: 7 }),
+    task(4, {}),
+    task(5, { milestoneRef: 'm1', status: 'done' }),
+  ];
+  const visibleIds = (input: Task[], showDone: boolean) =>
+    overviewVisibleTasks(input, milestones, groups, showDone).map((t) => t.id);
+
+  it('[FR-TASK-280] should keep only tasks the overview renders', () => {
+    expect(visibleIds(tasks, false)).toEqual([1, 3]);
+  });
+
+  it('[FR-TASK-280] should include closed tasks and complete milestones with show done', () => {
+    expect(visibleIds(tasks, true)).toEqual([1, 2, 3, 5]);
+  });
+
+  it('[FR-TASK-280] should drop a milestone group task with no milestone of its own', () => {
+    expect(visibleIds([task(6, { taskGroupId: 8 })], false)).toEqual([]);
+  });
+
+  it('[FR-TASK-280] should drop a task whose milestone differs from its group', () => {
+    expect(visibleIds([task(6, { taskGroupId: 8, milestoneRef: 'm3' })], false)).toEqual([]);
+  });
+
+  it('[FR-TASK-280] should keep a standalone group task under a complete milestone', () => {
+    expect(visibleIds([task(6, { taskGroupId: 7, milestoneRef: 'm2' })], false)).toEqual([6]);
+  });
 });
 
 describe('sortMilestones', () => {
