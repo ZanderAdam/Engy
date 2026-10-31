@@ -19,7 +19,7 @@ import {
   disconnectWorker,
   listWorkers,
 } from '../../terminal-dispatch';
-import { listSessionHistory } from '../../ws/terminal-session-history';
+import { listSessionHistory, liveHistoryKeys } from '../../ws/terminal-session-history';
 import { resolveTerminalLinkTarget } from '../../ws/terminal-link-target';
 import { broadcastTerminalWorkersChange } from '../../ws/broadcast';
 
@@ -58,11 +58,7 @@ export const terminalRouter = router({
   listSessionHistory: publicProcedure
     .input(z.object({ workspaceSlug: z.string(), projectSlug: z.string().optional() }))
     .query(({ input }) => {
-      const state = getAppState();
-      const liveKeys = new Set<string>();
-      for (const [sessionId, meta] of state.terminalSessionMeta) {
-        liveKeys.add(meta.resumedFrom ?? sessionId);
-      }
+      const liveKeys = liveHistoryKeys(getAppState());
       return listSessionHistory(input.workspaceSlug, liveKeys, input.projectSlug);
     }),
 

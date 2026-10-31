@@ -19,6 +19,8 @@ import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
 import { isAgentTypeId, isAgentActive, listAgentTypes } from '@/lib/agent-types';
 import { eq } from 'drizzle-orm';
+import { listTerminalSessions } from '../ws/terminal-session-list';
+import { listSessionHistory, liveHistoryKeys } from '../ws/terminal-session-history';
 import { deriveMcpOrigin, terminalLink } from '../terminal-link';
 import { mcpResult, mcpError } from './result';
 
@@ -30,6 +32,7 @@ import { mcpResult, mcpError } from './result';
 // terminal_list_workers returns [] and terminal_dispatch refuses every id.
 
 const OUTPUT_TAIL_RESPONSE_CHARS = 2_000;
+const CLOSED_SESSIONS_PER_WORKSPACE = 10;
 
 const terminalDispatchInput = {
   workerSessionId: z.string().describe('Target worker terminal session id (from terminal_list_workers)'),
@@ -296,6 +299,60 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
         });
       }
       return mcpResult({ workers });
+    },
+  );
+
+  mcp.tool(
+    'terminal_sessions',
+    'List every agent session across all workspaces, read-only: live and dormant terminals plus recent closed sessions (resumable history). Plain shells are excluded. Each row has state (live | dormant | closed), activityState, workspace/project/branch/task identity, lastFailure, activeSubagents, and a `link` that opens it (closed sessions offer Resume when history allows). Task identity is on live and dormant rows only.',
+    {},
+    async () => {
+      const state = getAppState();
+      const origin = callerOrigin(state);
+
+      const open = listTerminalSessions(state, {
+        all: true,
+        groupKey: null,
+        scopeType: '',
+        scopeLabel: '',
+      })
+        .filter((session) => session.agentType !== undefined)
+        .map((session) => ({
+          sessionId: session.sessionId,
+          state: session.dormant ? 'dormant' : 'live',
+          activityState: session.activityState,
+          agentType: session.agentType,
+          scopeLabel: session.renamedLabel ?? session.scopeLabel,
+          lastTitle: session.lastTitle,
+          workspaceSlug: session.workspaceSlug,
+          projectSlug: session.projectSlug,
+          worktreeBranch: session.worktreeBranch,
+          taskId: session.taskId,
+          lastFailure: session.lastFailure,
+          activeSubagents: session.activeSubagents,
+          link: terminalLink(origin, session.sessionId),
+        }));
+
+      const liveKeys = liveHistoryKeys(state);
+      const slugs = getDb().select({ slug: workspaces.slug }).from(workspaces).all();
+      const closed = slugs.flatMap(({ slug }) =>
+        listSessionHistory(slug, liveKeys)
+          .slice(0, CLOSED_SESSIONS_PER_WORKSPACE)
+          .map((row) => ({
+            sessionId: row.sessionId,
+            state: 'closed',
+            agentType: row.agentType,
+            scopeLabel: row.scopeLabel,
+            summary: row.summary,
+            workspaceSlug: row.workspaceSlug,
+            projectSlug: row.projectSlug,
+            worktreeBranch: row.worktreeBranch,
+            closedAt: row.closedAt,
+            link: terminalLink(origin, row.sessionId),
+          })),
+      );
+
+      return mcpResult({ sessions: [...open, ...closed] });
     },
   );
 

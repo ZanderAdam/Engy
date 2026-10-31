@@ -1,7 +1,7 @@
 import { eq, notInArray, desc, and, isNull } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { terminalSessionHistory } from '../db/schema';
-import type { TerminalSessionMeta } from '../trpc/context';
+import type { AppState, TerminalSessionMeta } from '../trpc/context';
 
 interface SessionHistoryRow {
   sessionId: string;
@@ -114,6 +114,14 @@ export function getHistoryRow(sessionId: string): SessionHistoryRow | null {
     console.warn(`[terminal-history] Failed to read history for session ${sessionId}:`, err);
     return null;
   }
+}
+
+export function liveHistoryKeys(state: Pick<AppState, 'terminalSessionMeta'>): Set<string> {
+  const keys = new Set<string>();
+  for (const [sessionId, meta] of state.terminalSessionMeta) {
+    keys.add(meta.resumedFrom ?? sessionId);
+  }
+  return keys;
 }
 
 /**

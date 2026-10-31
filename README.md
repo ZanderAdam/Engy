@@ -119,6 +119,7 @@ Install the `engy` plugin, then run skills like:
 | `/engy:review` | Code review with auto-detected scope and severity-tagged findings |
 | `/engy:investigate` | Explore a codebase concern and capture it as a tracked task |
 | `/engy:workspace-assistant` | Quick task tracking — log bugs, create one-off work items |
+| `/engy:good-morning` | Summarize work in progress across all workspaces, with a link to each session |
 | `/engy:ingest` | Capture a URL, article, or transcript into the knowledge layer |
 | `/engy:knowledge-research` | Search prior decisions, patterns, and conventions |
 | `/engy:review-memories` | Triage and promote fleeting memories to permanent notes |

@@ -11,7 +11,8 @@ import {
   resolveDispatchReply,
 } from '../terminal-dispatch';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { workspaces } from '../db/schema';
+import { terminalSessionHistory, workspaces } from '../db/schema';
+import type { TerminalSessionMeta } from '../trpc/context';
 
 // Mirrors index.test.ts's harness: invoke a registered tool handler directly,
 // applying the tool's zod schema (defaults included) like the SDK would.
@@ -792,6 +793,139 @@ describe('MCP terminal tools', () => {
       const { data } = await callTool(makeMcp(), 'terminal_status')({ workerSessionId: 'w1' });
       expect(data.activeSubagents).toBe(0);
       expect(data.lastFailure).toBeUndefined();
+    });
+  });
+
+  describe('terminal_sessions', () => {
+    let ctx: TestContext;
+
+    function addSession(sessionId: string, extra: Partial<TerminalSessionMeta> = {}) {
+      ctx.state.terminalSessionMeta.set(sessionId, {
+        scopeType: 'project',
+        scopeLabel: `label-${sessionId}`,
+        workingDir: '/repo',
+        agentType: 'claude',
+        workspaceSlug: 'ws',
+        cols: 80,
+        rows: 24,
+        ...extra,
+      });
+    }
+
+    function addHistory(sessionId: string) {
+      ctx.db
+        .insert(terminalSessionHistory)
+        .values({
+          sessionId,
+          agentType: 'claude',
+          workingDir: '/repo',
+          scopeLabel: 'old work',
+          summary: `summary-${sessionId}`,
+          workspaceSlug: 'ws',
+          projectSlug: 'proj',
+          worktreeBranch: 'feat/x',
+          startedAt: '2026-01-01T00:00:00.000Z',
+          closedAt: '2026-01-01T01:00:00.000Z',
+        })
+        .run();
+    }
+
+    beforeEach(() => {
+      ctx = setupTestDb();
+      ctx.db.insert(workspaces).values({ name: 'WS', slug: 'ws', repos: ['/repo'] }).run();
+    });
+
+    afterEach(() => {
+      ctx.cleanup();
+    });
+
+    it('[FR-MCP-290] should list live and dormant agent sessions with state, identity and link', async () => {
+      addSession('live-1', {
+        projectSlug: 'proj',
+        taskId: 7,
+        worktreeBranch: 'feat/y',
+        activityState: 'waiting',
+        lastTitle: 'Fixing tests',
+        activeSubagents: 2,
+        lastFailure: { type: 'rate_limit', message: 'limit', at: 1 },
+      });
+      addSession('dorm-1', { dormant: true });
+
+      const { data } = await callTool(makeMcp(), 'terminal_sessions')();
+      const sessions = data.sessions as Array<Record<string, unknown>>;
+      expect(sessions.find((s) => s.sessionId === 'live-1')).toMatchObject({
+        state: 'live',
+        activityState: 'waiting',
+        agentType: 'claude',
+        workspaceSlug: 'ws',
+        projectSlug: 'proj',
+        taskId: 7,
+        worktreeBranch: 'feat/y',
+        lastTitle: 'Fixing tests',
+        activeSubagents: 2,
+        lastFailure: { type: 'rate_limit', message: 'limit', at: 1 },
+        link: 'http://localhost:3000/t/live-1',
+      });
+      expect(sessions.find((s) => s.sessionId === 'dorm-1')?.state).toBe('dormant');
+    });
+
+    it('[FR-MCP-290] should exclude plain shells', async () => {
+      addSession('shell-1', { agentType: undefined });
+      const { data } = await callTool(makeMcp(), 'terminal_sessions')();
+      expect(data.sessions).toEqual([]);
+    });
+
+    it('[FR-MCP-290] should list closed history sessions linked by the history key', async () => {
+      addHistory('hist-1');
+      const { data } = await callTool(makeMcp(), 'terminal_sessions')();
+      const sessions = data.sessions as Array<Record<string, unknown>>;
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]).toMatchObject({
+        sessionId: 'hist-1',
+        state: 'closed',
+        summary: 'summary-hist-1',
+        workspaceSlug: 'ws',
+        projectSlug: 'proj',
+        worktreeBranch: 'feat/x',
+        closedAt: '2026-01-01T01:00:00.000Z',
+        link: 'http://localhost:3000/t/hist-1',
+      });
+    });
+
+    it('[FR-MCP-290] should not repeat a history row whose conversation is live', async () => {
+      addHistory('conv-1');
+      addSession('term-1', { resumedFrom: 'conv-1' });
+      const { data } = await callTool(makeMcp(), 'terminal_sessions')();
+      const sessions = data.sessions as Array<Record<string, unknown>>;
+      expect(sessions.map((s) => s.sessionId)).toEqual(['term-1']);
+    });
+
+    it('[FR-MCP-290] should cap closed sessions at 10 per workspace', async () => {
+      for (let index = 0; index < 11; index++) addHistory(`hist-${index}`);
+      const { data } = await callTool(makeMcp(), 'terminal_sessions')();
+      expect(data.sessions).toHaveLength(10);
+    });
+
+    it('[FR-MCP-290] should not repeat a dormant session that also has a history row', async () => {
+      addHistory('dorm-1');
+      addSession('dorm-1', { dormant: true });
+      const { data } = await callTool(makeMcp(), 'terminal_sessions')();
+      const sessions = data.sessions as Array<Record<string, unknown>>;
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]).toMatchObject({ sessionId: 'dorm-1', state: 'dormant' });
+    });
+
+    it('[FR-MCP-290] should build links from the caller MCP origin and serve anonymous callers', async () => {
+      addSession('caller', {
+        command: `claude --mcp-config '{"url":"http://localhost:5555/mcp/caller"}'`,
+      });
+      addSession('other');
+      const { data } = await callTool(makeMcp('caller'), 'terminal_sessions')();
+      const links = (data.sessions as Array<{ link: string }>).map((s) => s.link).sort();
+      expect(links).toEqual(['http://localhost:5555/t/caller', 'http://localhost:5555/t/other']);
+
+      const anonymous = await callTool(makeMcp(), 'terminal_sessions')();
+      expect(anonymous.isError).toBe(false);
     });
   });
 });
