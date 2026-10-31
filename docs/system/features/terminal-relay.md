@@ -242,14 +242,33 @@ PTY stdin over the existing input path (`web/src/server/terminal-dispatch.ts`):
 the message plus a reply contract is sent as a bracketed paste, followed by
 Enter after a per-agent-type delay (`AgentPasteBehavior` in
 `web/src/lib/agent-types.ts`). For workers whose CLI carries a per-session MCP
-endpoint the contract is a bare `[engy-dispatch]` marker ("report the outcome
-via terminal_reply" — the server matches the reply by the worker's identity);
-workers without one get the legacy `[engy-dispatch <correlationId>]` form and
-must echo the id. Delivery is idle-gated: dispatches to a busy worker queue in
-a per-worker inbox and flush one at a time on `act → idle/done` transitions —
-queued settled-dispatch notices for that terminal (see FR-MCP-180) flush first.
-The relay keeps a bounded output tail for connected workers so
-`terminal_status` can report recent output.
+endpoint the contract is `[engy-dispatch <correlationId>]` plus "report the
+outcome via terminal_reply" — the server matches the reply by the worker's
+identity, and the `UserPromptSubmit` hook ties the turn to the dispatch by the
+id in the marker (checked live with a 6 KB paste: the hook `prompt` carries the
+full text, so the marker survives). Workers without one also get the id in the
+contract text and must echo it. Delivery is idle-gated: dispatches to a busy worker queue in
+the `dispatches` SQLite table and flush one at a time, oldest first, on
+`act → idle/done` transitions — queued settled-dispatch notices for that
+terminal (the `dispatch_notices` table, see FR-MCP-180) flush first. Dispatches,
+the inbox and notices therefore survive a web restart; only the sync-wait
+callbacks are process-local. A dispatch moves through `queued`, `written` (the
+PTY write was sent), `delivered` (the worker's `UserPromptSubmit` hook opened
+the turn the paste started), then `replied`, `stopped` or `failed`. A PTY write
+alone never reads as delivered; a worker with no hook channel stays `written`.
+Delivery also holds while a human typed in the target terminal in the last 5
+seconds (`HUMAN_TYPING_HOLD_MS`), tracked from browser input frames on the relay
+(xterm focus and cursor-position replies do not count), and a timer retries the
+flush once the hold ends. The idle gate stays; the system never sends Escape to
+recover a worker. The relay keeps a bounded 64 KB output buffer for every agent
+terminal so `terminal_status` can report recent lines; it is for debugging and
+never feeds status.
+
+The user can mark one agent terminal as the **orchestrator**
+(`terminal.setOrchestrator`; `terminal.startOrchestrator` spawns a
+workspace-scope agent terminal and marks it), and can block dispatch to any
+terminal (`terminal.setDispatchOptOut`). Both flags live on the session meta, are
+persisted with it, and are set by tRPC only: no MCP tool grants them.
 
 ## Hook channel
 
@@ -314,9 +333,10 @@ the session `needsAttention` and returns an OSC 9;4 progress escape sequence
 (`terminalSequence` in the hook result) for terminals whose own chrome
 understands it, cleared on the next `Stop`, `UserPromptSubmit`, or browser
 focus ack. A `Stop` carrying the `prompt_id` of the turn a dispatch was
-delivered into settles that dispatch as replied — a safety net alongside the
-pasted `[engy-dispatch]` reply contract, recorded as `settledBy: 'hook'` vs.
-`'reply'`. `StopFailure` records `lastFailure` on the session and holds it out
+delivered into marks that dispatch `stopped` — the turn ended with no
+`terminal_reply`, which proves nothing about the work — with a reason and the
+worker's last output, recorded as `settledBy: 'hook'` vs. `'reply'`. Silence
+alone never marks a worker dead. `StopFailure` records `lastFailure` on the session and holds it out
 of dispatch delivery until the session's next turn (or a 5-minute fallback,
 `STOP_FAILURE_HOLD_MS`, in case it never turns again).
 `SubagentStart`/`SubagentStop` maintain a live `activeSubagents` count, floored
@@ -519,10 +539,10 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-240 | WHEN the user focuses a terminal in a browser, the browser SHALL send `{ t: 'ack', sessionId }`; the server SHALL clear the session's stored `activityState` to `idle` (persisting and broadcasting the change) and forward the ack to the daemon, whose activity tracker SHALL settle to idle — so a done/waiting badge clears once the terminal is viewed. |
 | FR-TERMINAL-250 | WHEN the browser's `/ws/events` socket (re)connects, the system SHALL re-seed the project-activity store from `GET /api/terminal/activity`, replacing the full session set, so activity deltas broadcast while the socket was disconnected are healed. |
 | FR-TERMINAL-260 | WHEN a browser connects to `/ws/terminal` with an `agentType` query parameter, the system SHALL persist it on the session metadata and include it in the session list endpoint. |
-| FR-TERMINAL-270 | WHEN a dispatch is created for a connected worker whose activity state is idle or done and whose inbox is empty, the system SHALL immediately inject the message plus the reply contract into the worker's PTY as a bracketed paste, followed by Enter after the worker agent type's submit delay; the contract SHALL be the id-less `[engy-dispatch]` form when the worker's command carries its per-session `/mcp/<sessionId>` endpoint, and the `[engy-dispatch <correlationId>]` form otherwise. |
-| FR-TERMINAL-280 | WHEN a dispatch is created for a worker that is active, waiting, or has queued dispatches, the system SHALL queue it in the per-worker inbox; WHEN the worker's activity state transitions to idle or done, the system SHALL deliver exactly one queued dispatch. |
-| FR-TERMINAL-290 | WHEN a worker terminal exits or is killed, the system SHALL mark all its queued and delivered dispatches as failed, resolve any waiters, remove the session from the connected-worker set, and drop its output tail. |
-| FR-TERMINAL-300 | WHILE a session is connected as a dispatch worker, the system SHALL buffer its PTY output in a bounded tail (8192 characters) for status reporting. |
+| FR-TERMINAL-270 | WHEN a dispatch is created for a worker whose activity state is idle or done and whose inbox is empty, the system SHALL immediately inject the message plus the reply contract into the worker's PTY as a bracketed paste, followed by Enter after the worker agent type's submit delay; the contract SHALL carry the `[engy-dispatch <correlationId>]` marker in both forms, and SHALL NOT ask the worker to echo the id when its command carries its per-session `/mcp/<sessionId>` endpoint; the dispatch SHALL then read `written`, not `delivered`. |
+| FR-TERMINAL-280 | WHEN a dispatch is created for a worker that is active, waiting, or has queued dispatches, the system SHALL queue it in the per-worker inbox (the `dispatches` table, oldest first); WHEN the worker's activity state transitions to idle or done, the system SHALL deliver exactly one queued dispatch; a `written` dispatch younger than 60 seconds SHALL also hold the inbox and any notice or comment paste, so a worker without hooks does not receive two at once. WHEN a lost session is respawned for an agent terminal, the system SHALL mark it `active` so queued items flush after the restored CLI settles. WHEN the user blocks dispatch to a terminal, or disconnects it as a worker, the system SHALL fail that terminal's queued dispatches, and the flush SHALL recheck the block before it delivers. WHEN a stale agent session goes dormant on a daemon sync, the system SHALL fail its unsettled dispatches and drop its output buffer. The system SHALL also hold any paste to a terminal for 2 seconds after the previous paste, so two pastes cannot land before the delayed Enter. |
+| FR-TERMINAL-290 | WHEN a worker terminal exits or is killed, the system SHALL mark all its queued, written and delivered dispatches as failed, resolve any waiters, remove the session from the connected-worker set, drop its output tail and the notices queued for it. |
+| FR-TERMINAL-300 | WHILE a session runs an agent CLI, connected as a worker or not, the system SHALL buffer its PTY output in a bounded tail (65536 characters) for status reporting; plain shells SHALL NOT be buffered. |
 | FR-TERMINAL-310 | WHEN spawning a terminal whose command contains the MCP session placeholder (`__ENGY_SESSION__`), the system SHALL substitute the session id before sending the spawn to the daemon and SHALL store the substituted command in `terminalSessionMeta`, so the agent's Engy MCP endpoint is `/mcp/<sessionId>`. |
 | FR-TERMINAL-320 | WHEN building a Claude terminal command without a resume target, the system SHALL include `--session-id __ENGY_SESSION__` so the spawned CLI adopts the terminal's session id (substituted at spawn per FR-TERMINAL-310, including server-originated `terminal_spawn` spawns), making the conversation addressable for later resume. |
 | FR-TERMINAL-330 | WHEN the browser detects an OSC 0/2 title change on a terminal, it SHALL send `{ t: 'title', sessionId, title }` on the terminal socket; the server SHALL sanitize it, store it as `lastTitle` on the session metadata, update the session's history-row summary, and SHALL NOT forward the message to the daemon. |
@@ -572,9 +592,9 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-780 | WHEN a relay-sourced `{t:'act'}` message arrives for a `hookDriven` session whose `lastHookAt` is 6 seconds old or older, the system SHALL apply it, so a session that stops receiving hook events (e.g. after its last `UserPromptSubmit`) returns to daemon-derived activity rather than being stranded at a stale state with its dispatch inbox blocked. |
 | FR-TERMINAL-790 | A hook-derived activity change SHALL persist and broadcast through the same applier as a daemon-derived one, carrying the session's `hookDriven` flag on the broadcast payload, and SHALL flush the session's dispatch inbox on a transition to `idle` or `done`. |
 | FR-TERMINAL-800 | The browser tab badge SHALL show the server's activity state for every session, hook-driven or not: seeded from the session's `listTerminalSessions` entry at load, updated by each `TERMINAL_ACTIVITY_CHANGE` broadcast, and re-read from `listTerminalSessions` on every `/ws/events` reconnect. The shared activity store that feeds task cards and the task terminal button SHALL be seeded and updated from the same sources. The browser SHALL NOT compute activity from PTY output, so a repaint the daemon suppresses (a resize or reconnect from another browser, device, or the server) cannot turn a tab `done`. |
-| FR-TERMINAL-810 | WHEN `Stop` fires (non-subagent) carrying the `prompt_id` that a prior `UserPromptSubmit` tagged onto the worker's oldest untagged delivered dispatch, the system SHALL settle that dispatch as replied using `last_assistant_message` with control characters stripped before it reaches the terminal injection; a `Stop` for a turn that never delivered a dispatch, or for an unrelated turn, SHALL leave any outstanding dispatch delivered and untouched. |
+| FR-TERMINAL-810 | WHEN `Stop` fires (non-subagent) carrying the `prompt_id` that a prior `UserPromptSubmit` tagged onto the written dispatch whose own `[engy-dispatch <id>]` marker it carried (which that `UserPromptSubmit` moved to `delivered`), the system SHALL settle that dispatch as `stopped` with a `stopReason` and `lastOutput` taken from `last_assistant_message` with control characters stripped before it reaches the terminal injection, and SHALL NOT mark it replied; a `Stop` for a turn that never delivered a dispatch, or for an unrelated turn, SHALL leave any outstanding dispatch untouched. |
 | FR-TERMINAL-820 | A dispatch already settled (`replied` or `failed`) — including one settled by an explicit `terminal_reply` before its `Stop` hook fires — SHALL NOT be re-settled by a subsequent `Stop` hook. |
-| FR-TERMINAL-830 | A dispatch settled by the `Stop`-hook safety net SHALL record `settledBy: 'hook'`; one settled by an explicit `terminal_reply` SHALL record `settledBy: 'reply'`; both fields SHALL be exposed through the terminal session list. |
+| FR-TERMINAL-830 | A dispatch settled by the `Stop`-hook safety net SHALL record `settledBy: 'hook'`; one settled by an explicit `terminal_reply` SHALL record `settledBy: 'reply'`; both values SHALL be stored on the dispatch row and returned by `terminal_collect`. |
 | FR-TERMINAL-840 | WHEN `StopFailure` fires (non-subagent), the system SHALL record `{ type, message, at }` as the session's `lastFailure` and hold it out of dispatch delivery (`isDeliverable` returns false) until the earlier of: the session's next `UserPromptSubmit` or `Stop` (which clears `lastFailure` immediately), or 5 minutes elapsing since the failure (`STOP_FAILURE_HOLD_MS`, a fallback for a session that never turns again); `lastFailure` SHALL be exposed through the terminal session list. |
 | FR-TERMINAL-850 | WHEN `SubagentStart` fires, the system SHALL add the reported `agent_id` to the session's active-subagent set and set `activeSubagents` to the set's size; WHEN `SubagentStop` fires, it SHALL remove that `agent_id`; an unmatched `SubagentStop` SHALL be a no-op, so the count never goes negative. `activeSubagents` SHALL be exposed through the terminal session list. |
 | FR-TERMINAL-860 | WHEN persisted terminal sessions are restored at server boot, the system SHALL reset each restored session's `activeSubagents` to `undefined`, because the live active-subagent set is process-only and cannot be recovered, so a stale persisted count cannot desync from the next `SubagentStop`. |
@@ -596,6 +616,10 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-1020 | WHEN the browser posts `{ sessionIds, group }` to `/api/terminal/sessions/group`, the server SHALL store `group` (`{ id, name }`, name trimmed; `null` removes it) on each listed session's metadata, persist it so it survives a server restart, return it in the session list, and broadcast a `regrouped` sessions change so every open browser applies it without a reload. It SHALL answer 400 for a malformed body and 404 when none of the sessions exist. |
 | FR-TERMINAL-1030 | WHEN a browser opens `/t/<sessionId>` for a live or dormant session, the system SHALL resolve it with `terminal.resolveLink` and replace the tab's location (no history entry, no `/t/` tab left behind) with `/w/<workspace>/projects/<project>?terminal=<sessionId>` (or `/w/<workspace>?terminal=<sessionId>` when there is no project), adding `wt=<branch>` when the session's `groupKey` names a worktree. The workspace, project and worktree SHALL come from the session's `groupKey`, not from its tracked branch. WHEN another in-app tab already shows that project and worktree, that tab SHALL keep its section, receive the `terminal` param, and the `/t/` tab SHALL close. WHEN a workspace page loads with a `terminal` param, the system SHALL remove the param by replace navigation, reveal the dock that holds the session (the right dock; the bottom dock for a `shell:` group key; the matching sheet on mobile) and dispatch `terminal:focus` once per tab; a dormant session SHALL only be focused, never restored. WHEN no terminal manager of the tab confirms the focus within 10 seconds, the system SHALL show a toast that the view does not list the terminal; a session whose group key is `worktree:<workspace>` (outside Command Center) is never listed by a project dock and gets this toast. |
 | FR-TERMINAL-1040 | WHEN `/t/<sessionId>` or a `terminal` param names a session that is not live, the system SHALL look up that exact id in `terminalSessionHistory`. WHEN history has a row, the system SHALL show a toast that the terminal is closed, with a Resume action when a resume entry exists. WHEN no live session and no history row has that id, `terminal.resolveLink` SHALL return `null` and the system SHALL show "No live terminal or saved history for this id."; this includes a closed resumed session, because its history row is keyed by the agent conversation id. A live session with no workspace SHALL get the same result. WHEN the lookup fails or the id cannot be decoded, the system SHALL show a clear error or the same not-found message. |
+| FR-TERMINAL-1050 | WHEN a browser input frame with real keystrokes reaches a session's relay (not an xterm focus-in/out, cursor-position/device report, mouse report or OSC reply), the system SHALL stamp `lastHumanInputAt` on the session; WHILE that stamp is under 5 seconds old, delivery of dispatches, settled-notices and live comments to that session SHALL hold, and the system SHALL retry the flush when the hold ends, for dispatches, notices and live comments alike; the same hold SHALL apply for 2 seconds after any server paste (dispatch, notice or comment), so two flushes never paste before the delayed Enter, and until the end of a StopFailure hold. |
+| FR-TERMINAL-1060 | WHEN `terminal.setOrchestrator` is called for a live agent terminal, the system SHALL set or clear `orchestrator` on its session meta, persist it, and clear it from every other session so at most one terminal holds the role; it SHALL refuse unknown, dormant and plain-shell sessions, and no MCP tool SHALL set it. |
+| FR-TERMINAL-1070 | WHEN `terminal.setDispatchOptOut` is called for a live agent terminal, the system SHALL set or clear `dispatchOptOut` on its session meta and persist it; `terminal.listWorkers` SHALL return every live agent terminal with `connected`, `orchestrator` and `dispatchOptOut`. |
+| FR-TERMINAL-1080 | WHEN `terminal.startOrchestrator` is called with a workspace slug, the system SHALL spawn an agent terminal at workspace scope in the first workspace repo with an orchestrator brief as its initial prompt, mark it as the orchestrator, and not connect it as a dispatch worker; it SHALL refuse an unknown workspace, an agent type deactivated in the workspace, and a missing daemon. |
 
 ## Sources
 

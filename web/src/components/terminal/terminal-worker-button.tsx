@@ -25,7 +25,7 @@ function useDispatchWorkers() {
   useOnServerEvent('TERMINAL_WORKERS_CHANGE', () => {
     void utils.terminal.listWorkers.invalidate();
   });
-  return new Set((data ?? []).map((w) => w.sessionId));
+  return new Set((data ?? []).filter((w) => w.connected).map((w) => w.sessionId));
 }
 
 // Toggle button for the terminal dock header: connects the ACTIVE terminal as

@@ -4,9 +4,11 @@ import type { FileWriteRequestMessage } from '@engy/common';
 import { appRouter } from '../root';
 import { type AppState } from '../context';
 import { setupTestDb, type TestContext } from '../test-helpers';
-import { terminalSessionHistory, workspaces } from '../../db/schema';
+import { terminalSessionHistory, terminalSessions, workspaces } from '../../db/schema';
 import { recordSessionStart } from '../../ws/terminal-session-history';
 import { TERMINAL_IMAGE_MAX_BYTES } from '@/lib/terminal-image';
+import { createDispatch } from '../../terminal-dispatch';
+import { getDispatch } from '../../terminal-dispatch-store';
 
 function addSession(state: AppState, sessionId: string, resumedFrom?: string): void {
   state.terminalSessionMeta.set(sessionId, {
@@ -70,7 +72,7 @@ describe('terminal router', () => {
         sessionId: 'sess-1',
         description: 'claude on auth',
         agentType: 'claude',
-        alive: true,
+        connected: true,
       });
     });
 
@@ -93,7 +95,129 @@ describe('terminal router', () => {
       addSession(state, 'sess-1');
       await caller.terminal.connectWorker({ sessionId: 'sess-1', description: 'worker' });
       await caller.terminal.disconnectWorker({ sessionId: 'sess-1' });
-      expect(await caller.terminal.listWorkers()).toEqual([]);
+      expect((await caller.terminal.listWorkers()).map((w) => w.connected)).toEqual([false]);
+    });
+
+    it('[FR-TERMINAL-280] should fail the queued dispatches of the disconnected worker', async () => {
+      addSession(state, 'sess-1');
+      state.terminalSessionMeta.get('sess-1')!.activityState = 'active';
+      await caller.terminal.connectWorker({ sessionId: 'sess-1', description: 'worker' });
+      const queued = createDispatch(state, 'sess-1', 'task');
+
+      await caller.terminal.disconnectWorker({ sessionId: 'sess-1' });
+
+      expect(getDispatch(queued.correlationId)?.status).toBe('failed');
+    });
+  });
+
+  describe('setOrchestrator', () => {
+    it('[FR-TERMINAL-1060] should give the role to one terminal and take it from the previous holder', async () => {
+      addSession(state, 'a');
+      addSession(state, 'b');
+
+      await caller.terminal.setOrchestrator({ sessionId: 'a', enabled: true });
+      await caller.terminal.setOrchestrator({ sessionId: 'b', enabled: true });
+
+      expect(state.terminalSessionMeta.get('a')!.orchestrator).toBeUndefined();
+      expect(state.terminalSessionMeta.get('b')!.orchestrator).toBe(true);
+      const flags = await caller.terminal.listWorkers();
+      expect(flags.filter((w) => w.orchestrator).map((w) => w.sessionId)).toEqual(['b']);
+    });
+
+    it('[FR-TERMINAL-1060] should persist the role with the session', async () => {
+      addSession(state, 'a');
+      await caller.terminal.setOrchestrator({ sessionId: 'a', enabled: true });
+      const row = ctx.db.select().from(terminalSessions).get();
+      expect((row?.meta as { orchestrator?: boolean }).orchestrator).toBe(true);
+    });
+
+    it('[FR-TERMINAL-1060] should clear the role', async () => {
+      addSession(state, 'a');
+      await caller.terminal.setOrchestrator({ sessionId: 'a', enabled: true });
+      await caller.terminal.setOrchestrator({ sessionId: 'a', enabled: false });
+      expect(state.terminalSessionMeta.get('a')!.orchestrator).toBeUndefined();
+    });
+
+    it('[FR-TERMINAL-1060] should refuse unknown, dormant and plain-shell sessions', async () => {
+      await expect(caller.terminal.setOrchestrator({ sessionId: 'ghost', enabled: true })).rejects.toThrow(
+        'not found',
+      );
+      addSession(state, 'sleeping');
+      state.terminalSessionMeta.get('sleeping')!.dormant = true;
+      await expect(
+        caller.terminal.setOrchestrator({ sessionId: 'sleeping', enabled: true }),
+      ).rejects.toThrow('not found');
+      addSession(state, 'shell');
+      state.terminalSessionMeta.get('shell')!.agentType = undefined;
+      await expect(caller.terminal.setOrchestrator({ sessionId: 'shell', enabled: true })).rejects.toThrow(
+        'Only agent terminals',
+      );
+    });
+  });
+
+  describe('setDispatchOptOut', () => {
+    it('[FR-TERMINAL-1070] should flag and unflag a terminal, visible in listWorkers', async () => {
+      addSession(state, 'a');
+      await caller.terminal.setDispatchOptOut({ sessionId: 'a', optOut: true });
+      expect((await caller.terminal.listWorkers())[0].dispatchOptOut).toBe(true);
+      await caller.terminal.setDispatchOptOut({ sessionId: 'a', optOut: false });
+      expect((await caller.terminal.listWorkers())[0].dispatchOptOut).toBe(false);
+    });
+  });
+
+  describe('startOrchestrator', () => {
+    function fakeDaemon(sent: string[]) {
+      return { readyState: 1, OPEN: 1, send: (d: string) => sent.push(d) } as unknown as WebSocket;
+    }
+
+    beforeEach(() => {
+      ctx.db.insert(workspaces).values({ name: 'WS', slug: 'ws', repos: ['/repo'] }).run();
+    });
+
+    it('[FR-TERMINAL-1080] should spawn a workspace-scope agent terminal and mark it orchestrator', async () => {
+      const sent: string[] = [];
+      state.terminalDaemon = fakeDaemon(sent);
+
+      const { sessionId } = await caller.terminal.startOrchestrator({ workspaceSlug: 'ws' });
+
+      const spawn = JSON.parse(sent[0]) as { t: string; workingDir: string; command: string };
+      expect(spawn).toMatchObject({ t: 'spawn', workingDir: '/repo' });
+      expect(spawn.command).toContain(`/mcp/${sessionId}`);
+      expect(spawn.command).toContain('terminal_list_workers');
+      expect(state.terminalSessionMeta.get(sessionId)).toMatchObject({
+        orchestrator: true,
+        scopeType: 'workspace',
+        groupKey: 'workspace:ws',
+        workspaceSlug: 'ws',
+        agentType: 'claude',
+        containerMode: 'host',
+      });
+      expect(state.terminalSessionMeta.get(sessionId)!.spawnedBy).toBeUndefined();
+      expect(state.dispatchWorkers.has(sessionId)).toBe(false);
+    });
+
+    it('[FR-TERMINAL-1080] should move the role from a previous orchestrator', async () => {
+      state.terminalDaemon = fakeDaemon([]);
+      addSession(state, 'old');
+      await caller.terminal.setOrchestrator({ sessionId: 'old', enabled: true });
+
+      const { sessionId } = await caller.terminal.startOrchestrator({ workspaceSlug: 'ws' });
+
+      expect(state.terminalSessionMeta.get('old')!.orchestrator).toBeUndefined();
+      expect(state.terminalSessionMeta.get(sessionId)!.orchestrator).toBe(true);
+    });
+
+    it('[FR-TERMINAL-1080] should refuse an unknown workspace, a deactivated agent, and a missing daemon', async () => {
+      await expect(caller.terminal.startOrchestrator({ workspaceSlug: 'nope' })).rejects.toThrow(
+        'Workspace not found',
+      );
+      await expect(caller.terminal.startOrchestrator({ workspaceSlug: 'ws' })).rejects.toThrow(
+        'No terminal daemon',
+      );
+      ctx.db.update(workspaces).set({ agentSettings: { claude: { active: false } } }).run();
+      await expect(caller.terminal.startOrchestrator({ workspaceSlug: 'ws' })).rejects.toThrow(
+        'deactivated',
+      );
     });
   });
 

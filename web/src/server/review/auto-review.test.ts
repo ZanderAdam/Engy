@@ -179,7 +179,7 @@ describe('auto review', () => {
     it('[FR-PRMON-310] should group the session under the workspace so its terminal dock lists it', async () => {
       await start();
 
-      const meta = vi.mocked(spawnAgentTerminal).mock.calls[0][1].callerMeta;
+      const meta = vi.mocked(spawnAgentTerminal).mock.calls[0][1].scope;
       expect(meta.groupKey).toBe('workspace:ws');
       expect(meta.workspaceSlug).toBe('ws');
     });
@@ -285,7 +285,7 @@ describe('auto review', () => {
 
       await start();
 
-      const meta = vi.mocked(spawnAgentTerminal).mock.calls[0][1].callerMeta;
+      const meta = vi.mocked(spawnAgentTerminal).mock.calls[0][1].scope;
       expect(meta.groupKey).toBe('project:ws:proj');
       expect(meta.projectSlug).toBe('proj');
       expect(meta.projectId).toBe(project.id);
@@ -366,7 +366,7 @@ describe('auto review', () => {
 
       await startManual('plain');
 
-      const meta = vi.mocked(spawnAgentTerminal).mock.calls[0][1].callerMeta;
+      const meta = vi.mocked(spawnAgentTerminal).mock.calls[0][1].scope;
       expect(meta.groupKey).toBe('project:ws:plain');
       expect(meta.workspaceSlug).toBe('ws');
       expect(meta.projectSlug).toBe('plain');
@@ -442,7 +442,7 @@ describe('auto review', () => {
 
       const options = vi.mocked(spawnAgentTerminal).mock.calls[0][1];
       expect(options.workingDir).toBe('/repos/app-wt/feat');
-      expect(options.callerMeta.scopeLabel).toBe('feat');
+      expect(options.description).toBe('Review feat');
       expect(options.prompt).toContain('worktreePath: /repos/app-wt/feat');
       expect(options.prompt).toContain('diff_review_* MCP tools with repoDir /repos/app-wt/feat');
     });
@@ -457,9 +457,9 @@ describe('auto review', () => {
       await startLocal({ projectSlug: 'guided' });
 
       const options = vi.mocked(spawnAgentTerminal).mock.calls[0][1];
-      expect(options.callerMeta.groupKey).toBe('project:ws:guided');
-      expect(options.callerMeta.projectSlug).toBe('guided');
-      expect(options.callerMeta.projectId).toBe(
+      expect(options.scope.groupKey).toBe('project:ws:guided');
+      expect(options.scope.projectSlug).toBe('guided');
+      expect(options.scope.projectId).toBe(
         ctx.db.select().from(projects).where(eq(projects.slug, 'guided')).get()!.id,
       );
       expect(options.prompt).toContain(`reviewGuide: ${guidePath}`);

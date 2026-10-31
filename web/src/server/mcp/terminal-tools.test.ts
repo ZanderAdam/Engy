@@ -2,17 +2,25 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type WebSocket from 'ws';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTerminalTools } from './terminal-tools';
-import { getAppState, resetAppState, type AppState } from '../trpc/context';
+import type { AppState } from '../trpc/context';
+import { getDispatch } from '../terminal-dispatch-store';
+import { dispatchGitShow } from '../ws/server';
 import {
-  AGENT_SPAWN_LIMIT,
+  SPAWN_COUNT_LIMIT,
   connectWorker,
   countAgentSpawnedSessions,
   flushDispatchInbox,
+  settleDispatch,
   resolveDispatchReply,
 } from '../terminal-dispatch';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { terminalSessionHistory, workspaces } from '../db/schema';
+import { dispatches, terminalSessionHistory, workspaces } from '../db/schema';
 import type { TerminalSessionMeta } from '../trpc/context';
+
+vi.mock('../ws/server', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../ws/server')>()),
+  dispatchGitShow: vi.fn(),
+}));
 
 // Mirrors index.test.ts's harness: invoke a registered tool handler directly,
 // applying the tool's zod schema (defaults included) like the SDK would.
@@ -54,18 +62,20 @@ function addWorkerSession(state: AppState, sessionId: string, description: strin
 }
 
 describe('MCP terminal tools', () => {
+  let ctx: TestContext;
   let state: AppState;
   let sent: string[];
 
   beforeEach(() => {
-    resetAppState();
-    state = getAppState();
+    ctx = setupTestDb();
+    state = ctx.state;
     sent = [];
     state.terminalDaemon = fakeDaemon(sent);
+    ctx.db.insert(workspaces).values({ name: 'WS', slug: 'ws', repos: ['/repo'] }).run();
   });
 
   afterEach(() => {
-    resetAppState();
+    ctx.cleanup();
     vi.useRealTimers();
   });
 
@@ -120,12 +130,12 @@ describe('MCP terminal tools', () => {
   });
 
   describe('terminal_list_workers', () => {
-    it('[FR-MCP-130] should return an empty list with a hint when nothing is connected', async () => {
+    it('[FR-MCP-130] should return an empty list with a hint when no agent terminal is live', async () => {
       const call = callTool(makeMcp(), 'terminal_list_workers');
       const { data, isError } = await call();
       expect(isError).toBe(false);
       expect(data.workers).toEqual([]);
-      expect(String(data.hint)).toContain('connects');
+      expect(String(data.hint)).toContain('No live agent terminals');
     });
 
     it('[FR-MCP-130] should list connected workers with description, agent type, and activity', async () => {
@@ -164,7 +174,7 @@ describe('MCP terminal tools', () => {
         message: 'hi',
       });
       expect(isError).toBe(true);
-      expect(String(data.error)).toContain('Unknown worker');
+      expect(String(data.error)).toContain('no longer alive');
     });
 
     it('[FR-MCP-110] should refuse when the worker session is no longer alive', async () => {
@@ -195,7 +205,7 @@ describe('MCP terminal tools', () => {
         message: 'do the thing',
       });
       expect(isError).toBe(false);
-      expect(data.status).toBe('delivered');
+      expect(data.status).toBe('written');
       expect(typeof data.correlationId).toBe('string');
       expect(sent.length).toBeGreaterThan(0);
     });
@@ -210,9 +220,9 @@ describe('MCP terminal tools', () => {
       });
       // Reply as soon as the dispatch shows up in state.
       await vi.waitFor(() => {
-        expect(state.dispatches.size).toBe(1);
+        expect(ctx.db.select().from(dispatches).all()).toHaveLength(1);
       });
-      const correlationId = [...state.dispatches.keys()][0];
+      const correlationId = ctx.db.select().from(dispatches).all()[0].correlationId;
       resolveDispatchReply(state, correlationId, 'all done');
 
       const { data } = await call;
@@ -232,7 +242,7 @@ describe('MCP terminal tools', () => {
       await vi.advanceTimersByTimeAsync(1_000);
       const { data, isError } = await call;
       expect(isError).toBe(false);
-      expect(data.status).toBe('delivered');
+      expect(data.status).toBe('written');
       expect(String(data.hint)).toContain('terminal_collect');
     });
   });
@@ -283,7 +293,7 @@ describe('MCP terminal tools', () => {
       });
       expect(isError).toBe(false);
       expect(data.correlationId).toBe(dispatched.correlationId);
-      expect(state.dispatches.get(dispatched.correlationId as string)?.status).toBe('replied');
+      expect(getDispatch(dispatched.correlationId as string)?.status).toBe('replied');
     });
 
     it('[FR-MCP-120] should require a correlationId from anonymous callers', async () => {
@@ -300,7 +310,7 @@ describe('MCP terminal tools', () => {
         result: 'nothing pending',
       });
       expect(isError).toBe(true);
-      expect(String(data.error)).toContain('No open dispatch');
+      expect(String(data.error)).toContain('Cannot match this reply');
     });
 
     it('[FR-TERMINAL-270] should deliver an id-less contract to workers with a per-session endpoint', async () => {
@@ -312,8 +322,8 @@ describe('MCP terminal tools', () => {
         message: 'task',
       });
       const paste = sent.map((s) => JSON.parse(s) as { d?: string }).find((f) => f.d?.includes('task'));
-      expect(paste?.d).toContain('[engy-dispatch]');
-      expect(paste?.d).not.toContain(data.correlationId as string);
+      expect(paste?.d).toContain(`[engy-dispatch ${data.correlationId as string}]`);
+      expect(paste?.d).not.toContain('with correlationId');
     });
 
     it('[FR-MCP-180] should mark identified async dispatches for reply push and say so in the hint', async () => {
@@ -331,7 +341,7 @@ describe('MCP terminal tools', () => {
         message: 'task',
       });
       expect(String(data.hint)).toContain('pushed into your terminal');
-      const entry = state.dispatches.get(data.correlationId as string)!;
+      const entry = getDispatch(data.correlationId as string)!;
       expect(entry.originSessionId).toBe('orig');
       expect(entry.notifyOnReply).toBe(true);
     });
@@ -346,8 +356,6 @@ describe('MCP terminal tools', () => {
   });
 
   describe('terminal_spawn', () => {
-    let ctx: TestContext;
-
     function addCallerSession(sessionId: string, agentType?: string): void {
       state.terminalSessionMeta.set(sessionId, {
         scopeType: 'project',
@@ -364,19 +372,6 @@ describe('MCP terminal tools', () => {
       });
     }
 
-    beforeEach(() => {
-      // setupTestDb resets AppState — rewire the harness state/daemon to the fresh one.
-      ctx = setupTestDb();
-      state = ctx.state;
-      sent = [];
-      state.terminalDaemon = fakeDaemon(sent);
-      ctx.db.insert(workspaces).values({ name: 'WS', slug: 'ws', repos: ['/repo'] }).run();
-    });
-
-    afterEach(() => {
-      ctx.cleanup();
-    });
-
     it('[FR-MCP-160] should refuse anonymous callers', async () => {
       const { isError, data } = await callTool(makeMcp(undefined), 'terminal_spawn')({
         agentType: 'codex',
@@ -385,6 +380,17 @@ describe('MCP terminal tools', () => {
       });
       expect(isError).toBe(true);
       expect(String(data.error)).toContain('anonymous');
+    });
+
+    it('[FR-MCP-160] should refuse a relative cwd with a clear message', async () => {
+      addCallerSession('sess-rel', 'claude');
+      const { isError, data } = await callTool(makeMcp('sess-rel'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: 'repo/sub',
+        description: 'worker',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('absolute path');
     });
 
     it('[FR-MCP-160] should refuse callers whose terminal session is not live', async () => {
@@ -432,7 +438,7 @@ describe('MCP terminal tools', () => {
 
     it('[FR-MCP-160] should refuse when the live agent-spawned session limit is reached', async () => {
       addCallerSession('sess-claude', 'claude');
-      for (let i = 0; i < AGENT_SPAWN_LIMIT; i++) {
+      for (let i = 0; i < SPAWN_COUNT_LIMIT; i++) {
         state.terminalSessionMeta.set(`spawned-${i}`, {
           scopeType: 'project',
           scopeLabel: `spawned ${i}`,
@@ -448,7 +454,7 @@ describe('MCP terminal tools', () => {
         description: 'one too many',
       });
       expect(isError).toBe(true);
-      expect(String(data.error)).toContain(`limit reached (${AGENT_SPAWN_LIMIT}`);
+      expect(String(data.error)).toContain(`limit reached (${SPAWN_COUNT_LIMIT}`);
     });
 
     it('[FR-MCP-160] should refuse a cwd outside every workspace repo', async () => {
@@ -462,22 +468,92 @@ describe('MCP terminal tools', () => {
       expect(String(data.error)).toContain('cwd must be inside a workspace repo');
     });
 
-    it('[FR-MCP-160] should refuse callers without workspace context (agent-settings guard unenforceable)', async () => {
+    it('[FR-MCP-170] should take scope and agent settings from the target cwd, not from the caller', async () => {
+      ctx.db
+        .insert(workspaces)
+        .values({
+          name: 'Other',
+          slug: 'other',
+          repos: ['/other-repo'],
+          agentSettings: { codex: { mode: 'full-auto' } },
+        })
+        .run();
       state.terminalSessionMeta.set('sess-nows', {
         scopeType: 'project',
         scopeLabel: 'no workspace',
         workingDir: '/repo',
         agentType: 'claude',
+        groupKey: 'project:ws:elsewhere',
+        workspaceSlug: 'ws',
         cols: 80,
         rows: 24,
       });
-      const { isError, data } = await callTool(makeMcp('sess-nows'), 'terminal_spawn')({
+
+      const { data, isError } = await callTool(makeMcp('sess-nows'), 'terminal_spawn')({
         agentType: 'codex',
-        cwd: '/repo',
+        cwd: '/other-repo',
         description: 'worker',
       });
+
+      expect(isError).toBe(false);
+      expect(state.terminalSessionMeta.get(data.sessionId as string)).toMatchObject({
+        groupKey: 'workspace:other',
+        workspaceSlug: 'other',
+        scopeType: 'workspace',
+      });
+      const spawn = sent.map((s) => JSON.parse(s) as { t?: string; command?: string }).find((f) => f.t === 'spawn');
+      expect(spawn?.command).toContain('--sandbox workspace-write --ask-for-approval never');
+    });
+
+    it('[FR-MCP-160] should refuse past the spawn depth limit of 2', async () => {
+      addCallerSession('sess-deep', 'claude');
+      state.terminalSessionMeta.get('sess-deep')!.spawnDepth = 2;
+      const { isError, data } = await callTool(makeMcp('sess-deep'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'too deep',
+      });
       expect(isError).toBe(true);
-      expect(String(data.error)).toContain('no workspace context');
+      expect(String(data.error)).toContain('depth limit');
+    });
+
+    it('[FR-MCP-160] should warn above three active spawned terminals but still spawn', async () => {
+      addCallerSession('sess-claude', 'claude');
+      const mcp = makeMcp('sess-claude');
+      const results = [];
+      for (let i = 0; i < 4; i++) {
+        results.push(
+          await callTool(mcp, 'terminal_spawn')({
+            agentType: 'codex',
+            cwd: '/repo',
+            description: `worker ${i}`,
+          }),
+        );
+      }
+      expect(results.every((r) => !r.isError)).toBe(true);
+      expect(results[2].data.warning).toBeUndefined();
+      expect(String(results[3].data.warning)).toContain('4 agent-spawned terminals are active');
+    });
+
+    it('[FR-MCP-160] should refuse a new spawn once the rate limit is hit, even after closing slots', async () => {
+      addCallerSession('sess-claude', 'claude');
+      const mcp = makeMcp('sess-claude');
+      for (let i = 0; i < 10; i++) {
+        const spawned = await callTool(mcp, 'terminal_spawn')({
+          agentType: 'codex',
+          cwd: '/repo',
+          description: `loop ${i}`,
+        });
+        expect(spawned.isError).toBe(false);
+        await callTool(mcp, 'terminal_close')({ sessionId: spawned.data.sessionId as string });
+      }
+      const blocked = await callTool(mcp, 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/repo',
+        description: 'eleventh',
+      });
+      expect(blocked.isError).toBe(true);
+      expect(String(blocked.data.error)).toContain('rate limit');
     });
 
     it('[FR-MCP-160] should refuse an agentType deactivated in the workspace settings', async () => {
@@ -549,14 +625,15 @@ describe('MCP terminal tools', () => {
       expect(spawnFrame.command).toContain('review the diff');
       expect(spawnFrame.scopeLabel).toBe('codex on feature');
 
-      // Session meta records origin + inherits the caller's UI scope; starts
+      // Session meta records origin and the target workspace scope; starts
       // 'active' (booting) so immediate dispatches queue instead of pasting
       // into a half-booted TUI.
       const meta = state.terminalSessionMeta.get(sessionId);
       expect(meta).toMatchObject({
         agentType: 'codex',
         spawnedBy: 'sess-claude',
-        groupKey: 'group-1',
+        groupKey: 'workspace:ws',
+        spawnDepth: 1,
         workspaceSlug: 'ws',
         activityState: 'active',
       });
@@ -591,7 +668,7 @@ describe('MCP terminal tools', () => {
       const paste = sent.map((s) => JSON.parse(s) as { sessionId: string; d?: string })
         .find((f) => f.sessionId === workerId && f.d?.includes('first job'));
       expect(paste).toBeDefined();
-      expect(state.dispatches.get(dispatched.correlationId as string)?.status).toBe('delivered');
+      expect(getDispatch(dispatched.correlationId as string)?.status).toBe('written');
     });
 
     it('[FR-MCP-170] should derive the MCP origin from a codex caller command (TOML shape)', async () => {
@@ -672,7 +749,7 @@ describe('MCP terminal tools', () => {
       expect(sent.some((f) => f.includes('"t":"kill"') && f.includes(workerId))).toBe(true);
       expect(state.terminalSessionMeta.has(workerId)).toBe(false);
       expect(state.dispatchWorkers.has(workerId)).toBe(false);
-      expect(state.dispatches.get(pending.data.correlationId as string)?.status).toBe('failed');
+      expect(getDispatch(pending.data.correlationId as string)?.status).toBe('failed');
 
       // The spawn-cap slot is freed
       expect(countAgentSpawnedSessions(state)).toBe(0);
@@ -788,6 +865,55 @@ describe('MCP terminal tools', () => {
       expect(data.lastFailure).toEqual({ type: 'rate_limit', message: 'try again later', at: 123 });
     });
 
+    it('[FR-MCP-140] should return the last 50 output lines by default and honor a lines input', async () => {
+      addWorkerSession(state, 'w1', 'worker');
+      state.terminalOutputTails.set('w1', Array.from({ length: 80 }, (_, i) => `line ${i}`).join('\n'));
+
+      const byDefault = await callTool(makeMcp(), 'terminal_status')({ workerSessionId: 'w1' });
+      const lines = String(byDefault.data.outputTail).split('\n');
+      expect(lines).toHaveLength(50);
+      expect(lines[49]).toBe('line 79');
+
+      const few = await callTool(makeMcp(), 'terminal_status')({ workerSessionId: 'w1', lines: 3 });
+      expect(String(few.data.outputTail).split('\n')).toEqual(['line 77', 'line 78', 'line 79']);
+    });
+
+    it('[FR-MCP-140] should report status for an agent terminal that is not connected as a worker', async () => {
+      state.terminalSessionMeta.set('free', {
+        scopeType: 'project',
+        scopeLabel: 'free agent',
+        workingDir: '/repo',
+        agentType: 'claude',
+        cols: 80,
+        rows: 24,
+      });
+      const { data, isError } = await callTool(makeMcp(), 'terminal_status')({ workerSessionId: 'free' });
+      expect(isError).toBe(false);
+      expect(data).toMatchObject({ sessionId: 'free', connected: false });
+    });
+
+    it('[FR-MCP-140] should hide output of a not-connected terminal from a caller without the orchestrator role', async () => {
+      state.terminalSessionMeta.set('free', {
+        scopeType: 'project',
+        scopeLabel: 'free agent',
+        workingDir: '/repo',
+        agentType: 'claude',
+        cols: 80,
+        rows: 24,
+      });
+      state.terminalOutputTails.set('free', 'secret output');
+      addWorkerSession(state, 'caller', 'caller');
+
+      const anonymous = await callTool(makeMcp(), 'terminal_status')({ workerSessionId: 'free' });
+      const plain = await callTool(makeMcp('caller'), 'terminal_status')({ workerSessionId: 'free' });
+      state.terminalSessionMeta.get('caller')!.orchestrator = true;
+      const orchestrator = await callTool(makeMcp('caller'), 'terminal_status')({ workerSessionId: 'free' });
+
+      expect(anonymous.data.outputTail).toBeUndefined();
+      expect(plain.data.outputTail).toBeUndefined();
+      expect(orchestrator.data.outputTail).toBe('secret output');
+    });
+
     it('[FR-MCP-200] defaults activeSubagents to 0 with no lastFailure set', async () => {
       addWorkerSession(state, 'w1', 'worker');
       const { data } = await callTool(makeMcp(), 'terminal_status')({ workerSessionId: 'w1' });
@@ -796,9 +922,289 @@ describe('MCP terminal tools', () => {
     });
   });
 
-  describe('terminal_sessions', () => {
-    let ctx: TestContext;
+  describe('orchestrator dispatch and listing', () => {
+    function addAgent(sessionId: string, extra: Partial<TerminalSessionMeta> = {}): void {
+      state.terminalSessionMeta.set(sessionId, {
+        scopeType: 'project',
+        scopeLabel: `label-${sessionId}`,
+        workingDir: '/repo',
+        agentType: 'claude',
+        activityState: 'idle',
+        cols: 80,
+        rows: 24,
+        ...extra,
+      });
+    }
 
+    it('[FR-MCP-130] should list every live agent terminal for an anonymous caller, with connected, identity and link', async () => {
+      addAgent('hand-opened', {
+        workspaceSlug: 'ws',
+        projectSlug: 'proj',
+        worktreeBranch: 'feat/x',
+        taskId: 4,
+      });
+      addAgent('plugged');
+      connectWorker(state, 'plugged', 'plugged worker');
+      state.terminalSessionMeta.set('shell', {
+        scopeType: 'project',
+        scopeLabel: 'shell',
+        workingDir: '/repo',
+        cols: 80,
+        rows: 24,
+      });
+
+      const { data } = await callTool(makeMcp(), 'terminal_list_workers')();
+      const workers = data.workers as Array<Record<string, unknown>>;
+
+      expect(workers.map((w) => w.sessionId).sort()).toEqual(['hand-opened', 'plugged']);
+      expect(workers.find((w) => w.sessionId === 'hand-opened')).toMatchObject({
+        connected: false,
+        workspaceSlug: 'ws',
+        projectSlug: 'proj',
+        worktreeBranch: 'feat/x',
+        taskId: 4,
+        link: 'http://localhost:3000/t/hand-opened',
+      });
+      expect(workers.find((w) => w.sessionId === 'plugged')?.connected).toBe(true);
+    });
+
+    it('[FR-MCP-110] should refuse an unconnected agent terminal for an ordinary caller', async () => {
+      addAgent('target');
+      addAgent('caller');
+      const { isError, data } = await callTool(makeMcp('caller'), 'terminal_dispatch')({
+        workerSessionId: 'target',
+        message: 'hi',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('not connected');
+      expect(sent).toHaveLength(0);
+    });
+
+    it('[FR-MCP-110] should let the orchestrator dispatch to a terminal nobody connected', async () => {
+      addAgent('target');
+      addAgent('boss', { orchestrator: true });
+      const { isError, data } = await callTool(makeMcp('boss'), 'terminal_dispatch')({
+        workerSessionId: 'target',
+        message: 'hi',
+      });
+      expect(isError).toBe(false);
+      expect(data.status).toBe('written');
+    });
+
+    it('[FR-MCP-110] should refuse a terminal the user opted out, even for the orchestrator', async () => {
+      addAgent('target', { dispatchOptOut: true });
+      addAgent('boss', { orchestrator: true });
+      const { isError, data } = await callTool(makeMcp('boss'), 'terminal_dispatch')({
+        workerSessionId: 'target',
+        message: 'hi',
+      });
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('turned dispatch off');
+    });
+
+    it('[FR-MCP-110] should expose no tool that grants the orchestrator role', () => {
+      const tools = (makeMcp('boss') as unknown as { _registeredTools: Record<string, unknown> })
+        ._registeredTools;
+      expect(Object.keys(tools).filter((name) => /orchestrator/i.test(name))).toEqual([]);
+    });
+
+    it('[FR-MCP-150] should report the orchestrator flag in terminal_whoami', async () => {
+      addAgent('boss', { orchestrator: true });
+      const { data } = await callTool(makeMcp('boss'), 'terminal_whoami')();
+      expect(data.orchestrator).toBe(true);
+    });
+  });
+
+  describe('delivery and stopped states', () => {
+    it('[FR-MCP-301] should show written, not delivered, after a PTY write and expose it via terminal_collect', async () => {
+      addWorkerSession(state, 'w1', 'worker');
+      const mcp = makeMcp();
+      const { data } = await callTool(mcp, 'terminal_dispatch')({
+        workerSessionId: 'w1',
+        message: 'task',
+      });
+      expect(data.status).toBe('written');
+      const { data: collected } = await callTool(mcp, 'terminal_collect')({
+        correlationId: data.correlationId as string,
+      });
+      expect(collected.status).toBe('written');
+    });
+
+    it('[FR-MCP-310] should return stopReason and lastOutput for a stopped dispatch in terminal_collect', async () => {
+      addWorkerSession(state, 'w1', 'worker');
+      const mcp = makeMcp();
+      const { data } = await callTool(mcp, 'terminal_dispatch')({
+        workerSessionId: 'w1',
+        message: 'task',
+      });
+      const row = getDispatch(data.correlationId as string)!;
+      settleDispatch(state, row, 'stopped', {
+        settledBy: 'hook',
+        stopReason: 'the worker turn ended without a terminal_reply call',
+        lastOutput: 'I got stuck',
+      });
+
+      const { data: collected } = await callTool(mcp, 'terminal_collect')({
+        correlationId: data.correlationId as string,
+      });
+      expect(collected).toMatchObject({
+        status: 'stopped',
+        stopReason: 'the worker turn ended without a terminal_reply call',
+        lastOutput: 'I got stuck',
+      });
+    });
+
+    it('[FR-MCP-310] should resolve a sync dispatch with the stopped state instead of timing out', async () => {
+      addWorkerSession(state, 'w1', 'worker');
+      const call = callTool(makeMcp(), 'terminal_dispatch')({
+        workerSessionId: 'w1',
+        message: 'task',
+        mode: 'sync',
+        timeoutSeconds: 30,
+      });
+      await vi.waitFor(() => {
+        expect(ctx.db.select().from(dispatches).all()).toHaveLength(1);
+      });
+      const row = ctx.db.select().from(dispatches).all()[0];
+      settleDispatch(state, getDispatch(row.correlationId)!, 'stopped', {
+        settledBy: 'hook',
+        stopReason: 'turn ended',
+        lastOutput: 'quiet',
+      });
+
+      const { data } = await call;
+      expect(data.status).toBe('stopped');
+    });
+  });
+
+  describe('terminal_reply evidence', () => {
+    async function dispatchTo(workerId: string): Promise<string> {
+      const { data } = await callTool(makeMcp(), 'terminal_dispatch')({
+        workerSessionId: workerId,
+        message: 'task',
+      });
+      return data.correlationId as string;
+    }
+
+    beforeEach(() => {
+      addWorkerSession(state, 'w1', 'worker');
+      vi.mocked(dispatchGitShow).mockReset();
+    });
+
+    it('[FR-MCP-320] should store and return evidence, marking a commit the daemon finds as verified', async () => {
+      vi.mocked(dispatchGitShow).mockResolvedValue({ files: [] });
+      const correlationId = await dispatchTo('w1');
+
+      const { data, isError } = await callTool(makeMcp('w1'), 'terminal_reply')({
+        result: 'done',
+        evidence: {
+          commit: 'abc1234',
+          commands: [{ command: 'pnpm test', exitCode: 0 }],
+          filesChanged: ['a.ts'],
+          notVerified: ['browser check'],
+        },
+      });
+
+      expect(isError).toBe(false);
+      expect(dispatchGitShow).toHaveBeenCalledWith('/tmp', 'abc1234', state, undefined);
+      const { data: collected } = await callTool(makeMcp(), 'terminal_collect')({ correlationId });
+      expect(data.evidence).toMatchObject({ commitVerified: 'verified' });
+      expect(collected.evidence).toEqual({
+        commit: 'abc1234',
+        commands: [{ command: 'pnpm test', exitCode: 0 }],
+        filesChanged: ['a.ts'],
+        notVerified: ['browser check'],
+        commitVerified: 'verified',
+      });
+    });
+
+    it('[FR-MCP-320] should mark a commit git cannot find as not_found', async () => {
+      vi.mocked(dispatchGitShow).mockRejectedValue(new Error('bad object deadbeef'));
+      const correlationId = await dispatchTo('w1');
+
+      const { data } = await callTool(makeMcp('w1'), 'terminal_reply')({
+        correlationId,
+        result: 'done',
+        evidence: { commit: 'deadbeef' },
+      });
+
+      expect(data.evidence).toMatchObject({ commit: 'deadbeef', commitVerified: 'not_found' });
+    });
+
+    it('[FR-MCP-320] should mark the commit unverified when git says the short hash is ambiguous', async () => {
+      vi.mocked(dispatchGitShow).mockRejectedValue(
+        new Error(
+          "error: short object ID abc1234 is ambiguous\nfatal: ambiguous argument 'abc1234': unknown revision or path not in the working tree.",
+        ),
+      );
+      await dispatchTo('w1');
+
+      const { data } = await callTool(makeMcp('w1'), 'terminal_reply')({
+        result: 'done',
+        evidence: { commit: 'abc1234' },
+      });
+
+      expect(data.evidence).toMatchObject({ commitVerified: 'unverified' });
+    });
+
+    it('[FR-MCP-320] should mark the commit unverified for an unrelated git or transport error', async () => {
+      vi.mocked(dispatchGitShow).mockRejectedValue(new Error('fatal: not a git repository'));
+      await dispatchTo('w1');
+
+      const { data } = await callTool(makeMcp('w1'), 'terminal_reply')({
+        result: 'done',
+        evidence: { commit: 'abc1234' },
+      });
+
+      expect(data.evidence).toMatchObject({ commitVerified: 'unverified' });
+    });
+
+    it('[FR-MCP-320] should verify the commit through the coder workspace of the worker', async () => {
+      vi.mocked(dispatchGitShow).mockClear();
+      vi.mocked(dispatchGitShow).mockResolvedValue({ files: [] });
+      state.terminalSessionMeta.get('w1')!.workspaceSlug = 'ws-coder';
+      ctx.db
+        .insert(workspaces)
+        .values({
+          name: 'c',
+          slug: 'ws-coder',
+          docsDir: '/docs',
+          containerEnabled: true,
+          executionBackend: 'coder',
+          coderConfig: { workspace: 'remote-box' },
+        } as typeof workspaces.$inferInsert)
+        .run();
+      await dispatchTo('w1');
+
+      await callTool(makeMcp('w1'), 'terminal_reply')({
+        result: 'done',
+        evidence: { commit: 'abc1234' },
+      });
+
+      expect(vi.mocked(dispatchGitShow).mock.calls[0][3]).toBe('remote-box');
+    });
+
+    it('[FR-MCP-320] should mark the commit unverified when the daemon cannot answer', async () => {
+      vi.mocked(dispatchGitShow).mockRejectedValue(new Error('No daemon connected'));
+      await dispatchTo('w1');
+
+      const { data } = await callTool(makeMcp('w1'), 'terminal_reply')({
+        result: 'done',
+        evidence: { commit: 'abc1234' },
+      });
+
+      expect(data.evidence).toMatchObject({ commitVerified: 'unverified' });
+    });
+
+    it('[FR-MCP-320] should accept a reply with no evidence', async () => {
+      const correlationId = await dispatchTo('w1');
+      const ok = await callTool(makeMcp('w1'), 'terminal_reply')({ result: 'done' });
+      expect(ok.isError).toBe(false);
+      expect(getDispatch(correlationId)?.evidence).toBeUndefined();
+    });
+  });
+
+  describe('terminal_sessions', () => {
     function addSession(sessionId: string, extra: Partial<TerminalSessionMeta> = {}) {
       ctx.state.terminalSessionMeta.set(sessionId, {
         scopeType: 'project',
@@ -829,15 +1235,6 @@ describe('MCP terminal tools', () => {
         })
         .run();
     }
-
-    beforeEach(() => {
-      ctx = setupTestDb();
-      ctx.db.insert(workspaces).values({ name: 'WS', slug: 'ws', repos: ['/repo'] }).run();
-    });
-
-    afterEach(() => {
-      ctx.cleanup();
-    });
 
     it('[FR-MCP-290] should list live and dormant agent sessions with state, identity and link', async () => {
       addSession('live-1', {

@@ -54,9 +54,11 @@ export function applyActivityState(
   });
   // Idle-gated delivery: a terminal that just finished its turn receives the
   // next queued cross-terminal dispatch, or else its waiting live comments.
-  if (next === 'idle' || next === 'done') {
-    if (!flushDispatchInbox(state, sessionId)) flushLiveComments(state, sessionId);
-  }
+  if (next === 'idle' || next === 'done') flushIdleSession(state, sessionId);
+}
+
+export function flushIdleSession(state: AppState, sessionId: string): void {
+  if (!flushDispatchInbox(state, sessionId)) flushLiveComments(state, sessionId);
 }
 
 export const handleUserPromptSubmitActivity: HookHandler = (payload, _meta, state, sessionId) => {

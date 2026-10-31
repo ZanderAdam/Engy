@@ -1,24 +1,30 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getAppState, type AppState } from '../trpc/context';
+import { getAppState, type AppState, type DispatchEntry } from '../trpc/context';
+import type { StoredEvidence } from '../db/schema';
 import {
-  AGENT_SPAWN_LIMIT,
+  SPAWN_WARN_ABOVE,
+  checkSpawnLimits,
   closeAgentTerminal,
   countAgentSpawnedSessions,
   createDispatch,
+  dispatchRefusal,
   getWorkerOutputTail,
+  isOrchestrator,
   listWorkers,
   resolveDispatchReply,
   resolveWorkerReply,
   spawnAgentTerminal,
   waitForDispatchReply,
 } from '../terminal-dispatch';
+import { SETTLED_STATUSES, getDispatch, saveDispatch } from '../terminal-dispatch-store';
+import { resolveSpawnTarget, listAllWorkspaceRepos } from '../terminal-spawn-scope';
 import { getDb } from '../db/client';
 import { workspaces } from '../db/schema';
+import { dispatchGitShow } from '../ws/server';
+import { coderWorkspaceForSession } from '../terminal-coder-workspace';
 import { isAgentTypeId, isAgentActive, listAgentTypes } from '@/lib/agent-types';
-import { eq } from 'drizzle-orm';
 import { listTerminalSessions } from '../ws/terminal-session-list';
 import { listSessionHistory, liveHistoryKeys } from '../ws/terminal-session-history';
 import { deriveMcpOrigin, terminalLink } from '../terminal-link';
@@ -26,21 +32,23 @@ import { mcpResult, mcpError } from './result';
 
 // Cross-terminal dispatch tools. These are agent-only (no tRPC counterparts by
 // design — browsers manage the worker set via terminal.connectWorker /
-// disconnectWorker; agents are the only callers of dispatch/reply/collect).
-//
-// The only gate is the connected-worker set: with nothing connected,
-// terminal_list_workers returns [] and terminal_dispatch refuses every id.
+// disconnectWorker and the orchestrator role via terminal.setOrchestrator;
+// agents are the only callers of dispatch/reply/collect).
 
-const OUTPUT_TAIL_RESPONSE_CHARS = 2_000;
+const DEFAULT_STATUS_LINES = 50;
 const CLOSED_SESSIONS_PER_WORKSPACE = 10;
 
 const terminalDispatchInput = {
-  workerSessionId: z.string().describe('Target worker terminal session id (from terminal_list_workers)'),
+  workerSessionId: z
+    .string()
+    .describe('Target worker terminal session id (from terminal_list_workers)'),
   message: z.string().describe('Prompt to send to the worker agent'),
   mode: z
     .enum(['async', 'sync'])
     .default('async')
-    .describe("async: return a correlationId immediately (collect later). sync: wait for the worker's reply"),
+    .describe(
+      "async: return a correlationId immediately (collect later). sync: wait for the worker's reply",
+    ),
   timeoutSeconds: z
     .number()
     .min(1)
@@ -48,6 +56,27 @@ const terminalDispatchInput = {
     .default(120)
     .describe('sync mode: seconds to wait before returning a pending status'),
 };
+
+const evidenceSchema = z
+  .object({
+    commit: z
+      .string()
+      .regex(/^[0-9a-f]{7,40}$/i)
+      .optional()
+      .describe('Commit hash of the work, if you committed. The server checks it against the repo'),
+    commands: z
+      .array(z.object({ command: z.string(), exitCode: z.number().int() }))
+      .max(30)
+      .optional()
+      .describe('Commands you ran to check the work (tests, build, lint) with their exit codes'),
+    filesChanged: z.array(z.string()).max(200).optional().describe('Paths you changed'),
+    notVerified: z
+      .array(z.string())
+      .max(50)
+      .optional()
+      .describe('Things you did NOT verify or could not run. Say so instead of claiming done'),
+  })
+  .optional();
 
 const terminalReplyInput = {
   result: z
@@ -61,6 +90,9 @@ const terminalReplyInput = {
     .describe(
       'Only needed when your request carried an [engy-dispatch <id>] marker with an id — otherwise the server matches the reply to your open dispatch automatically',
     ),
+  evidence: evidenceSchema.describe(
+    'Optional proof for the claim in `result`: commit hash, commands with exit codes, files changed, and what you did not verify',
+  ),
 };
 
 const terminalCollectInput = {
@@ -68,7 +100,14 @@ const terminalCollectInput = {
 };
 
 const terminalStatusInput = {
-  workerSessionId: z.string().describe('Worker terminal session id'),
+  workerSessionId: z.string().describe('Agent terminal session id'),
+  lines: z
+    .number()
+    .int()
+    .min(1)
+    .max(1000)
+    .default(DEFAULT_STATUS_LINES)
+    .describe('How many trailing output lines to return. For debugging only — not a status signal'),
 };
 
 const terminalCloseInput = {
@@ -83,7 +122,9 @@ const terminalSpawnInput = {
     ),
   cwd: z
     .string()
-    .describe('Absolute working directory — must be inside a workspace repo (worktrees included)'),
+    .describe(
+      'Absolute working directory — must be inside a workspace repo (worktrees included). The workspace and project that own it decide the terminal scope and agent settings',
+    ),
   description: z
     .string()
     .min(1)
@@ -95,44 +136,38 @@ const terminalSpawnInput = {
     .describe('Optional initial prompt the spawned agent starts working on immediately'),
 };
 
-function listAllWorkspaceRepos(): string[] {
-  const rows = getDb().select({ repos: workspaces.repos }).from(workspaces).all();
-  return rows.flatMap((row) => (Array.isArray(row.repos) ? row.repos : []));
-}
-
-// Resolve symlinks so a symlinked repo root and its real path compare equal.
-// Falls back to the resolved path when it does not exist on this host (the
-// server may run remotely; the daemon still validates at spawn).
-function safeRealpath(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return p;
-  }
-}
-
-function isInsideAnyRepo(cwd: string, repos: string[]): boolean {
-  const resolved = safeRealpath(path.resolve(cwd));
-  return repos.some((repo) => {
-    const root = safeRealpath(path.resolve(repo));
-    return resolved === root || resolved.startsWith(root + path.sep);
-  });
-}
-
-function dispatchSummary(entry: {
-  correlationId: string;
-  workerSessionId: string;
-  status: string;
-  result?: string;
-  error?: string;
-}) {
+function dispatchSummary(entry: DispatchEntry) {
   return {
     correlationId: entry.correlationId,
     workerSessionId: entry.workerSessionId,
     status: entry.status,
     result: entry.result,
     error: entry.error,
+    stopReason: entry.stopReason,
+    lastOutput: entry.lastOutput,
+    evidence: entry.evidence,
   };
+}
+
+const GIT_AMBIGUOUS_SHORT_HASH_RE = /short object ID \S+ is ambiguous/i;
+const GIT_MISSING_COMMIT_RE =
+  /bad object|bad revision|unknown revision|not a valid object name|ambiguous argument/i;
+
+async function verifyCommit(
+  state: AppState,
+  repoDir: string | undefined,
+  commit: string,
+  coderWorkspace: string | undefined,
+): Promise<NonNullable<StoredEvidence['commitVerified']>> {
+  if (!repoDir) return 'unverified';
+  try {
+    await dispatchGitShow(repoDir, commit, state, coderWorkspace);
+    return 'verified';
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '';
+    if (GIT_AMBIGUOUS_SHORT_HASH_RE.test(message)) return 'unverified';
+    return GIT_MISSING_COMMIT_RE.test(message) ? 'not_found' : 'unverified';
+  }
 }
 
 // `callerTerminalSessionId` is the path token from the caller's `/mcp/<id>`
@@ -144,6 +179,23 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
       ? state.terminalSessionMeta.get(callerTerminalSessionId)?.command
       : undefined;
     return deriveMcpOrigin(command);
+  }
+
+  async function withVerifiedCommit(
+    state: AppState,
+    evidence: z.infer<typeof evidenceSchema>,
+    repoSessionId: string | undefined,
+  ): Promise<StoredEvidence | undefined> {
+    if (!evidence) return undefined;
+    if (!evidence.commit) return evidence;
+    const meta = repoSessionId ? state.terminalSessionMeta.get(repoSessionId) : undefined;
+    const commitVerified = await verifyCommit(
+      state,
+      meta?.agentCwd ?? meta?.workingDir,
+      evidence.commit,
+      meta ? coderWorkspaceForSession(meta) : undefined,
+    );
+    return { ...evidence, commitVerified };
   }
 
   mcp.tool(
@@ -167,6 +219,7 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
         agentType: meta?.agentType ?? null,
         scopeLabel: meta?.scopeLabel ?? null,
         workingDir: meta?.workingDir ?? null,
+        orchestrator: meta?.orchestrator === true,
         link: terminalLink(callerOrigin(getAppState()), callerTerminalSessionId),
       });
     },
@@ -196,37 +249,23 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
       if (!isAgentTypeId(agentType)) {
         return mcpError(`Unknown agentType '${agentType}'. Available: ${knownTypes.join(', ')}.`);
       }
-      // Workspace-level per-agent settings: a deactivated agent type must not
-      // be spawnable, and an active one boots in its configured default mode.
-      // Fail-safe: without workspace context the guard can't be enforced, so
-      // the spawn is refused rather than silently unrestricted.
-      if (!callerMeta.workspaceSlug) {
-        return mcpError(
-          'Caller terminal has no workspace context — cannot apply workspace agent settings, spawn refused.',
-        );
+      if (!path.isAbsolute(cwd)) {
+        return mcpError(`cwd must be an absolute path, got '${cwd}'. Pass the full repo path.`);
       }
-      const callerWorkspace = getDb()
-        .select()
-        .from(workspaces)
-        .where(eq(workspaces.slug, callerMeta.workspaceSlug))
-        .get();
-      if (!isAgentActive(callerWorkspace?.agentSettings, agentType)) {
-        return mcpError(
-          `Agent type '${agentType}' is deactivated in this workspace's settings — spawn refused.`,
-        );
-      }
-      const liveSpawned = countAgentSpawnedSessions(state);
-      if (liveSpawned >= AGENT_SPAWN_LIMIT) {
-        return mcpError(
-          `Agent-spawned terminal limit reached (${AGENT_SPAWN_LIMIT} live). Reuse an existing worker via terminal_dispatch, or terminal_close one you spawned to free a slot.`,
-        );
-      }
-      const repos = listAllWorkspaceRepos();
-      if (!isInsideAnyRepo(cwd, repos)) {
+      const target = await resolveSpawnTarget(cwd, state);
+      if (!target) {
+        const repos = listAllWorkspaceRepos();
         return mcpError(
           `cwd must be inside a workspace repo (worktrees under a repo count). Registered repos: ${repos.join(', ') || '(none)'}.`,
         );
       }
+      if (!isAgentActive(target.workspace.agentSettings, agentType)) {
+        return mcpError(
+          `Agent type '${agentType}' is deactivated in workspace '${target.workspace.slug}' settings — spawn refused.`,
+        );
+      }
+      const refusal = checkSpawnLimits(state, callerTerminalSessionId, callerMeta);
+      if (refusal) return mcpError(refusal);
 
       const spawned = spawnAgentTerminal(state, {
         agentType,
@@ -234,13 +273,15 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
         description,
         prompt,
         spawnedBy: callerTerminalSessionId,
-        callerMeta,
+        spawnDepth: (callerMeta.spawnDepth ?? 0) + 1,
+        scope: target.scope,
         mcpOrigin: deriveMcpOrigin(callerMeta.command),
-        agentSettings: callerWorkspace?.agentSettings,
+        agentSettings: target.workspace.agentSettings,
       });
       if (!spawned) {
         return mcpError('No terminal daemon connected — cannot spawn.');
       }
+      const activeSpawned = countAgentSpawnedSessions(state);
       return mcpResult({
         sessionId: spawned.sessionId,
         agentType,
@@ -248,6 +289,11 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
         hint: prompt
           ? 'Worker is booting and will start on the initial prompt. You can terminal_dispatch follow-ups immediately — they queue and deliver when the worker is ready.'
           : 'Worker is booting. terminal_dispatch work to it immediately — messages queue and deliver as soon as the CLI is ready.',
+        ...(activeSpawned > SPAWN_WARN_ABOVE
+          ? {
+              warning: `${activeSpawned} agent-spawned terminals are active (warning above ${SPAWN_WARN_ABOVE}). Use parallel workers only for independent tasks; overlapping edits do worse than one agent.`,
+            }
+          : {}),
       });
     },
   );
@@ -283,7 +329,7 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
 
   mcp.tool(
     'terminal_list_workers',
-    'List terminal sessions connected as dispatch workers — other live agent sessions that accept dispatched prompts',
+    'List every live agent terminal across all workspaces (plain shells excluded). `connected` is true when the user connected it as a dispatch worker; the user-set orchestrator may dispatch to any of them, other callers only to connected ones',
     {},
     async () => {
       const state = getAppState();
@@ -295,7 +341,7 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
       if (workers.length === 0) {
         return mcpResult({
           workers: [],
-          hint: 'No worker terminals are connected. The user connects a terminal as a worker from the Engy terminal panel.',
+          hint: 'No live agent terminals. Open an agent terminal in the Engy UI first.',
         });
       }
       return mcpResult({ workers });
@@ -358,18 +404,12 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
 
   mcp.tool(
     'terminal_dispatch',
-    "Send a prompt to a connected worker terminal (any agent CLI). The worker replies via terminal_reply; in async mode the settled result is pushed into your terminal when ready (no polling needed if you're an Engy-spawned agent)",
+    "Send a prompt to an agent terminal. Allowed for terminals the user connected as workers, and for any live agent terminal when you hold the orchestrator role. The worker replies via terminal_reply; in async mode the settled result is pushed into your terminal when ready (no polling needed if you're an Engy-spawned agent)",
     terminalDispatchInput,
     async ({ workerSessionId, message, mode, timeoutSeconds }) => {
       const state = getAppState();
-      if (!state.dispatchWorkers.has(workerSessionId)) {
-        return mcpError(
-          'Unknown worker session. Call terminal_list_workers for connected workers; the user connects them from the terminal panel.',
-        );
-      }
-      if (!state.terminalSessionMeta.has(workerSessionId)) {
-        return mcpError('Worker terminal is no longer alive.');
-      }
+      const refusal = dispatchRefusal(state, callerTerminalSessionId, workerSessionId);
+      if (refusal) return mcpError(refusal);
       if (!state.terminalDaemon || state.terminalDaemon.readyState !== state.terminalDaemon.OPEN) {
         return mcpError('No terminal daemon connected — cannot deliver input.');
       }
@@ -389,8 +429,11 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
           timeoutSeconds * 1000,
         );
         const summary = dispatchSummary(settled);
-        if (settled.status !== 'replied' && settled.status !== 'failed') {
-          if (canNotify) entry.notifyOnReply = true;
+        if (!SETTLED_STATUSES.includes(settled.status)) {
+          if (canNotify) {
+            settled.notifyOnReply = true;
+            saveDispatch(settled);
+          }
           return mcpResult({
             ...summary,
             hint: canNotify
@@ -411,10 +454,10 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
 
   mcp.tool(
     'terminal_collect',
-    'Fetch the current state (and reply, once available) of a dispatch by correlationId',
+    'Fetch the current state (and reply, once available) of a dispatch by correlationId. Status: queued, written (sent to the terminal), delivered (worker turn started), replied, stopped (turn ended with no reply — see stopReason and lastOutput), failed',
     terminalCollectInput,
     async ({ correlationId }) => {
-      const entry = getAppState().dispatches.get(correlationId);
+      const entry = getDispatch(correlationId);
       if (!entry) return mcpError(`Unknown correlationId: ${correlationId}`);
       return mcpResult(dispatchSummary(entry));
     },
@@ -422,52 +465,58 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
 
   mcp.tool(
     'terminal_reply',
-    'Report the outcome of a request that arrived with an [engy-dispatch] marker. The server matches the reply to your open dispatch; pass correlationId only when the marker included an id',
+    'Report the outcome of a request that arrived with an [engy-dispatch] marker. The server matches the reply to your open dispatch; pass correlationId only when the marker included an id. Attach `evidence` (commit, commands with exit codes, files changed, not-verified items) so the requester does not have to trust the text alone',
     terminalReplyInput,
-    async ({ correlationId, result }) => {
+    async ({ correlationId, result, evidence }) => {
       const state = getAppState();
       if (correlationId) {
-        const ok = resolveDispatchReply(state, correlationId, result);
+        const repoSessionId =
+          callerTerminalSessionId ?? getDispatch(correlationId)?.workerSessionId;
+        const stored = await withVerifiedCommit(state, evidence, repoSessionId);
+        const ok = resolveDispatchReply(state, correlationId, result, stored);
         if (!ok) {
           return mcpError(
             'Unknown or already-settled correlationId. Only reply once, with the exact id from the [engy-dispatch <id>] marker.',
           );
         }
-        return mcpResult({ ok: true, correlationId });
+        return mcpResult({ ok: true, correlationId, evidence: stored });
       }
       if (!callerTerminalSessionId) {
         return mcpError(
           'Cannot match this reply: your MCP connection is anonymous (plain /mcp), so a correlationId is required — use the id from the [engy-dispatch <id>] marker.',
         );
       }
-      const settled = resolveWorkerReply(state, callerTerminalSessionId, result);
+      const stored = await withVerifiedCommit(state, evidence, callerTerminalSessionId);
+      const settled = resolveWorkerReply(state, callerTerminalSessionId, result, stored);
       if (!settled) {
         return mcpError(
-          'No open dispatch found for your terminal session — it may already be settled. Nothing to reply to.',
+          'Cannot match this reply to exactly one open dispatch for your terminal (none open, already settled, or several in flight). Pass correlationId with the id from the [engy-dispatch <id>] marker.',
         );
       }
-      return mcpResult({ ok: true, correlationId: settled.correlationId });
+      return mcpResult({ ok: true, correlationId: settled.correlationId, evidence: stored });
     },
   );
 
   mcp.tool(
     'terminal_status',
-    "Inspect a connected worker: description, agent type, activity state, and a recent tail of the worker's terminal output",
+    'Inspect a live agent terminal: description, agent type, activity state, and the last `lines` lines (default 50) of its terminal output. Output is returned for connected workers, and for any agent terminal only to the orchestrator. The output is for debugging only — it never feeds status',
     terminalStatusInput,
-    async ({ workerSessionId }) => {
+    async ({ workerSessionId, lines }) => {
       const state = getAppState();
       const worker = listWorkers(state).find((w) => w.sessionId === workerSessionId);
       if (!worker) {
-        return mcpError('Unknown worker session. Call terminal_list_workers for connected workers.');
+        return mcpError(
+          'Unknown agent terminal. Call terminal_list_workers for live agent terminals.',
+        );
       }
       const meta = state.terminalSessionMeta.get(workerSessionId);
-      const tail = getWorkerOutputTail(state, workerSessionId);
+      const mayReadOutput = worker.connected || isOrchestrator(state, callerTerminalSessionId);
       return mcpResult({
         ...worker,
         link: terminalLink(callerOrigin(state), workerSessionId),
         activeSubagents: meta?.activeSubagents ?? 0,
         lastFailure: meta?.lastFailure,
-        outputTail: tail.slice(-OUTPUT_TAIL_RESPONSE_CHARS),
+        outputTail: mayReadOutput ? getWorkerOutputTail(state, workerSessionId, lines) : undefined,
       });
     },
   );

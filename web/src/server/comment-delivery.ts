@@ -1,6 +1,6 @@
 import { TRPCError } from '@trpc/server';
 import type { AppState, LiveCommentTarget } from './trpc/context';
-import { canInjectNow, injectPromptToTerminal } from './terminal-dispatch';
+import { canInjectNow, injectPromptToTerminal, scheduleHoldRetry } from './terminal-dispatch';
 import { broadcastCommentLiveChange } from './ws/broadcast';
 import { scopeContains, type CommentScope } from './services/comment';
 import {
@@ -40,7 +40,10 @@ export function sendPendingComments(
 
 /** A busy agent gets nothing now; its next idle transition calls flushLiveComments. Returns true when it pasted. */
 function deliverLive(state: AppState, target: LiveCommentTarget): boolean {
-  if (!canInjectNow(state, target.sessionId)) return false;
+  if (!canInjectNow(state, target.sessionId)) {
+    scheduleHoldRetry(state, target.sessionId);
+    return false;
+  }
   try {
     const sent = sendPendingComments(state, target.sessionId, target.scope, {
       filePath: target.filePath,

@@ -18,11 +18,12 @@ import { eq } from 'drizzle-orm';
 import { dispatchContainerUp } from './server';
 import { broadcastTerminalSessionsChange, broadcastTerminalActivityChange } from './broadcast';
 import { persistTerminalSession, deletePersistedTerminalSession } from './terminal-session-store';
-import { applyActivityState } from '../hooks/activity';
+import { applyActivityState, flushIdleSession } from '../hooks/activity';
 import { clearAttention } from '../hooks/title';
 import {
   destroyTerminalSession,
-  disconnectWorker,
+  dropSessionDispatchState,
+  recordHumanInput,
   failWorkerDispatches,
   isTrackedWorker,
   recordWorkerOutput,
@@ -185,7 +186,9 @@ function respawnLostSession(
   state.daemonTerminalSessions.ids.add(sessionId);
   const wasDormant = meta.dormant;
   if (wasDormant) delete meta.dormant;
-  if (wasDormant || trackedDirReset) persistTerminalSession(sessionId, meta);
+  const wasQuiet = meta.activityState !== 'active';
+  if (meta.agentType) meta.activityState = 'active';
+  if (wasDormant || trackedDirReset || wasQuiet) persistTerminalSession(sessionId, meta);
   broadcastTerminalSessionsChange('created', sessionId, meta.groupKey);
 }
 
@@ -389,6 +392,8 @@ async function handleTerminalConnection(
       }
       return;
     }
+
+    if (str.startsWith('{"t":"i"')) recordHumanInput(state, sessionId, str);
 
     // The user viewed/focused the terminal — clear its activity state here (so
     // badges update even if the daemon is down or its tracker has drifted) and
@@ -713,7 +718,7 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
                 `[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — respawning on daemon`,
               );
               respawnLostSession(state, ws, sessionId, meta);
-            } else if (meta.spawnedBy || isTrackedWorker(state, sessionId)) {
+            } else if (meta.spawnedBy || state.dispatchWorkers.has(sessionId)) {
               // Agent-spawned terminals have no user watching them and may hold
               // unsettled dispatches — full teardown so no phantom worker entry
               // or pending dispatch outlives the PTY.
@@ -727,8 +732,14 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
               console.log(
                 `[terminal-relay] Stale session ${sessionId} (${meta.scopeLabel}) — no browser, marking dormant`,
               );
+              failWorkerDispatches(state, sessionId, 'Worker terminal is no longer running');
+              state.terminalOutputTails.delete(sessionId);
               markSessionDormant(sessionId, meta);
             }
+          }
+
+          for (const sessionId of daemonSessionIds) {
+            if (state.terminalSessionMeta.has(sessionId)) flushIdleSession(state, sessionId);
           }
 
           // DB-restored entries are now validated: alive ones were kept above,
@@ -761,8 +772,7 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
       const sessionId = extractSessionId(str);
       if (!sessionId) return;
 
-      // Bounded output tail for connected dispatch workers (terminal_status).
-      // Parse only for tracked sessions — the hot path stays zero-parse.
+      // Parse only for agent terminals — the plain-shell hot path stays zero-parse.
       if (str.startsWith('{"t":"o"') && isTrackedWorker(state, sessionId)) {
         try {
           const frame = JSON.parse(str) as { d?: string };
@@ -836,7 +846,7 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         state.terminalSessions.delete(sessionId);
         state.terminalSessionMeta.delete(sessionId);
         failWorkerDispatches(state, sessionId, 'Worker terminal exited');
-        disconnectWorker(state, sessionId);
+        dropSessionDispatchState(state, sessionId);
         clearLiveTargetsForSession(state, sessionId);
         broadcastTerminalSessionsChange('destroyed', sessionId, exitMeta?.groupKey);
         if (exitMeta?.projectSlug) {

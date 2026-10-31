@@ -25,6 +25,7 @@ import { isStoppedTerminal, type TerminalPanelParams, type TerminalTab } from '.
 import { TerminalSessionLabel } from './terminal-session-label';
 import { TerminalNewMenuContent } from './terminal-new-menu';
 import { TerminalWorkerButton } from './terminal-worker-button';
+import { TerminalOrchestratorMenu } from './terminal-orchestrator-menu';
 import { groupTabsByWorktree, type TerminalWorktreeGroup } from './worktree-grouping';
 import { useCommandCenterMode } from './command-center/use-command-center-mode';
 import { groupTabsByProject } from './command-center/grouping';
@@ -187,6 +188,13 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+      <TerminalOrchestratorMenu
+        activeSessionId={activePanel?.id}
+        workspaceSlug={
+          (activePanel?.params as TerminalPanelParams | undefined)?.tab.scope.workspaceSlug ??
+          defaultScope?.workspaceSlug
+        }
+      />
       <TerminalWorkerButton
         activeSessionId={activePanel?.id}
         defaultDescription={

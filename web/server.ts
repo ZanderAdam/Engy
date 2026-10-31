@@ -21,6 +21,7 @@ import {
 } from './src/server/ws/terminal-session-store';
 import { attachMCP, isMcpPath } from './src/server/mcp/index';
 import { isHookPath, handleHookRequest } from './src/server/hooks/index';
+import { flushIdleSession } from './src/server/hooks/activity';
 import { runMigrations, runPostMigrationBackfills } from './src/server/db/migrate';
 import { startPrPoller, stopPrPoller } from './src/server/pr/poller';
 import { startNotificationsPoller } from './src/server/inbox/notifications-poller';
@@ -41,6 +42,7 @@ app.prepare().then(() => {
   seedUsagePricing();
 
   const state = getAppState();
+  state.deliveryRetryFlush = flushIdleSession;
 
   // Restore terminal session meta persisted by the previous server process so
   // sessions surviving on the daemon stay listed and reattachable. The daemon's

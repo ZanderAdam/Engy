@@ -99,7 +99,7 @@ describe('hooks/failure', () => {
       expect(meta.lastFailure).toBeUndefined();
 
       const entry = createDispatch(state, 'w1', 'now deliverable');
-      expect(entry.status).toBe('delivered');
+      expect(entry.status).toBe('written');
     });
 
     it('never clears from a subagent UserPromptSubmit', () => {
@@ -154,7 +154,7 @@ describe('hooks/failure', () => {
       expect(meta.lastFailure).toBeUndefined();
 
       const entry = createDispatch(state, 'w1', 'now deliverable');
-      expect(entry.status).toBe('delivered');
+      expect(entry.status).toBe('written');
     });
 
     it('never clears from a subagent Stop', () => {

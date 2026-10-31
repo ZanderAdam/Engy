@@ -596,6 +596,64 @@ export const terminalSessionHistory = sqliteTable(
   (table) => [index('idx_tsh_workspace_started').on(table.workspaceSlug, table.startedAt)],
 );
 
+// ── Cross-terminal dispatch ─────────────────────────────────────────
+
+export const DISPATCH_STATUSES = [
+  'queued',
+  'written',
+  'delivered',
+  'replied',
+  'stopped',
+  'failed',
+] as const;
+
+export interface StoredEvidence {
+  commit?: string;
+  commands?: Array<{ command: string; exitCode: number }>;
+  filesChanged?: string[];
+  notVerified?: string[];
+  commitVerified?: 'verified' | 'not_found' | 'unverified';
+}
+
+export const dispatches = sqliteTable(
+  'dispatches',
+  {
+    correlationId: text('correlation_id').primaryKey(),
+    workerSessionId: text('worker_session_id').notNull(),
+    originSessionId: text('origin_session_id'),
+    message: text('message').notNull(),
+    status: text('status', { enum: DISPATCH_STATUSES }).notNull(),
+    result: text('result'),
+    error: text('error'),
+    notifyOnReply: integer('notify_on_reply', { mode: 'boolean' }).notNull().default(false),
+    settledBy: text('settled_by', { enum: ['reply', 'hook'] }),
+    deliveryPromptId: text('delivery_prompt_id'),
+    stopReason: text('stop_reason'),
+    lastOutput: text('last_output'),
+    evidence: text('evidence', { mode: 'json' }).$type<StoredEvidence>(),
+    createdAt: text('created_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+    writtenAt: text('written_at'),
+    deliveredAt: text('delivered_at'),
+    repliedAt: text('replied_at'),
+  },
+  (table) => [index('idx_dispatches_worker_status').on(table.workerSessionId, table.status)],
+);
+
+export const dispatchNotices = sqliteTable(
+  'dispatch_notices',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    originSessionId: text('origin_session_id').notNull(),
+    text: text('text').notNull(),
+    createdAt: text('created_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [index('idx_dispatch_notices_origin').on(table.originSessionId)],
+);
+
 // ── Usage Analytics ─────────────────────────────────────────────────
 
 // Scan bookkeeping: one row per transcript file on disk, mirroring

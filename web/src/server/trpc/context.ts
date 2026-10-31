@@ -11,6 +11,7 @@ import type {
 } from '@engy/common';
 import type { CommentScope } from '../services/comment';
 import { createGithubState, type GithubState } from '../github/types';
+import type { DISPATCH_STATUSES, StoredEvidence } from '../db/schema';
 
 export interface CreateDirResult {
   results: Array<{ path: string; success: boolean; error?: string }>;
@@ -44,6 +45,21 @@ export interface TerminalSessionMeta {
   // terminal_spawn MCP tool (undefined = user-opened). Counted against the
   // agent-spawn cap so agents cannot fork terminals without bound.
   spawnedBy?: string;
+  // How many agent hops separate this terminal from a user-opened one.
+  spawnDepth?: number;
+  // Human-set (terminal.setOrchestrator only). The one terminal that may
+  // dispatch to any live agent terminal. At most one session holds it.
+  orchestrator?: boolean;
+  // Human-set: refuse every dispatch to this terminal.
+  dispatchOptOut?: boolean;
+  // Epoch ms of the last browser keystroke relayed here. Persisted with the
+  // session meta, but only compared against a 5 second window.
+  lastHumanInputAt?: number;
+  // Epoch ms of the last server paste (dispatch, notice or comment). Holds
+  // further pastes until the delayed Enter has gone out.
+  lastPasteAt?: number;
+  // prompt_id of the newest non-subagent UserPromptSubmit hook.
+  currentPromptId?: string;
   // Agent-CLI session id this terminal resumed, so history rows track the
   // original conversation thread across restart/resume cycles.
   resumedFrom?: string;
@@ -224,14 +240,22 @@ export interface LiveCommentTarget {
   filePath?: string;
 }
 
+export type DispatchStatus = (typeof DISPATCH_STATUSES)[number];
+
 export interface DispatchEntry {
   correlationId: string;
   workerSessionId: string;
   message: string;
-  status: 'queued' | 'delivered' | 'replied' | 'failed';
+  /**
+   * queued: waiting in the worker inbox. written: the PTY write was sent.
+   * delivered: the worker's UserPromptSubmit hook confirmed the turn started.
+   * stopped: the turn ended with no terminal_reply.
+   */
+  status: DispatchStatus;
   result?: string;
   error?: string;
   createdAt: number;
+  writtenAt?: number;
   deliveredAt?: number;
   repliedAt?: number;
   /** Terminal session of the agent that dispatched (from its /mcp/<token> identity). */
@@ -246,6 +270,9 @@ export interface DispatchEntry {
    * id, so settlement matches on it instead of settling on any Stop.
    */
   deliveryPromptId?: string;
+  stopReason?: string;
+  lastOutput?: string;
+  evidence?: StoredEvidence;
 }
 
 interface DispatchWorker {
@@ -553,16 +580,16 @@ export interface AppState {
   repoFullNames: Map<string, string | null>;
   /** Terminal sessions connected as dispatch workers (sessionId → description) */
   dispatchWorkers: Map<string, DispatchWorker>;
-  /** Cross-terminal dispatches by correlationId (in-memory; lost on restart) */
-  dispatches: Map<string, DispatchEntry>;
-  /** Callbacks awaiting a dispatch reply, keyed by correlationId */
+  /** Callbacks awaiting a dispatch reply, keyed by correlationId. Dispatches themselves live in SQLite. */
   dispatchWaiters: Map<string, Array<(entry: DispatchEntry) => void>>;
-  /** Queued correlationIds per worker, delivered one at a time on idle */
-  dispatchInbox: Map<string, string[]>;
-  /** Settled-dispatch notices queued per origin session, flushed when that terminal goes idle */
-  dispatchReplyNotices: Map<string, string[]>;
-  /** Recent PTY output tail per connected worker (bounded; for terminal_status) */
+  /** Recent PTY output tail per agent terminal (bounded; for terminal_status) */
   terminalOutputTails: Map<string, string>;
+  /** Spawn timestamps per spawning terminal session, for the spawn rate limit */
+  spawnAttempts: Map<string, number[]>;
+  /** Sessions with a pending delivery retry timer (typing or written hold) */
+  deliveryRetries: Map<string, { timer: NodeJS.Timeout; fireAt: number }>;
+  /** Runs when a hold ends (installed at startup; the dispatch inbox flush when unset) */
+  deliveryRetryFlush: ((state: AppState, sessionId: string) => unknown) | null;
   /** Comment scopes in live mode, keyed by commentScopeKey (in-memory; lost on restart) */
   liveCommentTargets: Map<string, LiveCommentTarget>;
 }
@@ -627,12 +654,12 @@ export function createAppState(): AppState {
     github: createGithubState(),
     repoFullNames: new Map(),
     dispatchWorkers: new Map(),
-    dispatches: new Map(),
     dispatchWaiters: new Map(),
-    dispatchInbox: new Map(),
-    dispatchReplyNotices: new Map(),
     liveCommentTargets: new Map(),
     terminalOutputTails: new Map(),
+    spawnAttempts: new Map(),
+    deliveryRetries: new Map(),
+    deliveryRetryFlush: null,
   };
 }
 

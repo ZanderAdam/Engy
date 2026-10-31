@@ -17,6 +17,8 @@ import {
 } from './terminal-session-store';
 import { recordSessionStart } from './terminal-session-history';
 import { connectWorker, createDispatch, destroyTerminalSession } from '../terminal-dispatch';
+import { applyActivityState } from '../hooks/activity';
+import { getDispatch } from '../terminal-dispatch-store';
 
 let openClients: WebSocket[] = [];
 
@@ -305,7 +307,7 @@ describe('Terminal WebSocket Server', () => {
       await exitPromise;
 
       await vi.waitFor(() => {
-        expect(state.dispatches.get(entry.correlationId)?.status).toBe('failed');
+        expect(getDispatch(entry.correlationId)?.status).toBe('failed');
         expect(state.dispatchWorkers.has('sess-dw')).toBe(false);
       });
     });
@@ -328,13 +330,13 @@ describe('Terminal WebSocket Server', () => {
       await vi.waitFor(() => expect(state.liveCommentTargets.has('scope')).toBe(false));
     });
 
-    it('[FR-TERMINAL-300] should buffer output tails for connected workers only', async () => {
+    it('[FR-TERMINAL-300] should buffer output tails for agent terminals', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
       const browserWs = await connectBrowser(port, { sessionId: 'sess-tail', workingDir: '/tmp' });
       await spawnPromise;
 
-      connectWorker(state, 'sess-tail', 'tracked worker');
+      state.terminalSessionMeta.get('sess-tail')!.agentType = 'claude';
       const outputPromise = waitForMessage(browserWs);
       daemonWs.send(JSON.stringify({ t: 'o', sessionId: 'sess-tail', d: 'worker output' }));
       await outputPromise;
@@ -718,6 +720,51 @@ describe('Terminal WebSocket Server', () => {
       expect((row?.meta as { dormant?: boolean }).dormant).toBe(true);
     });
 
+    it('[FR-TERMINAL-280] should fail unsettled dispatches and drop the output tail when a stale agent session goes dormant', async () => {
+      state.terminalSessionMeta.set('stale-agent', {
+        scopeType: 'workspace',
+        scopeLabel: 'agent',
+        workingDir: '/tmp',
+        agentType: 'claude',
+        activityState: 'idle',
+        cols: 80,
+        rows: 24,
+      });
+      state.terminalOutputTails.set('stale-agent', 'old output');
+      const dispatch = createDispatch(state, 'stale-agent', 'task');
+      const daemonWs = await connectDaemonRelay(port, false);
+
+      daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: [] }));
+
+      await vi.waitFor(() => {
+        expect(state.terminalSessionMeta.get('stale-agent')?.dormant).toBe(true);
+      });
+      expect(getDispatch(dispatch.correlationId)?.status).toBe('failed');
+      expect(state.terminalOutputTails.has('stale-agent')).toBe(false);
+    });
+
+    it('[FR-TERMINAL-280] should flush a queued dispatch for an idle session that survives a daemon sync', async () => {
+      state.terminalSessionMeta.set('alive-agent', {
+        scopeType: 'workspace',
+        scopeLabel: 'agent',
+        workingDir: '/tmp',
+        agentType: 'claude',
+        activityState: 'active',
+        cols: 80,
+        rows: 24,
+      });
+      const dispatch = createDispatch(state, 'alive-agent', 'task');
+      expect(dispatch.status).toBe('queued');
+      state.terminalSessionMeta.get('alive-agent')!.activityState = 'idle';
+      const daemonWs = await connectDaemonRelay(port, false);
+
+      daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: ['alive-agent'] }));
+
+      await vi.waitFor(() => {
+        expect(getDispatch(dispatch.correlationId)?.status).toBe('written');
+      });
+    });
+
     it('[FR-TERMINAL-510] should spawn with --resume when a browser connects for a dormant session', async () => {
       state.terminalSessionMeta.set('dormant-sess', {
         scopeType: 'project',
@@ -751,6 +798,39 @@ describe('Terminal WebSocket Server', () => {
       expect(state.terminalSessionMeta.get('dormant-sess')?.dormant).toBeUndefined();
     });
 
+    it('[FR-TERMINAL-280] should hold queued dispatches while a restored agent boots, then flush once it settles', async () => {
+      state.terminalSessionMeta.set('dormant-agent', {
+        scopeType: 'project',
+        scopeLabel: 'my-proj',
+        workingDir: '/tmp/proj',
+        command: 'claude --session-id dormant-agent',
+        agentType: 'claude',
+        activityState: 'idle',
+        dormant: true,
+        cols: 120,
+        rows: 40,
+      });
+      const queued = createDispatch(state, 'dormant-agent', 'task');
+      expect(queued.status).toBe('queued');
+
+      const daemonWs = await connectDaemonRelay(port, false);
+      const spawnPromise = waitForMessage(daemonWs);
+      await connectBrowser(port, {
+        sessionId: 'dormant-agent',
+        workingDir: '/tmp/proj',
+        scopeType: 'project',
+        scopeLabel: 'my-proj',
+      });
+      await spawnPromise;
+
+      const meta = state.terminalSessionMeta.get('dormant-agent')!;
+      expect(meta.activityState).toBe('active');
+      expect(getDispatch(queued.correlationId)?.status).toBe('queued');
+
+      applyActivityState(state, 'dormant-agent', 'idle', 'hook');
+      expect(getDispatch(queued.correlationId)?.status).toBe('written');
+    });
+
     it('[FR-TERMINAL-110] should fail dispatches and drop the worker entry for a stale browserless worker', async () => {
       // Agent-spawned workers never have a browser — daemon restart must not
       // leave a phantom alive:false worker or unsettled dispatches behind.
@@ -773,7 +853,7 @@ describe('Terminal WebSocket Server', () => {
         expect(state.terminalSessionMeta.has('stale-worker')).toBe(false);
       });
       expect(state.dispatchWorkers.has('stale-worker')).toBe(false);
-      expect(state.dispatches.get(dispatch.correlationId)?.status).toBe('failed');
+      expect(getDispatch(dispatch.correlationId)?.status).toBe('failed');
     });
 
     it('[FR-TERMINAL-110] should respawn stale sessions when browser is still connected', async () => {

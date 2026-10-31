@@ -153,18 +153,14 @@ function spawnReviewTerminal(
     description: `Review ${label}`,
     prompt,
     spawnedBy: AUTO_REVIEW_SPAWNER,
-    callerMeta: {
+    scope: {
       scopeType: 'worktree',
-      scopeLabel: label,
-      workingDir,
       groupKey: project
         ? projectGroupKey(workspace.slug, project.slug)
         : workspaceGroupKey(workspace.slug),
       workspaceSlug: workspace.slug,
       projectId: project?.id,
       projectSlug: project?.slug,
-      cols: 80,
-      rows: 24,
     },
     mcpOrigin: `http://localhost:${process.env.PORT ?? '3000'}`,
     agentSettings: workspace.agentSettings,

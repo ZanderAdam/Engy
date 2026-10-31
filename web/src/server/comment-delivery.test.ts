@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from './db/client';
 import { threadComments } from './db/schema';
 import { replyToThread } from './services/comment';
-import { applyActivityState } from './hooks/activity';
+import { applyActivityState, flushIdleSession } from './hooks/activity';
 import { createDispatch, destroyTerminalSession } from './terminal-dispatch';
 import { diffDocPath, diffScopePrefix } from '@/lib/diff-doc-path';
 
@@ -300,6 +300,7 @@ describe('comment delivery', () => {
     it('[FR-EDITOR-240] should push a reply in an existing thread', async () => {
       await docThread('t1', 'Root');
       await caller.comment.setLive({ scope: DOC, sessionId: SESSION });
+      vi.advanceTimersByTime(3_000);
       await reply('t1', 't1-c2', 'Follow-up');
 
       expect(pastes()[1]).toContain('New:\n> **user:** Follow-up');
@@ -330,8 +331,33 @@ describe('comment delivery', () => {
       expect(pastes()[0]).toContain('Dispatched work');
 
       applyActivityState(ctx.state, SESSION, 'active', 'hook');
+      vi.advanceTimersByTime(61_000);
       applyActivityState(ctx.state, SESSION, 'idle', 'hook');
       expect(pastes()[1]).toContain('Held note');
+    });
+
+    it('[FR-TERMINAL-1050] should retry a live comment when the typing hold ends on an idle terminal', async () => {
+      await caller.comment.setLive({ scope: DOC, sessionId: SESSION });
+      ctx.state.deliveryRetryFlush = flushIdleSession;
+      ctx.state.terminalSessionMeta.get(SESSION)!.lastHumanInputAt = Date.now();
+      await docThread('t1', 'Typed over');
+      expect(pastes()).toHaveLength(0);
+
+      vi.advanceTimersByTime(5_100);
+
+      expect(pastes()).toHaveLength(1);
+      expect(pastes()[0]).toContain('Typed over');
+    });
+
+    it('[FR-TERMINAL-1050] should not paste twice before the delayed Enter when two flushes run back to back', async () => {
+      await caller.comment.setLive({ scope: DOC, sessionId: SESSION });
+      await docThread('t1', 'One');
+      const before = pastes().length;
+      await docThread('t2', 'Two');
+      flushIdleSession(ctx.state, SESSION);
+      flushIdleSession(ctx.state, SESSION);
+
+      expect(pastes()).toHaveLength(before);
     });
 
     it('[FR-EDITOR-240] should paste for only one live scope per idle transition', async () => {
@@ -350,6 +376,7 @@ describe('comment delivery', () => {
       expect(pastes()).toHaveLength(1);
 
       applyActivityState(ctx.state, SESSION, 'active', 'hook');
+      vi.advanceTimersByTime(3_000);
       applyActivityState(ctx.state, SESSION, 'idle', 'hook');
       expect(pastes()).toHaveLength(2);
     });

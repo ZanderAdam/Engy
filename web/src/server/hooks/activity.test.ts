@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import type { TerminalSessionMeta } from '../trpc/context';
 import { connectWorker, createDispatch } from '../terminal-dispatch';
+import { getDispatch } from '../terminal-dispatch-store';
 import type { WebSocket } from 'ws';
 import {
   applyActivityState,
@@ -189,7 +190,7 @@ describe('hooks/activity', () => {
 
       handleStopActivity(payload('Stop'), meta, ctx.state, 'sess-flush');
 
-      expect(ctx.state.dispatches.get(entry.correlationId)?.status).not.toBe('queued');
+      expect(getDispatch(entry.correlationId)?.status).not.toBe('queued');
     });
 
     it('[FR-TERMINAL-780] a session that gets UserPromptSubmit and then nothing stays deliverable once the window passes', () => {
@@ -210,7 +211,7 @@ describe('hooks/activity', () => {
       applyActivityState(ctx.state, 'sess-recover', 'idle', 'relay');
 
       expect(meta.activityState).toBe('idle');
-      expect(ctx.state.dispatches.get(entry.correlationId)?.status).not.toBe('queued');
+      expect(getDispatch(entry.correlationId)?.status).not.toBe('queued');
     });
   });
 

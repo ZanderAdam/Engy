@@ -1,65 +1,64 @@
-import type { AppState, DispatchEntry } from '../trpc/context';
 import { settleDispatch } from '../terminal-dispatch';
+import { listWorkerDispatches, saveDispatch } from '../terminal-dispatch-store';
 import { stripControlCharacters } from '../../lib/osc-title';
 import { isSubagentEvent } from './shared';
 import type { HookHandler, HookPayload } from './types';
+
+const LAST_OUTPUT_MAX_CHARS = 2_000;
+const DISPATCH_MARKER = '[engy-dispatch';
 
 function readPromptId(payload: HookPayload): string | undefined {
   return typeof payload.prompt_id === 'string' && payload.prompt_id ? payload.prompt_id : undefined;
 }
 
-function oldestDeliveredDispatch(
-  state: AppState,
-  workerSessionId: string,
-  predicate: (entry: DispatchEntry) => boolean,
-): DispatchEntry | undefined {
-  let oldest: DispatchEntry | undefined;
-  for (const entry of state.dispatches.values()) {
-    if (entry.workerSessionId !== workerSessionId || entry.status !== 'delivered') continue;
-    if (!predicate(entry)) continue;
-    if (!oldest || (entry.deliveredAt ?? 0) < (oldest.deliveredAt ?? 0)) oldest = entry;
-  }
-  return oldest;
-}
-
 /**
- * Records which turn a dispatch's delivery paste started, so the Stop that
+ * Marks a dispatch `delivered` when the worker's UserPromptSubmit opens the
+ * turn its paste started, and records that turn's `prompt_id` so the Stop that
  * closes that exact turn — not any later Stop — is the one allowed to settle
- * it. Registered on `UserPromptSubmit`; the delivered dispatch has no
- * `prompt_id` to tag with until the CLI opens the turn the paste triggered.
+ * it. Only a prompt carrying that dispatch's own `[engy-dispatch <id>]` marker
+ * counts, so neither a human turn nor another dispatch's turn acks it. A PTY
+ * write alone leaves the dispatch at `written`.
  */
-export const tagDispatchDeliveryTurn: HookHandler = (payload, _meta, state, sessionId) => {
+export const tagDispatchDeliveryTurn: HookHandler = (payload, meta, _state, sessionId) => {
   if (isSubagentEvent(payload)) return;
   const promptId = readPromptId(payload);
   if (!promptId) return;
+  meta.currentPromptId = promptId;
+  if (typeof payload.prompt !== 'string') return;
 
-  const entry = oldestDeliveredDispatch(
-    state,
-    sessionId,
-    (candidate) => candidate.deliveryPromptId == null,
+  // The contract is appended last, so an earlier marker is only quoted text.
+  const lastMarker = payload.prompt.slice(payload.prompt.lastIndexOf(DISPATCH_MARKER));
+  const entry = listWorkerDispatches(sessionId, ['written']).find((candidate) =>
+    lastMarker.startsWith(`${DISPATCH_MARKER} ${candidate.correlationId}]`),
   );
-  if (entry) entry.deliveryPromptId = promptId;
+  if (!entry) return;
+  entry.deliveryPromptId = promptId;
+  entry.status = 'delivered';
+  entry.deliveredAt = Date.now();
+  saveDispatch(entry);
 };
 
 /**
- * Safety net for a worker that never calls `terminal_reply`: settles the
- * dispatch its own turn carried using `last_assistant_message`. `replyContract`
- * in the pasted prompt is left unchanged — this only covers the model
- * forgetting it.
+ * Safety net for a worker that never calls `terminal_reply`: the turn that
+ * carried the dispatch ended with no reply. The dispatch settles as `stopped`
+ * — the turn ended, which proves nothing about the work — with the reason and
+ * the worker's last output.
  */
 export const settleDispatchOnStop: HookHandler = (payload, _meta, state, sessionId) => {
   if (isSubagentEvent(payload)) return;
   const promptId = readPromptId(payload);
   if (!promptId) return;
 
-  const entry = oldestDeliveredDispatch(
-    state,
-    sessionId,
+  const entry = listWorkerDispatches(sessionId, ['delivered']).find(
     (candidate) => candidate.deliveryPromptId === promptId,
   );
   if (!entry) return;
 
   const message =
     typeof payload.last_assistant_message === 'string' ? payload.last_assistant_message : '';
-  settleDispatch(state, entry, 'replied', stripControlCharacters(message), undefined, 'hook');
+  settleDispatch(state, entry, 'stopped', {
+    settledBy: 'hook',
+    stopReason: 'the worker turn ended without a terminal_reply call',
+    lastOutput: stripControlCharacters(message).slice(0, LAST_OUTPUT_MAX_CHARS),
+  });
 };

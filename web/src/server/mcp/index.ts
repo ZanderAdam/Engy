@@ -62,6 +62,7 @@ import { registerTerminalTools } from './terminal-tools';
 import { registerVoiceTools } from './voice-tools';
 import { registerCommentTools } from './comment-tools';
 import { registerDiffReviewTools } from './diff-review-tools';
+import { registerWorktreeTools } from './worktree-tools';
 
 // ── MCP Response Helpers ──────────────────────────────────────────
 // Envelope helpers live in ./result (shared with register*Tools modules).
@@ -415,6 +416,7 @@ export function getMcpServer(callerTerminalSessionId?: string): McpServer {
   registerVoiceTools(mcp, callerTerminalSessionId);
   registerCommentTools(mcp);
   registerDiffReviewTools(mcp, callerTerminalSessionId);
+  registerWorktreeTools(mcp);
 
   return mcp;
 }
