@@ -52,7 +52,11 @@ export function ProjectSwitcher({
               className={cn(isActive && 'font-medium')}
             >
               <span className="truncate">{p.name}</span>
-              <ProjectActivityBadge projectSlug={p.slug} className="ml-auto" />
+              <ProjectActivityBadge
+                workspaceSlug={workspaceSlug}
+                projectSlug={p.slug}
+                className="ml-auto"
+              />
               {isActive && <RiCheckLine className="size-3" />}
             </DropdownMenuItem>
           );

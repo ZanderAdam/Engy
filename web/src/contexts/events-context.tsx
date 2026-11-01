@@ -53,6 +53,7 @@ interface MemoryChangePayload {
 
 interface TerminalActivityChangePayload {
   sessionId: string;
+  sessionWorkspaceSlug?: string;
   projectSlug?: string;
   state?: TerminalActivityState;
   removed?: boolean;

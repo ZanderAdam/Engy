@@ -48,6 +48,7 @@ export function applyActivityState(
   persistTerminalSession(sessionId, meta);
   broadcastTerminalActivityChange({
     sessionId,
+    sessionWorkspaceSlug: meta.workspaceSlug,
     projectSlug: meta.projectSlug,
     state: next,
     hookDriven: meta.hookDriven,

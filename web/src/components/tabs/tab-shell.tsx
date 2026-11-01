@@ -432,7 +432,9 @@ function TabStrip({
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           const { segments, worktree } = deriveTabTitle(tab.virtualPath);
-          const projectSlug = parseVirtualPath(tab.virtualPath).project;
+          const { workspace: workspaceSlug, project: projectSlug } = parseVirtualPath(
+            tab.virtualPath,
+          );
           const base = deriveDefaultTitle(tab.virtualPath);
           const isDuplicate = (titleCounts.get(base) ?? 0) > 1;
           let ordinalSuffix = '';
@@ -526,7 +528,11 @@ function TabStrip({
                     <span aria-hidden className="h-2.5" />
                   )}
                 </span>
-                <ProjectActivityBadge projectSlug={projectSlug} className="shrink-0" />
+                <ProjectActivityBadge
+                  workspaceSlug={workspaceSlug}
+                  projectSlug={projectSlug}
+                  className="shrink-0"
+                />
                 <button
                   type="button"
                   aria-label={`Close ${tab.title}`}

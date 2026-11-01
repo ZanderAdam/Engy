@@ -115,6 +115,7 @@ app.prepare().then(() => {
         .filter(([, m]) => m.projectSlug != null)
         .map(([sessionId, m]) => ({
           sessionId,
+          workspaceSlug: m.workspaceSlug,
           projectSlug: m.projectSlug,
           state: m.activityState ?? 'idle',
         }));

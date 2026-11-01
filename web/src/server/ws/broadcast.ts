@@ -59,6 +59,9 @@ interface TerminalActivityChangeEvent {
   type: 'TERMINAL_ACTIVITY_CHANGE';
   payload: {
     sessionId: string;
+    // Not `workspaceSlug`: useOnServerEvent drops events for other workspaces on that field, and the
+    // Command Center dock must see every workspace's activity.
+    sessionWorkspaceSlug?: string;
     projectSlug?: string;
     state?: TerminalActivityState;
     // True when the session ended — consumers drop it from the rollup.

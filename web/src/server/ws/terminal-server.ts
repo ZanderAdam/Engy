@@ -202,7 +202,12 @@ function markSessionDormant(sessionId: string, meta: TerminalSessionMeta): void 
   meta.activityState = 'idle';
   persistTerminalSession(sessionId, meta);
   if (meta.projectSlug) {
-    broadcastTerminalActivityChange({ sessionId, projectSlug: meta.projectSlug, state: 'idle' });
+    broadcastTerminalActivityChange({
+      sessionId,
+      sessionWorkspaceSlug: meta.workspaceSlug,
+      projectSlug: meta.projectSlug,
+      state: 'idle',
+    });
   }
 }
 

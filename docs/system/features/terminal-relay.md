@@ -204,7 +204,11 @@ debounces these signals with a 3-second window (`ACTIVITY_DEBOUNCE_MS = 3_000`
 at `manager.ts:13`) and emits `{ t: 'act', sessionId, state }` messages —
 `idle`, `active`, `waiting`, or `done`. Tracking runs even while a session is
 suspended. The server stores `activityState` on `terminalSessionMeta` and
-broadcasts a per-project delta via `broadcastTerminalActivityChange`.
+broadcasts a per-project delta via `broadcastTerminalActivityChange`. State deltas carry
+`sessionWorkspaceSlug` and the snapshot carries `workspaceSlug`, because project
+slugs repeat across workspaces. The delta does not use the name `workspaceSlug`:
+the events scope filter would drop it for other workspaces, and the Command Center
+dock needs every workspace's activity. `removed` deltas need only `sessionId`.
 
 Three healing paths keep the stored/browser state from drifting when messages
 are dropped: the daemon's reconnect sync carries every live session's current
@@ -598,6 +602,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-1040 | The terminal board SHALL show each session in exactly one lane: Backlog for a dormant session, otherwise Idle, Working, Waiting or Done for `activityState` `idle`, `active`, `waiting` or `done`. `needsAttention` SHALL show as a badge on the card, not as a lane. WHEN the server broadcasts a sessions or activity change, or the events socket reconnects, the board SHALL refresh without a reload. The board SHALL be display-only: the user cannot drag a card between lanes. |
 | FR-TERMINAL-1050 | WHEN the user clicks a terminal board card in the current worktree, the system SHALL focus that terminal. WHEN the card belongs to another worktree of the project, the system SHALL switch the page to that worktree. |
 | FR-TERMINAL-1060 | WHEN a focus request on desktop targets a terminal in a collapsed dock of the on-screen tab, the system SHALL expand that dock, for a live or a dormant terminal. WHILE Command Center mode is on, the system SHALL expand only the right dock. WHEN a focus request on mobile fires while its sheet is closed, the system SHALL open the shell sheet for a shell session, otherwise the Claude sheet, and SHALL focus the terminal after the sheet loads its sessions. |
+| FR-TERMINAL-1070 | WHEN the browser rolls terminal activity up per project, the system SHALL key the counts by workspace slug and project slug, so projects with the same slug in different workspaces each show only their own sessions. |
 
 ## Sources
 

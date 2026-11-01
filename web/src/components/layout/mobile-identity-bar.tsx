@@ -102,7 +102,7 @@ export function MobileIdentityBar({ workspace, project }: MobileIdentityBarProps
                 {project.name}
               </Button>
             </ProjectSwitcher>
-            <ProjectActivityBadge projectSlug={project.slug} />
+            <ProjectActivityBadge workspaceSlug={workspace.slug} projectSlug={project.slug} />
             <span className="text-muted-foreground px-0.5">›</span>
           </>
         )}
