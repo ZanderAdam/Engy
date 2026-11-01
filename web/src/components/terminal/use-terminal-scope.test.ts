@@ -1,6 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { deriveScope, isPrsTabPath } from './use-terminal-scope';
+import { deriveScope, deriveShellScope, isPrsTabPath } from './use-terminal-scope';
 import { shellEscape } from '@/lib/shell';
+
+describe('deriveShellScope', () => {
+  it('[FR-TERMINAL-1180] should drop the agent type so a shell cannot pass as an agent', () => {
+    const agentScope = deriveScope('ws', '/ws', ['/repo'], 1, undefined, undefined, undefined, false);
+
+    const shellScope = deriveShellScope(agentScope);
+
+    expect(shellScope.agentType).toBeUndefined();
+    expect(shellScope.command).toBeUndefined();
+  });
+});
 
 describe('deriveScope', () => {
   describe('agent type', () => {

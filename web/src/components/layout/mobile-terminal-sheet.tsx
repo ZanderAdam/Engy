@@ -11,7 +11,7 @@ import {
 import { useOptionalTab } from '@/components/tabs/tab-context';
 import { isShellGroupKey } from '@/components/terminal/group-key';
 import { TerminalManager } from '@/components/terminal/terminal-manager';
-import type { TerminalRevealEvent } from '@/components/terminal/terminal-link';
+import type { TerminalDock, TerminalRevealEvent } from '@/components/terminal/terminal-link';
 import {
   useCommandCenterMode,
   setCommandCenterMode,
@@ -154,8 +154,8 @@ function MobileTerminalSheetBase({
         const tabId = (detail as { tabId?: string | null } | undefined)?.tabId;
         if (tabId !== undefined && tabId !== myTabId) return;
         if (name === 'terminal:focus') {
-          const { groupKey } = detail as { groupKey?: string };
-          const ownerKind = isShellGroupKey(groupKey) ? 'shell' : 'terminal';
+          const { groupKey, dock } = detail as { groupKey?: string; dock?: TerminalDock };
+          const ownerKind = dock ?? (isShellGroupKey(groupKey) ? 'shell' : 'terminal');
           if (ownerKind !== overlayKind) return;
         }
         pendingRef.current.push({ name, detail });

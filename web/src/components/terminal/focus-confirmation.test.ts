@@ -31,7 +31,7 @@ describe('requestTerminalFocus', () => {
       const unmount = mountDock(['s1']);
       const onMissing = vi.fn();
 
-      requestTerminalFocus({ sessionId: 's1', tabId: 'tab-1', onMissing });
+      requestTerminalFocus({ sessionId: 's1', tabId: 'tab-1', dock: 'terminal', onMissing });
       vi.advanceTimersByTime(FOCUS_REQUEST_TIMEOUT_MS + 1);
 
       expect(onMissing).not.toHaveBeenCalled();
@@ -43,7 +43,7 @@ describe('requestTerminalFocus', () => {
       const unmount = mountDock(['other']);
       const onMissing = vi.fn();
 
-      requestTerminalFocus({ sessionId: 's1', tabId: 'tab-1', onMissing });
+      requestTerminalFocus({ sessionId: 's1', tabId: 'tab-1', dock: 'terminal', onMissing });
       vi.advanceTimersByTime(FOCUS_REQUEST_TIMEOUT_MS + 1);
 
       expect(onMissing).toHaveBeenCalledOnce();
@@ -54,7 +54,7 @@ describe('requestTerminalFocus', () => {
   it('[FR-TERMINAL-1150] should stay quiet when a manager confirms the focus', () => {
     vi.useFakeTimers();
     const onMissing = vi.fn();
-    requestTerminalFocus({ sessionId: 's1', tabId: 'tab-1', onMissing });
+    requestTerminalFocus({ sessionId: 's1', tabId: 'tab-1', dock: 'terminal', onMissing });
 
     announce('s1', 'tab-1');
     vi.advanceTimersByTime(FOCUS_REQUEST_TIMEOUT_MS + 1);
@@ -65,7 +65,7 @@ describe('requestTerminalFocus', () => {
   it('[FR-TERMINAL-1150] should report a terminal that no manager shows', () => {
     vi.useFakeTimers();
     const onMissing = vi.fn();
-    requestTerminalFocus({ sessionId: 's1', tabId: 'tab-1', onMissing });
+    requestTerminalFocus({ sessionId: 's1', tabId: 'tab-1', dock: 'terminal', onMissing });
 
     vi.advanceTimersByTime(FOCUS_REQUEST_TIMEOUT_MS + 1);
 
@@ -75,7 +75,7 @@ describe('requestTerminalFocus', () => {
   it('[FR-TERMINAL-1150] should ignore confirmations for another session or tab', () => {
     vi.useFakeTimers();
     const onMissing = vi.fn();
-    requestTerminalFocus({ sessionId: 's1', tabId: 'tab-1', onMissing });
+    requestTerminalFocus({ sessionId: 's1', tabId: 'tab-1', dock: 'terminal', onMissing });
 
     announce('other', 'tab-1');
     announce('s1', 'tab-2');

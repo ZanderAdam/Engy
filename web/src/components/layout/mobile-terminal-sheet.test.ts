@@ -49,7 +49,7 @@ describe('Mobile terminal sheets', () => {
     container.remove();
   });
 
-  function focus(detail: { sessionId: string; groupKey?: string }) {
+  function focus(detail: { sessionId: string; groupKey?: string; dock?: 'terminal' | 'shell' }) {
     act(() => {
       window.dispatchEvent(new CustomEvent('terminal:focus', { detail }));
     });
@@ -64,6 +64,11 @@ describe('Mobile terminal sheets', () => {
     it('[FR-TERMINAL-1060] should open the Claude sheet for a project session', () => {
       focus({ sessionId: 's1', groupKey: 'project:ws:proj' });
       expect(probe.textContent).toBe('terminal');
+    });
+
+    it('[FR-TERMINAL-1060] should keep the shell sheet for a terminal link to a shell', () => {
+      focus({ sessionId: 's1', dock: 'shell' });
+      expect(probe.textContent).toBe('shell');
     });
 
     it('[FR-TERMINAL-1060] should open the Claude sheet when the sender gives no group key', () => {

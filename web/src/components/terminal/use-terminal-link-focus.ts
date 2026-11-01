@@ -102,6 +102,7 @@ export function useTerminalLinkFocus({
         requestTerminalFocus({
           sessionId,
           tabId,
+          dock: action.dock,
           onMissing: () =>
             toast.error('This terminal exists, but this view does not list it. Open its project.'),
         });

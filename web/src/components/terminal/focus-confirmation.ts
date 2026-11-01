@@ -1,4 +1,5 @@
 import { FOCUS_REQUEST_TIMEOUT_MS } from './pending-focus';
+import type { TerminalDock } from './terminal-link';
 
 interface FocusConfirmationOptions {
   sessionId: string;
@@ -33,10 +34,13 @@ function watchFocusConfirmation({
 export function requestTerminalFocus({
   sessionId,
   tabId,
+  dock,
   onMissing,
-}: FocusConfirmationOptions): void {
+}: FocusConfirmationOptions & { dock: TerminalDock }): void {
   watchFocusConfirmation({ sessionId, tabId, onMissing });
   window.dispatchEvent(
-    new CustomEvent('terminal:focus', { detail: { sessionId, ...(tabId ? { tabId } : {}) } }),
+    new CustomEvent('terminal:focus', {
+      detail: { sessionId, dock, ...(tabId ? { tabId } : {}) },
+    }),
   );
 }

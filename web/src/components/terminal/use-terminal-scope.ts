@@ -96,6 +96,7 @@ export function deriveShellScope(scope: TerminalScope): TerminalScope {
   return {
     ...scope,
     command: undefined,
+    agentType: undefined,
     groupKey: shellGroupKey(scope.groupKey),
     scopeLabel: `shell: ${scope.scopeLabel}`,
   };
