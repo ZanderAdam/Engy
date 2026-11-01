@@ -186,7 +186,7 @@ function MobileTerminalSheetBase({
       if (detail.tabId !== undefined && detail.tabId !== myTabId) return;
       pendingRef.current.push({
         name: 'terminal:focus',
-        detail: { sessionId: detail.sessionId, tabId: detail.tabId },
+        detail: { sessionId: detail.sessionId, tabId: detail.tabId, dock: detail.dock },
       });
       openOverlay(overlayKind);
     }

@@ -71,6 +71,36 @@ describe('Mobile terminal sheets', () => {
       expect(probe.textContent).toBe('shell');
     });
 
+    it('[FR-TERMINAL-1060] should keep the shell sheet when a link reveal replays its focus', () => {
+      vi.useFakeTimers();
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(cb, 1));
+      const box = vi
+        .spyOn(Element.prototype, 'getBoundingClientRect')
+        .mockReturnValue({ left: 0, top: 0, width: 10, height: 10 } as DOMRect);
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent('terminal:reveal', { detail: { sessionId: 's1', dock: 'shell' } }),
+        );
+      });
+      const replayed: unknown[] = [];
+      const record = (e: Event) => replayed.push((e as CustomEvent).detail);
+      window.addEventListener('terminal:focus', record);
+      act(() => {
+        vi.advanceTimersByTime(50);
+      });
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      window.removeEventListener('terminal:focus', record);
+      box.mockRestore();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+
+      expect(probe.textContent).toBe('shell');
+      expect(replayed).toEqual([expect.objectContaining({ sessionId: 's1', dock: 'shell' })]);
+    });
+
     it('[FR-TERMINAL-1060] should open the Claude sheet when the sender gives no group key', () => {
       focus({ sessionId: 's1' });
       expect(probe.textContent).toBe('terminal');
